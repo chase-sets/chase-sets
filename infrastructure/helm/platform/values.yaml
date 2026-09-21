@@ -159,6 +159,8 @@ components:
           - 100
         pauseAfterWeight: 10
     managedPostgresCa: false
+    # Optional pod spread; each entry renders with this component's selectorLabels as its labelSelector.
+    topologySpreadConstraints: []
   marketplace:
     enabled: true
     kind: "service"
@@ -235,6 +237,8 @@ components:
           - 100
         pauseAfterWeight: 10
     managedPostgresCa: true
+    # Optional pod spread; each entry renders with this component's selectorLabels as its labelSelector.
+    topologySpreadConstraints: []
   admin-web:
     enabled: true
     kind: "service"
@@ -268,6 +272,8 @@ components:
       timeoutSeconds: 5
       failureThreshold: 6
     managedPostgresCa: false
+    # Optional pod spread; each entry renders with this component's selectorLabels as its labelSelector.
+    topologySpreadConstraints: []
   platform-api:
     enabled: true
     kind: "service"
@@ -571,6 +577,8 @@ components:
           - 100
         pauseAfterWeight: 10
     managedPostgresCa: true
+    # Optional pod spread; each entry renders with this component's selectorLabels as its labelSelector.
+    topologySpreadConstraints: []
   platform-worker:
     enabled: true
     kind: "worker"
@@ -895,6 +903,8 @@ components:
       timeoutSeconds: 5
       failureThreshold: 6
     managedPostgresCa: true
+    # Optional pod spread; each entry renders with this component's selectorLabels as its labelSelector.
+    topologySpreadConstraints: []
   platform-bootstrap:
     enabled: true
     kind: "job"
@@ -1077,3 +1087,5 @@ components:
         restoreOnFailure: true
         ignoreMissingDeployments: true
     managedPostgresCa: true
+    # Optional pod spread; each entry renders with this component's selectorLabels as its labelSelector.
+    topologySpreadConstraints: []

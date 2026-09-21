@@ -431,6 +431,7 @@ export function buildPlatformHelmValues(options = {}) {
       {
         ...component,
         managedPostgresCa: componentUsesDatabaseSecret(component, name),
+        topologySpreadConstraints: [],
       },
     ]),
   );
@@ -488,6 +489,13 @@ export function renderPlatformHelmValues(options = {}) {
         `        timeoutSeconds: ${bootstrapQuiesceTimeoutSeconds}`,
         `        commandTimeoutSeconds: ${bootstrapCommandTimeoutSeconds}`,
       ].join("\n") + "\n",
+    )
+    .replaceAll(
+      "    topologySpreadConstraints: []\n",
+      [
+        "    # Optional pod spread; each entry renders with this component's selectorLabels as its labelSelector.",
+        "    topologySpreadConstraints: []",
+      ].join("\n") + "\n",
     );
 }
 
@@ -514,6 +522,38 @@ export function buildPlatformHelmStagingValues(options = {}) {
   };
 }
 
+// Production runs two 2 vCPU / 4 GiB runtime nodes (1900m CPU / 3074892Ki
+// memory allocatable each). Before #8099 every app pod was BestEffort, so the
+// scheduler had nothing to balance and the 58056846 cutover stacked all five
+// on runtime-37p95u: public-web and platform-worker never reached Ready and
+// cert-manager-webhook and ingress-nginx were restarted under the pressure
+// (Platform Deploy 35559759563). These requests reserve a real share of a
+// node -- 950m and 1792Mi summed, half that node's CPU and under two thirds
+// of its memory -- so all five still fit on one node beside ingress-nginx,
+// cert-manager and the observability collector, while the limits stay above
+// them (Burstable) so a traffic burst can still take a whole vCPU. Requests
+// are the only number the scheduler reads; the limits keep the same
+// 1 vCPU / 1 GiB envelope the staging API has run on (doksStagingApiOverrides).
+// platform-bootstrap is a short pre-rollout hook and is deliberately absent.
+const productionAppComponentRequests = {
+  "public-web": { cpu: "200m", memory: "256Mi" },
+  marketplace: { cpu: "200m", memory: "256Mi" },
+  "admin-web": { cpu: "100m", memory: "256Mi" },
+  "platform-api": { cpu: "250m", memory: "512Mi" },
+  "platform-worker": { cpu: "200m", memory: "512Mi" },
+};
+
+const productionAppComponentLimits = { cpu: "1", memory: "1Gi" };
+
+// Soft hostname spread: the scheduler prefers the node holding fewer of this
+// component's pods, so a rolling cutover places the replacement pod away from
+// the outgoing one instead of doubling up. ScheduleAnyway keeps it a
+// preference, so a single schedulable node never blocks the rollout. The
+// chart supplies labelSelector from the component's own selectorLabels.
+const productionHostnameSpread = [
+  { maxSkew: 1, topologyKey: "kubernetes.io/hostname", whenUnsatisfiable: "ScheduleAnyway" },
+];
+
 export function buildPlatformHelmProductionValues(options = {}) {
   const rootDir = path.resolve(options.repoRoot ?? repoRoot);
   const { productionEnvOverrides } = readPlatformRuntimeValues(rootDir);
@@ -530,6 +570,15 @@ export function buildPlatformHelmProductionValues(options = {}) {
         endpoint: `https://otel.${productionEnvironmentZone}`,
       },
     },
+    components: Object.fromEntries(
+      Object.entries(productionAppComponentRequests).map(([name, requests]) => [
+        name,
+        {
+          resources: { requests, limits: productionAppComponentLimits },
+          topologySpreadConstraints: productionHostnameSpread,
+        },
+      ]),
+    ),
   };
 }
 

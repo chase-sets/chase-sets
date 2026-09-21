@@ -34,6 +34,14 @@ function readChartFiles(relativePaths) {
   );
 }
 
+function millicores(cpu) {
+  return cpu.endsWith("m") ? Number(cpu.slice(0, -1)) : Number(cpu) * 1000;
+}
+
+function mebibytes(memory) {
+  return memory.endsWith("Gi") ? Number(memory.slice(0, -2)) * 1024 : Number(memory.slice(0, -2));
+}
+
 describe("render platform Helm values", () => {
   it("keeps generated values current", () => {
     expect(() => syncPlatformHelmValues({ repoRoot, check: true })).not.toThrow();
@@ -938,5 +946,142 @@ describe("render platform Helm values", () => {
         ignoreMissingDeployments: true,
       },
     });
+  });
+
+  it("production-app-components-carry-burstable-resources", () => {
+    // #8099, repairing #8097 and #8096: the production overlay used to set no
+    // resources at all, so every app pod landed BestEffort. The scheduler had
+    // nothing to balance and the 58056846 cutover stacked all five onto
+    // runtime-37p95u until public-web and platform-worker never reached Ready
+    // and the add-ons were restarted under the pressure.
+    const production = buildPlatformHelmProductionValues({ repoRoot });
+    const expectedRequests = {
+      "admin-web": { cpu: "100m", memory: "256Mi" },
+      marketplace: { cpu: "200m", memory: "256Mi" },
+      "platform-api": { cpu: "250m", memory: "512Mi" },
+      "platform-worker": { cpu: "200m", memory: "512Mi" },
+      "public-web": { cpu: "200m", memory: "256Mi" },
+    };
+
+    expect(production.components, "production overlay must carry per-component resources").toBeDefined();
+    // Exactly the five long-lived app components. platform-bootstrap is a
+    // short pre-rollout hook that finishes before the cutover it guards, so
+    // reserving a node share for it would only shrink what the app pods can
+    // land on.
+    expect(Object.keys(production.components).sort()).toEqual(Object.keys(expectedRequests).sort());
+
+    for (const [name, requests] of Object.entries(expectedRequests)) {
+      const { resources } = production.components[name];
+
+      expect(resources.requests, name).toEqual(requests);
+      // Burstable, not Guaranteed: the limit stays strictly above the request
+      // so a traffic burst can still take a whole vCPU instead of being capped
+      // at the reservation, and a single burst cannot OOM-kill a web pod that
+      // normally sits far below 1 GiB.
+      expect(resources.limits, name).toEqual({ cpu: "1", memory: "1Gi" });
+      expect(millicores(requests.cpu), name).toBeGreaterThanOrEqual(100);
+      expect(millicores(requests.cpu), name).toBeLessThanOrEqual(250);
+      expect(mebibytes(requests.memory), name).toBeGreaterThanOrEqual(256);
+      expect(mebibytes(requests.memory), name).toBeLessThanOrEqual(512);
+      expect(millicores(resources.limits.cpu), name).toBeLessThanOrEqual(1000);
+      expect(mebibytes(resources.limits.memory), name).toBeLessThanOrEqual(1024);
+      expect(millicores(requests.cpu), name).toBeLessThan(millicores(resources.limits.cpu));
+      expect(mebibytes(requests.memory), name).toBeLessThan(mebibytes(resources.limits.memory));
+    }
+
+    // A DOKS 2 vCPU / 4 GiB runtime node advertises 1900m CPU and 3074892Ki
+    // memory allocatable. Requests are the only number the scheduler reads, so
+    // they have to be large enough to spread the pods yet stay comfortably
+    // under one node's share: all five must still fit on a single node beside
+    // ingress-nginx, cert-manager and the observability collector when only
+    // one node is schedulable.
+    const totalMillicores = Object.values(expectedRequests).reduce(
+      (total, requests) => total + millicores(requests.cpu),
+      0,
+    );
+    const totalMemoryKi = Object.values(expectedRequests).reduce(
+      (total, requests) => total + mebibytes(requests.memory) * 1024,
+      0,
+    );
+
+    expect(totalMillicores).toBe(950);
+    expect(totalMemoryKi).toBe(1835008);
+    // Headroom left on that node for the add-ons: 950m CPU and 1239884Ki.
+    expect(1900 - totalMillicores).toBeGreaterThanOrEqual(900);
+    expect(3074892 - totalMemoryKi).toBeGreaterThanOrEqual(1024 * 1024);
+
+    // The deploy reads the generated overlay, not this builder.
+    const [generated] = readChartFiles(["values.production.yaml"]);
+    for (const [name, requests] of Object.entries(expectedRequests)) {
+      expect(generated).toContain(
+        [
+          `  ${name}:`,
+          "    resources:",
+          "      requests:",
+          `        cpu: "${requests.cpu}"`,
+          `        memory: "${requests.memory}"`,
+          "      limits:",
+          '        cpu: "1"',
+          '        memory: "1Gi"',
+          "",
+        ].join("\n"),
+      );
+    }
+    expect(generated).not.toContain("platform-bootstrap");
+  });
+
+  it("production-app-components-spread-by-hostname", () => {
+    const production = buildPlatformHelmProductionValues({ repoRoot });
+    const hostnameSpread = [{ maxSkew: 1, topologyKey: "kubernetes.io/hostname", whenUnsatisfiable: "ScheduleAnyway" }];
+
+    expect(production.components, "production overlay must carry per-component spread").toBeDefined();
+
+    for (const name of ["admin-web", "marketplace", "platform-api", "platform-worker", "public-web"]) {
+      // ScheduleAnyway, not DoNotSchedule: a rolling cutover with one
+      // schedulable node must still place the replacement pod rather than hang
+      // Pending. The exact-equality also pins the absence of `labelSelector` --
+      // the chart owns that key, never the values file.
+      expect(production.components[name].topologySpreadConstraints, name).toEqual(hostnameSpread);
+    }
+
+    // Documented empty default in the base chart, so staging, preview and
+    // local boot keep rendering exactly as they did before the seam existed.
+    const base = buildPlatformHelmValues({ repoRoot });
+    for (const [name, component] of Object.entries(base.components)) {
+      expect(component.topologySpreadConstraints, name).toEqual([]);
+    }
+    const [baseValues] = readChartFiles(["values.yaml"]);
+    expect(baseValues.split("\n").filter((line) => line.trim() === "topologySpreadConstraints: []")).toHaveLength(
+      Object.keys(base.components).length,
+    );
+    expect(baseValues).toContain(
+      "    # Optional pod spread; each entry renders with this component's selectorLabels as its labelSelector.\n    topologySpreadConstraints: []\n",
+    );
+
+    // The chart, not the values file, owns labelSelector: every constraint is
+    // matched against the component's own selectorLabels, so a spread can
+    // never count a sibling component's pods toward its own skew, and the
+    // `omit` drops any labelSelector a values file tried to supply.
+    const [helperTemplate] = readChartFiles(["templates/_helpers.tpl"]);
+    expect(helperTemplate).toContain('{{- define "chase-sets-platform.topologySpreadConstraints" -}}');
+    expect(helperTemplate).toContain('{{- include "chase-sets-platform.topologySpreadConstraints" . }}');
+    expect(helperTemplate).toContain("{{- if .component.topologySpreadConstraints }}");
+    expect(helperTemplate).toContain('{{ toYaml (omit . "labelSelector") | nindent 4 | trim }}');
+    expect(helperTemplate).toContain(
+      '{{- $selectorLabels := include "chase-sets-platform.selectorLabels" (dict "root" .root "name" .name) -}}',
+    );
+
+    const [generated] = readChartFiles(["values.production.yaml"]);
+    expect(generated.split("\n").filter((line) => line.trim() === "topologySpreadConstraints:")).toHaveLength(5);
+    expect(generated).toContain(
+      [
+        "    topologySpreadConstraints:",
+        "      - maxSkew: 1",
+        '        topologyKey: "kubernetes.io/hostname"',
+        '        whenUnsatisfiable: "ScheduleAnyway"',
+        "",
+      ].join("\n"),
+    );
+    expect(generated).not.toContain("labelSelector");
   });
 });
