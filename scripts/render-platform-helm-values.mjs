@@ -523,7 +523,7 @@ export function buildPlatformHelmStagingValues(options = {}) {
 }
 
 // Production runs two 2 vCPU / 4 GiB runtime nodes (1900m CPU / 3074892Ki
-// memory allocatable each). Before #8099 every app pod was BestEffort, so the
+// memory allocatable each). Every app pod was previously BestEffort, so the
 // scheduler had nothing to balance and the 58056846 cutover stacked all five
 // on runtime-37p95u: public-web and platform-worker never reached Ready and
 // cert-manager-webhook and ingress-nginx were restarted under the pressure
