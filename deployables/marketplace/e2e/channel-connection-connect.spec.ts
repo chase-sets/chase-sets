@@ -2,6 +2,14 @@ import { expect, test, type APIResponse, type Page } from "@playwright/test";
 import sharp from "sharp";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { MarketplaceListingDetail } from "@chase-sets/marketplace/server";
+import {
+  appendFreshWriteToken,
+  attachResponseMetadata,
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
+  encodeFreshWriteReceipt,
+  readFreshWriteToken,
+} from "@chase-sets/http/responses";
 import { signInThroughMarketplaceForm } from "./support/auth";
 import { marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
 
@@ -92,7 +100,16 @@ test("manual-sync-panel-round-trip: connects and activates an independent real c
 async function successfulJson<Result = unknown>(response: APIResponse): Promise<Result> {
   expect(response.ok(), `${response.url()}: ${await response.text()}`).toBe(true);
   expect(response.headers()["content-type"]).toContain("application/json");
-  return response.json();
+  return attachResponseMetadata(await response.json(), { headers: new Headers(response.headers()) });
+}
+
+function marketplaceFreshReadHeaders(source: unknown) {
+  const receipt = readFreshWriteToken(appendFreshWriteToken("http://localhost/", source));
+  expect(receipt, "seller preparation must retain the real command commit receipt").not.toBeNull();
+  return {
+    [CHASE_SETS_READ_AFTER_WRITE_HEADER]: encodeFreshWriteReceipt(receipt!),
+    [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: "marketplace",
+  };
 }
 
 async function publishTwoSellerListings(page: Page, storageLocationId: string) {
@@ -121,7 +138,9 @@ async function publishTwoSellerListings(page: Page, storageLocationId: string) {
     await expect
       .poll(async () => {
         const supply = await successfulJson<{ items: readonly { item_id: string }[] }>(
-          await page.request.get(`/api/marketplace/account/listing-inventory?inventoryItemId=${item.id}`),
+          await page.request.get(`/api/marketplace/account/listing-inventory?inventoryItemId=${item.id}`, {
+            headers: marketplaceFreshReadHeaders(item),
+          }),
         );
         return supply.items.some((candidate) => candidate.item_id === item.id);
       })
@@ -132,7 +151,9 @@ async function publishTwoSellerListings(page: Page, storageLocationId: string) {
       }),
     );
     const path = `/api/marketplace/account/listings/${listing.id}`;
-    const detail = await successfulJson<MarketplaceListingDetail>(await page.request.get(path));
+    const detail = await successfulJson<MarketplaceListingDetail>(
+      await page.request.get(path, { headers: marketplaceFreshReadHeaders(listing) }),
+    );
     const requirements = detail.evidence_readiness.requirements;
     const count = Math.max(requirements.minimumPhotoCount, requirements.requiredSlots.length);
     for (let index = 0; index < count; index += 1) {
@@ -147,7 +168,7 @@ async function publishTwoSellerListings(page: Page, storageLocationId: string) {
       })
         .png()
         .toBuffer();
-      await successfulJson(
+      const uploaded = await successfulJson(
         await page.request.post(`${path}/photos`, {
           multipart: {
             evidence: { name: `seller-evidence-${index}.png`, mimeType: "image/png", buffer: image },
@@ -155,7 +176,9 @@ async function publishTwoSellerListings(page: Page, storageLocationId: string) {
           },
         }),
       );
-      const withPhoto = await successfulJson<MarketplaceListingDetail>(await page.request.get(path));
+      const withPhoto = await successfulJson<MarketplaceListingDetail>(
+        await page.request.get(path, { headers: marketplaceFreshReadHeaders(uploaded) }),
+      );
       const photo = withPhoto.evidence.find(
         (candidate) => candidate.originalFilename === `seller-evidence-${index}.png`,
       );

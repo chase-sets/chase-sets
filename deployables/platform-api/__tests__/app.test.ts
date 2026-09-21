@@ -2308,12 +2308,12 @@ describe("platform API payment provider mode observation", () => {
       "export function createPlatformApiHost",
     );
     const hostCallCount = hostCallSites.reduce((total, entry) => total + entry.count, 0);
-    const productionHostFiles = hostCallSites
-      .filter((entry) => !entry.file.includes("/__tests__/"))
-      .map((entry) => entry.file);
+    const isTestHost = (entry: (typeof hostCallSites)[number]) =>
+      entry.file.includes("/__tests__/") || /\.test\.tsx?$/.test(entry.file);
+    const productionHostFiles = hostCallSites.filter((entry) => !isTestHost(entry)).map((entry) => entry.file);
 
     // Re-derived at the dispatch base rather than carried forward.
-    expect(hostCallCount).toBe(23);
+    expect(hostCallCount).toBe(25);
     expect(productionHostFiles.sort()).toEqual([
       "deployables/platform-api/src/admin-qa-actor-fixtures.ts",
       "deployables/platform-api/src/bootstrap.ts",
@@ -2321,9 +2321,7 @@ describe("platform API payment provider mode observation", () => {
       "deployables/platform-api/src/representative-commerce-state.ts",
       "scripts/replay-projection.ts",
     ]);
-    expect(
-      hostCallSites.filter((entry) => entry.file.includes("/__tests__/")).reduce((total, e) => total + e.count, 0),
-    ).toBe(18);
+    expect(hostCallSites.filter(isTestHost).reduce((total, e) => total + e.count, 0)).toBe(20);
 
     // Only the serving composition root supplies the port, and the manifest declares it once.
     const mainSource = readFileSync(join(repositoryRoot, "deployables/platform-api/src/main.ts"), "utf8");

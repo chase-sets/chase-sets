@@ -326,6 +326,15 @@
           "dependencies": [{ "readModelTable": "channel_connections" }]
         },
         {
+          "routePath": "/connections/:id/manual-sync",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            { "readModelTable": "channel_connections" },
+            { "readModelTable": "channel_sync_runs" },
+            { "readModelTable": "channel_sync_run_rows" }
+          ]
+        },
+        {
           "routePath": "/publication/:connectionId",
           "methods": ["GET", "HEAD"],
           "dependencies": [

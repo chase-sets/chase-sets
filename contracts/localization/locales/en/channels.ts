@@ -186,6 +186,8 @@ export const channelsEnglishTranslations = {
   "channels.manualSync.coverage.dark.description":
     "TCGplayer provides no inbound seller authority. Active Marketplace listings represented by a claimed run stay non-sellable until recovery is proven safe.",
   "channels.manualSync.state.none": "No manual run",
+  "channels.manualSync.loading": "Loading manual sync…",
+  "channels.manualSync.refresh": "Refresh manual sync",
   "channels.manualSync.state.composed": "Ready to download",
   "channels.manualSync.state.claimed": "Claimed",
   "channels.manualSync.state.awaiting-verification": "Awaiting verification",

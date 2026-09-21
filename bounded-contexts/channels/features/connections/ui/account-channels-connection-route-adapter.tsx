@@ -1,5 +1,7 @@
 import { t } from "@chase-sets/localization";
-import { OperationalStatusBanner, Stack } from "@chase-sets/design-system";
+import { useEffect, useState } from "react";
+import { Button, OperationalStatusBanner, Stack, Text, WorkflowModule } from "@chase-sets/design-system";
+import { classifyFreshWriteReadError } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   createForwardedAuthHeaders,
@@ -8,7 +10,7 @@ import {
 } from "@chase-sets/platform-runtime/http";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import type { ActionFunctionArgs, ClientActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useNavigation } from "react-router";
+import { redirect, useActionData, useLoaderData, useNavigation, useRevalidator } from "react-router";
 import {
   ChannelConnectionDetailPage,
   ChannelConnectionListPage,
@@ -33,7 +35,10 @@ import type { ChannelConnectionAttention } from "../../connection-attention/doma
 import type { ChannelDriftDecision, ChannelDriftDetail } from "../../reconciliation/domain/contracts";
 import { ChannelDriftPanel, type DriftActionResult, type DriftSubmission } from "../../reconciliation/ui/drift-panel";
 
-type AuxiliaryRead<T> = Readonly<{ kind: "loaded"; data: T }> | Readonly<{ kind: "read-error" }>;
+type AuxiliaryRead<T> =
+  | Readonly<{ kind: "loaded"; data: T }>
+  | Readonly<{ kind: "read-error" }>
+  | Readonly<{ kind: "loading" }>;
 type LoadedData = Readonly<{
   kind: "ready";
   connection: PublicChannelConnection;
@@ -99,6 +104,7 @@ export async function loader({ request, params }: Pick<LoaderFunctionArgs, "requ
         credentials: "include",
         headers,
       }),
+      request,
     ),
     readAuxiliary<ChannelConnectionAttention>(
       fetch(`${apiBaseUrl}/connections/${encodeURIComponent(connectionId)}/attention`, {
@@ -134,10 +140,15 @@ export async function loader({ request, params }: Pick<LoaderFunctionArgs, "requ
   };
 }
 
-async function readAuxiliary<T>(response: Promise<Response>): Promise<AuxiliaryRead<T>> {
+async function readAuxiliary<T>(response: Promise<Response>, request?: Request): Promise<AuxiliaryRead<T>> {
   try {
     const resolved = await response;
-    return resolved.ok ? { kind: "loaded", data: (await resolved.json()) as T } : { kind: "read-error" };
+    const body: unknown = await resolved.json();
+    if (resolved.ok) return { kind: "loaded", data: body as T };
+    if (request && classifyFreshWriteReadError({ request, error: { status: resolved.status, body } }).transient) {
+      return { kind: "loading" };
+    }
+    return { kind: "read-error" };
   } catch {
     return { kind: "read-error" };
   }
@@ -343,6 +354,20 @@ export default function AccountChannelsConnectionRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
+  const revalidator = useRevalidator();
+  const [refreshAttempts, setRefreshAttempts] = useState(0);
+  const pendingManualSync = data.kind === "ready" && data.manualSync.kind === "loading";
+  const connectionIdentity = data.kind === "ready" ? data.connection.connectionId : null;
+  useEffect(() => setRefreshAttempts(0), [connectionIdentity, pendingManualSync]);
+  useEffect(() => {
+    if (!pendingManualSync || navigation.state !== "idle" || revalidator.state !== "idle" || refreshAttempts >= 15)
+      return;
+    const timer = setTimeout(() => {
+      setRefreshAttempts((attempts) => attempts + 1);
+      void revalidator.revalidate();
+    }, 2_000);
+    return () => clearTimeout(timer);
+  }, [pendingManualSync, navigation.state, revalidator, refreshAttempts]);
   const pendingIntent =
     navigation.state === "submitting"
       ? ((navigation.formData?.get("intent") as ChannelConnectionAllowedAction | null) ?? null)
@@ -392,6 +417,28 @@ export default function AccountChannelsConnectionRoute() {
           />
         ) : null}
         {data.manualSync.kind === "loaded" ? <ManualSyncPanelView panel={data.manualSync.data} /> : null}
+        {data.manualSync.kind === "loading" ? (
+          <WorkflowModule title={t("channels.manualSync.title")} description={t("channels.manualSync.description")}>
+            {refreshAttempts < 15 ? (
+              <Text role="status">{t("channels.manualSync.loading")}</Text>
+            ) : (
+              <OperationalStatusBanner
+                tone="danger"
+                title={t("channels.manualSync.error.title")}
+                description={t("channels.manualSync.error.description")}
+              />
+            )}
+            <Button
+              disabled={revalidator.state !== "idle"}
+              onClick={() => {
+                setRefreshAttempts(0);
+                void revalidator.revalidate();
+              }}
+            >
+              {t("channels.manualSync.refresh")}
+            </Button>
+          </WorkflowModule>
+        ) : null}
         {data.manualSync.kind === "read-error" ? (
           <OperationalStatusBanner
             tone="danger"
