@@ -802,22 +802,25 @@
       "strategy": "snapshot-return",
       "surfaces": [
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /preview",
+        "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /resolve-held-sets",
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /confirm",
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /:batchId/cancel",
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /:batchId/resume",
         "api-route:bounded-contexts/catalog/features/scope-sync-batches/api/route.ts:POST /:batchId/units/:scopeRecordId/retry",
-        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H9cad61d25b54#1",
+        "api-client:bounded-contexts/catalog/support/shell-support/api/client.ts:POST H177ef9ab663a#1",
         "route-action:bounded-contexts/catalog/support/route-support/admin-scope-sync-batches/scope-sync-batches-route.ts"
       ],
       "visibleDestination": {
         "routeId": "scope-sync-batches",
-        "description": "Preview returns the server-resolved plan snapshot; confirm and recovery commands return the directly persisted Scope Sync Batch snapshot before the route redirects to the same batch page, whose loader reads those same Catalog-owned batch tables."
+        "description": "Held-set resolution returns a read-only resolution snapshot, preview returns the server-resolved plan snapshot, and confirm and recovery commands return the directly persisted Scope Sync Batch snapshot before the route redirects to the same batch page, whose loader reads those same Catalog-owned batch tables."
       },
       "proof": {
-        "authoritativeResponse": "The API responds from the freshly resolved preview or the batch/unit rows written by the command. The admin route uses that response for preview and reloads the same direct read model after confirm, cancel, resume, or retry; no projection-backed read is involved.",
+        "authoritativeResponse": "The held-set route performs no write and returns the complete batched observation/mapping resolution directly. Other API paths respond from the freshly resolved preview or the batch/unit rows written by the command. The admin route uses those responses directly and reloads the same direct read model after confirm, cancel, resume, or retry; no projection-backed read is involved.",
         "tests": [
           "bounded-contexts/catalog/features/scope-sync-batches/api/route.test.ts",
           "bounded-contexts/catalog/features/scope-sync-batches/api/worker.test.ts",
+          "bounded-contexts/catalog/features/scope-sync-batches/api/held-set-resolution.db.test.ts",
+          "bounded-contexts/catalog/support/route-support/admin-scope-sync-batches/scope-sync-batches-route.test.ts",
           "bounded-contexts/catalog/features/scope-sync-batches/ui/scope-sync-batch-page.test.tsx"
         ]
       }

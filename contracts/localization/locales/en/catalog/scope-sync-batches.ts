@@ -20,6 +20,27 @@ export const catalogScopeSyncBatchesEnglishTranslations = {
   "catalog.features.scopeSyncBatches.ui.page.description":
     "Preview and run bounded synchronization across server-resolved Catalog Scope Records.",
   "catalog.features.scopeSyncBatches.ui.page.back.to.scopes": "Back to scopes",
+  "catalog.features.scopeSyncBatches.ui.heldSet.title": "From held-set export",
+  "catalog.features.scopeSyncBatches.ui.heldSet.description":
+    "Resolve the Product Line and Set Name pairs in a TCGplayer Live export before previewing the existing batch flow.",
+  "catalog.features.scopeSyncBatches.ui.heldSet.file": "Held-set export CSV",
+  "catalog.features.scopeSyncBatches.ui.heldSet.file.description":
+    "CSV only; at most 16 MiB and 100,000 logical rows. Only Product Line and Set Name are read.",
+  "catalog.features.scopeSyncBatches.ui.heldSet.resolve": "Resolve held sets",
+  "catalog.features.scopeSyncBatches.ui.heldSet.summary.title": "Held sets resolved",
+  "catalog.features.scopeSyncBatches.ui.heldSet.summary":
+    "{resolved} resolved pairs and {unresolved} unresolved pairs across {rows} rows.",
+  "catalog.features.scopeSyncBatches.ui.heldSet.pair": "Held-set pair",
+  "catalog.features.scopeSyncBatches.ui.heldSet.pair.value": "{productLine} / {setName}",
+  "catalog.features.scopeSyncBatches.ui.heldSet.domain.value": "{productDomain} / {scopeKind}",
+  "catalog.features.scopeSyncBatches.ui.heldSet.rows": "Rows",
+  "catalog.features.scopeSyncBatches.ui.heldSet.reason": "Reason",
+  "catalog.features.scopeSyncBatches.ui.heldSet.open.inbox": "Open unmapped-scope inbox",
+  "catalog.features.scopeSyncBatches.ui.heldSet.resolved.caption": "Resolved held sets",
+  "catalog.features.scopeSyncBatches.ui.heldSet.unresolved.caption": "Unresolved held sets",
+  "catalog.features.scopeSyncBatches.ui.heldSet.none.resolved":
+    "No held sets resolved. Review provider scope mappings in the unmapped-scope inbox.",
+  "catalog.features.scopeSyncBatches.ui.heldSet.preview": "Preview resolved sets",
   "catalog.features.scopeSyncBatches.ui.page.batch.command.blocked": "Batch command blocked",
   "catalog.features.scopeSyncBatches.ui.page.new.batch": "New batch",
   "catalog.features.scopeSyncBatches.ui.page.selection": "Selection",

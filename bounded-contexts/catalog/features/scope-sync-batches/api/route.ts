@@ -8,11 +8,28 @@ import {
   type ScopeSyncBatchSelection,
 } from "../domain/batch";
 import type { ScopeSyncBatchServices } from "./runtime";
+import { HeldSetExportError } from "../domain/held-set-export";
+import { readHeldSetExportUpload } from "./held-set-upload";
 
 type Env = { Variables: { context: EventStoreContext } };
 
 export function scopeSyncBatchRoutes(services: ScopeSyncBatchServices) {
   const app = new Hono<Env>();
+
+  app.post("/resolve-held-sets", async (c) => {
+    try {
+      const bytes = await readHeldSetExportUpload(c.req.raw);
+      return c.json(await services.resolveHeldSets({ bytes, context: c.get("context") }));
+    } catch (error) {
+      if (error instanceof HeldSetExportError) {
+        return c.json(
+          { error: { code: error.code, message: error.message } },
+          error.code === "upload-too-large" ? 413 : 400,
+        );
+      }
+      throw error;
+    }
+  });
 
   app.post("/preview", async (c) => {
     const body = await c.req.json<unknown>();
