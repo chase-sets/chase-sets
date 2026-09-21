@@ -167,11 +167,16 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
     "sourceRuntimeProfiles",
     "mcpCapabilities",
     "accountCapabilities",
-    "readAfterWriteRouteInventory",
   ];
 
   for (const field of absentManifestFields) {
     if (field in candidate) violations.push(field);
+  }
+  if (
+    JSON.stringify((candidate.readAfterWriteRouteInventory ?? []).map((entry) => entry.id)) !==
+    JSON.stringify(["channels.publication-settings-to-detail"])
+  ) {
+    violations.push("readAfterWriteRouteInventory");
   }
   if (
     JSON.stringify(candidate.allowedContextDependencies) !==
@@ -807,7 +812,7 @@ describe("channels-wake-registry-derivation", () => {
     };
   }
 
-  it("derives both empty lists from every manifest and exposes new projection or route consumers", () => {
+  it("derives the pinned projection and route lists from every manifest and exposes new consumers", () => {
     const manifests = listContextManifests().map(({ manifest }) => manifest);
     const entry = requireSourceContextWakeRegistryEntry("channels");
     expect(sourceContextWakeRegistry.filter((value) => value.sourceContextName === "channels")).toEqual([entry]);
@@ -831,7 +836,7 @@ describe("channels-wake-registry-derivation", () => {
         "channels:platform-policy-document-projection",
         "channels:tcgplayer-csv-projection",
       ],
-      routeDependencyIds: [],
+      routeDependencyIds: ["channels.publication-settings-to-detail"],
     });
     expect(summarizeSourceContextWakeRegistry()).toMatchObject({
       entryCount: manifests.length,
