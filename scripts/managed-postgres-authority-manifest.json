@@ -6087,6 +6087,20 @@
     {
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
+      "stepAnchor": "name:Verify production DOKS live hosts and certificate#39",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-production",
+      "stepAnchor": "name:Verify production DOKS live hosts and certificate#39",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-production",
       "stepAnchor": "name:Verify promoted platform runtime image#14",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"

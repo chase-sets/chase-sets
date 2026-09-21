@@ -871,6 +871,10 @@ describe("DigitalOcean platform configuration", () => {
       expect(step).toContain("marketplace_domains");
       expect(step).not.toContain("TF_VAR_production_marketplace_served");
       expect(step).not.toContain("TF_VAR_production_marketplace_public_enabled");
+      if (stepName === "Verify production DOKS live hosts and certificate") {
+        expect(step).toContain("AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}");
+        expect(step).toContain("AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}");
+      }
     }
   });
 
