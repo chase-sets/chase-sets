@@ -3476,6 +3476,39 @@ describe("DigitalOcean platform configuration", () => {
     );
   });
 
+  it("carries the scenario seed bootstrap error into the advisory step summary and incident comment", () => {
+    const advisoryEvidenceJob = workflowJob(platformStagingAdvisoryEvidenceWorkflow, "staging-advisory-evidence");
+    const summarizeStep = workflowStep(platformStagingAdvisoryEvidenceWorkflow, "Summarize staging advisory evidence");
+    const notifyStep = workflowStep(
+      platformStagingAdvisoryEvidenceWorkflow,
+      "Create, update, or resolve advisory evidence incident",
+    );
+
+    // The seed step is continue-on-error, so the pod's bootstrap error only reaches a human if the
+    // summarize step lifts it out of the failure record and the notify step repeats it on the incident.
+    expect(summarizeStep).toContain("id: summarize");
+    expect(summarizeStep).toContain(
+      "scenario_seed_error=\"$(jq -r '.bootstrapError // empty' artifacts/staging-advisory-evidence/scenario-seed.json)\"",
+    );
+    expect(summarizeStep).toContain('echo "scenario_seed_error<<SCENARIO_SEED_ERROR_EOF"');
+    expect(summarizeStep).toContain('} >> "$GITHUB_OUTPUT"');
+    expect(summarizeStep).toContain('echo "Scenario seed bootstrap error: ${scenario_seed_error:-none captured}"');
+    expect(summarizeStep.indexOf('echo "Scenario seed bootstrap error')).toBeLessThan(
+      summarizeStep.indexOf('} >> "$GITHUB_STEP_SUMMARY"'),
+    );
+    expect(advisoryEvidenceJob).toContain(
+      "scenario_seed_error: ${{ steps.summarize.outputs.scenario_seed_error }}",
+    );
+    expect(notifyStep).toContain(
+      "SCENARIO_SEED_ERROR: ${{ needs.staging-advisory-evidence.outputs.scenario_seed_error }}",
+    );
+    expect(notifyStep).toContain("- Scenario seed bootstrap error: ${SCENARIO_SEED_ERROR:-none captured}");
+
+    // The uploaded evidence record keeps its v2 shape; the bootstrap error travels as a job output only.
+    expect(summarizeStep).toContain('schemaVersion:"staging-advisory-evidence/v2"');
+    expect(summarizeStep).not.toContain("bootstrapError:");
+  });
+
   it("binds each deployed Playwright project to its own host and never crosses deployables", () => {
     // Each project's testMatch is anchored to exactly one deployable's e2e tree,
     // and each baseURL comes from that deployable's own URL input. The failure

@@ -26,6 +26,8 @@ export const PLATFORM_KUBERNETES_STALE_PENDING_ADMISSION_VERSION =
   "platform-kubernetes-stale-pending-recovery-admission/v1";
 export const PLATFORM_KUBERNETES_SCENARIO_SEED_VERSION = "platform-kubernetes-scenario-seed/v1";
 export const managedRegistryPullSecretName = "chase-sets";
+export const SCENARIO_SEED_BOOTSTRAP_ERROR_PREFIX = "Platform API bootstrap failed";
+const SCENARIO_SEED_BOOTSTRAP_LOG_TAIL_LINES = 50;
 export const scenarioSeedMaxActiveDeadlineSeconds = 3_300;
 const scenarioSeedQuiesceTimeoutSeconds = 45;
 // Leave more than four minutes inside the 55-minute Job deadline for worker
@@ -2185,9 +2187,19 @@ export async function runScenarioSeedOnKubernetes(options = {}) {
       }
       const failed = conditions.find((condition) => condition.type === "Failed" && condition.status === "True");
       if (job.status?.failed > 0 || failed) {
-        throw new Error(
-          `Post-deploy scenario seed Job ${jobName} failed: ${failed?.reason ?? "container-exited"} ${failed?.message ?? ""}`.trim(),
-        );
+        throw scenarioSeedFailure({
+          release: options.release ?? defaultRelease,
+          namespace,
+          jobName,
+          reason: failed?.reason ?? "container-exited",
+          message: failed?.message ?? "",
+          bootstrapError: await readScenarioSeedBootstrapError({
+            kubectlPath,
+            namespace,
+            jobName,
+            spawn: options.spawn,
+          }),
+        });
       }
       if ((options.now ?? Date.now)() - startedAt >= timeoutMs) {
         throw new Error(
@@ -2214,6 +2226,53 @@ export async function runScenarioSeedOnKubernetes(options = {}) {
       });
     }
   }
+}
+
+/**
+ * `backoffLimit: 0` leaves a Failed pod whose bootstrap error only shows up in a pod listing, so
+ * the advisory lane reads the tail once the Job is known failed and carries the cause forward.
+ */
+async function readScenarioSeedBootstrapError({ kubectlPath, namespace, jobName, spawn }) {
+  const logs = await runProcess({
+    command: kubectlPath,
+    args: [
+      "logs",
+      `job/${jobName}`,
+      "--namespace",
+      namespace,
+      `--tail=${SCENARIO_SEED_BOOTSTRAP_LOG_TAIL_LINES}`,
+    ],
+    spawn,
+    captureOutput: true,
+    allowFailure: true,
+  });
+
+  return extractScenarioSeedBootstrapError(`${logs.stdout ?? ""}\n${logs.stderr ?? ""}`);
+}
+
+export function extractScenarioSeedBootstrapError(logText) {
+  return (
+    String(logText ?? "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => line.startsWith(SCENARIO_SEED_BOOTSTRAP_ERROR_PREFIX)) ?? null
+  );
+}
+
+function scenarioSeedFailure({ release, namespace, jobName, reason, message, bootstrapError }) {
+  const detail = [reason, message, bootstrapError].filter((part) => Boolean(part)).join(" ");
+  const failure = new Error(`Post-deploy scenario seed Job ${jobName} failed: ${detail}`.trim());
+  failure.evidence = {
+    schemaVersion: PLATFORM_KUBERNETES_SCENARIO_SEED_VERSION,
+    action: "scenario-seed",
+    result: "failure",
+    release,
+    namespace,
+    jobName,
+    reason,
+    bootstrapError,
+  };
+  return failure;
 }
 
 export async function rollbackPlatformOnKubernetes(options = {}) {
@@ -2988,7 +3047,18 @@ async function main(argv, env = process.env) {
   }
 
   if (options.command === "scenario-seed") {
-    const evidence = await runScenarioSeedOnKubernetes(options);
+    let evidence;
+    try {
+      evidence = await runScenarioSeedOnKubernetes(options);
+    } catch (error) {
+      // The advisory lane reads this record after a continue-on-error seed step, so a failed Job
+      // has to leave the same file a successful one does.
+      if (options.outPath && error?.evidence) {
+        const { writeJsonRecord } = await import("./lib/output-file.mjs");
+        await writeJsonRecord(options.outPath, error.evidence);
+      }
+      throw error;
+    }
     if (options.outPath) {
       const { writeJsonRecord } = await import("./lib/output-file.mjs");
       await writeJsonRecord(options.outPath, evidence);

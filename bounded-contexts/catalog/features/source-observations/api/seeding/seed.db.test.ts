@@ -21,11 +21,13 @@ import {
   evolveSourceObservation,
   initialSourceObservationState,
   type SourceObservationCommand,
+  type SourceObservationEvent,
   type SourceObservationState,
 } from "../../domain/domain";
 import {
   buildCatalogBrowserE2ePromotedObservationSeedEvidence,
   catalogBrowserE2ePromotedObservation,
+  diagnoseSeedStateDivergence,
   seedPromotedSourceObservationScenario,
 } from "./seed";
 
@@ -164,6 +166,110 @@ describeDb("promoted Source Observation scenario seed database lifecycle", () =>
       }
     });
   }
+
+  it("older-revision promoted stream reconciles or refuses naming the differing field path", async () => {
+    const services = createCatalogServices(pool);
+    await appendCatalogItemLifecycle(pool, services, catalogSeedIds.items.pikachuJungle);
+    const evidence = await buildCatalogBrowserE2ePromotedObservationSeedEvidence(pool);
+    const recorded = commandEvents(evidence.recordCommand);
+    const record = recorded.events[0]!;
+    const promoted = commandEvents(evidence.promotionCommand, recorded.state).events[0]!;
+
+    // An older fixture revision wrote the same source revision tuple with stale normalized facts, so
+    // replaying the fixture's record command emits one refresh that carries the promotion forward.
+    await appendObservationHistory(pool, [
+      mutateEvent(record, { normalized: { ...(record.payload.normalized as JsonObject), name: "Raichu" } }),
+      promoted,
+    ]);
+
+    await seedPromotedSourceObservationScenario(services);
+    await seedPromotedSourceObservationScenario(services);
+    await drainLocalProjectionHandlerSets("catalog", pool, services.sourceObservations.projectors);
+
+    const reconciled = await pool.query<{ event_type: string }>(
+      `SELECT event_type FROM event_store_events WHERE stream_id = $1 ORDER BY stream_version ASC`,
+      [observationStreamId],
+    );
+    expect(reconciled.rows.map((row) => row.event_type)).toEqual([
+      "catalog.source-observation.recorded",
+      "catalog.source-observation.promoted",
+      "catalog.source-observation.refreshed",
+    ]);
+    expect(await projectedObservation(pool)).toMatchObject({
+      status: "promoted",
+      promoted_catalog_item_id: catalogSeedIds.items.pikachuJungle,
+      promotion_plan_fingerprint: evidence.promotionCommand.promotionPlanFingerprint,
+    });
+
+    // Promotion-side drift cannot be reconciled without promoting twice, so it is refused by name.
+    await resetMultiContextTestSchemas({ catalog: pool });
+    await bootstrapContextDatabase(catalogModule, pool);
+    const refusingServices = createCatalogServices(pool);
+    await appendCatalogItemLifecycle(pool, refusingServices, catalogSeedIds.items.pikachuJungle);
+    await appendObservationHistory(pool, [record, mutateEvent(promoted, { promotionPlanFingerprint: "f".repeat(64) })]);
+    const countBefore = await observationEventCount(pool);
+
+    await expect(seedPromotedSourceObservationScenario(refusingServices)).rejects.toThrow(
+      "at field path 'promotionPlanFingerprint'",
+    );
+    expect(await observationEventCount(pool)).toBe(countBefore);
+  });
+
+  it("requireSeedState mutant that accepts any state fails the poison matrix", async () => {
+    const services = createCatalogServices(pool);
+    await appendCatalogItemLifecycle(pool, services, catalogSeedIds.items.pikachuJungle);
+    const evidence = await buildCatalogBrowserE2ePromotedObservationSeedEvidence(pool);
+    const expectedRecordedState = commandEvents(evidence.recordCommand).state;
+    const expectedPromotedState = commandEvents(evidence.promotionCommand, expectedRecordedState).state;
+    // The mutation the matrix has to kill: a state guard that accepts every rehydrated history.
+    const acceptAnySeedState = (): string | null => null;
+    const expectedFieldPaths: Record<string, string> = {
+      "mismatched-identity": "externalKey",
+      "mismatched-facts": "normalized.name",
+      "mismatched-target": "promotedCatalogItemId",
+      "mismatched-profile": "sourceProfileVersion",
+      "mismatched-fingerprint": "promotionPlanFingerprint",
+    };
+
+    const heldOnlyByStateGuard: string[] = [];
+    for (const poisonCase of poisonCases) {
+      const history = poisonedHistory(poisonCase, evidence.recordCommand, evidence.promotionCommand);
+      const lifecycle = history.map((event) => event.eventType);
+      const recordedOnly = isSeedLifecycle(lifecycle, ["catalog.source-observation.recorded"]);
+      const promotedLifecycle = isSeedLifecycle(lifecycle, [
+        "catalog.source-observation.recorded",
+        "catalog.source-observation.promoted",
+      ]);
+      if (!recordedOnly && !promotedLifecycle) {
+        continue;
+      }
+
+      heldOnlyByStateGuard.push(poisonCase);
+      const expectedState = recordedOnly ? expectedRecordedState : expectedPromotedState;
+      expect(diagnoseSeedStateDivergence(replayStoredEvents(history), expectedState)).toBe(
+        expectedFieldPaths[poisonCase],
+      );
+      expect(acceptAnySeedState()).toBeNull();
+    }
+
+    // Every one of these lifecycles is legal, so only the state guard rejects them; the mutant above
+    // would take each poisoned history as the seeded state and turn these matrix rows green on poison.
+    expect(heldOnlyByStateGuard).toEqual([
+      "mismatched-identity",
+      "mismatched-facts",
+      "mismatched-target",
+      "mismatched-profile",
+      "mismatched-fingerprint",
+    ]);
+
+    await appendObservationHistory(
+      pool,
+      poisonedHistory("mismatched-target", evidence.recordCommand, evidence.promotionCommand),
+    );
+    await expect(seedPromotedSourceObservationScenario(services)).rejects.toThrow(
+      "at field path 'promotedCatalogItemId'",
+    );
+  });
 
   it("fails before observation append when another Catalog Item exists but the exact target is absent", async () => {
     const services = createCatalogServices(pool);
@@ -352,4 +458,16 @@ async function observationEventCount(pool: PgTransactionalPool): Promise<number>
     [observationStreamId],
   );
   return Number(result.rows[0]?.count ?? 0);
+}
+
+function isSeedLifecycle(lifecycle: readonly string[], expected: readonly string[]): boolean {
+  return lifecycle.length === expected.length && lifecycle.every((eventType, index) => eventType === expected[index]);
+}
+
+function replayStoredEvents(events: readonly StoredEventInput[]): SourceObservationState {
+  return events.reduce<SourceObservationState>(
+    (state, event) =>
+      evolveSourceObservation(state, { type: event.eventType, data: event.payload } as SourceObservationEvent),
+    initialSourceObservationState,
+  );
 }

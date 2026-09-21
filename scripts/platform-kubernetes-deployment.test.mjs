@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import {
+  PLATFORM_KUBERNETES_SCENARIO_SEED_VERSION,
   abortPlatformRollouts,
   assertOciIndexPlatformManifestMembership,
   buildDeploymentEvidence,
@@ -498,6 +499,77 @@ describe("platform Kubernetes deployment", () => {
     ).rejects.toThrow("Post-deploy scenario seed Job staging-scenario-seed-proof failed");
 
     expect(calls.at(-1).args[0]).toBe("delete");
+  });
+
+  it("scenario seed failure record carries the pod's bootstrap error text", async () => {
+    const calls = [];
+    // backoffLimit: 0 means the Failed pod is the only place the bootstrap cause exists, and the
+    // streamed --follow logs are already gone from the step's stdout by the time evidence is written.
+    const podLogs = [
+      "Listening on port 3000",
+      "Platform API bootstrap failed. Error: relation \"source_observation_events\" does not exist",
+      "    at Object.seedCatalogBrowserFixtures (/app/dist/seeding/seed.js:120:11)",
+    ].join("\n");
+
+    const failure = await runScenarioSeedOnKubernetes({
+      release: "chase-sets-platform",
+      namespace: "chase-sets-platform",
+      image: "registry.digitalocean.com/chase-sets/chase-sets-platform:proof",
+      timeout: "60m",
+      jobName: "staging-advisory-scenario-seed",
+      quiesceWorkers: false,
+      envOverrides: { DEPLOYMENT_ENVIRONMENT: "staging" },
+      spawn: completedSpawn(calls, [
+        { code: 0 },
+        { code: 0 },
+        {
+          code: 0,
+          stdout: JSON.stringify({
+            status: {
+              failed: 1,
+              conditions: [
+                {
+                  type: "Failed",
+                  status: "True",
+                  reason: "BackoffLimitExceeded",
+                  message: "Job has reached the specified backoff limit",
+                },
+              ],
+            },
+          }),
+        },
+        { code: 1, stdout: podLogs },
+      ]),
+    }).then(
+      () => null,
+      (error) => error,
+    );
+
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure.evidence).toEqual({
+      schemaVersion: PLATFORM_KUBERNETES_SCENARIO_SEED_VERSION,
+      action: "scenario-seed",
+      result: "failure",
+      release: "chase-sets-platform",
+      namespace: "chase-sets-platform",
+      jobName: "staging-advisory-scenario-seed",
+      reason: "BackoffLimitExceeded",
+      bootstrapError: 'Platform API bootstrap failed. Error: relation "source_observation_events" does not exist',
+    });
+    expect(failure.message).toContain("Post-deploy scenario seed Job staging-advisory-scenario-seed failed");
+    expect(failure.message).toContain('relation "source_observation_events" does not exist');
+
+    const tailCall = calls.at(-1);
+    expect([tailCall.command, ...tailCall.args]).toEqual([
+      "kubectl",
+      "logs",
+      "job/staging-advisory-scenario-seed",
+      "--namespace",
+      "chase-sets-platform",
+      "--tail=50",
+    ]);
+    // Piped stdio is what makes the tail readable; an inherited stream would only reach the step log.
+    expect(tailCall.options.stdio).toEqual(["ignore", "pipe", "pipe"]);
   });
 
   it("runs advisory scenario seed without creating worker-scaling access", async () => {

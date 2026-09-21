@@ -29,6 +29,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     environment: staging
+    outputs:
+      scenario_seed_error: ${{ steps.summarize.outputs.scenario_seed_error }}
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
@@ -244,6 +246,7 @@ jobs:
           ADMIN_WEB_URL="https://${admin_domain}" MARKETPLACE_WEB_URL="https://${marketplace_domain}" PUBLIC_WEB_URL="https://${landing_domain}" pnpm run test:e2e:deployed
 
       - name: Summarize staging advisory evidence
+        id: summarize
         if: always()
         env:
           SCENARIO_SEED_OUTCOME: ${{ steps.scenario_seed.outcome || 'skipped' }}
@@ -252,6 +255,17 @@ jobs:
           set -euo pipefail
           mkdir -p artifacts/staging-advisory-evidence
           checked_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          # The seed CLI writes this record on failure too, so the pod's bootstrap error survives the
+          # continue-on-error step and reaches both the step summary and the advisory incident comment.
+          scenario_seed_error=""
+          if [ -f artifacts/staging-advisory-evidence/scenario-seed.json ]; then
+            scenario_seed_error="$(jq -r '.bootstrapError // empty' artifacts/staging-advisory-evidence/scenario-seed.json)"
+          fi
+          {
+            echo "scenario_seed_error<<SCENARIO_SEED_ERROR_EOF"
+            echo "$scenario_seed_error"
+            echo "SCENARIO_SEED_ERROR_EOF"
+          } >> "$GITHUB_OUTPUT"
           failed_phases="$(jq -cn \
             --arg scenarioSeed "$SCENARIO_SEED_OUTCOME" \
             --arg marketplaceE2e "$MARKETPLACE_E2E_OUTCOME" \
@@ -273,6 +287,8 @@ jobs:
             echo "| --- | --- | --- |"
             echo "| Scenario seed | ${SCENARIO_SEED_OUTCOME} | Advisory |"
             echo "| Marketplace deployed E2E | ${MARKETPLACE_E2E_OUTCOME} | Advisory |"
+            echo ""
+            echo "Scenario seed bootstrap error: ${scenario_seed_error:-none captured}"
             echo ""
             echo "Release: ${{ inputs.release_commit }}@${{ inputs.platform_image_digest }}"
             echo ""
@@ -318,6 +334,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           ADVISORY_RESULT: ${{ needs.staging-advisory-evidence.result }}
+          SCENARIO_SEED_ERROR: ${{ needs.staging-advisory-evidence.outputs.scenario_seed_error }}
           RELEASE_COMMIT: ${{ inputs.release_commit }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
           ARTIFACTS_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?attempt=${{ github.run_attempt }}
@@ -347,6 +364,7 @@ jobs:
 
           - Release commit: ${RELEASE_COMMIT}
           - Advisory result: ${ADVISORY_RESULT}
+          - Scenario seed bootstrap error: ${SCENARIO_SEED_ERROR:-none captured}
           - Workflow run: ${RUN_URL}
           - Evidence artifacts: ${ARTIFACTS_URL}
 
