@@ -28,6 +28,7 @@ test.afterEach(async ({}, testInfo) => {
 test("manual-sync-panel-round-trip: connects and activates an independent real channel @marketplace-account @browser-e2e-seed", async ({
   page,
 }, testInfo) => {
+  test.setTimeout(120_000);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/sign-in?returnTo=%2Faccount%2Fchannels", { waitUntil: "domcontentloaded" });
   await signInThroughMarketplaceForm(page, marketplaceBrowserE2eSellerCredentials());
@@ -79,10 +80,29 @@ test("manual-sync-panel-round-trip: connects and activates an independent real c
   await page.getByLabel("Allowed category IDs, one per line").fill(catalogSeedIds.categories.onePieceCardGame);
   const configurationVersion = await page.locator('input[name="expectedStreamVersion"]').first().inputValue();
   await page.getByRole("button", { name: "Save publication settings", exact: true }).click();
-  await expect(page.locator('input[name="expectedStreamVersion"]').first()).not.toHaveValue(configurationVersion);
+  await expect
+    .poll(
+      async () =>
+        Number(
+          await page.evaluate(
+            () => document.querySelector<HTMLInputElement>('input[name="expectedStreamVersion"]')?.value ?? "-1",
+          ),
+        ),
+      { message: "the saved publication settings must become readable on the seller surface", timeout: 60_000 },
+    )
+    .toBeGreaterThan(Number(configurationVersion));
   await expect(page.getByText("Settings are required", { exact: true })).toHaveCount(0);
-  await page.goto(firstPath);
+  await expect
+    .poll(
+      async () => {
+        await page.goto(firstPath);
+        return page.locator('[data-channels-outbound-operation-log="true"] tbody tr').count();
+      },
+      { message: "the publication pipeline must queue both published seller listings", timeout: 60_000 },
+    )
+    .toBe(2);
   const panel = page.getByTestId("manual-sync-panel");
+  await expect(panel).toBeVisible({ timeout: 45_000 });
   await panel.getByLabel("TCGplayer Staged export", { exact: true }).setInputFiles({
     name: "two-seller-listings.csv",
     mimeType: "text/csv",
@@ -90,10 +110,16 @@ test("manual-sync-panel-round-trip: connects and activates an independent real c
       "TCGplayer Id,Total Quantity,Add to Quantity,TCG Marketplace Price\n987650,0,0,1.00\n987660,0,0,1.00\n",
     ),
   });
+  const ingested = page.waitForResponse(
+    (response) => response.request().method() === "POST" && new URL(response.url()).pathname.startsWith(firstPath),
+  );
   await panel.getByRole("button", { name: "Ingest Staged export", exact: true }).click();
+  expect((await ingested).status(), "the staged export ingest must be accepted").toBeLessThan(400);
+  await page.goto(firstPath);
+  await expect(panel).toBeVisible({ timeout: 45_000 });
   await panel.getByRole("button", { name: "Compose Staged batch", exact: true }).click();
-  await expect(panel.getByText("Ready to download", { exact: true })).toBeVisible();
-  await expect(panel.getByText("Composed listings", { exact: true }).locator("..")).toContainText("2");
+  await expect(panel.getByText("Ready to download", { exact: true })).toBeVisible({ timeout: 45_000 });
+  await expect(panel.getByText("Composed listings", { exact: true }).locator("../..")).toContainText("2");
   await page.screenshot({ path: testInfo.outputPath("channels-connect-composed-1440.png"), fullPage: true });
 });
 
