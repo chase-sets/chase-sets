@@ -382,10 +382,13 @@ locals {
   admin_uptime_check_targets = {
     (format("admin-%s", replace(local.admin_domain, ".", "-"))) = "https://${local.admin_domain}/health/ready"
   }
-  marketplace_uptime_check_targets = {
+  production_retained_marketplace_uptime_check_targets = local.is_production ? {
+    "marketplace-${replace("marketplace.${var.root_domain}", ".", "-")}" = "https://marketplace.${var.root_domain}/health/ready"
+  } : {}
+  marketplace_uptime_check_targets = merge({
     for domain in local.all_marketplace_domains :
     "marketplace-${replace(domain, ".", "-")}" => "https://${domain}/health/ready"
-  }
+  }, local.production_retained_marketplace_uptime_check_targets)
   uptime_check_targets = merge(
     local.public_uptime_check_targets,
     local.admin_uptime_check_targets,
