@@ -313,7 +313,18 @@
     {
       "mountPath": "/api/channels",
       "kind": "primary",
-      "requiresAuth": true
+      "requiresAuth": true,
+      "readFreshnessRoutes": [
+        {
+          "routePath": "/publication/:connectionId",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "channels_connection_publication_settings"
+            }
+          ]
+        }
+      ]
     }
   ],
   "workerRuntimeProfiles": ["proof", "public"],
@@ -448,7 +459,7 @@
         "routeId": "channels-publication-connection",
         "apiContextName": "channels",
         "apiRoutePath": "/publication/:connectionId",
-        "readModelTables": ["channel_publication_settings"],
+        "readModelTables": ["channels_connection_publication_settings"],
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
