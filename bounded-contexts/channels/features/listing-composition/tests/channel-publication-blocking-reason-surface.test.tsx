@@ -73,10 +73,7 @@ describe("channel-publication-blocking-reason-surface", () => {
   });
 });
 
-function detail(
-  items: readonly ChannelPublicationBlockedListing[],
-  total: number,
-): ChannelPublicationConnectionDetail {
+function detail(items: readonly ChannelPublicationBlockedListing[], total: number): ChannelPublicationConnectionDetail {
   return {
     connection: {
       connectionId,

@@ -114,12 +114,7 @@ describeDb("channel-listing-exhaustive-db-evidence", () => {
       event("catalog.catalog-item.category-removed", { categoryId: "cards" }, "catalog.item-catalog-matrix", 2),
     );
     await catalog["catalog.catalog-item.category-assigned"]!(
-      event(
-        "catalog.catalog-item.category-assigned",
-        { categoryId: "cards" },
-        "catalog.item-catalog-matrix",
-        1,
-      ),
+      event("catalog.catalog-item.category-assigned", { categoryId: "cards" }, "catalog.item-catalog-matrix", 1),
     );
     await catalog["catalog.catalog-item.external-product-reference-unlinked"]!(
       event(

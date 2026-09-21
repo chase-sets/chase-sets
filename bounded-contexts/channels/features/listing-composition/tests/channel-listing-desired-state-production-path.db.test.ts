@@ -357,12 +357,7 @@ describeDb("channel-listing-desired-state-production-path", () => {
       ),
     );
     await catalog["catalog.catalog-item.category-assigned"]!(
-      event(
-        "catalog.catalog-item.category-assigned",
-        { categoryId: "cards" },
-        "catalog.item-catalog-boundary",
-        1,
-      ),
+      event("catalog.catalog-item.category-assigned", { categoryId: "cards" }, "catalog.item-catalog-boundary", 1),
     );
     await catalog["catalog.catalog-item.external-catalog-item-reference-linked"]!(
       event(
