@@ -385,12 +385,7 @@ function productionMarketplacePlanFixture({ runtimeProfile, served, publicEnable
   const marketplaceServed = publicEnabled || (runtimeProfile === "proof" && served);
   return {
     valid,
-    changedResources: marketplaceServed
-      ? [
-          'digitalocean_record.app_serving["marketplace"]',
-          'digitalocean_uptime_check.platform["marketplace-marketplace-chasesets-com"]',
-        ]
-      : [],
+    changedResources: marketplaceServed ? ['digitalocean_record.app_serving["marketplace"]'] : [],
     launchApprovalChecksRead: publicEnabled,
   };
 }
@@ -777,7 +772,10 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformLocals).toContain("marketplace_domains = local.marketplace_served ? [");
     expect(platformLocals).toContain("for domain in local.all_marketplace_domains :");
-    expect(platformLocals).not.toContain("production_retained_marketplace_uptime_check_targets");
+    expect(platformLocals).toContain("production_retained_marketplace_uptime_check_targets");
+    expect(platformLocals).toMatch(
+      /marketplace_uptime_check_targets = merge\(\{[\s\S]*?\}, local\.production_retained_marketplace_uptime_check_targets\)/,
+    );
     expect(platformLocals).toContain('local.marketplace_served ? ["marketplace"] : []');
     expect(occurrenceCount(platformLocals, "local.marketplace_served")).toBe(2);
 
@@ -794,10 +792,7 @@ describe("DigitalOcean platform configuration", () => {
     });
     expect(invitedPlan).toEqual({
       valid: true,
-      changedResources: [
-        'digitalocean_record.app_serving["marketplace"]',
-        'digitalocean_uptime_check.platform["marketplace-marketplace-chasesets-com"]',
-      ],
+      changedResources: ['digitalocean_record.app_serving["marketplace"]'],
       launchApprovalChecksRead: false,
     });
     expect(productionMarketplacePlanFixture({ runtimeProfile: "proof", served: true, publicEnabled: true }).valid).toBe(
