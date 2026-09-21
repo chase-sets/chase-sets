@@ -17,6 +17,7 @@ describe("channel-connection-scope-fence", () => {
     expect(JSON.stringify(manifest)).not.toContain("landing");
     expect(JSON.stringify(manifest)).not.toMatch(/providerRegistry/);
     expect((manifest.readAfterWriteRouteInventory ?? []).map((entry) => entry.id)).toEqual([
+      "channels.activation-to-manual-sync",
       "channels.connect-to-detail",
       "channels.publication-settings-to-detail",
     ]);

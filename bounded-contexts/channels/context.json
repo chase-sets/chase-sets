@@ -326,7 +326,7 @@
           "dependencies": [{ "readModelTable": "channel_connections" }]
         },
         {
-          "routePath": "/connections/:id/manual-sync",
+          "routePath": "/connections/:connectionId/manual-sync",
           "methods": ["GET", "HEAD"],
           "dependencies": [
             { "readModelTable": "channel_connections" },
@@ -460,6 +460,28 @@
     }
   ],
   "readAfterWriteRouteInventory": [
+    {
+      "id": "channels.activation-to-manual-sync",
+      "owner": "channels",
+      "risk": "important",
+      "freshnessSlo": { "flowClass": "important-self-refresh", "p95Ms": 2500, "p99Ms": 5000 },
+      "source": {
+        "routeId": "channels-connection-detail",
+        "actions": ["Activate"],
+        "command": "ActivateChannelConnection"
+      },
+      "destination": {
+        "routeId": "channels-connection-detail",
+        "apiContextName": "channels",
+        "apiRoutePath": "/connections/:connectionId/manual-sync",
+        "readModelTables": ["channel_connections", "channel_sync_runs", "channel_sync_run_rows"],
+        "helperUses": ["loadAfterWrite"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Manual-sync projection lag retains the panel heading and loading state with bounded read revalidation and explicit refresh; activation is never replayed."
+        }
+      }
+    },
     {
       "id": "channels.connect-to-detail",
       "owner": "channels",
