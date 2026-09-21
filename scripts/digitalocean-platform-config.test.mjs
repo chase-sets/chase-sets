@@ -3496,9 +3496,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(summarizeStep.indexOf('echo "Scenario seed bootstrap error')).toBeLessThan(
       summarizeStep.indexOf('} >> "$GITHUB_STEP_SUMMARY"'),
     );
-    expect(advisoryEvidenceJob).toContain(
-      "scenario_seed_error: ${{ steps.summarize.outputs.scenario_seed_error }}",
-    );
+    expect(advisoryEvidenceJob).toContain("scenario_seed_error: ${{ steps.summarize.outputs.scenario_seed_error }}");
     expect(notifyStep).toContain(
       "SCENARIO_SEED_ERROR: ${{ needs.staging-advisory-evidence.outputs.scenario_seed_error }}",
     );

@@ -507,7 +507,7 @@ describe("platform Kubernetes deployment", () => {
     // streamed --follow logs are already gone from the step's stdout by the time evidence is written.
     const podLogs = [
       "Listening on port 3000",
-      "Platform API bootstrap failed. Error: relation \"source_observation_events\" does not exist",
+      'Platform API bootstrap failed. Error: relation "source_observation_events" does not exist',
       "    at Object.seedCatalogBrowserFixtures (/app/dist/seeding/seed.js:120:11)",
     ].join("\n");
 

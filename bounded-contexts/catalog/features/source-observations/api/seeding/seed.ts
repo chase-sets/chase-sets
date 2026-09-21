@@ -35,10 +35,7 @@ const sourceObservationStreamId =
   `catalog.source-observation-${catalogBrowserE2ePromotedObservation.observationId}` as const;
 const promotedAt = "2026-06-03T00:01:00.000Z";
 const observedAt = "2026-06-03T00:00:00.000Z";
-const promotedSeedLifecycle = [
-  "catalog.source-observation.recorded",
-  "catalog.source-observation.promoted",
-] as const;
+const promotedSeedLifecycle = ["catalog.source-observation.recorded", "catalog.source-observation.promoted"] as const;
 // One refresh is the seed's only reconciliation append, so a reconciled stream keeps a fixed shape.
 const reconciledPromotedSeedLifecycle = [...promotedSeedLifecycle, "catalog.source-observation.refreshed"] as const;
 

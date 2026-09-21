@@ -2235,13 +2235,7 @@ export async function runScenarioSeedOnKubernetes(options = {}) {
 async function readScenarioSeedBootstrapError({ kubectlPath, namespace, jobName, spawn }) {
   const logs = await runProcess({
     command: kubectlPath,
-    args: [
-      "logs",
-      `job/${jobName}`,
-      "--namespace",
-      namespace,
-      `--tail=${SCENARIO_SEED_BOOTSTRAP_LOG_TAIL_LINES}`,
-    ],
+    args: ["logs", `job/${jobName}`, "--namespace", namespace, `--tail=${SCENARIO_SEED_BOOTSTRAP_LOG_TAIL_LINES}`],
     spawn,
     captureOutput: true,
     allowFailure: true,
