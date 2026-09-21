@@ -141,6 +141,27 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
 {{- join "," $names -}}
 {{- end -}}
 
+{{- /*
+  Optional per-component pod spread. The chart, not the values file, owns
+  labelSelector: every constraint matches this component's own selectorLabels,
+  so a spread can never count a sibling component's pods toward its skew (an
+  `omit` drops any labelSelector supplied in values). A component that sets no
+  constraints renders nothing, so this seam is additive for every environment
+  that does not use it.
+*/ -}}
+{{- define "chase-sets-platform.topologySpreadConstraints" -}}
+{{- $selectorLabels := include "chase-sets-platform.selectorLabels" (dict "root" .root "name" .name) -}}
+{{- if .component.topologySpreadConstraints }}
+topologySpreadConstraints:
+{{- range .component.topologySpreadConstraints }}
+  - {{ toYaml (omit . "labelSelector") | nindent 4 | trim }}
+    labelSelector:
+      matchLabels:
+{{- $selectorLabels | nindent 8 }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
 {{- define "chase-sets-platform.podSpec" -}}
 {{- $root := .root -}}
 {{- $component := .component -}}
@@ -164,6 +185,7 @@ affinity:
 tolerations:
 {{ toYaml . | nindent 2 }}
 {{- end }}
+{{- include "chase-sets-platform.topologySpreadConstraints" . }}
 containers:
   - name: {{ .name | quote }}
     image: {{ include "chase-sets-platform.image" $root | quote }}
