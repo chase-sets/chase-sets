@@ -40,6 +40,7 @@ import {
   runScenarioSeedOnKubernetes as runScenarioSeedOnKubernetesUnderTest,
   sanitizeCopiedSecretManifest,
   scenarioSeedMaxActiveDeadlineSeconds,
+  selectFailedRollbackRecoveryTarget,
   selectStableDeployedHelmSource,
   selectStableStalePendingUpgrade,
   teardownPlatformKubernetesNamespace,
@@ -177,6 +178,84 @@ function rollbackWorkloadList(image = rollbackImageRef) {
       },
     ],
   });
+}
+
+// Retained production evidence from #8104: Helm's resource-patch failure path
+// rewrites the rollback revision's description, so revision 415 no longer says
+// "Rollback to 413".
+const productionFailedRollbackDescription =
+  'Rollback "chase-sets-platform" failed: cannot patch "chase-sets-platform-doks-tls" with kind Certificate: Internal error occurred: failed calling webhook "webhook.cert-manager.io": failed to call webhook: Post "https://cert-manager-webhook.cert-manager.svc:443/validate?timeout=30s": dial tcp 10.108.83.28:443: connect: connection refused';
+const failedRollbackPreHistory = [
+  { revision: 413, status: "superseded", description: "Rollback to 411" },
+  { revision: 414, status: "superseded", description: "Upgrade complete" },
+  { revision: 415, status: "failed", description: productionFailedRollbackDescription },
+];
+const failedRollbackPostHistory = [
+  ...failedRollbackPreHistory,
+  { revision: 416, status: "deployed", description: "Rollback to 413" },
+];
+const supersededCandidateValues = structuredClone(rollbackValues);
+supersededCandidateValues.global.image.tag = "f".repeat(40);
+supersededCandidateValues.global.image.digest = failedCandidateDigest;
+
+function failedRollbackCaptureOptions(calls, completions) {
+  return {
+    values: rollbackValues,
+    release: "proof",
+    namespace: "production",
+    registryName: "chase-sets",
+    repository: "chase-sets-platform",
+    tag: rollbackTag,
+    digest: rollbackDigest,
+    lastKnownGoodCommit: rollbackTag,
+    releaseTag: "release-synthetic-proof",
+    timeout: "30s",
+    checkedAt: "2026-09-21T12:00:00.000Z",
+    spawn: completedSpawn(calls, completions),
+  };
+}
+
+// Capture admission: history, values for 415 (failed tail), 414 (newest
+// superseded candidate, differs), 413 (matches), live workloads against 413,
+// Helm operation census, stable history.
+function failedRollbackAdmissionCompletions() {
+  return [
+    { code: 0, stdout: helmHistory(failedRollbackPreHistory) },
+    { code: 0, stdout: JSON.stringify(rollbackValues) },
+    { code: 0, stdout: JSON.stringify(supersededCandidateValues) },
+    { code: 0, stdout: JSON.stringify(rollbackValues) },
+    { code: 0, stdout: rollbackWorkloadList() },
+    { code: 0, stdout: '{"items":[]}' },
+    { code: 0, stdout: helmHistory(failedRollbackPreHistory) },
+  ];
+}
+
+// rollbackPlatformOnKubernetes with releaseExists: history, source values,
+// stable history, helm rollback, rollout status, resulting history, resulting
+// values, workloads, stable resulting history.
+function failedRollbackHealCompletions() {
+  return [
+    { code: 0, stdout: helmHistory(failedRollbackPreHistory) },
+    { code: 0, stdout: JSON.stringify(rollbackValues) },
+    { code: 0, stdout: helmHistory(failedRollbackPreHistory) },
+    { code: 0 },
+    { code: 0 },
+    { code: 0, stdout: helmHistory(failedRollbackPostHistory) },
+    { code: 0, stdout: JSON.stringify(rollbackValues) },
+    { code: 0, stdout: rollbackWorkloadList() },
+    { code: 0, stdout: helmHistory(failedRollbackPostHistory) },
+  ];
+}
+
+// The ordinary capture from the healed head: history, values 416, workloads,
+// stable history.
+function failedRollbackCaptureCompletions() {
+  return [
+    { code: 0, stdout: helmHistory(failedRollbackPostHistory) },
+    { code: 0, stdout: JSON.stringify(rollbackValues) },
+    { code: 0, stdout: rollbackWorkloadList() },
+    { code: 0, stdout: helmHistory(failedRollbackPostHistory) },
+  ];
 }
 
 function successfulSpawn(calls) {
@@ -2355,6 +2434,403 @@ describe("platform Kubernetes deployment", () => {
       terminalFailedSuffix: [history[1]],
       preDeployHistory: history,
     });
+  });
+
+  it("selects a failed-rollback recovery target only for a superseded target with a uniform failed rollback tail", () => {
+    // Revisions 406-415 replay the retained production history from #8104
+    // (helm-history-pre-rollback-1220.json): Helm replaced revision 415's
+    // "Rollback to 413" description with its failure text, so the target is
+    // recovered from the values Helm copied verbatim from 413 into 415.
+    const productionHistory = [
+      ...[406, 407, 408, 409, 410, 411, 412].map((revision) => ({
+        revision,
+        status: "superseded",
+        description: "Upgrade complete",
+      })),
+      { revision: 413, status: "superseded", description: "Rollback to 411" },
+      { revision: 414, status: "superseded", description: "Upgrade complete" },
+      { revision: 415, status: "failed", description: productionFailedRollbackDescription },
+    ];
+    expect(
+      selectFailedRollbackRecoveryTarget(productionHistory, {
+        revisionValues: new Map([
+          [415, rollbackValues],
+          [414, supersededCandidateValues],
+          [413, rollbackValues],
+        ]),
+      }),
+    ).toBe(413);
+    // Values-based identification never guesses: without the failed revision's
+    // values, or with an unread newer candidate, there is no target.
+    expect(selectFailedRollbackRecoveryTarget(productionHistory)).toBeNull();
+    expect(
+      selectFailedRollbackRecoveryTarget(productionHistory, {
+        revisionValues: new Map([
+          [415, rollbackValues],
+          [413, rollbackValues],
+        ]),
+      }),
+    ).toBeNull();
+    expect(
+      selectFailedRollbackRecoveryTarget(productionHistory, {
+        revisionValues: new Map([
+          [415, rollbackValues],
+          [414, supersededCandidateValues],
+          [413, supersededCandidateValues],
+        ]),
+      }),
+    ).toBeNull();
+
+    const supersededHistory = [
+      { revision: 411, status: "superseded", description: "Upgrade complete" },
+      { revision: 413, status: "superseded", description: "Rollback to 411" },
+      { revision: 414, status: "superseded", description: "Upgrade complete" },
+    ];
+    const failedRollbacks = (count, description = "Rollback to 413") =>
+      Array.from({ length: count }, (_, index) => ({ revision: 415 + index, status: "failed", description }));
+    for (const count of [1, 2, 3]) {
+      expect(selectFailedRollbackRecoveryTarget([...supersededHistory, ...failedRollbacks(count)])).toBe(413);
+      expect(
+        selectFailedRollbackRecoveryTarget(
+          [...supersededHistory, ...failedRollbacks(count, productionFailedRollbackDescription)],
+          {
+            revisionValues: new Map([
+              [415, rollbackValues],
+              [416, rollbackValues],
+              [417, rollbackValues],
+              [414, supersededCandidateValues],
+              [413, rollbackValues],
+            ]),
+          },
+        ),
+      ).toBe(413);
+    }
+    expect(selectFailedRollbackRecoveryTarget([...supersededHistory, ...failedRollbacks(4)])).toBeNull();
+    expect(
+      selectFailedRollbackRecoveryTarget([...supersededHistory, ...failedRollbacks(1, 'Upgrade "proof" failed: hook')]),
+    ).toBeNull();
+    expect(
+      selectFailedRollbackRecoveryTarget([...supersededHistory, ...failedRollbacks(1, "Synthetic failure")]),
+    ).toBeNull();
+    expect(
+      selectFailedRollbackRecoveryTarget([
+        ...supersededHistory,
+        ...failedRollbacks(1),
+        { revision: 416, status: "failed", description: "Rollback to 411" },
+      ]),
+    ).toBeNull();
+    expect(
+      selectFailedRollbackRecoveryTarget([...supersededHistory, ...failedRollbacks(1, "Rollback to 999")]),
+    ).toBeNull();
+    expect(
+      selectFailedRollbackRecoveryTarget([
+        { revision: 411, status: "failed", description: 'Upgrade "proof" failed: hook' },
+        { revision: 412, status: "superseded", description: "Upgrade complete" },
+        { revision: 413, status: "failed", description: "Rollback to 411" },
+      ]),
+    ).toBeNull();
+    expect(
+      selectFailedRollbackRecoveryTarget([
+        { revision: 413, status: "deployed", description: "Rollback to 411" },
+        { revision: 414, status: "failed", description: "Rollback to 413" },
+      ]),
+    ).toBeNull();
+    expect(
+      selectFailedRollbackRecoveryTarget([
+        ...supersededHistory,
+        { revision: 415, status: "pending-rollback", description: "Rollback to 413" },
+      ]),
+    ).toBeNull();
+    expect(selectFailedRollbackRecoveryTarget(supersededHistory)).toBeNull();
+  });
+
+  it("heals a failed-rollback tail by exact rollback before capturing the target", async () => {
+    const calls = [];
+    const target = await captureKubernetesRollbackTarget(
+      failedRollbackCaptureOptions(calls, [
+        ...failedRollbackAdmissionCompletions(),
+        ...failedRollbackHealCompletions(),
+        ...failedRollbackCaptureCompletions(),
+      ]),
+    );
+
+    const rollbackCalls = calls.filter((call) => call.command === "helm" && call.args[0] === "rollback");
+    expect(rollbackCalls).toHaveLength(1);
+    expect(rollbackCalls[0].args).toEqual([
+      "rollback",
+      "proof",
+      "413",
+      "--namespace",
+      "production",
+      "--wait",
+      "--timeout",
+      "30s",
+    ]);
+    expect(calls.some((call) => call.args[0] === "upgrade")).toBe(false);
+    expect(calls.slice(0, 7).map((call) => [call.command, call.args[0], call.args[1]])).toEqual([
+      ["helm", "history", "proof"],
+      ["helm", "get", "values"],
+      ["helm", "get", "values"],
+      ["helm", "get", "values"],
+      ["kubectl", "get", "deployments.apps,jobs.batch,rollouts.argoproj.io"],
+      ["kubectl", "get", "jobs,pods"],
+      ["helm", "history", "proof"],
+    ]);
+    expect(calls.slice(1, 4).map((call) => call.args[call.args.indexOf("--revision") + 1])).toEqual([
+      "415",
+      "414",
+      "413",
+    ]);
+    expect(calls.indexOf(rollbackCalls[0])).toBeGreaterThan(6);
+
+    expect(target).toMatchObject({
+      sourceRevision: 416,
+      sourceStatus: "deployed",
+      sourceDescription: "Rollback to 413",
+      observedTag: rollbackTag,
+      observedDigest: rollbackDigest,
+      imageIdentityProof: { kind: "exact-digest", digest: rollbackDigest },
+      historyHeadRevision: 416,
+      terminalFailedSuffix: [],
+      preDeployHistory: failedRollbackPostHistory,
+    });
+    expect(target.failedRollbackRecovery).toEqual({
+      preRecoveryHistory: failedRollbackPreHistory,
+      targetRevision: 413,
+      failedRollbackRevisions: [415],
+      rollback: expect.objectContaining({
+        action: "rollback",
+        result: "success",
+        release: "proof",
+        namespace: "production",
+        rollbackIdentity: expect.objectContaining({
+          sourceRevision: 413,
+          resultingRevision: 416,
+          observedTag: rollbackTag,
+          observedDigest: rollbackDigest,
+        }),
+      }),
+      resultingRevision: 416,
+    });
+    expect(target.workloadIdentities).toHaveLength(1);
+
+    const ordinaryCalls = [];
+    const ordinary = await captureKubernetesRollbackTarget(
+      failedRollbackCaptureOptions(ordinaryCalls, failedRollbackCaptureCompletions()),
+    );
+    expect(ordinaryCalls.some((call) => call.args[0] === "rollback")).toBe(false);
+    expect(ordinaryCalls.map((call) => [call.command, call.args[0]])).toEqual([
+      ["helm", "history"],
+      ["helm", "get"],
+      ["kubectl", "get"],
+      ["helm", "history"],
+    ]);
+    expect(ordinary).toMatchObject({
+      sourceRevision: 416,
+      historyHeadRevision: 416,
+      preDeployHistory: failedRollbackPostHistory,
+    });
+    expect(ordinary).not.toHaveProperty("failedRollbackRecovery");
+  });
+
+  it("refuses failed-rollback recovery on any mismatch and stops on a failed heal", async () => {
+    const admission = failedRollbackAdmissionCompletions();
+    const refusals = [
+      {
+        name: "live workload image differs from the target",
+        completions: [
+          ...admission.slice(0, 4),
+          {
+            code: 0,
+            stdout: rollbackWorkloadList(
+              `registry.digitalocean.com/chase-sets/chase-sets-platform@${failedCandidateDigest}`,
+            ),
+          },
+        ],
+        message: "does not match",
+      },
+      {
+        name: "active Helm hook operation",
+        completions: [
+          ...admission.slice(0, 5),
+          {
+            code: 0,
+            stdout: JSON.stringify({
+              items: [
+                {
+                  kind: "Job",
+                  metadata: {
+                    name: "proof-chase-sets-platform-platform-bootstrap",
+                    annotations: { "helm.sh/hook": "pre-upgrade" },
+                  },
+                  status: { active: 1, conditions: [] },
+                },
+              ],
+            }),
+          },
+        ],
+        message: "requires no active Helm hook operation",
+      },
+      {
+        name: "history moves between reads",
+        completions: [
+          ...admission.slice(0, 6),
+          {
+            code: 0,
+            stdout: helmHistory([
+              ...failedRollbackPreHistory,
+              { revision: 416, status: "failed", description: "Rollback to 413" },
+            ]),
+          },
+        ],
+        message: "Helm history moved during failed-rollback recovery admission",
+      },
+      {
+        name: "target values disagree with the expected identity",
+        completions: [
+          admission[0],
+          { code: 0, stdout: JSON.stringify(supersededCandidateValues) },
+          { code: 0, stdout: JSON.stringify(supersededCandidateValues) },
+        ],
+        message: "does not match captured rollback identity",
+      },
+    ];
+    for (const refusal of refusals) {
+      const calls = [];
+      await expect(
+        captureKubernetesRollbackTarget(failedRollbackCaptureOptions(calls, refusal.completions)),
+        refusal.name,
+      ).rejects.toThrow(refusal.message);
+      expect(
+        calls.some((call) => call.args[0] === "rollback"),
+        refusal.name,
+      ).toBe(false);
+      expect(
+        calls.some((call) => call.args[0] === "upgrade"),
+        refusal.name,
+      ).toBe(false);
+    }
+
+    for (const unrecoverableTail of [
+      [{ revision: 415, status: "failed", description: 'Upgrade "proof" failed: Synthetic hook failure' }],
+      Array.from({ length: 4 }, (_, index) => ({
+        revision: 415 + index,
+        status: "failed",
+        description: "Rollback to 413",
+      })),
+    ]) {
+      const calls = [];
+      await expect(
+        captureKubernetesRollbackTarget(
+          failedRollbackCaptureOptions(calls, [
+            { code: 0, stdout: helmHistory([...failedRollbackPreHistory.slice(0, 2), ...unrecoverableTail]) },
+          ]),
+        ),
+      ).rejects.toThrow("Rollback target capture requires exactly one deployed Helm revision; observed 0.");
+      expect(calls.map((call) => [call.command, call.args[0]])).toEqual([["helm", "history"]]);
+    }
+
+    const failedHealCalls = [];
+    await expect(
+      captureKubernetesRollbackTarget(
+        failedRollbackCaptureOptions(failedHealCalls, [
+          ...admission,
+          ...failedRollbackHealCompletions().slice(0, 3),
+          { code: 1, stderr: "Error: cannot patch Certificate" },
+        ]),
+      ),
+    ).rejects.toThrow(
+      /^Failed-rollback recovery to revision 413 failed: .*helm rollback proof 413 .*exited with code 1/,
+    );
+    expect(failedHealCalls.filter((call) => call.args[0] === "rollback")).toHaveLength(1);
+    expect(failedHealCalls.at(-1).args[0]).toBe("rollback");
+    expect(failedHealCalls.some((call) => call.args[0] === "upgrade")).toBe(false);
+
+    const wrongHeadCalls = [];
+    await expect(
+      captureKubernetesRollbackTarget(
+        failedRollbackCaptureOptions(wrongHeadCalls, [
+          ...admission,
+          ...failedRollbackHealCompletions(),
+          {
+            code: 0,
+            stdout: helmHistory([
+              ...failedRollbackPostHistory,
+              { revision: 417, status: "deployed", description: "Upgrade complete" },
+            ]),
+          },
+        ]),
+      ),
+    ).rejects.toThrow("Failed-rollback recovery to revision 413 must leave revision 416 deployed");
+    expect(wrongHeadCalls.some((call) => call.args[0] === "upgrade")).toBe(false);
+  });
+
+  it("verifies a deployment transition from a healed rollback target", async () => {
+    const healed = await captureKubernetesRollbackTarget(
+      failedRollbackCaptureOptions(
+        [],
+        [
+          ...failedRollbackAdmissionCompletions(),
+          ...failedRollbackHealCompletions(),
+          ...failedRollbackCaptureCompletions(),
+        ],
+      ),
+    );
+    // The workflow round-trips the record through a JSON file before the
+    // transition check consumes its preDeployHistory.
+    const rollbackTarget = JSON.parse(JSON.stringify(healed));
+    expect(rollbackTarget.failedRollbackRecovery.targetRevision).toBe(413);
+    const observedHistory = [
+      failedRollbackPostHistory[0],
+      failedRollbackPostHistory[1],
+      failedRollbackPostHistory[2],
+      { ...failedRollbackPostHistory[3], status: "superseded" },
+      { revision: 417, status: "deployed", description: "Upgrade complete" },
+    ];
+
+    const transition = await verifyKubernetesDeploymentTransition({
+      release: "proof",
+      namespace: "production",
+      checkedAt: "2026-09-21T13:00:00.000Z",
+      rollbackTarget,
+      spawn: completedSpawn([], [{ code: 0, stdout: helmHistory(observedHistory) }]),
+    });
+    expect(transition).toEqual({
+      schemaVersion: "platform-kubernetes-deployment-transition/v1",
+      checkedAt: "2026-09-21T13:00:00.000Z",
+      release: "proof",
+      namespace: "production",
+      capturedHeadRevision: 416,
+      resultingHeadRevision: 417,
+      capturedHistory: failedRollbackPostHistory,
+      observedHistory,
+    });
+
+    for (const [name, observed, message] of [
+      [
+        "healed head not superseded by a deployed revision",
+        [...failedRollbackPostHistory, { revision: 417, status: "failed", description: "Upgrade failed" }],
+        'to have status "deployed"',
+      ],
+      [
+        "failed rollback revision changed after the heal",
+        [...observedHistory.slice(0, 2), { ...observedHistory[2], status: "superseded" }, ...observedHistory.slice(3)],
+        "Captured Helm revision 415 moved during deployment transition",
+      ],
+      [
+        "two new revisions after the healed head",
+        [...observedHistory, { revision: 418, status: "deployed", description: "Upgrade complete" }],
+        "expected only revision 417",
+      ],
+    ]) {
+      await expect(
+        verifyKubernetesDeploymentTransition({
+          rollbackTarget,
+          spawn: completedSpawn([], [{ code: 0, stdout: helmHistory(observed) }]),
+        }),
+        name,
+      ).rejects.toThrow(message);
+    }
   });
 
   it("verifies one exact deployed Helm transition", async () => {
