@@ -180,6 +180,7 @@ function detail(overrides: Partial<ChannelPublicationConnectionDetail> = {}): Ch
     },
     settings: null,
     mappingReview: { items: [], nextCursor: null, completeness: { kind: "complete", total: 0 } },
+    blockedListings: { items: [], total: 0 },
     configurationStreamVersion: 0,
     ...overrides,
   };

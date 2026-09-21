@@ -111,6 +111,13 @@ export const channelsEnglishTranslations = {
   "channels.publication.settings.category.allowlist": "Allowed category IDs, one per line",
   "channels.publication.settings.excluded.listings": "Excluded listing IDs, one per line",
   "channels.publication.settings.save": "Save publication settings",
+  "channels.publication.blocked.title": "Blocked listings",
+  "channels.publication.blocked.empty.title": "No blocked listings",
+  "channels.publication.blocked.empty.description":
+    "No listing on this connection is recorded as blocked. This does not confirm that every listing has been composed.",
+  "channels.publication.blocked.truncated.title": "More blocked listings than shown",
+  "channels.publication.blocked.truncated.description": "Showing the first {shown} of {total} blocked listings.",
+  "channels.publication.blocked.reason.unknown": "reason not recorded",
   "channels.publication.mapping.title": "Mapping review",
   "channels.publication.mapping.incomplete.title": "Mapping results are incomplete",
   "channels.publication.mapping.empty.title": "No mappings to review",

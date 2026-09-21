@@ -87,7 +87,7 @@ describeDb("channel-listing-desired-state-production-path", () => {
         1,
       ),
     );
-    const catalogStream = "catalog.catalog-item-catalog-production";
+    const catalogStream = "catalog.item-catalog-production";
     await catalog["catalog.catalog-item.category-assigned"]!(
       event("catalog.catalog-item.category-assigned", { categoryId: "cards" }, catalogStream, 1),
     );
@@ -357,18 +357,13 @@ describeDb("channel-listing-desired-state-production-path", () => {
       ),
     );
     await catalog["catalog.catalog-item.category-assigned"]!(
-      event(
-        "catalog.catalog-item.category-assigned",
-        { categoryId: "cards" },
-        "catalog.catalog-item-catalog-boundary",
-        1,
-      ),
+      event("catalog.catalog-item.category-assigned", { categoryId: "cards" }, "catalog.item-catalog-boundary", 1),
     );
     await catalog["catalog.catalog-item.external-catalog-item-reference-linked"]!(
       event(
         "catalog.catalog-item.external-catalog-item-reference-linked",
         { providerKey: "tcgplayer", externalKey: "product:90000801" },
-        "catalog.catalog-item-catalog-boundary",
+        "catalog.item-catalog-boundary",
         2,
       ),
     );

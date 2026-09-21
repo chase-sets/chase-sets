@@ -76,6 +76,13 @@ A **Channel Composition Profile** declares which provider-neutral publication dr
 
 **Channel Publication Eligibility** is the complete fail-closed decision that a Channel Listing Link can publish, update, or delist from current facts, settings, mappings, references, and profile.
 
+## Channel Publication Blocking Reason
+
+A **Channel Publication Blocking Reason** is a closed code naming one unmet condition of
+Channel Publication Eligibility for a Channel Listing Link. Configuration reasons name an
+account or profile condition and short-circuit before listing reasons. The codes recorded on
+a blocked Channel Listing Link are account-readable on the Channel Publication detail surface.
+
 ## Channel Listing Desired State
 
 **Channel Listing Desired State** is the closed, versioned publish, update, or delist intent composed for one Channel Listing Link.

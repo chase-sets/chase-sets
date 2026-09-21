@@ -153,6 +153,7 @@ export function ChannelPublicationDetailPage({ state }: { state: ChannelPublicat
 function DetailSections({ detail }: { detail: ChannelPublicationConnectionDetail }) {
   const settings = detail.settings;
   const review = detail.mappingReview;
+  const blocked = detail.blockedListings;
   return (
     <>
       <PageSection title={t("channels.publication.settings.title")}>
@@ -204,6 +205,47 @@ function DetailSections({ detail }: { detail: ChannelPublicationConnectionDetail
             </Stack>
           </Form>
         </Card>
+      </PageSection>
+      <PageSection title={t("channels.publication.blocked.title")}>
+        {blocked.items.length === 0 ? (
+          <MarketplaceNotice
+            tone="info"
+            title={t("channels.publication.blocked.empty.title")}
+            description={t("channels.publication.blocked.empty.description")}
+          />
+        ) : (
+          <Stack gap={3}>
+            {blocked.total > blocked.items.length ? (
+              <MarketplaceNotice
+                tone="warning"
+                title={t("channels.publication.blocked.truncated.title")}
+                description={t("channels.publication.blocked.truncated.description", {
+                  shown: blocked.items.length,
+                  total: blocked.total,
+                })}
+              />
+            ) : null}
+            {blocked.items.map((item) => (
+              <Card key={item.channelListingId} elevation="elevated" data-elevation-role="entity">
+                <Stack gap={2}>
+                  <Text weight="semibold">{item.listingId}</Text>
+                  <Text tone="secondary">{item.channelListingId}</Text>
+                  <Stack direction="row" gap={2}>
+                    {item.blockingReasonCodes.length === 0 ? (
+                      <Badge tone="warning">{t("channels.publication.blocked.reason.unknown")}</Badge>
+                    ) : (
+                      item.blockingReasonCodes.map((code) => (
+                        <Badge key={code} tone="warning">
+                          {code}
+                        </Badge>
+                      ))
+                    )}
+                  </Stack>
+                </Stack>
+              </Card>
+            ))}
+          </Stack>
+        )}
       </PageSection>
       <PageSection title={t("channels.publication.mapping.title")}>
         {review.completeness.kind === "incomplete" ? (

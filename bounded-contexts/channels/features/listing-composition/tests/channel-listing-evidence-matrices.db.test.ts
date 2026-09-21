@@ -111,21 +111,16 @@ describeDb("channel-listing-exhaustive-db-evidence", () => {
       ),
     );
     await catalog["catalog.catalog-item.category-removed"]!(
-      event("catalog.catalog-item.category-removed", { categoryId: "cards" }, "catalog.catalog-item-catalog-matrix", 2),
+      event("catalog.catalog-item.category-removed", { categoryId: "cards" }, "catalog.item-catalog-matrix", 2),
     );
     await catalog["catalog.catalog-item.category-assigned"]!(
-      event(
-        "catalog.catalog-item.category-assigned",
-        { categoryId: "cards" },
-        "catalog.catalog-item-catalog-matrix",
-        1,
-      ),
+      event("catalog.catalog-item.category-assigned", { categoryId: "cards" }, "catalog.item-catalog-matrix", 1),
     );
     await catalog["catalog.catalog-item.external-product-reference-unlinked"]!(
       event(
         "catalog.catalog-item.external-product-reference-unlinked",
         { providerKey: "synthetic-provider", externalKey: "sku:matrix" },
-        "catalog.catalog-item-catalog-matrix",
+        "catalog.item-catalog-matrix",
         2,
       ),
     );
@@ -133,7 +128,7 @@ describeDb("channel-listing-exhaustive-db-evidence", () => {
       event(
         "catalog.catalog-item.external-product-reference-linked",
         { providerKey: "synthetic-provider", externalKey: "sku:matrix", selectedOptions: [] },
-        "catalog.catalog-item-catalog-matrix",
+        "catalog.item-catalog-matrix",
         1,
       ),
     );
@@ -141,7 +136,7 @@ describeDb("channel-listing-exhaustive-db-evidence", () => {
       event(
         "catalog.catalog-item.external-catalog-item-reference-unlinked",
         { providerKey: "synthetic-provider", externalKey: "product:matrix" },
-        "catalog.catalog-item-catalog-matrix",
+        "catalog.item-catalog-matrix",
         2,
       ),
     );
@@ -149,7 +144,7 @@ describeDb("channel-listing-exhaustive-db-evidence", () => {
       event(
         "catalog.catalog-item.external-catalog-item-reference-linked",
         { providerKey: "synthetic-provider", externalKey: "product:matrix" },
-        "catalog.catalog-item-catalog-matrix",
+        "catalog.item-catalog-matrix",
         1,
       ),
     );

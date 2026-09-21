@@ -257,6 +257,7 @@ function detailAt(cursor: string | null, secondAccepted = false): ChannelPublica
             completeness: { kind: "complete", total: secondAccepted ? 1 : 2 },
           }
         : { items: [first], nextCursor: "page-2", completeness: { kind: "complete", total: secondAccepted ? 1 : 2 } },
+    blockedListings: { items: [], total: 0 },
     configurationStreamVersion: 0,
   };
 }
