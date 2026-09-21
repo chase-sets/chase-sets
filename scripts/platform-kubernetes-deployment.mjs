@@ -665,6 +665,15 @@ export function buildKubernetesRollbackTarget(options = {}) {
       ? { terminalFailedSuffix: options.terminalFailedSuffix.map((entry) => ({ ...entry })) }
       : {}),
     ...(options.preDeployHistory ? { preDeployHistory: options.preDeployHistory.map((entry) => ({ ...entry })) } : {}),
+    ...(options.failedRollbackRecovery
+      ? {
+          failedRollbackRecovery: {
+            ...options.failedRollbackRecovery,
+            preRecoveryHistory: options.failedRollbackRecovery.preRecoveryHistory.map((entry) => ({ ...entry })),
+            failedRollbackRevisions: [...options.failedRollbackRecovery.failedRollbackRevisions],
+          },
+        }
+      : {}),
   };
 }
 
@@ -691,6 +700,109 @@ export function selectStableDeployedHelmSource(history) {
     historyHead: history.at(-1),
     terminalFailedSuffix,
   };
+}
+
+const helmRollbackDescriptionPattern = /^Rollback to (\d+)$/;
+const helmFailedRollbackDescriptionPattern = /^Rollback "[^"]*" failed: /;
+
+function parseHelmRollbackDescription(description) {
+  const exact = helmRollbackDescriptionPattern.exec(description);
+  if (exact) {
+    return { targetRevision: Number(exact[1]) };
+  }
+  if (helmFailedRollbackDescriptionPattern.test(description)) {
+    // Helm overwrites "Rollback to <T>" with `Rollback "<release>" failed: <err>`
+    // when the resource patch fails, so the target must be recovered from the
+    // values Helm copied verbatim from T into the failed revision.
+    return { targetRevision: null };
+  }
+  return null;
+}
+
+function failedRollbackRecoveryShape(history) {
+  if (!Array.isArray(history) || history.length === 0) {
+    return null;
+  }
+  if (history.some((entry) => entry.status === "deployed" || String(entry.status).startsWith("pending-"))) {
+    return null;
+  }
+  let tailStart = history.length;
+  while (tailStart > 0 && history[tailStart - 1].status === "failed") {
+    tailStart -= 1;
+  }
+  const tail = history.slice(tailStart).map((entry) => {
+    const parsed = parseHelmRollbackDescription(entry.description);
+    return parsed ? { revision: entry.revision, targetRevision: parsed.targetRevision } : null;
+  });
+  if (tail.length < 1 || tail.length > 3 || tail.some((entry) => entry === null)) {
+    return null;
+  }
+  const candidates = history
+    .slice(0, tailStart)
+    .filter((entry) => entry.status === "superseded")
+    .reverse();
+  return { tail, candidates };
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+function revisionValuesFor(revisionValues, revision) {
+  if (revisionValues instanceof Map) {
+    return revisionValues.get(revision);
+  }
+  return revisionValues && typeof revisionValues === "object" ? revisionValues[revision] : undefined;
+}
+
+// Resolves a failed rollback revision whose description lost its target to the
+// newest superseded revision before the tail whose Helm values equal the failed
+// revision's values. Returns null while any newer candidate's values are
+// unknown so the answer never depends on how many values were read.
+function matchFailedRollbackTargetByValues(failedRevision, candidates, revisionValues) {
+  const failedValues = revisionValuesFor(revisionValues, failedRevision);
+  if (failedValues === undefined) {
+    return null;
+  }
+  const failedJson = canonicalJson(failedValues);
+  for (const candidate of candidates) {
+    const candidateValues = revisionValuesFor(revisionValues, candidate.revision);
+    if (candidateValues === undefined) {
+      return null;
+    }
+    if (canonicalJson(candidateValues) === failedJson) {
+      return candidate.revision;
+    }
+  }
+  return null;
+}
+
+export function selectFailedRollbackRecoveryTarget(history, options = {}) {
+  const shape = failedRollbackRecoveryShape(history);
+  if (!shape) {
+    return null;
+  }
+  let targetRevision = null;
+  for (const entry of shape.tail) {
+    const entryTarget =
+      entry.targetRevision ??
+      matchFailedRollbackTargetByValues(entry.revision, shape.candidates, options.revisionValues);
+    if (entryTarget === null || (targetRevision !== null && entryTarget !== targetRevision)) {
+      return null;
+    }
+    targetRevision = entryTarget;
+  }
+  const target = history.find((entry) => entry.revision === targetRevision);
+  return target && target.status === "superseded" ? targetRevision : null;
 }
 
 export function selectStableStalePendingUpgrade(history, options = {}) {
@@ -977,7 +1089,14 @@ export async function captureKubernetesRollbackTarget(options = {}) {
     throw new Error("Captured Helm image tag must equal lastKnownGoodCommit.");
   }
   requiredOption(options.releaseTag, "releaseTag");
-  const initialHistory = await readHelmHistory(options);
+  let initialHistory = await readHelmHistory(options);
+  let failedRollbackRecovery;
+  if (!initialHistory.some((entry) => entry.status === "deployed")) {
+    const recovery = await healFailedRollbackTail(options, initialHistory, expectedIdentity);
+    if (recovery) {
+      ({ history: initialHistory, failedRollbackRecovery } = recovery);
+    }
+  }
   const { source, historyHead, terminalFailedSuffix } = selectStableDeployedHelmSource(initialHistory);
 
   const values = await readHelmRevisionValues({ ...options, revision: source.revision });
@@ -1010,8 +1129,93 @@ export async function captureKubernetesRollbackTarget(options = {}) {
     historyHeadRevision: historyHead.revision,
     terminalFailedSuffix,
     preDeployHistory: initialHistory,
+    ...(failedRollbackRecovery ? { failedRollbackRecovery } : {}),
     values,
   });
+}
+
+// Heals the exact zero-deployed shape left behind by a failed Helm rollback
+// (Helm marks the prior head superseded and the rollback revision failed) with
+// one exact rollback to the failed rollback's own target. Returns null for
+// every other zero-deployed history so the ordinary "observed 0" refusal stays.
+async function healFailedRollbackTail(options, initialHistory, expectedIdentity) {
+  const shape = failedRollbackRecoveryShape(initialHistory);
+  if (!shape) {
+    return null;
+  }
+  const revisionValues = new Map();
+  const loadValues = async (revision) => {
+    if (!revisionValues.has(revision)) {
+      revisionValues.set(revision, await readHelmRevisionValues({ ...options, revision }));
+    }
+    return revisionValues.get(revision);
+  };
+  const unresolved = shape.tail.filter((entry) => entry.targetRevision === null);
+  for (const entry of unresolved) {
+    await loadValues(entry.revision);
+  }
+  let targetRevision = selectFailedRollbackRecoveryTarget(initialHistory, { revisionValues });
+  for (const candidate of shape.candidates) {
+    if (targetRevision !== null || unresolved.length === 0) {
+      break;
+    }
+    await loadValues(candidate.revision);
+    targetRevision = selectFailedRollbackRecoveryTarget(initialHistory, { revisionValues });
+  }
+  if (targetRevision === null) {
+    return null;
+  }
+
+  const targetValues = await loadValues(targetRevision);
+  const targetIdentity = platformImageIdentityFromValues(targetValues);
+  assertCapturedRollbackImageIdentity(targetIdentity, expectedIdentity, `Helm revision ${targetRevision}`, options);
+  await readApplicationWorkloadIdentities({
+    ...options,
+    values: targetValues,
+    expectedImageRef: targetIdentity.imageRef,
+  });
+  assertNoActiveHelmOperation(await readHelmOperationCensus(options));
+  const stableHistory = await readHelmHistory(options);
+  assertHelmHistoryUnchanged(initialHistory, stableHistory, "failed-rollback recovery admission");
+
+  const rollback = await rollbackPlatformOnKubernetes({
+    ...options,
+    revision: targetRevision,
+    releaseExists: true,
+    expectedPreRollbackHistory: stableHistory,
+  });
+  if (rollback.result !== "success") {
+    throw new Error(
+      `Failed-rollback recovery to revision ${targetRevision} failed: ${rollback.reason ?? "unknown failure"}`,
+    );
+  }
+  const resultingRevision = positiveHelmRevision(
+    rollback.rollbackIdentity?.resultingRevision,
+    "failed-rollback recovery resultingRevision",
+  );
+  const recoveredHistory = await readHelmHistory(options);
+  const newEntries = recoveredHistory.filter((entry) => entry.revision > initialHistory.at(-1).revision);
+  const head = recoveredHistory.at(-1);
+  if (
+    newEntries.length !== 1 ||
+    head.revision !== resultingRevision ||
+    head.status !== "deployed" ||
+    head.description !== `Rollback to ${targetRevision}`
+  ) {
+    throw new Error(
+      `Failed-rollback recovery to revision ${targetRevision} must leave revision ${resultingRevision} deployed with description ${JSON.stringify(`Rollback to ${targetRevision}`)} as the only new head; observed ${JSON.stringify(compactHelmHistory(newEntries))}.`,
+    );
+  }
+  return {
+    history: recoveredHistory,
+    failedRollbackRecovery: {
+      preRecoveryHistory: initialHistory,
+      targetRevision,
+      failedRollbackRevisions: shape.tail.map((entry) => entry.revision),
+      rollback,
+      resultingRevision,
+    },
+  };
 }
 
 function compactHelmHistory(history) {
