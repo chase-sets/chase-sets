@@ -35,6 +35,9 @@ const sourceObservationStreamId =
   `catalog.source-observation-${catalogBrowserE2ePromotedObservation.observationId}` as const;
 const promotedAt = "2026-06-03T00:01:00.000Z";
 const observedAt = "2026-06-03T00:00:00.000Z";
+const promotedSeedLifecycle = ["catalog.source-observation.recorded", "catalog.source-observation.promoted"] as const;
+// One refresh is the seed's only reconciliation append, so a reconciled stream keeps a fixed shape.
+const reconciledPromotedSeedLifecycle = [...promotedSeedLifecycle, "catalog.source-observation.refreshed"] as const;
 
 type StoredSourceObservationEvent = Readonly<{
   event_type: string;
@@ -90,8 +93,13 @@ export async function seedPromotedSourceObservationScenario(services: CatalogSer
     return;
   }
 
-  if (isExactLifecycle(eventTypes, ["catalog.source-observation.recorded", "catalog.source-observation.promoted"])) {
-    requireSeedState("promoted", state, expectedPromotedState);
+  if (isExactLifecycle(eventTypes, promotedSeedLifecycle)) {
+    await reconcileOrRefusePromotedSeedHistory(services, evidence.recordCommand, state, expectedPromotedState);
+    return;
+  }
+
+  if (isExactLifecycle(eventTypes, reconciledPromotedSeedLifecycle)) {
+    requireSeedState("reconciled promoted", state, expectedPromotedState);
     return;
   }
 
@@ -238,12 +246,98 @@ function expectedStateAfter(command: SourceObservationCommand, state: SourceObse
   return evolveSourceObservation(state, events[0]);
 }
 
-function requireSeedState(label: string, actual: SourceObservationState, expected: SourceObservationState): void {
-  if (!isDeepStrictEqual(actual, expected)) {
-    throw new Error(
-      `Catalog browser Source Observation seed found ${label} history with mismatched identity, facts, target, profile, terminal state, or fingerprint.`,
-    );
+/**
+ * A long-lived environment holds a promoted stream written by an older fixture revision.
+ * The seed reconciles that drift only when replaying the fixture's record command against the
+ * stored stream provably lands on the expected state through a single refresh — the one event
+ * that carries the existing promotion forward instead of promoting again. Every other shape of
+ * drift is refused with the field path that diverged, so drift is never repaired silently.
+ */
+async function reconcileOrRefusePromotedSeedHistory(
+  services: CatalogServices,
+  recordCommand: Extract<SourceObservationCommand, { type: "RecordSourceObservation" }>,
+  actual: SourceObservationState,
+  expected: SourceObservationState,
+): Promise<void> {
+  const divergentFieldPath = diagnoseSeedStateDivergence(actual, expected);
+  if (divergentFieldPath === null) {
+    return;
   }
+
+  const refreshed = refreshedSeedState(recordCommand, actual);
+  if (refreshed === null || diagnoseSeedStateDivergence(refreshed, expected) !== null) {
+    throw seedStateMismatch("promoted", divergentFieldPath);
+  }
+
+  await sendSeedCommand(services.sourceObservations.commandHandler, sourceObservationStreamId, recordCommand);
+}
+
+function refreshedSeedState(
+  recordCommand: Extract<SourceObservationCommand, { type: "RecordSourceObservation" }>,
+  state: SourceObservationState,
+): SourceObservationState | null {
+  let events: readonly SourceObservationEvent[];
+  try {
+    events = decideSourceObservation(state, recordCommand);
+  } catch {
+    return null;
+  }
+
+  const [event] = events;
+  if (events.length !== 1 || event?.type !== "catalog.source-observation.refreshed") {
+    return null;
+  }
+  return evolveSourceObservation(state, event);
+}
+
+function requireSeedState(label: string, actual: SourceObservationState, expected: SourceObservationState): void {
+  const divergentFieldPath = diagnoseSeedStateDivergence(actual, expected);
+  if (divergentFieldPath !== null) {
+    throw seedStateMismatch(label, divergentFieldPath);
+  }
+}
+
+function seedStateMismatch(label: string, divergentFieldPath: string): Error {
+  return new Error(
+    `Catalog browser Source Observation seed found ${label} history with mismatched identity, facts, target, profile, terminal state, or fingerprint at field path '${divergentFieldPath}'.`,
+  );
+}
+
+/**
+ * Names the first field path where a rehydrated history diverges from the fixture's expected
+ * state, or null when the two match. The accept/reject decision stays the strict whole-value
+ * `isDeepStrictEqual`; the walk below only runs once that comparison has already rejected.
+ */
+export function diagnoseSeedStateDivergence(actual: unknown, expected: unknown, path = ""): string | null {
+  if (isDeepStrictEqual(actual, expected)) {
+    return null;
+  }
+
+  if (Array.isArray(actual) && Array.isArray(expected)) {
+    for (let index = 0; index < Math.max(actual.length, expected.length); index += 1) {
+      const nested = diagnoseSeedStateDivergence(actual[index], expected[index], `${path}[${index}]`);
+      if (nested !== null) {
+        return nested;
+      }
+    }
+    return path || "<root>";
+  }
+
+  if (isFieldRecord(actual) && isFieldRecord(expected)) {
+    for (const key of new Set([...Object.keys(expected), ...Object.keys(actual)])) {
+      const nested = diagnoseSeedStateDivergence(actual[key], expected[key], path ? `${path}.${key}` : key);
+      if (nested !== null) {
+        return nested;
+      }
+    }
+    return path || "<root>";
+  }
+
+  return path || "<root>";
+}
+
+function isFieldRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isExactLifecycle(actual: readonly string[], expected: readonly string[]): boolean {
