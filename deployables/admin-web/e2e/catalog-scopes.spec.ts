@@ -167,13 +167,27 @@ test.describe.serial("catalog admin scopes", () => {
 
     await page.getByRole("button", { name: "Preview resolved sets" }).click();
     await expectAdminPageReady(page, { heading: "Scope Sync Batches" });
-    const previewIds = ((await page.locator('input[name="scopeRecordIds"]').last().getAttribute("value")) ?? "")
-      .split(",")
-      .filter(Boolean);
+    const previewTable = page.getByRole("table", {
+      name: "Bounded Scope Sync Batch preview sample",
+      exact: true,
+    });
+    const previewIds = await previewTable.locator("tbody tr td:nth-child(1)").allTextContents();
     expect(previewIds).toEqual(resolvedIds);
-    await page.getByRole("button", { name: "Confirm and enqueue" }).click();
-    await expect(page).toHaveURL(/\/catalog\/scopes\/sync-batches\?batchId=/);
-    await expectAdminPageReady(page, { heading: "Scope Sync Batches" });
+    await expect(page.getByText("0 ready scopes, 4 blocked scopes, 4 provider units.", { exact: true })).toBeVisible();
+    const planningBlockerAlerts = page
+      .getByRole("alert")
+      .filter({ has: page.getByText("scope-planning-blocked", { exact: true }) });
+    await expect(
+      planningBlockerAlerts.filter({
+        has: page.getByText("TCGplayer automation credential/session readiness is missing.", { exact: true }),
+      }),
+    ).toHaveCount(4);
+    await expect(
+      planningBlockerAlerts.filter({
+        has: page.getByText("TCGplayer automation transport is not configured in this runtime.", { exact: true }),
+      }),
+    ).toHaveCount(4);
+    await expect(page.getByRole("button", { name: "Confirm and enqueue", exact: true })).toHaveCount(0);
   });
 });
 
