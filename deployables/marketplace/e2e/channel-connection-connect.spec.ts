@@ -77,7 +77,14 @@ test("manual-sync-panel-round-trip: connects and activates an independent real c
 
   await publishTwoSellerListings(page, storageLocationId);
   await page.goto(firstPath.replace("/channels/", "/channels/publication/"));
-  await page.getByLabel("Allowed category IDs, one per line").fill(catalogSeedIds.categories.onePieceCardGame);
+  // A listing is publishable only when every category its catalog item carries is allow-listed.
+  const allowedCategoryIds = [
+    catalogSeedIds.categories.onePieceCardGame,
+    catalogSeedIds.categories.onePieceCardPrints,
+    catalogSeedIds.categories.onePieceSealedProducts,
+    catalogSeedIds.categories.onePieceBoosterBoxes,
+  ];
+  await page.getByLabel("Allowed category IDs, one per line").fill(allowedCategoryIds.join("\n"));
   const configurationVersion = await page.locator('input[name="expectedStreamVersion"]').first().inputValue();
   await page.getByRole("button", { name: "Save publication settings", exact: true }).click();
   await expect
