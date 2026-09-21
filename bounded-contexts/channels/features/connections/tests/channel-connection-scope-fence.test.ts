@@ -15,7 +15,10 @@ describe("channel-connection-scope-fence", () => {
     expect(findForbiddenRoutes(route)).toEqual([]);
     expect(route).not.toMatch(/credentialReference\?|bindings\s*:/);
     expect(JSON.stringify(manifest)).not.toContain("landing");
-    expect(JSON.stringify(manifest)).not.toMatch(/providerRegistry|readAfterWriteRouteInventory/);
+    expect(JSON.stringify(manifest)).not.toMatch(/providerRegistry/);
+    expect((manifest.readAfterWriteRouteInventory ?? []).map((entry) => entry.id)).toEqual([
+      "channels.publication-settings-to-detail",
+    ]);
 
     const mutant = `${route}\napp.post("/connect", handler);\n`;
     expect(findForbiddenRoutes(mutant)).toEqual(["/connect"]);

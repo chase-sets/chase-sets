@@ -1,14 +1,73 @@
 import { createChannelsServicesForTest } from "../../../tests/channels-services-test-support";
 import { Hono } from "hono";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ChannelConnectionServices } from "../../connections/domain/contracts";
 import { createUnavailableOutboundSyncServices } from "../../outbound-sync/tests/test-support";
 import { buildChannelsApi, type ChannelsActor, type ChannelsApiEnv } from "../../../api";
 import type { ChannelListingCompositionServices } from "../api/runtime";
 import type { ChannelPublicationConnectionDetail } from "../domain/contracts";
+import {
+  action as publicationAction,
+  loader as publicationLoader,
+} from "../../../routes/marketplace/account-channels-publication-connection";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("channel-mapping-review-route", () => {
+  it("mapping-decision-freshness-lag", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const request = input instanceof Request ? new Request(input, init) : new Request(String(input), init);
+        const url = new URL(request.url);
+        if (url.pathname === "/api/auth/session") {
+          return jsonResponse({
+            actor: {
+              sessionId: "session-1",
+              tenantId: "tenant-1",
+              userId: "user-1",
+              accountId: "account-owner",
+              membershipId: "membership-1",
+              roleKey: "owner",
+              permissions: ["channels.view", "channels.manage"],
+            },
+          });
+        }
+        if (url.pathname.includes("/mappings/") && request.method === "POST") {
+          return jsonResponse({ kind: "applied", streamVersion: 1 });
+        }
+        if (url.pathname.endsWith("/publication/connection-1") && request.method === "GET") {
+          return jsonResponse(connectionDetail);
+        }
+        throw new Error(`Unexpected request: ${request.method} ${url.pathname}`);
+      }),
+    );
+    const formData = new FormData();
+    formData.set("intent", "decide-mapping");
+    formData.set("dimension", "category");
+    formData.set("sourceKey", "catalog-category:cards");
+    formData.set("decision", "accept");
+    formData.set("targetKey", "cards");
+    formData.set("expectedStreamVersion", "0");
+    const request = new Request("http://localhost/account/channels/publication/connection-1", {
+      method: "POST",
+      body: formData,
+    });
+
+    const actionData = await publicationAction({ request, params: { connectionId: "connection-1" }, context: {} });
+    const loaderData = await publicationLoader({
+      request: new Request("http://localhost/account/channels/publication/connection-1"),
+      params: { connectionId: "connection-1" },
+      context: {},
+    });
+
+    expect(actionData).toMatchObject({ kind: "applied", streamVersion: 1 });
+    expect(loaderData).toMatchObject({ kind: "ready", detail: { configurationStreamVersion: 0 } });
+  });
+
   it("R2 rejects the unscoped foreign-mutation lookup mutant while preserving API permissions", async () => {
     const observedAccounts: string[] = [];
     const { listingComposition, root } = routeHarness(observedAccounts);
@@ -208,4 +267,8 @@ function connectionServices(): ChannelConnectionServices {
     listConnections: vi.fn(),
     projectors: [],
   };
+}
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }

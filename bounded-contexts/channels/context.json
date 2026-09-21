@@ -429,6 +429,34 @@
       "requiredPermissions": ["channels.view"]
     }
   ],
+  "readAfterWriteRouteInventory": [
+    {
+      "id": "channels.publication-settings-to-detail",
+      "owner": "channels",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeId": "channels-publication-connection",
+        "actions": ["Replace settings"],
+        "command": "ReplaceChannelConnectionPublicationSettings"
+      },
+      "destination": {
+        "routeId": "channels-publication-connection",
+        "apiContextName": "channels",
+        "apiRoutePath": "/publication/:connectionId",
+        "readModelTables": ["channel_publication_settings"],
+        "helperUses": ["loadAfterWrite"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Publication projection lag retains the existing form loading state with bounded read revalidation; the settings write is never replayed."
+        }
+      }
+    }
+  ],
   "mutationConsistencyInventory": [
     {
       "id": "channels.drift-decision-snapshots",
@@ -518,7 +546,7 @@
         "description": "Publication settings and mapping forms retain submitted values while the real data-router revalidates; a changed configuration stream version remounts the form from authoritative loader data, while conflicts and command errors remain visible."
       },
       "proof": {
-        "correction": "Both forms are keyed by configurationStreamVersion. The route action returns conflicts and command failures directly; successful actions invoke normal React Router loader revalidation, and a newer version replaces the optimistic form with the account-scoped API result.",
+        "correction": "Both forms are keyed by configurationStreamVersion. The post-write action-data handoff retains the command streamVersion, the detail loader reads through loadAfterWrite, and a lower projection version renders the existing loading state with bounded revalidation until the account-scoped API result reaches the written version; conflicts and command failures remain direct.",
         "tests": [
           "bounded-contexts/channels/features/listing-composition/tests/channel-publication-settings-route.test.tsx",
           "bounded-contexts/channels/features/listing-composition/tests/channel-mapping-review-route.test.ts"
