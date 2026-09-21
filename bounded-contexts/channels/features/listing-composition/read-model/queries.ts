@@ -12,6 +12,8 @@ import type {
   ChannelListingLinkState,
   ChannelMappingResolution,
   ChannelMappingReviewPage,
+  ChannelPublicationBlockedListingPage,
+  ChannelPublicationBlockingReason,
   ChannelPublicationSettings,
   ChannelPublicationConnectionDetail,
   ChannelPublicationConnectionSummary,
@@ -67,6 +69,7 @@ export async function readChannelPublicationConnection(
   if (!connection) return null;
   const settings = await readSettings(db, input.connectionId);
   const mappingReview = await readChannelMappingReviewQueue(db, input);
+  const blockedListings = await readChannelPublicationBlockedListings(db, input.connectionId);
   const version = await db.query<{ last_stream_version: string | number }>(
     `SELECT GREATEST(
        COALESCE((SELECT last_stream_version FROM channels_connection_publication_settings WHERE connection_id=$1),0),
@@ -78,7 +81,36 @@ export async function readChannelPublicationConnection(
     connection,
     settings,
     mappingReview,
+    blockedListings,
     configurationStreamVersion: Number(version.rows[0]?.last_stream_version ?? 0),
+  };
+}
+
+const blockedListingPageLimit = 25;
+
+export async function readChannelPublicationBlockedListings(
+  db: PgQueryable,
+  connectionId: string,
+): Promise<ChannelPublicationBlockedListingPage> {
+  const result = await db.query<{
+    listing_id: string;
+    channel_listing_id: string;
+    blocking_reason_codes: unknown;
+    total: string | number;
+  }>(
+    `SELECT listing_id,channel_listing_id,blocking_reason_codes,COUNT(*) OVER () AS total
+     FROM channels_channel_listing_links
+     WHERE connection_id=$1 AND publish_state='blocked'
+     ORDER BY listing_id LIMIT $2`,
+    [connectionId, blockedListingPageLimit],
+  );
+  return {
+    items: result.rows.map((row) => ({
+      listingId: row.listing_id,
+      channelListingId: row.channel_listing_id,
+      blockingReasonCodes: strings(row.blocking_reason_codes) as readonly ChannelPublicationBlockingReason[],
+    })),
+    total: Number(result.rows[0]?.total ?? 0),
   };
 }
 

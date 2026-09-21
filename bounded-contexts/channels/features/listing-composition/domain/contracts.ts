@@ -323,10 +323,22 @@ export type ChannelPublicationConnectionSummary = Readonly<{
   reviewCount: number;
 }>;
 
+export type ChannelPublicationBlockedListing = Readonly<{
+  listingId: string;
+  channelListingId: string;
+  blockingReasonCodes: readonly ChannelPublicationBlockingReason[];
+}>;
+
+export type ChannelPublicationBlockedListingPage = Readonly<{
+  items: readonly ChannelPublicationBlockedListing[];
+  total: number;
+}>;
+
 export type ChannelPublicationConnectionDetail = Readonly<{
   connection: ChannelPublicationConnectionSummary;
   settings: ChannelPublicationSettings | null;
   mappingReview: ChannelMappingReviewPage;
+  blockedListings: ChannelPublicationBlockedListingPage;
   configurationStreamVersion: number;
 }>;
 
