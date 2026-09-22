@@ -639,7 +639,7 @@ describeDb("Channel Reconciliation guarded production path", () => {
     expect(retained!.generation).toBe(opening!.generation + 1);
     expect(retained!.resolution).toBeNull();
     expect(retained!.members).toHaveLength(opening!.members.length + 1);
-    expect(retained!.members).toEqual(expect.arrayContaining(opening!.members));
+    expect(retained!.members).toEqual(expect.arrayContaining([...opening!.members]));
     expect(retained!.members.find((member) => member.identity === "source:state")).toEqual({
       identity: "source:state",
       kind: "source-unavailable",
