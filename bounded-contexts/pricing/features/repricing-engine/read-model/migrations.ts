@@ -1,6 +1,25 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
 
+export const pricingRepricingDigestSchemaSql = `
+CREATE TABLE IF NOT EXISTS pricing_repricing_digest_windows (
+  window_day date PRIMARY KEY,
+  kind text NOT NULL CHECK (kind IN ('baseline', 'day')),
+  assigned_floor bigint NOT NULL,
+  captured_at timestamptz NOT NULL,
+  emitted_at timestamptz NULL,
+  updated_at timestamptz NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS pricing_repricing_digest_baseline_idx
+  ON pricing_repricing_digest_windows (kind) WHERE kind = 'baseline';
+CREATE TABLE IF NOT EXISTS pricing_repricing_digest_window_members (
+  global_position bigint PRIMARY KEY,
+  window_day date NOT NULL REFERENCES pricing_repricing_digest_windows(window_day)
+);
+CREATE INDEX IF NOT EXISTS pricing_repricing_digest_members_window_idx
+  ON pricing_repricing_digest_window_members (window_day, global_position);
+`;
+
 export const pricingListingOutcomeSchemaSql = `
 CREATE TABLE IF NOT EXISTS pricing_repricing_listing_outcome_facts (
   listing_id text NOT NULL,

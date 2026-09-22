@@ -1,6 +1,6 @@
 import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
-import { pricingListingOutcomeSchemaSql } from "./migrations";
+import { pricingListingOutcomeSchemaSql, pricingRepricingDigestSchemaSql } from "./migrations";
 
 /**
  * Durable signal work, seller-visible evaluation facts, and the two small
@@ -8,6 +8,7 @@ import { pricingListingOutcomeSchemaSql } from "./migrations";
  */
 export const pricingRepricingEngineSchemaSql = `
 ${pricingListingOutcomeSchemaSql}
+${pricingRepricingDigestSchemaSql}
 ${durableJobSchemaSql({
   jobsTable: "pricing_repricing_evaluation_jobs",
   eventsTable: "pricing_repricing_evaluation_job_events",
@@ -99,5 +100,10 @@ export const pricingRepricingEngineSchemaMigrations: readonly BcSchemaMigration[
     migrationId: "20260916_pricing_listing_outcomes",
     description: "Retain repricing listing facts and convergent current outcomes with digest-proven compaction.",
     statements: [pricingListingOutcomeSchemaSql],
+  },
+  {
+    migrationId: "20260922_pricing_repricing_digest",
+    description: "Capture immutable repricing digest membership and checkpoint-gated daily delivery.",
+    statements: [pricingRepricingDigestSchemaSql],
   },
 ];

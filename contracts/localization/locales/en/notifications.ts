@@ -140,6 +140,9 @@ export const notificationsEnglishTranslations = {
     "Held funds were used for a refund on order {orderReference}",
   "notifications.intents.supportDispute.holdConsumed.body":
     "The case resolved with a {resolution}, so the held funds were applied to the buyer's refund rather than paid out to you.",
+  "notifications.intents.repricingDigest.title": "Repricing activity for {day}",
+  "notifications.intents.repricingDigest.body":
+    "{policiesEvaluated} policies evaluated; {listingsChanged} listing changes; {floorClamped} floor clamps; {ceilingClamped} ceiling clamps; {maxMoveClamped} maximum-move clamps; {budgetExhausted} budget limits; {pausedForMissingInput} pauses for missing input; {withinTolerance} within tolerance; {spiralBreakerTrips} spiral breaker trips.",
   "notifications.routes.accountNotifications.description": "Review marketplace updates from the notification center.",
   "notifications.routes.accountNotifications.title": "Notifications | Marketplace",
 } as const;

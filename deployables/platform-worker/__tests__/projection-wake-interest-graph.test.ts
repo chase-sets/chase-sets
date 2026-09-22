@@ -140,8 +140,8 @@ describe("platform worker projection wake interest graph", () => {
     // runner (self-subscription), so the runner's handler/event-type set grew
     // without adding or removing a runner.
     expect(fingerprint(runtime.subscriptionRunners.map((runner) => fingerprintObject(runner)))).toEqual({
-      count: 245,
-      sha256: "5f4b97f498811215ccd0d5c74f7ada7c8669ba60b6141b3560c18a89005824e2",
+      count: 246,
+      sha256: "22f729289ccefa57d3a4803590c3f20977a714c087a766fc46c926c93d11bfb4",
     });
     expect(
       fingerprint(
@@ -151,22 +151,22 @@ describe("platform worker projection wake interest graph", () => {
         })),
       ),
     ).toEqual({
-      count: 152,
-      sha256: "9d661cf23b57ba15a3f194bc50f2cd2b6b665a9c777e4dd42e0073fdbd1f3b74",
+      count: 153,
+      sha256: "109a0aaaf9f3e4310086afdfab8ff9e21991f275d5ec7df86d66e2071ceb9c20",
     });
     expect({
       count: rawCheckpointIdentities.length,
       sha256: sha256(JSON.stringify(rawCheckpointIdentities)),
     }).toEqual({
-      count: 152,
-      sha256: "ea8e44e85837066378d8a199efa91536f55cbb5fb49264dfc0b3dd51caf29aef",
+      count: 153,
+      sha256: "f53828b39f6b59b6dd2ee7e234e2add1a66a2f328a20a1245315ef8af9ce88fc",
     });
     expect(fingerprint(runtime.subscriptionRunners.map((runner) => runner.checkpointKey))).toEqual({
-      count: 245,
-      sha256: "e87c2310f4598a8f42d26d0799abbaf15764d6b8419e0d615be321d0f262830b",
+      count: 246,
+      sha256: "a6450695ac9fe88f028441e156262596a2a67b7d9d532a2ea1d8e02683a1fdd1",
     });
     expect(sharedNames).toMatchObject({
-      distinctNames: 117,
+      distinctNames: 118,
       distinctSharedNames: 20,
       runnersUsingSharedNames: 55,
     });
