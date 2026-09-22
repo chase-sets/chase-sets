@@ -147,6 +147,7 @@ export type PlatformApiBaseConfig = Readonly<{
   deploymentEnvironment?: DeploymentEnvironment;
   dataProfiles?: readonly EnvironmentDataProfile[];
   adminRegistrationEnabled?: boolean;
+  checkoutClosed: boolean;
   registrationAdmission?: PlatformApiRegistrationAdmissionConfig;
   taxProviderBackedQuotesRequired?: boolean;
   authSecurityLifetimes?: PlatformApiAuthSecurityLifetimesConfig;
@@ -720,6 +721,7 @@ function loadBaseConfig(): PlatformApiBaseConfig {
     deploymentEnvironment,
     dataProfiles: loadDataProfiles(deploymentEnvironment),
     adminRegistrationEnabled: getBooleanEnv("ADMIN_REGISTRATION_ENABLED", false),
+    checkoutClosed: getBooleanEnv("CHASE_SETS_CHECKOUT_CLOSED", false),
     registrationAdmission: {
       mode: loadRegistrationAdmissionMode(deploymentEnvironment),
       disposableEmailMode: loadDisposableEmailMode(),

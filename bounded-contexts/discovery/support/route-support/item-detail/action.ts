@@ -7,7 +7,7 @@ import {
   navigateAfterWriteFromSourcesWithPlatformPostWriteToken,
   navigateAfterWriteWithPlatformPostWriteToken,
 } from "@chase-sets/platform-runtime/post-write-tokens";
-import { appendFreshWriteToken, type PostWriteHandoff } from "@chase-sets/http/responses";
+import { appendFreshWriteToken, readApiErrorCode, type PostWriteHandoff } from "@chase-sets/http/responses";
 import { createDiscoveryRequestApiClient } from "../../request-support/api-client";
 import {
   appendAnonymousProductAlertCookie,
@@ -632,7 +632,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
   } catch (error) {
     if (error instanceof Error) {
       return {
-        error: error.message,
+        error:
+          "status" in error && error.status === 503 && "body" in error && readApiErrorCode(error.body) === "checkout_closed"
+            ? t("discovery.routes.itemDetail.checkout.closed")
+            : error.message,
         intent,
       };
     }

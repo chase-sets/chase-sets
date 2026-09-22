@@ -1,6 +1,7 @@
 {
   "schemaVersion": "platform-runtime-values/v1",
   "productionEnvOverrides": {
+    "CHASE_SETS_CHECKOUT_CLOSED": "true",
     "CATALOG_INTEGRATION_ACTIVATION_MODE": "test-profiles-only",
     "CATALOG_INTEGRATION_CONTROL_PLANE_MODE": "dry-run-only",
     "CATALOG_INTEGRATION_IMPORTS_DISABLED": "mtgjson,scryfall,tcgplayer",
@@ -241,7 +242,7 @@
       "command": "pnpm --filter @chase-sets/app-marketplace-web run start",
       "env": [
         {
-          "name": "CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE",
+          "name": "CHASE_SETS_CHECKOUT_CLOSED",
           "value": "false"
         },
         {

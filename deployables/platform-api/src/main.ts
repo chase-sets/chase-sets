@@ -588,6 +588,7 @@ const app = buildPlatformApiApp(runtime, {
   runtimeProfile: config.runtimeProfile,
   internalAuthSecret: config.internalAuthSecret,
   adminRegistrationEnabled: config.adminRegistrationEnabled,
+  checkoutClosed: config.checkoutClosed,
   controlPlane,
   ...(evidenceWindowRegistration && config.evidenceWindowAdmissionSecret
     ? {
