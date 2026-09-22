@@ -11,6 +11,7 @@ export const pricingWakeRegistryEntry = registryEntry({
   wakeStoreLoadEstimate: "low",
   affectedProjectionNames: [
     "collections:collections-saved-list-valuation-projection",
+    "notifications:notifications-source-facts-outbox-projection",
     "pricing:pricing-economics-overrides-projection",
     "pricing:pricing-repricing-evaluation-projection",
     "pricing:pricing-repricing-evaluation-reaction",

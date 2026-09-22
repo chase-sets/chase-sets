@@ -160,6 +160,21 @@ export function createRepricingActivityDigestRunner(
           [day],
         );
         if (position < BigInt(maximum.rows[0]!.position)) return true;
+        // Evaluation rows and their listing facts commit in the same projection transaction.
+        const completeness = await tx.query<{ incomplete: boolean }>(
+          `SELECT EXISTS (
+             SELECT 1 FROM pricing_repricing_digest_window_members AS member
+             WHERE member.window_day = $1::date AND NOT EXISTS (
+               SELECT 1 FROM event_store_events AS event
+               JOIN pricing_repricing_policy_evaluations AS evaluation
+                 ON evaluation.evaluation_id = event.payload->>'evaluationId'
+               WHERE event.global_position = member.global_position
+                 AND event.event_type = 'pricing.repricing-policy.evaluated'
+             )
+           ) AS incomplete`,
+          [day],
+        );
+        if (completeness.rows[0]!.incomplete) return true;
         const counts = await tx.query<DigestCounts>(
           `SELECT fact.seller_account_id AS "sellerAccountId",
              count(DISTINCT fact.policy_id)::integer AS "policiesEvaluated",

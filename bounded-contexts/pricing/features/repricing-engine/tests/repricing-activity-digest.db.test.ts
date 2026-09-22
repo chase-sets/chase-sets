@@ -266,13 +266,18 @@ describeDb("repricing activity digest PostgreSQL timelines", () => {
     ]).find((entry) => entry.projectionName === "pricing-repricing-evaluation-projection");
     expect(subscription?.checkpointKey).toBe(key);
     expect(subscription?.subscriptionVersion).toBe(1);
-    const old = await append("before", `${D}T01:00:00Z`);
+    await append("baseline-older", "2026-06-01T01:00:00Z", { listing: "baseline-listing" });
+    const old = await append("baseline-newest", "2026-06-02T01:00:00Z", { listing: "baseline-listing" });
+    await projectThrough(old.globalPosition);
+    expect(await factIds()).toEqual(["baseline-newest", "baseline-older"]);
     await activate();
     expect(await windows()).toMatchObject([
       { window_day: "2026-09-19", kind: "baseline", assigned_floor: old.globalPosition },
     ]);
     expect(await members()).toEqual([]);
     expect(await digests()).toEqual([]);
+    expect((await windows())[0]!.emitted_at).not.toBeNull();
+    expect(await factIds()).toEqual(["baseline-newest"]);
     const event = await append("after", `${D}T13:00:00Z`);
     await projectThrough(event.globalPosition);
     await run("2026-09-21T00:01:00Z");
@@ -373,6 +378,54 @@ describeDb("repricing activity digest PostgreSQL timelines", () => {
     await run("2026-09-26T00:02:00Z");
     expect((await windows()).every((row) => row.emitted_at !== null)).toBe(true);
     expect(await digests()).toHaveLength(6);
+  });
+
+  it("checkpoint beyond an unprojected member holds oldest-first until its exact projection commits", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await activate();
+    const missing = await append("unprojected", `${D}T13:00:00Z`);
+    const projected = await append("projected", `${D}T14:00:00Z`);
+    const next = await append("next-day", "2026-09-21T13:00:00Z");
+    const handler = buildRepricingEvaluationProjectionHandlers(db)[repricingPolicyEvaluatedEventType]!;
+    await handler(toTransportEvent(projected));
+    await handler(toTransportEvent(next));
+    await checkpoint(next.globalPosition);
+    expect(BigInt(next.globalPosition)).toBeGreaterThan(BigInt(missing.globalPosition));
+    expect(await factIds()).toEqual(["next-day", "projected"]);
+
+    await run("2026-09-21T00:01:00Z");
+    expect(await positions(D)).toEqual([missing.globalPosition, projected.globalPosition]);
+    expect(await digests()).toEqual([]);
+    expect(warn).not.toHaveBeenCalled();
+    await run("2026-09-22T06:00:00Z");
+    expect(await positions("2026-09-21")).toEqual([next.globalPosition]);
+    expect((await windows()).filter((row) => row.emitted_at === null).map((row) => row.window_day)).toEqual([
+      D,
+      "2026-09-21",
+    ]);
+    expect(await digests()).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenLastCalledWith("pricing.repricing-digest.delayed", {
+      day: D,
+      checkpointPosition: next.globalPosition,
+    });
+    await run("2026-09-22T06:01:00Z");
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(await digests()).toEqual([]);
+
+    await handler(toTransportEvent(missing));
+    expect(await factIds()).toEqual(["next-day", "projected", "unprojected"]);
+    await run("2026-09-22T06:02:00Z");
+    expect(await digests()).toMatchObject([
+      { day: D, sellerAccountId: "acc_a", policiesEvaluated: 1, listingsChanged: 2 },
+      { day: "2026-09-21", sellerAccountId: "acc_a", policiesEvaluated: 1, listingsChanged: 1 },
+    ]);
+    expect((await windows()).every((row) => row.emitted_at !== null)).toBe(true);
+    const completed = await windows();
+    await run("2026-09-22T06:03:00Z");
+    expect(await windows()).toEqual(completed);
+    expect(await digests()).toHaveLength(2);
+    expect(warn).toHaveBeenCalledTimes(2);
   });
 
   it("held-projection timeline: settle, missing/wrong/below checkpoints, oldest-first, delay once per pass and racing emitters", async () => {
