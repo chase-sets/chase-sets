@@ -547,11 +547,7 @@ export function createChannelReconciliationRuntime(
               snapshotAgeAttention,
             })
           : null;
-      const state = hold.held
-        ? "held"
-        : stateComplete && saleComplete
-          ? "completed"
-          : "bounded-unknown";
+      const state = hold.held ? "held" : stateComplete && saleComplete ? "completed" : "bounded-unknown";
       return finishRun(
         dependencies,
         connection,
