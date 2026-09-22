@@ -299,15 +299,34 @@ export function createMultiContextTestPools<TContextName extends string>(
 }
 
 export async function resetMultiContextTestSchemas(pools: Readonly<Record<string, unknown>>): Promise<void> {
-  const uniquePools = [...new Set(Object.values(pools).filter(isPgTransactionalPool))];
+  const poolsByDatabaseTarget = new Map<unknown, PgTransactionalPool>();
 
-  await forEachWithConcurrency(uniquePools, testSchemaResetConcurrency, (pool) => {
-    const resetPool: PgTransactionalPool = pool;
+  for (const pool of Object.values(pools).filter(isPgTransactionalPool)) {
+    const databaseTarget = resolvePgPoolDatabaseTarget(pool);
+    if (!poolsByDatabaseTarget.has(databaseTarget)) {
+      poolsByDatabaseTarget.set(databaseTarget, pool);
+    }
+  }
 
-    return resetPool.query(
-      "DROP OWNED BY CURRENT_USER CASCADE; GRANT ALL PRIVILEGES ON SCHEMA public TO CURRENT_USER;",
-    );
+  await forEachWithConcurrency([...poolsByDatabaseTarget.values()], testSchemaResetConcurrency, (pool) => {
+    return pool.query("DROP OWNED BY CURRENT_USER CASCADE; GRANT ALL PRIVILEGES ON SCHEMA public TO CURRENT_USER;");
   });
+}
+
+// DROP OWNED BY CURRENT_USER is database-wide, not pool-scoped, so distinct pools targeting the same database must collapse to one reset to avoid a lock-order deadlock (40P01).
+function resolvePgPoolDatabaseTarget(pool: PgTransactionalPool): unknown {
+  const connectionString = (pool as unknown as { options?: { connectionString?: unknown } }).options?.connectionString;
+
+  if (typeof connectionString !== "string") {
+    return pool;
+  }
+
+  try {
+    const url = new URL(connectionString);
+    return `${url.hostname}:${url.port || "5432"}${url.pathname}`;
+  } catch {
+    return pool;
+  }
 }
 
 export async function closeMultiContextTestPools(pools: Readonly<Record<string, unknown>>): Promise<void> {
