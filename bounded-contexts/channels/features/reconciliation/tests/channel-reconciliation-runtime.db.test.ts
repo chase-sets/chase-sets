@@ -48,6 +48,10 @@ import { readChannelDriftDetail } from "../read-model/detail";
 import { readLatestLiveSnapshotMetadata } from "../../tcgplayer-csv/read-model/queries";
 import { evaluateSnapshotAge } from "../domain/snapshot-age";
 import type { RetainedDriftGeneration } from "../domain/generation";
+import { syntheticLiveRow, syntheticClaimedSource } from "./fixtures/material.test-data";
+import { tcgplayerExternalListingId } from "../../tcgplayer-csv/domain/composition";
+import { observedMaterialFingerprint, CHANNEL_OBSERVED_MATERIAL_SCHEME } from "../read-model/source";
+import type { ClaimedChannelStateRead } from "../domain/contracts";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Channels DB tests in CI.");
@@ -528,6 +532,294 @@ describeDb("Channel Reconciliation guarded production path", () => {
     expect(
       (await pools.channels.query("SELECT * FROM bounded_context_schema_migrations ORDER BY migration_id")).rows,
     ).toEqual(ledger);
+  });
+
+  it("drift-material-accepted-retained and digest-roundtrip retain the exact observed/full-expected pair", async () => {
+    const fixture = await materialRuntime();
+    await expect(fixture.run()).resolves.toMatchObject({ counts: { inSync: 2, foreignEdit: 1, repairsEnqueued: 0 } });
+    const observedFingerprint = observedMaterialFingerprint(fixture.source.rows[1]!);
+    const command = {
+      connectionId: "connection-1",
+      channelListingId: "channel-foreign",
+      observedFingerprint,
+      expectedMaterialFingerprint: fingerprint("2"),
+      expectedDecisionRevision: 0,
+      operationId: "SYNTHETIC-material-accept",
+    };
+    expect(observedFingerprint).toMatch(/^[a-f0-9]{64}$/);
+    const accepted = await fixture.runtime.acceptChannelDrift(command, context);
+    expect(accepted.accepted).toMatchObject({ observedFingerprint, expectedMaterialFingerprint: fingerprint("2") });
+    expect((await decisionEvents())[0]?.payload).toMatchObject({ observedFingerprint });
+    await expect(fixture.runtime.acceptChannelDrift(command, context)).resolves.toEqual(accepted);
+    for (let day = 1; day <= 2; day += 1) {
+      fixture.advanceDay();
+      await expect(fixture.run()).resolves.toMatchObject({
+        clean: false,
+        counts: { inSync: 3, foreignEdit: 0, repairable: 0, repairsEnqueued: 0 },
+      });
+      expect(
+        (
+          await fixture.runtime.readChannelDriftDecision({
+            accountId: "account-1",
+            connectionId: "connection-1",
+            channelListingId: "channel-foreign",
+          })
+        ).accepted,
+      ).toEqual(accepted.accepted);
+    }
+    const retained = await pools.channels.query<{ drift_generation: { generation: number } }>(
+      "SELECT drift_generation FROM channel_reconciliation_state WHERE connection_id='connection-1'",
+    );
+    expect(retained.rows[0]!.drift_generation.generation).toBe(1);
+    fixture.source = {
+      ...fixture.source,
+      rows: fixture.source.rows.map((row, index) => (index === 1 ? { ...row, priceAmountMinor: 1300 } : row)),
+    };
+    await expect(fixture.run()).resolves.toMatchObject({ counts: { inSync: 2, foreignEdit: 1, repairable: 0 } });
+    fixture.source = {
+      ...fixture.source,
+      rows: fixture.source.rows.map((row, index) => (index === 1 ? { ...row, priceAmountMinor: 1200 } : row)),
+    };
+    await expect(fixture.run()).resolves.toMatchObject({ counts: { inSync: 3 } });
+    await moveExpectedForeignMaterial(pools.channels);
+    await expect(fixture.run()).resolves.toMatchObject({ counts: { inSync: 2, foreignEdit: 1, repairable: 0 } });
+  });
+
+  it("drift-material-repair-authority preserves F6 and never copies the applied revision", async () => {
+    const fixture = await materialRuntime();
+    await expect(fixture.run()).resolves.toMatchObject({
+      counts: { foreignEdit: 1, repairable: 0, repairsEnqueued: 0 },
+    });
+    fixture.source = { ...fixture.source, appliedChannelListingIds: [] };
+    await expect(fixture.run()).resolves.toMatchObject({
+      clean: false,
+      counts: { inSync: 0, sourceUnavailable: 3, repairsEnqueued: 0 },
+    });
+    expect((await pools.channels.query("SELECT operation_id FROM channel_outbound_operations")).rows).toEqual([]);
+  });
+
+  it("drift-material-projection-parity refuses ambiguous desired Links to one exact Live row", async () => {
+    const fixture = await materialRuntime();
+    await pools.channels.query(`UPDATE channels_channel_listing_links SET external_listing_id=(
+      SELECT external_listing_id FROM channels_channel_listing_links WHERE channel_listing_id='channel-foreign')
+      WHERE channel_listing_id='channel-repairable'`);
+    await expect(fixture.run()).resolves.toMatchObject({
+      clean: false,
+      counts: { inSync: 1, sourceUnavailable: 2, repairable: 0, repairsEnqueued: 0 },
+    });
+  });
+
+  it("drift-material-unavailable preserves retained unmapped findings when price becomes unresolvable", async () => {
+    const fixture = await materialRuntime();
+    const extra = { ...syntheticLiveRow(), externalKey: "product:90000099" };
+    fixture.source = {
+      ...fixture.source,
+      rows: [...fixture.source.rows, extra],
+      sourceAuthority: { kind: "complete", collectedCount: 4, authorityTotal: 4 },
+    };
+    await expect(fixture.run()).resolves.toMatchObject({ counts: { structural: 1 } });
+    const opening = await fixture.runtime.readChannelDriftAttentionContribution({ connectionId: "connection-1" });
+    const unmapped = opening!.members.filter((member) => member.identity.startsWith("finding:state-"));
+    expect(unmapped).toHaveLength(1);
+    const finding = unmapped[0]!;
+    expect(finding.settlement).toBe("open");
+    expect(opening!.members.some((member) => member.identity === "source:state")).toBe(false);
+    fixture.source = {
+      ...fixture.source,
+      rows: fixture.source.rows.map((row) =>
+        row.externalKey === extra.externalKey ? { ...row, priceAmountMinor: null } : row,
+      ),
+    };
+    await expect(fixture.run()).resolves.toMatchObject({
+      state: "bounded-unknown",
+      clean: false,
+      counts: { sourceUnavailable: 1 },
+    });
+    const retained = await fixture.runtime.readChannelDriftAttentionContribution({ connectionId: "connection-1" });
+    expect(retained!.generation).toBe(opening!.generation + 1);
+    expect(retained!.resolution).toBeNull();
+    expect(retained!.members).toHaveLength(opening!.members.length + 1);
+    expect(retained!.members).toEqual(expect.arrayContaining([...opening!.members]));
+    expect(retained!.members.find((member) => member.identity === "source:state")).toEqual({
+      identity: "source:state",
+      kind: "source-unavailable",
+      expectedFingerprint: null,
+      observedFingerprint: null,
+      settlement: "open",
+      decisionRevision: 0,
+      recoveryRequested: false,
+    });
+    expect(retained!.members.find((member) => member.identity === finding.identity)).toEqual(finding);
+    await fixture.run();
+    expect(await fixture.runtime.readChannelDriftAttentionContribution({ connectionId: "connection-1" })).toEqual(
+      retained,
+    );
+  });
+
+  it.each(["missing", "fresh"] as const)(
+    "drift-material-projection-parity bounds the observed sweep independently of census authority with %s age metadata",
+    async (ageMetadata) => {
+      const fixture = await materialRuntime(3);
+      if (ageMetadata === "fresh") {
+        const row = fixture.source.rows[0]!;
+        await ageSnapshot(row.snapshotGeneration, row.capturedAt, new Date(row.ingestedAt));
+      }
+      fixture.source = {
+        ...fixture.source,
+        rows: [...fixture.source.rows, { ...syntheticLiveRow(), externalKey: "product:90000099" }],
+        sourceAuthority: { kind: "complete", collectedCount: 4, authorityTotal: 4 },
+      };
+      await expect(fixture.run()).resolves.toMatchObject({
+        state: "bounded-unknown",
+        clean: false,
+        counts: { listingsReconciled: 3, inSync: 0, sourceUnavailable: 3, repairsEnqueued: 0 },
+      });
+      expect(
+        (await pools.channels.query("SELECT finding_id,kind,safe_reason,open FROM channel_reconciliation_findings"))
+          .rows,
+      ).toEqual(
+        ageMetadata === "missing"
+          ? [{ finding_id: "snapshot-age", kind: "stale-snapshot", safe_reason: "snapshot-missing", open: true }]
+          : [],
+      );
+    },
+  );
+
+  it("drift-material-accepted-retained supersedes an otherwise eligible pending repush", async () => {
+    const fixture = await materialRuntime();
+    await fixture.run();
+    const pending = {
+      connectionId: "connection-1",
+      channelListingId: "channel-foreign",
+      expectedDecisionRevision: 0,
+      operationId: "SYNTHETIC-material-repush-control",
+    };
+    await seedRetainedRepushRequest(pending);
+    await expect(fixture.run()).resolves.toMatchObject({ counts: { foreignEdit: 1, repairsEnqueued: 1 } });
+    const queue = await pools.channels.query<{ operation_id: string }>(
+      "SELECT operation_id FROM channel_outbound_operations",
+    );
+    expect(queue.rows).toHaveLength(1);
+    await pools.channels.query(
+      "UPDATE channel_outbound_operations SET status='succeeded',terminal_at=$1 WHERE operation_id=$2",
+      ["2026-09-12T06:00:00.000Z", queue.rows[0]!.operation_id],
+    );
+    await seedRetainedRepushRequest({
+      ...pending,
+      expectedDecisionRevision: 2,
+      operationId: "SYNTHETIC-material-repush-pending",
+    });
+    await fixture.runtime.acceptChannelDrift(
+      {
+        connectionId: "connection-1",
+        channelListingId: "channel-foreign",
+        expectedDecisionRevision: 3,
+        operationId: "SYNTHETIC-material-accept-pending",
+        observedFingerprint: observedMaterialFingerprint(fixture.source.rows[1]!),
+        expectedMaterialFingerprint: fingerprint("2"),
+      },
+      context,
+    );
+    await expect(fixture.run()).resolves.toMatchObject({ counts: { inSync: 3, foreignEdit: 0, repairsEnqueued: 0 } });
+    expect((await pools.channels.query("SELECT operation_id FROM channel_outbound_operations")).rows).toEqual(
+      queue.rows,
+    );
+  });
+
+  it("drift-material-scheme-lapse replays historical bare digests without transferring consent", async () => {
+    const fixture = await materialRuntime();
+    const row = fixture.source.rows[1]!;
+    const historical = createHash("sha256")
+      .update(
+        JSON.stringify([
+          `${CHANNEL_OBSERVED_MATERIAL_SCHEME}-previous`,
+          row.externalKey,
+          row.conditionText,
+          row.currency,
+          row.priceAmountMinor,
+          row.totalQuantity,
+        ]),
+      )
+      .digest("hex");
+    expect(historical).not.toBe(observedMaterialFingerprint(row));
+    await createPostgresEventStore({ pool: pools.channels }).appendToStream({
+      streamId: "channels.channel-drift-decision-connection-1-channel-foreign",
+      expectedVersion: "no_stream",
+      context,
+      events: [
+        {
+          eventType: "channels.channel-drift.accepted",
+          payload: {
+            connectionId: "connection-1",
+            channelListingId: "channel-foreign",
+            observedFingerprint: historical,
+            expectedMaterialFingerprint: fingerprint("2"),
+            expectedDecisionRevision: 0,
+            operationId: "SYNTHETIC-historical-scheme",
+            acceptedAtRunGeneration: 1,
+          },
+        },
+      ],
+    });
+    await pools.channels.query(
+      `INSERT INTO channel_drift_decisions
+      (connection_id,channel_listing_id,revision,accepted_observed_fingerprint,accepted_expected_material_fingerprint,
+       accepted_at_run_generation,repush_requested,last_operation_id,updated_at)
+      VALUES ('connection-1','channel-foreign',1,$1,$2,1,false,'SYNTHETIC-historical-scheme',$3)`,
+      [historical, fingerprint("2"), "2026-09-12T06:00:00.000Z"],
+    );
+    for (let run = 0; run < 2; run += 1) {
+      await expect(fixture.run()).resolves.toMatchObject({
+        state: "completed",
+        clean: false,
+        counts: { inSync: 2, foreignEdit: 1, repairable: 0, repairsEnqueued: 0 },
+      });
+    }
+    expect((await decisionEvents()).map((event) => event.payload)).toEqual([
+      expect.objectContaining({ observedFingerprint: historical }),
+    ]);
+  });
+
+  it("drift-material-digest-roundtrip rejects prefixed command, eligibility and historical event digests", async () => {
+    const fixture = await materialRuntime();
+    await fixture.run();
+    const observedFingerprint = observedMaterialFingerprint(fixture.source.rows[1]!);
+    const command = {
+      connectionId: "connection-1",
+      channelListingId: "channel-foreign",
+      observedFingerprint,
+      expectedMaterialFingerprint: fingerprint("2"),
+      expectedDecisionRevision: 0,
+      operationId: "SYNTHETIC-digest-guards",
+    };
+    await expect(
+      fixture.runtime.acceptChannelDrift({ ...command, observedFingerprint: `v1:${observedFingerprint}` }, context),
+    ).rejects.toMatchObject({ code: "invalid-command" });
+    await pools.channels.query(
+      "UPDATE channel_reconciliation_items SET observed_fingerprint=$1 WHERE channel_listing_id='channel-foreign'",
+      [`v1:${observedFingerprint}`],
+    );
+    await expect(fixture.runtime.acceptChannelDrift(command, context)).rejects.toMatchObject({ code: "ineligible" });
+    await fixture.run();
+    await createPostgresEventStore({ pool: pools.channels }).appendToStream({
+      streamId: "channels.channel-drift-decision-connection-1-channel-foreign",
+      expectedVersion: "no_stream",
+      context,
+      events: [
+        {
+          eventType: "channels.channel-drift.accepted",
+          payload: { ...command, observedFingerprint: `v1:${observedFingerprint}`, acceptedAtRunGeneration: 2 },
+        },
+      ],
+    });
+    await expect(fixture.run()).resolves.toMatchObject({
+      state: "bounded-unknown",
+      clean: false,
+      counts: { listingsReconciled: 0, inSync: 0, repairsEnqueued: 0 },
+    });
+    await expect(fixture.runtime.acceptChannelDrift(command, context)).rejects.toThrow(
+      "observedFingerprint is invalid",
+    );
   });
 
   it("drift-detail bounds owned snapshot rows, decision inputs, cursors and retained states without settlement inference", async () => {
@@ -3455,6 +3747,56 @@ async function seedAgeConnection(at: Date) {
       },
     ],
   });
+}
+
+async function materialRuntime(maxListingsPerRun = CHANNEL_RECONCILIATION_POLICY_FALLBACK.maxListingsPerRun) {
+  await seedConnectionAndListings(pools.channels, "tcgplayer");
+  const names = ["repairable", "foreign", "structural"];
+  const rows = names.map((_name, index) => ({
+    ...syntheticLiveRow(index === 1 ? "12.00" : "10.00"),
+    externalKey: `product:${90000001 + index}`,
+  }));
+  for (const [index, name] of names.entries()) {
+    const row = rows[index]!;
+    await pools.channels.query(
+      "UPDATE channels_channel_listing_links SET external_listing_id=$1 WHERE channel_listing_id=$2",
+      [tcgplayerExternalListingId(row.externalKey, row.conditionText), `channel-${name}`],
+    );
+  }
+  let source: ClaimedChannelStateRead = {
+    ...syntheticClaimedSource(),
+    rows,
+    sourceAuthority: { kind: "complete", collectedCount: 3, authorityTotal: 3 },
+    appliedChannelListingIds: names.map((name) => `channel-${name}`),
+  };
+  let at = new Date("2026-09-12T06:00:00.000Z");
+  const runtime = s5Runtime({
+    readClaimedChannelState: async () => source,
+    resolvePolicy: async () => ({
+      value: { ...CHANNEL_RECONCILIATION_POLICY_FALLBACK, maxListingsPerRun },
+      revision: 0,
+    }),
+    resolveKillSwitch: async () => ({ heldProviderKeys: [], heldConnectionIds: [] }),
+    clock: { now: () => at },
+  });
+  const registry = createChannelProviderRegistry([descriptor("tcgplayer", { execution: "claimed" })]);
+  return {
+    runtime,
+    get source() {
+      return source;
+    },
+    set source(value: ClaimedChannelStateRead) {
+      source = value;
+    },
+    advanceDay() {
+      at = new Date(at.getTime() + 86_400_000);
+    },
+    run: () =>
+      runtime.reconcileConnection(
+        { connectionId: "connection-1", registry, sourceAttempt: 1, healthAuthority: null },
+        context,
+      ),
+  };
 }
 
 function createRuntime(_registry: ReturnType<typeof createChannelProviderRegistry>) {
