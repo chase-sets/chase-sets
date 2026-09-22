@@ -10,6 +10,7 @@ import {
   ChannelsPublicationApiError,
   createChannelsPublicationRequestApiClient,
 } from "../../support/request-support/api-client";
+import type { ChannelPublicationSettings } from "../../features/listing-composition/domain/contracts";
 
 const channelsPublicationApiErrorAdapter = defineApiErrorAdapter<ChannelsPublicationApiError>({
   isError: (error): error is ChannelsPublicationApiError => error instanceof ChannelsPublicationApiError,
@@ -44,22 +45,23 @@ export const action = defineFormAction({
   authorization: { permission: "channels.manage" },
   intents: {
     "replace-settings": async ({ request, formData }) => {
+      const settings: ChannelPublicationSettings = {
+        titlePrefix: text(formData, "titlePrefix"),
+        titleSuffix: text(formData, "titleSuffix"),
+        descriptionFooter: text(formData, "descriptionFooter"),
+        categoryAllowlist: lines(formData, "categoryAllowlist"),
+        excludedListingIds: lines(formData, "excludedListingIds"),
+      };
       const result = await createChannelsPublicationRequestApiClient(request).replaceSettings(
         connectionId(request),
-        {
-          titlePrefix: text(formData, "titlePrefix"),
-          titleSuffix: text(formData, "titleSuffix"),
-          descriptionFooter: text(formData, "descriptionFooter"),
-          categoryAllowlist: lines(formData, "categoryAllowlist"),
-          excludedListingIds: lines(formData, "excludedListingIds"),
-        },
+        settings,
         integer(formData, "expectedStreamVersion"),
       );
       if (result.kind === "refused")
         return result.code === "stream-version-conflict"
           ? { kind: "stale-version-conflict" as const }
           : { kind: "command-error" as const, message: result.code };
-      return { kind: "applied" as const, message: null, streamVersion: result.streamVersion };
+      return { kind: "applied" as const, message: null, streamVersion: result.streamVersion, settings };
     },
     "decide-mapping": async ({ request, formData }) => {
       const result = await createChannelsPublicationRequestApiClient(request).decideMapping({
@@ -98,14 +100,17 @@ export default function AccountChannelsPublicationConnectionRoute() {
   const [latchConnectionId, setLatchConnectionId] = useState(connectionId);
   const [refreshAttempts, setRefreshAttempts] = useState(0);
   const [expectedStreamVersion, setExpectedStreamVersion] = useState<number | null>(null);
+  const [submittedSettings, setSubmittedSettings] = useState<ChannelPublicationSettings | null>(null);
   if (latchConnectionId !== connectionId) {
     setLatchConnectionId(connectionId);
     setExpectedStreamVersion(null);
+    setSubmittedSettings(null);
     setRefreshAttempts(0);
   } else {
     const appliedStreamVersion = actionData?.kind === "applied" ? actionData.streamVersion : null;
     if (appliedStreamVersion !== null && appliedStreamVersion !== expectedStreamVersion) {
       setExpectedStreamVersion(appliedStreamVersion);
+      setSubmittedSettings(actionData?.kind === "applied" ? actionData.settings : null);
       setRefreshAttempts(0);
     }
   }
@@ -147,7 +152,7 @@ export default function AccountChannelsPublicationConnectionRoute() {
       <ChannelPublicationDetailPage
         state={{
           kind: "freshness-exhausted",
-          detail: data.detail,
+          detail: { ...data.detail, settings: submittedSettings ?? data.detail.settings },
           onRefresh: () => {
             setRefreshAttempts(0);
             void revalidator.revalidate();

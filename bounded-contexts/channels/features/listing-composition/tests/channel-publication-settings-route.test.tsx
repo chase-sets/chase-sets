@@ -133,7 +133,9 @@ describe("channel-publication-settings-route", () => {
 
     expect(screen.getByText("Still catching up")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Refresh" })).toBeTruthy();
-    expect(screen.getByText("Settings are required")).toBeTruthy();
+    expect(screen.getByDisplayValue("[fresh]")).toBeTruthy();
+    expect(screen.getByDisplayValue("saved footer")).toBeTruthy();
+    expect(screen.queryByText("Settings are required")).toBeNull();
     expect(screen.queryByText(/Loading channel publication settings/u)).toBeNull();
 
     projectedVersion = appliedVersion;
