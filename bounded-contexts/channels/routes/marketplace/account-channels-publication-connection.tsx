@@ -110,7 +110,7 @@ export default function AccountChannelsPublicationConnectionRoute() {
     const appliedStreamVersion = actionData?.kind === "applied" ? actionData.streamVersion : null;
     if (appliedStreamVersion !== null && appliedStreamVersion !== expectedStreamVersion) {
       setExpectedStreamVersion(appliedStreamVersion);
-      setSubmittedSettings(actionData?.kind === "applied" ? actionData.settings : null);
+      setSubmittedSettings(actionData?.kind === "applied" && "settings" in actionData ? actionData.settings : null);
       setRefreshAttempts(0);
     }
   }
