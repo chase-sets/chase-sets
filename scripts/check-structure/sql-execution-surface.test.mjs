@@ -829,14 +829,14 @@ describe("repository-wide SQL execution partition", () => {
     expect(removedClassification.violations).toEqual([]);
     expect(removedClassification.unresolvedMemberRoots).toEqual({ count: 0, fileList: [] });
 
-    expect(legacyPartition.sqlExecuting).toHaveLength(433);
+    expect(legacyPartition.sqlExecuting).toHaveLength(436);
     expect(legacyPartition.unprovableForm).toHaveLength(3);
-    expect(legacyPartition.notSql).toHaveLength(2068);
+    expect(legacyPartition.notSql).toHaveLength(2065);
     expect(legacyPartition.unresolvedMemberRoots.count).toBe(278);
     expect(partition.sqlExecuting).toEqual(legacyPartition.sqlExecuting);
     expect(partition.unprovableForm).toEqual(legacyPartition.unprovableForm);
     expect(partition.notSql).toEqual(legacyPartition.notSql.filter((file) => !exactRemovedModules.includes(file)));
-    expect(partition.notSql).toHaveLength(2063);
+    expect(partition.notSql).toHaveLength(2060);
     expect(partition.sqlExecuting).toContain("bounded-contexts/channels/features/reconciliation/read-model/detail.ts");
     expect(partition.notSql).toContain("bounded-contexts/channels/features/reconciliation/api/route.ts");
     expect(partition.unresolvedMemberRoots).toEqual(legacyPartition.unresolvedMemberRoots);
