@@ -89,7 +89,67 @@ describe("channel-mapping-review-route", () => {
     const readsAfterStuckDecision = reads;
     for (let tick = 0; tick < 40; tick += 1) await settle(2_000);
     expect(reads - readsAfterStuckDecision).toBe(15);
+    expect(screen.getByText("Still catching up")).toBeTruthy();
+    expect(screen.queryByText(/Loading channel publication settings/u)).toBeNull();
+    expect(screen.getByText(/category · rejected · high/u)).toBeTruthy();
+  });
+
+  it("mapping-freshness-exhausted-offers-refresh", async () => {
+    let projectedVersion = 0;
+    let appliedVersion = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const request = input instanceof Request ? new Request(input, init) : new Request(String(input), init);
+        const url = new URL(request.url);
+        if (url.pathname === "/api/auth/session") {
+          return jsonResponse({
+            actor: {
+              sessionId: "session-1",
+              tenantId: "tenant-1",
+              userId: "user-1",
+              accountId: "account-owner",
+              membershipId: "membership-1",
+              roleKey: "owner",
+              permissions: ["channels.view", "channels.manage"],
+            },
+          });
+        }
+        if (url.pathname.includes("/mappings/") && request.method === "POST") {
+          appliedVersion += 1;
+          return jsonResponse({ kind: "applied", streamVersion: appliedVersion });
+        }
+        if (url.pathname.endsWith("/publication/connection-1") && request.method === "GET") {
+          return jsonResponse(mappingReviewDetail(projectedVersion));
+        }
+        throw new Error(`Unexpected request: ${request.method} ${url.pathname}`);
+      }),
+    );
+    const router = renderPublicationRoute();
+    expect(await screen.findByText("catalog-category:cards")).toBeTruthy();
+    vi.useFakeTimers();
+    expect(screen.getByText(/category · proposed · high/u)).toBeTruthy();
+
+    await act(async () => {
+      await router.navigate(PUBLICATION_PATH, { formMethod: "post", formData: decideMappingForm("0") });
+    });
     expect(screen.getByText(/Loading channel publication settings/u)).toBeTruthy();
+
+    for (let tick = 0; tick < 15; tick += 1) await settle(2_000);
+
+    expect(screen.getByText("Still catching up")).toBeTruthy();
+    expect(screen.queryByText(/Loading channel publication settings/u)).toBeNull();
+    expect(screen.getByText(/category · proposed · high/u)).toBeTruthy();
+
+    projectedVersion = appliedVersion;
+    const refreshButton = screen.getByRole("button", { name: "Refresh" });
+    await act(async () => {
+      refreshButton.click();
+    });
+    await settle(0);
+
+    expect(screen.queryByText("Still catching up")).toBeNull();
+    expect(screen.getByText(/category · rejected · high/u)).toBeTruthy();
   });
 
   it("R2 rejects the unscoped foreign-mutation lookup mutant while preserving API permissions", async () => {
