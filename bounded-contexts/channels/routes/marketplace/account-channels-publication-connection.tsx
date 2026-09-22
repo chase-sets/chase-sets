@@ -4,13 +4,12 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useEffect, useState } from "react";
 import type { MetaFunction } from "react-router";
 import { useActionData, useLoaderData, useNavigation, useParams, useRevalidator } from "react-router";
-import { contextManifest } from "../../index";
+import { contextManifest, type ChannelPublicationSettings } from "../../index";
 import { ChannelPublicationDetailPage } from "../../features/listing-composition/ui/publication-pages";
 import {
   ChannelsPublicationApiError,
   createChannelsPublicationRequestApiClient,
 } from "../../support/request-support/api-client";
-import type { ChannelPublicationSettings } from "../../features/listing-composition/domain/contracts";
 
 const channelsPublicationApiErrorAdapter = defineApiErrorAdapter<ChannelsPublicationApiError>({
   isError: (error): error is ChannelsPublicationApiError => error instanceof ChannelsPublicationApiError,
