@@ -619,8 +619,11 @@ describeDb("Channel Reconciliation guarded production path", () => {
     };
     await expect(fixture.run()).resolves.toMatchObject({ counts: { structural: 1 } });
     const opening = await fixture.runtime.readChannelDriftAttentionContribution({ connectionId: "connection-1" });
-    const finding = opening!.members.find((member) => member.identity.startsWith("finding:"))!;
+    const unmapped = opening!.members.filter((member) => member.identity.startsWith("finding:state-"));
+    expect(unmapped).toHaveLength(1);
+    const finding = unmapped[0]!;
     expect(finding.settlement).toBe("open");
+    expect(opening!.members.some((member) => member.identity === "source:state")).toBe(false);
     fixture.source = {
       ...fixture.source,
       rows: fixture.source.rows.map((row) =>
@@ -633,24 +636,54 @@ describeDb("Channel Reconciliation guarded production path", () => {
       counts: { sourceUnavailable: 1 },
     });
     const retained = await fixture.runtime.readChannelDriftAttentionContribution({ connectionId: "connection-1" });
-    expect(retained!.generation).toBe(opening!.generation);
+    expect(retained!.generation).toBe(opening!.generation + 1);
+    expect(retained!.resolution).toBeNull();
+    expect(retained!.members).toHaveLength(opening!.members.length + 1);
+    expect(retained!.members).toEqual(expect.arrayContaining(opening!.members));
+    expect(retained!.members.find((member) => member.identity === "source:state")).toEqual({
+      identity: "source:state",
+      kind: "source-unavailable",
+      expectedFingerprint: null,
+      observedFingerprint: null,
+      settlement: "open",
+      decisionRevision: 0,
+      recoveryRequested: false,
+    });
     expect(retained!.members.find((member) => member.identity === finding.identity)).toEqual(finding);
+    await fixture.run();
+    expect(await fixture.runtime.readChannelDriftAttentionContribution({ connectionId: "connection-1" })).toEqual(
+      retained,
+    );
   });
 
-  it("drift-material-projection-parity bounds the observed sweep independently of census authority", async () => {
-    const fixture = await materialRuntime(3);
-    fixture.source = {
-      ...fixture.source,
-      rows: [...fixture.source.rows, { ...syntheticLiveRow(), externalKey: "product:90000099" }],
-      sourceAuthority: { kind: "complete", collectedCount: 4, authorityTotal: 4 },
-    };
-    await expect(fixture.run()).resolves.toMatchObject({
-      state: "bounded-unknown",
-      clean: false,
-      counts: { listingsReconciled: 3, inSync: 0, sourceUnavailable: 3, repairsEnqueued: 0 },
-    });
-    expect((await pools.channels.query("SELECT finding_id FROM channel_reconciliation_findings")).rows).toEqual([]);
-  });
+  it.each(["missing", "fresh"] as const)(
+    "drift-material-projection-parity bounds the observed sweep independently of census authority with %s age metadata",
+    async (ageMetadata) => {
+      const fixture = await materialRuntime(3);
+      if (ageMetadata === "fresh") {
+        const row = fixture.source.rows[0]!;
+        await ageSnapshot(row.snapshotGeneration, row.capturedAt, new Date(row.ingestedAt));
+      }
+      fixture.source = {
+        ...fixture.source,
+        rows: [...fixture.source.rows, { ...syntheticLiveRow(), externalKey: "product:90000099" }],
+        sourceAuthority: { kind: "complete", collectedCount: 4, authorityTotal: 4 },
+      };
+      await expect(fixture.run()).resolves.toMatchObject({
+        state: "bounded-unknown",
+        clean: false,
+        counts: { listingsReconciled: 3, inSync: 0, sourceUnavailable: 3, repairsEnqueued: 0 },
+      });
+      expect(
+        (await pools.channels.query("SELECT finding_id,kind,safe_reason,open FROM channel_reconciliation_findings"))
+          .rows,
+      ).toEqual(
+        ageMetadata === "missing"
+          ? [{ finding_id: "snapshot-age", kind: "stale-snapshot", safe_reason: "snapshot-missing", open: true }]
+          : [],
+      );
+    },
+  );
 
   it("drift-material-accepted-retained supersedes an otherwise eligible pending repush", async () => {
     const fixture = await materialRuntime();
