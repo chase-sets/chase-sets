@@ -12,6 +12,7 @@ export const pricingWakeRegistryEntry = registryEntry({
   affectedProjectionNames: [
     "collections:collections-saved-list-valuation-projection",
     "pricing:pricing-economics-overrides-projection",
+    "pricing:pricing-repricing-evaluation-projection",
     "pricing:pricing-repricing-evaluation-reaction",
     "pricing:pricing-repricing-halt-projection",
   ],
