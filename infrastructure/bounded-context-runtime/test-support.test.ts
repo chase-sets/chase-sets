@@ -10,8 +10,22 @@ import {
   createTestApp,
   createTestEventStoreContext,
   resetMockState,
+  resetMultiContextTestSchemas,
 } from "./test-support";
 import { ensureOwnedPostgresDatabases } from "./provisioning";
+
+function createFakeResetPool(connectionString: string) {
+  const resetQueries: string[] = [];
+
+  return {
+    resetQueries,
+    options: { connectionString },
+    query: async (sql: string) => {
+      resetQueries.push(sql);
+      return { rows: [] };
+    },
+  };
+}
 
 type QueryCall = Readonly<{
   sql: string;
@@ -220,5 +234,25 @@ describe("test-support database ownership", () => {
     expect(calls.map((call) => call.sql)).not.toContain(`CREATE DATABASE "auth" OWNER "auth"`);
     expect(calls.map((call) => call.sql)).toContain(`ALTER ROLE "auth" WITH LOGIN PASSWORD 'auth'`);
     expect(calls.map((call) => call.sql)).toContain(`ALTER DATABASE "auth" OWNER TO "auth"`);
+  });
+});
+
+describe("resetMultiContextTestSchemas", () => {
+  it("issues one reset statement per resolved database, not one per distinct pool object", async () => {
+    const sharedDatabaseUrl = "postgresql://acc_suite:acc_suite@localhost:5432/acc_suite_catalog";
+    const otherDatabaseUrl = "postgresql://acc_suite:acc_suite@localhost:5432/acc_suite_identity";
+
+    const catalogPoolA = createFakeResetPool(sharedDatabaseUrl);
+    const catalogPoolB = createFakeResetPool(sharedDatabaseUrl);
+    const identityPool = createFakeResetPool(otherDatabaseUrl);
+
+    await resetMultiContextTestSchemas({
+      catalogA: catalogPoolA,
+      catalogB: catalogPoolB,
+      identity: identityPool,
+    });
+
+    expect(catalogPoolA.resetQueries.length + catalogPoolB.resetQueries.length).toBe(1);
+    expect(identityPool.resetQueries).toHaveLength(1);
   });
 });
