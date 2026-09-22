@@ -43,6 +43,7 @@ describe("channel-publication-port-scope-fence", () => {
       "./client": "./client.ts",
       "./context": "./context.json",
       "./server": "./server.ts",
+      "./test-support": "./features/listing-composition/test-support/channel-publication-browser.ts",
       "./routes/*": "./routes/*.tsx",
     });
 
