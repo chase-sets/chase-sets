@@ -107,11 +107,13 @@ describe("channel-publication-settings-route", () => {
     let savedSettings = detail().settings;
     const stub = stubPublicationRouteFetch({
       readDetail: () =>
-        detail({
-          connection: { ...detail().connection, settingsState: savedSettings ? "configured" : "missing" },
-          settings: savedSettings,
-          configurationStreamVersion: projectedVersion,
-        }),
+        projectedVersion === 0
+          ? detail()
+          : detail({
+              connection: { ...detail().connection, settingsState: "configured" },
+              settings: savedSettings,
+              configurationStreamVersion: projectedVersion,
+            }),
       replaceSettings: (_connectionId, settings) => {
         savedSettings = settings;
         appliedVersion += 1;
@@ -130,7 +132,8 @@ describe("channel-publication-settings-route", () => {
     for (let tick = 0; tick < 15; tick += 1) await settle(2_000);
 
     expect(screen.getByText("Still catching up")).toBeTruthy();
-    expect(screen.getByDisplayValue("[fresh]")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeTruthy();
+    expect(screen.getByText("Settings are required")).toBeTruthy();
     expect(screen.queryByText(/Loading channel publication settings/u)).toBeNull();
 
     projectedVersion = appliedVersion;
