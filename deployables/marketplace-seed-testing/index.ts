@@ -6,6 +6,7 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
   seedMountedContextTestRuntimeIfEmpty,
+  seedTestPoolOptions,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { afterAll, beforeAll, beforeEach, describe } from "vitest";
@@ -110,7 +111,7 @@ export function useMarketplaceSeedRuntime(
     const databaseUrls = createMultiContextTestDatabaseUrls(baseUrl, marketplaceSeedContextNames, `${testName}_seed`);
 
     await ensureMultiContextTestDatabases(baseUrl, databaseUrls);
-    pools = createMultiContextTestPools(databaseUrls) as MarketplaceSeedRuntimePools;
+    pools = createMultiContextTestPools(databaseUrls, seedTestPoolOptions) as MarketplaceSeedRuntimePools;
   });
 
   if (resetSchemas === "beforeAll") {

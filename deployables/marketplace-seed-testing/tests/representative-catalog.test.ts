@@ -30,6 +30,7 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
   seedMountedContextTestRuntimeIfEmpty,
+  seedTestPoolOptions,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
@@ -288,7 +289,7 @@ function useRepresentativeCatalogRuntime() {
     }
     databaseUrls = createMultiContextTestDatabaseUrls(baseUrl, replayContextNames, "representative_catalog_seed");
     await ensureMultiContextTestDatabases(baseUrl, databaseUrls);
-    pools = createMultiContextTestPools(databaseUrls) as typeof pools;
+    pools = createMultiContextTestPools(databaseUrls, seedTestPoolOptions) as typeof pools;
   });
   beforeEach(async () => {
     await resetMultiContextTestSchemas(requirePools());

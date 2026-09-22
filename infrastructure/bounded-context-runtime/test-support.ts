@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { BcApiModule, BcSeedOptions } from "@chase-sets/bounded-context-module";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { createPgPool, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPgPool, type PgPoolOptions, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { Hono } from "hono";
 import { afterEach, vi } from "vitest";
 import {
@@ -287,13 +287,16 @@ export async function ensureMultiContextTestDatabases(
   }
 }
 
+export const seedTestPoolOptions = { idleTimeoutMillis: 1_000 } satisfies PgPoolOptions;
+
 export function createMultiContextTestPools<TContextName extends string>(
   databaseUrls: Readonly<Record<TContextName, string>>,
+  options?: PgPoolOptions,
 ): Readonly<Record<TContextName, PgTransactionalPool>> {
   return Object.fromEntries(
     (Object.entries(databaseUrls) as [TContextName, string][]).map(([contextName, databaseUrl]) => [
       contextName,
-      createPgPool(databaseUrl),
+      createPgPool(databaseUrl, options),
     ]),
   ) as Readonly<Record<TContextName, PgTransactionalPool>>;
 }
