@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import {
   Badge,
+  Banner,
   Button,
   Card,
   Form,
@@ -99,11 +100,12 @@ export type ChannelPublicationDetailPageState =
   | Readonly<{ kind: "foreign-account" }>
   | Readonly<{ kind: "command-error"; message: string; detail: ChannelPublicationConnectionDetail | null }>
   | Readonly<{ kind: "stale-version-conflict"; detail: ChannelPublicationConnectionDetail }>
+  | Readonly<{ kind: "freshness-exhausted"; detail: ChannelPublicationConnectionDetail; onRefresh: () => void }>
   | Readonly<{ kind: "ready"; detail: ChannelPublicationConnectionDetail }>;
 
 export function ChannelPublicationDetailPage({ state }: { state: ChannelPublicationDetailPageState }) {
   const detail =
-    state.kind === "ready" || state.kind === "stale-version-conflict"
+    state.kind === "ready" || state.kind === "stale-version-conflict" || state.kind === "freshness-exhausted"
       ? state.detail
       : state.kind === "command-error"
         ? state.detail
@@ -143,6 +145,14 @@ export function ChannelPublicationDetailPage({ state }: { state: ChannelPublicat
           tone="warning"
           title={t("channels.publication.conflict.title")}
           description={t("channels.publication.conflict.description")}
+        />
+      ) : null}
+      {state.kind === "freshness-exhausted" ? (
+        <Banner
+          tone="warning"
+          title={t("channels.publication.freshness.exhausted.title")}
+          description={t("channels.publication.freshness.exhausted.description")}
+          actions={<Button onClick={state.onRefresh}>{t("channels.publication.freshness.exhausted.refresh")}</Button>}
         />
       ) : null}
       {detail ? <DetailSections detail={detail} /> : null}
