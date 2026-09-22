@@ -103,7 +103,8 @@ export const channelsEnglishTranslations = {
   "channels.publication.conflict.title": "Settings changed",
   "channels.publication.conflict.description": "Reload the latest settings before trying again.",
   "channels.publication.freshness.exhausted.title": "Still catching up",
-  "channels.publication.freshness.exhausted.description": "The latest change hasn't finished syncing yet. Refresh to check again.",
+  "channels.publication.freshness.exhausted.description":
+    "The latest change hasn't finished syncing yet. Refresh to check again.",
   "channels.publication.freshness.exhausted.refresh": "Refresh",
   "channels.publication.settings.title": "Publication settings",
   "channels.publication.settings.missing.title": "Settings are required",
