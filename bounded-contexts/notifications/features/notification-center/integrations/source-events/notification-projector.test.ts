@@ -1002,6 +1002,13 @@ describe("notifications shipment dispatch projection", () => {
       })),
     ).toEqual([
       {
+        sourceContextName: "pricing",
+        subscriptionName: "notifications.pricing-repricing-facts-projection",
+        subscriptionVersion: 1,
+        order: 90,
+        projectionHandlerSetNames: ["notifications-pricing-repricing-facts-projection"],
+      },
+      {
         sourceContextName: "ordering",
         subscriptionName: "notifications.ordering-facts-projection",
         subscriptionVersion: 1,
@@ -1069,6 +1076,67 @@ describe("notifications shipment dispatch projection", () => {
     expect(outbox.enqueueNotification.mock.calls[0]?.[0].message.idempotencyKey).toBe(
       "notifications:fulfillment:shipment_dispatched:evt_module_dispatch",
     );
+  });
+
+  it("production composition subscribes to and invokes the Pricing digest handler", async () => {
+    const outbox = { enqueueNotification: vi.fn(async (_input: EnqueueNotificationInput) => undefined) };
+    const subscriptions = notificationsModule.buildSubscriptions?.({ notificationOutbox: outbox } as never) ?? [];
+    expect(subscriptions.map((subscription) => subscription.sourceContextName).sort()).toEqual([
+      "customer-feedback",
+      "fulfillment",
+      "inventory",
+      "marketplace",
+      "ordering",
+      "platform-operations",
+      "pricing",
+      "settlement",
+    ]);
+    const pricing = subscriptions.find((subscription) => subscription.sourceContextName === "pricing");
+    expect(pricing).toMatchObject({
+      subscriptionName: "notifications.pricing-repricing-facts-projection",
+      handlerKind: "projection",
+      projectionName: NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
+      subscriptionVersion: 1,
+      eventTypes: ["pricing.repricing-activity.digest-requested"],
+      order: 90,
+    });
+    expect(Object.keys(pricing?.handlers ?? {})).toEqual(["pricing.repricing-activity.digest-requested"]);
+
+    await pricing!.handlers["pricing.repricing-activity.digest-requested"]!({
+      ...baseEvent,
+      type: "pricing.repricing-activity.digest-requested",
+      data: {
+        schemaVersion: 1,
+        digestId: "acc_synthetic-2026-09-20",
+        sellerAccountId: "acc_synthetic",
+        day: "2026-09-20",
+        policiesEvaluated: 2,
+        listingsChanged: 3,
+        floorClamped: 4,
+        ceilingClamped: 5,
+        maxMoveClamped: 6,
+        budgetExhausted: 7,
+        pausedForMissingInput: 8,
+        withinTolerance: 9,
+        spiralBreakerTrips: 10,
+      },
+    });
+    expect(outbox.enqueueNotification).toHaveBeenCalledOnce();
+    expect(outbox.enqueueNotification).toHaveBeenCalledWith({
+      message: expect.objectContaining({
+        messageType: "pricing.repricing-activity.digest-requested",
+        recipientAccountId: "acc_synthetic",
+        idempotencyKey: "notifications:pricing:repricing-digest:acc_synthetic-2026-09-20",
+        actionHref: "/account/desk/repricing",
+        body: "2 policies evaluated; 3 listing changes; 4 floor clamps; 5 ceiling clamps; 6 maximum-move clamps; 7 budget limits; 8 pauses for missing input; 9 within tolerance; 10 spiral breaker trips.",
+      }),
+      source: {
+        sourceEventId: baseEvent.id,
+        sourceGlobalPosition: baseEvent.globalPosition,
+        projectionName: NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION,
+        occurredAt: baseEvent.timing.occurredAt,
+      },
+    });
   });
 
   it("dispatch links only to the registered first-party account shipment route", async () => {

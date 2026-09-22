@@ -256,7 +256,7 @@ describeDb("repricing activity and attention", () => {
     };
     const { documentId } = await services.policies.createPolicyDocument(
       repricingManagementPolicy,
-      { ...document, value: { floorBindingAlertDays: 7 } },
+      { ...document, value: { ...repricingManagementPolicy.defaultValue, floorBindingAlertDays: 7 } },
       context,
     );
     const projectVersion = async (version: number) => {
@@ -296,7 +296,7 @@ describeDb("repricing activity and attention", () => {
       await services.policies.revisePolicyDocument(
         repricingManagementPolicy,
         documentId,
-        { ...document, value: { floorBindingAlertDays: 1 } },
+        { ...document, value: { ...repricingManagementPolicy.defaultValue, floorBindingAlertDays: 1 } },
         context,
       );
       // Appending alone does not update the read model or invalidate its cached candidates.
