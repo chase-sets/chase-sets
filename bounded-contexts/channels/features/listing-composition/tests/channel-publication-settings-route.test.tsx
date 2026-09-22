@@ -28,7 +28,7 @@ describe("channel-publication-settings-route", () => {
     let projected = detail();
     stubPublicationRouteFetch({
       readDetail: () => projected,
-      replaceSettings: (settings) => {
+      replaceSettings: (_connectionId, settings) => {
         projected = detail({
           connection: { ...projected.connection, settingsState: "configured" },
           settings,
@@ -61,7 +61,7 @@ describe("channel-publication-settings-route", () => {
               settings: savedSettings,
               configurationStreamVersion: projectedVersion,
             }),
-      replaceSettings: (settings) => {
+      replaceSettings: (_connectionId, settings) => {
         savedSettings = settings;
         appliedVersion += 1;
         return appliedVersion;
@@ -96,7 +96,91 @@ describe("channel-publication-settings-route", () => {
     const readsAfterStuckWrite = stub.reads();
     for (let tick = 0; tick < 40; tick += 1) await settle(2_000);
     expect(stub.reads() - readsAfterStuckWrite).toBe(15);
+    expect(screen.getByText("Still catching up")).toBeTruthy();
+    expect(screen.queryByText(/Loading channel publication settings/u)).toBeNull();
+    expect(screen.getByDisplayValue("[fresh]")).toBeTruthy();
+  });
+
+  it("settings-freshness-exhausted-offers-refresh", async () => {
+    let projectedVersion = 0;
+    let appliedVersion = 0;
+    let savedSettings = detail().settings;
+    const stub = stubPublicationRouteFetch({
+      readDetail: () =>
+        detail({
+          connection: { ...detail().connection, settingsState: savedSettings ? "configured" : "missing" },
+          settings: savedSettings,
+          configurationStreamVersion: projectedVersion,
+        }),
+      replaceSettings: (_connectionId, settings) => {
+        savedSettings = settings;
+        appliedVersion += 1;
+        return appliedVersion;
+      },
+    });
+    const router = renderPublicationRoute();
+    expect(await screen.findByText("Settings are required")).toBeTruthy();
+    vi.useFakeTimers();
+
+    await act(async () => {
+      await router.navigate(PUBLICATION_PATH, { formMethod: "post", formData: settingsForm("0") });
+    });
     expect(screen.getByText(/Loading channel publication settings/u)).toBeTruthy();
+
+    for (let tick = 0; tick < 15; tick += 1) await settle(2_000);
+
+    expect(screen.getByText("Still catching up")).toBeTruthy();
+    expect(screen.getByDisplayValue("[fresh]")).toBeTruthy();
+    expect(screen.queryByText(/Loading channel publication settings/u)).toBeNull();
+
+    projectedVersion = appliedVersion;
+    const refreshButton = screen.getByRole("button", { name: "Refresh" });
+    await act(async () => {
+      refreshButton.click();
+    });
+    await settle(0);
+
+    expect(screen.queryByText("Still catching up")).toBeNull();
+    expect(screen.getByDisplayValue("[fresh]")).toBeTruthy();
+  });
+
+  it("latch-keyed-by-connection", async () => {
+    const connection1 = detail({ configurationStreamVersion: 0 });
+    const connection2 = detail({
+      connection: {
+        connectionId: "connection-2",
+        providerKey: "second-provider",
+        environment: "sandbox",
+        connectionStatus: "active",
+        settingsState: "missing",
+        reviewCount: 0,
+      },
+      configurationStreamVersion: 0,
+    });
+    stubPublicationRouteFetch({
+      readDetail: (connectionId) => (connectionId === "connection-2" ? connection2 : connection1),
+      replaceSettings: (_connectionId, _settings) => 1,
+    });
+    const router = renderPublicationRoute();
+    expect(await screen.findByText("Settings are required")).toBeTruthy();
+    vi.useFakeTimers();
+
+    await act(async () => {
+      await router.navigate(PUBLICATION_PATH, { formMethod: "post", formData: settingsForm("0") });
+    });
+    expect(screen.getByText(/Loading channel publication settings/u)).toBeTruthy();
+
+    await act(async () => {
+      await router.navigate("/account/channels/publication/connection-2");
+    });
+
+    expect(screen.getByText("second-provider")).toBeTruthy();
+    expect(screen.queryByText(/Loading channel publication settings/u)).toBeNull();
+    expect(screen.queryByText("Still catching up")).toBeNull();
+
+    await settle(2_000);
+    expect(screen.queryByText(/Loading channel publication settings/u)).toBeNull();
+    expect(screen.queryByText("Still catching up")).toBeNull();
   });
 
   it("renders every list loading, empty, error, forbidden and success state through design-system components", () => {
@@ -221,8 +305,11 @@ function settingsForm(expectedStreamVersion = "0") {
 }
 
 function stubPublicationRouteFetch(options: {
-  readDetail: () => ChannelPublicationConnectionDetail;
-  replaceSettings: (settings: NonNullable<ChannelPublicationConnectionDetail["settings"]>) => number;
+  readDetail: (connectionId: string) => ChannelPublicationConnectionDetail;
+  replaceSettings: (
+    connectionId: string,
+    settings: NonNullable<ChannelPublicationConnectionDetail["settings"]>,
+  ) => number;
 }) {
   let reads = 0;
   vi.stubGlobal(
@@ -243,15 +330,20 @@ function stubPublicationRouteFetch(options: {
           },
         });
       }
-      if (url.pathname.endsWith("/publication/connection-1/settings") && request.method === "PUT") {
+      const settingsMatch = /\/publication\/([^/]+)\/settings$/u.exec(url.pathname);
+      if (settingsMatch && request.method === "PUT") {
         const body = (await request.json()) as {
           settings: NonNullable<ChannelPublicationConnectionDetail["settings"]>;
         };
-        return jsonResponse({ kind: "applied", streamVersion: options.replaceSettings(body.settings) });
+        return jsonResponse({
+          kind: "applied",
+          streamVersion: options.replaceSettings(settingsMatch[1], body.settings),
+        });
       }
-      if (url.pathname.endsWith("/publication/connection-1") && request.method === "GET") {
+      const detailMatch = /\/publication\/([^/]+)$/u.exec(url.pathname);
+      if (detailMatch && request.method === "GET") {
         reads += 1;
-        return jsonResponse(options.readDetail());
+        return jsonResponse(options.readDetail(detailMatch[1]));
       }
       throw new Error(`Unexpected request: ${request.method} ${url.pathname}`);
     }),
