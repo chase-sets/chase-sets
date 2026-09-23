@@ -65,9 +65,11 @@ export async function runObservedBrowserE2eBootstrap(
       } catch (error) {
         recorder.recordProcessTreeError(name, error?.code ?? error?.name ?? "unknown");
       }
-    })().catch(() => {}).finally(() => {
-      sampling = undefined;
-    });
+    })()
+      .catch(() => {})
+      .finally(() => {
+        sampling = undefined;
+      });
   };
   try {
     await run(command, args, {
