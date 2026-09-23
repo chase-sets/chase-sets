@@ -248,6 +248,8 @@ describe("item detail buy now validation and watch intents", () => {
       }),
       params: { id: "cat_charizard" },
       context: {},
+      url: new URL("http://localhost/items/cat_charizard"),
+      pattern: "/items/:id",
     });
     expect(result).toEqual({
       intent: "buy-this-listing",
