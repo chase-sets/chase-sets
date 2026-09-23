@@ -36,13 +36,21 @@ describe("channel-publication-port-scope-fence", () => {
           "Bind Inventory's typed account-scoped external Channel sale recorder for inline missed-sale reconciliation.",
       },
     ]);
-    expect(manifest.allowedSupportDirectories).toEqual(["request-support", "runtime-support"]);
-    expect(manifest.publicExports).toEqual([".", "./client", "./context", "./server", "./routes/*"]);
+    expect(manifest.allowedSupportDirectories).toEqual(["request-support", "runtime-support", "seed-support"]);
+    expect(manifest.publicExports).toEqual([
+      ".",
+      "./client",
+      "./context",
+      "./server",
+      "./routes/*",
+      "./seed-support/*",
+    ]);
     expect(packageJson.exports).toEqual({
       ".": "./index.ts",
       "./client": "./client.ts",
       "./context": "./context.json",
       "./server": "./server.ts",
+      "./seed-support/*": "./support/seed-support/*.ts",
       "./routes/*": "./routes/*.tsx",
     });
 
