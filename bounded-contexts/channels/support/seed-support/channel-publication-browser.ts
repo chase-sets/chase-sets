@@ -122,8 +122,8 @@ export async function createChannelPublicationBrowserSupport(
 
   const cleanup = (): Promise<void> => {
     cleanupPromise ??= (async () => {
-      await release();
       try {
+        await release();
         await acceptCandidateForCleanup(runtime, {
           sourceKey,
           targetKey: cleanupTargetKey,

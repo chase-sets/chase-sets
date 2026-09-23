@@ -108,6 +108,7 @@
     "bounded-contexts/channels/features/tcgplayer-csv/integrations/outbound-sync-settlement.ts",
     "bounded-contexts/channels/features/tcgplayer-csv/read-model/projection.ts",
     "bounded-contexts/channels/features/tcgplayer-csv/read-model/queries.ts",
+    "bounded-contexts/channels/support/seed-support/channel-publication-browser.ts",
     "bounded-contexts/checkout/features/cart/api/runtime.ts",
     "bounded-contexts/checkout/features/cart/integrations/identity/identity-projection.ts",
     "bounded-contexts/checkout/features/cart/integrations/identity/identity-queries.ts",
