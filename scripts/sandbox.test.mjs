@@ -234,7 +234,9 @@ describe("worktree sandbox", () => {
 
   it("playwright-channels-database-metadata retains deployed-profile exclusions", () => {
     expect(playwrightConfigSource).toContain("channelsDatabaseUrl: sandbox.contextDatabaseUrls.channels");
-    expect(playwrightConfigSource).toContain("grepInvert: skipWebServer ? /@browser-e2e-(?:seed|dev-source)/ : undefined");
+    expect(playwrightConfigSource).toContain(
+      "grepInvert: skipWebServer ? /@browser-e2e-(?:seed|dev-source)/ : undefined",
+    );
   });
 
   it("sandbox-database-owner-consumer-parity keeps every owner consumer on one resolved set", () => {
