@@ -2263,6 +2263,7 @@
     "deployables/platform-api/src/generated/api-context-registry.ts",
     "deployables/platform-api/src/main.ts",
     "deployables/platform-api/src/middleware/auth-context.ts",
+    "deployables/platform-api/src/middleware/checkout-closed.ts",
     "deployables/platform-api/src/observability-prelude.ts",
     "deployables/platform-api/src/tax-readiness.ts",
     "deployables/platform-api/vitest.config.ts",

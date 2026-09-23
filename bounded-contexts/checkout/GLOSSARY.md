@@ -37,6 +37,10 @@ Examples:
 
 A **Checkout Session** is a short-lived active purchase workflow snapshot created from the cart, a buy-now action, or an offer-intent action.
 
+## Checkout Closed
+
+**Checkout Closed** is the temporary refusal of new buying, expressed by the public `checkout_closed` response. Existing Checkout Sessions are retained; reads, eligible cancellation, and settlement already in progress remain available.
+
 ## Checkout Reservation
 
 A **Checkout Reservation** is a checkout-purpose Inventory hold created per buy-checkout line when the buyer reaches the payment step.
