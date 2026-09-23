@@ -177,6 +177,11 @@ async function runCli(baseUrl, mode, extraArgs = []) {
   return startCli(baseUrl, mode, extraArgs).result;
 }
 
+function cliExitDiagnostics(result) {
+  const stdoutTail = Buffer.from(result.stdout).subarray(-4_096).toString("utf8");
+  return `code=${result.code}, signal=${result.signal}, elapsedMs=${result.elapsedMs}, stderr=${result.stderr}, stdout tail=${stdoutTail}`;
+}
+
 async function closeAndAssertClean(fixture, result) {
   expect(result.code !== null || result.signal !== null).toBe(true);
   expect(await fixture.waitForNoSockets()).toBe(0);
@@ -223,7 +228,7 @@ async function assertRealCliDeadlineProof({ bodyStarted, fixture, running }) {
     expect(failureObservedAt - bodyStartedAt).toBeLessThan(deadlineProofCeilingMs);
 
     const result = await running.result;
-    expect(result.code).toBe(1);
+    expect(result.code, cliExitDiagnostics(result)).toBe(1);
     expect(result.stderr).toContain(deadlineFailure);
     expect(result.elapsedMs).toBeLessThan(processExitCeilingMs);
     expect(fixture.requests.indexOf("/faq")).toBeGreaterThanOrEqual(4);
@@ -359,7 +364,7 @@ describe("public web route smoke real CLI", () => {
     const fixture = await startServer();
     const result = await runCli(fixture.baseUrl, "healthy");
 
-    expect(result.code).toBe(0);
+    expect(result.code, cliExitDiagnostics(result)).toBe(0);
     const fetchable = inventory.members.filter((member) => member.kind !== "INDETERMINATE");
     expect(fixture.requests).toHaveLength(fetchable.length);
     for (const member of fetchable) expect(fixture.requests).toContain(member.path);
@@ -408,7 +413,7 @@ describe("public web route smoke real CLI", () => {
     const result = await runCli(fixture.baseUrl, "healthy");
 
     expect(MAX_PUBLIC_WEB_RESPONSE_BYTES).toBe(122_727);
-    expect(result.code).toBe(0);
+    expect(result.code, cliExitDiagnostics(result)).toBe(0);
     expect(result.stdout).toContain(`(${PRODUCTION_SHAPED_LARGEST_RESPONSE_BYTES} bytes)`);
   });
 
@@ -423,7 +428,7 @@ describe("public web route smoke real CLI", () => {
     });
     const result = await runCli(fixture.baseUrl, "healthy");
 
-    expect(result.code).toBe(1);
+    expect(result.code, cliExitDiagnostics(result)).toBe(1);
     expect(result.stderr).toContain(`[${PUBLIC_WEB_ROUTE_SMOKE_FAILURE_REASONS.responseTooLarge}] home (/)`);
     expect(result.stderr).not.toContain(`[${PUBLIC_WEB_ROUTE_SMOKE_FAILURE_REASONS.deadlineExceeded}] home (/)`);
     expect(result.elapsedMs).toBeLessThan(4_000);
@@ -446,7 +451,7 @@ describe("public web route smoke real CLI", () => {
     });
     const result = await runCli(fixture.baseUrl, "no-5xx");
 
-    expect(result.code).toBe(0);
+    expect(result.code, cliExitDiagnostics(result)).toBe(0);
     expect(fixture.requests).toContain("/redirect-final-404");
   });
 
@@ -461,7 +466,7 @@ describe("public web route smoke real CLI", () => {
     });
     const result = await runCli(fixture.baseUrl, "no-5xx");
 
-    expect(result.code).toBe(1);
+    expect(result.code, cliExitDiagnostics(result)).toBe(1);
     expect(result.stderr).toContain(
       `[${PUBLIC_WEB_ROUTE_SMOKE_FAILURE_REASONS.serverError}] refunds-and-returns (/refunds-and-returns)`,
     );
@@ -472,7 +477,7 @@ describe("public web route smoke real CLI", () => {
     const fixture = await startServer();
     const result = await runCli(fixture.baseUrl, "healthy");
 
-    expect(result.code).toBe(0);
+    expect(result.code, cliExitDiagnostics(result)).toBe(0);
     expect(fixture.requests).toHaveLength(inventory.members.filter((member) => member.kind !== "INDETERMINATE").length);
   });
 
@@ -490,7 +495,7 @@ describe("public web route smoke real CLI", () => {
       });
       const result = await runCli(fixture.baseUrl, "healthy");
 
-      expect(result.code).toBe(1);
+      expect(result.code, cliExitDiagnostics(result)).toBe(1);
       expect(result.stderr).toContain(
         `[${PUBLIC_WEB_ROUTE_SMOKE_FAILURE_REASONS.strictContentType}] ${memberId} (${routePath})`,
       );
@@ -510,14 +515,14 @@ describe("public web route smoke real CLI", () => {
     };
     const healthyFixture = await startServer(handler);
     const healthyResult = await runCli(healthyFixture.baseUrl, "healthy");
-    expect(healthyResult.code).toBe(1);
+    expect(healthyResult.code, cliExitDiagnostics(healthyResult)).toBe(1);
     expect(healthyResult.stderr).toContain(
       `[${PUBLIC_WEB_ROUTE_SMOKE_FAILURE_REASONS.strictDegradedState}] faq (/faq)`,
     );
 
     const no5xxFixture = await startServer(handler);
     const no5xxResult = await runCli(no5xxFixture.baseUrl, "no-5xx");
-    expect(no5xxResult.code).toBe(0);
+    expect(no5xxResult.code, cliExitDiagnostics(no5xxResult)).toBe(0);
   });
 
   it("does not consult visible degraded prose when the attribute is absent", async () => {
@@ -534,7 +539,7 @@ describe("public web route smoke real CLI", () => {
     });
     const result = await runCli(fixture.baseUrl, "healthy");
 
-    expect(result.code).toBe(0);
+    expect(result.code, cliExitDiagnostics(result)).toBe(0);
   });
 
   it.each([
@@ -576,7 +581,7 @@ describe("public web route smoke real CLI", () => {
     });
     const result = await runCli(fixture.baseUrl, "healthy");
 
-    expect(result.code).toBe(1);
+    expect(result.code, cliExitDiagnostics(result)).toBe(1);
     expect(result.stderr).toContain(`[${reason}] faq (/faq)`);
     expect(fixture.requests).toContain("/redirect-final");
   });
@@ -594,7 +599,7 @@ describe("public web route smoke real CLI", () => {
     });
     const result = await runCli(fixture.baseUrl, "healthy", ["--timeout-ms", "250", "--gate-timeout-ms", "2000"]);
 
-    expect(result.code).toBe(0);
+    expect(result.code, cliExitDiagnostics(result)).toBe(0);
   });
 
   it("bounds retries by the total gate deadline without process-startup timing", async () => {
@@ -621,7 +626,7 @@ describe("public web route smoke real CLI", () => {
   });
 
   it.each(["success", "5xx", "timeout", "byte-bound", "abort"])(
-    "cleans sockets, listeners, timers, and the checker process after $case",
+    "cleans sockets, listeners, timers, and the checker process after %s",
     async (caseName) => {
       let targetStarted;
       const targetStartedPromise = new Promise((resolve) => {
@@ -652,8 +657,8 @@ describe("public web route smoke real CLI", () => {
       }
       const result = await running.result;
 
-      if (caseName === "success") expect(result.code).toBe(0);
-      else expect(result.code === 1 || result.signal !== null).toBe(true);
+      if (caseName === "success") expect(result.code, cliExitDiagnostics(result)).toBe(0);
+      else expect(result.code === 1 || result.signal !== null, cliExitDiagnostics(result)).toBe(true);
       if (caseName === "abort" && process.platform !== "win32") {
         expect(result.stderr).toContain(`[${PUBLIC_WEB_ROUTE_SMOKE_FAILURE_REASONS.aborted}] faq (/faq)`);
       }
