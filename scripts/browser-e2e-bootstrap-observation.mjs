@@ -10,8 +10,8 @@ const processTreeQuery = [
   "ConvertTo-Json -Compress",
 ].join(" ");
 
-export async function sampleWindowsProcessTree(rootPid) {
-  if (process.platform !== "win32") return [];
+export async function sampleWindowsProcessTree(rootPid, { platform = process.platform } = {}) {
+  if (platform !== "win32") return [];
   const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-Command", processTreeQuery], {
     windowsHide: true,
     maxBuffer: 2 * 1024 * 1024,
@@ -48,6 +48,7 @@ export async function runObservedBrowserE2eBootstrap(
     run = runCommand,
     sampleProcessTree = sampleWindowsProcessTree,
     pollMs = 2_000,
+    stderrToStderr = !process.env.CI,
   },
 ) {
   let child;
@@ -68,7 +69,7 @@ export async function runObservedBrowserE2eBootstrap(
       env: environment,
       inheritEnv: false,
       prefix,
-      stderrToStderr: !process.env.CI,
+      stderrToStderr,
       onSpawn(spawned) {
         child = spawned;
         recorder.observe(name, child, {
