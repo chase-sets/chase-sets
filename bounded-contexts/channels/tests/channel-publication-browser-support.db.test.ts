@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { bootstrapContextDatabase, drainLocalProjectionHandlerSets } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
@@ -23,6 +23,7 @@ import {
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Channels DB tests in CI.");
 const describeDb = databaseBaseUrl ? describe : describe.skip;
+const realSetTimeout = globalThis.setTimeout;
 let pool: PgTransactionalPool;
 let channelsDatabaseUrl: string;
 
@@ -200,11 +201,14 @@ describeDb("channel publication browser support", () => {
 
   it("surfaces mapping-row-lock-failed when the exact candidate row cannot be acquired", async () => {
     await seedOwnedConnection();
-    const supportPromise = createChannelPublicationBrowserSupport({ channelsDatabaseUrl });
-    const sourceKey = await waitForSyntheticCandidateEvent();
-    await drainLocalProjectionHandlerSets("channels", pool, createRuntime().projectors);
     const blocker = await pool.connect();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const scheduled = vi.spyOn(globalThis, "setTimeout");
     try {
+      const supportPromise = createChannelPublicationBrowserSupport({ channelsDatabaseUrl });
+      const sourceKey = await waitForSyntheticCandidateEvent();
+      await waitFor(async () => scheduled.mock.calls.some(([, milliseconds]) => milliseconds === 100));
+      await drainLocalProjectionHandlerSets("channels", pool, createRuntime().projectors);
       await blocker.query("BEGIN");
       await blocker.query(
         `SELECT source_key FROM channels_channel_mappings
@@ -212,8 +216,11 @@ describeDb("channel publication browser support", () => {
          FOR UPDATE`,
         [manualSyncScenarioSeed.connectionId, sourceKey],
       );
+      await vi.advanceTimersByTimeAsync(100);
       await expect(supportPromise).rejects.toMatchObject({ code: "mapping-row-lock-failed" });
     } finally {
+      scheduled.mockRestore();
+      vi.useRealTimers();
       await blocker.query("ROLLBACK");
       blocker.release();
     }
@@ -389,5 +396,5 @@ async function expectSupportError(
 }
 
 function sleep(milliseconds: number) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+  return new Promise((resolve) => realSetTimeout(resolve, milliseconds));
 }

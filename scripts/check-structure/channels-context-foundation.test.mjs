@@ -331,8 +331,8 @@ describe("channels-context-foundation", () => {
         "manual-sync",
         "reconciliation",
       ],
-      allowedSupportDirectories: ["request-support", "runtime-support"],
-      publicExports: [".", "./client", "./context", "./server", "./routes/*"],
+      allowedSupportDirectories: ["request-support", "runtime-support", "seed-support"],
+      publicExports: [".", "./client", "./context", "./server", "./routes/*", "./seed-support/*"],
       allowedContextDependencies: ["@chase-sets/marketplace", "@chase-sets/inventory"],
       seedRequirements: ["inventory"],
       hostPorts: [
