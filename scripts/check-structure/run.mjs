@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -1326,13 +1326,44 @@ function isApiDeployableFile(relativeFile) {
   return /deployables\/(platform-api|platform-worker)\//.test(relativeFile);
 }
 
-export function isAllowedDeployableBoundedContextImport(relativeFile, specifier) {
+export function isAllowedDeployableBoundedContextImport(relativeFile, specifier, targetContext) {
   const normalizedFile = relativeFile.replaceAll("\\", "/");
   if (
     normalizedFile.startsWith("deployables/tcgplayer-connector-extension/") &&
     specifier === "@chase-sets/channels/client"
   ) {
     return true;
+  }
+
+  if (
+    /^deployables\/(admin-web|marketplace)\/e2e\/(?:[^/]+\/)*[^/]+\.spec\.ts$/.test(normalizedFile) &&
+    normalizedFile.split("/").every((segment) => segment !== "." && segment !== "..") &&
+    targetContext?.packageName === targetContext?.packageJson?.name &&
+    targetContext?.packageName === targetContext?.manifest?.packageName &&
+    typeof targetContext?.rootAbs === "string" &&
+    specifier.startsWith(`${targetContext.packageName}/seed-support/`)
+  ) {
+    const subpath = specifier.slice(`${targetContext.packageName}/seed-support/`.length);
+    const exportTarget = targetContext.packageJson.exports?.["./seed-support/*"];
+    if (
+      subpath.includes("\\") ||
+      subpath.split("/").some((segment) => segment === "" || segment === "." || segment === "..") ||
+      !(targetContext.manifest.publicExports ?? []).includes("./seed-support/*") ||
+      typeof exportTarget !== "string" ||
+      !exportTarget.startsWith("./")
+    ) {
+      return false;
+    }
+
+    const mappedTarget = exportTarget.slice(2).replaceAll("*", subpath);
+    if (
+      mappedTarget.includes("\\") ||
+      mappedTarget.split("/").some((segment) => segment === "" || segment === "." || segment === "..")
+    ) {
+      return false;
+    }
+    const resolvedTarget = resolveExistingModulePath(targetContext.rootAbs, mappedTarget);
+    return resolvedTarget !== null && statSync(resolvedTarget).isFile();
   }
 
   if (isWebDeployableFile(relativeFile) && !isTestFile(relativeFile)) {
@@ -2834,7 +2865,11 @@ export async function runStructureCheck(options = {}) {
         boundedContextPackages.some(
           (packageName) => matchesPackageSpecifier(normalized, packageName) && normalized !== packageName,
         ) &&
-        !isAllowedDeployableBoundedContextImport(relativeFile, normalized)
+        !isAllowedDeployableBoundedContextImport(
+          relativeFile,
+          normalized,
+          [...contextManifests.values()].find(({ packageName }) => matchesPackageSpecifier(normalized, packageName)),
+        )
       ) {
         addViolation(file, `deployables must consume public context entrypoints (${specifier})`);
       }

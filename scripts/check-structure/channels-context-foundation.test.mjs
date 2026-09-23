@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import ts from "@chase-sets/typescript-compiler-api";
 import { listContextManifests, repoRoot } from "../lib/repo.mjs";
 import { validateGlossaryCoverage } from "./glossary-coverage.mjs";
 import { syncWorkspaceMetadata } from "../sync-workspace-metadata.mjs";
@@ -716,6 +717,246 @@ describe("channels-client-deployable-import-fence", () => {
         "@chase-sets/channels/client",
       ),
     ).toBe(false);
+  });
+});
+
+describe("deployable-browser-test-support-import-fence", () => {
+  const specifier = "@chase-sets/neutral-package/seed-support/neutral";
+  const eligible = [
+    "deployables/admin-web/e2e/access-api-keys.spec.ts",
+    "deployables/marketplace/e2e/manual-sync-recovery.spec.ts",
+    "deployables/marketplace/e2e/support/auth-trace-artifact.probe.spec.ts",
+    "deployables/admin-web/e2e/arbitrary/nested/neutral.multi.spec.ts",
+    "deployables/marketplace/e2e/neutral.spec.ts",
+  ];
+  const ineligible = [
+    "deployables/admin-web/app/neutral.ts",
+    "deployables/marketplace/server/neutral.ts",
+    "deployables/platform-api/src/neutral.ts",
+    "deployables/platform-worker/src/neutral.ts",
+    "deployables/admin-web/e2e/support/neutral.ts",
+    "deployables/marketplace/e2e/neutral.test.ts",
+    "deployables/admin-web/e2e/neutral.spec.tsx",
+    "deployables/admin-web/e2e/neutral.spec.js",
+    "deployables/admin-web/arbitrary/neutral.spec.ts",
+    "deployables/public-web/e2e/privacy-policy.spec.ts",
+    "deployables/tcgplayer-connector-extension/e2e/chromium-authority.spec.ts",
+    "deployables/synthetic-neutral-sibling/e2e/neutral.spec.ts",
+    "deployables/admin-web/e2e//neutral.spec.ts",
+    "deployables/admin-web/e2e/./neutral.spec.ts",
+    "deployables/admin-web/e2e/../neutral.spec.ts",
+    "/deployables/admin-web/e2e/neutral.spec.ts",
+    "prefix/deployables/admin-web/e2e/neutral.spec.ts",
+    "C:/deployables/admin-web/e2e/neutral.spec.ts",
+  ];
+
+  function declaredTarget() {
+    const rootAbs = createTempRepo("browser-seed-support-");
+    writeSource(rootAbs, "support/alternate-support/neutral.ts", "export const neutral = true;\n");
+    return {
+      rootAbs,
+      packageName: "@chase-sets/neutral-package",
+      manifest: {
+        contextName: "neutral-context",
+        packageName: "@chase-sets/neutral-package",
+        publicExports: ["./seed-support/*"],
+      },
+      packageJson: {
+        name: "@chase-sets/neutral-package",
+        exports: { "./seed-support/*": "./support/alternate-support/*.ts" },
+      },
+    };
+  }
+
+  it.each(eligible)("admits declared support from %s with either path separator", (file) => {
+    const target = declaredTarget();
+    expect(isAllowedDeployableBoundedContextImport(file, specifier, target)).toBe(true);
+    expect(isAllowedDeployableBoundedContextImport(file.replaceAll("/", "\\"), specifier, target)).toBe(true);
+  });
+
+  it.each(ineligible)("rejects declared support from %s with either path separator", (file) => {
+    const target = declaredTarget();
+    expect(isAllowedDeployableBoundedContextImport(file, specifier, target)).toBe(false);
+    expect(isAllowedDeployableBoundedContextImport(file.replaceAll("/", "\\"), specifier, target)).toBe(false);
+  });
+
+  it.each([
+    [
+      "package export absent",
+      (target) => {
+        target.packageJson.exports = {};
+      },
+    ],
+    [
+      "manifest declaration absent",
+      (target) => {
+        target.manifest.publicExports = [];
+      },
+    ],
+    [
+      "another context's metadata",
+      (target) => {
+        target.packageName = target.manifest.packageName = target.packageJson.name = "@chase-sets/sibling";
+      },
+    ],
+    [
+      "package name disagrees",
+      (target) => {
+        target.packageJson.name = "@chase-sets/sibling";
+      },
+    ],
+    [
+      "manifest name disagrees",
+      (target) => {
+        target.manifest.packageName = "@chase-sets/sibling";
+      },
+    ],
+    [
+      "non-string export",
+      (target) => {
+        target.packageJson.exports["./seed-support/*"] = { default: "./support/alternate-support/*.ts" };
+      },
+    ],
+    [
+      "mapped target missing",
+      (target) => {
+        target.packageJson.exports["./seed-support/*"] = "./support/seed-support/*.ts";
+      },
+    ],
+    [
+      "mapped target traversal",
+      (target) => {
+        target.packageJson.exports["./seed-support/*"] = "./support/../support/alternate-support/*.ts";
+      },
+    ],
+    [
+      "target root absent",
+      (target) => {
+        delete target.rootAbs;
+      },
+    ],
+  ])("rejects %s while keeping the other inputs valid", (_label, change) => {
+    const target = declaredTarget();
+    expect(isAllowedDeployableBoundedContextImport(eligible[0], specifier, target)).toBe(true);
+    change(target);
+    expect(isAllowedDeployableBoundedContextImport(eligible[0], specifier, target)).toBe(false);
+  });
+
+  it("rejects absent target metadata", () => {
+    expect(isAllowedDeployableBoundedContextImport(eligible[0], specifier)).toBe(false);
+  });
+
+  it.each([
+    "seed-support",
+    "seed-support/",
+    "seed-support/.",
+    "seed-support/..",
+    "seed-support/../neutral",
+    "seed-support/./neutral",
+    "seed-support//neutral",
+    "seed-support/nested/../neutral",
+    "seed-support/neutral/",
+    "seed-support/missing",
+    "seed-support/..\\neutral",
+    "test-support/neutral",
+    "support/alternate-support/neutral",
+  ])("rejects the invalid package subpath %s", (subpath) => {
+    expect(
+      isAllowedDeployableBoundedContextImport(eligible[0], `@chase-sets/neutral-package/${subpath}`, declaredTarget()),
+    ).toBe(false);
+  });
+
+  it("rejects a context-name lookalike and a relative deep import", () => {
+    const target = declaredTarget();
+    expect(
+      isAllowedDeployableBoundedContextImport(eligible[0], "@chase-sets/neutral-context/seed-support/neutral", target),
+    ).toBe(false);
+    expect(
+      isAllowedDeployableBoundedContextImport(
+        eligible[0],
+        "../../../bounded-contexts/neutral-context/support/alternate-support/neutral",
+        target,
+      ),
+    ).toBe(false);
+  });
+
+  it.each([
+    ["deployables/admin-web/app/neutral.ts", false, true],
+    ["deployables/platform-api/src/neutral.ts", true, false],
+    ["deployables/admin-web/tests/neutral.test.ts", true, true],
+    ["deployables/admin-web/e2e/catalog-staging-provider-sync.uat.spec.ts", false, true],
+    ["deployables/admin-web/e2e/support/representative-catalog-evidence.ts", false, true],
+  ])("retains public-entrypoint results for %s", (file, rootAllowed, webSurfacesAllowed) => {
+    expect(isAllowedDeployableBoundedContextImport(file, "@chase-sets/catalog")).toBe(rootAllowed);
+    expect(isAllowedDeployableBoundedContextImport(file, "@chase-sets/catalog/server")).toBe(true);
+    for (const surface of ["context", "host-config", "web", "routes/neutral"]) {
+      expect(isAllowedDeployableBoundedContextImport(file, `@chase-sets/catalog/${surface}`)).toBe(webSurfacesAllowed);
+    }
+    expect(isAllowedDeployableBoundedContextImport(file, "@chase-sets/catalog/private/neutral")).toBe(false);
+  });
+});
+
+describe("declared-browser-test-support-resolution", () => {
+  it("resolves both specs through generated package exports and loses resolution when only the export is removed", () => {
+    const root = createTempRepo("browser-seed-resolution-");
+    const contextRoot = "bounded-contexts/neutral-context";
+    const target = `${contextRoot}/support/seed-support/neutral.ts`;
+    const specifier = "@chase-sets/neutral-package/seed-support/neutral";
+    const specPaths = [
+      "deployables/admin-web/e2e/neutral.spec.ts",
+      "deployables/marketplace/e2e/nested/neutral.probe.spec.ts",
+    ];
+    writeJson(path.join(root, "tsconfig.base.json"), {
+      compilerOptions: { moduleResolution: "Bundler", module: "ESNext", paths: {} },
+    });
+    writeJson(path.join(root, contextRoot, "context.json"), {
+      contextName: "neutral-context",
+      packageName: "@chase-sets/neutral-package",
+      publicExports: ["./seed-support/*"],
+    });
+    const packageJson = {
+      name: "@chase-sets/neutral-package",
+      exports: { "./seed-support/*": "./support/seed-support/*.ts" },
+    };
+    writeJson(path.join(root, contextRoot, "package.json"), packageJson);
+    writeSource(root, target, "export const neutral = true;\n");
+    for (const file of specPaths) writeSource(root, file, `import { neutral } from "${specifier}";\nvoid neutral;\n`);
+    const workspace = {
+      name: packageJson.name,
+      dir: path.join(root, contextRoot),
+      dirName: "neutral-context",
+      root: "bounded-contexts",
+      packageJson,
+    };
+    const trackedLocaleFile = "contracts/localization/locales/en/neutral.ts";
+    writeSource(root, trackedLocaleFile, 'export const neutral = { "neutral.example": "Example" } as const;\n');
+    const sync = () =>
+      syncWorkspaceMetadata({ rootDir: root, workspaces: [workspace], trackedLocaleFiles: [trackedLocaleFile] });
+    const readConfig = () => {
+      const config = ts.readConfigFile(path.join(root, "tsconfig.base.json"), ts.sys.readFile);
+      expect(config.error).toBeUndefined();
+      return config.config;
+    };
+    const resolve = (file) => {
+      const parsed = ts.parseJsonConfigFileContent(readConfig(), ts.sys, root);
+      expect(parsed.errors).toEqual([]);
+      return ts.resolveModuleName(specifier, path.join(root, file), parsed.options, ts.sys).resolvedModule;
+    };
+
+    sync();
+    expect(readJson(path.join(root, contextRoot, "package.json")).exports["./seed-support/*"]).toBe(
+      "./support/seed-support/*.ts",
+    );
+    expect(readConfig().compilerOptions.paths["@chase-sets/neutral-package/seed-support/*"]).toEqual([
+      `./${contextRoot}/support/seed-support/*.ts`,
+    ]);
+    for (const file of specPaths) expect(path.resolve(resolve(file).resolvedFileName)).toBe(path.join(root, target));
+
+    delete packageJson.exports["./seed-support/*"];
+    writeJson(path.join(root, contextRoot, "package.json"), packageJson);
+    sync();
+    expect(readConfig().compilerOptions.paths).not.toHaveProperty("@chase-sets/neutral-package/seed-support/*");
+    for (const file of specPaths) expect(resolve(file)).toBeUndefined();
   });
 });
 
