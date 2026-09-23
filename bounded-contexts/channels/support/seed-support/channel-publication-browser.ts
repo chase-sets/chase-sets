@@ -161,6 +161,7 @@ export async function createChannelPublicationBrowserSupport(
     }
     authoredVersion = authored.streamVersion;
     const detail = await waitForCandidate(runtime, sourceKey);
+    if (!detail) throw new ChannelPublicationBrowserSupportError("candidate-projection-incomplete");
 
     const client: PgPoolClient = await pool.connect();
     lockClient = client;
