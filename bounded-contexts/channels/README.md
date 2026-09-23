@@ -17,6 +17,15 @@ complete inline channel observations with expected Link state, retains seller
 drift decisions, records missed external sales through Inventory, and applies
 outbound-only health and operator holds.
 
+## Test Support
+
+`@chase-sets/channels/seed-support/channel-publication-browser` provides test-only
+mapping candidate authoring and a bounded exact-row hold for local browser-e2e
+composition and Channels cross-slice DB acceptance tests. It uses the existing
+owned manual-sync scenario connection and the real Channels runtime. The hold
+can stall the shared listing-state projection until release. Seed and bootstrap
+composition never invoke this helper; it is not a production entrypoint.
+
 ## Owns
 
 - Sales Channel and Channel Connection vocabulary

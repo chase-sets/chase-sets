@@ -1,11 +1,15 @@
 import { randomUUID } from "node:crypto";
+import type { Pool } from "pg";
 import { createPostgresEventStore, createPgPool, type PgPoolClient } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { demoIdentitySeedIds } from "@chase-sets/identity-seed";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
-import { manualSyncScenarioSeed } from "../../manual-sync/api/seed";
-import { createChannelListingCompositionRuntime, type ChannelListingCompositionServices } from "../api/runtime";
-import { createChannelCompositionProfileRegistry } from "../domain/canonical";
+import { manualSyncScenarioSeed } from "../../features/manual-sync/api/seed";
+import {
+  createChannelListingCompositionRuntime,
+  type ChannelListingCompositionServices,
+} from "../../features/listing-composition/api/runtime";
+import { createChannelCompositionProfileRegistry } from "../../features/listing-composition/domain/canonical";
 
 const projectionPollIntervalMs = 100;
 const projectionPollTimeoutMs = 10_000;
@@ -91,7 +95,7 @@ export async function createChannelPublicationBrowserSupport(
   const closePool = async () => {
     if (poolClosed) return;
     poolClosed = true;
-    await (pool as unknown as { end: () => Promise<void> }).end();
+    await (pool as unknown as Pool).end();
   };
 
   const release = async () => {

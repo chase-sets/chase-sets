@@ -224,7 +224,10 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   ) {
     violations.push("slices");
   }
-  if (JSON.stringify(candidate.allowedSupportDirectories) !== JSON.stringify(["request-support", "runtime-support"])) {
+  if (
+    JSON.stringify(candidate.allowedSupportDirectories) !==
+    JSON.stringify(["request-support", "runtime-support", "seed-support"])
+  ) {
     violations.push("allowedSupportDirectories");
   }
   if (candidate.eventSubscriptions?.length !== 5) violations.push("eventSubscriptions");

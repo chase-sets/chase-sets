@@ -10,15 +10,15 @@ import {
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { demoIdentitySeedIds } from "@chase-sets/identity-seed";
-import { module as channelsModule } from "../../../index";
-import { createChannelConnectionRuntime } from "../../connections/api/runtime";
-import { manualSyncScenarioSeed, seedManualSyncScenario } from "../../manual-sync/api/seed";
-import { createChannelListingCompositionRuntime } from "../api/runtime";
-import { createChannelCompositionProfileRegistry } from "../domain/canonical";
+import { module as channelsModule } from "../index";
+import { createChannelConnectionRuntime } from "../features/connections/api/runtime";
+import { manualSyncScenarioSeed, seedManualSyncScenario } from "../features/manual-sync/api/seed";
+import { createChannelListingCompositionRuntime } from "../features/listing-composition/api/runtime";
+import { createChannelCompositionProfileRegistry } from "../features/listing-composition/domain/canonical";
 import {
   ChannelPublicationBrowserSupportError,
   createChannelPublicationBrowserSupport,
-} from "../test-support/channel-publication-browser";
+} from "../support/seed-support/channel-publication-browser";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Channels DB tests in CI.");
