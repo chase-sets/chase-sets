@@ -232,9 +232,9 @@ describe("worktree sandbox", () => {
     expect(buildSandboxEnv(registered)).toHaveProperty("DATABASE_URL_CHANNELS");
   });
 
-  it("playwright-channels-database-metadata retains seeded-spec exclusion", () => {
+  it("playwright-channels-database-metadata retains deployed-profile exclusions", () => {
     expect(playwrightConfigSource).toContain("channelsDatabaseUrl: sandbox.contextDatabaseUrls.channels");
-    expect(playwrightConfigSource).toContain("grepInvert: skipWebServer ? /@browser-e2e-seed/ : undefined");
+    expect(playwrightConfigSource).toContain("grepInvert: skipWebServer ? /@browser-e2e-(?:seed|dev-source)/ : undefined");
   });
 
   it("sandbox-database-owner-consumer-parity keeps every owner consumer on one resolved set", () => {
