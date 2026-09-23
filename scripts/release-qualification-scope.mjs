@@ -300,6 +300,12 @@ export const releaseQualificationScopeRegistry = Object.freeze({
   // classify persistent_required.
   reviewedNonPersistentSurfaces: Object.freeze([
     Object.freeze({
+      pattern: /^scripts\/browser-e2e-bootstrap-observation\.mjs$/,
+      expectedClass: "not_applicable",
+      rationale:
+        "Browser e2e bootstrap observation records disposable local test processes and does not seed or mutate persistent environments.",
+    }),
+    Object.freeze({
       pattern: /^deployables\/[^/]+\/e2e\//,
       expectedClass: "not_applicable",
       rationale:

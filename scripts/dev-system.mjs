@@ -23,6 +23,7 @@ import { readEnvFile } from "./lib/env.mjs";
 import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
 import { stopComposePostgresCleanly } from "./lib/postgres-compose-lifecycle.mjs";
 import { buildPackageManagerInvocation, runCommand, spawnCommand, terminateProcessTree } from "./lib/process.mjs";
+import { runObservedBrowserE2eBootstrap } from "./browser-e2e-bootstrap-observation.mjs";
 import {
   applySandboxEnv,
   buildDockerComposeArgs,
@@ -487,7 +488,7 @@ async function ensureDevDatabase() {
   await preparePlatformDatabase();
 }
 
-async function runBootstrap(targetName = "all") {
+async function runBootstrap(targetName = "all", lifecycleRecorder = null) {
   if (isolatedBrowserE2eProbe) {
     prefixedConsole("env", "Skipping local secret-file sync for the isolated browser-e2e probe.");
   } else {
@@ -503,15 +504,25 @@ async function runBootstrap(targetName = "all") {
     prefixedConsole("bootstrap", `Running ${workspace} bootstrap...`);
     const processDefinition = bootstrapProcesses.find((definition) => definition.workspace === workspace);
     const invocation = buildPackageManagerInvocation(["--filter", workspace, "run", "bootstrap"]);
-    await runCommand(invocation.command, invocation.args, {
-      env: buildPlatformChildEnvironment(
-        process.env,
-        applyCurrentPlatformBootstrapSelectors(processDefinition?.env ?? {}, process.env),
-        { minimalBase: true },
-      ),
-      inheritEnv: false,
-      prefix: workspace.replace("@chase-sets/", ""),
-    });
+    const environment = buildPlatformChildEnvironment(
+      process.env,
+      applyCurrentPlatformBootstrapSelectors(processDefinition?.env ?? {}, process.env),
+      { minimalBase: true },
+    );
+    if (lifecycleRecorder) {
+      await runObservedBrowserE2eBootstrap(invocation.command, invocation.args, {
+        name: `bootstrap-${workspace.replace("@chase-sets/", "")}`,
+        prefix: workspace.replace("@chase-sets/", ""),
+        recorder: lifecycleRecorder,
+        environment,
+      });
+    } else {
+      await runCommand(invocation.command, invocation.args, {
+        env: environment,
+        inheritEnv: false,
+        prefix: workspace.replace("@chase-sets/", ""),
+      });
+    }
   }
 }
 
@@ -542,7 +553,7 @@ async function runDev(targetName = "all") {
         target: targetName,
       })
     : null;
-  await runBootstrap(targetName);
+  await runBootstrap(targetName, lifecycleRecorder);
   if (isBrowserE2eTarget(targetName) && Boolean(process.env.CI)) {
     const primedCount = await primeBrowserE2eProjectionWakeRelayCursors({ sandbox });
     prefixedConsole("bootstrap", `Primed projection wake relay cursors at ${primedCount} seeded context event heads.`);
