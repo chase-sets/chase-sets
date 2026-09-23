@@ -105,9 +105,10 @@ export async function createChannelPublicationBrowserSupport(
       clearTimeout(holdTimer);
       holdTimer = null;
     }
-    const client = lockClient;
+    const heldClient = lockClient;
     lockClient = null;
-    if (!client) return;
+    if (!heldClient) return;
+    const client: PgPoolClient = heldClient;
     let releaseError: unknown;
     try {
       await client.query("ROLLBACK");
@@ -161,11 +162,12 @@ export async function createChannelPublicationBrowserSupport(
     authoredVersion = authored.streamVersion;
     const detail = await waitForCandidate(runtime, sourceKey);
 
-    lockClient = await pool.connect();
+    const client: PgPoolClient = await pool.connect();
+    lockClient = client;
     try {
-      await lockClient.query("BEGIN");
-      await lockClient.query(`SET LOCAL lock_timeout = '${rowLockTimeoutMs}ms'`);
-      const locked = await lockClient.query<{
+      await client.query("BEGIN");
+      await client.query(`SET LOCAL lock_timeout = '${rowLockTimeoutMs}ms'`);
+      const locked = await client.query<{
         source_key: string;
         review_status: string;
       }>(
@@ -183,11 +185,11 @@ export async function createChannelPublicationBrowserSupport(
       }
     } catch (error) {
       try {
-        await lockClient.query("ROLLBACK");
+        await client.query("ROLLBACK");
       } catch {
         // The original exact-row-lock failure remains authoritative.
       }
-      lockClient.release(error);
+      client.release(error);
       lockClient = null;
       lockReleased = true;
       if (error instanceof ChannelPublicationBrowserSupportError) throw error;

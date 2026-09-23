@@ -37,7 +37,14 @@ describe("channel-publication-port-scope-fence", () => {
       },
     ]);
     expect(manifest.allowedSupportDirectories).toEqual(["request-support", "runtime-support", "seed-support"]);
-    expect(manifest.publicExports).toEqual([".", "./client", "./context", "./server", "./routes/*", "./seed-support/*"]);
+    expect(manifest.publicExports).toEqual([
+      ".",
+      "./client",
+      "./context",
+      "./server",
+      "./routes/*",
+      "./seed-support/*",
+    ]);
     expect(packageJson.exports).toEqual({
       ".": "./index.ts",
       "./client": "./client.ts",
