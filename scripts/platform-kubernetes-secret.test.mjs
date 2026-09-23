@@ -1,5 +1,7 @@
 import { EventEmitter } from "node:events";
 import { Writable } from "node:stream";
+import { readFileSync } from "node:fs";
+import { parse as parseYaml } from "yaml";
 import { describe, expect, it } from "vitest";
 import {
   applyPlatformSecretManifest,
@@ -36,6 +38,84 @@ const sampleValues = {
 };
 
 describe("platform Kubernetes secret", () => {
+  it("threads only the Secret-apply steps; chart identity does not gate keyring reconciliation", () => {
+    let sinks = 0;
+    for (const name of [
+      "platform-pr",
+      "platform-merge-gate-verification",
+      "platform-ephemeral-verification",
+      "platform-production",
+    ]) {
+      const workflow = parseYaml(readFileSync(`.github/workflows/${name}.yml`, "utf8"));
+      for (const job of Object.values(workflow.jobs))
+        for (const step of job.steps ?? []) {
+          if (!/^Apply .*Kubernetes runtime secrets$/.test(step.name ?? "")) continue;
+          sinks++;
+          expect(step.env.CHANNELS_CREDENTIAL_KEYRING_JSON).toBe(
+            "${{ secrets.CHANNELS_CREDENTIAL_KEYRING_JSON || '' }}",
+          );
+          expect(step.if ?? "").not.toMatch(/chart|helm|changed|fingerprint/i);
+          expect(step.run).toMatch(/platform-kubernetes-secret/);
+          expect(step.run).not.toContain("$CHANNELS_CREDENTIAL_KEYRING_JSON");
+        }
+    }
+    expect(sinks).toBe(5);
+    const reset = parseYaml(readFileSync(".github/workflows/platform-staging-reset.yml", "utf8"));
+    const runs = Object.values(reset.jobs)
+      .flatMap((job) => job.steps ?? [])
+      .map((step) => step.run ?? "")
+      .join("\n");
+    expect(runs).toContain("gh workflow run platform-production.yml");
+    expect(runs).not.toContain("CHANNELS_CREDENTIAL_KEYRING_JSON");
+  });
+  it("reconciles a rotated keyring on the same values through stdin only", async () => {
+    const values = buildPlatformHelmValues();
+    const env = Object.fromEntries(collectPlatformSecretKeys(values).map((key) => [key, ""]));
+    const calls = [],
+      inputs = [];
+    const spawn = (command, args, options) => {
+      calls.push({ command, args, options });
+      const child = new EventEmitter();
+      child.stdin = new Writable({
+        write(chunk, _encoding, callback) {
+          inputs.push(chunk.toString());
+          callback();
+        },
+      });
+      queueMicrotask(() => child.emit("close", 0));
+      return child;
+    };
+    for (const marker of ["synthetic-old-keyring", "synthetic-new-keyring"]) {
+      await applyPlatformSecretManifest({
+        values,
+        env: { ...env, CHANNELS_CREDENTIAL_KEYRING_JSON: marker },
+        spawn,
+        kubectlPath: "synthetic-kubectl",
+      });
+    }
+    expect(calls).toHaveLength(2);
+    expect(
+      inputs.map((input) => Buffer.from(JSON.parse(input).data.CHANNELS_CREDENTIAL_KEYRING_JSON, "base64").toString()),
+    ).toEqual(["synthetic-old-keyring", "synthetic-new-keyring"]);
+    expect(JSON.stringify(calls)).not.toMatch(/synthetic-(old|new)-keyring/);
+  });
+  it("includes an optional Channels keyring and never includes its value in a summary", () => {
+    const values = buildPlatformHelmValues();
+    expect(collectPlatformSecretKeys(values)).toContain("CHANNELS_CREDENTIAL_KEYRING_JSON");
+    const env = Object.fromEntries(collectPlatformSecretKeys(values).map((key) => [key, "synthetic-value"]));
+    env.CHANNELS_CREDENTIAL_KEYRING_JSON = "synthetic-custody-marker";
+    const manifest = buildPlatformSecretManifest({ values, env, namespace: "synthetic" });
+    expect(Buffer.from(manifest.data.CHANNELS_CREDENTIAL_KEYRING_JSON, "base64").toString()).toBe(
+      "synthetic-custody-marker",
+    );
+    expect(JSON.stringify(summarizePlatformSecret({ values, namespace: "synthetic" }))).not.toContain(
+      "synthetic-custody-marker",
+    );
+    env.CHANNELS_CREDENTIAL_KEYRING_JSON = "";
+    expect(
+      buildPlatformSecretManifest({ values, env, namespace: "synthetic" }).data.CHANNELS_CREDENTIAL_KEYRING_JSON,
+    ).toBe("");
+  });
   it("collects unique secret keys from Helm values", () => {
     expect(collectPlatformSecretKeys(sampleValues)).toEqual(["DATABASE_URL_CHECKOUT", "STRIPE_SECRET_KEY"]);
   });

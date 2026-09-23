@@ -88,6 +88,7 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   const rootFiles = relativeFiles.filter((file) => !file.includes("/")).sort();
   if (JSON.stringify(rootFiles) !== JSON.stringify([...requiredRootFiles].sort())) violations.push("root-files");
   if (!relativeFiles.some((file) => file.startsWith("features/connections/"))) violations.push("connections-files");
+  if (!relativeFiles.some((file) => file.startsWith("features/credentials/"))) violations.push("credentials-files");
   if (!relativeFiles.some((file) => file.startsWith("features/connector-client/"))) {
     violations.push("connector-client-files");
   }
@@ -203,6 +204,12 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
         purpose:
           "Bind Inventory's typed account-scoped external Channel sale recorder for inline missed-sale reconciliation.",
       },
+      {
+        portName: "channelCredentialKeyring",
+        providedBy: "platform-api, platform-worker",
+        purpose:
+          "Supply the shared parsed Channels credential keyring; absent configuration leaves custody unavailable.",
+      },
     ])
   ) {
     violations.push("hostPorts");
@@ -211,6 +218,7 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
     JSON.stringify(candidate.slices) !==
     JSON.stringify([
       "connections",
+      "credentials",
       "connector-client",
       "publication-port",
       "listing-composition",
@@ -257,6 +265,25 @@ afterEach(() => {
 });
 
 describe("channels-context-foundation", () => {
+  it("enrols credential DB proofs and guards their boot/migration parity", () => {
+    const scripts = readJson(packagePath).scripts;
+    for (const name of ["store", "rotation", "schema"]) {
+      const test = `features/credentials/tests/channel-credential-${name}.db.test.ts`;
+      expect(scripts["test:db"].split(/\s+/).filter((argument) => argument === test)).toHaveLength(1);
+      expect(scripts["test:unit"]).toContain(`--exclude ${test}`);
+    }
+    const source = readFileSync(path.join(channelsRoot, "features/credentials/read-model/schema.ts"), "utf8");
+    expect(findSchemaMigrationDdlSafetyViolationsInSource(source)).toEqual([]);
+    expect(
+      findSchemaMigrationDdlSafetyViolationsInSource(source.replaceAll("INDEX CONCURRENTLY IF", "INDEX IF")),
+    ).toHaveLength(1);
+    expect(
+      collectChannelsSurfaceViolations(
+        readJson(manifestPath),
+        listFiles(channelsRoot).filter((file) => !file.startsWith("features/credentials/")),
+      ),
+    ).toEqual(["credentials-files"]);
+  });
   it("proves actual attention migration indexes are concurrent and rejects their omission", () => {
     const source = readFileSync(path.join(channelsRoot, "features/connection-attention/read-model/schema.ts"), "utf8");
     expect(findSchemaMigrationDdlSafetyViolationsInSource(source)).toEqual([]);
@@ -321,6 +348,7 @@ describe("channels-context-foundation", () => {
       ]),
       slices: [
         "connections",
+        "credentials",
         "connector-client",
         "publication-port",
         "listing-composition",
@@ -347,6 +375,12 @@ describe("channels-context-foundation", () => {
           providedBy: "inventory",
           purpose:
             "Bind Inventory's typed account-scoped external Channel sale recorder for inline missed-sale reconciliation.",
+        },
+        {
+          portName: "channelCredentialKeyring",
+          providedBy: "platform-api, platform-worker",
+          purpose:
+            "Supply the shared parsed Channels credential keyring; absent configuration leaves custody unavailable.",
         },
       ],
     });
@@ -468,7 +502,7 @@ describe("channels-context-foundation", () => {
         "runtime-support": {
           classification: "support",
           purpose: "Own the context-level Channels runtime service composition contract.",
-          expectedConsumers: ["Root Channels module and API composition"],
+          expectedConsumers: ["credentials"],
         },
         routes: {
           classification: "routes",
