@@ -3,6 +3,7 @@ import { once } from "node:events";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   browserE2eLifecyclePathEnv,
@@ -100,6 +101,97 @@ describe("browser e2e lifecycle evidence", () => {
 
   it.each(["linux", "darwin"])("does not invoke the Windows process sampler on %s", async (platform) => {
     expect(await sampleWindowsProcessTree(81002, { platform })).toEqual([]);
+  });
+
+  it("does not queue slow process samples or start samples after bootstrap exit", async () => {
+    const child = { pid: 81002, exitCode: null, signalCode: null };
+    let outstanding = 0;
+    let maximumOutstanding = 0;
+    let sampleCalls = 0;
+    let samplesAfterExit = 0;
+    let exitedAt;
+    const recorder = { observe: vi.fn(), recordProcessTree: vi.fn(), recordProcessTreeError: vi.fn() };
+    const run = async (_command, _args, { onSpawn }) => {
+      onSpawn(child);
+      await delay(90);
+      child.exitCode = 0;
+      exitedAt = Date.now();
+    };
+
+    await runObservedBrowserE2eBootstrap("synthetic", [], {
+      name: "bootstrap-slow",
+      recorder,
+      run,
+      pollMs: 10,
+      sampleProcessTree: async () => {
+        sampleCalls += 1;
+        if (child.exitCode !== null) samplesAfterExit += 1;
+        outstanding += 1;
+        maximumOutstanding = Math.max(maximumOutstanding, outstanding);
+        await delay(120);
+        outstanding -= 1;
+        return [];
+      },
+    });
+
+    expect(maximumOutstanding).toBe(1);
+    expect(sampleCalls).toBe(1);
+    expect(samplesAfterExit).toBe(0);
+    expect(Date.now() - exitedAt).toBeLessThan(240);
+  });
+
+  it("preserves a bootstrap exit 37 when the process sampler never settles", async () => {
+    const directory = await createTemporaryDirectory();
+    const recorder = createBrowserE2eLifecycleRecorder({
+      filePath: path.join(directory, "lifecycle.json"),
+      sandboxId: "synthetic-sandbox",
+      target: "browser-e2e",
+    });
+
+    await expect(
+      runObservedBrowserE2eBootstrap(process.execPath, ["-e", "process.exit(37)"], {
+        name: "bootstrap-hung-sampler",
+        recorder,
+        environment: { PATH: process.env.PATH },
+        pollMs: 10,
+        sampleProcessTree: () => new Promise(() => {}),
+      }),
+    ).rejects.toThrow(/exited with code 37/);
+  });
+
+  it("persists sampler error codes without changing a failing bootstrap outcome", async () => {
+    const directory = await createTemporaryDirectory();
+    const lifecyclePath = path.join(directory, "lifecycle.json");
+    const recorder = createBrowserE2eLifecycleRecorder({
+      filePath: lifecyclePath,
+      sandboxId: "synthetic-sandbox",
+      target: "browser-e2e",
+    });
+    const script = "process.stderr.write('synthetic bootstrap fatal\\n'); process.exit(37)";
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await expect(
+      runObservedBrowserE2eBootstrap(process.execPath, ["-e", script], {
+        name: "bootstrap-sampler-error",
+        recorder,
+        environment: { PATH: process.env.PATH },
+        stderrToStderr: false,
+        sampleProcessTree: async () => {
+          throw Object.assign(new Error("synthetic"), { code: "ENOENT" });
+        },
+      }),
+    ).rejects.toThrow(/exited with code 37/);
+
+    const evidence = JSON.parse(await readFile(lifecyclePath, "utf8"));
+    expect(evidence.services).toEqual([
+      expect.objectContaining({
+        name: "bootstrap-sampler-error",
+        processTreeError: "ENOENT",
+        exitCode: 37,
+        stderrTail: expect.stringContaining("synthetic bootstrap fatal"),
+        status: "exited",
+      }),
+    ]);
   });
 
   it("gives each Playwright web-server run isolated evidence paths", () => {

@@ -181,10 +181,10 @@ export function createBrowserE2eLifecycleRecorder({
       if (!service) return;
       const sampledAt = isoTimestamp(now);
       const known = new Map((service.processTree ?? []).map((entry) => [entry.pid, entry]));
-      for (const process of processes.slice(0, 64)) {
-        const previous = known.get(process.pid);
-        known.set(process.pid, {
-          ...process,
+      for (const entry of processes.slice(0, 64)) {
+        const previous = known.get(entry.pid);
+        known.set(entry.pid, {
+          ...entry,
           firstSeenAt: previous?.firstSeenAt ?? sampledAt,
           lastSeenAt: sampledAt,
         });

@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import { runCommand } from "./lib/process.mjs";
 
 const execFileAsync = promisify(execFile);
+const processTreeQueryTimeoutMs = 4_000;
 const processTreeQuery = [
   "Get-CimInstance Win32_Process |",
   "Select-Object ProcessId,ParentProcessId,Name,@{Name='Created';Expression={$_.CreationDate.ToUniversalTime().ToString('o')}} |",
@@ -15,6 +16,7 @@ export async function sampleWindowsProcessTree(rootPid, { platform = process.pla
   const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-Command", processTreeQuery], {
     windowsHide: true,
     maxBuffer: 2 * 1024 * 1024,
+    timeout: processTreeQueryTimeoutMs,
   });
   const records = [JSON.parse(stdout)].flat();
   const descendants = new Set([rootPid]);
@@ -48,20 +50,23 @@ export async function runObservedBrowserE2eBootstrap(
     run = runCommand,
     sampleProcessTree = sampleWindowsProcessTree,
     pollMs = 2_000,
+    sampleGraceMs = pollMs * 2,
     stderrToStderr = !process.env.CI,
   },
 ) {
   let child;
   let interval;
-  let sampling = Promise.resolve();
+  let sampling;
   const sample = () => {
-    if (!child?.pid) return;
-    sampling = sampling.then(async () => {
+    if (!child?.pid || child.exitCode !== null || child.signalCode !== null || sampling) return;
+    sampling = (async () => {
       try {
         recorder.recordProcessTree(name, await sampleProcessTree(child.pid));
       } catch (error) {
         recorder.recordProcessTreeError(name, error?.code ?? error?.name ?? "unknown");
       }
+    })().catch(() => {}).finally(() => {
+      sampling = undefined;
     });
   };
   try {
@@ -85,6 +90,18 @@ export async function runObservedBrowserE2eBootstrap(
     });
   } finally {
     clearInterval(interval);
-    await sampling;
+    if (sampling) {
+      let graceTimer;
+      try {
+        await Promise.race([
+          sampling.catch(() => {}),
+          new Promise((resolve) => {
+            graceTimer = setTimeout(resolve, sampleGraceMs);
+          }),
+        ]);
+      } finally {
+        clearTimeout(graceTimer);
+      }
+    }
   }
 }

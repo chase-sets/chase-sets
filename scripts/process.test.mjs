@@ -108,6 +108,21 @@ describe("process helpers", () => {
     expect(consoleLog).not.toHaveBeenCalledWith("[bootstrap] fatal");
   });
 
+  it("terminates a spawned child when onSpawn throws", async () => {
+    let closed;
+    const failure = new Error("synthetic observation failure");
+
+    await expect(
+      runCommand(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+        onSpawn(child) {
+          closed = new Promise((resolve) => child.once("close", resolve));
+          throw failure;
+        },
+      }),
+    ).rejects.toBe(failure);
+    await closed;
+  });
+
   it("isolates only commands with a POSIX timeout in a process group", () => {
     const calls = [];
     const spawnImpl = (command, args, options) => {

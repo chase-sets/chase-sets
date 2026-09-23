@@ -220,7 +220,6 @@ export function runCommand(command, args, options = {}) {
     const timeoutMs = parseTimeoutMs(options.timeoutMs);
     const timeoutKillGraceMs = parseTimeoutMs(options.timeoutKillGraceMs) ?? 1_000;
     const child = spawnCommand(command, args, options);
-    options.onSpawn?.(child);
     const timeoutUsesProcessGroup = timeoutMs !== undefined && process.platform !== "win32";
     let settled = false;
     let timedOut = false;
@@ -296,5 +295,18 @@ export function runCommand(command, args, options = {}) {
 
       reject(new Error(`${command} ${args.join(" ")} exited with code ${code ?? "unknown"}.`));
     });
+
+    try {
+      options.onSpawn?.(child);
+    } catch (error) {
+      settled = true;
+      clearTimers();
+      try {
+        terminateProcessTree(child);
+      } catch {
+        // Preserve the onSpawn error even if termination fails.
+      }
+      reject(error);
+    }
   });
 }
