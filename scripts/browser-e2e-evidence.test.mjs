@@ -3,7 +3,7 @@ import { once } from "node:events";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   browserE2eLifecyclePathEnv,
   browserE2eReadinessEvidencePathEnv,
@@ -12,6 +12,7 @@ import {
   createReadinessTimeline,
   readJsonIfPresent,
 } from "./browser-e2e-evidence.mjs";
+import { runObservedBrowserE2eBootstrap } from "./browser-e2e-bootstrap-observation.mjs";
 import { waitForBrowserE2eReadiness } from "./browser-e2e-readiness.mjs";
 
 const temporaryDirectories = [];
@@ -38,6 +39,55 @@ async function createTemporaryDirectory() {
 }
 
 describe("browser e2e lifecycle evidence", () => {
+  it.each(["app-platform-api", "app-platform-worker"])(
+    "persists a failing %s bootstrap child's stderr, wrapper and inner Node PID in the run directory",
+    async (workspace) => {
+      const directory = await createTemporaryDirectory();
+      const lifecyclePath = path.join(directory, "lifecycle.json");
+      const recorder = createBrowserE2eLifecycleRecorder({
+        filePath: lifecyclePath,
+        sandboxId: "synthetic-sandbox",
+        target: "browser-e2e",
+      });
+      const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+      const script = "process.stderr.write('synthetic bootstrap fatal\\n'); process.exit(37)";
+      await expect(
+        runObservedBrowserE2eBootstrap(process.execPath, ["-e", script], {
+          name: `bootstrap-${workspace}`,
+          prefix: workspace,
+          recorder,
+          environment: { PATH: process.env.PATH },
+          sampleProcessTree: async (wrapperPid) => [
+            { pid: wrapperPid, parentPid: process.pid, name: "node.exe", createdAt: "2026-09-23T00:00:00Z" },
+            { pid: 81002, parentPid: wrapperPid, name: "node.exe", createdAt: "2026-09-23T00:00:01Z" },
+          ],
+        }),
+      ).rejects.toThrow(/exited with code 37/);
+      expect(stderr).toHaveBeenCalledWith(`[${workspace}] synthetic bootstrap fatal`);
+      stderr.mockRestore();
+
+      const evidence = JSON.parse(await readFile(lifecyclePath, "utf8"));
+      expect(evidence.services).toEqual([
+        expect.objectContaining({
+          name: `bootstrap-${workspace}`,
+          command: process.execPath,
+          args: ["-e", script],
+          parentPid: process.pid,
+          pid: expect.any(Number),
+          innerNodePid: 81002,
+          processTree: [
+            expect.objectContaining({ pid: expect.any(Number), parentPid: process.pid }),
+            expect.objectContaining({ pid: 81002, parentPid: expect.any(Number) }),
+          ],
+          status: "exited",
+          exitCode: 37,
+          exitedAt: expect.any(String),
+          stderrTail: expect.stringContaining("synthetic bootstrap fatal"),
+        }),
+      ]);
+    },
+  );
+
   it("gives each Playwright web-server run isolated evidence paths", () => {
     const rootDir = path.resolve("test-repo");
     const environment = createBrowserE2eRunEvidenceEnvironment(

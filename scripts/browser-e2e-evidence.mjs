@@ -129,11 +129,12 @@ export function createBrowserE2eLifecycleRecorder({
   persist();
 
   return {
-    observe(name, child) {
+    observe(name, child, details = {}) {
       const service = {
         name,
         spawnedAt: isoTimestamp(now),
         pid: child.pid ?? null,
+        ...details,
         status: "running",
         exitedAt: null,
         exitCode: null,
@@ -174,6 +175,42 @@ export function createBrowserE2eLifecycleRecorder({
 
       persist();
       return child;
+    },
+    recordProcessTree(name, processes) {
+      const service = services.get(name);
+      if (!service) return;
+      const sampledAt = isoTimestamp(now);
+      const known = new Map((service.processTree ?? []).map((entry) => [entry.pid, entry]));
+      for (const process of processes.slice(0, 64)) {
+        const previous = known.get(process.pid);
+        known.set(process.pid, {
+          ...process,
+          firstSeenAt: previous?.firstSeenAt ?? sampledAt,
+          lastSeenAt: sampledAt,
+        });
+      }
+      service.processTree = [...known.values()].slice(0, 64);
+      const byPid = new Map(service.processTree.map((entry) => [entry.pid, entry]));
+      const depth = (entry) => {
+        let parent = entry;
+        let count = 0;
+        while (parent && count < 16) {
+          count += 1;
+          parent = byPid.get(parent.parentPid);
+        }
+        return count;
+      };
+      const descendants = processes
+        .filter((entry) => entry.pid !== service.pid && entry.name?.toLowerCase() === "node.exe")
+        .sort((left, right) => depth(left) - depth(right));
+      service.innerNodePid = descendants.at(-1)?.pid ?? service.innerNodePid ?? null;
+      persist();
+    },
+    recordProcessTreeError(name, reason) {
+      const service = services.get(name);
+      if (!service) return;
+      service.processTreeError = String(reason).slice(0, 80);
+      persist();
     },
     persist,
     snapshot,
