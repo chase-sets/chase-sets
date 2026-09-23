@@ -323,6 +323,7 @@ export type PlatformApiRealtimeStreamLimiterConfig =
 
 export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> &
   Readonly<{
+    checkoutClosed: boolean;
     realtime: PlatformApiRealtimeConfig;
     paymentProcessor: PlatformApiPaymentProcessorConfig;
     moneyMovement: PlatformApiMoneyMovementConfig;
@@ -884,6 +885,7 @@ export function loadConfig(): PlatformApiConfig {
   return {
     ...baseConfig,
     moneyMovement: stripeProvider.moneyMovement,
+    checkoutClosed: getBooleanEnv("CHASE_SETS_CHECKOUT_CLOSED", false),
     providerModeObservation: {
       mode: stripeProvider.effectiveMode,
       paymentProcessorKind: stripeProvider.paymentProcessor.kind,

@@ -170,8 +170,6 @@ components:
       instanceCountExpression: "local.marketplace_web_instances"
     command: "pnpm --filter @chase-sets/app-marketplace-web run start"
     env:
-      - name: "CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE"
-        value: "false"
       - name: "CHASE_SETS_INTERNAL_API_ORIGIN"
         value: "http://chase-sets-platform-chase-sets-platform-platform-api:8080"
       - name: "CHASE_SETS_MARKETPLACE_INDEXING"
@@ -283,6 +281,8 @@ components:
       instanceCountExpression: "local.api_instances"
     command: "pnpm --filter @chase-sets/app-platform-api run start:production"
     env:
+      - name: "CHASE_SETS_CHECKOUT_CLOSED"
+        value: "false"
       - name: "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS"
         value: ""
       - name: "ADMIN_REGISTRATION_ENABLED"

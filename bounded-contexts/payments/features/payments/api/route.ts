@@ -203,6 +203,16 @@ function enforcePaymentCreationLimit(request: Request, accountId: string) {
   return null;
 }
 
+export function preflightPaymentStart(
+  c: Parameters<typeof requirePaymentAccess>[0],
+  request: Request,
+): ReturnType<typeof requirePaymentAccess> {
+  const access = requirePaymentAccess(c, "orders.manage", { allowGuestCheckout: true });
+  if (access.response) return access;
+  const response = enforcePaymentCreationLimit(request, access.actor.accountId);
+  return response ? { actor: null, response } : access;
+}
+
 type SavedCheckoutInstrumentForApi = Awaited<ReturnType<PaymentServices["listSavedCheckoutInstruments"]>>[number];
 type SavedCheckoutSetupSessionForApi = Awaited<ReturnType<PaymentServices["createSavedCheckoutSetupSession"]>>;
 type AccountOrderInputForApi = Awaited<ReturnType<PaymentServices["listAccountOrderInputs"]>>[number];
@@ -280,15 +290,9 @@ export function createAccountPaymentRoutes(services: PaymentServices, publicConf
   const app = new Hono<PaymentsApiEnv>();
 
   app.post("/payments", async (c) => {
-    const access = requirePaymentAccess(c, "orders.manage", {
-      allowGuestCheckout: true,
-    });
+    const access = preflightPaymentStart(c, c.req.raw);
     if (access.response) {
       return access.response;
-    }
-    const rateLimited = enforcePaymentCreationLimit(c.req.raw, access.actor.accountId);
-    if (rateLimited) {
-      return rateLimited;
     }
 
     const context = c.get("context");
@@ -610,15 +614,9 @@ export function createAccountPaymentRoutes(services: PaymentServices, publicConf
   });
 
   app.post("/checkout/recover", async (c) => {
-    const access = requirePaymentAccess(c, "orders.manage", {
-      allowGuestCheckout: true,
-    });
+    const access = preflightPaymentStart(c, c.req.raw);
     if (access.response) {
       return access.response;
-    }
-    const rateLimited = enforcePaymentCreationLimit(c.req.raw, access.actor.accountId);
-    if (rateLimited) {
-      return rateLimited;
     }
 
     const context = c.get("context");

@@ -22,6 +22,13 @@ import { parseCartReadinessDecisionInput, type CartReadinessDecisionInput } from
 import { assertNoUnsupportedCustomerEconomicsInput } from "../../features/sessions/api/checkout-economics-runtime";
 
 type UcpHandler = (input: UcpOperationHandlerInput) => Promise<UcpEnvelope>;
+
+function checkoutClosedResponse() {
+  return createUcpEnvelope("error", {}, [
+    { severity: "error", code: "checkout_closed", message: "Checkout is closed until public launch." },
+  ]);
+}
+
 type UcpPaymentCompletionDecision =
   | Readonly<{
       kind: "respond";
@@ -108,6 +115,7 @@ function cleanupWriteMetadata(result: Partial<CheckoutSessionMutationResult> | u
 export function createCheckoutUcpHandlers(
   checkout: Pick<CheckoutServices, "sessions">,
   options: Readonly<{
+    checkoutClosed?: boolean;
     paymentHandoff?: UcpPaymentHandlerHandoff;
     signCheckout?: (checkout: Readonly<Record<string, unknown>>) => Readonly<Record<string, unknown>>;
     agentGrantSpendPolicy?: AgentGrantSpendPolicy;
@@ -356,6 +364,7 @@ export function createCheckoutUcpHandlers(
       if (access.error) {
         return access.error;
       }
+      if (options.checkoutClosed) return checkoutClosedResponse();
 
       const body = await readInputObject<CheckoutIntentBody>(input);
       const source = readObject(body.source) ?? readObject(body.intent) ?? body;
@@ -411,6 +420,7 @@ export function createCheckoutUcpHandlers(
       if (access.error) {
         return access.error;
       }
+      if (options.checkoutClosed) return checkoutClosedResponse();
 
       const sessionId = readCheckoutSessionId(input);
       if (!sessionId) {
@@ -469,6 +479,7 @@ export function createCheckoutUcpHandlers(
       if (access.error) {
         return access.error;
       }
+      if (options.checkoutClosed) return checkoutClosedResponse();
 
       try {
         const sessionId = readCheckoutSessionId(input);
