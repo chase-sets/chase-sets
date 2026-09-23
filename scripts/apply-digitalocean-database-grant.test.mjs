@@ -29,6 +29,7 @@ const SECRET_MARKERS = [
 // Unique virtual paths keep every diagnostic attributable to exactly one case
 // while the real .d.mts, Node, and pg declarations are parsed only once.
 function grantBoundaryMatrix() {
+  const setupStarted = performance.now();
   const runtimeSource = readFileSync(new URL("./apply-digitalocean-database-grant.mjs", import.meta.url), "utf8");
   const cases = [
     { id: "base", mutate: (source) => source, caller: "" },
@@ -86,14 +87,26 @@ function grantBoundaryMatrix() {
   const exists = host.fileExists;
   host.readFile = (path) => sources.get(path.replaceAll("\\", "/")) ?? read(path);
   host.fileExists = (path) => sources.has(path.replaceAll("\\", "/")) || exists(path);
-  const started = performance.now();
+  const setupEnded = performance.now();
   const program = ts.createProgram({ rootNames: cases.map(({ callerPath }) => callerPath), options, host });
+  const programEnded = performance.now();
   const diagnostics = ts.getPreEmitDiagnostics(program).map((diagnostic) => ({
     file: diagnostic.file?.fileName.replaceAll("\\", "/"),
     code: diagnostic.code,
     message: ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
   }));
-  const elapsedMs = performance.now() - started;
+  const diagnosticsEnded = performance.now();
+  const elapsedMs = diagnosticsEnded - setupEnded;
+  console.info(
+    JSON.stringify({
+      grantPhases: {
+        setupMs: setupEnded - setupStarted,
+        createProgramMs: programEnded - setupEnded,
+        diagnosticsMs: diagnosticsEnded - programEnded,
+        declarationFiles: program.getSourceFiles().filter((source) => /\.d\.[cm]?ts$/.test(source.fileName)).length,
+      },
+    }),
+  );
   const paths = new Map(
     cases.flatMap((testCase) => [
       [testCase.runtimePath, testCase.id],
