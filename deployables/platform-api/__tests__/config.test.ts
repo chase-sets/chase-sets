@@ -241,12 +241,21 @@ function resetConfigEnv() {
   delete process.env.CHASE_SETS_RATE_LIMIT_PAYMENTS_PAYMENT_CREATE_ACCOUNT_WINDOW_MS;
   delete process.env.CHASE_SETS_RATE_LIMIT_PAYMENTS_PAYMENT_CREATE_ACCOUNT_DISABLED;
   delete process.env.PROJECTION_INLINE_APPLY_ENABLED;
+  delete process.env.CHASE_SETS_CHECKOUT_CLOSED;
 }
 
 beforeEach(resetConfigEnv);
 afterEach(resetConfigEnv);
 
 describe("platform api config", () => {
+  it("defaults checkout admission open and parses the explicit closure switch", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    expect(loadConfig().checkoutClosed).toBe(false);
+    process.env.CHASE_SETS_CHECKOUT_CLOSED = "true";
+    expect(loadConfig().checkoutClosed).toBe(true);
+    process.env.CHASE_SETS_CHECKOUT_CLOSED = "false";
+    expect(loadConfig().checkoutClosed).toBe(false);
+  });
   it("loads the shared database url", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
 

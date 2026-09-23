@@ -43,6 +43,30 @@ function mebibytes(memory) {
 }
 
 describe("render platform Helm values", () => {
+  it("closes only production checkout and removes the reader-less Shopify switch", () => {
+    const values = buildPlatformHelmValues({ repoRoot });
+    const staging = buildPlatformHelmStagingValues({ repoRoot });
+    const production = buildPlatformHelmProductionValues({ repoRoot });
+    expect(componentEnvValue(values.components["platform-api"], "DEPLOYMENT_ENVIRONMENT")).toBe("preview");
+    expect(componentEnvValue(values.components["platform-api"], "CHASE_SETS_CHECKOUT_CLOSED")).toBe("false");
+    expect(componentEnvKeys(values.components.marketplace)).not.toContain("CHASE_SETS_CHECKOUT_CLOSED");
+    expect(values.global.envOverrides.CHASE_SETS_CHECKOUT_CLOSED).toBeUndefined();
+    expect(
+      staging.components["platform-api"].envOverrides?.CHASE_SETS_CHECKOUT_CLOSED ??
+        staging.global?.envOverrides?.CHASE_SETS_CHECKOUT_CLOSED ??
+        componentEnvValue(values.components["platform-api"], "CHASE_SETS_CHECKOUT_CLOSED"),
+    ).toBe("false");
+    expect(production.global.envOverrides.CHASE_SETS_CHECKOUT_CLOSED).toBe("true");
+    for (const filename of [
+      "infrastructure/helm/platform/values.yaml",
+      "infrastructure/helm/platform/runtime-values.json",
+      "scripts/render-platform-helm-values.mjs",
+    ]) {
+      expect(readFileSync(path.join(repoRoot, filename), "utf8")).not.toContain(
+        "CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE",
+      );
+    }
+  });
   it("keeps generated values current", () => {
     expect(() => syncPlatformHelmValues({ repoRoot, check: true })).not.toThrow();
   });
@@ -51,6 +75,7 @@ describe("render platform Helm values", () => {
     const production = buildPlatformHelmProductionValues({ repoRoot });
 
     expect(production.global.envOverrides).toEqual({
+      CHASE_SETS_CHECKOUT_CLOSED: "true",
       CATALOG_INTEGRATION_ACTIVATION_MODE: "test-profiles-only",
       CATALOG_INTEGRATION_CONTROL_PLANE_MODE: "dry-run-only",
       CATALOG_INTEGRATION_IMPORTS_DISABLED: "mtgjson,scryfall,tcgplayer",
@@ -795,8 +820,8 @@ describe("render platform Helm values", () => {
       Object.fromEntries(Object.entries(values.components).map(([name, component]) => [name, component.env.length])),
     ).toEqual({
       "admin-web": 5,
-      marketplace: 13,
-      "platform-api": 100,
+      marketplace: 12,
+      "platform-api": 101,
       "platform-bootstrap": 57,
       "platform-worker": 121,
       "public-web": 13,

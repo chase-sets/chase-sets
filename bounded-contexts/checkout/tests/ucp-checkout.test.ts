@@ -152,6 +152,47 @@ function input(
 }
 
 describe("checkout UCP handlers", () => {
+  it("checkout-closed-agent-rails: refuses both transport mutation handlers before sessions or payment handoff", async () => {
+    const sessions = createSessions();
+    const evaluateCompleteRequest = vi.fn(() => null);
+    const handlers = createCheckoutUcpHandlers(
+      { sessions },
+      { checkoutClosed: true, paymentHandoff: { payment: {}, evaluateCompleteRequest } },
+    );
+    for (const transport of [handlers.restHandlers, handlers.mcpToolHandlers]) {
+      for (const operation of ["create_checkout", "update_checkout", "complete_checkout"]) {
+        const response = await transport[operation](
+          input(
+            {
+              id: "chk_1",
+              source: {
+                type: "buy-now",
+                listing_id: "lst_1",
+                catalog_item_id: "cat_1",
+                product_id: "cat_1::form:raw",
+                title: "Charizard",
+                quantity: 1,
+              },
+            },
+            { id: "chk_1" },
+          ),
+        );
+        expect(response).toMatchObject({
+          ucp: { status: "error" },
+          messages: [{ severity: "error", code: "checkout_closed" }],
+        });
+      }
+    }
+    expect(sessions.getSession).not.toHaveBeenCalled();
+    expect(sessions.createBuyNow).not.toHaveBeenCalled();
+    expect(sessions.createFromCart).not.toHaveBeenCalled();
+    expect(sessions.setShippingAddress).not.toHaveBeenCalled();
+    expect(sessions.recordOrdersCreated).not.toHaveBeenCalled();
+    expect(evaluateCompleteRequest).not.toHaveBeenCalled();
+    expect((await handlers.restHandlers.get_checkout(input({}, { id: "chk_1" }))).ucp.status).toBe("ok");
+    expect((await handlers.mcpToolHandlers.cancel_checkout(input({ id: "chk_1" }))).ucp.status).toBe("ok");
+    expect(sessions.cancelSession).toHaveBeenCalledTimes(1);
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     checkoutConfirmationMocks.createCheckoutOrdersThroughOrdering.mockResolvedValue({

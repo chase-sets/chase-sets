@@ -1,5 +1,6 @@
 export const discoveryEnglishTranslations = {
-  "discovery.routes.itemDetail.checkout.closed": "Buying opens at public launch. You can keep browsing and adding items to your Buy Cart.",
+  "discovery.routes.itemDetail.checkout.closed":
+    "Buying opens at public launch. You can keep browsing and adding items to your Buy Cart.",
   "discovery.features.home.ui.homeMerchandising.browse.all.new.arrivals": "Browse all new arrivals",
   "discovery.features.home.ui.homeMerchandising.browse.category": "Browse {category}",
   "discovery.features.home.ui.homeMerchandising.featured.categories": "Featured categories",

@@ -220,6 +220,41 @@ function appendSelectedSellerListingFreshWriteWithHandoff(
 }
 
 describe("item detail buy now validation and watch intents", () => {
+  it("checkout-closed-discovery-action: presents owning copy for a refused buy-now start", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: [] });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        title: "Charizard",
+        subtitle: null,
+        market_listings: [{ listing_id: "lst_charizard", status: "active", quantity_cap: 1, visible_quantity: 1 }],
+      }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
+    mockCreateCheckoutSession.mockRejectedValue(
+      Object.assign(new Error("Checkout closed"), { status: 503, body: { error: { code: "checkout_closed" } } }),
+    );
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ createCheckoutSession: mockCreateCheckoutSession });
+    const result = await action({
+      request: new Request("http://localhost/items/cat_charizard", {
+        method: "POST",
+        body: new URLSearchParams({
+          intent: "buy-this-listing",
+          productId: "cat_charizard::form:raw",
+          selectedOptions: "[]",
+          quantity: "1",
+          lockedListingId: "lst_charizard",
+        }),
+      }),
+      params: { id: "cat_charizard" },
+      context: {},
+    });
+    expect(result).toEqual({
+      intent: "buy-this-listing",
+      error: "Buying opens at public launch. You can keep browsing and adding items to your Buy Cart.",
+    });
+    expect(mockCreateCheckoutSession).toHaveBeenCalledTimes(1);
+  });
   afterEach(() => {
     vi.clearAllMocks();
   });

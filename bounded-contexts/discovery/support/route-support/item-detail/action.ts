@@ -633,7 +633,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
     if (error instanceof Error) {
       return {
         error:
-          "status" in error && error.status === 503 && "body" in error && readApiErrorCode(error.body) === "checkout_closed"
+          "status" in error &&
+          error.status === 503 &&
+          "body" in error &&
+          readApiErrorCode(error.body) === "checkout_closed"
             ? t("discovery.routes.itemDetail.checkout.closed")
             : error.message,
         intent,

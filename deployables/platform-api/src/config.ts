@@ -147,7 +147,6 @@ export type PlatformApiBaseConfig = Readonly<{
   deploymentEnvironment?: DeploymentEnvironment;
   dataProfiles?: readonly EnvironmentDataProfile[];
   adminRegistrationEnabled?: boolean;
-  checkoutClosed: boolean;
   registrationAdmission?: PlatformApiRegistrationAdmissionConfig;
   taxProviderBackedQuotesRequired?: boolean;
   authSecurityLifetimes?: PlatformApiAuthSecurityLifetimesConfig;
@@ -324,6 +323,7 @@ export type PlatformApiRealtimeStreamLimiterConfig =
 
 export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> &
   Readonly<{
+    checkoutClosed: boolean;
     realtime: PlatformApiRealtimeConfig;
     paymentProcessor: PlatformApiPaymentProcessorConfig;
     moneyMovement: PlatformApiMoneyMovementConfig;
@@ -721,7 +721,6 @@ function loadBaseConfig(): PlatformApiBaseConfig {
     deploymentEnvironment,
     dataProfiles: loadDataProfiles(deploymentEnvironment),
     adminRegistrationEnabled: getBooleanEnv("ADMIN_REGISTRATION_ENABLED", false),
-    checkoutClosed: getBooleanEnv("CHASE_SETS_CHECKOUT_CLOSED", false),
     registrationAdmission: {
       mode: loadRegistrationAdmissionMode(deploymentEnvironment),
       disposableEmailMode: loadDisposableEmailMode(),
@@ -886,6 +885,7 @@ export function loadConfig(): PlatformApiConfig {
   return {
     ...baseConfig,
     moneyMovement: stripeProvider.moneyMovement,
+    checkoutClosed: getBooleanEnv("CHASE_SETS_CHECKOUT_CLOSED", false),
     providerModeObservation: {
       mode: stripeProvider.effectiveMode,
       paymentProcessorKind: stripeProvider.paymentProcessor.kind,

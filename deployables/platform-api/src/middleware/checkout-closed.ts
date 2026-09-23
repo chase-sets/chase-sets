@@ -1,5 +1,6 @@
 import type { MiddlewareHandler } from "hono";
 import { getObservabilityRuntime } from "@chase-sets/observability";
+import { preflightPaymentStart } from "@chase-sets/payments/server";
 import type { TenantContextEnv } from "./auth-context";
 
 const accountPrefix = "/api/marketplace/account";
@@ -17,9 +18,14 @@ export function createCheckoutClosedMiddleware(checkoutClosed: boolean): Middlew
     const closed =
       (c.req.method === "POST" && closedPosts.has(route)) ||
       (c.req.method !== "GET" && route.startsWith(`${accountPrefix}/checkout-sessions/`));
+    if (!checkoutClosed || !closed) return next();
+    if (route === `${accountPrefix}/payments` || route === `${accountPrefix}/checkout/recover`) {
+      const access = preflightPaymentStart(c, c.req.raw);
+      if (access.response) return access.response;
+    }
     const actor = c.get("actor");
     // Anonymous requests retain the owning route's authentication response.
-    if (!checkoutClosed || !closed || !actor) return next();
+    if (!actor) return next();
 
     getObservabilityRuntime().logger.info("checkout_closed_refusal", {
       type: "checkout_closed_refusal",
