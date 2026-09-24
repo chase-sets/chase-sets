@@ -19,10 +19,10 @@ describe("staging aggregate direct backend envelope", () => {
       relays: 7,
       waiters: 8,
       bootstrap: 21,
-      seed: 25,
+      seed: 26,
       trigger: 75,
       limit: 94,
-      phases: { rolling: 70, representative: 80, advisory: 69, bootstrap: 69 },
+      phases: { rolling: 70, representative: 81, advisory: 69, bootstrap: 69 },
       productionPhases: { rolling: 55, bootstrap: 58 },
     });
     // Base #8171: the actual per-URL bootstrap maximum was four, not the

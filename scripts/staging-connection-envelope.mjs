@@ -106,7 +106,7 @@ export function enforceStagingConnectionEnvelope(input) {
   }
   const bootstrap = input.directUrls * input.bootstrapPoolMax;
   const baseline = input.pooled + input.relays + input.waiters;
-  const seed = 25; // The independent seed-command pool regression pins 25 direct URLs at max 1.
+  const seed = 26; // The seed regression pins 25 query URLs and a separate direct lock pool at max 1.
   const phases = {
     rolling: input.pooled + 2 * input.relays + 2 * input.waiters,
     representative: baseline + seed,
