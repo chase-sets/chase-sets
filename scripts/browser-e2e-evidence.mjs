@@ -212,6 +212,22 @@ export function createBrowserE2eLifecycleRecorder({
       service.processTreeError = String(reason).slice(0, 80);
       persist();
     },
+    recordExitSample(name, { rootPid, processes, error }) {
+      const service = services.get(name);
+      if (!service) return;
+      service.exitSample = {
+        sampledAt: isoTimestamp(now),
+        rootPid,
+        processes: processes.slice(0, 64).map(({ pid, parentPid, name: imageName, createdAt }) => ({
+          pid,
+          parentPid,
+          name: imageName,
+          createdAt,
+        })),
+        error,
+      };
+      persist();
+    },
     persist,
     snapshot,
   };
