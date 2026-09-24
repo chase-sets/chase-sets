@@ -23,6 +23,7 @@ describe("staging aggregate direct backend envelope", () => {
       trigger: 75,
       limit: 94,
       phases: { rolling: 70, representative: 80, advisory: 69, bootstrap: 69 },
+      productionPhases: { rolling: 55, bootstrap: 58 },
     });
     // Base #8171: the actual per-URL bootstrap maximum was four, not the
     // ledger's four-backend reservation. With concurrent advisory and seed:
@@ -45,5 +46,8 @@ describe("staging aggregate direct backend envelope", () => {
       "enforced phases",
     );
     expect(() => enforceStagingConnectionEnvelope({ ...input, directUrls: 22 })).toThrow("direct URL inventory");
+    expect(() => enforceStagingConnectionEnvelope({ ...input, productionPooled: 100 })).toThrow(
+      "Production direct backend envelope",
+    );
   });
 });

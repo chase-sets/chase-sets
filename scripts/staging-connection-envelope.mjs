@@ -36,6 +36,11 @@ export function loadStagingConnectionEnvelopeInputs(repoRoot = process.cwd()) {
     waiters: capacity.environments.doksStaging.apiWaiterListenerDemand,
     limit: capacity.environments.doksStaging.limit,
     trigger: capacity.environments.doksStaging.upgradeTrigger,
+    productionPooled: capacity.environments.production.pgbouncerServerBackendAllocation,
+    productionRelays: capacity.environments.production.directListenerCount,
+    productionWaiters: capacity.environments.production.apiWaiterListenerDemand,
+    productionLimit: capacity.environments.production.limit,
+    productionTrigger: capacity.environments.production.upgradeTrigger,
     directUrls: new Set(
       bootstrap.env
         .filter(
@@ -108,9 +113,21 @@ export function enforceStagingConnectionEnvelope(input) {
     advisory: input.pooled + input.waiters + bootstrap,
     bootstrap: input.pooled + input.waiters + bootstrap,
   };
+  const productionPhases = {
+    rolling: input.productionPooled + 2 * input.productionRelays + 2 * input.productionWaiters,
+    bootstrap: input.productionPooled + input.productionWaiters + bootstrap,
+  };
   if (phases.rolling > input.trigger || Object.values(phases).some((total) => total > input.limit)) {
     throw new Error(
       `Staging direct backend envelope exceeds its tier trigger or hard budget: ${JSON.stringify(phases)} / ${input.trigger}, ${input.limit}.`,
+    );
+  }
+  if (
+    productionPhases.rolling > input.productionTrigger ||
+    Object.values(productionPhases).some((total) => total > input.productionLimit)
+  ) {
+    throw new Error(
+      `Production direct backend envelope exceeds its tier trigger or hard budget: ${JSON.stringify(productionPhases)} / ${input.productionTrigger}, ${input.productionLimit}.`,
     );
   }
   return {
@@ -123,6 +140,7 @@ export function enforceStagingConnectionEnvelope(input) {
     trigger: input.trigger,
     limit: input.limit,
     phases,
+    productionPhases,
   };
 }
 
