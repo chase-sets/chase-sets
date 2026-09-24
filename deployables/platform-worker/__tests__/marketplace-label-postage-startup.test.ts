@@ -8,10 +8,15 @@ const syntheticActivation = {
 } as const;
 
 describe("marketplace label postage worker startup", () => {
+  it("does not bootstrap Settlement through the pooled worker query connection", async () => {
+    const mainSource = await readFile(new URL("../src/main.ts", import.meta.url), "utf8");
+    expect(mainSource).not.toContain("bootstrapContextDatabase(settlementModule, pools.settlement)");
+  });
+
   async function executeMainStartupComposition(
     input: Readonly<{
       runtimeProfile: "landing" | "public";
-      bootstrapContextDatabase: () => Promise<void>;
+      bootstrapContextDatabase: (module: unknown, pool: unknown) => Promise<void>;
       activateMarketplaceLabelPostage: () => Promise<typeof syntheticActivation>;
       constructWorkerRuntime: (activation?: typeof syntheticActivation) => unknown;
       logger: Readonly<{
@@ -38,6 +43,8 @@ describe("marketplace label postage worker startup", () => {
       "bootstrapContextDatabase",
       "settlementModule",
       "pools",
+      "createSettlementBootstrapPool",
+      "closeContextPools",
       "activateMarketplaceLabelPostage",
       "logger",
       `"use strict"; let runtime; ${compositionSource}; return runtime;`,
@@ -53,6 +60,13 @@ describe("marketplace label postage worker startup", () => {
       input.bootstrapContextDatabase,
       { kind: "synthetic-settlement-module" },
       { settlement: { kind: "synthetic-settlement-pool" } },
+      () => {
+        input.calls.push("create:direct-settlement-pool");
+        return { kind: "synthetic-direct-settlement-pool" };
+      },
+      async () => {
+        input.calls.push("close:direct-settlement-pool");
+      },
       input.activateMarketplaceLabelPostage,
       input.logger,
     );
@@ -66,7 +80,8 @@ describe("marketplace label postage worker startup", () => {
     await expect(
       executeMainStartupComposition({
         runtimeProfile: "public",
-        bootstrapContextDatabase: async () => {
+        bootstrapContextDatabase: async (_module, pool) => {
+          expect(pool).toEqual({ kind: "synthetic-direct-settlement-pool" });
           calls.push("bootstrap");
         },
         activateMarketplaceLabelPostage: async () => {
@@ -84,14 +99,40 @@ describe("marketplace label postage worker startup", () => {
     ).resolves.toBe(runtime);
 
     expect(calls).toEqual([
+      "create:direct-settlement-pool",
       "step:bootstrap Settlement database",
       "bootstrap",
+      "close:direct-settlement-pool",
       "step:activate marketplace label postage",
       "activate",
       `construct:${syntheticActivation.activatedAt}`,
     ]);
     expect(logger.info).not.toHaveBeenCalled();
     expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it("closes the direct pool and refuses activation when Settlement bootstrap fails", async () => {
+    const calls: string[] = [];
+    const failure = new Error("synthetic-bootstrap-failure");
+    const activateMarketplaceLabelPostage = vi.fn();
+    await expect(
+      executeMainStartupComposition({
+        runtimeProfile: "public",
+        bootstrapContextDatabase: async () => {
+          throw failure;
+        },
+        activateMarketplaceLabelPostage,
+        constructWorkerRuntime: vi.fn(),
+        logger: { info: vi.fn(), error: vi.fn() },
+        calls,
+      }),
+    ).rejects.toBe(failure);
+    expect(calls).toEqual([
+      "create:direct-settlement-pool",
+      "step:bootstrap Settlement database",
+      "close:direct-settlement-pool",
+    ]);
+    expect(activateMarketplaceLabelPostage).not.toHaveBeenCalled();
   });
 
   it.each(["missing", "malformed version", "malformed timestamp"])(

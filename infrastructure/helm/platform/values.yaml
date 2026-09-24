@@ -633,6 +633,9 @@ components:
       instanceCountExpression: "local.worker_instances"
     command: "pnpm --filter @chase-sets/app-platform-worker run start:production"
     env:
+      - name: "BOOTSTRAP_DATABASE_URL_SETTLEMENT"
+        secret: true
+        secretKey: "BOOTSTRAP_DATABASE_URL_SETTLEMENT"
       - name: "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS"
         value: ""
       - name: "CATALOG_ASSET_PUBLIC_BASE_URL"
