@@ -29,6 +29,11 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     bootBearingCases: "all",
     cases: Object.freeze([
       Object.freeze({
+        name: "boots every non-production profile on one shared max-one seed command pool",
+        referenceDurationMs: 255630,
+        identity: "c809c18f34f0e0c6",
+      }),
+      Object.freeze({
         name: "boots with context-owned pools and replays cross-context projections",
         referenceDurationMs: 124796,
         identity: "ea12b6d3f3a538ba",
@@ -376,7 +381,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
  */
 export const bootstrapDbExecutionUnitBootBearingCaseCeilings = Object.freeze({
   "test:db:1": 15,
-  "test:db:2": 19,
+  "test:db:2": 20,
   "test:db:3": 18,
 });
 

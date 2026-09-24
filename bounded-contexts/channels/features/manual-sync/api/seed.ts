@@ -1,4 +1,5 @@
 import type { BcSeedAggregateStateReport } from "@chase-sets/bounded-context-module";
+import { runInProjectionDbContext } from "@chase-sets/bounded-context-runtime";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import {
   createPostgresEventStore,
@@ -135,7 +136,7 @@ export async function seedManualSyncScenario(
     },
   });
 
-  await withPgTransaction(pool, async (db: PgQueryable) => {
+  await withPgTransaction(pool, (db: PgQueryable) => runInProjectionDbContext(db, async () => {
     await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`manual-sync-seed:${runStreamId}`]);
     const currentRun = await db.query("SELECT 1 FROM event_store_events WHERE stream_id=$1 LIMIT 1", [runStreamId]);
     if (currentRun.rows.length > 0) return;
@@ -177,7 +178,7 @@ export async function seedManualSyncScenario(
        ON CONFLICT (run_id) DO NOTHING`,
       [manualSyncScenarioSeed.runId, manualSyncScenarioSeed.connectionId, demoIdentitySeedIds.accountId],
     );
-  });
+  }));
 }
 
 export async function inspectManualSyncSeedState(
