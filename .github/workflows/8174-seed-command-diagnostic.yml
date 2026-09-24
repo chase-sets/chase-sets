@@ -1,0 +1,148 @@
+name: Seed Command DB Diagnostic Only
+
+on:
+  push:
+    branches: [codex/8174-measurement-g1, codex/8174-control-g1]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    name: Diagnostic API Seed Command Measurement Only
+    if: github.repository == 'chase-sets/chase-sets' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+      - name: Raise PostgreSQL lock table capacity for DB Profile
+        env:
+          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -c "ALTER SYSTEM SET max_locks_per_transaction = 512;"
+          docker restart "$POSTGRES_CONTAINER_ID"
+          ready=false
+          for _ in $(seq 1 30); do
+            if docker exec "$POSTGRES_CONTAINER_ID" pg_isready -U postgres -d postgres >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != "true" ]; then
+            echo "PostgreSQL did not become ready within 30s after restart." >&2
+            exit 1
+          fi
+          effective="$(docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -tAc 'SHOW max_locks_per_transaction;' | tr -d '[:space:]')"
+          test "$effective" = 512
+      - name: Measure exact DB profile partitions without enrollment authority
+        if: github.ref == 'refs/heads/codex/8174-measurement-g1'
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/8174-measurement
+          cat > artifacts/8174-measurement/reporter.mjs <<'REPORTER'
+          import { appendFileSync, readFileSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
+          import { basename } from 'node:path';
+          import { deriveBootstrapDbCaseIdentities } from '../../deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs';
+          export default class MeasurementReporter {
+            onTestModuleEnd(module) {
+              const source = readFileSync(module.moduleId, 'utf8');
+              appendFileSync(process.env.MEASUREMENT_OUTPUT, JSON.stringify({
+                file: basename(module.moduleId),
+                sourceSha256: createHash('sha256').update(source).digest('hex'),
+                identities: deriveBootstrapDbCaseIdentities(basename(module.moduleId), source),
+                state: module.state(), diagnostic: module.diagnostic(), errors: module.errors(),
+                cases: [...module.children.allTests()].map(test => ({
+                  name: test.name, fullName: test.fullName,
+                  result: test.result(), diagnostic: test.diagnostic(),
+                })),
+              }) + '\n');
+            }
+            onTestRunEnd(modules, errors, reason) {
+              appendFileSync(process.env.MEASUREMENT_OUTPUT, JSON.stringify({
+                runEnd: true, moduleCount: modules.length, errors, reason,
+              }) + '\n');
+            }
+          }
+          REPORTER
+          node --input-type=module <<'RUNNER'
+          import { spawnSync, execFileSync } from 'node:child_process';
+          import { readFileSync, writeFileSync } from 'node:fs';
+          import { resolve } from 'node:path';
+          import { performance } from 'node:perf_hooks';
+          const root = process.cwd();
+          const output = resolve(root, 'artifacts/8174-measurement');
+          const cwd = resolve(root, 'deployables/platform-api');
+          const scripts = JSON.parse(readFileSync(resolve(cwd, 'package.json'), 'utf8')).scripts;
+          const identity = {
+            checkoutSha: execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim(),
+            runId: process.env.GITHUB_RUN_ID, runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+            job: process.env.GITHUB_JOB, event: process.env.GITHUB_EVENT_NAME,
+            workflow: process.env.GITHUB_WORKFLOW, workflowRef: process.env.GITHUB_WORKFLOW_REF,
+            workflowSha: process.env.GITHUB_WORKFLOW_SHA, repository: process.env.GITHUB_REPOSITORY,
+            ref: process.env.GITHUB_REF, runnerOs: process.env.RUNNER_OS,
+          };
+          if (identity.checkoutSha !== process.env.GITHUB_SHA || identity.runAttempt !== '1') {
+            throw new Error('Measurement requires the exact prerequisite SHA and sole first attempt');
+          }
+          writeFileSync(resolve(output, 'identity.json'), JSON.stringify(identity, null, 2));
+          const units = [];
+          for (const unit of ['test:db:1', 'test:db:2', 'test:db:3']) {
+            const parts = scripts[unit].split(' && ');
+            if (parts.length !== 2 || parts[0] !== 'node ./scripts/check-bootstrap-db-enrollment.mjs'
+              || !parts[1].startsWith('vitest run --config ./vitest.config.ts ')
+              || !parts[1].includes('--maxWorkers=3')) throw new Error('Unexpected partition command');
+            const args = ['exec', ...parts[1].split(' '), '--reporter=default',
+              `--reporter=${resolve(output, 'reporter.mjs')}`, '--reporter=json',
+              `--outputFile.json=${resolve(output, unit.replaceAll(':', '-') + '.json')}`];
+            const startedAt = new Date().toISOString();
+            const start = performance.now();
+            const result = spawnSync('pnpm', args, { cwd, stdio: 'inherit', env: {
+              ...process.env, MEASUREMENT_OUTPUT: resolve(output, unit.replaceAll(':', '-') + '.jsonl'),
+            }});
+            units.push({ unit, ordinaryCommand: scripts[unit], command: ['pnpm', ...args],
+              startedAt, finishedAt: new Date().toISOString(), durationMs: performance.now() - start,
+              exitCode: result.status, signal: result.signal, error: result.error?.message });
+            writeFileSync(resolve(output, 'units.json'), JSON.stringify(units, null, 2));
+          }
+          if (units.some(unit => unit.exitCode !== 0)) process.exitCode = 1;
+          RUNNER
+      - name: Run both pre-fix control cases
+        if: github.ref == 'refs/heads/codex/8174-control-g1'
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/8174-control
+          pnpm --filter @chase-sets/app-platform-api exec vitest run --config ./vitest.config.ts __tests__/seed-command-full-pools.db.test.ts --maxWorkers=1 2>&1 | tee artifacts/8174-control/control.log
+      - name: Preserve diagnostic evidence including failures
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: seed-command-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/8174-measurement/
+            artifacts/8174-control/
+          if-no-files-found: error
