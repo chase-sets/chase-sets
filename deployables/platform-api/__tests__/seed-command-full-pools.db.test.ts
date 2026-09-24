@@ -10,7 +10,7 @@ import { module as catalogModule } from "@chase-sets/catalog";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { runAdminQaActorFixtures } from "../src/admin-qa-actor-fixtures";
 import { createPlatformApiHost } from "../src/app";
-import { loadConfig, type PlatformApiContextName } from "../src/config";
+import { getContextDatabaseEnvName, loadConfig, type PlatformApiContextName } from "../src/config";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
 import { runRepresentativeCommerceState } from "../src/representative-commerce-state";
 import { listingPhotoStorage, platformApiContextNames, type PlatformApiTestPools } from "./bootstrap-db-test-support";
@@ -45,9 +45,13 @@ afterAll(async () => {
 });
 
 function createCappedSeedTestConfig() {
-  const previousUrl = process.env.PLATFORM_CONTROL_DATABASE_URL;
+  const contextEntries = platformApiContextNames.map(
+    (contextName) => [getContextDatabaseEnvName(contextName), databaseUrls[contextName]] as const,
+  );
+  const entries = [["PLATFORM_CONTROL_DATABASE_URL", databaseUrls.auth] as const, ...contextEntries];
+  const previous = entries.map(([name]) => [name, process.env[name]] as const);
   try {
-    process.env.PLATFORM_CONTROL_DATABASE_URL = databaseUrls.auth;
+    for (const [name, url] of entries) process.env[name] = url;
     const baseConfig = loadConfig();
     return {
       ...baseConfig,
@@ -60,8 +64,10 @@ function createCappedSeedTestConfig() {
       contextWaiterDatabaseUrls: databaseUrls,
     };
   } finally {
-    if (previousUrl === undefined) delete process.env.PLATFORM_CONTROL_DATABASE_URL;
-    else process.env.PLATFORM_CONTROL_DATABASE_URL = previousUrl;
+    for (const [name, value] of previous) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
   }
 }
 
