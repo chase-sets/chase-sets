@@ -331,6 +331,48 @@ components:
         value: "5000"
       - name: "DATABASE_POOL_MAX"
         value: "6"
+      - name: "BOOTSTRAP_DATABASE_URL_AUTH"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_AUTHENTICITY"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_CATALOG"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_CHANNELS"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_CHECKOUT"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_COLLECTIONS"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_COMMERCIAL_TERMS"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_CUSTOMER_FEEDBACK"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_DISCOVERY"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_FULFILLMENT"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_IDENTITY"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_INVENTORY"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_MARKETPLACE"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_NOTIFICATIONS"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_ORDERING"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_PAYMENTS"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_PLATFORM_OPERATIONS"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_PRICING"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_PUBLIC_PRESENCE"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_SETTLEMENT"
+        secret: true
+      - name: "BOOTSTRAP_PLATFORM_CONTROL_DATABASE_URL"
+        secret: true
       - name: "DATABASE_URL_AUTH"
         secret: true
         secretKey: "DATABASE_URL_AUTH"

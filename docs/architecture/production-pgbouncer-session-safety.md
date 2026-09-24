@@ -25,6 +25,7 @@ Every steady-state production query path was checked for session-scoped state be
 - `infrastructure/platform-runtime/realtime-outbox-store.ts` acquires the outbox append lock with `pg_advisory_xact_lock` — pool-safe.
 - `infrastructure/platform-runtime/realtime-outbox-store.ts` retention prune acquires `pg_try_advisory_lock` and releases `pg_advisory_unlock` inside a single CTE statement (one implicit transaction, one backend) — pool-safe.
 - The only session-scoped path is the schema bootstrap (`infrastructure/bounded-context-runtime/schema.ts`), which holds a session advisory lock plus `SET lock_timeout` across multiple statements. It is a deploy-time migration path, not steady-state query traffic. DOKS staging and production bootstrap containers read dedicated `BOOTSTRAP_DATABASE_URL_*` / `BOOTSTRAP_PLATFORM_CONTROL_DATABASE_URL` secret keys populated from direct cluster URLs by `.github/workflows/platform-production.yml`.
+- In-pod representative commerce and admin-QA seed commands also select those direct bootstrap URLs before constructing their pools. The ordinary API process still uses transaction-pooled query URLs and opens no seed-command direct pools during steady-state traffic.
 
 No prepared-statement pinning, session GUC persistence, temp tables, `WITH HOLD` cursors, or `LISTEN` were found in the pooled query paths. `pg_notify` emission is transaction-pool-safe as a wake hint; durable event rows remain authoritative.
 
