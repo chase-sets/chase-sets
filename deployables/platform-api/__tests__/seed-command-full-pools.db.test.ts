@@ -1,23 +1,47 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { drainLocalProjectionHandlerSets } from "@chase-sets/bounded-context-runtime";
+import {
+  createMultiContextTestDatabaseUrls,
+  ensureMultiContextTestDatabases,
+  resetMultiContextTestSchemas,
+} from "@chase-sets/bounded-context-runtime/test-support";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { module as catalogModule } from "@chase-sets/catalog";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { runAdminQaActorFixtures } from "../src/admin-qa-actor-fixtures";
 import { createPlatformApiHost } from "../src/app";
 import { loadConfig, type PlatformApiContextName } from "../src/config";
+import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
 import { runRepresentativeCommerceState } from "../src/representative-commerce-state";
-import {
-  createPlatformApiBootstrapTestHarness,
-  listingPhotoStorage,
-  type PlatformApiTestPools,
-} from "./bootstrap-db-test-support";
+import { listingPhotoStorage, platformApiContextNames, type PlatformApiTestPools } from "./bootstrap-db-test-support";
 
 let databaseUrls: Readonly<Record<PlatformApiContextName, string>>;
 let assertionPools: PlatformApiTestPools;
-createPlatformApiBootstrapTestHarness("platform_api_seed_command_full_pools", (state) => {
-  databaseUrls = state.databaseUrls;
-  assertionPools = state.pools;
+beforeAll(async () => {
+  const baseUrl = process.env.TEST_DATABASE_URL;
+  if (!baseUrl) throw new Error("TEST_DATABASE_URL is required for seed command DB regressions.");
+  databaseUrls = createMultiContextTestDatabaseUrls(
+    baseUrl,
+    platformApiContextNames,
+    "platform_api_seed_command_full_pools",
+  ) as Readonly<Record<PlatformApiContextName, string>>;
+  await ensureMultiContextTestDatabases(baseUrl, databaseUrls);
+  assertionPools = createPlatformApiPools({
+    runtimeProfile: "public",
+    sharedDatabaseUrl: null,
+    contextDatabaseUrls: databaseUrls,
+    port: 6182,
+    pool: {
+      max: 1,
+      idleTimeoutMillis: 30_000,
+      idleInTransactionSessionTimeoutMillis: 15_000,
+      connectionTimeoutMillis: 5_000,
+    },
+  });
+});
+beforeEach(async () => resetMultiContextTestSchemas(assertionPools), 30_000);
+afterAll(async () => {
+  if (assertionPools) await closePlatformApiPools(assertionPools);
 });
 
 function createCappedSeedTestConfig() {
