@@ -17,18 +17,31 @@ describe("platform worker database pools", () => {
     "selects the direct Settlement bootstrap URL in %s without changing the query URL",
     (environment, queryUrl, directUrl) => {
       const config = {
+        deploymentEnvironment: environment,
         contextDatabaseUrls: { settlement: queryUrl },
         sharedDatabaseUrl: null,
       } as unknown as PlatformWorkerConfig;
       expect(
-        selectSettlementBootstrapDatabaseUrl(config, {
-          DEPLOYMENT_ENVIRONMENT: environment,
-          BOOTSTRAP_DATABASE_URL_SETTLEMENT: directUrl,
-        }),
+        selectSettlementBootstrapDatabaseUrl(config, { BOOTSTRAP_DATABASE_URL_SETTLEMENT: directUrl }),
       ).toBe(directUrl);
       expect(config.contextDatabaseUrls.settlement).toBe(queryUrl);
     },
   );
+
+  it("uses the resolved staging environment even when the raw environment has different casing", () => {
+    const config = {
+      deploymentEnvironment: "staging",
+      contextDatabaseUrls: { settlement: "postgresql://localhost:25061/pooled" },
+      sharedDatabaseUrl: null,
+    } as unknown as PlatformWorkerConfig;
+
+    expect(() =>
+      selectSettlementBootstrapDatabaseUrl(config, {
+        DEPLOYMENT_ENVIRONMENT: "Staging",
+        BOOTSTRAP_DATABASE_URL_SETTLEMENT: "postgresql://localhost:5432/direct",
+      }),
+    ).toThrow("WORKER_SETTLEMENT_DIRECT_DATABASE_URL_REQUIRED");
+  });
 
   it.each([
     ["staging", "postgresql://localhost:25061/pooled"],
@@ -38,11 +51,12 @@ describe("platform worker database pools", () => {
     ["dev", "https://localhost:5432/not-postgres"],
   ])("refuses a non-direct Settlement bootstrap URL in %s without exposing it", (environment, queryUrl) => {
     const config = {
+      deploymentEnvironment: environment,
       contextDatabaseUrls: { settlement: queryUrl },
       sharedDatabaseUrl: null,
     } as unknown as PlatformWorkerConfig;
     try {
-      selectSettlementBootstrapDatabaseUrl(config, { DEPLOYMENT_ENVIRONMENT: environment });
+      selectSettlementBootstrapDatabaseUrl(config, {});
       throw new Error("Expected a direct-URL rejection.");
     } catch (error) {
       expect(error).toMatchObject({ code: "WORKER_SETTLEMENT_DIRECT_DATABASE_URL_REQUIRED" });
@@ -54,12 +68,24 @@ describe("platform worker database pools", () => {
     expect(() =>
       selectSettlementBootstrapDatabaseUrl(
         {
+          deploymentEnvironment: "dev",
           contextDatabaseUrls: {},
           sharedDatabaseUrl: null,
         } as unknown as PlatformWorkerConfig,
-        { DEPLOYMENT_ENVIRONMENT: "dev" },
+        {},
       ),
     ).toThrow("WORKER_SETTLEMENT_DIRECT_DATABASE_URL_REQUIRED");
+  });
+
+  it("names fallback keys without exposing credentials when no dev URL is configured", () => {
+    const config = {
+      deploymentEnvironment: "dev",
+      contextDatabaseUrls: {},
+      sharedDatabaseUrl: null,
+    } as unknown as PlatformWorkerConfig;
+    expect(() => selectSettlementBootstrapDatabaseUrl(config, {})).toThrow(
+      "BOOTSTRAP_DATABASE_URL_SETTLEMENT, DATABASE_URL_SETTLEMENT, or DATABASE_URL",
+    );
   });
 
   it("sets an idle-in-transaction guardrail on context pools", async () => {

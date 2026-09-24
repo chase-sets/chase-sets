@@ -15,6 +15,7 @@ import {
   loadTcgplayerAutomationConfig,
   resolveEnumEnv,
   resolveMobileMessagingProvider,
+  type DeploymentEnvironment,
   type PlatformCatalogAssetStorageConfig,
   type PlatformMoneyMovementConfig,
   type PlatformPaymentProcessorConfig,
@@ -37,6 +38,7 @@ export type PlatformWorkerPoolConfig = PlatformPoolConfig;
 export type PlatformWorkerConfig = Readonly<{
   channelCredentialKeyring: ChannelCredentialKeyring | null;
   runtimeProfile: PlatformWorkerRuntimeProfile;
+  deploymentEnvironment: DeploymentEnvironment;
   sharedDatabaseUrl: string | null;
   controlDatabaseUrl: string;
   workSignalDatabaseUrl: string | null;
@@ -316,6 +318,7 @@ export function loadConfig(): PlatformWorkerConfig {
 
   return {
     runtimeProfile,
+    deploymentEnvironment,
     ...databaseConfig,
     pool: loadPoolConfig(),
     catalogAssetStorage: loadCatalogAssetStorageConfig({

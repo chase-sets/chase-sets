@@ -17,7 +17,7 @@ describe("marketplace label postage worker startup", () => {
     input: Readonly<{
       runtimeProfile: "landing" | "public";
       bootstrapContextDatabase: (module: unknown, pool: unknown) => Promise<void>;
-      activateMarketplaceLabelPostage: () => Promise<typeof syntheticActivation>;
+      activateMarketplaceLabelPostage: (pool: unknown) => Promise<typeof syntheticActivation>;
       constructWorkerRuntime: (activation?: typeof syntheticActivation) => unknown;
       logger: Readonly<{
         info: ReturnType<typeof vi.fn>;
@@ -84,7 +84,8 @@ describe("marketplace label postage worker startup", () => {
           expect(pool).toEqual({ kind: "synthetic-direct-settlement-pool" });
           calls.push("bootstrap");
         },
-        activateMarketplaceLabelPostage: async () => {
+        activateMarketplaceLabelPostage: async (pool) => {
+          expect(pool).toEqual({ kind: "synthetic-settlement-pool" });
           calls.push("activate");
           return syntheticActivation;
         },

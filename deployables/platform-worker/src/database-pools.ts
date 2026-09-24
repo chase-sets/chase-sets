@@ -37,9 +37,12 @@ export const closePlatformWorkerPools = closeContextPools;
 export class WorkerSettlementDirectDatabaseUrlRequiredError extends Error {
   readonly code = "WORKER_SETTLEMENT_DIRECT_DATABASE_URL_REQUIRED";
 
-  constructor() {
+  constructor(managedCluster: boolean) {
+    const urlKeys = managedCluster
+      ? "BOOTSTRAP_DATABASE_URL_SETTLEMENT"
+      : "BOOTSTRAP_DATABASE_URL_SETTLEMENT, DATABASE_URL_SETTLEMENT, or DATABASE_URL";
     super(
-      "WORKER_SETTLEMENT_DIRECT_DATABASE_URL_REQUIRED: BOOTSTRAP_DATABASE_URL_SETTLEMENT must be a direct database URL for schema bootstrap.",
+      `WORKER_SETTLEMENT_DIRECT_DATABASE_URL_REQUIRED: ${urlKeys} must provide a direct database URL for schema bootstrap.`,
     );
     this.name = "WorkerSettlementDirectDatabaseUrlRequiredError";
   }
@@ -51,20 +54,20 @@ export function selectSettlementBootstrapDatabaseUrl(
 ): string {
   const directUrl =
     env.BOOTSTRAP_DATABASE_URL_SETTLEMENT?.trim() || config.contextDatabaseUrls.settlement || config.sharedDatabaseUrl;
-  const deploymentEnvironment = env.DEPLOYMENT_ENVIRONMENT ?? (env.NODE_ENV === "production" ? "production" : "dev");
-  const managedCluster = deploymentEnvironment === "staging" || deploymentEnvironment === "production";
+  const managedCluster = config.deploymentEnvironment === "staging" || config.deploymentEnvironment === "production";
+  // DigitalOcean's managed transaction pools use port 25061; direct cluster URLs use 25060.
   let parsed: URL;
   try {
     parsed = new URL(directUrl ?? "");
   } catch {
-    throw new WorkerSettlementDirectDatabaseUrlRequiredError();
+    throw new WorkerSettlementDirectDatabaseUrlRequiredError(managedCluster);
   }
   if (
     (parsed.protocol !== "postgres:" && parsed.protocol !== "postgresql:") ||
     parsed.port === "25061" ||
     (managedCluster && parsed.port !== "25060")
   ) {
-    throw new WorkerSettlementDirectDatabaseUrlRequiredError();
+    throw new WorkerSettlementDirectDatabaseUrlRequiredError(managedCluster);
   }
   return directUrl!;
 }
