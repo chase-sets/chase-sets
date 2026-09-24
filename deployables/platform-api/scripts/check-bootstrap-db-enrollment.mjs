@@ -383,7 +383,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
  */
 export const bootstrapDbExecutionUnitBootBearingCaseCeilings = Object.freeze({
   "test:db:1": 15,
-  "test:db:2": 20,
+  "test:db:2": 19,
   "test:db:3": 18,
 });
 
