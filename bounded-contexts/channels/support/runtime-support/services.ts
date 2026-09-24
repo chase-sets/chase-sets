@@ -8,8 +8,10 @@ import type { ChannelReconciliationServices } from "../../features/reconciliatio
 import type { TcgplayerCsvServices } from "../../features/tcgplayer-csv/api/runtime";
 import type { ManualSyncServices } from "../../features/manual-sync/api/runtime";
 import type { ConnectionAttentionServices } from "../../features/connection-attention/domain/contracts";
+import type { ChannelCredentialServices } from "../../features/credentials/api/runtime";
 
 export type ChannelsServices = Readonly<{
+  credentials: ChannelCredentialServices;
   connections: ChannelConnectionServices;
   connectionHealth: ConnectionHealthServices;
   connectionAttention: ConnectionAttentionServices;
@@ -23,6 +25,7 @@ export type ChannelsServices = Readonly<{
 }>;
 
 export const channelsServicesMembers = defineChannelsServicesMembers([
+  "credentials",
   "connections",
   "connectionHealth",
   "connectionAttention",
@@ -39,6 +42,7 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
   if (!isObject(value) || !channelsServicesMembers.every((member) => Object.hasOwn(value, member))) return false;
 
   const connections = Reflect.get(value, "connections");
+  const credentials = Reflect.get(value, "credentials");
   const connectionHealth = Reflect.get(value, "connectionHealth");
   const connectionAttention = Reflect.get(value, "connectionAttention");
   const listingComposition = Reflect.get(value, "listingComposition");
@@ -50,6 +54,11 @@ export function isChannelsServices(value: unknown): value is ChannelsServices {
   const db = Reflect.get(value, "db");
 
   return (
+    isObject(credentials) &&
+    typeof Reflect.get(credentials, "resolve") === "function" &&
+    typeof Reflect.get(credentials, "create") === "function" &&
+    typeof Reflect.get(credentials, "replace") === "function" &&
+    typeof Reflect.get(credentials, "rewrap") === "function" &&
     isObject(connections) &&
     typeof Reflect.get(connections, "getConnection") === "function" &&
     isObject(connectionHealth) &&

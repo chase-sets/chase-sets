@@ -22,6 +22,7 @@
   "apiBasePath": "/api/channels",
   "slices": [
     "connections",
+    "credentials",
     "connector-client",
     "publication-port",
     "listing-composition",
@@ -46,6 +47,11 @@
       "portName": "channelSaleRecorder",
       "providedBy": "inventory",
       "purpose": "Bind Inventory's typed account-scoped external Channel sale recorder for inline missed-sale reconciliation."
+    },
+    {
+      "portName": "channelCredentialKeyring",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Supply the shared parsed Channels credential keyring; absent configuration leaves custody unavailable."
     }
   ],
   "eventSubscriptions": [
@@ -622,6 +628,11 @@
     }
   ],
   "directoryIntent": {
+    "credentials": {
+      "classification": "slice",
+      "purpose": "Own the credentials slice canonical codecs, transactional custody, bound secret resolution, and explicit key rotation.",
+      "expectedConsumers": ["Channels server custody callers"]
+    },
     "connection-attention": {
       "classification": "slice",
       "purpose": "Own the connection-attention generation lifecycle, resolution facts, and combined channel-action source and detail panel.",
@@ -661,7 +672,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Own the context-level Channels runtime service composition contract.",
-      "expectedConsumers": ["Root Channels module and API composition"]
+      "expectedConsumers": ["credentials"]
     },
     "seed-support": {
       "classification": "support",

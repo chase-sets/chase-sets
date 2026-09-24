@@ -43,6 +43,26 @@ function mebibytes(memory) {
 }
 
 describe("render platform Helm values", () => {
+  it("renders the Channels keyring only as a shared API/worker Secret reference", () => {
+    const base = buildPlatformHelmValues({ repoRoot });
+    for (const build of [buildPlatformHelmValues, buildPlatformHelmStagingValues, buildPlatformHelmProductionValues]) {
+      const values = build({ repoRoot });
+      for (const host of ["platform-api", "platform-worker"]) {
+        const effective = values.components[host].env ?? base.components[host].env;
+        expect(effective.find((entry) => entry.name === "CHANNELS_CREDENTIAL_KEYRING_JSON")).toEqual({
+          name: "CHANNELS_CREDENTIAL_KEYRING_JSON",
+          secret: true,
+          secretKey: "CHANNELS_CREDENTIAL_KEYRING_JSON",
+        });
+      }
+      for (const [name, component] of Object.entries(values.components)) {
+        if (!["platform-api", "platform-worker"].includes(name))
+          expect(componentEnvKeys({ env: component.env ?? base.components[name]?.env ?? [] })).not.toContain(
+            "CHANNELS_CREDENTIAL_KEYRING_JSON",
+          );
+      }
+    }
+  });
   it("closes only production checkout and removes the reader-less Shopify switch", () => {
     const values = buildPlatformHelmValues({ repoRoot });
     const staging = buildPlatformHelmStagingValues({ repoRoot });
@@ -821,9 +841,9 @@ describe("render platform Helm values", () => {
     ).toEqual({
       "admin-web": 5,
       marketplace: 12,
-      "platform-api": 101,
+      "platform-api": 102,
       "platform-bootstrap": 57,
-      "platform-worker": 121,
+      "platform-worker": 122,
       "public-web": 13,
     });
     expect(componentEnvKeys(values.components["platform-api"])).toContain("CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX");

@@ -173,6 +173,24 @@ afterEach(() => {
 });
 
 describe("platform worker config", () => {
+  it("loads the shared Channels keyring and fails malformed startup", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    const previous = process.env.CHANNELS_CREDENTIAL_KEYRING_JSON;
+    try {
+      process.env.CHANNELS_CREDENTIAL_KEYRING_JSON = "";
+      expect(loadConfig().channelCredentialKeyring).toBeNull();
+      process.env.CHANNELS_CREDENTIAL_KEYRING_JSON = JSON.stringify({
+        activeKeyId: "synthetic",
+        keys: [{ keyId: "synthetic", keyBase64: Buffer.alloc(32, 7).toString("base64") }],
+      });
+      expect(loadConfig().channelCredentialKeyring?.activeKeyId).toBe("synthetic");
+      process.env.CHANNELS_CREDENTIAL_KEYRING_JSON = "malformed-synthetic-marker";
+      expect(() => loadConfig()).toThrow("invalid-keyring");
+    } finally {
+      if (previous === undefined) delete process.env.CHANNELS_CREDENTIAL_KEYRING_JSON;
+      else process.env.CHANNELS_CREDENTIAL_KEYRING_JSON = previous;
+    }
+  });
   it("defaults the repricing dry-run lane to one and reads its configured count", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     expect(loadConfig().pricingRepricingDryRunJobLaneCount).toBe(1);

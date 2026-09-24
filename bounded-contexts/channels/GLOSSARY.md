@@ -28,6 +28,14 @@ A **Channel Authorization** is the consent that allows Chase Sets to act with sc
 
 A **Channel Credential** is the secret or token reference used to access a Sales Channel.
 
+Channels owns encrypted, non-replayable custody separately from the connection's
+reference and from captured provider authorization. `ChannelCredentialEnvelope/v1`
+authenticates the immutable account, provider, environment, connection and row
+identity together with both counters and key metadata. Token generation changes
+only with token material; envelope revision changes on every actual rewrite.
+`ChannelOAuthTokenSet/v1` is the closed canonical plaintext format. Readability does
+not establish provider-valid authority.
+
 ## Channel Webhook
 
 A **Channel Webhook** is the inbound event subscription configured for a Sales Channel.

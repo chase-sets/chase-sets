@@ -505,6 +505,11 @@
           "secretKey": "DATABASE_URL_CATALOG"
         },
         {
+          "name": "CHANNELS_CREDENTIAL_KEYRING_JSON",
+          "secret": true,
+          "secretKey": "CHANNELS_CREDENTIAL_KEYRING_JSON"
+        },
+        {
           "name": "DATABASE_URL_CHANNELS",
           "secret": true,
           "secretKey": "DATABASE_URL_CHANNELS"
@@ -1016,6 +1021,11 @@
           "name": "DATABASE_URL_CATALOG",
           "secret": true,
           "secretKey": "DATABASE_URL_CATALOG"
+        },
+        {
+          "name": "CHANNELS_CREDENTIAL_KEYRING_JSON",
+          "secret": true,
+          "secretKey": "CHANNELS_CREDENTIAL_KEYRING_JSON"
         },
         {
           "name": "DATABASE_URL_CHANNELS",
