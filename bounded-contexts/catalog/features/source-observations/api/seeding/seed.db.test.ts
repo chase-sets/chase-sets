@@ -215,6 +215,44 @@ describeDb("promoted Source Observation scenario seed database lifecycle", () =>
     expect(await observationEventCount(pool)).toBe(countBefore);
   });
 
+  it("promotion fingerprint refusal names expected and actual bounded scalar values", async () => {
+    const services = createCatalogServices(pool);
+    await appendCatalogItemLifecycle(pool, services, catalogSeedIds.items.pikachuJungle);
+    const evidence = await buildCatalogBrowserE2ePromotedObservationSeedEvidence(pool);
+    const recorded = commandEvents(evidence.recordCommand);
+    const promoted = commandEvents(evidence.promotionCommand, recorded.state).events[0]!;
+    const recordedFingerprint = "f".repeat(64);
+    await appendObservationHistory(pool, [
+      recorded.events[0]!,
+      mutateEvent(promoted, { promotionPlanFingerprint: recordedFingerprint }),
+    ]);
+    const countBefore = await observationEventCount(pool);
+
+    await expect(seedPromotedSourceObservationScenario(services)).rejects.toThrow(
+      `at field path 'promotionPlanFingerprint' (expected ${JSON.stringify(evidence.promotionCommand.promotionPlanFingerprint)}, actual ${JSON.stringify(recordedFingerprint)})`,
+    );
+    expect(await observationEventCount(pool)).toBe(countBefore);
+  });
+
+  it("promotion fingerprint refusal marks a truncated scalar without printing the full value", async () => {
+    const services = createCatalogServices(pool);
+    await appendCatalogItemLifecycle(pool, services, catalogSeedIds.items.pikachuJungle);
+    const evidence = await buildCatalogBrowserE2ePromotedObservationSeedEvidence(pool);
+    const recorded = commandEvents(evidence.recordCommand);
+    const promoted = commandEvents(evidence.promotionCommand, recorded.state).events[0]!;
+    const longFingerprint = "f".repeat(128);
+    await appendObservationHistory(pool, [
+      recorded.events[0]!,
+      mutateEvent(promoted, { promotionPlanFingerprint: longFingerprint }),
+    ]);
+    const countBefore = await observationEventCount(pool);
+
+    await expect(seedPromotedSourceObservationScenario(services)).rejects.toThrow(
+      `at field path 'promotionPlanFingerprint' (expected ${JSON.stringify(evidence.promotionCommand.promotionPlanFingerprint)}, actual ${JSON.stringify("f".repeat(96))}[truncated])`,
+    );
+    expect(await observationEventCount(pool)).toBe(countBefore);
+  });
+
   it("requireSeedState mutant that accepts any state fails the poison matrix", async () => {
     const services = createCatalogServices(pool);
     await appendCatalogItemLifecycle(pool, services, catalogSeedIds.items.pikachuJungle);
