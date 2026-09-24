@@ -1,0 +1,138 @@
+name: Seed Command AC1 Evidence Only
+
+on:
+  push:
+    branches: [codex/8174-ac1-evidence-control, codex/8174-ac1-evidence-repaired]
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    name: First-attempt seed command evidence
+    if: github.repository == 'chase-sets/chase-sets' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Record exact input
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/8174-ac1
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git hash-object deployables/platform-api/__tests__/seed-command-full-pools.db.test.ts)" = 11989910432b5bb5282090047159ae55489b8326
+          {
+            printf 'F=fd583141abf0d0b5d35344095066cf5f316f73b9\n'
+            printf 'head=%s\nrun_id=%s\nrun_attempt=%s\njob=%s\nref=%s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_JOB" "$GITHUB_REF"
+            printf 'test_blob=%s\n' "$(git hash-object deployables/platform-api/__tests__/seed-command-full-pools.db.test.ts)"
+            sha256sum deployables/platform-api/scripts/8174-ac1-diagnostic.ts
+            printf 'postgres=pgvector/pgvector:pg16; max_locks_per_transaction=512\n'
+            printf 'pool_override=none; timer_override=none; test_database=disposable localhost postgres\n'
+          } | tee artifacts/8174-ac1/identity.log
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+      - name: Raise PostgreSQL lock table capacity for DB Profile
+        env:
+          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -c "ALTER SYSTEM SET max_locks_per_transaction = 512;"
+          docker restart "$POSTGRES_CONTAINER_ID"
+          ready=false
+          for _ in $(seq 1 30); do
+            if docker exec "$POSTGRES_CONTAINER_ID" pg_isready -U postgres -d postgres >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != "true" ]; then
+            echo "PostgreSQL did not become ready within 30s after restart." >&2
+            exit 1
+          fi
+          effective="$(docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -tAc 'SHOW max_locks_per_transaction;' | tr -d '[:space:]')"
+          test "$effective" = 512
+          printf 'effective max_locks_per_transaction=%s\n' "$effective" | tee artifacts/8174-ac1/postgres.log
+      - name: Run representative command
+        working-directory: deployables/platform-api
+        run: |
+          set -euo pipefail
+          test "$(pwd)" = "$GITHUB_WORKSPACE/deployables/platform-api"
+          test -f ./scripts/8174-ac1-diagnostic.ts
+          printf 'effective_cwd=%s\ncommand=representative\n' "$(pwd)" | tee ../../artifacts/8174-ac1/representative-path.log
+          set +e
+          DIAGNOSTIC_RESULT_PATH=../../artifacts/8174-ac1/representative.json timeout --signal=KILL 300 node --import tsx ./scripts/8174-ac1-diagnostic.ts representative 2>&1 | tee ../../artifacts/8174-ac1/representative.log
+          status=${PIPESTATUS[0]}
+          set -e
+          printf 'representative_exit=%s\n' "$status" | tee ../../artifacts/8174-ac1/representative-exit.log
+          test "$status" -ne 137
+          test -s ../../artifacts/8174-ac1/representative.json
+      - name: Run admin-QA command
+        if: always()
+        working-directory: deployables/platform-api
+        run: |
+          set -euo pipefail
+          test "$(pwd)" = "$GITHUB_WORKSPACE/deployables/platform-api"
+          test -f ./scripts/8174-ac1-diagnostic.ts
+          printf 'effective_cwd=%s\ncommand=admin-qa\n' "$(pwd)" | tee ../../artifacts/8174-ac1/admin-qa-path.log
+          set +e
+          DIAGNOSTIC_RESULT_PATH=../../artifacts/8174-ac1/admin-qa.json timeout --signal=KILL 300 node --import tsx ./scripts/8174-ac1-diagnostic.ts admin-qa 2>&1 | tee ../../artifacts/8174-ac1/admin-qa.log
+          status=${PIPESTATUS[0]}
+          set -e
+          printf 'admin_qa_exit=%s\n' "$status" | tee ../../artifacts/8174-ac1/admin-qa-exit.log
+          test "$status" -ne 137
+          test -s ../../artifacts/8174-ac1/admin-qa.json
+      - name: Run unchanged committed cases on repair
+        if: always() && github.ref == 'refs/heads/codex/8174-ac1-evidence-repaired'
+        working-directory: deployables/platform-api
+        run: |
+          set -euo pipefail
+          test "$(pwd)" = "$GITHUB_WORKSPACE/deployables/platform-api"
+          test -f ./vitest.config.ts
+          test -f __tests__/seed-command-full-pools.db.test.ts
+          printf 'effective_cwd=%s\n' "$(pwd)" | tee ../../artifacts/8174-ac1/case-path.log
+          set +e
+          pnpm exec vitest run --config ./vitest.config.ts __tests__/seed-command-full-pools.db.test.ts --maxWorkers=1 --no-file-parallelism 2>&1 | tee ../../artifacts/8174-ac1/cases.log
+          status=${PIPESTATUS[0]}
+          set -e
+          printf 'vitest_exit=%s\n' "$status" | tee ../../artifacts/8174-ac1/case-exit.log
+          exit "$status"
+      - name: Clean up disposable PostgreSQL service
+        if: always()
+        env:
+          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/8174-ac1
+          if [ -n "$POSTGRES_CONTAINER_ID" ]; then
+            docker rm -f "$POSTGRES_CONTAINER_ID" 2>&1 | tee artifacts/8174-ac1/cleanup.log
+          else
+            printf 'No PostgreSQL service container was created.\n' | tee artifacts/8174-ac1/cleanup.log
+          fi
+      - name: Preserve evidence including failures
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: seed-command-ac1-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/8174-ac1/
+          if-no-files-found: error
