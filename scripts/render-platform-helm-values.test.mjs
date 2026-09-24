@@ -119,6 +119,7 @@ describe("render platform Helm values", () => {
     const values = buildPlatformHelmValues({ repoRoot });
     const bootstrapEnv = new Map(values.components["platform-bootstrap"].env.map((entry) => [entry.name, entry]));
     const apiEnv = new Map(values.components["platform-api"].env.map((entry) => [entry.name, entry]));
+    const workerEnv = new Map(values.components["platform-worker"].env.map((entry) => [entry.name, entry]));
 
     expect(bootstrapEnv.get("PLATFORM_DATA_PROFILES")).toEqual({
       name: "PLATFORM_DATA_PROFILES",
@@ -130,6 +131,12 @@ describe("render platform Helm values", () => {
     );
     expect(apiEnv.get("DATABASE_URL_CATALOG")?.secretKey).toBe("DATABASE_URL_CATALOG");
     expect(apiEnv.get("PLATFORM_CONTROL_DATABASE_URL")?.secretKey).toBe("PLATFORM_CONTROL_DATABASE_URL");
+    expect(workerEnv.get("DATABASE_URL_SETTLEMENT")?.secretKey).toBe("DATABASE_URL_SETTLEMENT");
+    expect(workerEnv.get("BOOTSTRAP_DATABASE_URL_SETTLEMENT")).toEqual({
+      name: "BOOTSTRAP_DATABASE_URL_SETTLEMENT",
+      secret: true,
+      secretKey: "BOOTSTRAP_DATABASE_URL_SETTLEMENT",
+    });
     for (const entry of bootstrapEnv.values()) {
       if (entry.secretKey?.startsWith("BOOTSTRAP_")) {
         expect(apiEnv.get(entry.secretKey)).toMatchObject({ name: entry.secretKey, secret: true });
@@ -849,7 +856,7 @@ describe("render platform Helm values", () => {
       marketplace: 12,
       "platform-api": 123,
       "platform-bootstrap": 57,
-      "platform-worker": 122,
+      "platform-worker": 123,
       "public-web": 13,
     });
     expect(componentEnvKeys(values.components["platform-api"])).toContain("CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX");
