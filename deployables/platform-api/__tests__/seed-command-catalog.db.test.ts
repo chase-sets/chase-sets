@@ -29,10 +29,14 @@ describeDb("direct seed command Catalog bootstrap", () => {
     try {
       expect((pools.catalog as unknown as { options: { max: number } }).options.max).toBe(1);
       await bootstrapContextDatabase(catalogModule, pools.catalog);
-      await catalogModule.seed?.(pools.catalog, catalogModule.createServices(createProjectionAwarePool(pools.catalog), {}), {
-        enabledDataProfiles: ["scenario-seed"],
-        environmentName: "test",
-      });
+      await catalogModule.seed?.(
+        pools.catalog,
+        catalogModule.createServices(createProjectionAwarePool(pools.catalog), {}),
+        {
+          enabledDataProfiles: ["scenario-seed"],
+          environmentName: "test",
+        },
+      );
       const result = await pools.catalog.query<{ count: string }>("SELECT count(*) FROM catalog_items");
       expect(Number(result.rows[0]?.count)).toBeGreaterThan(0);
     } finally {
