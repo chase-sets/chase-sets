@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { loadPushWakeCapacityInputs, buildPushWakeCapacityEvidence } from "./push-wake-capacity-evidence.mjs";
-import { buildPlatformHelmValues } from "./render-platform-helm-values.mjs";
+import { buildPlatformHelmStagingValues, buildPlatformHelmValues } from "./render-platform-helm-values.mjs";
 import { buildScenarioSeedJobManifest } from "./platform-kubernetes-deployment.mjs";
 
 const stagingGroup = "platform-deploy-staging";
@@ -12,6 +12,8 @@ const stagingGroup = "platform-deploy-staging";
 export function loadStagingConnectionEnvelopeInputs(repoRoot = process.cwd()) {
   const readWorkflow = (name) => parseYaml(readFileSync(resolve(repoRoot, `.github/workflows/${name}.yml`), "utf8"));
   const values = buildPlatformHelmValues({ repoRoot });
+  const stagingWorkerAutoscaling = buildPlatformHelmStagingValues().components["platform-worker"].autoscaling;
+  const productionWorkerReplicas = values.components["platform-worker"].replicas;
   const bootstrap = values.components["platform-bootstrap"];
   const bootstrapSource = readFileSync(resolve(repoRoot, "deployables/platform-api/src/bootstrap.ts"), "utf8");
   const seedPoolsSource = readFileSync(resolve(repoRoot, "deployables/platform-api/src/database-pools.ts"), "utf8");
@@ -74,6 +76,9 @@ export function loadStagingConnectionEnvelopeInputs(repoRoot = process.cwd()) {
     workerSettlementBootstrapPoolMax: Number(
       workerPoolsSource.match(/export function createSettlementBootstrapPool\([^)]*\)\s*\{[\s\S]*?max:\s*(\d+)/)?.[1],
     ),
+    workerMaxConcurrentStarts: stagingWorkerAutoscaling.enabled ? stagingWorkerAutoscaling.maxReplicaCount : NaN,
+    productionWorkerMaxConcurrentStarts:
+      Number.isInteger(productionWorkerReplicas) && productionWorkerReplicas > 0 ? productionWorkerReplicas + 1 : NaN,
     workerSettlementBootstrapBound:
       values.components["platform-worker"].env.some(
         (entry) =>
@@ -156,16 +161,26 @@ export function enforceStagingConnectionEnvelope(input) {
   if (
     !input.workerSettlementBootstrapBound ||
     !Number.isInteger(input.workerSettlementBootstrapPoolMax) ||
-    input.workerSettlementBootstrapPoolMax < 1
+    input.workerSettlementBootstrapPoolMax < 1 ||
+    !Number.isInteger(input.workerMaxConcurrentStarts) ||
+    input.workerMaxConcurrentStarts < 1 ||
+    !Number.isInteger(input.productionWorkerMaxConcurrentStarts) ||
+    input.productionWorkerMaxConcurrentStarts < 1
   ) {
-    throw new Error("Staging worker Settlement bootstrap must retain its direct Secret binding and positive pool cap.");
+    throw new Error(
+      "Staging worker Settlement bootstrap must retain its direct Secret binding, positive pool cap, and positive concurrent-start bounds.",
+    );
   }
   const bootstrap = input.directUrls * input.bootstrapPoolMax + 1; // Dedicated seed schema-lock pool.
   const baseline = input.pooled + input.relays + input.waiters;
   const seed = 26; // The seed regression pins 25 query URLs and a separate direct lock pool at max 1.
   const phases = {
-    rolling: input.pooled + 2 * input.relays + 2 * input.waiters + 2 * input.workerSettlementBootstrapPoolMax,
-    representative: baseline + seed,
+    rolling:
+      input.pooled +
+      2 * input.relays +
+      2 * input.waiters +
+      input.workerMaxConcurrentStarts * input.workerSettlementBootstrapPoolMax,
+    representative: baseline + seed + input.workerMaxConcurrentStarts * input.workerSettlementBootstrapPoolMax,
     advisory: input.pooled + input.waiters + bootstrap,
     bootstrap: input.pooled + input.waiters + bootstrap,
   };
@@ -174,7 +189,7 @@ export function enforceStagingConnectionEnvelope(input) {
       input.productionPooled +
       2 * input.productionRelays +
       2 * input.productionWaiters +
-      2 * input.workerSettlementBootstrapPoolMax,
+      input.productionWorkerMaxConcurrentStarts * input.workerSettlementBootstrapPoolMax,
     bootstrap: input.productionPooled + input.productionWaiters + bootstrap,
   };
   if (phases.rolling > input.trigger || Object.values(phases).some((total) => total > input.limit)) {
@@ -198,6 +213,8 @@ export function enforceStagingConnectionEnvelope(input) {
     bootstrap,
     seed,
     workerSettlementBootstrapPoolMax: input.workerSettlementBootstrapPoolMax,
+    workerMaxConcurrentStarts: input.workerMaxConcurrentStarts,
+    productionWorkerMaxConcurrentStarts: input.productionWorkerMaxConcurrentStarts,
     trigger: input.trigger,
     limit: input.limit,
     phases,

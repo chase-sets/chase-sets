@@ -14,6 +14,8 @@ describe("staging aggregate direct backend envelope", () => {
     expect(input.scenarioPoolMax).toBe(1);
     expect(input.seedPoolsCapped).toBe(true);
     expect(input.workerSettlementBootstrapPoolMax).toBe(1);
+    expect(input.workerMaxConcurrentStarts).toBe(4);
+    expect(input.productionWorkerMaxConcurrentStarts).toBe(2);
     expect(input.workerSettlementBootstrapBound).toBe(true);
     expect(input.serializedGroups).toEqual(Array(5).fill("platform-deploy-staging"));
     expect(input.serializedJobsDoNotCancel).toBe(true);
@@ -27,7 +29,9 @@ describe("staging aggregate direct backend envelope", () => {
       seed: 26,
       trigger: 75,
       limit: 94,
-      phases: { rolling: 72, representative: 81, advisory: 70, bootstrap: 70 },
+      workerMaxConcurrentStarts: 4,
+      productionWorkerMaxConcurrentStarts: 2,
+      phases: { rolling: 74, representative: 85, advisory: 70, bootstrap: 70 },
       productionPhases: { rolling: 57, bootstrap: 59 },
     });
     // Base 573d1a15 had a per-URL bootstrap maximum of four; even with
@@ -74,6 +78,18 @@ describe("staging aggregate direct backend envelope", () => {
     );
     expect(() => enforceStagingConnectionEnvelope({ ...input, workerSettlementBootstrapPoolMax: 13 })).toThrow(
       "tier trigger",
+    );
+    expect(() => enforceStagingConnectionEnvelope({ ...input, workerSettlementBootstrapPoolMax: 2 })).toThrow(
+      '"rolling":78',
+    );
+    expect(() => enforceStagingConnectionEnvelope({ ...input, workerMaxConcurrentStarts: 6 })).toThrow('"rolling":76');
+    for (const workerMaxConcurrentStarts of [0, NaN, 1.5]) {
+      expect(() => enforceStagingConnectionEnvelope({ ...input, workerMaxConcurrentStarts })).toThrow(
+        "worker Settlement bootstrap",
+      );
+    }
+    expect(() => enforceStagingConnectionEnvelope({ ...input, productionWorkerMaxConcurrentStarts: 0 })).toThrow(
+      "worker Settlement bootstrap",
     );
     expect(() => enforceStagingConnectionEnvelope({ ...input, directUrls: 22 })).toThrow("direct URL inventory");
     expect(() => enforceStagingConnectionEnvelope({ ...input, productionPooled: 100 })).toThrow(
