@@ -11,9 +11,10 @@ import ts from "@chase-sets/typescript-compiler-api";
  * job, and what each case asserts.
  *
  * `referenceDurationMs` values are the per-case durations reported by the
- * hosted job named in `bootstrapDbScheduleModel`. They are
- * the only timing authority this guard accepts; no lane-host measurement can
- * confirm or refute them.
+ * hosted job named in `bootstrapDbScheduleModel`, except the new shared-pool
+ * case below, whose local one-worker measurement is provisional while the
+ * schedule guard refuses enrollment. A hosted owning-job observation is still
+ * required before this partition can be accepted.
  *
  * `identity` is a digest of the case's own parsed arguments after its name —
  * its callback and its per-case timeout, if any. It therefore covers every
@@ -30,6 +31,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     cases: Object.freeze([
       Object.freeze({
         name: "boots every non-production profile on one shared max-one seed command pool",
+        // Provisional local measurement: .orchestrator/logs/8172-r5-green.log (tests 255.63s).
         referenceDurationMs: 255630,
         identity: "c809c18f34f0e0c6",
       }),
