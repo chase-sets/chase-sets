@@ -78,4 +78,13 @@ describe("in-pod seed command database selection", () => {
       ),
     ).toThrowError(/SEED_COMMAND_DIRECT_DATABASE_URL_REQUIRED.*BOOTSTRAP_DATABASE_URL_AUTH/);
   });
+
+  it("fails closed for an unrecognized managed-cluster port rather than assuming it is session-safe", () => {
+    expect(() =>
+      selectSeedCommandDatabaseConfig(
+        { ...pooledConfig, runtimeProfile: "landing", contextDatabaseUrls: { auth: "postgres://host:6432/auth" } },
+        {},
+      ),
+    ).toThrowError(/SEED_COMMAND_DIRECT_DATABASE_URL_REQUIRED.*BOOTSTRAP_DATABASE_URL_AUTH/);
+  });
 });

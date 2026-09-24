@@ -423,9 +423,6 @@ function readPlatformRuntimeValues(rootDir) {
 export function buildPlatformHelmValues(options = {}) {
   const rootDir = path.resolve(options.repoRoot ?? repoRoot);
   const runtimeValues = readPlatformRuntimeValues(rootDir);
-  const directSeedEnv = runtimeValues.components["platform-bootstrap"].env
-    .filter((entry) => entry.secretKey?.startsWith(bootstrapDatabaseSecretKeyPrefix))
-    .map((entry) => ({ name: entry.secretKey, secret: true }));
 
   const { schemaVersion: _schemaVersion, productionEnvOverrides: _productionEnvOverrides, ...values } = runtimeValues;
   const components = Object.fromEntries(
@@ -433,12 +430,6 @@ export function buildPlatformHelmValues(options = {}) {
       name,
       {
         ...component,
-        env:
-          name === "platform-api"
-            ? component.env.flatMap((entry) =>
-                entry.name === "DATABASE_URL_AUTH" ? [...directSeedEnv, entry] : [entry],
-              )
-            : component.env,
         managedPostgresCa: componentUsesDatabaseSecret(component, name),
         topologySpreadConstraints: [],
       },

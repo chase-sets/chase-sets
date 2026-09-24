@@ -130,10 +130,10 @@ describe("render platform Helm values", () => {
     );
     expect(apiEnv.get("DATABASE_URL_CATALOG")?.secretKey).toBe("DATABASE_URL_CATALOG");
     expect(apiEnv.get("PLATFORM_CONTROL_DATABASE_URL")?.secretKey).toBe("PLATFORM_CONTROL_DATABASE_URL");
-    for (const [name, entry] of bootstrapEnv) {
-      if (name === "PLATFORM_CONTROL_DATABASE_URL" || name.startsWith("DATABASE_URL_")) {
-        const directKey = entry.secretKey;
-        expect(apiEnv.get(directKey)).toMatchObject({ name: directKey, secret: true });
+    for (const entry of bootstrapEnv.values()) {
+      if (entry.secretKey?.startsWith("BOOTSTRAP_")) {
+        expect(apiEnv.get(entry.secretKey)).toMatchObject({ name: entry.secretKey, secret: true });
+        expect(apiEnv.get(entry.secretKey).secretKey ?? entry.secretKey).toBe(entry.secretKey);
       }
     }
   });

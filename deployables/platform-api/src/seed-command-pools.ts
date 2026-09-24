@@ -20,6 +20,7 @@ export function selectSeedCommandDatabaseConfig<T extends PlatformApiBaseConfig>
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): T {
   const managed = ["staging", "production", "preview"].includes(config.deploymentEnvironment ?? "");
+  const managedCluster = config.deploymentEnvironment === "staging" || config.deploymentEnvironment === "production";
   const contexts = getPlatformApiContextsForRuntimeProfile(config.runtimeProfile);
   const contextDatabaseUrls = { ...config.contextDatabaseUrls };
 
@@ -28,13 +29,13 @@ export function selectSeedCommandDatabaseConfig<T extends PlatformApiBaseConfig>
     // Standalone staging jobs export direct DATABASE_URL_* values; in-pod commands
     // receive pooled runtime URLs and dedicated BOOTSTRAP_* direct URLs.
     const directUrl = env[key]?.trim() || contextDatabaseUrls[contextName] || config.sharedDatabaseUrl;
-    assertSessionCompatible(directUrl, key);
+    assertSessionCompatible(directUrl, key, managedCluster);
     contextDatabaseUrls[contextName] = directUrl;
   }
 
   const controlKey = "BOOTSTRAP_PLATFORM_CONTROL_DATABASE_URL";
   const controlUrl = env[controlKey]?.trim() || config.controlDatabaseUrl || config.sharedDatabaseUrl;
-  assertSessionCompatible(controlUrl, controlKey);
+  assertSessionCompatible(controlUrl, controlKey, managedCluster);
 
   return {
     ...config,
@@ -44,7 +45,11 @@ export function selectSeedCommandDatabaseConfig<T extends PlatformApiBaseConfig>
   };
 }
 
-function assertSessionCompatible(url: string | null | undefined, key: string): asserts url is string {
+function assertSessionCompatible(
+  url: string | null | undefined,
+  key: string,
+  managedCluster: boolean,
+): asserts url is string {
   // DigitalOcean's managed transaction pools use port 25061; direct cluster URLs use 25060.
   let parsed: URL;
   try {
@@ -52,7 +57,11 @@ function assertSessionCompatible(url: string | null | undefined, key: string): a
   } catch {
     throw new SeedCommandDirectDatabaseUrlRequiredError(key);
   }
-  if ((parsed.protocol !== "postgres:" && parsed.protocol !== "postgresql:") || parsed.port === "25061") {
+  if (
+    (parsed.protocol !== "postgres:" && parsed.protocol !== "postgresql:") ||
+    parsed.port === "25061" ||
+    (managedCluster && parsed.port !== "25060")
+  ) {
     throw new SeedCommandDirectDatabaseUrlRequiredError(key);
   }
 }
