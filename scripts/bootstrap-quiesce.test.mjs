@@ -23,6 +23,7 @@ describe("bootstrap quiesce wrapper", () => {
       commandTimeoutMs: 120_000,
       pollIntervalMs: 250,
       restoreOnFailure: true,
+      restoreOnSuccess: false,
       ignoreMissingDeployments: true,
     });
   });
@@ -122,6 +123,25 @@ describe("bootstrap quiesce wrapper", () => {
     expect(calls).toContainEqual(["scale", "release-platform-worker", 2]);
     expect(calls.at(-1)).toEqual(["wait", "release-platform-worker", 2]);
     expect(calls).not.toContainEqual(["resumeScaledObject", "release-platform-worker"]);
+  });
+
+  it("restores a directly managed worker after a successful advisory Job", async () => {
+    const calls = [];
+    const result = await runQuiescedBootstrap({
+      deployments: ["release-platform-worker"],
+      command: ["pnpm", "bootstrap"],
+      timeoutMs: 1000,
+      pollIntervalMs: 1,
+      restoreOnSuccess: true,
+      log: async (message) => calls.push(["log", message]),
+      kubernetes: fakeKubernetesClient(calls, { "release-platform-worker": 2 }, { kedaManaged: false }),
+      spawnCommand: async () => 0,
+    });
+
+    expect(result).toBe(0);
+    expect(calls).toContainEqual(["scale", "release-platform-worker", 0]);
+    expect(calls).toContainEqual(["scale", "release-platform-worker", 2]);
+    expect(calls).toContainEqual(["wait", "release-platform-worker", 2]);
   });
 
   it("skips missing deployments during first install", async () => {

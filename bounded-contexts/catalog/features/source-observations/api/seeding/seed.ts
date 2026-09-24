@@ -266,7 +266,7 @@ async function reconcileOrRefusePromotedSeedHistory(
 
   const refreshed = refreshedSeedState(recordCommand, actual);
   if (refreshed === null || diagnoseSeedStateDivergence(refreshed, expected) !== null) {
-    throw seedStateMismatch("promoted", divergentFieldPath);
+    throw seedStateMismatch("promoted", divergentFieldPath, actual, expected);
   }
 
   await sendSeedCommand(services.sourceObservations.commandHandler, sourceObservationStreamId, recordCommand);
@@ -293,14 +293,29 @@ function refreshedSeedState(
 function requireSeedState(label: string, actual: SourceObservationState, expected: SourceObservationState): void {
   const divergentFieldPath = diagnoseSeedStateDivergence(actual, expected);
   if (divergentFieldPath !== null) {
-    throw seedStateMismatch(label, divergentFieldPath);
+    throw seedStateMismatch(label, divergentFieldPath, actual, expected);
   }
 }
 
-function seedStateMismatch(label: string, divergentFieldPath: string): Error {
+function seedStateMismatch(label: string, divergentFieldPath: string, actual: unknown, expected: unknown): Error {
+  const divergence = seedStateDivergence(actual, expected);
+  const scalarValues =
+    divergence && isSeedScalar(divergence.actual) && isSeedScalar(divergence.expected)
+      ? ` (expected ${boundedSeedScalar(divergence.expected)}, actual ${boundedSeedScalar(divergence.actual)})`
+      : "";
   return new Error(
-    `Catalog browser Source Observation seed found ${label} history with mismatched identity, facts, target, profile, terminal state, or fingerprint at field path '${divergentFieldPath}'.`,
+    `Catalog browser Source Observation seed found ${label} history with mismatched identity, facts, target, profile, terminal state, or fingerprint at field path '${divergentFieldPath}'${scalarValues}.`,
   );
+}
+
+function isSeedScalar(value: unknown): value is string | number | boolean | null {
+  return value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+}
+
+function boundedSeedScalar(value: string | number | boolean | null): string {
+  if (typeof value !== "string") return String(value);
+  const limit = 96;
+  return `${JSON.stringify(value.slice(0, limit))}${value.length > limit ? "[truncated]" : ""}`;
 }
 
 /**
@@ -309,31 +324,39 @@ function seedStateMismatch(label: string, divergentFieldPath: string): Error {
  * `isDeepStrictEqual`; the walk below only runs once that comparison has already rejected.
  */
 export function diagnoseSeedStateDivergence(actual: unknown, expected: unknown, path = ""): string | null {
+  return seedStateDivergence(actual, expected, path)?.path ?? null;
+}
+
+function seedStateDivergence(
+  actual: unknown,
+  expected: unknown,
+  path = "",
+): Readonly<{ path: string; actual: unknown; expected: unknown }> | null {
   if (isDeepStrictEqual(actual, expected)) {
     return null;
   }
 
   if (Array.isArray(actual) && Array.isArray(expected)) {
     for (let index = 0; index < Math.max(actual.length, expected.length); index += 1) {
-      const nested = diagnoseSeedStateDivergence(actual[index], expected[index], `${path}[${index}]`);
+      const nested = seedStateDivergence(actual[index], expected[index], `${path}[${index}]`);
       if (nested !== null) {
         return nested;
       }
     }
-    return path || "<root>";
+    return { path: path || "<root>", actual, expected };
   }
 
   if (isFieldRecord(actual) && isFieldRecord(expected)) {
     for (const key of new Set([...Object.keys(expected), ...Object.keys(actual)])) {
-      const nested = diagnoseSeedStateDivergence(actual[key], expected[key], path ? `${path}.${key}` : key);
+      const nested = seedStateDivergence(actual[key], expected[key], path ? `${path}.${key}` : key);
       if (nested !== null) {
         return nested;
       }
     }
-    return path || "<root>";
+    return { path: path || "<root>", actual, expected };
   }
 
-  return path || "<root>";
+  return { path: path || "<root>", actual, expected };
 }
 
 function isFieldRecord(value: unknown): value is Record<string, unknown> {
