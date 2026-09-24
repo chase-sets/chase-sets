@@ -142,5 +142,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: seed-command-diagnostic-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/8174-*/
+          path: |
+            artifacts/8174-measurement/
+            artifacts/8174-control/
           if-no-files-found: error
