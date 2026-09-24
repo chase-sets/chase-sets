@@ -19,6 +19,7 @@ export function parseQuiesceOptions(argv, env = process.env) {
     commandTimeoutMs: Number(env.CHASE_SETS_BOOTSTRAP_COMMAND_TIMEOUT_SECONDS ?? "780") * 1000,
     pollIntervalMs: Number(env.CHASE_SETS_QUIESCE_POLL_INTERVAL_MS ?? "2000"),
     restoreOnFailure: env.CHASE_SETS_QUIESCE_RESTORE_ON_FAILURE !== "false",
+    restoreOnSuccess: env.CHASE_SETS_QUIESCE_RESTORE_ON_SUCCESS === "true",
     ignoreMissingDeployments: env.CHASE_SETS_QUIESCE_IGNORE_MISSING_DEPLOYMENTS !== "false",
   };
 }
@@ -42,6 +43,18 @@ export async function runQuiescedBootstrap(options) {
       await options.log(`Resuming KEDA autoscaling for ${deployment}.`);
       await options.kubernetes.resumeScaledObject(deployment);
       pausedScaledObjects.delete(deployment);
+    }
+  }
+
+  async function restoreDirectlyManagedDeployments() {
+    for (const [deployment, replicas] of originals) {
+      if (kedaManagedDeployments.has(deployment)) continue;
+      await options.log(`Restoring ${deployment} to ${replicas} replicas after bootstrap.`);
+      await options.kubernetes.scaleDeployment(deployment, replicas);
+      await options.kubernetes.waitForReplicas(deployment, replicas, {
+        timeoutMs: options.timeoutMs,
+        pollIntervalMs: options.pollIntervalMs,
+      });
     }
   }
 
@@ -82,6 +95,9 @@ export async function runQuiescedBootstrap(options) {
       log: options.log,
     });
     if (exitCode === 0) {
+      if (options.restoreOnSuccess) {
+        await restoreDirectlyManagedDeployments();
+      }
       await options.log("Bootstrap completed; Helm may continue the rollout.");
       return 0;
     }

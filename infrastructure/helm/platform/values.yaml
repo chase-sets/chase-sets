@@ -999,7 +999,7 @@ components:
       - name: "DATABASE_POOL_IDLE_TIMEOUT_MS"
         value: "5000"
       - name: "DATABASE_POOL_MAX"
-        value: "4"
+        value: "1"
       - name: "DATABASE_URL_AUTH"
         secret: true
         secretKey: "BOOTSTRAP_DATABASE_URL_AUTH"
