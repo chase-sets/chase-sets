@@ -11,6 +11,7 @@ import {
   readJsonIfPresent,
   writeJsonAtomic,
 } from "./browser-e2e-evidence.mjs";
+import { sampleWindowsProcessTree } from "./browser-e2e-bootstrap-observation.mjs";
 import { resolveBrowserE2eSystemTarget } from "./dev-system-config.mjs";
 import { buildMinimalProcessEnvironment, runCommand, spawnCommand, terminateProcessTree } from "./lib/process.mjs";
 import { repoRoot } from "./lib/repo.mjs";
@@ -20,6 +21,8 @@ import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
 const probeTimeoutMs = 600_000;
 const probePollMs = 250;
 const probeRequestTimeoutMs = 2_000;
+const processSampleTimeoutMs = 5_000;
+const processSamplePollMs = 2_000;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -48,6 +51,20 @@ function childOutcome(child) {
     exitCode: child?.exitCode ?? null,
     signal: child?.signalCode ?? null,
   };
+}
+
+function childProcessTree(pid, processes) {
+  const descendants = new Set([pid]);
+  for (let pass = 0; pass < 16; pass += 1) {
+    let added = false;
+    for (const entry of processes) {
+      if (!descendants.has(entry.parentPid) || descendants.has(entry.pid)) continue;
+      descendants.add(entry.pid);
+      added = true;
+    }
+    if (!added) break;
+  }
+  return processes.filter((entry) => descendants.has(entry.pid));
 }
 
 async function waitForChildExit(child, timeoutMs = 5_000) {
@@ -169,6 +186,8 @@ export async function runBrowserE2eProbe({
   terminate = terminateProcessTree,
   fetchImpl = fetch,
   now = Date.now,
+  sampleProcessTree = sampleWindowsProcessTree,
+  ownerRoot = path.resolve(repoRoot, "..", ".orchestrator"),
 } = {}) {
   const resolvedOutputDirectory = path.resolve(outputDirectory ?? defaultOutputDirectory(now()));
   mkdirSync(resolvedOutputDirectory, { recursive: true });
@@ -178,6 +197,19 @@ export async function runBrowserE2eProbe({
   const bundlePath = path.join(resolvedOutputDirectory, "probe.json");
   const hashPath = path.join(resolvedOutputDirectory, "probe.sha256");
   const startedAt = new Date(now()).toISOString();
+  const ownerSnapshots = { start: {}, exit: {} };
+  const captureOwners = (phase) => {
+    for (const [name, directory] of [
+      ["verify", "verify-lock.d"],
+      ["controller", "controller-verify-lock.d"],
+    ]) {
+      const fileName = `${name}-owner-${phase}.json`;
+      const owner = readJsonIfPresent(path.join(ownerRoot, directory, "owner.json"));
+      writeJsonAtomic(path.join(resolvedOutputDirectory, fileName), owner);
+      ownerSnapshots[phase][name] = { path: fileName, present: owner !== null };
+    }
+  };
+  captureOwners("start");
   const childEnvironment = buildMinimalProcessEnvironment(process.env, {
     CHASE_SETS_BROWSER_E2E_PROBE: "true",
     [browserE2eLifecyclePathEnv]: lifecyclePath,
@@ -195,7 +227,13 @@ export async function runBrowserE2eProbe({
     {
       name: "readiness",
       command: "node",
-      args: ["./scripts/browser-e2e-readiness.mjs"],
+      args: [
+        "--report-on-fatalerror",
+        "--report-exclude-env",
+        "--report-exclude-network",
+        `--report-directory=${resolvedOutputDirectory}`,
+        "./scripts/browser-e2e-readiness.mjs",
+      ],
     },
   ];
   let devSystem = null;
@@ -204,6 +242,9 @@ export async function runBrowserE2eProbe({
   let errorMessage = null;
   let devDown = { attempted: false, succeeded: false, error: null };
   const cancellation = new AbortController();
+  const pendingExitSamples = [];
+  let periodicSample;
+  let processSampleInterval;
   const webServerRecorder = createBrowserE2eLifecycleRecorder({
     filePath: webServersPath,
     sandboxId: sandbox.id,
@@ -217,6 +258,45 @@ export async function runBrowserE2eProbe({
     process.once(signalName, handler);
   }
 
+  const sample = async (name, exitBound = false) => {
+    let timer;
+    try {
+      const processes = await Promise.race([
+        sampleProcessTree(process.pid),
+        new Promise((_, reject) => {
+          timer = setTimeout(
+            () => reject(Object.assign(new Error("Process sample exceeded 5 s."), { code: "ETIMEDOUT" })),
+            processSampleTimeoutMs,
+          );
+        }),
+      ]);
+      if (exitBound) webServerRecorder.recordExitSample(name, { rootPid: process.pid, processes, error: null });
+      else {
+        webServerRecorder.recordProcessTree("dev-system", childProcessTree(devSystem?.pid, processes));
+        webServerRecorder.recordProcessTree("readiness", childProcessTree(readiness?.pid, processes));
+      }
+    } catch (error) {
+      const code = error?.code ?? error?.name ?? "unknown";
+      if (exitBound) webServerRecorder.recordExitSample(name, { rootPid: process.pid, processes: [], error: code });
+      else
+        for (const childName of ["dev-system", "readiness"]) webServerRecorder.recordProcessTreeError(childName, code);
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  const observeExit = (name, child) => {
+    child.once("exit", () => {
+      if (!ownerSnapshots.exit.verify) captureOwners("exit");
+      pendingExitSamples.push(sample(name, true));
+    });
+  };
+  const scheduleSample = () => {
+    if (periodicSample) return;
+    periodicSample = sample().finally(() => {
+      periodicSample = undefined;
+    });
+  };
+
   try {
     devSystem = spawn(commands[0].command, commands[0].args, {
       cwd: repoRoot,
@@ -228,7 +308,8 @@ export async function runBrowserE2eProbe({
     devSystem.once("error", (error) => {
       devSystem.probeSpawnError = error instanceof Error ? error.message : String(error);
     });
-    webServerRecorder.observe("dev-system", devSystem);
+    webServerRecorder.observe("dev-system", devSystem, { parentPid: process.pid, imageName: "node.exe" });
+    observeExit("dev-system", devSystem);
     readiness = spawn(commands[1].command, commands[1].args, {
       cwd: repoRoot,
       env: childEnvironment,
@@ -238,7 +319,16 @@ export async function runBrowserE2eProbe({
     readiness.once("error", (error) => {
       readiness.probeSpawnError = error instanceof Error ? error.message : String(error);
     });
-    webServerRecorder.observe("readiness", readiness);
+    webServerRecorder.observe("readiness", readiness, { parentPid: process.pid, imageName: "node.exe" });
+    observeExit("readiness", readiness);
+    scheduleSample();
+    processSampleInterval = setInterval(() => {
+      if (
+        (devSystem.exitCode === null && devSystem.signalCode === null) ||
+        (readiness.exitCode === null && readiness.signalCode === null)
+      )
+        scheduleSample();
+    }, processSamplePollMs);
     await waitForReady({
       portalUrl: sandbox.urls.portal,
       devSystem,
@@ -252,6 +342,9 @@ export async function runBrowserE2eProbe({
   } catch (error) {
     errorMessage = error instanceof Error ? error.message : String(error);
   } finally {
+    clearInterval(processSampleInterval);
+    await Promise.all(pendingExitSamples);
+    if (periodicSample) await periodicSample;
     if (devSystem && !requestDevSystemShutdown(devSystem)) {
       terminate(devSystem, "SIGTERM");
     }
@@ -267,6 +360,8 @@ export async function runBrowserE2eProbe({
       terminate(readiness, "SIGKILL");
     }
     await Promise.all([waitForChildExit(devSystem, 1_000), waitForChildExit(readiness, 1_000)]);
+    await Promise.all(pendingExitSamples);
+    if (!ownerSnapshots.exit.verify) captureOwners("exit");
 
     devDown.attempted = true;
     try {
@@ -302,6 +397,9 @@ export async function runBrowserE2eProbe({
     kind: "browser-e2e-standalone-probe",
     sandboxId: sandbox.id,
     target,
+    nodeVersion: process.version,
+    ownerSnapshots,
+    controllerOverlap: ownerSnapshots.start.controller.present || ownerSnapshots.exit.controller.present,
     startedAt,
     completedAt,
     outcome,
