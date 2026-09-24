@@ -1994,6 +1994,7 @@ export function buildScenarioSeedJobManifest(options = {}) {
       { name: "CHASE_SETS_BOOTSTRAP_COMMAND_TIMEOUT_SECONDS", value: String(scenarioSeedCommandTimeoutSeconds) },
       { name: "CHASE_SETS_QUIESCE_POLL_INTERVAL_MS", value: "2000" },
       { name: "CHASE_SETS_QUIESCE_RESTORE_ON_FAILURE", value: "true" },
+      { name: "CHASE_SETS_QUIESCE_RESTORE_ON_SUCCESS", value: "true" },
       { name: "CHASE_SETS_QUIESCE_IGNORE_MISSING_DEPLOYMENTS", value: "false" },
     );
   }

@@ -358,6 +358,11 @@ describe("platform Kubernetes deployment", () => {
       "node ./infrastructure/helm/platform/scripts/bootstrap-quiesce.mjs -- pnpm --filter @chase-sets/app-platform-api run bootstrap:production",
     ]);
     expect(env.get("PLATFORM_DATA_PROFILES")).toEqual({ name: "PLATFORM_DATA_PROFILES", value: "scenario-seed" });
+    expect(env.get("DATABASE_POOL_MAX")).toEqual({ name: "DATABASE_POOL_MAX", value: "1" });
+    expect(env.get("CHASE_SETS_QUIESCE_RESTORE_ON_SUCCESS")).toEqual({
+      name: "CHASE_SETS_QUIESCE_RESTORE_ON_SUCCESS",
+      value: "true",
+    });
     expect(env.get("DEPLOYMENT_ENVIRONMENT")).toEqual({ name: "DEPLOYMENT_ENVIRONMENT", value: "staging" });
     expect(env.get("CHASE_SETS_QUIESCE_DEPLOYMENTS")).toEqual({
       name: "CHASE_SETS_QUIESCE_DEPLOYMENTS",
@@ -439,6 +444,7 @@ describe("platform Kubernetes deployment", () => {
     expect(container.args).toEqual(["pnpm --filter @chase-sets/app-platform-api run bootstrap:production"]);
     expect(env.has("CHASE_SETS_QUIESCE_DEPLOYMENTS")).toBe(false);
     expect(env.has("CHASE_SETS_QUIESCE_RESTORE_ON_FAILURE")).toBe(false);
+    expect(env.get("DATABASE_POOL_MAX")).toEqual({ name: "DATABASE_POOL_MAX", value: "1" });
   });
 
   it("applies, streams, and verifies the post-deploy scenario seed Job", async () => {

@@ -29,6 +29,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     environment: staging
+    concurrency:
+      group: platform-deploy-staging
+      cancel-in-progress: false
     outputs:
       scenario_seed_error: ${{ steps.summarize.outputs.scenario_seed_error }}
     env:
@@ -176,7 +179,7 @@ jobs:
             --runtime-env "CATALOG_ASSET_S3_REGION=${catalog_asset_s3_region}" \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
-            --quiesce-workers false \
+            --quiesce-workers true \
             --managed-postgres-ca-sha256 "$managed_postgres_ca_sha256" \
             --timeout 60m \
             --out artifacts/staging-advisory-evidence/scenario-seed.json

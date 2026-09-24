@@ -46,6 +46,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: staging
+    concurrency:
+      group: platform-deploy-staging
+      cancel-in-progress: false
     needs: refuse-unconfirmed
     if: always() && needs.refuse-unconfirmed.result == 'skipped' && inputs.confirm == 'seed staging commerce'
     env:
