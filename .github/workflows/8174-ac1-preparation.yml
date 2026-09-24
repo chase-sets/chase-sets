@@ -1,0 +1,115 @@
+name: Seed Command AC1 Preparation Only
+
+on:
+  push:
+    branches: [codex/8181-ac1-preparation-r2]
+
+permissions:
+  contents: read
+
+jobs:
+  preparation:
+    name: First-attempt seed command preparation
+    if: github.repository == 'chase-sets/chase-sets' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Record checkout and frozen input
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/8174-preparation
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git hash-object deployables/platform-api/__tests__/seed-command-full-pools.db.test.ts)" = 11989910432b5bb5282090047159ae55489b8326
+          {
+            printf 'F=fd583141abf0d0b5d35344095066cf5f316f73b9\n'
+            printf 'V=%s\nrun_id=%s\nrun_attempt=%s\njob=%s\nref=%s\n' \
+              "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_JOB" "$GITHUB_REF"
+            printf 'test_blob=%s\n' "$(git hash-object deployables/platform-api/__tests__/seed-command-full-pools.db.test.ts)"
+            sha256sum deployables/platform-api/__tests__/seed-command-full-pools.db.test.ts
+            printf 'postgres=pgvector/pgvector:pg16; max_locks_per_transaction=512\n'
+            printf 'pool_override=none; timer_override=none; test_database=disposable localhost postgres\n'
+          } | tee artifacts/8174-preparation/identity.log
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+      - name: Raise PostgreSQL lock table capacity for DB Profile
+        env:
+          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -c "ALTER SYSTEM SET max_locks_per_transaction = 512;"
+          docker restart "$POSTGRES_CONTAINER_ID"
+          ready=false
+          for _ in $(seq 1 30); do
+            if docker exec "$POSTGRES_CONTAINER_ID" pg_isready -U postgres -d postgres >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" != "true" ]; then
+            echo "PostgreSQL did not become ready within 30s after restart." >&2
+            exit 1
+          fi
+          effective="$(docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -tAc 'SHOW max_locks_per_transaction;' | tr -d '[:space:]')"
+          test "$effective" = 512
+          printf 'effective max_locks_per_transaction=%s\n' "$effective" | tee artifacts/8174-preparation/postgres.log
+      - name: Run frozen cases in the platform API directory
+        working-directory: deployables/platform-api
+        run: |
+          set -euo pipefail
+          test "$(pwd)" = "$GITHUB_WORKSPACE/deployables/platform-api"
+          test -f ./vitest.config.ts
+          test -f __tests__/seed-command-full-pools.db.test.ts
+          printf 'effective_cwd=%s\nconfig=./vitest.config.ts\ntest=__tests__/seed-command-full-pools.db.test.ts\n' "$(pwd)" \
+            | tee ../../artifacts/8174-preparation/case-path.log
+          pnpm exec node --input-type=module -e "import {deriveBootstrapDbCaseIdentities as d} from './scripts/check-bootstrap-db-enrollment.mjs';import fs from 'node:fs';const f='seed-command-full-pools.db.test.ts';console.log(d(f,fs.readFileSync('__tests__/'+f,'utf8')))" \
+            | tee ../../artifacts/8174-preparation/identities.log
+          printf 'pnpm exec vitest run --config ./vitest.config.ts __tests__/seed-command-full-pools.db.test.ts --maxWorkers=1 --no-file-parallelism\n' \
+            | tee ../../artifacts/8174-preparation/command.log
+          set +e
+          pnpm exec vitest run --config ./vitest.config.ts __tests__/seed-command-full-pools.db.test.ts --maxWorkers=1 --no-file-parallelism \
+            2>&1 | tee ../../artifacts/8174-preparation/cases.log
+          status=${PIPESTATUS[0]}
+          set -e
+          printf 'vitest_exit=%s\n' "$status" | tee ../../artifacts/8174-preparation/exit.log
+          exit "$status"
+      - name: Clean up disposable PostgreSQL service
+        if: always()
+        env:
+          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/8174-preparation
+          if [ -n "$POSTGRES_CONTAINER_ID" ]; then
+            docker rm -f "$POSTGRES_CONTAINER_ID" 2>&1 | tee artifacts/8174-preparation/cleanup.log
+          else
+            printf 'No PostgreSQL service container was created.\n' | tee artifacts/8174-preparation/cleanup.log
+          fi
+      - name: Preserve preparation evidence including failures
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: seed-command-preparation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/8174-preparation/
+          if-no-files-found: error
