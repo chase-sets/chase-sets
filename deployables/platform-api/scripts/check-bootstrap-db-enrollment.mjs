@@ -24,9 +24,9 @@ import ts from "@chase-sets/typescript-compiler-api";
  * feeds the digest.
  */
 export const bootstrapDbEnrollmentManifest = Object.freeze({
-  "bootstrap-scenario.db.test.ts": Object.freeze({
-    executionUnit: "test:db:2",
-    databaseSuffix: "platform_api_bootstrap_scenario",
+  "bootstrap-shared-seed-command.db.test.ts": Object.freeze({
+    executionUnit: "test:db:3",
+    databaseSuffix: "platform_api_bootstrap_shared_seed_command",
     bootBearingCases: "all",
     cases: Object.freeze([
       Object.freeze({
@@ -35,6 +35,13 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
         referenceDurationMs: 255630,
         identity: "c809c18f34f0e0c6",
       }),
+    ]),
+  }),
+  "bootstrap-scenario.db.test.ts": Object.freeze({
+    executionUnit: "test:db:2",
+    databaseSuffix: "platform_api_bootstrap_scenario",
+    bootBearingCases: "all",
+    cases: Object.freeze([
       Object.freeze({
         name: "boots with context-owned pools and replays cross-context projections",
         referenceDurationMs: 124796,
