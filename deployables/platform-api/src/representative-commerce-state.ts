@@ -431,7 +431,6 @@ export async function runRepresentativeCommerceState(
           enabledDataProfiles: representativeCommerceStateDataProfiles,
           environmentName: execution.deploymentEnvironment,
           runtimeProfile: config?.runtimeProfile ?? "public",
-          schemaBootstrapLockPool: seedPools?.schemaBootstrapLockPool,
           // Preserve pre-seed visibility and interrupted-state reconciliation
           // without spending the canary's budget on unrelated runtime drains.
           seedContextDrain: true,
