@@ -8985,42 +8985,42 @@
     {
       "file": ".github/workflows/platform-staging-advisory-evidence.yml",
       "jobId": "staging-advisory-evidence",
-      "stepAnchor": "name:Staging marketplace critical flows#13",
+      "stepAnchor": "name:Staging marketplace critical flows#14",
       "secretName": "CATALOG_ADMIN_E2E_PASSWORD",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-staging-advisory-evidence.yml",
       "jobId": "staging-advisory-evidence",
-      "stepAnchor": "name:Staging marketplace critical flows#13",
+      "stepAnchor": "name:Staging marketplace critical flows#14",
       "secretName": "MARKETPLACE_E2E_PASSWORD",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-staging-advisory-evidence.yml",
       "jobId": "staging-advisory-evidence",
-      "stepAnchor": "name:Staging marketplace critical flows#13",
+      "stepAnchor": "name:Staging marketplace critical flows#14",
       "secretName": "PLATFORM_ADMIN_EMAIL",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-staging-advisory-evidence.yml",
       "jobId": "staging-advisory-evidence",
-      "stepAnchor": "name:Staging marketplace critical flows#13",
+      "stepAnchor": "name:Staging marketplace critical flows#14",
       "secretName": "PLATFORM_ADMIN_PASSWORD",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-staging-advisory-evidence.yml",
       "jobId": "staging-advisory-evidence",
-      "stepAnchor": "name:Staging marketplace critical flows#13",
+      "stepAnchor": "name:Staging marketplace critical flows#14",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-staging-advisory-evidence.yml",
       "jobId": "staging-advisory-evidence",
-      "stepAnchor": "name:Staging marketplace critical flows#13",
+      "stepAnchor": "name:Staging marketplace critical flows#14",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "spaces-evidence"
     },

@@ -12,8 +12,10 @@ describe("staging aggregate direct backend envelope", () => {
     expect(input.directUrls).toBe(21);
     expect(input.bootstrapPoolMax).toBe(1);
     expect(input.scenarioPoolMax).toBe(1);
+    expect(input.seedPoolsCapped).toBe(true);
     expect(input.serializedGroups).toEqual(Array(5).fill("platform-deploy-staging"));
     expect(input.serializedJobsDoNotCancel).toBe(true);
+    expect(input.advisoryAwaitsSeedJobTermination).toBe(true);
     expect(envelope).toMatchObject({
       pooled: 40,
       relays: 7,
@@ -25,10 +27,11 @@ describe("staging aggregate direct backend envelope", () => {
       phases: { rolling: 70, representative: 81, advisory: 70, bootstrap: 70 },
       productionPhases: { rolling: 55, bootstrap: 59 },
     });
-    // Base #8171: the actual per-URL bootstrap maximum was four, not the
-    // ledger's four-backend reservation. With concurrent advisory and seed:
-    expect(40 + 7 + 8 + 21 * 4 + 25).toBe(164);
-    expect(164).toBeGreaterThan(100 - 3);
+    // Base 573d1a15 had a per-URL bootstrap maximum of four; even with
+    // phase exclusion, 40 pooled + 8 waiters + (21 * 4 + 1 lock) = 133.
+    expect(() => enforceStagingConnectionEnvelope({ ...input, bootstrapPoolMax: 4, scenarioPoolMax: 4 })).toThrow(
+      "exceeds its tier trigger or hard budget",
+    );
   });
 
   it("rejects an uncapped Job and lost phase exclusions rather than warning", () => {
@@ -45,9 +48,21 @@ describe("staging aggregate direct backend envelope", () => {
     expect(() => enforceStagingConnectionEnvelope({ ...input, scenarioQuiescesWorkers: false })).toThrow(
       "enforced phases",
     );
+    expect(() => enforceStagingConnectionEnvelope({ ...input, advisoryAwaitsSeedJobTermination: false })).toThrow(
+      "until its Kubernetes Job terminates",
+    );
+    for (const guard of [
+      "scenarioRestoresWorkers",
+      "bootstrapQuiescesWorkers",
+      "bootstrapBeforeRollout",
+      "dispatchesWithinDeploy",
+    ]) {
+      expect(() => enforceStagingConnectionEnvelope({ ...input, [guard]: false })).toThrow("enforced phases");
+    }
     expect(() => enforceStagingConnectionEnvelope({ ...input, bootstrapUsesDedicatedLockPool: false })).toThrow(
       "enforced phases",
     );
+    expect(() => enforceStagingConnectionEnvelope({ ...input, seedPoolsCapped: false })).toThrow("enforced phases");
     expect(() => enforceStagingConnectionEnvelope({ ...input, directUrls: 22 })).toThrow("direct URL inventory");
     expect(() => enforceStagingConnectionEnvelope({ ...input, productionPooled: 100 })).toThrow(
       "Production direct backend envelope",

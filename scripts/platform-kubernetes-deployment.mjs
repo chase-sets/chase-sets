@@ -1962,7 +1962,7 @@ export function buildScenarioSeedJobManifest(options = {}) {
     options.jobName ??
       `${release}-scenario-seed-${options.env?.GITHUB_RUN_ID ?? Date.now()}-${options.env?.GITHUB_RUN_ATTEMPT ?? "1"}`,
   );
-  const accessName = scenarioSeedAccessName(release);
+  const accessName = scenarioSeedAccessName(jobName);
   const workerDeployment = kubernetesComponentName(release, "platform-worker");
   const quiesceWorkers = options.quiesceWorkers !== false;
   const env = component.env.map((entry) => {
@@ -2076,13 +2076,15 @@ export function buildScenarioSeedJobManifest(options = {}) {
 export function buildScenarioSeedAccessManifest(options = {}) {
   const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
   const release = requiredOption(options.release ?? defaultRelease, "release");
-  const name = scenarioSeedAccessName(release);
+  const jobName = requiredOption(options.jobName, "job-name");
+  const name = scenarioSeedAccessName(jobName);
   const workerDeployment = kubernetesComponentName(release, "platform-worker");
   const labels = {
     "app.kubernetes.io/name": chartName,
     "app.kubernetes.io/instance": release,
     "app.kubernetes.io/component": "scenario-seed-quiesce",
     "app.kubernetes.io/managed-by": "github-actions",
+    "chase-sets.com/scenario-seed-job": jobName,
   };
 
   return {
@@ -2133,10 +2135,13 @@ export async function runScenarioSeedOnKubernetes(options = {}) {
   const kubectlPath = options.kubectlPath ?? "kubectl";
   const manifest = buildScenarioSeedJobManifest(options);
   const quiesceWorkers = options.quiesceWorkers !== false;
-  const accessManifest = quiesceWorkers ? buildScenarioSeedAccessManifest(options) : undefined;
+  const accessManifest = quiesceWorkers
+    ? buildScenarioSeedAccessManifest({ ...options, jobName: manifest.metadata.name })
+    : undefined;
   const namespace = manifest.metadata.namespace;
   const jobName = manifest.metadata.name;
   const accessName = accessManifest?.items[0].metadata.name;
+  let jobTerminated = false;
 
   if (accessManifest) {
     await runProcess({
@@ -2177,6 +2182,7 @@ export async function runScenarioSeedOnKubernetes(options = {}) {
         job.status?.succeeded === 1 ||
         conditions.some((condition) => condition.type === "Complete" && condition.status === "True")
       ) {
+        jobTerminated = true;
         return {
           schemaVersion: PLATFORM_KUBERNETES_SCENARIO_SEED_VERSION,
           action: "scenario-seed",
@@ -2188,6 +2194,7 @@ export async function runScenarioSeedOnKubernetes(options = {}) {
       }
       const failed = conditions.find((condition) => condition.type === "Failed" && condition.status === "True");
       if (job.status?.failed > 0 || failed) {
+        jobTerminated = true;
         throw scenarioSeedFailure({
           release: options.release ?? defaultRelease,
           namespace,
@@ -2210,7 +2217,7 @@ export async function runScenarioSeedOnKubernetes(options = {}) {
       await sleep(options.pollIntervalMs ?? 2_000);
     }
   } finally {
-    if (accessName) {
+    if (accessName && jobTerminated) {
       await runProcess({
         command: kubectlPath,
         args: [
@@ -2759,8 +2766,9 @@ function kubernetesComponentName(release, name) {
   return trimKubernetesName(`${release}-${chartName}-${name}`);
 }
 
-function scenarioSeedAccessName(release) {
-  return trimKubernetesName(`${release}-${chartName}-scenario-seed-quiesce`);
+function scenarioSeedAccessName(jobName) {
+  const suffix = `-quiesce-${createHash("sha256").update(jobName).digest("hex").slice(0, 12)}`;
+  return `${trimKubernetesName(jobName.slice(0, 63 - suffix.length))}${suffix}`;
 }
 
 function componentFromWorkloadName(workloadName, release) {

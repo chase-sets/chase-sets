@@ -14,6 +14,7 @@ export function loadStagingConnectionEnvelopeInputs(repoRoot = process.cwd()) {
   const values = buildPlatformHelmValues({ repoRoot });
   const bootstrap = values.components["platform-bootstrap"];
   const bootstrapSource = readFileSync(resolve(repoRoot, "deployables/platform-api/src/bootstrap.ts"), "utf8");
+  const seedPoolsSource = readFileSync(resolve(repoRoot, "deployables/platform-api/src/database-pools.ts"), "utf8");
   const manifest = buildScenarioSeedJobManifest({
     repoRoot,
     values,
@@ -28,6 +29,10 @@ export function loadStagingConnectionEnvelopeInputs(repoRoot = process.cwd()) {
   const seedStep = advisory.jobs["staging-advisory-evidence"].steps.find(
     (step) => step.name === "Seed staging Kubernetes scenario data",
   );
+  const advisorySteps = advisory.jobs["staging-advisory-evidence"].steps;
+  const awaitStep = advisorySteps.find((step) => step.name === "Await staging scenario-seed Job termination");
+  const awaitRun = String(awaitStep?.run ?? "");
+  const seedEnv = manifest.spec.template.spec.containers[0].env;
   const groupFor = (workflow, job) => workflow.jobs[job]?.concurrency?.group;
   const doesNotCancel = (workflow, job) => workflow.jobs[job]?.concurrency?.["cancel-in-progress"] === false;
   const capacity = buildPushWakeCapacityEvidence(loadPushWakeCapacityInputs(repoRoot));
@@ -53,13 +58,25 @@ export function loadStagingConnectionEnvelopeInputs(repoRoot = process.cwd()) {
     ).size,
     contextCount: capacity.terraformDefaults.platformContextCount,
     bootstrapPoolMax: Number(bootstrap.env.find((entry) => entry.name === "DATABASE_POOL_MAX")?.value),
-    scenarioPoolMax: Number(
-      manifest.spec.template.spec.containers[0].env.find((entry) => entry.name === "DATABASE_POOL_MAX")?.value,
+    scenarioPoolMax: Number(seedEnv.find((entry) => entry.name === "DATABASE_POOL_MAX")?.value),
+    seedPoolsCapped: /function createSeedCommandPools\([^)]*\)\s*\{[\s\S]*?const poolOptions = \{[^}]*max: 1 \}/.test(
+      seedPoolsSource,
     ),
-    scenarioRestoresWorkers: manifest.spec.template.spec.containers[0].env.some(
+    scenarioRestoresWorkers: seedEnv.some(
       (entry) => entry.name === "CHASE_SETS_QUIESCE_RESTORE_ON_SUCCESS" && entry.value === "true",
     ),
     scenarioQuiescesWorkers: Boolean(seedStep?.run?.includes("--quiesce-workers true")),
+    advisoryAwaitsSeedJobTermination:
+      Boolean(awaitStep) &&
+      advisorySteps.indexOf(awaitStep) === advisorySteps.indexOf(seedStep) + 1 &&
+      String(awaitStep.if ?? "").includes("always()") &&
+      String(awaitStep.if ?? "").includes("steps.scenario_seed.outcome != 'skipped'") &&
+      awaitRun.includes("app.kubernetes.io/component=scenario-seed") &&
+      awaitRun.includes("kubectl get job") &&
+      awaitRun.includes("kubectl get pods") &&
+      awaitRun.includes("--cascade=foreground --wait=true") &&
+      awaitRun.includes("chase-sets.com/scenario-seed-job=${job}") &&
+      awaitRun.includes("kubectl delete rolebinding,role,serviceaccount"),
     bootstrapQuiescesWorkers:
       bootstrap.job?.quiesce?.enabled === true && bootstrap.job.quiesce.targetComponents?.includes("platform-worker"),
     bootstrapBeforeRollout: bootstrap.job?.hook?.events?.includes("pre-upgrade"),
@@ -87,6 +104,9 @@ export function loadStagingConnectionEnvelopeInputs(repoRoot = process.cwd()) {
 }
 
 export function enforceStagingConnectionEnvelope(input) {
+  if (!input.advisoryAwaitsSeedJobTermination) {
+    throw new Error("Advisory scenario seed must hold platform-deploy-staging until its Kubernetes Job terminates.");
+  }
   if (input.directUrls !== input.contextCount || input.directUrls < 1) {
     throw new Error("Staging bootstrap direct URL inventory does not match the context/control budget.");
   }
@@ -94,6 +114,7 @@ export function enforceStagingConnectionEnvelope(input) {
     !input.bootstrapQuiescesWorkers ||
     !input.bootstrapBeforeRollout ||
     !input.bootstrapUsesDedicatedLockPool ||
+    !input.seedPoolsCapped ||
     !input.scenarioQuiescesWorkers ||
     !input.scenarioRestoresWorkers ||
     !input.dispatchesWithinDeploy ||

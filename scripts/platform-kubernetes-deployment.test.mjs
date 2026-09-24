@@ -351,9 +351,12 @@ describe("platform Kubernetes deployment", () => {
         readOnly: true,
       },
     ]);
-    expect(manifest.spec.template.spec.serviceAccountName).toBe(
-      "chase-sets-platform-chase-sets-platform-scenario-seed-quiesce",
-    );
+    const access = buildScenarioSeedAccessManifest({
+      release: "chase-sets-platform",
+      namespace: "chase-sets-platform",
+      jobName: "staging-scenario-seed-proof",
+    });
+    expect(manifest.spec.template.spec.serviceAccountName).toBe(access.items[0].metadata.name);
     expect(container.args).toEqual([
       "node ./infrastructure/helm/platform/scripts/bootstrap-quiesce.mjs -- pnpm --filter @chase-sets/app-platform-api run bootstrap:production",
     ]);
@@ -398,6 +401,7 @@ describe("platform Kubernetes deployment", () => {
     const manifest = buildScenarioSeedAccessManifest({
       release: "chase-sets-platform",
       namespace: "chase-sets-platform",
+      jobName: "staging-scenario-seed-proof",
     });
     const [serviceAccount, role, roleBinding] = manifest.items;
 
@@ -423,6 +427,14 @@ describe("platform Kubernetes deployment", () => {
     expect(roleBinding.subjects).toEqual([
       { kind: "ServiceAccount", name: serviceAccount.metadata.name, namespace: "chase-sets-platform" },
     ]);
+    expect(serviceAccount.metadata.labels["chase-sets.com/scenario-seed-job"]).toBe("staging-scenario-seed-proof");
+    expect(
+      buildScenarioSeedAccessManifest({
+        release: "chase-sets-platform",
+        namespace: "chase-sets-platform",
+        jobName: "staging-scenario-seed-another-attempt",
+      }).items[0].metadata.name,
+    ).not.toBe(serviceAccount.metadata.name);
   });
 
   it("builds advisory scenario seed Jobs without pausing projection workers", () => {
@@ -481,7 +493,7 @@ describe("platform Kubernetes deployment", () => {
     const appliedManifest = JSON.parse(calls[1].stdin);
     expect(accessManifest.kind).toBe("List");
     expect(appliedManifest.metadata.labels["app.kubernetes.io/component"]).toBe("scenario-seed");
-    expect(calls.at(-1).args).toContain("serviceaccount/chase-sets-platform-chase-sets-platform-scenario-seed-quiesce");
+    expect(calls.at(-1).args).toContain(`serviceaccount/${accessManifest.items[0].metadata.name}`);
   });
 
   it("removes scenario seed quiesce access when the Job fails", async () => {
@@ -505,6 +517,29 @@ describe("platform Kubernetes deployment", () => {
     ).rejects.toThrow("Post-deploy scenario seed Job staging-scenario-seed-proof failed");
 
     expect(calls.at(-1).args[0]).toBe("delete");
+  });
+
+  it("leaves run-specific quiesce access in place when a Job is still active at CLI timeout", async () => {
+    const calls = [];
+    let clock = 0;
+    await expect(
+      runScenarioSeedOnKubernetes({
+        release: "chase-sets-platform",
+        namespace: "chase-sets-platform",
+        image: "registry.digitalocean.com/chase-sets/chase-sets-platform:proof",
+        timeout: "2m",
+        jobName: "staging-scenario-seed-proof",
+        envOverrides: { DEPLOYMENT_ENVIRONMENT: "staging" },
+        now: () => (clock += 120_000),
+        spawn: completedSpawn(calls, [
+          { code: 0 },
+          { code: 0 },
+          { code: 0 },
+          { code: 0, stdout: JSON.stringify({ status: { active: 1 } }) },
+        ]),
+      }),
+    ).rejects.toThrow("Timed out after 2m");
+    expect(calls.map((call) => call.args[0])).toEqual(["apply", "apply", "logs", "get"]);
   });
 
   it("scenario seed failure record carries the pod's bootstrap error text", async () => {
