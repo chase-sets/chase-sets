@@ -13,6 +13,7 @@ export function loadStagingConnectionEnvelopeInputs(repoRoot = process.cwd()) {
   const readWorkflow = (name) => parseYaml(readFileSync(resolve(repoRoot, `.github/workflows/${name}.yml`), "utf8"));
   const values = buildPlatformHelmValues({ repoRoot });
   const bootstrap = values.components["platform-bootstrap"];
+  const bootstrapSource = readFileSync(resolve(repoRoot, "deployables/platform-api/src/bootstrap.ts"), "utf8");
   const manifest = buildScenarioSeedJobManifest({
     repoRoot,
     values,
@@ -62,6 +63,9 @@ export function loadStagingConnectionEnvelopeInputs(repoRoot = process.cwd()) {
     bootstrapQuiescesWorkers:
       bootstrap.job?.quiesce?.enabled === true && bootstrap.job.quiesce.targetComponents?.includes("platform-worker"),
     bootstrapBeforeRollout: bootstrap.job?.hook?.events?.includes("pre-upgrade"),
+    bootstrapUsesDedicatedLockPool:
+      bootstrapSource.includes("createSeedCommandPools(config)") &&
+      bootstrapSource.includes("schemaBootstrapLockPool: pools.schemaBootstrapLockPool"),
     serializedGroups: [
       groupFor(advisory, "staging-advisory-evidence"),
       groupFor(deploy, "deploy-staging"),
@@ -89,6 +93,7 @@ export function enforceStagingConnectionEnvelope(input) {
   if (
     !input.bootstrapQuiescesWorkers ||
     !input.bootstrapBeforeRollout ||
+    !input.bootstrapUsesDedicatedLockPool ||
     !input.scenarioQuiescesWorkers ||
     !input.scenarioRestoresWorkers ||
     !input.dispatchesWithinDeploy ||
@@ -104,7 +109,7 @@ export function enforceStagingConnectionEnvelope(input) {
   ) {
     throw new Error("Staging bootstrap and advisory Jobs must share a positive per-URL direct pool cap.");
   }
-  const bootstrap = input.directUrls * input.bootstrapPoolMax;
+  const bootstrap = input.directUrls * input.bootstrapPoolMax + 1; // Dedicated seed schema-lock pool.
   const baseline = input.pooled + input.relays + input.waiters;
   const seed = 26; // The seed regression pins 25 query URLs and a separate direct lock pool at max 1.
   const phases = {
