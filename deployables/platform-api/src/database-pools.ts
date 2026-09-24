@@ -5,6 +5,7 @@ import {
   type ContextPoolRegistry,
   type ContextPools,
 } from "@chase-sets/platform-runtime/context-pools";
+import { createPgPool } from "@chase-sets/event-core-postgres";
 import {
   getContextDatabaseEnvName,
   getPlatformApiContextsForRuntimeProfile,
@@ -111,8 +112,18 @@ function assertSessionCompatible(
 
 export function createSeedCommandPools(config: PlatformApiBaseConfig) {
   const directConfig = selectSeedCommandDatabaseConfig(config);
-  return createPlatformApiPools({
+  const poolOptions = { ...PLATFORM_API_DEFAULT_POOL, ...directConfig.pool, max: 1 };
+  const pools = createPlatformApiPools({
     ...directConfig,
-    pool: { ...PLATFORM_API_DEFAULT_POOL, ...directConfig.pool, max: 1 },
+    pool: poolOptions,
   });
+  const lockContextName = getPlatformApiContextsForRuntimeProfile(config.runtimeProfile)[0];
+  if (!lockContextName) {
+    throw new Error("Platform API has no registered context for the schema bootstrap lock.");
+  }
+  const lockUrl = directConfig.contextDatabaseUrls[lockContextName] ?? directConfig.sharedDatabaseUrl;
+  if (!lockUrl) {
+    throw new Error(`Missing direct database URL for schema bootstrap lock context '${lockContextName}'.`);
+  }
+  return { ...pools, schemaBootstrapLockPool: createPgPool(lockUrl, poolOptions) };
 }

@@ -20,6 +20,8 @@ import { publicPolicyValueKeys } from "@chase-sets/public-presence/server";
 import { settlementPayoutFeePolicy, type SettlementServices } from "@chase-sets/settlement/server";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { buildPlatformApiApp, createPlatformApiHost } from "../src/app";
+import { runAdminQaActorFixtures } from "../src/admin-qa-actor-fixtures";
+import { loadConfig } from "../src/config";
 import type { PlatformApiContextName } from "../src/config";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
@@ -203,7 +205,64 @@ async function runRepresentativeIdentitySeed(runtime: ReturnType<typeof createId
   });
 }
 
+function createCappedSeedTestConfig() {
+  const previousUrl = process.env.DATABASE_URL;
+  let baseConfig: ReturnType<typeof loadConfig>;
+  try {
+    process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
+    baseConfig = loadConfig();
+  } finally {
+    if (previousUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousUrl;
+  }
+  return {
+    ...baseConfig,
+    deploymentEnvironment: "test" as const,
+    runtimeProfile: "public" as const,
+    sharedDatabaseUrl: null,
+    controlDatabaseUrl: databaseUrls.auth,
+    workSignalDatabaseUrl: databaseUrls.auth,
+    contextDatabaseUrls: databaseUrls,
+    // Preview wiring shares waiter URLs with their contexts, rather than allocating separate pools.
+    contextWaiterDatabaseUrls: databaseUrls,
+  };
+}
+
 describe("platform api bootstrap production reconciliation", () => {
+  it("runs the representative command through its owned capped seed pools with shared preview waiters", async () => {
+    const runtime = createPlatformApiHost({
+      runtimeProfile: "public", pools,
+      hostPorts: { processorGateway: createFakePaymentProcessorGateway(), listingPhotoStorage },
+    });
+    await expect(runRepresentativeCommerceState({
+      config: createCappedSeedTestConfig(),
+      execution: { deploymentEnvironment: "test", confirmation: "seed staging commerce" },
+      evidenceOutPath: null,
+      async afterStepCompleted(stepName) {
+        if (stepName === "seed data profiles") {
+          const catalogContext = runtime.mountedContexts.find((context) => context.contextName === "catalog");
+          if (!catalogContext) throw new Error("Expected Catalog in the seed regression host.");
+          await drainLocalProjectionHandlerSets(
+            catalogContext.contextName, catalogContext.pool, catalogContext.projectionHandlerSets,
+          );
+        }
+        if (stepName === "sync catalog.catalog-item-projection") {
+          await ensureRepresentativeProductContentsTestMeasureProfile(runtime);
+        }
+      },
+    })).resolves.toBeUndefined();
+  }, 120_000);
+
+  it("runs the admin-QA command through its owned capped seed pools with shared preview waiters", async () => {
+    const previousConfirm = process.env.ADMIN_QA_ACTOR_FIXTURES_CONFIRM;
+    try {
+      process.env.ADMIN_QA_ACTOR_FIXTURES_CONFIRM = "provision admin qa fixtures";
+      await expect(runAdminQaActorFixtures({ config: createCappedSeedTestConfig() })).resolves.toBeUndefined();
+    } finally {
+      if (previousConfirm === undefined) delete process.env.ADMIN_QA_ACTOR_FIXTURES_CONFIRM;
+      else process.env.ADMIN_QA_ACTOR_FIXTURES_CONFIRM = previousConfirm;
+    }
+  }, 120_000);
   it("payout-fee-console-and-resolve bootstraps every whitelisted value in the production landing profile", async () => {
     const landingPools = createPlatformApiPools({
       runtimeProfile: "landing",
