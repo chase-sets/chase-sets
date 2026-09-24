@@ -13,6 +13,12 @@ import {
 import { apiContextRegistry } from "./generated/api-context-registry";
 
 const PLATFORM_IDLE_TRANSACTION_TIMEOUT_MS = 15_000;
+const PLATFORM_API_DEFAULT_POOL = {
+  max: 10,
+  idleTimeoutMillis: 30_000,
+  idleInTransactionSessionTimeoutMillis: PLATFORM_IDLE_TRANSACTION_TIMEOUT_MS,
+  connectionTimeoutMillis: 5_000,
+};
 
 export function createPlatformApiPools(
   config: PlatformApiBaseConfig,
@@ -20,12 +26,7 @@ export function createPlatformApiPools(
   const platformApiPoolRegistry = {
     contextNames: getPlatformApiContextsForRuntimeProfile(config.runtimeProfile),
     getContextDatabaseEnvName,
-    defaultPool: {
-      max: 10,
-      idleTimeoutMillis: 30_000,
-      idleInTransactionSessionTimeoutMillis: PLATFORM_IDLE_TRANSACTION_TIMEOUT_MS,
-      connectionTimeoutMillis: 5_000,
-    },
+    defaultPool: PLATFORM_API_DEFAULT_POOL,
     resolveControlDatabaseUrl: ({ config, contextNames, resolveContextDatabaseUrl }) => {
       const firstContextName = contextNames[0];
       if (config.controlDatabaseUrl) {
@@ -109,5 +110,9 @@ function assertSessionCompatible(
 }
 
 export function createSeedCommandPools(config: PlatformApiBaseConfig) {
-  return createPlatformApiPools(selectSeedCommandDatabaseConfig(config));
+  const directConfig = selectSeedCommandDatabaseConfig(config);
+  return createPlatformApiPools({
+    ...directConfig,
+    pool: { ...PLATFORM_API_DEFAULT_POOL, ...directConfig.pool, max: 1 },
+  });
 }
