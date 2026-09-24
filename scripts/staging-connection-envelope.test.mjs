@@ -16,6 +16,7 @@ describe("staging aggregate direct backend envelope", () => {
     expect(input.serializedGroups).toEqual(Array(5).fill("platform-deploy-staging"));
     expect(input.serializedJobsDoNotCancel).toBe(true);
     expect(input.advisoryAwaitsSeedJobTermination).toBe(true);
+    expect(input.advisoryResumesWorkerBeforeRbacRemoval).toBe(true);
     expect(envelope).toMatchObject({
       pooled: 40,
       relays: 7,
@@ -49,6 +50,9 @@ describe("staging aggregate direct backend envelope", () => {
       "enforced phases",
     );
     expect(() => enforceStagingConnectionEnvelope({ ...input, advisoryAwaitsSeedJobTermination: false })).toThrow(
+      "until its Kubernetes Job terminates",
+    );
+    expect(() => enforceStagingConnectionEnvelope({ ...input, advisoryResumesWorkerBeforeRbacRemoval: false })).toThrow(
       "until its Kubernetes Job terminates",
     );
     for (const guard of [

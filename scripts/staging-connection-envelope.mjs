@@ -32,6 +32,10 @@ export function loadStagingConnectionEnvelopeInputs(repoRoot = process.cwd()) {
   const advisorySteps = advisory.jobs["staging-advisory-evidence"].steps;
   const awaitStep = advisorySteps.find((step) => step.name === "Await staging scenario-seed Job termination");
   const awaitRun = String(awaitStep?.run ?? "");
+  const advisoryResumesWorkerBeforeRbacRemoval =
+    awaitRun.includes("autoscaling.keda.sh/paused-replicas-") &&
+    awaitRun.indexOf("autoscaling.keda.sh/paused-replicas-") <
+      awaitRun.indexOf("kubectl delete rolebinding,role,serviceaccount");
   const seedEnv = manifest.spec.template.spec.containers[0].env;
   const groupFor = (workflow, job) => workflow.jobs[job]?.concurrency?.group;
   const doesNotCancel = (workflow, job) => workflow.jobs[job]?.concurrency?.["cancel-in-progress"] === false;
@@ -66,6 +70,7 @@ export function loadStagingConnectionEnvelopeInputs(repoRoot = process.cwd()) {
       (entry) => entry.name === "CHASE_SETS_QUIESCE_RESTORE_ON_SUCCESS" && entry.value === "true",
     ),
     scenarioQuiescesWorkers: Boolean(seedStep?.run?.includes("--quiesce-workers true")),
+    advisoryResumesWorkerBeforeRbacRemoval,
     advisoryAwaitsSeedJobTermination:
       Boolean(awaitStep) &&
       advisorySteps.indexOf(awaitStep) === advisorySteps.indexOf(seedStep) + 1 &&
@@ -74,7 +79,9 @@ export function loadStagingConnectionEnvelopeInputs(repoRoot = process.cwd()) {
       awaitRun.includes("app.kubernetes.io/component=scenario-seed") &&
       awaitRun.includes("kubectl get job") &&
       awaitRun.includes("kubectl get pods") &&
+      awaitRun.includes('[ -z "$active" ]') &&
       awaitRun.includes("--cascade=foreground --wait=true") &&
+      advisoryResumesWorkerBeforeRbacRemoval &&
       awaitRun.includes("chase-sets.com/scenario-seed-job=${job}") &&
       awaitRun.includes("kubectl delete rolebinding,role,serviceaccount"),
     bootstrapQuiescesWorkers:
@@ -104,7 +111,7 @@ export function loadStagingConnectionEnvelopeInputs(repoRoot = process.cwd()) {
 }
 
 export function enforceStagingConnectionEnvelope(input) {
-  if (!input.advisoryAwaitsSeedJobTermination) {
+  if (!input.advisoryAwaitsSeedJobTermination || !input.advisoryResumesWorkerBeforeRbacRemoval) {
     throw new Error("Advisory scenario seed must hold platform-deploy-staging until its Kubernetes Job terminates.");
   }
   if (input.directUrls !== input.contextCount || input.directUrls < 1) {

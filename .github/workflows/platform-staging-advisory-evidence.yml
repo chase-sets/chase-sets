@@ -188,7 +188,7 @@ jobs:
         if: always() && steps.scenario_seed.outcome != 'skipped'
         timeout-minutes: 60
         env:
-          ADVISORY_CANCELLED: ${{ cancelled() }}
+          ADVISORY_CANCELLED: ${{ job.status == 'cancelled' }}
         run: |
           set -euo pipefail
           ns="$CHASE_SETS_KUBERNETES_NAMESPACE"
@@ -213,6 +213,12 @@ jobs:
             fi
             sleep 10
           done
+          # A deleted or deadline-killed seed pod never reaches the quiesce wrapper's finally.
+          worker_so="${CHASE_SETS_HELM_RELEASE}-chase-sets-platform-platform-worker"
+          if [ -n "$(kubectl get scaledobject "$worker_so" -n "$ns" --ignore-not-found=true \
+              -o jsonpath='{.metadata.annotations.autoscaling\.keda\.sh/paused-replicas}')" ]; then
+            kubectl annotate scaledobject "$worker_so" -n "$ns" autoscaling.keda.sh/paused-replicas-
+          fi
           kubectl delete rolebinding,role,serviceaccount -n "$ns" \
             -l "app.kubernetes.io/instance=${CHASE_SETS_HELM_RELEASE},app.kubernetes.io/component=scenario-seed-quiesce,chase-sets.com/scenario-seed-job=${job}" \
             --ignore-not-found=true
