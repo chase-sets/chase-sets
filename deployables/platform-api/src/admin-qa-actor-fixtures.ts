@@ -104,6 +104,7 @@ export async function runAdminQaActorFixtures(options: Readonly<{ config?: Platf
       enabledDataProfiles: [...BASELINE_DATA_PROFILES],
       environmentName: config.deploymentEnvironment ?? null,
       runtimeProfile: config.runtimeProfile,
+      schemaBootstrapLockPool: pools.schemaBootstrapLockPool,
     });
 
     const identityServices = getIdentityServices(runtime.services);
