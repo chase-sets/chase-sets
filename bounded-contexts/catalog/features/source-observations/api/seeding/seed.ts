@@ -299,9 +299,10 @@ function requireSeedState(label: string, actual: SourceObservationState, expecte
 
 function seedStateMismatch(label: string, divergentFieldPath: string, actual: unknown, expected: unknown): Error {
   const divergence = seedStateDivergence(actual, expected);
-  const scalarValues = divergence && isSeedScalar(divergence.actual) && isSeedScalar(divergence.expected)
-    ? ` (expected ${boundedSeedScalar(divergence.expected)}, actual ${boundedSeedScalar(divergence.actual)})`
-    : "";
+  const scalarValues =
+    divergence && isSeedScalar(divergence.actual) && isSeedScalar(divergence.expected)
+      ? ` (expected ${boundedSeedScalar(divergence.expected)}, actual ${boundedSeedScalar(divergence.actual)})`
+      : "";
   return new Error(
     `Catalog browser Source Observation seed found ${label} history with mismatched identity, facts, target, profile, terminal state, or fingerprint at field path '${divergentFieldPath}'${scalarValues}.`,
   );
