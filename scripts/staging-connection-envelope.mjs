@@ -15,6 +15,11 @@ export function loadStagingConnectionEnvelopeInputs(repoRoot = process.cwd()) {
   const bootstrap = values.components["platform-bootstrap"];
   const bootstrapSource = readFileSync(resolve(repoRoot, "deployables/platform-api/src/bootstrap.ts"), "utf8");
   const seedPoolsSource = readFileSync(resolve(repoRoot, "deployables/platform-api/src/database-pools.ts"), "utf8");
+  const workerPoolsSource = readFileSync(
+    resolve(repoRoot, "deployables/platform-worker/src/database-pools.ts"),
+    "utf8",
+  );
+  const workerStartupSource = readFileSync(resolve(repoRoot, "deployables/platform-worker/src/main.ts"), "utf8");
   const manifest = buildScenarioSeedJobManifest({
     repoRoot,
     values,
@@ -66,6 +71,17 @@ export function loadStagingConnectionEnvelopeInputs(repoRoot = process.cwd()) {
     seedPoolsCapped: /function createSeedCommandPools\([^)]*\)\s*\{[\s\S]*?const poolOptions = \{[^}]*max: 1 \}/.test(
       seedPoolsSource,
     ),
+    workerSettlementBootstrapPoolMax: Number(
+      workerPoolsSource.match(/export function createSettlementBootstrapPool\([^)]*\)\s*\{[\s\S]*?max:\s*(\d+)/)?.[1],
+    ),
+    workerSettlementBootstrapBound:
+      values.components["platform-worker"].env.some(
+        (entry) =>
+          entry.name === "BOOTSTRAP_DATABASE_URL_SETTLEMENT" && entry.secretKey === "BOOTSTRAP_DATABASE_URL_SETTLEMENT",
+      ) &&
+      workerStartupSource.includes("createSettlementBootstrapPool(config)") &&
+      workerStartupSource.includes("bootstrapContextDatabase(settlementModule, settlementBootstrapPool)") &&
+      workerStartupSource.includes("closeContextPools({ settlementBootstrapPool })"),
     scenarioRestoresWorkers: seedEnv.some(
       (entry) => entry.name === "CHASE_SETS_QUIESCE_RESTORE_ON_SUCCESS" && entry.value === "true",
     ),
@@ -137,17 +153,28 @@ export function enforceStagingConnectionEnvelope(input) {
   ) {
     throw new Error("Staging bootstrap and advisory Jobs must share a positive per-URL direct pool cap.");
   }
+  if (
+    !input.workerSettlementBootstrapBound ||
+    !Number.isInteger(input.workerSettlementBootstrapPoolMax) ||
+    input.workerSettlementBootstrapPoolMax < 1
+  ) {
+    throw new Error("Staging worker Settlement bootstrap must retain its direct Secret binding and positive pool cap.");
+  }
   const bootstrap = input.directUrls * input.bootstrapPoolMax + 1; // Dedicated seed schema-lock pool.
   const baseline = input.pooled + input.relays + input.waiters;
   const seed = 26; // The seed regression pins 25 query URLs and a separate direct lock pool at max 1.
   const phases = {
-    rolling: input.pooled + 2 * input.relays + 2 * input.waiters,
+    rolling: input.pooled + 2 * input.relays + 2 * input.waiters + 2 * input.workerSettlementBootstrapPoolMax,
     representative: baseline + seed,
     advisory: input.pooled + input.waiters + bootstrap,
     bootstrap: input.pooled + input.waiters + bootstrap,
   };
   const productionPhases = {
-    rolling: input.productionPooled + 2 * input.productionRelays + 2 * input.productionWaiters,
+    rolling:
+      input.productionPooled +
+      2 * input.productionRelays +
+      2 * input.productionWaiters +
+      2 * input.workerSettlementBootstrapPoolMax,
     bootstrap: input.productionPooled + input.productionWaiters + bootstrap,
   };
   if (phases.rolling > input.trigger || Object.values(phases).some((total) => total > input.limit)) {
@@ -170,6 +197,7 @@ export function enforceStagingConnectionEnvelope(input) {
     directUrls: input.directUrls,
     bootstrap,
     seed,
+    workerSettlementBootstrapPoolMax: input.workerSettlementBootstrapPoolMax,
     trigger: input.trigger,
     limit: input.limit,
     phases,
