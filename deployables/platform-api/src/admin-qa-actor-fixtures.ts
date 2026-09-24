@@ -17,7 +17,7 @@ import {
   type PlatformApiCatalogAssetStorageConfig,
   type PlatformApiListingPhotoStorageConfig,
 } from "./config";
-import { closePlatformApiPools, createPlatformApiPools } from "./database-pools";
+import { closePlatformApiPools, createSeedCommandPools } from "./database-pools";
 import { createFakeMoneyMovementGateway, createFakePaymentProcessorGateway } from "./test-support/provider-gateways";
 
 const CONFIRMATION_PHRASE = "provision admin qa fixtures";
@@ -83,7 +83,7 @@ export async function runAdminQaActorFixtures(): Promise<void> {
     ephemeralVerificationNamespace: process.env.EPHEMERAL_VERIFICATION_NAMESPACE,
   });
 
-  const pools = createPlatformApiPools(config);
+  const pools = createSeedCommandPools(config);
   try {
     await bootstrapPlatformControlPlane(pools.control);
     const paymentProcessorGateway = createFakePaymentProcessorGateway();

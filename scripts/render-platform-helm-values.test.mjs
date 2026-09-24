@@ -130,6 +130,12 @@ describe("render platform Helm values", () => {
     );
     expect(apiEnv.get("DATABASE_URL_CATALOG")?.secretKey).toBe("DATABASE_URL_CATALOG");
     expect(apiEnv.get("PLATFORM_CONTROL_DATABASE_URL")?.secretKey).toBe("PLATFORM_CONTROL_DATABASE_URL");
+    for (const entry of bootstrapEnv.values()) {
+      if (entry.secretKey?.startsWith("BOOTSTRAP_")) {
+        expect(apiEnv.get(entry.secretKey)).toMatchObject({ name: entry.secretKey, secret: true });
+        expect(apiEnv.get(entry.secretKey).secretKey ?? entry.secretKey).toBe(entry.secretKey);
+      }
+    }
   });
 
   it("scaffolds the six current DOKS runtime components", () => {
@@ -841,7 +847,7 @@ describe("render platform Helm values", () => {
     ).toEqual({
       "admin-web": 5,
       marketplace: 12,
-      "platform-api": 102,
+      "platform-api": 123,
       "platform-bootstrap": 57,
       "platform-worker": 122,
       "public-web": 13,

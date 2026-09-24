@@ -39,7 +39,7 @@ import {
   type PlatformApiCatalogAssetStorageConfig,
   type PlatformApiListingPhotoStorageConfig,
 } from "./config";
-import { closePlatformApiPools, createPlatformApiPools } from "./database-pools";
+import { closePlatformApiPools, createPlatformApiPools, createSeedCommandPools } from "./database-pools";
 import {
   createFakeMoneyMovementGateway,
   createFakePaymentProcessorGateway,
@@ -353,7 +353,7 @@ export async function runRepresentativeCommerceState(
     throw new Error("Representative commerce state requires configuration when runtime composition is not supplied.");
   }
 
-  const pools = options.pools ?? createPlatformApiPools(config!);
+  const pools = options.pools ?? createSeedCommandPools(config!);
   const ownsPools = !options.pools;
   const progress: RepresentativeStepProgress = {
     lastCompletedStep: null,
