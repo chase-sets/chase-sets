@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { selectSeedCommandDatabaseConfig } from "../src/seed-command-pools";
+import { selectSeedCommandDatabaseConfig } from "../src/database-pools";
 import { getPlatformApiContextsForRuntimeProfile, type PlatformApiBaseConfig } from "../src/config";
 
 const pooledConfig: PlatformApiBaseConfig = {

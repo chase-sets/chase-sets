@@ -17,7 +17,7 @@ import {
   type PlatformApiCatalogAssetStorageConfig,
   type PlatformApiListingPhotoStorageConfig,
 } from "./config";
-import { closeSeedCommandPools, createSeedCommandPools } from "./seed-command-pools";
+import { closePlatformApiPools, createSeedCommandPools } from "./database-pools";
 import { createFakeMoneyMovementGateway, createFakePaymentProcessorGateway } from "./test-support/provider-gateways";
 
 const CONFIRMATION_PHRASE = "provision admin qa fixtures";
@@ -128,7 +128,7 @@ export async function runAdminQaActorFixtures(): Promise<void> {
     console.log(JSON.stringify(evidence));
     await writeAdminQaActorFixturesEvidence(process.env.ADMIN_QA_ACTOR_FIXTURES_EVIDENCE_OUT, evidence);
   } finally {
-    await closeSeedCommandPools(pools);
+    await closePlatformApiPools(pools);
   }
 }
 

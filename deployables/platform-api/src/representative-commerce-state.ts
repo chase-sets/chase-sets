@@ -39,8 +39,7 @@ import {
   type PlatformApiCatalogAssetStorageConfig,
   type PlatformApiListingPhotoStorageConfig,
 } from "./config";
-import { closePlatformApiPools, createPlatformApiPools } from "./database-pools";
-import { createSeedCommandPools } from "./seed-command-pools";
+import { closePlatformApiPools, createPlatformApiPools, createSeedCommandPools } from "./database-pools";
 import {
   createFakeMoneyMovementGateway,
   createFakePaymentProcessorGateway,
