@@ -28,6 +28,7 @@ export function loadStagingConnectionEnvelopeInputs(repoRoot = process.cwd()) {
     (step) => step.name === "Seed staging Kubernetes scenario data",
   );
   const groupFor = (workflow, job) => workflow.jobs[job]?.concurrency?.group;
+  const doesNotCancel = (workflow, job) => workflow.jobs[job]?.concurrency?.["cancel-in-progress"] === false;
   const capacity = buildPushWakeCapacityEvidence(loadPushWakeCapacityInputs(repoRoot));
   return {
     pooled: capacity.environments.doksStaging.pgbouncerServerBackendAllocation,
@@ -63,6 +64,13 @@ export function loadStagingConnectionEnvelopeInputs(repoRoot = process.cwd()) {
       groupFor(representative, "refresh-representative-commerce-state"),
       groupFor(fixtures, "provision-admin-qa-actor-fixtures"),
     ],
+    serializedJobsDoNotCancel: [
+      doesNotCancel(advisory, "staging-advisory-evidence"),
+      doesNotCancel(deploy, "deploy-staging"),
+      doesNotCancel(deploy, "reconcile-managed-postgres-ca-staging"),
+      doesNotCancel(representative, "refresh-representative-commerce-state"),
+      doesNotCancel(fixtures, "provision-admin-qa-actor-fixtures"),
+    ].every(Boolean),
     dispatchesWithinDeploy: deploy.jobs["deploy-staging"].steps.some(
       (step) => step.name === "Dispatch advisory staging evidence",
     ),
@@ -79,6 +87,7 @@ export function enforceStagingConnectionEnvelope(input) {
     !input.scenarioQuiescesWorkers ||
     !input.scenarioRestoresWorkers ||
     !input.dispatchesWithinDeploy ||
+    !input.serializedJobsDoNotCancel ||
     input.serializedGroups.some((group) => group !== stagingGroup)
   ) {
     throw new Error("Staging bootstrap, advisory, seed commands, and rollout must retain their enforced phases.");

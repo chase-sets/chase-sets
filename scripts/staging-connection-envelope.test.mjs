@@ -13,6 +13,7 @@ describe("staging aggregate direct backend envelope", () => {
     expect(input.bootstrapPoolMax).toBe(1);
     expect(input.scenarioPoolMax).toBe(1);
     expect(input.serializedGroups).toEqual(Array(5).fill("platform-deploy-staging"));
+    expect(input.serializedJobsDoNotCancel).toBe(true);
     expect(envelope).toMatchObject({
       pooled: 40,
       relays: 7,
@@ -35,6 +36,9 @@ describe("staging aggregate direct backend envelope", () => {
       "exceeds its tier trigger or hard budget",
     );
     expect(() => enforceStagingConnectionEnvelope({ ...input, serializedGroups: ["other"] })).toThrow(
+      "enforced phases",
+    );
+    expect(() => enforceStagingConnectionEnvelope({ ...input, serializedJobsDoNotCancel: false })).toThrow(
       "enforced phases",
     );
     expect(() => enforceStagingConnectionEnvelope({ ...input, scenarioQuiescesWorkers: false })).toThrow(
