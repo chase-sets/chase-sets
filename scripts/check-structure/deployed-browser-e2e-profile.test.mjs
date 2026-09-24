@@ -64,13 +64,16 @@ describe("deployed browser E2E profile", () => {
     const config = readFileSync(path.join(root, "playwright.config.ts"), "utf8");
     const specs = e2eDirectories.flatMap((project) => {
       const directory = path.join(root, "deployables", project, "e2e");
-      return readdirSync(directory)
+      return readdirSync(directory, { recursive: true })
         .filter((name) => name.endsWith(".spec.ts"))
         .map((name) => [
           path.join("deployables", project, "e2e", name),
           readFileSync(path.join(directory, name), "utf8"),
         ]);
     });
+    expect(specs.map(([file]) => file)).toContain(
+      path.join("deployables", "marketplace", "e2e", "support", "auth-trace-artifact.probe.spec.ts"),
+    );
     expect(deployedViolations(specs, ["@browser-e2e-seed", devSourceTag])).toEqual([]);
     expect(config).toMatch(/grepInvert:\s*skipWebServer\s*\?\s*\/@browser-e2e-\(\?:seed\|dev-source\)\//);
   });
