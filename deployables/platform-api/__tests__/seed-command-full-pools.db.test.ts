@@ -21,9 +21,9 @@ createPlatformApiBootstrapTestHarness("platform_api_seed_command_full_pools", (s
 });
 
 function createCappedSeedTestConfig() {
-  const previousUrl = process.env.DATABASE_URL;
+  const previousUrl = process.env.PLATFORM_CONTROL_DATABASE_URL;
   try {
-    process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
+    process.env.PLATFORM_CONTROL_DATABASE_URL = databaseUrls.auth;
     const baseConfig = loadConfig();
     return {
       ...baseConfig,
@@ -36,8 +36,8 @@ function createCappedSeedTestConfig() {
       contextWaiterDatabaseUrls: databaseUrls,
     };
   } finally {
-    if (previousUrl === undefined) delete process.env.DATABASE_URL;
-    else process.env.DATABASE_URL = previousUrl;
+    if (previousUrl === undefined) delete process.env.PLATFORM_CONTROL_DATABASE_URL;
+    else process.env.PLATFORM_CONTROL_DATABASE_URL = previousUrl;
   }
 }
 
