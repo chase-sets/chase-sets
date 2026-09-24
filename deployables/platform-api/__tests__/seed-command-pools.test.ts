@@ -27,29 +27,48 @@ describe("in-pod seed command database selection", () => {
       ),
     });
     class MemoryClient extends EventEmitter {
-      connect(callback: (error?: Error) => void) { callback(); }
+      connect(callback: (error?: Error) => void) {
+        callback();
+      }
       query(_sql: string, values?: unknown, callback?: (error: Error | null, result: unknown) => void) {
         const result = { rows: _sql.includes("pg_try_advisory_lock") ? [{ acquired: true }] : [] };
         const done = typeof values === "function" ? values : callback;
-        if (done) { (done as (error: null, result: unknown) => void)(null, result); return; }
+        if (done) {
+          (done as (error: null, result: unknown) => void)(null, result);
+          return;
+        }
         return Promise.resolve(result);
       }
-      end() { this.emit("end"); }
+      end() {
+        this.emit("end");
+      }
     }
-    for (const pool of new Set([...contexts.map((name) => pools[name]), pools.control, pools.schemaBootstrapLockPool])) {
+    for (const pool of new Set([
+      ...contexts.map((name) => pools[name]),
+      pools.control,
+      pools.schemaBootstrapLockPool,
+    ])) {
       (pool as unknown as { Client: typeof MemoryClient }).Client = MemoryClient;
     }
     const module = { contextName: "auth", streamPrefix: "auth.", schemaSql: "", schemaMigrations: [] };
-    const registry = [{
-      contextName: "auth", packageName: "@test/auth",
-      manifest: { contextName: "auth", apiDeployables: ["platform-api"] }, module,
-    }] as unknown as ApiContextRegistry;
+    const registry = [
+      {
+        contextName: "auth",
+        packageName: "@test/auth",
+        manifest: { contextName: "auth", apiDeployables: ["platform-api"] },
+        module,
+      },
+    ] as unknown as ApiContextRegistry;
     const runtime = {
-      mountedContexts: [{ contextName: "auth", pool: pools.auth, module, mountRole: "active", services: {}, projectionHandlerSets: [] }],
+      mountedContexts: [
+        { contextName: "auth", pool: pools.auth, module, mountRole: "active", services: {}, projectionHandlerSets: [] },
+      ],
     } as unknown as ApiHostRuntime;
     try {
       await seedApiHostIfEmpty(registry, "platform-api", runtime, {
-        enabledDataProfiles: ["critical-bootstrap"], environmentName: "test", runtimeProfile: "public",
+        enabledDataProfiles: ["critical-bootstrap"],
+        environmentName: "test",
+        runtimeProfile: "public",
         substepTimeoutMs: 200,
         schemaBootstrapLockPool: pools.schemaBootstrapLockPool,
       });
@@ -87,8 +106,10 @@ describe("in-pod seed command database selection", () => {
       expect(uniquePools.size).toBe(26); // 20 context URLs, control, four distinct waiter URLs, lock holder.
       expect(maxConnections).toBe(26);
       expect(pools.schemaBootstrapLockPool).not.toBe(pools.auth);
-      expect((pools.schemaBootstrapLockPool as unknown as { options: { connectionString: string } }).options.connectionString)
-        .toBe((pools.auth as unknown as { options: { connectionString: string } }).options.connectionString);
+      expect(
+        (pools.schemaBootstrapLockPool as unknown as { options: { connectionString: string } }).options
+          .connectionString,
+      ).toBe((pools.auth as unknown as { options: { connectionString: string } }).options.connectionString);
       expect(config.pool?.max).toBe(6);
     } finally {
       await closePlatformApiPools(pools);
@@ -98,7 +119,9 @@ describe("in-pod seed command database selection", () => {
   it("routes both exec entry points through direct pools before the shared schema lock", () => {
     for (const command of ["representative-commerce-state", "admin-qa-actor-fixtures"]) {
       const source = readFileSync(fileURLToPath(new URL(`../src/${command}.ts`, import.meta.url)), "utf8");
-      expect(source).toMatch(/(?:const seedPools = options\.pools \? null : |const pools = )createSeedCommandPools\(config!?\)/);
+      expect(source).toMatch(
+        /(?:const seedPools = options\.pools \? null : |const pools = )createSeedCommandPools\(config!?\)/,
+      );
     }
   });
 

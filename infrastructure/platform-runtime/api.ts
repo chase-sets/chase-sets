@@ -420,8 +420,10 @@ export async function seedApiHostIfEmpty(
     return;
   }
 
-  await withSchemaBootstrapLock(options.schemaBootstrapLockPool ?? bootstrapLockContext.pool, options.schemaBootstrap, (lockAcquisition) =>
-    seedApiHostIfEmptyWithHeldBootstrapLock(registry, hostName, runtime, options, lockAcquisition),
+  await withSchemaBootstrapLock(
+    options.schemaBootstrapLockPool ?? bootstrapLockContext.pool,
+    options.schemaBootstrap,
+    (lockAcquisition) => seedApiHostIfEmptyWithHeldBootstrapLock(registry, hostName, runtime, options, lockAcquisition),
   );
 }
 
