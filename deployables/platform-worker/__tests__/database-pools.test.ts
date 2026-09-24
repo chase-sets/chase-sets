@@ -21,9 +21,9 @@ describe("platform worker database pools", () => {
         contextDatabaseUrls: { settlement: queryUrl },
         sharedDatabaseUrl: null,
       } as unknown as PlatformWorkerConfig;
-      expect(
-        selectSettlementBootstrapDatabaseUrl(config, { BOOTSTRAP_DATABASE_URL_SETTLEMENT: directUrl }),
-      ).toBe(directUrl);
+      expect(selectSettlementBootstrapDatabaseUrl(config, { BOOTSTRAP_DATABASE_URL_SETTLEMENT: directUrl })).toBe(
+        directUrl,
+      );
       expect(config.contextDatabaseUrls.settlement).toBe(queryUrl);
     },
   );
