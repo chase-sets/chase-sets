@@ -63,7 +63,7 @@ const syntheticScheduleModelTiming = Object.freeze({
   executionUnitCeilingMs: 420_000,
   aggregateCeilingMs: 1_080_000,
   maximumCaseReferenceDurationMs: 600_000,
-  maximumScheduledFileCount: 10,
+  maximumScheduledFileCount: 11,
   maximumEnumeratedUnitCount: 4,
 } satisfies Pick<BootstrapDbScheduleModel, ScheduleModelTimingField>);
 
@@ -268,10 +268,22 @@ describe("Platform API bootstrap DB enrollment", () => {
     const result = checkBootstrapDbEnrollment();
 
     expect(result.violations).toEqual([]);
-    expect(result.expectedCaseCount).toBe(55);
+    expect(result.expectedCaseCount).toBe(57);
     expect(result.caseCount).toBe(result.expectedCaseCount);
-    expect(result.fileCount).toBe(10);
+    expect(result.fileCount).toBe(11);
     expect(result.partitionUnitCount).toBe(2);
+  });
+
+  it("preserves the complete frozen seed-command file and both separate case identities", () => {
+    const fileName = "seed-command-full-pools.db.test.ts";
+    const source = readFileSync(join(testDirectory, fileName));
+    expect(createHash("sha256").update(source).digest("hex")).toBe(
+      "21112a33cfbe069967b24c03321a5d35842519376128bae813836dbf4bf79bbe",
+    );
+    expect(deriveBootstrapDbCaseIdentities(fileName, source.toString()).map((testCase) => testCase.identity)).toEqual([
+      "68dfd0998ec22c33",
+      "9e7b99abfd2756ab",
+    ]);
   });
 
   it.each([
@@ -736,34 +748,25 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(schedule.units[0]!.makespanMs).toBeGreaterThan(bootstrapDbScheduleModel.executionUnitCeilingMs);
   });
 
-  it("never under-states the sole shared-seed measurement's three units or owning-job wall clock", async () => {
-    expect(bootstrapDbScheduleModel.referenceRunId).toBe(36039215604);
-    expect(bootstrapDbScheduleModel.referenceJobId).toBe(107766880827);
+  it("never under-states the sole eleven-file measurement's two units or owning-job wall clock", async () => {
+    expect(bootstrapDbScheduleModel.referenceRunId).toBe(36141162335);
+    expect(bootstrapDbScheduleModel.referenceJobId).toBe(108091066485);
     expect(bootstrapDbScheduleModel.referenceJobName).toBe("Diagnostic API Bootstrap Measurement Only");
-    expect(bootstrapDbScheduleModel.referenceHeadSha).toBe("439268f8460cf09d5def8a5ad14b6e6e1e7755ed");
+    expect(bootstrapDbScheduleModel.referenceHeadSha).toBe("83caeeed92c345a59abe2d1755e32e2c7bee2e39");
     expect(bootstrapDbScheduleModel.referenceEvent).toBe("push");
-    expect(bootstrapDbScheduleModel.testFileFixedCostMs).toBe(1_693);
-    expect(bootstrapDbScheduleModel.executionUnitFixedCostMs).toBe(12_189);
+    expect(bootstrapDbScheduleModel.testFileFixedCostMs).toBe(1_593);
+    expect(bootstrapDbScheduleModel.executionUnitFixedCostMs).toBe(18_576);
     const measuredUnitOne = new Set([
       "authoritative-seed-resume-core.db.test.ts",
       "authoritative-seed-resume-reconciliation.db.test.ts",
       "catalog-seed-interruption-resume.db.test.ts",
-    ]);
-    const measuredUnitThree = new Set([
-      "inventory-seed-resume.db.test.ts",
-      "catalog-seed-aggregate-state.db.test.ts",
-      "bootstrap-shared-seed-command.db.test.ts",
     ]);
     // The fixture keeps synthetic provenance; only its timing inputs reproduce
     // the complete, immutable measurement, never another run or local timing.
     const fixture = await createFixture(
       shippedShapedFiles().map((file) => ({
         ...file,
-        executionUnit: measuredUnitOne.has(file.fileName)
-          ? "test:db:1"
-          : measuredUnitThree.has(file.fileName)
-            ? "test:db:3"
-            : "test:db:2",
+        executionUnit: measuredUnitOne.has(file.fileName) ? "test:db:1" : "test:db:2",
       })),
       {
         model: {
@@ -774,21 +777,20 @@ describe("Platform API bootstrap DB enrollment", () => {
       },
     );
     const { schedule } = runFixture(fixture);
-    expect(schedule.units.map((unit) => unit.makespanMs)).toEqual([292_803, 197_178, 190_361]);
-    expect(schedule.units[0]!.makespanMs).toBeGreaterThanOrEqual(292_795.550774);
-    expect(schedule.units[1]!.makespanMs).toBeGreaterThanOrEqual(189_905.115257);
-    expect(schedule.units[2]!.makespanMs).toBeGreaterThanOrEqual(187_641.930314);
-    expect(schedule.aggregateWithOverheadMs).toBe(732_000);
-    expect(schedule.aggregateWithOverheadMs).toBeGreaterThanOrEqual(722_000);
+    expect(schedule.units.map((unit) => unit.makespanMs)).toEqual([295_728, 449_242]);
+    expect(schedule.units[0]!.makespanMs).toBeGreaterThanOrEqual(289_699.315844);
+    expect(schedule.units[1]!.makespanMs).toBeGreaterThanOrEqual(367_435.189544);
+    expect(schedule.aggregateWithOverheadMs).toBe(791_836);
+    expect(schedule.aggregateWithOverheadMs).toBeGreaterThanOrEqual(704_000);
   });
 
   it("declares the settled ceilings and job overhead the aggregate expression is built from", () => {
     expect(bootstrapDbScheduleModel.executionUnitCeilingMs).toBe(420_000);
     expect(bootstrapDbScheduleModel.aggregateCeilingMs).toBe(1_080_000);
-    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(51_658);
+    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(46_866);
     expect(bootstrapDbScheduleModel.maxWorkersPerExecutionUnit).toBe(3);
     expect(checkBootstrapDbEnrollment().schedule.files.reduce((total, file) => total + file.caseDurationMs, 0)).toBe(
-      1_598_901,
+      1_666_557,
     );
   });
 
@@ -798,15 +800,15 @@ describe("Platform API bootstrap DB enrollment", () => {
     const { schedule } = checkBootstrapDbEnrollment();
 
     expect(schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual([
-      ["test:db:1", 292_803],
-      ["test:db:2", 375_350],
+      ["test:db:1", 408_909],
+      ["test:db:2", 336_061],
     ]);
     expect(schedule.units.map((unit) => [unit.bootBearingCaseCount, unit.bootBearingCeiling])).toEqual([
-      [15, 15],
       [38, 38],
+      [17, 17],
     ]);
-    expect(schedule.aggregateMs).toBe(668_153);
-    expect(schedule.aggregateWithOverheadMs).toBe(719_811);
+    expect(schedule.aggregateMs).toBe(744_970);
+    expect(schedule.aggregateWithOverheadMs).toBe(791_836);
     expect(schedule.minimumUnitCount).toBe(2);
     expect(schedule.observedUnitCount).toBe(2);
   });
@@ -818,8 +820,8 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(Object.getPrototypeOf(nullPrototypeModel)).toBeNull();
     expect(result.violations).toEqual([]);
     expect(result.schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual([
-      ["test:db:1", 292_803],
-      ["test:db:2", 375_350],
+      ["test:db:1", 408_909],
+      ["test:db:2", 336_061],
     ]);
   });
 
@@ -1309,7 +1311,7 @@ describe("Platform API bootstrap DB enrollment", () => {
   });
 
   it("rejects an extra execution unit that satisfies every other invariant", async () => {
-    // The measured three-unit grouping: every unit stays
+    // A deliberately nonminimal three-unit grouping: every unit stays
     // under 420s, the aggregate stays under 1080s, every case keeps its name,
     // file, database suffix, and identity — only the unit count is wasteful.
     const extraUnitAssignment: Record<string, string> = {
@@ -1323,6 +1325,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       "bootstrap-production-reconciliation.db.test.ts": "test:db:2",
       "bootstrap-lock-contention.db.test.ts": "test:db:2",
       "bootstrap-shared-seed-command.db.test.ts": "test:db:3",
+      "seed-command-full-pools.db.test.ts": "test:db:2",
     };
     const files = shippedShapedFiles().map((file) => ({
       ...file,
@@ -1851,7 +1854,7 @@ describe("Platform API bootstrap DB enrollment", () => {
 
   it("rejects an execution unit pushed past its declared boot-bearing ceiling", async () => {
     const files = shippedShapedFiles();
-    const largest = "test:db:2";
+    const largest = "test:db:1";
     const observed = bootstrapDbExecutionUnitBootBearingCaseCeilings[largest];
     const fixture = await createFixture(files, {
       ceilings: { ...bootstrapDbExecutionUnitBootBearingCaseCeilings, [largest]: observed - 1 },
@@ -1890,7 +1893,7 @@ describe("Platform API bootstrap DB enrollment", () => {
 
     expect(runFixture(fixture).violations).toEqual(
       expect.arrayContaining([
-        `test:db:2 has 39 boot-bearing cases, exceeding its declared ceiling of ${bootstrapDbExecutionUnitBootBearingCaseCeilings["test:db:2"]}`,
+        `test:db:1 has 39 boot-bearing cases, exceeding its declared ceiling of ${bootstrapDbExecutionUnitBootBearingCaseCeilings["test:db:1"]}`,
       ]),
     );
   });
