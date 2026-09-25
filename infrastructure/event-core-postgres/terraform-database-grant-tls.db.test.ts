@@ -595,13 +595,20 @@ async function startTlsPostgresProxy(
         const groups = (["raw", "tls", "backend"] as const).map((kind) => {
           const records = [...observed].filter((record) => record.id.startsWith(`${kind}#`));
           const active = records.filter((record) => !record.transition.endsWith(":closed"));
+          const closed = records.filter((record) => record.transition.endsWith(":closed"));
           const details = active
             .slice(0, 12)
             .map(
               ({ socket, id, transition }) =>
                 `${id}[${socket.readyState},destroyed=${socket.destroyed},connecting=${socket.connecting},last=${transition}]`,
             );
-          return `${kind}=${active.length}/${records.length}{${details.join(",")}${active.length > 12 ? `,omitted=${active.length - 12}` : ""}}`;
+          const recentClosed = closed.slice(-3).map(({ id, transition }) => `${id}[${transition}]`);
+          return `${kind}=active:${active.length},closed:${closed.length},total:${records.length}{${[
+            ...details,
+            ...recentClosed,
+            ...(active.length > 12 ? [`active-omitted=${active.length - 12}`] : []),
+            ...(closed.length > 3 ? [`closed-omitted=${closed.length - 3}`] : []),
+          ].join(",")}}`;
         });
         return `${new Date().toISOString()} ${stage} listener=${listenerState},listening=${server.listening} ${groups.join(" ")} last=${lastTransition}`;
       };
