@@ -16,6 +16,7 @@ import {
   runDatabaseGrantMain,
   statementsForGrant,
 } from "../../scripts/apply-digitalocean-database-grant.mjs";
+import testConfig from "./vitest.config";
 
 const execFile = promisify(execFileCallback);
 const { Client } = pg;
@@ -38,7 +39,7 @@ type CertificatePaths = Readonly<{
 type TlsProxy = Readonly<{
   port: number;
   connectionCount: () => number;
-  close: () => Promise<void>;
+  close: (hookStartedAt: number, hookTimeout: number) => Promise<void>;
 }>;
 
 type Sentinel = Readonly<{
@@ -107,7 +108,10 @@ describeDb("Terraform database-grant TLS against real PostgreSQL", () => {
   });
 
   afterAll(async () => {
-    await proxy?.close();
+    const hookStartedAt = Date.now();
+    const hookTimeout = testConfig.test?.hookTimeout;
+    if (typeof hookTimeout !== "number") throw new Error("TLS teardown requires a configured hookTimeout.");
+    await proxy?.close(hookStartedAt, hookTimeout);
     await sentinel?.close();
     if (adminDatabaseUrl) {
       await withAdminClient(async (client) => {
@@ -518,9 +522,36 @@ async function startTlsPostgresProxy(
     key: await readFile(keyPath),
   });
   const sockets = new Set<net.Socket>();
+  type ObservedSocket = { socket?: net.Socket; id: string; transition: string };
+  const observed = new Set<ObservedSocket>();
+  const releaseObservation = () => {
+    for (const record of observed) record.socket = undefined;
+    observed.clear();
+  };
+  let nextSocketId = 0;
+  let lastTransition = `${new Date().toISOString()} listener:created`;
+  let listenerState = "created";
+  const mark = (id: string, transition: string) => {
+    const stamped = `${new Date().toISOString()} ${id}:${transition}`;
+    lastTransition = stamped;
+    return stamped;
+  };
+  const track = (socket: net.Socket, kind: "raw" | "tls" | "backend") => {
+    const record: ObservedSocket = { socket, id: `${kind}#${++nextSocketId}`, transition: "" };
+    record.transition = mark(record.id, "created");
+    observed.add(record);
+    socket.on("end", () => {
+      record.transition = mark(record.id, "end");
+    });
+    socket.on("close", () => {
+      record.transition = mark(record.id, "closed");
+    });
+    return record;
+  };
   let connections = 0;
   const server = net.createServer((socket) => {
     connections += 1;
+    track(socket, "raw");
     sockets.add(socket);
     socket.on("close", () => sockets.delete(socket));
     socket.once("data", (request) => {
@@ -530,11 +561,24 @@ async function startTlsPostgresProxy(
       }
       socket.write("S");
       const secureSocket = new tls.TLSSocket(socket, { isServer: true, secureContext });
-      secureSocket.on("error", () => undefined);
+      const tlsRecord = track(secureSocket, "tls");
+      secureSocket.on("secure", () => {
+        tlsRecord.transition = mark(tlsRecord.id, "secure");
+      });
+      secureSocket.on("error", () => {
+        tlsRecord.transition = mark(tlsRecord.id, "error");
+      });
       const backendSocket = net.createConnection(backend);
+      const backendRecord = track(backendSocket, "backend");
+      backendSocket.on("connect", () => {
+        backendRecord.transition = mark(backendRecord.id, "connected");
+      });
       sockets.add(backendSocket);
       backendSocket.on("close", () => sockets.delete(backendSocket));
-      backendSocket.on("error", () => secureSocket.destroy());
+      backendSocket.on("error", () => {
+        backendRecord.transition = mark(backendRecord.id, "error");
+        secureSocket.destroy();
+      });
       secureSocket.pipe(backendSocket);
       backendSocket.pipe(secureSocket);
     });
@@ -545,12 +589,61 @@ async function startTlsPostgresProxy(
   });
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("TLS proxy did not bind a TCP port.");
+  listenerState = "listening";
+  mark("listener", "listening");
   return {
     port: address.port,
     connectionCount: () => connections,
-    close: async () => {
-      for (const socket of sockets) socket.destroy();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+    close: async (hookStartedAt, hookTimeout) => {
+      const snapshot = (stage: string) => {
+        const groups = (["raw", "tls", "backend"] as const).map((kind) => {
+          const records = [...observed].filter((record) => record.id.startsWith(`${kind}#`));
+          const active = records.filter((record) => !record.transition.endsWith(":closed"));
+          const closed = records.filter((record) => record.transition.endsWith(":closed"));
+          const details = active
+            .slice(0, 12)
+            .map(
+              ({ socket, id, transition }) =>
+                `${id}[${socket?.readyState ?? "released"},destroyed=${socket?.destroyed ?? "released"},connecting=${socket?.connecting ?? "released"},last=${transition}]`,
+            );
+          const recentClosed = closed.slice(-3).map(({ id, transition }) => `${id}[${transition}]`);
+          return `${kind}=active:${active.length},closed:${closed.length},total:${records.length}{${[
+            ...details,
+            ...recentClosed,
+            ...(active.length > 12 ? [`active-omitted=${active.length - 12}`] : []),
+            ...(closed.length > 3 ? [`closed-omitted=${closed.length - 3}`] : []),
+          ].join(",")}}`;
+        });
+        return `${new Date().toISOString()} ${stage} listener=${listenerState},listening=${server.listening} ${groups.join(" ")} last=${lastTransition}`;
+      };
+      const stages = [snapshot("entry")];
+      let reported = false;
+      const snapshotDelay = Math.max(0, hookTimeout - 5_000 - (Date.now() - hookStartedAt));
+      const timer = setTimeout(() => {
+        reported = true;
+        console.error(`[tls-proxy-teardown] ${[...stages, snapshot("pre-ceiling pending")].join(" | ")}`);
+        releaseObservation();
+      }, snapshotDelay);
+      timer.unref();
+      try {
+        for (const socket of sockets) socket.destroy();
+        stages.push(snapshot("after-destroy"));
+        listenerState = "closing";
+        mark("listener", "closing");
+        await new Promise<void>((resolve) =>
+          server.close(() => {
+            listenerState = "closed";
+            mark("listener", "closed-callback");
+            clearTimeout(timer);
+            if (!reported) console.info(`[tls-proxy-teardown] ${[...stages, snapshot("close-callback")].join(" | ")}`);
+            releaseObservation();
+            resolve();
+          }),
+        );
+      } finally {
+        clearTimeout(timer);
+        releaseObservation();
+      }
     },
   };
 }
