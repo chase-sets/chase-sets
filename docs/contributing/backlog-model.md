@@ -140,12 +140,16 @@ choices outside accepted scope use the existing decision route.
 
 Todd owns product prioritization
 ([#4388 ruling](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5838628573)).
-He decides which product outcome or pilot is the current priority, and whether
+Todd decides which product outcome or pilot is the current priority, and whether
 accepted product scope is added or dropped. Agents propose such a change as one
 short question and keep delivering on the current priority meanwhile. Every other
 planning and delivery decision stays with agents. That includes ordering inside
-the priority, and ops, tooling and test-infrastructure placement. While ready
-product work exists, at least two delivery lanes serve it.
+the priority, and ops, tooling and test-infrastructure placement. Whenever ready,
+runnable `kind:product` work exists, at least two delivery lanes run on it. If
+fewer than two product issues are ready, planning lanes that make product issues
+ready take precedence over new infrastructure probes ([product capacity floor](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5838576100)).
+Controller, platform and test-infrastructure work use the remaining capacity.
+Heavy-slot admission order is unchanged; nothing preempts a live heavy owner.
 
 A new issue changes an active commitment only when it is required for its
 acceptance or directly covered by steering. Record the gate it serves and the

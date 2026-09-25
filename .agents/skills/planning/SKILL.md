@@ -55,8 +55,12 @@ ranks, or turn missing priority evidence into a Decision. Send Todd only a
 product priority or scope change, or an operator action no lane can perform
 ([#4388 ruling](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5838628573)).
 Other unresolved product, legal and provider-authority choices inside accepted
-scope go to the orchestrator, which decides them through an independent
-decision lane.
+scope go to the orchestrator as host. The host decides same-attempt, in-scope
+repairs itself and records its reasoning. An independent decision lane is
+required only for a change to accepted scope or acceptance criteria, an attempt
+ceiling, ownership or authority, or a cross-lineage question; its verdict is
+final. A decision lane may not return `TODD_RULING_NEEDED`; if it believes Todd
+must decide, the host resolves that finding with a second independent lane.
 Do not use candidate placement to hide stopped implementation or active lanes.
 Planning recovery queries `status:needs-replan` across all milestones, including
 candidates; candidate status only excludes ordinary implementation dispatch.
@@ -113,7 +117,9 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
    what repo evidence can; everything else goes to the decision queue NOW, each
    with a recommendation — never leave a known decision to surface mid-lane.
    The queue is the orchestrator and its independent decision lanes, not Todd,
-   unless the decision changes product priority or scope.
+   unless the decision changes product priority or scope. Route it by the
+   threshold in Agent-owned placement: same-attempt, in-scope repairs stay with
+   the host; the listed heavier changes get a final independent verdict.
    Issues behind an unresolved decision are created blocked, linked to it.
    Route every authority-timing uncertainty (will this AC's data exist from
    the external authority at the moment implementation needs it?) to a
