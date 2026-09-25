@@ -930,7 +930,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       executionUnitCeilingMs: 419_999,
       aggregateCeilingMs: 1_079_999,
       maximumCaseReferenceDurationMs: 599_999,
-      maximumScheduledFileCount: 11,
+      maximumScheduledFileCount: 12,
       maximumEnumeratedUnitCount: 5,
     };
     const fixture = await createFixture([unitFileFor("synthetic-provenance", "test:db:1", 1_000)], {
