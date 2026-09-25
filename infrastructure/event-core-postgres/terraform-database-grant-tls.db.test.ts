@@ -104,7 +104,10 @@ function observeCleanup(hookStartedAt: number, directory?: string) {
   const writablePath =
     tracePath &&
     isAbsolute(tracePath) &&
-    (insideDirectory === undefined || insideDirectory === ".." || insideDirectory.startsWith(`..${sep}`))
+    (insideDirectory === undefined ||
+      insideDirectory === ".." ||
+      insideDirectory.startsWith(`..${sep}`) ||
+      isAbsolute(insideDirectory))
       ? tracePath
       : undefined;
   let created = false;
