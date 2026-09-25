@@ -522,8 +522,12 @@ async function startTlsPostgresProxy(
     key: await readFile(keyPath),
   });
   const sockets = new Set<net.Socket>();
-  type ObservedSocket = { socket: net.Socket; id: string; transition: string };
+  type ObservedSocket = { socket?: net.Socket; id: string; transition: string };
   const observed = new Set<ObservedSocket>();
+  const releaseObservation = () => {
+    for (const record of observed) record.socket = undefined;
+    observed.clear();
+  };
   let nextSocketId = 0;
   let lastTransition = `${new Date().toISOString()} listener:created`;
   let listenerState = "created";
@@ -600,7 +604,7 @@ async function startTlsPostgresProxy(
             .slice(0, 12)
             .map(
               ({ socket, id, transition }) =>
-                `${id}[${socket.readyState},destroyed=${socket.destroyed},connecting=${socket.connecting},last=${transition}]`,
+                `${id}[${socket?.readyState ?? "released"},destroyed=${socket?.destroyed ?? "released"},connecting=${socket?.connecting ?? "released"},last=${transition}]`,
             );
           const recentClosed = closed.slice(-3).map(({ id, transition }) => `${id}[${transition}]`);
           return `${kind}=active:${active.length},closed:${closed.length},total:${records.length}{${[
@@ -618,7 +622,7 @@ async function startTlsPostgresProxy(
       const timer = setTimeout(() => {
         reported = true;
         console.error(`[tls-proxy-teardown] ${[...stages, snapshot("pre-ceiling pending")].join(" | ")}`);
-        observed.clear();
+        releaseObservation();
       }, snapshotDelay);
       timer.unref();
       try {
@@ -632,13 +636,13 @@ async function startTlsPostgresProxy(
             mark("listener", "closed-callback");
             clearTimeout(timer);
             if (!reported) console.info(`[tls-proxy-teardown] ${[...stages, snapshot("close-callback")].join(" | ")}`);
-            observed.clear();
+            releaseObservation();
             resolve();
           }),
         );
       } finally {
         clearTimeout(timer);
-        observed.clear();
+        releaseObservation();
       }
     },
   };
