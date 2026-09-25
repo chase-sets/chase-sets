@@ -106,7 +106,9 @@ function observeCleanup(hookStartedAt: number, directory?: string) {
           ? "rejected"
           : swallowedAdminError
             ? "hook-complete-with-swallowed-admin-error"
-            : "clean-completion",
+            : phases.every((phase) => phase.state === "completed")
+              ? "clean-completion"
+              : "hook-complete-with-unentered-phase",
     phases: phases.map((phase) => ({ ...phase })),
   });
   const retain = (kind: "pending-at-snapshot" | "hook-settled") => {
