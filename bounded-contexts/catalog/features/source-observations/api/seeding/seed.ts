@@ -190,7 +190,7 @@ export async function buildCatalogBrowserE2ePromotedObservationSeedEvidence(
   };
 }
 
-/** One append-only migration of the scenario's pre-#8066 plan contract, not reconciliation. */
+/** One append-only migration of the scenario's historical seven-input plan contract, not reconciliation. */
 async function migrateHistoricalSeedPlan(
   services: CatalogServices,
   evidence: CatalogBrowserE2ePromotedObservationSeedEvidence,
@@ -270,7 +270,7 @@ function requireMigrationEvent(
   }
 }
 
-// Exact pre-#8066 stable JSON encoding, local to this bounded contract migration.
+// Exact historical stable JSON encoding (the planner's stableStringify before displayIdentity and promoteAsDraft joined the fingerprint), local to this bounded contract migration.
 function historicalPlanJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(historicalPlanJson).join(",")}]`;
   if (value !== null && typeof value === "object") {
