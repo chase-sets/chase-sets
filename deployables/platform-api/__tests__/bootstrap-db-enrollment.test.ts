@@ -338,8 +338,9 @@ describe("Platform API bootstrap DB enrollment", () => {
     const packageJsonPath = join(fixture.root, "package.json");
     const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
     const fileName = files[0]!.fileName;
+    const executionUnit = files[0]!.executionUnit;
     if (mutation === "omitted") {
-      packageJson.scripts["test:db:2"] = packageJson.scripts["test:db:2"].replace(`__tests__/${fileName}`, "");
+      packageJson.scripts[executionUnit] = packageJson.scripts[executionUnit].replace(`__tests__/${fileName}`, "");
     } else {
       packageJson.scripts["test:db:1"] += ` __tests__/${fileName}`;
     }
@@ -1043,7 +1044,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     ],
     [
       "a unit-count enumeration bound above the file-count bound",
-      { maximumEnumeratedUnitCount: 11 },
+      { maximumEnumeratedUnitCount: 11, maximumScheduledFileCount: 10 },
       "maximumEnumeratedUnitCount 11 must not exceed maximumScheduledFileCount 10",
     ],
   ])("rejects %s", (_label, patch, expected) => {
