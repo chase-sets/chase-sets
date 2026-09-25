@@ -20,6 +20,9 @@ function assertVerificationContract(text) {
     /^- Run `pnpm run verify:static:scoped` before every push, plus named focused tests for changed script tooling\. Do not use local full `verify:static`, full `verify`, or the complete `test:scripts` battery as delivery gates; hosted CI owns those unchanged strict full gates on every PR\.$/m,
   );
   expect(text).toMatch(
+    /^- For database-touching changes, the normal final-head hosted `DB Profile Tests` job is the DB proof \(\[#4388 ruling\]\([^)\s]+\)\)\. While \[#8159\]\([^)\s]+\) is open, a full local `verify:test-db` is never a prerequisite for push, draft, ready or landing\.[^\r\n]* Hosted gates, timeouts, skips and reviews are unchanged\.$/m,
+  );
+  expect(text).toMatch(
     /^\*\*Draft semantics\.\*\* Open the PR as a draft once scoped checks and affected focused checks are green and the Quality Packet is complete; disclose the exact-head PLAN_ONLY evidence\.[^\r\n]*$/m,
   );
   expect(text).toMatch(
@@ -33,6 +36,16 @@ function assertVerificationContract(text) {
 describe("delivery verification contract", () => {
   it("separates exact-head dry-run planning and scoped-green drafts from hosted readiness", () => {
     assertVerificationContract(instruction);
+  });
+
+  it("rejects making a full local verify:test-db a delivery prerequisite again", () => {
+    const mutant = instruction.replace(
+      /^- For database-touching changes,[^\r\n]*$/m,
+      "- For database-touching changes, run a full local `verify:test-db` before every push.",
+    );
+
+    expect(mutant).not.toBe(instruction);
+    expect(() => assertVerificationContract(mutant)).toThrow();
   });
 
   it("rejects restoring the whole ordinary executing pre-PR instruction", () => {
