@@ -8,6 +8,7 @@ const minimalProcessEnvironmentNames = new Set(
   [
     "APPDATA",
     "CHASE_SETS_HEAVY_SLOT_ID",
+    "CHASE_SETS_HEAVY_SLOT_TRANSPORT",
     "CI",
     "COMSPEC",
     "FORCE_COLOR",
@@ -111,7 +112,7 @@ export function buildPackageManagerInvocation(args, options = {}) {
   };
 }
 
-function wirePrefixedStream(stream, prefix) {
+function wirePrefixedStream(stream, prefix, write = console.log) {
   let buffer = "";
 
   stream.on("data", (chunk) => {
@@ -121,14 +122,14 @@ function wirePrefixedStream(stream, prefix) {
 
     for (const part of parts) {
       if (part.length > 0) {
-        console.log(`[${prefix}] ${part}`);
+        write(`[${prefix}] ${part}`);
       }
     }
   });
 
   stream.on("end", () => {
     if (buffer.length > 0) {
-      console.log(`[${prefix}] ${buffer}`);
+      write(`[${prefix}] ${buffer}`);
     }
   });
 }
@@ -151,7 +152,7 @@ export function spawnCommand(command, args, options = {}) {
 
   if (options.prefix && child.stdout && child.stderr) {
     wirePrefixedStream(child.stdout, options.prefix);
-    wirePrefixedStream(child.stderr, options.prefix);
+    wirePrefixedStream(child.stderr, options.prefix, options.stderrToStderr ? console.error : console.log);
   }
 
   return child;
@@ -294,5 +295,18 @@ export function runCommand(command, args, options = {}) {
 
       reject(new Error(`${command} ${args.join(" ")} exited with code ${code ?? "unknown"}.`));
     });
+
+    try {
+      options.onSpawn?.(child);
+    } catch (error) {
+      settled = true;
+      clearTimers();
+      try {
+        terminateProcessTree(child);
+      } catch {
+        // Preserve the onSpawn error even if termination fails.
+      }
+      reject(error);
+    }
   });
 }

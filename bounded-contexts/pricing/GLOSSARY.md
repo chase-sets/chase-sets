@@ -108,6 +108,49 @@ The **Market-Estimate Policy** is Pricing's m110 platform-policy declaration of 
 
 A **Liquidity Estimate** is the modeled expectation of how quickly or reliably a resolved product can transact.
 
+## Repricing Listing Outcome
+
+A **Repricing Listing Outcome** is the current listing-level result derived from retained evaluation
+facts and their compaction summary. Evaluation instant and evaluation ID determine order;
+`global_position` locates digest input, not current state. `floor_binding_since` is the start of the
+trailing uninterrupted floor-binding run. The compaction boundary records the last folded fact and
+the open run start. Compaction retains the greatest fact and never duplicates its payload in the summary.
+
+## Repricing Management Policy
+
+The **Repricing Management Policy** is the platform `pricing.repricing-management` document governing
+seller attention. `floorBindingAlertDays` is an integer from 1 through 90, launching at 7 days and
+defaulting to that value when the stored key is absent.
+`digestSettleMinutes` is an integer from 1 through 120, launching at 10 minutes;
+`digestLagWarnHours` is an integer from 1 through 48, launching at 6 hours.
+Both digest keys default independently when absent from a stored revision.
+
+## Repricing Activity
+
+**Repricing Activity** is the seller's evaluated-policy and listing-outcome history, including changes,
+clamps, missing-input pauses, tolerance decisions, budget limits and Spiral Breaker trips.
+
+## Repricing Activity Digest
+
+A **Repricing Activity Digest** is one seller's count-only summary for a captured Digest Window.
+It is requested once after the evaluation projection has reached every member, never as a partial summary.
+
+## Digest Window
+
+A **Digest Window** is an immutable UTC-day capture of eligible evaluated events under a gap-safe
+event-store fence. A late commit joins the next captured window, rather than changing a previous digest.
+Windows emit oldest first and retain the greatest floor below which no evaluated event remains unassigned.
+
+## Digest Window Member
+
+A **Digest Window Member** assigns one evaluation event's exact global position to one Digest Window.
+Its event position joins to listing outcome facts; evaluation time does not determine membership.
+
+## Digest Baseline
+
+A **Digest Baseline** is the single activation row, dated the previous UTC day and already emitted.
+Its gap-safe floor excludes pre-activation events. Concurrent first passes cannot create a second baseline.
+
 ## Repricing Policy
 
 A **Repricing Policy** is a seller-owned, event-sourced aggregate declaring the standing strategy that

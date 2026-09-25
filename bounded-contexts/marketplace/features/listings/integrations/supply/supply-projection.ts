@@ -12,6 +12,8 @@ import type {
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { buildCatalogMirrorProjectionHandlers } from "@chase-sets/event-core-postgres/catalog-mirror";
 
+export const CATALOG_ITEM_STREAM_PREFIX = "catalog.item-";
+
 // Splits reputation into as-seller (reviews authored by buyers) and as-buyer
 // (reviews authored by sellers) dimensions (m108): a review's `author_role`
 // records the AUTHOR's role, so the SUBJECT played the opposite role.
@@ -446,7 +448,7 @@ export function buildMarketplaceCatalogProjectionHandlers(db: PgQueryable): Proj
       );
     },
     "catalog.catalog-item.category-assigned": async (event) => {
-      const itemId = event.streamId.slice("catalog.catalog-item-".length);
+      const itemId = extractIdFromStreamId(event.streamId, CATALOG_ITEM_STREAM_PREFIX);
       const { categoryId } = event.data as { categoryId: string };
       await db.query(
         `UPDATE marketplace_catalog_items
@@ -463,7 +465,7 @@ export function buildMarketplaceCatalogProjectionHandlers(db: PgQueryable): Proj
       );
     },
     "catalog.catalog-item.category-removed": async (event) => {
-      const itemId = event.streamId.slice("catalog.catalog-item-".length);
+      const itemId = extractIdFromStreamId(event.streamId, CATALOG_ITEM_STREAM_PREFIX);
       const { categoryId } = event.data as { categoryId: string };
       await db.query(
         `UPDATE marketplace_catalog_items

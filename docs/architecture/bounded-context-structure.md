@@ -205,6 +205,23 @@ Surface meanings:
 
 Private route and request helpers must stay inside the owning bounded context under explicit support folders, not as ad hoc top-level files.
 
+Deployable browser tests may consume `@chase-sets/<package>/seed-support/<subpath>`
+only from direct or nested `.spec.ts` files under `deployables/admin-web/e2e/`
+or `deployables/marketplace/e2e/`. This exception uses the target's actual package
+identity, not its context directory name. Both `context.json` `publicExports`
+and a string `package.json` `exports["./seed-support/*"]` mapping must declare
+the surface, and the mapped target must resolve to an existing module file.
+Subpaths must be nonempty and contain no empty, dot, or traversal segments.
+Importer paths are repository-relative, with slash and backslash separators
+treated alike and no empty, dot, or traversal segments.
+
+This exception does not admit production app/server code, e2e helper `.ts`
+files, `.test.*`, `.spec.tsx`, `.spec.js`, specs outside `e2e/`, or other
+deployables, including public-web and the connector extension. Relative deep
+imports into bounded-context source remain forbidden. Existing public
+entrypoint rules and the extension's Channels `./client` exception are unchanged;
+this does not execute seed or bootstrap code.
+
 ## Deployable Composition
 
 The platform host resolves route and shell composition directly from bounded-context manifests.

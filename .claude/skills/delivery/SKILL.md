@@ -70,7 +70,8 @@ git -C <worktree> switch -c <branch> --track origin/main
 
 - Inner loop is watch mode (`pnpm --filter @chase-sets/<workspace> run test:watch`); run the scoped checks for every touched workspace before opening the PR. On concurrent-lane hosts, set `CHASE_SETS_LANE_MODE=1` for local Vitest commands so the shared config uses lane-safe timeouts and capped workers; leave it unset for the strict default and hosted CI profile.
 - Rebase onto latest `origin/main` before every push, and regenerate derived artifacts as part of the rebase (localization fingerprints, design-system ledgers/`COMPONENT_INDEX`).
-- The ordinary pre-PR gate is `pnpm run verify:ci-local -- --mode=pull-request --provenance=same-repository`. Use `--provenance=fork` for a fork candidate. Use `--mode=merge-group` only when the delivery contract explicitly requires a local preview of merge-group selection; the real hosted merge group remains authoritative.
+- For every nonempty diff, the ordinary pre-PR gate is a dry-run plan: `pnpm run verify:ci-local -- --mode=pull-request --provenance=same-repository --dry-run`. Use `pnpm run verify:ci-local -- --mode=pull-request --provenance=fork --dry-run` for a fork candidate. Use `pnpm run verify:ci-local -- --mode=merge-group --dry-run` only when the delivery contract explicitly requires a local preview of merge-group selection; the real hosted merge group remains authoritative. Retain the exact-head plan as PLAN_ONLY before push.
+- PLAN_ONLY records a plan, not an executed local or hosted PASS. Do not execute the selected broad local battery just to publish a draft.
 - Keep `pnpm run verify` as the deliberate broad diagnostic when cross-workspace impact makes the complete local battery useful. It is not the ordinary pre-PR default.
 - Run `pnpm run verify:static:scoped` before every push, plus named focused tests for changed script tooling. Do not use local full `verify:static`, full `verify`, or the complete `test:scripts` battery as delivery gates; hosted CI owns those unchanged strict full gates on every PR.
 - External provider contracts (event sets, webhook payloads, API schemas) are verified against the provider's **test-mode surface** (e.g. a Stripe test-mode create), not internal consistency — internal-only validation has passed every internal gate and still been rejected live. Include the test-mode output in Verification.
@@ -180,7 +181,7 @@ Enforcement pairs checked: packet shape → quality-packet-section-contract.test
 Unverifiable assumptions: none.
 ```
 
-**Draft semantics.** Open the PR as a draft while iterating. Mark it ready only when scoped checks are green, the Quality Packet is complete, and no full-path assumption is unresolved. If anything is unresolved, stay draft and say why in your report — draft vs. ready is a deliberate signal, and the orchestrator never readies drafts on your behalf.
+**Draft semantics.** Open the PR as a draft once scoped checks and affected focused checks are green and the Quality Packet is complete; disclose the exact-head PLAN_ONLY evidence. Before ready or enqueue, all selected REQUIRED hosted gates must pass and independent exact-head implementation review must pass, with no unresolved full-path assumption. Missing, red, or skipped REQUIRED hosted gates block readiness; PLAN_ONLY never substitutes for them. If anything is unresolved, stay draft and say why in your report — draft vs. ready is a deliberate signal, and the orchestrator never readies drafts on your behalf.
 
 ## Completion Report (lane mode)
 

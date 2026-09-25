@@ -22,6 +22,7 @@
   "apiBasePath": "/api/channels",
   "slices": [
     "connections",
+    "credentials",
     "connector-client",
     "publication-port",
     "listing-composition",
@@ -32,8 +33,8 @@
     "manual-sync",
     "reconciliation"
   ],
-  "allowedSupportDirectories": ["request-support", "runtime-support"],
-  "publicExports": [".", "./client", "./context", "./server", "./routes/*"],
+  "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
+  "publicExports": [".", "./client", "./context", "./server", "./routes/*", "./seed-support/*"],
   "allowedContextDependencies": ["@chase-sets/marketplace", "@chase-sets/inventory"],
   "seedRequirements": ["inventory"],
   "hostPorts": [
@@ -51,6 +52,11 @@
       "portName": "channelSaleRecorder",
       "providedBy": "inventory",
       "purpose": "Bind Inventory's typed account-scoped external Channel sale recorder for inline missed-sale reconciliation."
+    },
+    {
+      "portName": "channelCredentialKeyring",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Supply the shared parsed Channels credential keyring; absent configuration leaves custody unavailable."
     }
   ],
   "eventSubscriptions": [
@@ -709,6 +715,11 @@
     }
   ],
   "directoryIntent": {
+    "credentials": {
+      "classification": "slice",
+      "purpose": "Own the credentials slice canonical codecs, transactional custody, bound secret resolution, and explicit key rotation.",
+      "expectedConsumers": ["Channels server custody callers"]
+    },
     "connection-attention": {
       "classification": "slice",
       "purpose": "Own the connection-attention generation lifecycle, resolution facts, and combined channel-action source and detail panel.",
@@ -748,7 +759,12 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Own the context-level Channels runtime service composition contract.",
-      "expectedConsumers": ["Root Channels module and API composition"]
+      "expectedConsumers": ["credentials"]
+    },
+    "seed-support": {
+      "classification": "support",
+      "purpose": "Channels test-only browser mapping candidate and bounded row-hold support; never invoked by seed or bootstrap composition.",
+      "expectedConsumers": ["Channels cross-slice DB acceptance tests", "Deployable browser-e2e composition for #8122"]
     },
     "manual-sync": {
       "classification": "slice",

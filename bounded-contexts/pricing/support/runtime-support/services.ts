@@ -16,6 +16,7 @@ import { createRepricingPolicyActivationServices } from "../../features/repricin
 import { createPublicMarketPagesRuntime } from "../../features/public-market-pages/api/runtime";
 import { createBulkRepriceIngestionRuntime } from "../../features/bulk-reprice-ingestion/api/runtime";
 import { createRepricingEngineRuntime } from "../../features/repricing-engine/api/runtime";
+import { createRepricingActivityDigestRunner } from "../../features/repricing-engine/api/activity-digest";
 import type { CommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import type { ChannelConnectionIdentityReader } from "../../features/economics/domain/contracts";
 import { createEconomicsServices, type EconomicsServices } from "../../features/economics/api/services";
@@ -89,6 +90,7 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
   const marketRollupsBase = createMarketRollupsRuntime({ db, policies });
   const marketEstimates = createMarketEstimatesRuntime({ eventStore, db, policies });
   const repricingEngine = createRepricingEngineRuntime({ eventStore, db: pool });
+  const runRepricingActivityDigest = createRepricingActivityDigestRunner({ pool, eventStore, policies });
   /**
    * The Market-Value Estimate recompute RIDES the market-rollups closer job
    * (the m112 blended-estimate slice): platform-worker already schedules
@@ -106,6 +108,7 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
       const result = await marketRollupsBase.runDailyRollupCloser(params);
       await marketEstimates.runMarketPriceEstimateCloser({ now: params?.now, limit: params?.limit });
       await repricingEngine.enqueueDailyDriftSweep({ now: params?.now, limit: params?.limit });
+      await runRepricingActivityDigest({ now: params?.now });
       return result;
     },
   };

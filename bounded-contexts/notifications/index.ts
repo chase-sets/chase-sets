@@ -21,6 +21,7 @@ import {
 } from "./features/notification-center/integrations/source-events/notification-projector";
 import { buildNotificationsCustomerFeedbackProjectionHandlers } from "./features/notification-center/integrations/source-events/customer-feedback-notifications";
 import { buildNotificationsSupportDisputeProjectionHandlers } from "./features/notification-center/integrations/source-events/support-dispute-notifications";
+import { buildNotificationsPricingRepricingProjectionHandlers } from "./features/notification-center/integrations/source-events/pricing-repricing-notifications";
 
 export const module = defineBoundedContextModule<NotificationsServices, PgTransactionalPool, NotificationsHostPorts>({
   manifest: contextManifest,
@@ -65,6 +66,11 @@ export const module = defineBoundedContextModule<NotificationsServices, PgTransa
           buildNotificationsSupportDisputeProjectionHandlers(
             services.notificationOutbox,
             services.supportCaseDirectory,
+            subscription.projectionName,
+          ),
+        [`pricing.${NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION}`]: (subscription) =>
+          buildNotificationsPricingRepricingProjectionHandlers(
+            services.notificationOutbox,
             subscription.projectionName,
           ),
       },

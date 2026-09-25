@@ -12,6 +12,7 @@ describe("channel-publication-port-scope-fence", () => {
     expect([...new Set(relativeFiles.map((file) => file.split("/")[0]))].sort()).toEqual(["api", "domain", "tests"]);
     expect(manifest.slices).toEqual([
       "connections",
+      "credentials",
       "connector-client",
       "publication-port",
       "listing-composition",
@@ -41,14 +42,28 @@ describe("channel-publication-port-scope-fence", () => {
         purpose:
           "Bind Inventory's typed account-scoped external Channel sale recorder for inline missed-sale reconciliation.",
       },
+      {
+        portName: "channelCredentialKeyring",
+        providedBy: "platform-api, platform-worker",
+        purpose:
+          "Supply the shared parsed Channels credential keyring; absent configuration leaves custody unavailable.",
+      },
     ]);
-    expect(manifest.allowedSupportDirectories).toEqual(["request-support", "runtime-support"]);
-    expect(manifest.publicExports).toEqual([".", "./client", "./context", "./server", "./routes/*"]);
+    expect(manifest.allowedSupportDirectories).toEqual(["request-support", "runtime-support", "seed-support"]);
+    expect(manifest.publicExports).toEqual([
+      ".",
+      "./client",
+      "./context",
+      "./server",
+      "./routes/*",
+      "./seed-support/*",
+    ]);
     expect(packageJson.exports).toEqual({
       ".": "./index.ts",
       "./client": "./client.ts",
       "./context": "./context.json",
       "./server": "./server.ts",
+      "./seed-support/*": "./support/seed-support/*.ts",
       "./routes/*": "./routes/*.tsx",
     });
 

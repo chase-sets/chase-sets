@@ -1,4 +1,5 @@
 import { Hono, type Context, type Next } from "hono";
+import { createCheckoutClosedMiddleware } from "./middleware/checkout-closed";
 import { module as authModule } from "@chase-sets/auth";
 import {
   createUcpOAuthMetadataRoutes,
@@ -106,6 +107,7 @@ import {
   priceSignalPolicy,
   providerObservationPolicy,
   repricingEnginePolicy,
+  repricingManagementPolicy,
 } from "@chase-sets/pricing/server";
 import {
   createBlockedPayoutAttentionSourceFromReadModel,
@@ -233,6 +235,7 @@ export type BuildPlatformApiOptions = Readonly<{
   ucpAp2MandateVerifier?: UcpAp2MandateVerifier;
   internalAuthSecret?: string;
   adminRegistrationEnabled?: boolean;
+  checkoutClosed?: boolean;
   controlPlane?: PlatformControlPlane;
   evidenceWindowRegistration?: EvidenceWindowRoutesOptions;
   workSignalStore?: ProjectionWakeStatusWorkSignalStore;
@@ -425,6 +428,7 @@ export function createPlatformApiHost(
         priceSignalPolicy,
         providerObservationPolicy,
         repricingEnginePolicy,
+        repricingManagementPolicy,
       ] as unknown as readonly PolicyDefinition<JsonValue>[],
       write: lazyPolicyConsoleWritePort(
         () => runtime?.services.pricing as { policies?: PolicyConsoleWritePort } | undefined,
@@ -855,6 +859,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     : undefined;
   const checkoutUcpHandlers = checkoutServices?.sessions
     ? createCheckoutUcpHandlers(checkoutServices, {
+        checkoutClosed: options.checkoutClosed,
         paymentHandoff,
         agentGrantSpendPolicy: options.agentGrantSpendPolicy,
         signCheckout: options.ucp?.businessSigningKeys
@@ -865,13 +870,19 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
   const orderingServices = runtime.services.ordering as Parameters<typeof createOrderingUcpHandlers>[0] | undefined;
   const orderingUcpHandlers = orderingServices?.orders ? createOrderingUcpHandlers(orderingServices) : undefined;
   const moduleMcpHandlers = buildMcpHandlersFromModules(runtime.mountedModules);
+  const toolHandlers = {
+    ...moduleMcpHandlers.toolHandlers,
+    ...options.mcp?.toolHandlers,
+  };
+  if (options.checkoutClosed && toolHandlers["checkout.select-saved-address"]) {
+    toolHandlers["checkout.select-saved-address"] = async () => {
+      throw new Error("checkout_closed");
+    };
+  }
   const mcpOptions = {
     ...options.mcp,
     agentGrantRateLimiter: options.mcp?.agentGrantRateLimiter ?? options.ucp?.agentGrantRateLimiter,
-    toolHandlers: {
-      ...moduleMcpHandlers.toolHandlers,
-      ...options.mcp?.toolHandlers,
-    },
+    toolHandlers,
     resourceHandlers: {
       ...moduleMcpHandlers.resourceHandlers,
       ...options.mcp?.resourceHandlers,
@@ -1036,6 +1047,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
       .map((mount) => mount.mountPath),
     platformActorMiddleware,
   );
+  attachApiMountMiddleware(app, ["/api/marketplace"], createCheckoutClosedMiddleware(options.checkoutClosed ?? false));
   attachApiMountMiddleware(
     app,
     apiMounts.filter((mount) => mount.contextName === "catalog" && mount.requiresAuth).map((mount) => mount.mountPath),

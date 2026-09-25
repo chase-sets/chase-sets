@@ -145,6 +145,15 @@ import type { RecordExternalChannelSale } from "@chase-sets/inventory/server";
 import { createChannelReconciliationRuntime } from "./features/reconciliation/api/runtime";
 import { readReconciliationConnection } from "./features/reconciliation/read-model/source";
 import type { ChannelsServices } from "./support/runtime-support/services";
+import {
+  createChannelCredentialRuntime,
+  type ChannelCredentialCapabilityBinding,
+} from "./features/credentials/api/runtime";
+import type { ChannelCredentialKeyring } from "./features/credentials/domain/contracts";
+import {
+  channelCredentialSchemaSql,
+  channelCredentialSchemaMigrations,
+} from "./features/credentials/read-model/schema";
 import { createConnectionHealthRuntime } from "./features/connection-health/api/runtime";
 import { resolveChannelHealthPolicy } from "./features/connection-health/api/policy";
 import { channelHealthSchemaMigrations, channelHealthSchemaSql } from "./features/connection-health/read-model/schema";
@@ -167,6 +176,8 @@ import {
 const channelsContextManifest = contextManifest as BcContextManifest;
 type ChannelsHostPorts = ChannelConnectionHostPorts &
   Readonly<{
+    channelCredentialKeyring?: ChannelCredentialKeyring | null;
+    channelCredentialCapabilities?: readonly ChannelCredentialCapabilityBinding[];
     marketplaceChannelInboundClamp?: MarketplaceChannelInboundClampCapability;
     channelSaleRecorder: RecordExternalChannelSale;
     readChannelHealthHold?: (connectionId: string) => Promise<boolean>;
@@ -174,9 +185,10 @@ type ChannelsHostPorts = ChannelConnectionHostPorts &
 
 export const module = defineBoundedContextModule<ChannelsServices, PgTransactionalPool, ChannelsHostPorts>({
   manifest: channelsContextManifest,
-  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}\n${channelAttentionSchemaSql}`,
+  schemaSql: `${platformPolicySchemaSql}\n${channelConnectionSchemaSql}\n${channelCredentialSchemaSql}\n${channelListingCompositionSchemaSql}\n${outboundSyncSchemaSql}\n${tcgplayerCsvSchemaSql}\n${channelHealthSchemaSql}\n${manualSyncSchemaSql}\n${channelReconciliationSchemaSql}\n${channelAttentionSchemaSql}`,
   schemaMigrations: [
     ...channelConnectionSchemaMigrations,
+    ...channelCredentialSchemaMigrations,
     ...channelListingCompositionSchemaMigrations,
     ...outboundSyncSchemaMigrations,
     ...tcgplayerCsvSchemaMigrations,
@@ -304,6 +316,7 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
     return {
       connections,
       storageLocationAuthority,
+      credentials: createChannelCredentialRuntime(ports.channelCredentialKeyring, ports.channelCredentialCapabilities),
       connectionHealth,
       connectionAttention: createConnectionAttentionRuntime({ db: pool, eventStore, connectionHealth }),
       listingComposition,

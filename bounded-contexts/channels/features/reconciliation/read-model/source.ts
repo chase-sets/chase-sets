@@ -3,6 +3,112 @@ import { parseGlobalPosition } from "@chase-sets/event-core/storage";
 import type { ChannelPublicationDraft } from "../../publication-port/domain/contracts";
 import { assertChannelPublicationDraft } from "../../publication-port/domain/validation";
 import type { EnqueueOutboundOperation } from "../../outbound-sync/domain/contracts";
+import { createHash } from "node:crypto";
+import { tcgplayerExternalListingId } from "../../tcgplayer-csv/domain/composition";
+import type { ChannelInventorySnapshotRow } from "../../tcgplayer-csv/domain/contracts";
+import type { ChannelDriftObservation, ClaimedChannelStateRead, ChannelObservedMaterial } from "../domain/contracts";
+
+export const CHANNEL_OBSERVED_MATERIAL_SCHEME = "channels.claimed-live-material/v1";
+
+export function observedMaterialFingerprint(row: ChannelInventorySnapshotRow): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        CHANNEL_OBSERVED_MATERIAL_SCHEME,
+        row.externalKey,
+        row.conditionText,
+        row.currency,
+        row.priceAmountMinor,
+        row.totalQuantity,
+      ]),
+    )
+    .digest("hex");
+}
+
+export function indexClaimedMaterial(
+  connectionId: string,
+  source: ClaimedChannelStateRead,
+): ClaimedMaterialIndex | null {
+  if (
+    source.sourceAuthority.kind !== "complete" ||
+    source.freshness !== "current" ||
+    !source.snapshotId ||
+    !Number.isSafeInteger(source.sourceAuthority.authorityTotal) ||
+    source.sourceAuthority.authorityTotal < 0 ||
+    source.sourceAuthority.collectedCount !== source.sourceAuthority.authorityTotal ||
+    source.rows.length !== source.sourceAuthority.authorityTotal ||
+    source.rows.some(
+      (row) =>
+        row.connectionId !== connectionId ||
+        row.snapshotId !== source.snapshotId ||
+        row.providerKey !== "tcgplayer" ||
+        row.surface !== "live" ||
+        row.currency !== "USD",
+    )
+  )
+    return null;
+  const items = new Map<string, ChannelObservedMaterial | null>();
+  for (const row of source.rows) {
+    const identity = tcgplayerExternalListingId(row.externalKey, row.conditionText);
+    if (items.has(identity)) return null;
+    items.set(
+      identity,
+      row.priceAmountMinor === null ||
+        !Number.isSafeInteger(row.priceAmountMinor) ||
+        row.priceAmountMinor < 0 ||
+        !Number.isSafeInteger(row.totalQuantity) ||
+        row.totalQuantity < 0
+        ? null
+        : {
+            present: true,
+            revision: null,
+            materialIdentity: identity,
+            price: { amountMinor: row.priceAmountMinor, currency: "USD" },
+            quantity: row.totalQuantity,
+            fingerprint: observedMaterialFingerprint(row),
+          },
+    );
+  }
+  return {
+    sourceAuthority: source.sourceAuthority,
+    items,
+    appliedChannelListingIds: new Set(source.appliedChannelListingIds),
+  };
+}
+
+type ClaimedMaterialIndex = Readonly<{
+  sourceAuthority: ClaimedChannelStateRead["sourceAuthority"];
+  items: ReadonlyMap<string, ChannelObservedMaterial | null>;
+  appliedChannelListingIds: ReadonlySet<string>;
+}>;
+
+export function resolveClaimedMaterial(
+  listing: Pick<
+    ReconciliationExpectedListing,
+    "channelListingId" | "expectedPrice" | "externalListingId" | "externalOfferId"
+  >,
+  source: ClaimedMaterialIndex | null,
+): Pick<ChannelDriftObservation, "observed" | "sourceAuthority" | "expectedMaterialIdentity"> {
+  const unavailable = {
+    observed: { present: false },
+    sourceAuthority: { kind: "declared-incomplete", reason: "claimed-material-unavailable" },
+  } as const;
+  if (
+    !source ||
+    !source.appliedChannelListingIds.has(listing.channelListingId) ||
+    listing.expectedPrice.currency !== "USD" ||
+    !listing.externalListingId ||
+    listing.externalOfferId !== null
+  )
+    return unavailable;
+  const observed = source.items.get(listing.externalListingId);
+  if (observed === null) return unavailable;
+  return {
+    observed: observed ?? { present: false },
+    sourceAuthority: source.sourceAuthority,
+    expectedMaterialIdentity: listing.externalListingId,
+  };
+}
 
 export type ReconciliationConnectionSource = Readonly<{
   connectionId: string;

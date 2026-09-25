@@ -1,4 +1,5 @@
 import type { BcSeedAggregateStateReport } from "@chase-sets/bounded-context-module";
+import { runInProjectionDbContext } from "@chase-sets/bounded-context-runtime";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import {
   createPostgresEventStore,
@@ -135,49 +136,51 @@ export async function seedManualSyncScenario(
     },
   });
 
-  await withPgTransaction(pool, async (db: PgQueryable) => {
-    await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`manual-sync-seed:${runStreamId}`]);
-    const currentRun = await db.query("SELECT 1 FROM event_store_events WHERE stream_id=$1 LIMIT 1", [runStreamId]);
-    if (currentRun.rows.length > 0) return;
-    const reservation = await services.outboundSync.reserveClaimedOutboundOperationsInTransaction(
-      {
-        registry: channelProviderRegistry,
-        connectionId: manualSyncScenarioSeed.connectionId,
-        claimant: { claimantKind: "manual", claimantId: demoIdentitySeedIds.userId },
-        maxOperations: 1,
-        leaseMs: 1_800_000,
-      },
-      db,
-    );
-    if (!reservation || reservation.operations.length !== 1) {
-      throw new Error(
-        "The manual sync scenario desired state did not produce one claimed TCGplayer reservation member.",
-      );
-    }
-    const run = scenarioRun(reservation);
-    await eventStore.appendToStreamInTransaction(db, {
-      streamId: runStreamId,
-      wakeSourceContextName: "channels",
-      expectedVersion: "no_stream",
-      context,
-      events: [
+  await withPgTransaction(pool, (db: PgQueryable) =>
+    runInProjectionDbContext(db, async () => {
+      await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`manual-sync-seed:${runStreamId}`]);
+      const currentRun = await db.query("SELECT 1 FROM event_store_events WHERE stream_id=$1 LIMIT 1", [runStreamId]);
+      if (currentRun.rows.length > 0) return;
+      const reservation = await services.outboundSync.reserveClaimedOutboundOperationsInTransaction(
         {
-          eventType: "channels.tcgplayer-sync-run.composed",
-          payload: {
-            run,
-            csvHeader: ["TCGplayer Id", "Add to Quantity", "TCG Marketplace Price"],
-          },
+          registry: channelProviderRegistry,
+          connectionId: manualSyncScenarioSeed.connectionId,
+          claimant: { claimantKind: "manual", claimantId: demoIdentitySeedIds.userId },
+          maxOperations: 1,
+          leaseMs: 1_800_000,
         },
-      ],
-    });
-    await db.query(
-      `INSERT INTO channels_manual_sync_clamp_status
+        db,
+      );
+      if (!reservation || reservation.operations.length !== 1) {
+        throw new Error(
+          "The manual sync scenario desired state did not produce one claimed TCGplayer reservation member.",
+        );
+      }
+      const run = scenarioRun(reservation);
+      await eventStore.appendToStreamInTransaction(db, {
+        streamId: runStreamId,
+        wakeSourceContextName: "channels",
+        expectedVersion: "no_stream",
+        context,
+        events: [
+          {
+            eventType: "channels.tcgplayer-sync-run.composed",
+            payload: {
+              run,
+              csvHeader: ["TCGplayer Id", "Add to Quantity", "TCG Marketplace Price"],
+            },
+          },
+        ],
+      });
+      await db.query(
+        `INSERT INTO channels_manual_sync_clamp_status
        (run_id,connection_id,account_id,run_revision,state,requested_listing_count,affected_listing_count,updated_at)
        VALUES ($1,$2,$3,0,'recovery',1,1,now())
        ON CONFLICT (run_id) DO NOTHING`,
-      [manualSyncScenarioSeed.runId, manualSyncScenarioSeed.connectionId, demoIdentitySeedIds.accountId],
-    );
-  });
+        [manualSyncScenarioSeed.runId, manualSyncScenarioSeed.connectionId, demoIdentitySeedIds.accountId],
+      );
+    }),
+  );
 }
 
 export async function inspectManualSyncSeedState(

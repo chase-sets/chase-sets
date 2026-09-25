@@ -333,6 +333,8 @@ export type ApiHostSeedOptions = BcSeedOptions &
   Readonly<{
     runtimeProfile?: ApiHostRuntimeProfile;
     schemaBootstrap?: SchemaBootstrapOptions;
+    /** Seed commands hold this direct connection separately from the capped context query pool. */
+    schemaBootstrapLockPool?: PgTransactionalPool;
     /**
      * Upper bound for any single seed substep (schema bootstrap or module seed for one
      * context). When a substep exceeds it, seeding fails with a descriptive error instead of
@@ -418,8 +420,10 @@ export async function seedApiHostIfEmpty(
     return;
   }
 
-  await withSchemaBootstrapLock(bootstrapLockContext.pool, options.schemaBootstrap, (lockAcquisition) =>
-    seedApiHostIfEmptyWithHeldBootstrapLock(registry, hostName, runtime, options, lockAcquisition),
+  await withSchemaBootstrapLock(
+    options.schemaBootstrapLockPool ?? bootstrapLockContext.pool,
+    options.schemaBootstrap,
+    (lockAcquisition) => seedApiHostIfEmptyWithHeldBootstrapLock(registry, hostName, runtime, options, lockAcquisition),
   );
 }
 

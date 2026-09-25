@@ -10,6 +10,17 @@ import {
   renderPlatformHelmLocalBootValues,
   summarizePlatformHelmLocalBoot,
 } from "./platform-helm-local-boot.mjs";
+import { buildPlatformHelmValues } from "./render-platform-helm-values.mjs";
+
+it("keeps local boot credential-free rather than supplying a malformed keyring placeholder", () => {
+  const values = buildPlatformHelmLocalBootValues({ values: buildPlatformHelmValues() });
+  for (const host of ["platform-api", "platform-worker"]) {
+    expect(values.components[host].env.find((entry) => entry.name === "CHANNELS_CREDENTIAL_KEYRING_JSON")).toEqual({
+      name: "CHANNELS_CREDENTIAL_KEYRING_JSON",
+      value: "",
+    });
+  }
+});
 
 const sampleValues = {
   global: {

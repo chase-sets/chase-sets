@@ -14,10 +14,11 @@ import { apiContextRegistry } from "./generated/api-context-registry";
 import { createPlatformApiHost } from "./app";
 import {
   loadConfig,
+  type PlatformApiConfig,
   type PlatformApiCatalogAssetStorageConfig,
   type PlatformApiListingPhotoStorageConfig,
 } from "./config";
-import { closePlatformApiPools, createPlatformApiPools } from "./database-pools";
+import { closePlatformApiPools, createSeedCommandPools } from "./database-pools";
 import { createFakeMoneyMovementGateway, createFakePaymentProcessorGateway } from "./test-support/provider-gateways";
 
 const CONFIRMATION_PHRASE = "provision admin qa fixtures";
@@ -74,8 +75,8 @@ export function assertAdminQaActorFixturesRunAllowed(
   );
 }
 
-export async function runAdminQaActorFixtures(): Promise<void> {
-  const config = loadConfig();
+export async function runAdminQaActorFixtures(options: Readonly<{ config?: PlatformApiConfig }> = {}): Promise<void> {
+  const config = options.config ?? loadConfig();
   assertAdminQaActorFixturesRunAllowed({
     deploymentEnvironment: config.deploymentEnvironment,
     confirmation: process.env.ADMIN_QA_ACTOR_FIXTURES_CONFIRM,
@@ -83,7 +84,7 @@ export async function runAdminQaActorFixtures(): Promise<void> {
     ephemeralVerificationNamespace: process.env.EPHEMERAL_VERIFICATION_NAMESPACE,
   });
 
-  const pools = createPlatformApiPools(config);
+  const pools = createSeedCommandPools(config);
   try {
     await bootstrapPlatformControlPlane(pools.control);
     const paymentProcessorGateway = createFakePaymentProcessorGateway();
@@ -103,6 +104,7 @@ export async function runAdminQaActorFixtures(): Promise<void> {
       enabledDataProfiles: [...BASELINE_DATA_PROFILES],
       environmentName: config.deploymentEnvironment ?? null,
       runtimeProfile: config.runtimeProfile,
+      schemaBootstrapLockPool: pools.schemaBootstrapLockPool,
     });
 
     const identityServices = getIdentityServices(runtime.services);

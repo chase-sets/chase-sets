@@ -31,7 +31,7 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (162)
+## Projection Groups (163)
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
@@ -183,6 +183,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `pricing:pricing-market-trades-projection` | Pricing | authenticity, fulfillment, **identity**, **ordering**, **payments** | push-eligible | 3/5 |
 | `pricing:pricing-order-input-projection` | Pricing | **ordering** | push-enabled | 1/1 |
 | `pricing:pricing-economics-overrides-projection` | Pricing | pricing | push-eligible | 0/1 |
+| `pricing:pricing-repricing-evaluation-projection` | Pricing | pricing | push-eligible | 0/1 |
 | `pricing:pricing-repricing-evaluation-reaction` | Pricing | **marketplace**, pricing | push-eligible | 1/2 |
 | `pricing:pricing-repricing-halt-projection` | Pricing | pricing | push-eligible | 0/1 |
 | `public-presence:platform-policy-document-projection` | Public Presence | **public-presence** | push-enabled | 1/1 |

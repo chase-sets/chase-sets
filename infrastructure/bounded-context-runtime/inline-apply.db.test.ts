@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { defineBoundedContextModule, type BcApiEntry } from "@chase-sets/bounded-context-module";
 import {
   getEventCommitMetadata,
@@ -23,6 +23,8 @@ import {
 } from "./test-support";
 
 const NO_API_ENTRIES: readonly BcApiEntry[] = [];
+const realSetTimeout = globalThis.setTimeout;
+const realClearTimeout = globalThis.clearTimeout;
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI) {
@@ -337,10 +339,10 @@ describeDb("projection inline apply Postgres integration", () => {
     ]);
   });
 
-  it("aborts and releases the ledger claim before returning when the hard budget expires", async () => {
-    const runtime = createRuntime(pool);
+  it("settles without starting the handler when connect outlasts the hard budget", async () => {
+    const runtime = createRuntime(withConnectDelay(pool, 100));
     const runner = runtime.subscriptionRunners[0]!;
-    const event = (await appendEvents(pool, "inline.item-budget", [{ itemId: "budget" }]))[0]!;
+    const event = (await appendEvents(pool, "inline.item-delayed-connect", [{ itemId: "delayed-connect" }]))[0]!;
     let markHandlerStarted: () => void = () => undefined;
     const handlerStarted = new Promise<void>((resolve) => {
       markHandlerStarted = resolve;
@@ -351,28 +353,109 @@ describeDb("projection inline apply Postgres integration", () => {
     });
     testState.handlerGate = { started: markHandlerStarted, wait: handlerWait };
 
-    const inlineAttempt = applyInline(runtime, [event], 25);
-    await handlerStarted;
-    await expect(inlineAttempt).resolves.toEqual({ applied: 0, deferred: 0, failed: 1 });
-
-    const claimant = await pool.connect();
     try {
-      await claimant.query("BEGIN");
-      await claimant.query("SET LOCAL lock_timeout = '250ms'");
-      await expect(
-        claimSubscriptionApplication(claimant, runner.checkpointKey, toTransportEvent(event), {
-          ownerId: "async-runner",
-          fencingToken: "11",
-        }),
-      ).resolves.toBe("claimed");
+      await expect(applyInline(runtime, [event], 25)).resolves.toEqual({ applied: 0, deferred: 0, failed: 1 });
+      expect(testState.handlerCalls).toBe(0);
+      await expect(Promise.race([handlerStarted, Promise.resolve("pending")])).resolves.toBe("pending");
+      await expect(readLedger(pool, runner.checkpointKey)).resolves.toEqual([]);
+      const claimant = await pool.connect();
+      try {
+        await claimant.query("BEGIN");
+        await claimant.query("SET LOCAL lock_timeout = '250ms'");
+        await expect(
+          claimSubscriptionApplication(claimant, runner.checkpointKey, toTransportEvent(event), {
+            ownerId: "async-runner",
+            fencingToken: "11",
+          }),
+        ).resolves.toBe("claimed");
+      } finally {
+        await claimant.query("ROLLBACK").catch(() => undefined);
+        claimant.release();
+      }
     } finally {
-      await claimant.query("ROLLBACK").catch(() => undefined);
-      claimant.release();
       releaseHandler();
       testState.handlerGate = null;
     }
   });
+
+  it.each([0, 100])(
+    "aborts and releases the ledger claim before returning when the hard budget expires (connect delay %i ms)",
+    async (connectDelayMs) => {
+      const runtime = createRuntime(withConnectDelay(pool, connectDelayMs));
+      const runner = runtime.subscriptionRunners[0]!;
+      const event = (await appendEvents(pool, "inline.item-budget", [{ itemId: "budget" }]))[0]!;
+      let markHandlerStarted: () => void = () => undefined;
+      const handlerStarted = new Promise<void>((resolve) => {
+        markHandlerStarted = resolve;
+      });
+      let releaseHandler: () => void = () => undefined;
+      const handlerWait = new Promise<void>((resolve) => {
+        releaseHandler = resolve;
+      });
+      testState.handlerGate = { started: markHandlerStarted, wait: handlerWait };
+
+      let diagnosticTimer: ReturnType<typeof setTimeout> | undefined;
+      const diagnosticBound = new Promise<Readonly<{ kind: "diagnostic-bound" }>>((resolve) => {
+        diagnosticTimer = realSetTimeout(() => resolve({ kind: "diagnostic-bound" }), 30_000);
+      });
+      try {
+        vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+        const inlineAttempt = applyInline(runtime, [event], 25);
+        const settlement = inlineAttempt.then((summary) => ({ kind: "settled" as const, summary }));
+        const first = await Promise.race([
+          handlerStarted.then(() => ({ kind: "handler-started" as const })),
+          settlement,
+          diagnosticBound,
+        ]);
+        if (first.kind === "settled") {
+          throw new Error(`attempt settled before handler start: ${JSON.stringify(first.summary)}`);
+        }
+        if (first.kind === "diagnostic-bound") {
+          throw new Error("neither handler start nor settlement");
+        }
+
+        vi.advanceTimersByTime(25);
+        const result = await Promise.race([settlement, diagnosticBound]);
+        if (result.kind === "diagnostic-bound") {
+          throw new Error("handler started but attempt did not settle");
+        }
+        vi.useRealTimers();
+        expect(result.summary).toEqual({ applied: 0, deferred: 0, failed: 1 });
+
+        const claimant = await pool.connect();
+        try {
+          await claimant.query("BEGIN");
+          await claimant.query("SET LOCAL lock_timeout = '250ms'");
+          await expect(
+            claimSubscriptionApplication(claimant, runner.checkpointKey, toTransportEvent(event), {
+              ownerId: "async-runner",
+              fencingToken: "11",
+            }),
+          ).resolves.toBe("claimed");
+        } finally {
+          await claimant.query("ROLLBACK").catch(() => undefined);
+          claimant.release();
+        }
+      } finally {
+        releaseHandler();
+        testState.handlerGate = null;
+        vi.useRealTimers();
+        realClearTimeout(diagnosticTimer);
+      }
+    },
+  );
 });
+
+function withConnectDelay(pool: PgTransactionalPool, delayMs: number): PgTransactionalPool {
+  return {
+    query: pool.query.bind(pool),
+    idleInTransactionSessionTimeoutMillis: pool.idleInTransactionSessionTimeoutMillis,
+    connect: async () => {
+      await new Promise<void>((resolve) => realSetTimeout(resolve, delayMs));
+      return pool.connect();
+    },
+  };
+}
 
 function createRuntime(pool: PgTransactionalPool) {
   return createMountedContextTestRuntime([{ contextName: "inline", module: inlineModule, pool, ports: {} }]);

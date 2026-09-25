@@ -1,6 +1,7 @@
 generatedBy: "node ./scripts/render-platform-helm-values.mjs"
 global:
   envOverrides:
+    CHASE_SETS_CHECKOUT_CLOSED: "true"
     CATALOG_INTEGRATION_ACTIVATION_MODE: "test-profiles-only"
     CATALOG_INTEGRATION_CONTROL_PLANE_MODE: "dry-run-only"
     CATALOG_INTEGRATION_IMPORTS_DISABLED: "mtgjson,scryfall,tcgplayer"

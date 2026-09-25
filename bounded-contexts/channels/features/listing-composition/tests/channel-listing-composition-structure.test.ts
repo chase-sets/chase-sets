@@ -167,6 +167,12 @@ describe("channel-listing-composition-scope-fence", () => {
         purpose:
           "Bind Inventory's typed account-scoped external Channel sale recorder for inline missed-sale reconciliation.",
       },
+      {
+        portName: "channelCredentialKeyring",
+        providedBy: "platform-api, platform-worker",
+        purpose:
+          "Supply the shared parsed Channels credential keyring; absent configuration leaves custody unavailable.",
+      },
     ]);
   });
 });

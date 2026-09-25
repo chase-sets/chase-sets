@@ -9,6 +9,7 @@ import type {
   ConnectionHealthServices,
 } from "../../connection-health/domain/contracts";
 import type { DriftGenerationMember } from "./generation";
+import type { ChannelInventorySnapshotRow } from "../../tcgplayer-csv/domain/contracts";
 
 export type { ChannelHealthObservation as ChannelHealthObservationV1 } from "../../connection-health/domain/contracts";
 
@@ -56,6 +57,30 @@ export type ChannelDriftObservationV1 = Readonly<{
   acceptedForeignEdit: AcceptedChannelDrift | null;
   observed: ChannelObservedListing;
   sourceAuthority: ChannelSourceAuthority;
+}>;
+
+export type ChannelObservedMaterial = Readonly<{
+  present: true;
+  revision: null;
+  materialIdentity: string;
+  price: Readonly<{ amountMinor: number; currency: "USD" }>;
+  quantity: number;
+  fingerprint: string;
+}>;
+
+export type ChannelDriftObservation = Omit<ChannelDriftObservationV1, "observed"> &
+  Readonly<{
+    expectedMaterialIdentity?: string | null;
+    observed: ChannelObservedListing | ChannelObservedMaterial;
+  }>;
+
+/** The installed evidence reader owns census, freshness and applied-membership proof, independently of CSV rows. */
+export type ClaimedChannelStateRead = Readonly<{
+  sourceAuthority: ChannelSourceAuthority;
+  freshness: "current" | "stale" | "unknown";
+  snapshotId: string;
+  rows: readonly ChannelInventorySnapshotRow[];
+  appliedChannelListingIds: readonly string[];
 }>;
 
 export type ChannelHealthObservationIdentity = Pick<
@@ -227,6 +252,9 @@ export type ChannelReconciliationRuntimeDependencies = Readonly<{
     "enqueueReconciliationRepair" | "enqueueRepush" | "readOutboundOperationsByIds"
   >;
   channelSaleRecorder: RecordExternalChannelSale;
+  readClaimedChannelState?: (
+    input: Readonly<{ connectionId: string; observedAt: string; maxListings: number }>,
+  ) => Promise<ClaimedChannelStateRead>;
   resolvePolicy: () => Promise<
     Readonly<{
       value: import("./policy").ChannelReconciliationPolicyValue;

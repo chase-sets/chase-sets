@@ -29,6 +29,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     environment: staging
+    concurrency:
+      group: platform-deploy-staging
+      cancel-in-progress: false
     outputs:
       scenario_seed_error: ${{ steps.summarize.outputs.scenario_seed_error }}
     env:
@@ -176,10 +179,49 @@ jobs:
             --runtime-env "CATALOG_ASSET_S3_REGION=${catalog_asset_s3_region}" \
             --namespace "$CHASE_SETS_KUBERNETES_NAMESPACE" \
             --release "$CHASE_SETS_HELM_RELEASE" \
-            --quiesce-workers false \
+            --quiesce-workers true \
             --managed-postgres-ca-sha256 "$managed_postgres_ca_sha256" \
             --timeout 60m \
             --out artifacts/staging-advisory-evidence/scenario-seed.json
+
+      - name: Await staging scenario-seed Job termination
+        if: always() && steps.scenario_seed.outcome != 'skipped'
+        timeout-minutes: 60
+        env:
+          ADVISORY_CANCELLED: ${{ job.status == 'cancelled' }}
+        run: |
+          set -euo pipefail
+          ns="$CHASE_SETS_KUBERNETES_NAMESPACE"
+          job="${CHASE_SETS_HELM_RELEASE}-scenario-seed-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          pods="app.kubernetes.io/instance=${CHASE_SETS_HELM_RELEASE},app.kubernetes.io/component=scenario-seed,batch.kubernetes.io/job-name=${job}"
+          deadline=$(( $(date +%s) + 3420 ))
+          if [ "$ADVISORY_CANCELLED" = "true" ]; then
+            kubectl delete job "$job" -n "$ns" --cascade=foreground --wait=true --ignore-not-found=true
+          fi
+          while true; do
+            status="$(kubectl get job "$job" -n "$ns" --ignore-not-found=true -o json)"
+            active="$(kubectl get pods -n "$ns" -l "$pods" \
+              --field-selector=status.phase!=Succeeded,status.phase!=Failed -o name)"
+            if { [ -z "$status" ] || jq -e '(.status.succeeded // 0) > 0 or
+                any(.status.conditions[]?; (.type == "Complete" or .type == "Failed") and .status == "True")' <<< "$status" >/dev/null; } \
+                && [ -z "$active" ]; then
+              break
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::scenario-seed Job still active; staging serialization group must not be released" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          # A deleted or deadline-killed seed pod never reaches the quiesce wrapper's finally.
+          worker_so="${CHASE_SETS_HELM_RELEASE}-chase-sets-platform-platform-worker"
+          if [ -n "$(kubectl get scaledobject "$worker_so" -n "$ns" --ignore-not-found=true \
+              -o jsonpath='{.metadata.annotations.autoscaling\.keda\.sh/paused-replicas}')" ]; then
+            kubectl annotate scaledobject "$worker_so" -n "$ns" autoscaling.keda.sh/paused-replicas-
+          fi
+          kubectl delete rolebinding,role,serviceaccount -n "$ns" \
+            -l "app.kubernetes.io/instance=${CHASE_SETS_HELM_RELEASE},app.kubernetes.io/component=scenario-seed-quiesce,chase-sets.com/scenario-seed-job=${job}" \
+            --ignore-not-found=true
 
       - name: Resolve Playwright Chromium version
         id: staging-playwright-chromium

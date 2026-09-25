@@ -1,5 +1,18 @@
 export { channelsServicesMembers, isChannelsServices, type ChannelsServices } from "./support/runtime-support/services";
 export type { ChannelStorageLocationAuthorityResolver } from "./features/connections/domain/contracts";
+export { parseChannelCredentialKeyring, assertKeyringContinuity } from "./features/credentials/domain/codecs";
+export {
+  ChannelCredentialError,
+  type ChannelCredentialKeyring,
+  type ChannelCredentialEnvelope,
+  type ChannelOAuthTokenSet,
+} from "./features/credentials/domain/contracts";
+export type {
+  ChannelCredentialServices,
+  ChannelCredentialBinding,
+  ChannelCredentialExpectation,
+  ChannelCredentialCapabilityBinding,
+} from "./features/credentials/api/runtime";
 export type {
   ConnectionHealthServices,
   ChannelHealthObservation,
@@ -40,6 +53,9 @@ export {
   type ChannelDriftDetail,
   type ChannelDriftDetailRow,
   type ChannelDriftObservationV1,
+  type ChannelDriftObservation,
+  type ChannelObservedMaterial,
+  type ClaimedChannelStateRead,
   type ChannelHealthObservationV1,
   type ChannelHealthObservationIdentity,
   type ChannelOutboundHold,

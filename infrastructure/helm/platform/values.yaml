@@ -170,8 +170,6 @@ components:
       instanceCountExpression: "local.marketplace_web_instances"
     command: "pnpm --filter @chase-sets/app-marketplace-web run start"
     env:
-      - name: "CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE"
-        value: "false"
       - name: "CHASE_SETS_INTERNAL_API_ORIGIN"
         value: "http://chase-sets-platform-chase-sets-platform-platform-api:8080"
       - name: "CHASE_SETS_MARKETPLACE_INDEXING"
@@ -283,6 +281,8 @@ components:
       instanceCountExpression: "local.api_instances"
     command: "pnpm --filter @chase-sets/app-platform-api run start:production"
     env:
+      - name: "CHASE_SETS_CHECKOUT_CLOSED"
+        value: "false"
       - name: "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS"
         value: ""
       - name: "ADMIN_REGISTRATION_ENABLED"
@@ -331,6 +331,48 @@ components:
         value: "5000"
       - name: "DATABASE_POOL_MAX"
         value: "6"
+      - name: "BOOTSTRAP_DATABASE_URL_AUTH"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_AUTHENTICITY"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_CATALOG"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_CHANNELS"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_CHECKOUT"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_COLLECTIONS"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_COMMERCIAL_TERMS"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_CUSTOMER_FEEDBACK"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_DISCOVERY"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_FULFILLMENT"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_IDENTITY"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_INVENTORY"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_MARKETPLACE"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_NOTIFICATIONS"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_ORDERING"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_PAYMENTS"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_PLATFORM_OPERATIONS"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_PRICING"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_PUBLIC_PRESENCE"
+        secret: true
+      - name: "BOOTSTRAP_DATABASE_URL_SETTLEMENT"
+        secret: true
+      - name: "BOOTSTRAP_PLATFORM_CONTROL_DATABASE_URL"
+        secret: true
       - name: "DATABASE_URL_AUTH"
         secret: true
         secretKey: "DATABASE_URL_AUTH"
@@ -340,6 +382,9 @@ components:
       - name: "DATABASE_URL_CATALOG"
         secret: true
         secretKey: "DATABASE_URL_CATALOG"
+      - name: "CHANNELS_CREDENTIAL_KEYRING_JSON"
+        secret: true
+        secretKey: "CHANNELS_CREDENTIAL_KEYRING_JSON"
       - name: "DATABASE_URL_CHANNELS"
         secret: true
         secretKey: "DATABASE_URL_CHANNELS"
@@ -588,6 +633,9 @@ components:
       instanceCountExpression: "local.worker_instances"
     command: "pnpm --filter @chase-sets/app-platform-worker run start:production"
     env:
+      - name: "BOOTSTRAP_DATABASE_URL_SETTLEMENT"
+        secret: true
+        secretKey: "BOOTSTRAP_DATABASE_URL_SETTLEMENT"
       - name: "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS"
         value: ""
       - name: "CATALOG_ASSET_PUBLIC_BASE_URL"
@@ -647,6 +695,9 @@ components:
       - name: "DATABASE_URL_CATALOG"
         secret: true
         secretKey: "DATABASE_URL_CATALOG"
+      - name: "CHANNELS_CREDENTIAL_KEYRING_JSON"
+        secret: true
+        secretKey: "CHANNELS_CREDENTIAL_KEYRING_JSON"
       - name: "DATABASE_URL_CHANNELS"
         secret: true
         secretKey: "DATABASE_URL_CHANNELS"
@@ -951,7 +1002,7 @@ components:
       - name: "DATABASE_POOL_IDLE_TIMEOUT_MS"
         value: "5000"
       - name: "DATABASE_POOL_MAX"
-        value: "4"
+        value: "1"
       - name: "DATABASE_URL_AUTH"
         secret: true
         secretKey: "BOOTSTRAP_DATABASE_URL_AUTH"

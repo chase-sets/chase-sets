@@ -942,6 +942,9 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.buyCheckoutConfirmation.title": "Checkout received | Marketplace",
   "checkout.routes.buyCheckoutConfirmation.description": "Continue to the secure payment step for this checkout.",
   "checkout.routes.checkoutRecovery.browse.marketplace": "Browse marketplace",
+  "checkout.routes.checkoutRecovery.checkout.closed": "Checkout is closed",
+  "checkout.routes.checkoutRecovery.checkout.closed.description":
+    "Buying opens at public launch. Your Buy Cart is saved, and you can continue browsing.",
   "checkout.routes.checkoutRecovery.buy.cart.empty": "Your Buy Cart is empty",
   "checkout.routes.checkoutRecovery.buy.cart.empty.description": "Add items to your Buy Cart before starting checkout.",
   "checkout.routes.checkoutRecovery.checkout.preparing": "Preparing checkout",
