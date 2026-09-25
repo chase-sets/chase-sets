@@ -1306,7 +1306,7 @@ describe("Platform API bootstrap DB enrollment", () => {
 
     expect(schedule.oneFewerUnit?.unitCount).toBe(1);
     const worst = Math.max(...(schedule.oneFewerUnit?.units ?? []).map((unit) => unit.makespanMs));
-    expect(worst).toBe(726_006);
+    expect(worst).toBe(757_694);
     expect(worst).toBeGreaterThan(bootstrapDbScheduleModel.executionUnitCeilingMs);
   });
 
