@@ -50,6 +50,21 @@ type Sentinel = Readonly<{
 }>;
 
 const secretMarkers = ["provider-db-secret-marker", "ambient-db-secret-marker", "postgresql://", "BEGIN CERTIFICATE"];
+const cleanupErrorCodes = [
+  "08001",
+  "08006",
+  "2BP01",
+  "3D000",
+  "53300",
+  "55006",
+  "57P01",
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "EPIPE",
+  "ENOENT",
+  "EACCES",
+];
 
 const cleanupPhases = [
   "hook",
@@ -142,13 +157,7 @@ function observeCleanup(hookStartedAt: number, directory?: string) {
         ? name
         : "OtherError";
       const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
-      if (
-        typeof code === "string" &&
-        (/^[A-Z0-9]{5}$/.test(code) ||
-          ["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EPIPE", "ENOENT", "EACCES"].includes(code))
-      ) {
-        item.errorCode = code;
-      }
+      if (typeof code === "string") item.errorCode = cleanupErrorCodes.includes(code) ? code : "OTHER";
     }
   };
   const run = async <T>(phase: CleanupPhase, operation: () => Promise<T>): Promise<T> => {
