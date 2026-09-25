@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runInNewContext } from "node:vm";
 
 import ts from "@chase-sets/typescript-compiler-api";
 import { afterEach, describe, expect, it } from "vitest";
@@ -230,6 +231,31 @@ function unitFileFor(name: string, executionUnit: string, referenceDurationMs: n
     databaseSuffix: `platform_api_${name.replaceAll("-", "_")}`,
     executionUnit,
     cases: [{ name: `${name} case`, referenceDurationMs, body: "  expect(1).toBe(1);" }],
+  };
+}
+
+function exhaustiveScheduleProbe(bypassFileBound = false) {
+  const source = readFileSync(join(testDirectory, "../scripts/check-bootstrap-db-enrollment.mjs"), "utf8");
+  const start = source.indexOf("function worstCaseListScheduleMs(");
+  const end = source.indexOf("// Manifest shape validation.");
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  let algorithm = source.slice(start, end);
+  if (bypassFileBound) {
+    const boundary = "if (files.length > model.maximumScheduledFileCount)";
+    expect(algorithm.split(boundary)).toHaveLength(2);
+    algorithm = algorithm.replace(boundary, "if (false)");
+  }
+  return runInNewContext(`${algorithm}\n({ computeMinimumUnitCount, canonicalAssignments })`) as {
+    computeMinimumUnitCount: (
+      files: readonly { fileName: string; durationMs: number }[],
+      model: BootstrapDbScheduleModel,
+    ) => {
+      minimumUnitCount: number | null;
+      refusal: string | null;
+      witness?: { files: { fileName: string; durationMs: number }[]; makespanMs: number }[];
+    };
+    canonicalAssignments: (length: number, blockCount: number) => Generator<number[]>;
   };
 }
 
@@ -1138,6 +1164,130 @@ describe("Platform API bootstrap DB enrollment", () => {
 
   // -- minimum-unit invariant ----------------------------------------------
 
+  it.each([
+    [10, 10, true],
+    [11, 10, false],
+    [11, 11, true],
+    [12, 11, false],
+  ] as const)("enforces the %i-file boundary with declared bound %i", async (count, bound, accepted) => {
+    const files = Array.from({ length: count }, (_, index) => unitFileFor(`boundary-${index}`, "test:db:1", 1_000));
+    const fixture = await createFixture(files, { model: { maximumScheduledFileCount: bound } });
+    const result = runFixture(fixture);
+
+    expect(result.schedule.files).toHaveLength(count);
+    if (accepted) {
+      expect(result.violations).toEqual([]);
+      expect(result.schedule.minimumUnitCount).toBe(1);
+    } else {
+      expect(result.schedule.minimumUnitCount).toBeNull();
+      expect(result.violations).toContain(
+        `the schedule model refuses to enumerate ${count} files, above its declared bound of ` +
+          `${bound}; re-derive the bound deliberately rather than sampling assignments`,
+      );
+    }
+  });
+
+  it.each([
+    [11, 10],
+    [12, 11],
+  ])("rejects a bound-check bypass mutant for %i files at bound %i", (count, bound) => {
+    const files = Object.freeze(
+      Array.from({ length: count }, (_, index) => Object.freeze({ fileName: `boundary-${index}`, durationMs: 1_000 })),
+    );
+    const model = Object.freeze(createSyntheticScheduleModel({ maximumScheduledFileCount: bound }));
+    const assertBoundary = (probe: ReturnType<typeof exhaustiveScheduleProbe>) => {
+      expect(probe.computeMinimumUnitCount(files, model)).toEqual({
+        minimumUnitCount: null,
+        refusal:
+          `the schedule model refuses to enumerate ${count} files, above its declared bound of ` +
+          `${bound}; re-derive the bound deliberately rather than sampling assignments`,
+      });
+    };
+
+    assertBoundary(exhaustiveScheduleProbe());
+    expect(() => assertBoundary(exhaustiveScheduleProbe(true))).toThrow();
+  });
+
+  it.each([
+    [1, 0],
+    [2, 4],
+    [3, 7],
+    [4, 10],
+  ])("computes minimum %i and its one-fewer-unit alternative at eleven files", async (minimum, largeFileCount) => {
+    const files = Array.from({ length: 11 }, (_, index) =>
+      unitFileFor(
+        `minimum-${minimum}-${index}`,
+        `test:db:${index < largeFileCount ? Math.floor(index / 3) + 1 : 1}`,
+        index < largeFileCount ? 250_000 : 1_000,
+      ),
+    );
+    const fixture = await createFixture(files, {
+      model: { maximumScheduledFileCount: 11, testFileFixedCostMs: 0, executionUnitFixedCostMs: 0, jobOverheadMs: 0 },
+    });
+    const result = runFixture(fixture);
+
+    expect(result.violations).toEqual([]);
+    expect(result.schedule.minimumUnitCount).toBe(minimum);
+    expect(result.schedule.observedUnitCount).toBe(minimum);
+    if (minimum === 1) expect(result.schedule.oneFewerUnit).toBeNull();
+    else {
+      expect(result.schedule.oneFewerUnit?.unitCount).toBe(minimum - 1);
+      expect(Math.max(...result.schedule.oneFewerUnit!.units.map((unit) => unit.makespanMs))).toBeGreaterThan(
+        fixture.model.executionUnitCeilingMs,
+      );
+      expect(result.schedule.oneFewerUnit!.units.flatMap((unit) => unit.fileNames).sort()).toEqual(
+        files.map((file) => file.fileName).sort(),
+      );
+    }
+  });
+
+  it("retains the lexicographically first restricted-growth witness in eleven-file manifest order", () => {
+    const probe = exhaustiveScheduleProbe();
+    const files = Array.from({ length: 11 }, (_, index) => ({
+      fileName: `manifest-${10 - index}`,
+      durationMs: 235_000,
+    }));
+    const result = probe.computeMinimumUnitCount(
+      files,
+      createSyntheticScheduleModel({ maximumScheduledFileCount: 11 }),
+    );
+
+    expect(result.refusal).toBeNull();
+    expect(result.minimumUnitCount).toBe(4);
+    expect(result.witness?.map((unit) => unit.files.map((file) => file.fileName))).toEqual([
+      files.slice(0, 3).map((file) => file.fileName),
+      files.slice(3, 6).map((file) => file.fileName),
+      files.slice(6, 9).map((file) => file.fileName),
+      files.slice(9).map((file) => file.fileName),
+    ]);
+    let partitionCount = 0;
+    for (let unitCount = 1; unitCount <= 4; unitCount++) {
+      for (const _assignment of probe.canonicalAssignments(11, unitCount)) partitionCount++;
+    }
+    expect(partitionCount).toBe(175_275);
+  });
+
+  it("exhausts eleven duplicate-duration files before refusing all four unit counts", async () => {
+    const files = Array.from({ length: 11 }, (_, index) =>
+      unitFileFor(`exhaustive-no-fit-${index}`, `test:db:${Math.floor(index / 3) + 1}`, 260_000),
+    );
+    const fixture = await createFixture(files, { model: { maximumScheduledFileCount: 11, testFileFixedCostMs: 0 } });
+    const result = runFixture(fixture);
+
+    expect(result.schedule.files).toHaveLength(11);
+    expect(260_000 + fixture.model.executionUnitFixedCostMs).toBeLessThanOrEqual(fixture.model.executionUnitCeilingMs);
+    expect(
+      Math.ceil((11 * 260_000) / fixture.model.maxWorkersPerExecutionUnit) +
+        fixture.model.executionUnitFixedCostMs +
+        fixture.model.jobOverheadMs,
+    ).toBeLessThanOrEqual(fixture.model.aggregateCeilingMs);
+    expect(result.schedule.minimumUnitCount).toBeNull();
+    expect(result.violations).toContain(
+      "no execution-unit count up to the model's declared bound of 4 units satisfies both the " +
+        "420000ms per-unit ceiling and the 1080000ms aggregate",
+    );
+  });
+
   it("computes a minimumUnitCount of 2 for the shipped manifest and ships exactly that", () => {
     const { schedule } = checkBootstrapDbEnrollment();
 
@@ -1249,7 +1399,9 @@ describe("Platform API bootstrap DB enrollment", () => {
     const files = Array.from({ length: bootstrapDbScheduleModel.maximumScheduledFileCount + 1 }, (_unused, index) =>
       unitFileFor(`over-bound-${index}`, "test:db:1", 1_000),
     );
-    const fixture = await createFixture(files, { model: singleWorkerModel() });
+    const fixture = await createFixture(files, {
+      model: { ...singleWorkerModel(), maximumScheduledFileCount: bootstrapDbScheduleModel.maximumScheduledFileCount },
+    });
 
     expect(runFixture(fixture).violations).toEqual(
       expect.arrayContaining([

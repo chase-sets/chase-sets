@@ -422,7 +422,7 @@ export const bootstrapDbScheduleModel = Object.freeze({
   executionUnitCeilingMs: 420_000,
   aggregateCeilingMs: 1_080_000,
   maximumCaseReferenceDurationMs: 600_000,
-  maximumScheduledFileCount: 10,
+  maximumScheduledFileCount: 11,
   maximumEnumeratedUnitCount: 4,
 });
 
