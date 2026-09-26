@@ -42,6 +42,7 @@ describe("provider observation privacy boundary", () => {
     const durable = JSON.stringify({ capture, receipt });
     assertNoC12Values(durable);
     assertNoC12Keys(JSON.stringify(capture));
+    assertNoC12Keys(JSON.stringify(receipt));
     let artifact = "";
     const sink = createObjectStorageTcgplayerMarketCaptureReceiptSink({
       putObject: async ({ body, visibility }) => {
@@ -51,6 +52,7 @@ describe("provider observation privacy boundary", () => {
     });
     await sink.retain(receipt);
     assertNoC12Values(artifact);
+    assertNoC12Keys(artifact);
     const fixture = readFileSync(
       new URL("./fixtures/provider-observations/synthetic-single-product-90-days.json", import.meta.url),
       "utf8",
@@ -78,7 +80,7 @@ describe("provider observation privacy boundary", () => {
     });
   });
 
-  it("rejects a sanitizer leak of sellerRating or customData.title instead of trusting safe-looking counts", () => {
+  it("self-tests the C12 key and value assertions against hand-built leaks", () => {
     const clean = JSON.stringify({ capture: { sales: [], askDepth: [] }, receipt: { typedRows: 0 } });
     expect(() => assertNoC12Keys(clean)).not.toThrow();
     for (const leak of [

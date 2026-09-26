@@ -9,6 +9,9 @@ import {
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as pricingModule } from "../../../index";
 import type { ProviderObservationCapture } from "../domain/provider-observation-mapper";
+import { createTcgplayerMarketCapture } from "../api/market-capture";
+import { PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE } from "../domain/provider-observation-policy";
+import type { TcgplayerMarketTransport } from "../integrations/tcgplayer/transport-port";
 import {
   commitProviderObservationCapture,
   type MarketCaptureWorkItem,
@@ -86,7 +89,108 @@ describeDb("provider observation source-watermark interleaving", () => {
     });
     expect((await weekly()).rows).toEqual([{ catalog_product_key: "cat_synthetic::", last_capture_id: "recaptured" }]);
   });
+
+  it("backfills an annual-history SKU only after the runtime selector sees its new link", async () => {
+    await pool.query(`INSERT INTO pricing_external_catalog_item_reference_inputs
+      (provider_key, external_key, catalog_item_id, updated_at)
+      VALUES ('tcgplayer','product:7001','cat_synthetic','2026-09-01T14:00:00.000Z')`);
+    await pool.query(`INSERT INTO pricing_external_product_reference_inputs
+      (provider_key, external_key, catalog_item_id, catalog_product_key, selected_options, updated_at)
+      VALUES ('tcgplayer','sku:9002','cat_synthetic','cat_synthetic::sibling','[]','2026-09-01T14:00:00.000Z')`);
+    const weekly = () =>
+      pool.query<{ catalog_product_key: string | null; last_capture_id: string; last_observed_at: string }>(
+        `SELECT catalog_product_key, last_capture_id, last_observed_at::text
+       FROM pricing_external_weekly_sale_buckets WHERE external_key = 'sku:9001'`,
+      );
+    const runAt = (started: string) => {
+      let tick = Date.parse(started);
+      return createTcgplayerMarketCapture({
+        pool,
+        transport: annualHistoryTransport(),
+        receiptSink: { kind: "not-mounted" },
+        now: () => new Date((tick += 1000)).toISOString(),
+        resolveSignalPolicy: async () => ({ revisionId: "synthetic-signal-r1", value: { productsPerPass: 1 } }),
+        resolveObservationPolicy: async () => ({
+          revisionId: "synthetic-observation-r1",
+          value: { ...PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE, capturesPerPass: 1 },
+        }),
+        resolveStatHygienePolicy: async () => ({ revisionId: "synthetic-stat-r1" }),
+        recordTcgplayerPriceSignal: async (input) => ({
+          status: "unresolved",
+          reason: "sku-reference-not-mapped",
+          externalKey: `sku:${input.skuId}`,
+        }),
+      })();
+    };
+    await expect(runAt("2026-09-01T14:59:59.000Z")).resolves.toMatchObject({
+      status: "completed",
+      capturesCommitted: 1,
+    });
+    const first = (await weekly()).rows;
+    expect(first).toEqual([expect.objectContaining({ catalog_product_key: null })]);
+    await pool.query(`INSERT INTO pricing_external_product_reference_inputs
+      (provider_key, external_key, catalog_item_id, catalog_product_key, selected_options, updated_at)
+      VALUES ('tcgplayer','sku:9001','cat_synthetic','cat_synthetic::','[]','2026-09-01T16:00:00.000Z')`);
+    expect((await weekly()).rows).toEqual(first);
+    await expect(runAt("2026-09-02T14:59:59.000Z")).resolves.toMatchObject({
+      status: "completed",
+      capturesCommitted: 1,
+    });
+    const second = (await weekly()).rows;
+    expect(second).toEqual([expect.objectContaining({ catalog_product_key: "cat_synthetic::" })]);
+    expect(second[0]!.last_capture_id).not.toBe(first[0]!.last_capture_id);
+    expect(second[0]!.last_observed_at).not.toBe(first[0]!.last_observed_at);
+    const headers = await pool.query<{ capture_id: string }>(
+      "SELECT capture_id FROM pricing_external_market_captures ORDER BY capture_started_at",
+    );
+    expect(headers.rows).toHaveLength(2);
+    expect([first[0]!.last_capture_id, second[0]!.last_capture_id]).toEqual(headers.rows.map((row) => row.capture_id));
+  });
 });
+
+function annualHistoryTransport(): TcgplayerMarketTransport {
+  return {
+    mpGateway: { post: async <T>() => [] as T },
+    mpApi: {
+      post: async <T>() => ({ previousPage: "", nextPage: "", resultCount: 0, totalResults: 0, data: [] }) as T,
+    },
+    mpSearchApi: {
+      post: async <T>() =>
+        ({ errors: [], results: [{ totalResults: 0, resultId: "synthetic", aggregations: {}, results: [] }] }) as T,
+    },
+    infiniteApi: {
+      get: async <T>() =>
+        ({
+          count: 1,
+          result: [
+            {
+              skuId: "9001",
+              variant: "Normal",
+              language: "English",
+              condition: "Near Mint",
+              averageDailyQuantitySold: "1",
+              averageDailyTransactionCount: "1",
+              totalQuantitySold: "3",
+              totalTransactionCount: "3",
+              trendingMarketPricePercentages: {},
+              buckets: [
+                {
+                  marketPrice: "10.00",
+                  quantitySold: "3",
+                  lowSalePrice: "9.00",
+                  lowSalePriceWithShipping: "9.50",
+                  highSalePrice: "11.00",
+                  highSalePriceWithShipping: "11.50",
+                  transactionCount: "3",
+                  bucketStartDate: "2026-08-25T00:00:00.000Z",
+                },
+              ],
+            },
+          ],
+        }) as T,
+    },
+  };
+}
 
 function work(
   afterExternalKey: string,
