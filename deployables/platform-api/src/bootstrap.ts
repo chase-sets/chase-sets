@@ -6,7 +6,7 @@ import { seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import { createPlatformApiHost } from "./app";
 import { createPlatformBootstrapStoragePorts } from "./bootstrap-storage";
 import { loadBootstrapConfig } from "./config";
-import { closePlatformApiPools, createPlatformApiPools } from "./database-pools";
+import { closePlatformApiPools, createSeedCommandPools } from "./database-pools";
 import { ensurePreviewPostgresDatabases } from "./preview-postgres";
 import { apiContextRegistry } from "./generated/api-context-registry";
 import { createProductionTaxQuoteResolverBlocker, shouldBlockProductionTaxQuotes } from "./tax-readiness";
@@ -25,7 +25,7 @@ async function bootstrap() {
   if (config.previewPostgresAdminUrl) {
     await runBootstrapPhase("preview-postgres-databases", () => ensurePreviewPostgresDatabases(config));
   }
-  const pools = await runBootstrapPhase("create-database-pools", () => createPlatformApiPools(config));
+  const pools = await runBootstrapPhase("create-database-pools", () => createSeedCommandPools(config));
 
   try {
     await runBootstrapPhase("platform-control-plane", () => bootstrapPlatformControlPlane(pools.control));
@@ -51,6 +51,7 @@ async function bootstrap() {
     );
     await runBootstrapPhase("seed-api-host", () =>
       seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
+        schemaBootstrapLockPool: pools.schemaBootstrapLockPool,
         enabledDataProfiles: config.dataProfiles ?? [],
         environmentName: config.deploymentEnvironment ?? null,
         runtimeProfile: config.runtimeProfile,

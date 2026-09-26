@@ -63,6 +63,7 @@ import type {
   ReadConsistencyRouteTuning,
 } from "@chase-sets/bounded-context-runtime";
 import { apiContextRegistry } from "./generated/api-context-registry";
+import { parseChannelCredentialKeyring, type ChannelCredentialKeyring } from "@chase-sets/channels/server";
 
 export type PlatformApiPaymentProcessorConfig = PlatformPaymentProcessorConfig;
 
@@ -323,6 +324,8 @@ export type PlatformApiRealtimeStreamLimiterConfig =
 
 export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> &
   Readonly<{
+    checkoutClosed: boolean;
+    channelCredentialKeyring: ChannelCredentialKeyring | null;
     realtime: PlatformApiRealtimeConfig;
     paymentProcessor: PlatformApiPaymentProcessorConfig;
     moneyMovement: PlatformApiMoneyMovementConfig;
@@ -884,6 +887,8 @@ export function loadConfig(): PlatformApiConfig {
   return {
     ...baseConfig,
     moneyMovement: stripeProvider.moneyMovement,
+    checkoutClosed: getBooleanEnv("CHASE_SETS_CHECKOUT_CLOSED", false),
+    channelCredentialKeyring: parseChannelCredentialKeyring(process.env.CHANNELS_CREDENTIAL_KEYRING_JSON),
     providerModeObservation: {
       mode: stripeProvider.effectiveMode,
       paymentProcessorKind: stripeProvider.paymentProcessor.kind,

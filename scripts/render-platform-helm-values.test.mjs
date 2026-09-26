@@ -43,6 +43,50 @@ function mebibytes(memory) {
 }
 
 describe("render platform Helm values", () => {
+  it("renders the Channels keyring only as a shared API/worker Secret reference", () => {
+    const base = buildPlatformHelmValues({ repoRoot });
+    for (const build of [buildPlatformHelmValues, buildPlatformHelmStagingValues, buildPlatformHelmProductionValues]) {
+      const values = build({ repoRoot });
+      for (const host of ["platform-api", "platform-worker"]) {
+        const effective = values.components[host].env ?? base.components[host].env;
+        expect(effective.find((entry) => entry.name === "CHANNELS_CREDENTIAL_KEYRING_JSON")).toEqual({
+          name: "CHANNELS_CREDENTIAL_KEYRING_JSON",
+          secret: true,
+          secretKey: "CHANNELS_CREDENTIAL_KEYRING_JSON",
+        });
+      }
+      for (const [name, component] of Object.entries(values.components)) {
+        if (!["platform-api", "platform-worker"].includes(name))
+          expect(componentEnvKeys({ env: component.env ?? base.components[name]?.env ?? [] })).not.toContain(
+            "CHANNELS_CREDENTIAL_KEYRING_JSON",
+          );
+      }
+    }
+  });
+  it("closes only production checkout and removes the reader-less Shopify switch", () => {
+    const values = buildPlatformHelmValues({ repoRoot });
+    const staging = buildPlatformHelmStagingValues({ repoRoot });
+    const production = buildPlatformHelmProductionValues({ repoRoot });
+    expect(componentEnvValue(values.components["platform-api"], "DEPLOYMENT_ENVIRONMENT")).toBe("preview");
+    expect(componentEnvValue(values.components["platform-api"], "CHASE_SETS_CHECKOUT_CLOSED")).toBe("false");
+    expect(componentEnvKeys(values.components.marketplace)).not.toContain("CHASE_SETS_CHECKOUT_CLOSED");
+    expect(values.global.envOverrides.CHASE_SETS_CHECKOUT_CLOSED).toBeUndefined();
+    expect(
+      staging.components["platform-api"].envOverrides?.CHASE_SETS_CHECKOUT_CLOSED ??
+        staging.global?.envOverrides?.CHASE_SETS_CHECKOUT_CLOSED ??
+        componentEnvValue(values.components["platform-api"], "CHASE_SETS_CHECKOUT_CLOSED"),
+    ).toBe("false");
+    expect(production.global.envOverrides.CHASE_SETS_CHECKOUT_CLOSED).toBe("true");
+    for (const filename of [
+      "infrastructure/helm/platform/values.yaml",
+      "infrastructure/helm/platform/runtime-values.json",
+      "scripts/render-platform-helm-values.mjs",
+    ]) {
+      expect(readFileSync(path.join(repoRoot, filename), "utf8")).not.toContain(
+        "CHASE_SETS_CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE",
+      );
+    }
+  });
   it("keeps generated values current", () => {
     expect(() => syncPlatformHelmValues({ repoRoot, check: true })).not.toThrow();
   });
@@ -51,6 +95,7 @@ describe("render platform Helm values", () => {
     const production = buildPlatformHelmProductionValues({ repoRoot });
 
     expect(production.global.envOverrides).toEqual({
+      CHASE_SETS_CHECKOUT_CLOSED: "true",
       CATALOG_INTEGRATION_ACTIVATION_MODE: "test-profiles-only",
       CATALOG_INTEGRATION_CONTROL_PLANE_MODE: "dry-run-only",
       CATALOG_INTEGRATION_IMPORTS_DISABLED: "mtgjson,scryfall,tcgplayer",
@@ -74,6 +119,7 @@ describe("render platform Helm values", () => {
     const values = buildPlatformHelmValues({ repoRoot });
     const bootstrapEnv = new Map(values.components["platform-bootstrap"].env.map((entry) => [entry.name, entry]));
     const apiEnv = new Map(values.components["platform-api"].env.map((entry) => [entry.name, entry]));
+    const workerEnv = new Map(values.components["platform-worker"].env.map((entry) => [entry.name, entry]));
 
     expect(bootstrapEnv.get("PLATFORM_DATA_PROFILES")).toEqual({
       name: "PLATFORM_DATA_PROFILES",
@@ -85,6 +131,18 @@ describe("render platform Helm values", () => {
     );
     expect(apiEnv.get("DATABASE_URL_CATALOG")?.secretKey).toBe("DATABASE_URL_CATALOG");
     expect(apiEnv.get("PLATFORM_CONTROL_DATABASE_URL")?.secretKey).toBe("PLATFORM_CONTROL_DATABASE_URL");
+    expect(workerEnv.get("DATABASE_URL_SETTLEMENT")?.secretKey).toBe("DATABASE_URL_SETTLEMENT");
+    expect(workerEnv.get("BOOTSTRAP_DATABASE_URL_SETTLEMENT")).toEqual({
+      name: "BOOTSTRAP_DATABASE_URL_SETTLEMENT",
+      secret: true,
+      secretKey: "BOOTSTRAP_DATABASE_URL_SETTLEMENT",
+    });
+    for (const entry of bootstrapEnv.values()) {
+      if (entry.secretKey?.startsWith("BOOTSTRAP_")) {
+        expect(apiEnv.get(entry.secretKey)).toMatchObject({ name: entry.secretKey, secret: true });
+        expect(apiEnv.get(entry.secretKey).secretKey ?? entry.secretKey).toBe(entry.secretKey);
+      }
+    }
   });
 
   it("scaffolds the six current DOKS runtime components", () => {
@@ -795,10 +853,10 @@ describe("render platform Helm values", () => {
       Object.fromEntries(Object.entries(values.components).map(([name, component]) => [name, component.env.length])),
     ).toEqual({
       "admin-web": 5,
-      marketplace: 13,
-      "platform-api": 100,
+      marketplace: 12,
+      "platform-api": 123,
       "platform-bootstrap": 57,
-      "platform-worker": 121,
+      "platform-worker": 123,
       "public-web": 13,
     });
     expect(componentEnvKeys(values.components["platform-api"])).toContain("CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX");

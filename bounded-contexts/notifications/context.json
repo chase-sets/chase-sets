@@ -17,6 +17,15 @@
   "seedRequirements": [],
   "eventSubscriptions": [
     {
+      "sourceContextName": "pricing",
+      "projectionName": "notifications-source-facts-outbox-projection",
+      "subscriptionVersion": 1,
+      "subscriptionName": "notifications.pricing-repricing-facts-projection",
+      "eventTypes": ["pricing.repricing-activity.digest-requested"],
+      "order": 90,
+      "projectionHandlerSetNames": ["notifications-pricing-repricing-facts-projection"]
+    },
+    {
       "sourceContextName": "ordering",
       "projectionName": "notifications-source-facts-outbox-projection",
       "subscriptionVersion": 1,
@@ -100,6 +109,7 @@
     {
       "projectionName": "notifications-source-facts-outbox-projection",
       "sourceContextNames": [
+        "pricing",
         "ordering",
         "fulfillment",
         "inventory",

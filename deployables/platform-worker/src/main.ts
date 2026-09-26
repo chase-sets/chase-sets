@@ -84,6 +84,7 @@ import { listSourceContextWakeRelayConfigs } from "@chase-sets/platform-runtime/
 import { createPostgresWorkSignalStore } from "@chase-sets/platform-runtime/work-signal-store";
 import { collectRetentionSweepTargets } from "@chase-sets/platform-runtime/retention-sweep";
 import { createPgPool, createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { closeContextPools } from "@chase-sets/platform-runtime/context-pools";
 import {
   assertRunnerCapacity,
   assertRunnerLaneIsolation,
@@ -131,7 +132,7 @@ import {
   createChannelsReconciliationRunners,
   createPlatformChannelSaleRecorder,
 } from "./channels-reconciliation-runners";
-import { closePlatformWorkerPools, createPlatformWorkerPools } from "./database-pools";
+import { closePlatformWorkerPools, createPlatformWorkerPools, createSettlementBootstrapPool } from "./database-pools";
 import { platformEmailTemplateRenderer } from "./email-template-renderer";
 import { createGoogleMerchantServiceAccountAccessTokenProvider } from "./google-merchant-auth";
 import { createGoogleMerchantApiClient } from "./google-merchant-client";
@@ -317,6 +318,7 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
       // unsupplied nonoptional port can never masquerade as "mounted".
       inventoryCleanupAuthority: { kind: "not-mounted" },
       marketplaceChannelInboundClamp,
+      channelCredentialKeyring: config.channelCredentialKeyring,
       ...(pools.inventory ? { channelSaleRecorder: createPlatformChannelSaleRecorder(pools.inventory) } : {}),
       searchEmbeddingConfig: config.discoverySearchEmbeddings,
       ...(marketplaceLabelPostageActivation ? { marketplaceLabelPostageActivation } : {}),
@@ -326,9 +328,14 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
 if (config.runtimeProfile === "landing") {
   runtime = constructWorkerRuntime();
 } else {
-  await runWorkerStartupDatabaseStep("bootstrap Settlement database", () =>
-    bootstrapContextDatabase(settlementModule, pools.settlement),
-  );
+  const settlementBootstrapPool = createSettlementBootstrapPool(config);
+  try {
+    await runWorkerStartupDatabaseStep("bootstrap Settlement database", () =>
+      bootstrapContextDatabase(settlementModule, settlementBootstrapPool),
+    );
+  } finally {
+    await closeContextPools({ settlementBootstrapPool });
+  }
   const marketplaceLabelPostageActivation = await runWorkerStartupDatabaseStep(
     "activate marketplace label postage",
     () => activateMarketplaceLabelPostage(pools.settlement),

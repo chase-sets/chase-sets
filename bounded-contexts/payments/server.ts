@@ -1,4 +1,5 @@
 import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
+export { preflightPaymentStart } from "./features/payments/api/route";
 export type { BalanceCreditResolver, BalanceCreditResolution } from "./features/payments/api/balance-credit-resolver";
 export { normalizeRequestedBalanceCreditAmount } from "./features/payments/api/balance-credit-request";
 export type { PaymentServices } from "./features/payments/api/runtime";

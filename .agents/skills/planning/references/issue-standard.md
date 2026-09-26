@@ -33,7 +33,10 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
   (live run 29888165410 confirmed `pull_requests: []` mid-queue); the defect
   was invisible to every check except a probe taken at that exact moment.
 - **Verification plan.** The scoped commands that prove the change
-  (`pnpm --filter <workspace> run test`, guards, e2e batch if UI).
+  (`pnpm --filter <workspace> run test`, guards, e2e batch if UI). For database
+  changes, name the normal final-head hosted `DB Profile Tests` job as the DB
+  proof. While [#8159](https://github.com/chase-sets/chase-sets/issues/8159) is
+  open, never make a full local `verify:test-db` a prerequisite.
 - **Review packet seed (full path).** Name the invariants and likely failure
   modes the independent reviewer must attack, plus the evidence artifact that
   exposes omissions invisible in the diff (state enumeration, caller inventory,

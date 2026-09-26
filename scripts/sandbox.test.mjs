@@ -16,6 +16,7 @@ import { repoRoot } from "./lib/repo.mjs";
 import { primeBrowserE2eProjectionWakeRelayCursors } from "./browser-e2e-readiness.mjs";
 
 const temporaryRoots = [];
+const playwrightConfigSource = readFileSync(path.join(repoRoot, "playwright.config.ts"), "utf8");
 
 function createTempRepo() {
   const rootDir = mkdtempSync(path.join(os.tmpdir(), "chase-sets-sandbox-"));
@@ -229,6 +230,13 @@ describe("worktree sandbox", () => {
     const registered = resolveWorktreeSandbox({ rootDir, env: {} });
     expect(registered.contextNames).toContain("channels");
     expect(buildSandboxEnv(registered)).toHaveProperty("DATABASE_URL_CHANNELS");
+  });
+
+  it("playwright-channels-database-metadata retains deployed-profile exclusions", () => {
+    expect(playwrightConfigSource).toContain("channelsDatabaseUrl: sandbox.contextDatabaseUrls.channels");
+    expect(playwrightConfigSource).toContain(
+      "grepInvert: skipWebServer ? /@browser-e2e-(?:seed|dev-source)/ : undefined",
+    );
   });
 
   it("sandbox-database-owner-consumer-parity keeps every owner consumer on one resolved set", () => {

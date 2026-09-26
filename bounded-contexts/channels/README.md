@@ -17,9 +17,19 @@ complete inline channel observations with expected Link state, retains seller
 drift decisions, records missed external sales through Inventory, and applies
 outbound-only health and operator holds.
 
+## Test Support
+
+`@chase-sets/channels/seed-support/channel-publication-browser` provides test-only
+mapping candidate authoring and a bounded exact-row hold for local browser-e2e
+composition and Channels cross-slice DB acceptance tests. It uses the existing
+owned manual-sync scenario connection and the real Channels runtime. The hold
+can stall the shared listing-state projection until release. Seed and bootstrap
+composition never invoke this helper; it is not a production entrypoint.
+
 ## Owns
 
 - Sales Channel and Channel Connection vocabulary
+- Non-replayable Channel credential custody, canonical token envelopes, and explicit key rotation
 - BYO Channel, Channel Account, authorization, credential, webhook, health,
   and mapping vocabulary
 - Channel Listing Link, Channel Sync, Channel Sync Run, Channel Sync Error,
@@ -50,7 +60,7 @@ outbound-only health and operator holds.
 - Inventory quantity, allocation, reservation, or fulfillment rules (Inventory)
 - Listings and offers (Marketplace)
 - Notification delivery channels or preferences (Notifications)
-- Provider transport, credential custody, OAuth, browser automation, provider-
+- Provider transport, OAuth, browser automation, provider-
   specific paging
 - Shared Seller Desk UI (Marketplace)
 
@@ -81,6 +91,44 @@ the accepted observed/expected fingerprint pair or a repush request.
 ## Incoming Dependencies
 
 Injected setup, credential, policy, and storage-location authority resolvers.
+
+## Credential Custody
+
+`ChannelsServices.credentials` is server-only. Callers supply their transaction
+executor to create, replace, or rewrap a `ChannelCredentialEnvelope/v1`; custody
+never commits the caller's transaction or emits secret-bearing events. Connections
+retain only the generated reference. `ChannelOAuthTokenSet/v1` encodes explicit
+refresh presence and nullable expiry, without making provider-validity decisions.
+
+API and worker parse `CHANNELS_CREDENTIAL_KEYRING_JSON` through the same Channels
+parser. Missing or empty configuration keeps credential-free TCGplayer and
+migration-only bootstrap working; requested custody is unavailable. Malformed
+present configuration fails runtime startup. Write uses only the active key;
+read uses only the persisted key ID. A missing key or failed authentication leaves
+the row intact and unavailable. Errors contain bounded codes, never token bytes.
+
+The secret resolver requires an injected object-identity capability and its exact
+account/provider/environment/connection binding, plus the expected reference and
+token generation. No capability is registered by either host. Metadata authority
+is unchanged: readable bytes are not evidence of provider-valid `current` status.
+The later authorization consumer owns that decision. Returned bytes are transient;
+the server consumer must dispose of its buffer after use, not log or persist it.
+
+Rotation is explicit: retain old read keys, restart both hosts with the new active
+key configuration, switch and drain **all** old-key writers,
+then keyset-page at most 100 rows per call and CAS-rewrap each row. Rewrap preserves
+token generation and increments envelope revision; active-key day-after calls do
+not rewrite. A conflict requires re-reading and deciding again, never replaying
+stale token material. Transaction rollback leaves the old row readable; restart
+after commit observes the new revision. Missing/corrupt rows are retained, not
+silently skipped or deleted.
+
+Retirement preflight requires the operator's old-writer-drain acknowledgement and
+an indexed, authoritative zero-reference query. A page is never retirement proof.
+Never assign different bytes to a key ID, including after process restart or key
+removal; `assertKeyringContinuity` checks retained IDs when comparing configurations,
+but cannot establish historical operator facts. No automatic retirement, revocation,
+queue, production key provisioning, or deletion policy is supplied here.
 
 ## Outgoing Integration Events
 

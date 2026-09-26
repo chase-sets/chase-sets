@@ -23,6 +23,12 @@ async function assertAdminWorkbench(page: Page, mode: "light" | "dark") {
   await expectPageOk(page, route);
   await expectAdminPageReady(page, { heading: "Projection settings and reference" });
 
+  // The authenticated shell can retain an account preference despite emulated OS media.
+  const themeRoot = page.locator("[data-chase-theme]").first();
+  await expect(themeRoot).toBeVisible();
+  await themeRoot.evaluate((element, nextMode) => element.setAttribute("data-color-mode", nextMode), mode);
+  await expect(themeRoot).toHaveAttribute("data-color-mode", mode);
+
   // A real projection group with a Details action is required. Empty-state
   // table rows, hidden DOM and an authenticated shell alone are not proof.
   const row = page
@@ -40,8 +46,9 @@ async function assertAdminWorkbench(page: Page, mode: "light" | "dark") {
 
   const observed = await cta.evaluate((action) => {
     const heading = document.querySelector("h1")!;
+    const themeRoot = document.querySelector("[data-chase-theme]")!;
     return {
-      background: getComputedStyle(document.body).backgroundColor,
+      background: getComputedStyle(themeRoot).backgroundColor,
       foreground: getComputedStyle(heading).color,
       ctaBackground: getComputedStyle(action).backgroundColor,
       ctaForeground: getComputedStyle(action).color,

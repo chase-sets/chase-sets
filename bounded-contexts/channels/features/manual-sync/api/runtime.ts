@@ -96,7 +96,10 @@ export function createManualSyncRuntime(dependencies: ManualSyncRuntimeDependenc
   const now = dependencies.now ?? (() => new Date().toISOString());
 
   async function authorize(input: Readonly<{ accountId: string; connectionId: string }>) {
-    const connection = await dependencies.connections.getConnection(input);
+    const connection = await dependencies.connections.getConnection({
+      accountId: input.accountId,
+      connectionId: input.connectionId,
+    });
     if (!connection) throw new ManualSyncError("connection-not-found");
     if (connection.providerKey !== "tcgplayer" || connection.status !== "active") {
       throw new ManualSyncError("manual-sync-unavailable");

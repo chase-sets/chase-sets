@@ -25,6 +25,102 @@ describe("manual-sync runtime binding", () => {
     ).rejects.toMatchObject({ code: "invalid-input" });
   });
 
+  it.each([
+    { name: "active TCGplayer connection", error: null },
+    { name: "wrong account", accountId: "account-other", error: "connection-not-found" },
+    { name: "missing connection", connectionId: "missing", error: "connection-not-found" },
+    { name: "pending connection", status: "pending-setup", error: "manual-sync-unavailable" },
+    { name: "paused connection", status: "paused", error: "manual-sync-unavailable" },
+    { name: "disconnected connection", status: "disconnected", error: "manual-sync-unavailable" },
+    { name: "non-TCGplayer connection", providerKey: "ebay", error: "manual-sync-unavailable" },
+  ])("authorizes ingest through the actual closed query: $name", async (scenario) => {
+    const connection = activeConnection();
+    const database = {
+      query: vi.fn(async (_sql: string, parameters?: readonly unknown[]) => ({
+        rows:
+          parameters?.[0] === "account-owner" && parameters[1] === connection.connectionId
+            ? [
+                {
+                  account_id: "account-owner",
+                  connection_id: connection.connectionId,
+                  provider_key: scenario.providerKey ?? connection.providerKey,
+                  environment: connection.environment,
+                  status: scenario.status ?? connection.status,
+                  created_at: connection.createdAt,
+                },
+              ]
+            : [],
+      })),
+    };
+    const channelConnections = connections(null);
+    channelConnections.getConnection = vi.fn((input) => getPublicChannelConnection(database as never, input));
+    const tcgplayerCsv = producer();
+    const parsed = {
+      kind: "parsed" as const,
+      surface: "staged" as const,
+      header: ["TCGplayer Id", "Total Quantity", "Add to Quantity", "TCG Marketplace Price"],
+      conditionColumn: "absent" as const,
+      parsedRowCount: 1,
+      completeness: "unverified" as const,
+      rows: [
+        {
+          externalKey: "987650",
+          conditionText: null,
+          totalQuantity: 0,
+          pendingQuantityDelta: 0,
+          priceAmountText: "1.00",
+          priceAmountMinor: 100,
+          referenceColumns: {},
+          rowNumber: 2,
+        },
+      ],
+    };
+    tcgplayerCsv.ingestTcgplayerExportSnapshot = vi.fn(async () => parsed);
+    const runtime = createManualSyncRuntime({
+      db: database as never,
+      connections: channelConnections,
+      tcgplayerCsv,
+      policies: { resolvePolicy: vi.fn() },
+      marketplaceClamp: { kind: "not-mounted" },
+      now: () => "2026-09-22T14:00:00.000Z",
+    });
+    const csv = `${parsed.header.join(",")}\n987650,0,0,1.00\n`;
+    const input = {
+      accountId: scenario.accountId ?? "account-owner",
+      connectionId: scenario.connectionId ?? connection.connectionId,
+      surface: "staged" as const,
+      fileName: "staged.csv",
+      bytes: new TextEncoder().encode(csv),
+      capturedAt: "2026-09-22T13:47:54.000Z",
+      capturedAtSource: "operator-declared" as const,
+    };
+
+    if (scenario.error) {
+      await expect(runtime.ingest(input)).rejects.toMatchObject({ code: scenario.error });
+      expect(tcgplayerCsv.ingestTcgplayerExportSnapshot).not.toHaveBeenCalled();
+    } else {
+      await expect(runtime.ingest(input)).resolves.toMatchObject({ result: parsed });
+      expect(tcgplayerCsv.ingestTcgplayerExportSnapshot).toHaveBeenCalledExactlyOnceWith({
+        snapshotId: expect.any(String),
+        connectionId: input.connectionId,
+        surface: input.surface,
+        csv,
+        limits: { maxRecords: 100_000 },
+        ingestedAt: "2026-09-22T14:00:00.000Z",
+        capturedAt: input.capturedAt,
+        capturedAtSource: input.capturedAtSource,
+      });
+    }
+    expect(channelConnections.getConnection).toHaveBeenCalledExactlyOnceWith({
+      accountId: input.accountId,
+      connectionId: input.connectionId,
+    });
+    expect(database.query).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining("WHERE account_id = $1 AND connection_id = $2"),
+      [input.accountId, input.connectionId],
+    );
+  });
+
   it("refuses a missing connection before policy resolution or producer composition", async () => {
     const tcgplayerCsv = producer();
     const resolvePolicy = vi.fn();

@@ -10,7 +10,8 @@ const packingModulePath = fileURLToPath(
 ).replaceAll("\\", "/");
 const packingModuleUrl = `/@fs/${packingModulePath}`;
 
-test.describe("shipment-mutation-recovery", () => {
+// These storage-boundary tests load unbundled source modules; the deployed host cannot serve Vite /@fs/ URLs.
+test.describe("shipment-mutation-recovery @browser-e2e-dev-source", () => {
   test("persists the production encrypted descriptor before transport and survives a browser reload", async ({
     page,
   }) => {

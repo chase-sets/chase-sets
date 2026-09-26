@@ -2,12 +2,79 @@ import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildPaymentsApi } from "../../../api";
 import type { PaymentsApiEnv } from "./route";
-import { createAccountPaymentRoutes, createPaymentProcessorWebhookRoutes } from "./route";
+import { createAccountPaymentRoutes, createPaymentProcessorWebhookRoutes, preflightPaymentStart } from "./route";
 import type { PaymentServices } from "./runtime";
 import { PaymentsDomainError } from "../../../support/runtime-support/common";
 import { ProviderWebhookError } from "@chase-sets/http/provider-errors";
 import { DEPLOYMENT_ENVIRONMENTS } from "@chase-sets/platform-runtime/config-schema";
 import { PAYMENT_PROVIDER_DEPLOYMENT_ENVIRONMENTS, parsePaymentProviderModeResponse } from "./contracts";
+
+const limiterChecks = vi.hoisted(() => [] as string[]);
+vi.mock("@chase-sets/http/rate-limit", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@chase-sets/http/rate-limit")>();
+  const createConfiguredInMemoryRateLimiter: typeof actual.createConfiguredInMemoryRateLimiter = (...args) => {
+    const limiter = actual.createConfiguredInMemoryRateLimiter(...args);
+    return {
+      ...limiter,
+      check: (key) => {
+        limiterChecks.push(args[0]);
+        return limiter.check(key);
+      },
+    };
+  };
+  return { ...actual, createConfiguredInMemoryRateLimiter };
+});
+
+describe("payment-start preflight", () => {
+  const actor: NonNullable<PaymentsApiEnv["Variables"]["actor"]> = {
+    sessionId: "ses_preflight",
+    tenantId: "tnt_identity",
+    userId: "usr_preflight",
+    accountId: "acc_preflight",
+    membershipId: "mbr_preflight",
+    roleKey: "owner",
+    permissions: ["orders.manage"],
+  };
+  it("checks permission before account before IP, once per reached limiter", () => {
+    const request = new Request("https://example.test/account/payments", {
+      headers: { "x-forwarded-for": "203.0.113.211" },
+    });
+    limiterChecks.length = 0;
+    expect(preflightPaymentStart({ get: () => null }, request).response?.status).toBe(401);
+    expect(preflightPaymentStart({ get: () => ({ ...actor, permissions: [] }) }, request).response?.status).toBe(403);
+    expect(limiterChecks).toEqual([]);
+    for (let i = 0; i < 10; i++) {
+      limiterChecks.length = 0;
+      expect(preflightPaymentStart({ get: () => actor }, request)).toEqual({ actor, response: null });
+      expect(limiterChecks).toEqual(["payments.payment.create.account", "payments.payment.create.ip"]);
+    }
+    limiterChecks.length = 0;
+    expect(preflightPaymentStart({ get: () => actor }, request).response?.status).toBe(429);
+    expect(limiterChecks).toEqual(["payments.payment.create.account"]);
+  });
+
+  it("retains configured account/IP overrides on the extracted seam", async () => {
+    vi.stubEnv("CHASE_SETS_RATE_LIMIT_PAYMENTS_PAYMENT_CREATE_ACCOUNT_MAX", "1");
+    vi.stubEnv("CHASE_SETS_RATE_LIMIT_PAYMENTS_PAYMENT_CREATE_IP_MAX", "2");
+    try {
+      vi.resetModules();
+      const { preflightPaymentStart: configured } = await import("./route");
+      const request = new Request("https://example.test/account/payments", {
+        headers: { "x-forwarded-for": "203.0.113.212" },
+      });
+      expect(configured({ get: () => actor }, request).response).toBeNull();
+      expect(await configured({ get: () => actor }, request).response?.json()).toMatchObject({
+        error: { surface: "payments.payment.create.account" },
+      });
+      expect(configured({ get: () => ({ ...actor, accountId: "acc_preflight_second" }) }, request).response).toBeNull();
+      expect(
+        await configured({ get: () => ({ ...actor, accountId: "acc_preflight_third" }) }, request).response?.json(),
+      ).toMatchObject({ error: { surface: "payments.payment.create.ip" } });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
 
 const checkoutFeeQuote = {
   payment_method_category: "card" as const,

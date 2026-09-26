@@ -1,9 +1,10 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { appendFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import net from "node:net";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import tls from "node:tls";
 import { promisify } from "node:util";
 import pg, { type Client as PgClient } from "pg";
@@ -16,6 +17,7 @@ import {
   runDatabaseGrantMain,
   statementsForGrant,
 } from "../../scripts/apply-digitalocean-database-grant.mjs";
+import testConfig from "./vitest.config";
 
 const execFile = promisify(execFileCallback);
 const { Client } = pg;
@@ -38,16 +40,152 @@ type CertificatePaths = Readonly<{
 type TlsProxy = Readonly<{
   port: number;
   connectionCount: () => number;
-  close: () => Promise<void>;
+  close: (hookStartedAt: number, hookTimeout: number) => Promise<void>;
 }>;
 
 type Sentinel = Readonly<{
   port: number;
   connectionCount: () => number;
-  close: () => Promise<void>;
+  close: (onCloseCallback?: () => void) => Promise<void>;
 }>;
 
 const secretMarkers = ["provider-db-secret-marker", "ambient-db-secret-marker", "postgresql://", "BEGIN CERTIFICATE"];
+const cleanupErrorCodes = [
+  "08001",
+  "08006",
+  "2BP01",
+  "3D000",
+  "53300",
+  "55006",
+  "57P01",
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "EPIPE",
+  "ENOENT",
+  "EACCES",
+];
+
+const cleanupPhases = [
+  "hook",
+  "proxy-close",
+  "sentinel-close",
+  "sentinel-callback",
+  "admin-connect",
+  "database-terminate-1",
+  "database-drop-1",
+  "database-terminate-2",
+  "database-drop-2",
+  "role-drop-1",
+  "role-drop-2",
+  "role-drop-3",
+  "role-drop-4",
+  "admin-end",
+  "tempdir-removal",
+] as const;
+type CleanupPhase = (typeof cleanupPhases)[number];
+type PhaseRecord = {
+  phase: CleanupPhase;
+  state: "not-entered" | "started" | "completed" | "rejected";
+  startedAt?: string;
+  startedElapsedMs?: number;
+  finishedAt?: string;
+  finishedElapsedMs?: number;
+  errorClass?: string;
+  errorCode?: string;
+};
+
+function observeCleanup(hookStartedAt: number, directory?: string) {
+  const phases = cleanupPhases.map((phase): PhaseRecord => ({ phase, state: "not-entered" }));
+  const record = (phase: CleanupPhase) => phases[cleanupPhases.indexOf(phase)];
+  const stamp = () => ({ at: new Date().toISOString(), elapsedMs: Date.now() - hookStartedAt });
+  const tracePath = process.env.TLS_GRANT_CLEANUP_TRACE_PATH;
+  const insideDirectory = tracePath && directory ? relative(directory, tracePath) : undefined;
+  const writablePath =
+    tracePath &&
+    isAbsolute(tracePath) &&
+    (insideDirectory === undefined ||
+      insideDirectory === ".." ||
+      insideDirectory.startsWith(`..${sep}`) ||
+      isAbsolute(insideDirectory))
+      ? tracePath
+      : undefined;
+  let created = false;
+  let retained = 0;
+  let swallowedAdminError = false;
+  const snapshot = (kind: "pending-at-snapshot" | "hook-settled") => ({
+    kind,
+    at: new Date().toISOString(),
+    elapsedMs: Date.now() - hookStartedAt,
+    outcome:
+      kind === "pending-at-snapshot"
+        ? "pending"
+        : record("hook").state === "rejected"
+          ? "rejected"
+          : swallowedAdminError
+            ? "hook-complete-with-swallowed-admin-error"
+            : phases.every((phase) => phase.state === "completed")
+              ? "clean-completion"
+              : "hook-complete-with-unentered-phase",
+    phases: phases.map((phase) => ({ ...phase })),
+  });
+  const retain = (kind: "pending-at-snapshot" | "hook-settled") => {
+    if (!writablePath || retained === 2) return;
+    try {
+      const line = `${JSON.stringify(snapshot(kind))}\n`;
+      if (created) appendFileSync(writablePath, line);
+      else writeFileSync(writablePath, line, { flag: "wx" });
+      created = true;
+      retained += 1;
+    } catch {
+      // Missing or unwritable evidence is inconclusive; observation must not change cleanup.
+    }
+  };
+  const start = (phase: CleanupPhase) => {
+    const item = record(phase);
+    const { at, elapsedMs } = stamp();
+    item.state = "started";
+    item.startedAt = at;
+    item.startedElapsedMs = elapsedMs;
+  };
+  const finish = (phase: CleanupPhase, rejected = false, error?: unknown) => {
+    const item = record(phase);
+    const { at, elapsedMs } = stamp();
+    item.state = rejected ? "rejected" : "completed";
+    item.finishedAt = at;
+    item.finishedElapsedMs = elapsedMs;
+    if (rejected) {
+      const name = error instanceof Error ? error.name : "NonError";
+      item.errorClass = ["Error", "TypeError", "RangeError", "AggregateError", "DatabaseError"].includes(name)
+        ? name
+        : "OtherError";
+      const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
+      if (typeof code === "string") item.errorCode = cleanupErrorCodes.includes(code) ? code : "OTHER";
+    }
+  };
+  const run = async <T>(phase: CleanupPhase, operation: () => Promise<T>): Promise<T> => {
+    start(phase);
+    try {
+      const value = await operation();
+      finish(phase);
+      return value;
+    } catch (error) {
+      finish(phase, true, error);
+      throw error;
+    }
+  };
+  return {
+    start,
+    finish,
+    run,
+    retain,
+    setSwallowedAdminError: () => {
+      swallowedAdminError = true;
+    },
+  };
+}
+
+type CleanupObservation = ReturnType<typeof observeCleanup>;
 
 describeDb("Terraform database-grant TLS against real PostgreSQL", () => {
   const suffix = randomUUID().replaceAll("-", "").slice(0, 10);
@@ -107,23 +245,62 @@ describeDb("Terraform database-grant TLS against real PostgreSQL", () => {
   });
 
   afterAll(async () => {
-    await proxy?.close();
-    await sentinel?.close();
-    if (adminDatabaseUrl) {
-      await withAdminClient(async (client) => {
-        for (const database of databases) {
-          await client.query(
-            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()",
-            [database],
-          );
-          await client.query(`DROP DATABASE IF EXISTS ${quoteIdentifier(database)}`);
-        }
-        for (const role of [...owners, ...listeners]) {
-          await client.query(`DROP ROLE IF EXISTS ${quoteIdentifier(role)}`);
-        }
-      }).catch(() => undefined);
+    const hookStartedAt = Date.now();
+    const observation = observeCleanup(hookStartedAt, temporaryDirectory);
+    observation.start("hook");
+    let downstreamTimer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const hookTimeout = testConfig.test?.hookTimeout;
+      if (typeof hookTimeout !== "number") throw new Error("TLS teardown requires a configured hookTimeout.");
+      if (proxy) await observation.run("proxy-close", () => proxy.close(hookStartedAt, hookTimeout));
+      if (proxy) {
+        const snapshotDelay = Math.max(0, hookTimeout - 5_000 - (Date.now() - hookStartedAt));
+        downstreamTimer = setTimeout(() => observation.retain("pending-at-snapshot"), snapshotDelay);
+        downstreamTimer.unref();
+      }
+      if (sentinel) {
+        await observation.run("sentinel-close", () =>
+          sentinel.close(() => {
+            observation.start("sentinel-callback");
+            observation.finish("sentinel-callback");
+          }),
+        );
+      }
+      if (adminDatabaseUrl) {
+        await withAdminClient(async (client) => {
+          for (const [index, database] of databases.entries()) {
+            await observation.run(`database-terminate-${index + 1}` as CleanupPhase, () =>
+              client.query(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()",
+                [database],
+              ),
+            );
+            await observation.run(`database-drop-${index + 1}` as CleanupPhase, () =>
+              client.query(`DROP DATABASE IF EXISTS ${quoteIdentifier(database)}`),
+            );
+          }
+          for (const [index, role] of [...owners, ...listeners].entries()) {
+            await observation.run(`role-drop-${index + 1}` as CleanupPhase, () =>
+              client.query(`DROP ROLE IF EXISTS ${quoteIdentifier(role)}`),
+            );
+          }
+        }, observation).catch(() => {
+          observation.setSwallowedAdminError();
+          return undefined;
+        });
+      }
+      if (temporaryDirectory) {
+        await observation.run("tempdir-removal", () => rm(temporaryDirectory, { recursive: true, force: true }));
+      }
+      observation.finish("hook");
+    } catch (error) {
+      observation.finish("hook", true, error);
+      throw error;
+    } finally {
+      if (downstreamTimer) clearTimeout(downstreamTimer);
+      downstreamTimer = undefined;
+      observation.retain("hook-settled");
     }
-    if (temporaryDirectory) await rm(temporaryDirectory, { recursive: true, force: true });
   });
 
   it("applies owner and wake-listener grants to each grant's own database through one fetched CA", async () => {
@@ -372,13 +549,18 @@ describeDb("Terraform database-grant TLS against real PostgreSQL", () => {
     });
   }
 
-  async function withAdminClient<T>(operation: (client: PgClient) => Promise<T>): Promise<T> {
+  async function withAdminClient<T>(
+    operation: (client: PgClient) => Promise<T>,
+    observation?: CleanupObservation,
+  ): Promise<T> {
     const client = new Client({ connectionString: adminDatabaseUrl! });
-    await client.connect();
+    if (observation) await observation.run("admin-connect", () => client.connect());
+    else await client.connect();
     try {
       return await operation(client);
     } finally {
-      await client.end();
+      if (observation) await observation.run("admin-end", () => client.end());
+      else await client.end();
     }
   }
 
@@ -518,9 +700,36 @@ async function startTlsPostgresProxy(
     key: await readFile(keyPath),
   });
   const sockets = new Set<net.Socket>();
+  type ObservedSocket = { socket?: net.Socket; id: string; transition: string };
+  const observed = new Set<ObservedSocket>();
+  const releaseObservation = () => {
+    for (const record of observed) record.socket = undefined;
+    observed.clear();
+  };
+  let nextSocketId = 0;
+  let lastTransition = `${new Date().toISOString()} listener:created`;
+  let listenerState = "created";
+  const mark = (id: string, transition: string) => {
+    const stamped = `${new Date().toISOString()} ${id}:${transition}`;
+    lastTransition = stamped;
+    return stamped;
+  };
+  const track = (socket: net.Socket, kind: "raw" | "tls" | "backend") => {
+    const record: ObservedSocket = { socket, id: `${kind}#${++nextSocketId}`, transition: "" };
+    record.transition = mark(record.id, "created");
+    observed.add(record);
+    socket.on("end", () => {
+      record.transition = mark(record.id, "end");
+    });
+    socket.on("close", () => {
+      record.transition = mark(record.id, "closed");
+    });
+    return record;
+  };
   let connections = 0;
   const server = net.createServer((socket) => {
     connections += 1;
+    track(socket, "raw");
     sockets.add(socket);
     socket.on("close", () => sockets.delete(socket));
     socket.once("data", (request) => {
@@ -530,11 +739,24 @@ async function startTlsPostgresProxy(
       }
       socket.write("S");
       const secureSocket = new tls.TLSSocket(socket, { isServer: true, secureContext });
-      secureSocket.on("error", () => undefined);
+      const tlsRecord = track(secureSocket, "tls");
+      secureSocket.on("secure", () => {
+        tlsRecord.transition = mark(tlsRecord.id, "secure");
+      });
+      secureSocket.on("error", () => {
+        tlsRecord.transition = mark(tlsRecord.id, "error");
+      });
       const backendSocket = net.createConnection(backend);
+      const backendRecord = track(backendSocket, "backend");
+      backendSocket.on("connect", () => {
+        backendRecord.transition = mark(backendRecord.id, "connected");
+      });
       sockets.add(backendSocket);
       backendSocket.on("close", () => sockets.delete(backendSocket));
-      backendSocket.on("error", () => secureSocket.destroy());
+      backendSocket.on("error", () => {
+        backendRecord.transition = mark(backendRecord.id, "error");
+        secureSocket.destroy();
+      });
       secureSocket.pipe(backendSocket);
       backendSocket.pipe(secureSocket);
     });
@@ -545,12 +767,61 @@ async function startTlsPostgresProxy(
   });
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("TLS proxy did not bind a TCP port.");
+  listenerState = "listening";
+  mark("listener", "listening");
   return {
     port: address.port,
     connectionCount: () => connections,
-    close: async () => {
-      for (const socket of sockets) socket.destroy();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+    close: async (hookStartedAt, hookTimeout) => {
+      const snapshot = (stage: string) => {
+        const groups = (["raw", "tls", "backend"] as const).map((kind) => {
+          const records = [...observed].filter((record) => record.id.startsWith(`${kind}#`));
+          const active = records.filter((record) => !record.transition.endsWith(":closed"));
+          const closed = records.filter((record) => record.transition.endsWith(":closed"));
+          const details = active
+            .slice(0, 12)
+            .map(
+              ({ socket, id, transition }) =>
+                `${id}[${socket?.readyState ?? "released"},destroyed=${socket?.destroyed ?? "released"},connecting=${socket?.connecting ?? "released"},last=${transition}]`,
+            );
+          const recentClosed = closed.slice(-3).map(({ id, transition }) => `${id}[${transition}]`);
+          return `${kind}=active:${active.length},closed:${closed.length},total:${records.length}{${[
+            ...details,
+            ...recentClosed,
+            ...(active.length > 12 ? [`active-omitted=${active.length - 12}`] : []),
+            ...(closed.length > 3 ? [`closed-omitted=${closed.length - 3}`] : []),
+          ].join(",")}}`;
+        });
+        return `${new Date().toISOString()} ${stage} listener=${listenerState},listening=${server.listening} ${groups.join(" ")} last=${lastTransition}`;
+      };
+      const stages = [snapshot("entry")];
+      let reported = false;
+      const snapshotDelay = Math.max(0, hookTimeout - 5_000 - (Date.now() - hookStartedAt));
+      const timer = setTimeout(() => {
+        reported = true;
+        console.error(`[tls-proxy-teardown] ${[...stages, snapshot("pre-ceiling pending")].join(" | ")}`);
+        releaseObservation();
+      }, snapshotDelay);
+      timer.unref();
+      try {
+        for (const socket of sockets) socket.destroy();
+        stages.push(snapshot("after-destroy"));
+        listenerState = "closing";
+        mark("listener", "closing");
+        await new Promise<void>((resolve) =>
+          server.close(() => {
+            listenerState = "closed";
+            mark("listener", "closed-callback");
+            clearTimeout(timer);
+            if (!reported) console.info(`[tls-proxy-teardown] ${[...stages, snapshot("close-callback")].join(" | ")}`);
+            releaseObservation();
+            resolve();
+          }),
+        );
+      } finally {
+        clearTimeout(timer);
+        releaseObservation();
+      }
     },
   };
 }
@@ -573,9 +844,14 @@ async function startSentinel(): Promise<Sentinel> {
   return {
     port: address.port,
     connectionCount: () => connections,
-    close: async () => {
+    close: async (onCloseCallback) => {
       for (const socket of sockets) socket.destroy();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await new Promise<void>((resolve) =>
+        server.close(() => {
+          onCloseCallback?.();
+          resolve();
+        }),
+      );
     },
   };
 }

@@ -83,6 +83,7 @@ describe("channels-services-guard-negative", () => {
 
 function validCandidate() {
   return {
+    credentials: { create: vi.fn(), replace: vi.fn(), rewrap: vi.fn(), resolve: vi.fn() },
     connections: { getConnection: async () => null },
     connectionHealth: { submitObservation: vi.fn(), readConnectionHealth: vi.fn(), listOpenReasonGenerations: vi.fn() },
     connectionAttention: { listOpenAttention: vi.fn(), resolveAttention: vi.fn() },

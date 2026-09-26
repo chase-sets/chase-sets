@@ -1370,6 +1370,13 @@
       "file": ".github/workflows/platform-ephemeral-verification.yml",
       "jobId": "verify-release",
       "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
+      "secretName": "CHANNELS_CREDENTIAL_KEYRING_JSON",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-ephemeral-verification.yml",
+      "jobId": "verify-release",
+      "stepAnchor": "name:Apply verification Kubernetes runtime secrets#14",
       "secretName": "CHASE_SETS_DISCORD_INVITE_URL",
       "purpose": "terraform-infra"
     },
@@ -1729,6 +1736,13 @@
       "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-merge-gate-verification.yml",
+      "jobId": "verify",
+      "stepAnchor": "name:Apply gate Kubernetes runtime secrets#11",
+      "secretName": "CHANNELS_CREDENTIAL_KEYRING_JSON",
+      "purpose": "application-runtime"
     },
     {
       "file": ".github/workflows/platform-merge-gate-verification.yml",
@@ -2604,6 +2618,13 @@
       "stepAnchor": "uses:docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5#2",
       "secretName": "DIGITALOCEAN_REGISTRY_TOKEN",
       "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "preview-deploy-smoke",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
+      "secretName": "CHANNELS_CREDENTIAL_KEYRING_JSON",
+      "purpose": "application-runtime"
     },
     {
       "file": ".github/workflows/platform-pr.yml",
@@ -5059,6 +5080,13 @@
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
       "stepAnchor": "name:Apply production Kubernetes runtime secrets#33",
+      "secretName": "CHANNELS_CREDENTIAL_KEYRING_JSON",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-production",
+      "stepAnchor": "name:Apply production Kubernetes runtime secrets#33",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },
@@ -6762,6 +6790,13 @@
       "stepAnchor": "name:Activate immutable release before staging mutation#15",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-staging",
+      "stepAnchor": "name:Apply staging Kubernetes runtime secrets#31",
+      "secretName": "CHANNELS_CREDENTIAL_KEYRING_JSON",
+      "purpose": "application-runtime"
     },
     {
       "file": ".github/workflows/platform-production.yml",
@@ -8950,42 +8985,42 @@
     {
       "file": ".github/workflows/platform-staging-advisory-evidence.yml",
       "jobId": "staging-advisory-evidence",
-      "stepAnchor": "name:Staging marketplace critical flows#13",
+      "stepAnchor": "name:Staging marketplace critical flows#14",
       "secretName": "CATALOG_ADMIN_E2E_PASSWORD",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-staging-advisory-evidence.yml",
       "jobId": "staging-advisory-evidence",
-      "stepAnchor": "name:Staging marketplace critical flows#13",
+      "stepAnchor": "name:Staging marketplace critical flows#14",
       "secretName": "MARKETPLACE_E2E_PASSWORD",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-staging-advisory-evidence.yml",
       "jobId": "staging-advisory-evidence",
-      "stepAnchor": "name:Staging marketplace critical flows#13",
+      "stepAnchor": "name:Staging marketplace critical flows#14",
       "secretName": "PLATFORM_ADMIN_EMAIL",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-staging-advisory-evidence.yml",
       "jobId": "staging-advisory-evidence",
-      "stepAnchor": "name:Staging marketplace critical flows#13",
+      "stepAnchor": "name:Staging marketplace critical flows#14",
       "secretName": "PLATFORM_ADMIN_PASSWORD",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-staging-advisory-evidence.yml",
       "jobId": "staging-advisory-evidence",
-      "stepAnchor": "name:Staging marketplace critical flows#13",
+      "stepAnchor": "name:Staging marketplace critical flows#14",
       "secretName": "SPACES_ACCESS_ID",
       "purpose": "spaces-evidence"
     },
     {
       "file": ".github/workflows/platform-staging-advisory-evidence.yml",
       "jobId": "staging-advisory-evidence",
-      "stepAnchor": "name:Staging marketplace critical flows#13",
+      "stepAnchor": "name:Staging marketplace critical flows#14",
       "secretName": "SPACES_SECRET_KEY",
       "purpose": "spaces-evidence"
     },

@@ -1216,7 +1216,11 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
         [now],
       );
       if (order === "ledger-first") {
-        for (const statement of pricingRepricingEngineSchemaMigrations[0]!.statements) await pool.query(statement);
+        const spiralBreakerMigration = pricingRepricingEngineSchemaMigrations.find(
+          (migration) => migration.migrationId === "20260914_pricing_repricing_spiral_breaker",
+        );
+        expect(spiralBreakerMigration).toBeDefined();
+        for (const statement of spiralBreakerMigration!.statements) await pool.query(statement);
       } else await pool.query(pricingModule.schemaSql);
       expect(await readProductRoundState(pool, product)).toMatchObject({
         same_direction_rounds: 0,
@@ -1440,10 +1444,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
     expect(payload.signalToEvaluationLatencyMs).toBeGreaterThanOrEqual(0);
 
     const projection = buildRepricingEvaluationProjectionHandlers(pool);
-    await projection["pricing.repricing-policy.evaluated"]!({
-      type: facts[0]!.eventType,
-      data: facts[0]!.payload,
-    } as never);
+    await projection["pricing.repricing-policy.evaluated"]!(toTransportEvent(facts[0]!));
     const page = await pool.query<{ listings_changed: number; listings_skipped: number }>(
       `SELECT listings_changed, listings_skipped FROM pricing_repricing_policy_evaluations`,
     );

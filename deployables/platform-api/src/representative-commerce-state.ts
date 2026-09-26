@@ -39,7 +39,7 @@ import {
   type PlatformApiCatalogAssetStorageConfig,
   type PlatformApiListingPhotoStorageConfig,
 } from "./config";
-import { closePlatformApiPools, createPlatformApiPools } from "./database-pools";
+import { closePlatformApiPools, createPlatformApiPools, createSeedCommandPools } from "./database-pools";
 import {
   createFakeMoneyMovementGateway,
   createFakePaymentProcessorGateway,
@@ -353,7 +353,8 @@ export async function runRepresentativeCommerceState(
     throw new Error("Representative commerce state requires configuration when runtime composition is not supplied.");
   }
 
-  const pools = options.pools ?? createPlatformApiPools(config!);
+  const seedPools = options.pools ? null : createSeedCommandPools(config!);
+  const pools = options.pools ?? seedPools!;
   const ownsPools = !options.pools;
   const progress: RepresentativeStepProgress = {
     lastCompletedStep: null,
@@ -430,6 +431,7 @@ export async function runRepresentativeCommerceState(
           enabledDataProfiles: representativeCommerceStateDataProfiles,
           environmentName: execution.deploymentEnvironment,
           runtimeProfile: config?.runtimeProfile ?? "public",
+          schemaBootstrapLockPool: seedPools?.schemaBootstrapLockPool,
           // Preserve pre-seed visibility and interrupted-state reconciliation
           // without spending the canary's budget on unrelated runtime drains.
           seedContextDrain: true,

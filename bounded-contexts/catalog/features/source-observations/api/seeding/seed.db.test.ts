@@ -15,7 +15,9 @@ import { createCatalogServices } from "../../../../support/authoring-support/ser
 import { seedCatalogDatabase } from "../../../../support/authoring-support/seed";
 import { seedContext } from "../../../../support/seed-support/context";
 import { localizedTextMapFromEnglish } from "../../../../support/runtime-support/common";
-import type { DisplayTemplateId } from "../../../../ids";
+import type { BlueprintId, CatalogItemId, CategoryId, DisplayTemplateId, FieldId } from "../../../../ids";
+import { seedCatalogItems } from "../../../catalog-items/api/seed";
+import { seedReferenceData } from "../../../reference-data/api/seed";
 import {
   decideSourceObservation,
   evolveSourceObservation,
@@ -55,6 +57,188 @@ describeDb("promoted Source Observation scenario seed database lifecycle", () =>
   });
 
   afterAll(async () => closeMultiContextTestPools({ catalog: pool }));
+
+  async function historicalMigrationFixture() {
+    await seedCatalogDatabase(pool, undefined, { enabledDataProfiles: ["catalog-integration-bootstrap"] });
+    const services = createCatalogServices(pool);
+    const blueprints = await pool.query<{ key: string; blueprint_id: BlueprintId }>(
+      "SELECT key, blueprint_id FROM catalog_blueprints",
+    );
+    const fields = await pool.query<{ key: string; field_id: FieldId }>("SELECT key, field_id FROM catalog_fields");
+    const categories = await pool.query<{ key: string; category_id: CategoryId }>(
+      "SELECT key, category_id FROM catalog_categories",
+    );
+    await seedCatalogItems(
+      services,
+      Object.fromEntries(blueprints.rows.map((row) => [row.key, row.blueprint_id])),
+      Object.fromEntries(fields.rows.map((row) => [row.key, row.field_id])),
+      Object.fromEntries(categories.rows.map((row) => [row.key, row.category_id])),
+      await seedReferenceData(services),
+      {
+        catalogItemIds: [catalogSeedIds.items.pikachuJungle as CatalogItemId],
+        beforePublication: async () => {
+          await drainLocalProjectionHandlerSets("catalog", pool, services.projectors);
+        },
+      },
+    );
+    await drainLocalProjectionHandlerSets("catalog", pool, services.projectors);
+    const evidence = await buildCatalogBrowserE2ePromotedObservationSeedEvidence(pool);
+    expect(evidence.promotionPlan.planFingerprint).toBe(
+      "9ec3a12b68c7f1945da0089934ddc97ccc956d5a799c98d2cb8d9c61614ad90c",
+    );
+    const record = commandEvents(evidence.recordCommand);
+    const promotion = commandEvents(
+      {
+        ...evidence.promotionCommand,
+        promotionPlanFingerprint: "f0d75b34e937923016ba19fad5b9b611e101d8e31b8cbe2176e26aadaf4de599",
+      },
+      record.state,
+    );
+    await appendObservationHistory(pool, [...record.events, ...promotion.events]);
+    await drainLocalProjectionHandlerSets("catalog", pool, services.sourceObservations.projectors);
+    return { services, evidence };
+  }
+
+  async function completeEventRows(streamId: string) {
+    return (
+      await pool.query<{ row_json: string }>(
+        "SELECT row_to_json(t)::text AS row_json FROM event_store_events t WHERE stream_id=$1 ORDER BY stream_version",
+        [streamId],
+      )
+    ).rows;
+  }
+
+  it("migrates historical plan evidence once and resumes after append committed before projection", async () => {
+    const { services } = await historicalMigrationFixture();
+    const original = await completeEventRows(observationStreamId);
+    const targetStream = `catalog.item-${catalogSeedIds.items.pikachuJungle}`;
+    const targetBefore = await completeEventRows(targetStream);
+    const summaryBefore = (await pool.query("SELECT * FROM catalog_source_observation_integration_scope_summaries"))
+      .rows;
+    const commandHandler = services.sourceObservations.commandHandler;
+    const interrupted = {
+      ...services,
+      sourceObservations: {
+        ...services.sourceObservations,
+        commandHandler: async (input: Parameters<typeof commandHandler>[0]) => {
+          expect(input.expectedVersion).toBe(2);
+          await commandHandler(input);
+          throw new Error("synthetic lost acknowledgement after commit");
+        },
+      },
+    };
+    await expect(seedPromotedSourceObservationScenario(interrupted)).rejects.toThrow(
+      "synthetic lost acknowledgement after commit",
+    );
+    expect(await observationEventCount(pool)).toBe(3);
+    expect((await projectedObservation(pool))?.promotion_plan_fingerprint).toBe(
+      "f0d75b34e937923016ba19fad5b9b611e101d8e31b8cbe2176e26aadaf4de599",
+    );
+    await seedPromotedSourceObservationScenario(services);
+    await drainLocalProjectionHandlerSets("catalog", pool, services.sourceObservations.projectors);
+    await seedPromotedSourceObservationScenario(services);
+    await drainLocalProjectionHandlerSets("catalog", pool, services.sourceObservations.projectors);
+    const after = await completeEventRows(observationStreamId);
+    expect(after).toHaveLength(3);
+    expect(after.slice(0, 2)).toEqual(original);
+    expect(JSON.parse(after[2]!.row_json).event_type).toBe("catalog.source-observation.promotion-plan-recorded");
+    expect(await completeEventRows(targetStream)).toEqual(targetBefore);
+    expect(await projectedObservation(pool)).toMatchObject({
+      status: "promoted",
+      promotion_plan_fingerprint: "9ec3a12b68c7f1945da0089934ddc97ccc956d5a799c98d2cb8d9c61614ad90c",
+    });
+    expect((await pool.query("SELECT * FROM catalog_source_observation_integration_scope_summaries")).rows).toEqual(
+      summaryBefore,
+    );
+    expect(
+      (await pool.query("SELECT * FROM event_projection_poison_events WHERE stream_id=$1", [observationStreamId])).rows,
+    ).toEqual([]);
+    expect(
+      (await pool.query("SELECT * FROM event_projection_blocked_streams WHERE stream_id=$1", [observationStreamId]))
+        .rows,
+    ).toEqual([]);
+    const applications = await pool.query<{ count: string; distinct_events: string }>(
+      "SELECT count(*)::text AS count, count(DISTINCT event_id)::text AS distinct_events FROM event_subscription_applications WHERE stream_id=$1",
+      [observationStreamId],
+    );
+    expect(applications.rows).toEqual([{ count: "3", distinct_events: "3" }]);
+    const orphans = await pool.query(
+      "SELECT a.event_id FROM event_subscription_applications a LEFT JOIN event_store_events e ON e.event_id=a.event_id WHERE a.stream_id=$1 AND e.event_id IS NULL",
+      [observationStreamId],
+    );
+    expect(orphans.rows).toEqual([]);
+    const outbox = await pool.query<{ count: string; distinct_positions: string }>(
+      `SELECT count(*)::text AS count, count(DISTINCT source_global_position)::text AS distinct_positions
+       FROM realtime_projection_outbox
+       WHERE projection_name='catalog-source-observation-projection'
+       AND source_global_position IN (SELECT global_position FROM event_store_events WHERE stream_id=$1)`,
+      [observationStreamId],
+    );
+    expect(outbox.rows).toEqual([{ count: "3", distinct_positions: "3" }]);
+    const promoted = await pool.query<{ promoted_at: string }>(
+      "SELECT promoted_at FROM catalog_source_observations WHERE observation_id=$1",
+      [catalogBrowserE2ePromotedObservation.observationId],
+    );
+    expect(new Date(promoted.rows[0]!.promoted_at).toISOString()).toBe("2026-06-03T00:01:00.000Z");
+    await seedCatalogDatabase(pool, undefined, { enabledDataProfiles: ["scenario-seed"] });
+    expect(await completeEventRows(observationStreamId)).toEqual(after);
+    expect(await completeEventRows(targetStream)).toEqual(targetBefore);
+  });
+
+  it("keeps the historical stream on append failure and completes through normal seed re-entry", async () => {
+    const { services } = await historicalMigrationFixture();
+    const before = await completeEventRows(observationStreamId);
+    await pool.query(`ALTER TABLE event_store_events ADD CONSTRAINT synthetic_migration_append_failure
+      CHECK (event_type <> 'catalog.source-observation.promotion-plan-recorded')`);
+    await expect(seedPromotedSourceObservationScenario(services)).rejects.toMatchObject({
+      code: "infrastructure_failure",
+      details: { cause: expect.stringContaining("synthetic_migration_append_failure") },
+    });
+    expect(await completeEventRows(observationStreamId)).toEqual(before);
+    expect(
+      (
+        await pool.query<{ current_version: string }>(
+          "SELECT current_version::text FROM event_store_streams WHERE stream_id=$1",
+          [observationStreamId],
+        )
+      ).rows,
+    ).toEqual([{ current_version: "2" }]);
+    await pool.query("ALTER TABLE event_store_events DROP CONSTRAINT synthetic_migration_append_failure");
+    await seedCatalogDatabase(pool, undefined, { enabledDataProfiles: ["scenario-seed"] });
+    const after = await completeEventRows(observationStreamId);
+    expect(after).toHaveLength(3);
+    expect(after.slice(0, 2)).toEqual(before);
+  });
+
+  it("refuses a concurrent append between predecessor proof and command commit", async () => {
+    const { services, evidence } = await historicalMigrationFixture();
+    const commandHandler = services.sourceObservations.commandHandler;
+    const original = await completeEventRows(observationStreamId);
+    const competingCommand: SourceObservationCommand = {
+      ...evidence.promotionCommand,
+      type: "RecordSourceObservationPromotionPlan",
+      promotionPlanFingerprint: "synthetic-competing-plan",
+    };
+    const competing = {
+      ...services,
+      sourceObservations: {
+        ...services.sourceObservations,
+        commandHandler: async (input: Parameters<typeof commandHandler>[0]) => {
+          await commandHandler({ ...input, command: competingCommand, expectedVersion: 2 });
+          return commandHandler(input);
+        },
+      },
+    };
+    await expect(seedPromotedSourceObservationScenario(competing)).rejects.toMatchObject({
+      code: "concurrency_conflict",
+    });
+    const after = await completeEventRows(observationStreamId);
+    expect(after).toHaveLength(3);
+    expect(after.slice(0, 2)).toEqual(original);
+    expect(JSON.parse(after[2]!.row_json).payload.promotionPlanFingerprint).toBe("synthetic-competing-plan");
+    await expect(seedPromotedSourceObservationScenario(services)).rejects.toThrow();
+    expect(await completeEventRows(observationStreamId)).toEqual(after);
+  });
 
   it.each([
     {
@@ -211,6 +395,44 @@ describeDb("promoted Source Observation scenario seed database lifecycle", () =>
 
     await expect(seedPromotedSourceObservationScenario(refusingServices)).rejects.toThrow(
       "at field path 'promotionPlanFingerprint'",
+    );
+    expect(await observationEventCount(pool)).toBe(countBefore);
+  });
+
+  it("promotion fingerprint refusal names expected and actual bounded scalar values", async () => {
+    const services = createCatalogServices(pool);
+    await appendCatalogItemLifecycle(pool, services, catalogSeedIds.items.pikachuJungle);
+    const evidence = await buildCatalogBrowserE2ePromotedObservationSeedEvidence(pool);
+    const recorded = commandEvents(evidence.recordCommand);
+    const promoted = commandEvents(evidence.promotionCommand, recorded.state).events[0]!;
+    const recordedFingerprint = "f".repeat(64);
+    await appendObservationHistory(pool, [
+      recorded.events[0]!,
+      mutateEvent(promoted, { promotionPlanFingerprint: recordedFingerprint }),
+    ]);
+    const countBefore = await observationEventCount(pool);
+
+    await expect(seedPromotedSourceObservationScenario(services)).rejects.toThrow(
+      `at field path 'promotionPlanFingerprint' (expected ${JSON.stringify(evidence.promotionCommand.promotionPlanFingerprint)}, actual ${JSON.stringify(recordedFingerprint)})`,
+    );
+    expect(await observationEventCount(pool)).toBe(countBefore);
+  });
+
+  it("promotion fingerprint refusal marks a truncated scalar without printing the full value", async () => {
+    const services = createCatalogServices(pool);
+    await appendCatalogItemLifecycle(pool, services, catalogSeedIds.items.pikachuJungle);
+    const evidence = await buildCatalogBrowserE2ePromotedObservationSeedEvidence(pool);
+    const recorded = commandEvents(evidence.recordCommand);
+    const promoted = commandEvents(evidence.promotionCommand, recorded.state).events[0]!;
+    const longFingerprint = "f".repeat(128);
+    await appendObservationHistory(pool, [
+      recorded.events[0]!,
+      mutateEvent(promoted, { promotionPlanFingerprint: longFingerprint }),
+    ]);
+    const countBefore = await observationEventCount(pool);
+
+    await expect(seedPromotedSourceObservationScenario(services)).rejects.toThrow(
+      `at field path 'promotionPlanFingerprint' (expected ${JSON.stringify(evidence.promotionCommand.promotionPlanFingerprint)}, actual ${JSON.stringify("f".repeat(96))}[truncated])`,
     );
     expect(await observationEventCount(pool)).toBe(countBefore);
   });
