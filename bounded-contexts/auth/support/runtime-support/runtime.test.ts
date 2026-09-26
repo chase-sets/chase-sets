@@ -61,6 +61,99 @@ function toAuthenticatedSessionRead(
 }
 
 describe("Auth request actor resolution", () => {
+  it.each(["owner", "manager"])("applies pricing email boundaries for %s", async (roleKey) => {
+    for (const emailState of [
+      "unverified",
+      "verified-contact",
+      "google",
+      "facebook",
+      "social-link",
+      "no-primary-email",
+    ]) {
+      const expiresAt = "2099-01-01T00:00:00.000Z";
+      const services = createServices({
+        dbQuery: vi.fn(async () => ({
+          rows: [{ session_id: "ses_synthetic_pricing", token_hash: "hashed:synthetic_token", expires_at: expiresAt }],
+        })),
+        session: {
+          session_id: "ses_synthetic_pricing",
+          user_id: "usr_synthetic_pricing",
+          user_display_name: null,
+          user_primary_email: null,
+          account_id: "acc_synthetic_pricing",
+          account_display_name: null,
+          account_name: null,
+          available_account_ids: ["acc_synthetic_pricing"],
+          authentication_method: ["google", "facebook"].includes(emailState) ? emailState : "password",
+          status: "active",
+          expires_at: expiresAt,
+          updated_at: expiresAt,
+        },
+        membership: {
+          membership_id: "mbr_synthetic_pricing",
+          user_id: "usr_synthetic_pricing",
+          account_id: "acc_synthetic_pricing",
+          role_key: roleKey,
+          role_permissions: [],
+          status: "active",
+          updated_at: expiresAt,
+        },
+        user: {
+          user_id: "usr_synthetic_pricing",
+          display_name: "Synthetic",
+          given_name: "",
+          family_name: "",
+          primary_email: emailState === "no-primary-email" ? null : "synthetic@example.test",
+          status: "active",
+          contact_methods: [
+            {
+              type: "email",
+              value: "SYNTHETIC@example.test",
+              verifiedAt: emailState === "verified-contact" ? "2026-09-01T00:00:00Z" : null,
+            },
+          ],
+          social_login_links: emailState === "social-link" ? [{ email: "SYNTHETIC@example.test" }] : [],
+          auth_methods: ["password"],
+          password_credential_id: null,
+          passkey_credential_ids: [],
+          updated_at: expiresAt,
+        },
+      });
+      const actor = await resolveActorFromRequest(
+        services,
+        new Request("https://platform.test/api/auth/session", {
+          headers: { cookie: "chase_sets_session=synthetic_token" },
+        }),
+      );
+      expect(actor?.permissions, emailState).toContain("pricing.view");
+      for (const permission of ["pricing.manage", "listings.manage", "offers.manage", "orders.manage"]) {
+        expect(actor?.permissions.includes(permission), emailState + ":" + permission).toBe(
+          emailState !== "unverified",
+        );
+      }
+      if (emailState === "unverified") {
+        // Stored-grant control, deliberately separate from the preset-positive resolution above.
+        const membership = await services.identity.getActiveMembershipForUserAccount(
+          "usr_synthetic_pricing",
+          "acc_synthetic_pricing",
+        );
+        vi.mocked(services.identity.getActiveMembershipForUserAccount).mockResolvedValue({
+          ...membership!,
+          role_key: "viewer",
+          role_permissions: ["pricing.manage", "synthetic.retained"],
+        });
+        const storedActor = await resolveActorFromRequest(
+          services,
+          new Request("https://platform.test/api/auth/session", {
+            headers: { cookie: "chase_sets_session=synthetic_token" },
+          }),
+        );
+        expect(storedActor?.permissions).not.toContain("pricing.manage");
+        expect(storedActor?.permissions).toContain("pricing.view");
+        expect(storedActor?.permissions).toContain("synthetic.retained");
+      }
+    }
+  });
   it("resolves a browser session token through the auth session-token store", async () => {
     const expiresAt = new Date(Date.now() + 60_000).toISOString();
     const services = createServices({

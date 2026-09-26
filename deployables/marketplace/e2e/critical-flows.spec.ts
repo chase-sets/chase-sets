@@ -1,5 +1,6 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { registerOrSignInSyntheticAccount, signInWithPassword } from "./support/auth";
+import { marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
 
 const configuredMarketplaceAccount = {
   email: process.env.MARKETPLACE_E2E_EMAIL?.trim() ?? "",
@@ -18,6 +19,7 @@ const accountCriticalRoutes = [
   { path: "/account/cart", heading: /^Your cart$/i, flow: "buy cart" },
   { path: "/account/sell-list", heading: /^Sell List$/i, flow: "sell list" },
   { path: "/account/listings", heading: /^Listings$/i, flow: "listings" },
+  { path: "/account/repricing", heading: /^Repricing$/i, flow: "repricing" },
   { path: "/account/offers/submitted", heading: /^Submitted Offers$/i, flow: "submitted offers" },
   { path: "/account/offers/matches", heading: /^Offer Matches$/i, flow: "offer matches" },
   { path: "/account/inventory", heading: /^Inventory$/i, flow: "inventory" },
@@ -301,13 +303,13 @@ test.describe("marketplace critical flows", () => {
     }
   });
 
-  test("signed-in account can reach critical marketplace commerce surfaces @marketplace-seller", async ({
+  test("seeded seller can reach critical marketplace commerce surfaces including repricing @marketplace-seller", async ({
     page,
-  }, testInfo) => {
+  }) => {
     test.setTimeout(120_000);
 
     await page.goto("/sign-in?returnTo=%2Faccount%2Fcart");
-    await authenticateAccount(page, testInfo);
+    await signInWithPassword(page, new URL(page.url()).origin, marketplaceBrowserE2eSellerCredentials());
     await expectAccountRouteReady(page, accountCriticalRoutes[0]);
 
     for (const route of accountCriticalRoutes) {

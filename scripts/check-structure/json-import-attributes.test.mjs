@@ -700,11 +700,11 @@ describe("real repository execution membership", () => {
 
     expect(result.violations, result.violations.join("\n")).toEqual([]);
     expect(result.inventory.parserVersion).toBe("6.0.3");
-    expect(result.inventory.declarations).toHaveLength(102);
+    expect(result.inventory.declarations).toHaveLength(103);
     expect(result.inventory.partition).toEqual({
       "node-enforced": 41,
       "vite-excluded": 49,
-      "vitest-excluded": 12,
+      "vitest-excluded": 13,
       "manifest-only": 0,
       indeterminate: 0,
     });
@@ -719,8 +719,22 @@ describe("real repository execution membership", () => {
       }),
     );
     expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-      "5f165f86cf426be0d94a2bfc6d7dcd91262ca9a201df27b50262392395c0d68c",
+      "3f8790672e333752b9a0e38cbb061bce6ca1884932338d8d8be1eb7a71672e6e",
     );
+    expect(
+      normalized.filter(
+        (entry) => entry.relativeFile === "bounded-contexts/pricing/tests/account-repricing-route.test.ts",
+      ),
+    ).toEqual([
+      {
+        relativeFile: "bounded-contexts/pricing/tests/account-repricing-route.test.ts",
+        form: "import",
+        specifier: "../context.json",
+        attributeText: null,
+        resolved: "bounded-contexts/pricing/context.json",
+        disposition: "vitest-excluded",
+      },
+    ]);
     expect(
       result.inventory.declarations.find(
         (entry) => entry.relativeFile === "bounded-contexts/catalog/support/authoring-support/index.ts",
