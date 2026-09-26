@@ -19,6 +19,8 @@ import type { RepricingHaltState } from "../domain/halt";
 import type { RepricingPolicyState } from "../domain/domain";
 import { formatRepricingCount, repricingBudgetLabel, repricingScopeLabel, repricingStatusBadge } from "./policy-copy";
 
+export type { RepricingHaltState };
+
 export type RepricingPolicyListRow = RepricingPolicyState & Readonly<{ changesUsedToday: number }>;
 
 export function repricingPolicyHref(policyId: string): string {

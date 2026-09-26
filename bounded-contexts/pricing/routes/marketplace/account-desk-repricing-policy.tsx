@@ -6,10 +6,9 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createPricingRequestApiClient, PricingApiError } from "../../support/request-support/api-client";
 import type { RepricingActivityFilter } from "../../features/repricing-engine/api/activity";
-import type { RepricingHaltState } from "../../features/repricing-policies/domain/halt";
 import { repricingActivityFilterOrder } from "../../features/repricing-policies/ui/activity-copy";
 import { PricingRepricingPolicyDetailPage } from "../../features/repricing-policies/ui/policy-detail-page";
-import { repricingPolicyHref } from "../../features/repricing-policies/ui/policy-list-page";
+import { repricingPolicyHref, type RepricingHaltState } from "../../features/repricing-policies/ui/policy-list-page";
 import { loadOrUnavailable, REPRICING_DESK_HREF, repricingPolicyIdFrom } from "./account-desk-repricing";
 
 const releasedHalt: RepricingHaltState = { engaged: false, engagedAt: null, releasedAt: null };

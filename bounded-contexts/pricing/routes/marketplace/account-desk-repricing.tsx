@@ -5,8 +5,10 @@ import { defineFormAction, formActionRedirect } from "@chase-sets/platform-runti
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createPricingRequestApiClient, PricingApiError } from "../../support/request-support/api-client";
-import { PricingRepricingPolicyListPage } from "../../features/repricing-policies/ui/policy-list-page";
-import type { RepricingHaltState } from "../../features/repricing-policies/domain/halt";
+import {
+  PricingRepricingPolicyListPage,
+  type RepricingHaltState,
+} from "../../features/repricing-policies/ui/policy-list-page";
 
 export const REPRICING_DESK_HREF = "/account/desk/repricing";
 
