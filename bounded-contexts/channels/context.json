@@ -555,15 +555,15 @@
         "api-client:bounded-contexts/channels/support/request-support/api-client.ts:PUT H7bd6e2a2b805#1",
         "api-route:bounded-contexts/channels/features/listing-composition/api/route.ts:POST /:connectionId/mappings/:dimension/:sourceKey/decision",
         "api-route:bounded-contexts/channels/features/listing-composition/api/route.ts:PUT /:connectionId/settings",
-        "post-form:bounded-contexts/channels/features/listing-composition/ui/publication-pages.tsx:Ha94213ead578#1",
-        "post-form:bounded-contexts/channels/features/listing-composition/ui/publication-pages.tsx:Ha98ce7edb16e#1",
+        "post-form:bounded-contexts/channels/features/listing-composition/ui/publication-pages.tsx:H8d7b1af0483d#1",
+        "post-form:bounded-contexts/channels/features/listing-composition/ui/publication-pages.tsx:Hdedc9988f2e2#1",
         "route-action:bounded-contexts/channels/routes/marketplace/account-channels-publication-connection.tsx"
       ],
       "visibleDestination": {
-        "description": "Publication settings and mapping forms retain submitted values while the real data-router revalidates; a changed configuration stream version remounts the form from authoritative loader data, while conflicts and command errors remain visible."
+        "description": "Publication settings and mapping forms retain submitted values in disabled forms with a pending notice while the real data-router revalidates; a changed configuration stream version remounts the forms from authoritative loader data, while conflicts and command errors remain visible."
       },
       "proof": {
-        "correction": "Both forms are keyed by configurationStreamVersion. The post-write action-data handoff retains the command streamVersion, the detail loader reads through loadAfterWrite, and a lower projection version renders the existing loading state with bounded revalidation until the account-scoped API result reaches the written version; conflicts and command failures remain direct.",
+        "correction": "Both forms keep loader-owned expectedStreamVersion. The post-write action-data handoff retains the command streamVersion and latest submitted settings or matching mapping target for display only. A lower projection version retains disabled detail forms under the pending notice and bounded revalidation until the account-scoped API result reaches the written version; the applied-version render identity remounts uncontrolled forms, and conflicts and command failures remain visible.",
         "tests": [
           "bounded-contexts/channels/features/listing-composition/tests/channel-publication-settings-route.test.tsx",
           "bounded-contexts/channels/features/listing-composition/tests/channel-mapping-review-route.test.ts"

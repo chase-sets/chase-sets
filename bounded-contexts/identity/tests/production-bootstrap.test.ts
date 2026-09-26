@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { IdentityServices } from "../support/runtime-support/services";
 import { bootstrapPlatformAdminIdentity } from "../support/runtime-support/production-bootstrap";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { buildMembershipProjectionHandlers } from "../features/memberships/read-model/projection";
 
 type CommandEnvelope = Readonly<{
   streamId?: unknown;
@@ -55,6 +58,41 @@ function createServices(existing: boolean, existingRoleKey = "platform-admin") {
 }
 
 describe("platform admin production bootstrap", () => {
+  it.each(["create", "repair", "idempotent"])(
+    "keeps pricing absent through bootstrap and projection: %s",
+    async (mode) => {
+      const { services, records } = createServices(mode !== "create", mode === "repair" ? "viewer" : "platform-admin");
+      await bootstrapPlatformAdminIdentity(services, {
+        email: "synthetic-ops@example.test",
+        displayName: "Synthetic Ops",
+        accountName: "Synthetic Platform",
+      });
+      const command = records.memberships[0]?.command as { roleKey: string } | undefined;
+      const roleKey =
+        command?.roleKey ??
+        (await services.db.query<{ role_key: string }>("SELECT role_key FROM identity_memberships")).rows[0]!.role_key;
+      expect(roleKey).toBe("platform-admin");
+      const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] }));
+      const handlers = buildMembershipProjectionHandlers({ query } as PgQueryable);
+      const type = mode === "repair" ? "identity.membership.role-changed" : "identity.membership.granted";
+      await handlers[type]!(
+        buildTransportEvent(
+          type,
+          {
+            membershipId: "mbr_synthetic_bootstrap",
+            userId: "usr_synthetic_bootstrap",
+            accountId: "acc_synthetic_bootstrap",
+            roleKey,
+          },
+          { streamId: "identity.membership-mbr_synthetic_bootstrap" },
+        ),
+      );
+      const write = query.mock.calls.find(([sql]) => sql.includes("role_permissions"));
+      const permissions = JSON.parse(String(write![1]![mode === "repair" ? 2 : 4]));
+      expect(permissions).not.toContain("pricing.view");
+      expect(permissions).not.toContain("pricing.manage");
+    },
+  );
   it("is idempotent when the configured admin already exists", async () => {
     const { services, records } = createServices(true);
 

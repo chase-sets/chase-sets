@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { ROLE_PERMISSIONS } from "./constants";
 import { ROLE_KEYS } from "../../../support/runtime-support/common";
@@ -190,5 +191,36 @@ describe("identity role permissions", () => {
     expect(ROLE_PERMISSIONS.viewer).not.toContain("channels.manage");
     expect(ROLE_PERMISSIONS["platform-admin"]).not.toContain("channels.view");
     expect(ROLE_PERMISSIONS["platform-admin"]).not.toContain("channels.manage");
+  });
+});
+
+describe("pricing preset contract", () => {
+  const expected: Record<string, readonly string[]> = {
+    owner: ["pricing.manage", "pricing.view"],
+    manager: ["pricing.manage", "pricing.view"],
+    fulfillment: ["pricing.view"],
+    viewer: ["pricing.view"],
+    "platform-admin": [],
+  };
+  // Sorted non-pricing sets captured from the unchanged d33c1fdd predecessor.
+  const predecessor = {
+    "platform-admin": "3c08ec666bbf972cd00da544ce80b7df486a5a02410d4ec2bc5a07c8f78a02f6",
+    owner: "8dbce908e11a530780c622e5d633794d41c23357d51ed3054c586c505f2fdd55",
+    manager: "4f7bafd3ac8326d8486dcdc7ddeb5c4fe63c76f8615ce4c307f1438af27332c1",
+    fulfillment: "968211cfdf02d5d689838226c846197ac9c41fdd96806aa5fe84bfb32b551248",
+    viewer: "9b653b5afb093be2612860fcb672d437fc50eac3b929b20cb902c0fbe93a9caa",
+  };
+  it("grants pricing permissions to the intended account roles", () => {
+    for (const [role, permissions] of Object.entries(ROLE_PERMISSIONS)) {
+      const pricing = permissions.filter((key) => key.startsWith("pricing.")).sort();
+      expect(pricing).toEqual(expected[role as keyof typeof expected]);
+      for (const key of ["pricing.view", "pricing.manage"]) {
+        expect(new Set<string>(permissions).has(key), role + ":" + key).toBe(expected[role]!.includes(key));
+      }
+      const other = [...new Set(permissions.filter((key) => !key.startsWith("pricing.")))].sort();
+      expect(createHash("sha256").update(JSON.stringify(other)).digest("hex")).toBe(
+        predecessor[role as keyof typeof predecessor],
+      );
+    }
   });
 });

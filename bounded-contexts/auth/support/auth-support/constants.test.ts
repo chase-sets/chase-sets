@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { AUTH_ROLE_PERMISSIONS } from "./constants";
 
@@ -154,5 +155,36 @@ describe("auth role permissions", () => {
     expect(AUTH_ROLE_PERMISSIONS.viewer).not.toContain("channels.manage");
     expect(AUTH_ROLE_PERMISSIONS["platform-admin"]).not.toContain("channels.view");
     expect(AUTH_ROLE_PERMISSIONS["platform-admin"]).not.toContain("channels.manage");
+  });
+});
+
+describe("pricing preset contract", () => {
+  const expected: Record<string, readonly string[]> = {
+    owner: ["pricing.manage", "pricing.view"],
+    manager: ["pricing.manage", "pricing.view"],
+    fulfillment: ["pricing.view"],
+    viewer: ["pricing.view"],
+    "platform-admin": [],
+  };
+  // Sorted non-pricing sets captured from the unchanged d33c1fdd predecessor.
+  const predecessor = {
+    "platform-admin": "199c5f4e9f3db17dd2dd5360dad547f08a6c836eae24942b4f0582a2b1f8ca53",
+    owner: "2f44a3531ad460bb8c0e8813515adfccb5299c697e75d0c66afa5880566344d4",
+    manager: "4f7bafd3ac8326d8486dcdc7ddeb5c4fe63c76f8615ce4c307f1438af27332c1",
+    fulfillment: "968211cfdf02d5d689838226c846197ac9c41fdd96806aa5fe84bfb32b551248",
+    viewer: "9b653b5afb093be2612860fcb672d437fc50eac3b929b20cb902c0fbe93a9caa",
+  };
+  it("grants pricing permissions to the intended account roles", () => {
+    for (const [role, permissions] of Object.entries(AUTH_ROLE_PERMISSIONS)) {
+      const pricing = permissions.filter((key) => key.startsWith("pricing.")).sort();
+      expect(pricing).toEqual(expected[role as keyof typeof expected]);
+      for (const key of ["pricing.view", "pricing.manage"]) {
+        expect(new Set<string>(permissions).has(key), role + ":" + key).toBe(expected[role]!.includes(key));
+      }
+      const other = [...new Set(permissions.filter((key) => !key.startsWith("pricing.")))].sort();
+      expect(createHash("sha256").update(JSON.stringify(other)).digest("hex")).toBe(
+        predecessor[role as keyof typeof predecessor],
+      );
+    }
   });
 });

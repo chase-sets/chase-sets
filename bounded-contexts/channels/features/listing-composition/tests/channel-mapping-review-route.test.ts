@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { createChannelsServicesForTest } from "../../../tests/channels-services-test-support";
 import { act, cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { ChaseRoot } from "@chase-sets/design-system";
 import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
 import { Hono } from "hono";
@@ -67,7 +68,7 @@ describe("channel-mapping-review-route", () => {
       await router.navigate(PUBLICATION_PATH, { formMethod: "post", formData: decideMappingForm("0") });
     });
     expect(screen.getByText(/Loading channel publication settings/u)).toBeTruthy();
-    expect(screen.queryByText("catalog-category:cards")).toBeNull();
+    expect(screen.getByText("catalog-category:cards")).toBeTruthy();
 
     const readsAfterDecision = reads;
     await settle(1_999);
@@ -78,8 +79,8 @@ describe("channel-mapping-review-route", () => {
 
     projectedVersion = 1;
     await settle(2_000);
-    expect(screen.getByText(/category · rejected · high/u)).toBeTruthy();
-    expect(screen.getByDisplayValue("cards")).toBeTruthy();
+    expect(screen.getByText(/category · rejected · manual/u)).toBeTruthy();
+    expect((screen.getByRole("textbox", { name: "Channel target key" }) as HTMLInputElement).value).toBe("");
     expect(screen.queryByText(/Loading channel publication settings/u)).toBeNull();
 
     await act(async () => {
@@ -91,7 +92,131 @@ describe("channel-mapping-review-route", () => {
     expect(reads - readsAfterStuckDecision).toBe(15);
     expect(screen.getByText("Still catching up")).toBeTruthy();
     expect(screen.queryByText(/Loading channel publication settings/u)).toBeNull();
-    expect(screen.getByText(/category · rejected · high/u)).toBeTruthy();
+    expect(screen.getByText(/category · rejected · manual/u)).toBeTruthy();
+  });
+
+  it("mapping-freshness-pending-retains-typed-target-real-click", async () => {
+    let projectedVersion = 0;
+    let decisions = 0;
+    let reads = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const request = input instanceof Request ? new Request(input, init) : new Request(String(input), init);
+        const pathname = new URL(request.url).pathname;
+        if (pathname === "/api/auth/session")
+          return jsonResponse({
+            actor: {
+              sessionId: "session-1",
+              tenantId: "tenant-1",
+              userId: "user-1",
+              accountId: "account-owner",
+              membershipId: "membership-1",
+              roleKey: "owner",
+              permissions: ["channels.view", "channels.manage"],
+            },
+          });
+        if (pathname.includes("/mappings/") && request.method === "POST") {
+          const body = (await request.json()) as { decision: string; targetKey: string };
+          expect(body).toMatchObject({ decision: "reject", targetKey: "synthetic-target-x9" });
+          decisions += 1;
+          return jsonResponse({ kind: "applied", streamVersion: 1 });
+        }
+        if (pathname.endsWith("/publication/connection-1") && request.method === "GET") {
+          reads += 1;
+          return jsonResponse(mappingReviewDetail(projectedVersion));
+        }
+        throw new Error(`Unexpected request: ${request.method} ${pathname}`);
+      }),
+    );
+    const user = userEvent.setup();
+    const router = renderPublicationRoute();
+    expect(await screen.findByText("catalog-category:cards")).toBeTruthy();
+    const target = screen.getByRole("textbox", { name: "Channel target key" }) as HTMLInputElement;
+    await user.type(target, "synthetic-target-x9");
+    expect(target.value).toBe("synthetic-target-x9");
+    await user.click(screen.getByRole("button", { name: "Reject" }));
+    expect(decisions).toBe(1);
+    expect(await screen.findByText(/Loading channel publication settings/u)).toBeTruthy();
+    expect(screen.getByText(/category · proposed · high/u)).toBeTruthy();
+    expect((screen.getByRole("textbox", { name: "Channel target key" }) as HTMLInputElement).value).toBe(
+      "synthetic-target-x9",
+    );
+    const reject = screen.getByRole("button", { name: "Reject" });
+    expect(reject.closest("fieldset")?.hasAttribute("disabled")).toBe(true);
+    await user.click(reject);
+    expect(decisions).toBe(1);
+    expect(reads).toBeGreaterThan(1);
+    projectedVersion = 1;
+    await act(async () => {
+      await router.revalidate();
+    });
+    expect(screen.getByText(/category · rejected · manual/u)).toBeTruthy();
+    expect((screen.getByRole("textbox", { name: "Channel target key" }) as HTMLInputElement).value).toBe("");
+    expect(screen.queryByText(/Loading channel publication settings/u)).toBeNull();
+    expect(screen.getByRole("button", { name: "Reject" }).closest("fieldset[disabled]")).toBeNull();
+  });
+
+  it("mapping-snapshot-clears-on-connection-change", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const request = input instanceof Request ? new Request(input, init) : new Request(String(input), init);
+        const pathname = new URL(request.url).pathname;
+        if (pathname === "/api/auth/session")
+          return jsonResponse({
+            actor: {
+              sessionId: "session-1",
+              tenantId: "tenant-1",
+              userId: "user-1",
+              accountId: "account-owner",
+              membershipId: "membership-1",
+              roleKey: "owner",
+              permissions: ["channels.view", "channels.manage"],
+            },
+          });
+        if (pathname.includes("/mappings/") && request.method === "POST")
+          return jsonResponse({ kind: "applied", streamVersion: 1 });
+        if (pathname.endsWith("/publication/connection-1") && request.method === "GET")
+          return jsonResponse(mappingReviewDetail(0));
+        if (pathname.endsWith("/publication/connection-2") && request.method === "GET") {
+          const second = mappingReviewDetail(0);
+          return jsonResponse({
+            ...second,
+            connection: { ...second.connection, connectionId: "connection-2", providerKey: "second-provider" },
+            mappingReview: {
+              ...second.mappingReview,
+              items: second.mappingReview.items.map((item) => ({
+                ...item,
+                connectionId: "connection-2",
+                targetKey: "second-target",
+              })),
+            },
+          });
+        }
+        throw new Error(`Unexpected request: ${request.method} ${pathname}`);
+      }),
+    );
+    const router = renderPublicationRoute();
+    expect(await screen.findByText("catalog-category:cards")).toBeTruthy();
+    vi.useFakeTimers();
+    const mapping = decideMappingForm("0");
+    mapping.set("targetKey", "synthetic-submitted-target");
+    await act(async () => {
+      await router.navigate(PUBLICATION_PATH, { formMethod: "post", formData: mapping });
+    });
+    expect(screen.getByDisplayValue("synthetic-submitted-target")).toBeTruthy();
+    await act(async () => {
+      await router.navigate("/account/channels/publication/connection-2");
+    });
+    expect(screen.getByText("second-provider")).toBeTruthy();
+    expect(screen.getByDisplayValue("second-target")).toBeTruthy();
+    expect(screen.queryByText(/Loading channel publication settings/u)).toBeNull();
+    await act(async () => {
+      await router.navigate(PUBLICATION_PATH);
+    });
+    expect((screen.getByRole("textbox", { name: "Channel target key" }) as HTMLInputElement).value).toBe("");
+    expect(screen.queryByText(/Loading channel publication settings/u)).toBeNull();
   });
 
   it("mapping-freshness-exhausted-offers-refresh", async () => {
@@ -149,7 +274,7 @@ describe("channel-mapping-review-route", () => {
     await settle(0);
 
     expect(screen.queryByText("Still catching up")).toBeNull();
-    expect(screen.getByText(/category · rejected · high/u)).toBeTruthy();
+    expect(screen.getByText(/category · rejected · manual/u)).toBeTruthy();
   });
 
   it("R2 rejects the unscoped foreign-mutation lookup mutant while preserving API permissions", async () => {
@@ -394,10 +519,10 @@ function mappingReviewDetail(streamVersion: number): ChannelPublicationConnectio
           connectionId: "connection-1",
           dimension: "category",
           sourceKey: "catalog-category:cards",
-          targetKey: decided ? "cards" : null,
-          confidenceTier: "high",
+          targetKey: null,
+          confidenceTier: decided ? "manual" : "high",
           reviewStatus: decided ? "rejected" : "proposed",
-          provenance: "compose-discovered",
+          provenance: decided ? "operator" : "compose-discovered",
           evidence: { listingId: "listing-1", derivedFrom: "assigned category cards" },
           lastStreamVersion: streamVersion,
         },

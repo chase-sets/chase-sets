@@ -293,7 +293,10 @@ describe("named competitors on the landing page (#3953 decision)", () => {
     );
   });
 
-  it("still carries exactly one gold-foil word page-wide once the truth-gated calculator renders", () => {
+  it.each([
+    { variant: "seller_first_v1", pagePath: source.pagePath },
+    { variant: "seller_first_v2", pagePath: "/?intent=buy" },
+  ])("still carries exactly one gold-foil word page-wide with the live calculator in $variant", ({ pagePath }) => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -303,7 +306,7 @@ describe("named competitors on the landing page (#3953 decision)", () => {
     window.dataLayer = [];
 
     const { container } = render(
-      <PublicPresenceHomePage actionData={null} source={source} feeSchedule={ratifiedSchedule} />,
+      <PublicPresenceHomePage actionData={null} source={{ ...source, pagePath }} feeSchedule={ratifiedSchedule} />,
     );
 
     expect(container.querySelector('[data-public-presence-section="fee_calculator"]')).not.toBeNull();

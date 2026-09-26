@@ -224,7 +224,16 @@ export async function listProviderListingAskDepth(
     conditions: [...conditionAmounts.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([providerCondition, amounts]) => ({ providerCondition, points: histogram(amounts) })),
-    product: histogram(rows.map((row) => Number(row.delivered_amount))),
+    product: [...new Set(rows.map((row) => Number(row.delivered_amount)))]
+      .sort((a, b) => a - b)
+      .map((amount) => ({
+        deliveredAmount: amount.toFixed(2),
+        cumulativeSellerCount: new Set(
+          rows
+            .filter((row) => Number(row.delivered_amount) <= amount)
+            .map((row) => row.anonymous_capture_seller_ordinal),
+        ).size,
+      })),
   };
 }
 

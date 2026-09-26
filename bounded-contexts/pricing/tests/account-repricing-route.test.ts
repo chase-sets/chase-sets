@@ -1,3 +1,6 @@
+import { resolveActorFromSessionId } from "@chase-sets/auth/server";
+import { resolveWebHostNavItems } from "@chase-sets/platform-runtime/web";
+import pricingManifest from "../context.json";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { action as repricingAction, loader as repricingLoader } from "../routes/marketplace/account-repricing";
 
@@ -9,6 +12,94 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 describe("marketplace repricing route", () => {
+  it("redirects a missing actor without reading or mutating pricing", async () => {
+    const fetch = vi.fn(async () => jsonResponse({}, 401));
+    vi.stubGlobal("fetch", fetch);
+    for (const method of ["GET", "POST"]) {
+      const body = new FormData();
+      body.set("intent", "refresh-recommendations");
+      const args = {
+        request: new Request("https://marketplace.test/account/repricing", {
+          method,
+          ...(method === "POST" ? { body } : {}),
+        }),
+        params: {},
+        context: undefined,
+      } as never;
+      await expect(method === "GET" ? repricingLoader(args) : repricingAction(args)).rejects.toMatchObject({
+        status: 302,
+      });
+    }
+    expect(fetch).toHaveBeenCalledTimes(2);
+    for (const slot of ["top-nav", "bottom-nav"] as const) {
+      expect(
+        resolveWebHostNavItems(
+          [
+            {
+              contextName: "pricing",
+              packageName: "@chase-sets/pricing",
+              manifest: pricingManifest as Parameters<typeof resolveWebHostNavItems>[0][number]["manifest"],
+            },
+          ],
+          "marketplace-web",
+          slot,
+        ),
+      ).toEqual([]);
+    }
+  });
+  it.each(["owner", "manager", "fulfillment", "viewer", "platform-admin"])(
+    "authorizes account repricing with current role presets: %s",
+    async (roleKey) => {
+      for (const verified of [true, false]) {
+        const actor = await resolvePricingActor(roleKey, verified);
+        const fetch = vi.fn(async (input: string | URL | Request) => {
+          if (String(input).includes("/api/auth/session")) return jsonResponse({ actor });
+          return jsonResponse({ items: [], total: 0, count: 0, jobId: "job_synthetic_pricing" });
+        });
+        vi.stubGlobal("fetch", fetch);
+        const args = {
+          request: new Request("https://marketplace.test/account/repricing"),
+          params: {},
+          context: undefined,
+        } as never;
+        if (roleKey === "platform-admin") {
+          await expect(repricingLoader(args)).rejects.toMatchObject({ status: 403 });
+        } else {
+          await expect(repricingLoader(args)).resolves.toMatchObject({ recommendations: { items: [] } });
+        }
+        for (const slot of ["top-nav", "bottom-nav"] as const) {
+          const items = resolveWebHostNavItems(
+            [
+              {
+                contextName: "pricing",
+                packageName: "@chase-sets/pricing",
+                manifest: pricingManifest as Parameters<typeof resolveWebHostNavItems>[0][number]["manifest"],
+              },
+            ],
+            "marketplace-web",
+            slot,
+            actor,
+          );
+          expect(items.some((item) => item.href === "/account/repricing")).toBe(roleKey !== "platform-admin");
+        }
+        fetch.mockClear();
+        const body = new FormData();
+        body.set("intent", "refresh-recommendations");
+        const action = repricingAction({
+          request: new Request("https://marketplace.test/account/repricing", { method: "POST", body }),
+          params: {},
+          context: undefined,
+        } as never);
+        if (verified && ["owner", "manager"].includes(roleKey)) {
+          await expect(action).resolves.toMatchObject({ status: 302 });
+          expect(fetch.mock.calls.some(([url]) => String(url).includes("/recommendations/refresh"))).toBe(true);
+        } else {
+          await expect(action).rejects.toMatchObject({ status: 403 });
+          expect(fetch.mock.calls.every(([url]) => String(url).includes("/api/auth/session"))).toBe(true);
+        }
+      }
+    },
+  );
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -206,3 +297,47 @@ describe("marketplace repricing route", () => {
     expect((response as Response).headers.get("Location")).toBe("/account/repricing?jobId=job_apply");
   });
 });
+
+async function resolvePricingActor(roleKey: string, verified = true, accountId = "acc_synthetic_pricing") {
+  const services = {
+    sessions: {
+      readAuthenticatedSession: vi.fn(async () => ({
+        state: {
+          id: "ses_synthetic_pricing",
+          userId: "usr_synthetic_pricing",
+          accountId,
+          availableAccountIds: [accountId],
+          authenticationMethod: "password",
+          status: "active",
+          expiresAt: "2099-01-01T00:00:00.000Z",
+        },
+        authenticatedAt: "2026-09-01T00:00:00.000Z",
+      })),
+      getSession: vi.fn(async () => null),
+    },
+    identity: {
+      getActiveMembershipForUserAccount: vi.fn(async () => ({
+        membership_id: "mbr_synthetic_pricing",
+        user_id: "usr_synthetic_pricing",
+        account_id: accountId,
+        role_key: roleKey,
+        role_permissions: [],
+        status: "active",
+      })),
+      getUser: vi.fn(async () => ({
+        primary_email: "synthetic-pricing@example.test",
+        contact_methods: [
+          {
+            type: "email",
+            value: "synthetic-pricing@example.test",
+            verifiedAt: verified ? "2026-09-01T00:00:00.000Z" : null,
+          },
+        ],
+        social_login_links: [],
+      })),
+    },
+  } as unknown as Parameters<typeof resolveActorFromSessionId>[0];
+  const actor = await resolveActorFromSessionId(services, "ses_synthetic_pricing");
+  expect(actor).not.toBeNull();
+  return actor!;
+}

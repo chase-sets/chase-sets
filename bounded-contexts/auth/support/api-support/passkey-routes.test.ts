@@ -298,6 +298,12 @@ describe("passkey route security", () => {
       }),
     );
     expect(body).not.toHaveProperty("commandReceipt");
+    expect(body.authResult.memberships).toEqual([
+      expect.objectContaining({
+        roleKey: "owner",
+        rolePermissions: expect.arrayContaining(["pricing.view", "pricing.manage"]),
+      }),
+    ]);
     // The exact server-minted resolution reaches the constructor.
     expect(mockCreatePersonalIdentity).toHaveBeenCalledWith({
       email: "owner@pokebash.example",
