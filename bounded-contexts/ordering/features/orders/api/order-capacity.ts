@@ -1,4 +1,5 @@
 import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { lockOpenEvidenceWindowSource, type EvidenceWindowSourceIdentity } from "./evidence-window-source-release";
 
 /**
  * Order Capacity enforcement (m127): plan-stage claims against the
@@ -105,6 +106,7 @@ export async function claimSellerOrderCapacity(
   db: PgTransactionalPool,
   groups: readonly SellerOrderCapacityGroup[],
   onClaimed?: (sellerAccountId: string) => Promise<void>,
+  governedSource?: EvidenceWindowSourceIdentity,
 ): Promise<SellerOrderCapacityClaimResult> {
   const rejected: string[] = [];
 
@@ -119,18 +121,28 @@ export async function claimSellerOrderCapacity(
       // would under-count if the seller sets a cap later while these are
       // still open), but skip the row lock and the threshold check
       // entirely -- zero lock overhead, no rejection possible.
-      for (const orderId of group.orderIds) {
-        await db.query(
-          `INSERT INTO ordering_seller_open_order_claims (order_id, seller_account_id, status, claimed_at)
+      const insertUnlimited = async (client: PgQueryable) => {
+        if (governedSource && !(await lockOpenEvidenceWindowSource(client, governedSource))) {
+          throw new Error("Evidence window source binding is missing.");
+        }
+        for (const orderId of group.orderIds) {
+          await client.query(
+            `INSERT INTO ordering_seller_open_order_claims (order_id, seller_account_id, status, claimed_at)
            VALUES ($1, $2, 'claimed', now())
            ON CONFLICT (order_id) DO NOTHING`,
-          [orderId, group.sellerAccountId],
-        );
-      }
+            [orderId, group.sellerAccountId],
+          );
+        }
+      };
+      if (governedSource) await withPgTransaction(db, insertUnlimited);
+      else await insertUnlimited(db);
       continue;
     }
 
     const accepted = await withPgTransaction(db, async (client) => {
+      if (governedSource && !(await lockOpenEvidenceWindowSource(client, governedSource))) {
+        throw new Error("Evidence window source binding is missing.");
+      }
       const lockedCap = await seedAndLockCapacityRow(client, group.sellerAccountId);
       if (lockedCap === null) {
         // Cleared concurrently between the pre-check and the lock: allow.

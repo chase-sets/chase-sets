@@ -19,6 +19,7 @@ import { buildOrderingOrderProjectionHandlers } from "../read-model/projection";
 import { module as orderingModule } from "../../../index";
 import { claimPlanPurchaseLimitUsage, releasePurchaseLimitClaimsForOrder } from "./purchase-limits";
 import { claimOrderSource, compensatePendingOrderSourceClaim, getOrderSourceClaim } from "./order-source-claims";
+import { closeEvidenceWindowSource, readEvidenceWindowSources } from "./evidence-window-source-release";
 import {
   context,
   createCheckpointStore,
@@ -168,6 +169,83 @@ describeDb("ordering purchase limits db", () => {
     };
   }
 
+  it("AC-01 actual checkout handler durably binds before its first source write; late-bind mutant is refused", async () => {
+    await supply("lst_a");
+    const windowId = "abcdef0123456789abcdef0123456789";
+    const windowOpenedAt = new Date().toISOString();
+    let observedInsideFirstWrite = false;
+    const wrap =
+      (client: PgQueryable): PgQueryable["query"] =>
+      async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
+        if (sql.includes("INSERT INTO ordering_order_source_claims")) {
+          const sources = await readEvidenceWindowSources(pools.ordering, windowId);
+          expect(sources).toHaveLength(1);
+          expect(sources[0]?.sourceIdentity).toEqual({
+            sourceType: "cart-checkout",
+            sourceReferenceId: "chk_limit",
+            buyerAccountId: context.audit.forAccountId,
+          });
+          observedInsideFirstWrite = true;
+          throw new Error("first-write fence observed");
+        }
+        return client.query<Row>(sql, params);
+      };
+    const guardedDb: PgTransactionalPool = {
+      query: wrap(pools.ordering),
+      connect: async () => {
+        const client = await pools.ordering.connect();
+        return { query: wrap(client), release: client.release.bind(client) };
+      },
+    };
+    const admitted = { windowId, subInvocation: "2a" as const, windowOpenedAt };
+    await expect(
+      runtime(undefined, guardedDb).createOrdersFromCheckout(
+        { ...checkout(), evidenceWindowSource: admitted },
+        context,
+      ),
+    ).rejects.toThrow("first-write fence observed");
+    expect(observedInsideFirstWrite).toBe(true);
+    const source = (await readEvidenceWindowSources(pools.ordering, windowId))[0]!;
+    expect(source.creatorState).toBe("open");
+    expect(
+      (
+        await closeEvidenceWindowSource(pools.ordering, {
+          windowId,
+          subInvocation: "2a",
+          expectedVersion: 1,
+        })
+      ).outcome,
+    ).toBe("closed");
+    await expect(
+      runtime().createOrdersFromCheckout({ ...checkout(), evidenceWindowSource: admitted }, context),
+    ).rejects.toThrow("binding refused");
+    expect((await snapshot()).streams).toHaveLength(0);
+
+    const lateBindDb: PgTransactionalPool = {
+      query: pools.ordering.query.bind(pools.ordering),
+      connect: async () => {
+        const client = await pools.ordering.connect();
+        return {
+          query: async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) =>
+            sql.includes("INSERT INTO ordering_evidence_window_sources")
+              ? { rows: [] as Row[], rowCount: 0 }
+              : client.query<Row>(sql, params),
+          release: client.release.bind(client),
+        };
+      },
+    };
+    await expect(
+      runtime(undefined, lateBindDb).createOrdersFromCheckout(
+        {
+          ...checkout(["lst_a"], "chk_late"),
+          evidenceWindowSource: { ...admitted, windowId: "123456789abcdef0123456789abcdef0" },
+        },
+        context,
+      ),
+    ).rejects.toThrow("binding refused");
+    expect((await snapshot()).streams).toHaveLength(0);
+  });
+
   it.each([false, true])("purchase-limit-plan-claim-is-atomic: reversed=%s", async (reversed) => {
     await supply("lst_a");
     await supply("lst_b");
@@ -190,6 +268,51 @@ describeDb("ordering purchase limits db", () => {
       ),
     ).rejects.toThrow("purchase limit reached");
     expect(await snapshot()).toEqual(before);
+  });
+
+  it("AC-12 actual PostgreSQL backend kill after an intra-loop flip rolls the entire usage transaction back", async () => {
+    await supply("lst_a");
+    await supply("lst_b");
+    const killedPool: PgTransactionalPool = {
+      query: pools.ordering.query.bind(pools.ordering),
+      connect: async () => {
+        const client = await pools.ordering.connect();
+        const pid = (await client.query<{ pid: number }>(`SELECT pg_backend_pid() AS pid`)).rows[0]!.pid;
+        let killed = false;
+        return {
+          query: async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
+            const result = await client.query<Row>(sql, params);
+            if (
+              !killed &&
+              sql.includes("UPDATE ordering_listing_purchase_limit_claims") &&
+              sql.includes("SET status = 'claimed'")
+            ) {
+              killed = true;
+              await pools.ordering.query(`SELECT pg_terminate_backend($1)`, [pid]);
+            }
+            return result;
+          },
+          release: client.release.bind(client),
+        };
+      },
+    };
+    await expect(
+      claimPlanPurchaseLimitUsage(killedPool, context.audit.forAccountId, {
+        orderDrafts: [
+          {
+            sourceType: "cart-checkout",
+            sourceReferenceId: "chk_killed",
+            lines: [
+              { listingId: "lst_a", quantity: 1 },
+              { listingId: "lst_b", quantity: 1 },
+            ],
+          },
+        ],
+      }),
+    ).rejects.toThrow();
+    const after = await snapshot();
+    expect(after.claims).toEqual([]);
+    expect(after.usage).toEqual([]);
   });
 
   it.each(["source", "admission", "first append"])("checkout-no-order-failure-releases-limit: %s", async (failure) => {
