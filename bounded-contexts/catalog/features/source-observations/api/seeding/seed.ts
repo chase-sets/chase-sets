@@ -1,10 +1,11 @@
+import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { JsonValue } from "@chase-sets/primitives/json";
 import type { BlueprintId, CatalogItemId, CategoryId, FieldId, ReferenceRecordId } from "../../../../ids";
 import type { CatalogServices } from "../../../../support/authoring-support/services";
-import { sendSeedCommand } from "../../../../support/seed-support/context";
+import { seedContext, sendSeedCommand } from "../../../../support/seed-support/context";
 import {
   decideSourceObservation,
   evolveSourceObservation,
@@ -38,10 +39,17 @@ const observedAt = "2026-06-03T00:00:00.000Z";
 const promotedSeedLifecycle = ["catalog.source-observation.recorded", "catalog.source-observation.promoted"] as const;
 // One refresh is the seed's only reconciliation append, so a reconciled stream keeps a fixed shape.
 const reconciledPromotedSeedLifecycle = [...promotedSeedLifecycle, "catalog.source-observation.refreshed"] as const;
+const migratedPromotedSeedLifecycle = [
+  ...promotedSeedLifecycle,
+  "catalog.source-observation.promotion-plan-recorded",
+] as const;
+const historicalPlanFingerprint = "f0d75b34e937923016ba19fad5b9b611e101d8e31b8cbe2176e26aadaf4de599";
+const migratedPlanFingerprint = "9ec3a12b68c7f1945da0089934ddc97ccc956d5a799c98d2cb8d9c61614ad90c";
 
 type StoredSourceObservationEvent = Readonly<{
   event_type: string;
   payload: JsonValue;
+  stream_version: number;
 }>;
 
 export type CatalogBrowserE2ePromotedObservationSeedEvidence = Readonly<{
@@ -58,7 +66,7 @@ export async function seedPromotedSourceObservationScenario(services: CatalogSer
   await requireExactPromotionTarget(services);
   const evidence = await buildCatalogBrowserE2ePromotedObservationSeedEvidence(services.db);
   const existing = await services.db.query<StoredSourceObservationEvent>(
-    `SELECT event_type, payload
+    `SELECT event_type, payload, stream_version::integer AS stream_version
        FROM event_store_events
        WHERE stream_id = $1
        ORDER BY stream_version ASC`,
@@ -94,7 +102,16 @@ export async function seedPromotedSourceObservationScenario(services: CatalogSer
   }
 
   if (isExactLifecycle(eventTypes, promotedSeedLifecycle)) {
+    if (state.promotionPlanFingerprint === historicalPlanFingerprint) {
+      await migrateHistoricalSeedPlan(services, evidence, existing.rows, state, expectedPromotedState);
+      return;
+    }
     await reconcileOrRefusePromotedSeedHistory(services, evidence.recordCommand, state, expectedPromotedState);
+    return;
+  }
+
+  if (isExactLifecycle(eventTypes, migratedPromotedSeedLifecycle)) {
+    await migrateHistoricalSeedPlan(services, evidence, existing.rows, state, expectedPromotedState);
     return;
   }
 
@@ -171,6 +188,99 @@ export async function buildCatalogBrowserE2ePromotedObservationSeedEvidence(
     },
     promotionPlan: promotionPlanResult.plan,
   };
+}
+
+/** One append-only migration of the scenario's historical seven-input plan contract, not reconciliation. */
+async function migrateHistoricalSeedPlan(
+  services: CatalogServices,
+  evidence: CatalogBrowserE2ePromotedObservationSeedEvidence,
+  rows: readonly StoredSourceObservationEvent[],
+  actual: SourceObservationState,
+  expected: SourceObservationState,
+): Promise<void> {
+  const plan = evidence.promotionPlan;
+  // Recompute the seven original inputs from the freshly validated plan. The
+  // successor adds only the validated display identity and explicit draft choice.
+  const historicalInputs = {
+    providerKey: plan.providerKey,
+    profileKey: plan.profileKey,
+    profileVersion: plan.profileVersion,
+    mappingKind: plan.mappingKind,
+    mode: plan.mode,
+    commands: plan.commands,
+    productContents: plan.productContents ?? null,
+  };
+  const recomputedHistorical = createHash("sha256").update(historicalPlanJson(historicalInputs)).digest("hex");
+  if (recomputedHistorical !== historicalPlanFingerprint || plan.planFingerprint !== migratedPlanFingerprint) {
+    throw new Error(
+      "Catalog browser Source Observation seed plan is outside the allowlisted historical contract migration.",
+    );
+  }
+
+  const recorded = expectedStateAfter(evidence.recordCommand, initialSourceObservationState);
+  const historicalPromotion = { ...evidence.promotionCommand, promotionPlanFingerprint: historicalPlanFingerprint };
+  const predecessor = expectedStateAfter(historicalPromotion, recorded);
+  const predecessorEvents = [
+    decideSourceObservation(initialSourceObservationState, evidence.recordCommand)[0],
+    decideSourceObservation(recorded, historicalPromotion)[0],
+  ];
+  requireSeedState("migration predecessor", rehydrateSeedHistory(rows.slice(0, 2)), predecessor);
+  for (const [index, event] of predecessorEvents.entries()) {
+    requireMigrationEvent(rows[index], event, index + 1);
+  }
+
+  const command: Extract<SourceObservationCommand, { type: "RecordSourceObservationPromotionPlan" }> = {
+    type: "RecordSourceObservationPromotionPlan",
+    catalogItemId: evidence.promotionCommand.catalogItemId,
+    promotionProfileKey: evidence.promotionCommand.promotionProfileKey,
+    promotionProfileVersion: evidence.promotionCommand.promotionProfileVersion,
+    promotionPlanFingerprint: plan.planFingerprint,
+  };
+  const migrated = expectedStateAfter(command, predecessor);
+  requireSeedState("migration result", migrated, expected);
+
+  if (rows.length === 3) {
+    requireMigrationEvent(rows[2], decideSourceObservation(predecessor, command)[0], 3);
+    requireSeedState("migrated promoted", actual, expected);
+    return;
+  }
+
+  requireSeedState("migration predecessor", actual, predecessor);
+  await services.sourceObservations.commandHandler({
+    streamId: sourceObservationStreamId,
+    command,
+    context: seedContext,
+    expectedVersion: 2,
+  });
+}
+
+function requireMigrationEvent(
+  actual: StoredSourceObservationEvent | undefined,
+  expected: SourceObservationEvent,
+  version: number,
+): void {
+  if (
+    actual?.stream_version !== version ||
+    actual.event_type !== expected.type ||
+    !isDeepStrictEqual(actual.payload, expected.data)
+  ) {
+    throw new Error(
+      `Catalog browser Source Observation seed migration requires the exact event at version ${version}.`,
+    );
+  }
+}
+
+// Exact historical stable JSON encoding (the planner's stableStringify before displayIdentity and promoteAsDraft joined the fingerprint), local to this bounded contract migration.
+function historicalPlanJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(historicalPlanJson).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const record = value as Readonly<Record<string, unknown>>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${historicalPlanJson(record[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 async function requireExactPromotionTarget(services: CatalogServices): Promise<void> {
