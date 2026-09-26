@@ -36,7 +36,10 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
   (`pnpm --filter <workspace> run test`, guards, e2e batch if UI). For database
   changes, name the normal final-head hosted `DB Profile Tests` job as the DB
   proof. While [#8159](https://github.com/chase-sets/chase-sets/issues/8159) is
-  open, never make a full local `verify:test-db` a prerequisite.
+  open, never make a full local `verify:test-db` a prerequisite. Hosted CI on
+  the pushed head is the proof for every product attempt
+  ([#4388 ruling](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5845981597)): never make local E2E or another local full or
+  harness run a gate, a prerequisite, or a PARK or stop condition.
 - **Review packet seed (full path).** Name the invariants and likely failure
   modes the independent reviewer must attack, plus the evidence artifact that
   exposes omissions invisible in the diff (state enumeration, caller inventory,
@@ -47,6 +50,9 @@ correctly the first time. Use the `slice` issue form (`.github/ISSUE_TEMPLATE/`)
   (Blocked by / Blocks); the prose `Blocked by #N` line is a convenience mirror
   and the relationship is what the orchestrator reads. Feeds parallel-lane
   collision checks.
+  A probe, diagnostic or test-infrastructure issue is never a blocking
+  dependency of a product issue unless the product change cannot be written
+  without its output ([#4388 ruling](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5845981597)); run it in parallel instead.
   When the change adds validation or invariants to a handler that seed,
   bootstrap, import, or reconciliation paths also invoke, the footprint
   enumerates **every caller** — the sibling-seed-path class is the ledger's top

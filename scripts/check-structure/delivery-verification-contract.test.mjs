@@ -222,3 +222,120 @@ describe("product capacity floor contract", () => {
     expect(() => assertProductCapacityFloor(mutant)).toThrow();
   });
 });
+
+// #4388 ruling 5845981597 (#8205): hosted CI is the proof for every product
+// attempt, an attempt counts only with a hosted or exact-head review verdict,
+// diagnostics never block product issues, and serial blocking backfills the
+// product floor from the next committed outcomes.
+const issueStandard = readProse(".agents/skills/planning/references/issue-standard.md");
+
+function assertHostedAttemptProof(text) {
+  expect(text).toMatch(
+    /^- Hosted CI is the proof for every product attempt, not only DB \(\[#4388 ruling\]\([^)\s]+5845981597\)\)\. The hosted jobs on the pushed head decide it, including E2E, DB Profile, unit, static and build\. Local E2E, local `verify:test-db` and other local full or harness runs are diagnostics only and never a prerequisite for push, draft, ready or landing\. A local-harness, environment or lock failure never parks, fails or classifies your candidate: push it to the draft PR and let hosted CI judge it\.[^\r\n]*$/m,
+  );
+  expect(text).toMatch(
+    /^- An implementation attempt counts toward an attempt ceiling only when a pushed head receives a hosted CI verdict or an exact-head review verdict \(\[#4388 ruling\]\([^)\s]+\)\)\. Local-only failures, preparation stops, harness or environment failures, lock refusals and defects in your own helper scripts do not count\. Fix them and continue within the same attempt instead of stopping\.$/m,
+  );
+  expect(text).not.toMatch(/PR-lane CI does \*\*not\*\* run the DB-profile suite/);
+}
+
+function assertIssueStandardVelocity(text) {
+  expect(text).toContain(
+    "never make local E2E or another local full or harness run a gate, a prerequisite, or a PARK or stop condition.",
+  );
+  expect(text).toContain(
+    "A probe, diagnostic or test-infrastructure issue is never a blocking dependency of a product issue unless the product change cannot be written without its output",
+  );
+}
+
+function assertFloorBackfill(text) {
+  expect(text).toContain(
+    "When the current priority outcome is serially blocked and has fewer ready product issues than the floor, the remaining product lanes take ready `kind:product` issues from the next committed outcomes in marker order",
+  );
+  expect(text).toContain("That backfill is not a priority change and needs no question.");
+  expect(text).toContain(
+    "The current priority keeps first claim on each lane that frees, and backfill never preempts a running lane.",
+  );
+}
+
+describe("hosted attempt proof and floor backfill contract", () => {
+  it("pins hosted proof, attempt counting, diagnostic blocking and backfill", () => {
+    assertHostedAttemptProof(instruction);
+    assertIssueStandardVelocity(issueStandard);
+    assertFloorBackfill(backlogModel);
+  });
+
+  it.each([
+    {
+      name: "narrows hosted proof to DB",
+      from: "Hosted CI is the proof for every product attempt, not only DB",
+      to: "Hosted CI is the proof for DB",
+    },
+    {
+      name: "makes local E2E a gate",
+      from: "are diagnostics only and never a prerequisite for push, draft, ready or landing.",
+      to: "are required before push.",
+    },
+    {
+      name: "lets a local failure park a candidate",
+      from: "never parks, fails or classifies your candidate",
+      to: "parks your candidate",
+    },
+    {
+      name: "counts local-only stops",
+      from: "do not count. Fix them and continue within the same attempt instead of stopping.",
+      to: "count as attempts.",
+    },
+    {
+      name: "restores the stale DB-profile claim",
+      from: "PR-lane CI runs the `DB Profile Tests` job on every PR",
+      to: "PR-lane CI does **not** run the DB-profile suite",
+    },
+  ])("rejects a delivery mutant that $name", ({ from, to }) => {
+    const mutant = instruction.replace(from, to);
+
+    expect(mutant).not.toBe(instruction);
+    expect(() => assertHostedAttemptProof(mutant)).toThrow();
+  });
+
+  it.each([
+    {
+      name: "allows a local PARK condition",
+      from: "a gate, a prerequisite, or a PARK or stop condition.",
+      to: "a gate.",
+    },
+    {
+      name: "lets diagnostics block product",
+      from: "is never a blocking dependency of a product issue",
+      to: "may block a product issue",
+    },
+  ])("rejects an issue-standard mutant that $name", ({ from, to }) => {
+    const mutant = issueStandard.replace(from, to);
+
+    expect(mutant).not.toBe(issueStandard);
+    expect(() => assertIssueStandardVelocity(mutant)).toThrow();
+  });
+
+  it.each([
+    {
+      name: "drops the backfill",
+      from: "the remaining product lanes take ready `kind:product` issues from the next committed outcomes in marker order",
+      to: "the remaining lanes wait",
+    },
+    {
+      name: "makes backfill a priority question",
+      from: "That backfill is not a priority change and needs no question.",
+      to: "That backfill needs a Todd priority question.",
+    },
+    {
+      name: "lets backfill preempt",
+      from: "and backfill never preempts a running lane.",
+      to: "and backfill may preempt a running lane.",
+    },
+  ])("rejects a backlog-model mutant that $name", ({ from, to }) => {
+    const mutant = backlogModel.replace(from, to);
+
+    expect(mutant).not.toBe(backlogModel);
+    expect(() => assertFloorBackfill(mutant)).toThrow();
+  });
+});
