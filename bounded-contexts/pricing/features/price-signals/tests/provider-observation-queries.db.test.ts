@@ -182,9 +182,90 @@ describeDb("typed provider observation persistence and frozen queries", () => {
       }),
     ).resolves.toEqual({ count: 3, coverage: "complete" });
   });
+
+  it("round-trips complete and unknown sale captures without adding occurrences", async () => {
+    let captureNumber = 0;
+    const run = createTcgplayerMarketCapture({
+      pool,
+      transport: providerFixtureTransport(() =>
+        ++captureNumber === 1 ? { validCount: 2, rejectedSibling: false } : { validCount: 3, rejectedSibling: true },
+      ),
+      receiptSink: { kind: "not-mounted" },
+      now: clock(),
+      resolveSignalPolicy: async () => ({ revisionId: "synthetic-signal-r1", value: { productsPerPass: 1 } }),
+      resolveObservationPolicy: async () => ({
+        revisionId: "synthetic-observation-r1",
+        value: { ...PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE, capturesPerPass: 1 },
+      }),
+      resolveStatHygienePolicy: async () => ({ revisionId: "synthetic-stat-r1" }),
+      recordTcgplayerPriceSignal: async () => ({
+        status: "unresolved",
+        reason: "sku-reference-not-mapped",
+        externalKey: "sku:9001",
+      }),
+    });
+    await expect(run()).resolves.toMatchObject({ status: "completed", capturesCommitted: 1 });
+    await expect(run()).resolves.toMatchObject({ status: "completed", capturesCommitted: 1 });
+    expect(captureNumber).toBe(2);
+
+    const persisted = await pool.query<{
+      capture_id: string;
+      capture_started_at: string;
+      sales_coverage: string;
+      rejected_rows: number;
+    }>(
+      `SELECT capture_id, capture_started_at::text, sales_coverage, rejected_row_count AS rejected_rows
+       FROM pricing_external_market_captures ORDER BY capture_started_at`,
+    );
+    expect(persisted.rows.map(({ sales_coverage, rejected_rows }) => ({ sales_coverage, rejected_rows }))).toEqual([
+      { sales_coverage: "complete", rejected_rows: 0 },
+      { sales_coverage: "unknown", rejected_rows: 1 },
+    ]);
+    const sales = await pool.query<{
+      capture_id: string;
+      sale_fingerprint: string;
+      observed_occurrence_count: number;
+    }>(
+      `SELECT capture_id, sale_fingerprint, observed_occurrence_count
+       FROM pricing_external_sale_observations ORDER BY capture_id`,
+    );
+    expect(sales.rows).toHaveLength(2);
+    expect(sales.rows.map((row) => row.observed_occurrence_count).sort()).toEqual([2, 3]);
+    expect(sales.rows[0]?.sale_fingerprint).toBe(sales.rows[1]?.sale_fingerprint);
+    const evidence = await listProviderSaleEvidence(pool, {
+      providerKey: "tcgplayer",
+      catalogItemId: "cat_synthetic",
+      soldSince: "2026-08-01T00:00:00.000Z",
+    });
+    expect(evidence).toEqual([
+      {
+        saleFingerprint: sales.rows[0]!.sale_fingerprint,
+        providerCondition: "Near Mint",
+        providerVariant: "Normal",
+        providerLanguage: "English",
+        listingType: "ListingWithoutPhotos",
+        soldAt: "2026-08-31 12:00:00+00",
+        quantity: 1,
+        unitPrice: "5.39",
+        orderShipping: "1.00",
+        maxObservedTupleMultiplicity: 3,
+        countSemantics: "provider-returned-max-per-capture",
+        captureIds: persisted.rows.map((row) => row.capture_id),
+        captureStartedAt: persisted.rows[1]!.capture_started_at,
+        currency: "usd",
+        policyRevisionId: "synthetic-observation-r1",
+        coverage: "unknown",
+      },
+    ]);
+  });
 });
 
-function providerFixtureTransport(): TcgplayerMarketTransport {
+function providerFixtureTransport(
+  salesForCapture: () => Readonly<{ validCount: number; rejectedSibling: boolean }> = () => ({
+    validCount: 2,
+    rejectedSibling: false,
+  }),
+): TcgplayerMarketTransport {
   const sale = {
     condition: "Near Mint",
     variant: "Normal",
@@ -212,8 +293,14 @@ function providerFixtureTransport(): TcgplayerMarketTransport {
         ] as T,
     },
     mpApi: {
-      post: async <T>() =>
-        ({ previousPage: "", nextPage: "", resultCount: 2, totalResults: 2, data: [sale, sale] }) as T,
+      post: async <T>() => {
+        const { validCount, rejectedSibling } = salesForCapture();
+        const data = [
+          ...Array.from({ length: validCount }, () => sale),
+          ...(rejectedSibling ? [{ ...sale, quantity: "invalid" }] : []),
+        ];
+        return { previousPage: "", nextPage: "", resultCount: data.length, totalResults: data.length, data } as T;
+      },
     },
     mpSearchApi: {
       post: async <T>() =>

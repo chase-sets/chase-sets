@@ -1,3 +1,4 @@
+import { resolveActorFromSessionId } from "@chase-sets/auth/server";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
@@ -75,19 +76,27 @@ async function fixture() {
       return created.state;
     }),
   };
-  function app(accountId = "acc_7910", permissions = ["pricing.view", "pricing.manage"], authenticated = true) {
+  function app(
+    accountId = "acc_7910",
+    permissions = ["pricing.view", "pricing.manage"],
+    authenticated = true,
+    resolvedActor?: NonNullable<Awaited<ReturnType<typeof resolveActorFromSessionId>>>,
+  ) {
     const app = new Hono<PricingApiEnv>();
     app.use("*", async (c, next) => {
       if (authenticated) {
-        c.set("actor", {
-          sessionId: "ses_synthetic",
-          tenantId: "tnt_identity",
-          userId: "usr_synthetic",
-          accountId,
-          membershipId: "mbr_synthetic",
-          roleKey: "owner",
-          permissions,
-        });
+        c.set(
+          "actor",
+          resolvedActor ?? {
+            sessionId: "ses_synthetic",
+            tenantId: "tnt_identity",
+            userId: "usr_synthetic",
+            accountId,
+            membershipId: "mbr_synthetic",
+            roleKey: "owner",
+            permissions,
+          },
+        );
         c.set("context", {
           ...dryRunContext,
           audit: { ...dryRunContext.audit, forAccountId: parseTypedId(accountId, "acc") },
@@ -107,6 +116,36 @@ const post = (body: unknown = {}) => ({
 });
 
 describe("account policy controls", () => {
+  it.each(["owner", "manager", "fulfillment", "viewer", "platform-admin"])(
+    "uses resolved pricing presets: %s",
+    async (roleKey) => {
+      for (const verified of [true, false]) {
+        const actor = await resolvePricingActor(roleKey, verified, "acc_7910");
+        const { app, services, eventStore } = await fixture();
+        const api = app(actor.accountId, [], true, actor);
+        expect((await api.request("/policies")).status).toBe(roleKey === "platform-admin" ? 403 : 200);
+        const canManage = verified && ["owner", "manager"].includes(roleKey);
+        const before = await eventStore.readAll();
+        for (const [path, body] of [
+          ["/scope-preview", dryRunBody],
+          ["", { dryRunId: "completed", name: "Synthetic" }],
+          ["/rpp_synthetic_7911/revise", { ...dryRunBody, name: "Revised" }],
+          ["/rpp_synthetic_7911/pause", {}],
+          ["/rpp_synthetic_7911/resume", {}],
+          ["/rpp_synthetic_7911/delete", {}],
+        ] as const) {
+          expect((await api.request("/policies" + path, post(body))).status, path).toBe(
+            canManage ? (path === "" ? 201 : 200) : 403,
+          );
+        }
+        if (!canManage) {
+          expect(await eventStore.readAll()).toEqual(before);
+          expect(services.previewScope).not.toHaveBeenCalled();
+          expect(services.activateRepricingPolicy).not.toHaveBeenCalled();
+        }
+      }
+    },
+  );
   it.each(["", "/revise", "/pause", "/resume", "/delete"])(
     "foreign and absent policy ids share 404: %s",
     async (suffix) => {
@@ -209,3 +248,47 @@ describe("account policy controls", () => {
     }
   });
 });
+
+async function resolvePricingActor(roleKey: string, verified = true, accountId = "acc_synthetic_pricing") {
+  const services = {
+    sessions: {
+      readAuthenticatedSession: vi.fn(async () => ({
+        state: {
+          id: "ses_synthetic_pricing",
+          userId: "usr_synthetic_pricing",
+          accountId,
+          availableAccountIds: [accountId],
+          authenticationMethod: "password",
+          status: "active",
+          expiresAt: "2099-01-01T00:00:00.000Z",
+        },
+        authenticatedAt: "2026-09-01T00:00:00.000Z",
+      })),
+      getSession: vi.fn(async () => null),
+    },
+    identity: {
+      getActiveMembershipForUserAccount: vi.fn(async () => ({
+        membership_id: "mbr_synthetic_pricing",
+        user_id: "usr_synthetic_pricing",
+        account_id: accountId,
+        role_key: roleKey,
+        role_permissions: [],
+        status: "active",
+      })),
+      getUser: vi.fn(async () => ({
+        primary_email: "synthetic-pricing@example.test",
+        contact_methods: [
+          {
+            type: "email",
+            value: "synthetic-pricing@example.test",
+            verifiedAt: verified ? "2026-09-01T00:00:00.000Z" : null,
+          },
+        ],
+        social_login_links: [],
+      })),
+    },
+  } as unknown as Parameters<typeof resolveActorFromSessionId>[0];
+  const actor = await resolveActorFromSessionId(services, "ses_synthetic_pricing");
+  expect(actor).not.toBeNull();
+  return actor!;
+}

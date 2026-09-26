@@ -1162,6 +1162,9 @@ importers:
         specifier: ^4.12.12
         version: 4.12.18
     devDependencies:
+      '@chase-sets/auth':
+        specifier: workspace:*
+        version: link:../auth
       '@chase-sets/catalog':
         specifier: workspace:*
         version: link:../catalog

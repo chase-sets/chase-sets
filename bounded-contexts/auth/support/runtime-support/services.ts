@@ -229,7 +229,12 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
 
 export type AuthSessionMembership = Awaited<ReturnType<typeof listActiveAuthMembershipsForUser>>[number];
 
-const EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS = new Set(["listings.manage", "offers.manage", "orders.manage"]);
+const EMAIL_VERIFICATION_RESTRICTED_PERMISSIONS = new Set([
+  "listings.manage",
+  "offers.manage",
+  "orders.manage",
+  "pricing.manage",
+]);
 
 function hasVerifiedEmailForCommerce(
   user: Awaited<ReturnType<typeof getAuthIdentityUser>> | null,

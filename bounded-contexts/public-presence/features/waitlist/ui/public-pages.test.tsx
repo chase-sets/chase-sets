@@ -5,8 +5,19 @@ import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ts from "@chase-sets/typescript-compiler-api";
+import type { PublicMarketplaceFeeSchedule } from "./fee-comparison-calculator";
 import { PublicPresenceHomePage } from "./public-pages";
 import { publicPresenceT as t } from "./public-presence-translator";
+
+const titleOverrides = vi.hoisted(() => new Map<string, string>());
+vi.mock("./public-presence-translator", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./public-presence-translator")>();
+  return {
+    ...original,
+    publicPresenceT: (key: string, values?: Parameters<typeof original.publicPresenceT>[1]) =>
+      titleOverrides.get(key) ?? original.publicPresenceT(key, values),
+  };
+});
 
 // PublicPresencePageShell registers the DS RouterLinkAdapter, so rendering it
 // requires router context — exactly as it has in the production app tree.
@@ -36,10 +47,15 @@ const source = {
   utmTerm: "pokemon",
   referredBySignupId: null,
 };
+const publicPagesSource = readFileSync(
+  join(repositoryRoot(), "bounded-contexts", "public-presence", "features", "waitlist", "ui", "public-pages.tsx"),
+  "utf8",
+);
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  titleOverrides.clear();
 });
 
 describe("public waitlist form migration smoke", () => {
@@ -794,6 +810,11 @@ describe("public waitlist form migration smoke", () => {
     // mid-word breaks so the table fits a 375px viewport without the compact
     // density change alone (~8px/column savings) closing the ~30px overflow.
     const feeComparisonSection = container.querySelector('[data-public-presence-section="fee_comparison"]');
+    const table = feeComparisonSection?.querySelector("table");
+    expect(table?.parentElement?.className).toContain("overflow-x-auto");
+    expect(table?.parentElement?.className).toContain("modern-surface");
+    expect(feeComparisonSection?.querySelectorAll("table")).toHaveLength(1);
+    expect(publicPagesSource).not.toMatch(/<table\b|overflow-x-auto/);
     const headCell = feeComparisonSection?.querySelector("th");
     const bodyCell = feeComparisonSection?.querySelector("td");
     expect(headCell?.className).toContain("px-3 py-2");
@@ -835,6 +856,75 @@ describe("public waitlist form migration smoke", () => {
     expect(v2Heading?.textContent).toBe(t("publicPresence.home.buyerHero.title"));
     expect(v2Heading?.className).toContain("font-display");
     expect(v2Heading?.querySelector(".ds-brand-foil-text")?.textContent).toBe("cards");
+  });
+
+  it.each([
+    { variant: "seller_first_v1", pagePath: source.pagePath },
+    { variant: "seller_first_v2", pagePath: "/?intent=buy" },
+  ])("leaves zero, subword and duplicate hero subjects plain in $variant", ({ pagePath, variant }) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ items: [] }))),
+    );
+    const key = variant === "seller_first_v1" ? "publicPresence.home.title" : "publicPresence.home.buyerHero.title";
+    const word = variant === "seller_first_v1" ? "marketplace" : "cards";
+    for (const title of [`No subject here.`, `The ${word}ful subject.`, `The ${word} and ${word}.`]) {
+      titleOverrides.set(key, title);
+      const { container, unmount } = render(
+        <PublicPresenceHomePage actionData={null} source={{ ...source, pagePath }} />,
+      );
+      expect(container.querySelector("h1")?.textContent).toBe(title);
+      expect(container.querySelector("h1 .ds-brand-foil-text")).toBeNull();
+      unmount();
+    }
+  });
+
+  it.each([
+    { variant: "seller_first_v1", pagePath: source.pagePath },
+    { variant: "seller_first_v2", pagePath: "/?intent=buy" },
+  ])("maps DS-owned Surface intent by section in $variant with null and live schedules", ({ pagePath }) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ items: [] }))),
+    );
+    const schedule: PublicMarketplaceFeeSchedule = {
+      percentageBps: 500,
+      fixedAmount: "0.00",
+      capAmount: "25.00",
+      effectiveFrom: "2026-07-03T00:00:00.000Z",
+    };
+    const expected: Record<string, string[]> = {
+      hero: ["elevated"],
+      open_offers: ["tinted", "tinted", "tinted", "tinted", "tinted"],
+      seller_tools: ["tinted", "tinted", "tinted", "tinted"],
+      founders_offer: ["tinted"],
+      launch_timeline: ["tinted", "tinted", "tinted"],
+      product_preview: ["tinted"],
+      founder_story: ["tinted"],
+      final_cta: ["elevated"],
+      faq: ["tinted", "tinted"],
+    };
+    for (const feeSchedule of [null, schedule]) {
+      const { container, unmount } = render(
+        <PublicPresenceHomePage actionData={null} source={{ ...source, pagePath }} feeSchedule={feeSchedule} />,
+      );
+      for (const [section, intents] of Object.entries(expected)) {
+        const root = container.querySelector(`[data-public-presence-section="${section}"]`);
+        expect(root, section).not.toBeNull();
+        const surfaces = Array.from(root!.querySelectorAll<HTMLElement>(".min-w-0.max-w-full.rounded-tokenLg"));
+        expect(
+          surfaces.map((surface) =>
+            surface.classList.contains("surface-border") || surface.classList.contains("shadow-tokenLg")
+              ? "elevated"
+              : surface.classList.contains("bg-surface-2")
+                ? "tinted"
+                : "unexpected",
+          ),
+          section,
+        ).toEqual(intents);
+      }
+      unmount();
+    }
   });
 
   it("renders the mobile sticky waitlist bar only once the hero form leaves view", () => {
@@ -882,7 +972,9 @@ describe("public waitlist form migration smoke", () => {
     });
     expect(document.body.textContent).toContain(t("publicPresence.home.stickyCta.label"));
 
-    const stickyCta = document.body.querySelector<HTMLAnchorElement>('.fixed a[href="/#waitlist-form-final"]');
+    const stickyCta = document.body.querySelector<HTMLAnchorElement>(
+      '[data-public-presence-sticky-cta] a[href="/#waitlist-form-final"]',
+    );
     if (!stickyCta) {
       throw new Error("Expected the sticky bar's CTA to render once visible.");
     }
@@ -909,6 +1001,16 @@ describe("public waitlist form migration smoke", () => {
       ["disney-lorcana", t("publicPresence.home.gameRoster.game.disneyLorcana")],
     ];
 
+    const observerInstances: { callback: IntersectionObserverCallback; observed: Element[] }[] = [];
+    vi.stubGlobal(
+      "IntersectionObserver",
+      vi.fn(function IntersectionObserverStub(callback: IntersectionObserverCallback) {
+        const observed: Element[] = [];
+        observerInstances.push({ callback, observed });
+        return { observe: (element: Element) => observed.push(element), disconnect: vi.fn(), unobserve: vi.fn() };
+      }),
+    );
+
     const variants = [
       {
         pageSource: source,
@@ -925,7 +1027,29 @@ describe("public waitlist form migration smoke", () => {
     ];
 
     for (const variant of variants) {
-      const { container } = render(<PublicPresenceHomePage actionData={null} source={variant.pageSource} />);
+      const { container, unmount } = render(
+        <PublicPresenceHomePage
+          actionData={null}
+          source={variant.pageSource}
+          discordInviteUrl="https://discord.gg/chase-sets"
+        />,
+      );
+
+      expect(container.querySelector('nav a[href="/"] > span')?.textContent).toBe(t("publicPresence.brand"));
+      const founderStory = container.querySelector('[data-public-presence-section="founder_story"]');
+      expect(founderStory?.querySelector('a[href="https://discord.gg/chase-sets"]')?.textContent).toBe(
+        t("publicPresence.home.discordCta"),
+      );
+      const stickyObserver = observerInstances.find((instance) =>
+        instance.observed.includes(document.getElementById("waitlist-form")!),
+      );
+      expect(stickyObserver).toBeDefined();
+      act(() => {
+        stickyObserver!.callback([{ isIntersecting: false } as IntersectionObserverEntry], {} as IntersectionObserver);
+      });
+      expect(
+        document.body.querySelector('[data-public-presence-sticky-cta] a[href="/#waitlist-form-final"]')?.textContent,
+      ).toBe(t("publicPresence.home.stickyCta.action"));
 
       const heroSection = container.querySelector('[data-public-presence-section="hero"]');
       if (!heroSection) throw new Error("Expected the hero section to render.");
@@ -1003,6 +1127,7 @@ describe("public waitlist form migration smoke", () => {
 
       const faqSection = container.querySelector('[data-public-presence-section="faq"]');
       expect(faqSection?.querySelector('a[href="/faq"]')?.textContent).toBe(t("publicPresence.faq.all"));
+      unmount();
     }
   });
 
@@ -1099,7 +1224,10 @@ describe("public waitlist form migration smoke", () => {
     },
   );
 
-  it("fires the exact cta_clicked window-event detail for every previously-uncovered trackCtaClick site (AC7)", () => {
+  it.each([
+    { variant: "seller_first_v1", pagePath: source.pagePath },
+    { variant: "seller_first_v2", pagePath: "/?intent=buy" },
+  ])("fires the exact cta_clicked window-event detail for $variant (AC7)", ({ variant, pagePath }) => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -1110,7 +1238,11 @@ describe("public waitlist form migration smoke", () => {
     const { events, stop } = captureAnalyticsEvents();
 
     const { container } = render(
-      <PublicPresenceHomePage actionData={null} discordInviteUrl="https://discord.gg/chase-sets" source={source} />,
+      <PublicPresenceHomePage
+        actionData={null}
+        discordInviteUrl="https://discord.gg/chase-sets"
+        source={{ ...source, pagePath }}
+      />,
     );
 
     function clickAndExpect(selector: string, scope: ParentNode, expected: Record<string, unknown>) {
@@ -1130,7 +1262,7 @@ describe("public waitlist form migration smoke", () => {
     clickAndExpect('a[href="https://discord.gg/chase-sets"]', founderStorySection, {
       section: "founder_story",
       target: "discord",
-      variant: "seller_first_v1",
+      variant,
     });
 
     const navSurface = container.querySelector("nav");
@@ -1138,7 +1270,7 @@ describe("public waitlist form migration smoke", () => {
     clickAndExpect('a[href="/#waitlist-form"]', navSurface, {
       section: "nav",
       target: "waitlist_form",
-      variant: "seller_first_v1",
+      variant,
     });
 
     const rosterSection = container.querySelector('[data-public-presence-section="game_roster"]');
@@ -1150,7 +1282,7 @@ describe("public waitlist form migration smoke", () => {
     const beforeRoster = events.length;
     fireEvent.click(pokemonTile);
     expect(events.slice(beforeRoster).filter((detail) => detail.event === "cta_clicked")).toEqual([
-      { event: "cta_clicked", section: "game_roster", target: "pokemon", variant: "seller_first_v1" },
+      { event: "cta_clicked", section: "game_roster", target: "pokemon", variant },
     ]);
 
     const foundersSection = container.querySelector('[data-public-presence-section="founders_offer"]');
@@ -1158,7 +1290,7 @@ describe("public waitlist form migration smoke", () => {
     clickAndExpect('a[href="/founders"]', foundersSection, {
       section: "founders_offer",
       target: "founders_terms",
-      variant: "seller_first_v1",
+      variant,
     });
 
     const timelineSection = container.querySelector('[data-public-presence-section="launch_timeline"]');
@@ -1166,7 +1298,7 @@ describe("public waitlist form migration smoke", () => {
     clickAndExpect('a[href="/#waitlist-form"]', timelineSection, {
       section: "launch_timeline",
       target: "waitlist_form",
-      variant: "seller_first_v1",
+      variant,
     });
 
     const previewSection = container.querySelector('[data-public-presence-section="product_preview"]');
@@ -1174,7 +1306,7 @@ describe("public waitlist form migration smoke", () => {
     clickAndExpect('a[href="/#waitlist-form"]', previewSection, {
       section: "product_preview",
       target: "waitlist_form",
-      variant: "seller_first_v1",
+      variant,
     });
 
     const orderProtectionCta = Array.from(
@@ -1184,7 +1316,7 @@ describe("public waitlist form migration smoke", () => {
     const beforeOrderProtection = events.length;
     fireEvent.click(orderProtectionCta);
     expect(events.slice(beforeOrderProtection).filter((detail) => detail.event === "cta_clicked")).toEqual([
-      { event: "cta_clicked", section: "product_preview", target: "order_protection", variant: "seller_first_v1" },
+      { event: "cta_clicked", section: "product_preview", target: "order_protection", variant },
     ]);
 
     const finalCtaSection = container.querySelector('[data-public-presence-section="final_cta"]');
@@ -1192,7 +1324,12 @@ describe("public waitlist form migration smoke", () => {
     clickAndExpect('a[href="/founders"]', finalCtaSection, {
       section: "final_cta",
       target: "founders_terms",
-      variant: "seller_first_v1",
+      variant,
+    });
+    clickAndExpect('a[href="https://discord.gg/chase-sets"]', finalCtaSection, {
+      section: "final_cta",
+      target: "discord",
+      variant,
     });
 
     const faqSection = container.querySelector('[data-public-presence-section="faq"]');
@@ -1200,7 +1337,7 @@ describe("public waitlist form migration smoke", () => {
     clickAndExpect('a[href="/faq"]', faqSection, {
       section: "faq",
       target: "faq",
-      variant: "seller_first_v1",
+      variant,
     });
 
     stop();
@@ -1249,11 +1386,6 @@ function repositoryRoot(): string {
 }
 
 describe("landing surface-diet census (AC5)", () => {
-  const publicPagesSource = readFileSync(
-    join(repositoryRoot(), "bounded-contexts", "public-presence", "features", "waitlist", "ui", "public-pages.tsx"),
-    "utf8",
-  );
-
   function surfaceElements(source: string) {
     const sourceFile = ts.createSourceFile("public-pages.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
     const results: { elevation: string | null; elevatedBoolean: boolean }[] = [];
@@ -1302,7 +1434,7 @@ describe("landing surface-diet census (AC5)", () => {
     expect(legacyElevated).toHaveLength(1);
     expect(untouchedShellRoots).toHaveLength(2);
 
-    expect(explicitElevation.filter((surface) => surface.elevation === "elevated")).toHaveLength(2);
-    expect(explicitElevation.filter((surface) => surface.elevation === "tinted")).toHaveLength(9);
+    expect(explicitElevation.filter((surface) => surface.elevation === "elevated")).toHaveLength(1);
+    expect(explicitElevation.filter((surface) => surface.elevation === "tinted")).toHaveLength(10);
   });
 });

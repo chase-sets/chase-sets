@@ -67,6 +67,8 @@ export type PermissionKey =
   | "wallet-adjustments.operate"
   | "postage-policies.manage"
   | "postage-policies.view"
+  | "pricing.manage"
+  | "pricing.view"
   | "projection-operations.operate"
   | "projection-operations.rebuild"
   | "projection-operations.view"

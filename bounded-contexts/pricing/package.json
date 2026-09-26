@@ -35,6 +35,7 @@
     "hono": "^4.12.12"
   },
   "devDependencies": {
+    "@chase-sets/auth": "workspace:*",
     "@chase-sets/catalog": "workspace:*"
   },
   "chaseSets": {

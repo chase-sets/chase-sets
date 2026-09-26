@@ -1,3 +1,4 @@
+import { resolveActorFromSessionId } from "@chase-sets/auth/server";
 import { Hono } from "hono";
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
@@ -19,7 +20,12 @@ const run: RepricingDryRun = {
   cursor: null,
   updatedAt: "2026-09-14T00:00:01Z",
 };
-function buildApp(accountId = "acc_7910", permissions = ["pricing.view", "pricing.manage"], authenticated = true) {
+function buildApp(
+  accountId = "acc_7910",
+  permissions = ["pricing.view", "pricing.manage"],
+  authenticated = true,
+  resolvedActor?: NonNullable<Awaited<ReturnType<typeof resolveActorFromSessionId>>>,
+) {
   const services: Parameters<typeof createRepricingDryRunRoutes>[0] = {
     enqueueDryRun: vi.fn(async (input) =>
       input.replacingPolicyId && input.replacingPolicyId !== accountId
@@ -35,15 +41,18 @@ function buildApp(accountId = "acc_7910", permissions = ["pricing.view", "pricin
   const app = new Hono<PricingApiEnv>();
   app.use("*", async (c, next) => {
     if (authenticated) {
-      c.set("actor", {
-        sessionId: "ses_1",
-        tenantId: "tnt_identity",
-        userId: "usr_7910",
-        accountId,
-        membershipId: "mbr_1",
-        roleKey: "owner",
-        permissions,
-      });
+      c.set(
+        "actor",
+        resolvedActor ?? {
+          sessionId: "ses_1",
+          tenantId: "tnt_identity",
+          userId: "usr_7910",
+          accountId,
+          membershipId: "mbr_1",
+          roleKey: "owner",
+          permissions,
+        },
+      );
       c.set("context", dryRunContext);
     }
     return next();
@@ -53,6 +62,31 @@ function buildApp(accountId = "acc_7910", permissions = ["pricing.view", "pricin
 }
 
 describe("repricing dry-run routes", () => {
+  it.each(["owner", "manager", "fulfillment", "viewer", "platform-admin"])(
+    "uses resolved pricing presets: %s",
+    async (roleKey) => {
+      for (const verified of [true, false]) {
+        const actor = await resolvePricingActor(roleKey, verified, "acc_7910");
+        const { app, services } = buildApp(actor.accountId, [], true, actor);
+        for (const path of ["", "/run-a", "/run-a/traces", "/run-a/events"]) {
+          const response = await app.request("/dry-runs" + path);
+          expect(response.status).toBe(roleKey === "platform-admin" ? 403 : 200);
+          await response.text();
+        }
+        const canManage = verified && ["owner", "manager"].includes(roleKey);
+        expect(
+          (
+            await app.request("/dry-runs", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(dryRunBody),
+            })
+          ).status,
+        ).toBe(canManage ? 202 : 403);
+        expect(services.enqueueDryRun).toHaveBeenCalledTimes(canManage ? 1 : 0);
+      }
+    },
+  );
   it.each(["", "/traces", "/events"])("fences account reads and missing ids identically: %s", async (suffix) => {
     const owner = buildApp();
     const response = await owner.app.request("/dry-runs/run-a" + suffix);
@@ -177,3 +211,47 @@ describe("repricing dry-run routes", () => {
     expect(run.bodyHash).toBe(createHash("sha256").update(canonical, "utf8").digest("hex"));
   });
 });
+
+async function resolvePricingActor(roleKey: string, verified = true, accountId = "acc_synthetic_pricing") {
+  const services = {
+    sessions: {
+      readAuthenticatedSession: vi.fn(async () => ({
+        state: {
+          id: "ses_synthetic_pricing",
+          userId: "usr_synthetic_pricing",
+          accountId,
+          availableAccountIds: [accountId],
+          authenticationMethod: "password",
+          status: "active",
+          expiresAt: "2099-01-01T00:00:00.000Z",
+        },
+        authenticatedAt: "2026-09-01T00:00:00.000Z",
+      })),
+      getSession: vi.fn(async () => null),
+    },
+    identity: {
+      getActiveMembershipForUserAccount: vi.fn(async () => ({
+        membership_id: "mbr_synthetic_pricing",
+        user_id: "usr_synthetic_pricing",
+        account_id: accountId,
+        role_key: roleKey,
+        role_permissions: [],
+        status: "active",
+      })),
+      getUser: vi.fn(async () => ({
+        primary_email: "synthetic-pricing@example.test",
+        contact_methods: [
+          {
+            type: "email",
+            value: "synthetic-pricing@example.test",
+            verifiedAt: verified ? "2026-09-01T00:00:00.000Z" : null,
+          },
+        ],
+        social_login_links: [],
+      })),
+    },
+  } as unknown as Parameters<typeof resolveActorFromSessionId>[0];
+  const actor = await resolveActorFromSessionId(services, "ses_synthetic_pricing");
+  expect(actor).not.toBeNull();
+  return actor!;
+}
