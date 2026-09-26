@@ -32,8 +32,8 @@ const rule = {
 } as unknown as RepricingRule;
 
 const policy = {
-  policyId: "pol_1",
-  accountId: "acct_1",
+  policyId: "rpp_1",
+  accountId: "acc_1",
   name: "Undercut raw singles",
   scope: { kind: "listing-set", listingIds: ["lst_1", "lst_2", "lst_3"] },
   excludedListingIds: ["lst_9"],
@@ -104,13 +104,13 @@ describe("PricingRepricingPolicyDetailPage", () => {
     expect(handlers.onDelete).not.toHaveBeenCalled();
     const confirms = screen.getAllByRole("button", { name: "Delete policy" });
     fireEvent.click(confirms[confirms.length - 1]!);
-    expect(handlers.onDelete).toHaveBeenCalledWith("pol_1");
+    expect(handlers.onDelete).toHaveBeenCalledWith("rpp_1");
   });
 
   it("pauses in place and hides delete for a deleted policy", () => {
     const handlers = renderDetail();
     fireEvent.click(screen.getByRole("button", { name: "Pause" }));
-    expect(handlers.onPause).toHaveBeenCalledWith("pol_1");
+    expect(handlers.onPause).toHaveBeenCalledWith("rpp_1");
 
     cleanup();
     renderDetail({ policy: { ...policy, status: "deleted" } });

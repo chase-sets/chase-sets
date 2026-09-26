@@ -14,8 +14,8 @@ const engaged: RepricingHaltState = { engaged: true, engagedAt: "2026-09-26T09:0
 
 function policy(overrides: Partial<RepricingPolicyListRow> = {}): RepricingPolicyListRow {
   return {
-    policyId: "pol_1",
-    accountId: "acct_1",
+    policyId: "rpp_1",
+    accountId: "acc_1",
     name: "Undercut raw singles",
     scope: { kind: "all-listings" },
     excludedListingIds: [],
@@ -41,7 +41,7 @@ describe("PricingRepricingPolicyListPage", () => {
       policies: [
         policy(),
         policy({
-          policyId: "pol_2",
+          policyId: "rpp_2",
           name: "Graded slabs",
           status: "paused",
           scope: { kind: "catalog-filter", categoryIds: ["cat_1", "cat_2"] },
@@ -59,21 +59,21 @@ describe("PricingRepricingPolicyListPage", () => {
     expect(text).toContain("Categories (2)");
     expect(text).toContain("1,234 account-wide changes today · no daily cap");
     expect(screen.getAllByRole("link", { name: "Graded slabs" })[0]?.getAttribute("href")).toBe(
-      "/account/desk/repricing/pol_2",
+      "/account/desk/repricing/rpp_2",
     );
   });
 
   it("pauses and resumes a policy as a row transition", () => {
     const handlers = renderList({
-      policies: [policy(), policy({ policyId: "pol_2", name: "Paused one", status: "paused" })],
+      policies: [policy(), policy({ policyId: "rpp_2", name: "Paused one", status: "paused" })],
     });
     fireEvent.click(screen.getAllByRole("button", { name: "Pause" })[0]!);
-    expect(handlers.onPause).toHaveBeenCalledWith("pol_1");
+    expect(handlers.onPause).toHaveBeenCalledWith("rpp_1");
     fireEvent.click(screen.getAllByRole("button", { name: "Resume" })[0]!);
-    expect(handlers.onResume).toHaveBeenCalledWith("pol_2");
+    expect(handlers.onResume).toHaveBeenCalledWith("rpp_2");
 
     cleanup();
-    renderList({ busyPolicyId: "pol_1" });
+    renderList({ busyPolicyId: "rpp_1" });
     for (const button of screen.getAllByRole("button", { name: "Pause" })) {
       expect((button as HTMLButtonElement).disabled).toBe(true);
     }

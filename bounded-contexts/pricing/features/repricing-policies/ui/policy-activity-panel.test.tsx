@@ -23,7 +23,7 @@ function row(
   return {
     listingId: "lst_1",
     evaluationId: "eval_1",
-    policyId: "pol_1",
+    policyId: "rpp_1",
     productKey: { catalogItemId: "ci_1", productId: "prod_1" },
     evaluatedAt: "2026-09-26T12:00:00.000Z",
     floorBindingSince: null,

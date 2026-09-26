@@ -166,6 +166,14 @@ keyset paging (at most 50 rows), and returns `rows`, `next` and `filterCounts`.
 `GET /account/repricing-policies/attention-summary` is self-scoped to the authenticated account.
 Foreign and absent activity policies return the same 404. Freeze counts never read the live breaker.
 
+The Seller Desk pages `/account/desk/repricing` and `/account/desk/repricing/:policyId` read these APIs.
+The list shows each policy's status, scope kind, cap and account-wide changes used today, the halt switch
+and recent dry runs. The detail page renders the folded policy read-only and reserves the edit slot for
+the policy editor. Its activity filters show server `filterCounts` beside each label; the page computes
+no counts. Halt engage/release and delete confirm first; pause and resume are row transitions.
+The Repricing Attention Source (`pricing-repricing`) feeds the Seller Desk attention queue from
+`attention-summary`.
+
 ## Incoming Dependencies
 
 - Catalog for canonical item identity, product resolution, and selected-option facts
