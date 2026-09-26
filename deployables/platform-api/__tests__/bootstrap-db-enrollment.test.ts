@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
 
 import ts from "@chase-sets/typescript-compiler-api";
@@ -259,11 +259,231 @@ function exhaustiveScheduleProbe(bypassFileBound = false) {
   };
 }
 
+type ScheduleFile = { fileName: string; durationMs: number };
+type ScheduleProbe = {
+  computeMinimumUnitCount: (files: ScheduleFile[], model: BootstrapDbScheduleModel) => unknown;
+  bestAssignmentAt: (files: ScheduleFile[], count: number, model: BootstrapDbScheduleModel) => unknown;
+  calculateMinimumAndOneFewer?: (
+    files: ScheduleFile[],
+    model: BootstrapDbScheduleModel,
+    observe?: (phase: string, count: number, assignment: number[]) => void,
+  ) => unknown;
+  canonicalAssignments: (length: number, count: number) => Generator<number[]>;
+};
+
+function exactScheduleProbes(): { old: ScheduleProbe; candidate: ScheduleProbe } {
+  const oraclePath = join(testDirectory, "fixtures/bootstrap-db-schedule-before-subset-reuse.mjs");
+  const oracleSource = readFileSync(oraclePath, "utf8");
+  expect(createHash("sha256").update(oracleSource).digest("hex")).toBe(
+    "d3b96de0c4051a7021f8f00869d19dd13314166b8dc81244c2bb554a2493847b",
+  );
+  const candidateSource = readFileSync(join(testDirectory, "../scripts/check-bootstrap-db-enrollment.mjs"), "utf8");
+  function extract(source: string): ScheduleProbe {
+    const start = source.indexOf("function worstCaseListScheduleMs(");
+    const end = source.indexOf("// Manifest shape validation.", start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    return runInNewContext(
+      `${source.slice(start, end)}\n({ computeMinimumUnitCount, bestAssignmentAt, canonicalAssignments, calculateMinimumAndOneFewer: typeof calculateMinimumAndOneFewer === 'function' ? calculateMinimumAndOneFewer : undefined })`,
+    ) as ScheduleProbe;
+  }
+  return { old: extract(oracleSource), candidate: extract(candidateSource) };
+}
+
+function scheduleVerdict(probe: ScheduleProbe, files: ScheduleFile[], model: BootstrapDbScheduleModel) {
+  const minimum = probe.computeMinimumUnitCount(files, model) as {
+    minimumUnitCount: number | null;
+    witness?: { makespanMs: number }[];
+  };
+  const alternatives = Array.from({ length: Math.min(files.length, model.maximumEnumeratedUnitCount) }, (_, index) =>
+    probe.bestAssignmentAt(files, index + 1, model),
+  );
+  const oneFewerUnit =
+    minimum.minimumUnitCount && minimum.minimumUnitCount > 1 ? alternatives[minimum.minimumUnitCount - 2] : null;
+  return JSON.stringify({
+    minimum,
+    aggregateWithOverheadMs: minimum.witness
+      ? minimum.witness.reduce((sum, unit) => sum + unit.makespanMs, model.jobOverheadMs)
+      : null,
+    oneFewerUnit,
+    alternatives,
+  });
+}
+
+function expectSharedScheduleEquivalence(
+  old: ScheduleProbe,
+  candidate: ScheduleProbe,
+  files: ScheduleFile[],
+  model: BootstrapDbScheduleModel,
+) {
+  const observed: string[] = [];
+  const result = candidate.calculateMinimumAndOneFewer!(files, model, (phase, count, assignment) => {
+    observed.push(`${phase}:${count}:${assignment.join("")}`);
+  }) as {
+    oneFewer: unknown;
+    minimumUnitCount: number | null;
+    witness?: { files: ScheduleFile[] }[];
+    refusal: string | null;
+  };
+  const { oneFewer, ...minimum } = result;
+  const expectedMinimum = old.computeMinimumUnitCount(files, model) as typeof minimum;
+  const expectedOneFewer =
+    expectedMinimum.minimumUnitCount && expectedMinimum.minimumUnitCount > 1
+      ? old.bestAssignmentAt(files, expectedMinimum.minimumUnitCount - 1, model)
+      : null;
+  expect(JSON.stringify(minimum)).toBe(JSON.stringify(expectedMinimum));
+  expect(JSON.stringify(oneFewer)).toBe(JSON.stringify(expectedOneFewer));
+
+  const expected: string[] = [];
+  if (expectedMinimum.minimumUnitCount || expectedMinimum.refusal?.startsWith("no execution-unit count up to")) {
+    const maximum = expectedMinimum.minimumUnitCount ?? Math.min(files.length, model.maximumEnumeratedUnitCount);
+    for (let count = 1; count <= maximum; count += 1) {
+      for (const assignment of old.canonicalAssignments(files.length, count)) {
+        expected.push(`minimum:${count}:${assignment.join("")}`);
+        const groups = Array.from({ length: count }, () => [] as string[]);
+        assignment.forEach((unit, index) => groups[unit]!.push(files[index]!.fileName));
+        if (
+          count === expectedMinimum.minimumUnitCount &&
+          JSON.stringify(groups) ===
+            JSON.stringify(expectedMinimum.witness!.map((unit) => unit.files.map((file) => file.fileName)))
+        )
+          break;
+      }
+    }
+  }
+  if (expectedMinimum.minimumUnitCount && expectedMinimum.minimumUnitCount > 1) {
+    const count = expectedMinimum.minimumUnitCount - 1;
+    for (const assignment of old.canonicalAssignments(files.length, count))
+      expected.push(`oneFewer:${count}:${assignment.join("")}`);
+  }
+  expect(observed).toEqual(expected);
+}
+
 afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
 describe("Platform API bootstrap DB enrollment", () => {
+  it.each([0, 1, 2, 3, 4])(
+    "exact subset schedule equivalence across ordered-vector/model pairs of length %i",
+    (length) => {
+      const { old, candidate } = exactScheduleProbes();
+      const started = performance.now();
+      let pairs = 0;
+      for (let vector = 0; vector < 3 ** length; vector += 1) {
+        let digits = vector;
+        const files = Array.from({ length }, (_, index) => {
+          const durationMs = (digits % 3) + 1;
+          digits = Math.floor(digits / 3);
+          return { fileName: `indexed-${index}`, durationMs };
+        });
+        for (let workers = 1; workers <= 3; workers += 1)
+          for (let units = 1; units <= 4; units += 1)
+            for (let fixedCost = 0; fixedCost <= 1; fixedCost += 1)
+              for (let overhead = 0; overhead <= 1; overhead += 1)
+                for (const unitCeiling of [2, 4, 8])
+                  for (const aggregateCeiling of [3, 7, 15]) {
+                    const model = createSyntheticScheduleModel({
+                      maxWorkersPerExecutionUnit: workers,
+                      maximumEnumeratedUnitCount: units,
+                      executionUnitFixedCostMs: fixedCost,
+                      jobOverheadMs: overhead,
+                      executionUnitCeilingMs: unitCeiling,
+                      aggregateCeilingMs: aggregateCeiling,
+                    });
+                    const expected = scheduleVerdict(old, files, model);
+                    const actual = scheduleVerdict(candidate, files, model);
+                    if (actual !== expected)
+                      throw new Error(`schedule differs at pair ${pairs}: ${expected} vs ${actual}`);
+                    expectSharedScheduleEquivalence(old, candidate, files, model);
+                    pairs += 1;
+                  }
+      }
+      expect(pairs).toBe(3 ** length * 432);
+      for (let count = 1; count <= length; count += 1)
+        expect([...candidate.canonicalAssignments(length, count)]).toEqual([
+          ...old.canonicalAssignments(length, count),
+        ]);
+      console.info(`exact subset length ${length}: ${pairs} pairs in ${(performance.now() - started).toFixed(1)} ms`);
+    },
+  );
+
+  it("covers all 52272 exact subset pairs without sampling", () => {
+    expect([0, 1, 2, 3, 4].reduce((pairs, length) => pairs + 3 ** length * 432, 0)).toBe(52_272);
+  });
+
+  it("exact subset schedule equivalence under adversarial changes between invocations", () => {
+    const { old, candidate } = exactScheduleProbes();
+    const files = Array.from({ length: 5 }, (_, index) => ({ fileName: `distinct-${index}`, durationMs: 3 }));
+    const model = createSyntheticScheduleModel({
+      maxWorkersPerExecutionUnit: 2,
+      executionUnitFixedCostMs: 1,
+      jobOverheadMs: 1,
+      executionUnitCeilingMs: 8,
+      aggregateCeilingMs: 15,
+    }) as { -readonly [Key in keyof BootstrapDbScheduleModel]: BootstrapDbScheduleModel[Key] };
+    const compare = () => {
+      expect(scheduleVerdict(candidate, files, model)).toBe(scheduleVerdict(old, files, model));
+      expectSharedScheduleEquivalence(old, candidate, files, model);
+    };
+    compare();
+    files.reverse();
+    files[0]!.durationMs = 7;
+    model.maxWorkersPerExecutionUnit = 3;
+    model.executionUnitFixedCostMs = 0;
+    model.jobOverheadMs = 0;
+    model.executionUnitCeilingMs = 7;
+    model.aggregateCeilingMs = 8;
+    compare();
+    files.reverse();
+    files[4]!.durationMs = 3;
+    model.maxWorkersPerExecutionUnit = 2;
+    model.executionUnitFixedCostMs = 1;
+    model.jobOverheadMs = 1;
+    model.executionUnitCeilingMs = 8;
+    model.aggregateCeilingMs = 15;
+    compare();
+    for (const [count, bound] of [
+      [0, 11],
+      [12, 11],
+    ] as const) {
+      const boundaryFiles = Array.from({ length: count }, (_, index) => ({
+        fileName: `boundary-${index}`,
+        durationMs: 1,
+      }));
+      const boundaryModel = createSyntheticScheduleModel({ maximumScheduledFileCount: bound });
+      expect(scheduleVerdict(candidate, boundaryFiles, boundaryModel)).toBe(
+        scheduleVerdict(old, boundaryFiles, boundaryModel),
+      );
+      expectSharedScheduleEquivalence(old, candidate, boundaryFiles, boundaryModel);
+    }
+  });
+
+  it("exact subset schedule equivalence for complete old and candidate guards", async () => {
+    const oracleUrl = pathToFileURL(join(testDirectory, "fixtures/bootstrap-db-schedule-before-subset-reuse.mjs"));
+    const old = await import(oracleUrl.href);
+    const normalize = (value: unknown) => JSON.parse(JSON.stringify(value));
+    // The pinned oracle lives under __tests__/fixtures, so its import.meta.url-derived
+    // default root is __tests__; bind both guards to the one production platform-api root.
+    const platformApiRoot = join(testDirectory, "..");
+    expect(normalize(checkBootstrapDbEnrollment({ platformApiRoot }))).toEqual(
+      normalize(old.checkBootstrapDbEnrollment({ platformApiRoot })),
+    );
+    for (const count of [10, 11, 12, 13]) {
+      const files = Array.from({ length: count }, (_, index) => unitFileFor(`oracle-${index}`, "test:db:1", 1_000));
+      const fixture = await createFixture(files, { model: { maximumScheduledFileCount: count === 13 ? 12 : 11 } });
+      const options = {
+        platformApiRoot: fixture.root,
+        manifest: fixture.manifest,
+        executionUnitBootBearingCaseCeilings: fixture.ceilings,
+        scheduleModel: fixture.model,
+      };
+      expect(normalize(checkBootstrapDbEnrollment(options))).toEqual(
+        normalize(old.checkBootstrapDbEnrollment(options)),
+      );
+    }
+  });
+
   it("enrolls the repository's exact case-to-file and database-suffix manifest", () => {
     const result = checkBootstrapDbEnrollment();
 
@@ -1172,6 +1392,9 @@ describe("Platform API bootstrap DB enrollment", () => {
     [11, 10, false],
     [11, 11, true],
     [12, 11, false],
+    [12, 12, true],
+    [13, 11, false],
+    [13, 12, false],
   ] as const)("enforces the %i-file boundary with declared bound %i", async (count, bound, accepted) => {
     const files = Array.from({ length: count }, (_, index) => unitFileFor(`boundary-${index}`, "test:db:1", 1_000));
     const fixture = await createFixture(files, { model: { maximumScheduledFileCount: bound } });
@@ -1193,6 +1416,8 @@ describe("Platform API bootstrap DB enrollment", () => {
   it.each([
     [11, 10],
     [12, 11],
+    [13, 11],
+    [13, 12],
   ])("rejects a bound-check bypass mutant for %i files at bound %i", (count, bound) => {
     const files = Object.freeze(
       Array.from({ length: count }, (_, index) => Object.freeze({ fileName: `boundary-${index}`, durationMs: 1_000 })),
