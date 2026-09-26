@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStore } from "@chase-sets/event-core/event-store";
@@ -43,6 +44,36 @@ const absentCredentialAuthority: ChannelCredentialAuthorityResolver = { resolve:
 const absentStorageLocationAuthority: ChannelStorageLocationAuthorityResolver = { resolve: async () => null };
 const absentPolicyAuthority: ChannelPolicyAuthorityResolver = { resolve: async () => null };
 const serverClock: ChannelConnectionClock = { now: () => new Date().toISOString() };
+
+type StorageAuthoritySnapshot = Map<
+  ChannelStorageLocationAuthorityResolver,
+  Map<string, ReturnType<ChannelStorageLocationAuthorityResolver["resolve"]>>
+>;
+const storageAuthoritySnapshots = new AsyncLocalStorage<StorageAuthoritySnapshot>();
+
+export function withConnectionAuthoritySnapshot<Value>(operation: () => Promise<Value>): Promise<Value> {
+  return storageAuthoritySnapshots.run(new Map(), operation);
+}
+
+export function resolveConnectionStorageLocation(
+  authority: ChannelStorageLocationAuthorityResolver,
+  input: Parameters<ChannelStorageLocationAuthorityResolver["resolve"]>[0],
+) {
+  const snapshot = storageAuthoritySnapshots.getStore();
+  if (!snapshot) return authority.resolve(input);
+  let resolutions = snapshot.get(authority);
+  if (!resolutions) {
+    resolutions = new Map();
+    snapshot.set(authority, resolutions);
+  }
+  const key = JSON.stringify([input.accountId, input.storageLocationId]);
+  let resolution = resolutions.get(key);
+  if (!resolution) {
+    resolution = authority.resolve(input);
+    resolutions.set(key, resolution);
+  }
+  return resolution;
+}
 
 export function mapDeploymentEnvironment(environment: DeploymentEnvironment): ChannelEnvironment {
   switch (environment) {
@@ -128,7 +159,7 @@ export function createChannelConnectionRuntime(
 
     if (input.bindings.length === 0) throw new ChannelConnectionError("binding-required");
     for (const binding of input.bindings) {
-      const current = await storageLocationAuthority.resolve({
+      const current = await resolveConnectionStorageLocation(storageLocationAuthority, {
         accountId: input.accountId,
         storageLocationId: binding.storageLocationId,
       });

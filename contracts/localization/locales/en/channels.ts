@@ -1,4 +1,9 @@
 export const channelsEnglishTranslations = {
+  "channels.connections.connect": "Connect a channel",
+  "channels.connections.provider": "Sales Channel",
+  "channels.connections.setup": "Connection setup",
+  "channels.connections.locations": "Storage locations",
+  "channels.connections.activate": "Activate",
   "channels.drift.title": "Channel differences",
   "channels.drift.disclaimer":
     "Decisions do not confirm that channel changes were queued or applied, or that the connection is healthy. A later complete check confirms the result.",
@@ -181,6 +186,8 @@ export const channelsEnglishTranslations = {
   "channels.manualSync.coverage.dark.description":
     "TCGplayer provides no inbound seller authority. Active Marketplace listings represented by a claimed run stay non-sellable until recovery is proven safe.",
   "channels.manualSync.state.none": "No manual run",
+  "channels.manualSync.loading": "Loading manual sync…",
+  "channels.manualSync.refresh": "Refresh manual sync",
   "channels.manualSync.state.composed": "Ready to download",
   "channels.manualSync.state.claimed": "Claimed",
   "channels.manualSync.state.awaiting-verification": "Awaiting verification",

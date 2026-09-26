@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ChannelsServices } from "./support/runtime-support/services";
-import { channelConnectionRoutes } from "./features/connections/api/route";
+import { channelConnectionRoutes, type ChannelConnectionRouteOptions } from "./features/connections/api/route";
 import { createOutboundOperationRoutes } from "./features/outbound-sync/api/route";
 import { channelListingCompositionRoutes } from "./features/listing-composition/api/route";
 import { createManualSyncRoutes } from "./features/manual-sync/api/route";
@@ -26,6 +26,7 @@ export function buildChannelsApi(
     Readonly<{
       manualSync?: ManualSyncServices;
     }>,
+  connectionOptions: ChannelConnectionRouteOptions = {},
 ) {
   const app = new Hono<ChannelsApiEnv>();
 
@@ -39,7 +40,7 @@ export function buildChannelsApi(
     await next();
   });
 
-  app.route("/connections", channelConnectionRoutes(services.connections));
+  app.route("/connections", channelConnectionRoutes(services.connections, connectionOptions));
   app.route("/connections", createConnectionAttentionRoutes(services.connectionAttention));
   app.route("/connections", createChannelDriftRoutes(services.reconciliation));
   app.route("/connections", createOutboundOperationRoutes(services.connections, services.outboundSync));

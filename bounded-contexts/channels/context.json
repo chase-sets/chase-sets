@@ -39,6 +39,11 @@
   "seedRequirements": ["inventory"],
   "hostPorts": [
     {
+      "portName": "storageLocationAuthority",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Resolve account-owned Inventory Storage Location state and committed stream revision for connection activation and resume."
+    },
+    {
       "portName": "marketplaceChannelInboundClamp",
       "providedBy": "platform-api, platform-worker",
       "purpose": "Ask Marketplace to pause every active account Listing represented by a genuine Channel Sync Run while inbound coverage is dark."
@@ -322,6 +327,20 @@
       "requiresAuth": true,
       "readFreshnessRoutes": [
         {
+          "routePath": "/connections/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [{ "readModelTable": "channel_connections" }]
+        },
+        {
+          "routePath": "/connections/:connectionId/manual-sync",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            { "readModelTable": "channel_connections" },
+            { "readModelTable": "channel_sync_runs" },
+            { "readModelTable": "channel_sync_run_rows" }
+          ]
+        },
+        {
           "routePath": "/publication/:connectionId",
           "methods": ["GET", "HEAD"],
           "dependencies": [
@@ -448,6 +467,51 @@
   ],
   "readAfterWriteRouteInventory": [
     {
+      "id": "channels.activation-to-manual-sync",
+      "owner": "channels",
+      "risk": "important",
+      "freshnessSlo": { "flowClass": "important-self-refresh", "p95Ms": 2500, "p99Ms": 5000 },
+      "source": {
+        "routeId": "channels-connection-detail",
+        "actions": ["Activate"],
+        "command": "ActivateChannelConnection"
+      },
+      "destination": {
+        "routeId": "channels-connection-detail",
+        "apiContextName": "channels",
+        "apiRoutePath": "/connections/:connectionId/manual-sync",
+        "readModelTables": ["channel_connections", "channel_sync_runs", "channel_sync_run_rows"],
+        "helperUses": ["loadAfterWrite"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Manual-sync projection lag retains the panel heading and loading state with bounded read revalidation and explicit refresh; activation is never replayed."
+        }
+      }
+    },
+    {
+      "id": "channels.connect-to-detail",
+      "owner": "channels",
+      "risk": "important",
+      "freshnessSlo": { "flowClass": "important-self-refresh", "p95Ms": 2500, "p99Ms": 5000 },
+      "source": {
+        "routeId": "channels-connections",
+        "actions": ["Connect a channel"],
+        "command": "ConnectChannel",
+        "helperUses": ["navigateAfterWrite"]
+      },
+      "destination": {
+        "routeId": "channels-connection-detail",
+        "apiContextName": "channels",
+        "apiRoutePath": "/connections/:id",
+        "readModelTables": ["channel_connections"],
+        "helperUses": ["loadAfterWrite"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "Fresh connection projection lag renders the canonical loading state rather than a missing connection."
+        }
+      }
+    },
+    {
       "id": "channels.publication-settings-to-detail",
       "owner": "channels",
       "risk": "important",
@@ -475,6 +539,27 @@
     }
   ],
   "mutationConsistencyInventory": [
+    {
+      "id": "channels.connect-to-detail",
+      "owner": "channels",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /",
+        "post-form:bounded-contexts/channels/features/connections/ui/connection-pages.tsx:Hb08a81ecfd73#1",
+        "route-action:bounded-contexts/channels/routes/marketplace/account-channels.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "channels-connection-detail",
+        "apiContextName": "channels",
+        "apiRoutePath": "/connections/:id",
+        "readModelTables": ["channel_connections"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The create receipt follows the redirect; the detail loader renders loading while the connection projection catches up."
+        }
+      }
+    },
     {
       "id": "channels.drift-decision-snapshots",
       "owner": "channels",
@@ -524,12 +609,14 @@
       "risk": "important",
       "strategy": "snapshot-return",
       "surfaces": [
+        "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /:id/activate",
         "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /:id/pause",
         "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /:id/resume",
         "api-route:bounded-contexts/channels/features/connections/api/route.ts:POST /:id/disconnect",
         "api-client:bounded-contexts/channels/support/request-support/api-client.ts:POST H542755c24d1e#1",
         "api-client:bounded-contexts/channels/support/request-support/api-client.ts:POST H16abbc610122#1",
         "api-client:bounded-contexts/channels/support/request-support/api-client.ts:POST Hf47bd35ee32b#1",
+        "post-form:bounded-contexts/channels/features/connections/ui/connection-pages.tsx:Hb08a81ecfd73#2",
         "post-form:bounded-contexts/channels/features/connections/ui/connection-pages.tsx:Hbd7dd2c17dad#1",
         "route-action:bounded-contexts/channels/features/connections/ui/account-channels-connection-route-adapter.tsx"
       ],

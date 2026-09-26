@@ -96,7 +96,11 @@ import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-s
 import contextManifest from "./context.json" with { type: "json" };
 import { buildChannelsApi } from "./api";
 import { createChannelConnectionRuntime } from "./features/connections/api/runtime";
-import type { ChannelConnectionHostPorts } from "./features/connections/domain/contracts";
+import { createConnectionPolicyAuthority } from "./features/connections/api/policy-authority";
+import type {
+  ChannelConnectionHostPorts,
+  ChannelStorageLocationAuthorityResolver,
+} from "./features/connections/domain/contracts";
 import { createChannelListingCompositionRuntime } from "./features/listing-composition/api/runtime";
 import { assertChannelListingDelistDirective } from "./features/listing-composition/domain/codecs";
 import { createChannelCompositionProfileRegistry } from "./features/listing-composition/domain/canonical";
@@ -205,6 +209,16 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
       pool,
       wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "channels" }),
     });
+    const policies = createPolicyRuntime({ eventStore, db: pool });
+    const storageLocationAuthority: ChannelStorageLocationAuthorityResolver = {
+      resolve: async (input) => {
+        try {
+          return (await ports.storageLocationAuthority?.resolve(input)) ?? null;
+        } catch {
+          return null;
+        }
+      },
+    };
     const connections = createChannelConnectionRuntime(
       {
         eventStore,
@@ -213,10 +227,11 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
       {
         ...(ports ?? {}),
         setupResolver: ports?.setupResolver ?? channelProviderRegistry.setupResolver,
+        policyAuthority: ports.policyAuthority ?? createConnectionPolicyAuthority(policies),
+        storageLocationAuthority,
       },
     );
     const compositionProfiles = createChannelCompositionProfileRegistry(tcgplayerCompositionProfiles);
-    const policies = createPolicyRuntime({ eventStore, db: pool });
     const connectionHealth = createConnectionHealthRuntime({
       db: pool,
       eventStore,
@@ -300,6 +315,7 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
     });
     return {
       connections,
+      storageLocationAuthority,
       credentials: createChannelCredentialRuntime(ports.channelCredentialKeyring, ports.channelCredentialCapabilities),
       connectionHealth,
       connectionAttention: createConnectionAttentionRuntime({ db: pool, eventStore, connectionHealth }),
@@ -317,7 +333,13 @@ export const module = defineBoundedContextModule<ChannelsServices, PgTransaction
       ],
     };
   },
-  buildApis: (services) => [{ mountPath: "/api/channels", contextMountOrdinal: 1, router: buildChannelsApi(services) }],
+  buildApis: (services) => [
+    {
+      mountPath: "/api/channels",
+      contextMountOrdinal: 1,
+      router: buildChannelsApi(services, { storageLocationAuthority: services.storageLocationAuthority }),
+    },
+  ],
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => [
     ...buildEventSubscriptionsFromManifest({

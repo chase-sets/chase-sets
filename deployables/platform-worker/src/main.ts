@@ -26,9 +26,10 @@ import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import { module as settlementModule } from "@chase-sets/settlement";
 import { createFilesystemObjectStorage, createS3ObjectStorage, type ObjectStorage } from "@chase-sets/object-storage";
 import type { GoogleShoppingSyncMode } from "@chase-sets/discovery/server";
-import type {
-  InventoryAccountSellerSkuItemResolution,
-  InventoryDraftListingCreator,
+import {
+  createStorageLocationAuthority,
+  type InventoryAccountSellerSkuItemResolution,
+  type InventoryDraftListingCreator,
 } from "@chase-sets/inventory/server";
 import { type MarketplaceListingServices, type MarketplaceServices } from "@chase-sets/marketplace/server";
 import type {
@@ -320,6 +321,11 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
       marketplaceChannelInboundClamp,
       channelCredentialKeyring: config.channelCredentialKeyring,
       ...(pools.inventory ? { channelSaleRecorder: createPlatformChannelSaleRecorder(pools.inventory) } : {}),
+      storageLocationAuthority: {
+        resolve: pools.inventory
+          ? createStorageLocationAuthority(pools.inventory).resolveStorageLocationAuthority
+          : async () => null,
+      },
       searchEmbeddingConfig: config.discoverySearchEmbeddings,
       ...(marketplaceLabelPostageActivation ? { marketplaceLabelPostageActivation } : {}),
     },

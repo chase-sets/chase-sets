@@ -17,9 +17,17 @@ const dto: PublicChannelConnection = {
 };
 
 describe("channel-connection-http-contract", () => {
-  it("exposes exactly the five public connection method/path rows", () => {
+  it("adds connect and activate while preserving the five existing connection method/path rows", () => {
     const routes = channelConnectionRoutes(createServices()).routes.map(({ method, path }) => `${method} ${path}`);
-    expect(routes).toEqual(["GET /", "GET /:id", "POST /:id/pause", "POST /:id/resume", "POST /:id/disconnect"]);
+    expect(routes).toEqual([
+      "POST /",
+      "POST /:id/activate",
+      "GET /",
+      "GET /:id",
+      "POST /:id/pause",
+      "POST /:id/resume",
+      "POST /:id/disconnect",
+    ]);
   });
 
   it("returns the exact closed DTO across list, detail, and all three committed mutations", async () => {
@@ -41,12 +49,12 @@ describe("channel-connection-http-contract", () => {
     }
   });
 
-  it("rejects renamed actions, public connect/activate, request bodies, and invalid paging uniformly", async () => {
+  it("rejects renamed actions, malformed activation, request bodies, and invalid paging uniformly", async () => {
     const app = createApp(createServices());
     for (const [path, method, expected] of [
       ["/api/channels/connections/connection_1/paused", "POST", 404],
       ["/api/channels/connections/connect", "POST", 404],
-      ["/api/channels/connections/connection_1/activate", "POST", 404],
+      ["/api/channels/connections/connection_1/activate", "POST", 400],
       ["/api/channels/connections?unknown=x", "GET", 400],
       ["/api/channels/connections?limit=101", "GET", 400],
       ["/api/channels/connections?status=unknown", "GET", 400],

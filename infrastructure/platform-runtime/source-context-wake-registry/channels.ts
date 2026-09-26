@@ -16,5 +16,9 @@ export const channelsWakeRegistryEntry = registryEntry({
     "channels:platform-policy-document-projection",
     "channels:tcgplayer-csv-projection",
   ],
-  routeDependencyIds: ["channels.publication-settings-to-detail"],
+  routeDependencyIds: [
+    "channels.activation-to-manual-sync",
+    "channels.connect-to-detail",
+    "channels.publication-settings-to-detail",
+  ],
 });

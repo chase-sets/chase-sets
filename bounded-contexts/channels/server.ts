@@ -1,4 +1,5 @@
 export { channelsServicesMembers, isChannelsServices, type ChannelsServices } from "./support/runtime-support/services";
+export type { ChannelStorageLocationAuthorityResolver } from "./features/connections/domain/contracts";
 export { parseChannelCredentialKeyring, assertKeyringContinuity } from "./features/credentials/domain/codecs";
 export {
   ChannelCredentialError,
