@@ -1,4 +1,4 @@
-import { expect, test, type Response } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { createChannelPublicationBrowserSupport } from "@chase-sets/channels/seed-support/channel-publication-browser";
 import { signInThroughMarketplaceForm } from "./support/auth";
 import { marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
@@ -41,16 +41,7 @@ test("mapping decision retains the typed target through a held projection @marke
     expect(posts).toHaveLength(1);
     await support.release();
     const notice = page.getByText("Loading channel publication settings");
-    const isLoaderRead = (response: Response) =>
-      response.request().method() === "GET" && new URL(response.url()).pathname === `${routePath}.data`;
-    for (let read = 0; read < 15; read += 1) {
-      const nextRead = page.waitForResponse(isLoaderRead);
-      if ((await notice.count()) === 0) {
-        nextRead.catch(() => undefined);
-        break;
-      }
-      await nextRead;
-    }
+    await notice.waitFor({ state: "detached" });
     await expect(notice).toHaveCount(0);
     await expect(card.getByText(/category · rejected · manual/u)).toBeVisible();
     await expect(target).toHaveValue("");
