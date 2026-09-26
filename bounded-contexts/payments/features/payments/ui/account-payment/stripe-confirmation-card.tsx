@@ -23,10 +23,11 @@ import {
   Stack,
   Surface,
   Text,
-  createStripeElementsAppearance,
-  observeStripeAppearance,
-  stripeAppearanceSnapshot,
+  resolveEmbeddedSurfaceTheme,
+  observeEmbeddedSurfaceTheme,
+  embeddedSurfaceThemeSnapshot,
 } from "@chase-sets/design-system";
+import { createStripeElementsAppearance } from "@chase-sets/stripe-appearance";
 import { createPaymentsApiClient } from "../../../../client";
 import type { PaymentElementDefaultValues } from "./account-payment-contracts";
 
@@ -99,10 +100,10 @@ export function StripeConfirmationCard({
       return;
     }
 
-    let currentSnapshot = stripeAppearanceSnapshot({ scope: container });
+    let currentSnapshot = embeddedSurfaceThemeSnapshot({ scope: container });
 
-    return observeStripeAppearance({ scope: container }, () => {
-      const nextSnapshot = stripeAppearanceSnapshot({ scope: container });
+    return observeEmbeddedSurfaceTheme({ scope: container }, () => {
+      const nextSnapshot = embeddedSurfaceThemeSnapshot({ scope: container });
       if (nextSnapshot === currentSnapshot) {
         return;
       }
@@ -180,8 +181,13 @@ export function StripeConfirmationCard({
         }
 
         const clientSecret = payment.processor_client_secret!;
-        const stripeElementsAppearance = createStripeElementsAppearance({ scope: container });
-        const checkoutElementsAppearance = createStripeElementsAppearance({ includeRules: false, scope: container });
+        const stripeElementsAppearance = createStripeElementsAppearance({
+          theme: resolveEmbeddedSurfaceTheme({ scope: container }),
+        });
+        const checkoutElementsAppearance = createStripeElementsAppearance({
+          includeRules: false,
+          theme: resolveEmbeddedSurfaceTheme({ scope: container }),
+        });
         // Custom Checkout (Checkout Session client secrets, prefixed `cs_`) carries buyer
         // defaultValues on the SDK itself; the Payment Element path carries them per-element.
         let checkout = clientSecret.startsWith("cs_")
@@ -337,11 +343,18 @@ export function StripeConfirmationCard({
     }
 
     if (checkoutRef.current) {
-      checkoutRef.current.changeAppearance(createStripeElementsAppearance({ includeRules: false, scope: container }));
+      checkoutRef.current.changeAppearance(
+        createStripeElementsAppearance({
+          includeRules: false,
+          theme: resolveEmbeddedSurfaceTheme({ scope: container }),
+        }),
+      );
       return;
     }
 
-    void elementsRef.current?.update({ appearance: createStripeElementsAppearance({ scope: container }) });
+    void elementsRef.current?.update({
+      appearance: createStripeElementsAppearance({ theme: resolveEmbeddedSurfaceTheme({ scope: container }) }),
+    });
   }, [appearanceVersion, isReady]);
 
   useEffect(() => {

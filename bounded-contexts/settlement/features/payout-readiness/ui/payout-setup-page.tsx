@@ -12,19 +12,20 @@ import {
   Badge,
   Banner,
   Button,
-  createStripeConnectAppearance,
+  resolveEmbeddedSurfaceTheme,
   Inline,
   LinkButton,
   LoadingSpinner,
-  observeStripeAppearance,
+  observeEmbeddedSurfaceTheme,
   Page,
   PageHeader,
   PageSection,
   ProgressiveDisclosure,
   Stack,
-  stripeAppearanceSnapshot,
+  embeddedSurfaceThemeSnapshot,
   Text,
 } from "@chase-sets/design-system";
+import { createStripeConnectAppearance } from "@chase-sets/stripe-appearance";
 import type { SettlementPayoutReadinessRow } from "../read-model/queries";
 import { buildMissingRequirementGroups, type MissingRequirementGroup } from "../domain/setup-progress";
 import { PayoutReadinessPanel } from "./payout-readiness-panel";
@@ -63,7 +64,7 @@ export function loadStripeConnectComponent({
     publishableKey,
     fetchClientSecret: fetchClientSecret ?? (() => fetchEmbeddedClientSecret(mode, contactEmail)),
     locale: "en-US",
-    appearance: createStripeConnectAppearance({ scope: appearanceScope }),
+    appearance: createStripeConnectAppearance({ theme: resolveEmbeddedSurfaceTheme({ scope: appearanceScope }) }),
   });
 }
 
@@ -247,7 +248,7 @@ export function StripeConnectEmbeddedComponent({
   const setContainer = useCallback((node: HTMLDivElement | null) => {
     containerRef.current = node;
     setAppearanceScope(node);
-    setAppearanceVersion(node ? stripeAppearanceSnapshot({ scope: node }) : null);
+    setAppearanceVersion(node ? embeddedSurfaceThemeSnapshot({ scope: node }) : null);
   }, []);
 
   useEffect(() => {
@@ -255,8 +256,8 @@ export function StripeConnectEmbeddedComponent({
       return undefined;
     }
 
-    return observeStripeAppearance({ scope: appearanceScope }, () => {
-      setAppearanceVersion(stripeAppearanceSnapshot({ scope: appearanceScope }));
+    return observeEmbeddedSurfaceTheme({ scope: appearanceScope }, () => {
+      setAppearanceVersion(embeddedSurfaceThemeSnapshot({ scope: appearanceScope }));
     });
   }, [appearanceScope]);
 

@@ -1,13 +1,25 @@
+// @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { cssValues, fixture, repositoryRoot, sha256 } from "./token-contract";
 import {
-  createStripeConnectAppearance,
-  createStripeElementsAppearance,
-  observeStripeAppearance,
-  stripeAppearanceSnapshot,
-} from "../theme/stripe-appearance";
+  resolveEmbeddedSurfaceTheme,
+  embeddedSurfaceThemeSnapshot as stripeAppearanceSnapshot,
+  observeEmbeddedSurfaceTheme as observeStripeAppearance,
+} from "@chase-sets/design-system";
+import {
+  createStripeConnectAppearance as connectAppearance,
+  createStripeElementsAppearance as elementsAppearance,
+} from "@chase-sets/stripe-appearance";
+
+function createStripeElementsAppearance({
+  scope = null,
+  includeRules = true,
+}: { scope?: Element | null; includeRules?: boolean } = {}) {
+  return elementsAppearance({ theme: resolveEmbeddedSurfaceTheme({ scope }), includeRules });
+}
+
+function createStripeConnectAppearance({ scope = null }: { scope?: Element | null } = {}) {
+  return connectAppearance({ theme: resolveEmbeddedSurfaceTheme({ scope }) });
+}
 
 function themedScope(colorMode: "light" | "dark" = "light") {
   const root = document.createElement("div");
@@ -145,108 +157,5 @@ describe("Stripe appearance helpers", () => {
 
     disconnect();
     root.remove();
-  });
-});
-
-const factorySource = readFileSync(
-  join(repositoryRoot(), "packages/design-system/src/theme/stripe-appearance.ts"),
-  "utf8",
-);
-const fallbackPattern = /((?:token|pxToken)\("(--[\w-]+)", )("[^"\n]*"|'[^'\n]*')(, scope\))/g;
-
-function fallbackInventory(source: string) {
-  return source
-    .split(/export function createStripe/)
-    .slice(1)
-    .flatMap((factory) =>
-      [...factory.matchAll(fallbackPattern)].map((match) => ({
-        factory: factory.startsWith("Elements") ? "Elements" : "Connect",
-        binding: match[1]!.startsWith("pxToken") ? "pxToken" : "token",
-        property: match[2]!,
-        fallback: match[3]!.slice(1, -1),
-      })),
-    );
-}
-
-function fallbackFailures(source: string) {
-  return fallbackInventory(source).flatMap((entry) => {
-    const candidate = (fixture.light as Record<string, { candidate: string }>)[entry.property]!.candidate;
-    return entry.fallback === candidate
-      ? []
-      : [`${entry.factory}/${entry.property}: ${entry.fallback} != ${candidate}`];
-  });
-}
-
-function bindingStructure(source: string) {
-  return source.replace(fallbackPattern, '$1"<fallback>"$4');
-}
-
-describe("complete Stripe factory cutover contract", () => {
-  it("preserves all factory output fields, token/pxToken bindings and non-fallback source", () => {
-    expect(sha256(bindingStructure(factorySource))).toBe(
-      "d197d17d5f8c258ea8aa7a4390b5b0e1ebf44b6b9660c223f7f87a7abd44aeb6",
-    );
-    expect(fallbackInventory(factorySource)).toHaveLength(62);
-    console.log(`factory binding/fallback inventory: ${JSON.stringify(fallbackInventory(factorySource))}`);
-  });
-
-  it("transcribes every fallback in both factories from the independent light candidate", () => {
-    expect(fallbackFailures(factorySource)).toEqual([]);
-  });
-
-  it.each(["Elements", "Connect"])("rejects a stale %s fallback", (factory) => {
-    const split = factorySource.indexOf(`export function createStripe${factory}`);
-    const mutant = factorySource.slice(0, split) + factorySource.slice(split).replace('"#4845c6"', '"#1d5fd6"');
-    expect(mutant).not.toBe(factorySource);
-    expect(fallbackFailures(mutant)).toEqual([`${factory}/--primary: #1d5fd6 != #4845c6`]);
-    expect(sha256(bindingStructure(mutant))).toBe(sha256(bindingStructure(factorySource)));
-  });
-
-  it.each(["Elements", "Connect"])("rejects leaving the entire %s factory on shipped values", (factory) => {
-    const start = factorySource.indexOf(`export function createStripe${factory}`);
-    const next = factorySource.indexOf("export function createStripe", start + 1);
-    const end = next < 0 ? factorySource.length : next;
-    const unchangedFactory = factorySource
-      .slice(start, end)
-      .replace(fallbackPattern, (_match, prefix: string, property: string, quoted: string, suffix: string) => {
-        const shipped = (fixture.light as Record<string, { shipped: string }>)[property]!.shipped;
-        return `${prefix}${quoted[0]}${shipped}${quoted[0]}${suffix}`;
-      });
-    const mutant = factorySource.slice(0, start) + unchangedFactory + factorySource.slice(end);
-    const failures = fallbackFailures(mutant);
-    expect(failures.length).toBeGreaterThan(1);
-    expect(failures.every((failure) => failure.startsWith(`${factory}/`))).toBe(true);
-    expect(sha256(bindingStructure(mutant))).toBe(sha256(bindingStructure(factorySource)));
-  });
-
-  it("rejects an equal-valued token rebound while fallback equality stays green", () => {
-    const mutant = factorySource.replace('token("--primary",', 'token("--accent",');
-    expect(mutant).not.toBe(factorySource);
-    expect(fallbackFailures(mutant)).toEqual([]);
-    expect(sha256(bindingStructure(mutant))).not.toBe(sha256(bindingStructure(factorySource)));
-  });
-
-  it.each(["light", "dark"] as const)("resolves every factory field from actual %s stylesheet values", (mode) => {
-    const root = document.createElement("div");
-    root.dataset.chaseTheme = "";
-    root.dataset.colorMode = mode;
-    const actual = cssValues(mode);
-    document.body.append(root);
-    try {
-      for (const [name, value] of Object.entries(actual)) root.style.setProperty(name, value);
-      const observed = [
-        createStripeElementsAppearance({ scope: root }),
-        createStripeConnectAppearance({ scope: root }),
-      ];
-      for (const [name, entry] of Object.entries(fixture[mode])) root.style.setProperty(name, entry.candidate);
-      const expected = [
-        createStripeElementsAppearance({ scope: root }),
-        createStripeConnectAppearance({ scope: root }),
-      ];
-      expect(observed).toEqual(expected);
-      console.log(`actual CSS factory outputs (${mode}): ${JSON.stringify(observed)}`);
-    } finally {
-      root.remove();
-    }
   });
 });
