@@ -774,6 +774,15 @@
       "workspace": "@chase-sets/channels",
       "script": "test:unit",
       "observedDurationMs": 4544
+    },
+    {
+      "runId": 36277253497,
+      "runAttempt": 1,
+      "jobId": 108502346013,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/stripe-appearance",
+      "script": "test",
+      "observedDurationMs": 5798
     }
   ]
 }
