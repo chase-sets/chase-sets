@@ -100,8 +100,16 @@ describe("resolveAttentionSummary", () => {
       { count: 12 },
       "12 listings are paused from repricing while a required input is missing",
     ],
-    ["repricing-budget-exhausted", { count: 4 }, "A repricing policy used today's change cap; 4 listings waited for tomorrow"],
-    ["repricing-frozen", { count: 3 }, "Repricing is briefly frozen on 3 listings of one product and resumes automatically"],
+    [
+      "repricing-budget-exhausted",
+      { count: 4 },
+      "A repricing policy used today's change cap; 4 listings waited for tomorrow",
+    ],
+    [
+      "repricing-frozen",
+      { count: 3 },
+      "Repricing is briefly frozen on 3 listings of one product and resumes automatically",
+    ],
   ] as const)("renders the Pricing-owned %s summary with a grouped count", (code, params, expected) => {
     const item = buildSellerAttentionItem({
       source: "pricing-repricing",

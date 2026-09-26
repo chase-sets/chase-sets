@@ -235,9 +235,18 @@ export function summarizeRepricingRule(rule: RepricingRule, index: number): Repr
             ? t("pricing.features.repricingPolicies.ui.policyBody.condition.none")
             : rule.conditions.map(conditionLabel).join(" · "),
       },
-      { key: t("pricing.features.repricingPolicies.ui.policyBody.rule.anchor"), value: anchorChainLabel(directive.anchorChain) },
-      { key: t("pricing.features.repricingPolicies.ui.policyBody.rule.offset"), value: offsetLabel(directive.offset, currency) },
-      { key: t("pricing.features.repricingPolicies.ui.policyBody.rule.floor"), value: floorLabel(directive.floor, currency) },
+      {
+        key: t("pricing.features.repricingPolicies.ui.policyBody.rule.anchor"),
+        value: anchorChainLabel(directive.anchorChain),
+      },
+      {
+        key: t("pricing.features.repricingPolicies.ui.policyBody.rule.offset"),
+        value: offsetLabel(directive.offset, currency),
+      },
+      {
+        key: t("pricing.features.repricingPolicies.ui.policyBody.rule.floor"),
+        value: floorLabel(directive.floor, currency),
+      },
       {
         key: t("pricing.features.repricingPolicies.ui.policyBody.rule.ceiling"),
         value: ceilingLabel(directive.ceiling, currency),

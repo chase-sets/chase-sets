@@ -118,7 +118,12 @@ test.describe("Seller Desk repricing policies", () => {
       await expect(policyLink).toBeVisible();
       await expect(visibleText(page, "Active")).toBeVisible();
       await expect(visibleText(page, "Selected listings (1)")).toBeVisible();
-      await expect(page.getByText(/account-wide changes today/).filter({ visible: true }).first()).toBeVisible();
+      await expect(
+        page
+          .getByText(/account-wide changes today/)
+          .filter({ visible: true })
+          .first(),
+      ).toBeVisible();
 
       await captureResponsiveEvidence({ page, testInfo, claimId: "repricing-policy-cards-mobile" });
       await page.setViewportSize({ width: 1280, height: 900 });

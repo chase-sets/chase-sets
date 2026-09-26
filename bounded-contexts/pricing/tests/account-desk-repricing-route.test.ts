@@ -149,8 +149,7 @@ describe("Seller Desk repricing routes", () => {
       "GET /rpp_1": () => jsonResponse(policy),
       "GET /halt": () => jsonResponse(halt),
       "GET /budget": () => jsonResponse({ day: "2026-09-26", changesUsed: 42 }),
-      "GET /rpp_1/activity": () =>
-        jsonResponse({ rows: [], next: null, filterCounts: { "floor-binding": 2341 } }),
+      "GET /rpp_1/activity": () => jsonResponse({ rows: [], next: null, filterCounts: { "floor-binding": 2341 } }),
     });
 
     const result = await detailLoader({
@@ -213,7 +212,10 @@ describe("Seller Desk repricing routes", () => {
     stubPricingApi({ "POST /rpp_1/delete": () => jsonResponse({ error: { code: "conflict" } }, 409) });
 
     const result = await detailAction({
-      request: formRequest("http://localhost/account/desk/repricing/rpp_1", { intent: "delete-policy", policyId: "rpp_1" }),
+      request: formRequest("http://localhost/account/desk/repricing/rpp_1", {
+        intent: "delete-policy",
+        policyId: "rpp_1",
+      }),
       params: { policyId: "rpp_1" },
       context: undefined,
     } as never);

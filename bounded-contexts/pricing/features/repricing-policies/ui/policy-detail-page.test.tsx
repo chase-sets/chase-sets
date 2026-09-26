@@ -17,10 +17,7 @@ const rule = {
   conditions: [{ type: "item-grading", grading: "raw" }],
   directive: {
     currencyCode: "USD",
-    anchorChain: [
-      { source: "lowest-competing-ask", strata: "hard" },
-      { source: "market-estimate" },
-    ],
+    anchorChain: [{ source: "lowest-competing-ask", strata: "hard" }, { source: "market-estimate" }],
     offset: { mode: "percent", percent: -2 },
     floor: { mode: "absolute", amount: "1.00" },
     ceiling: null,
@@ -141,6 +138,8 @@ describe("PricingRepricingPolicyDetailPage", () => {
         onActivityNext={() => undefined}
       />,
     );
-    expect(html).toMatch(/data-testid="repricing-policy-settings"[^>]*aria-busy="true"|aria-busy="true"[^>]*data-testid="repricing-policy-settings"/);
+    expect(html).toMatch(
+      /data-testid="repricing-policy-settings"[^>]*aria-busy="true"|aria-busy="true"[^>]*data-testid="repricing-policy-settings"/,
+    );
   });
 });

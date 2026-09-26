@@ -87,7 +87,9 @@ export type RepricingAttentionSourceDependencies = Readonly<{
   loadSummary: (context: SellerAttentionContext) => Promise<RepricingAttentionSummary>;
 }>;
 
-export function createRepricingAttentionSource(dependencies: RepricingAttentionSourceDependencies): SellerAttentionSource {
+export function createRepricingAttentionSource(
+  dependencies: RepricingAttentionSourceDependencies,
+): SellerAttentionSource {
   return {
     id: "pricing-repricing",
     load: async (context) => toRepricingAttentionItems(await dependencies.loadSummary(context), context),

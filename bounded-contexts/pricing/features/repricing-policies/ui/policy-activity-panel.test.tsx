@@ -11,9 +11,10 @@ import { PricingRepricingActivityPanel, type RepricingActivityPanelPage } from "
 afterEach(cleanup);
 
 function counts(overrides: Partial<Record<RepricingActivityFilter, number>> = {}) {
-  return Object.fromEntries(
-    repricingActivityFilterOrder.map((filter) => [filter, overrides[filter] ?? 0]),
-  ) as Record<RepricingActivityFilter, number>;
+  return Object.fromEntries(repricingActivityFilterOrder.map((filter) => [filter, overrides[filter] ?? 0])) as Record<
+    RepricingActivityFilter,
+    number
+  >;
 }
 
 function row(
@@ -71,7 +72,12 @@ describe("PricingRepricingActivityPanel", () => {
     renderPanel({
       page: page({
         // One visible row, but the server says thousands: the label must show the server count.
-        filterCounts: counts({ "floor-binding": 2341, "budget-exhausted": 12, "paused-for-missing-input": 7, changed: 1 }),
+        filterCounts: counts({
+          "floor-binding": 2341,
+          "budget-exhausted": 12,
+          "paused-for-missing-input": 7,
+          changed: 1,
+        }),
       }),
     });
 
@@ -105,7 +111,10 @@ describe("PricingRepricingActivityPanel", () => {
     expect(onFilterChange).toHaveBeenLastCalledWith("floor-binding");
 
     cleanup();
-    const selected = renderPanel({ selectedFilter: "floor-binding", page: page({ filterCounts: counts({ "floor-binding": 4 }) }) });
+    const selected = renderPanel({
+      selectedFilter: "floor-binding",
+      page: page({ filterCounts: counts({ "floor-binding": 4 }) }),
+    });
     fireEvent.click(screen.getByRole("button", { name: "All activity" }));
     expect(selected.onFilterChange).toHaveBeenLastCalledWith(null);
   });
@@ -119,7 +128,12 @@ describe("PricingRepricingActivityPanel", () => {
             listingId: "lst_band",
             evaluationId: "eval_2",
             trace: {
-              anchor: { source: "lowest-competing-ask", amount: "8.00", stratum: "any-ask", contributingListingCount: 5 },
+              anchor: {
+                source: "lowest-competing-ask",
+                amount: "8.00",
+                stratum: "any-ask",
+                contributingListingCount: 5,
+              },
               flags: ["band-binding"],
               clamps: { floor: true, ceiling: false, maxMove: true },
             },
@@ -128,7 +142,12 @@ describe("PricingRepricingActivityPanel", () => {
             listingId: "lst_estimate",
             evaluationId: "eval_3",
             trace: {
-              anchor: { source: "market-estimate", amount: "11.00", stratum: "market-estimate", contributingListingCount: 0 },
+              anchor: {
+                source: "market-estimate",
+                amount: "11.00",
+                stratum: "market-estimate",
+                contributingListingCount: 0,
+              },
               exhaustedAnchors: [{ source: "lowest-competing-ask", state: "absent" }],
               outcome: "skipped",
               skipReason: "budget-exhausted",
@@ -222,7 +241,13 @@ describe("PricingRepricingActivityPanel", () => {
     );
 
     expect(html).toContain("Anchored to the lowest listing of any kind, held at the band floor");
-    for (const leaked of ["lst_competitor_secret", "lst_competitor_other", "acct_competitor_secret", "derived", "algorithmic"]) {
+    for (const leaked of [
+      "lst_competitor_secret",
+      "lst_competitor_other",
+      "acct_competitor_secret",
+      "derived",
+      "algorithmic",
+    ]) {
       expect(html.toLowerCase()).not.toContain(leaked);
     }
   });

@@ -271,7 +271,9 @@ export function PricingRepricingPolicyListPage({
               {
                 key: "status",
                 header: t("pricing.features.repricingPolicies.ui.policyList.dryRuns.column.status"),
-                cell: (dryRun) => <Badge tone={dryRunStatusTone(dryRun.status)}>{dryRunStatusLabel(dryRun.status)}</Badge>,
+                cell: (dryRun) => (
+                  <Badge tone={dryRunStatusTone(dryRun.status)}>{dryRunStatusLabel(dryRun.status)}</Badge>
+                ),
               },
               {
                 key: "evaluated",

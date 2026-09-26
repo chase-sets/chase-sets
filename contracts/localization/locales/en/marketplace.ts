@@ -956,8 +956,10 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.sellerDesk.summary.importRowsUnresolved": "Import {reference} has {count} rows to resolve",
   "marketplace.features.sellerDesk.summary.offerAwaitingResponse": "Offer on {reference} is awaiting your response",
   "marketplace.features.sellerDesk.summary.listingNeedsAction": "Listing {reference} needs attention ({action})",
-  "marketplace.features.sellerDesk.summary.repricingHaltEngaged": "Repricing is halted: no policy changes prices until you release the halt",
-  "marketplace.features.sellerDesk.summary.repricingFloorBinding": "{count} listings have been held at their price floor past your alert threshold",
+  "marketplace.features.sellerDesk.summary.repricingHaltEngaged":
+    "Repricing is halted: no policy changes prices until you release the halt",
+  "marketplace.features.sellerDesk.summary.repricingFloorBinding":
+    "{count} listings have been held at their price floor past your alert threshold",
   "marketplace.features.sellerDesk.summary.repricingPausedForMissingInput":
     "{count} listings are paused from repricing while a required input is missing",
   "marketplace.features.sellerDesk.summary.repricingBudgetExhausted":

@@ -34,7 +34,11 @@ const everyCondition = summary({
   ],
   haltEngaged: true,
   frozenProducts: [
-    { productKey: { catalogItemId: "cat_1", productId: "prd_1" }, listingCount: 3, frozenUntil: "2026-09-26T14:00:00.000Z" },
+    {
+      productKey: { catalogItemId: "cat_1", productId: "prd_1" },
+      listingCount: 3,
+      frozenUntil: "2026-09-26T14:00:00.000Z",
+    },
   ],
 });
 
@@ -95,9 +99,12 @@ describe("createRepricingAttentionSourceFromReadModel", () => {
     });
     const resolvePolicy = vi.fn(async () => ({ value: { floorBindingAlertDays: 9 } }));
 
-    const items = await createRepricingAttentionSourceFromReadModel({ query } as never, {
-      resolvePolicy,
-    } as never).load(CONTEXT);
+    const items = await createRepricingAttentionSourceFromReadModel(
+      { query } as never,
+      {
+        resolvePolicy,
+      } as never,
+    ).load(CONTEXT);
 
     expect(items.map((item) => item.summary)).toEqual([{ code: "repricing-floor-binding", params: { count: 5 } }]);
     expect(query).toHaveBeenCalledWith(expect.stringContaining("floor_binding_since"), ["acct-1", CONTEXT.now, 9]);

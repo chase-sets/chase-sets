@@ -31,7 +31,9 @@ function policy(overrides: Partial<RepricingPolicyListRow> = {}): RepricingPolic
 
 function renderList(props: Partial<Parameters<typeof PricingRepricingPolicyListPage>[0]> = {}) {
   const handlers = { onHaltChange: vi.fn(), onPause: vi.fn(), onResume: vi.fn() };
-  render(<PricingRepricingPolicyListPage policies={[policy()]} halt={released} dryRuns={[]} {...handlers} {...props} />);
+  render(
+    <PricingRepricingPolicyListPage policies={[policy()]} halt={released} dryRuns={[]} {...handlers} {...props} />,
+  );
   return handlers;
 }
 

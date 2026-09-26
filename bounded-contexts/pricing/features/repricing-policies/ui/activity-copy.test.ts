@@ -93,14 +93,24 @@ describe("repricing activity copy", () => {
       ],
       [
         trace({
-          anchor: { source: "market-estimate", amount: "9.00", stratum: "market-estimate", contributingListingCount: 0 },
+          anchor: {
+            source: "market-estimate",
+            amount: "9.00",
+            stratum: "market-estimate",
+            contributingListingCount: 0,
+          },
           exhaustedAnchors: [{ source: "lowest-competing-ask", state: "absent" }],
         }),
         "No manual listings — using the market estimate",
       ],
       [
         trace({
-          anchor: { source: "market-estimate", amount: "9.00", stratum: "market-estimate", contributingListingCount: 0 },
+          anchor: {
+            source: "market-estimate",
+            amount: "9.00",
+            stratum: "market-estimate",
+            contributingListingCount: 0,
+          },
         }),
         "Anchored to the market estimate",
       ],
