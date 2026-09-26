@@ -353,7 +353,7 @@ export async function latestProviderMarketCapture(
 }
 
 function consolidateSaleCoverage(values: readonly (string | null)[]) {
-  if (values.some((value) => value === "inconsistent")) return "unknown" as const;
+  if (values.some((value) => value === "inconsistent" || value === "unknown")) return "unknown" as const;
   if (values.some((value) => value && value !== "complete")) return "truncated-capture" as const;
   if (values.length > 0 && values.every((value) => value === "complete")) return "complete-capture" as const;
   return "unknown" as const;
