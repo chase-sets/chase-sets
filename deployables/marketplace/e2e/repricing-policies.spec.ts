@@ -4,7 +4,8 @@ import { signInThroughMarketplaceForm } from "./support/auth";
 import { marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
 
 // Charter scope (#7914): the seeded seller manages a repricing policy from the
-// Seller Desk -- list, detail, pause/resume, halt engage/release and delete --
+// Seller Desk -- list, detail, pause/resume, halt engage/release, the halt's
+// attention queue item and delete --
 // through the real marketplace routes and pricing API. Policy creation belongs
 // to the editor (#7915), so setup creates the policy through the API from a
 // completed dry run, exactly as the editor will.
@@ -144,6 +145,16 @@ test.describe("Seller Desk repricing policies", () => {
       await page.getByRole("button", { name: "Halt repricing", exact: true }).click();
       await expect(page.getByTestId("repricing-halt")).toContainText("Repricing is halted");
       await expect(visibleText(page, "Paused by halt")).toBeVisible();
+
+      // Attention: the engaged halt reaches the Seller Desk queue through the
+      // pricing-repricing source and deep-links back to the policy list.
+      await page.goto("/account/desk", { waitUntil: "domcontentloaded" });
+      const haltItem = page
+        .locator("[data-seller-desk-item]")
+        .filter({ hasText: "Repricing is halted: no policy changes prices until you release the halt" });
+      await expect(haltItem).toBeVisible();
+      await haltItem.getByRole("link", { name: "Review repricing" }).click();
+      await expect(page).toHaveURL(/\/account\/desk\/repricing$/);
 
       await page.getByRole("switch", { name: "Halt all repricing" }).click();
       await page.getByRole("button", { name: "Release halt", exact: true }).click();
