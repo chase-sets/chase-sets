@@ -79,7 +79,7 @@ describe("channel-mapping-review-route", () => {
 
     projectedVersion = 1;
     await settle(2_000);
-    expect(screen.getByText(/category · rejected · high/u)).toBeTruthy();
+    expect(screen.getByText(/category · rejected · manual/u)).toBeTruthy();
     expect((screen.getByRole("textbox", { name: "Channel target key" }) as HTMLInputElement).value).toBe("");
     expect(screen.queryByText(/Loading channel publication settings/u)).toBeNull();
 
@@ -92,7 +92,7 @@ describe("channel-mapping-review-route", () => {
     expect(reads - readsAfterStuckDecision).toBe(15);
     expect(screen.getByText("Still catching up")).toBeTruthy();
     expect(screen.queryByText(/Loading channel publication settings/u)).toBeNull();
-    expect(screen.getByText(/category · rejected · high/u)).toBeTruthy();
+    expect(screen.getByText(/category · rejected · manual/u)).toBeTruthy();
   });
 
   it("mapping-freshness-pending-retains-typed-target-real-click", async () => {
@@ -151,7 +151,7 @@ describe("channel-mapping-review-route", () => {
     await act(async () => {
       await router.revalidate();
     });
-    expect(screen.getByText(/category · rejected · high/u)).toBeTruthy();
+    expect(screen.getByText(/category · rejected · manual/u)).toBeTruthy();
     expect((screen.getByRole("textbox", { name: "Channel target key" }) as HTMLInputElement).value).toBe("");
     expect(screen.queryByText(/Loading channel publication settings/u)).toBeNull();
     expect(screen.getByRole("button", { name: "Reject" }).closest("fieldset[disabled]")).toBeNull();
@@ -274,7 +274,7 @@ describe("channel-mapping-review-route", () => {
     await settle(0);
 
     expect(screen.queryByText("Still catching up")).toBeNull();
-    expect(screen.getByText(/category · rejected · high/u)).toBeTruthy();
+    expect(screen.getByText(/category · rejected · manual/u)).toBeTruthy();
   });
 
   it("R2 rejects the unscoped foreign-mutation lookup mutant while preserving API permissions", async () => {
@@ -520,9 +520,9 @@ function mappingReviewDetail(streamVersion: number): ChannelPublicationConnectio
           dimension: "category",
           sourceKey: "catalog-category:cards",
           targetKey: null,
-          confidenceTier: "high",
+          confidenceTier: decided ? "manual" : "high",
           reviewStatus: decided ? "rejected" : "proposed",
-          provenance: "compose-discovered",
+          provenance: decided ? "operator" : "compose-discovered",
           evidence: { listingId: "listing-1", derivedFrom: "assigned category cards" },
           lastStreamVersion: streamVersion,
         },

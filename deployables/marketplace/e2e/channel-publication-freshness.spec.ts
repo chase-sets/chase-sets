@@ -41,7 +41,7 @@ test("mapping decision retains the typed target through a held projection @marke
     expect(posts).toHaveLength(1);
     await support.release();
     await expect(page.getByText("Loading channel publication settings")).toHaveCount(0);
-    await expect(card.getByText(/category · rejected · high/u)).toBeVisible();
+    await expect(card.getByText(/category · rejected · manual/u)).toBeVisible();
     await expect(target).toHaveValue("");
     await expect(reject).toBeEnabled();
     await page.reload();
