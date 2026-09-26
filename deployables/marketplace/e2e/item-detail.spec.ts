@@ -341,6 +341,104 @@ test.describe("marketplace item detail", () => {
   });
 });
 
+// Charter scope: keeps the populated lowest-ask summary's "All active listings" note
+// clear of its Available fact (#7744). Element boxes cannot discriminate this defect:
+// the lg flex row keeps the note's min-w-0 column and the facts grid disjoint, and the
+// collision is note text overflowing that shrunken column. So the oracle compares the
+// DOM Range client rects of the rendered note text with those of the Available label
+// and value text.
+test.describe("marketplace item detail lowest-ask summary clearance (#7744)", () => {
+  type TextRect = { left: number; top: number; right: number; bottom: number };
+
+  const summaryViewports = [
+    { name: "1280x900 dark", viewport: { width: 1280, height: 900 }, colorScheme: "dark", forcedColors: "none" },
+    {
+      name: "1280x900 light with forced colors",
+      viewport: { width: 1280, height: 900 },
+      colorScheme: "light",
+      forcedColors: "active",
+    },
+    { name: "1024x768 light", viewport: { width: 1024, height: 768 }, colorScheme: "light", forcedColors: "none" },
+    { name: "820x1180 light", viewport: { width: 820, height: 1180 }, colorScheme: "light", forcedColors: "none" },
+    { name: "360x800 light", viewport: { width: 360, height: 800 }, colorScheme: "light", forcedColors: "none" },
+  ] as const;
+
+  function intersects(a: TextRect, b: TextRect) {
+    return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+  }
+
+  for (const { name, viewport, colorScheme, forcedColors } of summaryViewports) {
+    test(`keeps the active-listings note clear of the Available fact at ${name} @marketplace-browse`, async ({
+      page,
+    }, testInfo) => {
+      await page.setViewportSize(viewport);
+      await page.emulateMedia({ colorScheme, forcedColors });
+      await expectPageOk(page, seededDetailPath);
+      await page.waitForLoadState("load");
+      await page.evaluate(async () => {
+        await document.fonts.ready;
+      });
+
+      const summary = page
+        .locator(".modern-surface")
+        .filter({ has: page.getByText("Lowest ask", { exact: true }) })
+        .filter({ has: page.getByText("All active listings", { exact: true }) });
+      await expect(summary, "the populated lowest-ask summary must render exactly once").toHaveCount(1);
+      const note = summary.getByText("All active listings", { exact: true });
+      const availableLabel = summary.getByText("Available", { exact: true });
+      const availableValue = availableLabel.locator("xpath=following-sibling::*[1]");
+      await expect(note).toBeVisible();
+      await expect(availableLabel).toBeVisible();
+      await expect(availableValue).toBeVisible();
+      await expect(availableValue).toHaveText(/^\d[\d,]*$/);
+
+      const geometry = await note.evaluate(
+        (noteElement, [labelElement, valueElement]) => {
+          const textRects = (element: Element) => {
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            return Array.from(range.getClientRects())
+              .filter((rect) => rect.width > 0 && rect.height > 0)
+              .map(({ left, top, right, bottom }) => ({ left, top, right, bottom }));
+          };
+          return {
+            note: textRects(noteElement),
+            availableLabel: textRects(labelElement!),
+            availableValue: textRects(valueElement!),
+            documentScrollWidth: document.documentElement.scrollWidth,
+            documentClientWidth: document.documentElement.clientWidth,
+          };
+        },
+        [await availableLabel.elementHandle(), await availableValue.elementHandle()],
+      );
+      await testInfo.attach(`summary-text-rects:${name}`, {
+        body: JSON.stringify(geometry, null, 2),
+        contentType: "application/json",
+      });
+
+      const measured = JSON.stringify(geometry);
+      expect(geometry.note.length, `note text must have positive-area rects: ${measured}`).toBeGreaterThan(0);
+      expect(
+        geometry.availableLabel.length,
+        `Available label must have positive-area rects: ${measured}`,
+      ).toBeGreaterThan(0);
+      expect(
+        geometry.availableValue.length,
+        `Available value must have positive-area rects: ${measured}`,
+      ).toBeGreaterThan(0);
+      const collisions = geometry.note.flatMap((noteRect) =>
+        [...geometry.availableLabel, ...geometry.availableValue]
+          .filter((factRect) => intersects(noteRect, factRect))
+          .map((factRect) => ({ noteRect, factRect })),
+      );
+      expect(collisions, `note text must not intersect the Available fact text: ${measured}`).toEqual([]);
+      expect(geometry.documentScrollWidth, `document must not overflow horizontally: ${measured}`).toBeLessThanOrEqual(
+        geometry.documentClientWidth,
+      );
+    });
+  }
+});
+
 // Charter scope: compacts the mobile Detail Page action dock (#5963). Route identity
 // is pinned in support/seed-contract.ts rather than reached by a generic search query
 // (AC11) — cat_seed_charizard_base_set is the seeded item with real listings; its
