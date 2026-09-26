@@ -1641,6 +1641,18 @@ describe("marketplace account payment route", () => {
     expect(elements).toHaveBeenCalledTimes(1);
     expect(create).toHaveBeenCalledTimes(1);
     expect(elements.mock.calls[0]?.[0].appearance.variables.colorText).toBe("#111111");
+
+    rerender(
+      <ChaseRoot theme={{ colors: { foreground: "var(--missing)" } }}>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith({
+        appearance: expect.objectContaining({ variables: expect.objectContaining({ colorText: "#211d33" }) }),
+      }),
+    );
+    expect(paymentElement.destroy).not.toHaveBeenCalled();
   });
 
   it("restyles a Checkout Session element in place when the scoped theme changes", async () => {

@@ -1,8 +1,10 @@
+// @vitest-environment jsdom
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { cssValues } from "./token-contract";
+import { cssValues } from "./stripe-appearance-support";
 import { afterEach, describe, expect, it } from "vitest";
-import { createStripeConnectAppearance, createStripeElementsAppearance } from "../theme/stripe-appearance";
+import { resolveEmbeddedSurfaceTheme } from "@chase-sets/design-system";
+import { createStripeConnectAppearance, createStripeElementsAppearance } from "@chase-sets/stripe-appearance";
 
 // Every ratio here is computed inside the test from the values the appearance
 // factory actually resolves. Nothing is transcribed: a role rebound to a
@@ -116,11 +118,11 @@ function themedRoot(mode: Mode, source: Source) {
 }
 
 function elementsAppearanceFor(mode: Mode, source: Source) {
-  return createStripeElementsAppearance({ scope: themedRoot(mode, source) });
+  return createStripeElementsAppearance({ theme: resolveEmbeddedSurfaceTheme({ scope: themedRoot(mode, source) }) });
 }
 
 function connectAppearanceFor(mode: Mode, source: Source) {
-  return createStripeConnectAppearance({ scope: themedRoot(mode, source) });
+  return createStripeConnectAppearance({ theme: resolveEmbeddedSurfaceTheme({ scope: themedRoot(mode, source) }) });
 }
 
 type Row = {

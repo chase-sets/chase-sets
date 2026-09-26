@@ -352,6 +352,27 @@ describe("MediaFrame primitive", () => {
 });
 
 describe("EmbeddedProviderSurface primitive", () => {
+  it("preserves the EmbeddedProviderSurface provider-tag selectors", () => {
+    const tags = ["stripe-connect-account-management", "stripe-connect-account-onboarding"] as const;
+    for (const [size, base, responsive] of [
+      ["md", 36, 44],
+      ["lg", 44, 52],
+    ] as const) {
+      const { getByTestId, unmount } = render(
+        <EmbeddedProviderSurface minHeight={size} data-testid="provider-tags">
+          Content
+        </EmbeddedProviderSurface>,
+      );
+      const classes = getByTestId("provider-tags").className;
+      for (const tag of tags) {
+        expect(classes).toContain(`[&>${tag}]:min-h-[${base}rem]`);
+        expect(classes).toContain(`md:[&>${tag}]:min-h-[${responsive}rem]`);
+        expect(classes).toContain(`[&>${tag}]:block`);
+      }
+      unmount();
+    }
+  });
+
   it("keeps provider iframes at a usable minimum height", () => {
     const { container } = render(
       <EmbeddedProviderSurface data-testid="provider-surface">

@@ -20,6 +20,7 @@ import {
   PayoutSetupPage,
   StripeConnectEmbeddedComponent,
 } from "./payout-setup-page";
+import { StripeConnectNotificationBanner } from "./stripe-connect-notification-banner";
 
 function readiness(overrides: Partial<SettlementPayoutReadinessRow> = {}): SettlementPayoutReadinessRow {
   return {
@@ -273,6 +274,7 @@ describe("payout setup page", () => {
 
   it("initializes the supported Connect loader only after creating an embedded session", async () => {
     setThemeScope(container!, "light", setupLightTokens);
+    container!.style.setProperty("--overlay", "url(https://invalid.test/backdrop)");
     const fetch = vi.fn(async () =>
       Response.json({
         clientSecret: "acs_test_secret",
@@ -314,6 +316,7 @@ describe("payout setup page", () => {
             colorText: setupLightTokens["--foreground"],
             fontFamily: setupLightTokens["--body-font"],
             formBackgroundColor: setupLightTokens["--surface-2"],
+            overlayBackdropColor: "rgba(33, 29, 51, 0.35)",
           }),
         }),
       }),
@@ -428,6 +431,44 @@ describe("payout setup page", () => {
     );
     expect(container!.querySelectorAll("stripe-connect-account-onboarding")).toHaveLength(1);
     expect(container!.querySelector("stripe-connect-account-onboarding")).toBe(secondConnectElement);
+    await act(async () => {
+      container!.style.setProperty("--card", "var(--missing)");
+    });
+    await flushMutationObserver();
+    expect(mockLoadConnectAndInitialize).toHaveBeenCalledTimes(3);
+    expect(mockLoadConnectAndInitialize.mock.calls[2][0].appearance.variables.colorBackground).toBe("#ffffff");
+  });
+
+  it("mounts and remounts the notification banner with invalid theme slots safely substituted", async () => {
+    setThemeScope(container!, "light", setupLightTokens);
+    container!.style.setProperty("--primary", "url(https://invalid.test/color)");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ clientSecret: "acs_test_secret" })),
+    );
+    const create = vi.fn(() =>
+      Object.assign(document.createElement("div"), {
+        setOnLoaderStart: vi.fn(),
+        setOnLoadError: vi.fn(),
+      }),
+    );
+    mockLoadConnectAndInitialize.mockReturnValue({ create });
+    root = createRoot(container!);
+    await act(async () => {
+      root!.render(<StripeConnectNotificationBanner publishableKey="pk_test_123" />);
+    });
+    await flushMutationObserver();
+    expect(mockLoadConnectAndInitialize.mock.calls[0][0].appearance.variables.colorPrimary).toBe("#4845c6");
+    expect(create).toHaveBeenCalledWith("notification-banner");
+    await act(async () => {
+      container!.style.setProperty("--card", "var(--missing)");
+    });
+    await flushMutationObserver();
+    expect(mockLoadConnectAndInitialize).toHaveBeenCalledTimes(2);
+    expect(mockLoadConnectAndInitialize.mock.calls[1][0].appearance.variables.colorBackground).toBe("#ffffff");
+    expect(
+      container!.querySelector("[data-testid='stripe-connect-notification-banner']")?.firstElementChild,
+    ).not.toBeNull();
   });
 
   it("requests a fresh embedded session whenever Connect asks for a client secret", async () => {
