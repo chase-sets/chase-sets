@@ -3,7 +3,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { runInNewContext } from "node:vm";
 
 import ts from "@chase-sets/typescript-compiler-api";
 import { afterEach, describe, expect, it } from "vitest";
@@ -62,7 +63,7 @@ const syntheticScheduleModelTiming = Object.freeze({
   executionUnitCeilingMs: 420_000,
   aggregateCeilingMs: 1_080_000,
   maximumCaseReferenceDurationMs: 600_000,
-  maximumScheduledFileCount: 10,
+  maximumScheduledFileCount: 11,
   maximumEnumeratedUnitCount: 4,
 } satisfies Pick<BootstrapDbScheduleModel, ScheduleModelTimingField>);
 
@@ -233,19 +234,276 @@ function unitFileFor(name: string, executionUnit: string, referenceDurationMs: n
   };
 }
 
+function exhaustiveScheduleProbe(bypassFileBound = false) {
+  const source = readFileSync(join(testDirectory, "../scripts/check-bootstrap-db-enrollment.mjs"), "utf8");
+  const start = source.indexOf("function worstCaseListScheduleMs(");
+  const end = source.indexOf("// Manifest shape validation.");
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  let algorithm = source.slice(start, end);
+  if (bypassFileBound) {
+    const boundary = "if (files.length > model.maximumScheduledFileCount)";
+    expect(algorithm.split(boundary)).toHaveLength(2);
+    algorithm = algorithm.replace(boundary, "if (false)");
+  }
+  return runInNewContext(`${algorithm}\n({ computeMinimumUnitCount, canonicalAssignments })`) as {
+    computeMinimumUnitCount: (
+      files: readonly { fileName: string; durationMs: number }[],
+      model: BootstrapDbScheduleModel,
+    ) => {
+      minimumUnitCount: number | null;
+      refusal: string | null;
+      witness?: { files: { fileName: string; durationMs: number }[]; makespanMs: number }[];
+    };
+    canonicalAssignments: (length: number, blockCount: number) => Generator<number[]>;
+  };
+}
+
+type ScheduleFile = { fileName: string; durationMs: number };
+type ScheduleProbe = {
+  computeMinimumUnitCount: (files: ScheduleFile[], model: BootstrapDbScheduleModel) => unknown;
+  bestAssignmentAt: (files: ScheduleFile[], count: number, model: BootstrapDbScheduleModel) => unknown;
+  calculateMinimumAndOneFewer?: (
+    files: ScheduleFile[],
+    model: BootstrapDbScheduleModel,
+    observe?: (phase: string, count: number, assignment: number[]) => void,
+  ) => unknown;
+  canonicalAssignments: (length: number, count: number) => Generator<number[]>;
+};
+
+function exactScheduleProbes(): { old: ScheduleProbe; candidate: ScheduleProbe } {
+  const oraclePath = join(testDirectory, "fixtures/bootstrap-db-schedule-before-subset-reuse.mjs");
+  const oracleSource = readFileSync(oraclePath, "utf8");
+  expect(createHash("sha256").update(oracleSource).digest("hex")).toBe(
+    "d3b96de0c4051a7021f8f00869d19dd13314166b8dc81244c2bb554a2493847b",
+  );
+  const candidateSource = readFileSync(join(testDirectory, "../scripts/check-bootstrap-db-enrollment.mjs"), "utf8");
+  function extract(source: string): ScheduleProbe {
+    const start = source.indexOf("function worstCaseListScheduleMs(");
+    const end = source.indexOf("// Manifest shape validation.", start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    return runInNewContext(
+      `${source.slice(start, end)}\n({ computeMinimumUnitCount, bestAssignmentAt, canonicalAssignments, calculateMinimumAndOneFewer: typeof calculateMinimumAndOneFewer === 'function' ? calculateMinimumAndOneFewer : undefined })`,
+    ) as ScheduleProbe;
+  }
+  return { old: extract(oracleSource), candidate: extract(candidateSource) };
+}
+
+function scheduleVerdict(probe: ScheduleProbe, files: ScheduleFile[], model: BootstrapDbScheduleModel) {
+  const minimum = probe.computeMinimumUnitCount(files, model) as {
+    minimumUnitCount: number | null;
+    witness?: { makespanMs: number }[];
+  };
+  const alternatives = Array.from({ length: Math.min(files.length, model.maximumEnumeratedUnitCount) }, (_, index) =>
+    probe.bestAssignmentAt(files, index + 1, model),
+  );
+  const oneFewerUnit =
+    minimum.minimumUnitCount && minimum.minimumUnitCount > 1 ? alternatives[minimum.minimumUnitCount - 2] : null;
+  return JSON.stringify({
+    minimum,
+    aggregateWithOverheadMs: minimum.witness
+      ? minimum.witness.reduce((sum, unit) => sum + unit.makespanMs, model.jobOverheadMs)
+      : null,
+    oneFewerUnit,
+    alternatives,
+  });
+}
+
+function expectSharedScheduleEquivalence(
+  old: ScheduleProbe,
+  candidate: ScheduleProbe,
+  files: ScheduleFile[],
+  model: BootstrapDbScheduleModel,
+) {
+  const observed: string[] = [];
+  const result = candidate.calculateMinimumAndOneFewer!(files, model, (phase, count, assignment) => {
+    observed.push(`${phase}:${count}:${assignment.join("")}`);
+  }) as {
+    oneFewer: unknown;
+    minimumUnitCount: number | null;
+    witness?: { files: ScheduleFile[] }[];
+    refusal: string | null;
+  };
+  const { oneFewer, ...minimum } = result;
+  const expectedMinimum = old.computeMinimumUnitCount(files, model) as typeof minimum;
+  const expectedOneFewer =
+    expectedMinimum.minimumUnitCount && expectedMinimum.minimumUnitCount > 1
+      ? old.bestAssignmentAt(files, expectedMinimum.minimumUnitCount - 1, model)
+      : null;
+  expect(JSON.stringify(minimum)).toBe(JSON.stringify(expectedMinimum));
+  expect(JSON.stringify(oneFewer)).toBe(JSON.stringify(expectedOneFewer));
+
+  const expected: string[] = [];
+  if (expectedMinimum.minimumUnitCount || expectedMinimum.refusal?.startsWith("no execution-unit count up to")) {
+    const maximum = expectedMinimum.minimumUnitCount ?? Math.min(files.length, model.maximumEnumeratedUnitCount);
+    for (let count = 1; count <= maximum; count += 1) {
+      for (const assignment of old.canonicalAssignments(files.length, count)) {
+        expected.push(`minimum:${count}:${assignment.join("")}`);
+        const groups = Array.from({ length: count }, () => [] as string[]);
+        assignment.forEach((unit, index) => groups[unit]!.push(files[index]!.fileName));
+        if (
+          count === expectedMinimum.minimumUnitCount &&
+          JSON.stringify(groups) ===
+            JSON.stringify(expectedMinimum.witness!.map((unit) => unit.files.map((file) => file.fileName)))
+        )
+          break;
+      }
+    }
+  }
+  if (expectedMinimum.minimumUnitCount && expectedMinimum.minimumUnitCount > 1) {
+    const count = expectedMinimum.minimumUnitCount - 1;
+    for (const assignment of old.canonicalAssignments(files.length, count))
+      expected.push(`oneFewer:${count}:${assignment.join("")}`);
+  }
+  expect(observed).toEqual(expected);
+}
+
 afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
 describe("Platform API bootstrap DB enrollment", () => {
+  it.each([0, 1, 2, 3, 4])(
+    "exact subset schedule equivalence across ordered-vector/model pairs of length %i",
+    (length) => {
+      const { old, candidate } = exactScheduleProbes();
+      const started = performance.now();
+      let pairs = 0;
+      for (let vector = 0; vector < 3 ** length; vector += 1) {
+        let digits = vector;
+        const files = Array.from({ length }, (_, index) => {
+          const durationMs = (digits % 3) + 1;
+          digits = Math.floor(digits / 3);
+          return { fileName: `indexed-${index}`, durationMs };
+        });
+        for (let workers = 1; workers <= 3; workers += 1)
+          for (let units = 1; units <= 4; units += 1)
+            for (let fixedCost = 0; fixedCost <= 1; fixedCost += 1)
+              for (let overhead = 0; overhead <= 1; overhead += 1)
+                for (const unitCeiling of [2, 4, 8])
+                  for (const aggregateCeiling of [3, 7, 15]) {
+                    const model = createSyntheticScheduleModel({
+                      maxWorkersPerExecutionUnit: workers,
+                      maximumEnumeratedUnitCount: units,
+                      executionUnitFixedCostMs: fixedCost,
+                      jobOverheadMs: overhead,
+                      executionUnitCeilingMs: unitCeiling,
+                      aggregateCeilingMs: aggregateCeiling,
+                    });
+                    const expected = scheduleVerdict(old, files, model);
+                    const actual = scheduleVerdict(candidate, files, model);
+                    if (actual !== expected)
+                      throw new Error(`schedule differs at pair ${pairs}: ${expected} vs ${actual}`);
+                    expectSharedScheduleEquivalence(old, candidate, files, model);
+                    pairs += 1;
+                  }
+      }
+      expect(pairs).toBe(3 ** length * 432);
+      for (let count = 1; count <= length; count += 1)
+        expect([...candidate.canonicalAssignments(length, count)]).toEqual([
+          ...old.canonicalAssignments(length, count),
+        ]);
+      console.info(`exact subset length ${length}: ${pairs} pairs in ${(performance.now() - started).toFixed(1)} ms`);
+    },
+  );
+
+  it("covers all 52272 exact subset pairs without sampling", () => {
+    expect([0, 1, 2, 3, 4].reduce((pairs, length) => pairs + 3 ** length * 432, 0)).toBe(52_272);
+  });
+
+  it("exact subset schedule equivalence under adversarial changes between invocations", () => {
+    const { old, candidate } = exactScheduleProbes();
+    const files = Array.from({ length: 5 }, (_, index) => ({ fileName: `distinct-${index}`, durationMs: 3 }));
+    const model = createSyntheticScheduleModel({
+      maxWorkersPerExecutionUnit: 2,
+      executionUnitFixedCostMs: 1,
+      jobOverheadMs: 1,
+      executionUnitCeilingMs: 8,
+      aggregateCeilingMs: 15,
+    }) as { -readonly [Key in keyof BootstrapDbScheduleModel]: BootstrapDbScheduleModel[Key] };
+    const compare = () => {
+      expect(scheduleVerdict(candidate, files, model)).toBe(scheduleVerdict(old, files, model));
+      expectSharedScheduleEquivalence(old, candidate, files, model);
+    };
+    compare();
+    files.reverse();
+    files[0]!.durationMs = 7;
+    model.maxWorkersPerExecutionUnit = 3;
+    model.executionUnitFixedCostMs = 0;
+    model.jobOverheadMs = 0;
+    model.executionUnitCeilingMs = 7;
+    model.aggregateCeilingMs = 8;
+    compare();
+    files.reverse();
+    files[4]!.durationMs = 3;
+    model.maxWorkersPerExecutionUnit = 2;
+    model.executionUnitFixedCostMs = 1;
+    model.jobOverheadMs = 1;
+    model.executionUnitCeilingMs = 8;
+    model.aggregateCeilingMs = 15;
+    compare();
+    for (const [count, bound] of [
+      [0, 11],
+      [12, 11],
+    ] as const) {
+      const boundaryFiles = Array.from({ length: count }, (_, index) => ({
+        fileName: `boundary-${index}`,
+        durationMs: 1,
+      }));
+      const boundaryModel = createSyntheticScheduleModel({ maximumScheduledFileCount: bound });
+      expect(scheduleVerdict(candidate, boundaryFiles, boundaryModel)).toBe(
+        scheduleVerdict(old, boundaryFiles, boundaryModel),
+      );
+      expectSharedScheduleEquivalence(old, candidate, boundaryFiles, boundaryModel);
+    }
+  });
+
+  it("exact subset schedule equivalence for complete old and candidate guards", async () => {
+    const oracleUrl = pathToFileURL(join(testDirectory, "fixtures/bootstrap-db-schedule-before-subset-reuse.mjs"));
+    const old = await import(oracleUrl.href);
+    const normalize = (value: unknown) => JSON.parse(JSON.stringify(value));
+    // The pinned oracle lives under __tests__/fixtures, so its import.meta.url-derived
+    // default root is __tests__; bind both guards to the one production platform-api root.
+    const platformApiRoot = join(testDirectory, "..");
+    expect(normalize(checkBootstrapDbEnrollment({ platformApiRoot }))).toEqual(
+      normalize(old.checkBootstrapDbEnrollment({ platformApiRoot })),
+    );
+    for (const count of [10, 11, 12, 13]) {
+      const files = Array.from({ length: count }, (_, index) => unitFileFor(`oracle-${index}`, "test:db:1", 1_000));
+      const fixture = await createFixture(files, { model: { maximumScheduledFileCount: count === 13 ? 12 : 11 } });
+      const options = {
+        platformApiRoot: fixture.root,
+        manifest: fixture.manifest,
+        executionUnitBootBearingCaseCeilings: fixture.ceilings,
+        scheduleModel: fixture.model,
+      };
+      expect(normalize(checkBootstrapDbEnrollment(options))).toEqual(
+        normalize(old.checkBootstrapDbEnrollment(options)),
+      );
+    }
+  });
+
   it("enrolls the repository's exact case-to-file and database-suffix manifest", () => {
     const result = checkBootstrapDbEnrollment();
 
     expect(result.violations).toEqual([]);
-    expect(result.expectedCaseCount).toBe(55);
+    expect(result.expectedCaseCount).toBe(57);
     expect(result.caseCount).toBe(result.expectedCaseCount);
-    expect(result.fileCount).toBe(10);
+    expect(result.fileCount).toBe(11);
     expect(result.partitionUnitCount).toBe(2);
+  });
+
+  it("preserves the complete frozen seed-command file and both separate case identities", () => {
+    const fileName = "seed-command-full-pools.db.test.ts";
+    const source = readFileSync(join(testDirectory, fileName));
+    expect(createHash("sha256").update(source).digest("hex")).toBe(
+      "21112a33cfbe069967b24c03321a5d35842519376128bae813836dbf4bf79bbe",
+    );
+    expect(deriveBootstrapDbCaseIdentities(fileName, source.toString()).map((testCase) => testCase.identity)).toEqual([
+      "68dfd0998ec22c33",
+      "9e7b99abfd2756ab",
+    ]);
   });
 
   it.each([
@@ -300,8 +558,9 @@ describe("Platform API bootstrap DB enrollment", () => {
     const packageJsonPath = join(fixture.root, "package.json");
     const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
     const fileName = files[0]!.fileName;
+    const executionUnit = files[0]!.executionUnit;
     if (mutation === "omitted") {
-      packageJson.scripts["test:db:2"] = packageJson.scripts["test:db:2"].replace(`__tests__/${fileName}`, "");
+      packageJson.scripts[executionUnit] = packageJson.scripts[executionUnit].replace(`__tests__/${fileName}`, "");
     } else {
       packageJson.scripts["test:db:1"] += ` __tests__/${fileName}`;
     }
@@ -710,34 +969,25 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(schedule.units[0]!.makespanMs).toBeGreaterThan(bootstrapDbScheduleModel.executionUnitCeilingMs);
   });
 
-  it("never under-states the sole shared-seed measurement's three units or owning-job wall clock", async () => {
-    expect(bootstrapDbScheduleModel.referenceRunId).toBe(36039215604);
-    expect(bootstrapDbScheduleModel.referenceJobId).toBe(107766880827);
+  it("never under-states the sole eleven-file measurement's two units or owning-job wall clock", async () => {
+    expect(bootstrapDbScheduleModel.referenceRunId).toBe(36141162335);
+    expect(bootstrapDbScheduleModel.referenceJobId).toBe(108091066485);
     expect(bootstrapDbScheduleModel.referenceJobName).toBe("Diagnostic API Bootstrap Measurement Only");
-    expect(bootstrapDbScheduleModel.referenceHeadSha).toBe("439268f8460cf09d5def8a5ad14b6e6e1e7755ed");
+    expect(bootstrapDbScheduleModel.referenceHeadSha).toBe("83caeeed92c345a59abe2d1755e32e2c7bee2e39");
     expect(bootstrapDbScheduleModel.referenceEvent).toBe("push");
-    expect(bootstrapDbScheduleModel.testFileFixedCostMs).toBe(1_693);
-    expect(bootstrapDbScheduleModel.executionUnitFixedCostMs).toBe(12_189);
+    expect(bootstrapDbScheduleModel.testFileFixedCostMs).toBe(1_593);
+    expect(bootstrapDbScheduleModel.executionUnitFixedCostMs).toBe(18_576);
     const measuredUnitOne = new Set([
       "authoritative-seed-resume-core.db.test.ts",
       "authoritative-seed-resume-reconciliation.db.test.ts",
       "catalog-seed-interruption-resume.db.test.ts",
-    ]);
-    const measuredUnitThree = new Set([
-      "inventory-seed-resume.db.test.ts",
-      "catalog-seed-aggregate-state.db.test.ts",
-      "bootstrap-shared-seed-command.db.test.ts",
     ]);
     // The fixture keeps synthetic provenance; only its timing inputs reproduce
     // the complete, immutable measurement, never another run or local timing.
     const fixture = await createFixture(
       shippedShapedFiles().map((file) => ({
         ...file,
-        executionUnit: measuredUnitOne.has(file.fileName)
-          ? "test:db:1"
-          : measuredUnitThree.has(file.fileName)
-            ? "test:db:3"
-            : "test:db:2",
+        executionUnit: measuredUnitOne.has(file.fileName) ? "test:db:1" : "test:db:2",
       })),
       {
         model: {
@@ -748,21 +998,20 @@ describe("Platform API bootstrap DB enrollment", () => {
       },
     );
     const { schedule } = runFixture(fixture);
-    expect(schedule.units.map((unit) => unit.makespanMs)).toEqual([292_803, 197_178, 190_361]);
-    expect(schedule.units[0]!.makespanMs).toBeGreaterThanOrEqual(292_795.550774);
-    expect(schedule.units[1]!.makespanMs).toBeGreaterThanOrEqual(189_905.115257);
-    expect(schedule.units[2]!.makespanMs).toBeGreaterThanOrEqual(187_641.930314);
-    expect(schedule.aggregateWithOverheadMs).toBe(732_000);
-    expect(schedule.aggregateWithOverheadMs).toBeGreaterThanOrEqual(722_000);
+    expect(schedule.units.map((unit) => unit.makespanMs)).toEqual([295_728, 449_242]);
+    expect(schedule.units[0]!.makespanMs).toBeGreaterThanOrEqual(289_699.315844);
+    expect(schedule.units[1]!.makespanMs).toBeGreaterThanOrEqual(367_435.189544);
+    expect(schedule.aggregateWithOverheadMs).toBe(791_836);
+    expect(schedule.aggregateWithOverheadMs).toBeGreaterThanOrEqual(704_000);
   });
 
   it("declares the settled ceilings and job overhead the aggregate expression is built from", () => {
     expect(bootstrapDbScheduleModel.executionUnitCeilingMs).toBe(420_000);
     expect(bootstrapDbScheduleModel.aggregateCeilingMs).toBe(1_080_000);
-    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(51_658);
+    expect(bootstrapDbScheduleModel.jobOverheadMs).toBe(46_866);
     expect(bootstrapDbScheduleModel.maxWorkersPerExecutionUnit).toBe(3);
     expect(checkBootstrapDbEnrollment().schedule.files.reduce((total, file) => total + file.caseDurationMs, 0)).toBe(
-      1_598_901,
+      1_666_557,
     );
   });
 
@@ -772,15 +1021,15 @@ describe("Platform API bootstrap DB enrollment", () => {
     const { schedule } = checkBootstrapDbEnrollment();
 
     expect(schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual([
-      ["test:db:1", 292_803],
-      ["test:db:2", 375_350],
+      ["test:db:1", 408_909],
+      ["test:db:2", 336_061],
     ]);
     expect(schedule.units.map((unit) => [unit.bootBearingCaseCount, unit.bootBearingCeiling])).toEqual([
-      [15, 15],
       [38, 38],
+      [17, 17],
     ]);
-    expect(schedule.aggregateMs).toBe(668_153);
-    expect(schedule.aggregateWithOverheadMs).toBe(719_811);
+    expect(schedule.aggregateMs).toBe(744_970);
+    expect(schedule.aggregateWithOverheadMs).toBe(791_836);
     expect(schedule.minimumUnitCount).toBe(2);
     expect(schedule.observedUnitCount).toBe(2);
   });
@@ -792,8 +1041,8 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(Object.getPrototypeOf(nullPrototypeModel)).toBeNull();
     expect(result.violations).toEqual([]);
     expect(result.schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual([
-      ["test:db:1", 292_803],
-      ["test:db:2", 375_350],
+      ["test:db:1", 408_909],
+      ["test:db:2", 336_061],
     ]);
   });
 
@@ -904,7 +1153,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       executionUnitCeilingMs: 419_999,
       aggregateCeilingMs: 1_079_999,
       maximumCaseReferenceDurationMs: 599_999,
-      maximumScheduledFileCount: 11,
+      maximumScheduledFileCount: 12,
       maximumEnumeratedUnitCount: 5,
     };
     const fixture = await createFixture([unitFileFor("synthetic-provenance", "test:db:1", 1_000)], {
@@ -1015,7 +1264,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     ],
     [
       "a unit-count enumeration bound above the file-count bound",
-      { maximumEnumeratedUnitCount: 11 },
+      { maximumEnumeratedUnitCount: 11, maximumScheduledFileCount: 10 },
       "maximumEnumeratedUnitCount 11 must not exceed maximumScheduledFileCount 10",
     ],
   ])("rejects %s", (_label, patch, expected) => {
@@ -1138,6 +1387,135 @@ describe("Platform API bootstrap DB enrollment", () => {
 
   // -- minimum-unit invariant ----------------------------------------------
 
+  it.each([
+    [10, 10, true],
+    [11, 10, false],
+    [11, 11, true],
+    [12, 11, false],
+    [12, 12, true],
+    [13, 11, false],
+    [13, 12, false],
+  ] as const)("enforces the %i-file boundary with declared bound %i", async (count, bound, accepted) => {
+    const files = Array.from({ length: count }, (_, index) => unitFileFor(`boundary-${index}`, "test:db:1", 1_000));
+    const fixture = await createFixture(files, { model: { maximumScheduledFileCount: bound } });
+    const result = runFixture(fixture);
+
+    expect(result.schedule.files).toHaveLength(count);
+    if (accepted) {
+      expect(result.violations).toEqual([]);
+      expect(result.schedule.minimumUnitCount).toBe(1);
+    } else {
+      expect(result.schedule.minimumUnitCount).toBeNull();
+      expect(result.violations).toContain(
+        `the schedule model refuses to enumerate ${count} files, above its declared bound of ` +
+          `${bound}; re-derive the bound deliberately rather than sampling assignments`,
+      );
+    }
+  });
+
+  it.each([
+    [11, 10],
+    [12, 11],
+    [13, 11],
+    [13, 12],
+  ])("rejects a bound-check bypass mutant for %i files at bound %i", (count, bound) => {
+    const files = Object.freeze(
+      Array.from({ length: count }, (_, index) => Object.freeze({ fileName: `boundary-${index}`, durationMs: 1_000 })),
+    );
+    const model = Object.freeze(createSyntheticScheduleModel({ maximumScheduledFileCount: bound }));
+    const assertBoundary = (probe: ReturnType<typeof exhaustiveScheduleProbe>) => {
+      expect(probe.computeMinimumUnitCount(files, model)).toEqual({
+        minimumUnitCount: null,
+        refusal:
+          `the schedule model refuses to enumerate ${count} files, above its declared bound of ` +
+          `${bound}; re-derive the bound deliberately rather than sampling assignments`,
+      });
+    };
+
+    assertBoundary(exhaustiveScheduleProbe());
+    expect(() => assertBoundary(exhaustiveScheduleProbe(true))).toThrow();
+  });
+
+  it.each([
+    [1, 0],
+    [2, 4],
+    [3, 7],
+    [4, 10],
+  ])("computes minimum %i and its one-fewer-unit alternative at eleven files", async (minimum, largeFileCount) => {
+    const files = Array.from({ length: 11 }, (_, index) =>
+      unitFileFor(
+        `minimum-${minimum}-${index}`,
+        `test:db:${index < largeFileCount ? Math.floor(index / 3) + 1 : 1}`,
+        index < largeFileCount ? 250_000 : 1_000,
+      ),
+    );
+    const fixture = await createFixture(files, {
+      model: { maximumScheduledFileCount: 11, testFileFixedCostMs: 0, executionUnitFixedCostMs: 0, jobOverheadMs: 0 },
+    });
+    const result = runFixture(fixture);
+
+    expect(result.violations).toEqual([]);
+    expect(result.schedule.minimumUnitCount).toBe(minimum);
+    expect(result.schedule.observedUnitCount).toBe(minimum);
+    if (minimum === 1) expect(result.schedule.oneFewerUnit).toBeNull();
+    else {
+      expect(result.schedule.oneFewerUnit?.unitCount).toBe(minimum - 1);
+      expect(Math.max(...result.schedule.oneFewerUnit!.units.map((unit) => unit.makespanMs))).toBeGreaterThan(
+        fixture.model.executionUnitCeilingMs,
+      );
+      expect(result.schedule.oneFewerUnit!.units.flatMap((unit) => unit.fileNames).sort()).toEqual(
+        files.map((file) => file.fileName).sort(),
+      );
+    }
+  });
+
+  it("retains the lexicographically first restricted-growth witness in eleven-file manifest order", () => {
+    const probe = exhaustiveScheduleProbe();
+    const files = Array.from({ length: 11 }, (_, index) => ({
+      fileName: `manifest-${10 - index}`,
+      durationMs: 235_000,
+    }));
+    const result = probe.computeMinimumUnitCount(
+      files,
+      createSyntheticScheduleModel({ maximumScheduledFileCount: 11 }),
+    );
+
+    expect(result.refusal).toBeNull();
+    expect(result.minimumUnitCount).toBe(4);
+    expect(result.witness?.map((unit) => unit.files.map((file) => file.fileName))).toEqual([
+      files.slice(0, 3).map((file) => file.fileName),
+      files.slice(3, 6).map((file) => file.fileName),
+      files.slice(6, 9).map((file) => file.fileName),
+      files.slice(9).map((file) => file.fileName),
+    ]);
+    let partitionCount = 0;
+    for (let unitCount = 1; unitCount <= 4; unitCount++) {
+      for (const _assignment of probe.canonicalAssignments(11, unitCount)) partitionCount++;
+    }
+    expect(partitionCount).toBe(175_275);
+  });
+
+  it("exhausts eleven duplicate-duration files before refusing all four unit counts", async () => {
+    const files = Array.from({ length: 11 }, (_, index) =>
+      unitFileFor(`exhaustive-no-fit-${index}`, `test:db:${Math.floor(index / 3) + 1}`, 260_000),
+    );
+    const fixture = await createFixture(files, { model: { maximumScheduledFileCount: 11, testFileFixedCostMs: 0 } });
+    const result = runFixture(fixture);
+
+    expect(result.schedule.files).toHaveLength(11);
+    expect(260_000 + fixture.model.executionUnitFixedCostMs).toBeLessThanOrEqual(fixture.model.executionUnitCeilingMs);
+    expect(
+      Math.ceil((11 * 260_000) / fixture.model.maxWorkersPerExecutionUnit) +
+        fixture.model.executionUnitFixedCostMs +
+        fixture.model.jobOverheadMs,
+    ).toBeLessThanOrEqual(fixture.model.aggregateCeilingMs);
+    expect(result.schedule.minimumUnitCount).toBeNull();
+    expect(result.violations).toContain(
+      "no execution-unit count up to the model's declared bound of 4 units satisfies both the " +
+        "420000ms per-unit ceiling and the 1080000ms aggregate",
+    );
+  });
+
   it("computes a minimumUnitCount of 2 for the shipped manifest and ships exactly that", () => {
     const { schedule } = checkBootstrapDbEnrollment();
 
@@ -1154,12 +1532,12 @@ describe("Platform API bootstrap DB enrollment", () => {
 
     expect(schedule.oneFewerUnit?.unitCount).toBe(1);
     const worst = Math.max(...(schedule.oneFewerUnit?.units ?? []).map((unit) => unit.makespanMs));
-    expect(worst).toBe(726_006);
+    expect(worst).toBe(757_694);
     expect(worst).toBeGreaterThan(bootstrapDbScheduleModel.executionUnitCeilingMs);
   });
 
   it("rejects an extra execution unit that satisfies every other invariant", async () => {
-    // The measured three-unit grouping: every unit stays
+    // A deliberately nonminimal three-unit grouping: every unit stays
     // under 420s, the aggregate stays under 1080s, every case keeps its name,
     // file, database suffix, and identity — only the unit count is wasteful.
     const extraUnitAssignment: Record<string, string> = {
@@ -1173,6 +1551,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       "bootstrap-production-reconciliation.db.test.ts": "test:db:2",
       "bootstrap-lock-contention.db.test.ts": "test:db:2",
       "bootstrap-shared-seed-command.db.test.ts": "test:db:3",
+      "seed-command-full-pools.db.test.ts": "test:db:2",
     };
     const files = shippedShapedFiles().map((file) => ({
       ...file,
@@ -1249,7 +1628,9 @@ describe("Platform API bootstrap DB enrollment", () => {
     const files = Array.from({ length: bootstrapDbScheduleModel.maximumScheduledFileCount + 1 }, (_unused, index) =>
       unitFileFor(`over-bound-${index}`, "test:db:1", 1_000),
     );
-    const fixture = await createFixture(files, { model: singleWorkerModel() });
+    const fixture = await createFixture(files, {
+      model: { ...singleWorkerModel(), maximumScheduledFileCount: bootstrapDbScheduleModel.maximumScheduledFileCount },
+    });
 
     expect(runFixture(fixture).violations).toEqual(
       expect.arrayContaining([
@@ -1699,7 +2080,7 @@ describe("Platform API bootstrap DB enrollment", () => {
 
   it("rejects an execution unit pushed past its declared boot-bearing ceiling", async () => {
     const files = shippedShapedFiles();
-    const largest = "test:db:2";
+    const largest = "test:db:1";
     const observed = bootstrapDbExecutionUnitBootBearingCaseCeilings[largest];
     const fixture = await createFixture(files, {
       ceilings: { ...bootstrapDbExecutionUnitBootBearingCaseCeilings, [largest]: observed - 1 },
@@ -1738,7 +2119,7 @@ describe("Platform API bootstrap DB enrollment", () => {
 
     expect(runFixture(fixture).violations).toEqual(
       expect.arrayContaining([
-        `test:db:2 has 39 boot-bearing cases, exceeding its declared ceiling of ${bootstrapDbExecutionUnitBootBearingCaseCeilings["test:db:2"]}`,
+        `test:db:1 has 39 boot-bearing cases, exceeding its declared ceiling of ${bootstrapDbExecutionUnitBootBearingCaseCeilings["test:db:1"]}`,
       ]),
     );
   });
