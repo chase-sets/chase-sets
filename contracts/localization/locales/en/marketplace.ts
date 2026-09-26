@@ -956,6 +956,14 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.sellerDesk.summary.importRowsUnresolved": "Import {reference} has {count} rows to resolve",
   "marketplace.features.sellerDesk.summary.offerAwaitingResponse": "Offer on {reference} is awaiting your response",
   "marketplace.features.sellerDesk.summary.listingNeedsAction": "Listing {reference} needs attention ({action})",
+  "marketplace.features.sellerDesk.summary.repricingHaltEngaged": "Repricing is halted: no policy changes prices until you release the halt",
+  "marketplace.features.sellerDesk.summary.repricingFloorBinding": "{count} listings have been held at their price floor past your alert threshold",
+  "marketplace.features.sellerDesk.summary.repricingPausedForMissingInput":
+    "{count} listings are paused from repricing while a required input is missing",
+  "marketplace.features.sellerDesk.summary.repricingBudgetExhausted":
+    "A repricing policy used today's change cap; {count} listings waited for tomorrow",
+  "marketplace.features.sellerDesk.summary.repricingFrozen":
+    "Repricing is briefly frozen on {count} listings of one product and resumes automatically",
   "marketplace.features.sellerDesk.summary.fallback": "An item needs your attention",
   "marketplace.features.sellerDesk.action.shipByLink": "Pack shipment",
   "marketplace.features.sellerDesk.action.payoutLink": "Review payout",
@@ -963,10 +971,12 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.sellerDesk.action.offerLink": "Review offer",
   "marketplace.features.sellerDesk.action.listingLink": "Open listing",
   "marketplace.features.sellerDesk.action.disputeLink": "Respond to dispute",
+  "marketplace.features.sellerDesk.action.repricingLink": "Review repricing",
   "marketplace.features.sellerDesk.source.fulfillmentShipBy": "Shipments",
   "marketplace.features.sellerDesk.source.settlementBlockedPayout": "Blocked payouts",
   "marketplace.features.sellerDesk.source.inventoryResolution": "Import resolution",
   "marketplace.features.sellerDesk.source.offerResponse": "Offers",
   "marketplace.features.sellerDesk.source.listingAction": "Listings",
   "marketplace.features.sellerDesk.source.disputeResponse": "Disputes",
+  "marketplace.features.sellerDesk.source.pricingRepricing": "Repricing",
 } as const;

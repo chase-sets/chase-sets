@@ -107,6 +107,7 @@ import {
   providerObservationPolicy,
   repricingEnginePolicy,
   repricingManagementPolicy,
+  createRepricingAttentionSourceFromReadModel,
 } from "@chase-sets/pricing/server";
 import {
   createBlockedPayoutAttentionSourceFromReadModel,
@@ -274,6 +275,7 @@ export function createPlatformApiHost(
     ...(inventoryPool ? [createImportResolutionAttentionSourceFromReadModel(inventoryPool)] : []),
     ...(settlementPool ? [createBlockedPayoutAttentionSourceFromReadModel(settlementPool)] : []),
     ...(channelsPool ? [createChannelActionAttentionSourceFromReadModel(channelsPool)] : []),
+    ...(pricingPool ? [createRepricingAttentionSourceFromReadModel(pricingPool)] : []),
   ];
   const marketplaceChannelInboundClamp = createPlatformApiMarketplaceChannelInboundClampBinding(
     Boolean(marketplacePool),

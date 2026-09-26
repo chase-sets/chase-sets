@@ -27,6 +27,7 @@ describe("Seller Desk canonical queue HTTP route", () => {
           "inventory-resolution": 0,
           "channel-action": 0,
           "offer-response": 0,
+          "pricing-repricing": 0,
           "listing-action": 0,
         },
       },
