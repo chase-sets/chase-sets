@@ -6,6 +6,21 @@ import { decodePriceSignalPolicyValue } from "../domain/price-signal-policy";
 import type { TcgplayerMarketTransport } from "../integrations/tcgplayer/transport-port";
 
 describe("ruled provider market-capture policy order", () => {
+  it("disables a withheld host transport without selecting work or making a request", async () => {
+    const pool = new CapturePool(1);
+    const now = vi.fn(clock());
+    const signal = vi.fn();
+    const run = createTcgplayerMarketCapture({
+      pool, transport: { kind: "not-mounted" }, receiptSink: { kind: "not-mounted" }, now,
+      resolveSignalPolicy: async () => ({ revisionId: "signal-r1", value: { productsPerPass: 1 } }),
+      recordTcgplayerPriceSignal: signal,
+    });
+    expect(await run()).toMatchObject({ status: "disabled", reason: "transport-not-mounted", signalWorkCount: 0 });
+    expect(pool).toMatchObject({ selectionCount: 0, cursor: { afterExternalKey: "", generation: 0 }, captureOutcomes: [] });
+    expect(now).toHaveBeenCalledTimes(1);
+    expect(signal).not.toHaveBeenCalled();
+  });
+
   it("commits every signal before capture policy and keeps invalid capture policy off the signal path", async () => {
     const events: string[] = [];
     const pool = new CapturePool(1);
@@ -210,6 +225,33 @@ describe("ruled provider market-capture policy order", () => {
     expect(events.filter((event) => event === "sales")).toHaveLength(5);
     expect(events).not.toContain("signal:9006");
     expect(pool.headers).toHaveLength(5);
+  });
+
+  it("starts the next pass at the signal suffix left by a smaller capture bound and wraps", async () => {
+    const pool = new CapturePool(3);
+    const events: string[] = [];
+    const now = clock();
+    const run = createTcgplayerMarketCapture({
+      pool, transport: fakeTransport(events), receiptSink: { kind: "not-mounted" }, now,
+      resolveSignalPolicy: async () => ({ revisionId: "signal-r1", value: { productsPerPass: 3 } }),
+      resolveObservationPolicy: async () => ({ revisionId: "capture-r1", value: { ...PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE, capturesPerPass: 1 } }),
+      resolveStatHygienePolicy: async () => ({ revisionId: "stat-r1" }),
+      recordTcgplayerPriceSignal: async (input) => {
+        events.push(`signal:${input.skuId}`);
+        return { status: "unresolved", reason: "sku-reference-not-mapped", externalKey: `sku:${input.skuId}` };
+      },
+    });
+    expect(await run()).toMatchObject({ signalWorkCount: 3, capturesCommitted: 1 });
+    expect(pool.cursor).toEqual({ afterExternalKey: "product:7001", generation: 1 });
+    expect(pool.headers.map((header) => header.externalKey)).toEqual(["product:7001"]);
+    events.length = 0;
+    expect(await run()).toMatchObject({ signalWorkCount: 3, capturesCommitted: 1 });
+    expect(events.filter((event) => event.startsWith("signal:"))).toEqual(["signal:9002", "signal:9003", "signal:9001"]);
+    expect(pool.headers.map((header) => header.externalKey)).toEqual(["product:7001", "product:7002"]);
+    expect(pool.cursor).toEqual({ afterExternalKey: "product:7002", generation: 2 });
+    expect(await run()).toMatchObject({ capturesCommitted: 1 });
+    expect(pool.cursor).toEqual({ afterExternalKey: "", generation: 3 });
+    expect(pool.headers.map((header) => header.externalKey)).toEqual(["product:7001", "product:7002", "product:7003"]);
   });
 });
 

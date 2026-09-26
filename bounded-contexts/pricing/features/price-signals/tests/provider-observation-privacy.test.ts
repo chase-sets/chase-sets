@@ -8,6 +8,7 @@ import {
 } from "../integrations/tcgplayer/capture-sanitizer";
 import type { TcgplayerSecondaryObservation } from "../integrations/tcgplayer/market-client";
 import { emptyTcgplayerResponseFieldSummary } from "../integrations/tcgplayer/response-receipt";
+import { pricingProviderObservationsSchemaSql } from "../read-model/provider-observations-schema";
 
 describe("provider observation privacy boundary", () => {
   it("discards every C12 value before capture, receipt, and private artifact construction", async () => {
@@ -53,6 +54,9 @@ describe("provider observation privacy boundary", () => {
     const fixture = readFileSync(new URL("./fixtures/provider-observations/synthetic-single-product-90-days.json", import.meta.url), "utf8");
     assertNoC12Values(fixture);
     assertNoC12Keys(fixture);
+    expect(pricingProviderObservationsSchemaSql).not.toMatch(
+      /\b(?:seller_key|seller_id|seller_name|seller_rating|seller_sales|seller_badges|listing_id|custom_listing_id|title|custom_data|cookie|authorization|response_body|exception_message)\s+(?:text|jsonb|integer|bigint)/i,
+    );
     expect(capture.askDepth.map((row) => row.anonymousCaptureSellerOrdinal)).toEqual([1, 1]);
     const absent = sanitizeTcgplayerMarketCaptureReceipt(
       { ...capture, header: { ...capture.header, sales: null, listings: null, history: null } },

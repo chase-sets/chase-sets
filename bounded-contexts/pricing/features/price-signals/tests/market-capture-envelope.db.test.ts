@@ -99,6 +99,32 @@ describeDb("provider market-capture envelope reconciliation", () => {
     await runCapture(pool, []);
     await expect(salesHeader(pool)).resolves.toMatchObject({ sales_status: "unavailable", sales_coverage: "unknown" });
   });
+
+  it("commits a valid sibling without retaining an invalid sale or its private marker", async () => {
+    const privateMarker = "C12_REJECTED_CUSTOM_LISTING_SECRET";
+    await runCapture(pool, [salesPage({
+      total: 2,
+      rows: [sale(1), { ...sale(2), orderDate: "not-an-instant", customListingId: privateMarker }],
+    })]);
+    const header = await pool.query<{
+      outcome_kind: string; rejected_row_count: number; sales_status: string; sales_coverage: string;
+      sales_returned_count: number;
+    }>(`SELECT outcome_kind, rejected_row_count, sales_status, sales_coverage,
+               sales_returned_count FROM pricing_external_market_captures`);
+    expect(header.rows).toEqual([expect.objectContaining({
+      outcome_kind: "recorded-with-rejections", rejected_row_count: 1,
+      sales_status: "observed", sales_coverage: "unknown", sales_returned_count: 1,
+    })]);
+    const rows = await pool.query<{ observed_occurrence_count: number; unit_price: string }>(
+      "SELECT observed_occurrence_count, unit_price::text FROM pricing_external_sale_observations",
+    );
+    expect(rows.rows).toEqual([{ observed_occurrence_count: 1, unit_price: "6.00" }]);
+    const cursor = await pool.query<{ after_external_key: string; generation: string }>(
+      "SELECT after_external_key, generation::text FROM pricing_external_market_capture_cursors",
+    );
+    expect(cursor.rows).toEqual([{ after_external_key: "", generation: "1" }]);
+    expect(JSON.stringify({ header: header.rows, rows: rows.rows, cursor: cursor.rows })).not.toContain(privateMarker);
+  });
 });
 
 async function runCapture(

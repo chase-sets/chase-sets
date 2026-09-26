@@ -34,6 +34,15 @@ describeDb("essential price-signal isolation from secondary capture", () => {
   it("commits the real price-only signal before invalid capture policy and advances only its terminal header", async () => {
     const events: string[] = [];
     const priceSignals = createPriceSignalRuntime({ db: pool });
+    await priceSignals.recordTcgplayerPriceSignal({
+      skuId: 9001,
+      observedAt: "2026-09-01T15:00:01.000Z",
+      pricePoint: {
+        skuId: 9001, marketPrice: 10, lowestPrice: 9, highestPrice: 11, priceCount: 3,
+        calculatedAt: "2026-09-01T15:00:00.000Z",
+      },
+    });
+    const priceOnly = (await pool.query("SELECT * FROM pricing_tcgplayer_price_signals")).rows;
     const run = createTcgplayerMarketCapture({
       pool,
       transport: transport(events),
@@ -62,6 +71,7 @@ describeDb("essential price-signal isolation from secondary capture", () => {
     expect(events.indexOf("signal-write-committed")).toBeLessThan(events.indexOf("capture-policy"));
     expect(events).not.toContain("sales");
     const state = await persistedState(pool);
+    expect((await pool.query("SELECT * FROM pricing_tcgplayer_price_signals")).rows).toEqual(priceOnly);
     expect(state.signals).toEqual([
       expect.objectContaining({
         source_payload: expect.objectContaining({ latestSales: null, listings: null, priceHistory: null }),
