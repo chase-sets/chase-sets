@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Response } from "@playwright/test";
 import { createChannelPublicationBrowserSupport } from "@chase-sets/channels/seed-support/channel-publication-browser";
 import { signInThroughMarketplaceForm } from "./support/auth";
 import { marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
@@ -40,12 +40,24 @@ test("mapping decision retains the typed target through a held projection @marke
     await reject.evaluate((button: HTMLButtonElement) => button.click());
     expect(posts).toHaveLength(1);
     await support.release();
-    await expect(page.getByText("Loading channel publication settings")).toHaveCount(0);
+    const notice = page.getByText("Loading channel publication settings");
+    const isLoaderRead = (response: Response) =>
+      response.request().method() === "GET" && new URL(response.url()).pathname === `${routePath}.data`;
+    for (let read = 0; read < 15; read += 1) {
+      const nextRead = page.waitForResponse(isLoaderRead);
+      if ((await notice.count()) === 0) {
+        nextRead.catch(() => undefined);
+        break;
+      }
+      await nextRead;
+    }
+    await expect(notice).toHaveCount(0);
     await expect(card.getByText(/category · rejected · manual/u)).toBeVisible();
     await expect(target).toHaveValue("");
     await expect(reject).toBeEnabled();
     await page.reload();
     await expect(target).toHaveValue("");
+    expect(posts).toHaveLength(1);
   } finally {
     await support.cleanup();
   }
