@@ -94,7 +94,9 @@ export const action = defineFormAction({
       return redirect(await navigateAfterWriteToRepricingDesk(result));
     },
     "resume-policy": async ({ request, formData }) => {
-      const result = await createPricingRequestApiClient(request).resumeRepricingPolicy(repricingPolicyIdFrom(formData));
+      const result = await createPricingRequestApiClient(request).resumeRepricingPolicy(
+        repricingPolicyIdFrom(formData),
+      );
       return redirect(await navigateAfterWriteToRepricingDesk(result));
     },
     "engage-halt": async ({ request }) => {

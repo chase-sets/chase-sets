@@ -1,6 +1,14 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useLocation, useNavigation, useSearchParams, useSubmit } from "react-router";
+import {
+  redirect,
+  useActionData,
+  useLoaderData,
+  useLocation,
+  useNavigation,
+  useSearchParams,
+  useSubmit,
+} from "react-router";
 import {
   defineFormAction,
   formActionRedirect,
@@ -113,7 +121,9 @@ export const action = defineFormAction({
       return navigateAfterPolicyWrite(result, repricingPolicyHref(policyId));
     },
     "delete-policy": async ({ request, formData }) => {
-      const result = await createPricingRequestApiClient(request).deleteRepricingPolicy(repricingPolicyIdFrom(formData));
+      const result = await createPricingRequestApiClient(request).deleteRepricingPolicy(
+        repricingPolicyIdFrom(formData),
+      );
       return navigateAfterPolicyWrite(result, REPRICING_DESK_HREF);
     },
     "engage-halt": async ({ request, formData }) => {
