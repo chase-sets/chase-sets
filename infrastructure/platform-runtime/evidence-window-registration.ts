@@ -15,6 +15,42 @@ export type EvidenceWindowCurrent = Readonly<{
   version: number;
 }>;
 
+export type EvidenceWindowById = Readonly<{
+  windowId: string;
+  openedAt: string;
+  expiresAt: string;
+  state: "open" | "closed";
+  observedMode: "test";
+}>;
+
+/** Private by-id lookup; expiry does not erase the opened-at recovery fact. */
+export function createPostgresEvidenceWindowById(db: PgQueryable) {
+  return async (windowId: string): Promise<EvidenceWindowById | null> => {
+    if (!EVIDENCE_WINDOW_ID_PATTERN.test(windowId)) return null;
+    const result = await db.query<{
+      window_id: string;
+      opened_at: Date | string;
+      expires_at: Date | string;
+      state: "open" | "closed";
+      observed_mode: "test";
+    }>(
+      `SELECT window_id, opened_at, expires_at, state, observed_mode
+       FROM evidence_window WHERE window_id = $1`,
+      [windowId],
+    );
+    const row = result.rows[0];
+    return row
+      ? {
+          windowId: row.window_id,
+          openedAt: formatInstant(row.opened_at),
+          expiresAt: formatInstant(row.expires_at),
+          state: row.state,
+          observedMode: row.observed_mode,
+        }
+      : null;
+  };
+}
+
 export type EvidenceWindowCorrelation = Readonly<{
   currentOpenWindow: () => Promise<Readonly<{ windowId: string; expiresAt: string }> | null>;
 }>;

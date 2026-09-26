@@ -54,6 +54,7 @@ import {
   createEvidenceWindowCorrelation,
   createNullEvidenceWindowCorrelation,
   createPostgresEvidenceWindowRegistration,
+  createPostgresEvidenceWindowById,
   createPostgresPlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
 import { createPostgresWorkSignalStore } from "@chase-sets/platform-runtime/work-signal-store";
@@ -120,6 +121,9 @@ const runtimeLifecycle = createRuntimeLifecycleRegistry();
 const controlPlane = createPostgresPlatformControlPlane(pools.control, { lifecycle: runtimeLifecycle });
 const evidenceWindowRegistration = config.evidenceWindowAdmissionSecret
   ? createPostgresEvidenceWindowRegistration(pools.control)
+  : undefined;
+const evidenceWindowById = config.evidenceWindowAdmissionSecret
+  ? createPostgresEvidenceWindowById(pools.control)
   : undefined;
 const evidenceWindowCorrelation =
   evidenceWindowRegistration && config.stripeEffectiveMode === "test"
@@ -329,6 +333,20 @@ const runtime = createPlatformApiHost({
     adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
     registrationAdmission: config.registrationAdmission,
     evidenceWindowCorrelation,
+    ...(evidenceWindowById && config.stripeEffectiveMode === "test"
+      ? {
+          evidenceWindowSourceAdmission: {
+            admit: async (windowId: string, _subInvocation: "2a" | "2b") => {
+              const window = await evidenceWindowById(windowId);
+              return window?.state === "open" &&
+                window.observedMode === "test" &&
+                Date.parse(window.expiresAt) > Date.now()
+                ? { windowOpenedAt: window.openedAt }
+                : null;
+            },
+          },
+        }
+      : {}),
     securityLifetimes: config.authSecurityLifetimes,
     searchEmbeddingConfig: config.discoverySearchEmbeddings,
     searchTelemetry: {
@@ -591,7 +609,7 @@ const app = buildPlatformApiApp(runtime, {
   adminRegistrationEnabled: config.adminRegistrationEnabled,
   checkoutClosed: config.checkoutClosed,
   controlPlane,
-  ...(evidenceWindowRegistration && config.evidenceWindowAdmissionSecret
+  ...(evidenceWindowRegistration && evidenceWindowById && config.evidenceWindowAdmissionSecret
     ? {
         evidenceWindowRegistration: {
           admissionSecret: config.evidenceWindowAdmissionSecret,
@@ -603,6 +621,17 @@ const app = buildPlatformApiApp(runtime, {
             },
           },
           registration: evidenceWindowRegistration,
+        },
+        evidenceWindowSourceRecovery: {
+          admissionSecret: config.evidenceWindowAdmissionSecret,
+          authority: {
+            effectiveMode: config.stripeEffectiveMode,
+            gatewayKinds: {
+              paymentProcessor: config.paymentProcessor.kind,
+              moneyMovement: config.moneyMovement.kind,
+            },
+          },
+          registrationById: evidenceWindowById,
         },
       }
     : {}),

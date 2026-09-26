@@ -1,4 +1,14 @@
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
+import {
+  bindEvidenceWindowSource,
+  closeEvidenceWindowSource,
+  observeEvidenceWindowSource,
+  readEvidenceWindowSources,
+  releaseEvidenceWindowSource,
+  withOpenEvidenceWindowSource,
+  type EvidenceWindowSourceIdentity,
+  type EvidenceWindowSourceReaders,
+} from "./evidence-window-source-release";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import {
   observeBuyerOrderCleanupAuthority,
@@ -15,7 +25,7 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { MarketplaceOfferAcceptedPayload } from "@chase-sets/event-core";
-import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgTransactionalPool, PostgresEventStore } from "@chase-sets/event-core-postgres";
 import type { SourceCommitPosition } from "@chase-sets/http/responses";
 import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/outbound-messaging";
 import {
@@ -82,6 +92,7 @@ import {
   applyPurchaseLimitAvailability,
   assertPlanPurchaseLimits,
   claimPlanPurchaseLimitUsage,
+  decrementPurchaseLimitUsage,
   listingPurchaseLimitReachedReason,
   planHasAccountScopedPurchaseLimits,
   releasePurchaseLimitClaimsForOrder,
@@ -107,6 +118,7 @@ import {
   backfillSellerOpenOrderClaims as backfillSellerOpenOrderClaimsLedger,
   claimSellerOrderCapacity,
   loadSellerOpenOrderCount,
+  loadSellerOrderCapacityCap,
   reconcileSellerOrderCapacity,
   type SellerOrderCapacityGroup,
 } from "./order-capacity";
@@ -217,7 +229,7 @@ async function getOrderPurchaseLimitReleaseInput(db: PgTransactionalPool, orderI
 }
 
 type OrderRuntimeDeps = Readonly<{
-  eventStore: EventStore;
+  eventStore: EventStore & Partial<Pick<PostgresEventStore, "appendToStreamInTransaction">>;
   checkpointStore: ProjectionCheckpointStore;
   db: PgTransactionalPool;
   shippingQuotePolicy: ShippingQuotePolicy;
@@ -228,6 +240,17 @@ type OrderRuntimeDeps = Readonly<{
   authenticityFeePolicyResolver?: AuthenticityFeePolicyResolver;
   /** Required host capability; see `OrderingServiceOptions`. */
   inventoryCleanupAuthority: OrderingInventoryCleanupAuthorityCapability;
+  evidenceWindowSourceAdmission?: OrderingEvidenceWindowSourceAdmission;
+}>;
+
+export type OrderingEvidenceWindowSourceAdmission = Readonly<{
+  admit: (windowId: string, subInvocation: "2a" | "2b") => Promise<Readonly<{ windowOpenedAt: string }> | null>;
+}>;
+
+export type AdmittedOrderingEvidenceWindowSource = Readonly<{
+  windowId: string;
+  subInvocation: "2a" | "2b";
+  windowOpenedAt: string;
 }>;
 
 export type CheckoutOrderLineSnapshot = Readonly<{
@@ -430,6 +453,18 @@ export type OrderingOrderCreationResult = Readonly<{
 
 export type OrderingOrderServices = Readonly<{
   commandHandler: CommandHandler<OrderingOrderCommand, OrderingOrderState, OrderingOrderEvent>;
+  admitEvidenceWindowSource: (
+    windowId: string,
+    subInvocation: "2a" | "2b",
+  ) => Promise<AdmittedOrderingEvidenceWindowSource>;
+  evidenceWindowSources: Readonly<{
+    read: (windowId: string) => ReturnType<typeof readEvidenceWindowSources>;
+    close: (input: Parameters<typeof closeEvidenceWindowSource>[1]) => ReturnType<typeof closeEvidenceWindowSource>;
+    observe: (identity: EvidenceWindowSourceIdentity) => ReturnType<typeof observeEvidenceWindowSource>;
+    release: (
+      input: Parameters<typeof releaseEvidenceWindowSource>[1],
+    ) => ReturnType<typeof releaseEvidenceWindowSource>;
+  }>;
   createOrdersFromCheckout: (
     params: Readonly<{
       buyerAccountId: AccountId;
@@ -444,6 +479,7 @@ export type OrderingOrderServices = Readonly<{
       checkoutReservations?: readonly CheckoutInventoryReservationInput[];
       customerAccountIsGuest?: boolean;
       orderIdsOverride?: readonly OrderId[];
+      evidenceWindowSource?: AdmittedOrderingEvidenceWindowSource;
       /**
        * The buyer's authenticity-check opt-in (m109), carrying the
        * quote fingerprint they last saw at checkout. Ordering
@@ -1462,13 +1498,27 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
     evolve: evolveOrderingOrder,
     decide: decideOrderingOrder,
   });
-  const { commandHandler: sellerCapacitySignalCommandHandler } = createAggregateCommandHandler({
-    eventStore: deps.eventStore,
-    codec: createPassthroughDomainEventCodec<SellerCapacitySignalEvent>(),
-    initialState: () => initialSellerCapacitySignalState,
-    evolve: evolveSellerCapacitySignal,
-    decide: decideSellerCapacitySignal,
-  });
+  const eventStoreInTransaction = (client: PgQueryable): EventStore => {
+    const append = deps.eventStore.appendToStreamInTransaction;
+    if (!append) throw new OrderingDomainError("Governed Ordering requires a transaction-bound event store.");
+    return { ...deps.eventStore, appendToStream: (input) => append(client, input) };
+  };
+  const orderHandlerInTransaction = (client: PgQueryable) =>
+    createAggregateCommandHandler({
+      eventStore: eventStoreInTransaction(client),
+      codec: createPassthroughDomainEventCodec<OrderingOrderEvent>(),
+      initialState: () => initialOrderingOrderState,
+      evolve: evolveOrderingOrder,
+      decide: decideOrderingOrder,
+    }).commandHandler;
+  const { commandHandler: sellerCapacitySignalCommandHandler, repository: sellerCapacitySignalRepository } =
+    createAggregateCommandHandler({
+      eventStore: deps.eventStore,
+      codec: createPassthroughDomainEventCodec<SellerCapacitySignalEvent>(),
+      initialState: () => initialSellerCapacitySignalState,
+      evolve: evolveSellerCapacitySignal,
+      decide: decideSellerCapacitySignal,
+    });
 
   /**
    * Order Capacity enforcement (m127): recomputes the seller's
@@ -1478,15 +1528,31 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
    * one event per crossing" falls out of decider idempotency rather than
    * needing each call site to detect the crossing itself.
    */
-  const reconcileAndSignalSellerCapacity = async (sellerAccountId: string, context: EventStoreContext) => {
+  const reconcileAndSignalSellerCapacity = async (
+    sellerAccountId: string,
+    context: EventStoreContext,
+    governedSource?: EvidenceWindowSourceIdentity,
+  ) => {
     const { atCapacity } = await reconcileSellerOrderCapacity(deps.db, sellerAccountId);
-    await sellerCapacitySignalCommandHandler({
+    const signal = {
       streamId: `ordering.seller-capacity-${sellerAccountId}`,
       command: atCapacity
         ? { type: "MarkSellerAtCapacity", accountId: sellerAccountId }
         : { type: "ClearSellerAtCapacity", accountId: sellerAccountId },
       context,
-    });
+    } satisfies Parameters<typeof sellerCapacitySignalCommandHandler>[0];
+    if (governedSource) {
+      await withOpenEvidenceWindowSource(deps.db, governedSource, async (client) => {
+        const handler = createAggregateCommandHandler({
+          eventStore: eventStoreInTransaction(client),
+          codec: createPassthroughDomainEventCodec<SellerCapacitySignalEvent>(),
+          initialState: () => initialSellerCapacitySignalState,
+          evolve: evolveSellerCapacitySignal,
+          decide: decideSellerCapacitySignal,
+        }).commandHandler;
+        await handler(signal);
+      });
+    } else await sellerCapacitySignalCommandHandler(signal);
   };
 
   /**
@@ -1539,6 +1605,101 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
     return { orderIds: [...claim.orderIds], rejectedSellerAccountIds: [] };
   };
 
+  const eventContextFromStored = (event: StoredEvent): EventStoreContext => ({
+    tenantId: event.tenantId,
+    audit: { performedByUserId: event.performedByUserId, forAccountId: event.forAccountId },
+    trace: {
+      traceId: event.traceId,
+      spanId: event.spanId,
+      parentSpanId: event.parentSpanId,
+      traceState: event.traceState,
+    },
+  });
+
+  const sourceReaders = (identity: EvidenceWindowSourceIdentity): EvidenceWindowSourceReaders => ({
+    readOrder: async (orderId, source) => {
+      const loaded = await repository.load(`ordering.order-${orderId}`);
+      if (!loaded.state.orderId) return "missing";
+      if (
+        loaded.state.sourceType !== identity.sourceType ||
+        loaded.state.sourceReferenceId !== identity.sourceReferenceId ||
+        loaded.state.buyerAccountId !== identity.buyerAccountId
+      )
+        return "unknown";
+      const first = loaded.storedEvents[0];
+      if (deps.inventoryCleanupAuthority.kind === "available" && first) {
+        const result = await observeEvidenceWindowSourceCleanupAuthority(
+          { eventStore: deps.eventStore, inventory: deps.inventoryCleanupAuthority.port },
+          {
+            source: { sourceType: identity.sourceType, sourceReferenceId: identity.sourceReferenceId },
+            buyerAccountId: identity.buyerAccountId,
+            windowOpenedAt: source.windowOpenedAt,
+            orderIds: [orderId],
+            tenantId: first.tenantId,
+          },
+        );
+        const observation = result.outcome === "observed" ? result.observations[0]?.observation : null;
+        if (observation?.outcome !== "observed") return "unknown";
+        if (observation.report.state === "live-cancelable") return "live";
+        if (observation.report.state === "captured-remedy-required") return "unknown";
+        return "cancelled";
+      }
+      return loaded.state.status === "cancelled"
+        ? "cancelled"
+        : loaded.state.status === "ready-for-fulfillment"
+          ? "unknown"
+          : "live";
+    },
+    readSellerSignal: async (sellerId, db) => {
+      const [cap, openCount, signal] = await Promise.all([
+        loadSellerOrderCapacityCap(db, sellerId),
+        loadSellerOpenOrderCount(db, sellerId),
+        sellerCapacitySignalRepository.load(`ordering.seller-capacity-${sellerId}`),
+      ]);
+      return signal.state.atCapacity === (cap !== null && openCount >= cap) ? "converged" : "owed";
+    },
+  });
+
+  const sourceReleaseActions = (identity: EvidenceWindowSourceIdentity) => ({
+    ...sourceReaders(identity),
+    decrementUsage: decrementPurchaseLimitUsage,
+    cancelOrder: async (orderId: string) => {
+      const loaded = await repository.load(`ordering.order-${orderId}`);
+      const event = loaded.storedEvents[0];
+      if (!event || !loaded.state.orderId) return;
+      if (
+        loaded.state.sourceType !== identity.sourceType ||
+        loaded.state.sourceReferenceId !== identity.sourceReferenceId ||
+        loaded.state.buyerAccountId !== identity.buyerAccountId
+      ) {
+        throw new OrderingDomainError("Evidence window Order source identity mismatch.");
+      }
+      await commandHandler({
+        streamId: `ordering.order-${orderId}`,
+        command: { type: "CancelOrder", cancelledAt: new Date().toISOString(), reason: "evidence-window-release" },
+        context: eventContextFromStored(event),
+      });
+    },
+    reconcileSeller: async (sellerId: string) => {
+      const claim = await deps.db.query<{ order_id: string }>(
+        `SELECT order_id FROM ordering_seller_open_order_claims
+         WHERE seller_account_id = $1 ORDER BY order_id LIMIT 65`,
+        [sellerId],
+      );
+      let first: StoredEvent | undefined;
+      for (const row of claim.rows) {
+        first = (await repository.load(`ordering.order-${row.order_id}`)).storedEvents[0];
+        if (first) break;
+      }
+      first ??= (await sellerCapacitySignalRepository.load(`ordering.seller-capacity-${sellerId}`)).storedEvents[0];
+      if (!first) {
+        if ((await sourceReaders(identity).readSellerSignal(sellerId, deps.db)) === "converged") return;
+        throw new OrderingDomainError("Seller signal context is unavailable for evidence window release.");
+      }
+      await reconcileAndSignalSellerCapacity(sellerId, eventContextFromStored(first));
+    },
+  });
+
   const createOrdersFromPlan = async (
     buyerAccountId: AccountId,
     plan: CheckoutPlan,
@@ -1546,6 +1707,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
     context: EventStoreContext,
     orderIdsOverride?: readonly OrderId[],
     authenticityPlan?: AuthenticityCheckFeeQuote | null,
+    governedSource?: EvidenceWindowSourceIdentity,
   ) => {
     if (orderIdsOverride && orderIdsOverride.length !== plan.orderDrafts.length) {
       throw new OrderingDomainError("Order seed overrides must match the number of generated seller orders.");
@@ -1577,7 +1739,8 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
           orderIds: orderIdsForSeller,
         }),
       ),
-      (sellerAccountId) => reconcileAndSignalSellerCapacity(sellerAccountId, context),
+      (sellerAccountId) => reconcileAndSignalSellerCapacity(sellerAccountId, context, governedSource),
+      governedSource,
     );
     const rejectedSellerAccountIds = capacityClaimResult.rejectedSellerAccountIds;
 
@@ -1609,7 +1772,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       const totalAmount = authenticityFeeAmount
         ? addMoneyAmounts(draft.totalAmount, authenticityFeeAmount)
         : draft.totalAmount;
-      const result = await commandHandler({
+      const createCommand = {
         streamId: `ordering.order-${orderId}`,
         command: {
           type: "CreateOrder",
@@ -1690,7 +1853,12 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
           })),
         },
         context,
-      });
+      } satisfies Parameters<typeof commandHandler>[0];
+      const result = governedSource
+        ? await withOpenEvidenceWindowSource(deps.db, governedSource, (client) =>
+            orderHandlerInTransaction(client)(createCommand),
+          )
+        : await commandHandler(createCommand);
       storedEvents.push(...result.storedEvents);
 
       orderIds.push(orderId);
@@ -2024,6 +2192,17 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
   };
 
   return {
+    evidenceWindowSources: {
+      read: (windowId) => readEvidenceWindowSources(deps.db, windowId),
+      close: (input) => closeEvidenceWindowSource(deps.db, input),
+      observe: (identity) => observeEvidenceWindowSource(deps.db, identity, sourceReaders(identity)),
+      release: (input) => releaseEvidenceWindowSource(deps.db, input, sourceReleaseActions(input.sourceIdentity)),
+    },
+    admitEvidenceWindowSource: async (windowId, subInvocation) => {
+      const registration = await deps.evidenceWindowSourceAdmission?.admit(windowId, subInvocation);
+      if (!registration) throw new OrderingDomainError("Evidence window source admission refused.");
+      return { windowId, subInvocation, windowOpenedAt: registration.windowOpenedAt };
+    },
     commandHandler,
     previewCheckoutFulfillment: async (params) => {
       const optimizationGoal = params.optimizationGoal ?? "lowest-total";
@@ -2209,6 +2388,19 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       });
     },
     createOrdersFromCheckout: async (params, context) => {
+      if (params.evidenceWindowSource) {
+        const binding = await bindEvidenceWindowSource(deps.db, {
+          ...params.evidenceWindowSource,
+          sourceIdentity: {
+            sourceType: params.sourceType,
+            sourceReferenceId: params.checkoutSessionId,
+            buyerAccountId: params.buyerAccountId,
+          },
+        });
+        if (binding.outcome !== "bound" && binding.outcome !== "existing") {
+          throw new OrderingDomainError("Evidence window source binding refused.");
+        }
+      }
       const existingClaim = await getOrderSourceClaim(deps.db, params.sourceType, params.checkoutSessionId);
       if (existingClaim) {
         if (existingClaim.buyerAccountId !== params.buyerAccountId) {
@@ -2284,12 +2476,16 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       if (proposedOrderIds.length !== taxAdjustedPlan.orderDrafts.length) {
         throw new OrderingDomainError("Order seed overrides must match the number of generated seller orders.");
       }
-      const sourceClaimResult = await claimOrderSource(deps.db, {
-        sourceType: params.sourceType,
-        sourceReferenceId: params.checkoutSessionId,
-        buyerAccountId: params.buyerAccountId,
-        orderIds: proposedOrderIds,
-      });
+      const sourceClaimResult = await claimOrderSource(
+        deps.db,
+        {
+          sourceType: params.sourceType,
+          sourceReferenceId: params.checkoutSessionId,
+          buyerAccountId: params.buyerAccountId,
+          orderIds: proposedOrderIds,
+        },
+        Boolean(params.evidenceWindowSource),
+      );
       if (sourceClaimResult.outcome === "existing") {
         const completed = await completedOrderSourceResult(sourceClaimResult.claim);
         if (completed) {
@@ -2300,7 +2496,12 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
 
       let result: OrderingOrderCreationResult;
       try {
-        await claimPlanPurchaseLimitUsage(deps.db, params.buyerAccountId, taxAdjustedPlan);
+        await claimPlanPurchaseLimitUsage(
+          deps.db,
+          params.buyerAccountId,
+          taxAdjustedPlan,
+          Boolean(params.evidenceWindowSource),
+        );
         result = await createOrdersFromPlan(
           params.buyerAccountId,
           taxAdjustedPlan,
@@ -2308,6 +2509,13 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
           context,
           proposedOrderIds,
           authenticityPlan,
+          params.evidenceWindowSource
+            ? {
+                sourceType: params.sourceType,
+                sourceReferenceId: params.checkoutSessionId,
+                buyerAccountId: params.buyerAccountId,
+              }
+            : undefined,
         );
 
         // Order Capacity enforcement (m127): per-group failure only --
@@ -2320,7 +2528,12 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
           throw new OrderingDomainError("No checkout lines are currently fulfillable.");
         }
 
-        await completeOrderSourceClaim(deps.db, sourceClaimResult.claim, result.orderIds);
+        await completeOrderSourceClaim(
+          deps.db,
+          sourceClaimResult.claim,
+          result.orderIds,
+          Boolean(params.evidenceWindowSource),
+        );
       } catch (error) {
         await compensatePendingOrderSourceClaim(
           deps.db,

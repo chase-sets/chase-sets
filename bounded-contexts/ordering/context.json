@@ -342,6 +342,11 @@
       "portName": "inventoryCleanupAuthority",
       "providedBy": "platform-api, platform-worker",
       "purpose": "Required available|not-mounted capability supplying Inventory's read-only reservation and Hold cleanup authority (#7222) so Ordering can decide cleanup from complete Inventory source streams without importing Inventory or reading a projection."
+    },
+    {
+      "portName": "evidenceWindowSourceAdmission",
+      "providedBy": "platform-api",
+      "purpose": "Optional private test-mode registration admission for buyer-authenticated Ordering source creation; no child secret."
     }
   ],
   "apiDeployables": ["platform-api"],

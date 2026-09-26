@@ -32,6 +32,8 @@ export type {
   OrderingInventoryHoldSourceLookup,
   OrderingInventoryReservationAuthority,
 } from "./features/orders/api/cleanup-authority";
+export type { OrderingEvidenceWindowSourceAdmission } from "./features/orders/api/runtime";
+export type { OrderingOrderServices } from "./features/orders/api/runtime";
 export { createLocalTaxQuoteResolver, zeroTaxQuoteResolver } from "./features/tax-quotes/domain/tax-quote";
 export type {
   LocalTaxRule,
