@@ -293,6 +293,17 @@ describe("magic link auth routes", () => {
 
     expect(response.status).toBe(200);
     expect(services.identity.findPendingInvitationByEmail).not.toHaveBeenCalled();
+    expect(mockStartInteractiveAuth).toHaveBeenCalledWith(
+      services,
+      expect.objectContaining({
+        membershipsOverride: [
+          expect.objectContaining({
+            roleKey: "owner",
+            rolePermissions: expect.arrayContaining(["pricing.view", "pricing.manage"]),
+          }),
+        ],
+      }),
+    );
     expect(createPersonalIdentity).toHaveBeenCalledWith(
       expect.objectContaining({ email: "wave@chasesets.test", foundersBetaAccessStartedAt: expect.any(String) }),
     );

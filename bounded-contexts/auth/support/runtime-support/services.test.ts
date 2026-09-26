@@ -81,6 +81,62 @@ function recentlyAuthenticated(authenticatedAt: string | null | undefined) {
 }
 
 describe("resolveActorFromSessionId on a session-projection miss", () => {
+  it("preserves explicit stored pricing grants separately from the preset matrix", async () => {
+    const { services } = createServicesWithProjectionMiss(SYNTHETIC_FRESH_RECORDED_AT);
+    const membership = await services.identity.getActiveMembershipForUserAccount(
+      SYNTHETIC_USER_ID,
+      SYNTHETIC_ACCOUNT_ID,
+    );
+    vi.mocked(services.identity.getActiveMembershipForUserAccount).mockResolvedValue({
+      ...membership!,
+      role_key: "viewer",
+      role_permissions: ["pricing.manage"],
+    });
+    const actor = await resolveActorFromSessionId(services, SYNTHETIC_SESSION_ID);
+    expect(actor?.permissions).toContain("pricing.manage");
+    expect(actor?.permissions).toContain("pricing.view");
+  });
+  it.each(["owner", "manager", "fulfillment", "viewer", "platform-admin"])(
+    "resolves current pricing presets for empty and stale memberships: %s",
+    async (roleKey) => {
+      for (const stored of [[], ["accounts.view", "synthetic.retained"]]) {
+        for (const projectionHit of [false, true]) {
+          const { services } = createServicesWithProjectionMiss(SYNTHETIC_FRESH_RECORDED_AT);
+          vi.mocked(services.identity.getActiveMembershipForUserAccount).mockResolvedValue({
+            membership_id: SYNTHETIC_MEMBERSHIP_ID,
+            user_id: SYNTHETIC_USER_ID,
+            account_id: SYNTHETIC_ACCOUNT_ID,
+            role_key: roleKey,
+            role_permissions: stored,
+            status: "active",
+            updated_at: SYNTHETIC_FRESH_RECORDED_AT,
+          });
+          if (projectionHit) {
+            vi.mocked(services.sessions.getSession).mockResolvedValue({
+              session_id: SYNTHETIC_SESSION_ID,
+              user_id: SYNTHETIC_USER_ID,
+              user_display_name: null,
+              user_primary_email: null,
+              account_id: SYNTHETIC_ACCOUNT_ID,
+              account_display_name: null,
+              account_name: null,
+              available_account_ids: [SYNTHETIC_ACCOUNT_ID],
+              authentication_method: "password",
+              status: "active",
+              expires_at: SYNTHETIC_EXPIRES_AT,
+              updated_at: SYNTHETIC_FRESH_RECORDED_AT,
+            });
+          }
+          const actor = await resolveActorFromSessionId(services, SYNTHETIC_SESSION_ID);
+          expect(actor?.roleKey).toBe(roleKey);
+          expect(actor?.permissions.includes("pricing.view")).toBe(roleKey !== "platform-admin");
+          expect(actor?.permissions.includes("pricing.manage")).toBe(["owner", "manager"].includes(roleKey));
+          expect(actor?.permissions).toEqual(expect.arrayContaining(stored));
+          expect(services.sessions.readAuthenticatedSession).toHaveBeenCalledWith(SYNTHETIC_SESSION_ID);
+        }
+      }
+    },
+  );
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(FROZEN_READ_MOMENT);

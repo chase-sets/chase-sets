@@ -18,6 +18,7 @@ const accountCriticalRoutes = [
   { path: "/account/cart", heading: /^Your cart$/i, flow: "buy cart" },
   { path: "/account/sell-list", heading: /^Sell List$/i, flow: "sell list" },
   { path: "/account/listings", heading: /^Listings$/i, flow: "listings" },
+  { path: "/account/repricing", heading: /^Repricing$/i, flow: "repricing" },
   { path: "/account/offers/submitted", heading: /^Submitted Offers$/i, flow: "submitted offers" },
   { path: "/account/offers/matches", heading: /^Offer Matches$/i, flow: "offer matches" },
   { path: "/account/inventory", heading: /^Inventory$/i, flow: "inventory" },
