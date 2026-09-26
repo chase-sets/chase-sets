@@ -76,10 +76,14 @@ describeDb("typed provider observation persistence and frozen queries", () => {
       coverage: "complete-capture",
     });
     expect(sales[0]).toMatchObject({ currency: "usd", policyRevisionId: "synthetic-observation-r1" });
-    await expect(listProviderSaleEvidence(pool, {
-      providerKey: "tcgplayer", catalogItemId: "cat_synthetic",
-      soldSince: "2026-08-01T00:00:00.000Z", soldUntil: sales[0]!.soldAt,
-    })).resolves.toEqual([]);
+    await expect(
+      listProviderSaleEvidence(pool, {
+        providerKey: "tcgplayer",
+        catalogItemId: "cat_synthetic",
+        soldSince: "2026-08-01T00:00:00.000Z",
+        soldUntil: sales[0]!.soldAt,
+      }),
+    ).resolves.toEqual([]);
     const weekly = await listProviderWeeklySaleBuckets(pool, {
       providerKey: "tcgplayer",
       catalogItemId: "cat_synthetic",
@@ -94,17 +98,29 @@ describeDb("typed provider observation persistence and frozen queries", () => {
         transactionCount: 3,
       }),
     ]);
-    await expect(listProviderWeeklySaleBuckets(pool, {
-      providerKey: "tcgplayer", catalogItemId: "cat_synthetic",
-      weekStartSince: "2026-08-26", asOf: "2026-09-02T00:00:00.000Z",
-    })).resolves.toEqual([]);
-    await expect(listProviderWeeklySaleBuckets(pool, {
-      providerKey: "tcgplayer", catalogItemId: "cat_synthetic",
-      weekStartSince: "2026-08-01", asOf: "2026-09-01T14:59:59.000Z",
-    })).resolves.toEqual([]);
-    await expect(latestProviderMarketCapture(pool, {
-      providerKey: "tcgplayer", catalogItemId: "cat_synthetic", asOf: "2026-09-01T14:59:59.000Z",
-    })).resolves.toBeNull();
+    await expect(
+      listProviderWeeklySaleBuckets(pool, {
+        providerKey: "tcgplayer",
+        catalogItemId: "cat_synthetic",
+        weekStartSince: "2026-08-26",
+        asOf: "2026-09-02T00:00:00.000Z",
+      }),
+    ).resolves.toEqual([]);
+    await expect(
+      listProviderWeeklySaleBuckets(pool, {
+        providerKey: "tcgplayer",
+        catalogItemId: "cat_synthetic",
+        weekStartSince: "2026-08-01",
+        asOf: "2026-09-01T14:59:59.000Z",
+      }),
+    ).resolves.toEqual([]);
+    await expect(
+      latestProviderMarketCapture(pool, {
+        providerKey: "tcgplayer",
+        catalogItemId: "cat_synthetic",
+        asOf: "2026-09-01T14:59:59.000Z",
+      }),
+    ).resolves.toBeNull();
     const latest = await latestProviderMarketCapture(pool, {
       providerKey: "tcgplayer",
       catalogItemId: "cat_synthetic",
@@ -123,7 +139,9 @@ describeDb("typed provider observation persistence and frozen queries", () => {
     expect(groups).toHaveLength(3);
     expect(groups.every((row) => row.captureId === latest!.captureId && row.coverage === "complete")).toBe(true);
     const depth = await listProviderListingAskDepth(pool, {
-      providerKey: "tcgplayer", catalogItemId: "cat_synthetic", captureId: latest!.captureId,
+      providerKey: "tcgplayer",
+      catalogItemId: "cat_synthetic",
+      captureId: latest!.captureId,
     });
     expect(depth).toMatchObject({ captureId: latest!.captureId, coverage: "complete" });
     expect(depth.product).toEqual([
@@ -131,15 +149,30 @@ describeDb("typed provider observation persistence and frozen queries", () => {
       { deliveredAmount: "6.00", cumulativeSellerCount: 2 },
       { deliveredAmount: "7.00", cumulativeSellerCount: 3 },
     ]);
-    await expect(listProviderListingSnapshots(pool, {
-      providerKey: "tcgplayer", catalogItemId: "cat_synthetic", observedSince: "2026-09-01", observedUntil: "2026-09-02",
-    })).resolves.toEqual([expect.objectContaining({ observedOn: "2026-09-01", coverage: "complete", captureId: latest!.captureId })]);
-    await expect(listProviderListingSnapshots(pool, {
-      providerKey: "tcgplayer", catalogItemId: "cat_synthetic", observedSince: "2026-09-02",
-    })).resolves.toEqual([]);
-    await expect(listProviderListingAskGroups(pool, {
-      providerKey: "tcgplayer", catalogItemId: "cat_synthetic", captureId: "synthetic-missing-capture",
-    })).resolves.toEqual([]);
+    await expect(
+      listProviderListingSnapshots(pool, {
+        providerKey: "tcgplayer",
+        catalogItemId: "cat_synthetic",
+        observedSince: "2026-09-01",
+        observedUntil: "2026-09-02",
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({ observedOn: "2026-09-01", coverage: "complete", captureId: latest!.captureId }),
+    ]);
+    await expect(
+      listProviderListingSnapshots(pool, {
+        providerKey: "tcgplayer",
+        catalogItemId: "cat_synthetic",
+        observedSince: "2026-09-02",
+      }),
+    ).resolves.toEqual([]);
+    await expect(
+      listProviderListingAskGroups(pool, {
+        providerKey: "tcgplayer",
+        catalogItemId: "cat_synthetic",
+        captureId: "synthetic-missing-capture",
+      }),
+    ).resolves.toEqual([]);
     await expect(
       countProviderCompetingSellersAt(pool, {
         providerKey: "tcgplayer",

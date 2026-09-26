@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PgPoolClient, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createTcgplayerMarketCapture } from "../api/market-capture";
-import { decodeProviderObservationPolicyValue, PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE } from "../domain/provider-observation-policy";
+import {
+  decodeProviderObservationPolicyValue,
+  PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE,
+} from "../domain/provider-observation-policy";
 import { decodePriceSignalPolicyValue } from "../domain/price-signal-policy";
 import type { TcgplayerMarketTransport } from "../integrations/tcgplayer/transport-port";
 
@@ -11,12 +14,19 @@ describe("ruled provider market-capture policy order", () => {
     const now = vi.fn(clock());
     const signal = vi.fn();
     const run = createTcgplayerMarketCapture({
-      pool, transport: { kind: "not-mounted" }, receiptSink: { kind: "not-mounted" }, now,
+      pool,
+      transport: { kind: "not-mounted" },
+      receiptSink: { kind: "not-mounted" },
+      now,
       resolveSignalPolicy: async () => ({ revisionId: "signal-r1", value: { productsPerPass: 1 } }),
       recordTcgplayerPriceSignal: signal,
     });
     expect(await run()).toMatchObject({ status: "disabled", reason: "transport-not-mounted", signalWorkCount: 0 });
-    expect(pool).toMatchObject({ selectionCount: 0, cursor: { afterExternalKey: "", generation: 0 }, captureOutcomes: [] });
+    expect(pool).toMatchObject({
+      selectionCount: 0,
+      cursor: { afterExternalKey: "", generation: 0 },
+      captureOutcomes: [],
+    });
     expect(now).toHaveBeenCalledTimes(1);
     expect(signal).not.toHaveBeenCalled();
   });
@@ -127,20 +137,38 @@ describe("ruled provider market-capture policy order", () => {
       const pool = new CapturePool(1);
       const events: string[] = [];
       const now = vi.fn(clock());
-      const signal = vi.fn(async () => ({ status: "unresolved" as const, reason: "sku-reference-not-mapped" as const, externalKey: "sku:9001" }));
+      const signal = vi.fn(async () => ({
+        status: "unresolved" as const,
+        reason: "sku-reference-not-mapped" as const,
+        externalKey: "sku:9001",
+      }));
       const deps = {
-        pool, transport: fakeTransport(events), receiptSink: { kind: "not-mounted" as const }, now,
+        pool,
+        transport: fakeTransport(events),
+        receiptSink: { kind: "not-mounted" as const },
+        now,
         recordTcgplayerPriceSignal: signal,
       };
       const invalid = createTcgplayerMarketCapture({
         ...deps,
-        resolveSignalPolicy: async () => bound === undefined ? null : {
-          revisionId: "signal-invalid",
-          value: decodePriceSignalPolicyValue({ productsPerPass: bound } as never),
-        },
+        resolveSignalPolicy: async () =>
+          bound === undefined
+            ? null
+            : {
+                revisionId: "signal-invalid",
+                value: decodePriceSignalPolicyValue({ productsPerPass: bound } as never),
+              },
       });
-      expect(await invalid()).toMatchObject({ status: "configuration-invalid", reason: "signal-policy-invalid", signalWorkCount: 0 });
-      expect(pool).toMatchObject({ selectionCount: 0, cursor: { afterExternalKey: "", generation: 0 }, captureOutcomes: [] });
+      expect(await invalid()).toMatchObject({
+        status: "configuration-invalid",
+        reason: "signal-policy-invalid",
+        signalWorkCount: 0,
+      });
+      expect(pool).toMatchObject({
+        selectionCount: 0,
+        cursor: { afterExternalKey: "", generation: 0 },
+        captureOutcomes: [],
+      });
       expect(events).toEqual([]);
       expect(signal).not.toHaveBeenCalled();
       expect(now).toHaveBeenCalledTimes(1);
@@ -149,7 +177,11 @@ describe("ruled provider market-capture policy order", () => {
         resolveSignalPolicy: async () => ({ revisionId: "signal-valid", value: { productsPerPass: 1 } }),
         resolveObservationPolicy: async () => null,
       });
-      expect(await corrected()).toMatchObject({ status: "configuration-invalid", signalsUnresolved: 1, capturesCommitted: 1 });
+      expect(await corrected()).toMatchObject({
+        status: "configuration-invalid",
+        signalsUnresolved: 1,
+        capturesCommitted: 1,
+      });
       expect(pool.headers[0]?.externalKey).toBe("product:7001");
       expect(pool.cursor.generation).toBe(1);
     },
@@ -163,17 +195,25 @@ describe("ruled provider market-capture policy order", () => {
       const now = vi.fn(clock());
       const inputs: unknown[] = [];
       const run = createTcgplayerMarketCapture({
-        pool, transport: fakeTransport(events), receiptSink: { kind: "not-mounted" }, now,
+        pool,
+        transport: fakeTransport(events),
+        receiptSink: { kind: "not-mounted" },
+        now,
         resolveSignalPolicy: async (instant) => {
           events.push(`signal-policy:${instant}`);
           return { revisionId: "signal-r1", value: { productsPerPass: 1 } };
         },
         resolveObservationPolicy: async (instant) => {
           events.push(`capture-policy:${instant}`);
-          return bound === undefined ? null : {
-            revisionId: "capture-r1",
-            value: decodeProviderObservationPolicyValue({ ...PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE, capturesPerPass: bound } as never),
-          };
+          return bound === undefined
+            ? null
+            : {
+                revisionId: "capture-r1",
+                value: decodeProviderObservationPolicyValue({
+                  ...PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE,
+                  capturesPerPass: bound,
+                } as never),
+              };
         },
         resolveStatHygienePolicy: async () => ({ revisionId: "stat-r1" }),
         recordTcgplayerPriceSignal: async (input) => {
@@ -184,11 +224,23 @@ describe("ruled provider market-capture policy order", () => {
       });
       const result = await run();
       expect(result).toMatchObject({ signalWorkCount: 1, signalsUnresolved: 1, capturesCommitted: 1 });
-      expect(inputs).toEqual([{ skuId: 9001, observedAt: "2026-09-01T15:00:01.000Z", pricePoint: {
-        skuId: 9001, marketPrice: 10, lowestPrice: 9, highestPrice: 11, priceCount: 3,
-        calculatedAt: "2026-09-01T15:00:00.000Z",
-      } }]);
-      expect(events.indexOf("signal-committed")).toBeLessThan(events.findIndex((event) => event.startsWith("capture-policy:")));
+      expect(inputs).toEqual([
+        {
+          skuId: 9001,
+          observedAt: "2026-09-01T15:00:01.000Z",
+          pricePoint: {
+            skuId: 9001,
+            marketPrice: 10,
+            lowestPrice: 9,
+            highestPrice: 11,
+            priceCount: 3,
+            calculatedAt: "2026-09-01T15:00:00.000Z",
+          },
+        },
+      ]);
+      expect(events.indexOf("signal-committed")).toBeLessThan(
+        events.findIndex((event) => event.startsWith("capture-policy:")),
+      );
       expect(events[0]).toBe("signal-policy:2026-09-01T15:00:00.000Z");
       expect(events).toContain("price-points");
       expect(pool.cursor.generation).toBe(1);
@@ -196,13 +248,23 @@ describe("ruled provider market-capture policy order", () => {
       if (bound === 1) {
         expect(result.status).toBe("completed");
         expect(events.filter((event) => event === "sales")).toHaveLength(1);
-        expect(pool.headers[0]).toMatchObject({ observationRevision: "capture-r1", statRevision: "stat-r1", capturesPerPass: 1 });
+        expect(pool.headers[0]).toMatchObject({
+          observationRevision: "capture-r1",
+          statRevision: "stat-r1",
+          capturesPerPass: 1,
+        });
       } else {
         expect(result.status).toBe("configuration-invalid");
         expect(events).not.toContain("sales");
         expect(events).not.toContain("listings");
         expect(events).not.toContain("history");
-        expect(pool.headers[0]).toMatchObject({ outcome: "configuration-invalid", observationRevision: null, statRevision: null, capturesPerPass: null, currency: null });
+        expect(pool.headers[0]).toMatchObject({
+          outcome: "configuration-invalid",
+          observationRevision: null,
+          statRevision: null,
+          capturesPerPass: null,
+          currency: null,
+        });
       }
     },
   );
@@ -211,9 +273,15 @@ describe("ruled provider market-capture policy order", () => {
     const pool = new CapturePool(6);
     const events: string[] = [];
     const run = createTcgplayerMarketCapture({
-      pool, transport: fakeTransport(events), receiptSink: { kind: "not-mounted" }, now: clock(),
+      pool,
+      transport: fakeTransport(events),
+      receiptSink: { kind: "not-mounted" },
+      now: clock(),
       resolveSignalPolicy: async () => ({ revisionId: "signal-r1", value: { productsPerPass: 5 } }),
-      resolveObservationPolicy: async () => ({ revisionId: "capture-r1", value: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE }),
+      resolveObservationPolicy: async () => ({
+        revisionId: "capture-r1",
+        value: PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE,
+      }),
       resolveStatHygienePolicy: async () => ({ revisionId: "stat-r1" }),
       recordTcgplayerPriceSignal: async (input) => {
         events.push(`signal:${input.skuId}`);
@@ -221,7 +289,13 @@ describe("ruled provider market-capture policy order", () => {
       },
     });
     expect(await run()).toMatchObject({ signalWorkCount: 5, signalsUnresolved: 5, capturesCommitted: 5 });
-    expect(events.filter((event) => event.startsWith("signal:"))).toEqual(["signal:9001", "signal:9002", "signal:9003", "signal:9004", "signal:9005"]);
+    expect(events.filter((event) => event.startsWith("signal:"))).toEqual([
+      "signal:9001",
+      "signal:9002",
+      "signal:9003",
+      "signal:9004",
+      "signal:9005",
+    ]);
     expect(events.filter((event) => event === "sales")).toHaveLength(5);
     expect(events).not.toContain("signal:9006");
     expect(pool.headers).toHaveLength(5);
@@ -232,9 +306,15 @@ describe("ruled provider market-capture policy order", () => {
     const events: string[] = [];
     const now = clock();
     const run = createTcgplayerMarketCapture({
-      pool, transport: fakeTransport(events), receiptSink: { kind: "not-mounted" }, now,
+      pool,
+      transport: fakeTransport(events),
+      receiptSink: { kind: "not-mounted" },
+      now,
       resolveSignalPolicy: async () => ({ revisionId: "signal-r1", value: { productsPerPass: 3 } }),
-      resolveObservationPolicy: async () => ({ revisionId: "capture-r1", value: { ...PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE, capturesPerPass: 1 } }),
+      resolveObservationPolicy: async () => ({
+        revisionId: "capture-r1",
+        value: { ...PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE, capturesPerPass: 1 },
+      }),
       resolveStatHygienePolicy: async () => ({ revisionId: "stat-r1" }),
       recordTcgplayerPriceSignal: async (input) => {
         events.push(`signal:${input.skuId}`);
@@ -246,7 +326,11 @@ describe("ruled provider market-capture policy order", () => {
     expect(pool.headers.map((header) => header.externalKey)).toEqual(["product:7001"]);
     events.length = 0;
     expect(await run()).toMatchObject({ signalWorkCount: 3, capturesCommitted: 1 });
-    expect(events.filter((event) => event.startsWith("signal:"))).toEqual(["signal:9002", "signal:9003", "signal:9001"]);
+    expect(events.filter((event) => event.startsWith("signal:"))).toEqual([
+      "signal:9002",
+      "signal:9003",
+      "signal:9001",
+    ]);
     expect(pool.headers.map((header) => header.externalKey)).toEqual(["product:7001", "product:7002"]);
     expect(pool.cursor).toEqual({ afterExternalKey: "product:7002", generation: 2 });
     expect(await run()).toMatchObject({ capturesCommitted: 1 });
@@ -259,7 +343,16 @@ class CapturePool implements PgTransactionalPool {
   public cursor = { afterExternalKey: "", generation: 0 };
   public selectionCount = 0;
   public readonly captureOutcomes: string[] = [];
-  public readonly headers: Array<{ externalKey: string; signalRevision: unknown; productsPerPass: unknown; observationRevision: unknown; statRevision: unknown; capturesPerPass: unknown; currency: unknown; outcome: unknown }> = [];
+  public readonly headers: Array<{
+    externalKey: string;
+    signalRevision: unknown;
+    productsPerPass: unknown;
+    observationRevision: unknown;
+    statRevision: unknown;
+    capturesPerPass: unknown;
+    currency: unknown;
+    outcome: unknown;
+  }> = [];
   private readonly products: number;
 
   constructor(products: number) {
@@ -292,7 +385,16 @@ class CapturePool implements PgTransactionalPool {
     }
     if (sql.includes("INSERT INTO pricing_external_market_captures")) {
       this.captureOutcomes.push(String(params[16]));
-      this.headers.push({ externalKey: String(params[3]), signalRevision: params[5], productsPerPass: params[6], observationRevision: params[9], statRevision: params[10], capturesPerPass: params[11], currency: params[12], outcome: params[16] });
+      this.headers.push({
+        externalKey: String(params[3]),
+        signalRevision: params[5],
+        productsPerPass: params[6],
+        observationRevision: params[9],
+        statRevision: params[10],
+        capturesPerPass: params[11],
+        currency: params[12],
+        outcome: params[16],
+      });
       return { rows: [{ capture_id: String(params[0]) } as Row] };
     }
     if (sql.includes("INSERT INTO pricing_external_market_capture_cursors")) {

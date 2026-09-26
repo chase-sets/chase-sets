@@ -51,7 +51,10 @@ describe("provider observation privacy boundary", () => {
     });
     await sink.retain(receipt);
     assertNoC12Values(artifact);
-    const fixture = readFileSync(new URL("./fixtures/provider-observations/synthetic-single-product-90-days.json", import.meta.url), "utf8");
+    const fixture = readFileSync(
+      new URL("./fixtures/provider-observations/synthetic-single-product-90-days.json", import.meta.url),
+      "utf8",
+    );
     assertNoC12Values(fixture);
     assertNoC12Keys(fixture);
     expect(pricingProviderObservationsSchemaSql).not.toMatch(
@@ -89,14 +92,38 @@ describe("provider observation privacy boundary", () => {
 });
 
 const C12_KEYS = [
-  "sellerKey", "sellerId", "sellerName", "sellerRating", "sellerSales", "sellerBadges", "badges",
-  "listingId", "customListingId", "title", "customData", "cookie", "authorization", "responseBody", "exceptionMessage",
+  "sellerKey",
+  "sellerId",
+  "sellerName",
+  "sellerRating",
+  "sellerSales",
+  "sellerBadges",
+  "badges",
+  "listingId",
+  "customListingId",
+  "title",
+  "customData",
+  "cookie",
+  "authorization",
+  "responseBody",
+  "exceptionMessage",
 ] as const;
 const C12_MARKERS = [
-  "external-seller-secret", "C12_SELLER_ID_SECRET", "C12_SELLER_NAME_SECRET", "C12_SELLER_RATING_SECRET",
-  "C12_SELLER_SALES_SECRET", "C12_SELLER_BADGES_SECRET", "C12_LISTING_ID_SECRET",
-  "C12_CUSTOM_LISTING_ID_SECRET", "C12_LISTING_TITLE_SECRET", "C12_CUSTOM_TITLE_SECRET",
-  "C12_CUSTOM_DATA_SECRET", "C12_COOKIE_SECRET", "C12_AUTH_SECRET", "C12_RESPONSE_SECRET", "C12_EXCEPTION_SECRET",
+  "external-seller-secret",
+  "C12_SELLER_ID_SECRET",
+  "C12_SELLER_NAME_SECRET",
+  "C12_SELLER_RATING_SECRET",
+  "C12_SELLER_SALES_SECRET",
+  "C12_SELLER_BADGES_SECRET",
+  "C12_LISTING_ID_SECRET",
+  "C12_CUSTOM_LISTING_ID_SECRET",
+  "C12_LISTING_TITLE_SECRET",
+  "C12_CUSTOM_TITLE_SECRET",
+  "C12_CUSTOM_DATA_SECRET",
+  "C12_COOKIE_SECRET",
+  "C12_AUTH_SECRET",
+  "C12_RESPONSE_SECRET",
+  "C12_EXCEPTION_SECRET",
 ] as const;
 
 function assertNoC12Keys(serialized: string) {

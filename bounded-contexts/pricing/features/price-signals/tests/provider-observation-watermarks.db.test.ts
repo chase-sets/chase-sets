@@ -64,11 +64,13 @@ describeDb("provider observation source-watermark interleaving", () => {
   it("backfills a previously unmapped weekly SKU on the next capture after its link", async () => {
     const unmapped = capture("unmapped", "2026-09-01T00:00:00.000Z", "A", "5.00");
     await commitProviderObservationCapture(pool, "tcgplayer", work("", 0, "product:7001", 1), {
-      ...unmapped, weekly: unmapped.weekly.map((row) => ({ ...row, catalogProductKey: null })),
+      ...unmapped,
+      weekly: unmapped.weekly.map((row) => ({ ...row, catalogProductKey: null })),
     });
-    const weekly = () => pool.query<{ catalog_product_key: string | null; last_capture_id: string }>(
-      "SELECT catalog_product_key, last_capture_id FROM pricing_external_weekly_sale_buckets",
-    );
+    const weekly = () =>
+      pool.query<{ catalog_product_key: string | null; last_capture_id: string }>(
+        "SELECT catalog_product_key, last_capture_id FROM pricing_external_weekly_sale_buckets",
+      );
     expect((await weekly()).rows).toEqual([{ catalog_product_key: null, last_capture_id: "unmapped" }]);
     await pool.query(`INSERT INTO pricing_external_product_reference_inputs
       (provider_key, external_key, catalog_item_id, catalog_product_key, selected_options, updated_at)
@@ -79,7 +81,8 @@ describeDb("provider observation source-watermark interleaving", () => {
     expect((await weekly()).rows).toEqual([{ catalog_product_key: null, last_capture_id: "unmapped" }]);
     const recaptured = capture("recaptured", "2026-09-02T00:00:00.000Z", "A", "5.00");
     await commitProviderObservationCapture(pool, "tcgplayer", work("product:7001", 1, "", 2), {
-      ...recaptured, weekly: recaptured.weekly.map((row) => ({ ...row, catalogProductKey: linked.rows[0]!.catalog_product_key })),
+      ...recaptured,
+      weekly: recaptured.weekly.map((row) => ({ ...row, catalogProductKey: linked.rows[0]!.catalog_product_key })),
     });
     expect((await weekly()).rows).toEqual([{ catalog_product_key: "cat_synthetic::", last_capture_id: "recaptured" }]);
   });

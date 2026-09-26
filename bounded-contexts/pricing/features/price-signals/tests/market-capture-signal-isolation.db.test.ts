@@ -38,7 +38,11 @@ describeDb("essential price-signal isolation from secondary capture", () => {
       skuId: 9001,
       observedAt: "2026-09-01T15:00:01.000Z",
       pricePoint: {
-        skuId: 9001, marketPrice: 10, lowestPrice: 9, highestPrice: 11, priceCount: 3,
+        skuId: 9001,
+        marketPrice: 10,
+        lowestPrice: 9,
+        highestPrice: 11,
+        priceCount: 3,
         calculatedAt: "2026-09-01T15:00:00.000Z",
       },
     });
