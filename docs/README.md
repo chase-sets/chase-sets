@@ -188,7 +188,7 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [Section Navigation](../packages/design-system/SECTION_NAVIGATION.md)
 - [Checkout Primitives](../packages/design-system/CHECKOUT_PRIMITIVES.md)
 - [Operational Workflows](../packages/design-system/OPERATIONAL_WORKFLOWS.md)
-- [Embedded Stripe Appearance](../packages/design-system/EMBEDDED_STRIPE_APPEARANCE.md)
+- [Embedded Stripe Appearance](../infrastructure/stripe-appearance/README.md)
 - [Design System Milestones](../packages/design-system/DESIGN_SYSTEM_MILESTONES.md): completed form-system (#10) and legacy-eradication (#12) traceability and verification commands.
 - [Localization Contract](../contracts/localization/README.md)
 
