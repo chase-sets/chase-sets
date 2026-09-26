@@ -76,6 +76,11 @@ describe("channel-publication-settings-route", () => {
     });
     expect(screen.getByText(/Loading channel publication settings/u)).toBeTruthy();
     expect(screen.queryByText("Settings are required")).toBeNull();
+    expect(screen.getByDisplayValue("[fresh]")).toBeTruthy();
+    expect(screen.getByDisplayValue("saved footer")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Save publication settings" }).closest("fieldset")?.hasAttribute("disabled"),
+    ).toBe(true);
 
     const readsAfterWrite = stub.reads();
     await settle(1_999);
@@ -88,6 +93,7 @@ describe("channel-publication-settings-route", () => {
     await settle(2_000);
     expect(screen.getByDisplayValue("[fresh]")).toBeTruthy();
     expect(screen.queryByText(/Loading channel publication settings/u)).toBeNull();
+    expect(screen.getByRole("button", { name: "Save publication settings" }).closest("fieldset[disabled]")).toBeNull();
 
     await act(async () => {
       await router.navigate(PUBLICATION_PATH, { formMethod: "post", formData: settingsForm("1") });
@@ -100,6 +106,195 @@ describe("channel-publication-settings-route", () => {
     expect(screen.queryByText(/Loading channel publication settings/u)).toBeNull();
     expect(screen.getByDisplayValue("[fresh]")).toBeTruthy();
   });
+
+  it("settings-freshness-pending-retains-submitted-values", async () => {
+    let projectedVersion = 0;
+    let writes = 0;
+    const stub = stubPublicationRouteFetch({
+      readDetail: () => detail({ configurationStreamVersion: projectedVersion }),
+      replaceSettings: () => {
+        writes += 1;
+        return 1;
+      },
+    });
+    const router = renderPublicationRoute();
+    expect(await screen.findByText("Settings are required")).toBeTruthy();
+    vi.useFakeTimers();
+    await act(async () => {
+      await router.navigate(PUBLICATION_PATH, { formMethod: "post", formData: settingsForm() });
+    });
+    expect(screen.getByText(/Loading channel publication settings/u)).toBeTruthy();
+    expect(screen.queryByText("Settings are required")).toBeNull();
+    expect(screen.getByDisplayValue("[fresh]")).toBeTruthy();
+    expect(screen.getByDisplayValue("saved footer")).toBeTruthy();
+    const save = screen.getByRole("button", { name: "Save publication settings" });
+    expect(save.closest("fieldset")?.hasAttribute("disabled")).toBe(true);
+    await act(async () => {
+      save.click();
+    });
+    expect(writes).toBe(1);
+    const reads = stub.reads();
+    await settle(2_000);
+    expect(stub.reads()).toBe(reads + 1);
+    projectedVersion = 1;
+    await settle(2_000);
+    expect(screen.queryByText(/Loading channel publication settings/u)).toBeNull();
+    expect(screen.getByRole("button", { name: "Save publication settings" }).closest("fieldset[disabled]")).toBeNull();
+  });
+
+  it("settings-retention-precedence-pinned", async () => {
+    let version = 0;
+    const stale = {
+      titlePrefix: "[stale]",
+      titleSuffix: "",
+      descriptionFooter: "stale footer",
+      categoryAllowlist: [],
+      excludedListingIds: [],
+    };
+    const stub = stubPublicationRouteFetch({
+      readDetail: () => detail({ settings: stale, configurationStreamVersion: version }),
+      replaceSettings: () => 1,
+    });
+    const router = renderPublicationRoute();
+    expect(await screen.findByDisplayValue("[stale]")).toBeTruthy();
+    vi.useFakeTimers();
+    await act(async () => {
+      await router.navigate(PUBLICATION_PATH, { formMethod: "post", formData: settingsForm() });
+    });
+    expect(screen.getByDisplayValue("[fresh]")).toBeTruthy();
+    expect(screen.queryByDisplayValue("[stale]")).toBeNull();
+    for (let tick = 0; tick < 15; tick += 1) await settle(2_000);
+    expect(stub.reads()).toBeGreaterThan(1);
+    expect(screen.getByText("Still catching up")).toBeTruthy();
+    expect(screen.getByDisplayValue("[fresh]")).toBeTruthy();
+    version = 1;
+    await act(async () => {
+      await router.revalidate();
+    });
+    expect(screen.getByDisplayValue("[stale]")).toBeTruthy();
+    expect(screen.queryByDisplayValue("[fresh]")).toBeNull();
+  });
+
+  it("mapping-decision-does-not-resurface-earlier-settings", async () => {
+    let projectedVersion = 0;
+    let appliedVersion = 0;
+    const stale = {
+      titlePrefix: "[stale]",
+      titleSuffix: "",
+      descriptionFooter: "stale footer",
+      categoryAllowlist: [],
+      excludedListingIds: [],
+    };
+    const candidate = {
+      connectionId: "connection-1",
+      dimension: "category" as const,
+      sourceKey: "synthetic-source",
+      targetKey: null,
+      confidenceTier: "high" as const,
+      reviewStatus: "proposed" as const,
+      provenance: "compose-discovered" as const,
+      evidence: { listingId: "listing-1", derivedFrom: "synthetic candidate" },
+      lastStreamVersion: 0,
+    };
+    stubPublicationRouteFetch({
+      readDetail: () =>
+        detail({
+          settings: stale,
+          configurationStreamVersion: projectedVersion,
+          mappingReview: {
+            items: [
+              { ...candidate, reviewStatus: projectedVersion >= 2 ? "rejected" : "proposed", targetKey: null },
+              { ...candidate, sourceKey: "unrelated-source", targetKey: "unrelated-target" },
+            ],
+            nextCursor: null,
+            completeness: { kind: "complete", total: 2 },
+          },
+        }),
+      replaceSettings: () => ++appliedVersion,
+      decideMapping: () => ++appliedVersion,
+    });
+    const router = renderPublicationRoute();
+    expect(await screen.findByText("synthetic-source")).toBeTruthy();
+    vi.useFakeTimers();
+    await act(async () => {
+      await router.navigate(PUBLICATION_PATH, { formMethod: "post", formData: settingsForm() });
+    });
+    expect(screen.getByDisplayValue("[fresh]")).toBeTruthy();
+    const mapping = new FormData();
+    for (const [key, value] of Object.entries({
+      intent: "decide-mapping",
+      dimension: "category",
+      sourceKey: "synthetic-source",
+      decision: "reject",
+      targetKey: "synthetic-target",
+      expectedStreamVersion: "1",
+    }))
+      mapping.set(key, value);
+    await act(async () => {
+      await router.navigate(PUBLICATION_PATH, { formMethod: "post", formData: mapping });
+    });
+    expect(screen.queryByDisplayValue("[fresh]")).toBeNull();
+    expect(screen.getByDisplayValue("[stale]")).toBeTruthy();
+    expect(screen.getByDisplayValue("synthetic-target")).toBeTruthy();
+    expect(screen.getByDisplayValue("unrelated-target")).toBeTruthy();
+    expect(screen.getAllByText(/category · proposed · high/u)).toHaveLength(2);
+    const nextSettings = settingsForm("2");
+    await act(async () => {
+      await router.navigate(PUBLICATION_PATH, { formMethod: "post", formData: nextSettings });
+    });
+    expect(screen.getByDisplayValue("[fresh]")).toBeTruthy();
+    expect(screen.getByDisplayValue("unrelated-target")).toBeTruthy();
+    expect(
+      screen
+        .getAllByRole("textbox", { name: "Channel target key" })
+        .some((input) => (input as HTMLInputElement).value === ""),
+    ).toBe(true);
+    projectedVersion = 3;
+    await settle(2_000);
+    expect(screen.queryByText(/Loading channel publication settings/u)).toBeNull();
+    expect(screen.getByDisplayValue("[stale]")).toBeTruthy();
+    expect(screen.getByText(/category · rejected · high/u)).toBeTruthy();
+    expect(screen.getByDisplayValue("unrelated-target")).toBeTruthy();
+    expect(
+      screen
+        .getAllByRole("textbox", { name: "Channel target key" })
+        .some((input) => (input as HTMLInputElement).value === ""),
+    ).toBe(true);
+  });
+
+  it.each(["stream-version-conflict", "invalid-target"])(
+    "conflict-while-pending-retains-submitted-values (%s)",
+    async (refusalCode) => {
+      let version = 0;
+      let writes = 0;
+      stubPublicationRouteFetch({
+        readDetail: () => detail({ configurationStreamVersion: version }),
+        replaceSettings: () => (++writes === 1 ? 1 : -1),
+        refusalCode,
+      });
+      const router = renderPublicationRoute();
+      expect(await screen.findByText("Settings are required")).toBeTruthy();
+      vi.useFakeTimers();
+      await act(async () => {
+        await router.navigate(PUBLICATION_PATH, { formMethod: "post", formData: settingsForm() });
+      });
+      expect(screen.getByDisplayValue("[fresh]")).toBeTruthy();
+      await act(async () => {
+        await router.navigate(PUBLICATION_PATH, { formMethod: "post", formData: settingsForm() });
+      });
+      expect(
+        screen.getByText(refusalCode === "stream-version-conflict" ? "Settings changed" : refusalCode),
+      ).toBeTruthy();
+      expect(screen.getByDisplayValue("[fresh]")).toBeTruthy();
+      expect(
+        screen.getByRole("button", { name: "Save publication settings" }).closest("fieldset[disabled]"),
+      ).not.toBeNull();
+      version = 1;
+      await settle(2_000);
+      expect(screen.queryByDisplayValue("[fresh]")).toBeNull();
+      expect(screen.getByText("Settings are required")).toBeTruthy();
+    },
+  );
 
   it("settings-freshness-exhausted-offers-refresh", async () => {
     let projectedVersion = 0;
@@ -243,17 +438,31 @@ describe("channel-publication-settings-route", () => {
       { kind: "foreign-account" },
       { kind: "command-error", message: "synthetic-command-error", detail: ready },
       { kind: "stale-version-conflict", detail: ready },
+      { kind: "freshness-pending", detail: ready },
+      { kind: "freshness-exhausted", detail: ready, onRefresh: () => {} },
       { kind: "ready", detail: ready },
       { kind: "ready", detail: incomplete },
     ];
-    const output = states.map((state) => renderToStaticMarkup(<ChannelPublicationDetailPage state={state} />));
+    const output = states.map((state) =>
+      renderToStaticMarkup(
+        <ChaseRoot linkComponent={RouterLinkAdapter}>
+          <RouterProvider
+            router={createMemoryRouter([{ path: "/", element: <ChannelPublicationDetailPage state={state} /> }], {
+              initialEntries: ["/"],
+            })}
+          />
+        </ChaseRoot>,
+      ),
+    );
     expect(output[2]).toContain("Channel connection not found");
     expect(output[3]).toContain("synthetic-command-error");
     expect(output[4]).toContain("Settings changed");
-    expect(output[5]).toContain("Settings are required");
-    expect(output[5]).toContain("No mappings to review");
-    expect(output[6]).toContain("synthetic-incomplete");
-    expect(output[6]).toContain("Next mappings");
+    expect(output[5]).toContain("Loading channel publication settings");
+    expect(output[6]).toContain("Still catching up");
+    expect(output[7]).toContain("Settings are required");
+    expect(output[7]).toContain("No mappings to review");
+    expect(output[8]).toContain("synthetic-incomplete");
+    expect(output[8]).toContain("Next mappings");
   });
 });
 
@@ -315,6 +524,8 @@ function stubPublicationRouteFetch(options: {
     connectionId: string,
     settings: NonNullable<ChannelPublicationConnectionDetail["settings"]>,
   ) => number;
+  decideMapping?: () => number;
+  refusalCode?: string;
 }) {
   let reads = 0;
   vi.stubGlobal(
@@ -340,11 +551,15 @@ function stubPublicationRouteFetch(options: {
         const body = (await request.json()) as {
           settings: NonNullable<ChannelPublicationConnectionDetail["settings"]>;
         };
-        return jsonResponse({
-          kind: "applied",
-          streamVersion: options.replaceSettings(settingsMatch[1], body.settings),
-        });
+        const streamVersion = options.replaceSettings(settingsMatch[1], body.settings);
+        return jsonResponse(
+          streamVersion < 0
+            ? { kind: "refused", code: options.refusalCode ?? "stream-version-conflict" }
+            : { kind: "applied", streamVersion },
+        );
       }
+      if (url.pathname.includes("/mappings/") && request.method === "POST" && options.decideMapping)
+        return jsonResponse({ kind: "applied", streamVersion: options.decideMapping() });
       const detailMatch = /\/publication\/([^/]+)$/u.exec(url.pathname);
       if (detailMatch && request.method === "GET") {
         reads += 1;

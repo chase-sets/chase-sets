@@ -4,7 +4,6 @@ import {
   Banner,
   Button,
   Card,
-  Form,
   HiddenInput,
   LinkButton,
   MarketplaceNotice,
@@ -16,6 +15,7 @@ import {
   TextInput,
   Textarea,
 } from "@chase-sets/design-system";
+import { RouterForm } from "@chase-sets/design-system/react-router";
 import type { ChannelPublicationConnectionDetail, ChannelPublicationConnectionSummary } from "../domain/contracts";
 
 export type ChannelPublicationListPageState =
@@ -98,14 +98,29 @@ export type ChannelPublicationDetailPageState =
   | Readonly<{ kind: "loading" }>
   | Readonly<{ kind: "authorization-forbidden" }>
   | Readonly<{ kind: "foreign-account" }>
-  | Readonly<{ kind: "command-error"; message: string; detail: ChannelPublicationConnectionDetail | null }>
-  | Readonly<{ kind: "stale-version-conflict"; detail: ChannelPublicationConnectionDetail }>
+  | Readonly<{
+      kind: "command-error";
+      message: string;
+      detail: ChannelPublicationConnectionDetail | null;
+      freshnessPending?: boolean;
+    }>
+  | Readonly<{ kind: "stale-version-conflict"; detail: ChannelPublicationConnectionDetail; freshnessPending?: boolean }>
   | Readonly<{ kind: "freshness-exhausted"; detail: ChannelPublicationConnectionDetail; onRefresh: () => void }>
+  | Readonly<{ kind: "freshness-pending"; detail: ChannelPublicationConnectionDetail }>
   | Readonly<{ kind: "ready"; detail: ChannelPublicationConnectionDetail }>;
 
-export function ChannelPublicationDetailPage({ state }: { state: ChannelPublicationDetailPageState }) {
+export function ChannelPublicationDetailPage({
+  state,
+  appliedVersion,
+}: {
+  state: ChannelPublicationDetailPageState;
+  appliedVersion?: number | null;
+}) {
   const detail =
-    state.kind === "ready" || state.kind === "stale-version-conflict" || state.kind === "freshness-exhausted"
+    state.kind === "ready" ||
+    state.kind === "stale-version-conflict" ||
+    state.kind === "freshness-exhausted" ||
+    state.kind === "freshness-pending"
       ? state.detail
       : state.kind === "command-error"
         ? state.detail
@@ -155,12 +170,23 @@ export function ChannelPublicationDetailPage({ state }: { state: ChannelPublicat
           actions={<Button onClick={state.onRefresh}>{t("channels.publication.freshness.exhausted.refresh")}</Button>}
         />
       ) : null}
-      {detail ? <DetailSections detail={detail} /> : null}
+      {state.kind === "freshness-pending" ? <Banner title={t("channels.publication.loading")} /> : null}
+      {detail ? (
+        <DetailSections
+          key={`${detail.connection.connectionId}:${appliedVersion ?? detail.configurationStreamVersion}`}
+          detail={detail}
+          disabled={
+            state.kind === "freshness-pending" ||
+            ((state.kind === "command-error" || state.kind === "stale-version-conflict") &&
+              state.freshnessPending === true)
+          }
+        />
+      ) : null}
     </Page>
   );
 }
 
-function DetailSections({ detail }: { detail: ChannelPublicationConnectionDetail }) {
+function DetailSections({ detail, disabled }: { detail: ChannelPublicationConnectionDetail; disabled: boolean }) {
   const settings = detail.settings;
   const review = detail.mappingReview;
   const blocked = detail.blockedListings;
@@ -175,7 +201,12 @@ function DetailSections({ detail }: { detail: ChannelPublicationConnectionDetail
           />
         ) : null}
         <Card elevation="tinted" data-elevation-role="furniture">
-          <Form key={`settings-${detail.configurationStreamVersion}`} method="post" spacing="none">
+          <RouterForm
+            key={`settings-${detail.configurationStreamVersion}`}
+            method="post"
+            spacing="none"
+            disabled={disabled}
+          >
             <Stack gap={3}>
               <HiddenInput type="hidden" name="intent" value="replace-settings" />
               <HiddenInput
@@ -213,7 +244,7 @@ function DetailSections({ detail }: { detail: ChannelPublicationConnectionDetail
               />
               <Button type="submit">{t("channels.publication.settings.save")}</Button>
             </Stack>
-          </Form>
+          </RouterForm>
         </Card>
       </PageSection>
       <PageSection title={t("channels.publication.blocked.title")}>
@@ -280,10 +311,11 @@ function DetailSections({ detail }: { detail: ChannelPublicationConnectionDetail
                   <Text tone="secondary">
                     {item.dimension} · {item.reviewStatus} · {item.confidenceTier}
                   </Text>
-                  <Form
+                  <RouterForm
                     key={`mapping-${item.dimension}-${item.sourceKey}-${detail.configurationStreamVersion}`}
                     method="post"
                     spacing="none"
+                    disabled={disabled}
                   >
                     <HiddenInput type="hidden" name="intent" value="decide-mapping" />
                     <HiddenInput type="hidden" name="dimension" value={item.dimension} />
@@ -311,7 +343,7 @@ function DetailSections({ detail }: { detail: ChannelPublicationConnectionDetail
                         </Button>
                       )}
                     </Stack>
-                  </Form>
+                  </RouterForm>
                 </Stack>
               </Card>
             ))}
