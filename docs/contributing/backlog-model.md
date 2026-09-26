@@ -150,8 +150,8 @@ fewer than two product issues are ready, planning lanes that make product issues
 ready take precedence over new infrastructure probes ([product capacity floor](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5838576100)).
 Controller, platform and test-infrastructure work use the remaining capacity.
 Heavy-slot admission order is unchanged; nothing preempts a live heavy owner.
-When the current priority outcome is serially blocked and has fewer ready
-product issues than the floor, the remaining product lanes take ready
+When the current priority outcome has fewer ready product issues than the
+floor (for example because it is a serial chain), the remaining product lanes take ready
 `kind:product` issues from the next committed outcomes in marker order
 ([#4388 ruling](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5845981597)). That backfill is not a priority change and needs no
 question. The current priority keeps first claim on each lane that frees, and

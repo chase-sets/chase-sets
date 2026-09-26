@@ -231,15 +231,25 @@ const issueStandard = readProse(".agents/skills/planning/references/issue-standa
 
 function assertHostedAttemptProof(text) {
   expect(text).toMatch(
-    /^- Hosted CI is the proof for every product attempt, not only DB \(\[#4388 ruling\]\([^)\s]+5845981597\)\)\. The hosted jobs on the pushed head decide it, including E2E, DB Profile, unit, static and build\. Local E2E, local `verify:test-db` and other local full or harness runs are diagnostics only and never a prerequisite for push, draft, ready or landing\. A local-harness, environment or lock failure never parks, fails or classifies your candidate: push it to the draft PR and let hosted CI judge it\.[^\r\n]*$/m,
+    /^- Hosted CI is the proof for every product attempt, not only DB \(\[#4388 ruling\]\([^)\s]+5845981597\)\)\. The hosted jobs on the pushed head decide it, including E2E, DB Profile, unit, static and build\. Local E2E, local `verify:test-db` and other local full or harness runs are diagnostics only and never a prerequisite for push, draft, ready or landing\. A local-harness, environment or lock failure never parks, fails or classifies your candidate: push it to the draft PR and let hosted CI judge it\. When a brief names a local run as a gate or a stop condition, take the hosted substitution and disclose it in the PR body\.$/m,
   );
   expect(text).toMatch(
-    /^- An implementation attempt counts toward an attempt ceiling only when a pushed head receives a hosted CI verdict or an exact-head review verdict \(\[#4388 ruling\]\([^)\s]+\)\)\. Local-only failures, preparation stops, harness or environment failures, lock refusals and defects in your own helper scripts do not count\. Fix them and continue within the same attempt instead of stopping\.$/m,
+    /^- An implementation attempt counts toward an attempt ceiling only when a pushed head receives a hosted CI verdict or an exact-head review verdict \(\[#4388 ruling\]\([^)\s]+5845981597\)\)\. Local-only failures, preparation stops, harness or environment failures, lock refusals and defects in your own tooling \(helper scripts, probes, config\) do not count\. Fix them and continue within the same attempt instead of stopping\.$/m,
+  );
+  expect(text).toContain(
+    "PR-lane CI runs the `DB Profile Tests` job on every PR whose change scope requires it (an affected workspace with DB-profile tests), and that hosted job is the DB proof; confirm it ran rather than skipped at your head.",
+  );
+  expect(text).toContain(
+    "disclose the exact-head PLAN_ONLY evidence. A harness or lock refusal of a scoped check is disclosed, not a draft blocker.",
   );
   expect(text).not.toMatch(/PR-lane CI does \*\*not\*\* run the DB-profile suite/);
 }
 
 function assertIssueStandardVelocity(text) {
+  expect(text).toContain("Hosted CI on the pushed head is the proof for every product attempt");
+  expect(text).toContain(
+    "without its output ([#4388 ruling](https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5845981597)); run it in parallel instead.",
+  );
   expect(text).toContain(
     "never make local E2E or another local full or harness run a gate, a prerequisite, or a PARK or stop condition.",
   );
@@ -250,7 +260,7 @@ function assertIssueStandardVelocity(text) {
 
 function assertFloorBackfill(text) {
   expect(text).toContain(
-    "When the current priority outcome is serially blocked and has fewer ready product issues than the floor, the remaining product lanes take ready `kind:product` issues from the next committed outcomes in marker order",
+    "When the current priority outcome has fewer ready product issues than the floor (for example because it is a serial chain), the remaining product lanes take ready `kind:product` issues from the next committed outcomes in marker order",
   );
   expect(text).toContain("That backfill is not a priority change and needs no question.");
   expect(text).toContain(
@@ -288,8 +298,33 @@ describe("hosted attempt proof and floor backfill contract", () => {
     },
     {
       name: "restores the stale DB-profile claim",
-      from: "PR-lane CI runs the `DB Profile Tests` job on every PR",
-      to: "PR-lane CI does **not** run the DB-profile suite",
+      from: "PR-lane CI runs the `DB Profile Tests` job on every PR whose change scope requires it (an affected workspace with DB-profile tests), and that hosted job is the DB proof; confirm it ran rather than skipped at your head.",
+      to: "PR-lane CI does **not** run the DB-profile suite.",
+    },
+    {
+      name: "claims DB Profile runs on every PR",
+      from: "on every PR whose change scope requires it (an affected workspace with DB-profile tests),",
+      to: "on every PR,",
+    },
+    {
+      name: "deletes the DB Profile proof sentence",
+      from: "PR-lane CI runs the `DB Profile Tests` job on every PR whose change scope requires it (an affected workspace with DB-profile tests), and that hosted job is the DB proof; confirm it ran rather than skipped at your head. ",
+      to: "",
+    },
+    {
+      name: "drops the brief substitution",
+      from: " When a brief names a local run as a gate or a stop condition, take the hosted substitution and disclose it in the PR body.",
+      to: "",
+    },
+    {
+      name: "narrows tooling defects to helper scripts",
+      from: "defects in your own tooling (helper scripts, probes, config)",
+      to: "defects in your own helper scripts",
+    },
+    {
+      name: "lets a scoped-check refusal block the draft",
+      from: " A harness or lock refusal of a scoped check is disclosed, not a draft blocker.",
+      to: "",
     },
   ])("rejects a delivery mutant that $name", ({ from, to }) => {
     const mutant = instruction.replace(from, to);
@@ -305,6 +340,16 @@ describe("hosted attempt proof and floor backfill contract", () => {
       to: "a gate.",
     },
     {
+      name: "drops the hosted lead clause",
+      from: "Hosted CI on the pushed head is the proof for every product attempt",
+      to: "Hosted CI is advisory",
+    },
+    {
+      name: "drops run-in-parallel",
+      from: "; run it in parallel instead.",
+      to: ".",
+    },
+    {
       name: "lets diagnostics block product",
       from: "is never a blocking dependency of a product issue",
       to: "may block a product issue",
@@ -317,6 +362,11 @@ describe("hosted attempt proof and floor backfill contract", () => {
   });
 
   it.each([
+    {
+      name: "re-narrows backfill to serial blocking",
+      from: "When the current priority outcome has fewer ready product issues than the floor (for example because it is a serial chain),",
+      to: "When the current priority outcome is serially blocked and has fewer ready product issues than the floor,",
+    },
     {
       name: "drops the backfill",
       from: "the remaining product lanes take ready `kind:product` issues from the next committed outcomes in marker order",
