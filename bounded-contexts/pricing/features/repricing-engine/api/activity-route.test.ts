@@ -1,3 +1,4 @@
+import { resolveActorFromSessionId } from "@chase-sets/auth/server";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { PricingApiEnv } from "../../../api";
@@ -5,7 +6,12 @@ import { createRepricingActivityRoutes } from "./activity-route";
 import { repricingActivityFilters } from "./activity";
 import type { RepricingPolicyRecord } from "../../repricing-policies/read-model/queries";
 
-function buildApp(accountId = "account-a", permissions = ["pricing.view"], authenticated = true) {
+function buildApp(
+  accountId = "account-a",
+  permissions = ["pricing.view"],
+  authenticated = true,
+  resolvedActor?: NonNullable<Awaited<ReturnType<typeof resolveActorFromSessionId>>>,
+) {
   const services: Parameters<typeof createRepricingActivityRoutes>[0] = {
     getAccountRepricingPolicy: vi.fn(
       async (account: string, policyId: string): Promise<RepricingPolicyRecord | null> =>
@@ -65,15 +71,18 @@ function buildApp(accountId = "account-a", permissions = ["pricing.view"], authe
   const app = new Hono<PricingApiEnv>();
   app.use("*", async (c, next) => {
     if (authenticated)
-      c.set("actor", {
-        sessionId: "ses_1",
-        tenantId: "tnt_identity",
-        userId: "usr_7912",
-        accountId,
-        membershipId: "mbr_1",
-        roleKey: "owner",
-        permissions,
-      });
+      c.set(
+        "actor",
+        resolvedActor ?? {
+          sessionId: "ses_1",
+          tenantId: "tnt_identity",
+          userId: "usr_7912",
+          accountId,
+          membershipId: "mbr_1",
+          roleKey: "owner",
+          permissions,
+        },
+      );
     return next();
   });
   app.route("/account/repricing-policies", createRepricingActivityRoutes(services));
@@ -82,6 +91,20 @@ function buildApp(accountId = "account-a", permissions = ["pricing.view"], authe
 const base = "/account/repricing-policies";
 
 describe("repricing activity routes", () => {
+  it.each(["owner", "manager", "fulfillment", "viewer", "platform-admin"])(
+    "uses resolved pricing presets: %s",
+    async (roleKey) => {
+      for (const verified of [true, false]) {
+        const actor = await resolvePricingActor(roleKey, verified, "acc_synthetic_a");
+        const { app } = buildApp(actor.accountId, [], true, actor);
+        expect((await app.request(`${base}/policy-a/activity`)).status).toBe(roleKey === "platform-admin" ? 403 : 200);
+        expect((await app.request(`${base}/attention-summary`)).status).toBe(roleKey === "platform-admin" ? 403 : 200);
+        if (roleKey !== "platform-admin") {
+          expect((await app.request(`${base}/policy-b/activity`)).status).toBe(404);
+        }
+      }
+    },
+  );
   it("does not impose read authorization on neighboring policy commands", async () => {
     const { app } = buildApp("account-a", ["pricing.manage"]);
     app.post(`${base}/policy-a/revise`, (c) => c.body(null, 204));
@@ -134,3 +157,47 @@ describe("repricing activity routes", () => {
     expect((await buildApp("account-a", []).app.request(base + path)).status).toBe(403);
   });
 });
+
+async function resolvePricingActor(roleKey: string, verified = true, accountId = "acc_synthetic_pricing") {
+  const services = {
+    sessions: {
+      readAuthenticatedSession: vi.fn(async () => ({
+        state: {
+          id: "ses_synthetic_pricing",
+          userId: "usr_synthetic_pricing",
+          accountId,
+          availableAccountIds: [accountId],
+          authenticationMethod: "password",
+          status: "active",
+          expiresAt: "2099-01-01T00:00:00.000Z",
+        },
+        authenticatedAt: "2026-09-01T00:00:00.000Z",
+      })),
+      getSession: vi.fn(async () => null),
+    },
+    identity: {
+      getActiveMembershipForUserAccount: vi.fn(async () => ({
+        membership_id: "mbr_synthetic_pricing",
+        user_id: "usr_synthetic_pricing",
+        account_id: accountId,
+        role_key: roleKey,
+        role_permissions: [],
+        status: "active",
+      })),
+      getUser: vi.fn(async () => ({
+        primary_email: "synthetic-pricing@example.test",
+        contact_methods: [
+          {
+            type: "email",
+            value: "synthetic-pricing@example.test",
+            verifiedAt: verified ? "2026-09-01T00:00:00.000Z" : null,
+          },
+        ],
+        social_login_links: [],
+      })),
+    },
+  } as unknown as Parameters<typeof resolveActorFromSessionId>[0];
+  const actor = await resolveActorFromSessionId(services, "ses_synthetic_pricing");
+  expect(actor).not.toBeNull();
+  return actor!;
+}

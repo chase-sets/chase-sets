@@ -491,6 +491,9 @@ describe("registration auth routes", () => {
       String(sql).includes("INSERT INTO auth_identity_user_memberships"),
     );
     expect(JSON.parse(String(membershipMirrorCall?.[1]?.[4]))).toContain("listings.view");
+    expect(JSON.parse(String(membershipMirrorCall?.[1]?.[4]))).toEqual(
+      expect.arrayContaining(["pricing.view", "pricing.manage"]),
+    );
     expect(mockStartInteractiveAuth).toHaveBeenCalledWith(
       services,
       expect.objectContaining({
@@ -501,6 +504,7 @@ describe("registration auth routes", () => {
             membershipId: "mbr_new",
             accountId: "acc_new",
             roleKey: "owner",
+            rolePermissions: expect.arrayContaining(["pricing.view", "pricing.manage"]),
             status: "active",
           }),
         ],
