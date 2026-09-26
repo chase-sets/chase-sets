@@ -1852,6 +1852,22 @@ describe("DigitalOcean platform configuration", () => {
     expect(dbProfileJob).toContain("image: pgvector/pgvector:pg16");
     expect(dbProfileJob).toContain("TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres");
     expect(dbProfileJob).toContain("target_max_locks_per_transaction=512");
+    expect(dbProfileJob).toContain("id: platform-api-selected");
+    const idIdx = dbProfileJob.indexOf("id: platform-api-selected");
+    const runIdx = dbProfileJob.indexOf("- name: Run DB-profile tests");
+    expect(idIdx).toBeGreaterThan(-1);
+    expect(runIdx).toBeGreaterThan(-1);
+    expect(idIdx).toBeLessThan(runIdx);
+    const selection = dbProfileJob.slice(dbProfileJob.lastIndexOf("- name:", idIdx), runIdx);
+    expect(selection).not.toContain("if:");
+    expect(selection).toContain("AFFECTED_WORKSPACES: ${{ needs['change-scope'].outputs.affected_workspaces }}");
+    expect(selection).toContain(
+      'if [[ -z "$AFFECTED_WORKSPACES" || ",$AFFECTED_WORKSPACES," == *",@chase-sets/app-platform-api,"* ]]; then',
+    );
+    expect(dbProfileJob).toContain("if: always() && steps.platform-api-selected.outputs.selected == 'true'");
+    expect(dbProfileJob).toContain("name: bootstrap-db-evidence-${{ github.run_id }}-${{ github.run_attempt }}");
+    expect(dbProfileJob).toContain("path: deployables/platform-api/artifacts/bootstrap-db-evidence");
+    expect(dbProfileJob).toContain("if-no-files-found: error");
     expect(dbProfileJob).toContain(
       'run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2 --workspace-list="${{ needs[\'change-scope\'].outputs.affected_workspaces }}"',
     );

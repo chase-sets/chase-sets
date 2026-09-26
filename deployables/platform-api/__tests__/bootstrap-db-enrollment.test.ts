@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
 
 import ts from "@chase-sets/typescript-compiler-api";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   bootstrapDbEnrollmentManifest,
@@ -2160,6 +2160,465 @@ describe("Platform API bootstrap DB enrollment", () => {
         expect.stringContaining("vitest.config.ts is required to derive the executable test-entry set"),
       ]),
     );
+  });
+});
+
+describe("bootstrap DB evidence", () => {
+  const syntheticHead = "0000000000000000000000000000000000007993";
+  const syntheticMerge = "0000000000000000000000000000000000007994";
+  const syntheticBase = "0000000000000000000000000000000000007992";
+  const syntheticHash = "a".repeat(64);
+  const unit = "test:db:1";
+  const file = "synthetic-evidence.db.test.ts";
+  const manifest = {
+    [file]: {
+      executionUnit: unit,
+      sourceSha256: syntheticHash,
+      cases: [{ name: "synthetic case", identity: "synthetic-identity" }],
+    },
+  };
+  const validator = () =>
+    import(pathToFileURL(join(testDirectory, "../scripts/validate-bootstrap-db-evidence.mjs")).href);
+
+  async function fixture(merge = false) {
+    const directory = await mkdtemp(join(tmpdir(), "bootstrap-db-evidence-"));
+    temporaryRoots.push(directory);
+    const start: Record<string, unknown> = {
+      kind: "runStart",
+      unit,
+      startedAt: "2026-01-01T00:00:01.000Z",
+      pid: 1,
+      node: "synthetic-node",
+      checkoutSha: merge ? syntheticMerge : syntheticHead,
+      githubSha: merge ? syntheticMerge : syntheticHead,
+      event: merge ? "pull_request" : "push",
+      eventHeadSha: merge ? syntheticHead : null,
+      headParents: [merge ? syntheticMerge : syntheticHead],
+      rawParents: [syntheticBase, syntheticHead],
+      runId: "synthetic-run",
+      runAttempt: "1",
+      job: "synthetic-job",
+    };
+    const module: Record<string, unknown> = {
+      kind: "module",
+      file,
+      sourceSha256: syntheticHash,
+      identities: [{ name: "synthetic case", identity: "synthetic-identity" }],
+      state: "passed",
+      diagnostic: { duration: 500 },
+      errors: [],
+      cases: [
+        {
+          name: "synthetic case",
+          fullName: "synthetic suite > synthetic case",
+          result: { state: "passed" },
+          diagnostic: { duration: 400 },
+          durationMs: 400,
+        },
+      ],
+    };
+    const end: Record<string, unknown> = {
+      kind: "runEnd",
+      finishedAt: "2026-01-01T00:00:02.000Z",
+      wallMs: 1000,
+      moduleCount: 1,
+      errors: [],
+      reason: "passed",
+    };
+    const rows = [start, module, end];
+    const path = join(directory, "test-db-1.jsonl");
+    const write = () => writeFile(path, rows.map((row) => JSON.stringify(row)).join("\n") + "\n");
+    await write();
+    return { directory, path, start, module, end, rows, write };
+  }
+
+  it("keeps the guard prefix and both reporters on every numbered DB script", () => {
+    const { scripts } = JSON.parse(readFileSync(join(testDirectory, "../package.json"), "utf8"));
+    const units = Object.keys(scripts).filter((name) => /^test:db:\d+$/.test(name));
+    expect(units).toEqual(["test:db:1", "test:db:2"]);
+    for (const name of units) {
+      expect(scripts[name]).toMatch(/^node \.\/scripts\/check-bootstrap-db-enrollment\.mjs && vitest run /);
+      expect(scripts[name]).toContain(
+        "--maxWorkers=3 --reporter=default --reporter=./scripts/bootstrap-db-evidence-reporter.mjs",
+      );
+    }
+  });
+
+  it("refuses empty evidence even with an empty manifest override", async () => {
+    const data = await fixture();
+    await rm(data.path);
+    const { validateBootstrapDbEvidence } = await validator();
+    expect(
+      validateBootstrapDbEvidence({ directory: data.directory, manifest: {}, expectedHead: syntheticHead }),
+    ).toMatchObject({ valid: false });
+  });
+
+  it.each([false, true])(
+    "binds complete synthetic push/PR evidence (merge=%s), including shallow parents",
+    async (merge) => {
+      const data = await fixture(merge);
+      const { validateBootstrapDbEvidence } = await validator();
+      expect(
+        validateBootstrapDbEvidence({ directory: data.directory, manifest, expectedHead: syntheticHead }),
+      ).toMatchObject({ valid: true, violations: [] });
+    },
+  );
+
+  const corruptions: [string, (data: Awaited<ReturnType<typeof fixture>>) => void][] = [
+    [
+      "missing runStart",
+      (data) => {
+        data.rows.shift();
+      },
+    ],
+    [
+      "duplicate runStart",
+      (data) => {
+        data.rows.splice(1, 0, data.start);
+      },
+    ],
+    [
+      "missing unit identity",
+      (data) => {
+        delete data.start.unit;
+      },
+    ],
+    [
+      "unknown unit identity",
+      (data) => {
+        data.start.unit = "test:db:99";
+      },
+    ],
+    [
+      "missing checkoutSha",
+      (data) => {
+        delete data.start.checkoutSha;
+      },
+    ],
+    [
+      "missing rawParents",
+      (data) => {
+        delete data.start.rawParents;
+      },
+    ],
+    [
+      "wrong second parent",
+      (data) => {
+        data.start.rawParents = [syntheticHead, syntheticBase];
+      },
+    ],
+    [
+      "missing eventHeadSha",
+      (data) => {
+        delete data.start.eventHeadSha;
+      },
+    ],
+    [
+      "wrong eventHeadSha",
+      (data) => {
+        data.start.eventHeadSha = syntheticBase;
+      },
+    ],
+    [
+      "single parent",
+      (data) => {
+        data.start.rawParents = [syntheticHead];
+      },
+    ],
+    [
+      "checkout differs from GITHUB_SHA",
+      (data) => {
+        data.start.githubSha = syntheticBase;
+      },
+    ],
+    [
+      "push with another checkout",
+      (data) => {
+        data.start.event = "push";
+      },
+    ],
+    [
+      "missing wallMs",
+      (data) => {
+        delete data.end.wallMs;
+      },
+    ],
+    [
+      "missing finishedAt",
+      (data) => {
+        delete data.end.finishedAt;
+      },
+    ],
+    [
+      "negative wall",
+      (data) => {
+        data.end.wallMs = -1;
+      },
+    ],
+    [
+      "inconsistent wall",
+      (data) => {
+        data.end.wallMs = 50;
+      },
+    ],
+    [
+      "missing runEnd",
+      (data) => {
+        data.rows.pop();
+      },
+    ],
+    [
+      "missing module",
+      (data) => {
+        data.rows.splice(1, 1);
+        data.end.moduleCount = 0;
+      },
+    ],
+    [
+      "unknown module",
+      (data) => {
+        data.module.file = "unmanifested-connector.db.test.ts";
+      },
+    ],
+    [
+      "duplicate module",
+      (data) => {
+        data.rows.splice(1, 0, data.module);
+        data.end.moduleCount = 2;
+      },
+    ],
+    [
+      "case count differs",
+      (data) => {
+        data.module.cases = [];
+      },
+    ],
+    [
+      "sourceSha256 mismatch",
+      (data) => {
+        data.module.sourceSha256 = "b".repeat(64);
+      },
+    ],
+    [
+      "case identity changed",
+      (data) => {
+        data.module.identities = [{ name: "synthetic case", identity: "changed" }];
+      },
+    ],
+    [
+      "failed run",
+      (data) => {
+        data.end.reason = "failed";
+      },
+    ],
+    [
+      "unhandled run errors",
+      (data) => {
+        data.end.errors = [{ message: "synthetic error" }];
+      },
+    ],
+    [
+      "module count differs",
+      (data) => {
+        data.end.moduleCount = 2;
+      },
+    ],
+    [
+      "failed module",
+      (data) => {
+        data.module.state = "failed";
+      },
+    ],
+    [
+      "module errors",
+      (data) => {
+        data.module.errors = [{ message: "synthetic error" }];
+      },
+    ],
+    [
+      "missing module duration",
+      (data) => {
+        data.module.diagnostic = {};
+      },
+    ],
+    [
+      "skipped case",
+      (data) => {
+        data.module.cases = [
+          {
+            name: "synthetic case",
+            fullName: "synthetic case",
+            result: { state: "skipped" },
+            diagnostic: { duration: 0 },
+            durationMs: 0,
+          },
+        ];
+      },
+    ],
+    [
+      "failed case",
+      (data) => {
+        data.module.cases = [
+          {
+            name: "synthetic case",
+            fullName: "synthetic case",
+            result: { state: "failed" },
+            diagnostic: { duration: 400 },
+            durationMs: 400,
+          },
+        ];
+      },
+    ],
+    [
+      "unknown row",
+      (data) => {
+        data.rows.splice(1, 0, { kind: "unexpected" });
+      },
+    ],
+  ];
+  it.each(corruptions)("refuses %s", async (_name, corrupt) => {
+    const data = await fixture(true);
+    corrupt(data);
+    await data.write();
+    const { validateBootstrapDbEvidence } = await validator();
+    const result = validateBootstrapDbEvidence({ directory: data.directory, manifest, expectedHead: syntheticHead });
+    expect(result.valid).toBe(false);
+    expect(result.violations.length).toBeGreaterThan(0);
+  });
+
+  it.each(["missing directory", "missing unit file", "unknown unit file", "malformed line", "null row"])(
+    "refuses %s",
+    async (kind) => {
+      const data = await fixture();
+      if (kind === "missing unit file") await rm(data.path);
+      if (kind === "unknown unit file") await writeFile(join(data.directory, "test-db-99.jsonl"), "{}\n");
+      if (kind === "malformed line") await writeFile(data.path, "{\n");
+      if (kind === "null row") await writeFile(data.path, "null\n");
+      const { validateBootstrapDbEvidence } = await validator();
+      expect(
+        validateBootstrapDbEvidence({
+          directory: kind === "missing directory" ? join(data.directory, "absent") : data.directory,
+          manifest,
+          expectedHead: syntheticHead,
+        }).valid,
+      ).toBe(false);
+    },
+  );
+
+  const workspace = "@chase-sets/app-platform-api";
+  const lines = [
+    `2026-01-01T00:00:00.000Z Running test:db:1 in ${workspace}...`,
+    `2026-01-01T00:00:02.000Z [${workspace}] first unit done`,
+    "2026-01-01T00:00:03.000Z [@chase-sets/pricing] other workspace",
+    `2026-01-01T00:00:04.000Z Running test:db:2 in ${workspace}...`,
+    `2026-01-01T00:00:06.000Z [${workspace}] second unit done`,
+    "2026-01-01T00:00:09.000Z [@chase-sets/pricing] longer tail",
+    "2026-01-01T00:00:10.000Z step ended",
+  ];
+  const runEnds = { "test:db:1": "2026-01-01T00:00:02.000Z", "test:db:2": "2026-01-01T00:00:06.000Z" };
+  it("derives workspace-only unit walls without billing another workspace or step tail", async () => {
+    const { deriveUnitWallsFromStepLog } = await validator();
+    expect(deriveUnitWallsFromStepLog({ lines, workspace, units: Object.keys(runEnds), runEnds })).toEqual([
+      {
+        unit: "test:db:1",
+        runningAt: Date.parse("2026-01-01T00:00:00Z"),
+        lastPrefixedAt: Date.parse("2026-01-01T00:00:02Z"),
+        endAt: Date.parse("2026-01-01T00:00:02Z"),
+        wallMs: 2000,
+      },
+      {
+        unit: "test:db:2",
+        runningAt: Date.parse("2026-01-01T00:00:04Z"),
+        lastPrefixedAt: Date.parse("2026-01-01T00:00:06Z"),
+        endAt: Date.parse("2026-01-01T00:00:06Z"),
+        wallMs: 2000,
+      },
+    ]);
+  });
+  it("uses a later reporter end for the last or aborted unit", async () => {
+    const { deriveUnitWallsFromStepLog } = await validator();
+    expect(
+      deriveUnitWallsFromStepLog({
+        lines: lines.slice(0, 3),
+        workspace,
+        units: [unit],
+        runEnds: { [unit]: "2026-01-01T00:00:03.000Z" },
+      })[0].wallMs,
+    ).toBe(3000);
+  });
+  it.each(["missing", "duplicate"])("refuses a %s Running line", async (kind) => {
+    const { deriveUnitWallsFromStepLog } = await validator();
+    expect(() =>
+      deriveUnitWallsFromStepLog({
+        lines: kind === "missing" ? lines.slice(1) : [lines[0], ...lines],
+        workspace,
+        units: Object.keys(runEnds),
+        runEnds,
+      }),
+    ).toThrow(/missing or duplicate Running/);
+  });
+
+  it("reporter refuses an unidentified unit and preserves incremental failure rows", async () => {
+    const { default: Reporter } = await import(
+      pathToFileURL(join(testDirectory, "../scripts/bootstrap-db-evidence-reporter.mjs")).href
+    );
+    const data = await fixture();
+    const sourcePath = join(data.directory, file);
+    await writeFile(sourcePath, 'it("synthetic case", () => {});');
+    try {
+      vi.stubEnv("BOOTSTRAP_DB_EVIDENCE_UNIT", "invalid");
+      expect(() => new Reporter()).toThrow(/numbered test:db unit/);
+      vi.stubEnv("BOOTSTRAP_DB_EVIDENCE_UNIT", unit);
+      vi.stubEnv("GITHUB_EVENT_PATH", "");
+      const reporter = new Reporter();
+      reporter.output = data.path;
+      reporter.onTestRunStart();
+      const startRows = (await readFile(data.path, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      expect(startRows).toHaveLength(1);
+      expect(startRows[0]).toMatchObject({ kind: "runStart", unit });
+      expect(startRows[0].rawParents).toBeInstanceOf(Array);
+      const module = {
+        moduleId: sourcePath,
+        state: () => "failed",
+        diagnostic: () => ({ duration: 20 }),
+        errors: () => [{ message: "synthetic failure" }],
+        children: {
+          allTests: () => [
+            {
+              name: "synthetic case",
+              fullName: "synthetic case",
+              result: () => ({ state: "failed" }),
+              diagnostic: () => ({ duration: 10 }),
+            },
+          ],
+        },
+      };
+      reporter.onTestModuleEnd(module);
+      expect((await readFile(data.path, "utf8")).trim().split("\n")).toHaveLength(2);
+      reporter.onTestRunEnd([module], [], "failed");
+      const rows = (await readFile(data.path, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      expect(rows).toHaveLength(3);
+      expect(rows[1]).toMatchObject({
+        kind: "module",
+        state: "failed",
+        cases: [{ durationMs: 10, result: { state: "failed" } }],
+      });
+      expect(rows[1].sourceSha256).toBe(
+        createHash("sha256")
+          .update(await readFile(sourcePath))
+          .digest("hex"),
+      );
+      expect(rows[2]).toMatchObject({ kind: "runEnd", reason: "failed", moduleCount: 1 });
+      expect(rows[2].wallMs).toBe(Date.parse(rows[2].finishedAt) - Date.parse(rows[0].startedAt));
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
 

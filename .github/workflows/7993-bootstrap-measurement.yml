@@ -2,7 +2,7 @@ name: AC16 Bootstrap Measurement Only
 
 on:
   push:
-    branches: [codex/7993-connector-authority-g1]
+    branches: [codex/7993-connector-authority-g1-measurement]
     paths: [.github/workflows/7993-bootstrap-measurement.yml]
 
 permissions:
@@ -11,7 +11,7 @@ permissions:
 jobs:
   measurement:
     name: Diagnostic API Bootstrap Measurement Only
-    if: github.repository == 'chase-sets/chase-sets' && github.ref == 'refs/heads/codex/7993-connector-authority-g1'
+    if: github.repository == 'chase-sets/chase-sets' && github.ref == 'refs/heads/codex/7993-connector-authority-g1-measurement' && github.run_attempt == 1
     runs-on: ubuntu-latest
     timeout-minutes: 30
     services:
@@ -34,6 +34,7 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
+          ref: ${{ github.sha }}
 
       - uses: ./.github/actions/setup-pnpm-workspace
         with:
@@ -44,10 +45,33 @@ jobs:
           POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
         run: |
           set -euo pipefail
+
+          # The eight-file bootstrap DB partition (#6035) runs with bounded
+          # --maxWorkers=3, so up to ~3 x ~20 concurrent multi-context pools
+          # each cascade-drop their schemas in beforeEach. max_locks_per_transaction
+          # is a postmaster-start parameter: ALTER SYSTEM only stages the
+          # change, the shared lock table isn't resized until the postmaster
+          # restarts (a reload/SIGHUP is not sufficient), so this restarts the
+          # service container and confirms the effective setting before any
+          # DB-profile command runs.
           target_max_locks_per_transaction=512
+          # 300 is bounded headroom, not an observed hosted peak. Workspace
+          # concurrency stays 2; pools allocate clients on demand, not at max.
+          target_max_connections=300
+
+          free -m
+          docker inspect --format 'Memory={{.HostConfig.Memory}} MemorySwap={{.HostConfig.MemorySwap}} ShmSize={{.HostConfig.ShmSize}} (bytes; Memory=0 means no Docker limit)' "$POSTGRES_CONTAINER_ID"
+          docker exec "$POSTGRES_CONTAINER_ID" sh -c '
+            for setting in /sys/fs/cgroup/memory.max /sys/fs/cgroup/memory.high /sys/fs/cgroup/memory/memory.limit_in_bytes; do
+              if [ -r "$setting" ]; then printf "%s=" "$setting"; cat "$setting"; fi
+            done'
+
           docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -c \
             "ALTER SYSTEM SET max_locks_per_transaction = ${target_max_locks_per_transaction};"
+          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -c \
+            "ALTER SYSTEM SET max_connections = ${target_max_connections};"
           docker restart "$POSTGRES_CONTAINER_ID"
+
           ready=false
           for _ in $(seq 1 30); do
             if docker exec "$POSTGRES_CONTAINER_ID" pg_isready -U postgres -d postgres >/dev/null 2>&1; then
@@ -61,12 +85,22 @@ jobs:
             docker logs "$POSTGRES_CONTAINER_ID" >&2 || true
             exit 1
           fi
+
           effective="$(docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -tAc 'SHOW max_locks_per_transaction;' | tr -d '[:space:]')"
           if [ "$effective" != "$target_max_locks_per_transaction" ]; then
             echo "Expected max_locks_per_transaction=${target_max_locks_per_transaction} but Postgres reports ${effective}." >&2
             exit 1
           fi
           echo "PostgreSQL max_locks_per_transaction is now ${effective}."
+
+          effective="$(docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -tAc 'SHOW max_connections;' | tr -d '[:space:]')"
+          if [ "$effective" != "$target_max_connections" ]; then
+            echo "Expected max_connections=${target_max_connections} but Postgres reports ${effective}." >&2
+            exit 1
+          fi
+          echo "PostgreSQL max_connections is now ${effective}."
+          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -v ON_ERROR_STOP=1 -c \
+            'SHOW max_connections; SHOW max_locks_per_transaction; SHOW shared_buffers; SHOW work_mem; SHOW maintenance_work_mem; SHOW superuser_reserved_connections; SHOW reserved_connections;'
 
       - name: Measure exact API partitions without granting enrollment authority
         run: |
@@ -115,9 +149,12 @@ jobs:
             workflowSha: process.env.GITHUB_WORKFLOW_SHA, repository: process.env.GITHUB_REPOSITORY,
             ref: process.env.GITHUB_REF, runnerOs: process.env.RUNNER_OS,
           };
+          if (identity.checkoutSha !== process.env.GITHUB_SHA || identity.runAttempt !== '1') {
+            throw new Error('Measurement requires the exact prerequisite SHA and sole first attempt');
+          }
           writeFileSync(resolve(output, 'identity.json'), JSON.stringify(identity, null, 2));
           const units = [];
-          for (const unit of ['test:db:1', 'test:db:2', 'test:db:3']) {
+          for (const unit of ['test:db:1', 'test:db:2']) {
             const parts = scripts[unit].split(' && ');
             if (parts.length !== 2 || parts[0] !== 'node ./scripts/check-bootstrap-db-enrollment.mjs'
               || !parts[1].startsWith('vitest run --config ./vitest.config.ts ')
@@ -128,7 +165,8 @@ jobs:
             const startedAt = new Date().toISOString();
             const start = performance.now();
             const result = spawnSync('pnpm', args, { cwd, stdio: 'inherit', env: {
-              ...process.env, MEASUREMENT_OUTPUT: resolve(output, unit.replaceAll(':', '-') + '.jsonl'),
+              ...process.env, BOOTSTRAP_DB_EVIDENCE_UNIT: unit,
+              MEASUREMENT_OUTPUT: resolve(output, unit.replaceAll(':', '-') + '.jsonl'),
             }});
             units.push({ unit, ordinaryCommand: scripts[unit], command: ['pnpm', ...args],
               startedAt, finishedAt: new Date().toISOString(), durationMs: performance.now() - start,
@@ -143,5 +181,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ac16-bootstrap-measurement-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/7993-measurement/
+          path: |
+            artifacts/7993-measurement/
+            deployables/platform-api/artifacts/bootstrap-db-evidence/
           if-no-files-found: error
