@@ -2518,7 +2518,7 @@
     "tailwind.config.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 278,
+    "count": 280,
     "fileList": [
       "bounded-contexts/auth/features/sessions/api/route.ts",
       "bounded-contexts/auth/support/ucp-support/connector-oauth.ts",

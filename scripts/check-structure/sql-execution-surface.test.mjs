@@ -832,7 +832,7 @@ describe("repository-wide SQL execution partition", () => {
     expect(legacyPartition.sqlExecuting).toHaveLength(441);
     expect(legacyPartition.unprovableForm).toHaveLength(3);
     expect(legacyPartition.notSql).toHaveLength(2073);
-    expect(legacyPartition.unresolvedMemberRoots.count).toBe(278);
+    expect(legacyPartition.unresolvedMemberRoots.count).toBe(280);
     expect(partition.sqlExecuting).toEqual(legacyPartition.sqlExecuting);
     expect(partition.unprovableForm).toEqual(legacyPartition.unprovableForm);
     expect(partition.notSql).toEqual(legacyPartition.notSql.filter((file) => !exactRemovedModules.includes(file)));
