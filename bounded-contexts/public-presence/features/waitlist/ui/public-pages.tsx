@@ -357,14 +357,12 @@ function usePromoBarMessages() {
   return messages;
 }
 
-// The one gold-foil word this page carries under the ratified foil law:
-// splits the shipped locale title around its treated subject noun so
-// BrandFoilText wraps only that word, never the whole heading.
 function heroTitleContent(title: string, treatedWord: string): ReactNode {
-  const index = title.indexOf(treatedWord);
-  if (index === -1) {
-    throw new Error(`Expected treated word "${treatedWord}" in hero title "${title}".`);
+  const matches = Array.from(title.matchAll(new RegExp(`\\b${treatedWord}\\b`, "g")));
+  if (matches.length !== 1) {
+    return title;
   }
+  const index = matches[0]!.index;
   return (
     <>
       {title.slice(0, index)}
@@ -489,7 +487,7 @@ function MobileStickyWaitlistCta({ landingExperimentVariant }: { landingExperime
   }
 
   return (
-    <MobileStickyBar>
+    <MobileStickyBar data-public-presence-sticky-cta="">
       <Container width="wide">
         <Cluster gap={2}>
           <Text size="sm" weight="semibold">
@@ -774,7 +772,7 @@ function OpenOffersSection() {
           "publicPresence.home.openOffers.step.accept",
           "publicPresence.home.openOffers.step.checkout",
         ].map((key, index) => (
-          <Surface key={key} elevation="elevated">
+          <Surface key={key} elevation="tinted">
             <Stack gap={2}>
               <Badge tone="neutral">{index + 1}</Badge>
               <Text tone="secondary">{t(key)}</Text>
