@@ -1,3 +1,5 @@
-import { defineConfig } from "vitest/config";
+import { defineWorkspaceTestConfig } from "../../vitest.shared.mjs";
 
-export default defineConfig({ test: { environment: "jsdom", include: ["*.test.ts"] } });
+export default defineWorkspaceTestConfig({
+  test: { environment: "jsdom", include: ["*.test.ts"] },
+});
