@@ -49,7 +49,7 @@ export function PricingRepricingPolicyCatchingUpPage({ refreshHref }: Readonly<{
 }
 
 // The folded policy, read-only. `editAction` is the reserved header slot the
-// policy editor (#7915) fills; this page renders no editing affordance itself.
+// policy editor fills; this page renders no editing affordance itself.
 export function PricingRepricingPolicyDetailPage({
   policy,
   halt,

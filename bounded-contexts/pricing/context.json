@@ -437,7 +437,7 @@
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "The Seller Desk repricing list loader forwards the policy command receipt to the policy list read only; a valid fresh-write projection freshness timeout shows a refreshable catching-up banner in place of the policy table, so a deleted policy never lingers in the list from stale membership. Halt, budget and dry-run reads never carry the receipt."
+          "behavior": "The Seller Desk repricing list loader forwards the policy command receipt to the policy list read only; a valid fresh-write projection freshness timeout shows a refreshable catching-up banner in place of the policy table, so a deleted policy never lingers in the list from stale membership. The page reloads itself with the same receipt at most ten times, 250 ms apart, and the refresh link stays available once that budget is spent. Halt, budget and dry-run reads never carry the receipt."
         }
       },
       "proof": {
@@ -470,7 +470,7 @@
         "helperUses": ["loadAfterWrite"],
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "The Seller Desk policy detail loader treats valid fresh-write not-found and projection freshness timeout responses as a refreshable catching-up page; without a valid, unexpired receipt a missing policy stays an ordinary not-found and authorization failures propagate unchanged."
+          "behavior": "The Seller Desk policy detail loader treats valid fresh-write not-found and projection freshness timeout responses as a refreshable catching-up page that reloads itself with the same receipt at most ten times, 250 ms apart, before leaving the refresh link to the seller; without a valid, unexpired receipt a missing policy stays an ordinary not-found and authorization failures propagate unchanged."
         }
       },
       "proof": {
@@ -524,7 +524,7 @@
         "description": "Policy command responses contain folded aggregate state and commit metadata. Seller Desk policy redirects carry that metadata into a bounded fresh read. Policy-list membership and policy-detail existence depend on pricing_repricing_policies, owned by pricing-repricing-policy-projection; returned policy bodies are folded from owned aggregates. Halt state is read directly from its aggregate and is not protected by a policy-projection wait. Pending and permanent recovery follow the shared freshness contract.",
         "transientRecovery": {
           "kinds": "refreshable-catching-up",
-          "behavior": "The Seller Desk repricing list loader forwards the policy command receipt to the policy list read only; a valid fresh-write projection freshness timeout shows a refreshable catching-up banner in place of the policy table, so a deleted policy never lingers in the list from stale membership. Halt, budget and dry-run reads never carry the receipt."
+          "behavior": "The Seller Desk repricing list loader forwards the policy command receipt to the policy list read only; a valid fresh-write projection freshness timeout shows a refreshable catching-up banner in place of the policy table, so a deleted policy never lingers in the list from stale membership. The page reloads itself with the same receipt at most ten times, 250 ms apart, and the refresh link stays available once that budget is spent. Halt, budget and dry-run reads never carry the receipt."
         }
       },
       "proof": {

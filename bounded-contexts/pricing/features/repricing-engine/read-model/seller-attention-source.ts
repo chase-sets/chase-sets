@@ -2,7 +2,10 @@
 // Attention Source (`pricing-repricing`). It maps the account-scoped repricing
 // attention summary into queue items; every count comes from that summary, and
 // the frozen state comes from the retained listing-outcome rows, never a live
-// breaker read. All items deep-link to the Desk repricing policy list.
+// breaker read. The halt is the exception: it is read from the Repricing Halt
+// aggregate, the same source the Desk halt switch reads, so an engaged halt
+// reaches the queue as soon as it commits. All items deep-link to the Desk
+// repricing policy list.
 
 import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
 import {
@@ -13,6 +16,7 @@ import {
 } from "@chase-sets/seller-attention-queue";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import type { RepricingPolicyServices } from "../../repricing-policies/api/runtime";
 import { createRepricingActivityServices } from "../api/activity-route";
 import type { getRepricingAttentionSummary } from "../api/activity";
 
@@ -98,10 +102,17 @@ export function createRepricingAttentionSource(
 
 export function createRepricingAttentionSourceFromReadModel(
   db: PgQueryable,
+  halt: Pick<RepricingPolicyServices, "getHalt">,
   policies: Pick<PolicyRuntime, "resolvePolicy"> = createPolicyResolver({ db }),
 ): SellerAttentionSource {
   const services = createRepricingActivityServices({ db, policies });
   return createRepricingAttentionSource({
-    loadSummary: (context) => services.attention(context.accountId, context.now),
+    loadSummary: async (context) => {
+      const [summary, haltState] = await Promise.all([
+        services.attention(context.accountId, context.now),
+        halt.getHalt(context.accountId),
+      ]);
+      return { ...summary, haltEngaged: haltState.engaged };
+    },
   });
 }

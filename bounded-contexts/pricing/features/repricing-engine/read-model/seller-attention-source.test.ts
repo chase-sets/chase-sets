@@ -88,28 +88,67 @@ describe("createRepricingAttentionSource", () => {
   });
 });
 
+function attentionQuery(floorBinding: number, projectedHaltEngaged = false) {
+  return vi.fn(async (sql: string) => {
+    if (sql.includes("pricing_repricing_halts")) return { rows: [{ engaged: projectedHaltEngaged }] };
+    if (sql.includes("GROUP BY policy_id")) return { rows: [] };
+    if (sql.includes("frozen_until >")) return { rows: [] };
+    if (sql.includes("floor_binding_since")) return { rows: [{ count: floorBinding }] };
+    return { rows: [{ count: 0 }] };
+  });
+}
+
+function haltAggregate(engaged: boolean) {
+  return {
+    getHalt: vi.fn(async () => ({
+      engaged,
+      engagedAt: engaged ? "2026-09-26T11:59:59.000Z" : null,
+      releasedAt: null,
+    })),
+  };
+}
+
 describe("createRepricingAttentionSourceFromReadModel", () => {
   it("reads the account attention summary with the resolved floor-binding alert threshold", async () => {
-    const query = vi.fn(async (sql: string) => {
-      if (sql.includes("pricing_repricing_halts")) return { rows: [{ engaged: false }] };
-      if (sql.includes("GROUP BY policy_id")) return { rows: [] };
-      if (sql.includes("frozen_until >")) return { rows: [] };
-      if (sql.includes("floor_binding_since")) return { rows: [{ count: 5 }] };
-      return { rows: [{ count: 0 }] };
-    });
+    const query = attentionQuery(5);
     const resolvePolicy = vi.fn(async () => ({ value: { floorBindingAlertDays: 9 } }));
+    const halt = haltAggregate(false);
 
-    const items = await createRepricingAttentionSourceFromReadModel(
-      { query } as never,
-      {
-        resolvePolicy,
-      } as never,
-    ).load(CONTEXT);
+    const items = await createRepricingAttentionSourceFromReadModel({ query } as never, halt, {
+      resolvePolicy,
+    } as never).load(CONTEXT);
 
     expect(items.map((item) => item.summary)).toEqual([{ code: "repricing-floor-binding", params: { count: 5 } }]);
     expect(query).toHaveBeenCalledWith(expect.stringContaining("floor_binding_since"), ["acct-1", CONTEXT.now, 9]);
     for (const [, values] of query.mock.calls as unknown as [string, unknown[]][]) {
       expect(values[0]).toBe("acct-1");
     }
+    expect(halt.getHalt).toHaveBeenCalledWith("acct-1");
+  });
+
+  // The Desk halt switch reads the halt aggregate. The queue must agree with it
+  // while the halt projection row still says released.
+  it("raises the halt item from the committed halt aggregate ahead of the halt projection", async () => {
+    const resolvePolicy = vi.fn(async () => ({ value: { floorBindingAlertDays: 7 } }));
+
+    const items = await createRepricingAttentionSourceFromReadModel(
+      { query: attentionQuery(0) } as never,
+      haltAggregate(true),
+      { resolvePolicy } as never,
+    ).load(CONTEXT);
+
+    expect(items.map((item) => item.summary)).toEqual([{ code: "repricing-halt-engaged", params: {} }]);
+  });
+
+  it("drops the halt item once the halt aggregate is released, even while the projection still says engaged", async () => {
+    const resolvePolicy = vi.fn(async () => ({ value: { floorBindingAlertDays: 7 } }));
+
+    const items = await createRepricingAttentionSourceFromReadModel(
+      { query: attentionQuery(0, true) } as never,
+      haltAggregate(false),
+      { resolvePolicy } as never,
+    ).load(CONTEXT);
+
+    expect(items).toEqual([]);
   });
 });

@@ -172,7 +172,7 @@ and recent dry runs. The detail page renders the folded policy read-only and res
 the policy editor. Its activity filters show server `filterCounts` beside each label; the page computes
 no counts. Halt engage/release and delete confirm first; pause and resume are row transitions.
 The Repricing Attention Source (`pricing-repricing`) feeds the Seller Desk attention queue from
-`attention-summary`.
+`attention-summary`, except the halt item, which reads the Repricing Halt aggregate like the Desk halt switch.
 
 ## Incoming Dependencies
 

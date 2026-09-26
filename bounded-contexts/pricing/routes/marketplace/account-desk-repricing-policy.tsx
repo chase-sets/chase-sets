@@ -11,14 +11,21 @@ import {
 } from "react-router";
 import {
   defineFormAction,
+  defineResourceRoute,
   formActionRedirect,
-  loadAfterWrite,
   type PlatformPostWriteTelemetry,
 } from "@chase-sets/platform-runtime/http";
 import { navigateAfterWriteWithPlatformPostWriteToken } from "@chase-sets/platform-runtime/post-write-tokens";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
-import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { createPricingRequestApiClient, PricingApiError } from "../../support/request-support/api-client";
+import contextManifest from "../../context.json";
+import {
+  createPricingRequestApiClient,
+  PricingApiError,
+  type RepricingActivityPage,
+  type RepricingPolicyState,
+} from "../../support/request-support/api-client";
+import { pricingApiErrorAdapter } from "../../support/request-support/route-api-error";
+import { useRepricingDeskCatchUp } from "../../support/route-support/repricing-desk-catch-up";
 import type { RepricingActivityFilter } from "../../features/repricing-engine/api/activity";
 import { repricingActivityFilterOrder } from "../../features/repricing-policies/ui/activity-copy";
 import {
@@ -53,59 +60,62 @@ async function navigateAfterPolicyWrite(commandResult: unknown, destination: str
   );
 }
 
-export async function loader({ request, params }: LoaderFunctionArgs) {
-  await requireActorFromAuthApi({ request, permission: "pricing.view" });
-  const policyId = params.policyId ?? "";
-  const resolvedRequest = await resolveRepricingDeskPostWriteRequest(request);
-  const api = createPricingRequestApiClient(resolvedRequest);
-  const ancillaryApi = createPricingRequestApiClient(repricingDeskRequestWithoutFreshWrite(resolvedRequest));
-  const search = new URL(request.url).searchParams;
-  const activityFilter = repricingActivityFilterFrom(search.get("filter"));
-  const after = search.get("after") || undefined;
+type RepricingPolicyLoaderData =
+  | Readonly<{ recovery: "catching-up" }>
+  | Readonly<{
+      recovery: null;
+      policy: RepricingPolicyState;
+      halt: RepricingHaltState;
+      changesUsedToday: number;
+      activity: RepricingActivityPage | null;
+      activityFilter: RepricingActivityFilter | null;
+      activityLoadFailed: boolean;
+    }>;
 
-  // The ancillary reads start alongside the policy read but are consulted only
-  // once the policy resolves, so a missing policy answers 404 first.
-  const ancillaryReads = Promise.all([
-    loadOrUnavailable(() => ancillaryApi.getRepricingHalt()),
-    loadOrUnavailable(() => ancillaryApi.getRepricingBudget()),
-    loadOrUnavailable(() =>
-      ancillaryApi.listRepricingActivity(policyId, { filter: activityFilter ?? undefined, after }),
-    ),
-  ]);
-  ancillaryReads.catch(() => undefined);
-  const policyRead = await loadAfterWrite({
-    request: resolvedRequest,
-    isNotFound: (error) => error instanceof PricingApiError && error.status === 404,
-    load: () => api.getRepricingPolicy(policyId),
-    telemetry: REPRICING_POLICY_POST_WRITE_TELEMETRY,
-  });
-
-  // A fresh write whose policy is still reaching the read model is bounded
-  // recovery. Without a live receipt, not-found is an ordinary 404, and
-  // authorization errors always propagate.
-  if (policyRead.kind === "pending") {
-    return { recovery: "catching-up" as const };
-  }
-  if (policyRead.kind === "permanent-failure") {
-    const error = "error" in policyRead ? policyRead.error : null;
+// A fresh write whose policy is still reaching the read model is bounded
+// recovery. Without a live receipt, not-found is an ordinary 404, and
+// authorization errors always propagate.
+export const loader = defineResourceRoute<RepricingPolicyState, RepricingPolicyLoaderData>({
+  manifest: contextManifest,
+  routeId: "account-desk-repricing-policy",
+  prepare: async (args) => ({ ...args, request: await resolveRepricingDeskPostWriteRequest(args.request) }),
+  authorization: { permission: "pricing.view" },
+  errorAdapter: pricingApiErrorAdapter,
+  load: ({ request, params }) => createPricingRequestApiClient(request).getRepricingPolicy(params.policyId ?? ""),
+  // Halt, budget and activity reads never carry the policy receipt, and are
+  // made only once the policy resolves, so a missing policy answers 404 first.
+  map: async (policy, { request, params }) => {
+    const api = createPricingRequestApiClient(repricingDeskRequestWithoutFreshWrite(request));
+    const search = new URL(request.url).searchParams;
+    const activityFilter = repricingActivityFilterFrom(search.get("filter"));
+    const after = search.get("after") || undefined;
+    const [halt, budget, activity] = await Promise.all([
+      loadOrUnavailable(() => api.getRepricingHalt()),
+      loadOrUnavailable(() => api.getRepricingBudget()),
+      loadOrUnavailable(() =>
+        api.listRepricingActivity(params.policyId ?? "", { filter: activityFilter ?? undefined, after }),
+      ),
+    ]);
+    return {
+      recovery: null,
+      policy,
+      halt: halt ?? releasedHalt,
+      changesUsedToday: budget?.changesUsed ?? 0,
+      activity,
+      activityFilter,
+      activityLoadFailed: activity === null,
+    };
+  },
+  telemetry: REPRICING_POLICY_POST_WRITE_TELEMETRY,
+  onPending: () => ({ recovery: "catching-up" as const }),
+  onPermanentFailure: (result) => {
+    const error = "error" in result ? result.error : null;
     if (error instanceof PricingApiError && error.status === 404) {
       throw new Response(null, { status: 404 });
     }
     throw error;
-  }
-
-  const [halt, budget, activity] = await ancillaryReads;
-
-  return {
-    recovery: null,
-    policy: policyRead.data,
-    halt: halt ?? releasedHalt,
-    changesUsedToday: budget?.changesUsed ?? 0,
-    activity,
-    activityFilter,
-    activityLoadFailed: activity === null,
-  };
-}
+  },
+});
 
 export const action = defineFormAction({
   authorization: { permission: "pricing.manage" },
@@ -152,6 +162,7 @@ export default function MarketplaceSellerDeskRepricingPolicyRoute() {
   const location = useLocation();
   const submit = useSubmit();
   const [, setSearchParams] = useSearchParams();
+  useRepricingDeskCatchUp(data.recovery === "catching-up");
   if (data.recovery === "catching-up") {
     return <PricingRepricingPolicyCatchingUpPage refreshHref={`${location.pathname}${location.search}`} />;
   }

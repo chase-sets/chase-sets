@@ -135,7 +135,8 @@ clamps, missing-input pauses, tolerance decisions, budget limits and Spiral Brea
 The **Repricing Attention Source** (`pricing-repricing`) is Pricing's contribution to the Seller Desk
 attention queue. It maps the account's repricing attention summary into queue items for an engaged
 Repricing Halt, aged floor binding, missing-input pauses, today's budget-exhausted outcomes and
-Spiral Breaker freezes. Every count comes from that summary; items deep-link to the Desk policy list.
+Spiral Breaker freezes. Every count comes from that summary; the halt item reads the Repricing Halt
+aggregate, as the Desk halt switch does. Items deep-link to the Desk policy list.
 
 ## Repricing Activity Digest
 
