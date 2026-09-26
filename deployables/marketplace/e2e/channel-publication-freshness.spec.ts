@@ -11,9 +11,10 @@ test("mapping decision retains the typed target through a held projection @marke
   const routePath = `/account/channels/publication/${support.connectionId}`;
   const submittedTarget = `${support.candidate.targetKey}-submitted`;
   const posts: string[] = [];
+  const isDecisionPost = (url: string, method: string) =>
+    method === "POST" && new URL(url).pathname.replace(/\.data$/u, "") === routePath;
   page.on("request", (request) => {
-    if (request.method() === "POST" && new URL(request.url()).pathname === routePath)
-      posts.push(request.postData() ?? "");
+    if (isDecisionPost(request.url(), request.method())) posts.push(request.postData() ?? "");
   });
   try {
     await page.goto(`/sign-in?returnTo=${encodeURIComponent(routePath)}`, { waitUntil: "domcontentloaded" });
@@ -26,9 +27,7 @@ test("mapping decision retains the typed target through a held projection @marke
     await target.fill(submittedTarget);
     const reject = card.getByRole("button", { name: "Reject" });
     const [response] = await Promise.all([
-      page.waitForResponse(
-        (response) => response.request().method() === "POST" && new URL(response.url()).pathname === routePath,
-      ),
+      page.waitForResponse((response) => isDecisionPost(response.url(), response.request().method())),
       reject.click(),
     ]);
     expect(response.status()).toBe(200);
@@ -38,7 +37,7 @@ test("mapping decision retains the typed target through a held projection @marke
     await expect(target).toHaveValue(submittedTarget);
     await expect(card.getByText(/category · proposed · high/u)).toBeVisible();
     await expect(reject).toBeDisabled();
-    await reject.click({ force: true }).catch(() => undefined);
+    await reject.evaluate((button: HTMLButtonElement) => button.click());
     expect(posts).toHaveLength(1);
     await support.release();
     await expect(page.getByText("Loading channel publication settings")).toHaveCount(0);

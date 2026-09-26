@@ -1,4 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { createMemoryRouter, RouterProvider } from "react-router";
+import { ChaseRoot } from "@chase-sets/design-system";
+import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
 import { describe, expect, it } from "vitest";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { ChannelPublicationBlockedListing, ChannelPublicationConnectionDetail } from "../domain/contracts";
@@ -33,9 +36,7 @@ describe("channel-publication-blocking-reason-surface", () => {
   });
 
   it("renders the reason codes for a deliberately blocked listing", () => {
-    const markup = renderToStaticMarkup(
-      <ChannelPublicationDetailPage state={{ kind: "ready", detail: detail([blockedListing], 1) }} />,
-    );
+    const markup = renderDetail(detail([blockedListing], 1));
 
     expect(markup).toContain("Blocked listings");
     expect(markup).toContain(blockedListing.listingId);
@@ -45,33 +46,37 @@ describe("channel-publication-blocking-reason-surface", () => {
   });
 
   it("names a blocked listing whose reasons were not recorded instead of rendering an empty row", () => {
-    const markup = renderToStaticMarkup(
-      <ChannelPublicationDetailPage
-        state={{ kind: "ready", detail: detail([{ ...blockedListing, blockingReasonCodes: [] }], 1) }}
-      />,
-    );
+    const markup = renderDetail(detail([{ ...blockedListing, blockingReasonCodes: [] }], 1));
 
     expect(markup).toContain("reason not recorded");
   });
 
   it("says how many blocked listings the page leaves out", () => {
-    const markup = renderToStaticMarkup(
-      <ChannelPublicationDetailPage state={{ kind: "ready", detail: detail([blockedListing], 30) }} />,
-    );
+    const markup = renderDetail(detail([blockedListing], 30));
 
     expect(markup).toContain("Showing the first 1 of 30 blocked listings.");
   });
 
   it("does not claim every listing composed when none is blocked", () => {
-    const markup = renderToStaticMarkup(
-      <ChannelPublicationDetailPage state={{ kind: "ready", detail: detail([], 0) }} />,
-    );
+    const markup = renderDetail(detail([], 0));
 
     expect(markup).toContain("No blocked listings");
     expect(markup).toContain("This does not confirm that every listing has been composed.");
     expect(markup).not.toContain("provider-catalog-item-reference-unlinked");
   });
 });
+
+function renderDetail(value: ChannelPublicationConnectionDetail): string {
+  const router = createMemoryRouter(
+    [{ path: "/", element: <ChannelPublicationDetailPage state={{ kind: "ready", detail: value }} /> }],
+    { initialEntries: ["/"] },
+  );
+  return renderToStaticMarkup(
+    <ChaseRoot linkComponent={RouterLinkAdapter}>
+      <RouterProvider router={router} />
+    </ChaseRoot>,
+  );
+}
 
 function detail(items: readonly ChannelPublicationBlockedListing[], total: number): ChannelPublicationConnectionDetail {
   return {

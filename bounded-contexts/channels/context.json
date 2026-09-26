@@ -555,8 +555,8 @@
         "api-client:bounded-contexts/channels/support/request-support/api-client.ts:PUT H7bd6e2a2b805#1",
         "api-route:bounded-contexts/channels/features/listing-composition/api/route.ts:POST /:connectionId/mappings/:dimension/:sourceKey/decision",
         "api-route:bounded-contexts/channels/features/listing-composition/api/route.ts:PUT /:connectionId/settings",
-        "post-form:bounded-contexts/channels/features/listing-composition/ui/publication-pages.tsx:Ha94213ead578#1",
-        "post-form:bounded-contexts/channels/features/listing-composition/ui/publication-pages.tsx:Ha98ce7edb16e#1",
+        "post-form:bounded-contexts/channels/features/listing-composition/ui/publication-pages.tsx:H8d7b1af0483d#1",
+        "post-form:bounded-contexts/channels/features/listing-composition/ui/publication-pages.tsx:Hdedc9988f2e2#1",
         "route-action:bounded-contexts/channels/routes/marketplace/account-channels-publication-connection.tsx"
       ],
       "visibleDestination": {

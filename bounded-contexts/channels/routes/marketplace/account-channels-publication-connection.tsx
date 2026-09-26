@@ -4,8 +4,7 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useEffect, useState } from "react";
 import type { MetaFunction } from "react-router";
 import { useActionData, useLoaderData, useNavigation, useParams, useRevalidator } from "react-router";
-import { contextManifest, type ChannelPublicationSettings } from "../../index";
-import type { ChannelPublicationConnectionDetail } from "../../features/listing-composition/domain/contracts";
+import { contextManifest, type ChannelPublicationConnectionDetail, type ChannelPublicationSettings } from "../../index";
 import { ChannelPublicationDetailPage } from "../../features/listing-composition/ui/publication-pages";
 import {
   ChannelsPublicationApiError,
