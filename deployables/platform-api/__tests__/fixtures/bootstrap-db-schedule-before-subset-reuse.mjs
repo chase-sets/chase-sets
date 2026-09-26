@@ -906,28 +906,15 @@ function* canonicalAssignments(length, blockCount) {
   yield* place(0, 0);
 }
 
-function subsetMakespanFor(files, model) {
-  // An injected lookup is valid only for this exact files vector and model.
-  const cache = new Map();
-  return (mask) => {
-    if (!cache.has(mask)) {
-      const durations = files.filter((_, index) => mask & (1 << index)).map((file) => file.durationMs);
-      cache.set(mask, executionUnitMakespanMs(durations, model));
-    }
-    return cache.get(mask);
-  };
-}
-
-function scheduleUnits(files, assignment, unitCount, model, makespanForSubset) {
+function scheduleUnits(files, assignment, unitCount, model) {
   const grouped = Array.from({ length: unitCount }, () => []);
-  const masks = new Array(unitCount).fill(0);
-  assignment.forEach((unitIndex, fileIndex) => {
-    grouped[unitIndex].push(files[fileIndex]);
-    masks[unitIndex] |= 1 << fileIndex;
-  });
-  return grouped.map((unitFiles, unitIndex) => ({
+  assignment.forEach((unitIndex, fileIndex) => grouped[unitIndex].push(files[fileIndex]));
+  return grouped.map((unitFiles) => ({
     files: unitFiles,
-    makespanMs: makespanForSubset(masks[unitIndex]),
+    makespanMs: executionUnitMakespanMs(
+      unitFiles.map((file) => file.durationMs),
+      model,
+    ),
   }));
 }
 
@@ -945,7 +932,7 @@ function assignmentIsFeasible(units, model) {
  * then does the model enumerate assignments, and it refuses rather than samples
  * when the file count or the unit count leaves its declared bounds.
  */
-function computeMinimumUnitCount(files, model, makespanForSubset = subsetMakespanFor(files, model), observeAssignment) {
+function computeMinimumUnitCount(files, model) {
   if (files.length === 0) {
     return { minimumUnitCount: null, refusal: "the schedule model has no manifested files to schedule" };
   }
@@ -987,8 +974,7 @@ function computeMinimumUnitCount(files, model, makespanForSubset = subsetMakespa
   const maximumUnitCount = Math.min(files.length, model.maximumEnumeratedUnitCount);
   for (let unitCount = 1; unitCount <= maximumUnitCount; unitCount += 1) {
     for (const assignment of canonicalAssignments(files.length, unitCount)) {
-      observeAssignment?.("minimum", unitCount, assignment);
-      const units = scheduleUnits(files, assignment, unitCount, model, makespanForSubset);
+      const units = scheduleUnits(files, assignment, unitCount, model);
       if (assignmentIsFeasible(units, model)) {
         return { minimumUnitCount: unitCount, witness: units, refusal: null };
       }
@@ -1004,25 +990,15 @@ function computeMinimumUnitCount(files, model, makespanForSubset = subsetMakespa
   };
 }
 
-function bestAssignmentAt(files, unitCount, model, makespanForSubset = subsetMakespanFor(files, model), observeAssignment) {
+function bestAssignmentAt(files, unitCount, model) {
   if (unitCount < 1 || unitCount > files.length) return null;
   let best = null;
   for (const assignment of canonicalAssignments(files.length, unitCount)) {
-    observeAssignment?.("oneFewer", unitCount, assignment);
-    const units = scheduleUnits(files, assignment, unitCount, model, makespanForSubset);
+    const units = scheduleUnits(files, assignment, unitCount, model);
     const worst = Math.max(...units.map((unit) => unit.makespanMs));
     if (!best || worst < best.worstMakespanMs) best = { units, worstMakespanMs: worst };
   }
   return best;
-}
-
-function calculateMinimumAndOneFewer(files, model, observeAssignment) {
-  const makespanForSubset = subsetMakespanFor(files, model);
-  const minimum = computeMinimumUnitCount(files, model, makespanForSubset, observeAssignment);
-  const oneFewer = minimum.minimumUnitCount > 1
-    ? bestAssignmentAt(files, minimum.minimumUnitCount - 1, model, makespanForSubset, observeAssignment)
-    : null;
-  return { ...minimum, oneFewer };
 }
 
 // ---------------------------------------------------------------------------
@@ -1393,7 +1369,7 @@ function projectExecutionUnitSchedule({
     );
   }
 
-  const { minimumUnitCount, refusal, oneFewer } = calculateMinimumAndOneFewer(scheduledFiles, scheduleModel);
+  const { minimumUnitCount, refusal } = computeMinimumUnitCount(scheduledFiles, scheduleModel);
   if (refusal) {
     violations.push(refusal);
   } else if (shippedUnits.length > minimumUnitCount) {
@@ -1409,6 +1385,11 @@ function projectExecutionUnitSchedule({
     );
   }
 
+  const oneFewerUnit =
+    minimumUnitCount && minimumUnitCount > 1
+      ? bestAssignmentAt(scheduledFiles, minimumUnitCount - 1, scheduleModel)
+      : null;
+
   return {
     units: shippedUnits.map((unit) => ({
       scriptName: unit.scriptName,
@@ -1422,10 +1403,10 @@ function projectExecutionUnitSchedule({
     minimumUnitCount: minimumUnitCount ?? null,
     aggregateMs,
     aggregateWithOverheadMs,
-    oneFewerUnit: oneFewer
+    oneFewerUnit: oneFewerUnit
       ? {
           unitCount: minimumUnitCount - 1,
-          units: oneFewer.units.map((unit) => ({
+          units: oneFewerUnit.units.map((unit) => ({
             fileNames: unit.files.map((file) => file.fileName),
             makespanMs: unit.makespanMs,
           })),
