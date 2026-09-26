@@ -23,9 +23,30 @@ import {
   repricingStatusBadge,
   summarizeRepricingRule,
 } from "./policy-copy";
-import { RepricingHaltControl, RepricingLifecycleButton } from "./policy-list-page";
+import { RepricingCatchingUpBanner, RepricingHaltControl, RepricingLifecycleButton } from "./policy-list-page";
 
 export const REPRICING_POLICY_LIST_HREF = "/account/desk/repricing";
+
+// Shown instead of the policy while a just-saved change is still reaching it.
+export function PricingRepricingPolicyCatchingUpPage({ refreshHref }: Readonly<{ refreshHref: string }>) {
+  return (
+    <Page>
+      <PageHeader
+        eyebrow={t("pricing.features.repricingPolicies.ui.policyDetail.eyebrow")}
+        title={t("pricing.features.repricingPolicies.ui.shared.catchingUp.title")}
+        actions={
+          <LinkButton href={REPRICING_POLICY_LIST_HREF} tone="ghost">
+            {t("pricing.features.repricingPolicies.ui.policyDetail.back")}
+          </LinkButton>
+        }
+      />
+      <RepricingCatchingUpBanner
+        href={refreshHref}
+        description={t("pricing.features.repricingPolicies.ui.policyDetail.catchingUp.description")}
+      />
+    </Page>
+  );
+}
 
 // The folded policy, read-only. `editAction` is the reserved header slot the
 // policy editor (#7915) fills; this page renders no editing affordance itself.

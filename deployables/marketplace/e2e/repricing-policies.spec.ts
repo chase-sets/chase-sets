@@ -15,6 +15,10 @@ import { marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract"
 // change a price other specs assert. Teardown deletes it and releases the halt
 // in `finally`, and the spec asserts the seller ends with zero active policies.
 //
+// Freshness: API-only setup and teardown wait for the policy projection to
+// converge, because list membership is projected. UI actions never do: their
+// redirects carry the command receipt, so the page itself shows the outcome.
+//
 // CI lane: tagged @marketplace-seller so pricing changes select this suite.
 
 const repricingApi = "/api/marketplace/account/repricing-policies";
@@ -54,17 +58,41 @@ async function listPolicies(request: APIRequestContext): Promise<PolicySummary[]
 async function setHalt(request: APIRequestContext, engaged: boolean) {
   const response = await request.post(`${repricingApi}/halt`, { data: { engaged } });
   expect(response.status(), `set repricing halt engaged=${engaged}`).toBe(200);
+  expect(((await response.json()) as { engaged: boolean }).engaged, `repricing halt engaged=${engaged}`).toBe(engaged);
+}
+
+// Deleting an already-deleted policy is a no-op, so cleanup by known ID is safe
+// to repeat.
+async function deletePolicy(request: APIRequestContext, policyId: string) {
+  const response = await request.post(`${repricingApi}/${policyId}/delete`);
+  expect(response.status(), `delete spec policy ${policyId}`).toBe(200);
+}
+
+// Waits until the projected default list agrees about these policy IDs. A
+// deleted policy can still be listed with its folded `deleted` state until the
+// projection drops it, so only absence proves membership converged.
+async function expectListedPolicyIds(request: APIRequestContext, policyIds: readonly string[], listed: boolean) {
+  await expect
+    .poll(
+      async () => {
+        const present = new Set((await listPolicies(request)).map((policy) => policy.policyId));
+        return policyIds.filter((policyId) => present.has(policyId) !== listed);
+      },
+      { message: `policies ${listed ? "listed" : "absent"}: ${policyIds.join(", ")}`, timeout: 30_000 },
+    )
+    .toEqual([]);
 }
 
 // Removes policies this spec created on an earlier interrupted run and releases
 // a halt it may have left engaged, so every run starts from the same state.
 async function resetSpecState(request: APIRequestContext) {
-  for (const policy of await listPolicies(request)) {
-    if (policy.status !== "deleted" && policy.name?.startsWith(specPolicyPrefix)) {
-      const response = await request.post(`${repricingApi}/${policy.policyId}/delete`);
-      expect(response.status(), `delete stale spec policy ${policy.policyId}`).toBe(200);
-    }
+  const stalePolicyIds = (await listPolicies(request))
+    .filter((policy) => policy.name?.startsWith(specPolicyPrefix))
+    .map((policy) => policy.policyId);
+  for (const policyId of stalePolicyIds) {
+    await deletePolicy(request, policyId);
   }
+  await expectListedPolicyIds(request, stalePolicyIds, false);
   await setHalt(request, false);
 }
 
@@ -92,6 +120,12 @@ function visibleText(page: Page, text: string) {
   return page.getByText(text, { exact: true }).filter({ visible: true }).first();
 }
 
+// Policy redirects append a compact post-write receipt, so match the intended
+// pathname and allow any query string.
+async function expectPathname(page: Page, pathname: string) {
+  await expect(page).toHaveURL((url) => url.pathname === pathname);
+}
+
 test.describe("Seller Desk repricing policies", () => {
   test("manages a policy from the list and detail pages and leaves no active policy @marketplace-seller @browser-e2e-seed", async ({
     page,
@@ -109,6 +143,7 @@ test.describe("Seller Desk repricing policies", () => {
 
     try {
       policyId = await createHoldOnlyPolicy(request, policyName);
+      await expectListedPolicyIds(request, [policyId], true);
 
       // List: the policy row with status, scope kind and budget row.
       await page.setViewportSize({ width: 1280, height: 900 });
@@ -130,7 +165,7 @@ test.describe("Seller Desk repricing policies", () => {
 
       // Detail: read-only body, then pause and resume in place.
       await policyLink.click();
-      await expect(page).toHaveURL(new RegExp(`/account/desk/repricing/${policyId}$`));
+      await expectPathname(page, `/account/desk/repricing/${policyId}`);
       await expect(page.getByRole("heading", { name: policyName })).toBeVisible();
       await expect(page.getByTestId("repricing-policy-rules")).toContainText("Rule 1");
       await expect(page.getByTestId("repricing-activity-counts")).toBeVisible();
@@ -138,14 +173,16 @@ test.describe("Seller Desk repricing policies", () => {
       await page.getByRole("button", { name: "Pause", exact: true }).click();
       await expect(page.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
       await expect(visibleText(page, "Paused")).toBeVisible();
+      await expectPathname(page, `/account/desk/repricing/${policyId}`);
       await page.getByRole("button", { name: "Resume", exact: true }).click();
       await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
       await expect(visibleText(page, "Active")).toBeVisible();
+      await expectPathname(page, `/account/desk/repricing/${policyId}`);
 
       // Halt: engage behind confirmation, see the banner and the policy paused
       // by the halt, then release behind confirmation.
       await page.getByRole("link", { name: "All repricing policies" }).click();
-      await expect(page).toHaveURL(/\/account\/desk\/repricing$/);
+      await expectPathname(page, "/account/desk/repricing");
       await page.getByRole("switch", { name: "Halt all repricing" }).click();
       await page.getByRole("button", { name: "Halt repricing", exact: true }).click();
       await expect(page.getByTestId("repricing-halt")).toContainText("Repricing is halted");
@@ -159,7 +196,7 @@ test.describe("Seller Desk repricing policies", () => {
         .filter({ hasText: "Repricing is halted: no policy changes prices until you release the halt" });
       await expect(haltItem).toBeVisible();
       await haltItem.getByRole("link", { name: "Review repricing" }).click();
-      await expect(page).toHaveURL(/\/account\/desk\/repricing$/);
+      await expectPathname(page, "/account/desk/repricing");
 
       await page.getByRole("switch", { name: "Halt all repricing" }).click();
       await page.getByRole("button", { name: "Release halt", exact: true }).click();
@@ -168,19 +205,20 @@ test.describe("Seller Desk repricing policies", () => {
 
       // Delete behind confirmation from the detail page; it returns to the list.
       await page.getByRole("link", { name: policyName }).filter({ visible: true }).click();
-      await expect(page).toHaveURL(new RegExp(`/account/desk/repricing/${policyId}$`));
+      await expectPathname(page, `/account/desk/repricing/${policyId}`);
       await page.getByRole("button", { name: "Delete policy", exact: true }).click();
       await page.getByRole("alertdialog").getByRole("button", { name: "Delete policy", exact: true }).click();
-      await expect(page).toHaveURL(/\/account\/desk\/repricing$/);
+      await expectPathname(page, "/account/desk/repricing");
+      await expect(page.getByRole("heading", { name: "Repricing", exact: true })).toBeVisible();
       await expect(page.getByRole("link", { name: policyName })).toHaveCount(0);
     } finally {
       if (policyId) {
-        const current = (await listPolicies(request)).find((policy) => policy.policyId === policyId);
-        if (current && current.status !== "deleted") {
-          await request.post(`${repricingApi}/${policyId}/delete`);
-        }
+        await deletePolicy(request, policyId);
       }
       await setHalt(request, false);
+      if (policyId) {
+        await expectListedPolicyIds(request, [policyId], false);
+      }
     }
 
     const remaining = await listPolicies(request);

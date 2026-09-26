@@ -132,6 +132,12 @@ export const pricingEnglishTranslations = {
   "pricing.features.repricingPolicies.ui.shared.scope.listingSet": "Selected listings ({count})",
   "pricing.features.repricingPolicies.ui.shared.budget.capped": "{used} of {cap} account-wide changes today",
   "pricing.features.repricingPolicies.ui.shared.budget.uncapped": "{used} account-wide changes today · no daily cap",
+  "pricing.features.repricingPolicies.ui.shared.catchingUp.title": "Your change is saved",
+  "pricing.features.repricingPolicies.ui.shared.catchingUp.description":
+    "Your repricing policies are still updating. Refresh in a moment to see the latest list.",
+  "pricing.features.repricingPolicies.ui.shared.catchingUp.refresh": "Refresh",
+  "pricing.features.repricingPolicies.ui.policyDetail.catchingUp.description":
+    "This repricing policy is still updating. Refresh in a moment to see it.",
   "pricing.features.repricingPolicies.ui.shared.pause": "Pause",
   "pricing.features.repricingPolicies.ui.shared.resume": "Resume",
   "pricing.features.repricingPolicies.ui.shared.cancel": "Cancel",

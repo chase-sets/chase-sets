@@ -263,6 +263,13 @@
       "resetStrategy": "replay-only"
     },
     {
+      "projectionName": "pricing-repricing-policy-projection",
+      "sourceContextNames": ["pricing"],
+      "ownedTables": ["pricing_repricing_policies"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
       "projectionName": "pricing-repricing-halt-projection",
       "sourceContextNames": ["pricing"],
       "ownedTables": ["pricing_repricing_halts"],
@@ -371,7 +378,27 @@
     {
       "mountPath": "/api/marketplace",
       "kind": "primary",
-      "requiresAuth": true
+      "requiresAuth": true,
+      "readFreshnessRoutes": [
+        {
+          "routePath": "/account/repricing-policies",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "pricing_repricing_policies"
+            }
+          ]
+        },
+        {
+          "routePath": "/account/repricing-policies/:policyId",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "pricing_repricing_policies"
+            }
+          ]
+        }
+      ]
     }
   ],
   "mcpCapabilities": {
@@ -386,6 +413,74 @@
       }
     ]
   },
+  "readAfterWriteRouteInventory": [
+    {
+      "id": "pricing.seller-desk-repricing-policy-list-refresh",
+      "owner": "pricing",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeIds": ["account-desk-repricing", "account-desk-repricing-policy"],
+        "actions": ["Pause policy", "Resume policy", "Delete policy"],
+        "command": "Pricing repricing policy pause, resume and delete commands",
+        "helperUses": ["navigateAfterWriteWithPlatformPostWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-desk-repricing",
+        "apiContextName": "pricing",
+        "apiRoutePath": "/account/repricing-policies",
+        "readModelTables": ["pricing_repricing_policies"],
+        "helperUses": ["loadAfterWrite"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The Seller Desk repricing list loader forwards the policy command receipt to the policy list read only; a valid fresh-write projection freshness timeout shows a refreshable catching-up banner in place of the policy table, so a deleted policy never lingers in the list from stale membership. Halt, budget and dry-run reads never carry the receipt."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/pricing/tests/account-desk-repricing-route.test.ts",
+          "bounded-contexts/pricing/features/repricing-policies/api/route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "pricing.seller-desk-repricing-policy-detail-self-refresh",
+      "owner": "pricing",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeId": "account-desk-repricing-policy",
+        "actions": ["Pause policy", "Resume policy"],
+        "command": "Pricing repricing policy pause, resume and delete commands",
+        "helperUses": ["navigateAfterWriteWithPlatformPostWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-desk-repricing-policy",
+        "apiContextName": "pricing",
+        "apiRoutePath": "/account/repricing-policies/:policyId",
+        "readModelTables": ["pricing_repricing_policies"],
+        "helperUses": ["loadAfterWrite"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The Seller Desk policy detail loader treats valid fresh-write not-found and projection freshness timeout responses as a refreshable catching-up page; without a valid, unexpired receipt a missing policy stays an ordinary not-found and authorization failures propagate unchanged."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/pricing/tests/account-desk-repricing-route.test.ts",
+          "bounded-contexts/pricing/features/repricing-policies/api/route.test.ts"
+        ]
+      }
+    }
+  ],
   "mutationConsistencyInventory": [
     {
       "id": "pricing.repricing-policy-control-snapshots",
@@ -416,17 +511,23 @@
       "id": "pricing.seller-desk-repricing-controls",
       "owner": "pricing",
       "risk": "important",
-      "strategy": "snapshot-return",
+      "strategy": "fresh-read",
       "surfaces": [
         "route-action:bounded-contexts/pricing/routes/marketplace/account-desk-repricing.tsx",
         "route-action:bounded-contexts/pricing/routes/marketplace/account-desk-repricing-policy.tsx"
       ],
       "visibleDestination": {
         "routeId": "account-desk-repricing",
-        "description": "Seller Desk pause, resume, delete and halt actions call the policy and halt commands, which return folded aggregate state, then redirect to a loader that reads the policy and halt aggregates rather than a projection."
+        "apiContextName": "pricing",
+        "apiRoutePath": "/account/repricing-policies",
+        "readModelTables": ["pricing_repricing_policies"],
+        "description": "Policy command responses contain folded aggregate state and commit metadata. Seller Desk policy redirects carry that metadata into a bounded fresh read. Policy-list membership and policy-detail existence depend on pricing_repricing_policies, owned by pricing-repricing-policy-projection; returned policy bodies are folded from owned aggregates. Halt state is read directly from its aggregate and is not protected by a policy-projection wait. Pending and permanent recovery follow the shared freshness contract.",
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The Seller Desk repricing list loader forwards the policy command receipt to the policy list read only; a valid fresh-write projection freshness timeout shows a refreshable catching-up banner in place of the policy table, so a deleted policy never lingers in the list from stale membership. Halt, budget and dry-run reads never carry the receipt."
+        }
       },
       "proof": {
-        "authoritativeResponse": "The repricing policy and halt API routes return command-folded aggregate state; the Seller Desk loaders reload the policy list, the policy and the halt from those aggregate-backed reads after the redirect.",
         "tests": [
           "bounded-contexts/pricing/tests/account-desk-repricing-route.test.ts",
           "bounded-contexts/pricing/features/repricing-policies/api/route.test.ts"

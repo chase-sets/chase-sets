@@ -1,10 +1,20 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useActionData, useLoaderData, useNavigation, useSubmit } from "react-router";
-import { defineFormAction, formActionRedirect } from "@chase-sets/platform-runtime/http";
+import { redirect, useActionData, useLoaderData, useLocation, useNavigation, useSubmit } from "react-router";
+import {
+  defineFormAction,
+  formActionRedirect,
+  loadAfterWrite,
+  type PlatformPostWriteTelemetry,
+} from "@chase-sets/platform-runtime/http";
+import { navigateAfterWriteWithPlatformPostWriteToken } from "@chase-sets/platform-runtime/post-write-tokens";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createPricingRequestApiClient, PricingApiError } from "../../support/request-support/api-client";
+import {
+  repricingDeskRequestWithoutFreshWrite,
+  resolveRepricingDeskPostWriteRequest,
+} from "../../support/route-support/repricing-desk-post-write";
 import {
   PricingRepricingPolicyListPage,
   type RepricingHaltState,
@@ -25,20 +35,42 @@ export async function loadOrUnavailable<T>(load: () => Promise<T>): Promise<T | 
   }
 }
 
+const REPRICING_DESK_POST_WRITE_TELEMETRY = {
+  boundedContextName: "pricing",
+  surface: "account-desk-repricing",
+  routeId: "account-desk-repricing",
+  routeTemplate: REPRICING_DESK_HREF,
+} as const satisfies PlatformPostWriteTelemetry;
+
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "pricing.view" });
-  const api = createPricingRequestApiClient(request);
-  const [policies, halt, dryRuns] = await Promise.all([
-    loadOrUnavailable(() => api.listRepricingPolicies()),
-    loadOrUnavailable(() => api.getRepricingHalt()),
-    loadOrUnavailable(() => api.listRepricingDryRuns()),
+  const resolvedRequest = await resolveRepricingDeskPostWriteRequest(request);
+  const api = createPricingRequestApiClient(resolvedRequest);
+  const ancillaryApi = createPricingRequestApiClient(repricingDeskRequestWithoutFreshWrite(resolvedRequest));
+  const [policiesRead, halt, dryRuns] = await Promise.all([
+    loadAfterWrite({
+      request: resolvedRequest,
+      isNotFound: (error) => error instanceof PricingApiError && error.status === 404,
+      load: () => api.listRepricingPolicies(),
+      telemetry: REPRICING_DESK_POST_WRITE_TELEMETRY,
+    }),
+    loadOrUnavailable(() => ancillaryApi.getRepricingHalt()),
+    loadOrUnavailable(() => ancillaryApi.listRepricingDryRuns()),
   ]);
 
+  // Outages keep the page's error state; authorization and validation errors
+  // are never reported as projection lag.
+  if (policiesRead.kind === "permanent-failure") {
+    const error = "error" in policiesRead ? policiesRead.error : null;
+    if (!(error instanceof PricingApiError && error.status >= 500)) throw error;
+  }
+
   return {
-    policies: policies ?? [],
+    policies: policiesRead.kind === "data" ? policiesRead.data : [],
     halt: halt ?? releasedHalt,
     dryRuns: dryRuns ?? [],
-    loadFailed: policies === null || halt === null,
+    catchingUp: policiesRead.kind === "pending",
+    loadFailed: policiesRead.kind === "permanent-failure" || halt === null,
   };
 }
 
@@ -46,16 +78,24 @@ export function repricingPolicyIdFrom(formData: FormData): string {
   return String(formData.get("policyId") ?? "").trim();
 }
 
+// Policy commands carry their commit receipt into the list's fresh read. Halt
+// changes stay plain redirects: the halt is read from its own aggregate.
+export function navigateAfterWriteToRepricingDesk(commandResult: unknown) {
+  return navigateAfterWriteWithPlatformPostWriteToken(commandResult, REPRICING_DESK_HREF, {
+    telemetry: REPRICING_DESK_POST_WRITE_TELEMETRY,
+  });
+}
+
 export const action = defineFormAction({
   authorization: { permission: "pricing.manage" },
   intents: {
     "pause-policy": async ({ request, formData }) => {
-      await createPricingRequestApiClient(request).pauseRepricingPolicy(repricingPolicyIdFrom(formData));
-      return formActionRedirect(null, REPRICING_DESK_HREF);
+      const result = await createPricingRequestApiClient(request).pauseRepricingPolicy(repricingPolicyIdFrom(formData));
+      return redirect(await navigateAfterWriteToRepricingDesk(result));
     },
     "resume-policy": async ({ request, formData }) => {
-      await createPricingRequestApiClient(request).resumeRepricingPolicy(repricingPolicyIdFrom(formData));
-      return formActionRedirect(null, REPRICING_DESK_HREF);
+      const result = await createPricingRequestApiClient(request).resumeRepricingPolicy(repricingPolicyIdFrom(formData));
+      return redirect(await navigateAfterWriteToRepricingDesk(result));
     },
     "engage-halt": async ({ request }) => {
       await createPricingRequestApiClient(request).setRepricingHalt(true);
@@ -80,6 +120,7 @@ export default function MarketplaceSellerDeskRepricingRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>() as { error?: string } | undefined;
   const navigation = useNavigation();
+  const location = useLocation();
   const submit = useSubmit();
   const pendingPolicyId = navigation.formData ? repricingPolicyIdFrom(navigation.formData) : "";
   const submitIntent = (intent: string, policyId?: string) =>
@@ -92,6 +133,7 @@ export default function MarketplaceSellerDeskRepricingRoute() {
       dryRuns={data.dryRuns}
       loading={navigation.state === "loading" && !navigation.formData}
       loadFailed={data.loadFailed}
+      catchingUpHref={data.catchingUp ? `${location.pathname}${location.search}` : null}
       errorMessage={actionData && "error" in actionData ? String(actionData.error ?? "") : null}
       busyPolicyId={pendingPolicyId || null}
       onHaltChange={(engaged) => submitIntent(engaged ? "engage-halt" : "release-halt")}

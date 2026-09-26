@@ -99,6 +99,24 @@ export function RepricingHaltControl({
 
 // Pause and resume are an in-place row transition: the button disables while
 // its policy's transition is in flight and the row re-renders with the result.
+// A saved policy change that the fresh read has not reached yet. The refresh
+// link repeats the same fresh read rather than showing a stale list as final.
+export function RepricingCatchingUpBanner({ href, description }: Readonly<{ href: string; description?: string }>) {
+  return (
+    <Banner
+      data-testid="repricing-catching-up"
+      tone="info"
+      title={t("pricing.features.repricingPolicies.ui.shared.catchingUp.title")}
+      description={description ?? t("pricing.features.repricingPolicies.ui.shared.catchingUp.description")}
+      actions={
+        <LinkButton href={href} tone="secondary" size="sm" leadingIcon="refreshCcw">
+          {t("pricing.features.repricingPolicies.ui.shared.catchingUp.refresh")}
+        </LinkButton>
+      }
+    />
+  );
+}
+
 export function RepricingLifecycleButton({
   policyId,
   status,
@@ -155,6 +173,7 @@ export function PricingRepricingPolicyListPage({
   dryRuns,
   loading = false,
   loadFailed = false,
+  catchingUpHref = null,
   errorMessage = null,
   busyPolicyId = null,
   onHaltChange,
@@ -166,6 +185,7 @@ export function PricingRepricingPolicyListPage({
   dryRuns: readonly RepricingDryRun[];
   loading?: boolean;
   loadFailed?: boolean;
+  catchingUpHref?: string | null;
   errorMessage?: string | null;
   busyPolicyId?: string | null;
   onHaltChange: (engaged: boolean) => void;
@@ -196,6 +216,8 @@ export function PricingRepricingPolicyListPage({
               title={t("pricing.features.repricingPolicies.ui.policyList.error.title")}
               description={t("pricing.features.repricingPolicies.ui.policyList.error.description")}
             />
+          ) : catchingUpHref ? (
+            <RepricingCatchingUpBanner href={catchingUpHref} />
           ) : !loading && policies.length === 0 ? (
             <EmptyState
               data-testid="repricing-policy-list-empty"
