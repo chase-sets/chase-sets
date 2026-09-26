@@ -283,7 +283,9 @@ function exactScheduleProbes(): { old: ScheduleProbe; candidate: ScheduleProbe }
     const end = source.indexOf("// Manifest shape validation.", start);
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
-    return runInNewContext(`${source.slice(start, end)}\n({ computeMinimumUnitCount, bestAssignmentAt, canonicalAssignments, calculateMinimumAndOneFewer: typeof calculateMinimumAndOneFewer === 'function' ? calculateMinimumAndOneFewer : undefined })`) as ScheduleProbe;
+    return runInNewContext(
+      `${source.slice(start, end)}\n({ computeMinimumUnitCount, bestAssignmentAt, canonicalAssignments, calculateMinimumAndOneFewer: typeof calculateMinimumAndOneFewer === 'function' ? calculateMinimumAndOneFewer : undefined })`,
+    ) as ScheduleProbe;
   }
   return { old: extract(oracleSource), candidate: extract(candidateSource) };
 }
@@ -296,9 +298,8 @@ function scheduleVerdict(probe: ScheduleProbe, files: ScheduleFile[], model: Boo
   const alternatives = Array.from({ length: Math.min(files.length, model.maximumEnumeratedUnitCount) }, (_, index) =>
     probe.bestAssignmentAt(files, index + 1, model),
   );
-  const oneFewerUnit = minimum.minimumUnitCount && minimum.minimumUnitCount > 1
-    ? alternatives[minimum.minimumUnitCount - 2]
-    : null;
+  const oneFewerUnit =
+    minimum.minimumUnitCount && minimum.minimumUnitCount > 1 ? alternatives[minimum.minimumUnitCount - 2] : null;
   return JSON.stringify({
     minimum,
     aggregateWithOverheadMs: minimum.witness
@@ -309,16 +310,27 @@ function scheduleVerdict(probe: ScheduleProbe, files: ScheduleFile[], model: Boo
   });
 }
 
-function expectSharedScheduleEquivalence(old: ScheduleProbe, candidate: ScheduleProbe, files: ScheduleFile[], model: BootstrapDbScheduleModel) {
+function expectSharedScheduleEquivalence(
+  old: ScheduleProbe,
+  candidate: ScheduleProbe,
+  files: ScheduleFile[],
+  model: BootstrapDbScheduleModel,
+) {
   const observed: string[] = [];
   const result = candidate.calculateMinimumAndOneFewer!(files, model, (phase, count, assignment) => {
     observed.push(`${phase}:${count}:${assignment.join("")}`);
-  }) as { oneFewer: unknown; minimumUnitCount: number | null; witness?: { files: ScheduleFile[] }[]; refusal: string | null };
+  }) as {
+    oneFewer: unknown;
+    minimumUnitCount: number | null;
+    witness?: { files: ScheduleFile[] }[];
+    refusal: string | null;
+  };
   const { oneFewer, ...minimum } = result;
   const expectedMinimum = old.computeMinimumUnitCount(files, model) as typeof minimum;
-  const expectedOneFewer = expectedMinimum.minimumUnitCount && expectedMinimum.minimumUnitCount > 1
-    ? old.bestAssignmentAt(files, expectedMinimum.minimumUnitCount - 1, model)
-    : null;
+  const expectedOneFewer =
+    expectedMinimum.minimumUnitCount && expectedMinimum.minimumUnitCount > 1
+      ? old.bestAssignmentAt(files, expectedMinimum.minimumUnitCount - 1, model)
+      : null;
   expect(JSON.stringify(minimum)).toBe(JSON.stringify(expectedMinimum));
   expect(JSON.stringify(oneFewer)).toBe(JSON.stringify(expectedOneFewer));
 
@@ -330,8 +342,12 @@ function expectSharedScheduleEquivalence(old: ScheduleProbe, candidate: Schedule
         expected.push(`minimum:${count}:${assignment.join("")}`);
         const groups = Array.from({ length: count }, () => [] as string[]);
         assignment.forEach((unit, index) => groups[unit]!.push(files[index]!.fileName));
-        if (count === expectedMinimum.minimumUnitCount &&
-          JSON.stringify(groups) === JSON.stringify(expectedMinimum.witness!.map((unit) => unit.files.map((file) => file.fileName)))) break;
+        if (
+          count === expectedMinimum.minimumUnitCount &&
+          JSON.stringify(groups) ===
+            JSON.stringify(expectedMinimum.witness!.map((unit) => unit.files.map((file) => file.fileName)))
+        )
+          break;
       }
     }
   }
@@ -348,14 +364,16 @@ afterEach(async () => {
 });
 
 describe("Platform API bootstrap DB enrollment", () => {
-  it.each([0, 1, 2, 3, 4])("exact subset schedule equivalence across ordered-vector/model pairs of length %i", (length) => {
-    const { old, candidate } = exactScheduleProbes();
-    const started = performance.now();
-    let pairs = 0;
-    for (let vector = 0; vector < 3 ** length; vector += 1) {
+  it.each([0, 1, 2, 3, 4])(
+    "exact subset schedule equivalence across ordered-vector/model pairs of length %i",
+    (length) => {
+      const { old, candidate } = exactScheduleProbes();
+      const started = performance.now();
+      let pairs = 0;
+      for (let vector = 0; vector < 3 ** length; vector += 1) {
         let digits = vector;
         const files = Array.from({ length }, (_, index) => {
-          const durationMs = digits % 3 + 1;
+          const durationMs = (digits % 3) + 1;
           digits = Math.floor(digits / 3);
           return { fileName: `indexed-${index}`, durationMs };
         });
@@ -375,16 +393,20 @@ describe("Platform API bootstrap DB enrollment", () => {
                     });
                     const expected = scheduleVerdict(old, files, model);
                     const actual = scheduleVerdict(candidate, files, model);
-                    if (actual !== expected) throw new Error(`schedule differs at pair ${pairs}: ${expected} vs ${actual}`);
+                    if (actual !== expected)
+                      throw new Error(`schedule differs at pair ${pairs}: ${expected} vs ${actual}`);
                     expectSharedScheduleEquivalence(old, candidate, files, model);
                     pairs += 1;
                   }
-    }
-    expect(pairs).toBe(3 ** length * 432);
-    for (let count = 1; count <= length; count += 1)
-      expect([...candidate.canonicalAssignments(length, count)]).toEqual([...old.canonicalAssignments(length, count)]);
-    console.info(`exact subset length ${length}: ${pairs} pairs in ${(performance.now() - started).toFixed(1)} ms`);
-  });
+      }
+      expect(pairs).toBe(3 ** length * 432);
+      for (let count = 1; count <= length; count += 1)
+        expect([...candidate.canonicalAssignments(length, count)]).toEqual([
+          ...old.canonicalAssignments(length, count),
+        ]);
+      console.info(`exact subset length ${length}: ${pairs} pairs in ${(performance.now() - started).toFixed(1)} ms`);
+    },
+  );
 
   it("covers all 52272 exact subset pairs without sampling", () => {
     expect([0, 1, 2, 3, 4].reduce((pairs, length) => pairs + 3 ** length * 432, 0)).toBe(52_272);
@@ -394,8 +416,11 @@ describe("Platform API bootstrap DB enrollment", () => {
     const { old, candidate } = exactScheduleProbes();
     const files = Array.from({ length: 5 }, (_, index) => ({ fileName: `distinct-${index}`, durationMs: 3 }));
     const model = createSyntheticScheduleModel({
-      maxWorkersPerExecutionUnit: 2, executionUnitFixedCostMs: 1, jobOverheadMs: 1,
-      executionUnitCeilingMs: 8, aggregateCeilingMs: 15,
+      maxWorkersPerExecutionUnit: 2,
+      executionUnitFixedCostMs: 1,
+      jobOverheadMs: 1,
+      executionUnitCeilingMs: 8,
+      aggregateCeilingMs: 15,
     }) as { -readonly [Key in keyof BootstrapDbScheduleModel]: BootstrapDbScheduleModel[Key] };
     const compare = () => {
       expect(scheduleVerdict(candidate, files, model)).toBe(scheduleVerdict(old, files, model));
@@ -418,10 +443,18 @@ describe("Platform API bootstrap DB enrollment", () => {
     model.executionUnitCeilingMs = 8;
     model.aggregateCeilingMs = 15;
     compare();
-    for (const [count, bound] of [[0, 11], [12, 11]] as const) {
-      const boundaryFiles = Array.from({ length: count }, (_, index) => ({ fileName: `boundary-${index}`, durationMs: 1 }));
+    for (const [count, bound] of [
+      [0, 11],
+      [12, 11],
+    ] as const) {
+      const boundaryFiles = Array.from({ length: count }, (_, index) => ({
+        fileName: `boundary-${index}`,
+        durationMs: 1,
+      }));
       const boundaryModel = createSyntheticScheduleModel({ maximumScheduledFileCount: bound });
-      expect(scheduleVerdict(candidate, boundaryFiles, boundaryModel)).toBe(scheduleVerdict(old, boundaryFiles, boundaryModel));
+      expect(scheduleVerdict(candidate, boundaryFiles, boundaryModel)).toBe(
+        scheduleVerdict(old, boundaryFiles, boundaryModel),
+      );
       expectSharedScheduleEquivalence(old, candidate, boundaryFiles, boundaryModel);
     }
   });
@@ -445,7 +478,9 @@ describe("Platform API bootstrap DB enrollment", () => {
         executionUnitBootBearingCaseCeilings: fixture.ceilings,
         scheduleModel: fixture.model,
       };
-      expect(normalize(checkBootstrapDbEnrollment(options))).toEqual(normalize(old.checkBootstrapDbEnrollment(options)));
+      expect(normalize(checkBootstrapDbEnrollment(options))).toEqual(
+        normalize(old.checkBootstrapDbEnrollment(options)),
+      );
     }
   });
 

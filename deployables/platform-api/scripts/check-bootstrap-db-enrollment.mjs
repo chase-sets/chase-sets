@@ -1004,7 +1004,13 @@ function computeMinimumUnitCount(files, model, makespanForSubset = subsetMakespa
   };
 }
 
-function bestAssignmentAt(files, unitCount, model, makespanForSubset = subsetMakespanFor(files, model), observeAssignment) {
+function bestAssignmentAt(
+  files,
+  unitCount,
+  model,
+  makespanForSubset = subsetMakespanFor(files, model),
+  observeAssignment,
+) {
   if (unitCount < 1 || unitCount > files.length) return null;
   let best = null;
   for (const assignment of canonicalAssignments(files.length, unitCount)) {
@@ -1019,9 +1025,10 @@ function bestAssignmentAt(files, unitCount, model, makespanForSubset = subsetMak
 function calculateMinimumAndOneFewer(files, model, observeAssignment) {
   const makespanForSubset = subsetMakespanFor(files, model);
   const minimum = computeMinimumUnitCount(files, model, makespanForSubset, observeAssignment);
-  const oneFewer = minimum.minimumUnitCount > 1
-    ? bestAssignmentAt(files, minimum.minimumUnitCount - 1, model, makespanForSubset, observeAssignment)
-    : null;
+  const oneFewer =
+    minimum.minimumUnitCount > 1
+      ? bestAssignmentAt(files, minimum.minimumUnitCount - 1, model, makespanForSubset, observeAssignment)
+      : null;
   return { ...minimum, oneFewer };
 }
 
