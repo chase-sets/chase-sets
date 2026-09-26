@@ -354,8 +354,8 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     inventorySubject:
       "@stripe/stripe-js@bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx",
     evidenceRefs: [
-      "bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx:172",
-      "bounded-contexts/payments/package.json:42",
+      "bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx:173",
+      "bounded-contexts/payments/package.json:44",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",
       "deployables/marketplace/package.json:35",
@@ -379,8 +379,8 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     inventorySubject:
       "@stripe/stripe-js@bounded-contexts/payments/features/payments/ui/account-payment/stripe-setup-card.tsx",
     evidenceRefs: [
-      "bounded-contexts/payments/features/payments/ui/account-payment/stripe-setup-card.tsx:67",
-      "bounded-contexts/payments/package.json:42",
+      "bounded-contexts/payments/features/payments/ui/account-payment/stripe-setup-card.tsx:68",
+      "bounded-contexts/payments/package.json:44",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",
       "deployables/marketplace/package.json:35",
@@ -395,10 +395,10 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     inventorySubject:
       "@stripe/connect-js@bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx",
     evidenceRefs: [
-      "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx:62-67",
+      "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx:63-68",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",
-      "bounded-contexts/settlement/package.json:45",
+      "bounded-contexts/settlement/package.json:46",
     ],
     factualSummary:
       "The payout setup page calls the Stripe Connect.js loader, so Stripe's own embedded-component browser script loads on /account/desk/settings. Settlement declares @stripe/connect-js@3.4.5, and the committed embedded-component CSP permits https://connect-js.stripe.com and https://js.stripe.com for scripts and frames. Source entails only that the provider script loads on that surface and may use provider-controlled client-side storage.",
@@ -412,8 +412,8 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     evidenceRefs: [
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:7",
       "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-csp.ts:9",
-      "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-notification-banner.tsx:89-101",
-      "bounded-contexts/settlement/package.json:45",
+      "bounded-contexts/settlement/features/payout-readiness/ui/stripe-connect-notification-banner.tsx:90-102",
+      "bounded-contexts/settlement/package.json:46",
     ],
     factualSummary:
       "The Stripe Connect notification banner calls the Stripe Connect.js loader, so Stripe's own embedded-component browser script loads on /account/desk/settings. Settlement declares @stripe/connect-js@3.4.5, and the committed embedded-component CSP permits https://connect-js.stripe.com and https://js.stripe.com for scripts and frames. Source entails only that the provider script loads on that surface and may use provider-controlled client-side storage.",
