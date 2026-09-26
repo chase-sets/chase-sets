@@ -165,6 +165,7 @@ function validChannelsCandidate(
     },
     tcgplayerCsv: {},
     manualSync: {},
+    connectorFeed: { readAuthority: vi.fn(), withAuthority: vi.fn() },
     projectors: [],
     db: {},
   } satisfies Record<keyof ChannelsServices, unknown>;

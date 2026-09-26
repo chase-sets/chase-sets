@@ -290,8 +290,28 @@ jobs:
           docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -v ON_ERROR_STOP=1 -c \
             'SHOW max_connections; SHOW max_locks_per_transaction; SHOW shared_buffers; SHOW work_mem; SHOW maintenance_work_mem; SHOW superuser_reserved_connections; SHOW reserved_connections;'
 
+      - name: Select platform API evidence before running tests
+        id: platform-api-selected
+        env:
+          AFFECTED_WORKSPACES: ${{ needs['change-scope'].outputs.affected_workspaces }}
+        run: |
+          if [[ -z "$AFFECTED_WORKSPACES" || ",$AFFECTED_WORKSPACES," == *",@chase-sets/app-platform-api,"* ]]; then
+            echo "selected=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "selected=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run DB-profile tests
         run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
+
+      - name: Upload bootstrap DB evidence including failures
+        if: always() && steps.platform-api-selected.outputs.selected == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bootstrap-db-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: deployables/platform-api/artifacts/bootstrap-db-evidence
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Capture post-failure PostgreSQL state
         if: failure()

@@ -1,4 +1,18 @@
 export { channelsServicesMembers, isChannelsServices, type ChannelsServices } from "./support/runtime-support/services";
+export type { ConnectorFeedServices } from "./features/connector-feed/api/runtime";
+export { connectorAuditMiddleware } from "./features/connector-feed/api/routes";
+export { recordConnectorAudit } from "./features/connector-feed/read-model/audit";
+export type {
+  ConnectorAuditEntry,
+  ConnectorAuditReason,
+  ConnectorAuditRoute,
+} from "./features/connector-feed/domain/contracts";
+export type {
+  ConnectorAuthority,
+  ConnectorOperation,
+  ConnectorPairingDetail,
+  ConnectorIdentity,
+} from "./features/connector-feed/domain/contracts";
 export { parseChannelCredentialKeyring, assertKeyringContinuity } from "./features/credentials/domain/codecs";
 export {
   ChannelCredentialError,
