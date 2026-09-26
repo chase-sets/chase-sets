@@ -8,7 +8,7 @@ import { resolveThemeTokenValue } from "../../../packages/design-system/src/them
 import { cssValues } from "./stripe-appearance-support";
 import { createStripeConnectAppearance, createStripeElementsAppearance } from "@chase-sets/stripe-appearance";
 
-const predecessorHead = "be97a105ae14a39571d5231c52b3883dcaeffb92";
+const predecessorHead = "49300aad3b1c17f230afd42da09e549ad51a3e46";
 const predecessorPath = "packages/design-system/src/theme/stripe-appearance.ts";
 const predecessorSource = execFileSync("git", ["show", `${predecessorHead}:${predecessorPath}`], { encoding: "utf8" });
 const predecessorDigest = createHash("sha256").update(predecessorSource).digest("hex");
