@@ -17,6 +17,7 @@ try {
   const cut = process.env.TEST_SOURCE_CUT;
   const releaseCut = process.env.TEST_SOURCE_RELEASE_CUT;
   const sourceReferenceId = process.env.TEST_SOURCE_REFERENCE_ID ?? "chk_fresh_process";
+  const listingIds = process.env.TEST_SOURCE_LINES === "lst_a" ? ["lst_a"] : ["lst_a", "lst_b"];
   let sourceInserted = false;
   let usageFlipped = false;
   let sourceCompleted = false;
@@ -56,7 +57,7 @@ try {
         const orders = await db.query<{ n: string }>(
           `SELECT count(*)::text AS n FROM event_store_events WHERE stream_id LIKE 'ordering.order-%'`,
         );
-        if (Number(orders.rows[0]?.n) === (cut === "between Orders" ? 1 : 2)) await pause(cut);
+        if (Number(orders.rows[0]?.n) === (cut === "between Orders" ? 1 : listingIds.length)) await pause(cut);
       }
       if (sourceCompleted) {
         sourceCompleted = false;
@@ -112,7 +113,7 @@ try {
           phone: null,
           email: null,
         },
-        lines: ["lst_a", "lst_b"].map((listingId) => ({
+        lines: listingIds.map((listingId) => ({
           listingId,
           cartLineId: `cli_${listingId}`,
           catalogItemId: `cat_${listingId}`,
