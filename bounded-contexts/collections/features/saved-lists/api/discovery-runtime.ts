@@ -5,6 +5,7 @@ import { SavedListConcurrencyConflictError, type SavedListServices } from "./run
 import {
   savedListLimits,
   type SavedListCommandId,
+  type SavedListCommandReceipt,
   type SavedListCommandResult,
   type SavedListId,
   type SavedListLineId,
@@ -75,6 +76,10 @@ type AnonymousIntentRow = Readonly<{
 }>;
 
 export type SavedListDiscoveryServices = ReturnType<typeof createSavedListDiscoveryRuntime>;
+export type SavedListAdditionResult = Readonly<{
+  response: SavedListAdditionResponse;
+  createReceipt?: SavedListCommandReceipt;
+}>;
 
 export function createSavedListAdditionTokens(): SavedListAdditionTokens {
   return {
@@ -160,14 +165,15 @@ export function createSavedListDiscoveryRuntime(
       expectedVersion: number | null;
       rememberExpectedVersion: (version: number) => Promise<void>;
     }>,
-  ): Promise<SavedListAdditionResponse> {
+  ): Promise<SavedListAdditionResult> {
     const product = await validateProduct(input.product);
     const trackedQuantity = normalizeTrackedQuantity(input.trackedQuantity);
     let listTitle: string;
+    let createReceipt: SavedListCommandReceipt | undefined;
 
     if (input.destination.kind === "new") {
       listTitle = normalizeTitle(input.destination.title);
-      await deps.savedLists.createSavedList(
+      const creation = await deps.savedLists.createSavedList(
         {
           commandId: input.destination.createCommandId,
           listId: input.destination.listId,
@@ -176,6 +182,7 @@ export function createSavedListDiscoveryRuntime(
         },
         context,
       );
+      createReceipt = creation.receipt;
     } else {
       const snapshot = await deps.savedLists.getOwnerSnapshot(
         { listId: input.destination.listId, ownerAccountId: input.ownerAccountId },
@@ -208,18 +215,21 @@ export function createSavedListDiscoveryRuntime(
     }
 
     return {
-      command,
-      listId: input.destination.listId,
-      title: listTitle,
-      lineStatus: lineResult.status,
-      alreadyClaimed: false,
-      analyticsLabel: guestClaim
-        ? "saved-list.guest-intent-claimed"
-        : input.destination.kind === "new"
-          ? "saved-list.created-and-added"
-          : lineResult.status === "merged"
-            ? "saved-list.merged"
-            : "saved-list.added",
+      response: {
+        command,
+        listId: input.destination.listId,
+        title: listTitle,
+        lineStatus: lineResult.status,
+        alreadyClaimed: false,
+        analyticsLabel: guestClaim
+          ? "saved-list.guest-intent-claimed"
+          : input.destination.kind === "new"
+            ? "saved-list.created-and-added"
+            : lineResult.status === "merged"
+              ? "saved-list.merged"
+              : "saved-list.added",
+      },
+      ...(createReceipt ? { createReceipt } : {}),
     };
   }
 
@@ -476,7 +486,7 @@ export function createSavedListDiscoveryRuntime(
         }
       }
 
-      const addition = await performAddition(
+      const { response } = await performAddition(
         {
           ownerAccountId: input.accountId,
           destination,
@@ -514,9 +524,9 @@ export function createSavedListDiscoveryRuntime(
            AND anonymous_owner_id = $2
            AND claimed_account_id = $3
            AND claimed_list_id = $4`,
-        [intent.intentId, intent.anonymousOwnerId, input.accountId, destination.listId, JSON.stringify(addition)],
+        [intent.intentId, intent.anonymousOwnerId, input.accountId, destination.listId, JSON.stringify(response)],
       );
-      return addition;
+      return response;
     },
   };
 }

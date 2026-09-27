@@ -1,4 +1,5 @@
 import type { SavedListAdditionResponse, SavedListDiscoverySurface } from "./discovery-contracts";
+import type { SavedListCommandReceipt } from "../domain/contracts";
 import type { SavedListValuationCoverage } from "../../saved-list-valuation/domain/contracts";
 
 export const savedListAnalyticsEvents = Object.freeze([
@@ -51,11 +52,14 @@ function event(name: EventName, labels: Partial<Record<LabelKey, unknown>>): Sav
 export function additionAnalytics(
   response: SavedListAdditionResponse,
   surface: SavedListDiscoverySurface,
+  createReceipt?: SavedListCommandReceipt,
 ): SavedListAnalyticsEvent[] {
   const { receipt, savedList } = response.command;
   if (receipt.replayed) return [];
   const events: SavedListAnalyticsEvent[] = [];
-  if (receipt.outcome === "created") events.push(event("list_created", { surface }));
+  if (createReceipt?.outcome === "created" && !createReceipt.replayed) {
+    events.push(event("list_created", { surface }));
+  }
   events.push(event("product_added", { surface, outcome: response.lineStatus }));
   const priorCount =
     savedList.lines.length -

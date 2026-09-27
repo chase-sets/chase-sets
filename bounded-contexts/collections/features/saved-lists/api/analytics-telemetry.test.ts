@@ -37,7 +37,7 @@ const marker = "synthetic_private_marker_7137";
 function addition(
   count: number,
   prior: number,
-  outcome: "created" | "line-changes-applied" = "created",
+  outcome: "created" | "line-changes-applied" = "line-changes-applied",
   replayed = false,
   lineStatus: "added" | "merged" = "added",
 ): SavedListAdditionResponse {
@@ -112,7 +112,11 @@ describe("Saved List analytics closed privacy contract", () => {
   );
 
   it("emits only tuple-member keys and values, never adversarial private input", () => {
-    const events = [...additionAnalytics(addition(5, 4), "search"), valuationAnalytics(coverage(2, 4, 1))];
+    const response = addition(5, 4);
+    const events = [
+      ...additionAnalytics(response, "search", { ...response.command.receipt, outcome: "created" }),
+      valuationAnalytics(coverage(2, 4, 1)),
+    ];
     expect(events.map((item) => item.event)).toEqual([...savedListAnalyticsEvents]);
     for (const item of events) {
       expect(Object.keys(item).sort()).toEqual(["event", ...Object.keys(savedListAnalyticsValues)].sort());

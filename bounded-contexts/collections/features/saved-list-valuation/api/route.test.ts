@@ -75,6 +75,37 @@ describe("Saved List valuation routes", () => {
         estimate_state: "incomplete",
       },
     ]);
+    for (const [item] of record.mock.calls) {
+      expect(Object.keys(item).sort()).toEqual(
+        ["event", "surface", "outcome", "coverage_band", "estimate_state"].sort(),
+      );
+      expect(
+        [
+          "listId",
+          "lineId",
+          "commandId",
+          "catalogItemId",
+          "productId",
+          "accountId",
+          "verifier",
+          "secret",
+          "note",
+          "tag",
+          "trackedQuantity",
+          "unitEstimateAmount",
+          "estimatedValueAmount",
+          "estimatedTotalAmount",
+          "estimatedValueBand",
+          "estimatedTotalBand",
+          "lowAmount",
+          "highAmount",
+        ].filter((key) => Object.hasOwn(item, key)),
+      ).toEqual([]);
+      expect(["empty", "none", "low", "partial", "high", "full", "invalid"]).toContain(item.coverage_band);
+      expect(["empty", "incomplete", "stale", "low_confidence", "current", "none", "invalid"]).toContain(
+        item.estimate_state,
+      );
+    }
   });
   it("requires an authenticated account", async () => {
     const response = await appWithActor(services(), null).request(`/saved-lists/${listId}/valuation`);
@@ -116,11 +147,17 @@ describe("Saved List valuation routes", () => {
   });
 
   it("uses a non-disclosing not-found response for another account", async () => {
-    const response = await appWithActor(services(vi.fn().mockResolvedValue(null)), {
-      accountId: "acc_other",
-      permissions: ["accounts.view"],
-    }).request(`/saved-lists/${listId}/valuation`);
+    const record = vi.fn();
+    const response = await appWithActor(
+      services(vi.fn().mockResolvedValue(null)),
+      {
+        accountId: "acc_other",
+        permissions: ["accounts.view"],
+      },
+      { record },
+    ).request(`/saved-lists/${listId}/valuation`);
     expect(response.status).toBe(404);
     await expect(response.json()).resolves.toMatchObject({ error: { code: "saved_list_not_found" } });
+    expect(record).not.toHaveBeenCalled();
   });
 });

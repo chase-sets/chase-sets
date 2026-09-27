@@ -2,6 +2,7 @@ import type { RateLimitRule } from "@chase-sets/http/rate-limit";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { buildCollectionsApi, type CollectionsApiEnv } from "../../../api";
+import { createCollectionsServices } from "../../../support/runtime-support/services";
 
 const capturePath = "/guest/saved-list-intents";
 const unknownGuestPath = "/guest/deliberately-unknown";
@@ -43,6 +44,7 @@ function withActor(app: ReturnType<typeof buildCollectionsApi>) {
   const root = new Hono<CollectionsApiEnv>();
   root.use("*", async (c, next) => {
     c.set("actor", { accountId: "acc_owner", permissions: ["accounts.view"] });
+    c.set("context", {} as CollectionsApiEnv["Variables"]["context"]);
     await next();
   });
   root.route("/", app);
@@ -56,6 +58,59 @@ async function expectRateLimited(response: Response) {
 }
 
 describe("Saved List composed actor boundary", () => {
+  it("analytics-composition forwards one recorder through services and both composed routes", async () => {
+    const record = vi.fn();
+    const recorder = { record };
+    expect(
+      createCollectionsServices({} as never, { savedListAnalyticsRecorder: recorder }).savedListAnalyticsRecorder,
+    ).toBe(recorder);
+    const app = withActor(
+      buildApi({
+        discovery: {
+          createAnonymousIntent: vi.fn(),
+          addProduct: vi.fn(async () => ({
+            response: {
+              command: { receipt: { replayed: false, lineResults: [{ status: "added" }] }, savedList: { lines: [{}] } },
+              lineStatus: "added",
+              listId: "svl_x",
+              title: "List",
+              alreadyClaimed: false,
+              analyticsLabel: "saved-list.added",
+            },
+          })),
+        },
+        savedListValuation: {
+          getOwnerValuation: vi.fn(async () => ({
+            summary: {
+              coverage: {
+                priced: { lines: 0 },
+                total: { lines: 0 },
+                missing: { lines: 0 },
+                stale: { lines: 0 },
+                lowConfidence: { lines: 0 },
+              },
+            },
+          })),
+        },
+        savedListAnalyticsRecorder: recorder,
+      }),
+    );
+    const addition = await app.request("/account/list-additions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        destination: { kind: "existing", listId: "svl_x" },
+        addCommandId: "slc_x",
+        lineId: "sll_x",
+        product: { catalogItemId: "cat_x", productId: "cat_x::condition:near-mint", selectedOptions: [] },
+        trackedQuantity: 1,
+        sourceSurface: "search",
+      }),
+    });
+    expect(addition.status).toBe(200);
+    expect((await app.request("/saved-lists/svl_x/valuation")).status).toBe(200);
+    expect(record.mock.calls.map(([item]) => item.event)).toEqual(["product_added", "valuation_coverage_band"]);
+  });
   it("admits one actorless guest capture before the actor fence", async () => {
     const createAnonymousIntent = vi.fn(async () => ({ id: "sli_guest" }));
     const app = buildApi({ discovery: { createAnonymousIntent } });

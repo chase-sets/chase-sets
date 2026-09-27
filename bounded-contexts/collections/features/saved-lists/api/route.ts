@@ -95,12 +95,12 @@ export function createSavedListRoutes(services: SavedListDiscoveryServices, reco
     const body = await c.req.json().catch(() => ({}));
     try {
       const request = parseAdditionRequest(body);
-      const result = await services.addProduct(
+      const { response, createReceipt } = await services.addProduct(
         { ...request, ownerAccountId: access.actor.accountId as AccountId },
         context,
       );
-      recordSavedListAnalytics(recorder, additionAnalytics(result, request.sourceSurface));
-      return c.json(result);
+      recordSavedListAnalytics(recorder, additionAnalytics(response, request.sourceSurface, createReceipt));
+      return c.json(response);
     } catch (error) {
       return errorResponse(error);
     }
