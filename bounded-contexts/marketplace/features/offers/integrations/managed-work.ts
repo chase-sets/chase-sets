@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -65,14 +66,12 @@ export function createManagedOfferWork(deps: {
     const workId = candidates.rows[0]?.work_id;
     if (!workId) return 0;
     const streamId = `marketplace.offer-work-${workId}`;
-    let fromVersion = candidates.rows[0]!.last_stream_version;
-    let latest;
-    for (;;) {
-      const page = await deps.eventStore.readStream({ streamId, fromVersion, limit: 100 });
-      latest = page.at(-1) ?? latest;
-      if (page.length < 100) break;
-      fromVersion = page.at(-1)!.streamVersion + 1;
-    }
+    const latest = (
+      await readCompleteStream(deps.eventStore, {
+        streamId,
+        fromVersion: candidates.rows[0]!.last_stream_version,
+      })
+    ).at(-1);
     if (!latest) return 0;
     const work = latest.payload as Work;
     if (work.status === "completed" || Date.parse(work.availableAt) > now().getTime()) return 0;

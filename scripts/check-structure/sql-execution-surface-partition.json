@@ -262,6 +262,8 @@
     "bounded-contexts/marketplace/features/offer-policy/api/runtime.ts",
     "bounded-contexts/marketplace/features/offer-policy/read-model/projection.ts",
     "bounded-contexts/marketplace/features/offers/api/runtime.ts",
+    "bounded-contexts/marketplace/features/offers/integrations/managed-work.ts",
+    "bounded-contexts/marketplace/features/offers/read-model/managed-projection.ts",
     "bounded-contexts/marketplace/features/offers/read-model/projection.ts",
     "bounded-contexts/marketplace/features/offers/read-model/queries.ts",
     "bounded-contexts/marketplace/features/offers/read-model/seller-attention-source.ts",
