@@ -512,6 +512,55 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
     expect(after.rows).toEqual(before.rows);
   });
 
+  it("drains denomination rebuild tuples without changing any rollup or aggregate value", async () => {
+    const pool = pools.pricing;
+    const handlers = tradeHandlers(pool);
+    const capturedAt = "2026-07-01T19:30:00.000Z";
+    async function capture() {
+      await handlers["payments.payment-captured"]!(
+        event(
+          "payments.payment-captured",
+          { orderIds: ["ord_1", "ord_2", "ord_3", "ord_4"], currencyCode: "usd", capturedAt },
+          capturedAt,
+        ),
+      );
+    }
+    async function values() {
+      const tables = [
+        "pricing_daily_product_rollups",
+        "pricing_product_market_aggregates",
+        "pricing_platform_daily_rollups",
+      ] as const;
+      const results = [];
+      for (const table of tables) {
+        const result = await pool.query<{ value: object }>(
+          `SELECT to_jsonb(r) - 'updated_at' AS value FROM ${table} AS r
+           ORDER BY (to_jsonb(r) - 'updated_at')::text`,
+        );
+        results.push(result.rows.map((row) => row.value));
+      }
+      return results;
+    }
+
+    await seedJuly1Trades(pool);
+    await capture();
+    const now = "2026-07-20T00:00:00.000Z";
+    await runDailyRollupCloser(pool, { now, trailingWindowDays: 3 });
+    const before = await values();
+    expect(before.map((rows) => rows.length)).toEqual([1, 1, 1]);
+
+    await pool.query(
+      `TRUNCATE pricing_market_trades, pricing_market_trade_denominations, pricing_market_trade_rollup_rederive_queue`,
+    );
+    await capture();
+    await seedJuly1Trades(pool);
+    expect((await listQueuedTradeRollupRederives(pool, 100)).length).toBe(1);
+    const result = await runDailyRollupCloser(pool, { now, trailingWindowDays: 3 });
+    expect(result.rollupDaysRecomputed).toBe(1);
+    expect(await listQueuedTradeRollupRederives(pool, 100)).toEqual([]);
+    expect(await values()).toEqual(before);
+  });
+
   it("re-derives a bucketed weekly series with SUM-combined volume/count and a gated weighted median", async () => {
     const pool = pools.pricing;
     await seedJuly1Trades(pool); // 3 included trades on 2026-07-01, median 20.00
@@ -1073,12 +1122,13 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
       prices: ["10.00"],
       idPrefix: "ord_queue_generation",
     });
-    await pool.query(
-      `INSERT INTO pricing_market_trade_rollup_rederive_queue (
-         catalog_catalog_item_id, product_id, day, queued_at
-       ) VALUES ($1, $2, $3, $4)`,
+    const initialQueue = await pool.query(
+      `UPDATE pricing_market_trade_rollup_rederive_queue
+       SET queued_at = $4
+       WHERE catalog_catalog_item_id = $1 AND product_id = $2 AND day = $3`,
       [catalogItemId, productId, day, queuedAt],
     );
+    expect(initialQueue.rowCount).toBe(1);
 
     const [readTuple] = await listQueuedTradeRollupRederives(pool, 1);
     expect(readTuple?.generation).toBe("1");
@@ -1178,7 +1228,8 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
     });
 
     const closer = await runtime.runDailyRollupCloser({ now: "2026-07-11T20:00:00.000Z", limit: 500 });
-    expect(closer.rollupDaysRecomputed).toBe(1);
+    // Readiness now queues the old period as well as the in-window day.
+    expect(closer.rollupDaysRecomputed).toBe(2);
 
     // An explicit late re-derivation must load v1 from the row, never the live v2 document.
     await recomputeDailyProductRollup(pool, {

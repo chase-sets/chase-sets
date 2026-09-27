@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS pricing_market_trades (
   catalog_catalog_item_id text NOT NULL,
   product_id text NOT NULL,
   unit_price_amount numeric(12, 2) NOT NULL,
+  currency_code text NULL CHECK (currency_code ~ '^[A-Z]{3}$'),
   quantity integer NOT NULL CHECK (quantity > 0),
   sale_channel text NOT NULL CHECK (sale_channel IN ('listing', 'offer-accepted', 'buy-now')),
   shipment_id text NULL,
@@ -59,6 +60,12 @@ CREATE INDEX IF NOT EXISTS pricing_market_trades_included_time_series_idx
 CREATE INDEX IF NOT EXISTS pricing_market_trades_shipment_idx
   ON pricing_market_trades (shipment_id)
   WHERE shipment_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS pricing_market_trade_denominations (
+  order_id text PRIMARY KEY,
+  currency_code text NOT NULL CHECK (currency_code ~ '^[A-Z]{3}$'),
+  captured_at timestamptz NOT NULL
+);
 
 -- Tape-integrity correlation seam: m109 authenticity verdicts carry only
 -- caseId, not orderId/lineId, so this small side table remembers the
@@ -108,6 +115,19 @@ CREATE INDEX IF NOT EXISTS pricing_market_trade_rollup_rederive_queue_age_idx
 `;
 
 export const pricingMarketTradesSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260927_pricing_market_trade_denominations",
+    description: "Persist Payments capture denomination for replayed Trades Tape lines.",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS pricing_market_trade_denominations (
+  order_id text PRIMARY KEY,
+  currency_code text NOT NULL CHECK (currency_code ~ '^[A-Z]{3}$'),
+  captured_at timestamptz NOT NULL
+)`,
+      `ALTER TABLE pricing_market_trades
+  ADD COLUMN IF NOT EXISTS currency_code text NULL CHECK (currency_code ~ '^[A-Z]{3}$')`,
+    ],
+  },
   {
     migrationId: "20260908_pricing_market_trades_inventory_item",
     description: "Retain Ordering's Inventory Item identity on replayed Trades Tape lines for Economics evidence.",
