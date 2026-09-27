@@ -1746,8 +1746,9 @@ describe("public shell and info page surface diet (#8270 AC3)", () => {
     expect(sectionRoots).toHaveLength(2);
     expect(sectionRoots.map((root) => root.querySelector("h2")?.textContent)).toEqual(["Support", "Status"]);
     expect(sectionRoots.map(surfaceIntent)).toEqual(["tinted", "tinted"]);
+    // A tinted section root carries exactly its tint fill and no border, shadow or ring.
     for (const root of sectionRoots) {
-      expect(chromeTokens(root)).toEqual([]);
+      expect(chromeTokens(root)).toEqual(["bg-surface-2"]);
     }
     expect(main!.querySelectorAll(".surface-border, .shadow-tokenLg, .shadow-tokenSm")).toHaveLength(0);
   });
