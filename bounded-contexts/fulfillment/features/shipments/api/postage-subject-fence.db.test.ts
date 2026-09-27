@@ -48,12 +48,24 @@ function deferred() {
   return { promise, resolve };
 }
 
-async function waitUntil(assertion: () => Promise<boolean> | boolean) {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
-    if (await assertion()) return;
+async function checkpoint(name: string, signal: Promise<void>, timeoutMs = 60_000) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      signal,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Postage checkpoint not reached: ${name}`)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function pastFormerSpinBound() {
+  for (let attempt = 0; attempt < 201; attempt += 1) {
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
   }
-  throw new Error("Concurrent postage test did not reach its expected deterministic checkpoint.");
 }
 
 function purchasedLabel(subjectId: string, invocation: number): PurchasedPostageLabel {
@@ -77,6 +89,7 @@ function purchasedLabel(subjectId: string, invocation: number): PurchasedPostage
 
 function gatedProvider(pool: PgTransactionalPool, gate: ReturnType<typeof deferred>) {
   const observedReservations: Array<Readonly<{ subjectKind: string; subjectId: string; status: string }>> = [];
+  const invocations = [deferred(), deferred()];
   const provider: PostageLabelProvider = {
     providerName: "synthetic-postage",
     providerMode: "test",
@@ -97,6 +110,7 @@ function gatedProvider(pool: PgTransactionalPool, gate: ReturnType<typeof deferr
       if (!status) throw new Error("Synthetic provider effect ran before its durable reservation.");
       observedReservations.push({ subjectKind: request.subjectKind, subjectId: request.subjectId, status });
       const invocation = vi.mocked(provider.purchaseUspsLabel).mock.calls.length;
+      invocations[invocation - 1]?.resolve();
       await gate.promise;
       return purchasedLabel(request.subjectId, invocation);
     }),
@@ -108,7 +122,7 @@ function gatedProvider(pool: PgTransactionalPool, gate: ReturnType<typeof deferr
       voidedAt: "2026-09-10T00:10:00.000Z",
     })),
   };
-  return { provider, observedReservations };
+  return { provider, observedReservations, invocations };
 }
 
 async function createPackedShipmentRuntime(
@@ -315,6 +329,7 @@ async function reserveRecordThenInvoke(
   subjectId: string,
   keyDigest: string,
   effect: (operationKey: string) => Promise<void>,
+  beforeEffect?: () => Promise<void>,
 ) {
   const reservation = await reservePostageOperation(pool, {
     tenantId: "tnt_fence",
@@ -339,6 +354,7 @@ async function reserveRecordThenInvoke(
       providerInvoked: true,
     });
     if (!invoking) throw new Error("Synthetic record reservation was lost before invocation.");
+    await beforeEffect?.();
     await effect(invoking.operation_key);
   }
   return reservation;
@@ -358,143 +374,217 @@ describeDb("postage subject production composition fence", () => {
   });
   afterAll(async () => closeMultiContextTestPools({ fulfillment: pool }));
 
-  it("postage-subject-fence drives actual Shipment, Return Shipment, and reservation-only record effects", async () => {
-    const shipmentGate = deferred();
-    const shipmentProvider = gatedProvider(pool, shipmentGate);
-    const shipmentRuntime = await createPackedShipmentRuntime(pool, "shp_fence", shipmentProvider.provider);
-    const firstShipment = purchaseShipment(shipmentRuntime, "shp_fence", "018f47d2-9d2a-4d68-8f33-6fb718c3f101");
-    await waitUntil(() => vi.mocked(shipmentProvider.provider.purchaseUspsLabel).mock.calls.length === 1);
-    const secondShipment = purchaseShipment(shipmentRuntime, "shp_fence", "018f47d2-9d2a-4d68-8f33-6fb718c3f102").catch(
-      (error: unknown) => error,
-    );
-    await waitUntil(async () => {
-      const rows = await pool.query(
-        `SELECT operation_key FROM fulfillment_postage_label_operations
-         WHERE subject_kind = 'shipment' AND subject_id = 'shp_fence'`,
-      );
-      return rows.rows.length === 2;
-    });
-    shipmentGate.resolve();
-    const shipmentResults = await Promise.allSettled([firstShipment, secondShipment]);
-    expect(shipmentResults[0]?.status).toBe("fulfilled");
-    expect(shipmentProvider.provider.purchaseUspsLabel).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(shipmentProvider.provider.purchaseUspsLabel).mock.calls[0]?.[0]).toMatchObject({
-      subjectKind: "shipment",
-      subjectId: "shp_fence",
-    });
-    expect(shipmentProvider.observedReservations).toEqual([
-      { subjectKind: "shipment", subjectId: "shp_fence", status: "invoking" },
-    ]);
-    expect(
-      (
-        await pool.query(
-          `SELECT count(*)::int AS count FROM fulfillment_postage_label_operations
-           WHERE subject_kind = 'shipment' AND subject_id = 'shp_fence' AND status <> 'failed-safe'`,
-        )
-      ).rows,
-    ).toEqual([{ count: 1 }]);
-
-    const returnGate = deferred();
-    const returnProvider = gatedProvider(pool, returnGate);
-    const returnService = createReturnService(pool, returnProvider.provider);
-    const directive = returnDirective("rsh_fence");
-    const firstReturn = returnService.issueReturnLabel(directive, context);
-    await waitUntil(() => vi.mocked(returnProvider.provider.purchaseUspsLabel).mock.calls.length === 1);
-    const secondReturn = await returnService.issueReturnLabel(directive, context);
-    expect(secondReturn.outcome).toBe("in-progress");
-    returnGate.resolve();
-    expect((await firstReturn).outcome).toBe("label-ready");
-    expect(returnProvider.provider.purchaseUspsLabel).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(returnProvider.provider.purchaseUspsLabel).mock.calls[0]?.[0]).toMatchObject({
-      subjectKind: "return-shipment",
-      subjectId: "rsh_fence",
-    });
-    expect(returnProvider.observedReservations).toEqual([
-      { subjectKind: "return-shipment", subjectId: "rsh_fence", status: "pending" },
-    ]);
-    expect(
-      (
-        await pool.query(
-          `SELECT count(*)::int AS count FROM fulfillment_return_shipment_label_operations
-           WHERE return_shipment_id = 'rsh_fence'`,
-        )
-      ).rows,
-    ).toEqual([{ count: 1 }]);
-
+  it("settles a gated record operation when a named checkpoint never arrives", async () => {
     await pool.query(
       `INSERT INTO fulfillment_channel_fulfillment_record_tenant_resolutions (
+         channel_fulfillment_record_id, tenant_id, seller_account_id, status, reason_code, resolved_at
+       ) VALUES ('cfr_missing_signal', 'tnt_fence', 'acc_fence', 'resolved', 'authoritative-history', now())`,
+    );
+    const heldGate = deferred();
+    const invoked = deferred();
+    const missing = deferred();
+    const effect = vi.fn(async () => {
+      invoked.resolve();
+      await heldGate.promise;
+    });
+    const operation = reserveRecordThenInvoke(pool, "cfr_missing_signal", "missing-signal", effect);
+    operation.catch(() => {});
+    let result: PromiseSettledResult<Awaited<typeof operation>>[] = [];
+    try {
+      await checkpoint("failure-path record effect invoked", invoked.promise);
+      await expect(checkpoint("deliberately missing record signal", missing.promise, 25)).rejects.toThrow(
+        "Postage checkpoint not reached: deliberately missing record signal",
+      );
+    } finally {
+      heldGate.resolve();
+      result = await Promise.allSettled([operation]);
+    }
+    expect(result[0]?.status).toBe("fulfilled");
+    expect(effect).toHaveBeenCalledTimes(1);
+    expect(
+      (
+        await pool.query(
+          `SELECT operation_key FROM fulfillment_postage_label_operations
+       WHERE subject_kind = 'channel-fulfillment-record' AND subject_id = 'cfr_missing_signal'`,
+        )
+      ).rows,
+    ).toHaveLength(1);
+  });
+
+  it("postage-subject-fence drives actual Shipment, Return Shipment, and reservation-only record effects", async () => {
+    const gates: Array<ReturnType<typeof deferred>> = [];
+    const operations: Promise<unknown>[] = [];
+    let indexDropped = false;
+    const gate = () => {
+      const signal = deferred();
+      gates.push(signal);
+      return signal;
+    };
+    const track = <T>(operation: Promise<T>): Promise<T> => {
+      operation.catch(() => {});
+      operations.push(operation);
+      return operation;
+    };
+    try {
+      const shipmentGate = gate();
+      const shipmentProvider = gatedProvider(pool, shipmentGate);
+      const shipmentRuntime = await createPackedShipmentRuntime(pool, "shp_fence", shipmentProvider.provider);
+      const firstShipment = track(
+        purchaseShipment(shipmentRuntime, "shp_fence", "018f47d2-9d2a-4d68-8f33-6fb718c3f101"),
+      );
+      await checkpoint("shipment first provider invocation", shipmentProvider.invocations[0]!.promise);
+      const secondShipment = track(
+        purchaseShipment(shipmentRuntime, "shp_fence", "018f47d2-9d2a-4d68-8f33-6fb718c3f102").catch(
+          (error: unknown) => error,
+        ),
+      );
+      await checkpoint(
+        "shipment losing contender settled",
+        secondShipment.then(() => {}),
+      );
+      expect(
+        (
+          await pool.query(
+            `SELECT operation_key FROM fulfillment_postage_label_operations
+       WHERE subject_kind = 'shipment' AND subject_id = 'shp_fence'`,
+          )
+        ).rows,
+      ).toHaveLength(2);
+      shipmentGate.resolve();
+      const shipmentResults = await Promise.allSettled([firstShipment, secondShipment]);
+      expect(shipmentResults[0]?.status).toBe("fulfilled");
+      expect(shipmentProvider.provider.purchaseUspsLabel).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(shipmentProvider.provider.purchaseUspsLabel).mock.calls[0]?.[0]).toMatchObject({
+        subjectKind: "shipment",
+        subjectId: "shp_fence",
+      });
+      expect(shipmentProvider.observedReservations).toEqual([
+        { subjectKind: "shipment", subjectId: "shp_fence", status: "invoking" },
+      ]);
+      expect(
+        (
+          await pool.query(
+            `SELECT count(*)::int AS count FROM fulfillment_postage_label_operations
+           WHERE subject_kind = 'shipment' AND subject_id = 'shp_fence' AND status <> 'failed-safe'`,
+          )
+        ).rows,
+      ).toEqual([{ count: 1 }]);
+
+      const returnGate = gate();
+      const returnProvider = gatedProvider(pool, returnGate);
+      const returnService = createReturnService(pool, returnProvider.provider);
+      const directive = returnDirective("rsh_fence");
+      const firstReturn = track(returnService.issueReturnLabel(directive, context));
+      await checkpoint("return first provider invocation", returnProvider.invocations[0]!.promise);
+      const secondReturn = await track(returnService.issueReturnLabel(directive, context));
+      expect(secondReturn.outcome).toBe("in-progress");
+      returnGate.resolve();
+      expect((await firstReturn).outcome).toBe("label-ready");
+      expect(returnProvider.provider.purchaseUspsLabel).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(returnProvider.provider.purchaseUspsLabel).mock.calls[0]?.[0]).toMatchObject({
+        subjectKind: "return-shipment",
+        subjectId: "rsh_fence",
+      });
+      expect(returnProvider.observedReservations).toEqual([
+        { subjectKind: "return-shipment", subjectId: "rsh_fence", status: "pending" },
+      ]);
+      expect(
+        (
+          await pool.query(
+            `SELECT count(*)::int AS count FROM fulfillment_return_shipment_label_operations
+           WHERE return_shipment_id = 'rsh_fence'`,
+          )
+        ).rows,
+      ).toEqual([{ count: 1 }]);
+
+      await pool.query(
+        `INSERT INTO fulfillment_channel_fulfillment_record_tenant_resolutions (
          channel_fulfillment_record_id, tenant_id, seller_account_id, status, reason_code, resolved_at
        ) VALUES
          ('cfr_fence', 'tnt_fence', 'acc_fence', 'resolved', 'authoritative-history', now()),
          ('cfr_mutant', 'tnt_fence', 'acc_fence', 'resolved', 'authoritative-history', now())`,
-    );
-    const recordGate = deferred();
-    const recordEffects: string[] = [];
-    const recordEffect = vi.fn(async (operationKey: string) => {
-      const reservation = await pool.query<{ status: string; subject_kind: string; subject_id: string }>(
-        `SELECT status, subject_kind, subject_id
+      );
+      const recordGate = gate();
+      const recordInvocation = deferred();
+      const recordEffects: string[] = [];
+      const recordEffect = vi.fn(async (operationKey: string) => {
+        const reservation = await pool.query<{ status: string; subject_kind: string; subject_id: string }>(
+          `SELECT status, subject_kind, subject_id
          FROM fulfillment_postage_label_operations WHERE operation_key = $1`,
-        [operationKey],
+          [operationKey],
+        );
+        const row = reservation.rows[0];
+        if (
+          row?.status !== "invoking" ||
+          row.subject_kind !== "channel-fulfillment-record" ||
+          row.subject_id !== "cfr_fence"
+        ) {
+          throw new Error("Synthetic record effect ran before its durable reservation.");
+        }
+        recordEffects.push(`${row.subject_kind}:${row.subject_id}`);
+        recordInvocation.resolve();
+        await recordGate.promise;
+      });
+      const firstRecord = track(
+        reserveRecordThenInvoke(pool, "cfr_fence", "record-left", recordEffect, pastFormerSpinBound),
       );
-      const row = reservation.rows[0];
-      if (
-        row?.status !== "invoking" ||
-        row.subject_kind !== "channel-fulfillment-record" ||
-        row.subject_id !== "cfr_fence"
-      ) {
-        throw new Error("Synthetic record effect ran before its durable reservation.");
-      }
-      recordEffects.push(`${row.subject_kind}:${row.subject_id}`);
-      await recordGate.promise;
-    });
-    const firstRecord = reserveRecordThenInvoke(pool, "cfr_fence", "record-left", recordEffect);
-    await waitUntil(() => recordEffect.mock.calls.length === 1);
-    const secondRecord = reserveRecordThenInvoke(pool, "cfr_fence", "record-right", recordEffect);
-    await waitUntil(async () => {
-      const rows = await pool.query(
-        `SELECT operation_key FROM fulfillment_postage_label_operations
-         WHERE subject_kind = 'channel-fulfillment-record' AND subject_id = 'cfr_fence'`,
+      await checkpoint("record first effect invocation after controlled delay", recordInvocation.promise);
+      const secondRecord = track(
+        (async () => {
+          await pastFormerSpinBound();
+          return reserveRecordThenInvoke(pool, "cfr_fence", "record-right", recordEffect);
+        })(),
       );
-      return rows.rows.length === 2;
-    });
-    recordGate.resolve();
-    await Promise.all([firstRecord, secondRecord]);
-    expect(recordEffect).toHaveBeenCalledTimes(1);
-    expect(recordEffects).toEqual(["channel-fulfillment-record:cfr_fence"]);
-    expect(
-      (
-        await pool.query(
-          `SELECT count(*)::int AS count FROM fulfillment_postage_label_operations
+      await checkpoint(
+        "record losing contender settled after controlled delay",
+        secondRecord.then(() => {}),
+      );
+      expect(
+        (
+          await pool.query(
+            `SELECT operation_key FROM fulfillment_postage_label_operations
+       WHERE subject_kind = 'channel-fulfillment-record' AND subject_id = 'cfr_fence'`,
+          )
+        ).rows,
+      ).toHaveLength(2);
+      recordGate.resolve();
+      await Promise.all([firstRecord, secondRecord]);
+      expect(recordEffect).toHaveBeenCalledTimes(1);
+      expect(recordEffects).toEqual(["channel-fulfillment-record:cfr_fence"]);
+      expect(
+        (
+          await pool.query(
+            `SELECT count(*)::int AS count FROM fulfillment_postage_label_operations
            WHERE subject_kind = 'channel-fulfillment-record' AND subject_id = 'cfr_fence' AND status <> 'failed-safe'`,
-        )
-      ).rows,
-    ).toEqual([{ count: 1 }]);
+          )
+        ).rows,
+      ).toEqual([{ count: 1 }]);
 
-    const reservationRequiredEffect = async (operationKey: string) => {
-      const row = await pool.query(
-        `SELECT operation_key FROM fulfillment_postage_label_operations WHERE operation_key = $1`,
-        [operationKey],
+      const reservationRequiredEffect = async (operationKey: string) => {
+        const row = await pool.query(
+          `SELECT operation_key FROM fulfillment_postage_label_operations WHERE operation_key = $1`,
+          [operationKey],
+        );
+        if (!row.rows[0]) throw new Error("reservation-before-effect invariant violated");
+      };
+      await expect(reservationRequiredEffect("bypassed-operation")).rejects.toThrow(
+        "reservation-before-effect invariant violated",
       );
-      if (!row.rows[0]) throw new Error("reservation-before-effect invariant violated");
-    };
-    await expect(reservationRequiredEffect("bypassed-operation")).rejects.toThrow(
-      "reservation-before-effect invariant violated",
-    );
-    await expect(
-      (async () => {
-        await reservationRequiredEffect("reordered-operation");
-        return reserveRecordThenInvoke(pool, "cfr_mutant", "reordered", reservationRequiredEffect);
-      })(),
-    ).rejects.toThrow("reservation-before-effect invariant violated");
-    await expect(
-      reserveRecordThenInvoke(pool, "cfr_mutant", "production-order", reservationRequiredEffect),
-    ).resolves.toMatchObject({ targetConflict: false, created: true });
+      await expect(
+        (async () => {
+          await reservationRequiredEffect("reordered-operation");
+          return reserveRecordThenInvoke(pool, "cfr_mutant", "reordered", reservationRequiredEffect);
+        })(),
+      ).rejects.toThrow("reservation-before-effect invariant violated");
+      await expect(
+        reserveRecordThenInvoke(pool, "cfr_mutant", "production-order", reservationRequiredEffect),
+      ).resolves.toMatchObject({ targetConflict: false, created: true });
 
-    await pool.query(`DELETE FROM fulfillment_postage_label_operations`);
-    await pool.query(`DELETE FROM fulfillment_return_shipment_label_operations`);
-    await pool.query(`DROP INDEX fulfillment_postage_label_operations_active_target_v2_idx`);
-    try {
-      const mutantShipmentGate = deferred();
+      await pool.query(`DELETE FROM fulfillment_postage_label_operations`);
+      await pool.query(`DELETE FROM fulfillment_return_shipment_label_operations`);
+      await pool.query(`DROP INDEX fulfillment_postage_label_operations_active_target_v2_idx`);
+      indexDropped = true;
+      const mutantShipmentGate = gate();
       const mutantShipmentProvider = gatedProvider(pool, mutantShipmentGate);
       const mutantShipmentRuntime = await createPackedShipmentRuntime(
         pool,
@@ -502,10 +592,17 @@ describeDb("postage subject production composition fence", () => {
         mutantShipmentProvider.provider,
       );
       const mutantShipmentAttempts = [
-        purchaseShipment(mutantShipmentRuntime, "shp_fence_removed", "018f47d2-9d2a-4d68-8f33-6fb718c3f201"),
-        purchaseShipment(mutantShipmentRuntime, "shp_fence_removed", "018f47d2-9d2a-4d68-8f33-6fb718c3f202"),
+        track(purchaseShipment(mutantShipmentRuntime, "shp_fence_removed", "018f47d2-9d2a-4d68-8f33-6fb718c3f201")),
+        track(purchaseShipment(mutantShipmentRuntime, "shp_fence_removed", "018f47d2-9d2a-4d68-8f33-6fb718c3f202")),
       ];
-      await waitUntil(() => vi.mocked(mutantShipmentProvider.provider.purchaseUspsLabel).mock.calls.length === 2);
+      await checkpoint(
+        "removed-index shipment first provider invocation",
+        mutantShipmentProvider.invocations[0]!.promise,
+      );
+      await checkpoint(
+        "removed-index shipment second provider invocation",
+        mutantShipmentProvider.invocations[1]!.promise,
+      );
       mutantShipmentGate.resolve();
       await Promise.allSettled(mutantShipmentAttempts);
       expect(mutantShipmentProvider.provider.purchaseUspsLabel).toHaveBeenCalledTimes(2);
@@ -515,33 +612,41 @@ describeDb("postage subject production composition fence", () => {
            channel_fulfillment_record_id, tenant_id, seller_account_id, status, reason_code, resolved_at
          ) VALUES ('cfr_fence_removed', 'tnt_fence', 'acc_fence', 'resolved', 'authoritative-history', now())`,
       );
-      const mutantRecordGate = deferred();
+      const mutantRecordGate = gate();
+      const mutantRecordInvocations = [deferred(), deferred()];
       const mutantRecordEffect = vi.fn(async (operationKey: string) => {
         const reservation = await pool.query(
           `SELECT operation_key FROM fulfillment_postage_label_operations WHERE operation_key = $1`,
           [operationKey],
         );
         if (!reservation.rows[0]) throw new Error("record reservation missing");
+        mutantRecordInvocations[mutantRecordEffect.mock.calls.length - 1]?.resolve();
         await mutantRecordGate.promise;
       });
       const mutantRecordAttempts = [
-        reserveRecordThenInvoke(pool, "cfr_fence_removed", "record-mutant-left", mutantRecordEffect),
-        reserveRecordThenInvoke(pool, "cfr_fence_removed", "record-mutant-right", mutantRecordEffect),
+        track(reserveRecordThenInvoke(pool, "cfr_fence_removed", "record-mutant-left", mutantRecordEffect)),
+        track(reserveRecordThenInvoke(pool, "cfr_fence_removed", "record-mutant-right", mutantRecordEffect)),
       ];
-      await waitUntil(() => mutantRecordEffect.mock.calls.length === 2);
+      await checkpoint("removed-index record first effect invocation", mutantRecordInvocations[0]!.promise);
+      await checkpoint("removed-index record second effect invocation", mutantRecordInvocations[1]!.promise);
       mutantRecordGate.resolve();
       await Promise.all(mutantRecordAttempts);
       expect(mutantRecordEffect).toHaveBeenCalledTimes(2);
 
       // The actual Return Shipment service is independently fenced by its operation-key ledger. Removing the
       // generalized v2 index therefore cannot produce the two-effect mutant that Shipment and record reservations do.
-      const independentReturnGate = deferred();
+      const independentReturnGate = gate();
       const independentReturnProvider = gatedProvider(pool, independentReturnGate);
       const independentReturnService = createReturnService(pool, independentReturnProvider.provider);
       const independentDirective = returnDirective("rsh_fence_removed");
-      const firstIndependentReturn = independentReturnService.issueReturnLabel(independentDirective, context);
-      await waitUntil(() => vi.mocked(independentReturnProvider.provider.purchaseUspsLabel).mock.calls.length === 1);
-      const secondIndependentReturn = await independentReturnService.issueReturnLabel(independentDirective, context);
+      const firstIndependentReturn = track(independentReturnService.issueReturnLabel(independentDirective, context));
+      await checkpoint(
+        "removed-index return first provider invocation",
+        independentReturnProvider.invocations[0]!.promise,
+      );
+      const secondIndependentReturn = await track(
+        independentReturnService.issueReturnLabel(independentDirective, context),
+      );
       independentReturnGate.resolve();
       await firstIndependentReturn;
       expect(secondIndependentReturn.outcome).toBe("in-progress");
@@ -555,8 +660,12 @@ describeDb("postage subject production composition fence", () => {
         ).rows,
       ).toEqual([{ count: 1 }]);
     } finally {
-      await pool.query(`DELETE FROM fulfillment_postage_label_operations`);
-      await pool.query(activeTargetV2IndexSql);
+      for (const heldGate of gates) heldGate.resolve();
+      await Promise.allSettled(operations);
+      if (indexDropped) {
+        await pool.query(`DELETE FROM fulfillment_postage_label_operations`);
+        await pool.query(activeTargetV2IndexSql);
+      }
     }
   });
 });
