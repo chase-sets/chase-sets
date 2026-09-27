@@ -21,6 +21,22 @@ CREATE TABLE IF NOT EXISTS payments_wallet_funding_creation_reservations (
 
 export const walletFundingSchemaMigrations: readonly BcSchemaMigration[] = [
   {
+    migrationId: "20260927_payments_wallet_funding_terminal_refusal_attention",
+    description:
+      "Normalize historical refused intents and initialize durable refund attention without changing economics or reservations.",
+    statements: [
+      `UPDATE payments_wallet_funding_pages p SET state =
+        jsonb_set(jsonb_set(p.state, '{refundAttention}', COALESCE(p.state->'refundAttention', '[]'::jsonb)),
+          '{refunds}', COALESCE((SELECT jsonb_object_agg(r.key,
+            CASE WHEN r.value->>'status' = 'intent' AND r.value->>'exception' = 'authority-refused'
+              THEN jsonb_set(r.value, '{status}', '"refused"'::jsonb) ELSE r.value END)
+            FROM jsonb_each(p.state->'refunds') r), '{}'::jsonb))
+        WHERE NOT p.state ? 'refundAttention' OR EXISTS
+          (SELECT 1 FROM jsonb_each(p.state->'refunds') r
+           WHERE r.value->>'status' = 'intent' AND r.value->>'exception' = 'authority-refused')`,
+    ],
+  },
+  {
     migrationId: "20260927_payments_wallet_funding_indexes",
     description: "Index wallet funding account history, provider lookup and creation limits.",
     statements: [

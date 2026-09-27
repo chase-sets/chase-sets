@@ -34,6 +34,7 @@ import {
   type PrepaidRefundReservation,
 } from "./prepaid-refund-authority";
 import { defaultWalletFundingLimits, decodeWalletFundingLimits, type WalletFundingLimits } from "./limits-policy";
+import { refundObservationConflict, type WalletFundingRefundObservation } from "../domain/refund-operation";
 
 export interface WalletFundingEligibilityResolver {
   resolve(
@@ -207,7 +208,12 @@ export function createWalletFundingRuntime(deps: WalletFundingRuntimeDeps) {
       if (!reservation) {
         await command(
           fundingId,
-          { type: "RecordRefundException", refundId, exception: "authority-refused", at: now() },
+          {
+            type: "RecordRefundException",
+            refundId,
+            exception: result?.outcome === "refused" ? "authority-refused" : "malformed-grant",
+            at: now(),
+          },
           context,
         );
         return (await stateFor(fundingId)).refunds[refundId];
@@ -421,10 +427,6 @@ export function createWalletFundingRuntime(deps: WalletFundingRuntimeDeps) {
         "funding_provider_reference_conflict",
       );
       if (event.kind === "payment-refunded") {
-        fundingRule(
-          event.refundId && event.processorRefundReference && event.amount && event.currencyCode === "usd",
-          "refund_observation_identity_required",
-        );
         const status =
           event.processorStatus === "succeeded" ||
           event.processorStatus === "failed" ||
@@ -433,23 +435,41 @@ export function createWalletFundingRuntime(deps: WalletFundingRuntimeDeps) {
             : event.processorStatus === "canceled" || event.processorStatus === "cancelled"
               ? "cancelled"
               : "unknown";
-        await command(
-          fundingId,
-          {
-            type: "ObserveRefund",
-            observation: {
-              refundId: event.refundId,
-              processorRefundReference: event.processorRefundReference,
-              amount: event.amount,
-              currencyCode: "usd",
-              status,
-              evidenceId: event.eventId,
-              at: event.occurredAt,
+        if (!event.refundId || !event.processorRefundReference || !event.amount || event.currencyCode !== "usd") {
+          await command(
+            fundingId,
+            {
+              type: "RecordRefundAttention",
+              attention: {
+                reason: "unknown-refund-identity",
+                observation: {
+                  refundId: event.refundId ?? null,
+                  processorRefundReference: event.processorRefundReference ?? null,
+                  amount: event.amount ?? null,
+                  currencyCode: event.currencyCode ?? null,
+                  status,
+                  evidenceId: event.eventId,
+                  at: event.occurredAt,
+                },
+              },
             },
-          },
-          context,
-        );
-        await settle(fundingId, event.refundId, context);
+            context,
+          );
+          return true;
+        }
+        const observation: WalletFundingRefundObservation = {
+          refundId: event.refundId,
+          processorRefundReference: event.processorRefundReference,
+          amount: event.amount,
+          currencyCode: "usd",
+          status,
+          evidenceId: event.eventId,
+          at: event.occurredAt,
+        };
+        const observed = await command(fundingId, { type: "ObserveRefund", observation }, context);
+        const operation = observed.state.refunds[event.refundId];
+        if (operation && !refundObservationConflict(operation, observation))
+          await settle(fundingId, event.refundId, context);
       } else if (event.kind === "payment-disputed") {
         fundingRule(
           event.providerObjectReference &&
@@ -517,7 +537,8 @@ export function createWalletFundingRuntime(deps: WalletFundingRuntimeDeps) {
          WHERE p.funding_id IS NULL OR
            (p.state->>'capturedAt' IS NULL AND p.status NOT IN ('failed', 'cancelled')) OR
            (NOT c.released AND p.status IN ('failed', 'cancelled')) OR
-           EXISTS (SELECT 1 FROM jsonb_each(p.state->'refunds') r WHERE r.value->>'status' NOT IN ('committed', 'released'))
+           EXISTS (SELECT 1 FROM jsonb_each(p.state->'refunds') r WHERE r.value->>'status' NOT IN ('committed', 'released', 'refused')
+             AND NOT (r.value->>'status' = 'intent' AND r.value->>'exception' IS NOT DISTINCT FROM 'authority-refused'))
          ORDER BY reconciled_at NULLS FIRST, created_at LIMIT 100`,
       );
       const attention: { fundingId: WalletFundingId; refundId?: string; classification: string }[] = [];
@@ -588,6 +609,7 @@ export function createWalletFundingRuntime(deps: WalletFundingRuntimeDeps) {
           }
           state = await stateFor(fundingId);
           for (const operation of Object.values(state.refunds)) {
+            if (operation.status === "refused") continue;
             if (["submitting", "pending", "unknown"].includes(operation.status)) {
               const result = await deps.processorGateway.retrieveWalletFundingRefund?.({
                 fundingId,

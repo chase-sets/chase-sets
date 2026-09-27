@@ -11,7 +11,8 @@ export type WalletFundingRefundStatus =
   | "success-awaiting-commit"
   | "committed"
   | "failure-awaiting-release"
-  | "released";
+  | "released"
+  | "refused";
 
 export type WalletFundingRefundOperation = PrepaidRefundIdentity &
   Readonly<{
@@ -22,7 +23,13 @@ export type WalletFundingRefundOperation = PrepaidRefundIdentity &
     processorStatus: "succeeded" | "failed" | "cancelled" | "pending" | "unknown";
     outcomeEvidenceId: string | null;
     updatedAt: string;
-    exception: "provider-outcome-unknown" | "refund-pending" | "authority-unavailable" | "authority-refused" | null;
+    exception:
+      | "provider-outcome-unknown"
+      | "refund-pending"
+      | "authority-unavailable"
+      | "authority-refused"
+      | "malformed-grant"
+      | null;
   }>;
 
 export type WalletFundingRefundObservation = Readonly<{
@@ -34,6 +41,51 @@ export type WalletFundingRefundObservation = Readonly<{
   evidenceId: string;
   at: string;
 }>;
+
+export type WalletFundingRefundObservationConflict =
+  | "refund_observation_conflict"
+  | "refund_provider_reference_conflict"
+  | "refund_submission_required"
+  | "refund_terminal_outcome_conflict";
+
+export type WalletFundingRefundAttention =
+  | Readonly<{ reason: "reservation-after-refusal"; reservation: PrepaidRefundReservation; at: string }>
+  | Readonly<{
+      reason: WalletFundingRefundObservationConflict | "unknown-refund-identity";
+      observation: Readonly<{
+        refundId: string | null;
+        processorRefundReference: string | null;
+        amount: string | null;
+        currencyCode: string | null;
+        status: WalletFundingRefundOperation["processorStatus"];
+        evidenceId: string;
+        at: string;
+      }>;
+    }>;
+
+export function refundAttentionKey(attention: WalletFundingRefundAttention): string {
+  if (attention.reason === "reservation-after-refusal") {
+    const r = attention.reservation;
+    return JSON.stringify([
+      attention.reason,
+      r.accountId,
+      r.fundingId,
+      r.refundId,
+      r.currencyCode,
+      r.amount,
+      r.reservationId,
+    ]);
+  }
+  const o = attention.observation;
+  return JSON.stringify([attention.reason, o.refundId, o.processorRefundReference, o.amount, o.currencyCode, o.status]);
+}
+
+/** Older persisted refusals used intent; replay must never submit those identities. */
+export function normalizeRefundOperation(operation: WalletFundingRefundOperation): WalletFundingRefundOperation {
+  return operation.status === "intent" && operation.exception === "authority-refused"
+    ? { ...operation, status: "refused" }
+    : operation;
+}
 
 function refuse(code: string): never {
   throw new PaymentsDomainError(code, code);
@@ -75,10 +127,10 @@ export function claimRefundSubmission(
   return { ...operation, status: "submitting", updatedAt: at, exception: "provider-outcome-unknown" };
 }
 
-export function observeRefund(
+export function refundObservationConflict(
   operation: WalletFundingRefundOperation,
   observation: WalletFundingRefundObservation,
-): WalletFundingRefundOperation {
+): WalletFundingRefundObservationConflict | null {
   if (
     observation.refundId !== operation.refundId ||
     observation.amount !== operation.amount ||
@@ -86,18 +138,29 @@ export function observeRefund(
     !observation.processorRefundReference ||
     !observation.evidenceId
   )
-    refuse("refund_observation_conflict");
+    return "refund_observation_conflict";
   if (operation.processorRefundReference && operation.processorRefundReference !== observation.processorRefundReference)
-    refuse("refund_provider_reference_conflict");
+    return "refund_provider_reference_conflict";
   if (!operation.reservationId || operation.status === "intent" || operation.status === "reserved")
-    refuse("refund_submission_required");
+    return "refund_submission_required";
   const success = operation.status === "committed" || operation.status === "success-awaiting-commit";
   const failure = operation.status === "released" || operation.status === "failure-awaiting-release";
   if (
     (success && (observation.status === "failed" || observation.status === "cancelled")) ||
     (failure && observation.status === "succeeded")
   )
-    refuse("refund_terminal_outcome_conflict");
+    return "refund_terminal_outcome_conflict";
+  return null;
+}
+
+export function observeRefund(
+  operation: WalletFundingRefundOperation,
+  observation: WalletFundingRefundObservation,
+): WalletFundingRefundOperation {
+  const conflict = refundObservationConflict(operation, observation);
+  if (conflict) refuse(conflict);
+  const success = operation.status === "committed" || operation.status === "success-awaiting-commit";
+  const failure = operation.status === "released" || operation.status === "failure-awaiting-release";
   // Late nonterminal observations cannot downgrade durable terminal evidence.
   if (success || failure) return operation;
   const status =

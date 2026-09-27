@@ -18,6 +18,7 @@ export const walletFundingEventTypes = [
   "payments.wallet-funding-failed",
   "payments.wallet-funding-cancelled",
   "payments.wallet-funding-refund-operation-recorded",
+  "payments.wallet-funding-refund-attention-recorded",
   "payments.wallet-funding-refunded",
   "payments.wallet-funding-dispute-recorded",
   "payments.wallet-funding-fraud-warning-recorded",

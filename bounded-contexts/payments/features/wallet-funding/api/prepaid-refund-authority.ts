@@ -74,5 +74,12 @@ export function parsePrepaidRefundReservation(
     record.reservationId.length > 200
   )
     return null;
-  return { ...expected, reservationId: record.reservationId };
+  return {
+    accountId: expected.accountId,
+    fundingId: expected.fundingId,
+    refundId: expected.refundId,
+    currencyCode: expected.currencyCode,
+    amount: expected.amount,
+    reservationId: record.reservationId,
+  };
 }

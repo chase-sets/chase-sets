@@ -25,6 +25,7 @@ export function createWalletFundingRoutes(services: WalletFundingServices) {
         status: state.status,
         refundedAmount: state.refundedAmount,
         capturedAt: state.capturedAt,
+        refundAttention: state.refundAttention ?? [],
         refunds: Object.values(state.refunds).map((refund) => ({
           refundId: refund.refundId,
           amount: refund.amount,
@@ -92,10 +93,7 @@ export function createWalletFundingRoutes(services: WalletFundingServices) {
         },
         context,
       );
-      return c.json(
-        { refund: result },
-        result.exception === "authority-refused" || result.exception === "authority-unavailable" ? 409 : 202,
-      );
+      return c.json({ refund: result }, result.status === "refused" ? 409 : 202);
     } catch (error) {
       return c.json(
         { error: { code: error instanceof PaymentsDomainError ? error.code : "refund_request_failed" } },

@@ -12,6 +12,10 @@ import {
   refundIntent,
   reserveRefund,
   settleRefundAuthority,
+  normalizeRefundOperation,
+  refundAttentionKey,
+  refundObservationConflict,
+  type WalletFundingRefundAttention,
   type WalletFundingRefundOperation,
   type WalletFundingRefundObservation,
 } from "./refund-operation";
@@ -75,6 +79,7 @@ export type WalletFundingState = Readonly<{
   capturedAt: string | null;
   refundedAmount: string;
   refunds: Readonly<Record<string, WalletFundingRefundOperation>>;
+  refundAttention: readonly WalletFundingRefundAttention[];
   disputes: Readonly<Record<string, "opened" | "won" | "lost">>;
   fraudWarningIds: readonly string[];
 }>;
@@ -87,6 +92,7 @@ export const initialWalletFundingState: WalletFundingState = {
   capturedAt: null,
   refundedAmount: "0.00",
   refunds: {},
+  refundAttention: [],
   disputes: {},
   fraudWarningIds: [],
 };
@@ -102,6 +108,7 @@ export type WalletFundingEvent =
   | DomainEvent<"payments.wallet-funding-failed", WalletFundingFact & Readonly<{ reason: string }>>
   | DomainEvent<"payments.wallet-funding-cancelled", WalletFundingFact>
   | DomainEvent<"payments.wallet-funding-refund-operation-recorded", WalletFundingRefundOperation>
+  | DomainEvent<"payments.wallet-funding-refund-attention-recorded", WalletFundingRefundAttention>
   | DomainEvent<"payments.wallet-funding-refunded", WalletFundingRefundFact>
   | DomainEvent<"payments.wallet-funding-dispute-recorded", WalletFundingDisputeFact>
   | DomainEvent<"payments.wallet-funding-fraud-warning-recorded", WalletFundingFact & Readonly<{ warningId: string }>>;
@@ -131,6 +138,7 @@ export type WalletFundingCommand =
   | Readonly<{ type: "ReserveRefund"; reservation: PrepaidRefundReservation; at: string }>
   | Readonly<{ type: "ClaimRefundSubmission"; refundId: string; at: string }>
   | Readonly<{ type: "ObserveRefund"; observation: WalletFundingRefundObservation }>
+  | Readonly<{ type: "RecordRefundAttention"; attention: WalletFundingRefundAttention }>
   | Readonly<{ type: "SettleRefundAuthority"; refundId: string; outcome: "committed" | "released"; at: string }>
   | Readonly<{
       type: "RecordRefundException";
@@ -184,7 +192,11 @@ export function evolveWalletFunding(state: WalletFundingState, event: WalletFund
     case "payments.wallet-funding-cancelled":
       return { ...state, status: "cancelled" };
     case "payments.wallet-funding-refund-operation-recorded":
-      return { ...state, refunds: { ...state.refunds, [event.data.refundId]: event.data } };
+      return { ...state, refunds: { ...state.refunds, [event.data.refundId]: normalizeRefundOperation(event.data) } };
+    case "payments.wallet-funding-refund-attention-recorded":
+      return (state.refundAttention ?? []).some((entry) => refundAttentionKey(entry) === refundAttentionKey(event.data))
+        ? state
+        : { ...state, refundAttention: [...(state.refundAttention ?? []), event.data] };
     case "payments.wallet-funding-refunded": {
       const next = { ...state, refundedAmount: addMoney(state.refundedAmount, event.data.refundAmount) };
       return { ...next, status: state.status === "disputed" ? "disputed" : capturedStatus(next) };
@@ -338,7 +350,7 @@ export function decideWalletFunding(
     fundingRule(amount === command.identity.amount, "refund_amount_invalid");
     // This is only a processor/principal cap. Settlement must separately reserve unspent money.
     const pending = Object.values(state.refunds)
-      .filter((r) => r.status !== "released")
+      .filter((r) => r.status !== "released" && r.status !== "refused")
       .reduce((sum, r) => addMoney(sum, r.amount), "0.00");
     fundingRule(
       compareMoney(addMoney(pending, amount), state.quote.requestedAmount) <= 0,
@@ -348,6 +360,11 @@ export function decideWalletFunding(
       { type: "payments.wallet-funding-refund-operation-recorded", data: refundIntent(command.identity, command.at) },
     ];
   }
+  const attentionEvents = (attention: WalletFundingRefundAttention): readonly WalletFundingEvent[] =>
+    (state.refundAttention ?? []).some((entry) => refundAttentionKey(entry) === refundAttentionKey(attention))
+      ? []
+      : [{ type: "payments.wallet-funding-refund-attention-recorded", data: attention }];
+  if (command.type === "RecordRefundAttention") return attentionEvents(command.attention);
   const refundId =
     command.type === "ReserveRefund"
       ? command.reservation.refundId
@@ -355,8 +372,23 @@ export function decideWalletFunding(
         ? command.observation.refundId
         : command.refundId;
   const prior = state.refunds[refundId];
+  if (command.type === "ObserveRefund") {
+    const reason = prior ? refundObservationConflict(prior, command.observation) : "unknown-refund-identity";
+    if (reason) return attentionEvents({ reason, observation: command.observation });
+  }
   fundingRule(prior, "refund_not_found");
-  if (command.type === "RecordRefundException" && (prior.status === "committed" || prior.status === "released"))
+  if (command.type === "ReserveRefund" && prior.status === "refused") {
+    reserveRefund(prior, command.reservation, command.at);
+    return attentionEvents({ reason: "reservation-after-refusal", reservation: command.reservation, at: command.at });
+  }
+  if (
+    command.type === "RecordRefundException" &&
+    (prior.status === "committed" ||
+      prior.status === "released" ||
+      prior.status === "refused" ||
+      ((command.exception === "authority-refused" || command.exception === "malformed-grant") &&
+        prior.status !== "intent"))
+  )
     return [];
   const next =
     command.type === "ReserveRefund"
@@ -370,9 +402,12 @@ export function decideWalletFunding(
             : {
                 ...prior,
                 status:
-                  prior.status === "submitting" && command.exception === "provider-outcome-unknown"
-                    ? ("unknown" as const)
-                    : prior.status,
+                  prior.status === "intent" &&
+                  (command.exception === "authority-refused" || command.exception === "malformed-grant")
+                    ? ("refused" as const)
+                    : prior.status === "submitting" && command.exception === "provider-outcome-unknown"
+                      ? ("unknown" as const)
+                      : prior.status,
                 exception: command.exception,
                 updatedAt: command.at,
               };
