@@ -666,6 +666,64 @@ describe("postgres event store", () => {
 });
 
 describe("postgres event store independent multi-stream appends", () => {
+  it("keeps large atomic callers below the multi-stream SQL parameter limit", async () => {
+    const { pool, calls } = createIndependentAppendPool();
+    const store = createPostgresEventStore({ pool, now: () => NOW as never, createEventId: createSequentialEventId() });
+    const inputs = Array.from({ length: 4 }, (_, index) =>
+      independentInput({
+        streamId: `synthetic.large-${index}`,
+        expectedVersion: 0,
+        events: Array.from({ length: 1000 }, () => ({ eventType: "synthetic.changed", payload: {} })),
+      }),
+    );
+    const result = await store.appendToStreams!(inputs);
+    expect(result.map((entry) => entry.storedEvents.length)).toEqual([1000, 1000, 1000, 1000]);
+    expect(calls.filter(isEventInsertCall)).toHaveLength(4);
+    expect(calls.filter(isEventInsertCall).every((call) => call.params!.length <= 65_535)).toBe(true);
+  });
+
+  it("batches atomic owner and request writes behind one append fence while retaining pure guards", async () => {
+    const { pool, calls } = createIndependentAppendPool();
+    const store = createPostgresEventStore({ pool, now: () => NOW as never, createEventId: createSequentialEventId() });
+    const results = await store.appendToStreams!([
+      independentInput({ streamId: "synthetic.authority", expectedVersion: 0, events: [] }),
+      independentInput({ streamId: "marketplace.listing-a", expectedVersion: 0 }),
+      independentInput({ streamId: "marketplace.listing-request-a", expectedVersion: 0 }),
+      independentInput({ streamId: "marketplace.listing-b", expectedVersion: 0 }),
+      independentInput({ streamId: "marketplace.listing-request-b", expectedVersion: 0 }),
+    ]);
+    expect(calls.filter(isEventInsertCall)).toHaveLength(1);
+    expect(calls.filter(isEventInsertCall)[0]!.params).toHaveLength(17 * 4);
+    expect(calls.filter((call) => call.sql.includes("pg_advisory_xact_lock_shared"))).toHaveLength(1);
+    expect(
+      calls.some((call) => call.sql.includes("SELECT current_version") && call.params?.[0] === "synthetic.authority"),
+    ).toBe(true);
+    expect(results.map((result) => result.storedEvents.length)).toEqual([0, 1, 1, 1, 1]);
+    expect(results[0]).not.toHaveProperty("outcome");
+    expect(calls.map((call) => call.sql)).toContain("COMMIT");
+  });
+
+  it.each([false, true])(
+    "rolls back every atomic write before INSERT on a stale participant (guard=%s)",
+    async (guard) => {
+      const { pool, calls } = createIndependentAppendPool({ versions: { "synthetic.stale": 2 } });
+      const store = createPostgresEventStore({
+        pool,
+        now: () => NOW as never,
+        createEventId: createSequentialEventId(),
+      });
+      await expect(
+        store.appendToStreams!([
+          independentInput({ streamId: "marketplace.listing-request-a", expectedVersion: 0 }),
+          independentInput({ streamId: "synthetic.stale", expectedVersion: 1, ...(guard ? { events: [] } : {}) }),
+        ]),
+      ).rejects.toMatchObject({ code: "concurrency_conflict" });
+      expect(calls.filter(isEventInsertCall)).toHaveLength(0);
+      expect(calls.map((call) => call.sql)).toContain("ROLLBACK");
+      expect(calls.map((call) => call.sql)).not.toContain("COMMIT");
+    },
+  );
+
   it("isolates a per-stream version conflict without rolling back sibling streams", async () => {
     const { pool, calls } = createIndependentAppendPool({ versions: { "marketplace.listing-conflict": 3 } });
     const store = createPostgresEventStore({

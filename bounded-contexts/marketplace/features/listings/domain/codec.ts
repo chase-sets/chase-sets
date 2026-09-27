@@ -194,15 +194,16 @@ const priceUpdated = z.union([
       schemaVersion: z.literal(2),
       priceCurrencyCode: currency,
       requestFingerprint: text.optional(),
-      acceptedTargetPrice: acceptedListingTargetPriceSchema.optional(),
+      acceptedTargetPrice: acceptedListingTargetPriceSchema.refine(
+        (accepted) => accepted.decision.kind !== "legacy-native-anchor",
+      ),
     })
     .superRefine((data, ctx) => {
       const accepted = data.acceptedTargetPrice;
       if (
-        accepted &&
-        (accepted.target.kind !== "native-marketplace" ||
-          accepted.priceAmount !== data.priceAmount ||
-          accepted.priceCurrencyCode !== data.priceCurrencyCode)
+        accepted.target.kind !== "native-marketplace" ||
+        accepted.priceAmount !== data.priceAmount ||
+        accepted.priceCurrencyCode !== data.priceCurrencyCode
       ) {
         ctx.addIssue({ code: "custom", message: "Native price payload and accepted pair disagree." });
       }

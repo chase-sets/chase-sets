@@ -425,7 +425,7 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
             const results = await withPgTransaction(
               pool,
               async (client) =>
-                appendEventsToStreamsIndependently({
+                appendEventsToStreamsBatch({
                   client,
                   inputs,
                   now,
@@ -586,9 +586,10 @@ type AppendStreamsInTransactionArgs = Omit<AppendInTransactionArgs, "input"> &
     inputs: readonly AppendToStreamInput[];
   }>;
 
-type AppendStreamsIndependentlyInTransactionArgs = AppendStreamsInTransactionArgs &
+type AppendStreamsBatchInTransactionArgs = AppendStreamsInTransactionArgs &
   Readonly<{
     onAdvisoryLockAcquired: () => void;
+    atomic?: boolean;
   }>;
 
 type ReadAllQueryInput = Readonly<{
@@ -780,7 +781,19 @@ async function appendEventsToStream(args: AppendInTransactionArgs): Promise<read
   return storedEvents;
 }
 
+const EVENT_INSERT_COLUMN_COUNT = 17;
+const POSTGRES_PARAMETER_LIMIT = 65_535;
+
 async function appendEventsToStreams(args: AppendStreamsInTransactionArgs): Promise<readonly AppendToStreamsResult[]> {
+  const eventCount = args.inputs.reduce((count, input) => count + input.events.length, 0);
+  if (
+    new Set(args.inputs.map((input) => input.streamId)).size === args.inputs.length &&
+    eventCount * EVENT_INSERT_COLUMN_COUNT <= POSTGRES_PARAMETER_LIMIT
+  ) {
+    const results = await appendEventsToStreamsBatch({ ...args, atomic: true, onAdvisoryLockAcquired: () => {} });
+    return results.map(({ streamId, storedEvents }) => ({ streamId, storedEvents }));
+  }
+  // Preserve sequential expected versions and avoid increasing the caller's SQL parameter footprint.
   const results: AppendToStreamsResult[] = [];
 
   for (const input of args.inputs) {
@@ -865,8 +878,8 @@ type PendingIndependentStreamAppend = Readonly<{
  * acquired at most once per call, right before that single INSERT, so a chunk
  * of K streams holds it for one bounded window instead of K separate windows.
  */
-async function appendEventsToStreamsIndependently(
-  args: AppendStreamsIndependentlyInTransactionArgs,
+async function appendEventsToStreamsBatch(
+  args: AppendStreamsBatchInTransactionArgs,
 ): Promise<readonly AppendToStreamsIndependentResult[]> {
   const now = args.now();
   const results: AppendToStreamsIndependentResult[] = [];
@@ -875,6 +888,7 @@ async function appendEventsToStreamsIndependently(
 
   for (const input of args.inputs) {
     if (input.events.length === 0) {
+      if (args.atomic) await assertStreamExpectedVersionInTransaction({ ...args, input });
       results.push({ streamId: input.streamId, outcome: "no_op", storedEvents: [] });
       continue;
     }
@@ -904,6 +918,8 @@ async function appendEventsToStreamsIndependently(
     ]);
 
     if (streamVersionResult.rows.length !== 1) {
+      if (args.atomic)
+        throw createEventStoreError("infrastructure_failure", "Stream row not found", { streamId: input.streamId });
       results.push({
         streamId: input.streamId,
         outcome: "conflict",
@@ -920,6 +936,7 @@ async function appendEventsToStreamsIndependently(
     try {
       assertExpectedVersion(input.streamId, input.expectedVersion, currentVersion);
     } catch (error) {
+      if (args.atomic) throw error;
       results.push({
         streamId: input.streamId,
         outcome: "conflict",
@@ -963,10 +980,8 @@ async function appendEventsToStreamsIndependently(
 
   const insertedEventsById = new Map<string, StoredEvent>();
   if (combinedEventsToInsert.length > 0) {
-    // One advisory-lock acquisition, one multi-row INSERT, for every stream
-    // in this chunk that passed its expected-version check above -- streams
-    // excluded above never reach this INSERT, so their conflict never rolls
-    // back a sibling stream's events.
+    // All atomic guards have passed; independent mode excluded only conflicting streams.
+    // Both modes use one append-fence lock and one multi-row INSERT per chunk.
     args.onAdvisoryLockAcquired();
     await args.client.query("SELECT pg_advisory_xact_lock_shared($1::bigint)", [
       EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY,
@@ -1045,7 +1060,7 @@ type AppendEventCandidate = Readonly<{
 type AppendEventToInsert = AppendEventCandidate & Readonly<{ streamVersion: number }>;
 
 function buildInsertEventsSql(eventsTable: string, eventCount: number): string {
-  const columnCount = 17;
+  const columnCount = EVENT_INSERT_COLUMN_COUNT;
   const values = Array.from({ length: eventCount }, (_, rowIndex) => {
     const firstParam = rowIndex * columnCount + 1;
     const params = Array.from({ length: columnCount }, (__, columnIndex) => `$${firstParam + columnIndex}`);

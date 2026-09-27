@@ -76,6 +76,26 @@ function decode(eventType: string, payload: JsonObject) {
 }
 
 describe("Listing immutable event codec", () => {
+  it("requires canonical acceptance on every new native price fact", () => {
+    const native = {
+      ...accepted,
+      target: { kind: "native-marketplace" },
+      connectionAuthority: null,
+      decision: { kind: "seller-reference" },
+    };
+    const payload = { ...noFees, schemaVersion: 2, priceAmount: "15.00", priceCurrencyCode: "EUR" };
+    expect(() => decode("marketplace.listing.price-updated", payload)).toThrow();
+    expect(decode("marketplace.listing.price-updated", { ...payload, acceptedTargetPrice: native }).data).toEqual({
+      ...payload,
+      acceptedTargetPrice: native,
+    });
+    expect(() =>
+      decode("marketplace.listing.price-updated", {
+        ...payload,
+        acceptedTargetPrice: { ...native, priceCurrencyCode: "USD" },
+      }),
+    ).toThrow();
+  });
   it("round trips complete scoped creation without inventing fee or publication authority", () => {
     const event = decode("marketplace.listing.created", created);
     expect(marketplaceListingCodec.encode(event)).toEqual({ eventType: event.type, payload: created });

@@ -117,6 +117,53 @@ async function fixture(overrides: Partial<ListingTargetAuthority> = {}) {
 }
 
 describe("Listing target owner authority", () => {
+  it("recovers a whole native batch from an unknown post-commit outcome without resending", async () => {
+    const { services, input, eventStore } = await fixture();
+    const append = eventStore.appendToStreams!;
+    const spy = vi.spyOn(eventStore, "appendToStreams").mockImplementationOnce(async (appends) => {
+      await append(appends);
+      throw new Error("Synthetic connection loss after commit");
+    });
+    const updates = [
+      { listingId: input.listingId, priceAmount: "12.00", priceCurrencyCode: "USD", idempotencyKey: "unknown-result" },
+    ];
+    const first = await services.applyNativePrices({ accountId: input.accountId, updates }, context);
+    expect(first).toEqual([{ listingId: input.listingId, version: 2, outcome: "applied" }]);
+    expect(await services.applyNativePrices({ accountId: input.accountId, updates }, context)).toEqual(first);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(await eventStore.readStream({ streamId: "marketplace.listing-lst_test" })).toHaveLength(2);
+  });
+
+  it("rolls back native no-op request results if capability changes before commit", async () => {
+    const { services, input, eventStore, authority } = await fixture();
+    const append = eventStore.appendToStreams!;
+    vi.spyOn(eventStore, "appendToStreams").mockImplementationOnce(async (appends) => {
+      await eventStore.appendToStream({
+        streamId: "synthetic-authority",
+        expectedVersion: 0,
+        context,
+        events: [{ eventType: "synthetic.authority-revoked", payload: {} }],
+      });
+      return append(appends);
+    });
+    const updates = [
+      { listingId: input.listingId, priceAmount: "10.00", priceCurrencyCode: "USD", idempotencyKey: "guarded-noop" },
+    ];
+    expect(await services.applyNativePrices({ accountId: input.accountId, updates }, context)).toMatchObject([
+      { outcome: "conflict" },
+    ]);
+    expect(
+      (await eventStore.readAll()).filter((event) => event.eventType === "marketplace.listing-request.completed"),
+    ).toHaveLength(0);
+    vi.mocked(authority.authorizeManage).mockResolvedValue({
+      value: true,
+      guards: [{ streamId: "synthetic-authority", expectedVersion: 1 }],
+    });
+    expect(await services.applyNativePrices({ accountId: input.accountId, updates }, context)).toEqual([
+      { listingId: input.listingId, version: 1, outcome: "no_op" },
+    ]);
+  });
+
   it("routes native reference edits through canonical acceptance without native fee prerequisites", async () => {
     const { services, input, eventStore, repository } = await fixture();
     await services.updateNativePrice(

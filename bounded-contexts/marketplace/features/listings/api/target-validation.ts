@@ -49,6 +49,23 @@ export const activateListingForChannelSchema = mutation.extend({
   expectedTargetPriceRevision: revision.positive(),
   allocationRevision: revision.positive(),
 });
+export const nativeListingPriceUpdateSchema = z.strictObject({
+  listingId: identity,
+  priceAmount: acceptListingTargetPriceSchema.shape.priceAmount,
+  priceCurrencyCode: acceptListingTargetPriceSchema.shape.priceCurrencyCode,
+  feeQuoteFingerprint: identity.nullish(),
+  expectedVersion: revision.positive().optional(),
+  expectedTargetPriceRevision: revision.optional(),
+  idempotencyKey: identity.optional(),
+  decision: decision.optional(),
+  changeSource: z.literal("repricing-engine").optional(),
+  minimumChange: z
+    .discriminatedUnion("mode", [
+      z.strictObject({ mode: z.literal("absolute"), amount: acceptListingTargetPriceSchema.shape.priceAmount }),
+      z.strictObject({ mode: z.literal("percent"), percent: z.number().nonnegative() }),
+    ])
+    .optional(),
+});
 export const setNativeListingVisibilitySchema = mutation.extend({
   nativeVisibility: z.enum(["enabled", "disabled"]),
   feeQuoteFingerprint: identity.optional(),

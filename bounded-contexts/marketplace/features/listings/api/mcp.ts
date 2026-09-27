@@ -15,6 +15,7 @@ import {
   activateListingForChannelSchema,
   setNativeListingVisibilitySchema,
   resumeListingSchema,
+  nativeListingPriceUpdateSchema,
 } from "./target-validation";
 
 export type MarketplaceListingMcpHandlers = Readonly<{
@@ -276,19 +277,29 @@ export function createMarketplaceListingMcpHandlers(
       "priceCurrencyCode",
       "feeQuoteFingerprint",
       "idempotencyKey",
+      "expectedVersion",
+      "expectedTargetPriceRevision",
+      "decision",
+      "changeSource",
+      "minimumChange",
       "confirmationText",
       "dryRun",
     ]);
     rejectDryRun(args);
     const accountId = readRequiredString(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
+    if (!scopedActor.permissions.includes("listings.manage")) throw new Error("listings.manage is required.");
+    const { accountId: _accountId, dryRun: _dryRun, confirmationText: _confirmationText, ...update } = args;
     const result = await services.updateListingPrice(
       {
+        ...nativeListingPriceUpdateSchema.parse({
+          ...update,
+          listingId: readMcpTypedIdArgument(args, "listingId", "lst"),
+          priceAmount: readRequiredString(args, "priceAmount"),
+          priceCurrencyCode: readRequiredPriceCurrencyCode(args),
+          feeQuoteFingerprint: readMcpStringArgument(args, "feeQuoteFingerprint"),
+        }),
         accountId: scopedActor.accountId,
-        listingId: readMcpTypedIdArgument(args, "listingId", "lst"),
-        priceAmount: readRequiredString(args, "priceAmount"),
-        priceCurrencyCode: readRequiredPriceCurrencyCode(args),
-        feeQuoteFingerprint: readMcpStringArgument(args, "feeQuoteFingerprint"),
       },
       createActorEventStoreContext(scopedActor),
     );

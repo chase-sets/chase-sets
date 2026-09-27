@@ -20,6 +20,7 @@ import {
   activateListingForChannelSchema,
   setNativeListingVisibilitySchema,
   resumeListingSchema,
+  nativeListingPriceUpdateSchema,
 } from "./target-validation";
 import type {
   AcceptListingTargetPriceInput,
@@ -209,6 +210,7 @@ export function createListingTargetRuntime(
     context: EventStoreContext,
     confirm: (priceAmount: string, fingerprint: string) => Promise<void>,
   ): Promise<ListingRequestInput<{ listingId: string; version: number; outcome: "applied" | "no_op" }>> {
+    update = nativeListingPriceUpdateSchema.parse(update);
     const pair = normalizeAcceptedListingPrice(update.priceAmount, update.priceCurrencyCode);
     const guards = await authorize(
       {
@@ -379,7 +381,12 @@ export function createListingTargetRuntime(
       acceptedByUserId: event.performedByUserId,
       acceptedAt: event.occurredAt,
       sourceEventId: event.eventId,
-      decision: { kind: event.eventType === "marketplace.listing.created" && event.payload.schemaVersion === 2 ? "seller-reference" : "legacy-native-anchor" },
+      decision: {
+        kind:
+          event.eventType === "marketplace.listing.created" && event.payload.schemaVersion === 2
+            ? "seller-reference"
+            : "legacy-native-anchor",
+      },
       connectionAuthority: null,
     };
   }

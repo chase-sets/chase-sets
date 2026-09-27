@@ -772,6 +772,43 @@ describe("marketplace listing projection", () => {
     expect(db.listings.get("lst_1")?.status).toBe("paused");
   });
 
+  it.each([undefined, 2])(
+    "distinguishes historical and explicit seller-reference creation (%s)",
+    async (schemaVersion) => {
+      const db = new ProjectionDb();
+      const handlers = buildMarketplaceListingProjectionHandlers(db);
+      await handlers["marketplace.listing.created"]!(
+        event(
+          "marketplace.listing.created",
+          listingCreatedData(
+            schemaVersion === 2
+              ? {
+                  schemaVersion,
+                  publicationScope: "channel-only",
+                  nativeVisibility: "disabled",
+                  nativeFeeState: "not-enrolled",
+                  marketplaceSalesFeeUnitAmount: null,
+                  sellerNetUnitAmount: null,
+                  termsScheduleId: null,
+                  termsAgreementId: null,
+                  termsResolvedAt: null,
+                  feeQuoteFingerprint: null,
+                  feeLocks: [],
+                }
+              : {},
+          ),
+          "marketplace.listing-lst_1",
+        ),
+      );
+      expect(db.targetPrices.get("acc_1:lst_1:native-marketplace")).toMatchObject({
+        accepted: {
+          decision: { kind: schemaVersion === 2 ? "seller-reference" : "legacy-native-anchor" },
+        },
+      });
+      expect(db.nativeAuthority.get("lst_1")).toMatchObject({ publicationRevision: null, status: "draft" });
+    },
+  );
+
   it("does not invent a complete native pair or publication from legacy creation", async () => {
     const db = new ProjectionDb();
     const handlers = buildMarketplaceListingProjectionHandlers(db);

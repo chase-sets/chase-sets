@@ -20,6 +20,10 @@ import { activate, context, fixture, seedOffer, terms } from "../features/offer-
 import { createBuyerOfferPolicyRuntime } from "../features/offer-policy/api/runtime";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { createListingRequestExecutor } from "../features/listings/api/listing-request";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import { createListingTargetRuntime } from "../features/listings/api/target-runtime";
+import { marketplaceListingCodec } from "../features/listings/domain/codec";
+import { evolveMarketplaceListing, initialMarketplaceListingState } from "../features/listings/domain/domain";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI) {
@@ -248,6 +252,158 @@ describeDb("marketplace schema upgrades", () => {
       execute({ ...request, command: { ...request.command, priceCurrencyCode: "USD" }, prepare: prepare(0) }),
     ).rejects.toThrow("different command");
     expect(await store.readAll()).toHaveLength(2);
+  });
+
+  it("runs canonical native batches and concurrent external acceptance through PostgreSQL with durable no-op and guard rollback", async () => {
+    const pool = pools.marketplace;
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    const store = createPostgresEventStore({ pool });
+    const accountId = context.audit.forAccountId;
+    const guards = [{ streamId: "synthetic-listing-authority", expectedVersion: 0 }];
+    for (const listingId of ["lst_one", "lst_two"]) {
+      await store.appendToStream({
+        streamId: `marketplace.listing-${listingId}`,
+        expectedVersion: 0,
+        context,
+        events: [
+          {
+            eventType: "marketplace.listing.created",
+            payload: {
+              schemaVersion: 2,
+              publicationScope: "channel-only",
+              nativeVisibility: "disabled",
+              nativeFeeState: "not-enrolled",
+              listingId,
+              accountId,
+              inventoryItemId: "inv_synthetic",
+              catalogItemId: "cat_synthetic",
+              productId: "cat_synthetic::",
+              itemTitle: "Synthetic",
+              itemSubtitle: null,
+              selectedOptions: [],
+              productSummary: null,
+              storageLocationName: null,
+              shipFromCode: null,
+              shipFromAddress: {},
+              priceAmount: "10.00",
+              priceCurrencyCode: "CAD",
+              marketplaceSalesFeeUnitAmount: null,
+              sellerNetUnitAmount: null,
+              shippingAllowancePercentageBps: 0,
+              termsScheduleId: null,
+              termsAgreementId: null,
+              termsResolvedAt: null,
+              feeQuoteFingerprint: null,
+              feeLocks: [],
+              quantityCap: 1,
+              evidenceRequirements: null,
+              evidence: [],
+            },
+          },
+        ],
+      });
+    }
+    const runtime = createListingTargetRuntime({
+      eventStore: store,
+      authority: {
+        authorizeManage: async () => ({ value: true, guards }),
+        verifyDecision: async () => ({ value: true, guards }),
+        resolveConnection: async ({ connectionId }) => ({
+          value: { accountId, connectionId, providerKey: "synthetic", environment: "sandbox", identityRevision: 1 },
+          guards,
+        }),
+        resolveAllocation: async () => ({ value: null, guards: [] }),
+        authorizeResume: async () => ({ value: false, guards: [] }),
+      },
+      load: async (listingId) => {
+        const events = await readCompleteStream(store, { streamId: `marketplace.listing-${listingId}` });
+        return {
+          state: events.reduce(
+            (state, event) => evolveMarketplaceListing(state, marketplaceListingCodec.decode(event)),
+            initialMarketplaceListingState,
+          ),
+          version: events.at(-1)?.streamVersion ?? 0,
+        };
+      },
+      prepareNativeEnable: async () => {
+        throw new Error("Synthetic fixture never enables native publication.");
+      },
+      capacityAppends: async () => [],
+    });
+    const updates = ["lst_one", "lst_two"].map((listingId) => ({
+      listingId,
+      priceAmount: "12.00",
+      priceCurrencyCode: "CAD",
+      expectedVersion: 1,
+      idempotencyKey: `native-${listingId}`,
+    }));
+    expect(await runtime.applyNativePrices({ accountId, updates }, context)).toEqual(
+      updates.map(({ listingId }) => ({ listingId, version: 2, outcome: "applied" })),
+    );
+    expect(await runtime.applyNativePrices({ accountId, updates }, context)).toEqual(
+      updates.map(({ listingId }) => ({ listingId, version: 2, outcome: "applied" })),
+    );
+    const input = {
+      accountId,
+      listingId: "lst_one",
+      target: { kind: "channel-connection" as const, connectionId: "con_synthetic" },
+      priceAmount: "15.00",
+      priceCurrencyCode: "EUR",
+      expectedListingVersion: 2,
+      expectedTargetPriceRevision: 0,
+      idempotencyKey: "external-concurrent",
+      decision: {
+        kind: "pricing-evaluation" as const,
+        evaluationId: "synthetic-evaluation",
+        evaluationRevision: "1",
+        policyId: "synthetic-policy",
+        policyRevision: "1",
+        goal: null,
+        inputEvidenceRefs: [],
+        curveEvidenceRefs: [],
+        economicsSourceRevision: null,
+        economicsOverrideRevision: null,
+        basePriceRevision: 2,
+        standingAuthorizationId: "synthetic-standing",
+        standingAuthorizationRevision: "1",
+      },
+    };
+    const [first, retry] = await Promise.all([
+      runtime.acceptListingTargetPrice(input, context),
+      runtime.acceptListingTargetPrice(input, context),
+    ]);
+    expect(first).toEqual(retry);
+    await expect(runtime.acceptListingTargetPrice({ ...input, priceCurrencyCode: "USD" }, context)).rejects.toThrow(
+      "different command",
+    );
+    const noOp = { ...updates[1]!, expectedVersion: 2, idempotencyKey: "durable-no-op" };
+    const noOpResult = await runtime.applyNativePrices({ accountId, updates: [noOp] }, context);
+    expect(noOpResult).toEqual([{ listingId: "lst_two", version: 2, outcome: "no_op" }]);
+    await runtime.updateNativePrice(
+      { ...noOp, accountId, priceAmount: "14.00", idempotencyKey: "later-native" },
+      context,
+    );
+    expect(await runtime.applyNativePrices({ accountId, updates: [noOp] }, context)).toEqual(noOpResult);
+    await store.appendToStream({
+      streamId: guards[0]!.streamId,
+      expectedVersion: 0,
+      context,
+      events: [{ eventType: "synthetic.authority.changed", payload: {} }],
+    });
+    const count = (await store.readAll()).length;
+    expect(
+      await runtime.applyNativePrices(
+        {
+          accountId,
+          updates: [{ ...noOp, expectedVersion: 3, priceAmount: "16.00", idempotencyKey: "stale-authority" }],
+        },
+        context,
+      ),
+    ).toMatchObject([{ outcome: "conflict" }]);
+    expect(await store.readAll()).toHaveLength(count);
+    expect((await store.readStream({ streamId: "marketplace.listing-lst_two" })).at(-1)?.payload.priceAmount).toBe(
+      "14.00",
+    );
   });
 
   it("serializes competing PostgreSQL consent bundles without partial policy or membership writes", async () => {

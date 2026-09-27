@@ -1196,6 +1196,41 @@ describe("marketplace listing routes", () => {
     );
   });
 
+  it.each(["single", "bulk"])(
+    "preserves native retry and revision fields through the %s HTTP adapter",
+    async (mode) => {
+      const services = createServices();
+      const app = buildApp({ actor: sellerActor, services });
+      const update = {
+        priceAmount: "12.00",
+        priceCurrencyCode: "EUR",
+        expectedVersion: 3,
+        expectedTargetPriceRevision: 2,
+        idempotencyKey: "native-http-retry",
+        decision: { kind: "seller-reference" },
+        minimumChange: { mode: "absolute", amount: "0.25" },
+      };
+      const response = await app.fetch(
+        new Request(`http://marketplace.test/account/listings/${mode === "single" ? "lst_1/price" : "prices/bulk"}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(mode === "single" ? update : { updates: [{ ...update, listingId: "lst_1" }] }),
+        }),
+      );
+      expect(response.status).toBe(200);
+      if (mode === "single")
+        expect(services.updateListingPrice).toHaveBeenCalledWith(
+          { ...update, accountId: "acc_seller", listingId: "lst_1", feeQuoteFingerprint: null },
+          expect.any(Object),
+        );
+      else
+        expect(services.applyBulkListingPriceUpdates).toHaveBeenCalledWith(
+          { accountId: "acc_seller", updates: [{ ...update, listingId: "lst_1", feeQuoteFingerprint: null }] },
+          expect.any(Object),
+        );
+    },
+  );
+
   it("applies a batch of listing price updates through the bulk price-update route (m113 #4327)", async () => {
     const services = createServices();
     const app = buildApp({

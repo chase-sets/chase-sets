@@ -60,7 +60,13 @@ describe("Marketplace Listing historical and scoped public payloads", () => {
     const partial: MarketplaceListingCreatedPayload = withoutVersion;
     // @ts-expect-error unversioned native price history cannot carry new null fee state.
     const noFees: MarketplaceListingPriceUpdatedPayload = { ...historicalPrice, marketplaceSalesFeeUnitAmount: null };
-    expect([enabled, partial, noFees]).toHaveLength(3);
+    // @ts-expect-error modern native updates cannot bypass canonical accepted identity.
+    const missingAcceptance: MarketplaceListingPriceUpdatedPayload = {
+      ...historicalPrice,
+      schemaVersion: 2,
+      priceCurrencyCode: "CAD",
+    };
+    expect([enabled, partial, noFees, missingAcceptance]).toHaveLength(4);
   });
 
   it("does not require or authorize a price pair on quantity snapshots", () => {

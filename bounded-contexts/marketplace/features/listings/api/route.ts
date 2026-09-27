@@ -21,6 +21,7 @@ import {
   activateListingForChannelSchema,
   setNativeListingVisibilitySchema,
   resumeListingSchema,
+  nativeListingPriceUpdateSchema,
 } from "./target-validation";
 
 const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
@@ -354,6 +355,12 @@ function parseBulkListingPriceUpdates(body: Record<string, unknown>): Marketplac
         "price_currency_code",
         "feeQuoteFingerprint",
         "fee_quote_fingerprint",
+        "expectedVersion",
+        "expectedTargetPriceRevision",
+        "idempotencyKey",
+        "decision",
+        "changeSource",
+        "minimumChange",
       ],
       "Bulk listing price update",
     );
@@ -368,12 +375,24 @@ function parseBulkListingPriceUpdates(body: Record<string, unknown>): Marketplac
     assertPriceCurrencyInput(priceCurrencyCode);
 
     return [
-      {
+      nativeListingPriceUpdateSchema.parse({
         listingId,
         priceAmount,
         priceCurrencyCode,
         feeQuoteFingerprint: typeof rawFingerprint === "string" ? rawFingerprint : null,
-      },
+        ...Object.fromEntries(
+          [
+            "expectedVersion",
+            "expectedTargetPriceRevision",
+            "idempotencyKey",
+            "decision",
+            "changeSource",
+            "minimumChange",
+          ]
+            .filter((key) => record[key] !== undefined)
+            .map((key) => [key, record[key]]),
+        ),
+      }),
     ];
   });
 }
@@ -1380,15 +1399,30 @@ export function createAccountListingRoutes(
     const body = await c.req.json();
 
     try {
-      assertClosedObject(body, ["priceAmount", "priceCurrencyCode", "feeQuoteFingerprint"], "Listing price update");
+      assertClosedObject(
+        body,
+        [
+          "priceAmount",
+          "priceCurrencyCode",
+          "feeQuoteFingerprint",
+          "expectedVersion",
+          "expectedTargetPriceRevision",
+          "idempotencyKey",
+          "decision",
+          "changeSource",
+          "minimumChange",
+        ],
+        "Listing price update",
+      );
       assertPriceCurrencyInput(body.priceCurrencyCode);
       const result = await services.updateListingPrice(
         {
+          ...nativeListingPriceUpdateSchema.parse({
+            ...body,
+            listingId: c.req.param("id"),
+            feeQuoteFingerprint: body.feeQuoteFingerprint ?? null,
+          }),
           accountId: access.actor.accountId,
-          listingId: c.req.param("id"),
-          priceAmount: String(body.priceAmount ?? ""),
-          priceCurrencyCode: String(body.priceCurrencyCode ?? ""),
-          feeQuoteFingerprint: typeof body.feeQuoteFingerprint === "string" ? body.feeQuoteFingerprint : null,
         },
         context,
       );

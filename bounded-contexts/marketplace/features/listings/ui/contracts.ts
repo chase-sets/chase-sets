@@ -289,9 +289,7 @@ export interface MarketplaceCreateListingInput extends MarketplaceListingPriceIn
   listingIdOverride?: string;
 }
 
-export interface MarketplaceUpdateListingPriceInput extends MarketplaceListingPriceInput {
-  feeQuoteFingerprint?: string | null;
-}
+export type MarketplaceUpdateListingPriceInput = Omit<MarketplaceBulkListingPriceUpdateInput, "listingId">;
 
 export interface MarketplaceAnonymousListingDraftInput extends MarketplaceListingPriceInput {
   sourcePath: string;

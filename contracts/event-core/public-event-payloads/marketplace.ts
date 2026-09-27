@@ -299,7 +299,7 @@ export type MarketplaceListingPriceUpdatedPayload = MarketplaceListingPriceUpdat
         sellerNetUnitAmount: string;
         termsResolvedAt: string;
       }>
-    | Readonly<{ schemaVersion: 2; priceCurrencyCode: string; acceptedTargetPrice?: AcceptedListingTargetPriceV1 }>
+    | Readonly<{ schemaVersion: 2; priceCurrencyCode: string; acceptedTargetPrice: AcceptedListingTargetPriceV1 }>
   );
 
 export type MarketplaceListingQuantityCapUpdatedPayload = Omit<

@@ -67,6 +67,7 @@ export async function prepareListingRequest<Result extends JsonObject>(
     if (!event.payload.result || typeof event.payload.result !== "object" || Array.isArray(event.payload.result)) {
       throw new Error("Listing request result is invalid.");
     }
+    recordCommittedEvents([event]);
     return event.payload.result as Result;
   }
   async function recover(error: unknown): Promise<Result> {

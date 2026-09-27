@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createListingRequestExecutor, ListingRequestConflictError } from "./listing-request";
 
@@ -42,6 +43,16 @@ function fixture() {
 }
 
 describe("atomic listing request retry", () => {
+  it("retains the original committed source checkpoint on a durable replay", async () => {
+    const { execute, input, eventStore } = fixture();
+    await execute(input);
+    const result = await runWithEventCommitMetadata(async () => {
+      await execute(input);
+      return getEventCommitMetadata();
+    });
+    expect(result.sources).toMatchObject([{ sourceContextName: "marketplace", maxGlobalPosition: "2" }]);
+    expect(await eventStore.readAll()).toHaveLength(2);
+  });
   it("replays an identical request that commits while this request is still preparing", async () => {
     const { execute, input, eventStore } = fixture();
     const result = await execute({

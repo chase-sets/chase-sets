@@ -54,7 +54,9 @@ export function buildMarketplaceListingTargetProjectionHandlers(db: PgQueryable)
               acceptedByUserId: event.audit.performedByUserId,
               acceptedAt: event.timing.occurredAt,
               sourceEventId: event.id,
-              decision: { kind: "legacy-native-anchor" },
+              decision: {
+                kind: created && event.data.schemaVersion === 2 ? "seller-reference" : "legacy-native-anchor",
+              },
               connectionAuthority: null,
             }
           : null;
@@ -66,6 +68,7 @@ export function buildMarketplaceListingTargetProjectionHandlers(db: PgQueryable)
           explicit.listingId !== listingId ||
           explicit.targetPriceRevision !== event.streamVersion ||
           explicit.sourceEventId !== event.id ||
+          explicit.acceptedByUserId !== event.audit.performedByUserId ||
           (externalPrice
             ? explicit.target.kind !== "channel-connection"
             : explicit.target.kind !== "native-marketplace"))
