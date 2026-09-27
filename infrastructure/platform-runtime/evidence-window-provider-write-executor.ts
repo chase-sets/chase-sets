@@ -55,7 +55,7 @@ export async function executeGovernedProviderWrite<T>(
   }
   if (row.state === "succeeded") {
     if (row.key.objectClass === 6) {
-      // #6734 must qualify actual saved-response usability before activation.
+      // Actual saved-response usability must be qualified before activation.
       requireProviderWrite(
         await journal.admitSavedResponse(
           row.key,

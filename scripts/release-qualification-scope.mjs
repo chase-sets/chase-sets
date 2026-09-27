@@ -131,6 +131,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     "checkout-order-source": "money-movement-contract",
     "embedded-surface-theme": "runtime-library",
     "event-core": "event-store-persistence",
+    "evidence-window-provider-write": "live-provider",
     http: "runtime-library",
     "identity-seed": "seed-machinery",
     localization: "runtime-library",
