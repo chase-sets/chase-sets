@@ -2527,6 +2527,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
           orderIds: proposedOrderIds,
         },
         Boolean(params.evidenceWindowSource),
+        Boolean(deps.evidenceWindowSourceAdmission),
       );
       if (sourceClaimResult.outcome === "existing") {
         const completed = await completedOrderSourceResult(
@@ -2584,6 +2585,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
           deps.db,
           sourceClaimResult.claim,
           async () => (await claimedOrderStreamStatus(sourceClaimResult.claim)).existingCount > 0,
+          Boolean(deps.evidenceWindowSourceAdmission || params.evidenceWindowSource),
         );
         throw error;
       }

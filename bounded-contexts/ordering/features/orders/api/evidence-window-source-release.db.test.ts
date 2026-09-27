@@ -584,7 +584,7 @@ describeDb("Ordering evidence-window source recovery DB", () => {
        VALUES ($1, $2, $3, '["ord_proposed"]'::jsonb, 'pending')`,
       [identity.sourceType, identity.sourceReferenceId, identity.buyerAccountId],
     );
-    await compensatePendingOrderSourceClaim(db, source, async () => false);
+    await compensatePendingOrderSourceClaim(db, source, async () => false, true);
     expect((await db.query(`SELECT 1 FROM ordering_listing_purchase_limit_claims`)).rows).toHaveLength(1);
     expect((await db.query(`SELECT 1 FROM ordering_order_source_claims`)).rows).toHaveLength(1);
     await close();
