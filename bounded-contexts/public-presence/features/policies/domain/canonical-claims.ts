@@ -65,8 +65,8 @@ export const canonicalClaimRegistry: Readonly<Record<CanonicalClaimId, Canonical
       "Stripe charges/captures the buyer's selected payment method as part of completing a Marketplace " +
       "purchase, following Chase Sets' standard payment-session-create/confirm and capture path.",
     productTruthRefs: [
-      "bounded-contexts/payments/features/payments/api/runtime.ts:1890-1943",
-      "infrastructure/stripe-payments/index.ts:1466-1514",
+      "bounded-contexts/payments/features/payments/api/runtime.ts:1980-2000",
+      "infrastructure/stripe-payments/index.ts:1602-1660",
     ],
     requiredEvidenceKeywords: ["createPaymentSession", "payment_intent", "RecordPaymentCapture"],
   },
