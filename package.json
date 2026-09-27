@@ -1,6 +1,7 @@
 {
   "name": "chase-sets",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "packageManager": "pnpm@11.0.9",
   "engines": {
