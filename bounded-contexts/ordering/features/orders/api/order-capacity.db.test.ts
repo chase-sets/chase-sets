@@ -8,6 +8,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import {
   createPostgresEventStore,
+  createPgPool,
   eventCorePostgresSchemaSql,
   type PgQueryable,
   type PgTransactionalPool,
@@ -184,6 +185,42 @@ describeDb("ordering seller order capacity db", () => {
   async function signalTypes(store: EventStore, seller = "acc_lst_a") {
     return (await store.readStream({ streamId: `ordering.seller-capacity-${seller}` })).map((event) => event.eventType);
   }
+
+  it("F1 reconciles and completes zero-Order compensation with a one-connection Postgres pool", async () => {
+    const databaseUrls = createMultiContextTestDatabaseUrls(databaseBaseUrl!, contextNames, "ordering_order_capacity");
+    const pool = createPgPool(databaseUrls.ordering, { max: 1, connectionTimeoutMillis: 1000 });
+    try {
+      await supply();
+      const store = createPostgresEventStore({ pool });
+      await claimSellerOrderCapacity(pool, [{ sellerAccountId: "acc_lst_a", orderIds: ["ord_pool_control"] }]);
+      await runtime(store, pool).reconcileSellerOrderCapacitySignal("acc_lst_a", context);
+      expect(await signalTypes(store)).toEqual(["ordering.seller-capacity.reached"]);
+      await releaseSellerOrderCapacityClaim(pool, "ord_pool_control", new Date().toISOString());
+      await runtime(store, pool).reconcileSellerOrderCapacitySignal("acc_lst_a", context);
+
+      const appendFailure = new Error("first append failed");
+      const failing = {
+        ...store,
+        appendToStream: async (input: Parameters<EventStore["appendToStream"]>[0]) => {
+          if (input.streamId.startsWith("ordering.order-")) throw appendFailure;
+          return store.appendToStream(input);
+        },
+      };
+      await expect(runtime(failing, pool).createOrdersFromCheckout(checkout(), context)).rejects.toBe(appendFailure);
+      expect(await getOrderSourceClaim(pool, "cart-checkout", "chk_failed")).toBeNull();
+      expect(await openClaimCount(pool, "acc_lst_a")).toBe(0);
+      expect((await snapshot()).orders).toEqual([]);
+      expect((await snapshot()).purchase).toEqual([]);
+      expect(await signalTypes(store)).toEqual([
+        "ordering.seller-capacity.reached",
+        "ordering.seller-capacity.cleared",
+        "ordering.seller-capacity.reached",
+        "ordering.seller-capacity.cleared",
+      ]);
+    } finally {
+      await closeMultiContextTestPools({ ordering: pool });
+    }
+  });
 
   it.each([false, true])(
     "AC1 releases zero-Order claims and admits the source the next day; explicit IDs=%s",
