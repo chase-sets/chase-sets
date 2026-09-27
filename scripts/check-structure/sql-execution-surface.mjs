@@ -745,6 +745,9 @@ export function listNonTestTypeScriptModules(repoRoot, { execGit = (args) => def
 }
 
 export function runSqlExecutionSurfaceGuard({ repoRoot, changedFilesJson, execGit } = {}) {
-  const files = deriveChangedSqlExecutionFiles({ repoRoot, changedFilesJson, execGit });
+  // Deleted paths and rename sources have no working-tree module to classify.
+  const files = [...new Set(deriveChangedSqlExecutionFiles({ repoRoot, changedFilesJson, execGit }))].filter((file) =>
+    existsSync(path.join(repoRoot, ...file.split("/"))),
+  );
   return classifySqlExecutionSurface({ repoRoot, files });
 }

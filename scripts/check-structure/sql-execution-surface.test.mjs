@@ -634,6 +634,78 @@ describe("exact test-only directory segment vocabulary", () => {
 });
 
 describe("SQL execution diff scope fail-closed controls", () => {
+  it("skips a deleted governed path but classifies an existing changed module", () => {
+    const root = createContractRepo();
+    const deleted = "packages/opaque/deleted.ts";
+    const existing = "packages/opaque/existing.ts";
+    mkdirSync(path.dirname(path.join(root, existing)), { recursive: true });
+    writeFileSync(path.join(root, existing), "export const value = 1;\n");
+
+    const result = runSqlExecutionSurfaceGuard({
+      repoRoot: root,
+      changedFilesJson: JSON.stringify([deleted, existing]),
+    });
+    expect(result.modules.map((module) => module.file)).toEqual([existing]);
+    expect(result.violations).toEqual([]);
+  });
+
+  it("skips a renamed-away source and classifies its real destination", () => {
+    const root = createContractRepo();
+    const source = "deployables/platform-api/src/old-support.ts";
+    const destination = "deployables/platform-api/src/renamed-support.ts";
+    mkdirSync(path.dirname(path.join(root, destination)), { recursive: true });
+    writeFileSync(path.join(root, destination), "export const value = 1;\n");
+
+    const result = runSqlExecutionSurfaceGuard({
+      repoRoot: root,
+      changedFilesJson: JSON.stringify([source, destination]),
+    });
+    expect(result.modules.map((module) => module.file)).toEqual([destination]);
+  });
+
+  it("deduplicates normalized Windows and POSIX paths in the diff scope only", () => {
+    const root = createContractRepo();
+    const existing = "packages/opaque/existing.ts";
+    mkdirSync(path.dirname(path.join(root, existing)), { recursive: true });
+    writeFileSync(path.join(root, existing), "export const value = 1;\n");
+
+    const result = runSqlExecutionSurfaceGuard({
+      repoRoot: root,
+      changedFilesJson: JSON.stringify([existing.replaceAll("/", "\\"), existing]),
+    });
+    expect(result.modules.map((module) => module.file)).toEqual([existing]);
+  });
+
+  it("handles the #8227 --no-renames changed-list shape", () => {
+    const root = createContractRepo();
+    const surviving = [
+      "contracts/embedded-surface-theme/index.ts",
+      "infrastructure/stripe-appearance/stripe-appearance.ts",
+      "packages/design-system/src/index.ts",
+    ];
+    for (const file of surviving) {
+      mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+      writeFileSync(path.join(root, file), "export const value = 1;\n");
+    }
+    const changedFiles = [
+      ".github/workflows/platform-pr.yml",
+      "bounded-contexts/payments/tests/stripe-appearance.test.ts",
+      ...surviving,
+      "packages/design-system/src/theme/stripe-appearance.ts",
+      "scripts/check-structure/sql-execution-surface-partition.json",
+    ];
+    const result = runSqlExecutionSurfaceGuard({ repoRoot: root, changedFilesJson: JSON.stringify(changedFiles) });
+    expect(result.modules.map((module) => module.file)).toEqual(surviving);
+    expect(result.violations).toEqual([]);
+  });
+
+  it("still rejects a missing tracked module in the full inventory", () => {
+    const root = createContractRepo();
+    expect(() => classifySqlExecutionSurface({ repoRoot: root, files: ["packages/opaque/deleted.ts"] })).toThrowError(
+      expect.objectContaining({ code: "SQL_INVENTORY_MISSING" }),
+    );
+  });
+
   it.each([
     ["malformed CHANGED_FILES_JSON", "{", "SQL_CHANGED_FILES_INVALID_JSON"],
     ["non-array CHANGED_FILES_JSON", "{}", "SQL_CHANGED_FILES_NOT_ARRAY"],
