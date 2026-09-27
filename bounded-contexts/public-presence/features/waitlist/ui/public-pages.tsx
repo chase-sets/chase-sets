@@ -31,8 +31,10 @@ import {
   PageSection,
   PromoBar,
   SegmentedControl,
+  Show,
   SkipLink,
   Stack,
+  StickyBar,
   Surface,
   PriceBreakdown,
   Table,
@@ -452,14 +454,15 @@ export function PublicPresencePageShell({
             </Stack>
           </Container>
         </MobileStickyInset>
-        <MobileStickyWaitlistCta landingExperimentVariant={landingExperimentVariant} />
+        <StickyWaitlistCtas landingExperimentVariant={landingExperimentVariant} />
       </ChaseRoot>
     </LandingExperimentVariantContext.Provider>
   );
 }
 
-function MobileStickyWaitlistCta({ landingExperimentVariant }: { landingExperimentVariant: LandingExperimentVariant }) {
-  const [isVisible, setIsVisible] = useState(false);
+// One hero-form observer drives both sticky bars so they appear in lockstep.
+function StickyWaitlistCtas({ landingExperimentVariant }: { landingExperimentVariant: LandingExperimentVariant }) {
+  const [isHeroFormOutOfView, setIsHeroFormOutOfView] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined" || !("IntersectionObserver" in window)) {
@@ -473,7 +476,7 @@ function MobileStickyWaitlistCta({ landingExperimentVariant }: { landingExperime
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        setIsVisible(!entry?.isIntersecting);
+        setIsHeroFormOutOfView(!entry?.isIntersecting);
       },
       { threshold: 0.08 },
     );
@@ -482,6 +485,24 @@ function MobileStickyWaitlistCta({ landingExperimentVariant }: { landingExperime
     return () => observer.disconnect();
   }, []);
 
+  return (
+    <>
+      <MobileStickyWaitlistCta isVisible={isHeroFormOutOfView} landingExperimentVariant={landingExperimentVariant} />
+      <DesktopStickyWaitlistCta
+        isHeroFormOutOfView={isHeroFormOutOfView}
+        landingExperimentVariant={landingExperimentVariant}
+      />
+    </>
+  );
+}
+
+function MobileStickyWaitlistCta({
+  isVisible,
+  landingExperimentVariant,
+}: {
+  isVisible: boolean;
+  landingExperimentVariant: LandingExperimentVariant;
+}) {
   if (!isVisible) {
     return null;
   }
@@ -506,6 +527,61 @@ function MobileStickyWaitlistCta({ landingExperimentVariant }: { landingExperime
         </Cluster>
       </Container>
     </MobileStickyBar>
+  );
+}
+
+// The top bar would cover the final form panel after the anchor jump, and its
+// action is redundant there, so it hides while that panel is in view.
+function DesktopStickyWaitlistCta({
+  isHeroFormOutOfView,
+  landingExperimentVariant,
+}: {
+  isHeroFormOutOfView: boolean;
+  landingExperimentVariant: LandingExperimentVariant;
+}) {
+  const [isFinalFormInView, setIsFinalFormInView] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !("IntersectionObserver" in window)) {
+      return undefined;
+    }
+
+    const finalForm = document.getElementById("waitlist-form-final");
+    if (!finalForm) {
+      return undefined;
+    }
+
+    const observer = new IntersectionObserver(([entry]) => {
+      setIsFinalFormInView(Boolean(entry?.isIntersecting));
+    });
+
+    observer.observe(finalForm);
+    return () => observer.disconnect();
+  }, []);
+
+  if (!isHeroFormOutOfView || isFinalFormInView) {
+    return null;
+  }
+
+  return (
+    <Show from="md">
+      <StickyBar position="top" data-public-presence-desktop-sticky-cta="">
+        <Container width="wide">
+          <Cluster gap={2}>
+            <BrandLink label={t("publicPresence.brand")} />
+            <LinkButton
+              href="#waitlist-form-final"
+              tone="primary"
+              size="sm"
+              leadingIcon="rocket"
+              onClick={() => trackCtaClick("desktop_sticky", "waitlist_form_final", landingExperimentVariant)}
+            >
+              {t("publicPresence.home.stickyCta.action")}
+            </LinkButton>
+          </Cluster>
+        </Container>
+      </StickyBar>
+    </Show>
   );
 }
 
