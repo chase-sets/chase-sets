@@ -11,6 +11,9 @@ import {
 import { attachResponseMetadata } from "@chase-sets/http/responses";
 import { createIdentityApiClient, IdentityApiError } from "./support/request-support/api-client";
 import { hasPermission } from "./support/request-support/permissions";
+export { createIdentityWalletFundingEligibilityResolver } from "./features/accounts/api/wallet-funding-eligibility";
+export { createIdentityPaymentsTermsAcceptanceResolver } from "./features/consents/api/terms-acceptance-resolver";
+export type { PaymentsTermsAcceptanceStatus } from "./features/consents/read-model/terms-acceptance";
 
 export type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 export type { CurrentActorDisplay } from "./support/shell-support/current-actor-display";

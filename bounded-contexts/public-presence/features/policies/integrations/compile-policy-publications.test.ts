@@ -435,7 +435,7 @@ describe("public policy corpus compiler", () => {
     ).toBe("sha256:c527cca70b8e0f5055e8fc480f2deefc61629a422af3249dd452a192b06c5c98");
     expect(
       fingerprint(baseline.find(({ relativePath }) => relativePath === "terms-of-service-publication.ts")?.content),
-    ).toBe("sha256:3f2930714f2f58cf68df0948999bb7d61e73b96e2b79af6719fcb15997ecea04");
+    ).toBe("sha256:7c2dbc97dcadee2d04ddde692d083a550f92d654b57c24ba21541373f8dc9e06");
 
     for (const module of changed) {
       const before = baseline.find((candidate) => candidate.relativePath === module.relativePath)?.content;
@@ -511,7 +511,7 @@ describe("public policy corpus compiler", () => {
         policyKey: "terms-of-service",
         sectionId: "effective-date-notice-and-acceptance",
         carrier: "productTruthRef",
-        before: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:12-13",
+        before: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:39-40",
         after: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:15-48",
         module: "terms-of-service-publication.ts",
       },
@@ -520,7 +520,7 @@ describe("public policy corpus compiler", () => {
         policyKey: "terms-of-service",
         sectionId: "changes-notice-and-acceptance",
         carrier: "productTruthRef",
-        before: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:26-28",
+        before: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:53-55",
         after: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:15-48",
         module: "terms-of-service-publication.ts",
       },
@@ -529,7 +529,7 @@ describe("public policy corpus compiler", () => {
         policyKey: "terms-of-service",
         sectionId: "changes-notice-and-acceptance",
         carrier: "assumptionEvidenceRef",
-        before: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:19-30",
+        before: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:46-57",
         after: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:15-48",
         module: "terms-of-service-publication.ts",
       },

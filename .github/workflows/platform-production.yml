@@ -2382,6 +2382,7 @@ jobs:
           SMOKE_BALANCE_CREDIT_AMOUNT: ${{ vars.STAGING_SMOKE_BALANCE_CREDIT_AMOUNT || '' }}
           SMOKE_PAYMENT_METHOD_CATEGORY: ${{ vars.STAGING_SMOKE_PAYMENT_METHOD_CATEGORY || '' }}
           SMOKE_CREATE_PAYMENT: ${{ vars.STAGING_SMOKE_CREATE_PAYMENT || '' }}
+          STAGING_SMOKE_WALLET_FUNDING_AMOUNT: ${{ vars.STAGING_SMOKE_WALLET_FUNDING_AMOUNT || '' }}
           SMOKE_PAYOUT_AMOUNT: ${{ vars.STAGING_SMOKE_PAYOUT_AMOUNT || '' }}
           SMOKE_REQUEST_PAYOUT: ${{ vars.STAGING_SMOKE_REQUEST_PAYOUT || '' }}
         run: |
@@ -2779,6 +2780,9 @@ jobs:
       TF_VAR_production_marketplace_checkout_fee_reference: ${{ vars.PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE || '' }}
       TF_VAR_production_payout_fee_approved: ${{ vars.PRODUCTION_PAYOUT_FEE_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_payout_fee_reference: ${{ vars.PRODUCTION_PAYOUT_FEE_REFERENCE || '' }}
+      PRODUCTION_WALLET_FUNDING_APPROVED: ${{ vars.PRODUCTION_WALLET_FUNDING_APPROVED || 'false' }}
+      PRODUCTION_WALLET_FUNDING_REFERENCE: ${{ vars.PRODUCTION_WALLET_FUNDING_REFERENCE || '' }}
+      PRODUCTION_WALLET_FUNDING_ACCOUNT_ALLOWLIST: ${{ vars.PRODUCTION_WALLET_FUNDING_ACCOUNT_ALLOWLIST || '' }}
       TF_VAR_production_checkout_launch_evidence_approved: ${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_checkout_launch_evidence_reference: ${{ vars.PRODUCTION_CHECKOUT_LAUNCH_EVIDENCE_REFERENCE || '' }}
       TF_VAR_checkout_shopify_simple_kill_switch_active: ${{ vars.CHECKOUT_SHOPIFY_SIMPLE_KILL_SWITCH_ACTIVE == 'true' && 'true' || 'false' }}
@@ -2999,6 +3003,10 @@ jobs:
           fi
 
           if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
+            if [ "${PRODUCTION_WALLET_FUNDING_APPROVED:-false}" != "true" ] || [ -z "${PRODUCTION_WALLET_FUNDING_REFERENCE:-}" ]; then
+              echo "Production marketplace promotion requires approved Wallet Funding evidence."
+              exit 1
+            fi
             if [ "${TF_VAR_production_marketplace_promotion_approved:-false}" != "true" ] || [ -z "${TF_VAR_production_marketplace_promotion_reference:-}" ]; then
               echo "Production marketplace promotion requires an approved marketplace promotion record." >&2
               exit 1
@@ -3811,6 +3819,9 @@ jobs:
             fi
           }
           add_optional_runtime_env "CHASE_SETS_MARKETPLACE_ORIGIN" "${marketplace_domain:+https://${marketplace_domain}}"
+          add_optional_runtime_env "PRODUCTION_WALLET_FUNDING_APPROVED" "${PRODUCTION_WALLET_FUNDING_APPROVED:-false}"
+          add_optional_runtime_env "PRODUCTION_WALLET_FUNDING_REFERENCE" "${PRODUCTION_WALLET_FUNDING_REFERENCE:-}"
+          add_optional_runtime_env "PRODUCTION_WALLET_FUNDING_ACCOUNT_ALLOWLIST" "${PRODUCTION_WALLET_FUNDING_ACCOUNT_ALLOWLIST:-}"
           add_optional_runtime_env "SES_AWS_REGION" "${TF_VAR_ses_aws_region:-}"
           add_optional_runtime_env "SES_FROM_EMAIL" "${TF_VAR_ses_from_email:-}"
           add_optional_runtime_env "SES_CONFIGURATION_SET_NAME" "${TF_VAR_ses_configuration_set_name:-}"

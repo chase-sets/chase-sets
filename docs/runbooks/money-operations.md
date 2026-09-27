@@ -20,6 +20,18 @@ This runbook covers checkout, wallet, Stripe payments, Connect payouts, transfer
 - Do not mix direct connected-account charges, destination charges, and platform-held charges in the same account wallet flow. A future charge strategy change should be a migration with explicit ledger and reconciliation rules.
 - Payout requests transfer from the platform balance to the connected account first, then create the connected-account payout. The account-facing source of truth remains the settlement wallet ledger.
 
+## Wallet Funding
+
+Wallet Funding is separate from order Payments. `POST /api/marketplace/account/wallet-fundings` first returns a card fee quote and funding id. Confirm that id with the exact `quoteFingerprint`; `fee_quote_stale` requires a new quote. Confirm the returned processor client secret using Stripe's client-side card surface. The gross charge is requested prepaid value plus the checkout-processing-fee card quote; only requested value is owed to Settlement as prepaid credit. The fee is non-refundable. No order, checkout outcome or order email is emitted.
+
+The default limits are USD/card only, 5.00 minimum, 500.00 per funding and 2000.00 per rolling 30 days. The closed `payments.wallet-funding-limits/v1` policy owns these values. Account standing and an active Payments Terms authority are checked before provider work; when that authority has not been activated, acceptance is not evaluated. Production additionally requires `PRODUCTION_WALLET_FUNDING_APPROVED=true` and a nonempty `PRODUCTION_WALLET_FUNDING_REFERENCE`. A nonempty `PRODUCTION_WALLET_FUNDING_ACCOUNT_ALLOWLIST` restricts eligible accounts. These flags do not replace counsel, consent publication, production proof or canary obligations.
+
+Refund requests use `POST /api/marketplace/account/wallet-fundings/{fundingId}/refunds` with a stable `wfr_` refund id and exact amount. Account refunds return to the original card subject to its processor refund window; operator initiation never bypasses provider acceptance or money authority. Payments persists intent, obtains an exact Settlement reservation, persists its submission claim and then calls the provider. Only confirmed success emits a refund fact. Commit retries and fact consumption must converge on the same Settlement debit. Definitive failed/cancelled outcomes release the reservation; timeouts, missing projections and transport errors never do. Recovery uses the original correlated refund, not a new idempotency key. Unresolved outcomes and authority failures remain classified reconciliation work.
+
+Until #7813 binds the real `prepaidRefundAuthority`, every deployed reserve refuses. Do not install a positive test resolver, use captured/gross/available amounts as authorization, or manually credit a lot. No prepaid bank payout is implemented.
+
+`STAGING_SMOKE_WALLET_FUNDING_AMOUNT` optionally adds a test-mode application quote/create leg to the existing money smoke. Its redacted output is not capture/dispute proof. The host attaches `walletFundingStagingProof` on the deployed head after observing create, capture and dispute; #7813 AC8 separately owes the successful integrated partial-refund proof with its real lot and reservation. Do not claim direct provider operations or synthetic tests as that integration proof.
+
 ## Fraud And Payout Controls
 
 - Marketplace blocks high-dollar listing publication for accounts without listing photo evidence and trusted seller status or established reputation. High-dollar drafts can exist, but they cannot become active buyer-visible listings until the publication policy clears.

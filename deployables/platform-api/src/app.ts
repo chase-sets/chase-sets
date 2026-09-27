@@ -41,7 +41,13 @@ import {
 } from "@chase-sets/pricing/server";
 import { isChannelsServices, type ChannelsServices } from "@chase-sets/channels/server";
 import { module as identityModule } from "@chase-sets/identity";
-import { createIdentityTermsAcceptanceResolver, identityTermsOfServicePolicy } from "@chase-sets/identity/server";
+import {
+  createIdentityTermsAcceptanceResolver,
+  createIdentityWalletFundingEligibilityResolver,
+  identityTermsOfServicePolicy,
+} from "@chase-sets/identity/server";
+import type { WalletFundingEligibilityResolver } from "@chase-sets/payments/server";
+import { walletFundingLimitsPolicy } from "@chase-sets/payments/server";
 import {
   createInventoryExternalChannelSaleRecorderForPool,
   createImportResolutionAttentionSourceFromReadModel,
@@ -260,6 +266,7 @@ export function createPlatformApiHost(
   const runtimeProfile = options.runtimeProfile ?? "public";
   const commercialTermsPool = getPlatformApiPool(options.pools["commercial-terms"]);
   const identityPool = getPlatformApiPool(options.pools.identity);
+  const paymentsPool = getPlatformApiPool(options.pools.payments);
   const settlementPool = getPlatformApiPool(options.pools.settlement);
   const platformOperationsPool = getPlatformApiPool(options.pools["platform-operations"]);
   const marketplacePool = getPlatformApiPool(options.pools.marketplace);
@@ -333,6 +340,9 @@ export function createPlatformApiHost(
         }
       : undefined;
   const termsAcceptanceResolver = identityPool ? createIdentityTermsAcceptanceResolver(identityPool) : undefined;
+  const walletFundingEligibilityResolver: WalletFundingEligibilityResolver | undefined = identityPool
+    ? createIdentityWalletFundingEligibilityResolver(identityPool)
+    : undefined;
   const balanceCreditResolver = settlementPool
     ? createSettlementBalanceCreditResolver(settlementPool, {
         termsAcceptanceResolver,
@@ -379,6 +389,14 @@ export function createPlatformApiHost(
       : {}),
   };
   const policyConsoleCrossContextSources: PolicyConsoleCrossContextPort["sources"][number][] = [];
+  if (paymentsPool) {
+    policyConsoleCrossContextSources.push({
+      contextName: "payments",
+      db: paymentsPool,
+      definitions: [walletFundingLimitsPolicy],
+      write: lazyPolicyConsoleWritePort(() => runtime?.services.payments as PaymentsServices | undefined),
+    });
+  }
   if (identityPool) {
     policyConsoleCrossContextSources.push({
       contextName: "identity",
@@ -594,6 +612,7 @@ export function createPlatformApiHost(
       ...options.hostPorts,
       ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
       ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
+      ...(walletFundingEligibilityResolver ? { walletFundingEligibilityResolver } : {}),
       ...(checkoutProcessingFeePolicyResolver ? { checkoutProcessingFeePolicyResolver } : {}),
       ...(authenticityFeePolicyResolver ? { authenticityFeePolicyResolver } : {}),
       ...(rateLimitPolicyResolver ? { rateLimitPolicyResolver } : {}),

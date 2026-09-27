@@ -301,7 +301,7 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         decisionRefs: [5004],
         productTruthRefs: [
           "bounded-contexts/identity/features/consents/domain/terms-of-service-policy.ts:28-59",
-          "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:12-13",
+          "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:39-40",
         ],
         openQuestions: [],
         assumptions: [
@@ -660,14 +660,14 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
         productTruthRefs: [
           "bounded-contexts/identity/features/consents/domain/terms-of-service-policy.ts:28-59",
           "bounded-contexts/identity/features/consents/api/terms-route.ts:31-90",
-          "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:26-28",
+          "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:53-55",
         ],
         openQuestions: [],
         assumptions: [
           {
             assertion:
               "The active-required-version policy and read model fail closed on missing or outdated acceptance, gating per-version re-acceptance.",
-            evidenceRef: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:19-30",
+            evidenceRef: "bounded-contexts/identity/features/consents/read-model/terms-acceptance.ts:46-57",
           },
         ],
       },
