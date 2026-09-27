@@ -746,7 +746,8 @@ const citationFencePaths = {
 
 const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   [citationFencePaths.authenticityTerms]: "7e64ea6fba08d7f0796193db12fb203c21525732a33f0b5a22456ada80682b00",
-  [citationFencePaths.privacyPolicy]: "4f9a1c91756db4caf4f0708d369bf042cb2524c61b59e3b3411faba725e4ccb0",
+  // Refreshed for the authorized charge-authority draft correction; only C1-C7 digits remain normalized.
+  [citationFencePaths.privacyPolicy]: "ce7135c9b63f41417e5dad54a32ada1d6a01afe9cb9631e3ad972df2e590c04a",
   [citationFencePaths.authenticityTest]: "4117ad0b8293c6b450b43ef42fbcbdcfb8bcc0d58a1c7b4c1df0e61adc831d34",
   [citationFencePaths.staticSurfaces]: "008c7a9dfe4475ca97613eece7b4f337be854de440e11ceb24d5b2684677b901",
 };
@@ -1814,7 +1815,7 @@ describe("line-keyed policy citation authority", () => {
 });
 
 describe("occurrence-scoped citation byte fence", () => {
-  it("normalizes exactly C1-C7 and matches all four reviewed frozen-base digests", () => {
+  it("normalizes exactly C1-C7 and matches all four reviewed source digests", () => {
     expect(Object.values(citationFenceOccurrences).flat()).toHaveLength(7);
     expect(checkCitationFence(citationFenceSources())).toEqual([]);
   });
