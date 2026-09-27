@@ -108,7 +108,7 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
               requestedBalanceCreditAmount={
                 model.walletUnavailable
                   ? ""
-                  : model.payment?.wallet_credit.requested_amount ?? model.wallet?.available_balance_amount ?? "0.00"
+                  : (model.payment?.wallet_credit.requested_amount ?? model.wallet?.available_balance_amount ?? "0.00")
               }
               effectivePaymentMethodCategory={model.effectivePaymentMethodCategory}
               canUseAcceleratedSavedPayment={model.canUseAcceleratedSavedPayment}

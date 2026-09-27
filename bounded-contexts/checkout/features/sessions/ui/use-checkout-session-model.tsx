@@ -51,7 +51,7 @@ export function useCheckoutSessionModel({
   const signedInBuyCheckout = isSignedInBuyer && !isOfferIntent;
   const guestBuyCheckout = !isSignedInBuyer && !isOfferIntent;
   const preview = fulfillmentPreview ?? null;
-  const payment = walletUnavailable && !hasPayment ? null : paymentPreview ?? null;
+  const payment = walletUnavailable && !hasPayment ? null : (paymentPreview ?? null);
   const fulfillmentPreviewChanged = Boolean(
     !isOfferIntent &&
     preview?.revision &&
