@@ -33,7 +33,12 @@ import {
   type RepricingHaltEvent,
 } from "../domain/halt";
 import { buildRepricingHaltProjectionHandlers } from "../read-model/halt-projection";
-import { getRepricingBudget, listRepricingCategories, previewRepricingScope } from "../read-model/controls";
+import {
+  getRepricingAuthoringPrerequisites,
+  getRepricingBudget,
+  listRepricingCategories,
+  previewRepricingScope,
+} from "../read-model/controls";
 
 type RepricingPolicyRuntimeDeps = Readonly<{
   eventStore: EventStore;
@@ -63,6 +68,7 @@ export type RepricingPolicyServices = Readonly<{
   setHalt: (accountId: string, engaged: boolean, context: EventStoreContext) => Promise<RepricingHaltState>;
   getBudget: (accountId: string, day: string) => ReturnType<typeof getRepricingBudget>;
   listCategories: (accountId: string) => ReturnType<typeof listRepricingCategories>;
+  getAuthoringPrerequisites: (accountId: string) => ReturnType<typeof getRepricingAuthoringPrerequisites>;
   previewScope: (input: Parameters<typeof previewRepricingScope>[1]) => ReturnType<typeof previewRepricingScope>;
   listAccountRepricingPolicies: (
     params: Readonly<{ accountId: string; includeDeleted?: boolean }>,
@@ -108,7 +114,7 @@ export function createRepricingPolicyRuntime(deps: RepricingPolicyRuntimeDeps): 
       try {
         decideRepricingPolicy(loaded.state, command);
       } catch (error) {
-        throw new PolicyControlValidationError(error instanceof Error ? error.message : "Invalid policy command.");
+        throw new PolicyControlValidationError("Invalid policy command.", { cause: error });
       }
       return (
         await commandHandler({
@@ -130,6 +136,7 @@ export function createRepricingPolicyRuntime(deps: RepricingPolicyRuntimeDeps): 
       ).state,
     getBudget: (accountId, day) => getRepricingBudget(deps.db, accountId, day),
     listCategories: (accountId) => listRepricingCategories(deps.db, accountId),
+    getAuthoringPrerequisites: (accountId) => getRepricingAuthoringPrerequisites(deps.db, accountId),
     previewScope: (input) => previewRepricingScope(deps.db, input),
     listAccountRepricingPolicies: (params) => listAccountRepricingPolicies(deps.db, params),
     listRepricingPolicyAssignments: (params) => listRepricingPolicyAssignments(deps.db, params),

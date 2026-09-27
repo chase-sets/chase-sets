@@ -1,4 +1,8 @@
 import { t } from "@chase-sets/localization";
+import { useEffect, useState } from "react";
+import { Button } from "@chase-sets/design-system";
+import { PolicyEditorDrawer } from "../../features/repricing-policies/ui/policy-editor-drawer";
+import type { PolicyEditorBody } from "../../features/repricing-policies/ui/presets";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import {
   redirect,
@@ -21,6 +25,7 @@ import contextManifest from "../../context.json";
 import {
   createPricingRequestApiClient,
   PricingApiError,
+  pricingValidationMessages,
   type RepricingActivityPage,
   type RepricingPolicyState,
 } from "../../support/request-support/api-client";
@@ -120,6 +125,12 @@ export const loader = defineResourceRoute<RepricingPolicyState, RepricingPolicyL
 export const action = defineFormAction({
   authorization: { permission: "pricing.manage" },
   intents: {
+    "revise-policy": async ({ request, formData }) => {
+      const policyId = repricingPolicyIdFrom(formData);
+      const body: PolicyEditorBody = JSON.parse(String(formData.get("body") ?? "null"));
+      const result = await createPricingRequestApiClient(request).reviseRepricingPolicy(policyId, body);
+      return navigateAfterPolicyWrite(result, repricingPolicyHref(policyId));
+    },
     "pause-policy": async ({ request, formData }) => {
       const policyId = repricingPolicyIdFrom(formData);
       const result = await createPricingRequestApiClient(request).pauseRepricingPolicy(policyId);
@@ -146,7 +157,10 @@ export const action = defineFormAction({
     },
   },
   onUnknownIntent: () => ({ error: t("pricing.routes.marketplace.accountDeskRepricing.unknownAction") }),
-  onError: () => ({ error: t("pricing.routes.marketplace.accountDeskRepricing.actionFailed") }),
+  onError: (error) => ({
+    error: t("pricing.routes.marketplace.accountDeskRepricing.actionFailed"),
+    details: pricingValidationMessages(error),
+  }),
 });
 
 export const meta: MetaFunction = () =>
@@ -157,10 +171,15 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceSellerDeskRepricingPolicyRoute() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>() as { error?: string } | undefined;
+  const actionData = useActionData<typeof action>() as { error?: string; details?: readonly string[] } | undefined;
   const navigation = useNavigation();
   const location = useLocation();
   const submit = useSubmit();
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [openedAtKey, setOpenedAtKey] = useState(location.key);
+  useEffect(() => {
+    if (!actionData?.error) setEditorOpen(false);
+  }, [location.key]);
   const [, setSearchParams] = useSearchParams();
   useRepricingDeskCatchUp(data.recovery === "catching-up");
   if (data.recovery === "catching-up") {
@@ -171,24 +190,64 @@ export default function MarketplaceSellerDeskRepricingPolicyRoute() {
   const navigating = navigation.state === "loading" && !navigation.formData;
 
   return (
-    <PricingRepricingPolicyDetailPage
-      policy={data.policy}
-      halt={data.halt}
-      changesUsedToday={data.changesUsedToday}
-      activity={data.activity}
-      activityFilter={data.activityFilter}
-      activityLoading={navigating}
-      activityLoadFailed={data.activityLoadFailed}
-      errorMessage={actionData && "error" in actionData ? String(actionData.error ?? "") : null}
-      busy={navigation.state === "submitting"}
-      onHaltChange={(engaged) => submitIntent(engaged ? "engage-halt" : "release-halt")}
-      onPause={() => submitIntent("pause-policy")}
-      onResume={() => submitIntent("resume-policy")}
-      onDelete={() => submitIntent("delete-policy")}
-      onActivityFilterChange={(filter) => setSearchParams(filter ? { filter } : {})}
-      onActivityNext={(cursor) =>
-        setSearchParams(data.activityFilter ? { filter: data.activityFilter, after: cursor } : { after: cursor })
-      }
-    />
+    <>
+      <PricingRepricingPolicyDetailPage
+        editAction={
+          data.policy.status !== "deleted" ? (
+            <Button
+              onClick={() => {
+                setOpenedAtKey(location.key);
+                setEditorOpen(true);
+              }}
+            >
+              {t("pricing.features.repricingPolicies.ui.editor.revise")}
+            </Button>
+          ) : null
+        }
+        policy={data.policy}
+        halt={data.halt}
+        changesUsedToday={data.changesUsedToday}
+        activity={data.activity}
+        activityFilter={data.activityFilter}
+        activityLoading={navigating}
+        activityLoadFailed={data.activityLoadFailed}
+        errorMessage={actionData && "error" in actionData ? String(actionData.error ?? "") : null}
+        busy={navigation.state === "submitting"}
+        onHaltChange={(engaged) => submitIntent(engaged ? "engage-halt" : "release-halt")}
+        onPause={() => submitIntent("pause-policy")}
+        onResume={() => submitIntent("resume-policy")}
+        onDelete={() => submitIntent("delete-policy")}
+        onActivityFilterChange={(filter) => setSearchParams(filter ? { filter } : {})}
+        onActivityNext={(cursor) =>
+          setSearchParams(data.activityFilter ? { filter: data.activityFilter, after: cursor } : { after: cursor })
+        }
+      />
+      {editorOpen && data.policy.scope && data.policy.maxChangesPerDay !== null ? (
+        <PolicyEditorDrawer
+          policyId={policyId}
+          initialBody={{
+            name: data.policy.name ?? "",
+            scope: data.policy.scope,
+            rules: data.policy.rules,
+            excludedListingIds: data.policy.excludedListingIds,
+            maxChangesPerDay: data.policy.maxChangesPerDay,
+          }}
+          onClose={() => setEditorOpen(false)}
+          saving={navigation.state === "submitting"}
+          saveErrors={
+            location.key === openedAtKey
+              ? []
+              : actionData?.details?.length
+                ? actionData.details
+                : actionData?.error
+                  ? [actionData.error]
+                  : []
+          }
+          onSave={({ body }) =>
+            submit({ intent: "revise-policy", policyId, body: JSON.stringify(body) }, { method: "post" })
+          }
+        />
+      ) : null}
+    </>
   );
 }

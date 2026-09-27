@@ -1,4 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { Hono } from "hono";
+import { attachWriteConsistencyMiddleware } from "@chase-sets/bounded-context-runtime";
+import { getEventCommitMetadata, recordCommittedEvents } from "@chase-sets/event-core/consistency";
+import type { StoredEvent } from "@chase-sets/event-core/storage";
+import { CHASE_SETS_COMMIT_RECEIPT_HEADER, decodeCommitReceipt } from "@chase-sets/http/responses";
 import {
   createPostgresEventStore,
   type PgTransactionalPool,
@@ -60,6 +65,108 @@ describeDb("policy first activation", () => {
       (event) => event.eventType === "pricing.repricing-policy.created",
     );
   }
+
+  async function requestActivation(
+    action: () => ReturnType<ReturnType<typeof services>["activateRepricingPolicy"]>,
+    existingEvents: readonly StoredEvent[] = [],
+  ) {
+    const app = new Hono();
+    attachWriteConsistencyMiddleware(app, [{ mountPath: "/activation" }], [], { enabled: false });
+    let metadata = getEventCommitMetadata();
+    let error: unknown;
+    app.post("/activation", async (c) => {
+      recordCommittedEvents(existingEvents, "synthetic-unrelated");
+      try {
+        const state = await action();
+        return c.json(state, state ? 201 : 404);
+      } catch (caught) {
+        error = caught;
+        return c.json({ error: "activation_rejected" }, 409);
+      } finally {
+        metadata = getEventCommitMetadata();
+      }
+    });
+    const response = await app.request("/activation", { method: "POST" });
+    return { response, metadata, error };
+  }
+
+  function expectNoReceipt(result: Awaited<ReturnType<typeof requestActivation>>) {
+    expect(result.metadata).toEqual({ eventIds: [], sources: [], committedEvents: [], maxGlobalPosition: undefined });
+    for (const header of [
+      CHASE_SETS_COMMIT_RECEIPT_HEADER,
+      "Chase-Sets-Commit-Position",
+      "Chase-Sets-Commit-Event-Ids",
+      "Chase-Sets-Consistency",
+    ])
+      expect(result.response.headers.get(header)).toBeNull();
+  }
+
+  function expectReceipt(result: Awaited<ReturnType<typeof requestActivation>>, events: readonly StoredEvent[]) {
+    const maxGlobalPosition = events.reduce(
+      (max, event) => (BigInt(event.globalPosition) > BigInt(max) ? String(event.globalPosition) : max),
+      "0",
+    );
+    const eventIds = events.map((event) => String(event.eventId));
+    expect(result.error).toBeUndefined();
+    expect(result.metadata).toEqual({
+      eventIds,
+      maxGlobalPosition,
+      committedEvents: events,
+      sources: [{ sourceContextName: "pricing", eventIds, maxGlobalPosition }],
+    });
+    expect(result.response.headers.get("Chase-Sets-Consistency")).toBe("eventual");
+    expect(result.response.headers.get("Chase-Sets-Commit-Event-Ids")).toBe(eventIds.join(","));
+    expect(result.response.headers.get("Chase-Sets-Commit-Position")).toBe(maxGlobalPosition);
+    expect(decodeCommitReceipt(result.response.headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER))).toEqual(
+      result.metadata.sources,
+    );
+  }
+
+  it("registers exactly the appended events after COMMIT and emits the real middleware receipt", async () => {
+    const dryRunId = await completedRun();
+    const store = createPostgresEventStore({ pool: pools.pricing });
+    let appended: readonly StoredEvent[] = [];
+    let commitObserved = false;
+    const observedPool: PgTransactionalPool = {
+      query: pools.pricing.query.bind(pools.pricing),
+      connect: async () => {
+        const client = await pools.pricing.connect();
+        return {
+          release: client.release.bind(client),
+          query: async <Row>(sql: string, values?: readonly unknown[]) => {
+            if (sql === "COMMIT") {
+              expect(appended).toHaveLength(1);
+              expect(getEventCommitMetadata()).toEqual({
+                eventIds: [],
+                sources: [],
+                committedEvents: [],
+                maxGlobalPosition: undefined,
+              });
+              const result = await client.query<Row>(sql, values);
+              commitObserved = true;
+              return result;
+            }
+            return client.query<Row>(sql, values);
+          },
+        };
+      },
+    };
+    const observedStore: PostgresEventStore = {
+      ...store,
+      appendToStreamInTransaction: async (client, input) => {
+        appended = await store.appendToStreamInTransaction(client, input);
+        return appended;
+      },
+    };
+    const result = await requestActivation(() =>
+      services(observedStore, observedPool).activateRepricingPolicy(activateInput(dryRunId), dryRunContext),
+    );
+    expect(commitObserved).toBe(true);
+    expect(result.response.status).toBe(201);
+    expectReceipt(result, appended);
+    expect(result.metadata.committedEvents[0]).toBe(appended[0]);
+    expect(await createdEvents()).toEqual(appended);
+  });
 
   it("creates from the exact stored body indefinitely and owns commands before projection catchup", async () => {
     const dryRunId = await completedRun();
@@ -134,9 +241,11 @@ describeDb("policy first activation", () => {
           "UPDATE pricing_repricing_dry_run_jobs SET status = 'failed' WHERE job_id = $1 AND status = 'completed'",
           [dryRunId],
         );
-      await expect(services().activateRepricingPolicy(activateInput(dryRunId), dryRunContext)).rejects.toBeInstanceOf(
-        DryRunRequiredError,
+      const result = await requestActivation(() =>
+        services().activateRepricingPolicy(activateInput(dryRunId), dryRunContext),
       );
+      expect(result.error).toBeInstanceOf(DryRunRequiredError);
+      expectNoReceipt(result);
       expect(await createdEvents()).toHaveLength(0);
       const row = (
         await pools.pricing.query<{ consumed: boolean }>(
@@ -241,31 +350,95 @@ describeDb("policy first activation", () => {
     }
   });
 
-  it("rolls back consumption and an appended event on transaction failure, then permits retry", async () => {
+  it.each(["append failure", "abort after append", "COMMIT failure"])(
+    "rolls back %s without a receipt, then permits exactly one retry",
+    async (failure) => {
+      const dryRunId = await completedRun();
+      const store = createPostgresEventStore({ pool: pools.pricing });
+      const failing: PostgresEventStore = {
+        ...store,
+        appendToStreamInTransaction: async (client, input) => {
+          if (failure === "append failure") throw new Error("synthetic append failure");
+          const events = await store.appendToStreamInTransaction(client, input);
+          if (failure === "abort after append") throw new Error("synthetic abort after append");
+          // A deferred violation lets append return successfully but makes PostgreSQL COMMIT fail.
+          await client.query(
+            "CREATE TEMP TABLE synthetic_commit_failure (id integer UNIQUE DEFERRABLE INITIALLY DEFERRED) ON COMMIT DROP",
+          );
+          await client.query("INSERT INTO synthetic_commit_failure (id) VALUES (1), (1)");
+          return events;
+        },
+      };
+      const result = await requestActivation(() =>
+        services(failing).activateRepricingPolicy(activateInput(dryRunId), dryRunContext),
+      );
+      expect(result.error).toBeInstanceOf(Error);
+      if (failure === "COMMIT failure") expect(result.error).toMatchObject({ code: "23505" });
+      else expect((result.error as Error).message).toBe(`synthetic ${failure}`);
+      expectNoReceipt(result);
+      expect(await createdEvents()).toHaveLength(0);
+      expect(
+        (
+          await pools.pricing.query<{ consumed_at: string | null }>(
+            "SELECT consumed_at FROM pricing_repricing_dry_runs WHERE dry_run_id = $1",
+            [dryRunId],
+          )
+        ).rows[0]?.consumed_at,
+      ).toBeNull();
+      const retried = await requestActivation(() =>
+        services().activateRepricingPolicy(activateInput(dryRunId), dryRunContext),
+      );
+      expect(await retried.response.json()).toMatchObject({ status: "active" });
+      const events = await createdEvents();
+      expect(events).toHaveLength(1);
+      expectReceipt(retried, events);
+      const repeated = await requestActivation(() =>
+        services().activateRepricingPolicy(activateInput(dryRunId), dryRunContext),
+      );
+      expect(repeated.error).toBeInstanceOf(DryRunRequiredError);
+      expectNoReceipt(repeated);
+      expect(await createdEvents()).toEqual(events);
+    },
+  );
+
+  it.each([false, true])("preserves unrelated committed request metadata when activation fails=%s", async (fails) => {
     const dryRunId = await completedRun();
     const store = createPostgresEventStore({ pool: pools.pricing });
+    const existing = await store.appendToStream({
+      streamId: "synthetic.unrelated-receipt",
+      expectedVersion: "no_stream",
+      events: [{ eventType: "synthetic.unrelated-committed", payload: {} }],
+      context: dryRunContext,
+    });
     const failing: PostgresEventStore = {
       ...store,
       appendToStreamInTransaction: async (client, input) => {
         await store.appendToStreamInTransaction(client, input);
-        throw new Error("synthetic failure after append before commit");
+        throw new Error("synthetic abort");
       },
     };
-    await expect(services(failing).activateRepricingPolicy(activateInput(dryRunId), dryRunContext)).rejects.toThrow(
-      "synthetic failure",
+    const result = await requestActivation(
+      () => services(fails ? failing : store).activateRepricingPolicy(activateInput(dryRunId), dryRunContext),
+      existing,
     );
-    expect(await createdEvents()).toHaveLength(0);
-    expect(
-      (
-        await pools.pricing.query<{ consumed_at: string | null }>(
-          "SELECT consumed_at FROM pricing_repricing_dry_runs WHERE dry_run_id = $1",
-          [dryRunId],
-        )
-      ).rows[0]?.consumed_at,
-    ).toBeNull();
-    expect(await services().activateRepricingPolicy(activateInput(dryRunId), dryRunContext)).toMatchObject({
-      status: "active",
+    const activationEvents = await createdEvents();
+    expect(activationEvents).toHaveLength(fails ? 0 : 1);
+    const events = [...existing, ...activationEvents];
+    expect(result.metadata.committedEvents).toEqual(events);
+    expect(result.metadata.eventIds).toEqual(events.map((event) => event.eventId));
+    expect(result.metadata.sources).toContainEqual({
+      sourceContextName: "synthetic-unrelated",
+      eventIds: existing.map((event) => event.eventId),
+      maxGlobalPosition: existing[0]!.globalPosition,
     });
-    expect(await createdEvents()).toHaveLength(1);
+    expect(result.metadata.sources).toHaveLength(fails ? 1 : 2);
+    expect(result.metadata.maxGlobalPosition).toBe(events.at(-1)!.globalPosition);
+    expect(result.response.headers.get("Chase-Sets-Commit-Event-Ids")).toBe(
+      events.map((event) => event.eventId).join(","),
+    );
+    expect(result.response.headers.get("Chase-Sets-Commit-Position")).toBe(result.metadata.maxGlobalPosition);
+    expect(decodeCommitReceipt(result.response.headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER))).toEqual(
+      result.metadata.sources,
+    );
   });
 });

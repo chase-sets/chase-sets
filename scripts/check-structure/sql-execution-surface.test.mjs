@@ -977,6 +977,8 @@ describe("repository-wide SQL execution partition", () => {
         "bounded-contexts/channels/features/credentials/domain/contracts.ts",
         "bounded-contexts/channels/features/credentials/read-model/schema.ts",
         "bounded-contexts/channels/support/runtime-support/secret-envelope.ts",
+        "bounded-contexts/pricing/features/repricing-policies/ui/policy-controls.ts",
+        "bounded-contexts/pricing/features/repricing-policies/ui/presets.ts",
       ]),
     );
     expect(partition.sqlExecuting).toContain("bounded-contexts/channels/features/reconciliation/read-model/detail.ts");

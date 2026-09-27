@@ -64,6 +64,10 @@ async function fixture() {
     listCategories: vi.fn(async (accountId) => [
       { id: "category_synthetic", name: "Synthetic", status: "active", listingCount: accountId === "acc_7910" ? 2 : 0 },
     ]),
+    getAuthoringPrerequisites: vi.fn<RepricingPolicyServices["getAuthoringPrerequisites"]>(async (accountId) => ({
+      listingCurrencyCodes: accountId === "acc_7910" ? ["CAD", "USD"] : [],
+      hasCostBasis: accountId === "acc_7910",
+    })),
     previewScope: vi.fn(async ({ accountId }) => ({
       matching: accountId === "acc_7910" ? 2 : 0,
       governed: accountId === "acc_7910" ? 2 : 0,
@@ -116,6 +120,74 @@ const post = (body: unknown = {}) => ({
 });
 
 describe("account policy controls", () => {
+  it("authoring prerequisites resolve before policy IDs, are actor-only and reject selectors before reading", async () => {
+    const { app, services } = await fixture();
+    expect(await (await app().request("/policies/authoring-prerequisites")).json()).toEqual({
+      listingCurrencyCodes: ["CAD", "USD"],
+      hasCostBasis: true,
+    });
+    expect(await (await app("acc_b").request("/policies/authoring-prerequisites")).json()).toEqual({
+      listingCurrencyCodes: [],
+      hasCostBasis: false,
+    });
+    expect(services.getAuthoringPrerequisites).toHaveBeenNthCalledWith(1, "acc_7910");
+    expect(services.getAccountRepricingPolicy).not.toHaveBeenCalled();
+    vi.mocked(services.getAuthoringPrerequisites).mockClear();
+    for (const query of ["accountId=acc_b", "sellerAccountId=acc_b", "scope=all-listings", "unknown="]) {
+      const response = await app().request(`/policies/authoring-prerequisites?${query}`);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: { code: "validation_failed" } });
+    }
+    expect((await app("acc_7910", [], false).request("/policies/authoring-prerequisites")).status).toBe(401);
+    expect((await app("acc_7910", ["pricing.manage"]).request("/policies/authoring-prerequisites")).status).toBe(403);
+    expect(services.getAuthoringPrerequisites).not.toHaveBeenCalled();
+    expect((await app("acc_7910", ["pricing.view"]).request("/policies/authoring-prerequisites")).status).toBe(200);
+  });
+  it("domain validation details retain the exact intentional rejection and sanitize malformed commands", async () => {
+    const { app } = await fixture();
+    const path = "/policies/rpp_synthetic_7911/revise";
+    const response = await app().request(path, post({ ...dryRunBody, name: "Revised", rules: [] }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "validation_failed",
+        message: "Invalid policy command.",
+        details: [{ message: "A repricing policy must define at least one rule." }],
+      },
+    });
+    const malformed = await app().request(path, post({ name: null }));
+    expect(malformed.status).toBe(400);
+    expect(await malformed.json()).toEqual({ error: { code: "validation_failed" } });
+    const invalidFloor = await app().request(
+      path,
+      post({
+        ...dryRunBody,
+        name: "Revised",
+        rules: dryRunBody.rules.map((rule) => ({
+          ...rule,
+          directive: { ...rule.directive, floor: { mode: "absolute", amount: "0" } },
+        })),
+      }),
+    );
+    expect(await invalidFloor.json()).toEqual({
+      error: {
+        code: "validation_failed",
+        message: "Invalid policy command.",
+        details: [{ message: "Floor amount must be greater than zero." }],
+      },
+    });
+    const unhandled = await app().request(
+      path,
+      post({ ...dryRunBody, name: "Revised", scope: { kind: "internal-sentinel" } }),
+    );
+    expect(await unhandled.json()).toEqual({ error: { code: "validation_failed" } });
+    const syntax = await app().request(path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{internal-sentinel",
+    });
+    expect(await syntax.json()).toEqual({ error: { code: "validation_failed" } });
+  });
   it.each(["owner", "manager", "fulfillment", "viewer", "platform-admin"])(
     "uses resolved pricing presets: %s",
     async (roleKey) => {

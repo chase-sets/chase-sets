@@ -2319,6 +2319,43 @@
         }
       ],
       "artifact": "repricing-policy-cards-mobile"
+    },
+    {
+      "kind": "claim",
+      "id": "repricing-policy-editor-mobile",
+      "file": "deployables/marketplace/e2e/repricing-policies.spec.ts",
+      "testTitle": "manages a policy from the list and detail pages and leaves no active policy @marketplace-seller @browser-e2e-seed",
+      "route": { "name": "Seller Desk repricing policy editor", "path": "/account/desk/repricing" },
+      "fixture": { "identity": "browser-e2e-seed:seller-repricing-policy:hold-only" },
+      "viewport": { "width": 390, "height": 844 },
+      "target": {
+        "identity": "repricing-policy-editor",
+        "selector": "[data-testid='repricing-policy-editor']",
+        "populatedSelector": ":scope fieldset"
+      },
+      "measurements": [
+        {
+          "identity": "editor-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1, "maximum": 390 }
+        },
+        {
+          "identity": "editor-input-height",
+          "scope": "target",
+          "selector": "[data-testid='repricing-policy-name']",
+          "property": "height",
+          "assertion": { "minimum": 44 }
+        },
+        {
+          "identity": "editor-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 1 }
+        }
+      ],
+      "artifact": "repricing-policy-editor-mobile"
     }
   ]
 }
