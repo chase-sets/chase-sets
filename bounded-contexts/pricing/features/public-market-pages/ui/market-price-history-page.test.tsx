@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { Heading, NumericValue } from "@chase-sets/design-system";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { PublicMarketPageData } from "../read-model/queries";
@@ -71,5 +72,80 @@ describe("MarketPriceHistoryPage", () => {
     expect(stats?.textContent).toContain("$21.00");
     expect(chart?.querySelector(".surface-border")).toBeNull();
     expect(stats?.querySelector(".surface-border")).toBeNull();
+  });
+});
+
+/**
+ * The role class is derived from a bare design-system render, never written
+ * here, so this suite cannot drift from the primitive it observes.
+ */
+const numericValueClassName = renderToStaticMarkup(<NumericValue>0</NumericValue>).match(/class="([^"]*)"/)?.[1] ?? "";
+const moneyPattern = /^-?\$[\d,]+\.\d{2}$/;
+
+function parse(html: string): HTMLDivElement {
+  const rendered = document.createElement("div");
+  rendered.innerHTML = html;
+  return rendered;
+}
+
+function numericValues(root: ParentNode): HTMLElement[] {
+  return [...root.querySelectorAll("span")].filter((span) => span.className === numericValueClassName);
+}
+
+function textsOf(elements: readonly HTMLElement[]): string[] {
+  return elements.map((element) => element.textContent ?? "").sort();
+}
+
+function renderStats(data: PublicMarketPageData): HTMLElement {
+  const rendered = parse(
+    renderToStaticMarkup(
+      <MarketPriceHistoryPage page={data} marketplaceItemUrl="https://example.test/items/charizard-ex" />,
+    ),
+  );
+  const stats = rendered.querySelector<HTMLElement>('[data-testid="market-price-history-stats-furniture"]');
+  expect(stats).not.toBeNull();
+  return stats as HTMLElement;
+}
+
+describe("MarketPriceHistoryPage mono market-data role carriers", () => {
+  it("derives the role class from the design system", () => {
+    expect(numericValueClassName).not.toBe("");
+  });
+
+  it("roles the three headline market values inside their level-2 headings without touching the heading classes", () => {
+    const stats = renderStats(page);
+    const carriers = numericValues(stats);
+    const bareHeadingClassName =
+      renderToStaticMarkup(
+        <Heading level={2} visualSize={4}>
+          0
+        </Heading>,
+      ).match(/class="([^"]*)"/)?.[1] ?? "";
+
+    expect(bareHeadingClassName).not.toBe("");
+    expect(textsOf(carriers)).toEqual(["$20.00", "$21.00", "$22.00"]);
+    for (const carrier of carriers) {
+      const heading = carrier.parentElement;
+      expect(carrier.tagName).toBe("SPAN");
+      expect(carrier.textContent).toMatch(moneyPattern);
+      expect(heading?.tagName).toBe("H2");
+      expect(heading?.className).toBe(bareHeadingClassName);
+      for (const token of numericValueClassName.split(" ")) {
+        expect(heading?.classList.contains(token)).toBe(false);
+      }
+    }
+    // The minimum ask is interpolated into a sentence and stays unroled.
+    expect(stats.textContent).toContain("$24.00");
+    expect(carriers.some((carrier) => carrier.textContent === "$24.00")).toBe(false);
+  });
+
+  it("renders the no-data placeholder without a carrier when the headline values are null", () => {
+    const stats = renderStats({
+      ...page,
+      aggregate: { ...page.aggregate, lastSoldPriceAmount: null, medianPrice30d: null, medianPrice90d: null },
+    });
+
+    expect(stats.textContent?.match(/No data yet/g)).toHaveLength(3);
+    expect(numericValues(stats)).toHaveLength(0);
   });
 });

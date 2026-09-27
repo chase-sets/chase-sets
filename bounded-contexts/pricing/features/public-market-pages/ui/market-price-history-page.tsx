@@ -7,6 +7,7 @@ import {
   Grid,
   Heading,
   LinkButton,
+  NumericValue,
   Page,
   PageSection,
   Stack,
@@ -114,7 +115,11 @@ export function MarketPriceHistoryPage({ page, marketplaceItemUrl }: MarketPrice
                       {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.last.sold")}
                     </Text>
                     <Heading level={2} visualSize={4}>
-                      {money(aggregate?.lastSoldPriceAmount ?? null)}
+                      {aggregate?.lastSoldPriceAmount ? (
+                        <NumericValue>{money(aggregate.lastSoldPriceAmount)}</NumericValue>
+                      ) : (
+                        money(null)
+                      )}
                     </Heading>
                     {aggregate?.lastSoldAt ? (
                       <Text size="sm" tone="secondary">
@@ -127,7 +132,11 @@ export function MarketPriceHistoryPage({ page, marketplaceItemUrl }: MarketPrice
                       {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.median.30.day")}
                     </Text>
                     <Heading level={2} visualSize={4}>
-                      {money(aggregate?.medianPrice30d ?? null)}
+                      {aggregate?.medianPrice30d ? (
+                        <NumericValue>{money(aggregate.medianPrice30d)}</NumericValue>
+                      ) : (
+                        money(null)
+                      )}
                     </Heading>
                     <Text size="sm" tone="secondary">
                       {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.trades.count", {
@@ -140,7 +149,11 @@ export function MarketPriceHistoryPage({ page, marketplaceItemUrl }: MarketPrice
                       {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.median.90.day")}
                     </Text>
                     <Heading level={2} visualSize={4}>
-                      {money(aggregate?.medianPrice90d ?? null)}
+                      {aggregate?.medianPrice90d ? (
+                        <NumericValue>{money(aggregate.medianPrice90d)}</NumericValue>
+                      ) : (
+                        money(null)
+                      )}
                     </Heading>
                     <Text size="sm" tone="secondary">
                       {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.trades.count", {

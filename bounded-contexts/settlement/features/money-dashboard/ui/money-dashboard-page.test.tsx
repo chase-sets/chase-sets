@@ -1,8 +1,14 @@
-import { renderToString } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+
+import { NumericValue } from "@chase-sets/design-system";
+import { cleanup, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { renderToStaticMarkup, renderToString } from "react-dom/server";
+import { afterEach, describe, expect, it } from "vitest";
 import type { SettlementPayoutReadinessRow } from "../../payout-readiness/read-model/queries";
 import type { SettlementPayoutRow } from "../../payouts/read-model/queries";
-import type { SettlementWalletRow } from "../../wallets/read-model/queries";
+import type { SettlementLedgerEntryRow, SettlementWalletRow } from "../../wallets/read-model/queries";
+import type { SettlementWalletAdjustmentAccountDetailRow } from "../../wallets/read-model/wallet-adjustment-queries";
 import { SettlementMoneyDashboardPage } from "./money-dashboard-page";
 
 const wallet: SettlementWalletRow = {
@@ -201,5 +207,144 @@ describe("SettlementMoneyDashboardPage", () => {
 
     expect(html).toContain('name="availableAmount" value="999999.00"');
     expect(html).toContain("Full available · $10,000.00");
+  });
+});
+
+/**
+ * The role class is derived from a bare design-system render, never written
+ * here, so this suite cannot drift from the primitive it observes.
+ */
+const numericValueClassName = renderToStaticMarkup(<NumericValue>0</NumericValue>).match(/class="([^"]*)"/)?.[1] ?? "";
+const moneyPattern = /^-?\$[\d,]+\.\d{2}$/;
+
+function numericValues(root: ParentNode): HTMLElement[] {
+  return [...root.querySelectorAll("span")].filter((span) => span.className === numericValueClassName);
+}
+
+function textsOf(elements: readonly HTMLElement[]): string[] {
+  return elements.map((element) => element.textContent ?? "").sort();
+}
+
+const ledgerEntry: SettlementLedgerEntryRow = {
+  ledger_entry_id: "led_dashboard_1",
+  account_id: "acct-1",
+  kind: "sale-proceeds",
+  direction: "credit",
+  amount: "5.25",
+  currency_code: "usd",
+  funds_status: "available",
+  order_id: null,
+  payment_id: null,
+  payout_id: null,
+  description: "Sale proceeds",
+  posted_at: "2026-07-14T08:00:00.000Z",
+  available_at: "2026-07-14T08:00:00.000Z",
+  updated_at: "2026-07-14T08:00:00.000Z",
+};
+
+const selectedWalletAdjustment: SettlementWalletAdjustmentAccountDetailRow = {
+  status: "posted",
+  display_reference: "WAD-E6K7M8N9",
+  direction: "credit",
+  amount: "40.00",
+  currency_code: "usd",
+  reason_code: "goodwill-cash-credit",
+  requested_at: "2026-07-10T00:00:00.000Z",
+  posted_at: "2026-07-10T02:00:00.000Z",
+  available_balance_before: "10.00",
+  available_balance_after: "50.00",
+  reversed_at: null,
+  reversal_of_display_reference: null,
+  reversed_by_display_reference: null,
+};
+
+describe("SettlementMoneyDashboardPage mono market-data role carriers", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("derives the role class from the design system", () => {
+    expect(numericValueClassName).not.toBe("");
+  });
+
+  it("roles every standalone money value on the page and the selected adjustment sheet, and nothing else", async () => {
+    render(
+      <SettlementMoneyDashboardPage
+        wallet={wallet}
+        entries={[ledgerEntry]}
+        payouts={[
+          payout({
+            payout_id: "next",
+            display_reference: "PYO-NEXT",
+            status: "in-transit",
+            failure_reason: null,
+            failed_at: null,
+            sent_at: "2026-07-15T12:00:00.000Z",
+          }),
+        ]}
+        payoutReadiness={readiness}
+        evaluatedAt="2026-07-15T12:00:00.000Z"
+        selectedWalletAdjustment={selectedWalletAdjustment}
+        canRequestPayouts
+        canSetupPayouts
+        canReconcilePayouts={false}
+      />,
+    );
+
+    const sheet = await screen.findByRole("dialog", { name: /WAD-E6K7M8N9/ });
+    const sheetCarriers = numericValues(sheet);
+    const pageCarriers = numericValues(document.body).filter((carrier) => !sheet.contains(carrier));
+
+    // Wallet available balance, next payout, the timeline net payout, and the
+    // ledger amount (desktop cell plus mobile card).
+    expect(textsOf(pageCarriers)).toEqual(["$125.00", "$5.25", "$5.25", "$79.00", "$79.00"]);
+    const timelineNet = pageCarriers.find((carrier) => carrier.parentElement?.textContent === "Net payout: $79.00");
+    expect(timelineNet?.textContent).toBe("$79.00");
+    const ledgerCarriers = pageCarriers.filter((carrier) => carrier.textContent === "$5.25");
+    expect(ledgerCarriers.map((carrier) => carrier.parentElement?.tagName).sort()).toEqual(["DD", "TD"]);
+
+    // Adjustment amount and resulting balance inside the selected sheet.
+    expect(textsOf(sheetCarriers)).toEqual(["$40.00", "$50.00"]);
+    for (const carrier of sheetCarriers) {
+      expect(carrier.parentElement?.tagName).toBe("DD");
+    }
+
+    // Interpolated copy keeps the amount inside the sentence, unroled.
+    const pending = screen.getByText("$30.00 pending");
+    expect(numericValues(pending)).toHaveLength(0);
+    for (const carrier of [...pageCarriers, ...sheetCarriers]) {
+      expect(carrier.textContent).toMatch(moneyPattern);
+    }
+  });
+
+  it("roles the requested, fee, and net values inside the payout breakdown sheet once it opens", async () => {
+    const user = userEvent.setup();
+    render(
+      <SettlementMoneyDashboardPage
+        wallet={wallet}
+        entries={[]}
+        payouts={[payout()]}
+        payoutReadiness={readiness}
+        evaluatedAt="2026-07-15T12:00:00.000Z"
+        canRequestPayouts
+        canSetupPayouts
+        canReconcilePayouts={false}
+      />,
+    );
+
+    expect(screen.getByText("None scheduled")).toBeTruthy();
+    expect(textsOf(numericValues(document.body))).toEqual(["$125.00", "$79.00"]);
+
+    await user.click(screen.getByRole("button", { name: "View breakdown" }));
+    const sheet = await screen.findByRole("dialog", { name: "PYO-PAY1 breakdown" });
+    const breakdownCarriers = numericValues(sheet);
+
+    expect(textsOf(breakdownCarriers)).toEqual(["$1.00", "$79.00", "$80.00"]);
+    for (const carrier of breakdownCarriers) {
+      expect(carrier.tagName).toBe("SPAN");
+      expect(carrier.parentElement?.tagName).toBe("SPAN");
+      expect(carrier.textContent).toMatch(moneyPattern);
+    }
+    expect(within(sheet).getByText("Requested amount")).toBeTruthy();
   });
 });
