@@ -248,14 +248,16 @@ async function recordProtectionReserveContributions(
     if (allowanceCents + overageCents !== protectionCents) {
       throw new SettlementDomainError("Order Protection funding shares must equal the reserve contribution.");
     }
-    await db.query(
+    const factId = `protection_contribution_${data.paymentId}_${payout.orderId}`;
+    const inserted = await db.query<{ fact_id: string }>(
       `INSERT INTO settlement_protection_reserve_facts (
          fact_id, fact_kind, order_id, payment_id, payment_stream_version,
          protection_amount, allowance_amount, overage_amount, recorded_at
        ) VALUES ($1, 'contribution', $2, $3, $4, $5, $6, $7, $8)
-       ON CONFLICT (order_id) WHERE fact_kind = 'contribution' DO NOTHING`,
+       ON CONFLICT DO NOTHING
+       RETURNING fact_id`,
       [
-        `protection_contribution_${data.paymentId}_${payout.orderId}`,
+        factId,
         payout.orderId,
         data.paymentId,
         event.streamVersion,
@@ -265,6 +267,42 @@ async function recordProtectionReserveContributions(
         data.capturedAt,
       ],
     );
+    if (inserted.rows.length > 0) continue;
+
+    const existing = await db.query<{
+      fact_id: string;
+      fact_kind: string;
+      order_id: string;
+      payment_id: string;
+      payment_stream_version: number;
+      protection_amount: string;
+      allowance_amount: string;
+      overage_amount: string;
+      recorded_at: Date;
+    }>(
+      `SELECT fact_id, fact_kind, order_id, payment_id, payment_stream_version,
+              protection_amount::text, allowance_amount::text, overage_amount::text, recorded_at
+       FROM settlement_protection_reserve_facts
+       WHERE fact_id = $1 OR (fact_kind = 'contribution' AND order_id = $2)`,
+      [factId, payout.orderId],
+    );
+    const fact = existing.rows[0];
+    if (
+      existing.rows.length !== 1 ||
+      fact?.fact_id !== factId ||
+      fact.fact_kind !== "contribution" ||
+      fact.order_id !== payout.orderId ||
+      fact.payment_id !== data.paymentId ||
+      fact.payment_stream_version !== event.streamVersion ||
+      moneyToCents(fact.protection_amount) !== protectionCents ||
+      moneyToCents(fact.allowance_amount) !== allowanceCents ||
+      moneyToCents(fact.overage_amount) !== overageCents ||
+      fact.recorded_at.getTime() !== new Date(data.capturedAt).getTime()
+    ) {
+      throw new SettlementDomainError(
+        `Protection reserve contribution ${factId} for order ${payout.orderId} has mismatched fact evidence; operator review required.`,
+      );
+    }
   }
 }
 

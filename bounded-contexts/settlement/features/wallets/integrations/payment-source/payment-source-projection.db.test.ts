@@ -203,17 +203,34 @@ describe("seller capture credit real event store", () => {
   });
 
   it.each([
-    ["order key", "protection_contribution_pay_other_ord_capture", "ord_capture", "pay_other"],
-    ["fact primary key", "protection_contribution_pay_capture_ord_capture", "ord_other", "pay_capture"],
+    ["order key", "protection_contribution_pay_other_ord_capture", "ord_capture", "pay_other", "0.01", "0.01", "0.00"],
+    [
+      "fact primary key",
+      "protection_contribution_pay_capture_ord_capture",
+      "ord_other",
+      "pay_capture",
+      "0.01",
+      "0.01",
+      "0.00",
+    ],
+    [
+      "amounts",
+      "protection_contribution_pay_capture_ord_capture",
+      "ord_capture",
+      "pay_capture",
+      "0.02",
+      "0.01",
+      "0.01",
+    ],
   ])(
     "classifies a mismatched reserve contribution at the %s without replacing it",
-    async (_key, factId, orderId, paymentId) => {
+    async (_key, factId, orderId, paymentId, amount, allowance, overage) => {
       await pools.settlement.query(
         `INSERT INTO settlement_protection_reserve_facts
          (fact_id, fact_kind, order_id, payment_id, payment_stream_version,
           protection_amount, allowance_amount, overage_amount, recorded_at)
-       VALUES ($1, 'contribution', $2, $3, 7, 0.02, 0.01, 0.01, $4)`,
-        [factId, orderId, paymentId, credit.postedAt],
+       VALUES ($1, 'contribution', $2, $3, 2, $4, $5, $6, $7)`,
+        [factId, orderId, paymentId, amount, allowance, overage, credit.postedAt],
       );
       const before = await reserveFacts();
       const captured = await appendCapture();
@@ -221,6 +238,12 @@ describe("seller capture credit real event store", () => {
       await expect(subscription.handlers["payments.payment-captured"]!(captured)).rejects.toThrow(
         /reserve contribution.*operator review required/,
       );
+      expect(await reserveFacts()).toEqual(before);
+      const creditedOnce = await walletHistory();
+      await expect(subscription.handlers["payments.payment-captured"]!(captured)).rejects.toThrow(
+        /reserve contribution.*operator review required/,
+      );
+      expect(await walletHistory()).toEqual(creditedOnce);
       expect(await reserveFacts()).toEqual(before);
     },
   );
