@@ -123,7 +123,7 @@ it("J4 a concurrent same-key replay answered 409 idempotency_key_in_use stays pe
     },
     evidenceWindowProviderWrite: journal.port,
   });
-  const input = {
+  const input: CreateProcessorPaymentInput = {
     paymentId: "pay_SYNTHETIC" as PaymentId,
     buyerAccountId: "acc_SYNTHETIC" as AccountId,
     orderIds: [],
