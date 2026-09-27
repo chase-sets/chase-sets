@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { formatDateTime } from "@chase-sets/localization";
 import { signInThroughMarketplaceForm } from "./support/auth";
 import { marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
 
@@ -19,6 +20,7 @@ import { marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract"
 // it. Playwright auto-discovers this file via the marketplace testMatch glob.
 
 test.describe("marketplace seller time away & order capacity", () => {
+  test.use({ timezoneId: "UTC" });
   test("schedules an away window, sees it, cancels it, and sets an order capacity cap @marketplace-account @browser-e2e-seed", async ({
     page,
   }) => {
@@ -46,6 +48,15 @@ test.describe("marketplace seller time away & order capacity", () => {
     await page.locator('input[name="awayWindowEndsOn"]').fill(endDate);
     await submitAndWaitForAccountListingsPostWrite(page, page.getByRole("button", { name: /^Schedule away window$/i }));
 
+    await revisitListings(page);
+
+    await expect(
+      page.getByText(
+        `Scheduled away for Travel starting ${formatDateTime(`${startDate}T00:00:00Z`)}. Returning ${formatDateTime(`${endDate}T00:00:00Z`)}.`,
+        { exact: true },
+      ),
+    ).toBeVisible();
+
     // Card now shows the scheduled window with the automatic-return notice and
     // a cancel control, and no longer offers the schedule form.
     await expect(page.getByRole("button", { name: /^Cancel scheduled away window$/i })).toBeVisible();
@@ -57,6 +68,7 @@ test.describe("marketplace seller time away & order capacity", () => {
       page,
       page.getByRole("button", { name: /^Cancel scheduled away window$/i }),
     );
+    await revisitListings(page);
     await expect(page.getByRole("button", { name: /^Schedule away window$/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /^Cancel scheduled away window$/i })).toHaveCount(0);
 
@@ -64,11 +76,13 @@ test.describe("marketplace seller time away & order capacity", () => {
     // reflects the new value after the post/redirect/fresh-read cycle.
     await page.locator('input[name="maxOpenOrders"]').fill("5");
     await submitAndWaitForAccountListingsPostWrite(page, page.getByRole("button", { name: /^Set capacity$/i }));
+    await revisitListings(page);
     await expect(page.getByText(/^Current cap: 5 open orders$/i)).toBeVisible();
     await expect(page.getByRole("button", { name: /^Remove cap$/i })).toBeVisible();
 
     // Clean up so re-runs start capacity-unset.
     await submitAndWaitForAccountListingsPostWrite(page, page.getByRole("button", { name: /^Remove cap$/i }));
+    await revisitListings(page);
     await expect(page.getByText(/No cap set/i)).toBeVisible();
   });
 });
@@ -76,6 +90,13 @@ test.describe("marketplace seller time away & order capacity", () => {
 function futureDate(daysFromNow: number): string {
   const date = new Date(Date.now() + daysFromNow * 24 * 60 * 60 * 1000);
   return date.toISOString().slice(0, 10);
+}
+
+async function revisitListings(page: Page): Promise<void> {
+  // Receipt query parameters can render a recovered confirmation without a fresh read model.
+  await page.goto("/account", { waitUntil: "domcontentloaded" });
+  await page.goto("/account/listings", { waitUntil: "domcontentloaded" });
+  await expect(page).toHaveURL(/\/account\/listings$/);
 }
 
 async function submitAndWaitForAccountListingsPostWrite(page: Page, submit: Locator): Promise<void> {
