@@ -796,8 +796,42 @@ describe("Saved List analytics observability", () => {
     valuation_coverage_band: {
       surface: "item-detail",
       outcome: "merged",
+      coverage_band: "partial",
+      estimate_state: "stale",
+    },
+  } as const;
+  const expectedAttributes = {
+    list_created: {
+      context: "collections",
+      event: "list_created",
+      surface: "search",
+      outcome: "none",
       coverage_band: "none",
-      estimate_state: "empty",
+      estimate_state: "none",
+    },
+    product_added: {
+      context: "collections",
+      event: "product_added",
+      surface: "item-detail",
+      outcome: "merged",
+      coverage_band: "none",
+      estimate_state: "none",
+    },
+    first_five_lines: {
+      context: "collections",
+      event: "first_five_lines",
+      surface: "search",
+      outcome: "none",
+      coverage_band: "none",
+      estimate_state: "none",
+    },
+    valuation_coverage_band: {
+      context: "collections",
+      event: "valuation_coverage_band",
+      surface: "none",
+      outcome: "none",
+      coverage_band: "partial",
+      estimate_state: "stale",
     },
   } as const;
 
@@ -806,13 +840,7 @@ describe("Saved List analytics observability", () => {
     expect(Object.keys(attributes).sort()).toEqual(
       ["context", "event", "surface", "outcome", "coverage_band", "estimate_state"].sort(),
     );
-    expect(attributes.context).toBe("collections");
-    for (const key of Object.keys(savedListAnalyticsValues) as (keyof typeof savedListAnalyticsValues)[]) {
-      const allowed = (savedListAnalyticsValues[key] as readonly string[]).includes(attributes[key] as string);
-      expect(attributes[key]).toBe(
-        savedListAnalyticsKeys[event].includes(key as never) ? (allowed ? populated[event][key] : "invalid") : "none",
-      );
-    }
+    expect(attributes).toEqual(expectedAttributes[event]);
   });
 
   it("maps null, empty and unregistered values to bounded fallback tokens", () => {

@@ -314,7 +314,9 @@ function createIdentityRuntime(services: Record<string, unknown>) {
 describe("platform api app wiring", () => {
   it("supplies the real recorder to the built Collections host ports", async () => {
     await withUninstrumentedPlatformApiRuntime((runtime) => {
-      expect(runtime.services.collections).toHaveProperty("savedListAnalyticsRecorder");
+      expect(
+        (runtime.services.collections as { savedListAnalyticsRecorder?: unknown }).savedListAnalyticsRecorder,
+      ).toEqual(expect.objectContaining({ record: expect.any(Function) }));
     });
   });
 
