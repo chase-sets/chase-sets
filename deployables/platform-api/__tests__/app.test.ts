@@ -2341,6 +2341,7 @@ describe("platform API payment provider mode observation", () => {
       "export function createPaymentsServices",
     ).map((entry) => entry.file);
     expect(paymentsServiceCallSites.sort()).toEqual([
+      "bounded-contexts/payments/features/payments/api/evidence-window-disposition.test.ts",
       "bounded-contexts/payments/index.ts",
       "bounded-contexts/payments/support/runtime-support/seed.ts",
       "bounded-contexts/payments/tests/provider-journal.db.test.ts",
