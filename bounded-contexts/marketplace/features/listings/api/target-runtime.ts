@@ -57,7 +57,7 @@ export function createListingTargetRuntime(
     prepareNativeEnable(
       state: MarketplaceListingState,
       input: SetNativeListingVisibilityInput,
-    ): Promise<MarketplaceListingCommand>;
+    ): Promise<Readonly<{ command: MarketplaceListingCommand; guards: readonly ListingAuthorityGuard[] }>>;
     capacityAppends(
       state: MarketplaceListingState,
       events: readonly MarketplaceListingEvent[],
@@ -449,20 +449,22 @@ export function createListingTargetRuntime(
     },
     setNativeListingVisibility: (raw, context) => {
       const input = setNativeListingVisibilitySchema.parse(raw);
-      return mutate(input, context, "SetNativeListingVisibility", async (state) => ({
-        command:
-          input.nativeVisibility === "enabled"
-            ? await deps.prepareNativeEnable(state, input)
-            : {
-                type: "SetNativeListingVisibility",
-                nativeVisibility: "disabled",
-                feeLocks: state.feeLocks,
-                evidenceRequirements: state.evidenceRequirements,
-                readiness: null,
-              },
-        guards: [],
-        capacity: input.nativeVisibility === "enabled",
-      }));
+      return mutate(input, context, "SetNativeListingVisibility", async (state) => {
+        if (input.nativeVisibility === "enabled") {
+          return { ...(await deps.prepareNativeEnable(state, input)), capacity: true };
+        }
+        return {
+          command: {
+            type: "SetNativeListingVisibility",
+            nativeVisibility: "disabled",
+            feeLocks: state.feeLocks,
+            evidenceRequirements: state.evidenceRequirements,
+            readiness: null,
+          },
+          guards: [],
+          capacity: false,
+        };
+      });
     },
     resumeListing: (raw, context) => {
       const input = resumeListingSchema.parse(raw);

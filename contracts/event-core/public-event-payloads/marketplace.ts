@@ -340,6 +340,8 @@ export type MarketplaceListingNativeVisibilityChangedPayload = Readonly<{
   nativeFeeState: "enrolled" | "not-enrolled";
   feeLocks: readonly MarketplaceListingFeeLockPayload[];
   evidenceRequirements: JsonValue;
+  productMeasureSnapshot?: JsonValue;
+  productMeasureRevision?: number;
 }>;
 
 export type MarketplaceListingResumedPayload = Readonly<{

@@ -220,6 +220,20 @@ function buildListingProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
       const listingId = event.streamId.slice("marketplace.listing-".length);
       await projectFees(event);
       await projectRequirements(event);
+      if (event.data.productMeasureSnapshot !== undefined && event.data.productMeasureRevision !== undefined) {
+        const result = await db.query(
+          `UPDATE marketplace_listing_pages SET product_measure_snapshot = $2,
+             product_measure_source_revision = $3, updated_at = GREATEST(updated_at, $4::timestamptz)
+           WHERE listing_id = $1 AND product_measure_source_revision < $3`,
+          [
+            listingId,
+            JSON.stringify(event.data.productMeasureSnapshot),
+            event.data.productMeasureRevision,
+            event.timing.recordedAt,
+          ],
+        );
+        await assertPresent(result, event);
+      }
       await emitListingPatch(db, event, listingId);
     },
     "marketplace.listing.created": async (event) => {
@@ -272,6 +286,7 @@ function buildListingProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
           selected_options,
           product_summary,
           product_measure_snapshot,
+          product_measure_source_revision,
           graded_card,
           storage_location_name,
           ship_from_code,
@@ -301,7 +316,7 @@ function buildListingProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
           created_at,
           updated_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $18, $18, $18, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, 'draft', $33, $33
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $34, $12, $13, $14, $15, $16, $17, $18, $18, $18, $18, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, 'draft', $33, $33
         )
         ON CONFLICT (listing_id) DO NOTHING`,
         [
@@ -342,6 +357,7 @@ function buildListingProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
             : null,
           JSON.stringify(Array.isArray(data.evidence) ? data.evidence : []),
           event.timing.recordedAt,
+          0,
         ],
       );
       await emitListingPatch(db, event, data.listingId);
@@ -351,6 +367,9 @@ function buildListingProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
         catalogItemId: string;
         products?: unknown;
       };
+      if (event.streamId !== `catalog.product-measures-${data.catalogItemId}`) {
+        throw new Error("Catalog measure source identity does not match the Listing product.");
+      }
 
       const updated = await db.query<{ listing_id: string }>(
         `WITH resolved_products AS (
@@ -364,13 +383,15 @@ function buildListingProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
                WHERE measure->>'productId' = listing.product_id
                LIMIT 1
              ),
-             updated_at = $3
-         WHERE listing.catalog_catalog_item_id = $1
+             product_measure_source_revision = $4,
+             updated_at = GREATEST(updated_at, $3::timestamptz)
+         WHERE listing.catalog_catalog_item_id = $1 AND listing.product_measure_source_revision < $4
          RETURNING listing.listing_id`,
         [
           data.catalogItemId,
           JSON.stringify(Array.isArray(data.products) ? data.products : []),
           event.timing.recordedAt,
+          event.streamVersion,
         ],
       );
 

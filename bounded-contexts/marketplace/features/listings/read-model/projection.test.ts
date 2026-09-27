@@ -16,6 +16,7 @@ type ListingPageRow = {
   selected_options: unknown;
   product_summary: string | null;
   product_measure_snapshot: unknown;
+  product_measure_source_revision: number;
   graded_card: unknown;
   storage_location_name: string | null;
   ship_from_code: string | null;
@@ -144,6 +145,7 @@ class ProjectionDb implements PgQueryable {
         selected_options: JSON.parse(String(values[8])),
         product_summary: values[9] === null ? null : String(values[9]),
         product_measure_snapshot: values[10] === null ? null : JSON.parse(String(values[10])),
+        product_measure_source_revision: Number(values[33]),
         graded_card: values[11] === null ? null : JSON.parse(String(values[11])),
         storage_location_name: values[12] === null ? null : String(values[12]),
         ship_from_code: values[13] === null ? null : String(values[13]),
@@ -182,16 +184,24 @@ class ProjectionDb implements PgQueryable {
       return { rows: [], rowCount: 1 };
     }
 
+    if (sql.includes("SET product_measure_snapshot = $2")) {
+      const row = this.listings.get(String(values[0]));
+      if (!row || row.product_measure_source_revision >= Number(values[2])) return { rows: [], rowCount: 0 };
+      row.product_measure_snapshot = JSON.parse(String(values[1]));
+      row.product_measure_source_revision = Number(values[2]);
+      return { rows: [], rowCount: 1 };
+    }
     if (sql.includes("UPDATE marketplace_listing_pages AS listing") && sql.includes("product_measure_snapshot")) {
       const catalogItemId = String(values[0]);
       const products = JSON.parse(String(values[1])) as { productId?: unknown }[];
       const updated: { listing_id: string }[] = [];
 
       for (const row of this.listings.values()) {
-        if (row.catalog_catalog_item_id !== catalogItemId) {
+        if (row.catalog_catalog_item_id !== catalogItemId || row.product_measure_source_revision >= Number(values[3])) {
           continue;
         }
         row.product_measure_snapshot = products.find((product) => product?.productId === row.product_id) ?? null;
+        row.product_measure_source_revision = Number(values[3]);
         row.updated_at = String(values[2]);
         updated.push({ listing_id: row.listing_id });
       }
@@ -428,6 +438,7 @@ function listingPage(overrides: Partial<ListingPageRow> = {}): ListingPageRow {
     selected_options: [],
     product_summary: "Raw",
     product_measure_snapshot: null,
+    product_measure_source_revision: 0,
     graded_card: null,
     storage_location_name: "Vault",
     ship_from_code: "VAULT",
@@ -563,6 +574,44 @@ function event(
 }
 
 describe("marketplace listing projection", () => {
+  it("retains the refreshed native measure independently of delayed native and Catalog events", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+    const stream = "marketplace.listing-lst_1";
+    await handlers["marketplace.listing.created"]!(event("marketplace.listing.created", listingCreatedData(), stream));
+    const visibility = {
+      ...event(
+        "marketplace.listing.native-visibility-changed",
+        {
+          nativeVisibility: "enabled",
+          nativeFeeState: "enrolled",
+          feeLocks: [],
+          evidenceRequirements: null,
+          productMeasureSnapshot: productMeasureSnapshot,
+          productMeasureRevision: 10,
+        },
+        stream,
+        2,
+      ),
+      globalPosition: "10" as never,
+    };
+    await handlers[visibility.type]!(visibility);
+    expect(db.listings.get("lst_1")!.product_measure_snapshot).toEqual(productMeasureSnapshot);
+    const newer = { ...productMeasureSnapshot, measureVersion: "synthetic-newer-measure" };
+    await handlers["catalog.catalog-item.product-measures-resolved"]!({
+      ...event("catalog.catalog-item.product-measures-resolved", { catalogItemId: "cat_1", products: [newer] }),
+      globalPosition: "2" as never,
+      streamVersion: 20,
+    });
+    await handlers[visibility.type]!(visibility);
+    await handlers["catalog.catalog-item.product-measures-resolved"]!({
+      ...event("catalog.catalog-item.product-measures-resolved", { catalogItemId: "cat_1", products: [] }),
+      globalPosition: "999" as never,
+      streamVersion: 15,
+    });
+    expect(db.listings.get("lst_1")!.product_measure_snapshot).toEqual(newer);
+    expect(db.listings.get("lst_1")!.product_measure_source_revision).toBe(20);
+  });
   it("retains newer enrollment fees while independently replaying older price and quantity snapshots", async () => {
     const db = new ProjectionDb();
     const handlers = buildMarketplaceListingProjectionHandlers(db);

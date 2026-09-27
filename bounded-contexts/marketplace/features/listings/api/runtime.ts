@@ -685,13 +685,14 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     evolve: evolveInventoryListingCapacity,
     decide: decideInventoryListingCapacity,
   });
-  const { commandHandler: sellerAvailabilityCommandHandler } = createAggregateCommandHandler({
-    eventStore: deps.eventStore,
-    codec: createPassthroughDomainEventCodec<SellerListingAvailabilityEvent>(),
-    initialState: () => initialSellerListingAvailabilityState,
-    evolve: evolveSellerListingAvailability,
-    decide: decideSellerListingAvailability,
-  });
+  const { commandHandler: sellerAvailabilityCommandHandler, repository: sellerAvailabilityRepository } =
+    createAggregateCommandHandler({
+      eventStore: deps.eventStore,
+      codec: createPassthroughDomainEventCodec<SellerListingAvailabilityEvent>(),
+      initialState: () => initialSellerListingAvailabilityState,
+      evolve: evolveSellerListingAvailability,
+      decide: decideSellerListingAvailability,
+    });
   const { commandHandler: orderCapacityCommandHandler } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<SellerOrderCapacityEvent>(),
@@ -1571,21 +1572,100 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     },
     load: (listingId) => repository.load(`marketplace.listing-${listingId}`),
     prepareNativeEnable: async (listing, input) => {
-      assert(listing.accountId && listing.priceAmount, "Native listing identity and price are required.");
-      const availability = await getSellerListingAvailability(deps.db, listing.accountId);
-      assert(availability.status === "available", "Seller listing availability is disabled.");
+      assert(
+        listing.accountId && listing.catalogItemId && listing.productId && listing.priceAmount,
+        "Native listing identity and price are required.",
+      );
+      assert(
+        listing.status !== "paused" && listing.status !== "withdrawn",
+        "Listing visibility cannot clear a pause or withdrawal.",
+      );
+      const availabilityStreamId = `marketplace.seller-listing-availability-${listing.accountId}`;
+      const availability = await sellerAvailabilityRepository.load(availabilityStreamId);
       const now = new Date().toISOString();
-      const evidenceRequirements = await resolveEvidenceRequirementsForListing(listing, now);
-      const readiness = await evaluateListingReadiness(listing, evidenceRequirements, now);
+      assert(
+        availability.state.status === "available" &&
+          (!availability.state.pendingAwayWindow || availability.state.pendingAwayWindow.startsAt > now),
+        "Seller listing availability is disabled.",
+      );
+      assert(deps.listingTargetAuthority?.readNativeReadiness, "Current native readiness authority is unavailable.");
+      const resolved = await deps.listingTargetAuthority.readNativeReadiness({
+        accountId: listing.accountId,
+        evaluatedAt: now,
+        listings: [
+          {
+            listingId: input.listingId,
+            catalogItemId: listing.catalogItemId,
+            productId: listing.productId,
+            selectedOptions: listing.selectedOptions,
+            gradedItem: listing.gradedCard !== null,
+            priceAmount: listing.priceAmount,
+          },
+        ],
+      });
+      const current = resolved[0];
+      assert(
+        resolved.length === 1 &&
+          current?.value?.listingId === input.listingId &&
+          current.value.accountId === listing.accountId &&
+          current.guards.length > 0,
+        "Current native readiness authority is required.",
+      );
+      const { productMeasureSnapshot, productMeasureRevision, evidenceRequirements, seller } = current.value;
+      assert(
+        productMeasureSnapshot &&
+          Number.isSafeInteger(productMeasureRevision) &&
+          productMeasureRevision > 0 &&
+          productMeasureSnapshot.catalogItemId === listing.catalogItemId &&
+          productMeasureSnapshot.productId === listing.productId &&
+          productMeasureSnapshot.selectedOptions.length === listing.selectedOptions.length &&
+          listing.selectedOptions.every((selection) =>
+            productMeasureSnapshot.selectedOptions.some(
+              (option) => option.dimensionId === selection.dimensionId && option.optionId === selection.optionId,
+            ),
+          ),
+        "Current native shipping measure is required.",
+      );
+      assert(evidenceRequirements, "Listing evidence requirements are unavailable.");
+      const readiness = evaluateListingEvidenceReadiness({
+        snapshot: evidenceRequirements,
+        evidence: listing.evidence,
+        seller,
+        now,
+      });
+      if (!readiness.ready) {
+        throw new MarketplaceListingEvidenceIncompleteError(
+          buildMarketplaceListingEvidenceReadiness(evidenceRequirements, listing.evidence, readiness),
+        );
+      }
       const uncovered = listing.quantityCap - totalFeeLockedUnits(listing.feeLocks);
       const quote = uncovered > 0 ? await quoteListingTerms(listing.accountId, listing.priceAmount) : null;
-      if (quote) assertConfirmedFeeQuote(input.feeQuoteFingerprint, quote);
+      const feeGuards: ListingAuthorityGuard[] = [];
+      if (quote) {
+        assertConfirmedFeeQuote(input.feeQuoteFingerprint, quote);
+        assert(deps.listingTargetAuthority.verifyNativeFeeQuote, "Current native fee authority is unavailable.");
+        const verified = await deps.listingTargetAuthority.verifyNativeFeeQuote({
+          accountId: listing.accountId,
+          quote,
+        });
+        assert(verified.value && verified.guards.length > 0, "Current native fee authority is required.");
+        feeGuards.push(...verified.guards);
+      }
       return {
-        type: "SetNativeListingVisibility",
-        nativeVisibility: "enabled",
-        evidenceRequirements,
-        readiness,
-        feeLocks: [...listing.feeLocks, ...(quote ? [feeLockFromMarketplaceTermsQuote(uncovered, quote)] : [])],
+        command: {
+          type: "SetNativeListingVisibility",
+          nativeVisibility: "enabled",
+          evidenceRequirements,
+          productMeasureSnapshot,
+          productMeasureRevision,
+          readiness,
+          feeLocks: [...listing.feeLocks, ...(quote ? [feeLockFromMarketplaceTermsQuote(uncovered, quote)] : [])],
+        },
+        guards: [
+          ...current.guards,
+          ...feeGuards,
+          { streamId: availabilityStreamId, expectedVersion: availability.version },
+        ],
       };
     },
     capacityAppends: async (listing, events, context) => {
@@ -1600,9 +1680,38 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       const others = await Promise.all(
         ids.filter((id) => id !== listing.listingId).map((id) => repository.load(`marketplace.listing-${id}`)),
       );
-      const supply = await getInventoryItemSupply(deps.db, inventoryItemId, listing.accountId!);
-      assert(supply, "Inventory item not found.");
-      assertActiveListingCapacity([next, ...others.map((other) => other.state)], supply.available_quantity);
+      assert(
+        others.every(
+          ({ state }) =>
+            state.listingId && state.accountId === listing.accountId && state.inventoryItemId === inventoryItemId,
+        ),
+        "Inventory capacity contains an unavailable or foreign Listing.",
+      );
+      assert(deps.listingTargetAuthority?.readInventory, "Current Inventory authority is unavailable.");
+      const inventory = await deps.listingTargetAuthority.readInventory({
+        accountId: listing.accountId!,
+        inventoryItemIds: [inventoryItemId],
+      });
+      const supply = inventory[0];
+      assert(
+        inventory.length === 1 &&
+          supply?.value &&
+          supply.guards.length > 0 &&
+          supply.value.accountId === listing.accountId &&
+          supply.value.inventoryItemId === inventoryItemId &&
+          supply.value.catalogItemId === listing.catalogItemId &&
+          supply.value.productId === listing.productId &&
+          Number.isSafeInteger(supply.value.availableQuantity) &&
+          supply.value.availableQuantity >= 0,
+        "Current owned Inventory and product identity are required.",
+      );
+      assertActiveListingCapacity([next, ...others.map((other) => other.state)], supply.value.availableQuantity);
+      assert(
+        supply.guards.every(
+          (guard) => guard.streamId.trim() && Number.isSafeInteger(guard.expectedVersion) && guard.expectedVersion >= 0,
+        ),
+        "Invalid Inventory authority guard.",
+      );
       const registrations = decideInventoryListingCapacity(capacity.state, {
         type: "RegisterInventoryListings",
         inventoryItemId,
@@ -1618,6 +1727,13 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         }),
       ];
       return [
+        ...supply.guards.map((guard) => ({ ...guard, context, events: [] })),
+        ...others.map((other) => ({
+          streamId: `marketplace.listing-${other.state.listingId}`,
+          expectedVersion: other.version,
+          context,
+          events: [],
+        })),
         {
           streamId: capacityStreamId,
           expectedVersion: capacity.version,

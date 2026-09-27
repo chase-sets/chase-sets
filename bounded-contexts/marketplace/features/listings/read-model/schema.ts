@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS marketplace_listing_pages (
   selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
   product_summary text NULL,
   product_measure_snapshot jsonb NULL,
+  product_measure_source_revision integer NOT NULL DEFAULT 0,
   graded_card jsonb NULL,
   storage_location_name text NULL,
   ship_from_code text NULL,
@@ -65,6 +66,7 @@ ALTER TABLE marketplace_listing_pages
   ADD COLUMN IF NOT EXISTS ship_from_address jsonb NOT NULL DEFAULT '{}'::jsonb,
   ADD COLUMN IF NOT EXISTS item_language_code text NULL,
   ADD COLUMN IF NOT EXISTS product_measure_snapshot jsonb NULL,
+  ADD COLUMN IF NOT EXISTS product_measure_source_revision integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS max_units_per_order integer NULL,
   ADD COLUMN IF NOT EXISTS max_units_per_day integer NULL,
   ADD COLUMN IF NOT EXISTS max_units_per_customer_account integer NULL,
@@ -157,6 +159,7 @@ export const marketplaceListingSchemaMigrations: readonly BcSchemaMigration[] = 
         ADD COLUMN IF NOT EXISTS quantity_stream_version integer NOT NULL DEFAULT 0,
         ADD COLUMN IF NOT EXISTS purchase_limits_stream_version integer NOT NULL DEFAULT 0,
         ADD COLUMN IF NOT EXISTS evidence_requirements_stream_version integer NOT NULL DEFAULT 0`,
+      `ALTER TABLE marketplace_listing_pages ADD COLUMN IF NOT EXISTS product_measure_source_revision integer NOT NULL DEFAULT 0`,
       `ALTER TABLE marketplace_listing_pages
         ALTER COLUMN marketplace_sales_fee_unit_amount DROP NOT NULL,
         ALTER COLUMN seller_net_unit_amount DROP NOT NULL,

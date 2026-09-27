@@ -60,6 +60,7 @@ describeDb("marketplace schema upgrades", () => {
     await pool.query("DROP TABLE marketplace_listing_target_prices, marketplace_listing_native_authority");
     await pool.query(`ALTER TABLE marketplace_listing_pages DROP COLUMN fee_stream_version,
       DROP COLUMN quantity_stream_version, DROP COLUMN purchase_limits_stream_version, DROP COLUMN evidence_requirements_stream_version,
+      DROP COLUMN product_measure_source_revision,
       ALTER COLUMN marketplace_sales_fee_unit_amount SET NOT NULL,
       ALTER COLUMN seller_net_unit_amount SET NOT NULL, ALTER COLUMN fee_quote_fingerprint SET NOT NULL`);
     await pool.query(
@@ -72,6 +73,7 @@ describeDb("marketplace schema upgrades", () => {
     );
     expect(ledger.rows).toHaveLength(1);
     expect(await readColumnNames(pool, "marketplace_listing_pages")).toContain("fee_stream_version");
+    expect(await readColumnNames(pool, "marketplace_listing_pages")).toContain("product_measure_source_revision");
     const project = buildMarketplaceListingProjectionHandlers(pool);
     const fact = (type: string, data: Record<string, unknown>, revision: number) =>
       buildTransportEvent(type, data, {
@@ -215,6 +217,54 @@ describeDb("marketplace schema upgrades", () => {
     expect(
       (await pool.query("SELECT generated_at IS NOT NULL AS generated FROM marketplace_listing_target_prices")).rows,
     ).toEqual([{ generated: true }, { generated: true }, { generated: true }]);
+    const measure = {
+      catalogItemId: "catalog_synthetic",
+      productId: "catalog_synthetic::",
+      measureVersion: "synthetic-native-measure",
+    };
+    const visibility = fact(
+      "marketplace.listing.native-visibility-changed",
+      {
+        nativeVisibility: "enabled",
+        nativeFeeState: "enrolled",
+        feeLocks: [],
+        evidenceRequirements: null,
+        productMeasureSnapshot: measure,
+        productMeasureRevision: 10,
+      },
+      7,
+    );
+    await project[visibility.type]!(visibility);
+    expect(
+      (
+        await pool.query(
+          "SELECT product_measure_snapshot, product_measure_source_revision FROM marketplace_listing_pages",
+        )
+      ).rows,
+    ).toEqual([{ product_measure_snapshot: measure, product_measure_source_revision: 10 }]);
+    const catalog = (version: number) =>
+      buildTransportEvent(
+        "catalog.catalog-item.product-measures-resolved",
+        {
+          catalogItemId: "catalog_synthetic",
+          products: [],
+        },
+        {
+          streamId: "catalog.product-measures-catalog_synthetic",
+          streamVersion: version,
+          globalPosition: "1" as never,
+        },
+      );
+    await project["catalog.catalog-item.product-measures-resolved"]!(catalog(11));
+    await project[visibility.type]!(visibility);
+    await project["catalog.catalog-item.product-measures-resolved"]!(catalog(9));
+    expect(
+      (
+        await pool.query(
+          "SELECT product_measure_snapshot, product_measure_source_revision FROM marketplace_listing_pages",
+        )
+      ).rows,
+    ).toEqual([{ product_measure_snapshot: null, product_measure_source_revision: 11 }]);
   });
 
   it("atomically rolls back Listing request results with owner writes and resolves concurrent complete-command retries", async () => {

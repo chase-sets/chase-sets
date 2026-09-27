@@ -236,6 +236,8 @@ const schemas = {
       nativeFeeState: z.enum(["enrolled", "not-enrolled"]),
       feeLocks: z.array(feeLock),
       evidenceRequirements: z.json(),
+      productMeasureSnapshot: z.json().optional(),
+      productMeasureRevision: revision.optional(),
     })
     .refine(
       (data) =>

@@ -3,12 +3,50 @@ import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createMarketplaceListingRuntime } from "./runtime";
 import type { ListingTargetAuthority } from "./target-contracts";
+import { createListingEvidenceRequirementSnapshot } from "../domain/evidence-requirement-snapshot";
 
-function fixture(capability = true) {
+const currentMeasure = {
+  catalogItemId: "cat_test",
+  productId: "cat_test::",
+  selectedOptions: [],
+  measureVersion: "synthetic-current-measure",
+  unitLengthInches: 3.5,
+  unitWidthInches: 2.5,
+  unitHeightInches: 0.01,
+  unitWeightOunces: 0.1,
+  physicalFlags: ["raw-card"],
+  stackBehavior: "stackable-thickness",
+  source: "profile",
+  confidence: "measured",
+} as const;
+const requirements = createListingEvidenceRequirementSnapshot(
+  {
+    policyId: "synthetic-evidence-policy",
+    policyVersion: 1,
+    policyHash: "synthetic-policy-hash",
+    matchedRuleIds: [],
+    explanationCodes: [],
+    effectiveInterval: { from: null, until: null },
+    requirements: { minimumPhotoCount: 0, requiredSlots: [], sellerTrustRequirements: [], buyerAcknowledgment: "none" },
+  },
+  "2026-09-27T12:00:00.000Z",
+);
+
+function fixture(capability = true, availableQuantity = 2) {
   const { eventStore } = createInMemoryEventStore();
-  const resolveListingTerms = vi.fn(async () => {
-    throw new Error("Native fees must not be requested.");
-  });
+  const resolveListingTerms = vi.fn(async () => ({
+    accountType: "personal",
+    basisAmount: "10.00",
+    marketplaceSalesFeeUnitAmount: "0.50",
+    sellerNetUnitAmount: "9.50",
+    marketplaceSalesFeePercentageBps: 500,
+    marketplaceSalesFeeFixedAmount: "0.00",
+    marketplaceSalesFeeCapAmount: null,
+    shippingAllowancePercentageBps: 500,
+    scheduleId: "synthetic-terms",
+    agreementId: null,
+    resolvedAt: "2026-09-27T12:00:00.000Z",
+  }));
   const guards = [{ streamId: "synthetic-capability", expectedVersion: 0 }];
   const authority: ListingTargetAuthority = {
     authorizeManage: async () => ({ value: capability, guards }),
@@ -16,6 +54,39 @@ function fixture(capability = true) {
     resolveAllocation: async () => ({ value: null, guards: [] }),
     verifyDecision: async () => ({ value: false, guards: [] }),
     authorizeResume: async () => ({ value: false, guards: [] }),
+    verifyNativeFeeQuote: vi.fn(async () => ({
+      value: true,
+      guards: [{ streamId: "synthetic-terms", expectedVersion: 0 }],
+    })),
+    readInventory: vi.fn(async () => [
+      {
+        value: {
+          accountId: "acc_seller",
+          inventoryItemId: "inv_test",
+          catalogItemId: "cat_test",
+          productId: "cat_test::",
+          availableQuantity: 3,
+        },
+        guards: [{ streamId: "synthetic-inventory", expectedVersion: 0 }],
+      },
+    ]),
+    readNativeReadiness: vi.fn(async () => [
+      {
+        value: {
+          listingId: "lst_test",
+          accountId: "acc_seller",
+          productMeasureSnapshot: currentMeasure,
+          productMeasureRevision: 1,
+          evidenceRequirements: requirements,
+          seller: { reviewCount: 0, badgeKeys: [] },
+        },
+        guards: [
+          { streamId: "synthetic-catalog", expectedVersion: 0 },
+          { streamId: "synthetic-evidence-policy", expectedVersion: 0 },
+          { streamId: "synthetic-seller-trust", expectedVersion: 0 },
+        ],
+      },
+    ]),
   };
   const db = {
     query: vi.fn(async (sql: string) => ({
@@ -47,7 +118,7 @@ function fixture(capability = true) {
                 phone: null,
                 email: null,
               },
-              available_quantity: 2,
+              available_quantity: availableQuantity,
             },
           ]
         : [],
@@ -74,8 +145,254 @@ function fixture(capability = true) {
     tenantId: "tnt_test" as never,
     audit: { forAccountId: "acc_seller" as never, performedByUserId: "usr_test" as never },
   };
-  return { services, resolveListingTerms, eventStore, input, context };
+  return { services, resolveListingTerms, eventStore, input, context, authority, db };
 }
+
+async function nativeFixture() {
+  const fixtureState = fixture(true, 3);
+  await fixtureState.services.createListing(fixtureState.input, fixtureState.context);
+  const enable = {
+    accountId: "acc_seller",
+    listingId: "lst_test",
+    expectedListingVersion: 1,
+    idempotencyKey: "synthetic-enable",
+    nativeVisibility: "enabled" as const,
+    feeQuoteFingerprint: "10.00|0.50|9.50|500|synthetic-terms|",
+  };
+  return { ...fixtureState, enable };
+}
+
+describe("current native enable authority", () => {
+  it("resolves an absent creation-time measure and commits enrollment, publication and retry result together", async () => {
+    const { services, eventStore, context, enable, authority } = await nativeFixture();
+    const append = vi.spyOn(eventStore, "appendToStreams");
+    const result = await services.setNativeListingVisibility(enable, context);
+    expect(result).toEqual({ listingId: "lst_test", version: 3 });
+    expect(await services.setNativeListingVisibility(enable, context)).toEqual(result);
+    expect(append).toHaveBeenCalledTimes(1);
+    expect(authority.readNativeReadiness).toHaveBeenCalledTimes(1);
+    expect(await services.loadListingState("lst_test")).toMatchObject({
+      status: "active",
+      nativeVisibility: "enabled",
+      nativePublicationRevision: 3,
+      productMeasureSnapshot: currentMeasure,
+      nativeFeeState: "enrolled",
+      feeLocks: [{ unitCount: 2 }],
+    });
+    expect(append.mock.calls[0]![0].map((entry) => entry.streamId)).toEqual(
+      expect.arrayContaining([
+        "synthetic-inventory",
+        "synthetic-catalog",
+        "synthetic-evidence-policy",
+        "synthetic-seller-trust",
+        "marketplace.seller-listing-availability-acc_seller",
+        "marketplace.inventory-listing-capacity-inv_test",
+        "marketplace.listing-lst_test",
+      ]),
+    );
+  });
+
+  it.each([
+    "synthetic-inventory",
+    "synthetic-catalog",
+    "synthetic-evidence-policy",
+    "synthetic-seller-trust",
+    "marketplace.seller-listing-availability-acc_seller",
+    "marketplace.inventory-listing-capacity-inv_test",
+    "synthetic-terms",
+  ])("rolls back the entire enable when %s changes before append", async (streamId) => {
+    const { services, eventStore, context, enable } = await nativeFixture();
+    const append = eventStore.appendToStreams!;
+    vi.spyOn(eventStore, "appendToStreams").mockImplementationOnce(async (appends) => {
+      const participant = appends.find((entry) => entry.streamId === streamId)!;
+      await eventStore.appendToStream({
+        streamId,
+        expectedVersion: participant.expectedVersion,
+        context,
+        events: [{ eventType: "synthetic.authority-changed", payload: {} }],
+      });
+      return append(appends);
+    });
+    await expect(services.setNativeListingVisibility(enable, context)).rejects.toThrow();
+    expect(await services.loadListingState("lst_test")).toMatchObject({
+      nativeVisibility: "disabled",
+      feeLocks: [],
+      nativePublicationRevision: null,
+      productMeasureSnapshot: null,
+    });
+    expect(
+      (await eventStore.readAll()).filter((event) => event.eventType === "marketplace.listing-request.completed"),
+    ).toEqual([]);
+  });
+
+  it("rejects stale confirmation without creating a fee lock or persisting the refreshed measure", async () => {
+    const { services, context, enable } = await nativeFixture();
+    await expect(
+      services.setNativeListingVisibility({ ...enable, feeQuoteFingerprint: "stale" }, context),
+    ).rejects.toThrow("Fee quote is stale");
+    expect(await services.loadListingState("lst_test")).toMatchObject({
+      nativeVisibility: "disabled",
+      feeLocks: [],
+      productMeasureSnapshot: null,
+    });
+  });
+
+  it("uses folded seller availability even when the seller projection is absent", async () => {
+    const { services, context, enable, resolveListingTerms } = await nativeFixture();
+    await services.disableSellerListingAvailability(
+      { accountId: "acc_seller", reasonCategory: "travel", availableAgainOn: null },
+      context,
+    );
+    await expect(services.setNativeListingVisibility(enable, context)).rejects.toThrow("availability is disabled");
+    expect(resolveListingTerms).not.toHaveBeenCalled();
+  });
+
+  it("fails closed without current readiness and Inventory adapters", async () => {
+    const { services, context, enable, authority } = await nativeFixture();
+    Object.defineProperty(authority, "readNativeReadiness", { value: undefined });
+    await expect(services.setNativeListingVisibility(enable, context)).rejects.toThrow(
+      "readiness authority is unavailable",
+    );
+    const inventoryFixture = await nativeFixture();
+    Object.defineProperty(inventoryFixture.authority, "readInventory", { value: undefined });
+    await expect(
+      inventoryFixture.services.setNativeListingVisibility(inventoryFixture.enable, inventoryFixture.context),
+    ).rejects.toThrow("Inventory authority is unavailable");
+    expect(await inventoryFixture.services.loadListingState("lst_test")).toMatchObject({
+      nativeVisibility: "disabled",
+      feeLocks: [],
+    });
+  });
+
+  it("fences every other Listing used in the Inventory capacity calculation", async () => {
+    const { services, context, enable, eventStore, input } = await nativeFixture();
+    await services.createListing({ ...input, listingIdOverride: "lst_other" as never, quantityCap: 1 }, context);
+    const append = eventStore.appendToStreams!;
+    vi.spyOn(eventStore, "appendToStreams").mockImplementationOnce(async (appends) => {
+      expect(appends).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ streamId: "marketplace.listing-lst_other", expectedVersion: 1, events: [] }),
+        ]),
+      );
+      await services.withdrawListing({ accountId: input.accountId, listingId: "lst_other" }, context);
+      return append(appends);
+    });
+    await expect(services.setNativeListingVisibility(enable, context)).rejects.toThrow();
+    expect(await services.loadListingState("lst_test")).toMatchObject({
+      nativeVisibility: "disabled",
+      feeLocks: [],
+      nativePublicationRevision: null,
+    });
+  });
+
+  it("does not clear a pause or withdrawal during explicit native enable", async () => {
+    const { services, context, enable, resolveListingTerms } = await nativeFixture();
+    await services.setNativeListingVisibility(enable, context);
+    await services.setNativeListingVisibility(
+      { ...enable, idempotencyKey: "disable-before-pause", nativeVisibility: "disabled", expectedListingVersion: 3 },
+      context,
+    );
+    await services.pauseListing(
+      { accountId: enable.accountId, listingId: enable.listingId, reason: "seller" },
+      context,
+    );
+    resolveListingTerms.mockClear();
+    await expect(
+      services.setNativeListingVisibility(
+        { ...enable, expectedListingVersion: 5, idempotencyKey: "paused-enable" },
+        context,
+      ),
+    ).rejects.toThrow("pause or withdrawal");
+    await services.withdrawListing({ accountId: enable.accountId, listingId: enable.listingId }, context);
+    await expect(
+      services.setNativeListingVisibility(
+        { ...enable, expectedListingVersion: 6, idempotencyKey: "withdrawn-enable" },
+        context,
+      ),
+    ).rejects.toThrow("pause or withdrawal");
+    expect(resolveListingTerms).not.toHaveBeenCalled();
+    expect(await services.loadListingState("lst_test")).toMatchObject({
+      nativeVisibility: "disabled",
+      feeLocks: [{ unitCount: 2 }],
+      status: "withdrawn",
+    });
+  });
+
+  it("rejects current Inventory identity drift and shortages rather than using the supply projection", async () => {
+    const { services, context, enable, authority } = await nativeFixture();
+    vi.mocked(authority.readInventory!).mockResolvedValue([
+      {
+        value: {
+          accountId: "acc_seller",
+          inventoryItemId: "inv_test",
+          catalogItemId: "cat_test",
+          productId: "different-product",
+          availableQuantity: 100,
+        },
+        guards: [{ streamId: "synthetic-inventory", expectedVersion: 0 }],
+      },
+    ]);
+    await expect(services.setNativeListingVisibility(enable, context)).rejects.toThrow("product identity");
+    vi.mocked(authority.readInventory!).mockResolvedValue([
+      {
+        value: {
+          accountId: "acc_seller",
+          inventoryItemId: "inv_test",
+          catalogItemId: "cat_test",
+          productId: "cat_test::",
+          availableQuantity: 1,
+        },
+        guards: [{ streamId: "synthetic-inventory", expectedVersion: 0 }],
+      },
+    ]);
+    await expect(services.setNativeListingVisibility(enable, context)).rejects.toThrow("sellable inventory");
+    expect(await services.loadListingState("lst_test")).toMatchObject({ nativeVisibility: "disabled", feeLocks: [] });
+  });
+
+  it("preserves original formulas on reenable and confirms only uncovered restock units", async () => {
+    const { services, context, enable, resolveListingTerms } = await nativeFixture();
+    await services.setNativeListingVisibility(enable, context);
+    const original = (await services.loadListingState("lst_test")).feeLocks;
+    await services.setNativeListingVisibility(
+      { ...enable, idempotencyKey: "synthetic-disable", nativeVisibility: "disabled", expectedListingVersion: 3 },
+      context,
+    );
+    await services.updateListingQuantityCap(
+      { accountId: "acc_seller", listingId: "lst_test", quantityCap: 3 },
+      context,
+    );
+    resolveListingTerms.mockClear();
+    await expect(
+      services.setNativeListingVisibility(
+        {
+          ...enable,
+          expectedListingVersion: 5,
+          idempotencyKey: "synthetic-restock-enable",
+          feeQuoteFingerprint: undefined,
+        },
+        context,
+      ),
+    ).rejects.toThrow("Fee quote is stale");
+    await services.setNativeListingVisibility(
+      { ...enable, expectedListingVersion: 5, idempotencyKey: "synthetic-restock-enable" },
+      context,
+    );
+    expect((await services.loadListingState("lst_test")).feeLocks).toEqual([
+      ...original,
+      expect.objectContaining({ unitCount: 1 }),
+    ]);
+    await services.setNativeListingVisibility(
+      { ...enable, idempotencyKey: "synthetic-disable-again", nativeVisibility: "disabled", expectedListingVersion: 7 },
+      context,
+    );
+    resolveListingTerms.mockClear();
+    await services.setNativeListingVisibility(
+      { ...enable, idempotencyKey: "synthetic-reenable", expectedListingVersion: 8, feeQuoteFingerprint: undefined },
+      context,
+    );
+    expect(resolveListingTerms).not.toHaveBeenCalled();
+  });
+});
 
 describe("channel-only creation runtime", () => {
   it("returns typed absent native fees without native terms, evidence or shipping measure readiness", async () => {

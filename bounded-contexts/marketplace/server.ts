@@ -22,6 +22,9 @@ export type {
   ListingAuthorityGuard,
   ListingAuthorityResult,
   ListingTargetAuthority,
+  ListingInventoryAuthority,
+  ListingNativeReadinessInput,
+  ListingNativeReadinessAuthority,
   AcceptedListingTargetPriceRead,
   ListingTargetServices,
 } from "./features/listings/api/target-contracts";

@@ -485,6 +485,8 @@ export type SetNativeListingVisibilityCommand = Readonly<{
   feeLocks: readonly MarketplaceListingFeeLock[];
   evidenceRequirements: ListingEvidenceRequirementSnapshot | null;
   readiness: ListingEvidenceReadinessResult | null;
+  productMeasureSnapshot?: ProductMeasureSnapshot | null;
+  productMeasureRevision?: number;
 }>;
 
 export type ResumeListingCommand = Readonly<{
@@ -769,6 +771,8 @@ export type ListingNativeVisibilityChangedEvent = DomainEvent<
     nativeFeeState: "enrolled" | "not-enrolled";
     feeLocks: MarketplaceListingFeeLock[];
     evidenceRequirements: ListingEvidenceRequirementSnapshot | null;
+    productMeasureSnapshot?: ProductMeasureSnapshot | null;
+    productMeasureRevision?: number;
   }>
 >;
 export type ListingResumedEvent = DomainEvent<
@@ -921,7 +925,13 @@ export const decideMarketplaceListing: AggregateDecider<
       }
       assert(state.status !== "paused", "Visibility changes cannot clear a listing pause.");
       assert(state.priceAmount !== null && state.priceCurrencyCode !== null, "Native price is incomplete.");
-      assert(state.productMeasureSnapshot, "Listings require a resolved shipping measure before publication.");
+      const productMeasureSnapshot = command.productMeasureSnapshot ?? state.productMeasureSnapshot;
+      assert(productMeasureSnapshot, "Listings require a resolved shipping measure before publication.");
+      assert(
+        productMeasureSnapshot.catalogItemId === state.catalogItemId &&
+          productMeasureSnapshot.productId === state.productId,
+        "Native shipping measure identity changed.",
+      );
       assert(
         command.evidenceRequirements &&
           command.readiness?.ready &&
@@ -939,6 +949,10 @@ export const decideMarketplaceListing: AggregateDecider<
             nativeFeeState: "enrolled",
             feeLocks,
             evidenceRequirements: command.evidenceRequirements,
+            productMeasureSnapshot,
+            ...(command.productMeasureRevision === undefined
+              ? {}
+              : { productMeasureRevision: command.productMeasureRevision }),
           },
         },
         { type: "marketplace.listing.published", data: {} },
@@ -1350,6 +1364,7 @@ const evolveMarketplaceListingEvent: AggregateEvolver<MarketplaceListingState, M
         nativeVisibilityRevision: state.streamRevision + 1,
         nativeFeeState: event.data.nativeFeeState,
         evidenceRequirements: event.data.evidenceRequirements,
+        productMeasureSnapshot: event.data.productMeasureSnapshot ?? state.productMeasureSnapshot,
       };
     case "marketplace.listing.resumed":
       return { ...state, status: "active", pauseReason: null };

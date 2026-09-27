@@ -1,4 +1,8 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
+import type { ListingEvidenceRequirementSnapshot } from "../domain/evidence-requirement-snapshot";
+import type { ListingEvidenceSellerFacts } from "../domain/listing-evidence-readiness";
+import type { MarketplaceListingTermsPreview } from "../ui/contracts";
 import type {
   AcceptedListingTargetPriceV1,
   MarketplaceListingPriceDecision,
@@ -56,7 +60,45 @@ export type ListingTargetPriceAcceptanceResult = ListingMutationResult &
 export type ListingAuthorityGuard = Readonly<{ streamId: string; expectedVersion: number }>;
 export type ListingAuthorityResult<T> = Readonly<{ value: T; guards: readonly ListingAuthorityGuard[] }>;
 
+export type ListingInventoryAuthority = Readonly<{
+  accountId: string;
+  inventoryItemId: string;
+  catalogItemId: string;
+  productId: string;
+  availableQuantity: number;
+}>;
+
+export type ListingNativeReadinessInput = Readonly<{
+  listingId: string;
+  catalogItemId: string;
+  productId: string;
+  selectedOptions: readonly Readonly<{ dimensionId: string; optionId: string }>[];
+  gradedItem: boolean;
+  priceAmount: string;
+}>;
+
+export type ListingNativeReadinessAuthority = Readonly<{
+  listingId: string;
+  accountId: string;
+  productMeasureSnapshot: ProductMeasureSnapshot | null;
+  /** Version of catalog.product-measures-<catalogItemId>, never a Marketplace/global position. */
+  productMeasureRevision: number;
+  evidenceRequirements: ListingEvidenceRequirementSnapshot | null;
+  seller: ListingEvidenceSellerFacts;
+}>;
+
 export type ListingTargetAuthority = Readonly<{
+  verifyNativeFeeQuote?(
+    input: Readonly<{ accountId: string; quote: MarketplaceListingTermsPreview }>,
+  ): Promise<ListingAuthorityResult<boolean>>;
+  /** Current owner facts, not unfenced projection rows. Every source revision participates in the append. */
+  readInventory?(
+    input: Readonly<{ accountId: string; inventoryItemIds: readonly string[] }>,
+  ): Promise<readonly ListingAuthorityResult<ListingInventoryAuthority | null>[]>;
+  /** Bounded Catalog, evidence-policy and seller-trust facts; Marketplace evaluates its own evidence. */
+  readNativeReadiness?(
+    input: Readonly<{ accountId: string; listings: readonly ListingNativeReadinessInput[]; evaluatedAt: string }>,
+  ): Promise<readonly ListingAuthorityResult<ListingNativeReadinessAuthority | null>[]>;
   authorizeManage(
     input: Readonly<{ accountId: string }>,
     context: EventStoreContext,
