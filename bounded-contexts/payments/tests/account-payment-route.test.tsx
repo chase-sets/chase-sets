@@ -498,7 +498,9 @@ describe("marketplace account payment route", () => {
     );
 
     expectSurfaceTreatment(
-      screen.getByText("Payment is ready. Enter your payment details in the secure managed form and confirm the charge."),
+      screen.getByText(
+        "Payment is ready. Enter your payment details in the secure managed form and confirm the charge.",
+      ),
       "elevated",
       true,
     );

@@ -241,7 +241,9 @@ describe("marketplace account payment start route", () => {
             {
               line_id: "line_1",
               item_title: "Evidence card",
-              gallery: [{ altText: "Front", assets: [{ role: "catalog-detail", publicUrl: "https://img.test/front.jpg" }] }],
+              gallery: [
+                { altText: "Front", assets: [{ role: "catalog-detail", publicUrl: "https://img.test/front.jpg" }] },
+              ],
             },
           ],
         },
