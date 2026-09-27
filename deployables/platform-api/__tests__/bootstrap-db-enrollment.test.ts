@@ -174,7 +174,12 @@ async function createFixture(
     }
   }
 
-  return { root, manifest: buildManifest(files, (name) => identities.get(name) ?? "0000000000000000"), ceilings, model };
+  return {
+    root,
+    manifest: buildManifest(files, (name) => identities.get(name) ?? "0000000000000000"),
+    ceilings,
+    model,
+  };
 }
 
 function buildManifest(files: readonly FixtureFile[], identityFor: (caseName: string) => string): FixtureManifest {
@@ -397,7 +402,9 @@ describe("Platform API bootstrap DB enrollment", () => {
                     const expected = scheduleVerdict(old, files, model);
                     const actual = scheduleVerdict(candidate, files, model);
                     if (actual.serialized !== expected.serialized)
-                      throw new Error(`schedule differs at pair ${pairs}: ${expected.serialized} vs ${actual.serialized}`);
+                      throw new Error(
+                        `schedule differs at pair ${pairs}: ${expected.serialized} vs ${actual.serialized}`,
+                      );
                     expectSharedScheduleEquivalence(old, candidate, files, model, expected);
                     pairs += 1;
                   }
