@@ -30,6 +30,7 @@ import type { AccountId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import { module as paymentsModule } from "../index";
 import { createPaymentsServices } from "../support/runtime-support/services";
 import { createPaymentMcpHandlers } from "../features/payments/api/mcp";
+import { DISPOSITION_RECEIPT_POLICY } from "../../../scripts/provider-object-disposition/disposition-receipt-policy.mjs";
 
 const windowId = "a".repeat(32);
 const accountId = "acc_SYNTHETIC_J" as AccountId;
@@ -95,6 +96,81 @@ describe("deployed provider journal J1-J6 (synthetic DB proof)", () => {
       evidenceWindowProviderWrite: journal,
     });
   }
+
+  function dispositionServices() {
+    return createPaymentsServices(pools.payments, {
+      processorGateway: gateway(),
+      evidenceWindowCorrelation: correlation,
+      evidenceWindowProviderWrite: journal,
+      providerModeObservation: {
+        mode: "test",
+        deploymentEnvironment: "test",
+        paymentProcessorKind: "stripe",
+        moneyMovementKind: "stripe",
+      },
+      evidenceWindowDisposition: {
+        authority: async () => ({ windowId, expiresAt: "2099-01-01T00:00:00Z", providerMode: "test" }),
+      },
+    });
+  }
+
+  it("AC-04b/AC-10: actual service factory reads J, precommits disposition and repeats terminal GET without a write", async () => {
+    let status = "requires_confirmation";
+    let posts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit) => {
+        if (init.method === "POST") {
+          posts++;
+          const key = new Headers(init.headers).get("Idempotency-Key");
+          const committed = (await journal.readWindow(windowId)).find(
+            (row) => providerWriteIdempotencyKey(row.key) === key,
+          )!;
+          expect(committed.state).toBe("pending");
+          expect(committed.envelope!.bodyText).toBe(init.body);
+          expect(String(init.body)).not.toContain("windowId");
+          if (url.endsWith("/cancel")) status = "canceled";
+        }
+        return Response.json({ id: "seti_SYNTHETIC_DISPOSITION", status });
+      }),
+    );
+    await gateway().createSetupSession({
+      accountId,
+      setupReferenceId: "scs_SYNTHETIC_DISPOSITION",
+      providerCustomerReference: "cus_SYNTHETIC",
+      uiMode: "embedded",
+      currencyCode: "usd",
+      consentId: "consent_SYNTHETIC",
+      consentText: "Synthetic consent",
+    });
+    const first = await dispositionServices().disposeEvidenceWindow(windowId, DISPOSITION_RECEIPT_POLICY);
+    expect(first.variant).toBe("success");
+    expect(first.classes[2]!.observedCount).toBe(0);
+    const retained = await journal.readWindow(windowId);
+    expect(retained).toHaveLength(2);
+    journal = createPostgresEvidenceWindowProviderWrite(pools.payments);
+    const repeated = await dispositionServices().disposeEvidenceWindow(windowId, DISPOSITION_RECEIPT_POLICY);
+    expect(repeated.classes[2]!.state).toBe("already-terminal");
+    expect(posts).toBe(2);
+    expect(await journal.readWindow(windowId)).toEqual(retained);
+  });
+
+  it("AC-04b/AC-04c: SQL pending and exhausted ambiguous creation never count as zero", async () => {
+    const pending = requireProviderWrite(await journal.reserveOrResolve(customerRequest()));
+    const first = await dispositionServices().disposeEvidenceWindow(windowId, DISPOSITION_RECEIPT_POLICY);
+    expect(first.classes[4]).toMatchObject({ state: "unknown", observedCount: null, enumerationComplete: false });
+    const replay = requireProviderWrite(
+      await journal.claimReplay(pending.key, pending.version, new Date().toISOString()),
+    );
+    await journal.claimReplay(replay.key, replay.version, new Date().toISOString());
+    expect(
+      (await dispositionServices().disposeEvidenceWindow(windowId, DISPOSITION_RECEIPT_POLICY)).classes[4],
+    ).toMatchObject({
+      state: "unknown",
+      observedCount: null,
+    });
+    expect(await journal.readWindow("b".repeat(32))).toEqual([]);
+  });
   function mcpInput(returnUrl: string) {
     return {
       actor: {
@@ -491,7 +567,7 @@ describe("deployed provider journal J1-J6 (synthetic DB proof)", () => {
     expect((await journal.readWindow(windowId))[0]!.replayDeadline).toBe(row.replayDeadline);
   });
 
-  it("J2/J4 three Connect slots retain null references and saved response retrieval does not mutate rows", async () => {
+  it("AC-04b/AC-05: J2/J4 three real Connect slots retain null references and fail budget 2 after repeated loads", async () => {
     const fetch = vi.fn(async (url: string) =>
       url.endsWith("account_sessions")
         ? Response.json({ client_secret: "SYNTHETIC_ACCOUNT_SESSION", expires_at: Math.floor(Date.now() / 1000) + 600 })
@@ -516,11 +592,45 @@ describe("deployed provider journal J1-J6 (synthetic DB proof)", () => {
       await connect.createPayoutNotificationBannerSession({ ...input, evidenceWindowSlot: 3 });
     expect(await journal.readWindow(windowId)).toEqual(before);
     expect(JSON.stringify(before)).not.toContain("SYNTHETIC_ACCOUNT_SESSION");
+    const receipt = await dispositionServices().disposeEvidenceWindow(windowId, DISPOSITION_RECEIPT_POLICY);
+    expect(receipt.variant).toBe("cleanup-failure");
+    expect(receipt.failure).toBe("budget-exceeded");
+    expect(receipt.classes[5]).toMatchObject({ observedCount: 3, correlationSource: "creation-time-record" });
     const row = before[2]!;
     for (const usability of ["consumed", "unqualified"] as const)
       expect(
         await journal.admitSavedResponse(row.key, { ...row.binding, usability }, new Date().toISOString()),
       ).toEqual({ kind: "refused", code: "response-unqualified" });
+  });
+
+  it("AC-04b: two persisted windows isolate Customer membership and retained reuse", async () => {
+    requireProviderWrite(
+      await journal.observeCustomerReuse({
+        windowId,
+        ownerAccountId: accountId,
+        providerReference: "cus_SYNTHETIC_A",
+        retentionSeconds: 3600,
+      }),
+    );
+    const registration = createPostgresEvidenceWindowRegistration(pools.payments);
+    await registration.close({ windowId, expectedVersion: 1 });
+    const second = "b".repeat(32);
+    await registration.open({ windowId: second, retentionSeconds: 3600 });
+    for (const ordinal of [1, 2])
+      requireProviderWrite(
+        await journal.observeCustomerReuse({
+          windowId: second,
+          ownerAccountId: `acc_SYNTHETIC_B${ordinal}`,
+          providerReference: `cus_SYNTHETIC_B${ordinal}`,
+          retentionSeconds: 3600,
+        }),
+      );
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const result = await dispositionServices().disposeEvidenceWindow(windowId, DISPOSITION_RECEIPT_POLICY);
+    expect(result.classes[4]).toMatchObject({ state: "retained-reused", observedCount: 1 });
+    expect(await journal.readWindow(second)).toHaveLength(2);
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("J2/J4 two Account Session tabs share one slot, one replay, and a stale original response cannot win", async () => {
