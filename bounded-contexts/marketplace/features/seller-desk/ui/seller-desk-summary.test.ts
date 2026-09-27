@@ -88,6 +88,39 @@ describe("resolveAttentionSummary", () => {
     expect(resolveAttentionSummary(item)).toBe("Import IMP-1 has 4 rows to resolve");
   });
 
+  it.each([
+    ["repricing-halt-engaged", {}, "Repricing is halted: no policy changes prices until you release the halt"],
+    [
+      "repricing-floor-binding",
+      { count: 2341 },
+      "2,341 listings have been held at their price floor past your alert threshold",
+    ],
+    [
+      "repricing-paused-for-missing-input",
+      { count: 12 },
+      "12 listings are paused from repricing while a required input is missing",
+    ],
+    [
+      "repricing-budget-exhausted",
+      { count: 4 },
+      "A repricing policy used today's change cap; 4 listings waited for tomorrow",
+    ],
+    [
+      "repricing-frozen",
+      { count: 3 },
+      "Repricing is briefly frozen on 3 listings of one product and resumes automatically",
+    ],
+  ] as const)("renders the Pricing-owned %s summary with a grouped count", (code, params, expected) => {
+    const item = buildSellerAttentionItem({
+      source: "pricing-repricing",
+      entityId: code,
+      severity: "warning",
+      summary: { code, params },
+      observedAt: "2026-09-26T12:00:00.000Z",
+    });
+    expect(resolveAttentionSummary(item)).toBe(expected);
+  });
+
   it("falls back to a neutral label for an unknown code", () => {
     const item = buildSellerAttentionItem({
       source: "listing-action",
@@ -148,10 +181,12 @@ describe("labels", () => {
     expect(attentionActionLabel(item("offer-response"))).toBe("Review offer");
     expect(attentionActionLabel(item("inventory-resolution"))).toBe("Resolve import");
     expect(attentionActionLabel(item("channel-action"))).toBe("Open manual sync");
+    expect(attentionActionLabel(item("pricing-repricing"))).toBe("Review repricing");
   });
 
   it("names the source for the degraded marker", () => {
     expect(attentionSourceLabel("settlement-blocked-payout")).toBe("Blocked payouts");
     expect(attentionSourceLabel("channel-action")).toBe("Channel action");
+    expect(attentionSourceLabel("pricing-repricing")).toBe("Repricing");
   });
 });
