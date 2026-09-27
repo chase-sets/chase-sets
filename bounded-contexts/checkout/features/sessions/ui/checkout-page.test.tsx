@@ -1169,6 +1169,7 @@ describe("checkout session page", () => {
       expect(screen.getByText("Wallet balance is temporarily unavailable")).toBeTruthy();
       expect(screen.getByText(/Retry to check your current wallet balance/)).toBeTruthy();
       const form = container.querySelector("#checkout-confirmation-form") as HTMLFormElement;
+      expect(form.noValidate).toBe(true);
       expect(new FormData(form).get("requestedBalanceCreditAmount")).toBe("");
       expect(new FormData(form).get("marketplaceCheckoutFeeQuoteFingerprint")).toBe("");
       expect(container.textContent).not.toContain("quote_1");
@@ -1211,7 +1212,7 @@ describe("checkout session page", () => {
     }
   });
 
-  it("preserves entered checkout fields when retrying and restores payment start after recovery", async () => {
+  it("preserves entered checkout fields when retrying and restores payment review after recovery", async () => {
     const submitListener = vi.fn((event: SubmitEvent) => event.preventDefault());
     const retryWalletBalance = vi.fn();
     document.addEventListener("submit", submitListener);
@@ -1265,11 +1266,17 @@ describe("checkout session page", () => {
       expect(screen.queryByText("Wallet balance is temporarily unavailable")).toBeNull();
       expect(new FormData(form).get("shippingEmail")).toBe("edited-buyer@example.com");
       expect(new FormData(form).get("shippingName")).toBe("Edited Buyer");
+      expect(new FormData(form).get("shippingLine1")).toBe("100 Market Street");
       expect(new FormData(form).get("shippingPhone")).toBe("3125550100");
+      expect(form.noValidate).toBe(false);
       expect(new FormData(form).get("marketplaceCheckoutFeeQuoteFingerprint")).toBe("quote_7");
       expect(new FormData(form).get("requestedBalanceCreditAmount")).toBe("7.00");
       expect(countText(container.textContent ?? "", "Wallet credit")).toBe(2);
-      expect(container.querySelector('button[value="confirm-checkout"]')).not.toBeNull();
+      const refresh = container.querySelector<HTMLButtonElement>('button[value="refresh-checkout-preview"]');
+      expect(refresh).not.toBeNull();
+      expect(container.querySelector('button[value="confirm-checkout"]')).toBeNull();
+      fireEvent.click(refresh!);
+      expect(submitListener).toHaveBeenCalledTimes(1);
     } finally {
       document.removeEventListener("submit", submitListener);
     }
@@ -1309,7 +1316,9 @@ describe("checkout session page", () => {
       { initialEntries: ["/checkout/buy/session/chk_mixed"] },
     );
     render(<RouterProvider router={router} />);
+    const retry = await screen.findByRole("button", { name: "Retry wallet balance" });
     const form = document.getElementById("checkout-confirmation-form") as HTMLFormElement;
+    expect(form.noValidate).toBe(true);
     for (const [name, value] of Object.entries({
       shippingEmail: "edited-buyer@example.com",
       shippingName: "Edited Buyer",
@@ -1318,7 +1327,15 @@ describe("checkout session page", () => {
     })) {
       fireEvent.change(form.querySelector<HTMLInputElement>(`input[name="${name}"]`)!, { target: { value } });
     }
-    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Retry wallet balance" })));
+    const submitListener = vi.fn((event: SubmitEvent) => event.preventDefault());
+    document.addEventListener("submit", submitListener);
+    try {
+      await act(async () => fireEvent.click(retry));
+      expect(submitListener).toHaveBeenCalledTimes(1);
+      expect(submitListener.mock.calls[0]?.[0].submitter).toBe(retry);
+    } finally {
+      document.removeEventListener("submit", submitListener);
+    }
     await waitFor(() => expect(loader).toHaveBeenCalledTimes(2));
     expect(action).not.toHaveBeenCalled();
     expect(new FormData(form).get("shippingEmail")).toBe("edited-buyer@example.com");
@@ -1326,7 +1343,10 @@ describe("checkout session page", () => {
     expect(new FormData(form).get("shippingLine1")).toBe("100 Market Street");
     expect(new FormData(form).get("shippingPhone")).toBe("3125550100");
     expect(new FormData(form).get("marketplaceCheckoutFeeQuoteFingerprint")).toBe("quote_7");
+    expect(new FormData(form).get("requestedBalanceCreditAmount")).toBe("7.00");
+    expect(form.noValidate).toBe(false);
     expect(screen.queryByText("Wallet balance is temporarily unavailable")).toBeNull();
+    expect(document.querySelector('button[value="refresh-checkout-preview"]')).not.toBeNull();
   });
 
   it("never renders a secret-bearing wallet failure in either summary or the retry notice", () => {

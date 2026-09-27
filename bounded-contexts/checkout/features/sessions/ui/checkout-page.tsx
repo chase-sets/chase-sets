@@ -104,6 +104,7 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
           spacing="none"
           id="checkout-confirmation-form"
           method="post"
+          noValidate={model.walletUnavailable && !model.hasPayment}
           onSubmit={(event) => {
             if ((event.nativeEvent as SubmitEvent).submitter?.getAttribute("value") === "retry-wallet-balance") {
               if (props.onRetryWalletBalance) {
