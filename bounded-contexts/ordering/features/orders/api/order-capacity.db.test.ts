@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -6,8 +6,27 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  createPostgresEventStore,
+  eventCorePostgresSchemaSql,
+  type PgQueryable,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
+import type { EventStore } from "@chase-sets/event-core/event-store";
+import type { OrderId, AccountId } from "@chase-sets/primitives/typed-ids";
 import { module as orderingModule } from "../../../index";
+import { orderingOrderSchemaMigrations } from "../read-model/schema";
+import { claimOrderSource, compensatePendingOrderSourceClaim, getOrderSourceClaim } from "./order-source-claims";
+import { bindEvidenceWindowSource } from "./evidence-window-source-release";
+import {
+  context,
+  createCheckpointStore,
+  createOrderingOrderRuntimeForTest,
+  productMeasureForCandidate,
+  shipFromAddress,
+  shippingAddress,
+  type SupplyCandidate,
+} from "./runtime-test-harness";
 import {
   backfillSellerOpenOrderClaims,
   claimSellerOrderCapacity,
@@ -53,10 +72,395 @@ describeDb("ordering seller order capacity db", () => {
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
     await pools.ordering.query(orderingModule.schemaSql);
+    await pools.ordering.query(eventCorePostgresSchemaSql);
   });
 
   afterAll(async () => {
     await closeMultiContextTestPools(pools);
+  });
+
+  async function supply(listingId = "lst_a") {
+    const candidate: SupplyCandidate = {
+      listingId,
+      sellerAccountId: `acc_${listingId}`,
+      inventoryItemId: `inv_${listingId}`,
+      catalogItemId: `cat_${listingId}`,
+      productId: `cat_${listingId}::`,
+      itemTitle: "Card",
+      itemSubtitle: null,
+      selectedOptions: [],
+      productSummary: null,
+      storageLocationName: null,
+      shipFromCode: "CHI",
+      priceAmount: "150.00",
+      availableQuantity: 10,
+      updatedAt: "2026-09-01T00:00:00.000Z",
+    };
+    await pools.ordering.query(
+      `INSERT INTO ordering_inventory_item_inputs
+       (item_id, seller_account_id, catalog_catalog_item_id, product_id, total_quantity, updated_at, last_stream_version)
+       VALUES ($1, $2, $3, $4, 10, now(), 1)`,
+      [candidate.inventoryItemId, candidate.sellerAccountId, candidate.catalogItemId, candidate.productId],
+    );
+    await pools.ordering.query(
+      `INSERT INTO ordering_market_listing_inputs
+       (listing_id, seller_account_id, inventory_item_id, catalog_catalog_item_id, product_id, item_title,
+        ship_from_code, ship_from_address, product_measure_snapshot, price_amount, price_currency_code,
+        listing_stream_version, marketplace_sales_fee_unit_amount, seller_net_unit_amount, terms_resolved_at,
+        quantity_cap, max_units_per_day, max_units_per_customer_account, status, updated_at)
+       VALUES ($1, $2, $3, $4, $5, 'Card', 'CHI', $6::jsonb, $7::jsonb, 150, 'USD', 1, 1, 149, now(), 10, 2, 2, 'active', now())`,
+      [
+        listingId,
+        candidate.sellerAccountId,
+        candidate.inventoryItemId,
+        candidate.catalogItemId,
+        candidate.productId,
+        JSON.stringify(shipFromAddress),
+        JSON.stringify(productMeasureForCandidate(candidate)),
+      ],
+    );
+    await setSellerCap(pools.ordering, candidate.sellerAccountId, 1);
+  }
+
+  function checkout(checkoutSessionId = "chk_failed", listingIds = ["lst_a"]) {
+    return {
+      buyerAccountId: context.audit.forAccountId,
+      checkoutSessionId,
+      sourceType: "cart-checkout" as const,
+      shippingOption: "standard" as const,
+      shippingAddress,
+      lines: listingIds.map((listingId) => ({
+        listingId,
+        cartLineId: `cli_${listingId}`,
+        catalogItemId: `cat_${listingId}`,
+        productId: `cat_${listingId}::`,
+        itemTitle: "Card",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        quantity: 1,
+      })),
+    };
+  }
+
+  function runtime(eventStore: EventStore = createPostgresEventStore({ pool: pools.ordering }), db = pools.ordering) {
+    return createOrderingOrderRuntimeForTest({
+      db,
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      shippingQuotePolicy: {
+        quote: () => ({ shippingOption: "standard", baseAmount: "4.99", discountAmount: "0.00", chargeAmount: "4.99" }),
+      },
+    });
+  }
+
+  async function snapshot() {
+    const [capacity, purchase, usage, sources, orders] = await Promise.all([
+      pools.ordering.query(
+        "SELECT order_id, seller_account_id, status FROM ordering_seller_open_order_claims ORDER BY order_id",
+      ),
+      pools.ordering.query(
+        "SELECT source_reference_id, buyer_account_id, status FROM ordering_listing_purchase_limit_claims ORDER BY source_reference_id, listing_id",
+      ),
+      pools.ordering.query(
+        "SELECT buyer_account_id, day_quantity, customer_account_quantity FROM ordering_listing_purchase_limit_usage ORDER BY buyer_account_id, listing_id",
+      ),
+      pools.ordering.query(
+        "SELECT source_reference_id, order_ids, status FROM ordering_order_source_claims ORDER BY source_reference_id",
+      ),
+      pools.ordering.query(
+        "SELECT stream_id FROM event_store_streams WHERE stream_id LIKE 'ordering.order-%' ORDER BY stream_id",
+      ),
+    ]);
+    return {
+      capacity: capacity.rows,
+      purchase: purchase.rows,
+      usage: usage.rows,
+      sources: sources.rows,
+      orders: orders.rows,
+    };
+  }
+
+  async function signalTypes(store: EventStore, seller = "acc_lst_a") {
+    return (await store.readStream({ streamId: `ordering.seller-capacity-${seller}` })).map((event) => event.eventType);
+  }
+
+  it("AC1 releases zero-Order capacity and purchase claims and admits the same source the next day", async () => {
+    await supply();
+    const store = createPostgresEventStore({ pool: pools.ordering });
+    const failing: EventStore = {
+      ...store,
+      appendToStream: async (input) => {
+        if (input.streamId.startsWith("ordering.order-")) throw new Error("first append failed");
+        return store.appendToStream(input);
+      },
+    };
+    await expect(runtime(failing).createOrdersFromCheckout(checkout(), context)).rejects.toThrow("first append failed");
+    const after = await snapshot();
+    expect(after.orders).toEqual([]);
+    expect(after.sources).toEqual([]);
+    expect(after.purchase).toEqual([]);
+    expect(after.capacity).toEqual([expect.objectContaining({ seller_account_id: "acc_lst_a", status: "released" })]);
+    expect(after.usage).toEqual([expect.objectContaining({ day_quantity: 0, customer_account_quantity: 0 })]);
+    expect(await signalTypes(store)).toEqual(["ordering.seller-capacity.reached", "ordering.seller-capacity.cleared"]);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date(Date.now() + 86_400_000));
+      const created = await runtime().createOrdersFromCheckout(checkout(), context);
+      expect(created.orderIds).toHaveLength(1);
+      expect(await store.readStream({ streamId: `ordering.order-${created.orderIds[0]}` })).toHaveLength(1);
+      expect(await openClaimCount(pools.ordering, "acc_lst_a")).toBe(1);
+      expect((await getOrderSourceClaim(pools.ordering, "cart-checkout", "chk_failed"))?.status).toBe("created");
+      expect((await runtime().createOrdersFromCheckout(checkout(), context)).orderIds).toEqual(created.orderIds);
+      expect(await signalTypes(store)).toEqual([
+        "ordering.seller-capacity.reached",
+        "ordering.seller-capacity.cleared",
+        "ordering.seller-capacity.reached",
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("AC3 retains compensating identity across signal failures and serializes retries with an unrelated buyer", async () => {
+    await supply();
+    const store = createPostgresEventStore({ pool: pools.ordering });
+    const failing: EventStore = {
+      ...store,
+      appendToStream: async (input) => {
+        if (input.streamId.startsWith("ordering.order-")) throw new Error("first append failed");
+        if (input.events.some((event) => event.eventType === "ordering.seller-capacity.cleared"))
+          throw new Error("signal failed");
+        return store.appendToStream(input);
+      },
+    };
+    await expect(runtime(failing).createOrdersFromCheckout(checkout(), context)).rejects.toThrow("signal failed");
+    const claim = (await getOrderSourceClaim(pools.ordering, "cart-checkout", "chk_failed"))!;
+    expect(claim.status).toBe("compensating");
+    const beforeRetry = await snapshot();
+    expect(beforeRetry.orders).toEqual([]);
+    expect(beforeRetry.purchase).toEqual([]);
+    expect(beforeRetry.capacity).toEqual([
+      expect.objectContaining({ order_id: claim.orderIds[0], status: "released" }),
+    ]);
+    await expect(runtime(failing).createOrdersFromCheckout(checkout(), context)).rejects.toThrow("signal failed");
+    expect(await snapshot()).toEqual(beforeRetry);
+    const reconcile = (seller: string) => runtime().reconcileSellerOrderCapacitySignal(seller, context);
+    await Promise.all([
+      compensatePendingOrderSourceClaim(pools.ordering, claim, async () => false, false, reconcile),
+      compensatePendingOrderSourceClaim(pools.ordering, claim, async () => false, false, reconcile),
+      runtime().createOrdersFromCheckout(
+        { ...checkout("chk_other"), buyerAccountId: "acc_other" as AccountId },
+        context,
+      ),
+    ]);
+    const after = await snapshot();
+    expect(after.capacity).toHaveLength(2);
+    expect(after.capacity.find((row) => row.order_id === claim.orderIds[0])?.status).toBe("released");
+    expect(await openClaimCount(pools.ordering, "acc_lst_a")).toBe(1);
+    expect(after.orders).toHaveLength(1);
+    expect(after.sources).toEqual([expect.objectContaining({ source_reference_id: "chk_other", status: "created" })]);
+    expect(after.purchase).toEqual([
+      { source_reference_id: "chk_other", buyer_account_id: "acc_other", status: "claimed" },
+    ]);
+    expect((await signalTypes(store)).at(-1)).toBe("ordering.seller-capacity.reached");
+    await compensatePendingOrderSourceClaim(pools.ordering, claim, async () => false, false, reconcile);
+    expect(await snapshot()).toEqual(after);
+  });
+
+  it.each(["reached", "cleared"])(
+    "AC3 checkout retries reconcile a failed %s signal before readmission",
+    async (failedSignal) => {
+      await supply();
+      const store = createPostgresEventStore({ pool: pools.ordering });
+      const failing: EventStore = {
+        ...store,
+        appendToStream: async (input) => {
+          if (input.events.some((event) => event.eventType === `ordering.seller-capacity.${failedSignal}`)) {
+            throw new Error("signal failed");
+          }
+          if (input.streamId.startsWith("ordering.order-")) throw new Error("first append failed");
+          return store.appendToStream(input);
+        },
+      };
+      await expect(runtime(failing).createOrdersFromCheckout(checkout(), context)).rejects.toThrow("signal failed");
+      const afterFailure = await snapshot();
+      expect(afterFailure.orders).toEqual([]);
+      expect(afterFailure.capacity).toEqual([expect.objectContaining({ status: "released" })]);
+      expect(afterFailure.purchase).toEqual([]);
+      expect(afterFailure.sources).toEqual(
+        failedSignal === "cleared" ? [expect.objectContaining({ status: "compensating" })] : [],
+      );
+      const result = await runtime().createOrdersFromCheckout(checkout(), context);
+      expect(result.orderIds).toHaveLength(1);
+      expect(await store.readStream({ streamId: `ordering.order-${result.orderIds[0]}` })).toHaveLength(1);
+      expect(await signalTypes(store)).toEqual(
+        failedSignal === "cleared"
+          ? ["ordering.seller-capacity.reached", "ordering.seller-capacity.cleared", "ordering.seller-capacity.reached"]
+          : ["ordering.seller-capacity.reached"],
+      );
+      expect(await openClaimCount(pools.ordering, "acc_lst_a")).toBe(1);
+      expect((await getOrderSourceClaim(pools.ordering, "cart-checkout", "chk_failed"))?.status).toBe("created");
+    },
+  );
+
+  it("AC2 preserves an active pending owner and every claim after a partial append", async () => {
+    await supply();
+    await supply("lst_b");
+    const store = createPostgresEventStore({ pool: pools.ordering });
+    let entered!: () => void;
+    let resume!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const resumed = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    let orderAppends = 0;
+    const failing: EventStore = {
+      ...store,
+      appendToStream: async (input) => {
+        if (input.streamId.startsWith("ordering.order-")) {
+          if (++orderAppends === 1) {
+            entered();
+            await resumed;
+          } else throw new Error("second append failed");
+        }
+        return store.appendToStream(input);
+      },
+    };
+    const params = checkout("chk_partial", ["lst_a", "lst_b"]);
+    const pending = expect(runtime(failing).createOrdersFromCheckout(params, context)).rejects.toThrow(
+      "second append failed",
+    );
+    await waiting;
+    try {
+      const before = await snapshot();
+      expect(before.orders).toEqual([]);
+      expect(before.capacity.filter((row) => row.status === "claimed")).toHaveLength(2);
+      await expect(runtime().createOrdersFromCheckout(params, context)).rejects.toThrow("already in progress");
+      expect(await snapshot()).toEqual(before);
+    } finally {
+      resume();
+    }
+    await pending;
+    const after = await snapshot();
+    expect(after.orders).toHaveLength(1);
+    expect(after.capacity.every((row) => row.status === "claimed")).toBe(true);
+    expect(after.purchase).toHaveLength(2);
+    expect(after.purchase.every((row) => row.status === "claimed")).toBe(true);
+    const claim = (await getOrderSourceClaim(pools.ordering, params.sourceType, params.checkoutSessionId))!;
+    expect(claim.status).toBe("pending");
+    const streams = await Promise.all(
+      claim.orderIds.map((id) => store.readStream({ streamId: `ordering.order-${id}` })),
+    );
+    expect(streams.map((events) => events.length)).toEqual([1, 0]);
+    await expect(runtime().createOrdersFromCheckout(params, context)).rejects.toThrow("already in progress");
+    expect(await snapshot()).toEqual(after);
+  });
+
+  it("AC1 rolls back capacity, purchase usage and source transition together if compensation fails", async () => {
+    await supply();
+    const store = createPostgresEventStore({ pool: pools.ordering });
+    const failing: EventStore = {
+      ...store,
+      appendToStream: async (input) => {
+        if (input.streamId.startsWith("ordering.order-")) throw new Error("first append failed");
+        return store.appendToStream(input);
+      },
+    };
+    const wrap =
+      (db: PgQueryable): PgQueryable["query"] =>
+      async <Row = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
+        if (sql.includes("SET status = 'compensating'")) throw new Error("compensation failed");
+        return db.query<Row>(sql, values);
+      };
+    const db: PgTransactionalPool = {
+      query: wrap(pools.ordering),
+      connect: async () => {
+        const client = await pools.ordering.connect();
+        return { query: wrap(client), release: client.release.bind(client) };
+      },
+    };
+    await expect(runtime(failing, db).createOrdersFromCheckout(checkout(), context)).rejects.toThrow(
+      "compensation failed",
+    );
+    const after = await snapshot();
+    expect(after.orders).toEqual([]);
+    expect(after.capacity).toEqual([expect.objectContaining({ status: "claimed" })]);
+    expect(after.purchase).toEqual([expect.objectContaining({ status: "claimed" })]);
+    expect(after.sources).toEqual([expect.objectContaining({ status: "pending" })]);
+    expect(after.usage).toEqual([expect.objectContaining({ day_quantity: 1, customer_account_quantity: 1 })]);
+    const claim = (await getOrderSourceClaim(pools.ordering, "cart-checkout", "chk_failed"))!;
+    await compensatePendingOrderSourceClaim(
+      pools.ordering,
+      claim,
+      async () => false,
+      false,
+      (seller) => runtime().reconcileSellerOrderCapacitySignal(seller, context),
+    );
+    expect(await openClaimCount(pools.ordering, "acc_lst_a")).toBe(0);
+    expect((await snapshot()).sources).toEqual([]);
+  });
+
+  it("AC2 refuses ordinary compensation for governed sources without changing their observed facts", async () => {
+    const source = {
+      sourceType: "cart-checkout" as const,
+      sourceReferenceId: "chk_governed",
+      buyerAccountId: context.audit.forAccountId,
+      orderIds: ["ord_governed" as OrderId],
+    };
+    await bindEvidenceWindowSource(pools.ordering, {
+      sourceIdentity: source,
+      windowId: "abcdef0123456789abcdef0123456789",
+      subInvocation: "2a",
+      windowOpenedAt: new Date().toISOString(),
+    });
+    await claimOrderSource(pools.ordering, source, true, true);
+    await claimSellerOrderCapacity(
+      pools.ordering,
+      [{ sellerAccountId: "acc_seller", orderIds: source.orderIds }],
+      undefined,
+      source,
+    );
+    const before = await snapshot();
+    const observedBefore = await runtime().evidenceWindowSources.observe(source);
+    expect(observedBefore).toMatchObject({
+      outcome: "owed",
+      surfaces: { sourceClaim: "owed", capacityAndSellerSignals: "owed" },
+    });
+    await compensatePendingOrderSourceClaim(
+      pools.ordering,
+      source,
+      async () => false,
+      true,
+      async () => {
+        throw new Error("must not signal");
+      },
+    );
+    expect(await snapshot()).toEqual(before);
+    expect(await runtime().evidenceWindowSources.observe(source)).toEqual(observedBefore);
+    expect(await openClaimCount(pools.ordering, "acc_seller")).toBe(1);
+  });
+
+  it("migrates pending and created sources and reapplies the compensating status constraint", async () => {
+    const db = pools.ordering;
+    await db.query(`ALTER TABLE ordering_order_source_claims DROP CONSTRAINT ordering_order_source_claims_status_check;
+      ALTER TABLE ordering_order_source_claims ADD CONSTRAINT ordering_order_source_claims_status_check CHECK (status IN ('pending', 'created'))`);
+    await db.query(`INSERT INTO ordering_order_source_claims (source_type, source_reference_id, buyer_account_id, order_ids, status)
+      VALUES ('cart-checkout', 'chk_pending', 'acc_buyer', '["ord_pending"]', 'pending'),
+             ('cart-checkout', 'chk_created', 'acc_buyer', '["ord_created"]', 'created')`);
+    const migration = orderingOrderSchemaMigrations.find(
+      (item) => item.migrationId === "20260927_ordering_order_source_compensation",
+    )!;
+    for (const sql of migration.statements) await db.query(sql);
+    await db.query(`INSERT INTO ordering_order_source_claims (source_type, source_reference_id, buyer_account_id, order_ids, status)
+      VALUES ('cart-checkout', 'chk_compensating', 'acc_buyer', '["ord_compensating"]', 'compensating')`);
+    for (const sql of migration.statements) await db.query(sql);
+    expect((await snapshot()).sources.map((row) => row.status)).toEqual(["compensating", "created", "pending"]);
+    await expect(db.query("UPDATE ordering_order_source_claims SET status = 'invalid'")).rejects.toThrow(
+      "ordering_order_source_claims_status_check",
+    );
   });
 
   it("takes no lock and claims freely when no cap is set (unlimited)", async () => {
