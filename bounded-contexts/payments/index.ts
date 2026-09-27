@@ -72,7 +72,7 @@ export const module = defineBoundedContextModule<PaymentsServices, PgTransaction
       router: createPaymentProcessorWebhookRoutes(services.payments),
     },
   ],
-  buildMcpHandlers: (services) => createPaymentMcpHandlers(services.payments),
+  buildMcpHandlers: (services) => createPaymentMcpHandlers(services.payments, services.evidenceWindowCorrelation),
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => [
     ...buildEventSubscriptionsFromManifest({

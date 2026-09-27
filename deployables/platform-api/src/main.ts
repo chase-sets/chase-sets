@@ -54,6 +54,7 @@ import {
   createEvidenceWindowCorrelation,
   createNullEvidenceWindowCorrelation,
   createPostgresEvidenceWindowRegistration,
+  createPostgresEvidenceWindowProviderWrite,
   createPostgresPlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
 import { createPostgresWorkSignalStore } from "@chase-sets/platform-runtime/work-signal-store";
@@ -126,9 +127,12 @@ const evidenceWindowCorrelation =
     ? createEvidenceWindowCorrelation(evidenceWindowRegistration)
     : createNullEvidenceWindowCorrelation();
 
+const evidenceWindowProviderWrite = createPostgresEvidenceWindowProviderWrite(pools.control);
 const paymentProcessorGateway =
   config.paymentProcessor.kind === "stripe"
     ? createStripePaymentProcessorGateway({
+        evidenceWindowCorrelation,
+        evidenceWindowProviderWrite,
         secretKey: config.paymentProcessor.secretKey,
         publishableKey: config.paymentProcessor.publishableKey,
         webhookSecret: config.paymentProcessor.webhookSecret,
@@ -139,6 +143,8 @@ const paymentProcessorGateway =
 const moneyMovementGateway =
   config.moneyMovement.kind === "stripe"
     ? createStripeConnectMoneyMovementGateway({
+        evidenceWindowCorrelation,
+        evidenceWindowProviderWrite,
         secretKey: config.moneyMovement.secretKey,
         webhookSecret: config.moneyMovement.webhookSecret,
         previousWebhookSecrets: config.moneyMovement.previousWebhookSecrets,
@@ -329,6 +335,7 @@ const runtime = createPlatformApiHost({
     adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
     registrationAdmission: config.registrationAdmission,
     evidenceWindowCorrelation,
+    evidenceWindowProviderWrite,
     securityLifetimes: config.authSecurityLifetimes,
     searchEmbeddingConfig: config.discoverySearchEmbeddings,
     searchTelemetry: {

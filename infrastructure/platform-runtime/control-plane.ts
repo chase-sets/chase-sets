@@ -3,6 +3,8 @@ import { createInternalId } from "@chase-sets/primitives/typed-ids";
 import { platformPostWriteTokenStoreSchemaSql } from "./post-write-token-store";
 import { platformUcpRuntimeSchemaSql } from "./ucp";
 import { platformWorkSignalStoreSchemaSql } from "./work-signal-store";
+import { evidenceWindowProviderWriteSchemaSql } from "./evidence-window-provider-write";
+export { createPostgresEvidenceWindowProviderWrite } from "./evidence-window-provider-write";
 import {
   createPostgresWorkSignalWaiter,
   emitPostgresWorkSignalNotification,
@@ -77,6 +79,8 @@ CREATE TABLE IF NOT EXISTS evidence_window (
 CREATE UNIQUE INDEX IF NOT EXISTS evidence_window_single_open_idx
   ON evidence_window ((true))
   WHERE state = 'open';
+
+${evidenceWindowProviderWriteSchemaSql}
 
 CREATE TABLE IF NOT EXISTS platform_control_leases (
   lease_name text PRIMARY KEY,

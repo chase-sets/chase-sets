@@ -216,6 +216,11 @@
       "purpose": "Durable outbound notification outbox consumed only by payment and refund event projectors."
     },
     {
+      "portName": "evidenceWindowProviderWrite",
+      "providedBy": "platform-runtime",
+      "purpose": "Journal admitted provider writes before send and resolve immutable operations through guarded recovery."
+    },
+    {
       "portName": "evidenceWindowCorrelation",
       "providedBy": "platform-runtime",
       "purpose": "Read the current admitted provider evidence window immediately before a provider call without gaining registration write authority."
