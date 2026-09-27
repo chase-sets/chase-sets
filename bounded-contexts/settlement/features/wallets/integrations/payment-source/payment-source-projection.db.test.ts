@@ -12,11 +12,12 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { module as paymentsModule } from "@chase-sets/payments";
 import { module as settlementModule } from "../../../../index";
 import type { WalletServices } from "../../api/runtime";
+import { buildSettlementPaymentInputProjectionHandlers } from "./payment-source-projection";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl) throw new Error("TEST_DATABASE_URL is required for seller capture credit database tests.");
@@ -59,6 +60,7 @@ describe("seller capture credit real event store", () => {
     );
     if (!subscription) throw new Error("Settlement payment-input subscription is missing.");
     return {
+      db: services.db,
       wallets: services.wallets,
       subscription,
       runner: createSubscriptionRunner("settlement", pools.settlement, pools.payments, subscription),
@@ -141,6 +143,87 @@ describe("seller capture credit real event store", () => {
       streamId: `settlement.wallet-${credit.accountId}`,
     });
   }
+
+  async function reserveFacts() {
+    const result = await pools.settlement.query<{
+      fact_id: string;
+      fact_kind: string;
+      order_id: string;
+      payment_id: string;
+      payment_stream_version: number;
+      protection_amount: string;
+      allowance_amount: string;
+      overage_amount: string;
+      recorded_at: Date;
+    }>(`SELECT fact_id, fact_kind, order_id, payment_id, payment_stream_version,
+               protection_amount::text, allowance_amount::text, overage_amount::text, recorded_at
+        FROM settlement_protection_reserve_facts ORDER BY fact_id`);
+    return result.rows;
+  }
+
+  it("converges overlapping captured-payment deliveries to one unchanged reserve contribution", async () => {
+    const captured = await appendCapture();
+    const first = runtime();
+    const second = runtime();
+    let arrivals = 0;
+    let releaseInserts!: () => void;
+    const bothAtInsert = new Promise<void>((resolve) => {
+      releaseInserts = resolve;
+    });
+    function deliverWithCoordinatedInsert(candidate: ReturnType<typeof runtime>) {
+      const db: PgQueryable = {
+        query: async <Row = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
+          if (sql.includes("INSERT INTO settlement_protection_reserve_facts")) {
+            arrivals += 1;
+            if (arrivals === 2) releaseInserts();
+            await bothAtInsert;
+          }
+          return candidate.db.query<Row>(sql, values);
+        },
+      };
+      return buildSettlementPaymentInputProjectionHandlers(db, candidate.wallets)["payments.payment-captured"]!(
+        captured,
+      );
+    }
+    await Promise.all([deliverWithCoordinatedInsert(first), deliverWithCoordinatedInsert(second)]);
+    expect(arrivals).toBe(2);
+    expect(await reserveFacts()).toEqual([
+      {
+        fact_id: "protection_contribution_pay_capture_ord_capture",
+        fact_kind: "contribution",
+        order_id: "ord_capture",
+        payment_id: "pay_capture",
+        payment_stream_version: 2,
+        protection_amount: "0.01",
+        allowance_amount: "0.01",
+        overage_amount: "0.00",
+        recorded_at: new Date(credit.postedAt),
+      },
+    ]);
+  });
+
+  it.each([
+    ["order key", "protection_contribution_pay_other_ord_capture", "ord_capture", "pay_other"],
+    ["fact primary key", "protection_contribution_pay_capture_ord_capture", "ord_other", "pay_capture"],
+  ])(
+    "classifies a mismatched reserve contribution at the %s without replacing it",
+    async (_key, factId, orderId, paymentId) => {
+      await pools.settlement.query(
+        `INSERT INTO settlement_protection_reserve_facts
+         (fact_id, fact_kind, order_id, payment_id, payment_stream_version,
+          protection_amount, allowance_amount, overage_amount, recorded_at)
+       VALUES ($1, 'contribution', $2, $3, 7, 0.02, 0.01, 0.01, $4)`,
+        [factId, orderId, paymentId, credit.postedAt],
+      );
+      const before = await reserveFacts();
+      const captured = await appendCapture();
+      const { subscription } = runtime();
+      await expect(subscription.handlers["payments.payment-captured"]!(captured)).rejects.toThrow(
+        /reserve contribution.*operator review required/,
+      );
+      expect(await reserveFacts()).toEqual(before);
+    },
+  );
 
   it("seller capture credit survives balance changes and subscription reset", async () => {
     const first = runtime();
