@@ -1,5 +1,9 @@
 # Collections Domain Glossary
 
+## Saved List Analytics Event
+
+A **Saved List Analytics Event** is a bounded, identifier-free operational record of a Saved List interaction, distinct from the client-facing `analyticsLabel` response hint. Its **Coverage Band** counts priced versus total lines; its **Estimate State** gives the first applicable coverage condition, never a money estimate.
+
 ## Saved List
 
 A **Saved List** is an account-owned, ordered set of exact Catalog Products kept for curation, tracking, sharing, copying, or launching later workflows.

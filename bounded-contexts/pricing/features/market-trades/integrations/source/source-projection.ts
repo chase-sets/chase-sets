@@ -29,10 +29,10 @@ function resolveSaleChannel(sourceType: OrderCreatedSourceType): PricingMarketTr
 }
 
 /**
- * Trades Tape projection: normalizes Ordering and Fulfillment lifecycle
+ * Trades Tape projection: normalizes Ordering, Payments, and Fulfillment lifecycle
  * events into one row per order line in `pricing_market_trades`.
  *
- * Registered against BOTH the `ordering` and `fulfillment` event
+ * Registered against the `ordering`, `payments`, and `fulfillment` event
  * subscriptions in `context.json` under the single
  * `pricing-market-trades-projection` projection name (mirrors the
  * multi-source `ordering-marketplace-supply-input-projection` pattern), so
@@ -79,6 +79,7 @@ export function buildPricingMarketTradesProjectionHandlers(db: PgQueryable): Pro
              catalog_catalog_item_id,
              product_id,
              unit_price_amount,
+             currency_code,
              quantity,
              sale_channel,
              shipment_id,
@@ -90,11 +91,12 @@ export function buildPricingMarketTradesProjectionHandlers(db: PgQueryable): Pro
              updated_at
            )
            SELECT
-             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL, NULL, NULL, false,
+             $1, $2, $3, $4, $5, $6, $7, $8, denomination.currency_code, $9, $10, NULL, NULL, NULL, false,
              linkage.self_dealing,
              CASE WHEN linkage.self_dealing THEN 'self-dealing' ELSE NULL END,
-             $11
+             GREATEST($11::timestamptz, denomination.captured_at)
            FROM linkage
+           LEFT JOIN pricing_market_trade_denominations AS denomination ON denomination.order_id = $1
            ON CONFLICT (order_id, line_id) DO UPDATE
            SET inventory_item_id = EXCLUDED.inventory_item_id,
                seller_account_id = EXCLUDED.seller_account_id,
@@ -102,6 +104,7 @@ export function buildPricingMarketTradesProjectionHandlers(db: PgQueryable): Pro
                catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
                product_id = EXCLUDED.product_id,
                unit_price_amount = EXCLUDED.unit_price_amount,
+               currency_code = EXCLUDED.currency_code,
                quantity = EXCLUDED.quantity,
                sale_channel = EXCLUDED.sale_channel,
                updated_at = EXCLUDED.updated_at`,
@@ -134,7 +137,7 @@ export function buildPricingMarketTradesProjectionHandlers(db: PgQueryable): Pro
                updated_at = $2
            WHERE order_id = $1
              AND sold_at IS NULL
-           RETURNING catalog_catalog_item_id, product_id, sold_at, exclusion_reason
+           RETURNING catalog_catalog_item_id, product_id, sold_at
          )
          INSERT INTO pricing_market_trade_rollup_rederive_queue (
            catalog_catalog_item_id, product_id, day, queued_at, generation
@@ -142,7 +145,6 @@ export function buildPricingMarketTradesProjectionHandlers(db: PgQueryable): Pro
          SELECT DISTINCT catalog_catalog_item_id, product_id,
                 (sold_at AT TIME ZONE 'UTC')::date, $2, 1
          FROM affected
-         WHERE exclusion_reason = 'self-dealing'
          ON CONFLICT (catalog_catalog_item_id, product_id, day) DO UPDATE
          SET queued_at = GREATEST(
                pricing_market_trade_rollup_rederive_queue.queued_at,
@@ -150,6 +152,43 @@ export function buildPricingMarketTradesProjectionHandlers(db: PgQueryable): Pro
              ),
              generation = pricing_market_trade_rollup_rederive_queue.generation + 1`,
         [data.orderId, data.readyForFulfillmentAt],
+      );
+    },
+    "payments.payment-captured": async (event) => {
+      const data = event.data as { orderIds: readonly string[]; currencyCode: string; capturedAt: string };
+      if (data.orderIds.length === 0) return;
+
+      await db.query(
+        `INSERT INTO pricing_market_trade_denominations (order_id, currency_code, captured_at)
+         SELECT DISTINCT order_id, upper($2), $3::timestamptz
+         FROM unnest($1::text[]) AS orders(order_id)
+         ON CONFLICT (order_id) DO UPDATE
+         SET currency_code = EXCLUDED.currency_code,
+             captured_at = EXCLUDED.captured_at`,
+        [data.orderIds, data.currencyCode, data.capturedAt],
+      );
+      await db.query(
+        `WITH affected AS (
+           UPDATE pricing_market_trades AS trade
+           SET currency_code = denomination.currency_code,
+               updated_at = GREATEST(trade.updated_at, $2::timestamptz)
+           FROM pricing_market_trade_denominations AS denomination
+           WHERE trade.order_id = denomination.order_id
+             AND trade.order_id = ANY($1::text[])
+             AND trade.currency_code IS DISTINCT FROM denomination.currency_code
+           RETURNING trade.catalog_catalog_item_id, trade.product_id, trade.sold_at
+         )
+         INSERT INTO pricing_market_trade_rollup_rederive_queue (
+           catalog_catalog_item_id, product_id, day, queued_at, generation
+         )
+         SELECT DISTINCT catalog_catalog_item_id, product_id,
+                (sold_at AT TIME ZONE 'UTC')::date, $2, 1
+         FROM affected
+         WHERE sold_at IS NOT NULL
+         ON CONFLICT (catalog_catalog_item_id, product_id, day) DO UPDATE
+         SET queued_at = GREATEST(pricing_market_trade_rollup_rederive_queue.queued_at, EXCLUDED.queued_at),
+             generation = pricing_market_trade_rollup_rederive_queue.generation + 1`,
+        [data.orderIds, data.capturedAt],
       );
     },
     "ordering.order.cancelled": async (event) => {

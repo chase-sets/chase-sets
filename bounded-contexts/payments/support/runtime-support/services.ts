@@ -23,10 +23,18 @@ import {
 import type { PrepaidRefundAuthority } from "../../features/wallet-funding/api/prepaid-refund-authority";
 import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import { walletFundingLimitsPolicy } from "../../features/wallet-funding/api/limits-policy";
+import {
+  createEvidenceWindowDisposition,
+  type EvidenceWindowDispositionOptions,
+} from "../../features/payments/api/evidence-window-disposition";
 
 export type PaymentsServiceOptions = Readonly<{
   prepaidRefundAuthority?: PrepaidRefundAuthority;
   walletFundingEligibilityResolver?: WalletFundingEligibilityResolver;
+  evidenceWindowDisposition?: Pick<
+    EvidenceWindowDispositionOptions,
+    "authority" | "requestCapturedRemedy" | "crossCheck"
+  >;
   evidenceWindowCorrelation?: import("@chase-sets/evidence-window-provider-write").ProviderWriteCorrelation;
   evidenceWindowProviderWrite?: import("@chase-sets/evidence-window-provider-write").EvidenceWindowProviderWrite;
   processorGateway?: PaymentProcessorGateway;
@@ -40,6 +48,7 @@ export type PaymentsServiceOptions = Readonly<{
 export type PaymentsServices = Readonly<{
   policies: ReturnType<typeof createPolicyRuntime>;
   walletFunding: WalletFundingServices;
+  disposeEvidenceWindow: ReturnType<typeof createEvidenceWindowDisposition>;
   evidenceWindowCorrelation?: import("@chase-sets/evidence-window-provider-write").ProviderWriteCorrelation;
   payments: ReturnType<typeof createPaymentRuntime>;
   refunds: ReturnType<typeof createRefundRuntime>;
@@ -126,6 +135,12 @@ export function createPaymentsServices(
   return {
     policies,
     walletFunding,
+    disposeEvidenceWindow: createEvidenceWindowDisposition({
+      ...options.evidenceWindowDisposition,
+      processorGateway,
+      journal: options.evidenceWindowProviderWrite,
+      providerModeObservation: options.providerModeObservation,
+    }),
     payments,
     refunds,
     publicConfig: processorGateway.getPublicConfiguration(),

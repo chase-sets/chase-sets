@@ -4,8 +4,16 @@ import { parseTypedId, type AccountId } from "@chase-sets/primitives/typed-ids";
 import type { SavedListId } from "../../saved-lists/domain";
 import { Hono } from "hono";
 import type { SavedListValuationServices } from "./runtime";
+import {
+  recordSavedListAnalytics,
+  valuationAnalytics,
+  type SavedListAnalyticsRecorder,
+} from "../../saved-lists/api/analytics-telemetry";
 
-export function createSavedListValuationRoutes(services: SavedListValuationServices) {
+export function createSavedListValuationRoutes(
+  services: SavedListValuationServices,
+  recorder?: SavedListAnalyticsRecorder,
+) {
   const app = new Hono<AuthenticatedApiEnv>();
 
   app.get("/saved-lists/:listId/valuation", async (c) => {
@@ -64,6 +72,7 @@ export function createSavedListValuationRoutes(services: SavedListValuationServi
       );
     }
 
+    recordSavedListAnalytics(recorder, [valuationAnalytics(valuation.summary.coverage)]);
     return c.json(valuation);
   });
 

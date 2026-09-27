@@ -186,6 +186,7 @@ export const TESTED_DESIGN_SYSTEM_ROOT_EXPORTS = Object.freeze([
   "NoResultsRecovery",
   "NotificationCenterSheet",
   "NumberField",
+  "NumericValue",
   "OfferCard",
   "OperationalLockBanner",
   "OperationalStatusBanner",

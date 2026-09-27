@@ -342,6 +342,61 @@ describe("Seller Desk repricing routes", () => {
       }
     });
 
+    it("keeps a resumed policy catching up through two receipt-bound timeouts before showing active", async () => {
+      stubPricingApi({ "POST /rpp_1/resume": () => jsonResponse(policy, 200, commitHeaders("49")) });
+      const response = (await detailAction({
+        request: formRequest("http://localhost/account/desk/repricing/rpp_1", {
+          intent: "resume-policy",
+          policyId: "rpp_1",
+        }),
+        params: { policyId: "rpp_1" },
+        context: undefined,
+      } as never)) as Response;
+      const href = response.headers.get("Location") ?? "";
+      expect(href).toContain("postWriteToken=");
+
+      let reads = 0;
+      const calls = stubPricingApi({
+        "GET /rpp_1": () => (++reads <= 2 ? projectionTimeout() : jsonResponse(policy)),
+        ...detailReads,
+      });
+      const read = () => detailLoader(loaderArgs(href, { policyId: "rpp_1" }));
+      expect(await read()).toEqual({ recovery: "catching-up" });
+      expect(await read()).toEqual({ recovery: "catching-up" });
+      expect(await read()).toMatchObject({ recovery: null, policy: { policyId: "rpp_1", status: "active" } });
+      expect(reads).toBe(3);
+      for (const call of calls.filter((entry) => entry.path === "/rpp_1")) {
+        expect(freshWriteReceiptOf(call)).toMatchObject({
+          sources: [{ sourceContextName: "pricing", maxGlobalPosition: "49" }],
+        });
+      }
+    });
+
+    it("does not redirect or show active when resume is rejected", async () => {
+      stubPricingApi({ "POST /rpp_1/resume": () => jsonResponse({ error: { code: "conflict" } }, 409) });
+      const result = await detailAction({
+        request: formRequest("http://localhost/account/desk/repricing/rpp_1", {
+          intent: "resume-policy",
+          policyId: "rpp_1",
+        }),
+        params: { policyId: "rpp_1" },
+        context: undefined,
+      } as never);
+
+      expect(result).toMatchObject({ error: "The repricing change could not be saved. Try again." });
+      expect(result).not.toBeInstanceOf(Response);
+    });
+
+    it("never presents active when receipt-bound reads remain non-fresh", async () => {
+      const calls = stubPricingApi({ "GET /rpp_1": projectionTimeout, ...detailReads });
+      const href = appendFreshWriteToken("/account/desk/repricing/rpp_1", pricingCommit("50"));
+
+      for (let attempt = 0; attempt < 11; attempt++) {
+        expect(await detailLoader(loaderArgs(href, { policyId: "rpp_1" }))).toEqual({ recovery: "catching-up" });
+      }
+      expect(calls.filter((call) => call.path === "/rpp_1")).toHaveLength(11);
+    });
+
     it.each([
       ["already converged", () => jsonResponse([]), false],
       ["still catching up", projectionTimeout, true],
