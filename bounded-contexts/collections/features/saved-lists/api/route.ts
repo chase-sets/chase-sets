@@ -11,6 +11,7 @@ import type {
 import { SavedListDiscoveryError, type SavedListDiscoveryServices } from "./discovery-runtime";
 import type { SavedListProductSelection } from "../domain/contracts";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import { additionAnalytics, recordSavedListAnalytics, type SavedListAnalyticsRecorder } from "./analytics-telemetry";
 
 const CAPTURE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const CAPTURE_RATE_LIMIT_MAX = 30;
@@ -76,7 +77,7 @@ export function createGuestSavedListRoutes(
   return app;
 }
 
-export function createSavedListRoutes(services: SavedListDiscoveryServices) {
+export function createSavedListRoutes(services: SavedListDiscoveryServices, recorder?: SavedListAnalyticsRecorder) {
   const app = new Hono<CollectionsApiEnv>();
 
   app.get("/account/lists/recent", async (c) => {
@@ -94,9 +95,12 @@ export function createSavedListRoutes(services: SavedListDiscoveryServices) {
     const body = await c.req.json().catch(() => ({}));
     try {
       const request = parseAdditionRequest(body);
-      return c.json(
-        await services.addProduct({ ...request, ownerAccountId: access.actor.accountId as AccountId }, context),
+      const result = await services.addProduct(
+        { ...request, ownerAccountId: access.actor.accountId as AccountId },
+        context,
       );
+      recordSavedListAnalytics(recorder, additionAnalytics(result, request.sourceSurface));
+      return c.json(result);
     } catch (error) {
       return errorResponse(error);
     }
