@@ -117,6 +117,59 @@ async function fixture(overrides: Partial<ListingTargetAuthority> = {}) {
 }
 
 describe("Listing target owner authority", () => {
+  it("accepts unchanged authority from its distinct owning event store", async () => {
+    const { eventStore: identityStore } = createInMemoryEventStore();
+    const streamId = "identity.synthetic-listing-authority";
+    await identityStore.appendToStream({
+      streamId,
+      expectedVersion: 0,
+      context,
+      events: [{ eventType: "identity.synthetic-authority-granted", payload: {} }],
+    });
+    const { services, input } = await fixture({
+      authorizeManage: async () => ({ value: true, guards: [{ streamId, expectedVersion: 1 }] }),
+    });
+
+    await expect(services.acceptListingTargetPrice(input, context)).resolves.toMatchObject({
+      listingId: input.listingId,
+      version: 2,
+    });
+    expect(await identityStore.readStream({ streamId })).toHaveLength(1);
+  });
+
+  it("rejects a changed source authority even when a local mirror still matches its prior revision", async () => {
+    const { eventStore: identityStore } = createInMemoryEventStore();
+    const streamId = "identity.synthetic-listing-authority";
+    const grant = {
+      streamId,
+      expectedVersion: 0,
+      context,
+      events: [{ eventType: "identity.synthetic-authority-granted", payload: {} }],
+    };
+    await identityStore.appendToStream(grant);
+    const { services, input, eventStore } = await fixture({
+      authorizeManage: async () => ({ value: true, guards: [{ streamId, expectedVersion: 1 }] }),
+    });
+    // A caught-up local mirror is not a lock on the separately owned source.
+    await eventStore.appendToStream(grant);
+    const append = eventStore.appendToStreams!;
+    vi.spyOn(eventStore, "appendToStreams").mockImplementationOnce(async (appends) => {
+      await identityStore.appendToStream({
+        streamId,
+        expectedVersion: 1,
+        context,
+        events: [{ eventType: "identity.synthetic-authority-revoked", payload: {} }],
+      });
+      return append(appends);
+    });
+
+    await expect(services.acceptListingTargetPrice(input, context)).rejects.toThrow();
+    expect(await eventStore.readStream({ streamId: `marketplace.listing-${input.listingId}` })).toHaveLength(1);
+    expect(
+      (await eventStore.readAll()).filter((event) => event.eventType === "marketplace.listing-request.completed"),
+    ).toHaveLength(0);
+  });
+
   it("recovers a whole native batch from an unknown post-commit outcome without resending", async () => {
     const { services, input, eventStore } = await fixture();
     const append = eventStore.appendToStreams!;
