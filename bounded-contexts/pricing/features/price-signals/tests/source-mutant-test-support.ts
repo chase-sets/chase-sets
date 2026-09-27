@@ -16,7 +16,7 @@ const cacheRoot = path.join(testsRoot, ".cache", "source-mutants");
 const importPattern = /(\bfrom\s*|\bimport\s*\(?\s*)(["'])(\.{1,2}\/[^"']+)\2/g;
 
 export type SourceMutation = Readonly<{ file: string; find: string; replace: string }>;
-export type SourceMutant = Readonly<{ id: string; description: string; mutations: readonly SourceMutation[] }>;
+export type SourceMutant = Readonly<{ id: string; defect: string; mutations: readonly SourceMutation[] }>;
 
 export async function importSourceMutant<Module>(
   mutant: SourceMutant,
@@ -92,7 +92,7 @@ export async function expectMutantRed(
     failure = error;
   }
   if (failure === undefined) {
-    throw new Error(`NEGATIVE_SURVIVED ${mutant.id}: scenario passed against ${mutant.description}`);
+    throw new Error(`NEGATIVE_SURVIVED ${mutant.id}: scenario passed against ${mutant.defect}`);
   }
   const message = failure instanceof Error ? failure.message : String(failure);
   const label = labels.find((candidate) => message.includes(`${candidate}:`));
@@ -205,7 +205,7 @@ const groupOrder = "     ORDER BY d.provider_condition, d.delivered_amount, d.an
 export const captureSourceMutants = {
   earlyPolicy: {
     id: "F1a-early-policy",
-    description: "capture instant, observation and stat authority resolved before the signal loop",
+    defect: "capture instant, observation and stat authority resolved before the signal loop",
     mutations: [
       { file: runtime, find: captureAuthority + statAuthority, replace: "" },
       { file: runtime, find: signalLoopStart, replace: captureAuthority + statAuthority + signalLoopStart },
@@ -213,8 +213,7 @@ export const captureSourceMutants = {
   },
   earlyStat: {
     id: "F1a-early-stat",
-    description:
-      "stat authority alone resolved before the signal loop at signalPassStartedAt, with no extra now() tick",
+    defect: "stat authority alone resolved before the signal loop at signalPassStartedAt, with no extra now() tick",
     mutations: [
       {
         file: runtime,
@@ -249,7 +248,7 @@ export const captureSourceMutants = {
   },
   floatingWrite: {
     id: "F1b-floating-write",
-    description: "signal write not awaited",
+    defect: "signal write not awaited",
     mutations: [
       {
         file: runtime,
@@ -260,7 +259,7 @@ export const captureSourceMutants = {
   },
   continueAfterWriteFailure: {
     id: "F1c-continue-after-write-failure",
-    description: "valid capture write failure continues to the next product instead of retryable-abort",
+    defect: "valid capture write failure continues to the next product instead of retryable-abort",
     mutations: [
       {
         file: runtime,
@@ -281,7 +280,7 @@ export const captureSourceMutants = {
   },
   advanceBeforeCommit: {
     id: "F1d-advance-before-commit",
-    description: "cursor advanced in its own transaction before the header and children transaction",
+    defect: "cursor advanced in its own transaction before the header and children transaction",
     mutations: [
       {
         file: writes,
@@ -298,7 +297,7 @@ export const captureSourceMutants = {
   },
   validOnlyAdvance: {
     id: "F6-valid-only-advance",
-    description: "cursor not advanced for configuration-invalid captures",
+    defect: "cursor not advanced for configuration-invalid captures",
     mutations: [
       {
         file: writes,
@@ -309,7 +308,7 @@ export const captureSourceMutants = {
   },
   reusedCaptureId: {
     id: "F6-reused-capture-id",
-    description: "providerCaptureId ignores captureStartedAt, so a later day reuses the first-day ID",
+    defect: "providerCaptureId ignores captureStartedAt, so a later day reuses the first-day ID",
     mutations: [
       {
         file: mapper,
@@ -320,7 +319,7 @@ export const captureSourceMutants = {
   },
   lostCurrency: {
     id: "F2-lost-currency",
-    description: "header currency mapped from constant usd instead of the observation policy",
+    defect: "header currency mapped from constant usd instead of the observation policy",
     mutations: [
       {
         file: mapper,
@@ -331,7 +330,7 @@ export const captureSourceMutants = {
   },
   ignoredCeiling: {
     id: "F2-ignored-ceiling",
-    description: "delivered-ceiling page stop disabled",
+    defect: "delivered-ceiling page stop disabled",
     mutations: [
       {
         file: client,
@@ -342,7 +341,7 @@ export const captureSourceMutants = {
   },
   receiptLeak: {
     id: "F2-client-to-receipt-leak",
-    description: "history failure copies the thrown error message into the receipt diagnostics",
+    defect: "history failure copies the thrown error message into the receipt diagnostics",
     mutations: [
       {
         file: client,
@@ -359,7 +358,7 @@ export const captureSourceMutants = {
   },
   selectorOmitsMapping: {
     id: "F4-selector-omits-target-mapping",
-    description: "selectMarketCaptureSignalWork returns catalogProductKey null for every selected SKU",
+    defect: "selectMarketCaptureSignalWork returns catalogProductKey null for every selected SKU",
     mutations: [
       {
         file: writes,
@@ -370,7 +369,7 @@ export const captureSourceMutants = {
   },
   mapperIgnoresMapping: {
     id: "F4-runtime-ignores-sku-map",
-    description: "runtime passes an empty catalogProductKeysBySku map to the mapper",
+    defect: "runtime passes an empty catalogProductKeysBySku map to the mapper",
     mutations: [
       {
         file: runtime,
@@ -381,7 +380,7 @@ export const captureSourceMutants = {
   },
   decoderBypass: {
     id: "F5-sales-decoder-bypass",
-    description: "sales envelope array check and strict sale-item decoding accept input unchanged",
+    defect: "sales envelope array check and strict sale-item decoding accept input unchanged",
     mutations: [
       {
         file: decoders,
@@ -401,12 +400,12 @@ export const captureSourceMutants = {
   },
   outcomeBypass: {
     id: "F5-outcome-bypass",
-    description: "outcome_kind recorded even when rows were rejected",
+    defect: "outcome_kind recorded even when rows were rejected",
     mutations: [{ file: mapper, find: '        ? "recorded-with-rejections"', replace: '        ? "recorded"' }],
   },
   appendOnReplay: {
     id: "F5-append-on-replay",
-    description: "replayed header path inserts child rows instead of skipping them",
+    defect: "replayed header path inserts child rows instead of skipping them",
     mutations: [
       {
         file: writes,
@@ -423,7 +422,7 @@ export const captureSourceMutants = {
   },
   groupOrderAmountFirst: {
     id: "F7a-group-order-amount-first",
-    description: "ask groups ordered by amount, condition, ordinal",
+    defect: "ask groups ordered by amount, condition, ordinal",
     mutations: [
       {
         file: queries,
@@ -434,7 +433,7 @@ export const captureSourceMutants = {
   },
   groupOrderOrdinalFirst: {
     id: "F7a-group-order-ordinal-first",
-    description: "ask groups ordered by ordinal, condition, amount",
+    defect: "ask groups ordered by ordinal, condition, amount",
     mutations: [
       {
         file: queries,
@@ -445,7 +444,7 @@ export const captureSourceMutants = {
   },
   weeklyOrderReversed: {
     id: "F7b-weekly-order-reversed",
-    description: "weekly buckets ordered by week_start before external_key",
+    defect: "weekly buckets ordered by week_start before external_key",
     mutations: [
       {
         file: queries,
@@ -456,7 +455,7 @@ export const captureSourceMutants = {
   },
   snapshotOrderReversed: {
     id: "F7b-snapshot-order-reversed",
-    description: "listing snapshots ordered by language before variant",
+    defect: "listing snapshots ordered by language before variant",
     mutations: [
       {
         file: queries,
@@ -467,12 +466,12 @@ export const captureSourceMutants = {
   },
   captureFilterRemoved: {
     id: "F7c-capture-filter-removed",
-    description: "ask evidence no longer filtered to the requested capture",
+    defect: "ask evidence no longer filtered to the requested capture",
     mutations: [{ file: queries, find: "AND d.capture_id = $3", replace: "AND $3::text IS NOT NULL" }],
   },
   competingCountRows: {
     id: "F7d-competing-count-rows",
-    description: "competing sellers counted as rows instead of distinct capture ordinals",
+    defect: "competing sellers counted as rows instead of distinct capture ordinals",
     mutations: [
       {
         file: queries,
@@ -483,7 +482,7 @@ export const captureSourceMutants = {
   },
   productHistogramRows: {
     id: "F7d-product-histogram-rows",
-    description: "product histogram counts rows instead of distinct capture ordinals",
+    defect: "product histogram counts rows instead of distinct capture ordinals",
     mutations: [
       {
         file: queries,
