@@ -859,6 +859,10 @@ describe("Saved List analytics observability", () => {
     for (const key of Object.keys(savedListAnalyticsValues) as (keyof typeof savedListAnalyticsValues)[]) {
       expect([...savedListAnalyticsValues[key]].sort()).toEqual(documentedValues[key].sort());
     }
+    const forbiddenSection = contract.split("## Forbidden keys")[1]?.split("## Derivation")[0] ?? "";
+    const forbiddenKeys = [...forbiddenSection.matchAll(/`([A-Za-z][A-Za-z0-9]*)`/g)].map(([, key]) => key);
+    const emittedLabelKeys = ["event", ...Object.keys(savedListAnalyticsValues)];
+    expect(emittedLabelKeys.filter((key) => forbiddenKeys.includes(key))).toEqual([]);
   });
 
   it("lazily creates the exact counter with the stable six-label shape", () => {
