@@ -7,6 +7,22 @@ import { spawnSync } from "node:child_process";
 import { claimAuthorization, readLaunchManifest, validateLaunchManifest } from "./test-window-admission.mjs";
 import { parsePrivateFixtures, runTestWindow } from "./test-window-main.mjs";
 import { SYNTHETIC_FIXTURES, syntheticHash, syntheticManifest } from "./test-window-fixtures.mjs";
+import { STRIPE_API_VERSION } from "../../infrastructure/stripe-config/index.ts";
+
+it("AC-02 entrypoint: synthetic API version follows the infrastructure registry and publishable keys use TEST only", () => {
+  expect(syntheticManifest().configuration.apiVersion).toBe(STRIPE_API_VERSION);
+  for (const publishableKey of [
+    "pk_live_SYNTHETIC_6733",
+    "sk_test_SYNTHETIC_6733",
+    "pk_test_",
+    "pk_test_SYNTHETIC_6733!",
+  ]) {
+    const bytes = JSON.stringify({ ...SYNTHETIC_FIXTURES, publishableKey });
+    const manifest = syntheticManifest();
+    manifest.fixturesDigest = syntheticHash(bytes);
+    expect(() => parsePrivateFixtures(bytes, manifest)).toThrow("authority-unavailable");
+  }
+});
 
 it("AC-02 entrypoint: recursive closed admission rejects unknown/mismatch/expiry/unsafe J before credentials", async () => {
   const manifest = syntheticManifest();
@@ -78,7 +94,7 @@ it("AC-02 entrypoint: recursive closed admission rejects unknown/mismatch/expiry
   expect((await runTestWindow()).classification).toBe("refused");
   expect(parsePrivateFixtures(JSON.stringify(SYNTHETIC_FIXTURES), manifest)).toEqual(SYNTHETIC_FIXTURES);
   expect(() =>
-    parsePrivateFixtures(JSON.stringify({ ...SYNTHETIC_FIXTURES, customerB: "cus_REPLACED_SYNTHETIC" }), manifest),
+    parsePrivateFixtures(JSON.stringify({ ...SYNTHETIC_FIXTURES, customerB: "cus_REPLACED_SYNTHETIC_6733" }), manifest),
   ).toThrow();
 });
 

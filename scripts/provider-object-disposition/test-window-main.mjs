@@ -15,6 +15,7 @@ import {
 } from "./test-window-admission.mjs";
 import { closedObject } from "./test-window-policy.mjs";
 import { openConfinedBrowser } from "./test-window-browser.mjs";
+import { isStripePublishableKeyForMode, isUnrestrictedStripeSecretKeyForMode } from "../stripe-key-mode.mjs";
 
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const refuse = () => {
@@ -74,7 +75,8 @@ export function parsePrivateFixtures(bytes, manifest) {
     !/^cus_[A-Za-z0-9_]+$/.test(fixtures.customerB) ||
     !/^acct_[A-Za-z0-9_]+$/.test(fixtures.connectedAccount) ||
     !/^pm_[A-Za-z0-9_]+$/.test(fixtures.paymentMethod) ||
-    !/^pk_test_[A-Za-z0-9_]+$/.test(fixtures.publishableKey) ||
+    !isStripePublishableKeyForMode(fixtures.publishableKey, "test") ||
+    !/^[a-z]+_[a-z]+_[A-Za-z0-9_]+$/.test(fixtures.publishableKey) ||
     !/^\d{1,4}\.\d{2}$/.test(fixtures.amount) ||
     Number(fixtures.amount) <= 0 ||
     !Array.isArray(fixtures.orderIds) ||
@@ -202,7 +204,8 @@ export async function runTestWindow(args = process.argv.slice(2)) {
       terminal,
       expiry.signal,
     );
-    if (!/^sk_test_[A-Za-z0-9_]+$/.test(secretKey)) refuse();
+    if (!isUnrestrictedStripeSecretKeyForMode(secretKey, "test") || !/^[a-z]+_[a-z]+_[A-Za-z0-9_]+$/.test(secretKey))
+      refuse();
     validateLaunchManifest(manifest, candidateHead);
     assertReviewedWorktree(candidateHead);
     const { bootstrapContextDatabase } = await import("../../infrastructure/bounded-context-runtime/index.ts");

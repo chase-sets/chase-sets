@@ -1,15 +1,17 @@
 import { createHash } from "node:crypto";
 import { POLICY_DIGEST, WINDOW_SCHEDULE, configurationDigest } from "./test-window-policy.mjs";
+import { STRIPE_API_VERSION } from "../../infrastructure/stripe-config/index.ts";
+import { STRIPE_KEY_CASES } from "../stripe-key-mode.mjs";
 
 export const syntheticHash = (value) => createHash("sha256").update(value).digest("hex");
 export const SYNTHETIC_FIXTURES = Object.freeze({
   buyerA: "acc_SYNTHETIC_A",
   buyerB: "acc_SYNTHETIC_B",
   seller: "acc_SYNTHETIC_SELLER",
-  customerB: "cus_SYNTHETIC_B",
-  connectedAccount: "acct_SYNTHETIC",
-  paymentMethod: "pm_SYNTHETIC",
-  publishableKey: "pk_test_SYNTHETIC",
+  customerB: "cus_SYNTHETIC_6733_B",
+  connectedAccount: "acct_SYNTHETIC_6733",
+  paymentMethod: "pm_SYNTHETIC_6733",
+  publishableKey: `${STRIPE_KEY_CASES.find((entry) => entry.family === "publishable" && entry.mode === "test").prefix}SYNTHETIC_6733`,
   paymentId: "pay_SYNTHETIC",
   setupReferenceId: "scs_SYNTHETIC",
   instrumentId: "instrument_SYNTHETIC",
@@ -37,7 +39,7 @@ export function syntheticManifest(now = Date.now()) {
       deploymentEnvironment: "test",
       providerMode: "test",
       accountsApi: "v2",
-      apiVersion: "2026-01-28.clover",
+      apiVersion: STRIPE_API_VERSION,
       configVersion: "a".repeat(40),
       policyVersion: "a".repeat(40),
       configDigest: "d".repeat(64),

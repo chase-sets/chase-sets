@@ -12,6 +12,7 @@ import { STRIPE_API_VERSION } from "../../infrastructure/stripe-config/index.ts"
 import { createAttemptBudget } from "./test-window-policy.mjs";
 import { createServerFence } from "./test-window-server.mjs";
 import { observeConnectComponent } from "./test-window-browser.mjs";
+import { isUnrestrictedStripeSecretKeyForMode } from "../stripe-key-mode.mjs";
 
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 
@@ -20,7 +21,11 @@ export function createTestWindowDriver(
   { pool, secretKey, fixtures, browser, send = globalThis.fetch, authoritySignal },
 ) {
   authoritySignal?.throwIfAborted();
-  if (manifest.configuration.apiVersion !== STRIPE_API_VERSION || !/^sk_test_[A-Za-z0-9_]+$/.test(secretKey))
+  if (
+    manifest.configuration.apiVersion !== STRIPE_API_VERSION ||
+    !isUnrestrictedStripeSecretKeyForMode(secretKey, "test") ||
+    !/^[a-z]+_[a-z]+_[A-Za-z0-9_]+$/.test(secretKey)
+  )
     throw new Error("authority-unavailable");
   const controller = new AbortController();
   const scenarioController = new AbortController();

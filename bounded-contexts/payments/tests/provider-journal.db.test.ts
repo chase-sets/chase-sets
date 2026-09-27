@@ -139,7 +139,7 @@ describe("deployed provider journal J1-J6 (synthetic DB proof)", () => {
       }
       if (url.includes("/v2/core/accounts/"))
         return Response.json({
-          id: "acct_SYNTHETIC",
+          id: "acct_SYNTHETIC_6733",
           livemode: false,
           configuration: { recipient: { capabilities: {} } },
           requirements: {},
@@ -147,8 +147,8 @@ describe("deployed provider journal J1-J6 (synthetic DB proof)", () => {
         });
       if (url.endsWith("/v1/account_sessions"))
         return Response.json({ livemode: false, client_secret: "SYNTHETIC_PRIVATE_SESSION", expires_at: 4070908800 });
-      if (url.includes("/v1/customers")) return Response.json({ id: "cus_SYNTHETIC_A", livemode: false });
-      const reference = url.includes("setup_intents") ? "seti_SYNTHETIC_LAUNCH" : "pi_SYNTHETIC_LAUNCH";
+      if (url.includes("/v1/customers")) return Response.json({ id: "cus_SYNTHETIC_6733_A", livemode: false });
+      const reference = url.includes("setup_intents") ? "seti_SYNTHETIC_6733_LAUNCH" : "pi_SYNTHETIC_6733_LAUNCH";
       if (url.endsWith("/cancel")) statuses.set(reference, "canceled");
       return Response.json({
         id: reference,
@@ -159,7 +159,7 @@ describe("deployed provider journal J1-J6 (synthetic DB proof)", () => {
     };
     const driver = createTestWindowDriver(syntheticManifest(), {
       pool: pools.payments,
-      secretKey: "sk_test_SYNTHETIC",
+      secretKey: "sk_test_SYNTHETIC_6733",
       fixtures: SYNTHETIC_FIXTURES,
       browser: {
         close: async () => {},

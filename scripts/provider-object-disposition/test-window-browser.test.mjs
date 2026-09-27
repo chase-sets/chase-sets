@@ -35,7 +35,7 @@ async function observe(mapper, source, patch = {}) {
   const result = await observeConnectComponent({
     browser,
     mapper,
-    publishableKey: "pk_test_SYNTHETIC",
+    publishableKey: "pk_test_SYNTHETIC_6733",
     clientSecret: `SYNTHETIC_SESSION_${marker}`,
     expiresAt: new Date(Date.now() + 60000).toISOString(),
     deadlineAt: new Date(Date.now() + 500).toISOString(),

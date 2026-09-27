@@ -10,6 +10,11 @@ The executable route requires an interactive Linux host, PowerShell 7, Node 24,
 the reviewed checkout's installed dependencies and Chromium, and working
 unprivileged user/network namespaces through `/usr/bin/unshare`. Chromium retains
 its sandbox. Unsupported hosts, including Windows, refuse before credential entry.
+Admission first probes the exact user/network namespace command without a browser.
+Failure diagnostics distinguish this predicate from sandboxed Chromium startup and
+report closed system error class/message/errno plus the observed AppArmor user-namespace
+restriction (0, 1 or unknown). Arbitrary launch output, argv and child errors are
+never retained. Diagnostics authorize no sandbox or namespace fallback.
 Browser routing alone is insufficient: the child has a separate network namespace
 with no external routes. Only the parent can fetch the exact public loader, with
 manual redirects, no cookies/referrer/authorization and bounded bytes/deadline.

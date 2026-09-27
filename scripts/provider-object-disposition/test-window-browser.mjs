@@ -1,6 +1,8 @@
 import { readFile, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative, isAbsolute } from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { BROWSER_BOOTSTRAP, createBrowserBootstrapTransport } from "./test-window-policy.mjs";
 
 const COMPONENTS = Object.freeze({
@@ -9,14 +11,59 @@ const COMPONENTS = Object.freeze({
   "connect-notification": "notification-banner",
 });
 
+const execute = promisify(execFile);
+const LAUNCH_MESSAGES = Object.freeze([
+  ["unshare: unshare failed: Operation not permitted", "EPERM"],
+  ["unshare: unshare failed: Permission denied", "EACCES"],
+  ["unshare: unshare failed: No space left on device", "ENOSPC"],
+  ["unshare: unshare failed: Invalid argument", "EINVAL"],
+  ["No usable sandbox!", null],
+  ["Running as root without --no-sandbox is not supported", null],
+  ["Failed to move to new namespace", null],
+  ["Target page, context or browser has been closed", null],
+]);
+
+function mediationFailure(stage, error, userNamespaceRestriction = "unknown") {
+  // Only pre-SDK system diagnostics are classified. Never retain the original
+  // exception, Playwright call log, argv, child output or arbitrary marker text.
+  const text = `${typeof error?.message === "string" ? error.message : ""}\n${typeof error?.stderr === "string" ? error.stderr : ""}`;
+  const matched = LAUNCH_MESSAGES.find(([message]) => text.includes(message));
+  const errorClass = ["Error", "TypeError", "TimeoutError"].includes(error?.name) ? error.name : "unknown";
+  const errno = ["EPERM", "EACCES", "ENOENT", "ENOSPC", "EINVAL", "EAGAIN"].includes(error?.code)
+    ? error.code
+    : (matched?.[1] ?? null);
+  const diagnostic = {
+    stage,
+    errorClass,
+    message: matched?.[0] ?? (errno === "ENOENT" ? "executable-not-found" : "unclassified-launch-failure"),
+    errno,
+    userNamespaceRestriction,
+  };
+  return new Error(`browser-mediation-unavailable: ${JSON.stringify(diagnostic)}`);
+}
+
 /**
  * The browser has no external network namespace. All permitted bytes arrive via
  * the automation pipe after the parent applies the one-resource policy. Routing
  * alone does not confine WebRTC, background clients or Chromium's network service.
  */
 export async function openConfinedBrowser() {
-  if (process.platform !== "linux" || typeof process.getuid !== "function" || process.getuid() === 0)
-    throw new Error("browser-mediation-unavailable");
+  if (process.platform !== "linux" || typeof process.getuid !== "function") throw mediationFailure("linux-required");
+  if (process.getuid() === 0) throw mediationFailure("nonroot-required");
+  const restriction = await readFile("/proc/sys/kernel/apparmor_restrict_unprivileged_userns", "utf8").catch(
+    () => "unknown",
+  );
+  const userNamespaceRestriction = ["0", "1"].includes(restriction.trim()) ? Number(restriction.trim()) : "unknown";
+  try {
+    // This is the launch's exact namespace predicate, with no browser or SDK.
+    await execute("/usr/bin/unshare", ["--user", "--map-current-user", "--net", "--", "/usr/bin/true"], {
+      env: { PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C" },
+      timeout: 5000,
+      maxBuffer: 4096,
+    });
+  } catch (error) {
+    throw mediationFailure("user-network-namespace", error, userNamespaceRestriction);
+  }
   const { chromium } = await import("@playwright/test");
   const root = await realpath(tmpdir());
   const profile = await mkdtemp(join(root, "provider-window-browser-"));
@@ -56,9 +103,9 @@ export async function openConfinedBrowser() {
       ],
       chromiumSandbox: true,
     });
-  } catch {
+  } catch (error) {
     await removeProfile();
-    throw new Error("browser-mediation-unavailable");
+    throw mediationFailure("sandboxed-chromium", error, userNamespaceRestriction);
   }
   let closing;
   return {

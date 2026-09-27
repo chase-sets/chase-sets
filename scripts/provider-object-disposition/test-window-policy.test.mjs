@@ -43,7 +43,7 @@ describe("AC-03 browser fence", () => {
       "https://js.stripe.com/v1.0/connect.js",
       "https://api.stripe.com/v1/customers",
       "https://api.stripe.com/v1/payment_intents/search",
-      "https://merchant-ui-api.stripe.com/v1/accounts/acct_SYNTHETIC",
+      "https://merchant-ui-api.stripe.com/v1/accounts/acct_SYNTHETIC_6733",
       "https://arbitrary.stripe.com/v1.0/connect.js",
       "file:///SYNTHETIC",
       "ws://SYNTHETIC.invalid",

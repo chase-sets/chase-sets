@@ -36,10 +36,10 @@ function subject(patch = {}) {
     send: async (target, init) => {
       requests.push({ target, init });
       return Response.json({
-        id: "pi_SYNTHETIC",
+        id: "pi_SYNTHETIC_6733",
         livemode: false,
         status: "requires_confirmation",
-        latest_charge: "ch_SYNTHETIC_OBSERVED",
+        latest_charge: "ch_SYNTHETIC_6733_OBSERVED",
       });
     },
     ...patch,
@@ -57,33 +57,33 @@ function subject(patch = {}) {
 it("AC-03 v2/foreign refs: exact includes and private/J membership; lists, aliases, queries, duplicate includes, foreign references and writes refuse", async () => {
   const test = subject();
   test.row.state = "succeeded";
-  test.row.providerReference = "pi_SYNTHETIC";
+  test.row.providerReference = "pi_SYNTHETIC_6733";
   const get = (path) =>
     test.fence.fetch(`https://api.stripe.com${path}`, {
       headers: { "Stripe-Version": test.headers["Stripe-Version"] },
     });
-  await get("/v1/payment_intents/pi_SYNTHETIC");
-  await get("/v1/charges/ch_SYNTHETIC_OBSERVED");
-  await get("/v1/customers/cus_SYNTHETIC_B");
+  await get("/v1/payment_intents/pi_SYNTHETIC_6733");
+  await get("/v1/charges/ch_SYNTHETIC_6733_OBSERVED");
+  await get("/v1/customers/cus_SYNTHETIC_6733_B");
   test.activate("connect-setup");
   const account =
-    "/v2/core/accounts/acct_SYNTHETIC?include%5B0%5D=configuration.recipient&include%5B1%5D=requirements&include%5B2%5D=defaults";
+    "/v2/core/accounts/acct_SYNTHETIC_6733?include%5B0%5D=configuration.recipient&include%5B1%5D=requirements&include%5B2%5D=defaults";
   await get(account);
   expect(test.requests).toHaveLength(4);
   for (const path of [
     "/v1/customers",
     "/v1/payment_intents",
     "/v1/payment_intents/search",
-    "/v1/payment_intents/pi_FOREIGN",
-    "/v1/charges/ch_FOREIGN",
-    "/v1/customers/cus_FOREIGN",
-    "/v2/core/accounts/acct_FOREIGN",
-    "/v2/core/accounts/acct_SYNTHETIC",
+    "/v1/payment_intents/pi_SYNTHETIC_6733_FOREIGN",
+    "/v1/charges/ch_SYNTHETIC_6733_FOREIGN",
+    "/v1/customers/cus_SYNTHETIC_6733_FOREIGN",
+    "/v2/core/accounts/acct_SYNTHETIC_6733_FOREIGN",
+    "/v2/core/accounts/acct_SYNTHETIC_6733",
     `${account}&include%5B2%5D=defaults`,
-    "/v1/payment_intents/pi_SYNTHETIC?",
-    "/v1/payment_intents/pi_SYNTHETIC#",
-    "/v1/payment_intents/%70i_SYNTHETIC",
-    "/v1/alias/../payment_intents/pi_SYNTHETIC",
+    "/v1/payment_intents/pi_SYNTHETIC_6733?",
+    "/v1/payment_intents/pi_SYNTHETIC_6733#",
+    "/v1/payment_intents/%70i_SYNTHETIC_6733",
+    "/v1/alias/../payment_intents/pi_SYNTHETIC_6733",
   ])
     await expect(get(path)).rejects.toThrow("capture-target");
   for (const method of ["HEAD", "OPTIONS", "DELETE", "PATCH", "PUT", "POST"])
@@ -92,7 +92,7 @@ it("AC-03 v2/foreign refs: exact includes and private/J membership; lists, alias
     ).rejects.toThrow("capture-target");
   expect(test.requests).toHaveLength(4);
   test.row.binding = { ...test.row.binding, ownerAccountId: "acc_FOREIGN" };
-  await expect(get("/v1/payment_intents/pi_SYNTHETIC")).rejects.toThrow("capture-target");
+  await expect(get("/v1/payment_intents/pi_SYNTHETIC_6733")).rejects.toThrow("capture-target");
 });
 
 it("AC-04 lifecycle: immutable committed body/key/version/deadline, accepted response loss and one equal replay", async () => {
@@ -130,7 +130,7 @@ it("AC-04 lifecycle: immutable committed body/key/version/deadline, accepted res
 
 it("AC-03 staging/refusal: missing/true livemode and redirects cannot yield positive mode evidence or more sends", async () => {
   for (const response of [
-    Response.json({ id: "pi_SYNTHETIC" }),
+    Response.json({ id: "pi_SYNTHETIC_6733" }),
     Response.json({ livemode: true }),
     new Response("", { status: 302, headers: { location: "https://api.stripe.com/v1/customers" } }),
   ]) {
@@ -158,19 +158,19 @@ it("AC-03 staging/refusal: missing/true livemode and redirects cannot yield posi
 it("AC-03 v2/foreign refs: cancellation rechecks the original object's membership", async () => {
   const test = subject();
   test.row.state = "succeeded";
-  test.row.providerReference = "pi_SYNTHETIC";
+  test.row.providerReference = "pi_SYNTHETIC_6733";
   const cancel = structuredClone(test.row);
   cancel.key.operation = "cancel";
   cancel.binding.writerKind = "cancel-payment";
   cancel.state = "pending";
-  cancel.envelope.endpoint = "/v1/payment_intents/pi_SYNTHETIC/cancel";
-  cancel.envelope.target = "pi_SYNTHETIC";
+  cancel.envelope.endpoint = "/v1/payment_intents/pi_SYNTHETIC_6733/cancel";
+  cancel.envelope.target = "pi_SYNTHETIC_6733";
   cancel.envelope.bodyText = null;
   test.rows.push(cancel);
   test.row.binding = { ...test.row.binding, ownerAccountId: "acc_FOREIGN" };
   test.activate(null, "disposition");
   await expect(
-    test.fence.fetch("https://api.stripe.com/v1/payment_intents/pi_SYNTHETIC/cancel", {
+    test.fence.fetch("https://api.stripe.com/v1/payment_intents/pi_SYNTHETIC_6733/cancel", {
       method: "POST",
       headers: { ...test.headers, "Idempotency-Key": `evidence-window/v1:${test.row.key.windowId}:2:1:cancel` },
     }),
