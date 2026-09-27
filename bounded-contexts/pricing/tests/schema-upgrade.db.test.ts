@@ -107,7 +107,8 @@ describeDb("pricing schema upgrades", () => {
     expect(
       (await pool.query(`SELECT COUNT(*)::integer AS count FROM pricing_product_market_aggregates`)).rows[0],
     ).toEqual({ count: 2 });
-    await pool.query(`UPDATE pricing_market_trades SET excluded = true WHERE order_id = 'ord_unknown'`);
+    await pool.query(`UPDATE pricing_market_trades
+      SET excluded = true, exclusion_reason = 'fraud-flagged' WHERE order_id = 'ord_unknown'`);
     await pool.query(`INSERT INTO pricing_market_trade_rollup_rederive_queue
       (catalog_catalog_item_id, product_id, day, queued_at) VALUES ('cat', 'usd', '2026-07-01', now())`);
     await expect(bootstrapContextDatabase(pricingModule, pool)).rejects.toThrow("queue must drain");
@@ -187,9 +188,9 @@ describeDb("pricing schema upgrades", () => {
     );
     await pool.query(
       `INSERT INTO pricing_daily_product_rollups (
-         catalog_catalog_item_id, product_id, day, median_price_amount,
+         catalog_catalog_item_id, product_id, day, currency_code, median_price_amount,
          unit_volume, trade_count, verified_trade_count, updated_at
-       ) VALUES ('cat_deployed', 'prod_deployed', '2026-07-01', 15.00, 8, 8, 0, now())`,
+       ) VALUES ('cat_deployed', 'prod_deployed', '2026-07-01', 'USD', 15.00, 8, 8, 0, now())`,
     );
 
     await bootstrapContextDatabase(pricingModule, pool);

@@ -39,7 +39,8 @@ export const pricingEnglishTranslations = {
   "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.no.data": "No data yet",
   "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.home": "Home",
   "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.price.history": "Price history",
-  "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.price.history.currency": "Price history ({currencyCode})",
+  "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.price.history.currency":
+    "Price history ({currencyCode})",
   "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.chart.label": "Price history for {item}",
   "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.chart.point": "{date}: {amount}",
   "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.market.stats": "Market stats",

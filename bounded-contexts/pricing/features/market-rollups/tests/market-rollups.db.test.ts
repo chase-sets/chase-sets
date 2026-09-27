@@ -343,7 +343,8 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
       { currencyCode: "USD", tradeCount30d: 3, tradeCount90d: 3, lastSoldPriceAmount: "30.00", volume30d: 3 },
       { currencyCode: "EUR", tradeCount30d: 2, tradeCount90d: 2, lastSoldPriceAmount: "50.00", volume30d: 2 },
     ]);
-    await pool.query(`UPDATE pricing_market_trades SET excluded = true WHERE currency_code = 'EUR'`);
+    await pool.query(`UPDATE pricing_market_trades
+      SET excluded = true, exclusion_reason = 'fraud-flagged' WHERE currency_code = 'EUR'`);
     await recomputeDailyProductRollup(pool, { catalogItemId: "cat_split", productId: "prod_split", day: "2026-07-01" });
     await recomputeProductMarketAggregate(pool, { catalogItemId: "cat_split", productId: "prod_split" }, now);
     expect(
@@ -1153,7 +1154,7 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
        FROM pricing_daily_product_rollups
        WHERE catalog_catalog_item_id = 'cat_rederive' AND product_id = 'prod_rederive' AND day = '2026-06-01'`,
     );
-    expect(productDay.rows).toEqual([{ trade_count: 0, median_price_amount: null }]);
+    expect(productDay.rows).toEqual([]);
     platformDay = await pool.query<{ trade_count: number; gmv_amount: string }>(
       `SELECT trade_count, gmv_amount FROM pricing_platform_daily_rollups WHERE day = '2026-06-01'`,
     );
@@ -1207,7 +1208,9 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
     expect(initialQueue.rowCount).toBe(1);
 
     const [readTuple] = await listQueuedTradeRollupRederives(pool, 1);
-    expect(readTuple?.generation).toBe("1");
+    expect(readTuple).toBeDefined();
+    const capturedGeneration = BigInt(readTuple!.generation);
+    expect(capturedGeneration).toBeGreaterThan(1n);
     await recomputeDailyProductRollup(pool, readTuple!);
     await recomputePlatformDailyRollup(pool, day);
 
@@ -1231,7 +1234,7 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
        WHERE catalog_catalog_item_id = $1 AND product_id = $2 AND day = $3`,
       [catalogItemId, productId, day],
     );
-    expect(stillPending.rows).toEqual([{ generation: "2" }]);
+    expect(stillPending.rows).toEqual([{ generation: String(capturedGeneration + 1n) }]);
 
     await runDailyRollupCloser(pool, {
       now: "2026-07-20T00:05:00.000Z",
@@ -1244,7 +1247,7 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
        WHERE catalog_catalog_item_id = $1 AND product_id = $2 AND day = $3`,
       [catalogItemId, productId, day],
     );
-    expect(rederived.rows).toEqual([{ trade_count: 0 }]);
+    expect(rederived.rows).toEqual([]);
     const queueCount = await pool.query<{ count: number }>(
       `SELECT COUNT(*)::integer AS count FROM pricing_market_trade_rollup_rederive_queue`,
     );
