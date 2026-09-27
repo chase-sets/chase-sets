@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { publicPolicyRegistry, type PublicPolicyRegistryEntry } from "../domain/policy-registry";
 import { renderPublicPolicyPublicationContracts } from "./compile-policy-publications.mjs";
+import { computePrivacyCitedSourceDigest } from "./privacy-product-truth-inventory.mjs";
+import { privacyProductTruthBindings } from "../domain/privacy-policy-product-truth";
 
 const integrationsDirectory = dirname(fileURLToPath(import.meta.url));
 const packageRoot = resolve(integrationsDirectory, "../../..");
@@ -222,6 +224,60 @@ describe("public policy corpus compiler", () => {
     const index = regenerated.find((module) => module.relativePath === "index.ts");
     expect(index?.content).toBe(baseline.find((module) => module.relativePath === "index.ts")?.content);
   });
+
+  it.each(["prose", "manifest"] as const)(
+    "isolates charge-authority %s edits to two fingerprints without metadata or Privacy inventory changes",
+    async (surface) => {
+      const subjects = new Map([
+        ["payments-terms", "charge-timing-and-statement-descriptor"],
+        ["privacy-policy", "stripe-managed-processing"],
+      ]);
+      const digestBefore = computePrivacyCitedSourceDigest(repoRoot, privacyProductTruthBindings);
+      const baseline = await renderPublicPolicyPublicationContracts();
+      const editedRegistry = publicPolicyRegistry.map((entry) => ({
+        ...entry,
+        artifact: {
+          ...entry.artifact,
+          sections: entry.artifact.sections.map((section) =>
+            section.id !== subjects.get(entry.artifact.metadata.policyKey)
+              ? section
+              : {
+                  ...section,
+                  ...(surface === "prose"
+                    ? { draftText: `${section.draftText} Synthetic content-only control.` }
+                    : {
+                        reviewManifest: {
+                          ...section.reviewManifest,
+                          scopeNote: `${section.reviewManifest.scopeNote} Synthetic manifest-only control.`,
+                        },
+                      }),
+                },
+          ),
+        },
+      }));
+      for (const [index, entry] of editedRegistry.entries()) {
+        expect(entry.artifact.metadata).toEqual(publicPolicyRegistry[index].artifact.metadata);
+      }
+      const regenerated = await renderPublicPolicyPublicationContracts(editedRegistry);
+      const changed = regenerated.filter(
+        (module) =>
+          baseline.find(({ relativePath }) => relativePath === module.relativePath)?.content !== module.content,
+      );
+      expect(changed.map(({ relativePath }) => relativePath)).toEqual([
+        "privacy-policy-publication.ts",
+        "payments-terms-publication.ts",
+      ]);
+      for (const module of changed) {
+        const before = baseline.find(({ relativePath }) => relativePath === module.relativePath)!.content;
+        const stripFingerprint = (content: string) =>
+          content.replace(/contentFingerprint: "sha256:[a-f0-9]{64}"/, 'contentFingerprint: "<CONTENT-FINGERPRINT>"');
+        expect(stripFingerprint(module.content)).toBe(stripFingerprint(before));
+        expect(module.content).toContain("consentActivatable: false");
+      }
+      expect(regenerated).toHaveLength(8);
+      expect(computePrivacyCitedSourceDigest(repoRoot, privacyProductTruthBindings)).toBe(digestBefore);
+    },
+  );
 
   it("isolates three simultaneous content-only edits to three fingerprint-only publication records", async () => {
     const editedPolicyKeys = ["terms-of-service", "privacy-policy", "authenticity-service-terms"] as const;

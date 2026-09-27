@@ -163,6 +163,31 @@ describe("payments terms artifact", () => {
     expect(refs).toContain("runtime.ts:1980-2000");
   });
 
+  it("distinguishes Order creation, payment requests and recorded capture without promising statement display", () => {
+    const section = paymentsTermsPolicyArtifact.sections.find(
+      (candidate) => candidate.id === "charge-timing-and-statement-descriptor",
+    )!;
+    expect(section.draftText).toContain("creates your Orders before requesting payment");
+    expect(section.draftText).toContain("does not itself establish that funds have been captured");
+    expect(section.draftText).toContain("authorization is distinct from capture");
+    expect(section.draftText).toContain("webhook or reconciliation");
+    expect(section.draftText).toContain("sends a statement descriptor suffix to Stripe");
+    const allClaims = [
+      section.draftText,
+      section.reviewManifest.scopeNote,
+      ...section.reviewManifest.assumptions.map(({ assertion }) => assertion),
+    ].join(" ");
+    expect(allClaims).not.toMatch(
+      /charges your selected payment method when you complete|immediately confirming|before the purchase is recorded|no repository evidence shows|statement will carry|Chase Sets does not control/i,
+    );
+    expect(section.reviewManifest.productTruthRefs).toContain(
+      "bounded-contexts/checkout/features/sessions/api/route.ts:1388-1437",
+    );
+    expect(section.reviewManifest.openQuestions.join(" ")).toMatch(/statement.*display/i);
+    expect(section.reviewManifest.openQuestions.join(" ")).toMatch(/network.*control/i);
+    expect(section.reviewStatus).toBe("counsel-required");
+  });
+
   it("does not assert Wallet-balance no-interest as settled while the sibling Terms artifact leaves it unresolved (#6052 finding 2)", () => {
     const section = paymentsTermsPolicyArtifact.sections.find((candidate) => candidate.id === "no-interest");
     expect(section?.draftText).not.toContain("reflected in your Wallet balance under the Terms of Service");

@@ -62,13 +62,32 @@ export const canonicalClaimRegistry: Readonly<Record<CanonicalClaimId, Canonical
   "payment-charge-timing-and-capture": {
     status: "settled",
     description:
-      "Stripe charges/captures the buyer's selected payment method as part of completing a Marketplace " +
-      "purchase, following Chase Sets' standard payment-session-create/confirm and capture path.",
+      "For ordinary Marketplace payments with a nonzero processor amount, Chase Sets requests a Stripe " +
+      "payment session or confirmation of a saved payment method; creation and confirmation requests do not " +
+      "establish capture. The Stripe adapter distinguishes setup and authorization from capture outcomes, " +
+      "and Payments records capture from mapped webhook or reconciliation results.",
     productTruthRefs: [
       "bounded-contexts/payments/features/payments/api/runtime.ts:1980-2000",
-      "infrastructure/stripe-payments/index.ts:1602-1660",
+      "infrastructure/stripe-payments/index.ts:1616-1670",
+      "infrastructure/stripe-payments/index.ts:1672-1761",
+      "bounded-contexts/payments/features/payments/api/runtime.ts:2108-2115",
+      "infrastructure/stripe-payments/index.ts:920-1002",
+      "infrastructure/stripe-payments/index.ts:1047-1073",
+      "bounded-contexts/payments/features/payments/api/runtime.ts:2549-2569",
+      "infrastructure/stripe-payments/index.ts:401-476",
+      "bounded-contexts/payments/features/payments/api/runtime.ts:280-310",
+      "bounded-contexts/payments/features/payments/api/runtime.ts:1253-1295",
+      "bounded-contexts/payments/features/payments/domain/domain.ts:968-1005",
     ],
-    requiredEvidenceKeywords: ["createPaymentSession", "payment_intent", "RecordPaymentCapture"],
+    requiredEvidenceKeywords: [
+      "createPaymentSession",
+      "payment_intent",
+      "pending-confirmation",
+      "payment-authorized",
+      "payment-captured",
+      "RecordPaymentCapture",
+      "mapPaymentIntentReconciliationResult",
+    ],
   },
   "payment-chargeback-recovery-mechanism": {
     status: "settled",
