@@ -820,8 +820,8 @@ describe("repository-wide SQL execution partition", () => {
     const legacyPartition = partitionFromFiles(repoRoot, legacyModules);
     const partition = partitionFromFiles(repoRoot, governedModules);
 
-    expect(legacyModules).toHaveLength(2508);
-    expect(governedModules).toHaveLength(2503);
+    expect(legacyModules).toHaveLength(2511);
+    expect(governedModules).toHaveLength(2506);
     expect(removedModules).toEqual(exactRemovedModules);
     expect(removedClassification.modules.map(({ file, outcome }) => ({ file, outcome }))).toEqual(
       exactRemovedModules.map((file) => ({ file, outcome: "not-sql" })),
@@ -829,14 +829,14 @@ describe("repository-wide SQL execution partition", () => {
     expect(removedClassification.violations).toEqual([]);
     expect(removedClassification.unresolvedMemberRoots).toEqual({ count: 0, fileList: [] });
 
-    expect(legacyPartition.sqlExecuting).toHaveLength(438);
+    expect(legacyPartition.sqlExecuting).toHaveLength(440);
     expect(legacyPartition.unprovableForm).toHaveLength(3);
-    expect(legacyPartition.notSql).toHaveLength(2067);
+    expect(legacyPartition.notSql).toHaveLength(2068);
     expect(legacyPartition.unresolvedMemberRoots.count).toBe(278);
     expect(partition.sqlExecuting).toEqual(legacyPartition.sqlExecuting);
     expect(partition.unprovableForm).toEqual(legacyPartition.unprovableForm);
     expect(partition.notSql).toEqual(legacyPartition.notSql.filter((file) => !exactRemovedModules.includes(file)));
-    expect(partition.notSql).toHaveLength(2062);
+    expect(partition.notSql).toHaveLength(2063);
     expect(partition.sqlExecuting).toContain("bounded-contexts/channels/features/credentials/api/runtime.ts");
     expect(partition.notSql).toEqual(
       expect.arrayContaining([
@@ -847,6 +847,13 @@ describe("repository-wide SQL execution partition", () => {
       ]),
     );
     expect(partition.sqlExecuting).toContain("bounded-contexts/channels/features/reconciliation/read-model/detail.ts");
+    expect(partition.sqlExecuting).toEqual(
+      expect.arrayContaining([
+        "bounded-contexts/ordering/features/orders/api/evidence-window-source-process.ts",
+        "bounded-contexts/ordering/features/orders/api/evidence-window-source-release.ts",
+      ]),
+    );
+    expect(partition.notSql).toContain("infrastructure/platform-runtime/evidence-window-source-recovery.ts");
     expect(partition.notSql).toContain("bounded-contexts/channels/features/reconciliation/api/route.ts");
     expect(partition.unresolvedMemberRoots).toEqual(legacyPartition.unresolvedMemberRoots);
     expect(partition.sqlExecuting.filter((file) => !legacyPartition.sqlExecuting.includes(file))).toEqual([]);
