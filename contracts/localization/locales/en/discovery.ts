@@ -211,8 +211,7 @@ export const discoveryEnglishTranslations = {
   "discovery.features.search.ui.searchPage.reference.facet.description":
     "Narrow by rich catalog references on matching items.",
   "discovery.features.search.ui.searchPage.filters": "Filters",
-  "discovery.features.search.ui.searchPage.find.cards.comics.figures.sneakers.and":
-    "Find trading cards worth chasing.",
+  "discovery.features.search.ui.searchPage.find.cards.comics.figures.sneakers.and": "Find trading cards worth chasing.",
   "discovery.features.search.ui.searchPage.get.alerts.when.supply.matches":
     "Get alerted when active supply matches this search.",
   "discovery.features.search.ui.searchPage.japanese": "Japanese",
