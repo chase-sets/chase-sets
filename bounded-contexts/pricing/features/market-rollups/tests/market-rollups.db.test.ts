@@ -512,6 +512,55 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
     expect(after.rows).toEqual(before.rows);
   });
 
+  it("drains denomination rebuild tuples without changing any rollup or aggregate value", async () => {
+    const pool = pools.pricing;
+    const handlers = tradeHandlers(pool);
+    const capturedAt = "2026-07-01T19:30:00.000Z";
+    async function capture() {
+      await handlers["payments.payment-captured"]!(
+        event(
+          "payments.payment-captured",
+          { orderIds: ["ord_1", "ord_2", "ord_3", "ord_4"], currencyCode: "usd", capturedAt },
+          capturedAt,
+        ),
+      );
+    }
+    async function values() {
+      const tables = [
+        "pricing_daily_product_rollups",
+        "pricing_product_market_aggregates",
+        "pricing_platform_daily_rollups",
+      ] as const;
+      const results = [];
+      for (const table of tables) {
+        const result = await pool.query<{ value: object }>(
+          `SELECT to_jsonb(r) - 'updated_at' AS value FROM ${table} AS r
+           ORDER BY (to_jsonb(r) - 'updated_at')::text`,
+        );
+        results.push(result.rows.map((row) => row.value));
+      }
+      return results;
+    }
+
+    await seedJuly1Trades(pool);
+    await capture();
+    const now = "2026-07-20T00:00:00.000Z";
+    await runDailyRollupCloser(pool, { now, trailingWindowDays: 3 });
+    const before = await values();
+    expect(before.map((rows) => rows.length)).toEqual([1, 1, 1]);
+
+    await pool.query(
+      `TRUNCATE pricing_market_trades, pricing_market_trade_denominations, pricing_market_trade_rollup_rederive_queue`,
+    );
+    await capture();
+    await seedJuly1Trades(pool);
+    expect((await listQueuedTradeRollupRederives(pool, 100)).length).toBe(1);
+    const result = await runDailyRollupCloser(pool, { now, trailingWindowDays: 3 });
+    expect(result.rollupDaysRecomputed).toBe(1);
+    expect(await listQueuedTradeRollupRederives(pool, 100)).toEqual([]);
+    expect(await values()).toEqual(before);
+  });
+
   it("re-derives a bucketed weekly series with SUM-combined volume/count and a gated weighted median", async () => {
     const pool = pools.pricing;
     await seedJuly1Trades(pool); // 3 included trades on 2026-07-01, median 20.00
