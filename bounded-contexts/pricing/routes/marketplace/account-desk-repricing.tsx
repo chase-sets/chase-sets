@@ -1,4 +1,7 @@
 import { t } from "@chase-sets/localization";
+import { useEffect, useState } from "react";
+import { Button } from "@chase-sets/design-system";
+import { PolicyEditorDrawer } from "../../features/repricing-policies/ui/policy-editor-drawer";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useLocation, useNavigation, useSubmit } from "react-router";
 import {
@@ -13,6 +16,7 @@ import contextManifest from "../../context.json";
 import {
   createPricingRequestApiClient,
   PricingApiError,
+  pricingValidationMessages,
   type RepricingDryRun,
   type RepricingPolicyListItem,
 } from "../../support/request-support/api-client";
@@ -109,6 +113,13 @@ export function navigateAfterWriteToRepricingDesk(commandResult: unknown) {
 export const action = defineFormAction({
   authorization: { permission: "pricing.manage" },
   intents: {
+    "create-policy": async ({ request, formData }) => {
+      const result = await createPricingRequestApiClient(request).createRepricingPolicy({
+        dryRunId: String(formData.get("dryRunId") ?? ""),
+        name: String(formData.get("name") ?? ""),
+      });
+      return redirect(await navigateAfterWriteToRepricingDesk(result));
+    },
     "pause-policy": async ({ request, formData }) => {
       const result = await createPricingRequestApiClient(request).pauseRepricingPolicy(repricingPolicyIdFrom(formData));
       return redirect(await navigateAfterWriteToRepricingDesk(result));
@@ -129,7 +140,10 @@ export const action = defineFormAction({
     },
   },
   onUnknownIntent: () => ({ error: t("pricing.routes.marketplace.accountDeskRepricing.unknownAction") }),
-  onError: () => ({ error: t("pricing.routes.marketplace.accountDeskRepricing.actionFailed") }),
+  onError: (error) => ({
+    error: t("pricing.routes.marketplace.accountDeskRepricing.actionFailed"),
+    details: pricingValidationMessages(error),
+  }),
 });
 
 export const meta: MetaFunction = () =>
@@ -140,28 +154,47 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceSellerDeskRepricingRoute() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>() as { error?: string } | undefined;
+  const actionData = useActionData<typeof action>() as { error?: string; details?: readonly string[] } | undefined;
   const navigation = useNavigation();
   const location = useLocation();
   const submit = useSubmit();
+  const [editorOpen, setEditorOpen] = useState(false);
+  useEffect(() => setEditorOpen(false), [location.key]);
   useRepricingDeskCatchUp(data.catchingUp);
   const pendingPolicyId = navigation.formData ? repricingPolicyIdFrom(navigation.formData) : "";
   const submitIntent = (intent: string, policyId?: string) =>
     submit(policyId ? { intent, policyId } : { intent }, { method: "post" });
 
   return (
-    <PricingRepricingPolicyListPage
-      policies={data.policies}
-      halt={data.halt}
-      dryRuns={data.dryRuns}
-      loading={navigation.state === "loading" && !navigation.formData}
-      loadFailed={data.loadFailed}
-      catchingUpHref={data.catchingUp ? `${location.pathname}${location.search}` : null}
-      errorMessage={actionData && "error" in actionData ? String(actionData.error ?? "") : null}
-      busyPolicyId={pendingPolicyId || null}
-      onHaltChange={(engaged) => submitIntent(engaged ? "engage-halt" : "release-halt")}
-      onPause={(policyId) => submitIntent("pause-policy", policyId)}
-      onResume={(policyId) => submitIntent("resume-policy", policyId)}
-    />
+    <>
+      <PricingRepricingPolicyListPage
+        createAction={
+          <Button onClick={() => setEditorOpen(true)}>
+            {t("pricing.features.repricingPolicies.ui.editor.create")}
+          </Button>
+        }
+        policies={data.policies}
+        halt={data.halt}
+        dryRuns={data.dryRuns}
+        loading={navigation.state === "loading" && !navigation.formData}
+        loadFailed={data.loadFailed}
+        catchingUpHref={data.catchingUp ? `${location.pathname}${location.search}` : null}
+        errorMessage={actionData && "error" in actionData ? String(actionData.error ?? "") : null}
+        busyPolicyId={pendingPolicyId || null}
+        onHaltChange={(engaged) => submitIntent(engaged ? "engage-halt" : "release-halt")}
+        onPause={(policyId) => submitIntent("pause-policy", policyId)}
+        onResume={(policyId) => submitIntent("resume-policy", policyId)}
+      />
+      {editorOpen ? (
+        <PolicyEditorDrawer
+          onClose={() => setEditorOpen(false)}
+          saving={navigation.state === "submitting"}
+          saveErrors={actionData?.details?.length ? actionData.details : actionData?.error ? [actionData.error] : []}
+          onSave={({ body, dryRunId }) =>
+            submit({ intent: "create-policy", name: body.name, dryRunId: dryRunId ?? "" }, { method: "post" })
+          }
+        />
+      ) : null}
+    </>
   );
 }

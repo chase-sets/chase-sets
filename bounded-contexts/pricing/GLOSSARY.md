@@ -2,6 +2,20 @@
 
 This glossary defines the canonical terminology for the Pricing bounded context.
 
+## Repricing Preset
+
+A **Repricing Preset** is a named strategy that compiles to a complete Repricing Policy body from
+at most two seller knobs and a floor prompt. A single-rule preset opens in the structured editor;
+a multi-rule preset opens in the advanced ordered-rule editor without losing its trailing default.
+
+## Authoring Prerequisites
+
+**Authoring Prerequisites** are the account-wide facts returned by the Pricing-owned
+`authoring-prerequisites` read. `listingCurrencyCodes` is the sorted distinct non-null currency codes
+of all the account's listings. `hasCostBasis` is true when at least one listing links to an inventory
+item owned by that same account with a non-null acquisition cost amount, including zero. Neither
+fact is filtered by policy scope, listing status, assignment or halt. An unavailable read is not absence.
+
 ## Economics
 
 **Economics** is the replayable seller fact set Pricing resolves at one evaluation instant for either the native marketplace or an account-qualified Channel Connection. The native marketplace binds Commercial Terms directly; a Channel Connection binds its Channels-owned identity before provider selection. Both scopes bind currency, Inventory cost evidence, observed capital-cycle evidence, policy defaults, and seller overrides without changing any authoritative source.

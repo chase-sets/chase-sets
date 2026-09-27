@@ -3,12 +3,9 @@ import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
 import { signInThroughMarketplaceForm } from "./support/auth";
 import { marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
 
-// Charter scope (#7914): the seeded seller manages a repricing policy from the
-// Seller Desk -- list, detail, pause/resume, halt engage/release, the halt's
-// attention queue item and delete --
-// through the real marketplace routes and pricing API. Policy creation belongs
-// to the editor (#7915), so setup creates the policy through the API from a
-// completed dry run, exactly as the editor will.
+// The seller authors, previews, activates and revises from the real Desk editor,
+// then exercises the existing lifecycle and halt controls. A hold-only baseline
+// policy makes precedence visible; no browser whale seed is needed.
 //
 // Seed safety: the policy governs one seeded listing, caps every move at 10%
 // and holds any move within a tolerance far above that cap, so it can never
@@ -97,7 +94,9 @@ async function resetSpecState(request: APIRequestContext) {
 }
 
 async function createHoldOnlyPolicy(request: APIRequestContext, name: string): Promise<string> {
-  const dryRunResponse = await request.post(`${repricingApi}/dry-runs`, { data: holdOnlyBody });
+  const dryRunResponse = await request.post(`${repricingApi}/dry-runs`, {
+    data: { ...holdOnlyBody, scope: { kind: "all-listings" } },
+  });
   expect(dryRunResponse.status(), "enqueue dry run").toBe(202);
   const { dryRunId } = (await dryRunResponse.json()) as { dryRunId: string };
 
@@ -120,6 +119,18 @@ function visibleText(page: Page, text: string) {
   return page.getByText(text, { exact: true }).filter({ visible: true }).first();
 }
 
+async function choose(page: Page, label: string, option: string) {
+  await page.getByRole("combobox", { name: label, exact: true }).click();
+  await page.getByRole("option", { name: option, exact: true }).click();
+}
+
+async function previewEditor(page: Page) {
+  await page.getByRole("button", { name: "Preview policy", exact: true }).click();
+  await expect(page.getByTestId("repricing-dry-run-result")).toContainText(/Previewed .* over 1 listings/, {
+    timeout: 60_000,
+  });
+}
+
 // Policy redirects append a compact post-write receipt, so match the intended
 // pathname and allow any query string.
 async function expectPathname(page: Page, pathname: string) {
@@ -140,10 +151,36 @@ test.describe("Seller Desk repricing policies", () => {
     await resetSpecState(request);
     const policyName = `${specPolicyPrefix} ${Date.now()}`;
     let policyId: string | null = null;
+    let baselineId: string | null = null;
 
     try {
-      policyId = await createHoldOnlyPolicy(request, policyName);
-      await expectListedPolicyIds(request, [policyId], true);
+      const baselineName = `${specPolicyPrefix} precedence`;
+      baselineId = await createHoldOnlyPolicy(request, baselineName);
+      await expectListedPolicyIds(request, [baselineId], true);
+      await page.getByRole("button", { name: "Create repricing policy" }).click();
+      await page.getByLabel("Policy name", { exact: true }).fill(policyName);
+      await choose(page, "Policy scope", "Selected listings");
+      await page.getByLabel("Listing IDs (comma-separated)").fill(governedListingId);
+      await choose(page, "Price floor", "Absolute floor");
+      await page.getByLabel("Minimum price", { exact: true }).fill("1.00");
+      await page.getByRole("button", { name: "Open up this preset" }).click();
+      await expect(page.getByText("Structured editor", { exact: true })).toBeVisible();
+      await choose(page, "Skip changes within", "Amount");
+      await page.getByLabel("Tolerance amount").fill("100000.00");
+      await page.getByLabel("Maximum move (%) - leave blank for no limit").fill("10");
+      await expect(page.getByTestId("repricing-scope-preview")).toContainText(baselineName);
+      await expect(page.getByTestId("repricing-scope-preview")).toContainText(/Matching listings\s*1/);
+      await expect(page.getByTestId("repricing-scope-preview")).toContainText(/Governed listings\s*1/);
+      await expect(page.getByTestId("repricing-scope-preview")).toContainText("Taken from existing policies");
+      await captureResponsiveEvidence({ page, testInfo, claimId: "repricing-policy-editor-mobile" });
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await previewEditor(page);
+      await expect(page.getByRole("button", { name: "Activate policy", exact: true })).toBeEnabled();
+      await page.getByRole("button", { name: "Activate policy", exact: true }).click();
+      await expect(page.getByTestId("repricing-policy-editor")).toHaveCount(0);
+      policyId = (await listPolicies(request)).find((policy) => policy.name === policyName)!.policyId;
+      await deletePolicy(request, baselineId);
+      await expectListedPolicyIds(request, [baselineId], false);
 
       // List: the policy row with status, scope kind and budget row.
       await page.setViewportSize({ width: 1280, height: 900 });
@@ -169,6 +206,25 @@ test.describe("Seller Desk repricing policies", () => {
       await expect(page.getByRole("heading", { name: policyName })).toBeVisible();
       await expect(page.getByTestId("repricing-policy-rules")).toContainText("Rule 1");
       await expect(page.getByTestId("repricing-activity-counts")).toBeVisible();
+
+      // Revise directly through the structured tier; preview is optional.
+      await page.getByRole("button", { name: "Edit repricing policy" }).click();
+      await page.getByLabel("Maximum changes per day").fill("249");
+      await page.getByRole("button", { name: "Save policy", exact: true }).click();
+      await expect(page.getByTestId("repricing-policy-editor")).toHaveCount(0);
+      await expect(page.getByTestId("repricing-policy-settings")).toContainText("249");
+      // The advanced tier adds a conditional rule without discarding the default.
+      await page.getByRole("button", { name: "Edit repricing policy" }).click();
+      await page.getByRole("button", { name: "Open advanced editor" }).click();
+      await page.getByRole("button", { name: "Add rule before default" }).click();
+      await choose(page, "Condition", "Listing age at least (days)");
+      await page.getByLabel("Listing age at least (days)", { exact: true }).fill("45");
+      await previewEditor(page);
+      await page.getByRole("button", { name: "Save policy", exact: true }).click();
+      await expect(page.getByTestId("repricing-policy-editor")).toHaveCount(0);
+      await expect(page.getByTestId("repricing-policy-rules")).toContainText("Rule 2");
+      const revisedResponse = await request.get(`${repricingApi}/${policyId}`);
+      expect((await revisedResponse.json()).rules).toHaveLength(2);
 
       await page.getByRole("button", { name: "Pause", exact: true }).click();
       await expect(page.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
@@ -215,10 +271,12 @@ test.describe("Seller Desk repricing policies", () => {
       if (policyId) {
         await deletePolicy(request, policyId);
       }
+      if (baselineId) await deletePolicy(request, baselineId);
       await setHalt(request, false);
       if (policyId) {
         await expectListedPolicyIds(request, [policyId], false);
       }
+      if (baselineId) await expectListedPolicyIds(request, [baselineId], false);
     }
 
     const remaining = await listPolicies(request);

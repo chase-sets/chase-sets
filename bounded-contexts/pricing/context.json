@@ -13,6 +13,8 @@
     "gross-merchandise-value",
     "market-state-snapshot",
     "repricing-policy",
+    "repricing-preset",
+    "authoring-prerequisites",
     "repricing-listing-outcome",
     "repricing-management-policy",
     "repricing-activity",
@@ -443,6 +445,7 @@
       "proof": {
         "tests": [
           "bounded-contexts/pricing/tests/account-desk-repricing-route.test.ts",
+          "bounded-contexts/pricing/features/repricing-policies/ui/policy-editor-drawer.test.tsx",
           "bounded-contexts/pricing/features/repricing-policies/api/route.test.ts"
         ]
       }
