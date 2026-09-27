@@ -27,6 +27,7 @@ export type AcceptListingTargetPriceInput = ListingMutationInput &
     priceCurrencyCode: string;
     expectedTargetPriceRevision: number;
     decision: MarketplaceListingPriceDecision;
+    changeSource?: "repricing-engine";
   }>;
 
 export type ActivateListingForChannelInput = ListingMutationInput &

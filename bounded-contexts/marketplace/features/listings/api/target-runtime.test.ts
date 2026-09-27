@@ -117,6 +117,134 @@ async function fixture(overrides: Partial<ListingTargetAuthority> = {}) {
 }
 
 describe("Listing target owner authority", () => {
+  it("routes native reference edits through canonical acceptance without native fee prerequisites", async () => {
+    const { services, input, eventStore, repository } = await fixture();
+    await services.updateNativePrice(
+      {
+        accountId: input.accountId,
+        listingId: input.listingId,
+        priceAmount: "14.00",
+        priceCurrencyCode: "EUR",
+        idempotencyKey: "native-edit",
+        feeQuoteFingerprint: "not-a-native-enrollment",
+      },
+      context,
+    );
+    const events = await eventStore.readStream({ streamId: "marketplace.listing-lst_test" });
+    expect(events[1]).toMatchObject({
+      eventType: "marketplace.listing.price-updated",
+      payload: {
+        schemaVersion: 2,
+        acceptedTargetPrice: {
+          target: { kind: "native-marketplace" },
+          priceAmount: "14.00",
+          priceCurrencyCode: "EUR",
+          decision: { kind: "seller-reference" },
+          sourceEventId: events[1]!.eventId,
+        },
+      },
+    });
+    expect((await repository.load("marketplace.listing-lst_test")).state).toMatchObject({
+      nativeVisibility: "disabled",
+      feeLocks: [],
+    });
+  });
+
+  it("durably replays native no-ops after later edits and rejects changed currency on the same key", async () => {
+    const { services, input, eventStore } = await fixture();
+    const update = {
+      listingId: input.listingId,
+      priceAmount: "10.00",
+      priceCurrencyCode: "USD",
+      idempotencyKey: "native-noop",
+    };
+    const original = await services.applyNativePrices({ accountId: input.accountId, updates: [update] }, context);
+    expect(original).toEqual([{ listingId: input.listingId, version: 1, outcome: "no_op" }]);
+    await services.updateNativePrice(
+      { ...update, accountId: input.accountId, priceAmount: "15.00", idempotencyKey: "later" },
+      context,
+    );
+    expect(await services.applyNativePrices({ accountId: input.accountId, updates: [update] }, context)).toEqual(
+      original,
+    );
+    expect(
+      await services.applyNativePrices(
+        { accountId: input.accountId, updates: [{ ...update, priceCurrencyCode: "CAD" }] },
+        context,
+      ),
+    ).toMatchObject([{ outcome: "error", message: "Listing request key was already used for a different command." }]);
+    expect(await eventStore.readStream({ streamId: "marketplace.listing-lst_test" })).toHaveLength(2);
+  });
+
+  it("never treats an idempotency-key prefix as Pricing provenance", async () => {
+    const { services, input, eventStore } = await fixture();
+    await services.updateNativePrice(
+      {
+        accountId: input.accountId,
+        listingId: input.listingId,
+        priceAmount: "11.00",
+        priceCurrencyCode: "USD",
+        idempotencyKey: "repricing:forged",
+      },
+      context,
+    );
+    const event = (await eventStore.readStream({ streamId: "marketplace.listing-lst_test" }))[1]!;
+    expect(event.payload).not.toHaveProperty("changeSource");
+    await expect(
+      services.updateNativePrice(
+        {
+          accountId: input.accountId,
+          listingId: input.listingId,
+          priceAmount: "12.00",
+          priceCurrencyCode: "USD",
+          changeSource: "repricing-engine",
+        },
+        context,
+      ),
+    ).rejects.toThrow("verified decision authority");
+  });
+
+  it("retains a verified new decision at the same numeric native price instead of suppressing it", async () => {
+    const { services, input, eventStore } = await fixture();
+    expect(
+      await services.applyNativePrices(
+        {
+          accountId: input.accountId,
+          updates: [
+            {
+              listingId: input.listingId,
+              priceAmount: "10.00",
+              priceCurrencyCode: "USD",
+              decision: input.decision,
+              changeSource: "repricing-engine",
+              idempotencyKey: "decision-native",
+              minimumChange: { mode: "absolute", amount: "100.00" },
+            },
+          ],
+        },
+        context,
+      ),
+    ).toMatchObject([{ outcome: "applied", version: 2 }]);
+    expect((await eventStore.readStream({ streamId: "marketplace.listing-lst_test" }))[1]?.payload).toMatchObject({
+      changeSource: "repricing-engine",
+      acceptedTargetPrice: { decision: input.decision },
+    });
+  });
+
+  it("keeps target-keyed bulk results, durable duplicate replay, and changed-command conflicts", async () => {
+    const { services, input, eventStore } = await fixture();
+    const append = vi.spyOn(eventStore, "appendToStreams");
+    const outcomes = await services.acceptListingTargetPrices(
+      { accountId: input.accountId, updates: [input, input, { ...input, priceCurrencyCode: "EUR" }] },
+      context,
+    );
+    expect(outcomes[0]?.result?.acceptedTargetPrice.priceCurrencyCode).toBe("CAD");
+    expect(outcomes[1]?.result).toEqual(outcomes[0]?.result);
+    expect(outcomes[2]?.error).toContain("different command");
+    expect(append).toHaveBeenCalledTimes(3);
+    expect(await eventStore.readAll()).toHaveLength(3);
+  });
+
   it("retains independent exact target pairs without changing the hidden native reference or fees", async () => {
     const { services, input, repository } = await fixture();
     await services.acceptListingTargetPrice(input, context);

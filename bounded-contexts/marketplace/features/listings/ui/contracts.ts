@@ -1,5 +1,6 @@
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
+import type { MarketplaceListingPriceDecision } from "@chase-sets/event-core/public-event-payloads";
 import type { ResolvedListingEvidenceRequirements } from "../../listing-evidence-policy/domain/policy";
 import type { EvidenceCoverageResult } from "../domain/evidence-coverage";
 import type { MarketplaceListingFeeLock } from "../domain/fee-lock";
@@ -341,6 +342,9 @@ export interface MarketplaceBulkListingPriceUpdateInput {
   expectedVersion?: number;
   minimumChange?: Readonly<{ mode: "absolute"; amount: string }> | Readonly<{ mode: "percent"; percent: number }>;
   idempotencyKey?: string;
+  expectedTargetPriceRevision?: number;
+  decision?: MarketplaceListingPriceDecision;
+  changeSource?: "repricing-engine";
 }
 
 /** Per-listing outcome of a bulk price-update run -- failure isolation means one listing's conflict or error never prevents the others from applying. */

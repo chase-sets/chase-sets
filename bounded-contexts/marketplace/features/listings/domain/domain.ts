@@ -469,6 +469,7 @@ export type AcceptListingTargetPriceCommand = Readonly<{
   acceptedTargetPrice: AcceptedListingTargetPriceV1;
   expectedTargetPriceRevision: number;
   feeLocks: readonly MarketplaceListingFeeLock[];
+  changeSource?: "repricing-engine";
 }>;
 
 export type ActivateListingForChannelCommand = Readonly<{
@@ -857,6 +858,7 @@ export const decideMarketplaceListing: AggregateDecider<
           ...pair,
           feeLocks: command.feeLocks,
           acceptedTargetPrice: accepted,
+          changeSource: command.changeSource,
         });
       }
       assert(

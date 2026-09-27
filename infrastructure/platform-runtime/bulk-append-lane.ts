@@ -87,15 +87,46 @@ export type BulkAppendLaneConfig<State, Command, Event extends DomainEvent> = Re
   sleep?: (ms: number) => Promise<void>;
 }>;
 
+export type BulkAppendTransaction<Result> = Readonly<{
+  result: Result;
+  appends: readonly AppendToStreamInput[];
+  /** Resolve an identical concurrent request or an unknown append outcome from durable storage. */
+  recover(error: unknown): Promise<Result>;
+}>;
+
+export type BulkAppendTransactionOutcome<Result> = Readonly<{
+  result: Result | null;
+  error: Error | null;
+  storedEvents: readonly StoredEvent[];
+}>;
+
+export type BulkAppendTransactionLaneConfig<Item, Result> = Readonly<{
+  eventStore: EventStore;
+  prepare(item: Item): Promise<BulkAppendTransaction<Result>>;
+  chunkSize: number;
+  yieldIntervalMs: number;
+  sleep?: (ms: number) => Promise<void>;
+}>;
+
+export function createBulkAppendLane<Item, Result>(
+  config: BulkAppendTransactionLaneConfig<Item, Result>,
+): (items: readonly Item[]) => Promise<readonly BulkAppendTransactionOutcome<Result>[]>;
 export function createBulkAppendLane<State, Command, Event extends DomainEvent>(
   config: BulkAppendLaneConfig<State, Command, Event>,
-): BulkAppendLane<Command, Event> {
+): BulkAppendLane<Command, Event>;
+export function createBulkAppendLane<State, Command, Event extends DomainEvent, Item, Result>(
+  config: BulkAppendLaneConfig<State, Command, Event> | BulkAppendTransactionLaneConfig<Item, Result>,
+):
+  | BulkAppendLane<Command, Event>
+  | ((items: readonly Item[]) => Promise<readonly BulkAppendTransactionOutcome<Result>[]>) {
   if (!Number.isInteger(config.chunkSize) || config.chunkSize < 1) {
     throw new Error("Bulk append lane chunk size must be a positive integer.");
   }
   if (!Number.isFinite(config.yieldIntervalMs) || config.yieldIntervalMs < 0) {
     throw new Error("Bulk append lane yield interval must be zero or a positive number of milliseconds.");
   }
+
+  if ("prepare" in config) return transactionLane(config);
 
   const appendIndependently = config.eventStore.appendToStreamsIndependently;
   if (!appendIndependently) {
@@ -104,7 +135,7 @@ export function createBulkAppendLane<State, Command, Event extends DomainEvent>(
 
   const sleep = config.sleep ?? defaultLaneYield;
 
-  return async (items) => {
+  return async (items: readonly BulkAppendLaneItem<Command>[]) => {
     const chunks = chunkItems(items, config.chunkSize);
     const outcomes: BulkAppendLaneOutcome<Event>[] = [];
 
@@ -132,6 +163,91 @@ export function createBulkAppendLane<State, Command, Event extends DomainEvent>(
       }
     }
 
+    return outcomes;
+  };
+}
+
+/** Batch whole guarded transactions, never independently append their participating streams. */
+function transactionLane<Item, Result>(config: BulkAppendTransactionLaneConfig<Item, Result>) {
+  const append = config.eventStore.appendToStreams;
+  if (!append) throw new Error("Bulk transaction lane requires atomic multi-stream appends.");
+  const sleep = config.sleep ?? defaultLaneYield;
+  type Prepared = { index: number; transaction: BulkAppendTransaction<Result> };
+
+  return async (items: readonly Item[]): Promise<readonly BulkAppendTransactionOutcome<Result>[]> => {
+    const outcomes: BulkAppendTransactionOutcome<Result>[] = [];
+    async function commit(entries: readonly Prepared[]): Promise<void> {
+      if (entries.length === 0) return;
+      const merged = new Map<string, AppendToStreamInput>();
+      let overlaps = false;
+      for (const { transaction } of entries) {
+        for (const input of transaction.appends) {
+          const prior = merged.get(input.streamId);
+          if (
+            prior &&
+            (prior.expectedVersion !== input.expectedVersion || (prior.events.length > 0 && input.events.length > 0))
+          ) {
+            overlaps = true;
+          } else if (!prior || input.events.length > 0) {
+            merged.set(input.streamId, input);
+          }
+        }
+      }
+      async function split() {
+        const middle = Math.ceil(entries.length / 2);
+        await commit(entries.slice(0, middle));
+        await sleep(config.yieldIntervalMs);
+        await commit(entries.slice(middle));
+      }
+      if (overlaps && entries.length > 1) return split();
+      try {
+        if (overlaps) throw new Error("A bulk transaction contains incompatible stream writes or guards.");
+        const results = merged.size > 0 ? await append!([...merged.values()]) : [];
+        const byStream = new Map(results.map((result) => [result.streamId, result.storedEvents]));
+        for (const { index, transaction } of entries) {
+          outcomes[index] = {
+            result: transaction.result,
+            error: null,
+            storedEvents: transaction.appends.flatMap((input) => byStream.get(input.streamId) ?? []),
+          };
+        }
+      } catch (error) {
+        // Only a confirmed optimistic rollback is safe to subdivide and retry.
+        if (entries.length > 1 && (error as { code?: string })?.code === "concurrency_conflict") return split();
+        for (const { index, transaction } of entries) {
+          try {
+            outcomes[index] = { result: await transaction.recover(error), error: null, storedEvents: [] };
+          } catch (failure) {
+            outcomes[index] = {
+              result: null,
+              error: failure instanceof Error ? failure : new Error(String(failure)),
+              storedEvents: [],
+            };
+          }
+        }
+      }
+    }
+    const chunks = chunkItems(items, config.chunkSize);
+    let offset = 0;
+    for (const [chunkIndex, chunk] of chunks.entries()) {
+      const prepared = await Promise.all(
+        chunk.map(async (item, index): Promise<Prepared | null> => {
+          try {
+            return { index: offset + index, transaction: await config.prepare(item) };
+          } catch (error) {
+            outcomes[offset + index] = {
+              result: null,
+              error: error instanceof Error ? error : new Error(String(error)),
+              storedEvents: [],
+            };
+            return null;
+          }
+        }),
+      );
+      await commit(prepared.filter((entry): entry is Prepared => entry !== null));
+      offset += chunk.length;
+      if (chunkIndex < chunks.length - 1) await sleep(config.yieldIntervalMs);
+    }
     return outcomes;
   };
 }

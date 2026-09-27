@@ -11,12 +11,26 @@ import type {
   StoredEvent,
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
-import { createMarketplaceListingRuntime } from "./runtime";
+import { createMarketplaceListingRuntime as createRuntime } from "./runtime";
 import type { MarketplaceListingFeeLock, MarketplaceListingFeeTermsSnapshot } from "../domain/fee-lock";
 import {
   openMarketplaceListingTermsSession,
   requoteMarketplaceListingFeeLock,
 } from "../../../support/runtime-support/fee-quotes";
+
+function createMarketplaceListingRuntime(deps: Parameters<typeof createRuntime>[0]) {
+  const guards = [{ streamId: "synthetic-listing-capability", expectedVersion: 0 }];
+  return createRuntime({
+    listingTargetAuthority: {
+      authorizeManage: async () => ({ value: true, guards }),
+      resolveConnection: async () => ({ value: null, guards: [] }),
+      verifyDecision: async () => ({ value: false, guards: [] }),
+      resolveAllocation: async () => ({ value: null, guards: [] }),
+      authorizeResume: async () => ({ value: false, guards: [] }),
+    },
+    ...deps,
+  });
+}
 
 function createCheckpointStore(): ProjectionCheckpointStore {
   const checkpoints = new Map<string, GlobalPosition>();
@@ -1919,7 +1933,7 @@ describe("marketplace listing runtime", () => {
           listingId: "lst_bulk_3",
           outcome: "error",
           version: 0,
-          message: "Withdrawn listings cannot be updated.",
+          message: "Listing cannot accept prices.",
         },
       ]);
 
@@ -2227,8 +2241,8 @@ describe("marketplace listing runtime", () => {
 
     it("chunks the append according to the resolved marketplace.listing-bulk-price-update policy", async () => {
       const { eventStore } = createInMemoryEventStore();
-      const appendSpy = vi.fn(eventStore.appendToStreamsIndependently!);
-      const spyEventStore: EventStore = { ...eventStore, appendToStreamsIndependently: appendSpy };
+      const appendSpy = vi.fn(eventStore.appendToStreams!);
+      const spyEventStore: EventStore = { ...eventStore, appendToStreams: appendSpy };
       const resolvePolicy = vi.fn(async (policy: { policyKey: string }) => {
         if (policy.policyKey === "marketplace.listing-bulk-price-update") {
           return {
@@ -2272,6 +2286,7 @@ describe("marketplace listing runtime", () => {
           services.previewListingTerms({ accountId: "acc_seller", priceAmount: `${21 + index}.00` }),
         ),
       );
+      appendSpy.mockClear();
 
       const outcomes = await services.applyBulkListingPriceUpdates(
         {
@@ -2287,16 +2302,16 @@ describe("marketplace listing runtime", () => {
       );
 
       expect(outcomes.every((outcome) => outcome.outcome === "applied")).toBe(true);
-      // 3 listings at chunkSize 2 -> two appendToStreamsIndependently calls (2 + 1).
+      // 3 listings at chunkSize 2 -> two transactions, each including request results and capability guards.
       expect(appendSpy).toHaveBeenCalledTimes(2);
-      expect(appendSpy.mock.calls[0]?.[0]).toHaveLength(2);
-      expect(appendSpy.mock.calls[1]?.[0]).toHaveLength(1);
+      expect(appendSpy.mock.calls[0]?.[0]).toHaveLength(5);
+      expect(appendSpy.mock.calls[1]?.[0]).toHaveLength(3);
       expect(resolvePolicy).toHaveBeenCalledWith(
         expect.objectContaining({ policyKey: "marketplace.listing-bulk-price-update" }),
       );
     });
 
-    it("opens one current-terms session for the whole bulk run", async () => {
+    it("opens one current-terms session for the whole explicitly confirmed bulk run", async () => {
       const { eventStore } = createInMemoryEventStore();
       const termsResolver = bulkTermsResolver();
       const services = createMarketplaceListingRuntime({
@@ -2321,6 +2336,12 @@ describe("marketplace listing runtime", () => {
         );
       }
 
+      const confirmations = await Promise.all(
+        listingIds.map((_, index) =>
+          services.previewListingTerms({ accountId: "acc_seller", priceAmount: `${21 + index}.00` }),
+        ),
+      );
+
       const outcomes = await services.applyBulkListingPriceUpdates(
         {
           accountId: "acc_seller",
@@ -2328,6 +2349,7 @@ describe("marketplace listing runtime", () => {
             listingId,
             priceAmount: `${21 + index}.00`,
             priceCurrencyCode: "USD",
+            feeQuoteFingerprint: confirmations[index]!.fee_quote_fingerprint,
           })),
         },
         context,
@@ -2338,7 +2360,7 @@ describe("marketplace listing runtime", () => {
       expect(termsResolver.openListingTermsSession).toHaveBeenCalledWith({ accountId: "acc_seller" });
     });
 
-    it("preserves stored terms across every chunk while opening one current-terms session for the run", async () => {
+    it("preserves stored terms across every chunk without requiring current terms when none are being confirmed", async () => {
       const { eventStore } = createInMemoryEventStore();
       const resolvePolicy = vi.fn(async (policy: { policyKey: string }) => {
         if (policy.policyKey === "marketplace.listing-bulk-price-update") {
@@ -2430,7 +2452,7 @@ describe("marketplace listing runtime", () => {
       );
 
       expect(outcomes.every((outcome) => outcome.outcome === "applied")).toBe(true);
-      expect(revisableTermsResolver.openListingTermsSession).toHaveBeenCalledTimes(1);
+      expect(revisableTermsResolver.openListingTermsSession).not.toHaveBeenCalled();
 
       const firstListingEvents = await eventStore.readStream({ streamId: "marketplace.listing-lst_revision_1" });
       const secondListingEvents = await eventStore.readStream({ streamId: "marketplace.listing-lst_revision_2" });

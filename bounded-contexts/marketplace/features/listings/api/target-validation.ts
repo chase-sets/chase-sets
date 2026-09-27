@@ -42,6 +42,7 @@ export const acceptListingTargetPriceSchema = mutation.extend({
     .regex(/^[A-Za-z]{3}$/),
   expectedTargetPriceRevision: revision,
   decision,
+  changeSource: z.literal("repricing-engine").optional(),
 });
 export const activateListingForChannelSchema = mutation.extend({
   connectionId: identity,

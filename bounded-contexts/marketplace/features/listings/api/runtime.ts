@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import sharp from "sharp";
 import { createListingTargetRuntime } from "./target-runtime";
 import { marketplaceListingCodec } from "../domain/codec";
-import { listingRequestFingerprint, ListingRequestConflictError } from "./listing-request";
+import { listingRequestFingerprint } from "./listing-request";
 import type { ListingAuthorityGuard, ListingTargetServices } from "./target-contracts";
 import { totalFeeLockedUnits } from "../domain/fee-lock";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
@@ -20,12 +20,6 @@ import { createId, type AccountId, type ListingId, type TenantId, type UserId } 
 import type { CatalogItemId } from "@chase-sets/primitives/typed-ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import { centsToMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
-import {
-  chunkItems,
-  createBulkAppendLane,
-  defaultLaneYield,
-  type BulkAppendLaneItem,
-} from "@chase-sets/platform-runtime/bulk-append-lane";
 import type { CommercialTermsResolver } from "../../../api";
 import type { MarketplaceRuntimeDeps } from "../../../support/runtime-support";
 import {
@@ -33,7 +27,6 @@ import {
   openMarketplaceListingTermsSession,
   quoteMarketplaceTerms,
   quotePublicStandardMarketplaceTerms,
-  requoteMarketplaceListingFeeLock,
 } from "../../../support/runtime-support/fee-quotes";
 import type {
   MarketplaceAnonymousListingDraftIntent,
@@ -387,39 +380,15 @@ type MarketplaceListingLifecycleServices = Readonly<{
     }>,
   ) => Promise<MarketplaceAnonymousListingDraftIntent>;
   updateListingPrice: (
-    params: Readonly<{
-      accountId: string;
-      listingId: string;
-      priceAmount: string;
-      priceCurrencyCode: string;
-      feeQuoteFingerprint?: string | null;
-    }>,
+    params: MarketplaceBulkListingPriceUpdateInput & Readonly<{ accountId: string }>,
     context: EventStoreContext,
   ) => Promise<{ listingId: string; version: number }>;
   /**
-   * Chunked multi-listing price-update append, part of the m113 (repricing
-   * at scale) throughput lane: applies many `UpdateListingPrice` commands
-   * amortized across `marketplaceListingBulkPriceUpdatePolicy`-sized
-   * chunks, one advisory-lock window and one multi-row event INSERT per
-   * chunk, with the lane yielding between chunks so a bulk repricing run
-   * cannot starve interactive listing edits. One listing's version
-   * conflict, domain error (e.g. a withdrawn listing), or stale fee quote
-   * is isolated to that listing -- every other listing in the batch still
-   * applies. Consumed by the future bulk-ingestion on-ramp, `pricing`'s
-   * `applyRecommendations`, and the policy evaluation engine; all funnel
-   * through this same path.
-   *
-   * Terms resolution (m113 repricing-at-scale throughput lane): every
-   * listing in `params.updates` belongs to the SAME `params.accountId`, so
-   * the account's commercial terms are resolved into one session for the
-   * whole call -- not once per listing or chunk. Each price update requotes
-   * every pre-existing fee-lock tranche from that tranche's own stored
-   * terms. `feeQuoteFingerprint` stays optional per update: when a caller
-   * supplies one (e.g. a human confirming a previewed price), it must still match the freshly-resolved quote or
-   * the update is isolated as an error,
-   * exactly like `updateListingPrice`; when omitted (bulk/system callers
-   * with no separate preview step), the stored terms still apply with no
-   * confirmation required.
+   * Native adapter to canonical target acceptance. The reusable bulk lane batches
+   * complete request/result/owner/authority transactions and isolates conflicts.
+   * Existing fee formulas are requoted, never replaced. Only explicit native-on
+   * fee confirmations open a current-terms session, shared by the whole batch.
+   * Pricing provenance requires a verified typed decision, never a key prefix.
    */
   applyBulkListingPriceUpdates: (
     params: Readonly<{
@@ -963,14 +932,6 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     }
 
     return listing;
-  }
-
-  async function findReplayedListingMutation(listingId: string, idempotencyKey: string) {
-    const eventId = `${idempotencyKey}:0`;
-    const events = await readCompleteStream(deps.eventStore, {
-      streamId: `marketplace.listing-${listingId}`,
-    });
-    return events.find((event) => event.eventId === eventId) ?? null;
   }
 
   async function resolveEvidenceRequirementsForListing(
@@ -1601,6 +1562,13 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
   const targetServices = createListingTargetRuntime({
     eventStore: deps.eventStore,
     authority: deps.listingTargetAuthority,
+    bulkPolicy: resolveBulkPriceUpdatePolicy,
+    confirmNativePrice: async (accountId, amount, fingerprint) =>
+      assertConfirmedFeeQuote(fingerprint, await quoteListingTerms(accountId, amount)),
+    nativePriceConfirmation: async (accountId) => {
+      const session = await openMarketplaceListingTermsSession(deps.commercialTermsResolver, { accountId });
+      return (amount, fingerprint) => assertConfirmedFeeQuote(fingerprint, session.quote(amount));
+    },
     load: (listingId) => repository.load(`marketplace.listing-${listingId}`),
     prepareNativeEnable: async (listing, input) => {
       assert(listing.accountId && listing.priceAmount, "Native listing identity and price are required.");
@@ -1939,143 +1907,8 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     createAnonymousListingDraftIntent,
     getAnonymousListingDraftIntent,
     claimAnonymousListingDraftIntent,
-    updateListingPrice: async (params, context) => {
-      const listing = await loadOwnedListingState(params.listingId, params.accountId);
-      const feeLocks = listing.feeLocks.map((lock) => requoteMarketplaceListingFeeLock(lock, params.priceAmount));
-
-      const result = await commandHandler({
-        streamId: `marketplace.listing-${params.listingId}`,
-        command: {
-          type: "UpdateListingPrice",
-          priceAmount: params.priceAmount,
-          priceCurrencyCode: params.priceCurrencyCode,
-          feeLocks,
-        },
-        context,
-      });
-
-      return { listingId: params.listingId, version: result.version };
-    },
-    applyBulkListingPriceUpdates: async (params, context) => {
-      if (params.updates.length === 0) {
-        return [];
-      }
-
-      const [policy, termsSession] = await Promise.all([
-        resolveBulkPriceUpdatePolicy(),
-        openMarketplaceListingTermsSession(deps.commercialTermsResolver, { accountId: params.accountId }),
-      ]);
-      const waves = chunkItems(params.updates, policy.chunkSize);
-      const outcomesByListingId = new Map<string, MarketplaceBulkListingPriceUpdateOutcome>();
-
-      for (let waveIndex = 0; waveIndex < waves.length; waveIndex += 1) {
-        const wave = waves[waveIndex]!;
-
-        const laneItems: BulkAppendLaneItem<MarketplaceListingCommand>[] = [];
-        for (const update of wave) {
-          try {
-            const listing = await loadOwnedListingState(update.listingId, params.accountId);
-            assert(listing.priceAmount !== null, "Listing price is missing.");
-            const requestFingerprint = listingRequestFingerprint(
-              {
-                type: "UpdateListingPrice",
-                accountId: params.accountId,
-                ...update,
-                priceAmount: normalizePriceAmount(update.priceAmount),
-                priceCurrencyCode: normalizeListingPriceCurrencyCode(update.priceCurrencyCode),
-              },
-              context,
-            );
-            if (update.idempotencyKey) {
-              const replayed = await findReplayedListingMutation(update.listingId, update.idempotencyKey);
-              if (replayed) {
-                if (replayed.payload.requestFingerprint !== requestFingerprint) throw new ListingRequestConflictError();
-                outcomesByListingId.set(update.listingId, {
-                  listingId: update.listingId,
-                  outcome: "applied",
-                  version: replayed.streamVersion,
-                });
-                continue;
-              }
-            }
-            const quote = termsSession.quote(update.priceAmount);
-            if (update.feeQuoteFingerprint) {
-              assertConfirmedFeeQuote(update.feeQuoteFingerprint, quote);
-            }
-            const feeLocks = listing.feeLocks.map((lock) => requoteMarketplaceListingFeeLock(lock, update.priceAmount));
-
-            laneItems.push({
-              streamId: `marketplace.listing-${update.listingId}`,
-              expectedVersion: update.expectedVersion,
-              eventIdPrefix: update.idempotencyKey,
-              command: {
-                type: "UpdateListingPrice",
-                priceAmount: update.priceAmount,
-                priceCurrencyCode: update.priceCurrencyCode,
-                feeLocks,
-                minimumChange: update.minimumChange,
-                changeSource: update.idempotencyKey?.startsWith("repricing:") ? "repricing-engine" : undefined,
-                requestFingerprint,
-              },
-              context,
-            });
-          } catch (error) {
-            outcomesByListingId.set(update.listingId, {
-              listingId: update.listingId,
-              outcome: "error",
-              version: 0,
-              message: error instanceof Error ? error.message : "Bulk listing price update failed.",
-            });
-          }
-        }
-
-        if (laneItems.length > 0) {
-          // One chunk's worth of items per lane call -- the lane's own
-          // internal chunking degenerates to a single chunk here since
-          // `laneItems.length <= policy.chunkSize`, preserving the "one
-          // advisory-lock window and one multi-row event INSERT per
-          // chunk" invariant the chunked multi-listing append path
-          // established. The inter-chunk yield happens below, between
-          // waves, instead of inside the lane.
-          const lane = createBulkAppendLane({
-            eventStore: deps.eventStore,
-            repository,
-            codec: listingCodec,
-            evolve: evolveMarketplaceListing,
-            decide: decideMarketplaceListing,
-            chunkSize: laneItems.length,
-            yieldIntervalMs: 0,
-            telemetry: { holderKind: "bulk_listing_price_update", sourceContextName: "marketplace" },
-          });
-          const laneOutcomes = await lane(laneItems);
-          for (const laneOutcome of laneOutcomes) {
-            const listingId = laneOutcome.streamId.slice("marketplace.listing-".length);
-            outcomesByListingId.set(listingId, {
-              listingId,
-              outcome: laneOutcome.outcome,
-              version: laneOutcome.version,
-              ...(laneOutcome.error ? { message: laneOutcome.error.message } : {}),
-            });
-          }
-        }
-
-        const isLastWave = waveIndex === waves.length - 1;
-        if (!isLastWave) {
-          await defaultLaneYield(policy.yieldIntervalMs);
-        }
-      }
-
-      return params.updates.map((update) => {
-        return (
-          outcomesByListingId.get(update.listingId) ?? {
-            listingId: update.listingId,
-            outcome: "error" as const,
-            version: 0,
-            message: "Bulk listing price update did not run.",
-          }
-        );
-      });
-    },
+    updateListingPrice: targetServices.updateNativePrice,
+    applyBulkListingPriceUpdates: targetServices.applyNativePrices,
     updateListingQuantityCap: async (params, context) => {
       const listing = await loadOwnedListingState(params.listingId, params.accountId);
       assert(listing.priceAmount, "Listing price is missing.");

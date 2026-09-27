@@ -1,7 +1,9 @@
 import { createId, type EventId } from "@chase-sets/primitives/typed-ids";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
+import { createBulkAppendLane } from "@chase-sets/platform-runtime/bulk-append-lane";
 import { marketplaceListingCodec } from "../domain/codec";
-import type { EventStore } from "@chase-sets/event-core/event-store";
+import { createEventStoreError, type EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   decideMarketplaceListing,
@@ -11,7 +13,8 @@ import {
 } from "../domain/domain";
 import { listingPriceTargetKey, normalizeAcceptedListingPrice } from "../domain/target-price";
 import { requoteMarketplaceListingFeeLock } from "../../../support/runtime-support/fee-quotes";
-import { createListingRequestExecutor } from "./listing-request";
+import type { MarketplaceBulkListingPriceUpdateInput, MarketplaceBulkListingPriceUpdateOutcome } from "../ui/contracts";
+import { createListingRequestExecutor, prepareListingRequest, type ListingRequestInput } from "./listing-request";
 import {
   acceptListingTargetPriceSchema,
   activateListingForChannelSchema,
@@ -25,6 +28,7 @@ import type {
   ListingMutationInput,
   ListingTargetAuthority,
   ListingTargetServices,
+  ListingTargetPriceAcceptanceResult,
   NativeListingEligibilityV1,
   SetNativeListingVisibilityInput,
 } from "./target-contracts";
@@ -45,6 +49,9 @@ export function createListingTargetRuntime(
   deps: Readonly<{
     eventStore: EventStore;
     authority?: ListingTargetAuthority;
+    bulkPolicy?(): Promise<Readonly<{ chunkSize: number; yieldIntervalMs: number }>>;
+    nativePriceConfirmation?(accountId: string): Promise<(priceAmount: string, fingerprint: string) => void>;
+    confirmNativePrice?(accountId: string, priceAmount: string, fingerprint: string): Promise<void>;
     load(listingId: string): Promise<Readonly<{ state: MarketplaceListingState; version: number }>>;
     prepareNativeEnable(
       state: MarketplaceListingState,
@@ -56,7 +63,7 @@ export function createListingTargetRuntime(
       context: EventStoreContext,
     ): Promise<readonly AppendToStreamInput[]>;
   }>,
-): ListingTargetServices {
+) {
   const execute = createListingRequestExecutor(deps.eventStore);
   const codec = marketplaceListingCodec;
 
@@ -102,7 +109,10 @@ export function createListingTargetRuntime(
     return { value: resolved.value, guards: resolved.guards };
   }
 
-  const acceptListingTargetPrice: ListingTargetServices["acceptListingTargetPrice"] = async (input, context) => {
+  async function acceptanceRequest(
+    input: AcceptListingTargetPriceInput,
+    context: EventStoreContext,
+  ): Promise<ListingRequestInput<ListingTargetPriceAcceptanceResult>> {
     input = acceptListingTargetPriceSchema.parse(input);
     const capabilityGuards = await authorize(input, context);
     listingPriceTargetKey(input.target);
@@ -114,10 +124,14 @@ export function createListingTargetRuntime(
     // Historical provenance is decode-only, never a client authorization claim.
     assert(input.decision.kind !== "legacy-native-anchor", "Historical price provenance cannot authorize a command.");
     assert(
+      !input.changeSource || input.decision.kind === "pricing-evaluation",
+      "Pricing provenance requires verified decision authority.",
+    );
+    assert(
       input.target.kind === "native-marketplace" || input.decision.kind === "pricing-evaluation",
       "External prices require a verified Pricing decision.",
     );
-    return execute({
+    return {
       accountId: input.accountId,
       idempotencyKey: input.idempotencyKey,
       command: { type: "AcceptListingTargetPrice", ...input, ...pair },
@@ -163,6 +177,7 @@ export function createListingTargetRuntime(
           type: "AcceptListingTargetPrice",
           acceptedTargetPrice: accepted,
           expectedTargetPriceRevision: input.expectedTargetPriceRevision,
+          changeSource: input.changeSource,
           feeLocks:
             input.target.kind === "native-marketplace"
               ? state.feeLocks.map((lock) => requoteMarketplaceListingFeeLock(lock, pair.priceAmount))
@@ -182,8 +197,121 @@ export function createListingTargetRuntime(
           ],
         };
       },
+    };
+  }
+
+  const acceptListingTargetPrice: ListingTargetServices["acceptListingTargetPrice"] = async (input, context) =>
+    execute(await acceptanceRequest(input, context));
+
+  async function nativeRequest(
+    accountId: string,
+    update: MarketplaceBulkListingPriceUpdateInput,
+    context: EventStoreContext,
+    confirm: (priceAmount: string, fingerprint: string) => Promise<void>,
+  ): Promise<ListingRequestInput<{ listingId: string; version: number; outcome: "applied" | "no_op" }>> {
+    const pair = normalizeAcceptedListingPrice(update.priceAmount, update.priceCurrencyCode);
+    const guards = await authorize(
+      {
+        accountId,
+        listingId: update.listingId,
+        expectedListingVersion: update.expectedVersion ?? 1,
+        idempotencyKey: update.idempotencyKey ?? "native-adapter",
+      },
+      context,
+    );
+    return {
+      accountId,
+      idempotencyKey: update.idempotencyKey ?? createId("evt"),
+      command: { type: "AcceptNativeListingPrice", accountId, ...update, ...pair },
+      context,
+      prepare: async () => {
+        const { state, version } = await owned(update.listingId, accountId);
+        if (update.expectedVersion !== undefined && update.expectedVersion !== version) {
+          throw createEventStoreError(
+            "concurrency_conflict",
+            "Expected stream version does not match current version.",
+            { currentVersion: version },
+          );
+        }
+        if (
+          update.expectedTargetPriceRevision !== undefined &&
+          update.expectedTargetPriceRevision !== state.nativePriceRevision
+        ) {
+          throw createEventStoreError("concurrency_conflict", "Native target price revision changed.", {
+            currentVersion: version,
+          });
+        }
+        if (state.nativeVisibility === "enabled" && update.feeQuoteFingerprint)
+          await confirm(pair.priceAmount, update.feeQuoteFingerprint);
+        const input = {
+          accountId,
+          listingId: update.listingId,
+          ...pair,
+          expectedListingVersion: version,
+          expectedTargetPriceRevision: state.nativePriceRevision,
+          idempotencyKey: update.idempotencyKey ?? "native-adapter",
+          target: { kind: "native-marketplace" } as const,
+          decision: update.decision ?? ({ kind: "seller-reference" } as const),
+          ...(update.changeSource ? { changeSource: update.changeSource } : {}),
+        };
+        const request = await acceptanceRequest(input, context);
+        const prepared = await request.prepare();
+        // Legacy native callers preserve suppression, but a new Pricing decision is always a new authority fact.
+        if (
+          !update.decision &&
+          !update.changeSource &&
+          decideMarketplaceListing(state, {
+            type: "UpdateListingPrice",
+            ...pair,
+            feeLocks: state.feeLocks.map((lock) => requoteMarketplaceListingFeeLock(lock, pair.priceAmount)),
+            minimumChange: update.minimumChange,
+          }).length === 0
+        ) {
+          return {
+            result: { listingId: update.listingId, version, outcome: "no_op" },
+            appends: [
+              ...guardAppends(guards, context),
+              { streamId: `marketplace.listing-${update.listingId}`, expectedVersion: version, events: [], context },
+            ],
+          };
+        }
+        return {
+          result: { listingId: update.listingId, version: prepared.result.version, outcome: "applied" },
+          appends: prepared.appends,
+        };
+      },
+    };
+  }
+
+  async function applyNativePrices(
+    input: Readonly<{ accountId: string; updates: readonly MarketplaceBulkListingPriceUpdateInput[] }>,
+    context: EventStoreContext,
+  ): Promise<readonly MarketplaceBulkListingPriceUpdateOutcome[]> {
+    let confirmation: ReturnType<NonNullable<typeof deps.nativePriceConfirmation>> | undefined;
+    const confirm = async (amount: string, fingerprint: string) => {
+      assert(deps.nativePriceConfirmation, "Native fee confirmation is unavailable.");
+      confirmation ??= deps.nativePriceConfirmation(input.accountId);
+      (await confirmation)(amount, fingerprint);
+    };
+    const policy = (await deps.bulkPolicy?.()) ?? { chunkSize: 100, yieldIntervalMs: 0 };
+    const lane = createBulkAppendLane({
+      eventStore: deps.eventStore,
+      ...policy,
+      prepare: async (update: MarketplaceBulkListingPriceUpdateInput) =>
+        prepareListingRequest(deps.eventStore, await nativeRequest(input.accountId, update, context, confirm)),
     });
-  };
+    const outcomes = await lane(input.updates);
+    recordCommittedEvents(outcomes.flatMap((outcome) => outcome.storedEvents));
+    return outcomes.map(
+      ({ result, error }, index) =>
+        result ?? {
+          listingId: input.updates[index]!.listingId,
+          outcome: (error as { code?: string })?.code === "concurrency_conflict" ? "conflict" : "error",
+          version: Number((error as { details?: { currentVersion?: number } })?.details?.currentVersion ?? 0),
+          message: error?.message ?? "Native acceptance failed.",
+        },
+    );
+  }
 
   async function mutate(
     input: ListingMutationInput,
@@ -251,34 +379,30 @@ export function createListingTargetRuntime(
       acceptedByUserId: event.performedByUserId,
       acceptedAt: event.occurredAt,
       sourceEventId: event.eventId,
-      decision: { kind: "legacy-native-anchor" },
+      decision: { kind: event.eventType === "marketplace.listing.created" && event.payload.schemaVersion === 2 ? "seller-reference" : "legacy-native-anchor" },
       connectionAuthority: null,
     };
   }
 
-  return {
+  const services: ListingTargetServices = {
     acceptListingTargetPrice,
     acceptListingTargetPrices: async ({ accountId, updates }, context) => {
       assert(updates.length <= 100, "At most 100 target acceptances are allowed.");
-      const results = [];
-      for (const update of updates) {
-        try {
-          results.push({
-            listingId: update.listingId,
-            target: update.target,
-            result: await acceptListingTargetPrice({ accountId, ...update }, context),
-            error: null,
-          });
-        } catch (error) {
-          results.push({
-            listingId: update.listingId,
-            target: update.target,
-            result: null,
-            error: error instanceof Error ? error.message : "Price acceptance failed.",
-          });
-        }
-      }
-      return results;
+      const policy = (await deps.bulkPolicy?.()) ?? { chunkSize: 100, yieldIntervalMs: 0 };
+      const lane = createBulkAppendLane({
+        eventStore: deps.eventStore,
+        ...policy,
+        prepare: async (update: Omit<AcceptListingTargetPriceInput, "accountId">) =>
+          prepareListingRequest(deps.eventStore, await acceptanceRequest({ ...update, accountId }, context)),
+      });
+      const outcomes = await lane(updates);
+      recordCommittedEvents(outcomes.flatMap((outcome) => outcome.storedEvents));
+      return outcomes.map((outcome, index) => ({
+        listingId: updates[index]!.listingId,
+        target: updates[index]!.target,
+        result: outcome.result,
+        error: outcome.error?.message ?? null,
+      }));
     },
     activateListingForChannel: (raw, context) => {
       const input = activateListingForChannelSchema.parse(raw);
@@ -405,6 +529,23 @@ export function createListingTargetRuntime(
         });
       }
       return results;
+    },
+  };
+  return {
+    ...services,
+    applyNativePrices,
+    updateNativePrice: async (
+      input: MarketplaceBulkListingPriceUpdateInput & Readonly<{ accountId: string }>,
+      context: EventStoreContext,
+    ) => {
+      const { accountId, ...update } = input;
+      const result = await execute(
+        await nativeRequest(accountId, update, context, async (amount, fingerprint) => {
+          assert(deps.confirmNativePrice, "Native fee confirmation is unavailable.");
+          await deps.confirmNativePrice(accountId, amount, fingerprint);
+        }),
+      );
+      return { listingId: result.listingId, version: result.version };
     },
   };
 }
