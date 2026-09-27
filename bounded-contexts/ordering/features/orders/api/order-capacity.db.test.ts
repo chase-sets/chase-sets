@@ -63,9 +63,10 @@ async function openClaimCount(pool: PgTransactionalPool, sellerAccountId: string
 
 describeDb("ordering seller order capacity db", () => {
   let pools: Readonly<Record<(typeof contextNames)[number], PgTransactionalPool>>;
+  let databaseUrls: Readonly<Record<(typeof contextNames)[number], string>>;
 
   beforeAll(async () => {
-    const databaseUrls = createMultiContextTestDatabaseUrls(databaseBaseUrl!, contextNames, "ordering_order_capacity");
+    databaseUrls = createMultiContextTestDatabaseUrls(databaseBaseUrl!, contextNames, "ordering_order_capacity");
     await ensureMultiContextTestDatabases(databaseBaseUrl!, databaseUrls);
     pools = createMultiContextTestPools(databaseUrls);
   });
@@ -187,7 +188,6 @@ describeDb("ordering seller order capacity db", () => {
   }
 
   it("F1 reconciles and completes zero-Order compensation with a one-connection Postgres pool", async () => {
-    const databaseUrls = createMultiContextTestDatabaseUrls(databaseBaseUrl!, contextNames, "ordering_order_capacity");
     const pool = createPgPool(databaseUrls.ordering, { max: 1, connectionTimeoutMillis: 1000 });
     try {
       await supply();
@@ -274,16 +274,24 @@ describeDb("ordering seller order capacity db", () => {
   it("AC3 retains compensating identity across signal failures and serializes retries with an unrelated buyer", async () => {
     await supply();
     const store = createPostgresEventStore({ pool: pools.ordering });
-    const failing: EventStore = {
+    const originalError = new Error("first append failed", { cause: new Error("append cause") });
+    const signalError = new Error("signal failed");
+    const failing = {
       ...store,
-      appendToStream: async (input) => {
-        if (input.streamId.startsWith("ordering.order-")) throw new Error("first append failed");
-        if (input.events.some((event) => event.eventType === "ordering.seller-capacity.cleared"))
-          throw new Error("signal failed");
+      appendToStream: async (input: Parameters<EventStore["appendToStream"]>[0]) => {
+        if (input.streamId.startsWith("ordering.order-")) throw originalError;
         return store.appendToStream(input);
       },
+      appendToStreamInTransaction: async (client: PgQueryable, input: Parameters<EventStore["appendToStream"]>[0]) => {
+        if (input.events.some((event) => event.eventType === "ordering.seller-capacity.cleared")) throw signalError;
+        return store.appendToStreamInTransaction(client, input);
+      },
     };
-    await expect(runtime(failing).createOrdersFromCheckout(checkout(), context)).rejects.toThrow("signal failed");
+    await expect(runtime(failing).createOrdersFromCheckout(checkout(), context)).rejects.toBe(originalError);
+    expect(originalError.cause).toBeInstanceOf(AggregateError);
+    expect(originalError.cause).toMatchObject({
+      errors: [expect.objectContaining({ message: "append cause" }), signalError],
+    });
     const claim = (await getOrderSourceClaim(pools.ordering, "cart-checkout", "chk_failed"))!;
     expect(claim.status).toBe("compensating");
     const beforeRetry = await snapshot();
@@ -322,17 +330,25 @@ describeDb("ordering seller order capacity db", () => {
     async (failedSignal) => {
       await supply();
       const store = createPostgresEventStore({ pool: pools.ordering });
-      const failing: EventStore = {
+      const failing = {
         ...store,
-        appendToStream: async (input) => {
-          if (input.events.some((event) => event.eventType === `ordering.seller-capacity.${failedSignal}`)) {
-            throw new Error("signal failed");
-          }
+        appendToStream: async (input: Parameters<EventStore["appendToStream"]>[0]) => {
           if (input.streamId.startsWith("ordering.order-")) throw new Error("first append failed");
           return store.appendToStream(input);
         },
+        appendToStreamInTransaction: async (
+          client: PgQueryable,
+          input: Parameters<EventStore["appendToStream"]>[0],
+        ) => {
+          if (input.events.some((event) => event.eventType === `ordering.seller-capacity.${failedSignal}`)) {
+            throw new Error("signal failed");
+          }
+          return store.appendToStreamInTransaction(client, input);
+        },
       };
-      await expect(runtime(failing).createOrdersFromCheckout(checkout(), context)).rejects.toThrow("signal failed");
+      await expect(runtime(failing).createOrdersFromCheckout(checkout(), context)).rejects.toThrow(
+        failedSignal === "cleared" ? "first append failed" : "signal failed",
+      );
       const afterFailure = await snapshot();
       expect(afterFailure.orders).toEqual([]);
       expect(afterFailure.capacity).toEqual(
@@ -438,9 +454,10 @@ describeDb("ordering seller order capacity db", () => {
         return { query: wrap(client), release: client.release.bind(client) };
       },
     };
-    await expect(runtime(failing, db).createOrdersFromCheckout(checkout(), context)).rejects.toThrow(
-      "compensation failed",
-    );
+    await expect(runtime(failing, db).createOrdersFromCheckout(checkout(), context)).rejects.toMatchObject({
+      message: "first append failed",
+      cause: { errors: [expect.objectContaining({ message: "compensation failed" })] },
+    });
     const after = await snapshot();
     expect(after.orders).toEqual([]);
     expect(after.capacity).toEqual([expect.objectContaining({ status: "claimed" })]);

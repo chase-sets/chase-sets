@@ -304,7 +304,7 @@ export const orderingOrderSchemaMigrations: readonly BcSchemaMigration[] = [
       `BEGIN;
 SET LOCAL lock_timeout = '5s';
 ALTER TABLE ordering_order_source_claims
-  DROP CONSTRAINT ordering_order_source_claims_status_check;
+  DROP CONSTRAINT IF EXISTS ordering_order_source_claims_status_check;
 ALTER TABLE ordering_order_source_claims
   ADD CONSTRAINT ordering_order_source_claims_status_check
   CHECK (status IN ('pending', 'created', 'compensating'));

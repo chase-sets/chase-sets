@@ -231,7 +231,7 @@ async function getOrderPurchaseLimitReleaseInput(db: PgTransactionalPool, orderI
 }
 
 type OrderRuntimeDeps = Readonly<{
-  eventStore: EventStore & Partial<Pick<PostgresEventStore, "appendToStreamInTransaction">>;
+  eventStore: EventStore & Partial<Pick<PostgresEventStore, "appendToStreamInTransaction" | "readStreamInTransaction">>;
   checkpointStore: ProjectionCheckpointStore;
   db: PgTransactionalPool;
   shippingQuotePolicy: ShippingQuotePolicy;
@@ -1510,8 +1510,13 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
   });
   const eventStoreInTransaction = (client: PgQueryable): EventStore => {
     const append = deps.eventStore.appendToStreamInTransaction;
-    if (!append) throw new OrderingDomainError("Governed Ordering requires a transaction-bound event store.");
-    return { ...deps.eventStore, appendToStream: (input) => append(client, input) };
+    const read = deps.eventStore.readStreamInTransaction;
+    if (!append || !read) throw new OrderingDomainError("Ordering requires a transaction-bound event store.");
+    return {
+      ...deps.eventStore,
+      readStream: (input) => read(client, input),
+      appendToStream: (input) => append(client, input),
+    };
   };
   const orderHandlerInTransaction = (client: PgQueryable) =>
     createAggregateCommandHandler({
@@ -1557,17 +1562,31 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
     sellerAccountId: string,
     context: EventStoreContext,
     governedSource?: EvidenceWindowSourceIdentity,
+    transactionClient?: PgQueryable,
   ) => {
     if (!governedSource) {
-      await reconcileSellerOrderCapacity(deps.db, sellerAccountId, undefined, async ({ atCapacity }) => {
-        await sellerCapacitySignalCommandHandler({
-          streamId: `ordering.seller-capacity-${sellerAccountId}`,
-          command: atCapacity
-            ? { type: "MarkSellerAtCapacity", accountId: sellerAccountId }
-            : { type: "ClearSellerAtCapacity", accountId: sellerAccountId },
-          context,
-        });
-      });
+      await reconcileSellerOrderCapacity(
+        deps.db,
+        sellerAccountId,
+        undefined,
+        async ({ atCapacity }, client) => {
+          const handler = createAggregateCommandHandler({
+            eventStore: eventStoreInTransaction(client),
+            codec: createPassthroughDomainEventCodec<SellerCapacitySignalEvent>(),
+            initialState: () => initialSellerCapacitySignalState,
+            evolve: evolveSellerCapacitySignal,
+            decide: decideSellerCapacitySignal,
+          }).commandHandler;
+          await handler({
+            streamId: `ordering.seller-capacity-${sellerAccountId}`,
+            command: atCapacity
+              ? { type: "MarkSellerAtCapacity", accountId: sellerAccountId }
+              : { type: "ClearSellerAtCapacity", accountId: sellerAccountId },
+            context,
+          });
+        },
+        transactionClient,
+      );
       return;
     }
     const { atCapacity } = await reconcileSellerOrderCapacity(deps.db, sellerAccountId, governedSource);
@@ -1615,9 +1634,18 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         }
       : { kind: "not-mounted" };
 
-  const claimedOrderStreamStatus = async (claim: OrderSourceClaim) => {
+  const claimedOrderStreamStatus = async (claim: OrderSourceClaim, client?: PgQueryable) => {
+    const sourceRepository = client
+      ? createAggregateCommandHandler({
+          eventStore: eventStoreInTransaction(client),
+          codec: createPassthroughDomainEventCodec<OrderingOrderEvent>(),
+          initialState: () => initialOrderingOrderState,
+          evolve: evolveOrderingOrder,
+          decide: decideOrderingOrder,
+        }).repository
+      : repository;
     const loadedOrders = await Promise.all(
-      claim.orderIds.map((orderId) => repository.load(`ordering.order-${orderId}`)),
+      claim.orderIds.map((orderId) => sourceRepository.load(`ordering.order-${orderId}`)),
     );
     const existingCount = loadedOrders.filter(({ state }) => state.orderId !== null).length;
     const matchingCount = loadedOrders.filter(
@@ -2475,8 +2503,8 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         await finishOrderSourceCompensation(
           deps.db,
           compensatingClaim,
-          async () => (await claimedOrderStreamStatus(compensatingClaim)).existingCount > 0,
-          (sellerAccountId) => reconcileAndSignalSellerCapacity(sellerAccountId, context),
+          async (client) => (await claimedOrderStreamStatus(compensatingClaim, client)).existingCount > 0,
+          (sellerAccountId, client) => reconcileAndSignalSellerCapacity(sellerAccountId, context, undefined, client),
           evidenceWindowSourceAdmissionConfigured,
         );
         existingClaim = await getOrderSourceClaim(deps.db, params.sourceType, params.checkoutSessionId);
@@ -2619,13 +2647,22 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
           Boolean(params.evidenceWindowSource),
         );
       } catch (error) {
-        await compensatePendingOrderSourceClaim(
-          deps.db,
-          sourceClaimResult.claim,
-          async () => (await claimedOrderStreamStatus(sourceClaimResult.claim)).existingCount > 0,
-          evidenceWindowSourceAdmissionConfigured,
-          (sellerAccountId) => reconcileAndSignalSellerCapacity(sellerAccountId, context),
-        );
+        try {
+          await compensatePendingOrderSourceClaim(
+            deps.db,
+            sourceClaimResult.claim,
+            async (client) => (await claimedOrderStreamStatus(sourceClaimResult.claim, client)).existingCount > 0,
+            evidenceWindowSourceAdmissionConfigured,
+            (sellerAccountId, client) => reconcileAndSignalSellerCapacity(sellerAccountId, context, undefined, client),
+          );
+        } catch (compensationError) {
+          if (error instanceof Error) {
+            error.cause = new AggregateError(
+              error.cause === undefined ? [compensationError] : [error.cause, compensationError],
+              "Order source compensation failed.",
+            );
+          }
+        }
         throw error;
       }
 

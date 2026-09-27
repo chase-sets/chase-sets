@@ -159,9 +159,9 @@ async function deleteOwnedOrderSourceClaim(
 export async function compensatePendingOrderSourceClaim(
   db: PgTransactionalPool,
   claim: Pick<OrderSourceClaim, "sourceType" | "sourceReferenceId" | "buyerAccountId" | "orderIds">,
-  hasDurableOrder: () => Promise<boolean>,
+  hasDurableOrder: (client: PgQueryable) => Promise<boolean>,
   admissionConfigured = false,
-  reconcileSeller: (sellerAccountId: string) => Promise<void> = async () => {
+  reconcileSeller: (sellerAccountId: string, client: PgQueryable) => Promise<void> = async () => {
     throw new Error("Capacity compensation requires seller signal reconciliation.");
   },
 ) {
@@ -174,7 +174,7 @@ export async function compensatePendingOrderSourceClaim(
        FOR UPDATE`,
       [claim.sourceType, claim.sourceReferenceId, claim.buyerAccountId, JSON.stringify(claim.orderIds)],
     );
-    if (owned.rows.length === 0 || (await hasDurableOrder())) {
+    if (owned.rows.length === 0 || (await hasDurableOrder(client))) {
       return;
     }
     const evidenceSource = await client.query(
@@ -211,8 +211,8 @@ export async function compensatePendingOrderSourceClaim(
 export async function finishOrderSourceCompensation(
   db: PgTransactionalPool,
   claim: Pick<OrderSourceClaim, "sourceType" | "sourceReferenceId" | "buyerAccountId" | "orderIds">,
-  hasDurableOrder: () => Promise<boolean>,
-  reconcileSeller: (sellerAccountId: string) => Promise<void>,
+  hasDurableOrder: (client: PgQueryable) => Promise<boolean>,
+  reconcileSeller: (sellerAccountId: string, client: PgQueryable) => Promise<void>,
   admissionConfigured = false,
 ) {
   if (claim.sourceType !== "cart-checkout") return;
@@ -225,7 +225,7 @@ export async function finishOrderSourceCompensation(
        FOR UPDATE`,
       [claim.sourceType, claim.sourceReferenceId, claim.buyerAccountId, JSON.stringify(claim.orderIds)],
     );
-    if (owned.rows.length === 0 || (await hasDurableOrder())) return;
+    if (owned.rows.length === 0 || (await hasDurableOrder(client))) return;
     const governed = await readEvidenceWindowSourceByIdentity(client, claim);
     if (governed) return;
     // Released capacity rows retain the seller identities across signal failures.
@@ -235,7 +235,7 @@ export async function finishOrderSourceCompensation(
        WHERE order_id = ANY($1::text[]) ORDER BY seller_account_id`,
       [claim.orderIds],
     );
-    for (const seller of sellers.rows) await reconcileSeller(seller.seller_account_id);
+    for (const seller of sellers.rows) await reconcileSeller(seller.seller_account_id, client);
     // No Order owns these rows. Remove them with the source so seed callers
     // can reuse their explicit proposed order ids on a fresh admission.
     await client.query(
