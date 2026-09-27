@@ -38,9 +38,7 @@ export function analyticsLabel<K extends LabelKey>(key: K, value: unknown): Labe
 
 function event(name: EventName, labels: Partial<Record<LabelKey, unknown>>): SavedListAnalyticsEvent {
   const label = <K extends LabelKey>(key: K): LabelValue<K> =>
-    (savedListAnalyticsKeys[name] as readonly string[]).includes(key)
-      ? analyticsLabel(key, labels[key])
-      : "none";
+    (savedListAnalyticsKeys[name] as readonly string[]).includes(key) ? analyticsLabel(key, labels[key]) : "none";
   return {
     event: name,
     surface: label("surface"),
