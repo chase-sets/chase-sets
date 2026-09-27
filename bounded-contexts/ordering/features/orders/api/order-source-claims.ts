@@ -5,6 +5,7 @@ import { releasePurchaseLimitClaimsForFailedSource } from "./purchase-limits";
 import {
   lockEvidenceWindowSourceIdentity,
   lockOpenEvidenceWindowSource,
+  readEvidenceWindowSourceByIdentity,
   withOpenEvidenceWindowSource,
 } from "./evidence-window-source-release";
 
@@ -66,6 +67,7 @@ export async function claimOrderSource(
     orderIds: readonly OrderId[];
   }>,
   governed = false,
+  admissionConfigured = false,
 ): Promise<Readonly<{ outcome: "claimed" | "existing"; claim: OrderSourceClaim }>> {
   const claimInTransaction = async (client: PgQueryable) => {
     const inserted = await client.query<OrderSourceClaimRow>(
@@ -96,8 +98,12 @@ export async function claimOrderSource(
     }
     return { outcome: "existing" as const, claim: existing };
   };
+  if (!governed && !admissionConfigured) return claimInTransaction(db);
   return withPgTransaction(db, async (client) => {
     await lockEvidenceWindowSourceIdentity(client, claim);
+    if (!governed && (await readEvidenceWindowSourceByIdentity(client, claim))) {
+      throw new OrderingDomainError("Evidence window source requires admitted creation context.");
+    }
     if (governed && !(await lockOpenEvidenceWindowSource(client, claim))) {
       throw new OrderingDomainError("Evidence window source binding is missing.");
     }
@@ -141,9 +147,10 @@ export async function compensatePendingOrderSourceClaim(
   db: PgTransactionalPool,
   claim: Pick<OrderSourceClaim, "sourceType" | "sourceReferenceId" | "buyerAccountId" | "orderIds">,
   hasDurableOrder: () => Promise<boolean>,
+  admissionConfigured = false,
 ) {
   await withPgTransaction(db, async (client) => {
-    await lockEvidenceWindowSourceIdentity(client, claim);
+    if (admissionConfigured) await lockEvidenceWindowSourceIdentity(client, claim);
     const owned = await client.query(
       `SELECT source_type FROM ordering_order_source_claims
        WHERE source_type = $1 AND source_reference_id = $2 AND buyer_account_id = $3
