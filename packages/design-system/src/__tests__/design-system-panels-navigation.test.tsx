@@ -387,9 +387,7 @@ describe("design system panels, navigation, and shells", () => {
     expect(markup).toContain("Add evidence");
     expect(markup).toContain("aria-labelledby=");
     const dangerReadinessItem = markup.match(/<li><div class="([^"]*bg-danger-soft[^"]*)"/)?.[1];
-    expect(dangerReadinessItem?.split(" ")).toEqual(
-      expect.arrayContaining(["bg-danger-soft", "text-danger"]),
-    );
+    expect(dangerReadinessItem?.split(" ")).toEqual(expect.arrayContaining(["bg-danger-soft", "text-danger"]));
     expect(dangerReadinessItem).not.toMatch(/\bborder(?:\s|-|$)/);
   });
 
