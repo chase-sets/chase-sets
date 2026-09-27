@@ -107,6 +107,12 @@ export function createServerFence({
           );
           if (
             !original?.providerReference ||
+            !active.members.some(
+              (member) =>
+                member.writerKind === original.binding.writerKind &&
+                member.logicalOperationId === original.binding.logicalOperationId &&
+                member.ownerAccountId === original.binding.ownerAccountId,
+            ) ||
             row.envelope.target !== original.providerReference ||
             url.pathname !==
               `/v1/${row.key.objectClass === 3 ? "setup_intents" : "payment_intents"}/${original.providerReference}/cancel`

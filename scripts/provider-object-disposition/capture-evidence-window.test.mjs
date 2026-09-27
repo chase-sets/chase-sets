@@ -1,5 +1,7 @@
 import { expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import { captureEvidenceWindow } from "./capture-evidence-window.mjs";
+import { validateCapturePacket } from "./test-window-packet.mjs";
 import { SCENARIO_FIXTURES } from "./validate-provider-object-disposition.mjs";
 import { computeResultDigest } from "./canonicalize-provider-object-disposition.mjs";
 import { syntheticManifest } from "./test-window-fixtures.mjs";
@@ -36,9 +38,11 @@ function syntheticLaunch() {
           phase,
           sentAt: new Date(1700000000000 + (phase === "replay" ? 5000 : 0)).toISOString(),
           sendOffsetMilliseconds: phase === "replay" ? 5000 : 0,
-          keyDigest: mapper,
-          requestDigest: mapper,
-          responseDigest: mapper,
+          keyDigest: createHash("sha256").update(mapper).digest("hex"),
+          requestDigest: createHash("sha256").update(mapper).digest("hex"),
+          responseDigest: createHash("sha256").update(mapper).digest("hex"),
+          version: phase === "replay" ? 2 : 1,
+          withheld: phase === "original",
           replayDeadline: "2099-01-01T00:00:00Z",
           expiresAt: null,
         });
@@ -61,7 +65,16 @@ function syntheticLaunch() {
         },
         initializeIntendedComponent: async () => {
           componentAttempts++;
-          return { component: mapper, attempted: true, outcome: "policy-blocked", usability: "unknown" };
+          return {
+            component: {
+              "connect-setup": "account-onboarding",
+              "connect-manage": "account-management",
+              "connect-notification": "notification-banner",
+            }[mapper],
+            attempted: true,
+            outcome: "policy-blocked",
+            usability: "unknown",
+          };
         },
       };
     }),
@@ -92,6 +105,24 @@ it("AC-01 composition: six mappers in four independent sequential windows and fo
   expect(result.receipts.map((receipt) => receipt.flow)).toEqual(["P", "S", "M", "N"]);
   expect(result.observations).toHaveLength(6);
   expect(result.observations.every((entry) => entry.intervalSupported)).toBe(true);
+  expect(validateCapturePacket(result)).toBe(true);
+  for (const mutate of [
+    (packet) => packet.observations.pop(),
+    (packet) => packet.receipts.pop(),
+    (packet) => {
+      packet.observations[0].intervalSupported = false;
+    },
+    (packet) => {
+      packet.receipts[1] = packet.receipts[0];
+    },
+    (packet) => {
+      packet.observations[3].component.attempted = false;
+    },
+  ]) {
+    const incomplete = structuredClone(result);
+    mutate(incomplete);
+    expect(validateCapturePacket(incomplete)).toBe(false);
+  }
   expect(launch.history).toEqual([
     "open-P",
     "dispose-P",

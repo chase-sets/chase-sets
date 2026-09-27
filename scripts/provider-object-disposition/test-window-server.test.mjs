@@ -154,3 +154,26 @@ it("AC-03 staging/refusal: missing/true livemode and redirects cannot yield posi
     expect(test.fence.observations()[0].responseDigest).toBeNull();
   }
 });
+
+it("AC-03 v2/foreign refs: cancellation rechecks the original object's membership", async () => {
+  const test = subject();
+  test.row.state = "succeeded";
+  test.row.providerReference = "pi_SYNTHETIC";
+  const cancel = structuredClone(test.row);
+  cancel.key.operation = "cancel";
+  cancel.binding.writerKind = "cancel-payment";
+  cancel.state = "pending";
+  cancel.envelope.endpoint = "/v1/payment_intents/pi_SYNTHETIC/cancel";
+  cancel.envelope.target = "pi_SYNTHETIC";
+  cancel.envelope.bodyText = null;
+  test.rows.push(cancel);
+  test.row.binding = { ...test.row.binding, ownerAccountId: "acc_FOREIGN" };
+  test.activate(null, "disposition");
+  await expect(
+    test.fence.fetch("https://api.stripe.com/v1/payment_intents/pi_SYNTHETIC/cancel", {
+      method: "POST",
+      headers: { ...test.headers, "Idempotency-Key": `evidence-window/v1:${test.row.key.windowId}:2:1:cancel` },
+    }),
+  ).rejects.toThrow("capture-target");
+  expect(test.requests).toHaveLength(0);
+});
