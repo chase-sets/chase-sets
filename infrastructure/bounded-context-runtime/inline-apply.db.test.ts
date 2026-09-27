@@ -25,6 +25,7 @@ import {
 const NO_API_ENTRIES: readonly BcApiEntry[] = [];
 const realSetTimeout = globalThis.setTimeout;
 const realClearTimeout = globalThis.clearTimeout;
+const RECEIPT_FIXTURE_BUDGET_MS = 360_000;
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI) {
@@ -130,7 +131,7 @@ describeDb("projection inline apply Postgres integration", () => {
   });
 
   it("returns fresh from the applied ledger on the first check while the checkpoint remains behind", async () => {
-    const runtime = createRuntime(pool);
+    const runtime = createRuntime(withConnectDelay(pool, 150));
     const runner = runtime.subscriptionRunners[0]!;
     const event = (await appendEvents(pool, "inline.item-fresh", [{ itemId: "fresh" }]))[0]!;
 
@@ -157,7 +158,7 @@ describeDb("projection inline apply Postgres integration", () => {
   });
 
   it("ignores real non-subscribed receipt events once the subscribed subset is applied", async () => {
-    const runtime = createRuntime(pool);
+    const runtime = createRuntime(withConnectDelay(pool, 150));
     const events = await appendTypedEvents(pool, "inline.item-mixed", [
       { eventType: "inline.item-recorded", payload: { itemId: "mixed" } },
       { eventType: "inline.audit-recorded", payload: { itemId: "ignored" } },
@@ -187,7 +188,7 @@ describeDb("projection inline apply Postgres integration", () => {
     const runtime = createRuntime(pool);
     const runner = runtime.subscriptionRunners[0]!;
     const event = (await appendEvents(pool, "inline.item-poisoned", [{ itemId: "poisoned" }]))[0]!;
-    await applyInline(runtime, [event]);
+    await expect(applyInline(runtime, [event])).resolves.toEqual({ applied: 1, deferred: 0, failed: 0 });
     await pool.query(
       `INSERT INTO event_projection_blocked_streams (
          projection_key, stream_id, first_blocked_global_position, first_blocked_stream_version,
@@ -219,7 +220,7 @@ describeDb("projection inline apply Postgres integration", () => {
     const runtime = createRuntime(pool);
     const runner = runtime.subscriptionRunners[0]!;
     const event = (await appendEvents(pool, "inline.item-active-poison", [{ itemId: "active-poison" }]))[0]!;
-    await applyInline(runtime, [event]);
+    await expect(applyInline(runtime, [event])).resolves.toEqual({ applied: 1, deferred: 0, failed: 0 });
     await pool.query(
       `INSERT INTO event_projection_poison_events (
          projection_key, event_id, projection_name, projection_kind,
@@ -241,7 +242,7 @@ describeDb("projection inline apply Postgres integration", () => {
   it("does not let an unknown receipt event id bypass the checkpoint predicate", async () => {
     const runtime = createRuntime(pool);
     const event = (await appendEvents(pool, "inline.item-forged", [{ itemId: "forged" }]))[0]!;
-    await applyInline(runtime, [event]);
+    await expect(applyInline(runtime, [event])).resolves.toEqual({ applied: 1, deferred: 0, failed: 0 });
 
     await expect(
       waitForProjectionFreshness({
@@ -499,7 +500,7 @@ async function appendTypedEvents(
 async function applyInline(
   runtime: ReturnType<typeof createRuntime>,
   events: readonly StoredEvent[],
-  budgetMs?: number,
+  budgetMs = RECEIPT_FIXTURE_BUDGET_MS,
 ) {
   const metadata = await runWithEventCommitMetadata(async () => {
     recordCommittedEvents(events, "inline");
