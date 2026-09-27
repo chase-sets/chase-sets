@@ -57,7 +57,7 @@ export function ChannelDriftPanel({
     navigate(`${location.pathname}?${query}`);
   }
   return (
-    <Card data-testid="channel-drift-panel" data-load-identity={loadIdentity}>
+    <Card data-testid="channel-drift-panel" data-load-identity={loadIdentity} elevation="flush">
       <Stack gap={3}>
         <Text>{t("channels.drift.title")}</Text>
         <Text>{t("channels.drift.disclaimer")}</Text>

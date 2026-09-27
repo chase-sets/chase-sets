@@ -68,7 +68,7 @@ export function WorkflowReadinessChecklist({ items, emptyState, ...rest }: Workf
     <ul {...rest} className="m-0 grid list-none gap-2 p-0">
       {items.map((item) => (
         <li key={item.key}>
-          <Surface tone={readinessSurfaceTone[item.status]} padding={3}>
+          <Surface tone={readinessSurfaceTone[item.status]} padding={3} elevation="tinted">
             <Grid templateColumns="minmax(0,1fr) auto" stackUntil="sm" gap={2}>
               <IconRow
                 icon={<ToneIcon name={readinessIcon[item.status]} tone={readinessTone[item.status]} size="sm" />}

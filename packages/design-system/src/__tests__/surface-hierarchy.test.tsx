@@ -470,6 +470,45 @@ describe("Card elevation oracle", () => {
 });
 
 describe("Surface elevation oracle", () => {
+  it("classifies every design-system Surface emission with an explicit elevation", () => {
+    const root = repositoryRoot();
+    const bareRoots: string[] = [];
+    let emissions = 0;
+
+    for (const file of scanFiles(path.join(root, "packages/design-system/src"))) {
+      const source = ts.createSourceFile(
+        file,
+        fs.readFileSync(file, "utf8"),
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TSX,
+      );
+      function visit(node: ts.Node) {
+        if (
+          (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
+          ts.isIdentifier(node.tagName) &&
+          node.tagName.text === "Surface"
+        ) {
+          emissions += 1;
+          if (
+            !node.attributes.properties.some(
+              (attribute) =>
+                ts.isJsxAttribute(attribute) && attribute.name.getText(source) === "elevation" && attribute.initializer,
+            )
+          ) {
+            const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
+            bareRoots.push(`${path.relative(root, file)}:${line + 1}`);
+          }
+        }
+        ts.forEachChild(node, visit);
+      }
+      visit(source);
+    }
+
+    expect(emissions).toBeGreaterThanOrEqual(14);
+    expect(bareRoots).toEqual([]);
+  });
+
   const cells = elevations.flatMap((elevation) => surfaceTones.map((tone) => ({ elevation, tone })));
 
   it.each(cells)("pins the Surface $tone × $elevation cell", ({ elevation, tone }) => {
