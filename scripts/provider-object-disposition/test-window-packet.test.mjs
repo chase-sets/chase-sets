@@ -3,6 +3,13 @@ import { validateCapturePacket } from "./test-window-packet.mjs";
 import { syntheticManifest } from "./test-window-fixtures.mjs";
 
 const marker = "SYNTHETIC_PRIVATE_PACKET_MARKER";
+
+it("AC-06 markers: an empty interrupted packet cannot be relabeled observed", () => {
+  const value = packet();
+  value.classification = "observed";
+  expect(validateCapturePacket(value)).toBe(false);
+});
+
 function packet() {
   const manifest = syntheticManifest();
   return {

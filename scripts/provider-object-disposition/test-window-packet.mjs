@@ -65,7 +65,7 @@ export function validateCapturePacket(value) {
       })
     )
       return true;
-    return shape(value, {
+    const valid = shape(value, {
       version: member("provider-lifecycle-capture/v1"),
       classification: member("observed", "unknown", "invalid"),
       heads: (heads) => shape(heads, { candidate: hex(40), executor: hex(40), journal: hex(40), deployed: hex(40) }),
@@ -144,6 +144,26 @@ export function validateCapturePacket(value) {
       replayQualified: member(false),
       ...digest,
     });
+    if (!valid || value.classification !== "observed") return valid;
+    const mappers = WINDOW_SCHEDULE.flatMap((group) => group.mappers);
+    return (
+      value.attempts !== null &&
+      value.logicalCreateUpperBound === 6 &&
+      value.observations.length === mappers.length &&
+      value.observations.every(
+        (entry, index) =>
+          entry.mapper === mappers[index] &&
+          entry.equal &&
+          entry.replayCompleted &&
+          entry.intervalSupported &&
+          entry.elapsedSeconds >= 5 &&
+          entry.elapsedSeconds < 3600 &&
+          (!entry.mapper.startsWith("connect-") || entry.component?.attempted === true),
+      ) &&
+      value.receipts.length === WINDOW_SCHEDULE.length &&
+      value.receipts.every((receipt, index) => receipt.flow === WINDOW_SCHEDULE[index].flow) &&
+      new Set(value.receipts.map((receipt) => receipt.windowId)).size === 4
+    );
   } catch {
     return false;
   }

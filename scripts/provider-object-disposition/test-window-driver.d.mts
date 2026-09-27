@@ -1,5 +1,6 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EvidenceWindowProviderWrite } from "@chase-sets/evidence-window-provider-write";
+import type { Browser } from "@playwright/test";
 import type {
   createEvidenceWindowDisposition,
   EvidenceWindowDispositionReceiptPolicy,
@@ -11,7 +12,7 @@ export function createTestWindowDriver(
     pool: PgTransactionalPool;
     secretKey: string;
     fixtures: Readonly<Record<string, unknown>>;
-    browser: { close(): Promise<void> };
+    browser: Pick<Browser, "newContext" | "close">;
     send?: typeof globalThis.fetch;
     authoritySignal?: AbortSignal;
   },

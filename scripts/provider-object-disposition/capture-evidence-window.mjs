@@ -129,7 +129,10 @@ export async function captureEvidenceWindow(launch) {
       receipts.length === 4 &&
       observations.every(
         (entry) =>
-          entry.equal && entry.replayCompleted && (!entry.mapper.startsWith("connect-") || entry.component?.attempted),
+          entry.equal &&
+          entry.replayCompleted &&
+          entry.intervalSupported &&
+          (!entry.mapper.startsWith("connect-") || entry.component?.attempted),
       )
     )
       classification = "observed";

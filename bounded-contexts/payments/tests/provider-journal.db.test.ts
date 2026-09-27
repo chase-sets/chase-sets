@@ -161,7 +161,12 @@ describe("deployed provider journal J1-J6 (synthetic DB proof)", () => {
       pool: pools.payments,
       secretKey: "sk_test_SYNTHETIC",
       fixtures: SYNTHETIC_FIXTURES,
-      browser: { close: async () => {} },
+      browser: {
+        close: async () => {},
+        newContext: async () => {
+          throw new Error("synthetic-journal-control-does-not-observe-components");
+        },
+      },
       send,
     });
     const receipts = [];
