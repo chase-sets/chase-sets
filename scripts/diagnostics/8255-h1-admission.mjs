@@ -51,10 +51,13 @@ function closedDiagnostic(error) {
   try {
     const parsed = JSON.parse(error.message.slice(prefix.length));
     if (
-      !parsed || typeof parsed !== "object" || Array.isArray(parsed) ||
+      !parsed ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed) ||
       Object.keys(parsed).sort().join(",") !== "errno,errorClass,message,stage,userNamespaceRestriction" ||
       Object.entries(allowed).some(([key, values]) => !values.has(parsed[key]))
-    ) return { stage: "unknown", failureCode: "unclassified-failure" };
+    )
+      return { stage: "unknown", failureCode: "unclassified-failure" };
     return {
       stage: parsed.stage,
       errorClass: parsed.errorClass,
@@ -67,7 +70,9 @@ function closedDiagnostic(error) {
   }
 }
 
-const restrictionText = await readFile("/proc/sys/kernel/apparmor_restrict_unprivileged_userns", "utf8").catch(() => "");
+const restrictionText = await readFile("/proc/sys/kernel/apparmor_restrict_unprivileged_userns", "utf8").catch(
+  () => "",
+);
 const restriction = ["0", "1"].includes(restrictionText.trim()) ? Number(restrictionText.trim()) : "unknown";
 const osRelease = await readFile("/etc/os-release", "utf8").catch(() => "");
 const ubuntu2404 = /^ID=ubuntu$/m.test(osRelease) && /^VERSION_ID="?24\.04"?$/m.test(osRelease);
