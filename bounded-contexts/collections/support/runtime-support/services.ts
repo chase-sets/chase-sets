@@ -3,6 +3,7 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { RateLimitRuleResolver } from "@chase-sets/http/rate-limit";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import { createSavedListDiscoveryRuntime } from "../../features/saved-lists/api/discovery-runtime";
+import type { SavedListAnalyticsRecorder } from "../../features/saved-lists/api/analytics-telemetry";
 import {
   createSavedListSharedAccess,
   type SavedListAbuseReportAdapter,
@@ -22,6 +23,7 @@ import { loadSavedListSharedPage } from "../../features/saved-lists/read-model/s
 import { buildSavedListPickerProjectionHandlers } from "../../features/saved-lists/read-model/picker-projection";
 
 export type CollectionsHostPorts = Readonly<{
+  savedListAnalyticsRecorder?: SavedListAnalyticsRecorder;
   savedListProductCatalog?: SavedListProductCatalog;
   inventorySavedListImportBatchCreator?: SavedListInventoryImportBatchCreator;
   savedListCapabilities?: SavedListCapabilityService;
@@ -32,6 +34,7 @@ export type CollectionsHostPorts = Readonly<{
 }>;
 
 export type CollectionsServices = Readonly<{
+  savedListAnalyticsRecorder?: SavedListAnalyticsRecorder;
   savedLists: ReturnType<typeof createSavedListRuntime>;
   savedListInventory: ReturnType<typeof createSavedListInventoryHandoff>;
   savedListValuation: ReturnType<typeof createSavedListValuationRuntime>;
@@ -97,6 +100,7 @@ export function createCollectionsServices(
     capabilities,
   });
   return {
+    savedListAnalyticsRecorder: ports.savedListAnalyticsRecorder,
     savedLists,
     savedListInventory: createSavedListInventoryHandoff({
       savedLists,
