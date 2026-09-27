@@ -306,6 +306,11 @@
       "purpose": "Resolve whether a buyer has accepted the active Terms of Service version so wallet balance credit can be applied at checkout without Settlement querying Identity storage."
     },
     {
+      "portName": "evidenceWindowProviderWrite",
+      "providedBy": "platform-runtime",
+      "purpose": "Journal admitted provider writes before send and resolve immutable operations through guarded recovery."
+    },
+    {
       "portName": "evidenceWindowCorrelation",
       "providedBy": "platform-runtime",
       "purpose": "Read the current admitted provider evidence window immediately before a provider call without gaining registration write authority."

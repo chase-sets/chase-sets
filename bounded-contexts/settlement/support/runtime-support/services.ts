@@ -25,6 +25,8 @@ import type { ProviderWebhookTelemetry } from "@chase-sets/http/provider-errors"
 import type { MarketplaceLabelPostageActivation } from "../../features/wallets/integrations/fulfillment-source/label-postage-policy";
 
 export type SettlementHostPorts = Readonly<{
+  evidenceWindowCorrelation?: import("@chase-sets/evidence-window-provider-write").ProviderWriteCorrelation;
+  evidenceWindowProviderWrite?: import("@chase-sets/evidence-window-provider-write").EvidenceWindowProviderWrite;
   moneyMovementGateway?: MoneyMovementGateway;
   operationsRecorder?: SettlementOperationsRecorder;
   notificationOutbox?: NotificationOutbox;
@@ -108,6 +110,7 @@ export function createSettlementServices(
   const protectionCoverage = createProtectionCoverageRuntime({ eventStore, db, operationsRecorder });
   const supportHoldLifecycle = createSupportHoldLifecycleRuntime({ eventStore });
   const payoutReadiness = createPayoutReadinessRuntime({
+    evidenceWindowCorrelation: ports.evidenceWindowCorrelation,
     eventStore,
     checkpointStore,
     db,
