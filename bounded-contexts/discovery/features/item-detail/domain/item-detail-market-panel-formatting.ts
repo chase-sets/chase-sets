@@ -19,7 +19,7 @@ export function formatLastSold(aggregate: MarketHistoryAggregate | null): { valu
   }
 
   return {
-    value: formatMoney(aggregate.lastSoldPriceAmount),
+    value: formatMoney(aggregate.lastSoldPriceAmount, aggregate.currencyCode),
     note: t("discovery.features.itemDetail.ui.marketPanel.sold.on", { date: formatUpdatedAt(aggregate.lastSoldAt) }),
   };
 }
@@ -35,8 +35,8 @@ export function formatMedianWindow(
   const tradeCount = window === "30d" ? (aggregate?.tradeCount30d ?? 0) : (aggregate?.tradeCount90d ?? 0);
   const windowDays = window === "30d" ? 30 : 90;
 
-  if (medianPriceAmount) {
-    return { value: formatMoney(medianPriceAmount), note: formatUnitsSold(volume) };
+  if (aggregate && medianPriceAmount) {
+    return { value: formatMoney(medianPriceAmount, aggregate.currencyCode), note: formatUnitsSold(volume) };
   }
 
   if (tradeCount === 0) {
@@ -100,7 +100,7 @@ export function formatSpread(marketState: MarketHistoryMarketState | null): { va
 
 export function formatVerifiedSaleMarkerLabel(point: MarketHistorySeriesPoint): string {
   return t("discovery.features.itemDetail.ui.marketPanel.verified.sale.marker", {
-    price: formatMoney(point.lastPriceAmount),
+    price: formatMoney(point.lastPriceAmount, point.currencyCode),
     date: point.day,
   });
 }

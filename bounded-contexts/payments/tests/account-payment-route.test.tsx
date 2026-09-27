@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { hydrateRoot, type Root } from "react-dom/client";
@@ -303,6 +304,36 @@ async function findEnabledButton(name: string) {
   return button!;
 }
 
+// Every payments Surface root and how many each file owns; the census below
+// fails when a root is added, removed, or left on the legacy recipe.
+const paymentSurfaceRootCounts = {
+  "../features/payments/ui/account-payment/account-payment-page.tsx": 8,
+  "../features/payments/ui/account-payment/stripe-setup-card.tsx": 1,
+  "../features/payments/ui/account-payment/stripe-confirmation-card.tsx": 1,
+  "../routes/marketplace/account-payment.tsx": 1,
+  "../routes/marketplace/account-payment-new.tsx": 4,
+  "../routes/marketplace/account-payment-methods.tsx": 1,
+} as const;
+
+type SurfaceTreatment = "flush" | "tinted" | "outlined" | "elevated";
+
+// Reads the rendered treatment back from the classes the design-system
+// Surface owns: furniture has no chrome, `tinted` keeps a soft fill,
+// `outlined` a hairline, and `elevated` the raised border and shadow.
+function expectSurfaceTreatment(anchor: HTMLElement, treatment: SurfaceTreatment, glow = false) {
+  const root = anchor.closest<HTMLElement>(".min-w-0.max-w-full.rounded-tokenLg");
+  expect(root).toBeTruthy();
+  const classes = root!.className.split(/\s+/);
+  const raised = classes.includes("surface-border") || classes.some((name) => name.startsWith("shadow-"));
+  if (treatment === "elevated") expect(classes).toEqual(expect.arrayContaining(["surface-border", "shadow-tokenLg"]));
+  else expect(raised).toBe(false);
+  if (treatment === "outlined") expect(classes).toContain("border");
+  if (treatment === "flush" || treatment === "tinted") expect(classes).not.toContain("border");
+  if (treatment === "flush") expect(classes.some((name) => name.startsWith("bg-"))).toBe(false);
+  if (treatment === "tinted") expect(classes).toContain("bg-surface-2");
+  expect(classes.includes("ds-glow")).toBe(glow);
+}
+
 describe("marketplace account payment route", () => {
   beforeEach(() => {
     mockUseActionData.mockReturnValue(null);
@@ -369,6 +400,144 @@ describe("marketplace account payment route", () => {
     );
 
     expect(screen.getByText("Complete payment by deadline")).toBeTruthy();
+  });
+
+  it("gives every payments Surface root an explicit elevation and no legacy elevated boolean", () => {
+    for (const [path, expectedRoots] of Object.entries(paymentSurfaceRootCounts)) {
+      const source = readFileSync(new URL(path, import.meta.url), "utf8");
+      const roots = [...source.matchAll(/<Surface\b[^>]*>/g)].map((match) => match[0]);
+      expect(roots, path).toHaveLength(expectedRoots);
+      for (const root of roots) {
+        expect(root, path).toMatch(/\selevation="(?:flush|tinted|outlined|elevated)"/);
+        expect(root, path).not.toMatch(/\selevated(?=[\s/>])/);
+      }
+    }
+  });
+
+  it("keeps payment status panels flush, the retry panel tinted, and the balance and purchase entities raised", () => {
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({
+        status: "failed",
+        processor_status: "requires_payment_method",
+        processor_amount: "0.00",
+        failure_code: "card_declined",
+        failed_at: "2026-04-01T00:04:00.000Z",
+      }),
+      orders: [buildPurchase()],
+      isGuestCheckoutPayment: false,
+      showSupportDetails: true,
+    });
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    expectSurfaceTreatment(screen.getByRole("link", { name: "Retry payment" }), "tinted");
+    const statusSection = screen.getByRole("heading", { name: "Payment Status" }).closest("section")!;
+    expectSurfaceTreatment(statusSection.querySelector<HTMLElement>(".min-w-0.max-w-full.rounded-tokenLg")!, "flush");
+    expectSurfaceTreatment(screen.getByText("Payment created"), "flush");
+    expectSurfaceTreatment(screen.getByText(/Internal payment:/), "flush");
+    expectSurfaceTreatment(screen.getByText("Paid with balance"), "elevated", true);
+    expectSurfaceTreatment(screen.getByRole("link", { name: "Open purchase" }), "outlined");
+  });
+
+  it("raises the secure checkout redirect host with its glow", () => {
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({ processor_redirect_url: "https://checkout.stripe.test/c/pay_1" }),
+      orders: [buildPurchase()],
+    });
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    expectSurfaceTreatment(
+      screen.getByText("Payment is ready. Continue to the secure checkout page to finish."),
+      "elevated",
+      true,
+    );
+  });
+
+  it("tints the unconfigured secure payment notice as furniture", () => {
+    mockUseLoaderData.mockReturnValue({ payment: buildPayment(), orders: [buildPurchase()] });
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    expectSurfaceTreatment(
+      screen.getByText("Secure payment confirmation is not configured for this environment."),
+      "tinted",
+    );
+  });
+
+  it("raises the embedded Stripe confirmation host with its glow", () => {
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({
+        processor_client_secret: "pi_secret_123",
+        processor_publishable_key: "pk_test_123",
+      }),
+      orders: [
+        buildPurchase({
+          shipping_destination_snapshot: { ...buildPurchase().shipping_destination_snapshot, email: null },
+        }),
+      ],
+      paymentElementDefaultValues: null,
+    });
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    expectSurfaceTreatment(
+      screen.getByText(
+        "Payment is ready. Enter your payment details in the secure managed form and confirm the charge.",
+      ),
+      "elevated",
+      true,
+    );
+  });
+
+  it("raises the guest order claim host with its glow", () => {
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({
+        status: "captured",
+        processor_status: "succeeded",
+        captured_at: "2026-04-01T00:05:00.000Z",
+      }),
+      orders: [buildPurchase({ status: "paid" })],
+      isGuestCheckoutPayment: true,
+      guestClaimContext: {
+        accountId: "acc_guest",
+        paymentId: "pay_1",
+        contactEmail: "jane@example.com",
+        contactName: "Jane Smith",
+      },
+      showSupportDetails: false,
+      paymentElementDefaultValues: null,
+    });
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    expectSurfaceTreatment(
+      screen.getByText(
+        "Save this order after payment with a passkey. You can use an email link if this device cannot create one.",
+      ),
+      "elevated",
+      true,
+    );
   });
 
   it("does not render the retired checkout-payment feedback prompt for any payment status", () => {

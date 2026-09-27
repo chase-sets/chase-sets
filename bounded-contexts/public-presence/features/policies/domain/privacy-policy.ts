@@ -211,29 +211,40 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
       id: "stripe-managed-processing",
       title: "Payments and payout onboarding handled by Stripe",
       draftText:
-        "Payments and payout accounts run on Stripe. When you pay, Stripe collects and processes your payment method details, and Stripe charges your selected payment method as part of completing the purchase; Chase Sets holds the purchase funds on its own platform account until seller payout. When you set up payouts as a seller, Stripe collects the onboarding and verification information it requires — identity details, verification documents, and your payout bank details — directly through Stripe-rendered components embedded in the Chase Sets account area, and Stripe presents its own terms as part of that onboarding. Chase Sets stores provider references, provider-neutral payout-readiness statuses, missing-requirement identifiers, timestamps, and user-safe failure reasons; Chase Sets does not store your bank account numbers, tax identity values, verification documents, or raw provider payloads.",
+        "Payments and payout accounts run on Stripe. When you pay an amount through Stripe on the Marketplace, Stripe collects and processes your payment method details, and Chase Sets requests payment through Stripe. A payment request does not itself establish capture; additional confirmation or authentication may be needed, and authorization is distinct from capture. Chase Sets records capture when a Stripe webhook or reconciliation result is mapped to a captured payment. Captured purchase funds are held on Chase Sets' platform account until seller payout. When you set up payouts as a seller, Stripe collects the onboarding and verification information it requires — identity details, verification documents, and your payout bank details — directly through Stripe-rendered components embedded in the Chase Sets account area, and Stripe presents its own terms as part of that onboarding. Chase Sets stores provider references, provider-neutral payout-readiness statuses, missing-requirement identifiers, timestamps, and user-safe failure reasons; Chase Sets does not store your bank account numbers, tax identity values, verification documents, or raw provider payloads.",
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote:
-          "Describe the Stripe-managed collection boundary factually: what Stripe collects directly, what Chase Sets stores, and the platform-held funds path, without characterizing the legal relationship or the Stripe agreement type.",
+          "Describe the Stripe-managed collection boundary factually: what Stripe collects directly, what Chase Sets stores, and ordinary nonzero Marketplace payment requests versus recorded capture. Keep capture evidence separate from the platform-held funds strategy and payout onboarding, without characterizing the legal relationship or the Stripe agreement type.",
         decisionRefs: [5685],
         productTruthRefs: [
+          ...paymentChargeTimingAndCaptureProductTruthRefs,
           "docs/adr/0006-stripe-connect-custom-account-experience.md:15",
           "docs/adr/0006-stripe-connect-custom-account-experience.md:29",
           "docs/adr/0006-stripe-connect-custom-account-experience.md:54",
           "docs/adr/0006-stripe-connect-custom-account-experience.md:58-64",
-          "infrastructure/stripe-payments/index.ts:1464-1494",
         ],
         openQuestions: [
           "The recipient and contract characterization of Stripe, and any statement about which Stripe agreement type applies, are counsel-owned; per the #5685 finding, Chase Sets must not claim a Stripe agreement type or statutory conclusion the captured evidence does not establish.",
           "Whether this section must link Stripe's own privacy notice, and which one, is a counsel judgment.",
+          "Any statement about card-network processing, Chase Sets' control over it, or card or bank statement display requires counsel review and external evidence; payment request and outcome-mapping code establishes none of those guarantees.",
         ],
         assumptions: [
           {
             assertion:
-              "Buyer charges are captured to the Chase Sets platform account with a platform-held funds strategy; seller onboarding uses Stripe embedded components, and Stripe owns verification rules, sensitive requirement collection, and service-agreement presentation.",
+              "For ordinary nonzero Marketplace payments, Chase Sets requests payment and records capture from mapped webhook or reconciliation results, not from Order creation, a confirmation request, an unpaid session, or setup completion.",
+            evidenceRef: paymentChargeTimingAndCaptureProductTruthRefs.join("; "),
+          },
+          {
+            assertion:
+              "Chase Sets uses a platform-held funds strategy for captured purchase funds until seller payout.",
+            evidenceRef: "docs/adr/0006-stripe-connect-custom-account-experience.md:15",
+          },
+          {
+            assertion:
+              "For payout setup, seller onboarding uses Stripe embedded components, and Stripe owns verification rules, sensitive requirement collection, and service-agreement presentation.",
             evidenceRef:
-              "infrastructure/stripe-payments/index.ts:1464-1494; docs/adr/0006-stripe-connect-custom-account-experience.md:15; docs/adr/0006-stripe-connect-custom-account-experience.md:29; docs/adr/0006-stripe-connect-custom-account-experience.md:54",
+              "docs/adr/0006-stripe-connect-custom-account-experience.md:29; docs/adr/0006-stripe-connect-custom-account-experience.md:54",
           },
         ],
         canonicalClaims: [

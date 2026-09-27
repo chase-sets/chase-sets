@@ -860,7 +860,8 @@ export function createSubscriptionRunner(
         status.initialized = storedCheckpoint !== null;
         status.recoveryRequired = recoveryState.recoveryRequired;
         status.lastGlobalPosition = checkpoint;
-        status.sourceHeadGlobalPosition = await readSourceHeadForRun(context);
+        const sourceHeadGlobalPosition = await readSourceHeadForRun(context);
+        status.sourceHeadGlobalPosition = sourceHeadGlobalPosition;
         status.outstandingEventCount = calculateOutstandingEventCount(checkpoint, status.sourceHeadGlobalPosition);
         applyLagMetrics(status);
 
@@ -872,9 +873,12 @@ export function createSubscriptionRunner(
         });
 
         if (storedEvents.length === 0) {
+          const lastGlobalPosition = isGlobalPositionGreater(checkpoint, sourceHeadGlobalPosition)
+            ? checkpoint
+            : sourceHeadGlobalPosition;
           await persistIdleCheckpointFastForward(
             checkpoint,
-            status.sourceHeadGlobalPosition,
+            lastGlobalPosition,
             saveLeasedSubscriptionCheckpoint,
             context?.settleIdleCheckpoints === true,
           );
@@ -882,11 +886,14 @@ export function createSubscriptionRunner(
           status.blockedStreamCount = errorSummary.blockedStreamCount;
           status.poisonEventCount = errorSummary.poisonEventCount;
           status.initialized = true;
-          status.lastGlobalPosition = status.sourceHeadGlobalPosition;
-          status.outstandingEventCount = "0";
-          applyLagMetrics(status, "0");
-          status.state = deriveSubscriptionReplayState(
+          status.lastGlobalPosition = lastGlobalPosition;
+          status.outstandingEventCount = calculateOutstandingEventCount(
+            lastGlobalPosition,
             status.sourceHeadGlobalPosition,
+          );
+          applyLagMetrics(status, status.outstandingEventCount === "0" ? "0" : null);
+          status.state = deriveSubscriptionReplayState(
+            lastGlobalPosition,
             status.sourceHeadGlobalPosition,
             errorSummary,
           );
@@ -894,8 +901,8 @@ export function createSubscriptionRunner(
 
           return {
             processed: 0,
-            lastGlobalPosition: status.sourceHeadGlobalPosition,
-            state: status.state === "degraded" ? "degraded" : "caught-up",
+            lastGlobalPosition,
+            state: status.state === "behind" ? "running" : status.state,
             blockedStreams: status.blockedStreamCount,
             poisonEvents: status.poisonEventCount,
           };
@@ -1270,17 +1277,15 @@ export function createSubscriptionRunner(
         // A cascade still in progress leaves an unapplied event at
         // `lastGlobalPosition + 1`; the idle tail fast-forward must not skip it.
         if (storedEvents.length < batchSize && !progress.cascadeInProgress) {
-          const observedSourceHeadGlobalPosition = isGlobalPositionGreater(
-            lastGlobalPosition,
-            status.sourceHeadGlobalPosition,
-          )
+          // Only the head captured before readAll certifies an irrelevant tail.
+          // A concurrent refresh can observe applicable events outside this pass.
+          const consumedSourceHeadGlobalPosition = isGlobalPositionGreater(lastGlobalPosition, sourceHeadGlobalPosition)
             ? lastGlobalPosition
-            : status.sourceHeadGlobalPosition;
+            : sourceHeadGlobalPosition;
 
-          status.sourceHeadGlobalPosition = observedSourceHeadGlobalPosition;
-          if (lastGlobalPosition !== observedSourceHeadGlobalPosition) {
+          if (lastGlobalPosition !== consumedSourceHeadGlobalPosition) {
             const checkpointBeforeTailFastForward = lastGlobalPosition;
-            lastGlobalPosition = observedSourceHeadGlobalPosition;
+            lastGlobalPosition = consumedSourceHeadGlobalPosition;
             const persistedTailFastForward = await persistIdleCheckpointFastForward(
               checkpointBeforeTailFastForward,
               lastGlobalPosition,
@@ -1292,15 +1297,18 @@ export function createSubscriptionRunner(
             }
           }
         }
+        const errorSummary = await loadProjectionErrorSummary(targetPool, checkpointKey);
         status.initialized = true;
         status.lastGlobalPosition = lastGlobalPosition;
+        if (isGlobalPositionGreater(lastGlobalPosition, status.sourceHeadGlobalPosition)) {
+          status.sourceHeadGlobalPosition = lastGlobalPosition;
+        }
         status.outstandingEventCount = calculateOutstandingEventCount(
           lastGlobalPosition,
           status.sourceHeadGlobalPosition,
         );
         applyLagMetrics(status, processed > 0 ? null : "0");
         status.processedEvents += processed;
-        const errorSummary = await loadProjectionErrorSummary(targetPool, checkpointKey);
         status.blockedStreamCount = errorSummary.blockedStreamCount;
         status.poisonEventCount = errorSummary.poisonEventCount;
         status.state = deriveSubscriptionReplayState(lastGlobalPosition, status.sourceHeadGlobalPosition, errorSummary);

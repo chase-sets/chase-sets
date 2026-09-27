@@ -139,13 +139,11 @@ describe("Fieldset rebuilt on Surface + Stack", () => {
     expect(screen.getByLabelText("Street")).toBeTruthy();
   });
 
-  it("composes the canonical flat surface chrome and stacked rhythm", () => {
+  it("composes flush furniture and stacked rhythm", () => {
     const { container } = render(<Fieldset legend="Details">body</Fieldset>);
 
     const fieldset = container.querySelector("fieldset");
-    expect(fieldset?.className).toContain("rounded-tokenLg");
-    expect(fieldset?.className).toContain("bg-surface");
-    expect(fieldset?.className).toContain("border-muted");
+    expect(fieldset?.className).toBe("min-w-0 max-w-full rounded-tokenLg p-4");
     expect(fieldset?.className).not.toContain("space-y-4");
     expect(container.querySelector(".flex.flex-col")).toBeTruthy();
   });
@@ -164,7 +162,7 @@ describe("Fieldset rebuilt on Surface + Stack", () => {
 });
 
 describe("FormSection rebuilt on Surface + Stack", () => {
-  it("renders a titled section with an elevated surface and a heading", () => {
+  it("renders a titled section as flush furniture with a heading", () => {
     const { container } = render(
       <FormSection title="Payment" description="Choose how to pay.">
         <input aria-label="Card number" />
@@ -172,8 +170,7 @@ describe("FormSection rebuilt on Surface + Stack", () => {
     );
 
     const section = container.querySelector("section");
-    expect(section?.className).toContain("rounded-tokenLg");
-    expect(section?.className).toContain("shadow-tokenSm");
+    expect(section?.className).toBe("min-w-0 max-w-full rounded-tokenLg p-4");
     expect(screen.getByRole("heading", { name: "Payment", level: 3 })).toBeTruthy();
     expect(screen.getByText("Choose how to pay.")).toBeTruthy();
     expect(screen.getByLabelText("Card number")).toBeTruthy();

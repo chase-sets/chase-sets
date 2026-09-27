@@ -30,6 +30,26 @@ type ReadStreamCall = Readonly<{ streamId: string; fromVersion: number; limit: n
 
 const readStreamCallsByPool = vi.hoisted(() => new Map<object, ReadStreamCall[]>());
 const ignoreReadStreamLimitByPool = vi.hoisted(() => new Set<object>());
+const afterReadAllByPool = vi.hoisted(() => new Map<object, () => Promise<void>>());
+
+function createPassBarrier() {
+  let enter!: () => void;
+  let release!: () => void;
+  const entered = new Promise<void>((resolve) => {
+    enter = resolve;
+  });
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return {
+    entered,
+    release,
+    wait: async () => {
+      enter();
+      await released;
+    },
+  };
+}
 
 vi.mock("@chase-sets/event-core", () => createEventCoreMock());
 vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
@@ -49,6 +69,11 @@ vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
       const store = createPostgresEventStore(options);
       return {
         ...store,
+        readAll: async (input: Parameters<typeof store.readAll>[0]) => {
+          const events = await store.readAll(input);
+          await afterReadAllByPool.get(options.pool)?.();
+          return events;
+        },
         readStream: async (input: ReadStreamCall) => {
           const calls = readStreamCallsByPool.get(options.pool) ?? [];
           calls.push({ ...input });
@@ -82,6 +107,7 @@ describe("bounded context subscription runner", () => {
     resetMockPoolState();
     readStreamCallsByPool.clear();
     ignoreReadStreamLimitByPool.clear();
+    afterReadAllByPool.clear();
   });
 
   it("fails startup when a subscription declaration has no registered handler or local projector", () => {
@@ -796,6 +822,169 @@ describe("bounded context subscription runner", () => {
       outstandingEventCount: "0",
       state: "caught-up",
     });
+  });
+
+  it.each([false, true])("bounds short-pass progress during application (refresh=%s)", async (refresh) => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const barrier = createPassBarrier();
+    const first = createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_1" });
+    const appended = createStoredEvent("2", "catalog.catalog-item.published", { itemId: "cat_2" });
+    sourceEventsByPool.set(sourcePool, [first]);
+    const appliedIds: string[] = [];
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      batchSize: 3,
+      handlers: {
+        "catalog.catalog-item.published": async (event) => {
+          if (event.id === first.eventId) await barrier.wait();
+          appliedIds.push(String(event.id));
+        },
+      },
+    });
+    const firstPass = runner.runOnce({ settleIdleCheckpoints: true });
+    try {
+      await barrier.entered;
+      sourceEventsByPool.set(sourcePool, [first, appended]);
+      if (refresh) {
+        expect(await runner.refreshStatus()).toMatchObject({
+          sourceHeadGlobalPosition: "2",
+          lastGlobalPosition: "0",
+          outstandingEventCount: "2",
+          state: "running",
+        });
+      }
+    } finally {
+      barrier.release();
+    }
+    expect(await firstPass).toMatchObject({ processed: 1, lastGlobalPosition: "1" });
+    expect(getCheckpointStore(targetPool).get(runner.checkpointKey)).toBe("1");
+    expect(getCheckpointWriteCountStore(targetPool).get(runner.checkpointKey)).toBe(1);
+    expect(appliedIds).toEqual([first.eventId]);
+    expect(runner.getStatus()).toMatchObject({
+      lastGlobalPosition: "1",
+      sourceHeadGlobalPosition: refresh ? "2" : "1",
+      outstandingEventCount: refresh ? "1" : "0",
+      state: refresh ? "behind" : "caught-up",
+    });
+    expect(await runner.runOnce()).toMatchObject({ processed: 1, lastGlobalPosition: "2" });
+    expect(await runner.runOnce()).toMatchObject({ processed: 0, lastGlobalPosition: "2" });
+    expect(appliedIds).toEqual([first.eventId, appended.eventId]);
+    expect(getCheckpointStore(targetPool).get(runner.checkpointKey)).toBe("2");
+  });
+
+  it.each([0, 1, 2, 3])("bounds a %i-event pass after read capture", async (count) => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const barrier = createPassBarrier();
+    const initial = Array.from({ length: count }, (_, index) =>
+      createStoredEvent(String(index + 1), "catalog.catalog-item.published", { itemId: `cat_${index + 1}` }),
+    );
+    const appended = createStoredEvent(String(count + 1), "catalog.catalog-item.published", { itemId: "cat_tail" });
+    sourceEventsByPool.set(sourcePool, initial);
+    afterReadAllByPool.set(sourcePool, barrier.wait);
+    const appliedIds: string[] = [];
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      batchSize: 3,
+      handlers: {
+        "catalog.catalog-item.published": async (event) => {
+          appliedIds.push(String(event.id));
+        },
+      },
+    });
+    const firstPass = runner.runOnce({ settleIdleCheckpoints: true });
+    try {
+      await barrier.entered;
+      sourceEventsByPool.set(sourcePool, [...initial, appended]);
+      expect(await runner.refreshStatus()).toMatchObject({ sourceHeadGlobalPosition: String(count + 1) });
+    } finally {
+      afterReadAllByPool.delete(sourcePool);
+      barrier.release();
+    }
+    expect(await firstPass).toMatchObject({ processed: count, lastGlobalPosition: String(count), state: "running" });
+    expect(getCheckpointStore(targetPool).get(runner.checkpointKey) ?? "0").toBe(String(count));
+    expect(appliedIds).toEqual(initial.map((event) => event.eventId));
+    expect(runner.getStatus()).toMatchObject({
+      lastGlobalPosition: String(count),
+      sourceHeadGlobalPosition: String(count + 1),
+      outstandingEventCount: "1",
+      sourceLagEventCount: "1",
+      applicableLagEstimate: null,
+      state: "behind",
+    });
+    expect(await runner.runOnce()).toMatchObject({ processed: 1, lastGlobalPosition: String(count + 1) });
+    expect(await runner.runOnce()).toMatchObject({ processed: 0 });
+    expect(appliedIds).toEqual([...initial, appended].map((event) => event.eventId));
+  });
+
+  it.each([
+    { count: 0, pauseAt: "save" },
+    { count: 0, pauseAt: "summary" },
+    { count: 1, pauseAt: "save" },
+    { count: 1, pauseAt: "summary" },
+  ])("bounds a $count-event pass during $pauseAt", async ({ count, pauseAt }) => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const barrier = createPassBarrier();
+    const relevant = createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_1" }, "catalog.item-1");
+    const irrelevant = createStoredEvent("2", "catalog.catalog-item.published", {}, "catalog.category-2");
+    const initial = count ? [relevant, irrelevant] : [irrelevant];
+    const appended = createStoredEvent("3", "catalog.catalog-item.published", { itemId: "cat_3" }, "catalog.item-3");
+    sourceEventsByPool.set(sourcePool, initial);
+    const query = targetPool.query.bind(targetPool);
+    let paused = false;
+    vi.spyOn(targetPool, "query").mockImplementation(async (sql, params) => {
+      const result = await query(sql, params);
+      const shouldPause =
+        pauseAt === "save"
+          ? sql.includes("INSERT INTO event_subscription_checkpoints") && params?.[4] === "2"
+          : sql.includes("AS blocked_stream_count");
+      if (!paused && shouldPause) {
+        paused = true;
+        await barrier.wait();
+      }
+      return result;
+    });
+    const appliedIds: string[] = [];
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      streamPrefixes: ["catalog.item-"],
+      handlers: {
+        "catalog.catalog-item.published": async (event) => {
+          appliedIds.push(String(event.id));
+        },
+      },
+    });
+    const firstPass = runner.runOnce({ settleIdleCheckpoints: true });
+    try {
+      await barrier.entered;
+      sourceEventsByPool.set(sourcePool, [...initial, appended]);
+      expect(await runner.refreshStatus()).toMatchObject({ sourceHeadGlobalPosition: "3" });
+    } finally {
+      barrier.release();
+    }
+    expect(await firstPass).toMatchObject({ processed: count, lastGlobalPosition: "2", state: "running" });
+    expect(getCheckpointStore(targetPool).get(runner.checkpointKey)).toBe("2");
+    expect(runner.getStatus()).toMatchObject({
+      lastGlobalPosition: "2",
+      sourceHeadGlobalPosition: "3",
+      outstandingEventCount: "1",
+      sourceLagEventCount: "1",
+      applicableLagEstimate: null,
+      state: "behind",
+    });
+    expect(await runner.runOnce()).toMatchObject({ processed: 1, lastGlobalPosition: "3" });
+    expect(appliedIds).toEqual(count ? [relevant.eventId, appended.eventId] : [appended.eventId]);
   });
 
   it("persists versioned checkpoints and replays a new subscription version from origin", async () => {

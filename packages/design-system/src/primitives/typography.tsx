@@ -471,7 +471,7 @@ export interface ThumbnailProps extends Omit<ImgHTMLAttributes<HTMLImageElement>
 
 export function Thumbnail({ src, alt, ratio = 1, icon = "package", ...rest }: ThumbnailProps) {
   return (
-    <Surface padding={0} elevated>
+    <Surface padding={0} elevation="elevated">
       <AspectRatio ratio={ratio}>
         {src ? (
           <img {...rest} alt={alt} src={src} className="h-full w-full rounded-tokenLg object-cover" />

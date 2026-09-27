@@ -313,7 +313,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
                           : [];
                       });
                       return (
-                        <Surface key={`${order.order_id}:${evidence.line_id}`} elevated>
+                        <Surface key={`${order.order_id}:${evidence.line_id}`} elevation="outlined">
                           <Stack gap={2}>
                             <Text weight="semibold">{evidence.item_title}</Text>
                             <ImageGallery images={images} aspectRatio="3/4" thumbnailPlacement="left" />
@@ -339,7 +339,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
             title={t("payments.routes.marketplace.accountPaymentNew.transparent.totals")}
             description={t("payments.routes.marketplace.accountPaymentNew.transparent.totals.description")}
           />
-          <Surface elevated glow>
+          <Surface elevation="elevated" glow>
             <Stack gap={4}>
               <Stack gap={2}>
                 <Badge tone="accent">{t("payments.routes.marketplace.accountPaymentNew.payment.setup.2")}</Badge>
@@ -441,7 +441,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
           <PageSection title={t("payments.routes.marketplace.accountPaymentNew.payment.method.fee.preview")}>
             <Grid columns={{ base: 1, md: 3 }} gap={3}>
               {data.checkoutStatus.payment_method_quotes.map((quote) => (
-                <Surface key={quote.payment_method_category} elevated>
+                <Surface key={quote.payment_method_category} elevation="outlined">
                   <Stack gap={2}>
                     <Badge tone={quote.payment_method_category === "card" ? "accent" : "success"}>
                       {paymentMethodLabel(quote.payment_method_category)}
@@ -472,7 +472,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
           <PageSection title={t("payments.routes.marketplace.accountPaymentNew.purchases.2")}>
             <Stack gap={3}>
               {data.orders.map((order: PaymentsAccountOrderInput) => (
-                <Surface key={order.order_id} elevated>
+                <Surface key={order.order_id} elevation="outlined">
                   <Stack gap={3}>
                     <Grid columns={{ base: 1, md: 3 }} gap={3}>
                       <Stack gap={1}>

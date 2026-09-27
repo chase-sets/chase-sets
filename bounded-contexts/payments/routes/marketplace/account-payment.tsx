@@ -434,7 +434,7 @@ function GuestClaimPrompt({
 
   return (
     <PageSection title={t("payments.routes.marketplace.accountPayment.save.this.order")}>
-      <Surface elevated glow>
+      <Surface elevation="elevated" glow>
         <Stack gap={3}>
           <Badge tone="accent">{t("payments.routes.marketplace.accountPayment.recommended")}</Badge>
           <Text tone="secondary">

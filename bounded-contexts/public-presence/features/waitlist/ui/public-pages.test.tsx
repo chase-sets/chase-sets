@@ -1181,8 +1181,9 @@ describe("public waitlist form migration smoke", () => {
         expectedSections,
       );
 
-      // Two IntersectionObserver instances mount: MobileStickyWaitlistCta's
-      // (observing only the hero form) and useLandingSectionViewTracking's
+      // Three IntersectionObserver instances mount: the shared sticky-bar
+      // observer (observing only the hero form), the desktop sticky bar's
+      // (observing only the final form panel) and useLandingSectionViewTracking's
       // (observing every section). Identify the latter by observed-set
       // membership rather than mount order.
       const sectionInstance = instances.find((instance) =>
@@ -1371,6 +1372,168 @@ describe("public waitlist form migration smoke", () => {
 
     stop();
   });
+});
+
+describe("landing desktop sticky early-access bar", () => {
+  const landingVariants = [
+    { variant: "seller_first_v1", pagePath: source.pagePath },
+    { variant: "seller_first_v2", pagePath: "/?intent=buy" },
+  ];
+
+  // Renders the full landing page with observer instances keyed by their
+  // actually-observed targets, so lookups never depend on mount order.
+  function renderLandingWithObservers(pagePath: string) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    const instances: { callback: IntersectionObserverCallback; observed: Element[] }[] = [];
+    vi.stubGlobal(
+      "IntersectionObserver",
+      vi.fn(function IntersectionObserverStub(callback: IntersectionObserverCallback) {
+        const observed: Element[] = [];
+        instances.push({ callback, observed });
+        return { observe: (element: Element) => observed.push(element), disconnect: vi.fn(), unobserve: vi.fn() };
+      }),
+    );
+
+    const { container } = render(<PublicPresenceHomePage actionData={null} source={{ ...source, pagePath }} />);
+
+    const heroForm = document.getElementById("waitlist-form");
+    const finalForm = document.getElementById("waitlist-form-final");
+    if (!heroForm || !finalForm) {
+      throw new Error("Expected the hero and final waitlist form panels to render.");
+    }
+    const heroObservers = instances.filter((instance) => instance.observed.includes(heroForm));
+    const finalObservers = instances.filter((instance) => instance.observed.includes(finalForm));
+
+    function report(observers: typeof instances, isIntersecting: boolean) {
+      act(() => {
+        for (const observer of observers) {
+          observer.callback([{ isIntersecting } as IntersectionObserverEntry], {} as IntersectionObserver);
+        }
+      });
+    }
+
+    return {
+      container,
+      heroForm,
+      finalForm,
+      heroObservers,
+      finalObservers,
+      reportHero: (isIntersecting: boolean) => report(heroObservers, isIntersecting),
+      reportFinal: (isIntersecting: boolean) => report(finalObservers, isIntersecting),
+      desktopBar: () => document.body.querySelector<HTMLElement>("[data-public-presence-desktop-sticky-cta]"),
+      mobileBar: () => document.body.querySelector<HTMLElement>("[data-public-presence-sticky-cta]"),
+    };
+  }
+
+  it.each(landingVariants)(
+    "shows the md+ top bar only after the single shared hero-form observer reports the form out of view for $variant",
+    ({ pagePath }) => {
+      const page = renderLandingWithObservers(pagePath);
+
+      expect(page.heroObservers).toHaveLength(1);
+      expect(page.heroObservers[0]?.observed).toEqual([page.heroForm]);
+      expect(page.desktopBar()).toBeNull();
+
+      page.reportHero(true);
+      expect(page.desktopBar()).toBeNull();
+      expect(page.mobileBar()).toBeNull();
+
+      page.reportHero(false);
+      const desktopBar = page.desktopBar();
+      if (!desktopBar) {
+        throw new Error("Expected the desktop sticky bar once the hero form leaves view.");
+      }
+      expect(desktopBar.classList).toContain("top-0");
+      expect(desktopBar.classList).toContain("fixed");
+      expect(desktopBar.parentElement?.classList).toContain("hidden");
+      expect(desktopBar.parentElement?.classList).toContain("md:block");
+      expect(page.mobileBar()).not.toBeNull();
+
+      page.reportHero(true);
+      expect(page.desktopBar()).toBeNull();
+      expect(page.mobileBar()).toBeNull();
+    },
+  );
+
+  it.each(landingVariants)(
+    "hides the desktop bar while the final form panel is in view and leaves the mobile bar unchanged for $variant",
+    ({ pagePath }) => {
+      const page = renderLandingWithObservers(pagePath);
+
+      expect(page.finalObservers).toHaveLength(1);
+      expect(page.finalObservers[0]?.observed).toEqual([page.finalForm]);
+
+      page.reportHero(false);
+      expect(page.desktopBar()).not.toBeNull();
+      expect(page.mobileBar()).not.toBeNull();
+
+      page.reportFinal(true);
+      expect(page.desktopBar()).toBeNull();
+      expect(page.mobileBar()).not.toBeNull();
+
+      page.reportFinal(false);
+      expect(page.desktopBar()).not.toBeNull();
+      expect(page.mobileBar()).not.toBeNull();
+    },
+  );
+
+  it.each(landingVariants)(
+    "links the desktop bar to the final form with the shipped labels and tracks desktop_sticky for $variant",
+    ({ variant, pagePath }) => {
+      const page = renderLandingWithObservers(pagePath);
+      const { events, stop } = captureAnalyticsEvents();
+
+      page.reportHero(false);
+      const desktopBar = page.desktopBar();
+      if (!desktopBar) {
+        throw new Error("Expected the desktop sticky bar once the hero form leaves view.");
+      }
+
+      expect(desktopBar.querySelectorAll("a")).toHaveLength(2);
+      expect(desktopBar.querySelector('a[href="/"] > span')?.textContent).toBe(t("publicPresence.brand"));
+      const action = desktopBar.querySelector<HTMLAnchorElement>('a[href="/#waitlist-form-final"]');
+      if (!action) {
+        throw new Error("Expected the desktop sticky bar's action to link to the final form.");
+      }
+      expect(action.textContent).toBe(t("publicPresence.home.stickyCta.action"));
+
+      fireEvent.click(action);
+      expect(events.filter((detail) => detail.event === "cta_clicked")).toEqual([
+        { event: "cta_clicked", section: "desktop_sticky", target: "waitlist_form_final", variant },
+      ]);
+
+      stop();
+    },
+  );
+
+  it.each(landingVariants)(
+    "keeps a single mobile sticky marker, the nav brand and one foil word with both bars rendered for $variant",
+    ({ pagePath }) => {
+      const page = renderLandingWithObservers(pagePath);
+
+      page.reportHero(false);
+      const desktopBar = page.desktopBar();
+      if (!desktopBar) {
+        throw new Error("Expected the desktop sticky bar once the hero form leaves view.");
+      }
+
+      const mobileMarkers = document.body.querySelectorAll("[data-public-presence-sticky-cta]");
+      expect(mobileMarkers).toHaveLength(1);
+      expect(desktopBar.contains(mobileMarkers[0]!)).toBe(false);
+      expect(page.container.querySelector('nav a[href="/"] > span')?.textContent).toBe(t("publicPresence.brand"));
+      expect(desktopBar.closest("nav")).toBeNull();
+      expect(desktopBar.querySelector("nav, header, footer, aside, [role]")).toBeNull();
+      expect(desktopBar.querySelector(".ds-brand-foil-text")).toBeNull();
+      expect(document.body.querySelectorAll(".ds-brand-foil-text")).toHaveLength(1);
+    },
+  );
 });
 
 function repositoryRoot(): string {

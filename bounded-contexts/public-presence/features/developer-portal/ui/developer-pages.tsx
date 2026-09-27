@@ -32,7 +32,7 @@ export function DeveloperPortalPage() {
         />
         <Grid columns={{ base: 1, md: 2 }} gap={4}>
           {developerArticles.map((article) => (
-            <Surface key={article.href} element="article" elevated>
+            <Surface key={article.href} element="article" elevation="elevated">
               <Stack gap={3}>
                 <Heading level={2} visualSize={3}>
                   {article.title}
@@ -155,7 +155,7 @@ function ToolDescriptor({ tool }: { tool: DeveloperMcpToolCatalogEntry }) {
     ? tool.permissionBoundary.requiredScopes
     : [t("publicPresence.developers.catalog.none")];
   return (
-    <Surface element="article" elevated>
+    <Surface element="article" elevation="flush">
       <Stack gap={3}>
         <Heading level={4}>{tool.title}</Heading>
         <Text size="sm">{tool.name}</Text>

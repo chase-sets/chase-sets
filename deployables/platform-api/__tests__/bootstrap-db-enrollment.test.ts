@@ -94,9 +94,8 @@ function partitionSource(file: FixtureFile): string {
  * Builds a real workspace root on disk — sources, a vitest configuration, and a
  * package manifest — so every control below is planted through the guard's own
  * discovery rather than by calling an internal helper. Identity values are
- * derived from the fixture's own parsed sources in a first pass and frozen into
- * the fixture manifest in a second, which is exactly how the shipped manifest
- * was produced.
+ * derived from the fixture's own parsed sources and frozen into the fixture
+ * manifest, which is exactly how the shipped manifest was produced.
  */
 async function createFixture(
   files: readonly FixtureFile[],
@@ -168,15 +167,19 @@ async function createFixture(
     );
   const model = createSyntheticScheduleModel({ ...options.model, ...syntheticScheduleModelProvenance });
 
-  const draftManifest = buildManifest(files, () => "0000000000000000");
-  const derived = checkBootstrapDbEnrollment({
-    platformApiRoot: root,
-    manifest: draftManifest,
-    executionUnitBootBearingCaseCeilings: ceilings,
-    scheduleModel: model,
-  }).caseIdentities;
+  const identities = new Map<string, string>();
+  for (const file of files) {
+    for (const { name, identity } of deriveBootstrapDbCaseIdentities(file.fileName, partitionSource(file))) {
+      if (!identities.has(name)) identities.set(name, identity);
+    }
+  }
 
-  return { root, manifest: buildManifest(files, (name) => derived[name] ?? "0000000000000000"), ceilings, model };
+  return {
+    root,
+    manifest: buildManifest(files, (name) => identities.get(name) ?? "0000000000000000"),
+    ceilings,
+    model,
+  };
 }
 
 function buildManifest(files: readonly FixtureFile[], identityFor: (caseName: string) => string): FixtureManifest {
@@ -300,14 +303,18 @@ function scheduleVerdict(probe: ScheduleProbe, files: ScheduleFile[], model: Boo
   );
   const oneFewerUnit =
     minimum.minimumUnitCount && minimum.minimumUnitCount > 1 ? alternatives[minimum.minimumUnitCount - 2] : null;
-  return JSON.stringify({
+  return {
     minimum,
-    aggregateWithOverheadMs: minimum.witness
-      ? minimum.witness.reduce((sum, unit) => sum + unit.makespanMs, model.jobOverheadMs)
-      : null,
-    oneFewerUnit,
     alternatives,
-  });
+    serialized: JSON.stringify({
+      minimum,
+      aggregateWithOverheadMs: minimum.witness
+        ? minimum.witness.reduce((sum, unit) => sum + unit.makespanMs, model.jobOverheadMs)
+        : null,
+      oneFewerUnit,
+      alternatives,
+    }),
+  };
 }
 
 function expectSharedScheduleEquivalence(
@@ -315,6 +322,7 @@ function expectSharedScheduleEquivalence(
   candidate: ScheduleProbe,
   files: ScheduleFile[],
   model: BootstrapDbScheduleModel,
+  oldVerdict: ReturnType<typeof scheduleVerdict>,
 ) {
   const observed: string[] = [];
   const result = candidate.calculateMinimumAndOneFewer!(files, model, (phase, count, assignment) => {
@@ -326,10 +334,10 @@ function expectSharedScheduleEquivalence(
     refusal: string | null;
   };
   const { oneFewer, ...minimum } = result;
-  const expectedMinimum = old.computeMinimumUnitCount(files, model) as typeof minimum;
+  const expectedMinimum = oldVerdict.minimum as typeof minimum;
   const expectedOneFewer =
     expectedMinimum.minimumUnitCount && expectedMinimum.minimumUnitCount > 1
-      ? old.bestAssignmentAt(files, expectedMinimum.minimumUnitCount - 1, model)
+      ? oldVerdict.alternatives[expectedMinimum.minimumUnitCount - 2]
       : null;
   expect(JSON.stringify(minimum)).toBe(JSON.stringify(expectedMinimum));
   expect(JSON.stringify(oneFewer)).toBe(JSON.stringify(expectedOneFewer));
@@ -393,9 +401,11 @@ describe("Platform API bootstrap DB enrollment", () => {
                     });
                     const expected = scheduleVerdict(old, files, model);
                     const actual = scheduleVerdict(candidate, files, model);
-                    if (actual !== expected)
-                      throw new Error(`schedule differs at pair ${pairs}: ${expected} vs ${actual}`);
-                    expectSharedScheduleEquivalence(old, candidate, files, model);
+                    if (actual.serialized !== expected.serialized)
+                      throw new Error(
+                        `schedule differs at pair ${pairs}: ${expected.serialized} vs ${actual.serialized}`,
+                      );
+                    expectSharedScheduleEquivalence(old, candidate, files, model, expected);
                     pairs += 1;
                   }
       }
@@ -423,8 +433,9 @@ describe("Platform API bootstrap DB enrollment", () => {
       aggregateCeilingMs: 15,
     }) as { -readonly [Key in keyof BootstrapDbScheduleModel]: BootstrapDbScheduleModel[Key] };
     const compare = () => {
-      expect(scheduleVerdict(candidate, files, model)).toBe(scheduleVerdict(old, files, model));
-      expectSharedScheduleEquivalence(old, candidate, files, model);
+      const expected = scheduleVerdict(old, files, model);
+      expect(scheduleVerdict(candidate, files, model).serialized).toBe(expected.serialized);
+      expectSharedScheduleEquivalence(old, candidate, files, model, expected);
     };
     compare();
     files.reverse();
@@ -452,10 +463,9 @@ describe("Platform API bootstrap DB enrollment", () => {
         durationMs: 1,
       }));
       const boundaryModel = createSyntheticScheduleModel({ maximumScheduledFileCount: bound });
-      expect(scheduleVerdict(candidate, boundaryFiles, boundaryModel)).toBe(
-        scheduleVerdict(old, boundaryFiles, boundaryModel),
-      );
-      expectSharedScheduleEquivalence(old, candidate, boundaryFiles, boundaryModel);
+      const expected = scheduleVerdict(old, boundaryFiles, boundaryModel);
+      expect(scheduleVerdict(candidate, boundaryFiles, boundaryModel).serialized).toBe(expected.serialized);
+      expectSharedScheduleEquivalence(old, candidate, boundaryFiles, boundaryModel, expected);
     }
   });
 

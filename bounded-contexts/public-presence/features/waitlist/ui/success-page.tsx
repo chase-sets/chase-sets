@@ -163,7 +163,7 @@ function WavePlacementSection({
       title={t("publicPresence.welcome.wavePlacement.title")}
       description={t("publicPresence.welcome.wavePlacement.description")}
     >
-      <Surface tone="subtle" elevated>
+      <Surface tone="subtle" elevation="tinted">
         <Stack gap={4}>
           <Stack gap={2}>
             <Stack gap={1}>
@@ -327,7 +327,7 @@ export function WaitlistSuccessPage({
           description={t("publicPresence.welcome.referral.description", { goal: referralGoal })}
         >
           <Grid columns={{ base: 1, lg: 2 }} gap={4}>
-            <Surface tone="subtle" elevated>
+            <Surface tone="subtle" elevation="tinted">
               <Stack gap={3}>
                 {summary?.queuePosition != null ? (
                   <Stack gap={1}>
@@ -386,7 +386,7 @@ export function WaitlistSuccessPage({
                 ) : null}
               </Stack>
             </Surface>
-            <Surface tone="subtle">
+            <Surface tone="subtle" elevation="tinted">
               <Stack gap={3}>
                 <Heading level={3}>{t("publicPresence.welcome.referral.share.title")}</Heading>
                 <Inline gap={2}>

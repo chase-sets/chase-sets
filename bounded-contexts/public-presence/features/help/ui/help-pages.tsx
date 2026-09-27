@@ -85,7 +85,7 @@ export function HelpHubPage() {
               {categories.map((category) => {
                 const articles = listHelpArticlesByCategory(category);
                 return (
-                  <Surface key={category} elevated>
+                  <Surface key={category} elevation="elevated">
                     <Stack gap={3}>
                       <Heading level={3}>{helpCategoryLabel(category)}</Heading>
                       <Text tone="secondary">{helpCategoryDescription(category)}</Text>
@@ -144,7 +144,7 @@ export function HelpCategoryPage({
 
 function ArticleCard({ article }: { article: HelpArticleCard }) {
   return (
-    <Surface element="article" elevated>
+    <Surface element="article" elevation="elevated">
       <Stack gap={3}>
         <Text size="sm" tone="tertiary">
           {helpAudienceLabel(article.audience)}
@@ -227,7 +227,7 @@ export function CompiledArticleBody({ article }: { article: HelpArticle }) {
   return (
     <Surface
       element="article"
-      elevated
+      elevation="flush"
       {...(unresolvedPolicyValueKeys.length > 0
         ? {
             [POLICY_VALUES_AGGREGATE_STATE_ATTRIBUTE]: POLICY_VALUES_DEGRADED_STATE,
@@ -268,7 +268,7 @@ export function CompiledArticleBody({ article }: { article: HelpArticle }) {
 
 export function ArticleTableOfContents({ article }: { article: HelpArticle }) {
   return (
-    <Surface element="nav" tone="subtle" aria-label={t("publicPresence.help.toc.title")}>
+    <Surface element="nav" tone="subtle" elevation="tinted" aria-label={t("publicPresence.help.toc.title")}>
       <Stack gap={3}>
         <Heading level={2} visualSize={4}>
           {t("publicPresence.help.toc.title")}

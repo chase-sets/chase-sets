@@ -1,12 +1,11 @@
-import { createProjectionGroupWorkerRunner, createWorkerRunnerLoop } from "./worker";
-import { createProjectionWakeSchedulerRunners } from "./projection-wake-scheduler";
-import { Hono } from "hono";
-import type { ProjectorHandler } from "@chase-sets/event-core/projector";
 import {
-  CHASE_SETS_READ_AFTER_WRITE_HEADER,
-  CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
-  encodeFreshWriteReceipt,
-} from "@chase-sets/http/responses";
+  createCheckpointReadinessRecorder,
+  createProjectionGroupWorkerRunner,
+  createWorkerRunnerLeaseName,
+  createWorkerRunnerLoop,
+} from "./worker";
+import { createProjectionWakeSchedulerRunners } from "./projection-wake-scheduler";
+import type { ProjectorHandler } from "@chase-sets/event-core/projector";
 import {
   attachReadConsistencyMiddleware,
   bootstrapContextDatabase,
@@ -14,6 +13,12 @@ import {
   resetProjectionGroup,
   syncProjectionGroup,
 } from "@chase-sets/bounded-context-runtime";
+import { Hono } from "hono";
+import {
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
+  encodeFreshWriteReceipt,
+} from "@chase-sets/http/responses";
 import { defineBoundedContextModule } from "@chase-sets/bounded-context-module";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -1689,6 +1694,230 @@ describe("busy-group-pass-attribution Postgres", () => {
       }
     }
   });
+});
+
+describe("subscription pass checkpoint bounds Postgres", () => {
+  let pools: Readonly<Record<"checkpoint", PgTransactionalPool>>;
+
+  beforeAll(async () => {
+    if (!adminDatabaseUrl) throw new Error("TEST_DATABASE_URL is required for checkpoint bounds DB tests.");
+    const urls = createMultiContextTestDatabaseUrls(adminDatabaseUrl, ["checkpoint"], "checkpoint_bounds");
+    await ensureMultiContextTestDatabases(adminDatabaseUrl, urls);
+    pools = createMultiContextTestPools(urls);
+  });
+  beforeEach(async () => {
+    await resetMultiContextTestSchemas(pools);
+  });
+  afterAll(async () => {
+    if (pools) await closeMultiContextTestPools(pools);
+  });
+
+  it.each([false, true])(
+    "keeps receipt E pending until its owned application commits (refresh=%s)",
+    async (refresh) => {
+      const makeBarrier = () => {
+        let enter!: () => void;
+        let release!: () => void;
+        const entered = new Promise<void>((resolve) => {
+          enter = resolve;
+        });
+        const released = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return {
+          entered,
+          release,
+          wait: async () => {
+            enter();
+            await released;
+          },
+        };
+      };
+      const firstApplication = makeBarrier();
+      const nextApplication = makeBarrier();
+      const appliedIds: string[] = [];
+      const module = defineBoundedContextModule({
+        manifest: {
+          contextName: "checkpoint",
+          apiBasePath: "/checkpoint",
+          streamPrefix: "checkpoint.",
+          eventSubscriptions: [
+            {
+              sourceContextName: "checkpoint",
+              projectionName: "checkpoint-owned",
+              subscriptionVersion: 1,
+              projectionHandlerSetNames: ["checkpoint-owned"],
+              eventTypes: ["checkpoint.recorded"],
+            },
+          ],
+          projectionGroups: [
+            {
+              projectionName: "checkpoint-owned",
+              sourceContextNames: ["checkpoint"],
+              ownedTables: ["checkpoint_owned"],
+              resetStrategy: "truncate-owned-tables",
+            },
+          ],
+        },
+        schemaSql:
+          "CREATE TABLE checkpoint_owned (id integer PRIMARY KEY, event_id text NOT NULL, position bigint NOT NULL)",
+        createServices: () => ({}),
+        buildApis: () => [],
+        buildSubscriptions: () => [
+          {
+            subscriptionName: "checkpoint.owned",
+            projectionName: "checkpoint-owned",
+            sourceContextName: "checkpoint",
+            subscriptionVersion: 1,
+            batchSize: 3,
+            eventTypes: ["checkpoint.recorded"],
+            handlers: {
+              "checkpoint.recorded": async (event, context) => {
+                await context!.db!.query(
+                  `INSERT INTO checkpoint_owned VALUES (1, $1, $2::bigint)
+               ON CONFLICT (id) DO UPDATE SET event_id = EXCLUDED.event_id, position = EXCLUDED.position`,
+                  [event.id, event.globalPosition],
+                );
+                appliedIds.push(String(event.id));
+                await (event.globalPosition === "1" ? firstApplication : nextApplication).wait();
+              },
+            },
+          },
+        ],
+      });
+      await bootstrapContextDatabase(module, pools.checkpoint);
+      await pools.checkpoint.query(platformControlPlaneSchemaSql);
+      await pools.checkpoint.query(platformWorkSignalStoreSchemaSql);
+      const runtime = createMountedContextTestRuntime([
+        { contextName: "checkpoint", module, pool: pools.checkpoint, ports: {} },
+      ]);
+      const group = runtime.projectionGroups[0]!;
+      const subscription = group.subscriptionRunners[0]!;
+      const worker = createProjectionGroupWorkerRunner(group, {
+        onCheckpointsAdvanced: createCheckpointReadinessRecorder(createPostgresWorkSignalStore(pools.checkpoint)),
+      });
+      const controlPlane = createPostgresPlatformControlPlane(pools.checkpoint);
+      const lease = await controlPlane.acquireLease({
+        leaseName: createWorkerRunnerLeaseName(worker),
+        ownerId: "checkpoint-bound-worker",
+        ttlMs: 30_000,
+      });
+      expect(lease).not.toBeNull();
+      if (!lease) throw new Error("Checkpoint bounds worker did not acquire its group lease.");
+      const context = { ownerId: lease.ownerId, fencingToken: lease.fencingToken, settleIdleCheckpoints: true };
+      const store = createPostgresEventStore({ pool: pools.checkpoint });
+      const append = (streamId: string) =>
+        store.appendToStream({
+          streamId,
+          expectedVersion: "no_stream",
+          events: [{ eventType: "checkpoint.recorded", payload: {} }],
+          context: {
+            tenantId: "tenant_test" as never,
+            audit: { performedByUserId: "user_test" as never, forAccountId: "account_test" as never },
+          },
+        });
+      const readOwned = async () =>
+        (await pools.checkpoint.query("SELECT event_id, position::text FROM checkpoint_owned WHERE id = 1")).rows;
+      const readProgress = async () =>
+        (
+          await pools.checkpoint.query(
+            `SELECT c.last_global_position::text AS checkpoint, c.lease_owner_id, c.lease_fencing_token::text,
+              r.ready_position::text AS readiness
+       FROM event_subscription_checkpoints c
+       JOIN platform_projection_checkpoint_readiness r USING (checkpoint_key)
+       WHERE c.checkpoint_key = $1`,
+            [subscription.checkpointKey],
+          )
+        ).rows;
+      const app = new Hono();
+      attachReadConsistencyMiddleware(app, [{ contextName: "checkpoint", mountPath: "/checkpoint" }], [group], {
+        // Immediate predicate probe, not a product latency/deadline test.
+        timeoutMs: 0,
+      });
+      app.get("/checkpoint/owned", async (c) => c.json(await readOwned()));
+      let activePass: ReturnType<typeof worker.runOnce> | undefined;
+      try {
+        const first = await append("checkpoint.first");
+        expect(first[0]!.globalPosition).toBe("1");
+        activePass = worker.runOnce(context);
+        await firstApplication.entered;
+        const appended = await append("checkpoint.next");
+        const event = appended[0]!;
+        expect(event.globalPosition).toBe("2");
+        if (refresh) {
+          await worker.refreshPriority!();
+          expect(subscription.getStatus()).toMatchObject({
+            sourceHeadGlobalPosition: "2",
+            lastGlobalPosition: "0",
+            outstandingEventCount: "2",
+            state: "running",
+          });
+        }
+        firstApplication.release();
+        expect(await activePass).toMatchObject({ processed: 1, lastGlobalPosition: "1" });
+        activePass = undefined;
+        expect(await readOwned()).toEqual([{ event_id: first[0]!.eventId, position: "1" }]);
+        expect(await readProgress()).toEqual([
+          {
+            checkpoint: "1",
+            readiness: "1",
+            lease_owner_id: lease.ownerId,
+            lease_fencing_token: lease.fencingToken,
+          },
+        ]);
+        const headers = {
+          [CHASE_SETS_READ_AFTER_WRITE_HEADER]: encodeFreshWriteReceipt({
+            observedAtMs: Date.now(),
+            sources: [
+              { sourceContextName: "checkpoint", maxGlobalPosition: event.globalPosition, eventIds: [event.eventId] },
+            ],
+          }),
+        };
+        const pending = await app.request("/checkpoint/owned", { headers });
+        expect(pending.status).toBe(503);
+        expect(await pending.json()).toMatchObject({
+          error: {
+            code: "projection_freshness_timeout",
+            pending: [
+              {
+                lastGlobalPosition: "1",
+                requiredGlobalPosition: "2",
+              },
+            ],
+          },
+        });
+        expect(appliedIds).toEqual([first[0]!.eventId]);
+        activePass = worker.runOnce(context);
+        await nextApplication.entered;
+        expect(await readOwned()).toEqual([{ event_id: first[0]!.eventId, position: "1" }]);
+        expect((await app.request("/checkpoint/owned", { headers })).status).toBe(503);
+        nextApplication.release();
+        expect(await activePass).toMatchObject({ processed: 1, lastGlobalPosition: "2" });
+        activePass = undefined;
+        expect(await readProgress()).toEqual([
+          {
+            checkpoint: "2",
+            readiness: "2",
+            lease_owner_id: lease.ownerId,
+            lease_fencing_token: lease.fencingToken,
+          },
+        ]);
+        const fresh = await app.request("/checkpoint/owned", { headers });
+        expect(fresh.status).toBe(200);
+        expect(await fresh.json()).toEqual([{ event_id: event.eventId, position: "2" }]);
+        expect(await worker.runOnce(context)).toMatchObject({ processed: 0, lastGlobalPosition: "2" });
+        expect(appliedIds).toEqual([first[0]!.eventId, event.eventId]);
+      } finally {
+        firstApplication.release();
+        nextApplication.release();
+        try {
+          await activePass;
+        } finally {
+          await controlPlane.releaseLease(lease);
+        }
+      }
+    },
+  );
 });
 
 describe("projection-group-recovery-marker Postgres", () => {
