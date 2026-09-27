@@ -508,7 +508,7 @@ describe("design system marketplace patterns", () => {
     );
 
     expect(markup).toContain('md:hidden" aria-label="Marketing highlight">');
-    expect(markup).toContain('hidden max-w-2xl grid-cols-3 gap-2 md:grid" aria-label="Marketing highlights">');
+    expect(markup).toContain('hidden max-w-2xl grid-cols-3 gap-4 md:grid" aria-label="Marketing highlights">');
     expect(markup).toContain("0% beta seller fees");
     expect(markup).toContain("Keep 100% of the sale");
   });
@@ -528,6 +528,182 @@ describe("design system marketplace patterns", () => {
 
     expect(defaultAliasMarkup).toBe(comfortableMarkup);
     expect(comfortableMarkup).toContain("min-h-[22rem]");
+  });
+
+  describe("MarketingImageHero surface diet (#8270)", () => {
+    // Chrome vocabulary the surface-diet law forbids on furniture. Responsive
+    // and state variants are stripped first so `md:border` still counts, and
+    // the scrim's `bg-[linear-gradient(...color-mix...)]` token is left alone
+    // because it starts with `bg-[linear-gradient`, not `bg-[color-mix`.
+    const chromeClassPattern =
+      /^(?:border|border-.+|surface-border|bg-surface(?:-.+)?|shadow-.+|backdrop-blur(?:-.+)?|bg-\[color-mix.*|ring|ring-.+|outline|outline-.+)$/;
+    function chromeTokens(element: Element) {
+      return element.className
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((token) => token.replace(/^(?:[a-z0-9-]+:)+/, ""))
+        .filter((token) => chromeClassPattern.test(token));
+    }
+    function subtreeChromeTokens(root: Element) {
+      return [root, ...Array.from(root.querySelectorAll("*"))].flatMap((element) =>
+        chromeTokens(element).map((token) => `${element.tagName.toLowerCase()}.${token}`),
+      );
+    }
+    const legacyRootRecipe = [
+      "border",
+      "border-border",
+      "bg-surface",
+      "shadow-tokenLg",
+      "shadow-tokenSm",
+      "surface-border",
+    ];
+
+    it.each([
+      { density: "compact" as const, withPanel: true },
+      { density: "compact" as const, withPanel: false },
+      { density: "comfortable" as const, withPanel: true },
+      { density: "comfortable" as const, withPanel: false },
+    ])(
+      "AC1: renders the hero root flush on the page background in $density density (conversionPanel: $withPanel)",
+      ({ density, withPanel }) => {
+        const { container, unmount } = render(
+          <MarketingImageHero
+            imageSrc="/assets/hero.webp"
+            imageAlt="Cards ready to list"
+            density={density}
+            eyebrow="Early access"
+            title="List cards without giving up margin"
+            description="Keep the margin the old marketplaces took."
+            actions={<button type="button">Join the waitlist</button>}
+            conversionPanel={withPanel ? <form aria-label="Early access form" /> : undefined}
+            highlights={[
+              { label: "Seller fee", value: "0% beta listings" },
+              { label: "Buyer totals", value: "Visible before payment" },
+              { label: "Launch", value: "Founding sellers first" },
+            ]}
+          />,
+        );
+        const root = container.firstElementChild as HTMLElement;
+
+        expect(root.tagName).toBe("SECTION");
+        for (const legacyClass of legacyRootRecipe) {
+          expect(root.classList.contains(legacyClass), legacyClass).toBe(false);
+        }
+        expect(chromeTokens(root)).toEqual([]);
+        expect(root.classList.contains("relative")).toBe(true);
+        expect(root.classList.contains(density === "compact" ? "min-h-[18rem]" : "min-h-[22rem]")).toBe(true);
+
+        // Image and scrim layers keep their own rounded clipping (ruled: not chrome).
+        const image = within(root).getByRole("img", { name: "Cards ready to list" });
+        expect(image.classList.contains("rounded-tokenLg")).toBe(true);
+        const scrim = root.querySelector('div[class*="bg-[linear-gradient"]');
+        expect(scrim).not.toBeNull();
+        expect(scrim!.classList.contains("rounded-tokenLg")).toBe(true);
+        expect(chromeTokens(scrim!)).toEqual([]);
+
+        expect(within(root).getByText("Early access")).toBeTruthy();
+        expect(within(root).getByRole("heading", { level: 1 }).textContent).toBe("List cards without giving up margin");
+        expect(within(root).getByText("Keep the margin the old marketplaces took.")).toBeTruthy();
+        expect(within(root).getByRole("button", { name: "Join the waitlist" })).toBeTruthy();
+        if (withPanel) {
+          expect(within(root).getByRole("form", { name: "Early access form" })).toBeTruthy();
+        } else {
+          expect(within(root).queryByRole("form")).toBeNull();
+        }
+        unmount();
+      },
+    );
+
+    it("AC2: renders highlights as flush text rows beside a conversion panel (mobile first-highlight row and desktop three-column row)", () => {
+      const { container } = render(
+        <MarketingImageHero
+          imageSrc="/assets/hero.webp"
+          imageAlt="Cards ready to list"
+          density="compact"
+          title="List cards without giving up margin"
+          conversionPanel={<form aria-label="Early access form" />}
+          highlights={[
+            { label: "0% beta seller fees", value: "Keep 100% of the sale" },
+            { label: "No seller processing fee", value: "$0 separate line" },
+            { label: "Buyer totals", value: "Costs visible before payment" },
+          ]}
+        />,
+      );
+      const root = container.firstElementChild as HTMLElement;
+
+      expect(subtreeChromeTokens(root)).toEqual([]);
+
+      const mobileRow = within(root).getByLabelText("Marketing highlight");
+      expect(mobileRow.classList.contains("md:hidden")).toBe(true);
+      expect(mobileRow.textContent).toBe("0% beta seller feesKeep 100% of the sale");
+
+      const desktopRow = within(root).getByLabelText("Marketing highlights");
+      expect(desktopRow.classList.contains("hidden")).toBe(true);
+      expect(desktopRow.classList.contains("md:grid")).toBe(true);
+      expect(desktopRow.classList.contains("grid-cols-3")).toBe(true);
+      expect(desktopRow.children).toHaveLength(3);
+      expect(Array.from(desktopRow.children).map((cell) => cell.textContent)).toEqual([
+        "0% beta seller feesKeep 100% of the sale",
+        "No seller processing fee$0 separate line",
+        "Buyer totalsCosts visible before payment",
+      ]);
+      for (const cell of Array.from(desktopRow.children)) {
+        expect(cell.querySelector("div:first-child")?.className).toContain(
+          "text-xs font-semibold uppercase tracking-wide text-tertiary",
+        );
+      }
+      // Highlights are copy, not tiles: no Surface/Card root and no padded box.
+      expect(root.querySelector(".min-w-0.max-w-full.rounded-tokenLg")).toBeNull();
+      expect(root.querySelector('[aria-label="Marketing highlight"] [class*="rounded-"]')).toBeNull();
+      expect(root.querySelector('[aria-label="Marketing highlights"] [class*="rounded-"]')).toBeNull();
+    });
+
+    it("AC2: renders the no-panel highlight column as flush text with label and value typography", () => {
+      const { container } = render(
+        <MarketingImageHero
+          imageSrc="/assets/hero.webp"
+          imageAlt="Cards ready to list"
+          title="List cards without giving up margin"
+          highlights={[
+            { label: "Seller fee", value: "0% beta listings" },
+            { label: "Buyer totals", value: "Visible before payment" },
+          ]}
+        />,
+      );
+      const root = container.firstElementChild as HTMLElement;
+
+      expect(subtreeChromeTokens(root)).toEqual([]);
+      expect(within(root).queryByLabelText("Marketing highlight")).toBeNull();
+      expect(within(root).queryByLabelText("Marketing highlights")).toBeNull();
+      expect(within(root).queryByRole("form")).toBeNull();
+
+      const sellerFeeLabel = within(root).getByText("Seller fee");
+      expect(sellerFeeLabel.className).toBe("text-xs font-semibold uppercase tracking-wide text-tertiary");
+      const sellerFeeValue = within(root).getByText("0% beta listings");
+      expect(sellerFeeValue.className).toBe("mt-1 font-heading text-lg font-semibold text-foreground");
+      expect(sellerFeeLabel.parentElement).toBe(sellerFeeValue.parentElement);
+      expect(sellerFeeLabel.parentElement?.className).toBe("max-w-sm");
+      expect(within(root).getByText("Buyer totals")).toBeTruthy();
+      expect(within(root).getByText("Visible before payment")).toBeTruthy();
+      expect(root.querySelector(".min-w-0.max-w-full.rounded-tokenLg")).toBeNull();
+    });
+
+    it("AC2: renders no highlight rows and no chrome when there are no highlights", () => {
+      const { container } = render(
+        <MarketingImageHero
+          imageSrc="/assets/hero.webp"
+          imageAlt="Cards ready to list"
+          title="List cards without giving up margin"
+          conversionPanel={<form aria-label="Early access form" />}
+        />,
+      );
+      const root = container.firstElementChild as HTMLElement;
+
+      expect(subtreeChromeTokens(root)).toEqual([]);
+      expect(within(root).queryByLabelText("Marketing highlight")).toBeNull();
+      expect(within(root).queryByLabelText("Marketing highlights")).toBeNull();
+      expect(within(root).getByRole("form", { name: "Early access form" })).toBeTruthy();
+    });
   });
 
   it("renders conversion-first marketplace listing signals", () => {

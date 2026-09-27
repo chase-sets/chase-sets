@@ -6,7 +6,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ts from "@chase-sets/typescript-compiler-api";
 import type { PublicMarketplaceFeeSchedule } from "./fee-comparison-calculator";
-import { PublicPresenceHomePage } from "./public-pages";
+import { PublicInfoPage, PublicPresenceHomePage } from "./public-pages";
 import { publicPresenceT as t } from "./public-presence-translator";
 
 const titleOverrides = vi.hoisted(() => new Map<string, string>());
@@ -1582,22 +1582,173 @@ describe("landing surface-diet census (AC5)", () => {
     return results;
   }
 
-  it("gives every landing Surface root an explicit elevation intent, leaving exactly one legacy elevated boolean", () => {
+  it("gives every Surface root in public-pages.tsx an explicit elevation intent with no bare or legacy elevated roots (#8270 AC3)", () => {
     const surfaces = surfaceElements(publicPagesSource);
-    // 2 shell roots (nav/footer, neither prop) + 11 landing roots (explicit
-    // elevation) + 1 PublicInfoPage root (legacy elevated boolean) = 14,
-    // matching the source-derived census.
+    // 2 shell roots (nav/footer, flush) + 11 landing roots (1 elevated panel,
+    // 10 tinted) + 1 PublicInfoPage section root (tinted) = 14, matching the
+    // source-derived census.
     expect(surfaces).toHaveLength(14);
 
     const explicitElevation = surfaces.filter((surface) => surface.elevation !== null);
-    const legacyElevated = surfaces.filter((surface) => surface.elevation === null && surface.elevatedBoolean);
-    const untouchedShellRoots = surfaces.filter((surface) => surface.elevation === null && !surface.elevatedBoolean);
+    const legacyElevated = surfaces.filter((surface) => surface.elevatedBoolean);
+    const bareRoots = surfaces.filter((surface) => surface.elevation === null && !surface.elevatedBoolean);
 
-    expect(explicitElevation).toHaveLength(11);
-    expect(legacyElevated).toHaveLength(1);
-    expect(untouchedShellRoots).toHaveLength(2);
+    expect(explicitElevation).toHaveLength(14);
+    expect(legacyElevated).toHaveLength(0);
+    expect(bareRoots).toHaveLength(0);
 
+    expect(explicitElevation.filter((surface) => surface.elevation === "flush")).toHaveLength(2);
+    expect(explicitElevation.filter((surface) => surface.elevation === "tinted")).toHaveLength(11);
     expect(explicitElevation.filter((surface) => surface.elevation === "elevated")).toHaveLength(1);
-    expect(explicitElevation.filter((surface) => surface.elevation === "tinted")).toHaveLength(10);
+    expect(explicitElevation.filter((surface) => surface.elevation === "outlined")).toHaveLength(0);
+    // Source-level guard: a bare `elevated` attribute (boolean or expression)
+    // never returns; `elevation="elevated"` on the panel is not a match.
+    expect(publicPagesSource).not.toMatch(/<Surface\b[^>]*\s+elevated(?:\s|>|\/|=\{)/);
+  });
+});
+
+describe("public shell and info page surface diet (#8270 AC3)", () => {
+  // DS-owned Surface recipe → elevation intent (see
+  // packages/design-system/src/primitives/layout.tsx `Surface`). Legacy
+  // (no `elevation`) and explicit `elevated` both carry `surface-border` plus a
+  // shadow, so they classify as "elevated"; `flush` is the bare
+  // `min-w-0 max-w-full rounded-tokenLg` frame with no fill, border or shadow.
+  function surfaceIntent(element: Element) {
+    const classes = element.classList;
+    if (
+      classes.contains("surface-border") ||
+      classes.contains("shadow-tokenLg") ||
+      classes.contains("shadow-tokenSm")
+    ) {
+      return "elevated";
+    }
+    if (classes.contains("border")) {
+      return "outlined";
+    }
+    if (classes.contains("bg-surface-2") || Array.from(classes).some((token) => /^bg-.+-soft$/.test(token))) {
+      return "tinted";
+    }
+    if (classes.contains("min-w-0") && classes.contains("max-w-full") && classes.contains("rounded-tokenLg")) {
+      return "flush";
+    }
+    return "unexpected";
+  }
+  // Chrome vocabulary the surface-diet law forbids on furniture; responsive and
+  // state variants are stripped so `md:border` still counts.
+  const chromeClassPattern =
+    /^(?:border|border-.+|surface-border|bg-surface(?:-.+)?|shadow-.+|backdrop-blur(?:-.+)?|bg-\[color-mix.*|ring|ring-.+|outline|outline-.+)$/;
+  function chromeTokens(element: Element) {
+    return element.className
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((token) => token.replace(/^(?:[a-z0-9-]+:)+/, ""))
+      .filter((token) => chromeClassPattern.test(token));
+  }
+
+  it.each([
+    { variant: "seller_first_v1", pagePath: source.pagePath },
+    { variant: "seller_first_v2", pagePath: "/?intent=buy" },
+  ])(
+    "renders nav and footer flush and keeps the signup panel as the hero's only raised element in $variant",
+    ({ pagePath }) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(JSON.stringify({ items: [] }))),
+      );
+      const { container } = render(<PublicPresenceHomePage actionData={null} source={{ ...source, pagePath }} />);
+
+      const nav = container.querySelector("nav");
+      const footer = container.querySelector("footer");
+      expect(nav).not.toBeNull();
+      expect(footer).not.toBeNull();
+      expect(container.querySelectorAll("nav")).toHaveLength(1);
+      expect(container.querySelectorAll("footer")).toHaveLength(1);
+
+      const heroSection = container.querySelector('[data-public-presence-section="hero"]');
+      expect(heroSection).not.toBeNull();
+      const heroRoot = heroSection!.querySelector("section");
+      expect(heroRoot).not.toBeNull();
+      const mobileHighlightRow = heroRoot!.querySelector('[aria-label="Marketing highlight"]');
+      const desktopHighlightRow = heroRoot!.querySelector('[aria-label="Marketing highlights"]');
+      expect(mobileHighlightRow).not.toBeNull();
+      expect(desktopHighlightRow).not.toBeNull();
+      const panel = heroRoot!.querySelector("#waitlist-form");
+      expect(panel).not.toBeNull();
+
+      // Per-root intent map (review packet seed): nav, footer, hero root,
+      // highlight rows and panel.
+      expect({
+        nav: surfaceIntent(nav!),
+        footer: surfaceIntent(footer!),
+        heroRoot: chromeTokens(heroRoot!),
+        mobileHighlightRow: chromeTokens(mobileHighlightRow!),
+        desktopHighlightRow: chromeTokens(desktopHighlightRow!),
+        panel: surfaceIntent(panel!),
+      }).toEqual({
+        nav: "flush",
+        footer: "flush",
+        heroRoot: [],
+        mobileHighlightRow: [],
+        desktopHighlightRow: [],
+        panel: "elevated",
+      });
+      expect(panel!.classList.contains("ds-glow")).toBe(true);
+      expect(heroRoot!.classList.contains("relative")).toBe(true);
+
+      // The whole hero subtree outside the caller-owned panel is chrome-free,
+      // so chrome cannot hide on an inner wrapper.
+      const heroOwnedNodes = [heroRoot!, ...Array.from(heroRoot!.querySelectorAll("*"))].filter(
+        (element) => element !== panel && !panel!.contains(element),
+      );
+      expect(heroOwnedNodes.length).toBeGreaterThan(5);
+      expect(
+        heroOwnedNodes.flatMap((element) =>
+          chromeTokens(element).map((token) => `${element.tagName.toLowerCase()}.${token}`),
+        ),
+      ).toEqual([]);
+      // Highlights are copy, not tiles: no Surface/Card root outside the panel.
+      expect(heroOwnedNodes.filter((element) => element.matches(".min-w-0.max-w-full.rounded-tokenLg"))).toEqual([]);
+      // The panel is the only raised element inside the hero.
+      expect(
+        Array.from(heroRoot!.querySelectorAll(".surface-border, .shadow-tokenLg, .shadow-tokenSm")).filter(
+          (element) => !panel!.contains(element),
+        ),
+      ).toEqual([]);
+    },
+  );
+
+  it("renders every PublicInfoPage section root tinted inside the flush shell", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ items: [] }))),
+    );
+    const { container } = render(
+      <PublicInfoPage
+        content={{
+          eyebrow: "Contact",
+          title: "Talk to the team",
+          description: "Support and status channels.",
+          sections: [
+            { title: "Support", body: ["Email support@example.test."] },
+            { title: "Status", body: ["Check status.example.test.", "Subscribe for incident updates."] },
+          ],
+        }}
+      />,
+    );
+
+    expect(surfaceIntent(container.querySelector("nav")!)).toBe("flush");
+    expect(surfaceIntent(container.querySelector("footer")!)).toBe("flush");
+
+    const main = container.querySelector("main#main-content");
+    expect(main).not.toBeNull();
+    expect(main!.textContent).toContain("Talk to the team");
+    const sectionRoots = Array.from(main!.querySelectorAll<HTMLElement>(".min-w-0.max-w-full.rounded-tokenLg"));
+    expect(sectionRoots).toHaveLength(2);
+    expect(sectionRoots.map((root) => root.querySelector("h2")?.textContent)).toEqual(["Support", "Status"]);
+    expect(sectionRoots.map(surfaceIntent)).toEqual(["tinted", "tinted"]);
+    for (const root of sectionRoots) {
+      expect(chromeTokens(root)).toEqual([]);
+    }
+    expect(main!.querySelectorAll(".surface-border, .shadow-tokenLg, .shadow-tokenSm")).toHaveLength(0);
   });
 });
