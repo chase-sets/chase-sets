@@ -185,42 +185,50 @@ describeDb("ordering seller order capacity db", () => {
     return (await store.readStream({ streamId: `ordering.seller-capacity-${seller}` })).map((event) => event.eventType);
   }
 
-  it("AC1 releases zero-Order capacity and purchase claims and admits the same source the next day", async () => {
-    await supply();
-    const store = createPostgresEventStore({ pool: pools.ordering });
-    const failing: EventStore = {
-      ...store,
-      appendToStream: async (input) => {
-        if (input.streamId.startsWith("ordering.order-")) throw new Error("first append failed");
-        return store.appendToStream(input);
-      },
-    };
-    await expect(runtime(failing).createOrdersFromCheckout(checkout(), context)).rejects.toThrow("first append failed");
-    const after = await snapshot();
-    expect(after.orders).toEqual([]);
-    expect(after.sources).toEqual([]);
-    expect(after.purchase).toEqual([]);
-    expect(after.capacity).toEqual([expect.objectContaining({ seller_account_id: "acc_lst_a", status: "released" })]);
-    expect(after.usage).toEqual([expect.objectContaining({ day_quantity: 0, customer_account_quantity: 0 })]);
-    expect(await signalTypes(store)).toEqual(["ordering.seller-capacity.reached", "ordering.seller-capacity.cleared"]);
-    vi.useFakeTimers({ toFake: ["Date"] });
-    try {
-      vi.setSystemTime(new Date(Date.now() + 86_400_000));
-      const created = await runtime().createOrdersFromCheckout(checkout(), context);
-      expect(created.orderIds).toHaveLength(1);
-      expect(await store.readStream({ streamId: `ordering.order-${created.orderIds[0]}` })).toHaveLength(1);
-      expect(await openClaimCount(pools.ordering, "acc_lst_a")).toBe(1);
-      expect((await getOrderSourceClaim(pools.ordering, "cart-checkout", "chk_failed"))?.status).toBe("created");
-      expect((await runtime().createOrdersFromCheckout(checkout(), context)).orderIds).toEqual(created.orderIds);
+  it.each([false, true])(
+    "AC1 releases zero-Order claims and admits the source the next day; explicit IDs=%s",
+    async (explicitIds) => {
+      await supply();
+      const params = { ...checkout(), ...(explicitIds ? { orderIdsOverride: ["ord_seed" as OrderId] } : {}) };
+      const store = createPostgresEventStore({ pool: pools.ordering });
+      const failing: EventStore = {
+        ...store,
+        appendToStream: async (input) => {
+          if (input.streamId.startsWith("ordering.order-")) throw new Error("first append failed");
+          return store.appendToStream(input);
+        },
+      };
+      await expect(runtime(failing).createOrdersFromCheckout(params, context)).rejects.toThrow("first append failed");
+      const after = await snapshot();
+      expect(after.orders).toEqual([]);
+      expect(after.sources).toEqual([]);
+      expect(after.purchase).toEqual([]);
+      expect(after.capacity).toEqual([]);
+      expect(after.usage).toEqual([expect.objectContaining({ day_quantity: 0, customer_account_quantity: 0 })]);
       expect(await signalTypes(store)).toEqual([
         "ordering.seller-capacity.reached",
         "ordering.seller-capacity.cleared",
-        "ordering.seller-capacity.reached",
       ]);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
+      vi.useFakeTimers({ toFake: ["Date"] });
+      try {
+        vi.setSystemTime(new Date(Date.now() + 86_400_000));
+        const created = await runtime().createOrdersFromCheckout(params, context);
+        expect(created.orderIds).toHaveLength(1);
+        if (explicitIds) expect(created.orderIds).toEqual(["ord_seed"]);
+        expect(await store.readStream({ streamId: `ordering.order-${created.orderIds[0]}` })).toHaveLength(1);
+        expect(await openClaimCount(pools.ordering, "acc_lst_a")).toBe(1);
+        expect((await getOrderSourceClaim(pools.ordering, "cart-checkout", "chk_failed"))?.status).toBe("created");
+        expect((await runtime().createOrdersFromCheckout(params, context)).orderIds).toEqual(created.orderIds);
+        expect(await signalTypes(store)).toEqual([
+          "ordering.seller-capacity.reached",
+          "ordering.seller-capacity.cleared",
+          "ordering.seller-capacity.reached",
+        ]);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("AC3 retains compensating identity across signal failures and serializes retries with an unrelated buyer", async () => {
     await supply();
@@ -255,8 +263,8 @@ describeDb("ordering seller order capacity db", () => {
       ),
     ]);
     const after = await snapshot();
-    expect(after.capacity).toHaveLength(2);
-    expect(after.capacity.find((row) => row.order_id === claim.orderIds[0])?.status).toBe("released");
+    expect(after.capacity).toHaveLength(1);
+    expect(after.capacity.some((row) => row.order_id === claim.orderIds[0])).toBe(false);
     expect(await openClaimCount(pools.ordering, "acc_lst_a")).toBe(1);
     expect(after.orders).toHaveLength(1);
     expect(after.sources).toEqual([expect.objectContaining({ source_reference_id: "chk_other", status: "created" })]);
@@ -286,7 +294,9 @@ describeDb("ordering seller order capacity db", () => {
       await expect(runtime(failing).createOrdersFromCheckout(checkout(), context)).rejects.toThrow("signal failed");
       const afterFailure = await snapshot();
       expect(afterFailure.orders).toEqual([]);
-      expect(afterFailure.capacity).toEqual([expect.objectContaining({ status: "released" })]);
+      expect(afterFailure.capacity).toEqual(
+        failedSignal === "cleared" ? [expect.objectContaining({ status: "released" })] : [],
+      );
       expect(afterFailure.purchase).toEqual([]);
       expect(afterFailure.sources).toEqual(
         failedSignal === "cleared" ? [expect.objectContaining({ status: "compensating" })] : [],
