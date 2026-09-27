@@ -15,6 +15,7 @@ import {
 } from "./runtime";
 import type { AccountId, OfferId } from "@chase-sets/primitives/typed-ids";
 import { omitPrivateOfferResponseFields, publicOfferListResponse } from "./response-shape";
+import { ManagedOfferConflictError } from "./managed-authority";
 
 function requireOfferAccess(
   c: {
@@ -92,6 +93,8 @@ function validationError(
   },
   error: unknown,
 ) {
+  if (error instanceof ManagedOfferConflictError)
+    return c.json({ error: { code: error.code, message: error.message } }, 409);
   if (error instanceof MarketplaceOfferFeeQuoteStaleError) {
     return c.json(
       {

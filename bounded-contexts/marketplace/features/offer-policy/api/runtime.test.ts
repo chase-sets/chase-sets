@@ -1,8 +1,58 @@
 import { describe, expect, it } from "vitest";
 import type { BuyerOfferPolicyRequest } from "../domain/contracts";
 import { activate, context, fixture, preview, seedOffer, terms } from "../tests/fixtures";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { managedFixture } from "../../offers/tests/managed-fixture";
 
 describe("Buyer Offer Policy authoritative runtime", () => {
+  it("preserves lifetime consumption across pause, fresh consent, resume and terminal stop", async () => {
+    const f = await managedFixture(createInMemoryEventStore().eventStore);
+    const accepted = await f.acceptance();
+    const outcome = await f.offers.acceptOffer(accepted, context);
+    const paused = await f.policies.execute(
+      "bop_one",
+      { type: "PauseBuyerOfferPolicy", expectedVersion: 4, operationId: "pause" },
+      context,
+    );
+    const fresh = await f.policies.execute(
+      "bop_one",
+      {
+        type: "PreviewBuyerOfferPolicy",
+        expectedVersion: paused.version,
+        operationId: "resume_preview",
+        terms: {
+          ...terms,
+          itemCommitmentAllowance: "40.00",
+          offers: [{ ...terms.offers[0]!, offerId: "off_two", offerVersion: 2 }],
+        },
+      },
+      context,
+    );
+    const resumed = await f.policies.execute(
+      "bop_one",
+      {
+        type: "AuthorizeBuyerOfferPolicy",
+        expectedVersion: fresh.version,
+        operationId: "resume",
+        previewId: fresh.preview!.previewId,
+        consent: true,
+      },
+      context,
+    );
+    expect(resumed).toMatchObject({
+      status: "active",
+      consumedItemAmount: "20.00",
+      remainingItemAllowance: "20.00",
+      revision: 2,
+    });
+    const stopped = await f.policies.execute(
+      "bop_one",
+      { type: "StopBuyerOfferPolicy", expectedVersion: resumed.version, operationId: "stop" },
+      context,
+    );
+    expect(stopped).toMatchObject({ status: "stopped", consumedItemAmount: "20.00" });
+    expect(await f.offers.acceptOffer(accepted, context)).toEqual(outcome);
+  });
   it("authorizes the complete 100-Offer bound, including the last selection", async () => {
     const { runtime, store } = await fixture();
     const selected = Array.from({ length: 100 }, (_, index) => ({

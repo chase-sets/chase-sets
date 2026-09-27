@@ -5,6 +5,7 @@ import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
 import type { ObjectStorage } from "@chase-sets/object-storage";
 import type { CommercialTermsResolver } from "../../api";
 import type { ListingEvidencePolicyEvaluator } from "../../features/listings/api/evidence-requirement-resolver";
+import type { ManagedOfferPricing } from "../../features/offers/api/managed-authority";
 
 export type ListingPhotoStorage = Readonly<{
   getObject: ObjectStorage["getObject"];
@@ -29,4 +30,5 @@ export type MarketplaceRuntimeDeps = Readonly<{
   /** The marketplace-owned platform-policy runtime; absent falls back to compiled policy defaults. */
   policies?: Pick<PolicyRuntime, "resolvePolicy">;
   listingEvidencePolicyEvaluator?: ListingEvidencePolicyEvaluator;
+  managedOfferPricing?: ManagedOfferPricing;
 }>;

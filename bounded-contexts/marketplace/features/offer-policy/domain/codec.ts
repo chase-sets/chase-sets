@@ -17,6 +17,20 @@ const eventSchema = z.discriminatedUnion("type", [
   }),
   z.strictObject({ type: z.literal("marketplace.offer-policy.paused"), data: buyerOfferPolicyAuditSchema }),
   z.strictObject({ type: z.literal("marketplace.offer-policy.stopped"), data: buyerOfferPolicyAuditSchema }),
+  z.strictObject({
+    type: z.literal("marketplace.offer-policy.commitment-consumed"),
+    data: buyerOfferPolicyAuditSchema.extend({
+      offerId: z.string().min(1),
+      offerVersion: z.number().int().positive().safe(),
+      revision: z.number().int().positive().safe(),
+      currency: z.string().regex(/^[A-Z]{3}$/),
+      unitItemAmount: z.string(),
+      quantity: z.number().int().positive().safe(),
+      itemAmount: z.string(),
+      consumedItemAmount: z.string(),
+      evaluationEvidence: z.record(z.string(), z.json()),
+    }),
+  }),
 ]);
 export const buyerOfferPolicyCodec: DomainEventCodec<BuyerOfferPolicyEvent> = {
   encode(event) {

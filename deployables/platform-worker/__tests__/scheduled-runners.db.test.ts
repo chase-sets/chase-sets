@@ -5,10 +5,14 @@ import {
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
+import { toTransportEvent } from "@chase-sets/event-core/transport";
+import type { MarketplaceServices } from "@chase-sets/marketplace/server";
+import { module as marketplaceModule } from "@chase-sets/marketplace";
 import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import { isChannelsServices } from "@chase-sets/channels/server";
-import type { PricingHostPorts } from "@chase-sets/pricing/server";
+import { createBuyerOfferPricing, type PricingHostPorts } from "@chase-sets/pricing/server";
 import {
   bootstrapPlatformControlPlane,
   createPostgresPlatformControlPlane,
@@ -35,7 +39,7 @@ if (!adminDatabaseUrl && process.env.CI) {
 }
 
 const describeDatabase = adminDatabaseUrl ? describe : describe.skip;
-const EXPECTED_REGISTERED_RUNNER_COUNT = 26;
+const EXPECTED_REGISTERED_RUNNER_COUNT = 28;
 const NEGATIVE_CONTROL_RUNNER_NAME = "negative-control.ambiguous-joined-sql";
 const runtimeProfile = "public" as const;
 const contextNames = getPlatformWorkerContextsForRuntimeProfile(runtimeProfile);
@@ -131,6 +135,7 @@ describeDatabase("registered platform-worker scheduled runners", () => {
         postageLabelProvider,
         addressVerificationProvider: postageLabelProvider,
         ...syntheticPricingHostPorts,
+        managedOfferPricing: createBuyerOfferPricing(pools.pricing),
         // Real-registry composition: the worker states the Ordering
         // cleanup-authority capability explicitly as not-mounted (#7222).
         inventoryCleanupAuthority: { kind: "not-mounted" },
@@ -209,6 +214,131 @@ describeDatabase("registered platform-worker scheduled runners", () => {
 
     expect(result.rows.map((row) => row.runner_name)).toEqual(registeredRunners.map((runner) => runner.name).sort());
     expect(result.rows.every((row) => row.last_completed_at !== null)).toBe(true);
+    expect(externalFetch).not.toHaveBeenCalled();
+  });
+
+  it("runs a published Market Price through the registered reaction, durable job, real Pricing evaluator and managed Offer command", async () => {
+    const services = runtime.services.marketplace as MarketplaceServices;
+    const store = createPostgresEventStore({ pool: pools.marketplace });
+    const context = {
+      tenantId: "tnt_identity" as never,
+      audit: { performedByUserId: "usr_managed" as never, forAccountId: "acc_managed" as never },
+    };
+    const offerId = "off_managed_worker";
+    await services.offers.commandHandler({
+      streamId: `marketplace.offer-${offerId}`,
+      context,
+      command: {
+        type: "SubmitOffer",
+        offerId: offerId as never,
+        buyerAccountId: "acc_managed" as never,
+        catalogItemId: "cat_managed_worker" as never,
+        productId: "cat_managed_worker::" as never,
+        itemTitle: "Managed fixture",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        shippingDestinationSnapshot: {
+          name: "Buyer",
+          line1: "1 Main",
+          line2: null,
+          city: "Chicago",
+          state: "IL",
+          postalCode: "60601",
+          country: "US",
+        },
+        priceAmount: "10.00",
+        priceCurrencyCode: "USD",
+        quantityRequested: 1,
+      },
+    });
+    await services.buyerOfferPolicies.execute(
+      "bop_worker",
+      { type: "CreateBuyerOfferPolicy", expectedVersion: 0, operationId: "create" },
+      context,
+    );
+    const preview = await services.buyerOfferPolicies.execute(
+      "bop_worker",
+      {
+        type: "PreviewBuyerOfferPolicy",
+        expectedVersion: 1,
+        operationId: "preview",
+        terms: {
+          currency: "USD",
+          adjustmentBps: 0,
+          itemCommitmentAllowance: "20.00",
+          offers: [
+            {
+              offerId,
+              offerVersion: 1,
+              catalogItemId: "cat_managed_worker",
+              productId: "cat_managed_worker::",
+              selectedOptions: [],
+              quantity: 1,
+              maximumUnitItemAmount: "15.00",
+            },
+          ],
+        },
+      },
+      context,
+    );
+    await services.buyerOfferPolicies.execute(
+      "bop_worker",
+      {
+        type: "AuthorizeBuyerOfferPolicy",
+        expectedVersion: 2,
+        operationId: "authorize",
+        previewId: preview.preview!.previewId,
+        consent: true,
+      },
+      context,
+    );
+    async function project() {
+      for (const event of await store.readAll())
+        for (const set of services.projectors)
+          if (set.handlers[event.eventType]) await set.handlers[event.eventType]!(toTransportEvent(event));
+    }
+    await project();
+    await pools.pricing
+      .query(`INSERT INTO pricing_market_price_estimates (catalog_catalog_item_id, product_id, estimate_version,
+      window_started_at, window_ended_at, amount, currency_code, confidence, estimated_at, fresh_until, disclosure, updated_at)
+      VALUES ('cat_managed_worker','cat_managed_worker::',7,now()-interval '1 day',now(),'12.00','USD','high',now(),now()+interval '1 hour','public',now())`);
+    const job = registeredRunners.find((runner) => runner.name === "marketplace.managed-offer-work")!;
+    await pools.control.query(
+      "DELETE FROM platform_scheduled_runners WHERE runner_name = 'marketplace.managed-offer-work'",
+    );
+    await job.runOnce();
+    expect(await store.readStream({ streamId: `marketplace.offer-${offerId}` })).toHaveLength(2);
+    const reaction = marketplaceModule.buildSubscriptions!(services).find(
+      (s) => s.reactionName === "marketplace-managed-offer-reaction",
+    )!;
+    await reaction.handlers["pricing.market-price.estimated"]!(
+      buildTransportEvent("pricing.market-price.estimated", {
+        catalogItemId: "cat_managed_worker",
+        productId: "cat_managed_worker::",
+        estimateVersion: "7",
+      }),
+    );
+    await project();
+    await pools.control.query(
+      "DELETE FROM platform_scheduled_runners WHERE runner_name = 'marketplace.managed-offer-work'",
+    );
+    await job.runOnce();
+    const events = await store.readStream({ streamId: `marketplace.offer-${offerId}` });
+    expect(events.at(-2)).toMatchObject({
+      eventType: "marketplace.offer.price-updated",
+      payload: { priceAmount: "12.00" },
+    });
+    expect(events.at(-1)).toMatchObject({
+      eventType: "marketplace.offer.managed-evaluated",
+      payload: {
+        evidence: {
+          marketPrice: { estimateVersion: "7" },
+          policyRevision: 1,
+          maximumUnitItemAmount: "15.00",
+        },
+      },
+    });
     expect(externalFetch).not.toHaveBeenCalled();
   });
 
