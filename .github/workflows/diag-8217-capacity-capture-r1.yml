@@ -1,0 +1,171 @@
+name: Diagnostic 8217 Capacity Capture R1
+
+on:
+  push:
+    branches: [diag/8217-capacity-capture-r1]
+
+permissions:
+  contents: read
+
+jobs:
+  capacity:
+    name: ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ matrix.minutes }}
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - { label: M Unit, source: 0962d7aafd0531665faf53c7b59f09f09a7bcdb4, profile: unit, minutes: 20 }
+          - { label: M DB, source: 0962d7aafd0531665faf53c7b59f09f09a7bcdb4, profile: db, minutes: 30 }
+          - { label: F Unit, source: 99200869ba5d2be99f43b64ad0f34cf2ec946a81, profile: unit, minutes: 20 }
+          - { label: F DB, source: 99200869ba5d2be99f43b64ad0f34cf2ec946a81, profile: db, minutes: 30 }
+    services:
+      postgres:
+        image: ${{ matrix.profile == 'db' && 'pgvector/pgvector:pg16' || '' }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TEST_DATABASE_URL: ${{ matrix.profile == 'db' && 'postgresql://postgres:postgres@localhost:5432/postgres' || '' }}
+      CAPTURE_DIR: ${{ runner.temp }}/capacity-capture
+      CAPACITY_REPORTER: ${{ runner.temp }}/capacity-observer/reporter.mjs
+    steps:
+      - name: Checkout diagnostic observer
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          path: diagnostic-source
+          persist-credentials: false
+
+      - name: Freeze observer files
+        run: |
+          mkdir -p "$RUNNER_TEMP/capacity-observer" "$CAPTURE_DIR"
+          cp diagnostic-source/diagnostics/8217/{workspace-list.txt,overlay.mjs,reporter.mjs,sample.py} "$RUNNER_TEMP/capacity-observer/"
+          printf 'observer=%s\nsource=%s\nrun=%s\nattempt=%s\njob=%s\nprofile=%s\n' \
+            "$GITHUB_SHA" '${{ matrix.source }}' "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_JOB" '${{ matrix.profile }}' > "$CAPTURE_DIR/bindings.txt"
+
+      - name: Checkout pinned source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ matrix.source }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Apply disposable reporter overlay and bind selection
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '${{ matrix.source }}'
+          W="$(cat "$RUNNER_TEMP/capacity-observer/workspace-list.txt")"
+          test "$(printf '%s' "$W" | awk -F, '{print NF}')" -eq 67
+          test "$(printf '%s' "$W" | tr ',' '\n' | grep -c '^@chase-sets/app-platform-api$')" -eq 1
+          cp "$RUNNER_TEMP/capacity-observer/workspace-list.txt" "$CAPTURE_DIR/workspace-list.txt"
+          git ls-files deployables/platform-api/__tests__ > "$CAPTURE_DIR/platform-api-tracked-files.txt"
+          cp deployables/platform-api/package.json "$CAPTURE_DIR/platform-api-package.json"
+          printf 'node=%s\npnpm=%s\nimage=%s\nsource=%s\n' "$(node --version)" "$(pnpm --version)" "$ImageOS-$ImageVersion" "$(git rev-parse HEAD)" >> "$CAPTURE_DIR/bindings.txt"
+          node "$RUNNER_TEMP/capacity-observer/overlay.mjs"
+          git diff -- deployables/platform-api/vitest.config.ts > "$CAPTURE_DIR/overlay-full.diff"
+          test "$(git diff --name-only)" = deployables/platform-api/vitest.config.ts
+          git diff --check
+
+      - name: Raise PostgreSQL lock table capacity for DB Profile
+        if: matrix.profile == 'db'
+        env:
+          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          target_max_locks_per_transaction=512
+          target_max_connections=300
+          free -m
+          docker inspect --format 'Memory={{.HostConfig.Memory}} MemorySwap={{.HostConfig.MemorySwap}} ShmSize={{.HostConfig.ShmSize}}' "$POSTGRES_CONTAINER_ID"
+          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -c "ALTER SYSTEM SET max_locks_per_transaction = ${target_max_locks_per_transaction};"
+          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -c "ALTER SYSTEM SET max_connections = ${target_max_connections};"
+          docker restart "$POSTGRES_CONTAINER_ID"
+          ready=false
+          for _ in $(seq 1 30); do
+            if docker exec "$POSTGRES_CONTAINER_ID" pg_isready -U postgres -d postgres >/dev/null 2>&1; then ready=true; break; fi
+            sleep 1
+          done
+          test "$ready" = true
+          test "$(docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -tAc 'SHOW max_locks_per_transaction;' | tr -d '[:space:]')" = "$target_max_locks_per_transaction"
+          test "$(docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -tAc 'SHOW max_connections;' | tr -d '[:space:]')" = "$target_max_connections"
+          docker exec "$POSTGRES_CONTAINER_ID" psql -U postgres -v ON_ERROR_STOP=1 -c \
+            'SHOW max_connections; SHOW max_locks_per_transaction; SHOW shared_buffers; SHOW work_mem; SHOW maintenance_work_mem; SHOW superuser_reserved_connections; SHOW reserved_connections;' \
+            > "$CAPTURE_DIR/postgres-settings.txt"
+          docker inspect --format 'serviceImage={{.Image}}' "$POSTGRES_CONTAINER_ID" > "$CAPTURE_DIR/service-image.txt"
+
+      - name: Run unchanged selected commands with bounded observer
+        env:
+          POSTGRES_CONTAINER_ID: ${{ matrix.profile == 'db' && job.services.postgres.id || '' }}
+        run: |
+          set -euo pipefail
+          W="$(cat "$CAPTURE_DIR/workspace-list.txt")"
+          sample_pid=''
+          cleanup() {
+            if [ -n "$sample_pid" ]; then
+              kill "$sample_pid" 2>/dev/null || true
+              wait "$sample_pid" 2>/dev/null || true
+              sample_pid=''
+            fi
+          }
+          trap cleanup EXIT
+          run_observed() {
+            export CAPTURE_PHASE="$1"
+            shift
+            sample_args=(--root-pid "$$" --output "$CAPTURE_DIR/samples-$CAPTURE_PHASE.jsonl")
+            if [ -n "$POSTGRES_CONTAINER_ID" ]; then sample_args+=(--container "$POSTGRES_CONTAINER_ID"); fi
+            python3 "$RUNNER_TEMP/capacity-observer/sample.py" "${sample_args[@]}" &
+            sample_pid=$!
+            printf '%s start=%s command=' "$CAPTURE_PHASE" "$(date -u +%FT%TZ)" >> "$CAPTURE_DIR/commands.txt"
+            printf '%q ' "$@" >> "$CAPTURE_DIR/commands.txt"
+            printf '\n' >> "$CAPTURE_DIR/commands.txt"
+            "$@" && status=0 || status=$?
+            printf '%s end=%s exit=%s\n' "$CAPTURE_PHASE" "$(date -u +%FT%TZ)" "$status" >> "$CAPTURE_DIR/commands.txt"
+            cleanup
+            return "$status"
+          }
+          if [ '${{ matrix.profile }}' = unit ]; then
+            unset TEST_DATABASE_URL
+            run_observed non-db node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list="$W"
+            run_observed unit node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list="$W"
+          else
+            run_observed db node ./scripts/run-workspaces.mjs 'test:db*' --concurrency=2 --workspace-list="$W"
+          fi
+
+      - name: Preserve existing F DB reporter evidence and sizes
+        if: always()
+        run: |
+          if [ -d deployables/platform-api/artifacts/bootstrap-db-evidence ]; then
+            mkdir -p "$CAPTURE_DIR/existing-db-evidence"
+            for file in deployables/platform-api/artifacts/bootstrap-db-evidence/*.jsonl; do
+              [ -f "$file" ] || continue
+              used="$(du -sb "$CAPTURE_DIR" | cut -f1)"
+              size="$(stat -c%s "$file")"
+              if [ "$((used + size))" -lt 50000000 ]; then
+                cp "$file" "$CAPTURE_DIR/existing-db-evidence/"
+              else
+                printf 'omitted-over-cap %s bytes=%s\n' "$(basename "$file")" "$size" >> "$CAPTURE_DIR/truncation.txt"
+              fi
+            done
+          fi
+          du -ah "$CAPTURE_DIR" | sort -h | tail -20 > "$CAPTURE_DIR/sizes.txt"
+
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: capacity-${{ matrix.label }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/capacity-capture/
+          if-no-files-found: error
+          retention-days: 14
