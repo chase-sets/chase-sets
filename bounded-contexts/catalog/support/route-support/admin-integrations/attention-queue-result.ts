@@ -12,7 +12,7 @@ import {
 } from "../../../features/attention-queue/read-model/attention-item";
 
 // ---------------------------------------------------------------------------
-// Catalog attention queue — deferred availability result (#7845)
+// Catalog attention queue — deferred availability result
 //
 // The daily home surface streams the "needs-you" attention queue behind an
 // Await boundary. A `null` there used to conflate three different facts —

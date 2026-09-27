@@ -320,7 +320,7 @@ export async function loadDailySurfaceForRequest(request: Request) {
 // loader-local parser refuses resolves to `unavailable` — never a rejected
 // boundary. Fail-soft means visible degradation, not silent absence: only a
 // fully validated read model becomes `ready`, so the route can tell "nothing
-// needs you" apart from "the queue could not be read" (#7845).
+// needs you" apart from "the queue could not be read".
 async function selectedAttentionQueue(
   api: ReturnType<typeof createCatalogRequestApiClient>,
 ): Promise<CatalogDeferredAttentionQueueResult> {

@@ -64,7 +64,7 @@ export type CatalogAttentionQueueReadModel = Readonly<{
   freshness: CatalogAttentionQueueFreshness;
 }>;
 
-// Deferred availability of the queue on the daily surface (#7845). `ready`
+// Deferred availability of the queue on the daily surface. `ready`
 // carries a read model the route loader validated in full; `unavailable`
 // covers a missing endpoint, a failed request, or a response the loader could
 // not trust, so an empty inbox is never confused with an unreadable one.

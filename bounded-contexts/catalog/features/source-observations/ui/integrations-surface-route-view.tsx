@@ -42,7 +42,7 @@ export type CatalogIntegrationsRouteData = Readonly<{
   // daily surface renders it in the top-of-page slot. Absent on the other
   // surfaces. Unlike the nullable slices above it resolves to a closed
   // `ready | unavailable` result, so a queue that could not be read renders an
-  // honest warning instead of disappearing (#7845).
+  // honest warning instead of disappearing.
   deferredAttentionQueue?: Promise<CatalogDeferredAttentionQueueResult> | null;
 }>;
 
