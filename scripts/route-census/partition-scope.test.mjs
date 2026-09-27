@@ -5,6 +5,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it } from "vitest";
+import {
+  classifySqlExecutionSurface,
+  listNonTestTypeScriptModules,
+} from "../check-structure/sql-execution-surface.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -113,13 +117,28 @@ function verifyScope({ indexBytes, partition, testSources }) {
   const filteredModules = deriveCanonicalModules(indexBytes).filter((file) => file.startsWith("scripts/route-census/"));
   assert.deepEqual(rawModules, expectedProductionModules, "raw route-census TypeScript set drifted");
   assert.deepEqual(filteredModules, expectedProductionModules, "canonical route-census module set drifted");
+  const inventory = listNonTestTypeScriptModules(repoRoot, {
+    execGit: (args) => {
+      assert.deepEqual(args, ["ls-files", "-z", "--cached"]);
+      return indexBytes.toString("utf8");
+    },
+  });
+  assert.deepEqual(
+    inventory.filter((file) => file.startsWith("scripts/route-census/")),
+    filteredModules,
+  );
+  const classified = classifySqlExecutionSurface({ repoRoot, files: filteredModules });
+  assert.deepEqual(
+    classified.modules.map((module) => module.file),
+    filteredModules,
+  );
+  assert.deepEqual(
+    classified.modules.map((module) => module.outcome),
+    filteredModules.map(() => "not-sql"),
+    "route-census modules must classify as not-SQL",
+  );
   assert.deepEqual(routeEntries(partition, "sqlExecuting"), [], "route-census module classified as SQL-executing");
   assert.deepEqual(routeEntries(partition, "unprovableForm"), [], "route-census module classified as unprovable");
-  assert.deepEqual(
-    routeEntries(partition, "notSql"),
-    expectedProductionModules,
-    "route-census not-SQL partition drifted",
-  );
   assert.deepEqual(
     [...testSources.keys()].sort(),
     deriveTrackedRouteCensusTests(indexBytes),
@@ -150,7 +169,7 @@ describe("route-census tracked structural partition", () => {
   );
   const testSources = loadTrackedTestSources(indexBytes);
 
-  it("reconciles the raw and canonical cached-index sets with the generated not-SQL partition", () => {
+  it("reconciles the raw and canonical cached-index sets with live not-SQL classification", () => {
     const result = verifyScope({ indexBytes, partition, testSources });
     expect(result.rawModules).toEqual(expectedProductionModules);
     expect(result.filteredModules).toEqual(expectedProductionModules);
@@ -167,10 +186,9 @@ describe("route-census tracked structural partition", () => {
     expect(() => verifyScope({ indexBytes: mutantIndex, partition, testSources })).toThrow();
   });
 
-  it("rejects reclassification outside notSql", () => {
+  it("rejects an exceptional entry for a route-census module", () => {
     const mutant = structuredClone(partition);
-    const moved = mutant.notSql.splice(mutant.notSql.indexOf(expectedProductionModules[0]), 1)[0];
-    mutant.sqlExecuting.push(moved);
+    mutant.sqlExecuting.push(expectedProductionModules[0]);
     mutant.sqlExecuting.sort();
     expect(() => verifyScope({ indexBytes, partition: mutant, testSources })).toThrow();
   });

@@ -8,6 +8,7 @@ import {
   SANCTIONED_SQL_RECEIVER_RESOLUTION,
   classifySqlExecutionSurface,
   deriveChangedSqlExecutionFiles,
+  exceptionalSqlPartition,
   listNonTestTypeScriptModules,
   runSqlExecutionSurfaceGuard,
 } from "./sql-execution-surface.mjs";
@@ -32,12 +33,8 @@ function classify(files, root = repoRoot) {
 function partitionFromFiles(root, files) {
   const result = classifySqlExecutionSurface({ repoRoot: root, files });
   return {
-    sqlExecuting: result.modules.filter((module) => module.outcome === "sql-executing").map((module) => module.file),
-    unprovableForm: result.modules
-      .filter((module) => module.outcome === "unprovable-form")
-      .map((module) => module.file),
+    ...exceptionalSqlPartition(files, result),
     notSql: result.modules.filter((module) => module.outcome === "not-sql").map((module) => module.file),
-    unresolvedMemberRoots: result.unresolvedMemberRoots,
   };
 }
 
@@ -798,6 +795,76 @@ describe("repository-wide SQL execution partition", () => {
     expect(partition.notSql).not.toContain(buildOutputFile);
   });
 
+  it("closes the tracked partition for harmless, missing, and arbitrary SQL modules", () => {
+    const root = createContractRepo();
+    const harmless = "packages/opaque/harmless.ts";
+    const executor = "packages/unrelated/receiver.ts";
+    for (const [file, source] of [
+      [harmless, "export const value = 1;\n"],
+      [executor, 'export async function run(db) { await db.query("select 1"); }\n'],
+    ]) {
+      mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+      writeFileSync(path.join(root, file), source);
+    }
+    const files = [harmless, executor];
+    const inventory = listNonTestTypeScriptModules(root, { execGit: () => `${files.join("\0")}\0` });
+    const classified = classify(inventory, root);
+    expect(classified.modules.map((module) => module.file)).toEqual(inventory);
+    expect(classified.modules.find((module) => module.file === harmless)?.outcome).toBe("not-sql");
+    expect(classified.modules.find((module) => module.file === executor)?.outcome).toBe("unprovable-form");
+    expect(exceptionalSqlPartition(inventory, classified).unprovableForm).toEqual([executor]);
+    expect(() => classify([...files, "packages/missing.ts"], root)).toThrowError(
+      expect.objectContaining({ code: "SQL_INVENTORY_MISSING" }),
+    );
+    expect(() => classify([...files, harmless], root)).toThrowError(
+      expect.objectContaining({ code: "SQL_INVENTORY_DUPLICATE" }),
+    );
+  });
+
+  it("rejects incomplete, unknown, and drifted exceptional projections", () => {
+    const files = ["packages/a.ts", "packages/b.ts"];
+    const modules = files.map((file) => ({ file, outcome: "not-sql", calls: [] }));
+    const result = { modules, unresolvedMemberRoots: { count: 0, fileList: [], fileCounts: {} } };
+    const baseline = JSON.stringify(exceptionalSqlPartition(files, result));
+    expect(
+      JSON.stringify(
+        exceptionalSqlPartition([...files, "packages/c.ts"], {
+          ...result,
+          modules: [...modules, { file: "packages/c.ts", outcome: "not-sql", calls: [] }],
+        }),
+      ),
+    ).toBe(baseline);
+    for (const outcome of ["sql-executing", "unprovable-form"]) {
+      const changed = { ...result, modules: [{ ...modules[0], outcome }, modules[1]] };
+      expect(JSON.stringify(exceptionalSqlPartition(files, changed))).not.toBe(baseline);
+    }
+    expect(() => exceptionalSqlPartition(files, { ...result, modules: modules.slice(1) })).toThrow();
+    expect(() => exceptionalSqlPartition(files, { ...result, modules: [...modules, modules[0]] })).toThrow();
+    expect(() =>
+      exceptionalSqlPartition(files, { ...result, modules: [{ ...modules[0], outcome: "unknown" }, modules[1]] }),
+    ).toThrow();
+    const unresolved = {
+      ...result,
+      unresolvedMemberRoots: { count: 2, fileList: [files[0]], fileCounts: { [files[0]]: 2 } },
+    };
+    expect(JSON.stringify(exceptionalSqlPartition(files, unresolved))).not.toBe(baseline);
+    expect(() =>
+      exceptionalSqlPartition(files, {
+        ...unresolved,
+        unresolvedMemberRoots: { ...unresolved.unresolvedMemberRoots, count: 3 },
+      }),
+    ).toThrow();
+    for (const mutant of [
+      { ...exceptionalSqlPartition(files, result), sqlExecuting: [files[0]] },
+      { ...exceptionalSqlPartition(files, result), unprovableForm: ["packages/stale.ts"] },
+      {
+        ...exceptionalSqlPartition(files, unresolved),
+        unresolvedMemberRoots: { count: 1, fileCounts: { [files[0]]: 1 } },
+      },
+    ])
+      expect(JSON.stringify(mutant)).not.toBe(baseline);
+  });
+
   it("measures the exact five-module and enforcement-neutral partition transition", () => {
     const trackedFiles = execFileSync("git", ["ls-files", "-z", "--cached"], {
       cwd: repoRoot,
@@ -820,23 +887,17 @@ describe("repository-wide SQL execution partition", () => {
     const legacyPartition = partitionFromFiles(repoRoot, legacyModules);
     const partition = partitionFromFiles(repoRoot, governedModules);
 
-    expect(legacyModules).toHaveLength(2523);
-    expect(governedModules).toHaveLength(2518);
+    expect(legacyModules.length - governedModules.length).toBe(exactRemovedModules.length);
     expect(removedModules).toEqual(exactRemovedModules);
     expect(removedClassification.modules.map(({ file, outcome }) => ({ file, outcome }))).toEqual(
       exactRemovedModules.map((file) => ({ file, outcome: "not-sql" })),
     );
     expect(removedClassification.violations).toEqual([]);
-    expect(removedClassification.unresolvedMemberRoots).toEqual({ count: 0, fileList: [] });
+    expect(removedClassification.unresolvedMemberRoots).toEqual({ count: 0, fileList: [], fileCounts: {} });
 
-    expect(legacyPartition.sqlExecuting).toHaveLength(439);
-    expect(legacyPartition.unprovableForm).toHaveLength(3);
-    expect(legacyPartition.notSql).toHaveLength(2081);
-    expect(legacyPartition.unresolvedMemberRoots.count).toBe(278);
     expect(partition.sqlExecuting).toEqual(legacyPartition.sqlExecuting);
     expect(partition.unprovableForm).toEqual(legacyPartition.unprovableForm);
     expect(partition.notSql).toEqual(legacyPartition.notSql.filter((file) => !exactRemovedModules.includes(file)));
-    expect(partition.notSql).toHaveLength(2076);
     expect(partition.sqlExecuting).toContain("bounded-contexts/channels/features/credentials/api/runtime.ts");
     expect(partition.notSql).toEqual(
       expect.arrayContaining([
@@ -863,11 +924,14 @@ describe("repository-wide SQL execution partition", () => {
   }, 120_000);
 
   it("keeps the committed partition equal to fresh tracked-inventory classification", () => {
-    const actual = partitionFromTrackedInventory(repoRoot);
-    const expected = JSON.parse(
-      readFileSync(path.join(repoRoot, "scripts/check-structure/sql-execution-surface-partition.json"), "utf8"),
+    const files = listNonTestTypeScriptModules(repoRoot);
+    const result = classify(files);
+    expect(result.modules.map((module) => module.file)).toEqual(files);
+    const actual = exceptionalSqlPartition(files, result);
+    const expected = readFileSync(
+      path.join(repoRoot, "scripts/check-structure/sql-execution-surface-partition.json"),
+      "utf8",
     );
-
-    expect(actual).toEqual(expected);
+    expect(`${JSON.stringify(actual, null, 2)}\n`).toBe(expected);
   }, 120_000);
 });
