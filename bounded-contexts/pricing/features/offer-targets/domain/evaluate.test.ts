@@ -64,7 +64,7 @@ describe("market-following buyer Offer target", () => {
     expect(() => evaluateBuyerOfferTarget(withChanges({ adjustmentBps }))).toThrow("Invalid authorized");
   });
 
-  it.each(["0.00", "-1.00", "1.001", "10000000000.00", "abc"])("rejects invalid cap %s", (cap) => {
+  it.each(["0.00", "-1.00", "1.001", "1", "10000000000.00", "abc"])("rejects invalid cap %s", (cap) => {
     expect(() =>
       evaluateBuyerOfferTarget(
         withChanges({

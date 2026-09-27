@@ -1,4 +1,4 @@
-import { centsToMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
+import { centsToMoneyAmount, isCanonicalMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
 import { MAX_MARKET_ESTIMATE_FRESH_HOURS } from "../../market-estimates/domain/estimate-policy";
 
 /** Authorized selection terms supplied by Marketplace's buyer Offer policy boundary. */
@@ -87,7 +87,9 @@ function instant(value: string): number | null {
 /** Both preview and attempted application evaluate the same complete snapshot at their own real instant. */
 export function evaluateBuyerOfferTarget(input: BuyerOfferTargetInput): BuyerOfferTargetResult {
   const { selection, marketPrice } = input;
-  const cap = tryMoneyToCents(selection.maximumUnitItemAmount);
+  const cap = isCanonicalMoneyAmount(selection.maximumUnitItemAmount)
+    ? tryMoneyToCents(selection.maximumUnitItemAmount)
+    : null;
   if (
     cap === null ||
     cap < 1n ||
@@ -147,7 +149,7 @@ export function evaluateBuyerOfferTarget(input: BuyerOfferTargetInput): BuyerOff
     return held("market-price-invalid");
   }
   if (marketPrice.currencyCode.toUpperCase() !== input.currency) return held("market-price-currency-mismatch");
-  const amount = typeof marketPrice.amount === "string" ? tryMoneyToCents(marketPrice.amount) : null;
+  const amount = isCanonicalMoneyAmount(marketPrice.amount) ? tryMoneyToCents(marketPrice.amount) : null;
   const estimatedAt = instant(marketPrice.estimatedAt);
   const freshUntil = instant(marketPrice.freshUntil);
   if (

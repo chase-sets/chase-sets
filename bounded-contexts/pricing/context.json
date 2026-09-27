@@ -858,7 +858,7 @@
     },
     "offer-targets": {
       "classification": "slice",
-      "purpose": "Evaluate buyer Offer unit item targets from fresh published Market Price evidence and authorized Marketplace policy terms without seller inputs.",
+      "purpose": "Evaluate buyer Offer unit item targets from fresh published market-price evidence in market-estimates and authorized Marketplace policy terms without seller inputs.",
       "expectedConsumers": ["Marketplace buyer Offer preview and application through the Pricing server contract"]
     },
     "repricing-policies": {
