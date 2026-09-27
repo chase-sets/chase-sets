@@ -37,8 +37,6 @@ jobs:
           --health-retries 5
     env:
       TEST_DATABASE_URL: ${{ matrix.profile == 'db' && 'postgresql://postgres:postgres@localhost:5432/postgres' || '' }}
-      CAPTURE_DIR: ${{ runner.temp }}/capacity-capture
-      CAPACITY_REPORTER: ${{ runner.temp }}/capacity-observer/reporter.mjs
     steps:
       - name: Checkout diagnostic observer
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -48,6 +46,8 @@ jobs:
 
       - name: Freeze observer files
         run: |
+          CAPTURE_DIR="$RUNNER_TEMP/capacity-capture"
+          printf 'CAPTURE_DIR=%s\nCAPACITY_REPORTER=%s\n' "$CAPTURE_DIR" "$RUNNER_TEMP/capacity-observer/reporter.mjs" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/capacity-observer" "$CAPTURE_DIR"
           cp diagnostic-source/diagnostics/8217/{workspace-list.txt,overlay.mjs,reporter.mjs,sample.py} "$RUNNER_TEMP/capacity-observer/"
           printf 'observer=%s\nsource=%s\nrun=%s\nattempt=%s\njob=%s\nprofile=%s\n' \
