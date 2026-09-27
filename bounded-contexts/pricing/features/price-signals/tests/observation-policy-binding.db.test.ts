@@ -214,7 +214,7 @@ function syntheticTransport(): TcgplayerMarketTransport {
               language: "English",
               quantity: 1,
               title: "unmistakably synthetic",
-              listingType: "All",
+              listingType: "ListingWithoutPhotos",
               customListingId: "synthetic-transient",
               purchasePrice: 5,
               shippingPrice: 0,
