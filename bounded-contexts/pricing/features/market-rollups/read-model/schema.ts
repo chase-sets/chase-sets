@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS pricing_daily_product_rollups (
   catalog_catalog_item_id text NOT NULL,
   product_id text NOT NULL,
   day date NOT NULL,
+  currency_code text NOT NULL CHECK (currency_code ~ '^[A-Z]{3}$'),
   first_price_amount numeric(12, 2) NULL,
   last_price_amount numeric(12, 2) NULL,
   min_price_amount numeric(12, 2) NULL,
@@ -56,11 +57,17 @@ CREATE TABLE IF NOT EXISTS pricing_daily_product_rollups (
   trade_count integer NOT NULL DEFAULT 0,
   verified_trade_count integer NOT NULL DEFAULT 0,
   updated_at timestamptz NOT NULL,
-  PRIMARY KEY (catalog_catalog_item_id, product_id, day)
+  PRIMARY KEY (catalog_catalog_item_id, product_id, day, currency_code)
 );
 
-CREATE INDEX IF NOT EXISTS pricing_daily_product_rollups_series_idx
-  ON pricing_daily_product_rollups (catalog_catalog_item_id, product_id, day DESC);
+-- Boot SQL also runs before migrations on a deployed table without currency_code.
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'pricing_daily_product_rollups' AND column_name = 'currency_code') THEN
+    CREATE INDEX IF NOT EXISTS pricing_daily_product_rollups_series_idx
+      ON pricing_daily_product_rollups (catalog_catalog_item_id, product_id, currency_code, day DESC);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS pricing_market_state_snapshots (
   catalog_catalog_item_id text NOT NULL,
@@ -81,6 +88,7 @@ CREATE INDEX IF NOT EXISTS pricing_market_state_snapshots_series_idx
 CREATE TABLE IF NOT EXISTS pricing_product_market_aggregates (
   catalog_catalog_item_id text NOT NULL,
   product_id text NOT NULL,
+  currency_code text NOT NULL CHECK (currency_code ~ '^[A-Z]{3}$'),
   last_sold_at timestamptz NULL,
   last_sold_price_amount numeric(12, 2) NULL,
   median_price_30d numeric(12, 2) NULL,
@@ -91,7 +99,7 @@ CREATE TABLE IF NOT EXISTS pricing_product_market_aggregates (
   trade_count_90d integer NOT NULL DEFAULT 0,
   sell_through_rate numeric(6, 4) NULL,
   updated_at timestamptz NOT NULL,
-  PRIMARY KEY (catalog_catalog_item_id, product_id)
+  PRIMARY KEY (catalog_catalog_item_id, product_id, currency_code)
 );
 
 /**
@@ -123,6 +131,67 @@ CREATE TABLE IF NOT EXISTS pricing_platform_daily_rollups (
 `;
 
 export const pricingMarketRollupsSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260927_pricing_currency_keyed_rollups",
+    description: "Key trade-derived daily and market aggregates by their recorded denomination.",
+    statements: [
+      `BEGIN`,
+      `DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pricing_market_trade_rollup_rederive_queue) THEN
+    RAISE EXCEPTION 'Trades Tape rebuild queue must drain before currency-keyed rollup migration';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pricing_market_trades WHERE sold_at IS NOT NULL AND excluded = false AND currency_code IS NULL) THEN
+    RAISE EXCEPTION 'Sold non-excluded Trades Tape rows must have currency before rollup migration';
+  END IF;
+END $$`,
+      `ALTER TABLE pricing_daily_product_rollups ADD COLUMN IF NOT EXISTS currency_code text`,
+      `ALTER TABLE pricing_product_market_aggregates ADD COLUMN IF NOT EXISTS currency_code text`,
+      `UPDATE pricing_daily_product_rollups AS rollup
+SET currency_code = trade.currency_code
+FROM (
+  SELECT catalog_catalog_item_id, product_id, (sold_at AT TIME ZONE 'UTC')::date AS day,
+         MIN(currency_code) AS currency_code
+  FROM pricing_market_trades
+  WHERE sold_at IS NOT NULL AND excluded = false AND currency_code IS NOT NULL
+  GROUP BY catalog_catalog_item_id, product_id, (sold_at AT TIME ZONE 'UTC')::date
+  HAVING COUNT(DISTINCT currency_code) = 1
+) AS trade
+WHERE rollup.catalog_catalog_item_id = trade.catalog_catalog_item_id
+  AND rollup.product_id = trade.product_id AND rollup.day = trade.day`,
+      `DELETE FROM pricing_daily_product_rollups WHERE currency_code IS NULL`,
+      `UPDATE pricing_product_market_aggregates AS aggregate
+SET currency_code = trade.currency_code
+FROM (
+  SELECT catalog_catalog_item_id, product_id, MIN(currency_code) AS currency_code
+  FROM pricing_market_trades
+  WHERE sold_at IS NOT NULL AND excluded = false AND currency_code IS NOT NULL
+  GROUP BY catalog_catalog_item_id, product_id
+  HAVING COUNT(DISTINCT currency_code) = 1
+) AS trade
+WHERE aggregate.catalog_catalog_item_id = trade.catalog_catalog_item_id
+  AND aggregate.product_id = trade.product_id`,
+      `DELETE FROM pricing_product_market_aggregates WHERE currency_code IS NULL`,
+      `ALTER TABLE pricing_daily_product_rollups ALTER COLUMN currency_code SET NOT NULL`,
+      `ALTER TABLE pricing_product_market_aggregates ALTER COLUMN currency_code SET NOT NULL`,
+      `ALTER TABLE pricing_daily_product_rollups ADD CONSTRAINT pricing_daily_product_rollups_currency_check CHECK (currency_code ~ '^[A-Z]{3}$')`,
+      `ALTER TABLE pricing_product_market_aggregates ADD CONSTRAINT pricing_product_market_aggregates_currency_check CHECK (currency_code ~ '^[A-Z]{3}$')`,
+      `ALTER TABLE pricing_daily_product_rollups DROP CONSTRAINT pricing_daily_product_rollups_pkey`,
+      `ALTER TABLE pricing_daily_product_rollups ADD PRIMARY KEY (catalog_catalog_item_id, product_id, day, currency_code)`,
+      `ALTER TABLE pricing_product_market_aggregates DROP CONSTRAINT pricing_product_market_aggregates_pkey`,
+      `ALTER TABLE pricing_product_market_aggregates ADD PRIMARY KEY (catalog_catalog_item_id, product_id, currency_code)`,
+      `DROP INDEX IF EXISTS pricing_daily_product_rollups_series_idx`,
+      `CREATE INDEX pricing_daily_product_rollups_series_idx
+  ON pricing_daily_product_rollups (catalog_catalog_item_id, product_id, currency_code, day DESC)`,
+      `INSERT INTO pricing_market_trade_rollup_rederive_queue
+  (catalog_catalog_item_id, product_id, day, queued_at)
+SELECT DISTINCT catalog_catalog_item_id, product_id, (sold_at AT TIME ZONE 'UTC')::date, now()
+FROM pricing_market_trades WHERE sold_at IS NOT NULL
+ON CONFLICT (catalog_catalog_item_id, product_id, day) DO UPDATE
+SET queued_at = EXCLUDED.queued_at,
+    generation = pricing_market_trade_rollup_rederive_queue.generation + 1`,
+      `COMMIT`,
+    ],
+  },
   {
     migrationId: "20260720_pricing_daily_rollup_policy_revision_binding",
     description: "Bind every daily rollup period to the immutable stat-hygiene policy revision that shaped it.",
