@@ -54,10 +54,11 @@ describe("platform control plane", () => {
 
   it("defines the evidence-window registration as one constrained table with database-enforced single-open admission", () => {
     const tableStart = platformControlPlaneSchemaSql.indexOf("CREATE TABLE IF NOT EXISTS evidence_window");
-    const tableEnd = platformControlPlaneSchemaSql.indexOf("CREATE TABLE IF NOT EXISTS platform_control_leases");
+    const tableEnd = platformControlPlaneSchemaSql.indexOf("CREATE TABLE IF NOT EXISTS evidence_window_provider_write");
     const evidenceWindowSql = platformControlPlaneSchemaSql.slice(tableStart, tableEnd);
 
     expect(tableStart).toBeGreaterThanOrEqual(0);
+    expect(tableEnd).toBeGreaterThan(tableStart);
     expect(evidenceWindowSql).toContain("window_id text PRIMARY KEY CHECK (window_id ~ '^[0-9a-f]{32}$')");
     expect(evidenceWindowSql).toContain("state text NOT NULL CHECK (state IN ('open', 'closed'))");
     expect(evidenceWindowSql).toContain(
