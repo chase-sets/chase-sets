@@ -143,7 +143,9 @@ jobs:
 
   static:
     name: Static Checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     timeout-minutes: 20
     needs: change-scope
     if: needs['change-scope'].outputs.static_required == 'true'
@@ -160,13 +162,43 @@ jobs:
         run: pnpm run verify:metadata
 
       - name: Install Chromium for zero-network provider boundary controls
-        run: pnpm exec playwright install --with-deps chromium
+        run: |
+          set -euo pipefail
+          pnpm exec playwright install --with-deps chromium
+          sudo apt-get update
+          sudo apt-get install --yes gcc libc6-dev libssl-dev pax-utils apparmor
+          browser="$(node --input-type=module -e "import { chromium } from '@playwright/test'; import { dirname } from 'node:path'; console.log(dirname(chromium.executablePath()))")"
+          printf 'Runner image: %s / %s\n' "$ImageOS" "$ImageVersion"
+          uname -srvm
+          input=/opt/chase-sets-provider-window-input
+          test ! -e "$input"
+          sudo install -d -o root -g root -m 0755 "$input"
+          /usr/bin/git archive "$GITHUB_SHA" -- \
+            scripts/provider-object-disposition/browser-boundary \
+            scripts/provider-object-disposition/test-window-browser.mjs | \
+            sudo /bin/tar --extract --directory="$input" --no-same-owner --no-same-permissions --mode=u=rwX,go=rX
+          sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /bin/bash \
+            "$input/scripts/provider-object-disposition/browser-boundary/install-ci.sh" install "$(id -un)" "$browser"
 
       - name: Run static checks
         env:
           CHANGED_FILES_JSON: ${{ needs.change-scope.outputs.changed_files_json }}
           FORMAT_CHECK_SCOPE: full
         run: pnpm run verify:static
+
+      - name: Remove owned provider browser boundary
+        if: always()
+        run: |
+          set -euo pipefail
+          input=/opt/chase-sets-provider-window-input
+          if test -f "$input/scripts/provider-object-disposition/browser-boundary/install-ci.sh"; then
+            sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin /bin/bash \
+              "$input/scripts/provider-object-disposition/browser-boundary/install-ci.sh" remove
+          fi
+          if test -e "$input"; then
+            test "$(realpath -e -- "$input")" = /opt/chase-sets-provider-window-input
+            sudo rm -rf -- "$input"
+          fi
 
   typecheck:
     name: Typecheck

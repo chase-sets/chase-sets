@@ -6,20 +6,36 @@ Landing the tooling does not qualify replay or satisfy #6734 AC-08.
 
 ## Execution Boundary
 
-The executable route requires an interactive Linux host, PowerShell 7, Node 24,
-the reviewed checkout's installed dependencies and Chromium, and working
-unprivileged user/network namespaces through `/usr/bin/unshare`. Chromium retains
-its sandbox. Unsupported hosts, including Windows, refuse before credential entry.
-Admission first probes the exact user/network namespace command without a browser.
+The installed route requires Linux, a non-root principal, and the exact native
+launcher at `/opt/chase-sets-provider-window/launcher`. The only installation
+authorized by this change is the ephemeral GitHub-hosted `ubuntu-24.04` Static
+Checks job. Operator installation and authority are separately owned by #8364;
+the operator entrypoint refuses this CI-only admission before private input or
+credential entry. A CI environment flag or receipt cannot enable an operator.
+Unsupported and unprovisioned hosts, including Windows, refuse without fallback.
+Admission first probes the same installed boundary without a browser.
 Failure diagnostics distinguish this predicate from sandboxed Chromium startup and
 report closed system error class/message/errno plus the observed AppArmor user-namespace
 restriction (0, 1 or unknown). Arbitrary launch output, argv and child errors are
 never retained. Diagnostics authorize no sandbox or namespace fallback.
-Browser routing alone is insufficient: the child has a separate network namespace
-with no external routes. Only the parent can fetch the exact public loader, with
+Browser routing alone is insufficient: the child has fresh user/network/PID/mount/
+IPC/UTS namespaces, no external interface, and a down loopback interface. Only the
+parent can fetch the exact public loader, with
 manual redirects, no cookies/referrer/authorization and bounded bytes/deadline.
 Frames, workers, alternate clients and background traffic cannot use the host's
-network namespace. Browser profiles are fresh and removed after the child stops.
+network namespace. The browser's root contains only immutable, identity-bound
+Chromium/resources/libraries/fonts and closed device nodes. Private `/proc` sees
+only this launch; `/tmp` and `/dev/shm` are per-launch tmpfs mounts. There are no
+host home directories, Unix services or host namespace handles in that root.
+The non-root browser drops capabilities and their bounding set and sets
+`no_new_privs`; Chromium's nested user-namespace/seccomp sandbox remains enabled.
+Node implements its automation pipes as unnamed Unix socketpairs. The launcher
+validates their principal/parent peer and relays only those opaque automation
+bytes to real POSIX pipes; Chromium inherits no host socket. Its stdio is null,
+environment is closed, and neither native nor browser core dumps are allowed.
+Namespace PID 1 reaps owned descendants; parent-death signals and the kernel's
+PID-namespace disposal also drain double-forks on force termination. Profiles
+exist only on the namespace-owned tmpfs, not in a persistent host directory.
 Inherited Node preload hooks cause pre-child refusal; the entrypoint never strips
 or bypasses a machine-admission hook to obtain provider authority.
 
@@ -27,6 +43,30 @@ The future host must package the **exact landed and independently reviewed head*
 its successful hosted/DB evidence, one digest-bound closed manifest and private
 pre-existing TEST fixtures. Do not substitute a branch, prior PR review, generated
 synthetic fixture, environment flag or command switch for operator authority.
+
+### CI Installation
+
+`browser-boundary/install-ci.sh` is the privileged CI setup/owned teardown, not
+an operator command. It snapshots sources and the Playwright-pinned browser,
+resolves ELF dependencies without executing them, compiles a static native
+launcher, and loads one exact AppArmor attachment. All installed code and path
+components are root-owned and non-writable by the admitted principal. The launcher
+is mode 0750, restricted to that non-root UID/GID, with no set-ID or file capability.
+Both modes validate the source digest, launcher, full dependency inventory and
+effective label before namespace creation. Closed modes accept no executable,
+profile path, browser flag or command. The AppArmor profile supplies only the
+application-specific user-namespace permission; it is not the network fence.
+Root/runner administrators are the trusted setup boundary, not adversaries defeated
+by mode 0750. They must not mutate the installation while controls are running.
+
+Setup runs serialized real missing/wrong attachment, stale source, tampered
+dependency, wrong-argv, disallowed-principal and unprofiled-comparison controls,
+then the positive probe. Inputs not under test stay fixed. No mutant launches an
+unfenced browser. A changed runner image/kernel gets fresh proof. Setup/control
+failure is a failed job, not synthetic success. The workflow's `always()` step
+removes only this installation/profile. On runner loss, VM disposal is the outer
+boundary, not a claim that the cleanup hook succeeded. No sysctl or global
+AppArmor policy is modified, and no provider credentials or OIDC are supplied.
 
 The required command shape is:
 
@@ -108,7 +148,7 @@ CSP origins, wildcard origins and denial observations cannot widen this fence.
 The `test-window-*.test.mjs` tests use labeled synthetic identities, SDK stimuli
 and transports. `test-window-browser.test.mjs` exercises the real confined browser
 adapter; it requires the supported Linux capabilities, not a mock browser. Hosted
-Static Checks installs Chromium for these controls, never invokes the authorized
+Static Checks installs the native boundary and Chromium for these controls, never invokes the authorized
 launch and never contacts Stripe. `provider-journal.db.test.ts` exercises actual
 registration, persistence, gateways and disposition; hosted DB Profile Tests are
 the final-head DB proof. Synthetic observations never qualify real sessions.

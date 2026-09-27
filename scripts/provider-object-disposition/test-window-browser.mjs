@@ -1,6 +1,5 @@
-import { readFile, mkdtemp, realpath, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, relative, isAbsolute } from "node:path";
+import { readFile, lstat, realpath } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { BROWSER_BOOTSTRAP, createBrowserBootstrapTransport } from "./test-window-policy.mjs";
@@ -12,7 +11,46 @@ const COMPONENTS = Object.freeze({
 });
 
 const execute = promisify(execFile);
+export const BROWSER_LAUNCHER = "/opt/chase-sets-provider-window/launcher";
+const SOURCE_FILES = [
+  "browser-boundary/launcher.c",
+  "browser-boundary/apparmor.profile",
+  "browser-boundary/install-ci.sh",
+  "test-window-browser.mjs",
+];
+const CHILD_ENVIRONMENT = Object.freeze({ PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C" });
 const LAUNCH_MESSAGES = Object.freeze([
+  ...[
+    "attachment",
+    "source-identity",
+    "launcher-identity",
+    "dependency-identity",
+    "inventory-identity",
+    "principal",
+    "automation-pipes",
+    "automation-peer",
+    "user-namespace",
+    "mapping-open",
+    "mapping-write",
+    "child-namespaces",
+    "host-rejoin",
+    "external-interface",
+    "loopback",
+    "private-mounts",
+    "private-tmp",
+    "private-shm",
+    "private-proc",
+    "private-root",
+    "securebits",
+    "bounding-capabilities",
+    "capabilities",
+    "no-new-privileges",
+    "nested-user-namespace",
+    "nested-network-namespace",
+    "nested-sandbox",
+    "namespace-attachment",
+    "browser-exit",
+  ].map((stage) => [`provider-boundary-refused:${stage}`, null]),
   ["unshare: unshare failed: Operation not permitted", "EPERM"],
   ["unshare: unshare failed: Permission denied", "EACCES"],
   ["unshare: unshare failed: No space left on device", "ENOSPC"],
@@ -47,77 +85,79 @@ function mediationFailure(stage, error, userNamespaceRestriction = "unknown") {
  * the automation pipe after the parent applies the one-resource policy. Routing
  * alone does not confine WebRTC, background clients or Chromium's network service.
  */
-export async function openConfinedBrowser() {
+export async function assertBrowserAdmission({ operator = false } = {}) {
   if (process.platform !== "linux" || typeof process.getuid !== "function") throw mediationFailure("linux-required");
   if (process.getuid() === 0) throw mediationFailure("nonroot-required");
   const restriction = await readFile("/proc/sys/kernel/apparmor_restrict_unprivileged_userns", "utf8").catch(
     () => "unknown",
   );
   const userNamespaceRestriction = ["0", "1"].includes(restriction.trim()) ? Number(restriction.trim()) : "unknown";
+  let sourceDigest;
   try {
-    // This is the launch's exact namespace predicate, with no browser or SDK.
-    await execute("/usr/bin/unshare", ["--user", "--map-current-user", "--net", "--", "/usr/bin/true"], {
-      env: { PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C" },
+    for (const path of ["/", "/opt", "/opt/chase-sets-provider-window", BROWSER_LAUNCHER]) {
+      const stat = await lstat(path);
+      if (
+        stat.uid !== 0 ||
+        (stat.mode & 0o6022) !== 0 ||
+        (path === BROWSER_LAUNCHER ? !stat.isFile() || (stat.mode & 0o007) !== 0 : !stat.isDirectory()) ||
+        (await realpath(path)) !== path
+      )
+        throw new Error("installation-identity");
+    }
+    const source = await Promise.all(
+      SOURCE_FILES.map(async (path) => {
+        const bytes = await readFile(new URL(path, import.meta.url));
+        return `${createHash("sha256").update(bytes).digest("hex")}  ${path}\n`;
+      }),
+    );
+    sourceDigest = createHash("sha256").update(source.join("")).digest("hex");
+    // The installed binary rechecks its own identity, every immutable dependency,
+    // effective attachment and all namespaces. No writable executable is hashed
+    // and then executed, and the same checks run again in browser mode.
+    const { stdout } = await execute(BROWSER_LAUNCHER, ["probe", sourceDigest], {
+      env: CHILD_ENVIRONMENT,
       timeout: 5000,
       maxBuffer: 4096,
     });
+    const expected = {
+      admitted: true,
+      nonroot: true,
+      network: "isolated",
+      hostRejoin: "denied",
+      capabilities: "dropped",
+      nestedSandbox: true,
+      handles: "closed",
+    };
+    if (JSON.stringify(JSON.parse(stdout)) !== JSON.stringify(expected)) throw new Error("admission-proof");
+    // This build/install route has CI authority only. Operator enablement belongs
+    // to the separately admitted host installation, not a passing CI receipt.
+    if (operator) throw new Error("operator-installation-unavailable");
   } catch (error) {
-    throw mediationFailure("user-network-namespace", error, userNamespaceRestriction);
+    throw mediationFailure("installed-boundary", error, userNamespaceRestriction);
   }
+  return { sourceDigest, userNamespaceRestriction };
+}
+
+export async function openConfinedBrowser() {
+  const { sourceDigest, userNamespaceRestriction } = await assertBrowserAdmission();
   const { chromium } = await import("@playwright/test");
-  const root = await realpath(tmpdir());
-  const profile = await mkdtemp(join(root, "provider-window-browser-"));
-  const removeProfile = async () => {
-    const actual = await realpath(profile);
-    const child = relative(root, actual);
-    if (
-      actual !== profile ||
-      child.startsWith("..") ||
-      isAbsolute(child) ||
-      !child.startsWith("provider-window-browser-")
-    )
-      throw new Error("browser-cleanup-unavailable");
-    await rm(actual, { recursive: true });
-  };
   let browser;
   try {
     browser = await chromium.launch({
-      executablePath: "/usr/bin/unshare",
+      executablePath: BROWSER_LAUNCHER,
       ignoreDefaultArgs: true,
-      args: [
-        "--user",
-        "--map-current-user",
-        "--net",
-        "--",
-        chromium.executablePath(),
-        "--headless",
-        "--remote-debugging-pipe",
-        `--user-data-dir=${profile}`,
-        "--no-first-run",
-        "--disable-background-networking",
-        "--disable-component-update",
-        "--disable-sync",
-        "--disable-quic",
-        "--disable-extensions",
-        "--disable-default-apps",
-      ],
+      args: ["browser", sourceDigest],
+      env: CHILD_ENVIRONMENT,
       chromiumSandbox: true,
     });
   } catch (error) {
-    await removeProfile();
     throw mediationFailure("sandboxed-chromium", error, userNamespaceRestriction);
   }
   let closing;
   return {
     newContext: (options) => browser.newContext(options),
     close: () => {
-      closing ??= (async () => {
-        try {
-          await browser.close();
-        } finally {
-          await removeProfile();
-        }
-      })();
+      closing ??= browser.close();
       return closing;
     },
   };

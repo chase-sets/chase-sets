@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { openConfinedBrowser, observeConnectComponent } from "./test-window-browser.mjs";
+import { readFile, readdir } from "node:fs/promises";
+import { BROWSER_LAUNCHER, openConfinedBrowser, observeConnectComponent } from "./test-window-browser.mjs";
 import { createAttemptBudget, BROWSER_BOOTSTRAP } from "./test-window-policy.mjs";
 
 // These controls deliberately require the production confinement adapter, rather
@@ -13,6 +14,118 @@ beforeAll(async () => {
 afterAll(async () => {
   await browser?.close();
 });
+
+async function processRecord(pid) {
+  try {
+    const stat = await readFile(`/proc/${pid}/stat`, "utf8");
+    const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+    return { pid, parent: Number(fields[1]), start: fields[19] };
+  } catch (error) {
+    if (error.code === "ENOENT" || error.code === "ESRCH") return null;
+    throw error;
+  }
+}
+
+async function ownedTree() {
+  const ids = (await readdir("/proc")).filter((name) => /^\d+$/.test(name));
+  expect(ids.length).toBeLessThan(4096);
+  const processes = (await Promise.all(ids.map((id) => processRecord(Number(id))))).filter(Boolean);
+  const roots = [];
+  for (const record of processes.filter((record) => record.parent === process.pid)) {
+    const command = await readFile(`/proc/${record.pid}/cmdline`, "utf8").catch(() => "");
+    if (command.startsWith(`${BROWSER_LAUNCHER}\0browser\0`)) roots.push(record);
+  }
+  const selected = new Map(roots.map((record) => [record.pid, record]));
+  for (let size = -1; size !== selected.size; ) {
+    size = selected.size;
+    for (const record of processes) if (selected.has(record.parent)) selected.set(record.pid, record);
+  }
+  return { roots, processes: [...selected.values()] };
+}
+
+async function expectDrained(records) {
+  let remaining = records;
+  const deadline = Date.now() + 2000;
+  do {
+    remaining = (
+      await Promise.all(
+        remaining.map(async (record) => ((await processRecord(record.pid))?.start === record.start ? record : null)),
+      )
+    ).filter(Boolean);
+    if (!remaining.length) break;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  } while (Date.now() < deadline);
+  expect(remaining.map(({ pid }) => pid)).toEqual([]);
+}
+
+it("AC-02 installed boundary: effective labels, nonroot descendants, dropped capabilities and nested Chromium sandbox", async () => {
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    await page.goto("chrome://sandbox");
+    // Only closed booleans leave this local diagnostics page, never page text.
+    const sandbox = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll("tr")].map((row) =>
+        [...row.querySelectorAll("td")].map((cell) => cell.textContent.trim()),
+      );
+      const enabled = (name) => rows.some(([label, value]) => label === name && value === "Yes");
+      return {
+        namespace: enabled("Namespace sandbox"),
+        pid: enabled("PID namespaces"),
+        network: enabled("Network namespaces"),
+        seccomp: enabled("Seccomp-BPF sandbox"),
+      };
+    });
+    expect(sandbox).toEqual({ namespace: true, pid: true, network: true, seccomp: true });
+    const tree = await ownedTree();
+    expect(tree.roots).toHaveLength(1);
+    expect(tree.processes.length).toBeGreaterThan(3);
+    for (const record of tree.processes) {
+      const status = await readFile(`/proc/${record.pid}/status`, "utf8");
+      const label = (await readFile(`/proc/${record.pid}/attr/current`, "utf8")).trim();
+      expect(label).toBe("chase-sets-provider-window (unconfined)");
+      expect(status.match(/^Uid:\s+(\d+)\s+(\d+)/m)?.slice(1)).toEqual([
+        String(process.getuid()),
+        String(process.getuid()),
+      ]);
+      expect(status.match(/^CapEff:\s+(\w+)/m)?.[1]).toMatch(/^0+$/);
+      expect(status).toMatch(/^NoNewPrivs:\s+1$/m);
+      if (!tree.roots.some(({ pid }) => pid === record.pid))
+        expect(
+          status
+            .match(/^NSpid:\s+(.+)$/m)?.[1]
+            .trim()
+            .split(/\s+/).length,
+        ).toBeGreaterThanOrEqual(2);
+    }
+  } finally {
+    await context.close();
+  }
+});
+
+it.each(["close", "force-termination"])(
+  "AC-02 cleanup: %s drains only this launch and leaves no persistent profile",
+  async (mode) => {
+    const previous = await ownedTree();
+    const extra = await openConfinedBrowser();
+    let owned = [];
+    try {
+      const context = await extra.newContext();
+      await context.newPage();
+      const current = await ownedTree();
+      owned = current.processes.filter((record) => !previous.processes.some(({ pid }) => pid === record.pid));
+      const root = current.roots.filter((record) => !previous.roots.some(({ pid }) => pid === record.pid));
+      expect(root).toHaveLength(1);
+      expect(owned.length).toBeGreaterThan(3);
+      if (mode === "force-termination") process.kill(root[0].pid, "SIGKILL");
+    } finally {
+      await extra.close();
+    }
+    await expectDrained(owned);
+    expect((await ownedTree()).roots).toEqual(previous.roots);
+    expect(await readdir("/opt/chase-sets-provider-window/root/tmp")).toEqual([]);
+  },
+);
 
 function syntheticSdk(stimulus = "") {
   return `/* LABELED SYNTHETIC SDK STIMULUS; NOT PROVIDER USABILITY */

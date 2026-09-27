@@ -1,11 +1,19 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-const { namespaceProbe, launch, restriction } = vi.hoisted(() => ({
+const { namespaceProbe, launch, restriction, installation } = vi.hoisted(() => ({
   namespaceProbe: vi.fn(),
   launch: vi.fn(),
   restriction: { value: "1\n" },
+  installation: { valid: true },
 }));
-vi.mock("node:child_process", () => ({ execFile: namespaceProbe }));
+vi.mock("node:child_process", () => ({
+  execFile: Object.assign(namespaceProbe, {
+    [Symbol.for("nodejs.util.promisify.custom")]: (...args) =>
+      new Promise((resolve, reject) =>
+        namespaceProbe(...args, (error, stdout, stderr) => (error ? reject(error) : resolve({ stdout, stderr }))),
+      ),
+  }),
+}));
 vi.mock("@playwright/test", () => ({
   chromium: { launch, executablePath: () => "/synthetic/chromium" },
 }));
@@ -13,13 +21,30 @@ vi.mock("node:fs/promises", async (original) => {
   const actual = await original();
   return {
     ...actual,
+    lstat: async (path) => ({
+      uid: installation.valid ? 0 : 1001,
+      mode: path.endsWith("/launcher") ? 0o100750 : 0o40755,
+      isFile: () => path.endsWith("/launcher"),
+      isDirectory: () => !path.endsWith("/launcher"),
+    }),
+    realpath: async (path) => path,
     readFile: (path, ...args) =>
       path === "/proc/sys/kernel/apparmor_restrict_unprivileged_userns"
         ? Promise.resolve(restriction.value)
         : actual.readFile(path, ...args),
   };
 });
-import { openConfinedBrowser } from "./test-window-browser.mjs";
+import { assertBrowserAdmission, BROWSER_LAUNCHER, openConfinedBrowser } from "./test-window-browser.mjs";
+
+const proof = {
+  admitted: true,
+  nonroot: true,
+  network: "isolated",
+  hostRejoin: "denied",
+  capabilities: "dropped",
+  nestedSandbox: true,
+  handles: "closed",
+};
 
 beforeEach(() => {
   const originalProcess = process;
@@ -33,7 +58,8 @@ beforeEach(() => {
       },
     }),
   );
-  namespaceProbe.mockImplementation((_path, _args, _options, callback) => callback(null, "", ""));
+  installation.valid = true;
+  namespaceProbe.mockImplementation((_path, _args, _options, callback) => callback(null, JSON.stringify(proof), ""));
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -50,7 +76,7 @@ it("AC-02 entrypoint / browser admission: namespace errno is observable before C
     ),
   );
   const error = await openConfinedBrowser().catch((error) => error);
-  expect(error.message).toContain('"stage":"user-network-namespace"');
+  expect(error.message).toContain('"stage":"installed-boundary"');
   expect(error.message).toContain('"errorClass":"Error"');
   expect(error.message).toContain('"message":"unshare: unshare failed: Operation not permitted"');
   expect(error.message).toContain('"errno":"EPERM"');
@@ -59,14 +85,14 @@ it("AC-02 entrypoint / browser admission: namespace errno is observable before C
   expect(error.cause).toBeUndefined();
   expect(launch).not.toHaveBeenCalled();
   expect(namespaceProbe).toHaveBeenCalledWith(
-    "/usr/bin/unshare",
-    ["--user", "--map-current-user", "--net", "--", "/usr/bin/true"],
+    BROWSER_LAUNCHER,
+    ["probe", expect.stringMatching(/^[a-f0-9]{64}$/)],
     expect.objectContaining({ env: { PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C" } }),
     expect.any(Function),
   );
 });
 
-it("AC-02 entrypoint / browser admission: missing unshare and sandbox failure remain distinct, with no fallback", async () => {
+it("AC-02 entrypoint / browser admission: missing installation and sandbox failure remain distinct, with no fallback", async () => {
   namespaceProbe.mockImplementationOnce((_path, _args, _options, callback) =>
     callback(Object.assign(new Error("SYNTHETIC_6733_PRIVATE_PATH"), { code: "ENOENT" })),
   );
@@ -80,9 +106,31 @@ it("AC-02 entrypoint / browser admission: missing unshare and sandbox failure re
   expect(launch).toHaveBeenCalledTimes(1);
   const options = launch.mock.calls[0][0];
   expect(options.chromiumSandbox).toBe(true);
-  expect(options.executablePath).toBe("/usr/bin/unshare");
-  expect(options.args.slice(0, 4)).toEqual(["--user", "--map-current-user", "--net", "--"]);
+  expect(options.executablePath).toBe(BROWSER_LAUNCHER);
+  expect(options.args).toEqual(["browser", expect.stringMatching(/^[a-f0-9]{64}$/)]);
+  expect(options.env).toEqual({ PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C" });
   expect(options.args).not.toContain("--no-sandbox");
+});
+
+it("AC-02 entrypoint / browser admission: mutable installation refuses before executable or child", async () => {
+  installation.valid = false;
+  await expect(openConfinedBrowser()).rejects.toThrow('"stage":"installed-boundary"');
+  expect(namespaceProbe).not.toHaveBeenCalled();
+  expect(launch).not.toHaveBeenCalled();
+});
+
+it("AC-02 governing OS mutant: retained user-space policy cannot accept a missing namespace predicate", async () => {
+  namespaceProbe.mockImplementation((_path, _args, _options, callback) =>
+    callback(null, JSON.stringify({ ...proof, network: "host" }), ""),
+  );
+  await expect(openConfinedBrowser()).rejects.toThrow('"stage":"installed-boundary"');
+  expect(launch).not.toHaveBeenCalled();
+});
+
+it("AC-02 operator hold: CI admission never authorizes an operator credential prompt", async () => {
+  await expect(assertBrowserAdmission({ operator: true })).rejects.toThrow('"stage":"installed-boundary"');
+  expect(namespaceProbe).toHaveBeenCalledTimes(1);
+  expect(launch).not.toHaveBeenCalled();
 });
 
 it("AC-06 markers / browser admission: unknown launch output is not reflected or attached as a cause", async () => {
@@ -91,4 +139,18 @@ it("AC-06 markers / browser admission: unknown launch output is not reflected or
   expect(error.message).toContain('"message":"unclassified-launch-failure"');
   expect(error.message).not.toContain("SYNTHETIC_6733_PRIVATE_CHILD_FAILURE");
   expect(error.cause).toBeUndefined();
+});
+
+it("AC-06 native diagnostics: only a closed installed-boundary stage survives child output", async () => {
+  namespaceProbe.mockImplementation((_path, _args, _options, callback) =>
+    callback(
+      Object.assign(new Error("SYNTHETIC_PRIVATE_CHILD"), {
+        stderr: "provider-boundary-refused:private-proc\nSYNTHETIC_PRIVATE_CHILD",
+      }),
+    ),
+  );
+  const error = await openConfinedBrowser().catch((error) => error);
+  expect(error.message).toContain("provider-boundary-refused:private-proc");
+  expect(error.message).not.toContain("SYNTHETIC_PRIVATE_CHILD");
+  expect(launch).not.toHaveBeenCalled();
 });

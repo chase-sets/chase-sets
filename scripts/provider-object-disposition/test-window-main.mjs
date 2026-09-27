@@ -14,7 +14,7 @@ import {
   validateLaunchManifest,
 } from "./test-window-admission.mjs";
 import { closedObject } from "./test-window-policy.mjs";
-import { openConfinedBrowser } from "./test-window-browser.mjs";
+import { assertBrowserAdmission, openConfinedBrowser } from "./test-window-browser.mjs";
 import { isStripePublishableKeyForMode, isUnrestrictedStripeSecretKeyForMode } from "../stripe-key-mode.mjs";
 
 const hash = (value) => createHash("sha256").update(value).digest("hex");
@@ -143,6 +143,7 @@ export async function runTestWindow(args = process.argv.slice(2)) {
     if (manifest.configuration.apiVersion !== STRIPE_API_VERSION) refuse();
     assertReviewedWorktree(candidateHead);
     await validatePrivatePaths(manifest);
+    await assertBrowserAdmission({ operator: true });
     terminalFd = openSync("/dev/tty", "w");
     terminal = new WriteStream(terminalFd);
     terminal.write(
@@ -167,8 +168,7 @@ export async function runTestWindow(args = process.argv.slice(2)) {
     );
     const fixtures = parsePrivateFixtures(fixtureBytes, manifest);
     validateLaunchManifest(manifest, candidateHead);
-    // unshare is the kernel-enforced child fence. An unsupported host/namespace
-    // fails here, before the TEST credential prompt or any external request.
+    // Repeat the installed boundary checks immediately before the browser launch.
     browser = await openConfinedBrowser();
     const { default: pg } = await import("pg");
     pool = new pg.Pool({
