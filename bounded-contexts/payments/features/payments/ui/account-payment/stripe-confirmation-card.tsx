@@ -513,7 +513,7 @@ export function StripeConfirmationCard({
         reassurance={<SecurePaymentIndicator label={t("payments.routes.marketplace.accountPayment.secure.payment")} />}
         primaryAction={confirmButton(true)}
       />
-      <Surface elevated glow>
+      <Surface elevation="elevated" glow>
         <Stack gap={3}>
           <Badge tone="accent">{t("payments.routes.marketplace.accountPayment.secure.payment")}</Badge>
           <Text>{t("payments.routes.marketplace.accountPayment.payment.is.ready.enter.your.payment")}</Text>
