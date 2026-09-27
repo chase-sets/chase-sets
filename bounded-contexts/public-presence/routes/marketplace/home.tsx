@@ -18,7 +18,6 @@ import {
   fallbackCheckoutFeePreview,
   type CheckoutFeePreview,
 } from "../../features/waitlist/ui/checkout-fee-preview";
-import { launchTimeline } from "../../features/waitlist/ui/launch-config";
 import { normalizeLandingExperimentVariant } from "../../features/waitlist/ui/landing-experiment";
 import { publicPresenceT as t } from "../../features/waitlist/ui/public-presence-translator";
 import { loadLandingFeePresentation } from "../../support/request-support/landing-fee-presentation";
@@ -183,9 +182,7 @@ export function buildHomeStructuredData(
 ) {
   const normalizedOrigin = normalizeOrigin(publicOrigin);
   const homeUrl = publicUrl(normalizedOrigin, "/");
-  // Launch-timeline and checkout-fee values keep the visible FAQ and this
-  // structured data on the same interpolated copy.
-  const faqAnswerValues = { ...launchTimeline, ...checkoutFeeTranslationValues(checkoutFeePreview) };
+  const faqAnswerValues = checkoutFeeTranslationValues(checkoutFeePreview);
 
   return {
     "@context": "https://schema.org",

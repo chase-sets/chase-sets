@@ -420,7 +420,7 @@ describe("public waitlist form migration smoke", () => {
     );
   });
 
-  it("answers when access opens with numbered invite capacities, qualification, and the public launch date", () => {
+  it("orders waitlist, numbered beta invite waves, and open signup without promising dates", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -447,24 +447,29 @@ describe("public waitlist form migration smoke", () => {
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
 
-    // The one hard public date and the season-level beta window, interpolated
-    // from launch-config (no leaked tokens).
-    expect(timelineSection.textContent).toContain("September 1, 2026");
-    expect(timelineSection.textContent).toContain("late July 2026");
+    expect(container.innerHTML).not.toContain("September 1, 2026");
+    expect(container.innerHTML).not.toContain("late July 2026");
+    expect(timelineSection.textContent).toMatch(/waitlist.*numbered beta invite waves.*open signup/i);
+    expect([...timelineSection.querySelectorAll("h3")].map((heading) => heading.textContent)).toEqual([
+      "Join the waitlist",
+      "Numbered beta invite waves",
+      "Public launch: open signup",
+    ]);
     expect(timelineSection.textContent).toContain("Wave 1: 100 invites");
     expect(timelineSection.textContent).toContain("Wave 2: 250 invites");
     expect(timelineSection.textContent).toContain("Wave 3: 500 invites");
     expect(timelineSection.textContent).toContain(t("publicPresence.home.launchTimeline.step.waves.qualification"));
     expect(timelineSection.textContent).toContain(t("publicPresence.home.launchTimeline.step.waves.gates"));
+    expect(timelineSection.textContent).toContain(t("publicPresence.home.launchTimeline.step.waves.founders"));
     expect(timelineSection.textContent).not.toContain("{publicLaunchDate}");
     expect(timelineSection.textContent).not.toContain("{betaWavesWindow}");
     // Wave-to-wave progression is operations-gated, so target dates are not promises.
     expect(timelineSection.textContent).not.toMatch(/July 31|August \d/i);
     expect(timelineSection.querySelector('a[href="/#waitlist-form"]')).not.toBeNull();
 
-    // The FAQ preview answers the same question with the same dates.
+    // Visible FAQ copy states the same access order as the timeline.
     expect(faqSection.textContent).toContain(t("publicPresence.faq.launch.question"));
-    expect(faqSection.textContent).toContain("September 1, 2026");
+    expect(faqSection.textContent).toMatch(/waitlist.*numbered beta invite waves.*open signup/i);
     expect(faqSection.textContent).not.toContain("{publicLaunchDate}");
   });
 

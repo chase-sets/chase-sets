@@ -25,12 +25,6 @@ export const CAMPAIGN_START_GATE_VERSION = "campaign-start-gate/v1";
 export const CAMPAIGN_GO_DATE = "2026-07-20";
 export const CAMPAIGN_CONTENT_CALENDAR_PATH = "docs/campaigns/30-day-content-calendar.md";
 
-// Canonical launch-timeline values, mirrored from
-// bounded-contexts/public-presence/features/waitlist/ui/launch-config.ts.
-// Update both together if the ratified public launch date or beta-waves
-// window text changes.
-export const REQUIRED_PUBLIC_LAUNCH_DATE = "September 1, 2026";
-export const REQUIRED_BETA_WAVES_WINDOW = "late July 2026";
 export const LAUNCH_CONFIG_PATH = "bounded-contexts/public-presence/features/waitlist/ui/launch-config.ts";
 
 export const PRIVACY_ROUTE_PATH = "bounded-contexts/public-presence/routes/marketplace/privacy.tsx";
@@ -277,9 +271,40 @@ function buildLaunchTimelineRow(repoRootPath) {
   const fullPath = path.join(repoRootPath, LAUNCH_CONFIG_PATH);
   const exists = existsSync(fullPath);
   const content = exists ? readFileSync(fullPath, "utf8") : "";
-  const hasPublicLaunchDate = content.includes(REQUIRED_PUBLIC_LAUNCH_DATE);
-  const hasBetaWavesWindow = content.includes(REQUIRED_BETA_WAVES_WINDOW);
-  const status = exists && hasPublicLaunchDate && hasBetaWavesWindow ? "pass" : "fail";
+  const source = ts.createSourceFile("launch-config.ts", content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const declarations = source.statements
+    .filter(
+      (statement) =>
+        ts.isVariableStatement(statement) && statement.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword),
+    )
+    .flatMap((statement) => [...statement.declarationList.declarations])
+    .filter((declaration) => ts.isIdentifier(declaration.name) && declaration.name.text === "launchTimeline");
+  let initializer = declarations.length === 1 ? declarations[0].initializer : undefined;
+  if (initializer && ts.isAsExpression(initializer)) initializer = initializer.expression;
+  const countKeys = ["waveOneInviteCount", "waveTwoInviteCount", "waveThreeInviteCount"];
+  // Fail closed on added date/window fields, computed values, spreads, or an
+  // unresolved config. Only the existing policy-count calls belong here.
+  const policyCountsOnly = Boolean(
+    source.parseDiagnostics.length === 0 &&
+    initializer &&
+    ts.isObjectLiteralExpression(initializer) &&
+    initializer.properties.length === countKeys.length &&
+    countKeys.every((key, index) =>
+      initializer.properties.some(
+        (property) =>
+          ts.isPropertyAssignment(property) &&
+          ts.isIdentifier(property.name) &&
+          property.name.text === key &&
+          ts.isCallExpression(property.initializer) &&
+          ts.isIdentifier(property.initializer.expression) &&
+          property.initializer.expression.text === "inviteCount" &&
+          property.initializer.arguments.length === 1 &&
+          ts.isNumericLiteral(property.initializer.arguments[0]) &&
+          property.initializer.arguments[0].text === String(index + 1),
+      ),
+    ),
+  );
+  const status = exists && policyCountsOnly ? "pass" : "fail";
   return {
     key: "launch-timeline-synced",
     label: "Launch timeline messaging synced with the canonical source",
@@ -288,15 +313,12 @@ function buildLaunchTimelineRow(repoRootPath) {
     evidence: {
       path: LAUNCH_CONFIG_PATH,
       exists,
-      hasPublicLaunchDate,
-      hasBetaWavesWindow,
-      publicLaunchDate: REQUIRED_PUBLIC_LAUNCH_DATE,
-      betaWavesWindow: REQUIRED_BETA_WAVES_WINDOW,
+      policyCountsOnly,
     },
     note:
       status === "pass"
-        ? "launch-config.ts carries the ratified public launch date and beta-waves window."
-        : "launch-config.ts is missing or out of sync with the ratified launch timeline values.",
+        ? "launch-config.ts carries only policy-owned invite counts, with no public launch date or beta window."
+        : "launch-config.ts must export only the three policy-owned invite counts; public dates and beta windows are not permitted.",
   };
 }
 
