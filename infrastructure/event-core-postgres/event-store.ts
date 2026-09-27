@@ -157,6 +157,7 @@ export type PostgresEventStoreConfig = Readonly<{
 
 export interface PostgresEventStore extends EventStore {
   appendToStreamInTransaction(client: PgQueryable, input: AppendToStreamInput): Promise<readonly StoredEvent[]>;
+  readStreamInTransaction(client: PgQueryable, input: ReadStreamInput): Promise<readonly StoredEvent[]>;
 }
 
 const DEFAULT_EVENTS_TABLE = "event_store_events";
@@ -232,7 +233,21 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
     LIMIT $3
   `;
 
+  const readStream = async (client: PgQueryable, input: ReadStreamInput) => {
+    const fromVersion = assertPositiveInteger(input.fromVersion ?? 1, "fromVersion");
+    const limit = assertEventStoreReadPageSize(input.limit ?? EVENT_STORE_READ_PAGE_SIZE_DEFAULT);
+    return observeEventStoreOperation("read_stream", { limit }, async () => {
+      try {
+        const result = await client.query<DbEventRow>(readStreamSql, [input.streamId, fromVersion, limit]);
+        return result.rows.map(mapDbEventRow);
+      } catch (error) {
+        throw normalizeEventStoreError(error, "Failed to read stream events from Postgres event store.");
+      }
+    });
+  };
+
   return {
+    readStreamInTransaction: readStream,
     appendToStreamInTransaction: async (client, input) => {
       if (input.events.length === 0) return [];
       assertEventPayloadSizes([input]);
@@ -466,20 +481,7 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
       );
     },
 
-    readStream: async (input: ReadStreamInput) => {
-      const fromVersion = assertPositiveInteger(input.fromVersion ?? 1, "fromVersion");
-      const limit = assertEventStoreReadPageSize(input.limit ?? EVENT_STORE_READ_PAGE_SIZE_DEFAULT);
-
-      return observeEventStoreOperation("read_stream", { limit }, async () => {
-        try {
-          const result = await pool.query<DbEventRow>(readStreamSql, [input.streamId, fromVersion, limit]);
-
-          return result.rows.map(mapDbEventRow);
-        } catch (error) {
-          throw normalizeEventStoreError(error, "Failed to read stream events from Postgres event store.");
-        }
-      });
-    },
+    readStream: (input) => readStream(pool, input),
 
     readAll: async (input?: ReadAllInput) => {
       const atOrBeforeGlobalPosition =

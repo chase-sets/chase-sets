@@ -19,6 +19,24 @@ import { withPgTransaction, type PgTransactionalPool } from "./types";
 const NOW = "2026-06-10T12:00:00.000Z" as const;
 
 describe("postgres event store", () => {
+  it("reads through the supplied transaction client without acquiring from the pool", async () => {
+    const { pool, calls } = createReadPool();
+    const client = createReadPool();
+    const store = createPostgresEventStore({ pool });
+    const input = { streamId: "checkout.checkout-session-chk_01", fromVersion: 2, limit: 1 };
+
+    await expect(store.readStreamInTransaction(client.pool, input)).resolves.toEqual([]);
+    expect(calls).toEqual([]);
+    expect(client.calls).toHaveLength(1);
+    expect(client.calls[0].params).toEqual([input.streamId, 2, 1]);
+    await store.readStream(input);
+    expect(calls).toEqual(client.calls);
+    await expect(store.readStreamInTransaction(client.pool, { ...input, limit: 0 })).rejects.toThrow(
+      "Event store read limit must be an integer between 1 and 500.",
+    );
+    expect(client.calls).toHaveLength(1);
+  });
+
   it("defaults readStream and readAll to the documented read page size", async () => {
     const { pool, calls } = createReadPool();
     const store = createPostgresEventStore({ pool });
