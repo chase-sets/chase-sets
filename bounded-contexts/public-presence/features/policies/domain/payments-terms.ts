@@ -107,30 +107,40 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
       id: "charge-timing-and-statement-descriptor",
       title: "Charge timing and statement descriptor",
       draftText:
-        "Stripe charges your selected payment method when you complete a purchase on the Marketplace. From " +
-        "that point, the charge follows Stripe's standard card-network authorization and processing path, " +
-        "which Chase Sets does not control and this document does not restate. The resulting entry on your " +
-        "card or bank statement will carry a transaction descriptor that identifies Chase Sets, Stripe, or " +
-        "both, so you can recognize purchases made on the Marketplace. Chase Sets does not control the exact " +
-        "descriptor format your card network or financial institution ultimately displays.",
+        "For a Marketplace checkout with an amount to pay through Stripe, Chase Sets creates your Orders before requesting payment. " +
+        "Chase Sets requests confirmation of a saved payment method or creates a payment session for you to complete. " +
+        "Creating an Order or requesting payment does not itself establish that funds have been captured; " +
+        "additional confirmation or authentication may be needed, and authorization is distinct from capture. " +
+        "Chase Sets records capture when a Stripe webhook or reconciliation result is mapped to a captured payment. " +
+        "Chase Sets sends a statement descriptor suffix to Stripe with the payment request.",
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote:
-          "Describe when a charge occurs and that the buyer's statement carries a Chase Sets/Stripe-identifying " +
-          "descriptor, without inventing exact descriptor text or processing-time numbers.",
+          "Describe ordinary nonzero Marketplace payment requests after Order creation, authorization versus recorded capture, " +
+          "and statement descriptor suffix transmission, without promising completion timing or statement display.",
         decisionRefs: [5685],
-        productTruthRefs: paymentChargeTimingAndCaptureProductTruthRefs,
-        openQuestions: [],
+        productTruthRefs: [
+          ...paymentChargeTimingAndCaptureProductTruthRefs,
+          "bounded-contexts/checkout/features/sessions/api/route.ts:1388-1437",
+        ],
+        openQuestions: [
+          "What, if anything, may the policy say about the descriptor a card or bank statement will display? Sending a suffix does not establish issuer display.",
+          "Any characterization of card-network processing or Chase Sets' control over it requires counsel review and external evidence; request and outcome-mapping code does not establish those guarantees.",
+        ],
         assumptions: [
           {
             assertion:
-              "Chase Sets charges the buyer's payment method through Stripe at the time a Marketplace purchase " +
-              "completes, and no repository evidence shows a delayed or deferred charge model: the checkout " +
-              "handler synchronously requests a Stripe payment session (immediately confirming a PaymentIntent " +
-              "for a saved instrument, or creating the Checkout Session the buyer completes as part of the same " +
-              "purchase for a new one), carrying the statement descriptor suffix, before the purchase is " +
-              "recorded as created.",
+              "For a nonzero processor amount, Payments requests a Stripe payment session and returns pending-confirmation. " +
+              "A saved-method request sends confirm: true but can require authentication or confirmation; a new session " +
+              "can remain open or unpaid. Setup and authorization outcomes are not capture. Payments records mapped " +
+              "capture outcomes from webhooks or reconciliation. Both request paths send a statement descriptor suffix.",
             evidenceRef: paymentChargeTimingAndCaptureProductTruthRefs.join("; "),
+          },
+          {
+            assertion:
+              "Checkout creates and records Orders before requesting Payment; neither Order creation nor Payment creation proves nonzero capture.",
+            evidenceRef:
+              "bounded-contexts/checkout/features/sessions/api/route.ts:1388-1437; bounded-contexts/payments/features/payments/api/runtime.ts:2108-2115",
           },
         ],
         canonicalClaims: [
