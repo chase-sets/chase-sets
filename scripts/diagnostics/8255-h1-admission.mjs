@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { openConfinedBrowser } from "../provider-object-disposition/test-window-browser.mjs";
 
 const SOURCE = "6cc23a77fdd0e35f6d04b51a6f6c9526cf5439dc";
@@ -81,8 +82,14 @@ let playwright = "unknown";
 let chromium = "unknown";
 try {
   playwright = limited(require("@playwright/test/package.json").version, /^[0-9]+(?:\.[0-9]+){2}$/);
-  const { chromium: executable } = await import("@playwright/test");
-  chromium = version(executable.executablePath(), ["--version"], /^Chromium [0-9]+(?:\.[0-9]+){2,3}$/);
+  const fromTest = createRequire(require.resolve("@playwright/test/package.json"));
+  const fromPlaywright = createRequire(fromTest.resolve("playwright/package.json"));
+  const browsersPath = join(dirname(fromPlaywright.resolve("playwright-core/package.json")), "browsers.json");
+  const { browsers } = JSON.parse(await readFile(browsersPath, "utf8"));
+  chromium = limited(
+    browsers.find((browser) => browser.name === "chromium")?.browserVersion,
+    /^[0-9]+(?:\.[0-9]+){2,3}$/,
+  );
 } catch {
   // Missing tooling is an unknown version, not a raw diagnostic.
 }
