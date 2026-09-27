@@ -31,7 +31,7 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (163)
+## Projection Groups (164)
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
@@ -186,6 +186,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `pricing:pricing-repricing-evaluation-projection` | Pricing | pricing | push-eligible | 0/1 |
 | `pricing:pricing-repricing-evaluation-reaction` | Pricing | **marketplace**, pricing | push-eligible | 1/2 |
 | `pricing:pricing-repricing-halt-projection` | Pricing | pricing | push-eligible | 0/1 |
+| `pricing:pricing-repricing-policy-projection` | Pricing | pricing | push-eligible | 0/1 |
 | `public-presence:platform-policy-document-projection` | Public Presence | **public-presence** | push-enabled | 1/1 |
 | `public-presence:public-presence-waitlist-projection` | Public Presence | **public-presence** | push-enabled | 1/1 |
 | `public-presence:public-presence-waitlist-transactional-email-projection` | Public Presence | **public-presence** | push-enabled | 1/1 |
@@ -203,7 +204,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 
 Totals: 122 `push-enabled`, 40 `push-eligible`, 0 `disabled`, 0 `opted-out`.
 
-## Read-After-Write Route Inventory (81)
+## Read-After-Write Route Inventory (83)
 
 Every route inventory entry keeps its exact durable wait or carries an owner-approved exception recorded in the owning context's `context.json` (validated by #1233). "Wave posture" describes whether commits behind the route's freshness dependencies currently emit push wakes in staging; exact waits and recovery contracts hold in every posture.
 
@@ -285,6 +286,8 @@ Every route inventory entry keeps its exact durable wait or carries an owner-app
 | `platform-operations.platform-feedback-detail-fresh-read` | platform-operations | important | exact wait | push-accelerated |
 | `platform-operations.platform-feedback-list-fresh-read` | platform-operations | important | exact wait | push-accelerated |
 | `platform-operations.support-request-detail-fresh-read` | platform-operations | important | exact wait | push-accelerated |
+| `pricing.seller-desk-repricing-policy-detail-self-refresh` | pricing | important | exact wait | deferred until wave 4 |
+| `pricing.seller-desk-repricing-policy-list-refresh` | pricing | important | exact wait | deferred until wave 4 |
 | `public-presence.waitlist-signup-to-admin-review` | public-presence | critical | exact wait | push wake enabled |
 | `marketplace.review-reply-to-detail` | marketplace | important | exact wait | push-accelerated |
 | `marketplace.review-submit-to-detail` | marketplace | important | exact wait | push-accelerated |

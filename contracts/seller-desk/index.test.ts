@@ -139,6 +139,11 @@ describe("Action vocabulary", () => {
       "write-off",
       "reverse",
       "open-manual-sync",
+      "pause-repricing-policy",
+      "resume-repricing-policy",
+      "delete-repricing-policy",
+      "engage-repricing-halt",
+      "release-repricing-halt",
     ];
     for (const intent of currentSellerIntents) {
       const owners = intentOwners.get(intent) ?? [];
@@ -220,13 +225,29 @@ describe("Attention-queue ordering policy", () => {
       SELLER_ATTENTION_SOURCE_PRIORITY["offer-response"],
     );
     expect(SELLER_ATTENTION_SOURCE_PRIORITY).toEqual({
-      "fulfillment-ship-by": 7,
-      "settlement-blocked-payout": 6,
-      "dispute-response": 5,
-      "inventory-resolution": 4,
-      "channel-action": 3,
-      "offer-response": 2,
+      "fulfillment-ship-by": 8,
+      "settlement-blocked-payout": 7,
+      "dispute-response": 6,
+      "inventory-resolution": 5,
+      "channel-action": 4,
+      "offer-response": 3,
+      "pricing-repricing": 2,
       "listing-action": 1,
+    });
+  });
+
+  it("registers the repricing surfaces, entity, and attention source", () => {
+    expect(sellerSurfaceById("repricing-policies")?.routePath).toBe("/account/desk/repricing");
+    expect(sellerSurfaceById("repricing-policy")?.routePath).toBe("/account/desk/repricing/:policyId");
+    expect(SELLER_ENTITIES.find((entity) => entity.id === "repricing-policy")?.homeSurface).toBe("repricing-policy");
+    expect(findSellerRouteRedirect("/account/repricing")).toBe("/account/desk/repricing");
+    expect(SELLER_ATTENTION_SOURCES.find((source) => source.id === "pricing-repricing")).toEqual({
+      id: "pricing-repricing",
+      ownerContext: "pricing",
+      entity: "repricing-policy",
+      target: "repricing-policies",
+      peakSeverity: "warning",
+      availability: "live",
     });
   });
 

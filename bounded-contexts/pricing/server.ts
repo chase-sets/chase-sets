@@ -99,6 +99,7 @@ export {
 } from "./features/market-estimates/domain/estimate-policy";
 export { repricingEnginePolicy, type RepricingEnginePolicyValue } from "./features/repricing-engine/domain/policy";
 export { repricingManagementPolicy } from "./features/repricing-engine/domain/management-policy";
+export { createRepricingAttentionSourceFromReadModel } from "./features/repricing-engine/read-model/seller-attention-source";
 export { priceSignalPolicy, type PriceSignalPolicyValue } from "./features/price-signals/domain/price-signal-policy";
 export {
   providerObservationPolicy,

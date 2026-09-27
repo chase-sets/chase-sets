@@ -700,10 +700,10 @@ describe("real repository execution membership", () => {
 
     expect(result.violations, result.violations.join("\n")).toEqual([]);
     expect(result.inventory.parserVersion).toBe("6.0.3");
-    expect(result.inventory.declarations).toHaveLength(103);
+    expect(result.inventory.declarations).toHaveLength(105);
     expect(result.inventory.partition).toEqual({
       "node-enforced": 41,
-      "vite-excluded": 49,
+      "vite-excluded": 51,
       "vitest-excluded": 13,
       "manifest-only": 0,
       indeterminate: 0,
@@ -719,8 +719,28 @@ describe("real repository execution membership", () => {
       }),
     );
     expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-      "3f8790672e333752b9a0e38cbb061bce6ca1884932338d8d8be1eb7a71672e6e",
+      "07e714c95302850a44bbe27e13d710efe6b5a77f77c2ec2014997f4419af637b",
     );
+    expect(
+      normalized.filter((entry) => entry.relativeFile.startsWith("bounded-contexts/pricing/routes/marketplace/")),
+    ).toEqual([
+      {
+        relativeFile: "bounded-contexts/pricing/routes/marketplace/account-desk-repricing-policy.tsx",
+        form: "import",
+        specifier: "../../context.json",
+        attributeText: null,
+        resolved: "bounded-contexts/pricing/context.json",
+        disposition: "vite-excluded",
+      },
+      {
+        relativeFile: "bounded-contexts/pricing/routes/marketplace/account-desk-repricing.tsx",
+        form: "import",
+        specifier: "../../context.json",
+        attributeText: null,
+        resolved: "bounded-contexts/pricing/context.json",
+        disposition: "vite-excluded",
+      },
+    ]);
     expect(
       normalized.filter(
         (entry) => entry.relativeFile === "bounded-contexts/pricing/tests/account-repricing-route.test.ts",

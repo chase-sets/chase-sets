@@ -15,6 +15,16 @@ import type {
   ProductRollupSeriesPoint,
 } from "../../features/market-rollups/read-model/queries";
 import type { ProductMarketStatsSnapshotResponse } from "../../features/market-rollups/api/runtime";
+import type { RepricingPolicyState } from "../../features/repricing-policies/domain/domain";
+import type { RepricingHaltState } from "../../features/repricing-policies/domain/halt";
+import type { RepricingDryRun } from "../../features/repricing-engine/api/dry-run";
+import type { RepricingActivityFilter, listRepricingActivity } from "../../features/repricing-engine/api/activity";
+
+export type RepricingPolicyListItem = RepricingPolicyState & Readonly<{ changesUsedToday: number }>;
+export type RepricingBudget = Readonly<{ day: string; changesUsed: number }>;
+export type RepricingActivityPage = Awaited<ReturnType<typeof listRepricingActivity>>;
+export type RepricingActivityQuery = Readonly<{ filter?: RepricingActivityFilter; after?: string; limit?: number }>;
+export type { RepricingPolicyState, RepricingHaltState, RepricingDryRun, RepricingActivityFilter };
 
 export type { AccountRecommendationListItem } from "../../features/recommendations/read-model/queries";
 export type {
@@ -186,6 +196,61 @@ export function createPricingApiClient({
       return parseJsonResponse(
         await client.account["bulk-reprice"].jobs[":jobId"].$get({
           param: { jobId },
+          header: headers,
+        }),
+      );
+    },
+    async listRepricingPolicies(): Promise<readonly RepricingPolicyListItem[]> {
+      return parseJsonResponse(await client.account["repricing-policies"].$get({ header: headers }));
+    },
+    async getRepricingPolicy(policyId: string): Promise<RepricingPolicyState> {
+      return parseJsonResponse(
+        await client.account["repricing-policies"][":policyId"].$get({ param: { policyId }, header: headers }),
+      );
+    },
+    async pauseRepricingPolicy(policyId: string): Promise<RepricingPolicyState> {
+      return parseJsonResponse(
+        await client.account["repricing-policies"][":policyId"].pause.$post({ param: { policyId }, header: headers }),
+      );
+    },
+    async resumeRepricingPolicy(policyId: string): Promise<RepricingPolicyState> {
+      return parseJsonResponse(
+        await client.account["repricing-policies"][":policyId"].resume.$post({ param: { policyId }, header: headers }),
+      );
+    },
+    async deleteRepricingPolicy(policyId: string): Promise<RepricingPolicyState> {
+      return parseJsonResponse(
+        await client.account["repricing-policies"][":policyId"].delete.$post({ param: { policyId }, header: headers }),
+      );
+    },
+    async getRepricingHalt(): Promise<RepricingHaltState> {
+      return parseJsonResponse(await client.account["repricing-policies"].halt.$get({ header: headers }));
+    },
+    async setRepricingHalt(engaged: boolean): Promise<RepricingHaltState> {
+      return parseJsonResponse(
+        await client.account["repricing-policies"].halt.$post({ json: { engaged }, header: headers }),
+      );
+    },
+    async getRepricingBudget(): Promise<RepricingBudget> {
+      return parseJsonResponse(await client.account["repricing-policies"].budget.$get({ query: {}, header: headers }));
+    },
+    async listRepricingDryRuns(limit = 5): Promise<readonly RepricingDryRun[]> {
+      return parseJsonResponse(
+        await client.account["repricing-policies"]["dry-runs"].$get({
+          query: { limit: String(limit) },
+          header: headers,
+        }),
+      );
+    },
+    async listRepricingActivity(policyId: string, query: RepricingActivityQuery = {}): Promise<RepricingActivityPage> {
+      return parseJsonResponse(
+        await client.account["repricing-policies"][":policyId"].activity.$get({
+          param: { policyId },
+          query: {
+            ...(query.filter ? { filter: query.filter } : {}),
+            ...(query.after ? { after: query.after } : {}),
+            ...(query.limit ? { limit: String(query.limit) } : {}),
+          },
           header: headers,
         }),
       );
