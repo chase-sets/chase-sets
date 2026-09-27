@@ -1426,10 +1426,13 @@ describe("checkout web routes: checkout session action", () => {
     form.set("shippingOption", "expedited");
     form.set("shippingName", "Jane Smith");
     form.set("shippingLine1", "100 Market Street");
+    form.set("shippingLine2", "Suite 7");
     form.set("shippingCity", "Chicago");
     form.set("shippingState", "IL");
     form.set("shippingPostalCode", "60601");
     form.set("shippingCountry", "US");
+    form.set("shippingEmail", "edited-buyer@example.com");
+    form.set("shippingPhone", "3125550100");
     form.set("previewPaymentMethodCategory", "bank-account");
 
     const response = (await checkoutSessionAction({
@@ -1448,7 +1451,11 @@ describe("checkout web routes: checkout session action", () => {
     expect(mockSelectShippingAddress).toHaveBeenCalledWith("chk_1", {
       shippingAddress: expect.objectContaining({
         name: "Jane Smith",
+        line1: "100 Market Street",
+        line2: "Suite 7",
         postalCode: "60601",
+        email: "edited-buyer@example.com",
+        phone: "3125550100",
       }),
     });
     expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();

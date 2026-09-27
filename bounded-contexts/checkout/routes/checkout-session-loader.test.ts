@@ -124,7 +124,19 @@ function walletCheckoutSession(paymentId: string | null = null) {
     fulfillment_preview_revision: "rev_1",
     fulfillment_preview_snapshot: fulfillmentPreviewSnapshot(),
     order_ids: [],
-    lines: [{ listingId: "lst_1", cartLineId: null, catalogItemId: "cat_1", productId: "prd_1", itemTitle: "Test card", itemSubtitle: null, selectedOptions: [], productSummary: null, quantity: 1 }],
+    lines: [
+      {
+        listingId: "lst_1",
+        cartLineId: null,
+        catalogItemId: "cat_1",
+        productId: "prd_1",
+        itemTitle: "Test card",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        quantity: 1,
+      },
+    ],
   };
 }
 
@@ -139,39 +151,57 @@ describe("checkout web routes: checkout session loader", () => {
     vi.unstubAllGlobals();
   });
 
-  async function loadSignedInWalletCheckout(signal?: AbortSignal) {
+  async function loadSignedInWalletCheckout(request = new Request("http://localhost/checkout/buy/session/chk_wallet")) {
     mockResolveActorFromAuthApi.mockResolvedValue({
-      accountId: "acc_buyer", roleKey: "owner", permissions: ["orders.view"],
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.view"],
     });
     mockGetCheckoutSession.mockResolvedValue(walletCheckoutSession());
     mockCreateCheckoutRequestApiClient.mockReturnValue({ getCheckoutSession: mockGetCheckoutSession });
     return checkoutSessionLoader({
-      request: new Request("http://localhost/checkout/buy/session/chk_wallet", { signal }),
-      params: { sessionId: "chk_wallet" }, context: undefined,
+      request,
+      params: { sessionId: "chk_wallet" },
+      context: undefined,
     } as never);
   }
 
-  it.each(["0.00", "5.00"])("quotes a validated %s wallet amount without changing the fee fingerprint", async (amount) => {
-    const fetch = vi.fn(async (_url: RequestInfo | URL) =>
-      Response.json({ available_balance_amount: amount, currency_code: " USD " }),
-    );
-    vi.stubGlobal("fetch", fetch);
-    const result = await loadSignedInWalletCheckout();
-    expect(fetch.mock.calls.some(([url]) => String(url).endsWith("/api/settlement/wallet"))).toBe(true);
-    expect(result.wallet).toEqual({ available_balance_amount: amount, currency_code: "usd" });
-    expect(result.walletUnavailable).toBe(false);
-    expect(result.paymentPreview?.wallet_credit.requested_amount).toBe(amount);
-    expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toContain(`|${amount}|`);
-    expect(result.autoResumePaymentStart).toBe(true);
-  });
+  it.each(["0.00", "5.00"])(
+    "quotes a validated %s wallet amount without changing the fee fingerprint",
+    async (amount) => {
+      const fetch = vi.fn(async (_url: RequestInfo | URL) =>
+        Response.json({ available_balance_amount: amount, currency_code: " USD " }),
+      );
+      vi.stubGlobal("fetch", fetch);
+      const result = await loadSignedInWalletCheckout();
+      expect(fetch.mock.calls.some(([url]) => String(url).endsWith("/api/settlement/wallet"))).toBe(true);
+      expect(result.wallet).toEqual({ available_balance_amount: amount, currency_code: "usd" });
+      expect(result.walletUnavailable).toBe(false);
+      expect(result.paymentPreview?.wallet_credit.requested_amount).toBe(amount);
+      expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toContain(`|${amount}|`);
+      expect(result.autoResumePaymentStart).toBe(true);
+    },
+  );
 
   it.each([
     ["HTTP error", async () => new Response("secret-wallet-marker", { status: 503 })],
-    ["transport rejection", async () => { throw new Error("secret-wallet-marker"); }],
-    ["timeout", async (_url: unknown, init: RequestInit) => {
-      await new Promise((_, reject) => (init.signal as AbortSignal).addEventListener("abort", () => reject(new Error("secret-wallet-marker")), { once: true }));
-      throw new Error("unexpected completion");
-    }],
+    [
+      "transport rejection",
+      async () => {
+        throw new Error("secret-wallet-marker");
+      },
+    ],
+    [
+      "timeout",
+      async (_url: unknown, init: RequestInit) => {
+        await new Promise((_, reject) =>
+          (init.signal as AbortSignal).addEventListener("abort", () => reject(new Error("secret-wallet-marker")), {
+            once: true,
+          }),
+        );
+        throw new Error("unexpected completion");
+      },
+    ],
     ["malformed amount", async () => Response.json({ available_balance_amount: "NaN", currency_code: "usd" })],
     ["malformed currency", async () => Response.json({ available_balance_amount: "5.00", currency_code: "US!" })],
     ["malformed envelope", async () => Response.json(null)],
@@ -188,19 +218,121 @@ describe("checkout web routes: checkout session loader", () => {
 
   it("composes the request abort with the wallet read without exposing its error", async () => {
     const controller = new AbortController();
-    vi.stubGlobal("fetch", vi.fn(async (_url: unknown, init: RequestInit) => {
-      controller.abort("secret-wallet-marker");
-      (init.signal as AbortSignal).throwIfAborted();
-      throw new Error("wallet fetch unexpectedly continued");
-    }));
-    const result = await loadSignedInWalletCheckout(controller.signal);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: unknown, init: RequestInit) => {
+        controller.abort("secret-wallet-marker");
+        (init.signal as AbortSignal).throwIfAborted();
+        throw new Error("wallet fetch unexpectedly continued");
+      }),
+    );
+    const result = await loadSignedInWalletCheckout(
+      new Request("http://localhost/checkout/buy/session/chk_wallet", { signal: controller.signal }),
+    );
     expect(result.walletUnavailable).toBe(true);
     expect(result.paymentPreview).toBeNull();
     expect(JSON.stringify(result)).not.toContain("secret-wallet-marker");
   });
 
+  it.each([false, true])("carries original abort to the wallet GET (freshness metadata: %s)", async (withFreshness) => {
+    const controller = new AbortController();
+    let captureSignal!: (signal: AbortSignal) => void;
+    const capturedSignal = new Promise<AbortSignal>((resolve) => {
+      captureSignal = resolve;
+    });
+    const fetch = vi.fn(
+      (_url: RequestInfo | URL, init: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          const signal = init.signal as AbortSignal;
+          captureSignal(signal);
+          if (signal.aborted) {
+            reject(new Error("secret-wallet-marker"));
+          } else {
+            signal.addEventListener("abort", () => reject(new Error("secret-wallet-marker")), { once: true });
+          }
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const request = new Request(
+      `http://localhost/checkout/buy/session/chk_wallet${withFreshness ? "?afterWrite=" : ""}`,
+      { signal: controller.signal },
+    );
+    const loading = loadSignedInWalletCheckout(request);
+    const signal = await capturedSignal;
+    expect(signal.aborted).toBe(false);
+    const ancillaryRequest = mockCreateCheckoutRequestApiClient.mock.calls.at(-1)?.[0] as Request;
+    expect(new URL(ancillaryRequest.url).searchParams.has("afterWrite")).toBe(false);
+    controller.abort("secret-wallet-marker");
+    expect(signal.aborted).toBe(true);
+    const result = await loading;
+    expect(result.walletUnavailable).toBe(true);
+    expect(result.paymentPreview).toBeNull();
+    expect(JSON.stringify(result)).not.toContain("secret-wallet-marker");
+  });
+
+  it("observes an already-aborted request at the wallet GET", async () => {
+    const controller = new AbortController();
+    controller.abort("secret-wallet-marker");
+    let capturedSignal: AbortSignal | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: RequestInfo | URL, init: RequestInit) => {
+        capturedSignal = init.signal as AbortSignal;
+        return Promise.reject(new Error("secret-wallet-marker"));
+      }),
+    );
+    const result = await loadSignedInWalletCheckout(
+      new Request("http://localhost/checkout/buy/session/chk_wallet?afterWrite=", { signal: controller.signal }),
+    );
+    expect(capturedSignal?.aborted).toBe(true);
+    expect(result.walletUnavailable).toBe(true);
+    expect(result.paymentPreview).toBeNull();
+  });
+
+  it("cancels a stalled wallet GET at the existing 2,000 ms deadline", async () => {
+    vi.useFakeTimers();
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), ms);
+      return controller.signal;
+    });
+    try {
+      let captureSignal!: (signal: AbortSignal) => void;
+      const capturedSignal = new Promise<AbortSignal>((resolve) => {
+        captureSignal = resolve;
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          (_url: RequestInfo | URL, init: RequestInit) =>
+            new Promise<Response>((_resolve, reject) => {
+              const signal = init.signal as AbortSignal;
+              captureSignal(signal);
+              signal.addEventListener("abort", () => reject(new Error("secret-wallet-marker")), { once: true });
+            }),
+        ),
+      );
+      const loading = loadSignedInWalletCheckout();
+      const signal = await capturedSignal;
+      expect(signal.aborted).toBe(false);
+      expect(timeout).toHaveBeenCalledWith(2_000);
+      await vi.advanceTimersByTimeAsync(1_999);
+      expect(signal.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(signal.aborted).toBe(true);
+      const result = await loading;
+      expect(result.walletUnavailable).toBe(true);
+      expect(result.paymentPreview).toBeNull();
+      expect(JSON.stringify(result)).not.toContain("secret-wallet-marker");
+    } finally {
+      timeout.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("replaces an unavailable wallet with the current balance on the next load", async () => {
-    const fetch = vi.fn()
+    const fetch = vi
+      .fn()
       .mockResolvedValueOnce(new Response(null, { status: 503 }))
       .mockResolvedValue(Response.json({ available_balance_amount: "7.00", currency_code: "USD" }));
     vi.stubGlobal("fetch", fetch);
@@ -212,19 +344,28 @@ describe("checkout web routes: checkout session loader", () => {
   });
 
   it("still loads an already-created Payment confirmation during a wallet outage", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 503 })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 503 })),
+    );
     mockResolveActorFromAuthApi.mockResolvedValue({
-      accountId: "acc_buyer", roleKey: "owner", permissions: ["orders.view"],
+      accountId: "acc_buyer",
+      roleKey: "owner",
+      permissions: ["orders.view"],
     });
     mockGetCheckoutSession.mockResolvedValue(walletCheckoutSession("pay_existing"));
-    mockGetCheckoutPaymentConfirmation.mockResolvedValue({ payment_id: "pay_existing", status: "pending-confirmation" });
+    mockGetCheckoutPaymentConfirmation.mockResolvedValue({
+      payment_id: "pay_existing",
+      status: "pending-confirmation",
+    });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getCheckoutSession: mockGetCheckoutSession,
       getCheckoutPaymentConfirmation: mockGetCheckoutPaymentConfirmation,
     });
     const result = await checkoutSessionLoader({
       request: new Request("http://localhost/checkout/buy/session/chk_wallet"),
-      params: { sessionId: "chk_wallet" }, context: undefined,
+      params: { sessionId: "chk_wallet" },
+      context: undefined,
     } as never);
     expect(result.walletUnavailable).toBe(true);
     expect(result.preparedPayment).toEqual({ payment_id: "pay_existing", status: "pending-confirmation" });

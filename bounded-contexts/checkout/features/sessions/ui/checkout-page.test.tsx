@@ -1171,6 +1171,9 @@ describe("checkout session page", () => {
       expect(new FormData(form).get("requestedBalanceCreditAmount")).toBe("");
       expect(new FormData(form).get("marketplaceCheckoutFeeQuoteFingerprint")).toBe("");
       expect(container.textContent).not.toContain("quote_1");
+      expect(container.textContent).not.toContain("Wallet credit");
+      expect(countText(container.textContent ?? "", "Checkout service fee")).toBe(2);
+      expect(countText(container.textContent ?? "", "Order summary")).toBe(2);
       expect(container.querySelectorAll('button[value="confirm-checkout"]')).toHaveLength(0);
       expect(container.querySelectorAll('button[value="refresh-checkout-preview"]')).not.toHaveLength(0);
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -1180,29 +1183,81 @@ describe("checkout session page", () => {
     }
   });
 
+  it("keeps the accelerated saved-instrument path from starting payment without a wallet quote", async () => {
+    const submitListener = vi.fn((event: SubmitEvent) => event.preventDefault());
+    document.addEventListener("submit", submitListener);
+    try {
+      const { container } = render(
+        <CheckoutSessionPage
+          session={readySession}
+          fulfillmentPreview={readyFulfillmentPreview}
+          walletUnavailable
+          isSignedInBuyer
+          autoResumePaymentStart
+          savedShippingAddresses={[savedAddress]}
+          savedCheckoutInstruments={[savedCard]}
+        />,
+      );
+      expect(screen.getByText("Wallet balance is temporarily unavailable")).toBeTruthy();
+      expect(
+        container.querySelector('input[name="marketplaceCheckoutFeeQuoteFingerprint"]')?.getAttribute("value"),
+      ).toBe("");
+      expect(container.querySelectorAll('button[value="confirm-checkout"]')).toHaveLength(0);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(submitListener).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener("submit", submitListener);
+    }
+  });
+
   it("preserves entered checkout fields when retrying and restores payment start after recovery", async () => {
-    const { container, rerender } = render(
+    const submitListener = vi.fn((event: SubmitEvent) => event.preventDefault());
+    document.addEventListener("submit", submitListener);
+    try {
+      const { container, rerender } = render(
+        <CheckoutSessionPage session={readySession} fulfillmentPreview={readyFulfillmentPreview} walletUnavailable />,
+      );
+      const form = container.querySelector("#checkout-confirmation-form") as HTMLFormElement;
+      const email = form.querySelector<HTMLInputElement>('input[name="shippingEmail"]');
+      expect(email).not.toBeNull();
+      fireEvent.change(email!, { target: { value: "buyer@example.com" } });
+      expect(new FormData(form).get("shippingEmail")).toBe("buyer@example.com");
+      const retry = screen.getByRole("button", { name: "Retry wallet balance" });
+      expect(retry.getAttribute("value")).toBe("refresh-checkout-preview");
+      expect(retry.getAttribute("form")).toBe("checkout-confirmation-form");
+      fireEvent.click(retry);
+      expect(submitListener).toHaveBeenCalledTimes(1);
+      expect((submitListener.mock.calls[0]?.[0].submitter as HTMLButtonElement).value).toBe("refresh-checkout-preview");
+      expect(new FormData(form).get("shippingEmail")).toBe("buyer@example.com");
+      rerender(
+        <CheckoutSessionPage
+          session={readySession}
+          fulfillmentPreview={readyFulfillmentPreview}
+          wallet={{ available_balance_amount: "7.00", currency_code: "usd" }}
+          paymentPreview={{
+            ...paymentPreview,
+            wallet_credit: { requested_amount: "7.00", applied_amount: "7.00", external_amount: "496.67" },
+            marketplace_checkout_fee: { ...paymentPreview.marketplace_checkout_fee, quote_fingerprint: "quote_7" },
+          }}
+        />,
+      );
+      expect(screen.queryByText("Wallet balance is temporarily unavailable")).toBeNull();
+      expect(new FormData(form).get("marketplaceCheckoutFeeQuoteFingerprint")).toBe("quote_7");
+      expect(new FormData(form).get("requestedBalanceCreditAmount")).toBe("7.00");
+      expect(countText(container.textContent ?? "", "Wallet credit")).toBe(2);
+      expect(container.querySelector('button[value="confirm-checkout"]')).not.toBeNull();
+    } finally {
+      document.removeEventListener("submit", submitListener);
+    }
+  });
+
+  it("never renders a secret-bearing wallet failure in either summary or the retry notice", () => {
+    const markup = renderToString(
       <CheckoutSessionPage session={readySession} fulfillmentPreview={readyFulfillmentPreview} walletUnavailable />,
     );
-    const form = container.querySelector("#checkout-confirmation-form") as HTMLFormElement;
-    const email = form.querySelector<HTMLInputElement>('input[name="shippingEmail"]');
-    expect(email).not.toBeNull();
-    fireEvent.change(email!, { target: { value: "buyer@example.com" } });
-    expect(new FormData(form).get("shippingEmail")).toBe("buyer@example.com");
-    const retry = screen.getByRole("button", { name: "Retry wallet balance" });
-    expect(retry.getAttribute("value")).toBe("refresh-checkout-preview");
-    expect(retry.getAttribute("form")).toBe("checkout-confirmation-form");
-    rerender(
-      <CheckoutSessionPage
-        session={readySession}
-        fulfillmentPreview={readyFulfillmentPreview}
-        wallet={{ available_balance_amount: "7.00", currency_code: "usd" }}
-        paymentPreview={paymentPreview}
-      />,
-    );
-    expect(screen.queryByText("Wallet balance is temporarily unavailable")).toBeNull();
-    expect(new FormData(form).get("marketplaceCheckoutFeeQuoteFingerprint")).toBe("quote_1");
-    expect(container.querySelector('button[value="confirm-checkout"]')).not.toBeNull();
+    expect(markup).not.toContain("secret-wallet-marker");
+    expect(markup).not.toContain("Wallet credit");
+    expect(countText(markup, "Checkout service fee")).toBe(2);
   });
 
   it("keeps an existing payment confirmation accessible during a wallet outage", () => {

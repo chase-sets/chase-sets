@@ -562,6 +562,7 @@ function requestWithoutReadAfterWrite(request: Request) {
   return new Request(url, {
     headers,
     method: request.method,
+    signal: request.signal,
   });
 }
 
