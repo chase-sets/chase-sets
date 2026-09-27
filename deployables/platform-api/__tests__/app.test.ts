@@ -330,7 +330,7 @@ describe("platform api app wiring", () => {
 
   it("supplies the real Saved List recorder in the host composition and keeps failures out of requests", () => {
     const info = vi.fn((_message: string, _fields?: Readonly<Record<string, unknown>>) => undefined);
-    const recorder = createSavedListAnalyticsRecorder({ info });
+    const recorder = createSavedListAnalyticsRecorder({ info, warn: vi.fn() });
     recorder.record({
       event: "product_added",
       surface: "search",
@@ -350,11 +350,14 @@ describe("platform api app wiring", () => {
       type: "collections.saved_list.analytics_event",
     });
 
-    const counterFailureLog = vi.fn((_message: string, _fields?: Readonly<Record<string, unknown>>) => undefined);
+    const counterFailureLog = {
+      info: vi.fn((_message: string, _fields?: Readonly<Record<string, unknown>>) => undefined),
+      warn: vi.fn((_message: string, _fields?: Readonly<Record<string, unknown>>) => undefined),
+    };
     const counterFailure = vi.fn((_event: unknown) => {
       throw new Error("SYNTHETIC_SAVED_LIST_COUNTER_FAILURE_MARKER");
     });
-    const counterFailureRecorder = createSavedListAnalyticsRecorder({ info: counterFailureLog }, counterFailure);
+    const counterFailureRecorder = createSavedListAnalyticsRecorder(counterFailureLog, counterFailure);
     expect(() =>
       counterFailureRecorder.record({
         event: "list_created",
@@ -365,8 +368,13 @@ describe("platform api app wiring", () => {
       }),
     ).not.toThrow();
     expect(counterFailure).toHaveBeenCalledTimes(1);
-    expect(counterFailureLog).toHaveBeenCalledTimes(1);
-    expect(JSON.stringify(counterFailureLog.mock.calls[0]?.[1])).not.toContain(
+    expect(counterFailureLog.warn).toHaveBeenCalledTimes(1);
+    expect(counterFailureLog.warn).toHaveBeenCalledWith("Collections Saved List analytics recorder failed.", {
+      failure: "counter",
+      type: "collections.saved_list.analytics_recorder_failure",
+    });
+    expect(counterFailureLog.info).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(counterFailureLog.warn.mock.calls[0]?.[1])).not.toContain(
       "SYNTHETIC_SAVED_LIST_COUNTER_FAILURE_MARKER",
     );
 
@@ -374,6 +382,7 @@ describe("platform api app wiring", () => {
       info: vi.fn((_message: string, _fields?: Readonly<Record<string, unknown>>) => {
         throw new Error("SYNTHETIC_SAVED_LIST_FAILURE_MARKER");
       }),
+      warn: vi.fn(),
     };
     expect(() =>
       createSavedListAnalyticsRecorder(markerLogger).record({

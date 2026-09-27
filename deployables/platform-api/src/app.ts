@@ -220,24 +220,35 @@ export function createPlatformApiMarketplaceChannelInboundClampBinding(
 }
 
 export function createSavedListAnalyticsRecorder(
-  logger: Pick<Logger, "info"> = createLogger(),
+  logger: Pick<Logger, "info" | "warn"> = createLogger(),
   recordMetric: typeof recordSavedListAnalytics = recordSavedListAnalytics,
 ) {
   return {
     record(event: SavedListAnalyticsSignal) {
-      const attributes = savedListAnalyticsAttributes(event);
       try {
-        recordMetric(event);
+        const attributes = savedListAnalyticsAttributes(event);
+        try {
+          recordMetric(event);
+        } catch {
+          try {
+            logger.warn("Collections Saved List analytics recorder failed.", {
+              failure: "counter",
+              type: "collections.saved_list.analytics_recorder_failure",
+            });
+          } catch {
+            // Failure reporting is best-effort and must not affect the Saved List response.
+          }
+        }
+        try {
+          logger.info("Collections Saved List analytics event captured.", {
+            ...attributes,
+            type: "collections.saved_list.analytics_event",
+          });
+        } catch {
+          // Structured logging is best-effort and must not affect the Saved List response.
+        }
       } catch {
-        // Metrics are best-effort and must not affect the Saved List response.
-      }
-      try {
-        logger.info("Collections Saved List analytics event captured.", {
-          ...attributes,
-          type: "collections.saved_list.analytics_event",
-        });
-      } catch {
-        // Structured logging is best-effort and must not affect the Saved List response.
+        // Invalid event objects are ignored without exposing input or exception text.
       }
     },
   };
