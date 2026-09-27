@@ -350,6 +350,7 @@
     "bounded-contexts/pricing/features/market-trades/integrations/source/source-projection.ts",
     "bounded-contexts/pricing/features/market-trades/read-model/queries.ts",
     "bounded-contexts/pricing/features/market-trades/read-model/rollup-rederive-queue.ts",
+    "bounded-contexts/pricing/features/offer-targets/read-model/queries.ts",
     "bounded-contexts/pricing/features/own-sale-observations/integrations/inventory/projection.ts",
     "bounded-contexts/pricing/features/own-sale-observations/read-model/queries.ts",
     "bounded-contexts/pricing/features/price-signals/api/runtime.ts",
