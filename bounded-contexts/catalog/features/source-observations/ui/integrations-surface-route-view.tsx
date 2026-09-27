@@ -1,6 +1,6 @@
 import { Suspense, type ReactElement } from "react";
 import { Await } from "react-router";
-import { ProgressiveDisclosure } from "@chase-sets/design-system";
+import { OperationalStatusBanner, ProgressiveDisclosure } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 import type { CatalogControlPlaneRouteSurfaceKey } from "./admin-control-plane/information-architecture";
 import type { CatalogPrimaryWorkbenchReadModel } from "../api/primary-workbench-admin-contracts";
@@ -10,7 +10,7 @@ import type {
   SourceObservationIntegrationImportPreview,
 } from "./contracts";
 import type { CatalogAliasReviewReadModel } from "../../alias-equivalence/api/alias-review-admin-contracts";
-import type { CatalogAttentionQueueReadModel } from "../../attention-queue/api/contracts";
+import type { CatalogDeferredAttentionQueueResult } from "../../attention-queue/api/contracts";
 import { CatalogAttentionQueuePanel } from "../../attention-queue/ui/attention-queue-panel";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
 import { CatalogIntegrationsSurfacePage } from "./integrations-surface-page";
@@ -39,8 +39,11 @@ export type CatalogIntegrationsRouteData = Readonly<{
   deferredScopeSyncState?: Promise<readonly CatalogScopeSyncUnitStateReadModel[] | null> | null;
   deferredAliasReview?: Promise<CatalogAliasReviewReadModel | null> | null;
   // The unified attention queue. Streamed like the alias review; the
-  // daily surface renders it in the top-of-page slot. Absent on the other surfaces.
-  deferredAttentionQueue?: Promise<CatalogAttentionQueueReadModel | null> | null;
+  // daily surface renders it in the top-of-page slot. Absent on the other
+  // surfaces. Unlike the nullable slices above it resolves to a closed
+  // `ready | unavailable` result, so a queue that could not be read renders an
+  // honest warning instead of disappearing.
+  deferredAttentionQueue?: Promise<CatalogDeferredAttentionQueueResult> | null;
 }>;
 
 // Shared thin view for the four integrations surface routes. The route loaders
@@ -141,13 +144,17 @@ function DeferredAliasReviewSlot({
 }
 
 // Stream the attention queue behind a fail-soft Suspense/Await boundary so the
-// top-of-page inbox paints once the (supplementary) queue read model resolves,
-// and renders nothing on absence/error rather than breaking the daily surface.
+// top-of-page inbox paints once the (supplementary) queue read model resolves.
+// A `ready` result renders the queue (its own empty state is the only "nothing
+// needs you"); an `unavailable` result renders one localized warning in the same
+// slot, following the Seller Desk precedent of warning about an unreadable
+// attention source without blanking the usable workflow beneath it. Recovery is
+// a page reload — this slice adds no in-place retry.
 function DeferredAttentionQueueSlot({
   deferredAttentionQueue,
   readModel,
 }: Readonly<{
-  deferredAttentionQueue: Promise<CatalogAttentionQueueReadModel | null>;
+  deferredAttentionQueue: Promise<CatalogDeferredAttentionQueueResult>;
   readModel: CatalogPrimaryWorkbenchReadModel;
 }>): ReactElement {
   return (
@@ -161,13 +168,21 @@ function DeferredAttentionQueueSlot({
     >
       <Await resolve={deferredAttentionQueue}>
         {(attentionQueue) =>
-          attentionQueue ? (
+          attentionQueue.status === "ready" ? (
             <CatalogAttentionQueuePanel
-              readModel={attentionQueue}
+              readModel={attentionQueue.readModel}
               actionHref={catalogPrimaryWorkbenchHref(readModel.routeContext, "import-to-promotion")}
               canManage={readModel.readiness.rbacAllowed}
             />
-          ) : null
+          ) : (
+            <OperationalStatusBanner
+              tone="warning"
+              role="status"
+              data-catalog-attention-queue="unavailable"
+              title={t("catalog.features.attentionQueue.unavailable.title")}
+              description={t("catalog.features.attentionQueue.unavailable.description")}
+            />
+          )
         }
       </Await>
     </Suspense>
