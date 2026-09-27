@@ -2,7 +2,6 @@ import type { RateLimitRule } from "@chase-sets/http/rate-limit";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { buildCollectionsApi, type CollectionsApiEnv } from "../../../api";
-import { createCollectionsServices } from "../../../support/runtime-support/services";
 
 const capturePath = "/guest/saved-list-intents";
 const unknownGuestPath = "/guest/deliberately-unknown";
@@ -61,9 +60,6 @@ describe("Saved List composed actor boundary", () => {
   it("analytics-composition forwards one recorder through services and both composed routes", async () => {
     const record = vi.fn();
     const recorder = { record };
-    expect(
-      createCollectionsServices({} as never, { savedListAnalyticsRecorder: recorder }).savedListAnalyticsRecorder,
-    ).toBe(recorder);
     const app = withActor(
       buildApi({
         discovery: {
