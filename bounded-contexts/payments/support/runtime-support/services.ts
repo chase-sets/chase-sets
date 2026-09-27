@@ -17,6 +17,8 @@ import type { ProviderWebhookTelemetry } from "@chase-sets/http/provider-errors"
 import type { ProviderModeObservation } from "../../features/payments/api/contracts";
 
 export type PaymentsServiceOptions = Readonly<{
+  evidenceWindowCorrelation?: import("@chase-sets/evidence-window-provider-write").ProviderWriteCorrelation;
+  evidenceWindowProviderWrite?: import("@chase-sets/evidence-window-provider-write").EvidenceWindowProviderWrite;
   processorGateway?: PaymentProcessorGateway;
   balanceCreditResolver?: BalanceCreditResolver;
   checkoutProcessingFeePolicyResolver?: CheckoutProcessingFeePolicyResolver;
@@ -26,6 +28,7 @@ export type PaymentsServiceOptions = Readonly<{
 }>;
 
 export type PaymentsServices = Readonly<{
+  evidenceWindowCorrelation?: import("@chase-sets/evidence-window-provider-write").ProviderWriteCorrelation;
   payments: ReturnType<typeof createPaymentRuntime>;
   refunds: ReturnType<typeof createRefundRuntime>;
   publicConfig: PaymentProcessorPublicConfig;
@@ -84,6 +87,8 @@ export function createPaymentsServices(
     notificationOutbox,
   });
   const payments = createPaymentRuntime({
+    evidenceWindowCorrelation: options.evidenceWindowCorrelation,
+    evidenceWindowProviderWrite: options.evidenceWindowProviderWrite,
     eventStore,
     checkpointStore,
     db,
@@ -99,6 +104,7 @@ export function createPaymentsServices(
     payments,
     refunds,
     publicConfig: processorGateway.getPublicConfiguration(),
+    evidenceWindowCorrelation: options.evidenceWindowCorrelation,
     projectors: [...payments.projectors, ...refunds.projectors],
     pool,
     db,

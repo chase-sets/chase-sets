@@ -28,7 +28,7 @@ const excludedStandaloneTestRoot = "bounded-contexts/inventory/features/inventor
 describe("authoritative-stream-read-classification-acceptance-control", () => {
   it("loads the exact tracked Program corpus and reports the anchor-tree classification", () => {
     expect(ts.version).toBe("6.0.3");
-    expect(production.roots).toHaveLength(3_164);
+    expect(production.roots).toHaveLength(3_168);
     expect(production.roots).toEqual(
       expect.arrayContaining([
         "bounded-contexts/channels/features/credentials/api/runtime.ts",
@@ -60,10 +60,10 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
     ]);
     expect(production.roots).not.toContain(excludedStandaloneTestRoot);
     expect(production.totals).toMatchObject({
-      roots: 3_164,
-      loadedRoots: 3_164,
+      roots: 3_168,
+      loadedRoots: 3_168,
       extensionCounts: {
-        ".ts": 2_509,
+        ".ts": 2_513,
         ".tsx": 634,
         ".mts": 7,
         ".cts": 0,

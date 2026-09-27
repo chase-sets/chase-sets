@@ -116,6 +116,7 @@ const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/embedded-surface-theme",
   "@chase-sets/event-core",
   "@chase-sets/event-core-postgres",
+  "@chase-sets/evidence-window-provider-write",
   "@chase-sets/fulfillment",
   "@chase-sets/http",
   "@chase-sets/identity",

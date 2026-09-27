@@ -2343,6 +2343,7 @@ describe("platform API payment provider mode observation", () => {
     expect(paymentsServiceCallSites.sort()).toEqual([
       "bounded-contexts/payments/index.ts",
       "bounded-contexts/payments/support/runtime-support/seed.ts",
+      "bounded-contexts/payments/tests/provider-journal.db.test.ts",
     ]);
     const seedSource = readFileSync(
       join(repositoryRoot, "bounded-contexts/payments/support/runtime-support/seed.ts"),

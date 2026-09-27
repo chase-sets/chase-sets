@@ -749,7 +749,7 @@ describe("Stripe payment processor gateway", () => {
         const fetchMock = vi.fn();
         vi.stubGlobal("fetch", fetchMock);
 
-        await expect(stripeGateway().cancelSetupSession(reference)).resolves.toStrictEqual({
+        await expect(stripeGateway().cancelSetupSession(reference, { kind: "ungoverned" })).resolves.toStrictEqual({
           outcome: "refused",
           reason: "invalid-reference",
           httpStatus: null,
@@ -767,7 +767,9 @@ describe("Stripe payment processor gateway", () => {
           .mockResolvedValueOnce(stripeResponse({ id: syntheticSetupReferenceA, status: "canceled" }));
         vi.stubGlobal("fetch", fetchMock);
 
-        await expect(stripeGateway().cancelSetupSession(syntheticSetupReferenceA)).resolves.toStrictEqual({
+        await expect(
+          stripeGateway().cancelSetupSession(syntheticSetupReferenceA, { kind: "ungoverned" }),
+        ).resolves.toStrictEqual({
           outcome: "cancelled",
           processorStatus: "canceled",
         });
@@ -796,8 +798,8 @@ describe("Stripe payment processor gateway", () => {
       vi.stubGlobal("fetch", fetchMock);
 
       const results = await Promise.all([
-        stripeGateway().cancelSetupSession(reference),
-        stripeGateway().cancelSetupSession(reference),
+        stripeGateway().cancelSetupSession(reference, { kind: "ungoverned" }),
+        stripeGateway().cancelSetupSession(reference, { kind: "ungoverned" }),
       ]);
 
       expect(results).toStrictEqual([
@@ -858,7 +860,9 @@ describe("Stripe payment processor gateway", () => {
       );
       vi.stubGlobal("fetch", fetchMock);
 
-      await expect(stripeGateway().cancelSetupSession(syntheticSetupReferenceA)).resolves.toStrictEqual(expected);
+      await expect(
+        stripeGateway().cancelSetupSession(syntheticSetupReferenceA, { kind: "ungoverned" }),
+      ).resolves.toStrictEqual(expected);
       expect(fetchMock).toHaveBeenCalledTimes(1);
       const [[, init]] = fetchMock.mock.calls as unknown as [string, RequestInit][];
       expect(init.method).toBe("GET");
@@ -873,7 +877,9 @@ describe("Stripe payment processor gateway", () => {
       const fetchMock = vi.fn(async () => stripeResponse({ error: { message: "PLANTED_PROVIDER_BODY" } }, status));
       vi.stubGlobal("fetch", fetchMock);
 
-      await expect(stripeGateway().cancelSetupSession(syntheticSetupReferenceA)).resolves.toStrictEqual(expected);
+      await expect(
+        stripeGateway().cancelSetupSession(syntheticSetupReferenceA, { kind: "ungoverned" }),
+      ).resolves.toStrictEqual(expected);
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
@@ -884,7 +890,7 @@ describe("Stripe payment processor gateway", () => {
       });
       vi.stubGlobal("fetch", fetchMock);
 
-      const result = await stripeGateway().cancelSetupSession(syntheticSetupReferenceA);
+      const result = await stripeGateway().cancelSetupSession(syntheticSetupReferenceA, { kind: "ungoverned" });
 
       expect(result).toStrictEqual({ outcome: "refused", reason: "transport-failure", httpStatus: null });
       expect(JSON.stringify(result)).not.toContain(marker);
@@ -923,7 +929,9 @@ describe("Stripe payment processor gateway", () => {
       const fetchMock = vi.fn(async () => stripeResponse(queue.shift()));
       vi.stubGlobal("fetch", fetchMock);
 
-      await expect(stripeGateway().cancelSetupSession(syntheticSetupReferenceA)).resolves.toStrictEqual({
+      await expect(
+        stripeGateway().cancelSetupSession(syntheticSetupReferenceA, { kind: "ungoverned" }),
+      ).resolves.toStrictEqual({
         outcome: "refused",
         reason: "unexpected-status",
         httpStatus: 200,
@@ -1045,7 +1053,9 @@ describe("Stripe payment processor gateway", () => {
         });
         vi.stubGlobal("fetch", fetchMock);
 
-        await expect(stripeGateway().cancelSetupSession(syntheticSetupReferenceA)).resolves.toStrictEqual(expected);
+        await expect(
+          stripeGateway().cancelSetupSession(syntheticSetupReferenceA, { kind: "ungoverned" }),
+        ).resolves.toStrictEqual(expected);
         expect(fetchMock).toHaveBeenCalledTimes(3);
         const calls = fetchMock.mock.calls as unknown as [string, RequestInit][];
         expect(calls.map(([, init]) => init.method)).toStrictEqual(["GET", "POST", "GET"]);
@@ -1088,8 +1098,8 @@ describe("Stripe payment processor gateway", () => {
       vi.stubGlobal("fetch", fetchMock);
 
       const results = await Promise.all([
-        stripeGateway("https://stripe-a.test").cancelSetupSession(syntheticSetupReferenceA),
-        stripeGateway("https://stripe-b.test").cancelSetupSession(syntheticSetupReferenceA),
+        stripeGateway("https://stripe-a.test").cancelSetupSession(syntheticSetupReferenceA, { kind: "ungoverned" }),
+        stripeGateway("https://stripe-b.test").cancelSetupSession(syntheticSetupReferenceA, { kind: "ungoverned" }),
       ]);
       return { effectiveCancellations, fetchMock, results, setupStatus };
     }
@@ -1159,7 +1169,7 @@ describe("Stripe payment processor gateway", () => {
         publishableKey: "pk_test",
         webhookSecret: "whsec_test",
         apiBaseUrl: "https://stripe.test",
-      }).cancelSetupSession(syntheticSetupReferenceA);
+      }).cancelSetupSession(syntheticSetupReferenceA, { kind: "ungoverned" });
       const retainedText = `${JSON.stringify(result)}\n${logs.join("\n")}`;
 
       expect(result).toStrictEqual({ outcome: "refused", reason: "transport-failure", httpStatus: null });
@@ -1447,7 +1457,9 @@ describe("Stripe payment processor gateway", () => {
             webhookSecret: "whsec_test_operator_only",
           });
         const runCancellation = (callLabel: string, reference: string) =>
-          requestContext.run(callLabel, () => createLiveGateway().cancelSetupSession(reference));
+          requestContext.run(callLabel, () =>
+            createLiveGateway().cancelSetupSession(reference, { kind: "ungoverned" }),
+          );
         const summarizeCall = (callLabel: string) => {
           const requests = requestsByCall.get(callLabel) ?? [];
           return {
@@ -1595,7 +1607,7 @@ describe("Stripe payment processor gateway", () => {
       const fetchMock = vi.fn();
       vi.stubGlobal("fetch", fetchMock);
 
-      await expect(stripeGateway().cancelPayment(syntheticSetupReferenceA)).rejects.toThrow(
+      await expect(stripeGateway().cancelPayment(syntheticSetupReferenceA, { kind: "ungoverned" })).rejects.toThrow(
         "Only direct payment intents can be cancelled",
       );
       expect(fetchMock).not.toHaveBeenCalled();
@@ -2554,7 +2566,7 @@ describe("Stripe payment processor gateway", () => {
       processorPaymentReference: "pi_cancelled",
       internalPaymentId: "pay_cancelled",
     });
-    await expect(gateway.cancelPayment("pi_cancelled")).resolves.toMatchObject({
+    await expect(gateway.cancelPayment("pi_cancelled", { kind: "ungoverned" })).resolves.toMatchObject({
       processorPaymentReference: "pi_cancelled",
       processorStatus: "canceled",
       outcome: "cancelled",
@@ -2563,7 +2575,9 @@ describe("Stripe payment processor gateway", () => {
       "https://stripe.test/v1/payment_intents/pi_cancelled/cancel",
       expect.objectContaining({ method: "POST" }),
     );
-    await expect(gateway.cancelPayment("cs_session")).rejects.toThrow("Only direct payment intents can be cancelled");
+    await expect(gateway.cancelPayment("cs_session", { kind: "ungoverned" })).rejects.toThrow(
+      "Only direct payment intents can be cancelled",
+    );
     vi.unstubAllGlobals();
   });
 

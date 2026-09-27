@@ -1147,7 +1147,7 @@ describe("platform runtime Postgres concurrency guards", () => {
        WHERE table_schema = 'public' AND table_name LIKE 'evidence_window%'
        ORDER BY table_name`,
     );
-    expect(tables.rows).toEqual([{ table_name: "evidence_window" }]);
+    expect(tables.rows).toEqual([{ table_name: "evidence_window" }, { table_name: "evidence_window_provider_write" }]);
   });
 
   it("admits exactly one of two concurrent opens through the database constraint", async () => {

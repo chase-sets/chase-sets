@@ -6,20 +6,30 @@ import type {
 } from "@chase-sets/money-movement";
 import { STRIPE_API_VERSION } from "@chase-sets/stripe-config";
 import {
+  executeGovernedProviderWrite,
+  type GovernedProviderWriteOptions,
+} from "@chase-sets/platform-runtime/evidence-window-provider-write-executor";
+import {
+  ProviderWriteRefused,
+  providerWriteIdempotencyKey,
+  type ProviderWriteWindow,
+} from "@chase-sets/evidence-window-provider-write";
+import {
   ProviderAdapterError,
   providerFailureCategoryFromHttpStatus,
   providerFailureCategoryFromText,
   ProviderWebhookError,
 } from "@chase-sets/http/provider-errors";
 
-export type StripeConnectMoneyMovementOptions = Readonly<{
-  secretKey: string;
-  webhookSecret: string;
-  previousWebhookSecrets?: readonly string[];
-  accountsApi?: StripeConnectAccountsApi;
-  apiBaseUrl?: string;
-  webhookToleranceSeconds?: number;
-}>;
+export type StripeConnectMoneyMovementOptions = GovernedProviderWriteOptions &
+  Readonly<{
+    secretKey: string;
+    webhookSecret: string;
+    previousWebhookSecrets?: readonly string[];
+    accountsApi?: StripeConnectAccountsApi;
+    apiBaseUrl?: string;
+    webhookToleranceSeconds?: number;
+  }>;
 
 export type StripeConnectAccountsApi = "v1" | "v2";
 
@@ -880,6 +890,7 @@ export function createStripeConnectMoneyMovementGateway(
     providerReference: string,
     component: "account_onboarding" | "account_management" | "notification_banner",
     idempotencyKey: string,
+    governance: Readonly<{ accountId: string; window?: ProviderWriteWindow; slot: 1 | 2 | 3 }>,
     readiness?: ProviderPayoutReadiness,
   ) {
     const disableStripeUserAuthentication = readiness?.requirementsCollector === "application";
@@ -904,7 +915,7 @@ export function createStripeConnectMoneyMovementGateway(
             "components[notification_banner][features][disable_stripe_user_authentication]":
               disableStripeUserAuthentication ? "true" : "false",
           };
-    const accountSession = await stripeRequest<StripeAccountSessionResponse>("/v1/account_sessions", {
+    const request = {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
@@ -916,7 +927,50 @@ export function createStripeConnectMoneyMovementGateway(
         ...componentFeatures,
       }),
       idempotencyKey,
-    });
+    };
+    const accountSession = governance.window
+      ? await executeGovernedProviderWrite(options, {
+          window: governance.window,
+          binding: {
+            writerKind:
+              governance.slot === 1
+                ? "connect-setup"
+                : governance.slot === 2
+                  ? "connect-manage"
+                  : "connect-notification",
+            ownerAccountId: governance.accountId,
+            logicalOperationId: governance.accountId,
+          },
+          envelope: {
+            bodyKind: "form",
+            bodyText: request.body.toString(),
+            method: "POST",
+            endpoint: "/v1/account_sessions",
+            target: null,
+            accountScope: "platform",
+            connectedAccountReference: null,
+            apiVersion: STRIPE_API_VERSION,
+          },
+          send: (envelope, key) =>
+            stripeRequest<StripeAccountSessionResponse>(envelope.endpoint, {
+              method: envelope.method,
+              headers: request.headers,
+              body: envelope.bodyText!,
+              idempotencyKey: key,
+            }),
+          retrieve: async () => {
+            throw new ProviderWriteRefused("response-unqualified");
+          },
+          response: (response) => ({ reference: null, expiresAt: expiresAtFromStripeTimestamp(response.expires_at) }),
+          definitiveFailure: (error) =>
+            error instanceof ProviderAdapterError &&
+            error.providerStatus !== undefined &&
+            error.providerStatus >= 400 &&
+            error.providerStatus < 500 &&
+            error.providerStatus !== 409 &&
+            error.providerStatus !== 429,
+        })
+      : await stripeRequest<StripeAccountSessionResponse>("/v1/account_sessions", request);
 
     if (!accountSession.client_secret?.trim()) {
       throw new Error("Stripe did not return an account session client secret.");
@@ -937,16 +991,28 @@ export function createStripeConnectMoneyMovementGateway(
       return readiness;
     },
     async createPayoutSetupSession(input) {
+      const window =
+        input.evidenceWindow ?? (await options.evidenceWindowCorrelation?.currentOpenWindow()) ?? undefined;
+      if (window && input.evidenceWindowSlot !== 1) throw new ProviderWriteRefused("invalid-identity");
+      const key = window
+        ? providerWriteIdempotencyKey({
+            windowId: window.windowId,
+            objectClass: 6,
+            creationOrdinal: 1,
+            operation: "create",
+          })
+        : input.idempotencyKey;
       await accountStrategy.updateAccountContactEmail(
         input.providerReference,
         input.contactEmail,
-        `${input.idempotencyKey}:contact-email`,
+        `${key}:contact-email`,
       );
       const readiness = mapAccountReadiness(await accountStrategy.retrieveAccount(input.providerReference));
       const session = await createEmbeddedAccountSession(
         input.providerReference,
         "account_onboarding",
         input.idempotencyKey,
+        { accountId: input.accountId, window, slot: 1 },
         readiness,
       );
 
@@ -959,11 +1025,15 @@ export function createStripeConnectMoneyMovementGateway(
       };
     },
     async createPayoutAccountManagementSession(input) {
+      const window =
+        input.evidenceWindow ?? (await options.evidenceWindowCorrelation?.currentOpenWindow()) ?? undefined;
+      if (window && input.evidenceWindowSlot !== 2) throw new ProviderWriteRefused("invalid-identity");
       const readiness = mapAccountReadiness(await accountStrategy.retrieveAccount(input.providerReference));
       const session = await createEmbeddedAccountSession(
         input.providerReference,
         "account_management",
         input.idempotencyKey,
+        { accountId: input.accountId, window, slot: 2 },
         readiness,
       );
 
@@ -975,10 +1045,14 @@ export function createStripeConnectMoneyMovementGateway(
       };
     },
     async createPayoutNotificationBannerSession(input) {
+      const window =
+        input.evidenceWindow ?? (await options.evidenceWindowCorrelation?.currentOpenWindow()) ?? undefined;
+      if (window && input.evidenceWindowSlot !== 3) throw new ProviderWriteRefused("invalid-identity");
       const session = await createEmbeddedAccountSession(
         input.providerReference,
         "notification_banner",
         input.idempotencyKey,
+        { accountId: input.accountId, window, slot: 3 },
       );
 
       return {

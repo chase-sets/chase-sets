@@ -22,6 +22,10 @@ export const retentionCoverageExemptions = new Map([
     "Durable single-open lifecycle record governed by registration: closed only by expected-version close or expired-replacement retirement; never age-swept and has no reaper.",
   ],
   [
+    "evidence_window_provider_write",
+    "Durable bounded provider-write identities and unresolved reconciliation evidence must survive window expiry; replay deadlines revoke sending, not record retention. #8226 excludes cleanup and background liveness; never age-swept.",
+  ],
+  [
     "event_store_aggregate_snapshots",
     "Bounded one-row-per-stream load-time cache (m113: aggregate snapshots in event-core), not unbounded history; rows are replaced in place and already cascade-deleted with their event_store_streams row via ON DELETE CASCADE.",
   ],
