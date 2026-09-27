@@ -7,7 +7,7 @@ Landing the tooling does not qualify replay or satisfy #6734 AC-08.
 ## Execution Boundary
 
 The installed route requires Linux, a non-root principal, and the exact native
-launcher at `/opt/chase-sets-provider-window/launcher`. The only installation
+launcher at `/usr/local/lib/chase-sets-provider-window/launcher`. The only installation
 authorized by this change is the ephemeral GitHub-hosted `ubuntu-24.04` Static
 Checks job. Operator installation and authority are separately owned by #8364;
 the operator entrypoint refuses this CI-only admission before private input or
@@ -52,6 +52,10 @@ resolves ELF dependencies without executing them, compiles a static native
 launcher, and loads one exact AppArmor attachment. All installed code and path
 components are root-owned and non-writable by the admitted principal. The launcher
 is mode 0750, restricted to that non-root UID/GID, with no set-ID or file capability.
+The input snapshot and installation use `/usr/local/lib`, not the hosted image's
+world-writable `/opt`. Setup and installer guards emit closed stage/refusal codes;
+unknown command failures retain the active stage and fail the job. Parent-path
+ownership and modes are verified, never repaired by widening or overriding them.
 Both modes validate the source digest, launcher, full dependency inventory and
 effective label before namespace creation. Closed modes accept no executable,
 profile path, browser flag or command. The AppArmor profile supplies only the

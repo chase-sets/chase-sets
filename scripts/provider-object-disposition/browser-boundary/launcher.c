@@ -27,7 +27,7 @@
 #include <unistd.h>
 #include "installation.h"
 
-#define INSTALL "/opt/chase-sets-provider-window"
+#define INSTALL "/usr/local/lib/chase-sets-provider-window"
 #define LAUNCHER INSTALL "/launcher"
 #define LABEL "chase-sets-provider-window (unconfined)"
 

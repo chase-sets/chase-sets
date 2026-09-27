@@ -1,20 +1,37 @@
 #!/usr/bin/env bash
 # Only the authorized ephemeral ubuntu-24.04 CI setup/teardown uses root here.
-set -euo pipefail
-readonly target=/opt/chase-sets-provider-window
+set -Eeuo pipefail
+stage=initialize
+mark() { stage="$1"; printf 'provider-boundary-installer-stage:%s\n' "$stage"; }
+refuse() { stage="$1"; exit 1; }
+require() { local code="$1"; shift; "$@" || refuse "$code"; }
+finish() {
+  local status="$?"
+  trap - EXIT
+  if test "$status" != 0; then
+    printf 'provider-boundary-installer-refused:%s\n' "$stage" >&2
+  fi
+  exit "$status"
+}
+trap finish EXIT
+readonly target=/usr/local/lib/chase-sets-provider-window
 readonly profile=/etc/apparmor.d/chase-sets-provider-window
-readonly source_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
-test "$(id -u)" = 0
-test "$#" -ge 1
+mark source-location
+source_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+readonly source_dir
+require root-principal test "$(id -u)" = 0
+require arguments-present test "$#" -ge 1
 
 remove_installation() {
+  mark remove-profile
   if test -f "$profile"; then
     /usr/sbin/apparmor_parser -R "$profile"
     rm -- "$profile"
   fi
+  mark remove-target
   if test -e "$target"; then
-    test "$(realpath -e -- "$target")" = "$target"
-    test ! -L "$target"
+    require remove-target-path test "$(realpath -e -- "$target")" = "$target"
+    require remove-target-symlink test ! -L "$target"
     rm -rf -- "$target"
   fi
 }
@@ -23,20 +40,33 @@ if test "$1" = remove && test "$#" = 1; then
   remove_installation
   exit 0
 fi
-test "$1" = install && test "$#" = 3
+require install-mode test "$1" = install
+require install-arguments test "$#" = 3
 readonly principal="$2"
-readonly browser="$(realpath -e -- "$3")"
-readonly uid="$(id -u "$principal")"
-readonly gid="$(id -g "$principal")"
-test "$uid" != 0
-test "$(. /etc/os-release; printf '%s:%s' "$ID" "$VERSION_ID")" = ubuntu:24.04
-test "$(uname -m)" = x86_64
-test -f "$browser/chrome"
-test ! -e "$target"
-test ! -e "$profile"
-test "$(stat -c '%u:%a' /opt)" = 0:755
+mark resolve-browser
+browser="$(realpath -e -- "$3")"
+readonly browser
+mark resolve-principal
+uid="$(id -u "$principal")"
+gid="$(id -g "$principal")"
+readonly uid gid
+require nonroot-principal test "$uid" != 0
+require ubuntu-version test "$(. /etc/os-release; printf '%s:%s' "$ID" "$VERSION_ID")" = ubuntu:24.04
+require architecture test "$(uname -m)" = x86_64
+require browser-present test -f "$browser/chrome"
+require target-absent test ! -e "$target"
+require target-not-symlink test ! -L "$target"
+require profile-absent test ! -e "$profile"
+require profile-not-symlink test ! -L "$profile"
+for parent in / /usr /usr/local /usr/local/lib; do
+  require parent-not-symlink test ! -L "$parent"
+  require parent-ownership test "$(stat -c '%u:%a' "$parent")" = 0:755
+done
+mark create-installation
 install -d -o root -g "$gid" -m 0750 "$target"
-trap 'remove_installation' ERR
+# The workflow's always() step owns teardown even after an early refusal. Do not
+# let a cleanup command replace the original failing stage or exit status.
+mark copy-inputs
 install -d -m 0755 "$target/source" "$target/root/browser" "$target/root/tmp" "$target/root/proc" \
   "$target/root/dev/shm" "$target/root/etc" "$target/root/usr/share/fonts" "$target/root/etc/fonts"
 sources=(browser-boundary/launcher.c browser-boundary/apparmor.profile browser-boundary/install-ci.sh test-window-browser.mjs)
@@ -50,6 +80,7 @@ cp -aL --no-preserve=ownership -- /etc/fonts/. "$target/root/etc/fonts/"
 # lddtree parses ELF rather than executing a workspace-provided binary as root.
 # Include every ELF (including dlopen libraries), the interpreter and transitive
 # dependencies at their original absolute paths inside the private root.
+mark resolve-dependencies
 while IFS= read -r -d '' binary; do
   if /usr/bin/readelf -h "$binary" >/dev/null 2>&1; then
     dependencies="$(/usr/bin/python3 /usr/bin/lddtree -l "$binary")"
@@ -57,12 +88,13 @@ while IFS= read -r -d '' binary; do
       case "$dependency" in
         "$target"/*) continue ;;
         /*) install -D -o root -g root -m 0755 "$(realpath -e "$dependency")" "$target/root$dependency" ;;
-        *) printf 'Unresolved ELF dependency\n' >&2; exit 1 ;;
+        *) refuse dependency-unresolved ;;
       esac
     done <<< "$dependencies"
   fi
 done < <(find "$target/root/browser" -type f -print0)
 
+mark private-root-files
 printf 'provider-window:x:%s:%s::/tmp:/nonexistent\n' "$uid" "$gid" > "$target/root/etc/passwd"
 printf 'provider-window:x:%s:\n' "$gid" > "$target/root/etc/group"
 printf 'hosts: files\npasswd: files\ngroup: files\n' > "$target/root/etc/nsswitch.conf"
@@ -74,7 +106,8 @@ done
 chown -R root:root "$target/source" "$target/root"
 find "$target/source" "$target/root" -type d -exec chmod 0755 {} +
 find "$target/source" "$target/root" -type f -exec chmod u+rw,go+r,go-w,u-s,g-s {} +
-test -z "$(find "$target/source" "$target/root" -type l -print -quit)"
+require installed-symlink test -z "$(find "$target/source" "$target/root" -type l -print -quit)"
+mark build-inventory
 {
   /usr/bin/gcc --version | head -n 1
   /usr/bin/ld --version | head -n 1
@@ -83,6 +116,7 @@ test -z "$(find "$target/source" "$target/root" -type l -print -quit)"
   uname -srvm
 } > "$target/build.txt"
 build_launcher() {
+  mark build-launcher
   source_digest="$(cd "$target/source"; sha256sum "${sources[@]}" | sha256sum | cut -d ' ' -f 1)"
   find "$target/source" "$target/root" -type f ! -name installation.h -print0 | sort -z | xargs -0 sha256sum > "$target/files.sha256"
   sha256sum "$target/build.txt" >> "$target/files.sha256"
@@ -97,6 +131,7 @@ build_launcher() {
   printf '%s\n' "$source_digest" > "$target/source.sha256"
 }
 build_launcher
+mark load-profile
 install -o root -g root -m 0644 "$target/source/browser-boundary/apparmor.profile" "$profile"
 /usr/sbin/apparmor_parser -r "$profile"
 
@@ -109,31 +144,38 @@ refusal() {
   result="$("$@" 2>&1)"
   local status="$?"
   set -e
-  test "$status" = 78
-  test "$result" = "provider-boundary-refused:$stage"
+  require "negative-$stage-status" test "$status" = 78
+  require "negative-$stage-output" test "$result" = "provider-boundary-refused:$stage"
   printf 'negative:%s:PASS\n' "$stage"
 }
 
 # These are serialized, credential-free setup controls, before any browser test.
 # Every mutation restores the same installed bytes; the administrator is trusted.
+mark negative-arguments
 refusal arguments runuser -u "$principal" -- "$target/launcher" /bin/sh "$source_digest"
 refusal arguments runuser -u "$principal" -- "$target/launcher" browser "$source_digest" --no-sandbox
+mark negative-source-identity
 refusal source-identity runuser -u "$principal" -- "$target/launcher" probe "$(printf '0%.0s' {1..64})"
+mark negative-automation-pipes
 refusal automation-pipes runuser -u "$principal" -- "$target/launcher" browser "$source_digest"
+mark negative-launcher-identity
 cp -p -- "$target/launcher" "$target/launcher.original"
 printf 'SYNTHETIC_TAMPER_CONTROL\n' >> "$target/launcher"
 refusal launcher-identity probe
 cp -p -- "$target/launcher.original" "$target/launcher"
 rm -- "$target/launcher.original"
+mark negative-unprofiled-executable
 cp -- "$target/launcher" "$target/unprofiled-comparison"
 chmod 0750 "$target/unprofiled-comparison"
 chown "root:$gid" "$target/unprofiled-comparison"
 refusal attachment runuser -u "$principal" -- "$target/unprofiled-comparison" probe "$source_digest"
 rm -- "$target/unprofiled-comparison"
 
+mark negative-missing-attachment
 /usr/sbin/apparmor_parser -R "$profile"
 refusal attachment probe
 /usr/sbin/apparmor_parser -r "$profile"
+mark negative-wrong-attachment
 sed 's/profile chase-sets-provider-window /profile chase-sets-provider-window-wrong /' "$profile" > "$target/wrong.profile"
 /usr/sbin/apparmor_parser -R "$profile"
 /usr/sbin/apparmor_parser -r "$target/wrong.profile"
@@ -142,22 +184,26 @@ refusal attachment probe
 rm -- "$target/wrong.profile"
 /usr/sbin/apparmor_parser -r "$profile"
 
+mark negative-dependency-identity
 cp -- "$target/root/etc/hosts" "$target/hosts.original"
 printf 'SYNTHETIC_TAMPER_CONTROL\n' >> "$target/root/etc/hosts"
 refusal dependency-identity probe
 cat "$target/hosts.original" > "$target/root/etc/hosts"
 rm -- "$target/hosts.original"
+mark negative-missing-installation
 mv -- "$target/launcher" "$target/launcher.held"
-if runuser -u "$principal" -- "$target/launcher" probe "$source_digest" >/dev/null 2>&1; then exit 1; fi
+if runuser -u "$principal" -- "$target/launcher" probe "$source_digest" >/dev/null 2>&1; then refuse missing-installation-accepted; fi
 mv -- "$target/launcher.held" "$target/launcher"
 printf 'negative:missing-installation:PASS\n'
-if runuser -u nobody -- "$target/launcher" probe "$source_digest" >/dev/null 2>&1; then exit 1; fi
+mark negative-disallowed-principal
+if runuser -u nobody -- "$target/launcher" probe "$source_digest" >/dev/null 2>&1; then refuse disallowed-principal-accepted; fi
 printf 'negative:disallowed-principal:PASS\n'
 refusal principal runuser -u nobody -g "$(getent group "$gid" | cut -d: -f1)" -- "$target/launcher" probe "$source_digest"
 
 # A real governing-only OS mutant retains the installed profile and parent URL
 # policy. Bind its actual changed source/build bytes, never an invented real
 # runner identity. The interface guard must refuse before any browser or packet.
+mark negative-os-mutant
 install -d -m 0700 "$target/original"
 for file in launcher launcher.sha256 files.sha256 source.sha256; do
   cp -p -- "$target/$file" "$target/original/$file"
@@ -166,8 +212,9 @@ cp -p -- "$target/source/browser-boundary/launcher.c" "$target/original/launcher
 cp -p -- "$target/source/browser-boundary/installation.h" "$target/original/installation.h"
 sed 's/unshare(CLONE_NEWNET | CLONE_NEWNS/unshare(CLONE_NEWNS/' \
   "$target/original/launcher.c" > "$target/source/browser-boundary/launcher.c"
-test "$(grep -c 'unshare(CLONE_NEWNET | CLONE_NEWNS' "$target/original/launcher.c")" = 1
+require os-mutant-predicate test "$(grep -c 'unshare(CLONE_NEWNET | CLONE_NEWNS' "$target/original/launcher.c")" = 1
 build_launcher
+mark negative-os-mutant
 printf 'SYNTHETIC governing OS mutant source-sha256:%s\n' "$source_digest"
 refusal external-interface probe
 for file in launcher launcher.sha256 files.sha256 source.sha256; do
@@ -175,11 +222,12 @@ for file in launcher launcher.sha256 files.sha256 source.sha256; do
 done
 cp -p -- "$target/original/launcher.c" "$target/source/browser-boundary/launcher.c"
 cp -p -- "$target/original/installation.h" "$target/source/browser-boundary/installation.h"
-test "$(realpath -e -- "$target/original")" = "$target/original"
+require os-mutant-restore-path test "$(realpath -e -- "$target/original")" = "$target/original"
 rm -rf -- "$target/original"
 source_digest="$(cat "$target/source.sha256")"
 files_digest="$(sha256sum "$target/files.sha256" | cut -d ' ' -f 1)"
+mark admission-probe
 probe
 printf 'source-sha256:%s\nfiles-sha256:%s\n' "$source_digest" "$files_digest"
 cat "$target/launcher.sha256"
-trap - ERR
+mark complete

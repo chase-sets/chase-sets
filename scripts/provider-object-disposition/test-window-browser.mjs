@@ -11,7 +11,7 @@ const COMPONENTS = Object.freeze({
 });
 
 const execute = promisify(execFile);
-export const BROWSER_LAUNCHER = "/opt/chase-sets-provider-window/launcher";
+export const BROWSER_LAUNCHER = "/usr/local/lib/chase-sets-provider-window/launcher";
 const SOURCE_FILES = [
   "browser-boundary/launcher.c",
   "browser-boundary/apparmor.profile",
@@ -94,7 +94,14 @@ export async function assertBrowserAdmission({ operator = false } = {}) {
   const userNamespaceRestriction = ["0", "1"].includes(restriction.trim()) ? Number(restriction.trim()) : "unknown";
   let sourceDigest;
   try {
-    for (const path of ["/", "/opt", "/opt/chase-sets-provider-window", BROWSER_LAUNCHER]) {
+    for (const path of [
+      "/",
+      "/usr",
+      "/usr/local",
+      "/usr/local/lib",
+      "/usr/local/lib/chase-sets-provider-window",
+      BROWSER_LAUNCHER,
+    ]) {
       const stat = await lstat(path);
       if (
         stat.uid !== 0 ||

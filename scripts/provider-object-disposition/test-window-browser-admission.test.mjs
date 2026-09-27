@@ -4,7 +4,7 @@ const { namespaceProbe, launch, restriction, installation } = vi.hoisted(() => (
   namespaceProbe: vi.fn(),
   launch: vi.fn(),
   restriction: { value: "1\n" },
-  installation: { valid: true },
+  installation: { valid: true, unsafePath: null },
 }));
 vi.mock("node:child_process", () => ({
   execFile: Object.assign(namespaceProbe, {
@@ -22,7 +22,7 @@ vi.mock("node:fs/promises", async (original) => {
   return {
     ...actual,
     lstat: async (path) => ({
-      uid: installation.valid ? 0 : 1001,
+      uid: installation.valid && installation.unsafePath !== path ? 0 : 1001,
       mode: path.endsWith("/launcher") ? 0o100750 : 0o40755,
       isFile: () => path.endsWith("/launcher"),
       isDirectory: () => !path.endsWith("/launcher"),
@@ -59,6 +59,7 @@ beforeEach(() => {
     }),
   );
   installation.valid = true;
+  installation.unsafePath = null;
   namespaceProbe.mockImplementation((_path, _args, _options, callback) => callback(null, JSON.stringify(proof), ""));
 });
 afterEach(() => {
@@ -126,6 +127,16 @@ it("AC-02 governing OS mutant: retained user-space policy cannot accept a missin
   await expect(openConfinedBrowser()).rejects.toThrow('"stage":"installed-boundary"');
   expect(launch).not.toHaveBeenCalled();
 });
+
+it.each(["/", "/usr", "/usr/local", "/usr/local/lib", "/usr/local/lib/chase-sets-provider-window"])(
+  "AC-02 fixed-path parent %s must be immutable before executable or child",
+  async (path) => {
+    installation.unsafePath = path;
+    await expect(openConfinedBrowser()).rejects.toThrow('"stage":"installed-boundary"');
+    expect(namespaceProbe).not.toHaveBeenCalled();
+    expect(launch).not.toHaveBeenCalled();
+  },
+);
 
 it("AC-02 operator hold: CI admission never authorizes an operator credential prompt", async () => {
   await expect(assertBrowserAdmission({ operator: true })).rejects.toThrow('"stage":"installed-boundary"');

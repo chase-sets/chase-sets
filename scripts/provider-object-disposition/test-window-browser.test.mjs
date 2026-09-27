@@ -123,7 +123,7 @@ it.each(["close", "force-termination"])(
     }
     await expectDrained(owned);
     expect((await ownedTree()).roots).toEqual(previous.roots);
-    expect(await readdir("/opt/chase-sets-provider-window/root/tmp")).toEqual([]);
+    expect(await readdir("/usr/local/lib/chase-sets-provider-window/root/tmp")).toEqual([]);
   },
 );
 
