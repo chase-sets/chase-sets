@@ -73,6 +73,12 @@ function sameIdentity(a: EvidenceWindowSourceIdentity, b: EvidenceWindowSourceId
   );
 }
 
+export async function lockEvidenceWindowSourceIdentity(client: PgQueryable, identity: EvidenceWindowSourceIdentity) {
+  await client.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [
+    `ordering.source:${JSON.stringify([identity.sourceType, identity.sourceReferenceId, identity.buyerAccountId])}`,
+  ]);
+}
+
 export async function bindEvidenceWindowSource(
   db: PgTransactionalPool,
   input: Readonly<{
@@ -93,6 +99,33 @@ export async function bindEvidenceWindowSource(
     throw new OrderingDomainError("Evidence window source binding is invalid.");
   }
   return withPgTransaction(db, async (client) => {
+    await lockEvidenceWindowSourceIdentity(client, input.sourceIdentity);
+    const priorSlot = await client.query<SourceRow>(
+      `SELECT ${sourceColumns} FROM ordering_evidence_window_sources
+       WHERE window_id = $1 AND sub_invocation = $2 FOR UPDATE`,
+      [input.windowId, input.subInvocation],
+    );
+    if (priorSlot.rows[0]) {
+      const source = mapSource(priorSlot.rows[0]);
+      if (
+        !sameIdentity(source.sourceIdentity, input.sourceIdentity) ||
+        source.windowOpenedAt !== openedAt.toISOString()
+      )
+        return { outcome: "drift" as const };
+      return source.creatorState === "open"
+        ? { outcome: "existing" as const, source }
+        : { outcome: "stale" as const, source };
+    }
+    const priorWrites = await client.query(
+      `SELECT 1 FROM ordering_order_source_claims
+       WHERE source_type = $1 AND source_reference_id = $2 AND buyer_account_id = $3
+       UNION ALL
+       SELECT 1 FROM ordering_listing_purchase_limit_claims
+       WHERE source_type = $1 AND source_reference_id = $2 AND buyer_account_id = $3
+       LIMIT 1`,
+      [input.sourceIdentity.sourceType, input.sourceIdentity.sourceReferenceId, input.sourceIdentity.buyerAccountId],
+    );
+    if (priorWrites.rows.length > 0) return { outcome: "drift" as const };
     const inserted = await client.query<SourceRow>(
       `INSERT INTO ordering_evidence_window_sources
        (window_id, sub_invocation, source_type, source_reference_id, buyer_account_id, window_opened_at)

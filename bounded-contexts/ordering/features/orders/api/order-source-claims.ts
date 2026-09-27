@@ -2,7 +2,11 @@ import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@
 import type { OrderId } from "@chase-sets/primitives/typed-ids";
 import { OrderingDomainError, type OrderSourceType } from "../domain/common";
 import { releasePurchaseLimitClaimsForFailedSource } from "./purchase-limits";
-import { withOpenEvidenceWindowSource } from "./evidence-window-source-release";
+import {
+  lockEvidenceWindowSourceIdentity,
+  lockOpenEvidenceWindowSource,
+  withOpenEvidenceWindowSource,
+} from "./evidence-window-source-release";
 
 export type OrderSourceClaim = Readonly<{
   sourceType: OrderSourceType;
@@ -92,7 +96,13 @@ export async function claimOrderSource(
     }
     return { outcome: "existing" as const, claim: existing };
   };
-  return governed ? withOpenEvidenceWindowSource(db, claim, claimInTransaction) : claimInTransaction(db);
+  return withPgTransaction(db, async (client) => {
+    await lockEvidenceWindowSourceIdentity(client, claim);
+    if (governed && !(await lockOpenEvidenceWindowSource(client, claim))) {
+      throw new OrderingDomainError("Evidence window source binding is missing.");
+    }
+    return claimInTransaction(client);
+  });
 }
 
 export async function completeOrderSourceClaim(
@@ -133,6 +143,7 @@ export async function compensatePendingOrderSourceClaim(
   hasDurableOrder: () => Promise<boolean>,
 ) {
   await withPgTransaction(db, async (client) => {
+    await lockEvidenceWindowSourceIdentity(client, claim);
     const owned = await client.query(
       `SELECT source_type FROM ordering_order_source_claims
        WHERE source_type = $1 AND source_reference_id = $2 AND buyer_account_id = $3
