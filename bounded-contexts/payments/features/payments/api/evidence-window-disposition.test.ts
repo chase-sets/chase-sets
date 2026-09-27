@@ -316,6 +316,35 @@ describe("evidence window disposition synthetic controls", () => {
     expect(read).not.toHaveBeenCalled();
   });
 
+  it.each(["dev", "test", "staging", "production"] as const)(
+    "AC-03 staging/refusal: observed %s is preserved or explicitly conventional before network",
+    async (deploymentEnvironment) => {
+      const authority = vi.fn(async () => null);
+      const subject = compose([], {
+        providerModeObservation: {
+          mode: "test",
+          deploymentEnvironment,
+          paymentProcessorKind: "stripe",
+          moneyMovementKind: "stripe",
+        },
+        authority,
+      });
+      const read = vi.spyOn(subject.store, "readWindow");
+      const fetch = vi.fn();
+      vi.stubGlobal("fetch", fetch);
+      const result = await subject.dispose(windowId);
+      expect(result.variant).toBe("pre-network-refusal");
+      expect(result.deploymentEnvironment).toBe(
+        deploymentEnvironment === "production" ? "test" : deploymentEnvironment,
+      );
+      expect(validateProviderObjectDisposition(result).ok).toBe(true);
+      expect(fetch).not.toHaveBeenCalled();
+      expect(read).not.toHaveBeenCalled();
+      if (deploymentEnvironment === "staging" || deploymentEnvironment === "production")
+        expect(authority).not.toHaveBeenCalled();
+    },
+  );
+
   it("AC-09: shared fixture scenarios validate; invented runner residueUnknown is rejected", () => {
     for (const scenario of Object.values(SCENARIO_FIXTURES))
       expect(validateProviderObjectDisposition(scenario).ok).toBe(true);
