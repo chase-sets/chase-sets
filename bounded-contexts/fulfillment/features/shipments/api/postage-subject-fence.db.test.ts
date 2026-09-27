@@ -94,6 +94,7 @@ function gatedProvider(pool: PgTransactionalPool, gate: ReturnType<typeof deferr
     providerName: "synthetic-postage",
     providerMode: "test",
     purchaseUspsLabel: vi.fn(async (request) => {
+      const invocation = vi.mocked(provider.purchaseUspsLabel).mock.calls.length;
       const reservation =
         request.subjectKind === "return-shipment"
           ? await pool.query<{ status: string }>(
@@ -109,7 +110,6 @@ function gatedProvider(pool: PgTransactionalPool, gate: ReturnType<typeof deferr
       const status = reservation.rows[0]?.status;
       if (!status) throw new Error("Synthetic provider effect ran before its durable reservation.");
       observedReservations.push({ subjectKind: request.subjectKind, subjectId: request.subjectId, status });
-      const invocation = vi.mocked(provider.purchaseUspsLabel).mock.calls.length;
       invocations[invocation - 1]?.resolve();
       await gate.promise;
       return purchasedLabel(request.subjectId, invocation);
@@ -615,12 +615,13 @@ describeDb("postage subject production composition fence", () => {
       const mutantRecordGate = gate();
       const mutantRecordInvocations = [deferred(), deferred()];
       const mutantRecordEffect = vi.fn(async (operationKey: string) => {
+        const ordinal = mutantRecordEffect.mock.calls.length - 1;
         const reservation = await pool.query(
           `SELECT operation_key FROM fulfillment_postage_label_operations WHERE operation_key = $1`,
           [operationKey],
         );
         if (!reservation.rows[0]) throw new Error("record reservation missing");
-        mutantRecordInvocations[mutantRecordEffect.mock.calls.length - 1]?.resolve();
+        mutantRecordInvocations[ordinal]?.resolve();
         await mutantRecordGate.promise;
       });
       const mutantRecordAttempts = [
