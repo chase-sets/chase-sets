@@ -46,7 +46,7 @@ export function ChannelConnectionHealthPanel({
   pending = false,
 }: Readonly<{ state: ChannelHealthPanelState; pending?: boolean }>) {
   return (
-    <Card data-testid="channel-health-panel">
+    <Card data-testid="channel-health-panel" elevation="flush">
       <Stack gap={3}>
         <Text>{t("channels.attention.title")}</Text>
         {state.kind === "loading" ? (

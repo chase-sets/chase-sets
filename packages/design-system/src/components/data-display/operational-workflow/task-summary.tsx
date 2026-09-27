@@ -18,7 +18,7 @@ export interface TaskSummaryProps extends Omit<HTMLAttributes<HTMLDivElement>, "
  */
 export function TaskSummary({ title, items, ...rest }: TaskSummaryProps) {
   return (
-    <Surface {...rest} element="section" tone="subtle" gap={3}>
+    <Surface {...rest} element="section" tone="subtle" gap={3} elevation="tinted">
       <Subheading level={2}>{title}</Subheading>
       <dl className="m-0 grid gap-3">
         {items.map((item, index) => (
