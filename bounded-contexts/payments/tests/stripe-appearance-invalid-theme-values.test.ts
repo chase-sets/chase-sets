@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it } from "vitest";
 import { resolveEmbeddedSurfaceTheme } from "@chase-sets/design-system";
 import type { EmbeddedSurfaceTheme } from "@chase-sets/embedded-surface-theme";
@@ -25,14 +26,28 @@ function theme() {
   return value;
 }
 
-function appearances(input: unknown) {
+type Adapter = Readonly<{
+  createStripeElementsAppearance: typeof createStripeElementsAppearance;
+  createStripeConnectAppearance: typeof createStripeConnectAppearance;
+}>;
+
+function appearances(
+  input: unknown,
+  adapter: Adapter = { createStripeElementsAppearance, createStripeConnectAppearance },
+) {
   const theme = input as EmbeddedSurfaceTheme;
   return [
-    createStripeElementsAppearance({ theme }),
-    createStripeElementsAppearance({ theme, includeRules: false }),
-    createStripeConnectAppearance({ theme }),
+    adapter.createStripeElementsAppearance({ theme }),
+    adapter.createStripeElementsAppearance({ theme, includeRules: false }),
+    adapter.createStripeConnectAppearance({ theme }),
   ];
 }
+
+const malformedBySlot = {
+  accent: ["#1234567", "rgb(0,0 0)", "rgb(0 0 0, 0.5)", "rgba(0,0,0/0.5)", "rgb(0 0,0)"],
+  smallShadow: ["0 1px 2px rgba(,,,)", "0 1px 2px rgba(1.2.3)"],
+  bodyFontFamily: ['"unterminated', ",,,", "'a\"b"],
+} as const;
 
 describe("nonthrowing invalid embedded theme substitution", () => {
   it("covers every closed input including unmapped pageBackground", () => {
@@ -71,5 +86,63 @@ describe("nonthrowing invalid embedded theme substitution", () => {
       );
     }
     expect(appearances({ ...original, mode: "invalid" })).toEqual(appearances({ ...original, mode: "light" }));
+  });
+
+  it("substitutes malformed colour, shadow and font syntax in the affected slots", () => {
+    const original = theme();
+    for (const [slot, values] of Object.entries(malformedBySlot)) {
+      const expected = appearances({ ...original, [slot]: undefined });
+      for (const bad of values) {
+        expect(appearances({ ...original, [slot]: bad }), `${slot}: ${bad}`).toEqual(expected);
+      }
+    }
+  });
+
+  it("keeps accepted colour literals and the real dark shadow", () => {
+    const original = theme();
+    for (const color of [
+      "#fff",
+      "#ffff",
+      "#ffffff",
+      "#ffffff80",
+      "rgb(1, 2, 3)",
+      "rgba(1, 2, 3, 0.5)",
+      "rgb(1 2 3 / 0.5)",
+      "transparent",
+    ]) {
+      const input = { ...original, accent: color };
+      expect(createStripeElementsAppearance({ theme: input }).variables.colorPrimary).toBe(color);
+      expect(createStripeConnectAppearance({ theme: input }).variables.colorPrimary).toBe(color);
+    }
+    const darkShadow = "0 1px 2px rgba(6, 5, 11, 0.32)";
+    expect(
+      createStripeElementsAppearance({ theme: { ...original, smallShadow: darkShadow } }).rules?.[".Block"]?.boxShadow,
+    ).toBe(darkShadow);
+  });
+
+  it("goes red when source validation is bypassed for mapped malformed slots", () => {
+    const adapterSource = readFileSync(
+      join(repositoryRoot(), "infrastructure/stripe-appearance/stripe-appearance.ts"),
+      "utf8",
+    );
+    const bypassedSource = adapterSource.replace(
+      "function valid(slot: Slot, value: unknown): value is string {",
+      "$&\n  if (typeof value === 'string' && value !== '') return true;",
+    );
+    expect(bypassedSource).not.toBe(adapterSource);
+    const output = ts.transpileModule(bypassedSource, {
+      compilerOptions: { module: ts.ModuleKind.CommonJS },
+    }).outputText;
+    const exports: Record<string, unknown> = {};
+    new Function("exports", "require", output)(exports, (name: string) => {
+      throw new Error(`Unexpected adapter import: ${name}`);
+    });
+    const bypassed = exports as Adapter;
+    const original = theme();
+    for (const [slot, values] of Object.entries(malformedBySlot)) {
+      expect(appearances({ ...original, [slot]: values[0] }, bypassed), slot).not.toEqual(
+        appearances({ ...original, [slot]: undefined }, bypassed),
+      );
+    }
   });
 });

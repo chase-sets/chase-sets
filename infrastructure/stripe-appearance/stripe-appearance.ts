@@ -65,6 +65,8 @@ const themeKeys = new Set<string>([
   "smallShadow",
   "modalLayer",
 ]);
+const rgbColor =
+  /^rgba?\(\s*(?:\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}(?:\s*,\s*(?:0(?:\.\d+)?|1(?:\.0+)?))?|\d{1,3}\s+\d{1,3}\s+\d{1,3}(?:\s*\/\s*(?:0(?:\.\d+)?|1(?:\.0+)?))?)\s*\)$/i;
 
 function acceptedTheme(input: unknown): EmbeddedSurfaceTheme | undefined {
   try {
@@ -100,8 +102,8 @@ function valid(slot: Slot, value: unknown): value is string {
   const input = value.trim();
   if (colorSlots.has(slot)) {
     return (
-      /^#[\da-f]{3,4}(?:[\da-f]{3,4})?$/i.test(input) ||
-      /^rgba?\(\s*(?:\d{1,3}\s*[, ]\s*){2}\d{1,3}(?:\s*[,/]\s*(?:0(?:\.\d+)?|1(?:\.0+)?))?\s*\)$/i.test(input) ||
+      /^#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i.test(input) ||
+      rgbColor.test(input) ||
       /^(?:transparent|currentColor)$/i.test(input)
     );
   }
@@ -114,11 +116,18 @@ function valid(slot: Slot, value: unknown): value is string {
     );
   }
   if (slot === "modalLayer") return /^(?:0|[1-9]\d*)$/.test(input) && Number.isSafeInteger(Number(input));
-  if (slot === "bodyFontFamily") return /^[\w\s,'"-]+$/.test(input) && !/[;{}]/.test(input);
-  if (slot === "smallShadow")
-    return /^(?:none|(?:0|\d+(?:\.\d+)?(?:px|rem))(?:\s+(?:0|\d+(?:\.\d+)?(?:px|rem))){1,3}\s+rgba?\([\d.,\s]+\))$/i.test(
+  if (slot === "bodyFontFamily")
+    return (
+      /^[\w\s,'"-]+$/.test(input) &&
+      !/[;{}]/.test(input) &&
+      /^(?:"[^"]*"|'[^']*'|[\w-]+(?:\s+[\w-]+)*)(?:\s*,\s*(?:"[^"]*"|'[^']*'|[\w-]+(?:\s+[\w-]+)*))*$/.test(input)
+    );
+  if (slot === "smallShadow") {
+    const shadow = /^(?:0|\d+(?:\.\d+)?(?:px|rem))(?:\s+(?:0|\d+(?:\.\d+)?(?:px|rem))){1,3}\s+(rgba?\([^)]*\))$/i.exec(
       input,
     );
+    return /^none$/i.test(input) || (!!shadow && rgbColor.test(shadow[1]!));
+  }
   return false;
 }
 
