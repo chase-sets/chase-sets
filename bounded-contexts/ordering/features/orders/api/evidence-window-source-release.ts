@@ -375,7 +375,11 @@ export async function observeEvidenceWindowSource(
         : residue.length
           ? ("discharged-with-bounded-usage-residue" as const)
           : ("discharged" as const);
-  const orderStates = facts.corrupt ? [] : await Promise.all(facts.orderIds.map((id) => readers.readOrder(id, source)));
+  const orderStates = facts.corrupt
+    ? []
+    : await Promise.all(
+        facts.orderIds.map(async (id) => readers.readOrder(id, source).catch(() => "unknown" as const)),
+      );
   const capacityOrderIds = new Set(facts.capacityClaims.map((claim) => claim.order_id));
   const missingCapacityForCreatedOrder = orderStates.some(
     (state, index) => state !== "missing" && !capacityOrderIds.has(facts.orderIds[index]!),
@@ -394,7 +398,9 @@ export async function observeEvidenceWindowSource(
   const sellers = [...new Set(facts.capacityClaims.map((claim) => claim.seller_account_id))];
   const signals = facts.corrupt
     ? []
-    : await Promise.all(sellers.map((sellerId) => readers.readSellerSignal(sellerId, db)));
+    : await Promise.all(
+        sellers.map(async (sellerId) => readers.readSellerSignal(sellerId, db).catch(() => "unknown" as const)),
+      );
   const capacityAndSellerSignals =
     facts.corrupt || missingCapacityForCreatedOrder || signals.includes("unknown")
       ? ("unknown" as const)
@@ -471,7 +477,8 @@ export async function releaseEvidenceWindowSource(
   if (!facts) return observeEvidenceWindowSource(db, input.sourceIdentity, actions);
 
   for (const orderId of facts.orderIds) {
-    if ((await actions.readOrder(orderId, source)) === "live") await actions.cancelOrder(orderId);
+    if ((await actions.readOrder(orderId, source).catch(() => "unknown")) === "live")
+      await actions.cancelOrder(orderId);
   }
   const sellers = [...new Set(facts.capacityClaims.map((claim) => claim.seller_account_id))];
   for (const orderId of facts.orderIds) {

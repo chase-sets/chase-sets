@@ -45,10 +45,12 @@ const identity: EvidenceWindowSourceIdentity = {
 describeDb("Ordering evidence-window source recovery DB", () => {
   let db: PgTransactionalPool;
   let pools: Readonly<Record<"ordering", PgTransactionalPool>>;
+  let orderingDatabaseUrl: string;
   let openedAt: string;
 
   beforeAll(async () => {
     const urls = createMultiContextTestDatabaseUrls(databaseBaseUrl!, contextNames, "ordering_evidence_sources");
+    orderingDatabaseUrl = urls.ordering;
     await ensureMultiContextTestDatabases(databaseBaseUrl!, urls);
     pools = createMultiContextTestPools(urls);
     db = pools.ordering;
@@ -348,11 +350,7 @@ describeDb("Ordering evidence-window source recovery DB", () => {
       const script = fileURLToPath(new URL("./evidence-window-source-process.ts", import.meta.url));
       const childEnv = {
         ...process.env,
-        TEST_SOURCE_DB_URL: createMultiContextTestDatabaseUrls(
-          databaseBaseUrl!,
-          contextNames,
-          "ordering_evidence_sources",
-        ).ordering,
+        TEST_SOURCE_DB_URL: orderingDatabaseUrl,
         TEST_SOURCE_OPENED_AT: openedAt,
         TEST_SOURCE_REFERENCE_ID: identity.sourceReferenceId,
       };
@@ -481,8 +479,14 @@ describeDb("Ordering evidence-window source recovery DB", () => {
       { sourceIdentity: identity, windowOpenedAt: openedAt },
       {
         ...actions,
-        readOrder: async () => (surface === "order" ? "unknown" : "missing"),
-        readSellerSignal: async () => (surface === "seller" ? "unknown" : "converged"),
+        readOrder: async () => {
+          if (surface === "order") throw new Error("order read unavailable");
+          return "missing";
+        },
+        readSellerSignal: async () => {
+          if (surface === "seller") throw new Error("seller signal read unavailable");
+          return "converged";
+        },
       },
     );
     expect(report?.outcome).toBe("unknown");
@@ -545,8 +549,15 @@ describeDb("Ordering evidence-window source recovery DB", () => {
       (item) => item.migrationId === "20260926_ordering_evidence_window_sources",
     );
     expect(migration?.statements[0]).toContain("SET LOCAL lock_timeout = '5s'");
+    await db.query(`ALTER TABLE ordering_listing_purchase_limit_claims DROP COLUMN usage_residue_upper_bound_units`);
     await db.query(migration!.statements[0]!);
     await db.query(migration!.statements[0]!);
+    const upgraded = await db.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_name = 'ordering_listing_purchase_limit_claims'
+         AND column_name = 'usage_residue_upper_bound_units'`,
+    );
+    expect(upgraded.rows).toHaveLength(1);
     for (const bad of [0, -1, 6]) {
       await expect(
         db.query(

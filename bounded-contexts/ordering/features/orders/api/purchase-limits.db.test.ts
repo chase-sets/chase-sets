@@ -273,19 +273,75 @@ describeDb("ordering purchase limits db", () => {
     expect((await snapshot()).streams).toHaveLength(0);
   });
 
+  it("AC-10 creates a production checkout without governance or source-recovery I/O", async () => {
+    await supply("lst_a");
+    let recoveryQueries = 0;
+    const wrap =
+      (client: PgQueryable): PgQueryable["query"] =>
+      async <Row = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
+        if (sql.includes("ordering_evidence_window_sources")) {
+          recoveryQueries++;
+          throw new Error("production recovery I/O");
+        }
+        return client.query<Row>(sql, values);
+      };
+    const productionDb: PgTransactionalPool = {
+      query: wrap(pools.ordering),
+      connect: async () => {
+        const client = await pools.ordering.connect();
+        return { query: wrap(client), release: client.release.bind(client) };
+      },
+    };
+    const created = await runtime(undefined, productionDb).createOrdersFromCheckout(checkout(), context);
+    expect(created.orderIds).toHaveLength(1);
+    expect(recoveryQueries).toBe(0);
+    expect((await snapshot()).streams).toHaveLength(1);
+  });
+
   it("AC-06 last Order commit without a runner result recovers in a fresh process by identity alone", async () => {
     await supply("lst_a");
-    const windowId = "0123456789abcdef0123456789abcdef";
+    const windowId = "fedcba9876543210fedcba9876543210";
     const windowOpenedAt = new Date().toISOString();
-    const result = await runtime().createOrdersFromCheckout(
-      {
-        ...checkout(["lst_a"], "chk_fresh_process"),
-        evidenceWindowSource: { windowId, subInvocation: "2a", windowOpenedAt },
-      },
-      context,
-    );
-    expect(result.orderIds).toHaveLength(1);
+    const script = fileURLToPath(new URL("./evidence-window-source-process.ts", import.meta.url));
+    const childEnv = {
+      ...process.env,
+      TEST_SOURCE_DB_URL: orderingDatabaseUrl,
+      TEST_SOURCE_OPENED_AT: windowOpenedAt,
+      TEST_SOURCE_LINES: "lst_a",
+    };
+    const creator = spawn(process.execPath, ["--import", "tsx", script], {
+      cwd: process.cwd(),
+      env: { ...childEnv, TEST_SOURCE_CUT: "last Order/pre-complete" },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    let stderr = "";
+    creator.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+    const reached = new Promise<void>((resolve, reject) => {
+      creator.stdout.on("data", (chunk: Buffer) => {
+        output += chunk.toString();
+        if (output.includes("CUT:last Order/pre-complete\n")) resolve();
+      });
+      creator.on("error", reject);
+      creator.on("exit", (code) => reject(new Error(`creator exited before last Order: ${code} ${stderr}`)));
+    });
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        reached,
+        new Promise<never>((_, reject) => {
+          watchdog = setTimeout(() => reject(new Error(`creator did not reach last Order: ${stderr}`)), 8000);
+        }),
+      ]);
+    } finally {
+      if (watchdog) clearTimeout(watchdog);
+      creator.kill();
+      if (creator.exitCode === null) await new Promise<void>((resolve) => creator.once("exit", () => resolve()));
+    }
     expect((await snapshot()).streams).toHaveLength(1);
+    expect(await readEvidenceWindowSources(pools.ordering, windowId)).toHaveLength(1);
     expect(
       (
         await closeEvidenceWindowSource(pools.ordering, {
@@ -295,15 +351,11 @@ describeDb("ordering purchase limits db", () => {
         })
       ).outcome,
     ).toBe("closed");
-    const child = spawnSync(
-      process.execPath,
-      ["--import", "tsx", fileURLToPath(new URL("./evidence-window-source-process.ts", import.meta.url))],
-      {
-        cwd: process.cwd(),
-        encoding: "utf8",
-        env: { ...process.env, TEST_SOURCE_DB_URL: orderingDatabaseUrl, TEST_SOURCE_OPENED_AT: windowOpenedAt },
-      },
-    );
+    const child = spawnSync(process.execPath, ["--import", "tsx", script], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: childEnv,
+    });
     expect(child.status, child.stderr).toBe(0);
     expect(JSON.parse(child.stdout.trim())).toEqual({ outcome: "discharged" });
     expect((await snapshot()).sources).toEqual([]);

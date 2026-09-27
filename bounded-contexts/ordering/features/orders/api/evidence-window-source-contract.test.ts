@@ -31,6 +31,19 @@ function hasReleaseWriters(values: Readonly<{ claims: string; limits: string; so
   );
 }
 
+function hasGuardedRecoveryPredicate(value: string) {
+  const update = value.slice(
+    value.indexOf("UPDATE ordering_listing_purchase_limit_claims"),
+    value.indexOf("RETURNING listing_id", value.indexOf("UPDATE ordering_listing_purchase_limit_claims")),
+  );
+  return [
+    "source_type = $1",
+    "source_reference_id = $2",
+    "buyer_account_id = $3",
+    "status IN ('pending', 'claimed')",
+  ].every((predicate) => update.includes(predicate));
+}
+
 function retainsRootUntilSellerConvergence(value: string) {
   const release = value.slice(value.indexOf("export async function releaseEvidenceWindowSource"));
   return (
@@ -70,6 +83,14 @@ describe("Ordering source recovery contract inventory", () => {
         limits,
         source,
       }),
+    ).toBe(false);
+    expect(hasGuardedRecoveryPredicate(source)).toBe(true);
+    expect(hasGuardedRecoveryPredicate(source.replace("AND status IN ('pending', 'claimed')", "AND TRUE"))).toBe(false);
+    const updateStart = source.indexOf("UPDATE ordering_listing_purchase_limit_claims");
+    expect(
+      hasGuardedRecoveryPredicate(
+        source.slice(0, updateStart) + source.slice(updateStart).replace("AND buyer_account_id = $3", "AND TRUE"),
+      ),
     ).toBe(false);
     expect(
       hasReleaseWriters({
