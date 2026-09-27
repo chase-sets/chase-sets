@@ -611,6 +611,24 @@ describe("deployed provider journal J1-J6 (synthetic DB proof)", () => {
     expect(await journal.readWindow(windowId)).toEqual([]);
   });
 
+  it("J6 preserves the inclusive 256-byte provider-reference bound in PostgreSQL", async () => {
+    const row = requireProviderWrite(await journal.reserveOrResolve(customerRequest()));
+    const reference = `cus_${"a".repeat(252)}`;
+    const completed = requireProviderWrite(
+      await journal.complete(row.key, row.version, { state: "succeeded", providerReference: reference }),
+    );
+    expect(completed.providerReference).toBe(reference);
+    for (const invalid of ["", `${reference}a`, "cus_invalid/ref", "cus_\u00e9"]) {
+      await expect(
+        pools.payments.query("UPDATE evidence_window_provider_write SET provider_reference = $1 WHERE window_id = $2", [
+          invalid,
+          windowId,
+        ]),
+      ).rejects.toThrow();
+    }
+    expect((await journal.readWindow(windowId))[0]).toEqual(completed);
+  });
+
   it("J6 converges existing registration and fresh bootstrap to one private journal with bounded constraints", async () => {
     await pools.payments.query(platformControlPlaneSchemaSql);
     const columns = await pools.payments.query<{ count: string }>(
