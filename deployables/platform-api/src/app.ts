@@ -136,8 +136,13 @@ import {
 } from "@chase-sets/bounded-context-runtime";
 import {
   createHonoObservabilityMiddleware,
+  createLogger,
+  recordSavedListAnalytics,
   recordProjectionFreshnessAudit,
   recordProjectionInlineApplyOutcome,
+  savedListAnalyticsAttributes,
+  type Logger,
+  type SavedListAnalyticsSignal,
 } from "@chase-sets/observability";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
@@ -212,6 +217,41 @@ export function createPlatformApiMarketplaceChannelInboundClampBinding(
   getServices: () => Readonly<{ channelInboundClamp: MarketplaceChannelInboundClampPort }> | undefined,
 ): MarketplaceChannelInboundClampCapability {
   return createMarketplaceChannelInboundClampCapability(mounted, getServices);
+}
+
+export function createSavedListAnalyticsRecorder(
+  logger: Pick<Logger, "info" | "warn"> = createLogger(),
+  recordMetric: typeof recordSavedListAnalytics = recordSavedListAnalytics,
+) {
+  return {
+    record(event: SavedListAnalyticsSignal) {
+      try {
+        const attributes = savedListAnalyticsAttributes(event);
+        try {
+          recordMetric(event);
+        } catch {
+          try {
+            logger.warn("Collections Saved List analytics recorder failed.", {
+              failure: "counter",
+              type: "collections.saved_list.analytics_recorder_failure",
+            });
+          } catch {
+            // Failure reporting is best-effort and must not affect the Saved List response.
+          }
+        }
+        try {
+          logger.info("Collections Saved List analytics event captured.", {
+            ...attributes,
+            type: "collections.saved_list.analytics_event",
+          });
+        } catch {
+          // Structured logging is best-effort and must not affect the Saved List response.
+        }
+      } catch {
+        // Invalid event objects are ignored without exposing input or exception text.
+      }
+    },
+  };
 }
 
 export type BuildPlatformApiOptions = Readonly<{
@@ -598,6 +638,7 @@ export function createPlatformApiHost(
       ...(authenticityFeePolicyResolver ? { authenticityFeePolicyResolver } : {}),
       ...(rateLimitPolicyResolver ? { rateLimitPolicyResolver } : {}),
       ...(savedListProductCatalog ? { savedListProductCatalog } : {}),
+      savedListAnalyticsRecorder: createSavedListAnalyticsRecorder(),
       registrationAdmission,
       ...(policyConsoleCrossContext ? { policyConsoleCrossContext } : {}),
       ...(supportReferenceLookupCrossContext ? { supportReferenceLookupCrossContext } : {}),
