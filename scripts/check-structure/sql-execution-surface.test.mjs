@@ -820,8 +820,8 @@ describe("repository-wide SQL execution partition", () => {
     const legacyPartition = partitionFromFiles(repoRoot, legacyModules);
     const partition = partitionFromFiles(repoRoot, governedModules);
 
-    expect(legacyModules).toHaveLength(2511);
-    expect(governedModules).toHaveLength(2506);
+    expect(legacyModules).toHaveLength(2514);
+    expect(governedModules).toHaveLength(2509);
     expect(removedModules).toEqual(exactRemovedModules);
     expect(removedClassification.modules.map(({ file, outcome }) => ({ file, outcome }))).toEqual(
       exactRemovedModules.map((file) => ({ file, outcome: "not-sql" })),
@@ -831,12 +831,12 @@ describe("repository-wide SQL execution partition", () => {
 
     expect(legacyPartition.sqlExecuting).toHaveLength(440);
     expect(legacyPartition.unprovableForm).toHaveLength(3);
-    expect(legacyPartition.notSql).toHaveLength(2068);
+    expect(legacyPartition.notSql).toHaveLength(2071);
     expect(legacyPartition.unresolvedMemberRoots.count).toBe(278);
     expect(partition.sqlExecuting).toEqual(legacyPartition.sqlExecuting);
     expect(partition.unprovableForm).toEqual(legacyPartition.unprovableForm);
     expect(partition.notSql).toEqual(legacyPartition.notSql.filter((file) => !exactRemovedModules.includes(file)));
-    expect(partition.notSql).toHaveLength(2063);
+    expect(partition.notSql).toHaveLength(2066);
     expect(partition.sqlExecuting).toContain("bounded-contexts/channels/features/credentials/api/runtime.ts");
     expect(partition.notSql).toEqual(
       expect.arrayContaining([

@@ -36,6 +36,7 @@
     { "workspace": "@chase-sets/seller-attention-queue", "script": "test", "estimatedDurationSeconds": 5 },
     { "workspace": "@chase-sets/seller-desk", "script": "test", "estimatedDurationSeconds": 5 },
     { "workspace": "@chase-sets/ses-email", "script": "test", "estimatedDurationSeconds": 5 },
+    { "workspace": "@chase-sets/stripe-appearance", "script": "test", "estimatedDurationSeconds": 6 },
     { "workspace": "@chase-sets/stripe-connect", "script": "test", "estimatedDurationSeconds": 4 },
     { "workspace": "@chase-sets/stripe-payments", "script": "test", "estimatedDurationSeconds": 4 },
     { "workspace": "@chase-sets/twilio-messaging", "script": "test", "estimatedDurationSeconds": 4 },

@@ -333,9 +333,6 @@
       "@chase-sets/design-system/theme": [
         "./packages/design-system/src/theme/provider.tsx"
       ],
-      "@chase-sets/design-system/theme/stripe-appearance": [
-        "./packages/design-system/src/theme/stripe-appearance.ts"
-      ],
       "@chase-sets/design-system/theme/tokens": [
         "./packages/design-system/src/theme/tokens.ts"
       ],
@@ -377,6 +374,9 @@
       ],
       "@chase-sets/easypost-postage": [
         "./infrastructure/easypost-postage/index.ts"
+      ],
+      "@chase-sets/embedded-surface-theme": [
+        "./contracts/embedded-surface-theme/index.ts"
       ],
       "@chase-sets/event-core": [
         "./contracts/event-core/index.ts"
@@ -899,6 +899,9 @@
       ],
       "@chase-sets/settlement/server": [
         "./bounded-contexts/settlement/server.ts"
+      ],
+      "@chase-sets/stripe-appearance": [
+        "./infrastructure/stripe-appearance/stripe-appearance.ts"
       ],
       "@chase-sets/stripe-config": [
         "./infrastructure/stripe-config/index.ts"
