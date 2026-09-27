@@ -251,9 +251,9 @@ describeDb("pricing schema upgrades", () => {
 
     await pool.query(
       `INSERT INTO pricing_daily_product_rollups (
-         catalog_catalog_item_id, product_id, day, median_price_amount,
+         catalog_catalog_item_id, product_id, day, currency_code, median_price_amount,
          unit_volume, trade_count, verified_trade_count, updated_at
-       ) VALUES ('cat_new', 'prod_new', '2026-07-02', 10.00, 8, 8, 0, now())`,
+       ) VALUES ('cat_new', 'prod_new', '2026-07-02', 'USD', 10.00, 8, 8, 0, now())`,
     );
     const fresh = await pool.query<{ stat_hygiene_policy_revision_id: string }>(
       `SELECT stat_hygiene_policy_revision_id
