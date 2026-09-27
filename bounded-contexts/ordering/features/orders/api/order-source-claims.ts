@@ -236,6 +236,13 @@ export async function finishOrderSourceCompensation(
       [claim.orderIds],
     );
     for (const seller of sellers.rows) await reconcileSeller(seller.seller_account_id);
+    // No Order owns these rows. Remove them with the source so seed callers
+    // can reuse their explicit proposed order ids on a fresh admission.
+    await client.query(
+      `DELETE FROM ordering_seller_open_order_claims
+       WHERE order_id = ANY($1::text[]) AND status = 'released'`,
+      [claim.orderIds],
+    );
     await deleteOwnedOrderSourceClaim(client, claim, "compensating");
   });
 }
