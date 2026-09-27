@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { NumericValue } from "@chase-sets/design-system";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { SettlementPayoutReadinessRow } from "../../payout-readiness/read-model/queries";
@@ -129,5 +130,51 @@ describe("payout operations page setup signals", () => {
     expect(html).toContain("$12.50");
     expect(html).toContain("$0.29");
     expect(html).toContain("$12.21");
+  });
+});
+
+/**
+ * The role class is derived from a bare design-system render, never written
+ * here, so this suite cannot drift from the primitive it observes.
+ */
+const numericValueClassName = renderToStaticMarkup(<NumericValue>0</NumericValue>).match(/class="([^"]*)"/)?.[1] ?? "";
+const moneyPattern = /^-?\$[\d,]+\.\d{2}$/;
+
+function parse(html: string): HTMLDivElement {
+  const rendered = document.createElement("div");
+  rendered.innerHTML = html;
+  return rendered;
+}
+
+function numericValues(root: ParentNode): HTMLElement[] {
+  return [...root.querySelectorAll("span")].filter((span) => span.className === numericValueClassName);
+}
+
+function textsOf(elements: readonly HTMLElement[]): string[] {
+  return elements.map((element) => element.textContent ?? "").sort();
+}
+
+describe("SettlementPayoutOperationsPage mono market-data role carriers", () => {
+  it("derives the role class from the design system", () => {
+    expect(numericValueClassName).not.toBe("");
+  });
+
+  it("roles the requested, fee, and net columns in both the desktop table and the mobile cards", () => {
+    const rendered = parse(renderToStaticMarkup(<SettlementPayoutOperationsPage payouts={[payout()]} />));
+    const carriers = numericValues(rendered);
+
+    expect(textsOf(carriers)).toEqual(["$0.29", "$0.29", "$12.21", "$12.21", "$12.50", "$12.50"]);
+    expect(carriers.map((carrier) => carrier.parentElement?.tagName).sort()).toEqual([
+      "DD",
+      "DD",
+      "DD",
+      "TD",
+      "TD",
+      "TD",
+    ]);
+    for (const carrier of carriers) {
+      expect(carrier.tagName).toBe("SPAN");
+      expect(carrier.textContent).toMatch(moneyPattern);
+    }
   });
 });

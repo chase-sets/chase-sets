@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { NumericValue } from "@chase-sets/design-system";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { SettlementWalletAdjustment } from "../../../client";
@@ -91,5 +92,48 @@ describe("WalletAdjustmentReceiptCard", () => {
     );
 
     expect(html).toContain("Reversed");
+  });
+});
+
+/**
+ * The role class is derived from a bare design-system render, never written
+ * here, so this suite cannot drift from the primitive it observes.
+ */
+const numericValueClassName = renderToStaticMarkup(<NumericValue>0</NumericValue>).match(/class="([^"]*)"/)?.[1] ?? "";
+const moneyPattern = /^-?\$[\d,]+\.\d{2}$/;
+
+function parse(html: string): HTMLDivElement {
+  const rendered = document.createElement("div");
+  rendered.innerHTML = html;
+  return rendered;
+}
+
+function numericValues(root: ParentNode): HTMLElement[] {
+  return [...root.querySelectorAll("span")].filter((span) => span.className === numericValueClassName);
+}
+
+function textsOf(elements: readonly HTMLElement[]): string[] {
+  return elements.map((element) => element.textContent ?? "").sort();
+}
+
+describe("WalletAdjustmentReceiptCard mono market-data role carriers", () => {
+  it("derives the role class from the design system", () => {
+    expect(numericValueClassName).not.toBe("");
+  });
+
+  it("roles the amount only, leaving the before/after balance sentence unroled", () => {
+    const rendered = parse(
+      renderToStaticMarkup(
+        <WalletAdjustmentReceiptCard adjustment={adjustment()} targetAccountLabel="Account acc_target" />,
+      ),
+    );
+    const carriers = numericValues(rendered);
+
+    expect(textsOf(carriers)).toEqual(["$25.00"]);
+    expect(carriers[0]?.tagName).toBe("SPAN");
+    expect(carriers[0]?.parentElement?.tagName).toBe("DD");
+    expect(carriers[0]?.textContent).toMatch(moneyPattern);
+    expect(rendered.textContent).toContain("$100.00");
+    expect(rendered.textContent).toContain("$125.00");
   });
 });
