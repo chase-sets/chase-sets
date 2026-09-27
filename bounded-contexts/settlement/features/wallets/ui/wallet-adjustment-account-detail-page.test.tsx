@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { NumericValue } from "@chase-sets/design-system";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { SettlementWalletAdjustmentAccountDetail } from "../../../client";
@@ -72,5 +73,59 @@ describe("SettlementWalletAdjustmentAccountDetailPage", () => {
 
     expect(html).toContain("/account/wallet/adjustments/WAD-E6K7M8N9");
     expect(html).not.toContain("[missing:");
+  });
+});
+
+/**
+ * The role class is derived from a bare design-system render, never written
+ * here, so this suite cannot drift from the primitive it observes.
+ */
+const numericValueClassName = renderToStaticMarkup(<NumericValue>0</NumericValue>).match(/class="([^"]*)"/)?.[1] ?? "";
+const moneyPattern = /^-?\$[\d,]+\.\d{2}$/;
+
+function parse(html: string): HTMLDivElement {
+  const rendered = document.createElement("div");
+  rendered.innerHTML = html;
+  return rendered;
+}
+
+function numericValues(root: ParentNode): HTMLElement[] {
+  return [...root.querySelectorAll("span")].filter((span) => span.className === numericValueClassName);
+}
+
+function textsOf(elements: readonly HTMLElement[]): string[] {
+  return elements.map((element) => element.textContent ?? "").sort();
+}
+
+describe("SettlementWalletAdjustmentAccountDetailPage mono market-data role carriers", () => {
+  it("derives the role class from the design system", () => {
+    expect(numericValueClassName).not.toBe("");
+  });
+
+  it("roles the amount and the resulting balance of a posted adjustment", () => {
+    const rendered = parse(
+      renderToStaticMarkup(<SettlementWalletAdjustmentAccountDetailPage adjustment={adjustment()} />),
+    );
+    const carriers = numericValues(rendered);
+
+    expect(textsOf(carriers)).toEqual(["$40.00", "$50.00"]);
+    for (const carrier of carriers) {
+      expect(carrier.tagName).toBe("SPAN");
+      expect(carrier.parentElement?.tagName).toBe("DD");
+      expect(carrier.textContent).toMatch(moneyPattern);
+    }
+  });
+
+  it("roles only the amount while the adjustment is still requested and has no resulting balance", () => {
+    const rendered = parse(
+      renderToStaticMarkup(
+        <SettlementWalletAdjustmentAccountDetailPage
+          adjustment={adjustment({ status: "requested", posted_at: null, available_balance_after: null })}
+        />,
+      ),
+    );
+
+    expect(textsOf(numericValues(rendered))).toEqual(["$40.00"]);
+    expect(rendered.textContent).not.toContain("$50.00");
   });
 });

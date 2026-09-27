@@ -11,6 +11,7 @@ import {
   LinkButton,
   MarketplaceDashboardPanel,
   MarketplaceNotice,
+  NumericValue,
   Page,
   PageHeader,
   PageSection,
@@ -245,7 +246,9 @@ export function PricingRecommendationListPage({
                   header: t("pricing.features.recommendations.ui.recommendationListPage.market"),
                   cell: (row) => (
                     <Stack gap={1}>
-                      <Text weight="semibold">{money(row.market_price_amount, row.market_currency)}</Text>
+                      <Text weight="semibold">
+                        <NumericValue>{money(row.market_price_amount, row.market_currency)}</NumericValue>
+                      </Text>
                       <Text size="sm" tone="secondary">
                         {t("pricing.features.recommendations.ui.recommendationListPage.lowest.active", {
                           amount: money(row.lowest_listing_price_amount, row.market_currency),
@@ -259,7 +262,13 @@ export function PricingRecommendationListPage({
                   header: t("pricing.features.recommendations.ui.recommendationListPage.recommended"),
                   cell: (row) => (
                     <Stack gap={1}>
-                      <Text weight="semibold">{money(row.recommended_list_amount, row.market_currency)}</Text>
+                      <Text weight="semibold">
+                        {row.recommended_list_amount === null ? (
+                          money(row.recommended_list_amount, row.market_currency)
+                        ) : (
+                          <NumericValue>{money(row.recommended_list_amount, row.market_currency)}</NumericValue>
+                        )}
+                      </Text>
                       <Text size="sm" tone="secondary">
                         {t("pricing.features.recommendations.ui.recommendationListPage.current.price", {
                           amount: money(row.current_price_amount, row.market_currency),

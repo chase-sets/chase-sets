@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 
+import { NumericValue } from "@chase-sets/design-system";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import type { SettlementWalletRow } from "../read-model/queries";
+import type { SettlementLedgerEntryRow, SettlementWalletRow } from "../read-model/queries";
 import type { SettlementWalletAdjustmentRow } from "../read-model/wallet-adjustment-queries";
 import { SettlementWalletWorkbenchPage, type SettlementWalletWorkbenchPageProps } from "./wallet-workbench-page";
 
@@ -354,5 +356,111 @@ describe("SettlementWalletWorkbenchPage", () => {
 
     expect(screen.getAllByText("Wallet balance changed since preview.").length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: "Approve" }).length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * The role class is derived from a bare design-system render, never written
+ * here, so this suite cannot drift from the primitive it observes.
+ */
+const numericValueClassName = renderToStaticMarkup(<NumericValue>0</NumericValue>).match(/class="([^"]*)"/)?.[1] ?? "";
+const moneyPattern = /^-?\$[\d,]+\.\d{2}$/;
+
+function numericValues(root: ParentNode): HTMLElement[] {
+  return [...root.querySelectorAll("span")].filter((span) => span.className === numericValueClassName);
+}
+
+function textsOf(elements: readonly HTMLElement[]): string[] {
+  return elements.map((element) => element.textContent ?? "").sort();
+}
+
+const ledgerEntry: SettlementLedgerEntryRow = {
+  ledger_entry_id: "led_workbench_1",
+  account_id: "acc_test",
+  kind: "sale-proceeds",
+  direction: "credit",
+  amount: "5.25",
+  currency_code: "usd",
+  funds_status: "available",
+  order_id: null,
+  payment_id: null,
+  payout_id: null,
+  description: "Sale proceeds",
+  posted_at: "2026-06-01T00:00:00.000Z",
+  available_at: "2026-06-01T00:00:00.000Z",
+  updated_at: "2026-06-01T00:00:00.000Z",
+};
+
+describe("SettlementWalletWorkbenchPage mono market-data role carriers", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("derives the role class from the design system", () => {
+    expect(numericValueClassName).not.toBe("");
+  });
+
+  it("roles the balance summary, adjustment amounts, resulting balances, and ledger amounts, and nothing else", () => {
+    const posted = adjustment({
+      adjustment_id: "wad_posted",
+      status: "posted",
+      posted_at: "2026-06-01T00:00:00.000Z",
+      available_balance_before: "25.00",
+      available_balance_after: "35.00",
+    });
+    const pending = adjustment({ adjustment_id: "wad_pending", amount: "7.50" });
+
+    renderWorkbench({
+      wallet: wallet({
+        available_balance_amount: "125.00",
+        pending_balance_amount: "30.00",
+        total_credited_amount: "300.00",
+        total_debited_amount: "145.00",
+      }),
+      adjustments: { items: [posted, pending], total: 2 },
+      ledger: { items: [ledgerEntry], total: 1 },
+      actorPermissions: ["wallet-adjustments.view"],
+    });
+
+    const carriers = numericValues(document.body);
+    const balanceSection = screen.getByTestId("wallet-balance-summary-furniture");
+    const balanceCarriers = numericValues(balanceSection);
+
+    // Four balances, then each table amount twice (desktop cell + mobile card):
+    // posted amount, pending amount, posted resulting balance, ledger amount.
+    expect(textsOf(carriers)).toEqual(
+      [
+        "$125.00",
+        "$30.00",
+        "$300.00",
+        "$145.00",
+        "$10.00",
+        "$10.00",
+        "$7.50",
+        "$7.50",
+        "$35.00",
+        "$35.00",
+        "$5.25",
+        "$5.25",
+      ].sort(),
+    );
+    expect(textsOf(balanceCarriers)).toEqual(["$125.00", "$145.00", "$30.00", "$300.00"]);
+    for (const carrier of balanceCarriers) {
+      expect(carrier.parentElement?.textContent).toBe(carrier.textContent);
+    }
+    for (const carrier of carriers) {
+      expect(carrier.tagName).toBe("SPAN");
+      expect(carrier.textContent).toMatch(moneyPattern);
+    }
+    const resultingBalances = carriers.filter((carrier) => carrier.textContent === "$35.00");
+    expect(resultingBalances.map((carrier) => carrier.parentElement?.tagName).sort()).toEqual(["DD", "TD"]);
+
+    // The pending adjustment has no resulting balance yet: the em dash stays unroled.
+    const emDashes = screen.getAllByText("—");
+    expect(emDashes.length).toBeGreaterThan(0);
+    for (const emDash of emDashes) {
+      expect(emDash.className).not.toBe(numericValueClassName);
+      expect(numericValues(emDash)).toHaveLength(0);
+    }
   });
 });

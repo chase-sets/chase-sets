@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
-import { renderToString } from "react-dom/server";
+import { NumericValue } from "@chase-sets/design-system";
+import { renderToStaticMarkup, renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { AccountRecommendationListItem } from "../read-model/queries";
 import { PricingRecommendationListPage } from "./recommendation-list-page";
@@ -116,5 +117,58 @@ describe("PricingRecommendationListPage", () => {
     expect(html).toContain('value="apply-recommendations"');
     expect(html).toContain('value="dismiss-recommendations"');
     expect(html.match(/disabled=""/g)?.length ?? 0).toBeGreaterThanOrEqual(4);
+  });
+});
+
+/**
+ * The role class is derived from a bare design-system render, never written
+ * here, so this suite cannot drift from the primitive it observes.
+ */
+const numericValueClassName = renderToStaticMarkup(<NumericValue>0</NumericValue>).match(/class="([^"]*)"/)?.[1] ?? "";
+const moneyPattern = /^-?\$[\d,]+\.\d{2}$/;
+
+function parse(html: string): HTMLDivElement {
+  const rendered = document.createElement("div");
+  rendered.innerHTML = html;
+  return rendered;
+}
+
+function numericValues(root: ParentNode): HTMLElement[] {
+  return [...root.querySelectorAll("span")].filter((span) => span.className === numericValueClassName);
+}
+
+function textsOf(elements: readonly HTMLElement[]): string[] {
+  return elements.map((element) => element.textContent ?? "").sort();
+}
+
+describe("PricingRecommendationListPage mono market-data role carriers", () => {
+  it("derives the role class from the design system", () => {
+    expect(numericValueClassName).not.toBe("");
+  });
+
+  it("roles the market and recommended prices in both table renderings and leaves the sentence copy unroled", () => {
+    const rendered = parse(renderToStaticMarkup(<PricingRecommendationListPage recommendations={[recommendation]} />));
+    const carriers = numericValues(rendered);
+
+    expect(textsOf(carriers)).toEqual(["$20.00", "$20.00", "$22.00", "$22.00"]);
+    for (const carrier of carriers) {
+      expect(carrier.tagName).toBe("SPAN");
+      expect(carrier.textContent).toMatch(moneyPattern);
+      expect(carrier.parentElement?.textContent).toBe(carrier.textContent);
+    }
+    expect(rendered.textContent).toContain("Current: $23.00");
+    expect(rendered.textContent).toContain("Lowest active: $18.00");
+    expect(rendered.textContent).toContain("Offers: 2; Highest: $19.00");
+  });
+
+  it("renders the not-set placeholder without a carrier when there is no recommended amount", () => {
+    const rendered = parse(
+      renderToStaticMarkup(
+        <PricingRecommendationListPage recommendations={[{ ...recommendation, recommended_list_amount: null }]} />,
+      ),
+    );
+
+    expect(rendered.textContent).toContain("Not set");
+    expect(textsOf(numericValues(rendered))).toEqual(["$20.00", "$20.00"]);
   });
 });
