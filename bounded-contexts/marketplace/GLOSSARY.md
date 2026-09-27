@@ -61,6 +61,22 @@ An **Evidence Slot** is a policy-defined named view such as condition, slab, fro
 
 A **Policy Impact Preview** is the deterministic count and bounded sample of existing Listings whose resolved Listing Evidence Requirements would change under a validated draft. Its hash is acknowledged at activation so stale validation cannot be activated.
 
+## Buyer Offer Policy
+
+A **Buyer Offer Policy** is one buyer account's explicit, versioned authority for selected native Offers to follow the market within one currency and buyer limits. A draft grants no authority. Active policies may admit managed changes and acceptance only with the installed enforcement capability; paused and terminal stopped policies admit neither. Offer membership is permanent, even after stop or a scope revision, and never silently becomes an ordinary fixed Offer again. A fresh exact-version preview and consent are required for activation, resume and authority revision. Policies do not make Offers expire or change accepted Orders.
+
+## Offer Policy
+
+**Offer Policy** is the account-neutral API, slice and stream name for Buyer Offer Policy. Buyer identifies the transaction role of the consenting account, not a separate account capability or class.
+
+## Maximum Unit Item Amount
+
+The **Maximum Unit Item Amount** is the buyer-consented ceiling on one selected Offer's per-unit item price. It is not a checkout total and excludes later shipping, fees and tax.
+
+## Item Commitment Allowance
+
+The **Item Commitment Allowance** is the lifetime cumulative item amount a Buyer Offer Policy may authorize at seller acceptance, in its immutable authorized currency. Accepted unit item amount times quantity consumes this allowance atomically. Consumption never returns automatically after payment failure, cancellation or refund, and pause, resume and revision never reset it. Only fresh buyer consent may increase the allowance. It is not spend, funding, escrow or a wallet balance.
+
 ## Offer
 
 An **Offer** is an account-submitted purchase proposal for a specific product, price, and quantity submitted as marketplace-wide demand.

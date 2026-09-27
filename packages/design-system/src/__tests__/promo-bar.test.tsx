@@ -52,6 +52,50 @@ describe("PromoBar", () => {
     expect(container.querySelector("section")?.className).toContain("bg-danger-soft");
   });
 
+  it("AC4 (#8270): renders the band as a flush tinted strip with tone fill but no border, ring, outline or shadow box, while rotation controls, the aria-live counter and message links keep working", async () => {
+    const user = userEvent.setup();
+    const { container } = renderPromoBar([
+      {
+        id: "shipping-credit",
+        title: "Earn 5% toward shipping on every order.",
+        href: "/order-protection",
+        linkLabel: "Learn more",
+        tone: "success",
+      },
+      { id: "listing-fees", title: "0% fees on beta listings.", tone: "warning" },
+    ]);
+    // Chrome vocabulary the surface-diet law forbids on furniture; responsive
+    // and state variants are stripped so `md:border` or `hover:ring-1` still count.
+    const chromeClassPattern = /^(?:border|border-.+|surface-border|shadow-.+|ring|ring-.+|outline|outline-.+)$/;
+    const chromeTokens = (element: Element) =>
+      element.className
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((token) => token.replace(/^(?:[a-z0-9-]+:)+/, ""))
+        .filter((token) => chromeClassPattern.test(token));
+
+    const band = container.querySelector("section");
+    expect(band).not.toBeNull();
+    expect(band!.getAttribute("aria-label")).toBe("Marketplace announcements");
+    expect(band!.classList.contains("bg-success-soft")).toBe(true);
+    expect(band!.classList.contains("border")).toBe(false);
+    expect(chromeTokens(band!)).toEqual([]);
+
+    expect(screen.getByRole("link", { name: /learn more/i }).getAttribute("href")).toBe("/order-protection");
+    const counter = screen.getByText("1/2");
+    expect(counter.getAttribute("aria-live")).toBe("polite");
+    expect(screen.getByLabelText("Previous announcement")).toBeTruthy();
+    expect(screen.getByLabelText("Pause announcements")).toBeTruthy();
+
+    await user.click(screen.getByLabelText("Next announcement"));
+
+    expect(screen.getByText("0% fees on beta listings.")).toBeTruthy();
+    expect(screen.getByText("2/2").getAttribute("aria-live")).toBe("polite");
+    expect(band!.classList.contains("bg-warning-soft")).toBe(true);
+    expect(band!.classList.contains("bg-success-soft")).toBe(false);
+    expect(chromeTokens(band!)).toEqual([]);
+  });
+
   it("lets users move through multiple messages", async () => {
     const user = userEvent.setup();
     renderPromoBar([

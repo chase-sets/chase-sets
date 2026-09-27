@@ -152,7 +152,7 @@ CREATE TABLE IF NOT EXISTS ordering_order_source_claims (
   source_reference_id text NOT NULL,
   buyer_account_id text NOT NULL,
   order_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
-  status text NOT NULL CHECK (status IN ('pending', 'created')),
+  status text NOT NULL CHECK (status IN ('pending', 'created', 'compensating')),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (source_type, source_reference_id)
@@ -297,6 +297,20 @@ CREATE INDEX IF NOT EXISTS ordering_seller_open_order_claims_open_idx
 `;
 
 export const orderingOrderSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260927_ordering_order_source_compensation",
+    description: "Retain failed checkout source identity until capacity signals are reconciled.",
+    statements: [
+      `BEGIN;
+SET LOCAL lock_timeout = '5s';
+ALTER TABLE ordering_order_source_claims
+  DROP CONSTRAINT IF EXISTS ordering_order_source_claims_status_check;
+ALTER TABLE ordering_order_source_claims
+  ADD CONSTRAINT ordering_order_source_claims_status_check
+  CHECK (status IN ('pending', 'created', 'compensating'));
+COMMIT;`,
+    ],
+  },
   {
     migrationId: "20260926_ordering_evidence_window_sources",
     description: "Fence Ordering source creation and retain bounded purchase-limit residue provenance.",

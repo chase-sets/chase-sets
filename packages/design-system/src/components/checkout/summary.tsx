@@ -212,7 +212,7 @@ export function CheckoutSummaryPanel({
   ...rest
 }: CheckoutSummaryPanelProps) {
   return (
-    <Surface {...rest} element="section" tone="subtle">
+    <Surface {...rest} element="section" tone="subtle" elevation="tinted">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="m-0 text-base font-semibold text-foreground">{title}</h2>

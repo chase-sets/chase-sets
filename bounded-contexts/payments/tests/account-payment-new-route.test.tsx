@@ -168,6 +168,23 @@ function requestMethod(input: string | URL | Request, init?: RequestInit) {
   return (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
 }
 
+type SurfaceTreatment = "outlined" | "elevated";
+
+// Reads the rendered entity treatment back from the classes the design-system
+// Surface owns: `outlined` is a hairline with no raised chrome, `elevated` the
+// raised border and shadow.
+function expectSurfaceTreatment(anchor: HTMLElement, treatment: SurfaceTreatment, glow = false) {
+  const root = anchor.closest<HTMLElement>(".min-w-0.max-w-full.rounded-tokenLg");
+  expect(root).toBeTruthy();
+  const classes = root!.className.split(/\s+/);
+  if (treatment === "elevated") expect(classes).toEqual(expect.arrayContaining(["surface-border", "shadow-tokenLg"]));
+  else {
+    expect(classes).toContain("border");
+    expect(classes.includes("surface-border") || classes.some((name) => name.startsWith("shadow-"))).toBe(false);
+  }
+  expect(classes.includes("ds-glow")).toBe(glow);
+}
+
 describe("marketplace account payment start route", () => {
   beforeEach(() => {
     mockUseActionData.mockReturnValue(undefined);
@@ -212,6 +229,40 @@ describe("marketplace account payment start route", () => {
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
     expect(submit.mock.calls[0]?.[1]).toEqual({ method: "post" });
     expect(submit.mock.calls[0]?.[0]).toBeInstanceOf(HTMLFormElement);
+  });
+
+  it("raises the payment setup host and outlines the evidence, fee quote, and purchase entities", () => {
+    mockUseLoaderData.mockReturnValue({
+      orderIds: ["ord_1"],
+      orders: [
+        {
+          ...buildPurchase("ord_1"),
+          listing_evidence: [
+            {
+              line_id: "line_1",
+              item_title: "Evidence card",
+              gallery: [
+                { altText: "Front", assets: [{ role: "catalog-detail", publicUrl: "https://img.test/front.jpg" }] },
+              ],
+            },
+          ],
+        },
+      ],
+      autostart: false,
+      wallet: null,
+      checkoutStatus,
+    });
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentNewRoute />
+      </ChaseRoot>,
+    );
+
+    expectSurfaceTreatment(screen.getByText("Ready to initialize payment"), "elevated", true);
+    expectSurfaceTreatment(screen.getByText("Evidence card"), "outlined");
+    expectSurfaceTreatment(screen.getByText("Base card checkout fee"), "outlined");
+    expectSurfaceTreatment(screen.getByRole("link", { name: "Open purchase" }), "outlined");
   });
 
   it("loads checkout-created purchases from Payments order inputs", async () => {

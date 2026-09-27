@@ -416,7 +416,7 @@ export function PublicPresencePageShell({
           <Container width="wide">
             <Stack gap={4}>
               <PromoBar messages={promoBarMessages} />
-              <Surface element="nav" tone="subtle" padding={2}>
+              <Surface element="nav" tone="subtle" elevation="flush" padding={2}>
                 <Cluster gap={2}>
                   <Inline gap={3} align="center">
                     <BrandLink label={t("publicPresence.brand")} />
@@ -433,7 +433,7 @@ export function PublicPresencePageShell({
                 </Cluster>
               </Surface>
               <main id="main-content">{children}</main>
-              <Surface element="footer" tone="subtle">
+              <Surface element="footer" tone="subtle" elevation="flush">
                 <Stack gap={3}>
                   <Text weight="semibold">{t("publicPresence.footer.title")}</Text>
                   <Inline gap={3}>
@@ -1765,7 +1765,7 @@ export function PublicInfoPage({ content }: { content: PublicInfoPageContent }) 
         <PageHeader eyebrow={content.eyebrow} title={content.title} description={content.description} />
         <Grid columns={{ base: 1, md: 2 }} gap={4}>
           {content.sections.map((section) => (
-            <Surface key={section.title} elevated>
+            <Surface key={section.title} elevation="tinted">
               <Stack gap={3}>
                 <Heading level={2}>{section.title}</Heading>
                 {section.body.map((paragraph) => (

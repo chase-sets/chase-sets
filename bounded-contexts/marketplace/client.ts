@@ -2,6 +2,7 @@ import { hc } from "hono/client";
 import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata, type ListResponse } from "@chase-sets/http/responses";
 import type { buildMarketplaceApi } from "./api";
+export type { BuyerOfferPolicyRequest, BuyerOfferPolicyTerms } from "./features/offer-policy/domain/contracts";
 
 export { evidenceCoverageCodeLocaleKey } from "./features/listings/domain/evidence-coverage";
 export type {

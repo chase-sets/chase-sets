@@ -246,13 +246,13 @@ export function ComparePage({
           />
         </PageSection>
         <Grid columns={{ base: 1, md: 2 }} gap={4}>
-          <Surface elevated>
+          <Surface elevation="tinted">
             <Stack gap={3}>
               <Heading level={2}>{t("publicPresence.compare.why.title")}</Heading>
               <Text tone="secondary">{t("publicPresence.compare.why.body")}</Text>
             </Stack>
           </Surface>
-          <Surface elevated>
+          <Surface elevation="tinted">
             <Stack gap={3}>
               <Heading level={2}>{t("publicPresence.compare.honesty.title", values)}</Heading>
               <Text tone="secondary">{t(competitorKey(competitor, "honesty.body"), values)}</Text>
@@ -269,7 +269,7 @@ export function ComparePage({
             }))}
           />
         </PageSection>
-        <Surface tone="subtle">
+        <Surface tone="subtle" elevation="tinted">
           <Stack gap={3}>
             <Text tone="secondary">{t("publicPresence.compare.cta.text", launchTimeline)}</Text>
             <Inline gap={2}>

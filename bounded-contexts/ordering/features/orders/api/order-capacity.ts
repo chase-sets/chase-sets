@@ -220,18 +220,19 @@ export async function reconcileSellerOrderCapacity(
   db: PgTransactionalPool,
   sellerAccountId: string,
   governedSource?: EvidenceWindowSourceIdentity,
+  signal?: (result: SellerOrderCapacityReconcileResult, client: PgQueryable) => Promise<void>,
+  transactionClient?: PgQueryable,
 ): Promise<SellerOrderCapacityReconcileResult> {
-  return withPgTransaction(db, async (client) => {
+  const reconcile = async (client: PgQueryable) => {
     if (governedSource && !(await lockOpenEvidenceWindowSource(client, governedSource))) {
       throw new Error("Evidence window source binding is missing.");
     }
     const cap = await seedAndLockCapacityRow(client, sellerAccountId);
-    if (cap === null) {
-      return { atCapacity: false };
-    }
-    const openCount = await countOpenClaims(client, sellerAccountId);
-    return { atCapacity: openCount >= cap };
-  });
+    const result = { atCapacity: cap !== null && (await countOpenClaims(client, sellerAccountId)) >= cap };
+    await signal?.(result, client);
+    return result;
+  };
+  return transactionClient ? reconcile(transactionClient) : withPgTransaction(db, reconcile);
 }
 
 /**

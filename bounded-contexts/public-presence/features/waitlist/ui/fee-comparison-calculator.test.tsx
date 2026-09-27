@@ -27,6 +27,19 @@ const ratifiedSchedule: PublicMarketplaceFeeSchedule = {
   effectiveFrom: "2026-07-03T00:00:00.000Z",
 };
 
+const surfaceRootSelector = ".min-w-0.max-w-full.rounded-tokenLg";
+
+// Reads a Surface root's rendered intent from design-system-owned classes:
+// flush/tinted carry no `surface-border` and no `shadow-` class.
+function surfaceIntent(surface: Element | null) {
+  const classes = [...(surface?.classList ?? [])];
+  if (classes.includes("surface-border") || classes.some((name) => name.startsWith("shadow-"))) {
+    return classes.includes("shadow-tokenLg") ? "elevated" : "legacy";
+  }
+  if (classes.includes("border")) return "outlined";
+  return classes.includes("bg-surface-2") ? "tinted" : "flush";
+}
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -203,6 +216,15 @@ describe("FeeCalculatorSection", () => {
     expect(section.textContent).toContain("0% seller fee");
     // The default comparison stays on the standard schedule (5% on $50).
     expect(section.textContent).toContain("$47.50");
+  });
+
+  it("tints the founders callout as its only Surface root", () => {
+    const { container } = render(<FeeCalculatorSection schedule={ratifiedSchedule} />);
+    const section = container.querySelector('[data-public-presence-section="fee_calculator"]');
+    if (!section) throw new Error("Expected the fee calculator to render.");
+
+    expect([...section.querySelectorAll(surfaceRootSelector)].map(surfaceIntent)).toEqual(["tinted"]);
+    expect(surfaceIntent(section.querySelector('a[href="/founders"]')!.closest(surfaceRootSelector))).toBe("tinted");
   });
 
   it("copies a UTM-tagged share link carrying the entered comparison", () => {

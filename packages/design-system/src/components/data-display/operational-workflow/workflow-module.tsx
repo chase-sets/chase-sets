@@ -35,6 +35,7 @@ export function WorkflowModule({
   return (
     <Surface
       {...rest}
+      elevation="flush"
       element="section"
       aria-labelledby={titleId}
       padding={resolvedDensity === "compact" ? 3 : 4}

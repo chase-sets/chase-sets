@@ -184,7 +184,7 @@ export function StripeSetupCard({ setup, onSaved }: { setup: PaymentsSavedChecko
   }
 
   return (
-    <Surface elevated glow>
+    <Surface elevation="elevated" glow>
       <Stack gap={3}>
         <Badge tone="accent">{t("payments.routes.marketplace.accountPayment.secure.payment")}</Badge>
         <Text>{t("payments.routes.marketplace.accountPaymentMethods.manage.payment.methods")}</Text>

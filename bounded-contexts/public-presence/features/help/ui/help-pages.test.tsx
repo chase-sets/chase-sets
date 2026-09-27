@@ -1,6 +1,9 @@
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import ts from "@chase-sets/typescript-compiler-api";
 import { helpCategories, listHelpArticlesByCategory, publicHelpArticles } from "../domain/article-catalog";
 import { resolveArticlePolicyValues } from "../domain/resolve-article-policy-values";
 import {
@@ -13,6 +16,19 @@ import {
   parsePolicyValueKeys,
 } from "../domain/policy-value-state";
 import { helpAudienceLabel, HelpArticlePage, HelpCategoryPage, HelpHubPage, type HelpArticleCard } from "./help-pages";
+
+const surfaceRootSelector = ".min-w-0.max-w-full.rounded-tokenLg";
+
+// Reads a Surface root's rendered intent from design-system-owned classes:
+// flush/tinted carry no `surface-border` and no `shadow-` class.
+function surfaceIntent(surface: Element | null) {
+  const classes = [...(surface?.classList ?? [])];
+  if (classes.includes("surface-border") || classes.some((name) => name.startsWith("shadow-"))) {
+    return classes.includes("shadow-tokenLg") ? "elevated" : "legacy";
+  }
+  if (classes.includes("border")) return "outlined";
+  return classes.includes("bg-surface-2") ? "tinted" : "flush";
+}
 
 function unresolvedMarkerKeys() {
   return [...document.querySelectorAll(`[${POLICY_VALUE_STATE_ATTRIBUTE}="${POLICY_VALUE_UNAVAILABLE_STATE}"]`)]
@@ -122,6 +138,37 @@ describe("public help pages", () => {
     expect(screen.getByRole("navigation", { name: "On this page" })).toBeTruthy();
     expect(screen.getByText("Last reviewed July 15, 2026")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Related articles" })).toBeTruthy();
+  });
+
+  it("raises only the tiles a visitor opens and keeps reading furniture flush or tinted", () => {
+    const hub = render(<HelpHubPage />, { wrapper: MemoryRouter });
+    const categoryHeadings = screen.getAllByRole("heading", { level: 3 });
+    expect(categoryHeadings.length).toBeGreaterThan(0);
+    for (const heading of categoryHeadings) {
+      expect(surfaceIntent(heading.closest(surfaceRootSelector)), heading.textContent ?? "").toBe("elevated");
+    }
+    hub.unmount();
+
+    const article = resolvedArticle("order-protection");
+    const related = publicHelpArticles.filter(
+      (candidate) => candidate.category === "buying" && candidate.slug !== article.slug,
+    );
+    render(<HelpArticlePage article={article} related={related} />, { wrapper: MemoryRouter });
+    const firstHeading = article.headings[0]!;
+    expect(surfaceIntent(document.getElementById(firstHeading.id)!.closest(surfaceRootSelector))).toBe("flush");
+    expect(surfaceIntent(screen.getByRole("navigation", { name: "On this page" }))).toBe("tinted");
+    for (const candidate of related) {
+      const title = screen.getByRole("heading", { name: candidate.title, level: 2 });
+      expect(surfaceIntent(title.closest(surfaceRootSelector)), candidate.title).toBe("elevated");
+    }
+  });
+
+  it("raises every category-page article card as an entity tile", () => {
+    const cards: readonly HelpArticleCard[] = listHelpArticlesByCategory("buying");
+    const { container } = render(<HelpCategoryPage category="buying" articles={cards} />, { wrapper: MemoryRouter });
+    const renderedCards = [...container.querySelectorAll("article")];
+    expect(renderedCards).toHaveLength(cards.length);
+    expect(renderedCards.map(surfaceIntent)).toEqual(cards.map(() => "elevated"));
   });
 
   it("renders future-effective policy changes as dated callouts", () => {
@@ -235,3 +282,80 @@ describe("public help pages", () => {
     expect(aggregateMarker()).toBeNull();
   });
 });
+
+describe("public reading-page surface-diet census (#8271)", () => {
+  // Source order per file; this pins the PR's per-root classification table.
+  const expectedElevations: Record<string, readonly string[]> = {
+    "help/ui/help-pages.tsx": ["elevated", "elevated", "flush", "tinted"],
+    "developer-portal/ui/developer-pages.tsx": ["elevated", "flush"],
+    "policies/ui/policy-artifact-page.tsx": ["tinted", "tinted", "flush"],
+    "waitlist/ui/compare-page.tsx": ["tinted", "tinted", "tinted"],
+    "waitlist/ui/success-page.tsx": ["tinted", "tinted", "tinted"],
+    "waitlist/ui/fee-comparison-calculator.tsx": ["tinted"],
+  };
+
+  function surfaceRoots(fileName: string, source: string) {
+    const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const roots: { elevation: string | null; elevatedBoolean: boolean }[] = [];
+    function attribute(attributes: ts.JsxAttributes, name: string) {
+      return attributes.properties.find(
+        (candidate) => ts.isJsxAttribute(candidate) && candidate.name.getText(sourceFile) === name,
+      );
+    }
+    function visit(node: ts.Node) {
+      if (
+        (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
+        node.tagName.getText(sourceFile) === "Surface"
+      ) {
+        const elevation = attribute(node.attributes, "elevation");
+        roots.push({
+          elevation:
+            elevation &&
+            ts.isJsxAttribute(elevation) &&
+            elevation.initializer &&
+            ts.isStringLiteral(elevation.initializer)
+              ? elevation.initializer.text
+              : null,
+          elevatedBoolean: Boolean(attribute(node.attributes, "elevated")),
+        });
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(sourceFile);
+    return roots;
+  }
+
+  it("gives every Surface root in the six reading-page files a literal elevation and no legacy elevated boolean", () => {
+    const featuresRoot = join(repositoryRoot(), "bounded-contexts", "public-presence", "features");
+    let total = 0;
+    for (const [file, elevations] of Object.entries(expectedElevations)) {
+      const roots = surfaceRoots(file, readFileSync(join(featuresRoot, file), "utf8"));
+      expect(
+        roots.filter((root) => root.elevation === null),
+        `${file} bare roots`,
+      ).toEqual([]);
+      expect(
+        roots.filter((root) => root.elevatedBoolean),
+        `${file} legacy booleans`,
+      ).toEqual([]);
+      expect(
+        roots.map((root) => root.elevation),
+        file,
+      ).toEqual(elevations);
+      total += roots.length;
+    }
+    expect(total).toBe(16);
+  });
+});
+
+function repositoryRoot() {
+  let candidate = process.cwd();
+  while (!existsSync(join(candidate, "pnpm-workspace.yaml"))) {
+    const parent = dirname(candidate);
+    if (parent === candidate) {
+      throw new Error(`Could not locate the repository root from ${process.cwd()}`);
+    }
+    candidate = parent;
+  }
+  return candidate;
+}

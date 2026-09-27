@@ -43,6 +43,8 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 
 ### Contributing
 
+- [Goal-Based Browser Probes](./contributing/browser-usability.md): advisory goal-only Luna probes, independent outcome checks, bounded browser recording, and correctness-conditioned timing comparisons.
+
 - [Backlog Model](./contributing/backlog-model.md): the canonical work-structure contract — the strategy/wave/epic/slice ladder, what each GitHub primitive means, the label charter, refined-vs-backlog states, generated rollup, and the orchestrator selection algorithm.
 - [Public Knowledge Base Change Convention](./contributing/public-knowledge-base.md): the `KB:` pull-request/issue marker, warning-only feature-slice ratchet, and documented post-launch block-mode transition.
 

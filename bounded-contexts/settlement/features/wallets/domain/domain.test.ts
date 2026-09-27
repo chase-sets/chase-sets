@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { decideWallet, evolveWallet, initialWalletState, walletSpendableBalanceAmount } from "./domain";
+import {
+  decideWallet,
+  evolveWallet,
+  initialWalletState,
+  walletSpendableBalanceAmount,
+  type WalletState,
+} from "./domain";
 
 function applyCommands(commands: readonly Parameters<typeof decideWallet>[1][]) {
   return commands.reduce(
@@ -7,6 +13,38 @@ function applyCommands(commands: readonly Parameters<typeof decideWallet>[1][]) 
     initialWalletState,
   );
 }
+
+describe("seller capture credit legacy evidence", () => {
+  const command = {
+    type: "CreditSellerCapture" as const,
+    kind: "sale" as const,
+    amount: "20.00",
+    currencyCode: "usd" as const,
+    paymentId: "pay_1" as never,
+    orderId: "ord_1" as never,
+    postedAt: "2026-05-01T00:00:00.000Z",
+  };
+  const opened = applyCommands([
+    { type: "OpenWallet", accountId: "acc_seller" as never, currencyCode: "usd", openedAt: command.postedAt },
+  ]);
+  const complete = decideWallet(opened, command).reduce(evolveWallet, opened);
+  it.each([
+    ["wrong stored currency", { ...complete, entries: [{ ...complete.entries[0]!, currencyCode: "eur" as never }] }],
+    ["duplicate base identity", { ...complete, entries: [...complete.entries, ...complete.entries] }],
+    [
+      "released base cannot stand in for an offset",
+      {
+        ...complete,
+        entries: [
+          { ...complete.entries[0]!, amount: "15.00", fundsStatus: "available", availableAt: command.postedAt },
+          { ...complete.entries[0]!, ledgerEntryId: "led_sale_pay_1_ord_1_pending" as never, amount: "5.00" },
+        ],
+      },
+    ],
+  ] satisfies readonly [string, WalletState][])("refuses %s", (_name, state) => {
+    expect(() => decideWallet(state, command)).toThrow("operator review required");
+  });
+});
 
 /** Wallet opened with `available` of balance credit ready to spend. */
 function walletWithAvailableCredit(availableAmount: string) {

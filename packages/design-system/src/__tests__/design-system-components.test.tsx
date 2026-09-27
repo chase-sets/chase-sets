@@ -22,7 +22,19 @@ import {
   ToolbarSeparator,
   TopNav,
 } from "../components/actions";
-import { Card, DataTable, ImageGallery } from "../components/data-display";
+import {
+  AddressBlock,
+  Card,
+  ChecklistCard,
+  DataTable,
+  ImageGallery,
+  OperationalLockBanner,
+  OperationalStatusBanner,
+  TaskSummary,
+  WorkflowModule,
+  WorkflowReadinessChecklist,
+} from "../components/data-display";
+import { CheckoutConfirmationPanel, CheckoutStateNotice, CheckoutSummaryPanel } from "../components/checkout";
 import {
   Accordion,
   AccordionOptionTrigger,
@@ -77,13 +89,64 @@ import {
   Wizard,
 } from "../patterns/app-shells";
 import { AutoGrid, Box, Container, FlexItem, SkipLink, Stack, Surface } from "../primitives/layout";
-import { LinkText, Text } from "../primitives/typography";
+import { LinkText, Text, Thumbnail } from "../primitives/typography";
 import { ChaseRoot, ColorModeToggle, useChaseMotion, useReducedMotion } from "../theme/provider";
 import { ThemePreferenceControl, ThemeToggle } from "../theme/theme-toggle";
 import { chaseTheme, resolveThemeOverrideStyle, resolveThemeStyle, type SpaceToken } from "../theme/tokens";
 import { resolveResponsiveClass, resolveSpaceClass } from "../utils/system";
 
 const expectedSpacingTokens = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] satisfies SpaceToken[];
+
+describe("composed Surface treatments", () => {
+  it.each([
+    { name: "Banner", ui: <Banner title="Notice" />, fill: "bg-info-soft" },
+    { name: "CheckoutStateNotice", ui: <CheckoutStateNotice title="Notice" />, fill: "bg-info-soft" },
+    { name: "CheckoutConfirmationPanel", ui: <CheckoutConfirmationPanel title="Confirmed" />, fill: "bg-success-soft" },
+    {
+      name: "CheckoutSummaryPanel",
+      ui: <CheckoutSummaryPanel title="Summary" totals={[]} totalLabel="Total" total="$10" />,
+      fill: "bg-surface-2",
+    },
+    { name: "AddressBlock", ui: <AddressBlock title="Address" lines={["Main Street"]} />, fill: "bg-surface-2" },
+    { name: "ChecklistCard", ui: <ChecklistCard title="Tasks">Items</ChecklistCard>, fill: "bg-surface-2" },
+    { name: "OperationalLockBanner", ui: <OperationalLockBanner title="Locked" />, fill: "bg-warning-soft" },
+    { name: "OperationalStatusBanner", ui: <OperationalStatusBanner title="Status" />, fill: "bg-info-soft" },
+    { name: "TaskSummary", ui: <TaskSummary title="Summary" items={[]} />, fill: "bg-surface-2" },
+  ])("renders $name as tinted furniture", ({ ui, fill }) => {
+    const { container } = render(ui);
+    const classes = container.firstElementChild?.className.split(" ");
+    expect(classes).toContain(fill);
+    expect(classes).not.toContain("surface-border");
+    expect(classes?.some((value) => /^(border|shadow|ds-glass)/.test(value))).toBe(false);
+  });
+
+  it("renders WorkflowModule as flush furniture", () => {
+    const { container } = render(<WorkflowModule title="Step">Content</WorkflowModule>);
+    expect(container.firstElementChild?.className).toBe("min-w-0 max-w-full rounded-tokenLg p-4 gap-3");
+  });
+
+  it.each([
+    { status: "passed", fill: "bg-success-soft" },
+    { status: "blocked", fill: "bg-danger-soft" },
+    { status: "warning", fill: "bg-warning-soft" },
+    { status: "pending", fill: "bg-surface-2" },
+  ] as const)("renders $status readiness furniture with a tint but no raised chrome", ({ status, fill }) => {
+    const { container } = render(
+      <WorkflowReadinessChecklist items={[{ key: status, label: "Check", status, statusLabel: status }]} />,
+    );
+    const classes = container.querySelector("li > div")?.className.split(" ");
+    expect(classes).toContain(fill);
+    expect(classes).not.toContain("surface-border");
+    expect(classes?.some((value) => /^(border|shadow|ds-glass)/.test(value))).toBe(false);
+  });
+
+  it.each([undefined, "/card.png"])("keeps Thumbnail elevated with image source %s", (src) => {
+    const { container } = render(<Thumbnail src={src} alt="Card" />);
+    expect(container.firstElementChild?.className).toBe(
+      "surface-border min-w-0 max-w-full rounded-tokenLg ds-glass bg-elevated p-0 shadow-tokenLg",
+    );
+  });
+});
 
 function ControlledToastHarness() {
   const [open, setOpen] = useState(true);
