@@ -55,6 +55,11 @@ import type { CatalogControlPlaneRouteSurfaceKey } from "../../../features/sourc
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
 import type { CatalogAliasReviewReadModel } from "../../../features/alias-equivalence/api/alias-review-admin-contracts";
 import type { CatalogAttentionQueueReadModel } from "../../../features/attention-queue/api/contracts";
+import {
+  CATALOG_ATTENTION_QUEUE_UNAVAILABLE,
+  resolveCatalogAttentionQueueResult,
+  type CatalogDeferredAttentionQueueResult,
+} from "./attention-queue-result";
 import { CatalogApiError } from "../../../client";
 import { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
 import { integrationScopeFromContext, previewPromotionForContext } from "./integrations-command-context";
@@ -289,9 +294,10 @@ export async function loadDailySurfaceForRequest(request: Request) {
     // Streamed supplementary values. Each is a plain promise the route view
     // renders behind <Suspense>/<Await>; react-router serializes them so the
     // document flushes the shell first and the panels stream in. The fail-soft
-    // boundary (null/empty on absence/error) lives INSIDE each promise, so a
-    // missing endpoint or transient failure resolves to an empty/absent panel
-    // rather than rejecting the boundary into an error page.
+    // boundary (null/empty on absence/error, or the attention queue's explicit
+    // `unavailable` branch) lives INSIDE each promise, so a missing endpoint or
+    // transient failure resolves to an absent or visibly degraded panel rather
+    // than rejecting the boundary into an error page.
     deferredSourceOptions: deferredSourceOptionsSlice(
       api,
       request,
@@ -309,19 +315,25 @@ export async function loadDailySurfaceForRequest(request: Request) {
 
 // Fetch the unified attention queue for the daily home surface. Like the
 // alias review, it is supplementary "needs-you" context streamed behind an Await
-// boundary: a missing endpoint (older API) or a transient failure resolves to
-// null so the import-to-promotion workflow is never blocked by the queue.
+// boundary, and it stays fail-soft for the import-to-promotion workflow: a
+// missing endpoint (older API), a transport rejection, or a response the
+// loader-local parser refuses resolves to `unavailable` — never a rejected
+// boundary. Fail-soft means visible degradation, not silent absence: only a
+// fully validated read model becomes `ready`, so the route can tell "nothing
+// needs you" apart from "the queue could not be read" (#7845).
 async function selectedAttentionQueue(
   api: ReturnType<typeof createCatalogRequestApiClient>,
-): Promise<CatalogAttentionQueueReadModel | null> {
+): Promise<CatalogDeferredAttentionQueueResult> {
   if (typeof api.getCatalogAttentionQueueReadModel !== "function") {
-    return null;
+    return CATALOG_ATTENTION_QUEUE_UNAVAILABLE;
   }
+  let response: unknown;
   try {
-    return await api.getCatalogAttentionQueueReadModel<CatalogAttentionQueueReadModel>();
+    response = await api.getCatalogAttentionQueueReadModel<CatalogAttentionQueueReadModel>();
   } catch {
-    return null;
+    return CATALOG_ATTENTION_QUEUE_UNAVAILABLE;
   }
+  return resolveCatalogAttentionQueueResult(response);
 }
 
 function normalizedDailyRouteContext(
