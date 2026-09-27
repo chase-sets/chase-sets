@@ -20,7 +20,7 @@ type AdmittedEvidenceWindowSource = NonNullable<
 >;
 
 /**
- * Host-owned checkout admission (#6755). In test mode it reads the nonsecret
+ * Host-owned checkout admission. In test mode it reads the nonsecret
  * header pair, admits only an open, test-mode, unexpired registration through
  * the private by-id read, and stamps the per-call context the Ordering
  * checkout route hands to its runtime. It never answers the request, so the

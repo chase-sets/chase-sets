@@ -251,7 +251,7 @@ export type AdmittedOrderingEvidenceWindowSource = Readonly<{
 
 /**
  * Server-owned checkout request context stamped by the host's evidence-window
- * HTTP admission (#6755). It is present only when the host mounted admission;
+ * HTTP admission. It is present only when the host mounted admission;
  * `source` is set only for an admitted open, test-mode, unexpired registration.
  */
 export type OrderingEvidenceWindowSourceAdmissionContext = Readonly<{
@@ -481,8 +481,8 @@ export type OrderingOrderServices = Readonly<{
       customerAccountIsGuest?: boolean;
       orderIdsOverride?: readonly OrderId[];
       /**
-       * Server-owned per-call context stamped by the host's HTTP admission
-       * (#6755): `evidenceWindowSource` is the admitted registration, and
+       * Server-owned per-call context stamped by the host's HTTP admission:
+       * `evidenceWindowSource` is the admitted registration, and
        * `evidenceWindowSourceAdmissionConfigured` says the host mounted
        * admission for this call, so an unadmitted call still refuses a bound
        * source. Neither value is ever read from the request body.
