@@ -801,7 +801,8 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         inventoryListingCapacityRepository.load(capacityStreamId),
       ]);
       if (listing.state.listingId !== null) {
-        return listing.version;
+        const result = await replayListingCreation(listingStreamId, command.requestFingerprint);
+        return result.version;
       }
       const discoveredListingIds =
         capacity.state.listingIds.length === 0 ? await discoverInventoryListingIds(inventoryItemId) : [];
@@ -1449,44 +1450,26 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     }
     const listingId = params.listingIdOverride ?? (createId("lst") as ListingId);
     const streamId = `marketplace.listing-${listingId}`;
+    const requestFingerprint = listingRequestFingerprint(
+      {
+        type: "CreateListing",
+        ...params,
+        listingPhotoUploads:
+          params.listingPhotoUploads?.map(({ body, ...metadata }) => ({
+            ...metadata,
+            bodySha256: createHash("sha256").update(body).digest("hex"),
+          })) ?? null,
+        publicationScope,
+        listingId,
+        priceAmount: normalizePriceAmount(params.priceAmount),
+        priceCurrencyCode: normalizeListingPriceCurrencyCode(params.priceCurrencyCode),
+      },
+      context,
+    );
     const existing = await repository.load(streamId);
     if (existing.state.listingId !== null) {
       assert(existing.state.accountId === params.accountId, "Listing not found.");
-      assert(existing.state.publicationScope === publicationScope, "Listing creation scope changed.");
-      if (publicationScope === "channel-only") {
-        assert(
-          existing.state.inventoryItemId === params.inventoryItemId &&
-            existing.state.priceAmount === normalizePriceAmount(params.priceAmount) &&
-            existing.state.priceCurrencyCode === normalizeListingPriceCurrencyCode(params.priceCurrencyCode) &&
-            existing.state.quantityCap === params.quantityCap,
-          "Listing creation request changed.",
-        );
-        return { listingId, version: existing.version, nativeFeeState: "not-enrolled", feeQuoteFingerprint: null };
-      }
-      const feeQuoteFingerprint = existing.state.feeQuoteFingerprint;
-      assert(feeQuoteFingerprint, "Listing fee quote fingerprint is missing.");
-      if (params.listingPhotoUploads?.length) {
-        const photoResult = await addListingPhotos(
-          {
-            accountId: params.accountId,
-            listingId,
-            listingPhotoUploads: params.listingPhotoUploads,
-          },
-          context,
-        );
-        return {
-          listingId,
-          version: photoResult.version,
-          feeQuoteFingerprint,
-          nativeFeeState: "enrolled",
-        };
-      }
-      return {
-        listingId,
-        version: existing.version,
-        feeQuoteFingerprint,
-        nativeFeeState: "enrolled",
-      };
+      return replayListingCreation(streamId, requestFingerprint);
     }
     const supply = await getInventoryItemSupply(deps.db, params.inventoryItemId, params.accountId);
     assert(supply, "Inventory item not found.");
@@ -1519,11 +1502,12 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       throw new Error("Listing evidence requirements are unavailable.");
     }
 
-    const version = await commitListingCreation(
+    await commitListingCreation(
       streamId,
       supply.item_id,
       {
         type: "CreateListing",
+        requestFingerprint,
         publicationScope,
         listingId,
         accountId: params.accountId,
@@ -1552,9 +1536,27 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       creationGuards,
     );
 
-    return quote
-      ? { listingId, version, nativeFeeState: "enrolled", feeQuoteFingerprint: quote.fee_quote_fingerprint }
-      : { listingId, version, nativeFeeState: "not-enrolled", feeQuoteFingerprint: null };
+    return replayListingCreation(streamId, requestFingerprint);
+  }
+
+  async function replayListingCreation(
+    streamId: string,
+    requestFingerprint: string | undefined,
+  ): Promise<MarketplaceNativeListingCreationResult | MarketplaceChannelOnlyListingCreationResult> {
+    const [created] = await deps.eventStore.readStream({ streamId, limit: 1 });
+    assert(
+      requestFingerprint &&
+        created?.eventType === "marketplace.listing.created" &&
+        created.payload.requestFingerprint === requestFingerprint,
+      "Listing creation request changed.",
+    );
+    const listingId = String(created.payload.listingId) as ListingId;
+    if (created.payload.publicationScope === "channel-only") {
+      return { listingId, version: created.streamVersion, nativeFeeState: "not-enrolled", feeQuoteFingerprint: null };
+    }
+    const feeQuoteFingerprint = created.payload.feeQuoteFingerprint;
+    assert(typeof feeQuoteFingerprint === "string" && feeQuoteFingerprint, "Listing fee quote fingerprint is missing.");
+    return { listingId, version: created.streamVersion, nativeFeeState: "enrolled", feeQuoteFingerprint };
   }
 
   async function addListingPhotos(

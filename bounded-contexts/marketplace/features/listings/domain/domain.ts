@@ -427,6 +427,7 @@ export const initialMarketplaceListingState: MarketplaceListingState = {
 
 export type CreateListingCommand = Readonly<{
   type: "CreateListing";
+  requestFingerprint?: string;
   publicationScope?: "native" | "channel-only";
   listingId: ListingId;
   accountId: AccountId;
@@ -584,6 +585,7 @@ export type ListingCreatedEvent = DomainEvent<
   "marketplace.listing.created",
   Readonly<{
     schemaVersion?: 2;
+    requestFingerprint?: string;
     publicationScope?: "native" | "channel-only";
     nativeVisibility?: "enabled" | "disabled";
     nativeFeeState?: "enrolled" | "not-enrolled";
@@ -797,6 +799,7 @@ export const decideMarketplaceListing: AggregateDecider<
           type: "marketplace.listing.created",
           data: {
             schemaVersion: 2,
+            ...(command.requestFingerprint ? { requestFingerprint: command.requestFingerprint } : {}),
             publicationScope,
             nativeVisibility: publicationScope === "native" ? "enabled" : "disabled",
             nativeFeeState: publicationScope === "native" ? "enrolled" : "not-enrolled",
