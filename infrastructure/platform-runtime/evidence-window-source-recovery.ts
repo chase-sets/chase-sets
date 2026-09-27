@@ -17,23 +17,41 @@ export type EvidenceWindowSourceRecoveryRoutesOptions = Readonly<{
 
 export function createEvidenceWindowSourceRecoveryRoutes(options: EvidenceWindowSourceRecoveryRoutesOptions) {
   const routes = new Hono();
-  const authorized = (header: string | undefined) =>
-    verifyPlatformInternalAuthSecret(header ?? "", options.admissionSecret) &&
-    options.authority.effectiveMode === "test";
-  const refused = (header: string | undefined) =>
+  const refusal = (header: string | undefined) =>
     !verifyPlatformInternalAuthSecret(header ?? "", options.admissionSecret)
-      ? { error: { code: "evidence-window-admission-rejected" } }
-      : { error: { code: "evidence-window-mode-not-test" } };
-  const readRegistration = async (windowId: string) =>
-    EVIDENCE_WINDOW_ID_PATTERN.test(windowId) ? options.registrationById(windowId) : null;
+      ? { status: 403 as const, code: "evidence-window-admission-rejected" }
+      : options.authority.effectiveMode !== "test"
+        ? { status: 409 as const, code: "evidence-window-mode-not-test" }
+        : null;
+  const readRegistration = async (
+    windowId: string,
+  ): Promise<
+    | Readonly<{ kind: "found"; registration: EvidenceWindowById }>
+    | Readonly<{ kind: "invalid" }>
+    | Readonly<{ kind: "unknown" }>
+    | Readonly<{ kind: "storage-failed" }>
+  > => {
+    if (!EVIDENCE_WINDOW_ID_PATTERN.test(windowId)) return { kind: "invalid" };
+    try {
+      const registration = await options.registrationById(windowId);
+      return registration ? { kind: "found", registration } : { kind: "unknown" };
+    } catch {
+      return { kind: "storage-failed" };
+    }
+  };
 
   routes.get("/:windowId/sources", async (c) => {
     const header = c.req.header(EVIDENCE_WINDOW_ADMISSION_HEADER);
-    if (!authorized(header)) return c.json(refused(header), 403);
+    const denied = refusal(header);
+    if (denied) return c.json({ error: { code: denied.code } }, denied.status);
     if (new URL(c.req.url).search || (await c.req.text()))
       return c.json({ error: { code: "evidence-window-request-invalid" } }, 400);
-    const registration = await readRegistration(c.req.param("windowId"));
-    if (!registration) return c.json({ error: { code: "evidence-window-unknown" } }, 404);
+    const lookup = await readRegistration(c.req.param("windowId"));
+    if (lookup.kind === "invalid") return c.json({ error: { code: "evidence-window-request-invalid" } }, 400);
+    if (lookup.kind === "unknown") return c.json({ error: { code: "evidence-window-unknown" } }, 404);
+    if (lookup.kind === "storage-failed")
+      return c.json({ error: { code: "evidence-window-source-storage-failed" } }, 500);
+    const { registration } = lookup;
     try {
       const sources = await options.sources.read(registration.windowId);
       return c.json({ sources });
@@ -44,9 +62,14 @@ export function createEvidenceWindowSourceRecoveryRoutes(options: EvidenceWindow
 
   routes.post("/:windowId/sources/:subInvocation/close", async (c) => {
     const header = c.req.header(EVIDENCE_WINDOW_ADMISSION_HEADER);
-    if (!authorized(header)) return c.json(refused(header), 403);
-    const registration = await readRegistration(c.req.param("windowId"));
-    if (!registration) return c.json({ error: { code: "evidence-window-unknown" } }, 404);
+    const denied = refusal(header);
+    if (denied) return c.json({ error: { code: denied.code } }, denied.status);
+    const lookup = await readRegistration(c.req.param("windowId"));
+    if (lookup.kind === "invalid") return c.json({ error: { code: "evidence-window-request-invalid" } }, 400);
+    if (lookup.kind === "unknown") return c.json({ error: { code: "evidence-window-unknown" } }, 404);
+    if (lookup.kind === "storage-failed")
+      return c.json({ error: { code: "evidence-window-source-storage-failed" } }, 500);
+    const { registration } = lookup;
     const subInvocation = c.req.param("subInvocation");
     const body = await readClosedBody(c.req.raw, ["expectedVersion"]);
     if (
@@ -79,9 +102,14 @@ export function createEvidenceWindowSourceRecoveryRoutes(options: EvidenceWindow
 
   routes.post("/:windowId/sources/:subInvocation/release", async (c) => {
     const header = c.req.header(EVIDENCE_WINDOW_ADMISSION_HEADER);
-    if (!authorized(header)) return c.json(refused(header), 403);
-    const registration = await readRegistration(c.req.param("windowId"));
-    if (!registration) return c.json({ error: { code: "evidence-window-unknown" } }, 404);
+    const denied = refusal(header);
+    if (denied) return c.json({ error: { code: denied.code } }, denied.status);
+    const lookup = await readRegistration(c.req.param("windowId"));
+    if (lookup.kind === "invalid") return c.json({ error: { code: "evidence-window-request-invalid" } }, 400);
+    if (lookup.kind === "unknown") return c.json({ error: { code: "evidence-window-unknown" } }, 404);
+    if (lookup.kind === "storage-failed")
+      return c.json({ error: { code: "evidence-window-source-storage-failed" } }, 500);
+    const { registration } = lookup;
     const subInvocation = c.req.param("subInvocation");
     const body = await readClosedBody(c.req.raw, ["windowOpenedAt"]);
     if (

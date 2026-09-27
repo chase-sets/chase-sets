@@ -3,6 +3,7 @@ import {
   bindEvidenceWindowSource,
   closeEvidenceWindowSource,
   observeEvidenceWindowSource,
+  readEvidenceWindowSourceByIdentity,
   readEvidenceWindowSources,
   releaseEvidenceWindowSource,
   withOpenEvidenceWindowSource,
@@ -1511,6 +1512,19 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       evolve: evolveOrderingOrder,
       decide: decideOrderingOrder,
     }).commandHandler;
+  const publicCommandHandler: typeof commandHandler = async (input) => {
+    if (input.command.type !== "CreateOrder" || !input.command.sourceReferenceId || !deps.evidenceWindowSourceAdmission)
+      return commandHandler(input);
+    const identity: EvidenceWindowSourceIdentity = {
+      sourceType: input.command.sourceType,
+      sourceReferenceId: input.command.sourceReferenceId,
+      buyerAccountId: input.command.buyerAccountId,
+    };
+    const bound = await readEvidenceWindowSourceByIdentity(deps.db, identity);
+    return bound
+      ? withOpenEvidenceWindowSource(deps.db, identity, (client) => orderHandlerInTransaction(client)(input))
+      : commandHandler(input);
+  };
   const { commandHandler: sellerCapacitySignalCommandHandler, repository: sellerCapacitySignalRepository } =
     createAggregateCommandHandler({
       eventStore: deps.eventStore,
@@ -1533,7 +1547,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
     context: EventStoreContext,
     governedSource?: EvidenceWindowSourceIdentity,
   ) => {
-    const { atCapacity } = await reconcileSellerOrderCapacity(deps.db, sellerAccountId);
+    const { atCapacity } = await reconcileSellerOrderCapacity(deps.db, sellerAccountId, governedSource);
     const signal = {
       streamId: `ordering.seller-capacity-${sellerAccountId}`,
       command: atCapacity
@@ -1593,7 +1607,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
     return { existingCount, matchingCount };
   };
 
-  const completedOrderSourceResult = async (claim: OrderSourceClaim) => {
+  const completedOrderSourceResult = async (claim: OrderSourceClaim, governed = false) => {
     if (claim.status === "created") {
       return { orderIds: [...claim.orderIds], rejectedSellerAccountIds: [] };
     }
@@ -1601,7 +1615,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
     if (streamStatus.existingCount !== claim.orderIds.length || streamStatus.matchingCount !== claim.orderIds.length) {
       return null;
     }
-    await completeOrderSourceClaim(deps.db, claim, claim.orderIds);
+    await completeOrderSourceClaim(deps.db, claim, claim.orderIds, governed);
     return { orderIds: [...claim.orderIds], rejectedSellerAccountIds: [] };
   };
 
@@ -1683,8 +1697,14 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
     reconcileSeller: async (sellerId: string) => {
       const claim = await deps.db.query<{ order_id: string }>(
         `SELECT order_id FROM ordering_seller_open_order_claims
-         WHERE seller_account_id = $1 ORDER BY order_id LIMIT 65`,
-        [sellerId],
+         WHERE seller_account_id = $1
+           AND order_id IN (
+             SELECT jsonb_array_elements_text(order_ids)
+             FROM ordering_order_source_claims
+             WHERE source_type = $2 AND source_reference_id = $3 AND buyer_account_id = $4
+           )
+         ORDER BY order_id LIMIT 65`,
+        [sellerId, identity.sourceType, identity.sourceReferenceId, identity.buyerAccountId],
       );
       let first: StoredEvent | undefined;
       for (const row of claim.rows) {
@@ -1714,6 +1734,20 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
     }
     if (authenticityPlan && plan.orderDrafts.length !== 1) {
       throw new OrderingDomainError("Authenticity check requires a single-seller order.");
+    }
+    if (!governedSource && deps.evidenceWindowSourceAdmission) {
+      for (const draft of plan.orderDrafts) {
+        if (
+          draft.sourceReferenceId &&
+          (await readEvidenceWindowSourceByIdentity(deps.db, {
+            sourceType: draft.sourceType,
+            sourceReferenceId: draft.sourceReferenceId,
+            buyerAccountId,
+          }))
+        ) {
+          throw new OrderingDomainError("Evidence window source requires admitted creation context.");
+        }
+      }
     }
 
     // Order Capacity enforcement (m127): order ids are generated up
@@ -2203,7 +2237,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       if (!registration) throw new OrderingDomainError("Evidence window source admission refused.");
       return { windowId, subInvocation, windowOpenedAt: registration.windowOpenedAt };
     },
-    commandHandler,
+    commandHandler: publicCommandHandler,
     previewCheckoutFulfillment: async (params) => {
       const optimizationGoal = params.optimizationGoal ?? "lowest-total";
       const unavailableLines: Array<CheckoutFulfillmentPreview["unavailableLines"][number]> = [];
@@ -2388,14 +2422,22 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       });
     },
     createOrdersFromCheckout: async (params, context) => {
+      const sourceIdentity = {
+        sourceType: params.sourceType,
+        sourceReferenceId: params.checkoutSessionId,
+        buyerAccountId: params.buyerAccountId,
+      };
+      if (
+        deps.evidenceWindowSourceAdmission &&
+        !params.evidenceWindowSource &&
+        (await readEvidenceWindowSourceByIdentity(deps.db, sourceIdentity))
+      ) {
+        throw new OrderingDomainError("Evidence window source requires admitted creation context.");
+      }
       if (params.evidenceWindowSource) {
         const binding = await bindEvidenceWindowSource(deps.db, {
           ...params.evidenceWindowSource,
-          sourceIdentity: {
-            sourceType: params.sourceType,
-            sourceReferenceId: params.checkoutSessionId,
-            buyerAccountId: params.buyerAccountId,
-          },
+          sourceIdentity,
         });
         if (binding.outcome !== "bound" && binding.outcome !== "existing") {
           throw new OrderingDomainError("Evidence window source binding refused.");
@@ -2406,7 +2448,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         if (existingClaim.buyerAccountId !== params.buyerAccountId) {
           throw new OrderingDomainError("Order source identity is already claimed by another buyer account.");
         }
-        const completed = await completedOrderSourceResult(existingClaim);
+        const completed = await completedOrderSourceResult(existingClaim, Boolean(params.evidenceWindowSource));
         if (completed) {
           return completed;
         }
@@ -2487,7 +2529,10 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         Boolean(params.evidenceWindowSource),
       );
       if (sourceClaimResult.outcome === "existing") {
-        const completed = await completedOrderSourceResult(sourceClaimResult.claim);
+        const completed = await completedOrderSourceResult(
+          sourceClaimResult.claim,
+          Boolean(params.evidenceWindowSource),
+        );
         if (completed) {
           return completed;
         }

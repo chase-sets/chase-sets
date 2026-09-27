@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { spawn, spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -6,10 +8,16 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  createPostgresEventStore,
+  eventCorePostgresSchemaSql,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
+import type { OrderId } from "@chase-sets/primitives/typed-ids";
 import { module as orderingModule } from "../../../index";
 import { orderingOrderSchemaMigrations } from "../read-model/schema";
 import { decrementPurchaseLimitUsage } from "./purchase-limits";
+import { compensatePendingOrderSourceClaim } from "./order-source-claims";
 import { context, createCheckpointStore, createOrderingOrderRuntimeForTest } from "./runtime-test-harness";
 import {
   bindEvidenceWindowSource,
@@ -48,6 +56,7 @@ describeDb("Ordering evidence-window source recovery DB", () => {
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
     await db.query(orderingModule.schemaSql);
+    await db.query(eventCorePostgresSchemaSql);
     openedAt = new Date().toISOString();
   });
   afterAll(async () => closeMultiContextTestPools(pools));
@@ -302,6 +311,104 @@ describeDb("Ordering evidence-window source recovery DB", () => {
     expect((await db.query(`SELECT 1 FROM ordering_order_source_claims`)).rows).toHaveLength(0);
   });
 
+  it.each(["after reconcile/pre-root delete", "after root delete/pre-runner outcome"])(
+    "AC-13 fresh identity-only retry after a real process kill at %s",
+    async (cut) => {
+      await bind();
+      await db.query(
+        `INSERT INTO ordering_order_source_claims
+         (source_type, source_reference_id, buyer_account_id, order_ids, status)
+         VALUES ($1, $2, $3, '["ord_signal"]'::jsonb, 'pending')`,
+        [identity.sourceType, identity.sourceReferenceId, identity.buyerAccountId],
+      );
+      await db.query(
+        `INSERT INTO ordering_seller_order_capacity_inputs (seller_account_id, max_open_orders)
+         VALUES ('acc_seller', 1)`,
+      );
+      await db.query(
+        `INSERT INTO ordering_seller_open_order_claims (order_id, seller_account_id, status, claimed_at)
+         VALUES ('ord_signal', 'acc_seller', 'claimed', now())`,
+      );
+      const runtime = createOrderingOrderRuntimeForTest({
+        db,
+        eventStore: createPostgresEventStore({ pool: db }),
+        checkpointStore: createCheckpointStore(),
+        shippingQuotePolicy: {
+          quote: () => ({
+            shippingOption: "standard",
+            baseAmount: "0.00",
+            discountAmount: "0.00",
+            chargeAmount: "0.00",
+          }),
+        },
+      });
+      await runtime.reconcileSellerOrderCapacitySignal("acc_seller", context);
+      await close();
+
+      const script = fileURLToPath(new URL("./evidence-window-source-process.ts", import.meta.url));
+      const childEnv = {
+        ...process.env,
+        TEST_SOURCE_DB_URL: createMultiContextTestDatabaseUrls(
+          databaseBaseUrl!,
+          contextNames,
+          "ordering_evidence_sources",
+        ).ordering,
+        TEST_SOURCE_OPENED_AT: openedAt,
+        TEST_SOURCE_REFERENCE_ID: identity.sourceReferenceId,
+      };
+      const child = spawn(process.execPath, ["--import", "tsx", script], {
+        cwd: process.cwd(),
+        env: { ...childEnv, TEST_SOURCE_RELEASE_CUT: cut },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let output = "";
+      let stderr = "";
+      child.stderr.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString();
+      });
+      const reached = new Promise<void>((resolve, reject) => {
+        child.stdout.on("data", (chunk: Buffer) => {
+          output += chunk.toString();
+          if (output.includes(`CUT:${cut}\n`)) resolve();
+        });
+        child.on("error", reject);
+        child.on("exit", (code) => reject(new Error(`release exited before ${cut}: ${code} ${stderr}`)));
+      });
+      let watchdog: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          reached,
+          new Promise<never>((_, reject) => {
+            watchdog = setTimeout(() => reject(new Error(`release did not reach ${cut}: ${stderr}`)), 8000);
+          }),
+        ]);
+      } finally {
+        if (watchdog) clearTimeout(watchdog);
+        child.kill();
+        if (child.exitCode === null) await new Promise<void>((resolve) => child.once("exit", () => resolve()));
+      }
+      const restarted = spawnSync(process.execPath, ["--import", "tsx", script], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: childEnv,
+      });
+      expect(restarted.status, restarted.stderr).toBe(0);
+      expect(JSON.parse(restarted.stdout.trim())).toEqual({ outcome: "discharged" });
+      expect((await db.query(`SELECT 1 FROM ordering_order_source_claims`)).rows).toHaveLength(0);
+      const events = await db.query<{ event_type: string }>(
+        `SELECT event_type FROM event_store_events WHERE stream_id = 'ordering.seller-capacity-acc_seller'
+         ORDER BY stream_version`,
+      );
+      expect(events.rows.map((row) => row.event_type)).toEqual([
+        "ordering.seller-capacity.reached",
+        "ordering.seller-capacity.cleared",
+      ]);
+      expect(
+        (await runtime.evidenceWindowSources.release({ sourceIdentity: identity, windowOpenedAt: openedAt }))?.outcome,
+      ).toBe("discharged");
+    },
+  );
+
   it("AC-09 keeps the root while an Order surface is owed and finalizes under CAS", async () => {
     await bind();
     await db.query(
@@ -330,6 +437,109 @@ describeDb("Ordering evidence-window source recovery DB", () => {
     expect((await db.query(`SELECT 1 FROM ordering_order_source_claims`)).rows).toHaveLength(0);
   });
 
+  it("AC-09 rolls back the claimed usage transition when decrement fails", async () => {
+    await bind();
+    await claim("claimed", "lst_claimed", 2);
+    await close();
+    await expect(
+      releaseEvidenceWindowSource(
+        db,
+        { sourceIdentity: identity, windowOpenedAt: openedAt },
+        {
+          ...actions,
+          decrementUsage: async () => {
+            throw new Error("injected usage failure");
+          },
+        },
+      ),
+    ).rejects.toThrow("injected usage failure");
+    expect(
+      (await db.query<{ status: string }>(`SELECT status FROM ordering_listing_purchase_limit_claims`)).rows[0]?.status,
+    ).toBe("claimed");
+    expect(
+      (await db.query<{ terminal_report: unknown }>(`SELECT terminal_report FROM ordering_evidence_window_sources`))
+        .rows[0]?.terminal_report,
+    ).toBeNull();
+    expect((await release())?.outcome).toBe("discharged");
+  });
+
+  it.each(["order", "seller"])("AC-09 retains the source root for an unknown %s surface", async (surface) => {
+    await bind();
+    await db.query(
+      `INSERT INTO ordering_order_source_claims
+       (source_type, source_reference_id, buyer_account_id, order_ids, status)
+       VALUES ($1, $2, $3, '["ord_unknown"]'::jsonb, 'pending')`,
+      [identity.sourceType, identity.sourceReferenceId, identity.buyerAccountId],
+    );
+    await db.query(
+      `INSERT INTO ordering_seller_open_order_claims (order_id, seller_account_id, status, claimed_at)
+       VALUES ('ord_unknown', 'acc_seller', 'claimed', now())`,
+    );
+    await close();
+    const report = await releaseEvidenceWindowSource(
+      db,
+      { sourceIdentity: identity, windowOpenedAt: openedAt },
+      {
+        ...actions,
+        readOrder: async () => (surface === "order" ? "unknown" : "missing"),
+        readSellerSignal: async () => (surface === "seller" ? "unknown" : "converged"),
+      },
+    );
+    expect(report?.outcome).toBe("unknown");
+    expect((await db.query(`SELECT 1 FROM ordering_order_source_claims`)).rows).toHaveLength(1);
+    expect(
+      (await db.query<{ terminal_report: unknown }>(`SELECT terminal_report FROM ordering_evidence_window_sources`))
+        .rows[0]?.terminal_report,
+    ).toBeNull();
+    expect((await release())?.outcome).toBe("discharged");
+  });
+
+  it("AC-09 rejects a terminal-report write failure without deleting the source root", async () => {
+    await bind();
+    await db.query(
+      `INSERT INTO ordering_order_source_claims
+       (source_type, source_reference_id, buyer_account_id, order_ids, status)
+       VALUES ($1, $2, $3, '["ord_proposed"]'::jsonb, 'pending')`,
+      [identity.sourceType, identity.sourceReferenceId, identity.buyerAccountId],
+    );
+    await close();
+    const failingDb: PgTransactionalPool = {
+      query: db.query.bind(db),
+      connect: async () => {
+        const client = await db.connect();
+        return {
+          query: async <Row = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
+            if (sql.includes("SET discharged_at = now()")) throw new Error("injected report failure");
+            return client.query<Row>(sql, values);
+          },
+          release: client.release.bind(client),
+        };
+      },
+    };
+    await expect(
+      releaseEvidenceWindowSource(failingDb, { sourceIdentity: identity, windowOpenedAt: openedAt }, actions),
+    ).rejects.toThrow("injected report failure");
+    expect((await db.query(`SELECT 1 FROM ordering_order_source_claims`)).rows).toHaveLength(1);
+    expect((await release())?.outcome).toBe("discharged");
+  });
+
+  it("AC-14 protects governed claim provenance from the failed-source DELETE writer", async () => {
+    await bind();
+    await claim("pending", "lst_retained", 3);
+    const source = { ...identity, orderIds: ["ord_proposed" as OrderId] };
+    await db.query(
+      `INSERT INTO ordering_order_source_claims
+       (source_type, source_reference_id, buyer_account_id, order_ids, status)
+       VALUES ($1, $2, $3, '["ord_proposed"]'::jsonb, 'pending')`,
+      [identity.sourceType, identity.sourceReferenceId, identity.buyerAccountId],
+    );
+    await compensatePendingOrderSourceClaim(db, source, async () => false);
+    expect((await db.query(`SELECT 1 FROM ordering_listing_purchase_limit_claims`)).rows).toHaveLength(1);
+    expect((await db.query(`SELECT 1 FROM ordering_order_source_claims`)).rows).toHaveLength(1);
+    await close();
+    expect((await release())?.outcome).toBe("discharged-with-bounded-usage-residue");
+  });
+
   it("AC-14 validates residue bounds and fresh/upgrade/reapply schema parity", async () => {
     const migration = orderingOrderSchemaMigrations.find(
       (item) => item.migrationId === "20260926_ordering_evidence_window_sources",
@@ -349,5 +559,23 @@ describeDb("Ordering evidence-window source recovery DB", () => {
       ).rejects.toThrow();
     }
     expect((await db.query(`SELECT 1 FROM ordering_listing_purchase_limit_claims`)).rows).toHaveLength(0);
+  });
+
+  it("AC-14 day-after is recoverable but swept-horizon evidence is unknown, not not-created", async () => {
+    openedAt = new Date(Date.now() - 86_400_000).toISOString();
+    await bind();
+    await close();
+    expect((await release())?.surfaces.orderStreams).toBe("not-created");
+    const retained = await release();
+    expect(retained?.outcome).toBe("discharged");
+
+    await db.query(`DELETE FROM ordering_evidence_window_sources`);
+    openedAt = new Date(Date.now() - 31 * 86_400_000).toISOString();
+    await bind();
+    await close();
+    const expired = await observeEvidenceWindowSource(db, identity, actions);
+    expect(expired?.outcome).toBe("unknown");
+    expect(expired?.surfaces.orderStreams).toBe("unknown");
+    expect((await release())?.outcome).toBe("unknown");
   });
 });

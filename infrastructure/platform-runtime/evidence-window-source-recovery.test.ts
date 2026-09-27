@@ -51,7 +51,7 @@ describe("Ordering source recovery admission routes", () => {
   it("AC-10 refuses production and missing/incorrect parent admission before Ordering I/O", async () => {
     const production = app("live");
     const response = await production.routes.request(`/${windowId}/sources`, { headers });
-    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(response.status).toBe(409);
     expect(production.read).not.toHaveBeenCalled();
     const unadmitted = app();
     expect((await unadmitted.routes.request(`/${windowId}/sources`)).status).toBe(403);
