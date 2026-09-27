@@ -17,7 +17,14 @@ import type {
 import type { ProductMarketStatsSnapshotResponse } from "../../features/market-rollups/api/runtime";
 import type { RepricingPolicyState } from "../../features/repricing-policies/domain/domain";
 import type { RepricingHaltState } from "../../features/repricing-policies/domain/halt";
-import type { RepricingDryRun } from "../../features/repricing-engine/api/dry-run";
+import type { RepricingDryRun, RepricingDryRunBody } from "../../features/repricing-engine/api/dry-run";
+import type { RepricingPolicyListingTrace } from "../../features/repricing-engine/domain/fact";
+import type {
+  RepricingAuthoringPrerequisites,
+  RepricingScopePreview,
+  RepricingScopePreviewInput,
+  listRepricingCategories,
+} from "../../features/repricing-policies/read-model/controls";
 import type { RepricingActivityFilter, listRepricingActivity } from "../../features/repricing-engine/api/activity";
 
 export type RepricingPolicyListItem = RepricingPolicyState & Readonly<{ changesUsedToday: number }>;
@@ -49,6 +56,27 @@ export class PricingApiError extends Error {
   ) {
     super(readApiErrorMessage(body, `API error ${status}`));
   }
+}
+
+export function pricingValidationMessages(error: unknown): readonly string[] {
+  if (!(error instanceof PricingApiError) || error.status !== 400) return [];
+  const body = error.body;
+  if (!body || typeof body !== "object" || !("error" in body)) return [];
+  const envelope = body.error;
+  if (
+    !envelope ||
+    typeof envelope !== "object" ||
+    !("code" in envelope) ||
+    envelope.code !== "validation_failed" ||
+    !("details" in envelope) ||
+    !Array.isArray(envelope.details)
+  )
+    return [];
+  return envelope.details.flatMap((detail: unknown) =>
+    detail && typeof detail === "object" && "message" in detail && typeof detail.message === "string"
+      ? [detail.message]
+      : [],
+  );
 }
 
 export interface PricingApiClientOptions {
@@ -147,6 +175,7 @@ export function createPricingApiClient({
           query: {
             from: params.from,
             to: params.to,
+            currencyCode: params.currencyCode,
             ...(params.granularity ? { granularity: params.granularity } : {}),
           },
           header: headers,
@@ -202,6 +231,56 @@ export function createPricingApiClient({
     },
     async listRepricingPolicies(): Promise<readonly RepricingPolicyListItem[]> {
       return parseJsonResponse(await client.account["repricing-policies"].$get({ header: headers }));
+    },
+    async getRepricingAuthoringPrerequisites(): Promise<RepricingAuthoringPrerequisites> {
+      return parseJsonResponse(
+        await client.account["repricing-policies"]["authoring-prerequisites"].$get({ header: headers }),
+      );
+    },
+    async listRepricingCategories(): Promise<Awaited<ReturnType<typeof listRepricingCategories>>> {
+      return parseJsonResponse(await client.account["repricing-policies"].categories.$get({ header: headers }));
+    },
+    async previewRepricingScope(body: Omit<RepricingScopePreviewInput, "accountId">): Promise<RepricingScopePreview> {
+      return parseJsonResponse(
+        await client.account["repricing-policies"]["scope-preview"].$post({ json: body, header: headers }),
+      );
+    },
+    async createRepricingPolicy(body: { dryRunId: string; name: string }): Promise<RepricingPolicyState> {
+      return parseJsonResponse(await client.account["repricing-policies"].$post({ json: body, header: headers }));
+    },
+    async reviseRepricingPolicy(
+      policyId: string,
+      body: RepricingDryRunBody & { name: string },
+    ): Promise<RepricingPolicyState> {
+      return parseJsonResponse(
+        await client.account["repricing-policies"][":policyId"].revise.$post({
+          param: { policyId },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async startRepricingDryRun(body: RepricingDryRunBody & { replacingPolicyId?: string }): Promise<RepricingDryRun> {
+      return parseJsonResponse(
+        await client.account["repricing-policies"]["dry-runs"].$post({ json: body, header: headers }),
+      );
+    },
+    async getRepricingDryRun(dryRunId: string): Promise<RepricingDryRun> {
+      return parseJsonResponse(
+        await client.account["repricing-policies"]["dry-runs"][":dryRunId"].$get({
+          param: { dryRunId },
+          header: headers,
+        }),
+      );
+    },
+    async listRepricingDryRunTraces(dryRunId: string, after?: string): Promise<readonly RepricingPolicyListingTrace[]> {
+      return parseJsonResponse(
+        await client.account["repricing-policies"]["dry-runs"][":dryRunId"].traces.$get({
+          param: { dryRunId },
+          query: { limit: "100", ...(after ? { after } : {}) },
+          header: headers,
+        }),
+      );
     },
     async getRepricingPolicy(policyId: string): Promise<RepricingPolicyState> {
       return parseJsonResponse(

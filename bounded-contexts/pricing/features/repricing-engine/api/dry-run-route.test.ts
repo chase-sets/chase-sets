@@ -62,6 +62,49 @@ function buildApp(
 }
 
 describe("repricing dry-run routes", () => {
+  it("domain validation details expose intentional messages but not malformed or internal sentinels", async () => {
+    const { app, services } = buildApp();
+    const post = (body: unknown) =>
+      app.request("/dry-runs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const empty = await post({ ...dryRunBody, rules: [] });
+    expect(empty.status).toBe(400);
+    expect(await empty.json()).toEqual({
+      error: {
+        code: "validation_failed",
+        message: "Invalid policy command.",
+        details: [{ message: "A repricing policy must define at least one rule." }],
+      },
+    });
+    const invalidFloor = await post({
+      ...dryRunBody,
+      rules: dryRunBody.rules.map((rule) => ({
+        ...rule,
+        directive: { ...rule.directive, floor: { mode: "absolute", amount: "0" } },
+      })),
+    });
+    expect(await invalidFloor.json()).toEqual({
+      error: {
+        code: "validation_failed",
+        message: "Invalid policy command.",
+        details: [{ message: "Floor amount must be greater than zero." }],
+      },
+    });
+    for (const body of [null, {}, { ...dryRunBody, scope: { kind: "unhandled-sentinel" } }]) {
+      const response = await post(body);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: { code: "validation_failed" } });
+    }
+    const malformed = await app.request("/dry-runs", { method: "POST", body: "{syntax-sentinel" });
+    expect(await malformed.json()).toEqual({ error: { code: "validation_failed" } });
+    vi.mocked(services.enqueueDryRun).mockRejectedValueOnce(new Error("synthetic-internal-sentinel"));
+    const internal = await post(dryRunBody);
+    expect(internal.status).toBe(400);
+    expect(await internal.json()).toEqual({ error: { code: "validation_failed" } });
+  });
   it.each(["owner", "manager", "fulfillment", "viewer", "platform-admin"])(
     "uses resolved pricing presets: %s",
     async (roleKey) => {

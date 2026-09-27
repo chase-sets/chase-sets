@@ -1,4 +1,5 @@
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   withPgTransaction,
@@ -37,8 +38,8 @@ export function createRepricingPolicyActivationServices(
     activateRepricingPolicy: async (
       input: Readonly<{ accountId: string; dryRunId: string; name: string }>,
       context: EventStoreContext,
-    ) =>
-      withPgTransaction(deps.pool, async (client: PgPoolClient) => {
+    ) => {
+      const result = await withPgTransaction(deps.pool, async (client: PgPoolClient) => {
         const run = (
           await client.query<{
             body: RepricingDryRunBody;
@@ -93,15 +94,19 @@ export function createRepricingPolicyActivationServices(
           [input.accountId, input.dryRunId, createdAt, run.body_hash, JSON.stringify(run.body)],
         );
         if (!consumed.rows.length) throw new DryRunRequiredError();
-        await deps.eventStore.appendToStreamInTransaction(client, {
+        const storedEvents = await deps.eventStore.appendToStreamInTransaction(client, {
           streamId: repricingPolicyStreamId(policyId),
           expectedVersion: "no_stream",
           context,
           wakeSourceContextName: "pricing",
           events: events.map(codec.encode),
         });
-        return events.reduce(evolveRepricingPolicy, initialRepricingPolicyState);
-      }),
+        return { state: events.reduce(evolveRepricingPolicy, initialRepricingPolicyState), storedEvents };
+      });
+      if (!result) return null;
+      recordCommittedEvents(result.storedEvents, "pricing");
+      return result.state;
+    },
   };
 }
 

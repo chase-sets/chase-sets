@@ -116,6 +116,75 @@ function freshWriteReceiptOf(call: Call | undefined) {
 }
 
 describe("Seller Desk repricing routes", () => {
+  it("creates from the exact completed run and carries the receipt to the list", async () => {
+    const calls = stubPricingApi({ "POST ": () => jsonResponse(policy, 201, commitHeaders("51")) });
+    const response = (await listAction({
+      request: formRequest("http://localhost/account/desk/repricing", {
+        intent: "create-policy",
+        name: "Synthetic",
+        dryRunId: "exact-run",
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ dryRunId: "exact-run", name: "Synthetic" });
+    const location = response.headers.get("Location")!;
+    expect(new URL(location, "http://localhost").pathname).toBe("/account/desk/repricing");
+    expect(location).toContain("postWriteToken=");
+  });
+  it("revises without a dry run, forwards the full body and retains the detail receipt", async () => {
+    const calls = stubPricingApi({ "POST /rpp_1/revise": () => jsonResponse(policy, 200, commitHeaders("52")) });
+    const body = {
+      name: "Revised",
+      scope: { kind: "all-listings" },
+      excludedListingIds: [],
+      maxChangesPerDay: 25,
+      rules: [],
+    };
+    const response = (await detailAction({
+      request: formRequest("http://localhost/account/desk/repricing/rpp_1", {
+        intent: "revise-policy",
+        policyId: "rpp_1",
+        body: JSON.stringify(body),
+      }),
+      params: { policyId: "rpp_1" },
+      context: undefined,
+    } as never)) as Response;
+    expect(JSON.parse(calls[0]!.body!)).toEqual(body);
+    const location = response.headers.get("Location")!;
+    expect(new URL(location, "http://localhost").pathname).toBe("/account/desk/repricing/rpp_1");
+    expect(location).toContain("postWriteToken=");
+  });
+  it("domain validation details survive the revise action while code-only and 409 responses remain safe", async () => {
+    for (const details of [[{ message: "A repricing policy must define at least one rule." }], undefined]) {
+      stubPricingApi({
+        "POST /rpp_1/revise": () =>
+          jsonResponse({ error: { code: "validation_failed", ...(details ? { details } : {}) } }, 400),
+      });
+      const result = await detailAction({
+        request: formRequest("http://localhost/account/desk/repricing/rpp_1", {
+          intent: "revise-policy",
+          policyId: "rpp_1",
+          body: "{}",
+        }),
+        params: { policyId: "rpp_1" },
+        context: undefined,
+      } as never);
+      expect(result).toMatchObject({ details: details?.map(({ message }) => message) ?? [] });
+    }
+    stubPricingApi({ "POST ": () => jsonResponse({ error: { code: "dry_run_required" } }, 409) });
+    expect(
+      await listAction({
+        request: formRequest("http://localhost/account/desk/repricing", {
+          intent: "create-policy",
+          name: "Synthetic",
+          dryRunId: "stale",
+        }),
+        params: {},
+        context: undefined,
+      } as never),
+    ).toMatchObject({ error: "The repricing change could not be saved. Try again.", details: [] });
+  });
   afterEach(() => {
     vi.unstubAllGlobals();
   });

@@ -294,7 +294,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `SideSheet` | `packages/design-system/src/components/feedback/panel-interactions.tsx` | Purpose not documented; symbol name suggests: Side Sheet. | `bounded-contexts/catalog/features/attention-queue/ui/attention-queue-panel.tsx` |
 | `Skeleton` | `packages/design-system/src/components/feedback/loading.tsx` | Purpose not documented; symbol name suggests: Skeleton. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/source-observation-review/source-observation-review-module.tsx` |
 | `SkipLink` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Skip Link. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |
-| `Slider` | `packages/design-system/src/components/forms/slider.tsx` | Purpose not documented; symbol name suggests: Slider. | `No production consumer yet.` |
+| `Slider` | `packages/design-system/src/components/forms/slider.tsx` | Purpose not documented; symbol name suggests: Slider. | `bounded-contexts/pricing/features/repricing-policies/ui/policy-editor-drawer.tsx` |
 | `Slot` | `packages/design-system/src/primitives/layout.tsx` | Semantic alias for behavior-only mount points such as observer sentinels. | `bounded-contexts/discovery/features/search/ui/search-page.tsx` |
 | `Spacer` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Spacer. | `No production consumer yet.` |
 | `Sparkline` | `packages/design-system/src/components/data-display/chart.tsx` | Purpose not documented; symbol name suggests: Sparkline. | `No production consumer yet.` |

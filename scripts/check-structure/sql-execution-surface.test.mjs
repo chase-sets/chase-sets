@@ -977,10 +977,16 @@ describe("repository-wide SQL execution partition", () => {
         "bounded-contexts/channels/features/credentials/domain/contracts.ts",
         "bounded-contexts/channels/features/credentials/read-model/schema.ts",
         "bounded-contexts/channels/support/runtime-support/secret-envelope.ts",
+        "bounded-contexts/pricing/features/repricing-policies/ui/policy-controls.ts",
+        "bounded-contexts/pricing/features/repricing-policies/ui/presets.ts",
       ]),
     );
     expect(partition.sqlExecuting).toContain("bounded-contexts/channels/features/reconciliation/read-model/detail.ts");
     expect(partition.notSql).toContain("bounded-contexts/channels/features/reconciliation/api/route.ts");
+    expect(partition.notSql).toContain("bounded-contexts/pricing/features/market-rollups/api/route.ts");
+    expect(
+      partition.unresolvedMemberRoots.fileCounts["bounded-contexts/pricing/features/market-rollups/api/route.ts"],
+    ).toBe(4);
     expect(partition.unresolvedMemberRoots).toEqual(legacyPartition.unresolvedMemberRoots);
     expect(partition.sqlExecuting.filter((file) => !legacyPartition.sqlExecuting.includes(file))).toEqual([]);
     expect(partition.unprovableForm.filter((file) => !legacyPartition.unprovableForm.includes(file))).toEqual([]);

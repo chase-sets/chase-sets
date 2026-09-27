@@ -19,6 +19,7 @@ function aggregate(overrides: Partial<ProductMarketAggregate> = {}): ProductMark
     tradeCount90d: 0,
     sellThroughRate: null,
     ...overrides,
+    currencyCode: overrides.currencyCode ?? "USD",
   };
 }
 
@@ -90,6 +91,7 @@ describe("formatSpread", () => {
 describe("formatVerifiedSaleMarkerLabel", () => {
   it("builds an accessible label with price and date", () => {
     const point: ProductRollupSeriesPoint = {
+      currencyCode: "USD",
       day: "2026-07-01",
       firstPriceAmount: "10.00",
       lastPriceAmount: "12.00",

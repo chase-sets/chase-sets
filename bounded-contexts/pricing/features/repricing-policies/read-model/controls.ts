@@ -3,6 +3,33 @@ import { repricingCandidateCte } from "../../repricing-engine/read-model/queries
 import type { RepricingPolicyScope } from "../domain/domain";
 import { candidateAssignmentSql, repricingPolicyAssignmentsSql, scopeMatchSql } from "./schema";
 
+export type RepricingAuthoringPrerequisites = Readonly<{
+  listingCurrencyCodes: readonly string[];
+  hasCostBasis: boolean;
+}>;
+
+export async function getRepricingAuthoringPrerequisites(
+  db: PgQueryable,
+  accountId: string,
+): Promise<RepricingAuthoringPrerequisites> {
+  const result = await db.query<RepricingAuthoringPrerequisites>(
+    `-- #7905 Option A discovers account-wide facts, including withdrawn listings.
+     SELECT COALESCE(array_agg(DISTINCT listing.price_currency_code ORDER BY listing.price_currency_code)
+       FILTER (WHERE listing.price_currency_code IS NOT NULL), ARRAY[]::text[]) AS "listingCurrencyCodes",
+       EXISTS (
+         SELECT 1 FROM pricing_market_listing_inputs AS cost_listing
+         JOIN pricing_inventory_item_inputs AS inventory
+           ON inventory.item_id = cost_listing.inventory_item_id
+           AND inventory.seller_account_id = cost_listing.seller_account_id
+         WHERE cost_listing.seller_account_id = $1 AND inventory.acquisition_cost_amount IS NOT NULL
+       ) AS "hasCostBasis"
+     FROM pricing_market_listing_inputs AS listing
+     WHERE listing.seller_account_id = $1`,
+    [accountId],
+  );
+  return result.rows[0]!;
+}
+
 export async function getRepricingBudget(db: PgQueryable, accountId: string, day: string) {
   const row = (
     await db.query<{ changes_reserved: number }>(

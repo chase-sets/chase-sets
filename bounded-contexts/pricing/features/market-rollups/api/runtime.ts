@@ -58,7 +58,7 @@ export type MarketRollupsServices = Readonly<{
   ) => Promise<readonly MarketStateSnapshotPoint[]>;
   getProductMarketAggregate: (
     params: Readonly<{ catalogItemId: string; productId: string }>,
-  ) => Promise<ProductMarketAggregate | null>;
+  ) => Promise<readonly ProductMarketAggregate[]>;
   getProductMarketStatsSnapshot: (
     params: Readonly<{ catalogItemId: string; productId: string }>,
   ) => Promise<ProductMarketStatsSnapshotResponse>;

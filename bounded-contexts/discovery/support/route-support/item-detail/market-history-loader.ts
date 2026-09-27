@@ -43,33 +43,35 @@ export async function loader({ request, params }: LoaderFunctionArgs): Promise<R
   const api = createPricingRequestApiClient(request);
   const window = resolveMarketHistoryRangeWindow(range);
 
-  const [seriesResponse, statsResponse] = await Promise.all([
-    api.getProductRollupSeries({
-      catalogItemId,
-      productId,
-      from: window.from,
-      to: window.to,
-      granularity: window.granularity,
-    }),
-    api.getProductMarketStatsSnapshot({ catalogItemId, productId }),
-  ]);
+  const statsResponse = await api.getProductMarketStatsSnapshot({ catalogItemId, productId });
+  const aggregate = statsResponse.aggregates[0] ?? null;
+  const seriesResponse = aggregate
+    ? await api.getProductRollupSeries({
+        catalogItemId,
+        productId,
+        currencyCode: aggregate.currencyCode,
+        from: window.from,
+        to: window.to,
+        granularity: window.granularity,
+      })
+    : { items: [] };
 
   const data: MarketHistoryResponse = {
     range,
     minimumSample: statsResponse.statHygiene?.minimumTradeSample ?? DEFAULT_MARKET_HISTORY_MINIMUM_SAMPLE,
     showVerifiedMarkers: statsResponse.displayPolicy?.showVerifiedMarkers ?? DEFAULT_SHOW_VERIFIED_MARKERS,
-    series: seriesResponse.items,
+    series: seriesResponse.items.map(({ currencyCode: _currencyCode, ...point }) => point),
     stats: {
-      aggregate: statsResponse.aggregate
+      aggregate: aggregate
         ? {
-            lastSoldAt: statsResponse.aggregate.lastSoldAt,
-            lastSoldPriceAmount: statsResponse.aggregate.lastSoldPriceAmount,
-            medianPrice30d: statsResponse.aggregate.medianPrice30d,
-            volume30d: statsResponse.aggregate.volume30d,
-            tradeCount30d: statsResponse.aggregate.tradeCount30d,
-            medianPrice90d: statsResponse.aggregate.medianPrice90d,
-            volume90d: statsResponse.aggregate.volume90d,
-            tradeCount90d: statsResponse.aggregate.tradeCount90d,
+            lastSoldAt: aggregate.lastSoldAt,
+            lastSoldPriceAmount: aggregate.lastSoldPriceAmount,
+            medianPrice30d: aggregate.medianPrice30d,
+            volume30d: aggregate.volume30d,
+            tradeCount30d: aggregate.tradeCount30d,
+            medianPrice90d: aggregate.medianPrice90d,
+            volume90d: aggregate.volume90d,
+            tradeCount90d: aggregate.tradeCount90d,
           }
         : null,
       marketState: statsResponse.marketState

@@ -118,7 +118,6 @@ const canonicalReserveZeroConsumerExports = [
   "Sidebar",
   "sidebarWidthClasses",
   "SideNav",
-  "Slider",
   "Spacer",
   "Stagger",
   "StickyBar",

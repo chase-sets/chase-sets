@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { formatDateTime, t } from "@chase-sets/localization";
 import {
   AlertDialog,
@@ -176,6 +176,7 @@ export function PricingRepricingPolicyListPage({
   catchingUpHref = null,
   errorMessage = null,
   busyPolicyId = null,
+  createAction,
   onHaltChange,
   onPause,
   onResume,
@@ -188,6 +189,7 @@ export function PricingRepricingPolicyListPage({
   catchingUpHref?: string | null;
   errorMessage?: string | null;
   busyPolicyId?: string | null;
+  createAction?: ReactNode;
   onHaltChange: (engaged: boolean) => void;
   onPause: (policyId: string) => void;
   onResume: (policyId: string) => void;
@@ -198,6 +200,7 @@ export function PricingRepricingPolicyListPage({
         eyebrow={t("pricing.features.repricingPolicies.ui.policyList.eyebrow")}
         title={t("pricing.features.repricingPolicies.ui.policyList.title")}
         description={t("pricing.features.repricingPolicies.ui.policyList.description")}
+        actions={createAction}
       />
       <Stack gap={6}>
         {errorMessage ? (

@@ -13,9 +13,11 @@ import {
   REPRICING_POLICY_RULE_CAP,
 } from "./policy-bounds";
 
+export class RepricingPolicyValidationError extends Error {}
+
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
-    throw new Error(message);
+    throw new RepricingPolicyValidationError(message);
   }
 }
 
