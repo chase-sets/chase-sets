@@ -32,7 +32,7 @@
         "salesConditions": [],
         "salesLanguages": [],
         "salesVariants": [],
-        "salesListingType": "All",
+        "salesListingType": "ListingWithoutPhotos",
         "listingsVerifiedOnly": true,
         "listingsPageSize": 50,
         "listingsPageBudget": 10,
