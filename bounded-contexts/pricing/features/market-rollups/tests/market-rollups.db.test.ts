@@ -1122,12 +1122,13 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
       prices: ["10.00"],
       idPrefix: "ord_queue_generation",
     });
-    await pool.query(
-      `INSERT INTO pricing_market_trade_rollup_rederive_queue (
-         catalog_catalog_item_id, product_id, day, queued_at
-       ) VALUES ($1, $2, $3, $4)`,
+    const initialQueue = await pool.query(
+      `UPDATE pricing_market_trade_rollup_rederive_queue
+       SET queued_at = $4
+       WHERE catalog_catalog_item_id = $1 AND product_id = $2 AND day = $3`,
       [catalogItemId, productId, day, queuedAt],
     );
+    expect(initialQueue.rowCount).toBe(1);
 
     const [readTuple] = await listQueuedTradeRollupRederives(pool, 1);
     expect(readTuple?.generation).toBe("1");
@@ -1227,7 +1228,8 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
     });
 
     const closer = await runtime.runDailyRollupCloser({ now: "2026-07-11T20:00:00.000Z", limit: 500 });
-    expect(closer.rollupDaysRecomputed).toBe(1);
+    // Readiness now queues the old period as well as the in-window day.
+    expect(closer.rollupDaysRecomputed).toBe(2);
 
     // An explicit late re-derivation must load v1 from the row, never the live v2 document.
     await recomputeDailyProductRollup(pool, {
