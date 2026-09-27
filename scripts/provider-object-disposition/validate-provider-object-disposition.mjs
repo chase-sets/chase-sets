@@ -1,12 +1,9 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import FIXTURE from "./provider-object-disposition-option-b.fixture.json" with { type: "json" };
 import { computeResultDigest } from "./canonicalize-provider-object-disposition.mjs";
 
 // This schema is bound to the Option B six-class disposition model. The six
 // class rows live only in the fixture — "no local duplicate table" is a
 // contract invariant — this module reads them, it never redeclares them.
-const FIXTURE_PATH = fileURLToPath(new URL("./provider-object-disposition-option-b.fixture.json", import.meta.url));
-const FIXTURE = JSON.parse(readFileSync(FIXTURE_PATH, "utf8"));
 
 export const OPTION_B_CLASS_TABLE = Object.freeze(FIXTURE.classTable.map((row) => Object.freeze({ ...row })));
 export const CLASS_ORDER = Object.freeze(OPTION_B_CLASS_TABLE.map((row) => row.class));
