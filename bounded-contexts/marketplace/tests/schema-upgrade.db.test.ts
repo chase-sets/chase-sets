@@ -71,7 +71,10 @@ describeDb("marketplace schema upgrades", () => {
       END $$;
       CREATE TRIGGER reject_managed_acceptance BEFORE INSERT ON event_store_events
       FOR EACH ROW EXECUTE FUNCTION reject_managed_acceptance();`);
-    await expect(f.offers.acceptOffer(params, context)).rejects.toThrow("injected after allowance debit");
+    await expect(f.offers.acceptOffer(params, context)).rejects.toMatchObject({
+      code: "infrastructure_failure",
+      details: { cause: "injected after allowance debit before Offer append" },
+    });
     expect(await store.readAll()).toEqual(before);
     expect((await f.policies.get("bop_one", "acc_buyer")).consumedItemAmount).toBe("0.00");
     await pool.query(
