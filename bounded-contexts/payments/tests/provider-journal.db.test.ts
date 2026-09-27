@@ -30,6 +30,7 @@ import type { AccountId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import { module as paymentsModule } from "../index";
 import { createPaymentsServices } from "../support/runtime-support/services";
 import { createPaymentMcpHandlers } from "../features/payments/api/mcp";
+import { DISPOSITION_RECEIPT_POLICY } from "../../../scripts/provider-object-disposition/disposition-receipt-policy.mjs";
 
 const windowId = "a".repeat(32);
 const accountId = "acc_SYNTHETIC_J" as AccountId;
@@ -142,13 +143,13 @@ describe("deployed provider journal J1-J6 (synthetic DB proof)", () => {
       consentId: "consent_SYNTHETIC",
       consentText: "Synthetic consent",
     });
-    const first = await dispositionServices().disposeEvidenceWindow(windowId);
+    const first = await dispositionServices().disposeEvidenceWindow(windowId, DISPOSITION_RECEIPT_POLICY);
     expect(first.variant).toBe("success");
     expect(first.classes[2]!.observedCount).toBe(0);
     const retained = await journal.readWindow(windowId);
     expect(retained).toHaveLength(2);
     journal = createPostgresEvidenceWindowProviderWrite(pools.payments);
-    const repeated = await dispositionServices().disposeEvidenceWindow(windowId);
+    const repeated = await dispositionServices().disposeEvidenceWindow(windowId, DISPOSITION_RECEIPT_POLICY);
     expect(repeated.classes[2]!.state).toBe("already-terminal");
     expect(posts).toBe(2);
     expect(await journal.readWindow(windowId)).toEqual(retained);
@@ -156,13 +157,15 @@ describe("deployed provider journal J1-J6 (synthetic DB proof)", () => {
 
   it("AC-04b/AC-04c: SQL pending and exhausted ambiguous creation never count as zero", async () => {
     const pending = requireProviderWrite(await journal.reserveOrResolve(customerRequest()));
-    const first = await dispositionServices().disposeEvidenceWindow(windowId);
+    const first = await dispositionServices().disposeEvidenceWindow(windowId, DISPOSITION_RECEIPT_POLICY);
     expect(first.classes[4]).toMatchObject({ state: "unknown", observedCount: null, enumerationComplete: false });
     const replay = requireProviderWrite(
       await journal.claimReplay(pending.key, pending.version, new Date().toISOString()),
     );
     await journal.claimReplay(replay.key, replay.version, new Date().toISOString());
-    expect((await dispositionServices().disposeEvidenceWindow(windowId)).classes[4]).toMatchObject({
+    expect(
+      (await dispositionServices().disposeEvidenceWindow(windowId, DISPOSITION_RECEIPT_POLICY)).classes[4],
+    ).toMatchObject({
       state: "unknown",
       observedCount: null,
     });
@@ -589,7 +592,7 @@ describe("deployed provider journal J1-J6 (synthetic DB proof)", () => {
       await connect.createPayoutNotificationBannerSession({ ...input, evidenceWindowSlot: 3 });
     expect(await journal.readWindow(windowId)).toEqual(before);
     expect(JSON.stringify(before)).not.toContain("SYNTHETIC_ACCOUNT_SESSION");
-    const receipt = await dispositionServices().disposeEvidenceWindow(windowId);
+    const receipt = await dispositionServices().disposeEvidenceWindow(windowId, DISPOSITION_RECEIPT_POLICY);
     expect(receipt.variant).toBe("cleanup-failure");
     expect(receipt.failure).toBe("budget-exceeded");
     expect(receipt.classes[5]).toMatchObject({ observedCount: 3, correlationSource: "creation-time-record" });
@@ -624,7 +627,7 @@ describe("deployed provider journal J1-J6 (synthetic DB proof)", () => {
       );
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
-    const result = await dispositionServices().disposeEvidenceWindow(windowId);
+    const result = await dispositionServices().disposeEvidenceWindow(windowId, DISPOSITION_RECEIPT_POLICY);
     expect(result.classes[4]).toMatchObject({ state: "retained-reused", observedCount: 1 });
     expect(await journal.readWindow(second)).toHaveLength(2);
     expect(fetch).not.toHaveBeenCalled();

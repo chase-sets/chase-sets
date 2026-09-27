@@ -8,17 +8,29 @@ import {
 } from "@chase-sets/evidence-window-provider-write";
 import type { PaymentProcessorGateway, ProcessorSetupSessionCancellationResult } from "@chase-sets/payment-processing";
 import { parseProviderModeObservation, type ProviderModeObservation } from "./contracts";
-import fixture from "../../../../../scripts/provider-object-disposition/provider-object-disposition-option-b.fixture.json";
-import {
-  OPTION_B_CLASS_TABLE,
-  validateProviderObjectDisposition,
-} from "../../../../../scripts/provider-object-disposition/validate-provider-object-disposition.mjs";
-import { computeResultDigest } from "../../../../../scripts/provider-object-disposition/canonicalize-provider-object-disposition.mjs";
+// The purpose-specific capture composition supplies the shipped receipt policy.
+// Payments owns execution, not a second copy of the schema or budget table.
+export type EvidenceWindowDispositionReceiptPolicy = Readonly<{
+  version: string;
+  classTable: readonly Readonly<{
+    class: string;
+    declaredBudget: number;
+    budgetScope: string;
+    precedenceOrdinal: number;
+    successStates: readonly string[];
+  }>[];
+  computeResultDigest: (document: unknown) => string;
+  validateProviderObjectDisposition: (document: unknown) => Readonly<{ ok: boolean }>;
+}>;
 
-type ClassResult = Omit<
-  (typeof fixture.scenarios.success.classes)[number],
-  "observedCount" | "dispositionStartedAt" | "dispositionCompletedAt"
-> & {
+type ClassResult = {
+  class: string;
+  state: string;
+  declaredBudget: number;
+  budgetScope: string;
+  precedenceOrdinal: number;
+  enumerationComplete: boolean;
+  correlationSource: string;
   observedCount: number | null;
   dispositionStartedAt: string | null;
   dispositionCompletedAt: string | null;
@@ -65,7 +77,8 @@ export function setupDisposition(result: ProcessorSetupSessionCancellationResult
 }
 
 export function createEvidenceWindowDisposition(options: EvidenceWindowDispositionOptions) {
-  return async (windowId: string) => {
+  return async (windowId: string, policy: EvidenceWindowDispositionReceiptPolicy) => {
+    const { classTable: OPTION_B_CLASS_TABLE, computeResultDigest, validateProviderObjectDisposition } = policy;
     const startedAt = new Date().toISOString();
     const classes: ClassResult[] = OPTION_B_CLASS_TABLE.map((row) => ({
       class: row.class,
@@ -82,7 +95,7 @@ export function createEvidenceWindowDisposition(options: EvidenceWindowDispositi
     const observation = parseProviderModeObservation(options.providerModeObservation);
     const finish = (variant: string, reason?: string) => {
       const document = {
-        version: fixture.scenarios.success.version,
+        version: policy.version,
         variant,
         emittedBy: "executor",
         startedAt,
@@ -99,6 +112,8 @@ export function createEvidenceWindowDisposition(options: EvidenceWindowDispositi
       if (!validateProviderObjectDisposition(document).ok) throw new Error("Invalid disposition receipt");
       return document;
     };
+    // Validate the fixture-derived table before any journal or provider activity.
+    finish("pre-network-refusal", "authority-unavailable");
     if (!/^[a-f0-9]{32}$/.test(windowId)) return finish("pre-network-refusal", "invalid-input");
     if (observation?.deploymentEnvironment === "production" || observation?.mode === "live")
       return finish("pre-network-refusal", "production-environment");

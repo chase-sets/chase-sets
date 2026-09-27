@@ -22,6 +22,7 @@ import {
   validateProviderObjectDisposition,
 } from "../../../../../scripts/provider-object-disposition/validate-provider-object-disposition.mjs";
 import { computeResultDigest } from "../../../../../scripts/provider-object-disposition/canonicalize-provider-object-disposition.mjs";
+import { DISPOSITION_RECEIPT_POLICY } from "../../../../../scripts/provider-object-disposition/disposition-receipt-policy.mjs";
 
 const windowId = "a".repeat(32);
 const now = "2026-01-01T00:00:00.000Z";
@@ -131,7 +132,8 @@ function compose(initial: ProviderWriteRow[] = [], patch: Partial<EvidenceWindow
     requestCapturedRemedy: async () => true,
     ...patch,
   };
-  return { store, gateway, options, dispose: createEvidenceWindowDisposition(options) };
+  const execute = createEvidenceWindowDisposition(options);
+  return { store, gateway, options, dispose: (id: string) => execute(id, DISPOSITION_RECEIPT_POLICY) };
 }
 
 function fakeProvider(store: EvidenceWindowProviderWrite, lostPosts = 0) {
@@ -170,6 +172,20 @@ describe("evidence window disposition synthetic controls", () => {
     const mutant = { ...result, classes: result.classes.slice(1) };
     mutant.resultDigest = computeResultDigest(mutant);
     expect(validateProviderObjectDisposition(mutant).ok).toBe(false);
+  });
+
+  it("AC-01/AC-09: omitted-class and budget-override policies fail validation before fetch", async () => {
+    const subject = compose([row(2)]);
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    for (const classTable of [
+      DISPOSITION_RECEIPT_POLICY.classTable.slice(1),
+      DISPOSITION_RECEIPT_POLICY.classTable.map((entry) => ({ ...entry, declaredBudget: entry.declaredBudget + 1 })),
+    ])
+      await expect(
+        createEvidenceWindowDisposition(subject.options)(windowId, { ...DISPOSITION_RECEIPT_POLICY, classTable }),
+      ).rejects.toThrow("Invalid disposition receipt");
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("AC-02: gateway-to-fetch cancels uncaptured PI and terminal repeat sends no POST", async () => {
@@ -292,7 +308,9 @@ describe("evidence window disposition synthetic controls", () => {
         moneyMovementKind: "stripe",
       },
     });
-    expect((await services.disposeEvidenceWindow(windowId)).refusal).toBe("production-environment");
+    expect((await services.disposeEvidenceWindow(windowId, DISPOSITION_RECEIPT_POLICY)).refusal).toBe(
+      "production-environment",
+    );
     expect(fetch).not.toHaveBeenCalled();
     expect(authority).not.toHaveBeenCalled();
     expect(read).not.toHaveBeenCalled();
@@ -365,7 +383,9 @@ describe("evidence window disposition synthetic controls", () => {
     );
     expect((await subject.dispose(windowId)).classes[2]!.state).toBe("already-terminal");
     const retained = await subject.store.readWindow(windowId);
-    expect((await createEvidenceWindowDisposition(subject.options)(windowId)).variant).toBe("success");
+    expect((await createEvidenceWindowDisposition(subject.options)(windowId, DISPOSITION_RECEIPT_POLICY)).variant).toBe(
+      "success",
+    );
     expect(posts).toBe(1);
     expect(await subject.store.readWindow(windowId)).toEqual(retained);
   });
@@ -375,7 +395,9 @@ describe("evidence window disposition synthetic controls", () => {
     const attempts = fakeProvider(subject.store, 1);
     expect((await subject.dispose(windowId)).variant).toBe("cleanup-failure");
     const before = (await subject.store.readWindow(windowId)).find((entry) => entry.key.operation === "dispose")!;
-    expect((await createEvidenceWindowDisposition(subject.options)(windowId)).variant).toBe("success");
+    expect((await createEvidenceWindowDisposition(subject.options)(windowId, DISPOSITION_RECEIPT_POLICY)).variant).toBe(
+      "success",
+    );
     const after = (await subject.store.readWindow(windowId)).find((entry) => entry.key.operation === "dispose")!;
     const posts = attempts.filter((attempt) => attempt.method === "POST");
     expect(posts).toHaveLength(2);

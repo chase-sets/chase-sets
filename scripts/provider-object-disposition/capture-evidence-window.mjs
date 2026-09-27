@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { parseStrictRfc3339, validateProviderObjectDisposition } from "./validate-provider-object-disposition.mjs";
+import { DISPOSITION_RECEIPT_POLICY } from "./disposition-receipt-policy.mjs";
 
 const MAPPERS = Object.freeze([
   "customer",
@@ -293,7 +294,7 @@ export async function captureEvidenceWindow(launch) {
   } finally {
     active = null;
     try {
-      disposition = await driver.dispose();
+      disposition = await driver.dispose(DISPOSITION_RECEIPT_POLICY);
     } catch {
       classification = "unknown";
     }
