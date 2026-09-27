@@ -40,6 +40,7 @@ Primary funnel metrics:
 - Hero intent tab selection to form submission.
 - Seller-tools early-access CTA click to final form start.
 - Mobile sticky CTA click to form submission.
+- Desktop sticky CTA click to form submission.
 - Optional marketing consent checked to submitted signup (final-CTA variant only; early-access consent is implied and untracked as a discrete opt-in).
 - Submitted signup to succeeded or failed action result.
 - Successful signup to referral link copy or share click on the post-signup success page (`/welcome`).
