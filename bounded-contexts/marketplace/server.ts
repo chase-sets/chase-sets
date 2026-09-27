@@ -1,6 +1,30 @@
 export { createMarketplaceRequestApiClient, MarketplaceApiError } from "./support/request-support/api-client";
 export { createMarketplaceChannelInboundClampCapability } from "./features/channel-inbound-clamp/api/capability";
 export type { MarketplaceListingServices } from "./features/listings/api/runtime";
+export type {
+  MarketplaceListingCreationInput,
+  MarketplaceCreateListing,
+  MarketplaceNativeListingCreationResult,
+  MarketplaceChannelOnlyListingCreationResult,
+} from "./features/listings/api/runtime";
+export type {
+  AcceptedListingTargetPriceV1,
+  MarketplaceListingPriceDecision,
+  MarketplaceListingPriceTarget,
+  NativeListingEligibilityV1,
+  ListingMutationInput,
+  AcceptListingTargetPriceInput,
+  ActivateListingForChannelInput,
+  SetNativeListingVisibilityInput,
+  ResumeListingInput,
+  ListingMutationResult,
+  ListingTargetPriceAcceptanceResult,
+  ListingAuthorityGuard,
+  ListingAuthorityResult,
+  ListingTargetAuthority,
+  AcceptedListingTargetPriceRead,
+  ListingTargetServices,
+} from "./features/listings/api/target-contracts";
 export {
   MARKETPLACE_CHANNEL_INBOUND_CLAMP_MAX_LISTINGS,
   MARKETPLACE_CHANNEL_INBOUND_CLAMP_PAGE_SIZE,

@@ -105,7 +105,7 @@
     {
       "sourceContextName": "marketplace",
       "projectionName": "marketplace-listing-projection",
-      "subscriptionVersion": 2,
+      "subscriptionVersion": 3,
       "subscriptionName": "marketplace.self-listing-projection",
       "filterToEventTypes": true,
       "eventTypes": [
@@ -117,6 +117,10 @@
         "marketplace.listing.photos-reordered",
         "marketplace.listing.evidence-requirements-refreshed",
         "marketplace.listing.price-updated",
+        "marketplace.listing.target-price-accepted",
+        "marketplace.listing.channel-activated",
+        "marketplace.listing.native-visibility-changed",
+        "marketplace.listing.resumed",
         "marketplace.listing.quantity-cap-updated",
         "marketplace.listing.purchase-limits-updated",
         "marketplace.listing.published",
@@ -358,9 +362,12 @@
     },
     {
       "projectionName": "marketplace-listing-projection",
+      "projectionRevision": 2,
       "sourceContextNames": ["catalog", "marketplace"],
       "ownedTables": [
         "marketplace_listing_pages",
+        "marketplace_listing_target_prices",
+        "marketplace_listing_native_authority",
         "marketplace_seller_listing_availability_pages",
         "marketplace_seller_order_capacity_pages"
       ],
@@ -682,6 +689,22 @@
       },
       {
         "name": "marketplace.update-listing-price",
+        "ownerSlice": "listings"
+      },
+      {
+        "name": "marketplace.accept-listing-target-price",
+        "ownerSlice": "listings"
+      },
+      {
+        "name": "marketplace.activate-listing-for-channel",
+        "ownerSlice": "listings"
+      },
+      {
+        "name": "marketplace.set-native-listing-visibility",
+        "ownerSlice": "listings"
+      },
+      {
+        "name": "marketplace.resume-listing",
         "ownerSlice": "listings"
       },
       {

@@ -1,4 +1,5 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+import { marketplaceListingTargetSchemaSql } from "./target-projection";
 
 export const marketplaceListingSchemaSql = `
 CREATE TABLE IF NOT EXISTS marketplace_listing_pages (
@@ -20,13 +21,13 @@ CREATE TABLE IF NOT EXISTS marketplace_listing_pages (
   price_amount numeric(12,2) NOT NULL,
   price_currency_code text NULL,
   listing_stream_version integer NULL,
-  marketplace_sales_fee_unit_amount numeric(12,2) NOT NULL,
-  seller_net_unit_amount numeric(12,2) NOT NULL,
+  marketplace_sales_fee_unit_amount numeric(12,2) NULL,
+  seller_net_unit_amount numeric(12,2) NULL,
   shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500,
   terms_schedule_id text NULL,
   terms_agreement_id text NULL,
   terms_resolved_at timestamptz NULL,
-  fee_quote_fingerprint text NOT NULL,
+  fee_quote_fingerprint text NULL,
   fee_locks jsonb NOT NULL DEFAULT '[]'::jsonb,
   quantity_cap integer NOT NULL CHECK (quantity_cap > 0),
   max_units_per_order integer NULL CHECK (max_units_per_order IS NULL OR max_units_per_order > 0),
@@ -131,11 +132,25 @@ CREATE TABLE IF NOT EXISTS marketplace_seller_order_capacity_pages (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+${marketplaceListingTargetSchemaSql}
 -- marketplace_seller_listing_availability_due_restore_idx moved to the schemaMigrations ledger
 -- (boot-time indexes on migration-added columns are forbidden by the structure gate).
 `;
 
 export const marketplaceListingSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260927_marketplace_listing_target_authority",
+    description:
+      "Retain independent accepted targets and native publication proof; historical rows gain no inferred publication or currency.",
+    statements: [
+      "SET lock_timeout = '5s';",
+      `ALTER TABLE marketplace_listing_pages
+        ALTER COLUMN marketplace_sales_fee_unit_amount DROP NOT NULL,
+        ALTER COLUMN seller_net_unit_amount DROP NOT NULL,
+        ALTER COLUMN fee_quote_fingerprint DROP NOT NULL`,
+      marketplaceListingTargetSchemaSql,
+    ],
+  },
   {
     migrationId: "20260907_marketplace_listing_price_currency",
     description:

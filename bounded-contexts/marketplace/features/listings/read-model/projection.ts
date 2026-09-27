@@ -3,6 +3,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { recordRealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
 import { createMarketplaceListingPatch } from "../../../support/realtime-support/projection-patches";
 import { marketplaceRealtimeTopics } from "../../../support/realtime-support/topics";
+import { buildMarketplaceListingTargetProjectionHandlers } from "./target-projection";
 
 async function loadRealtimeListing(db: PgQueryable, listingId: string) {
   const result = await db.query<{
@@ -122,7 +123,53 @@ async function transformListingPhotos(
 }
 
 export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  const listing = buildListingProjectionHandlers(db);
+  const targets = buildMarketplaceListingTargetProjectionHandlers(db);
+  return Object.fromEntries(
+    [...new Set([...Object.keys(listing), ...Object.keys(targets)])].map((type) => {
+      const handler: ProjectorHandlerMap[string] = async (event) => {
+        await listing[type]?.(event);
+        await targets[type]?.(event);
+      };
+      return [type, handler];
+    }),
+  );
+}
+
+function buildListingProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  const activate: ProjectorHandlerMap[string] = async (event) => {
+    const listingId = event.streamId.slice("marketplace.listing-".length);
+    await db.query(`UPDATE marketplace_listing_pages SET status = 'active', updated_at = $2 WHERE listing_id = $1`, [
+      listingId,
+      event.timing.recordedAt,
+    ]);
+    await emitListingPatch(db, event, listingId);
+  };
   return {
+    "marketplace.listing.channel-activated": activate,
+    "marketplace.listing.resumed": activate,
+    "marketplace.listing.native-visibility-changed": async (event) => {
+      const listingId = event.streamId.slice("marketplace.listing-".length);
+      const locks = Array.isArray(event.data.feeLocks) ? event.data.feeLocks : [];
+      const last = locks.at(-1) as
+        | import("@chase-sets/event-core/public-event-payloads").MarketplaceListingFeeLockPayload
+        | undefined;
+      await db.query(
+        `UPDATE marketplace_listing_pages SET fee_locks = $2,
+        marketplace_sales_fee_unit_amount = $3, seller_net_unit_amount = $4, fee_quote_fingerprint = $5,
+        evidence_requirements = $6, updated_at = $7 WHERE listing_id = $1`,
+        [
+          listingId,
+          JSON.stringify(locks),
+          last?.marketplaceSalesFeeUnitAmount ?? null,
+          last?.sellerNetUnitAmount ?? null,
+          last?.feeQuoteFingerprint ?? null,
+          JSON.stringify(event.data.evidenceRequirements),
+          event.timing.recordedAt,
+        ],
+      );
+      await emitListingPatch(db, event, listingId);
+    },
     "marketplace.listing.created": async (event) => {
       const data = event.data as {
         listingId: string;

@@ -2064,6 +2064,24 @@ describe("marketplace listing runtime", () => {
       ]);
       await expect(eventStore.readStream({ streamId: "marketplace.listing-lst_retry_once" })).resolves.toHaveLength(2);
       await expect(services.loadListingState("lst_retry_once")).resolves.toMatchObject({ priceAmount: "90.00" });
+      for (const changed of [
+        { priceCurrencyCode: "CAD" },
+        { expectedVersion: 2 },
+        { minimumChange: { mode: "absolute" as const, amount: "1.00" } },
+      ]) {
+        await expect(
+          services.applyBulkListingPriceUpdates(
+            {
+              ...mutation,
+              updates: [{ ...mutation.updates[0]!, ...changed }],
+            },
+            context,
+          ),
+        ).resolves.toMatchObject([
+          { outcome: "error", message: "Listing request key was already used for a different command." },
+        ]);
+      }
+      await expect(eventStore.readStream({ streamId: "marketplace.listing-lst_retry_once" })).resolves.toHaveLength(2);
     });
 
     it("issue-6299-acceptance-control replays and lists fee history through event 501", async () => {
@@ -2104,11 +2122,10 @@ describe("marketplace listing runtime", () => {
         streamId: `marketplace.listing-${listingId}`,
         expectedVersion: 1,
         context,
-        events: Array.from({ length: 500 }, (_, index) => ({
-          ...(index === 499 ? { eventId: `${idempotencyKey}:0` as never } : {}),
+        events: Array.from({ length: 499 }, () => ({
           eventType: "marketplace.listing.price-updated",
           payload: {
-            priceAmount: "90.00",
+            priceAmount: "91.00",
             priceCurrencyCode: "USD",
             marketplaceSalesFeeUnitAmount: createdPayload.marketplaceSalesFeeUnitAmount,
             sellerNetUnitAmount: createdPayload.sellerNetUnitAmount,
@@ -2127,11 +2144,23 @@ describe("marketplace listing runtime", () => {
           {
             accountId: "acc_seller",
             updates: [
+              { listingId, priceAmount: "90.00", priceCurrencyCode: "USD", expectedVersion: 500, idempotencyKey },
+            ],
+          },
+          context,
+        ),
+      ).resolves.toEqual([{ listingId, outcome: "applied", version: 501 }]);
+
+      await expect(
+        services.applyBulkListingPriceUpdates(
+          {
+            accountId: "acc_seller",
+            updates: [
               {
                 listingId,
                 priceAmount: "90.00",
                 priceCurrencyCode: "USD",
-                expectedVersion: 501,
+                expectedVersion: 500,
                 idempotencyKey,
               },
             ],

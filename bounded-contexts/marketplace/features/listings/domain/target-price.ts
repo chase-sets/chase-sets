@@ -1,4 +1,4 @@
-import type { MarketplaceListingPriceTarget } from "@chase-sets/event-core/public-event-payloads/marketplace";
+import type { MarketplaceListingPriceTarget } from "@chase-sets/event-core/public-event-payloads";
 import { centsToMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
 
 export type {
@@ -6,7 +6,7 @@ export type {
   MarketplaceListingPriceTarget,
   MarketplaceListingPriceDecision,
   NativeListingEligibilityV1,
-} from "@chase-sets/event-core/public-event-payloads/marketplace";
+} from "@chase-sets/event-core/public-event-payloads";
 
 export function listingPriceTargetKey(target: MarketplaceListingPriceTarget): string {
   if (target.kind === "native-marketplace") return "native-marketplace";

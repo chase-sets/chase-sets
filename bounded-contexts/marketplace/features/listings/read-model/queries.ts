@@ -1015,6 +1015,9 @@ export async function getMarketSummaryForItem(
        ON availability.account_id = listing.account_id
      WHERE listing.product_id = $1
        AND listing.status = 'active'
+       AND EXISTS (SELECT 1 FROM marketplace_listing_native_authority AS authority
+         WHERE authority.listing_id = listing.listing_id AND authority.native_visibility = 'enabled'
+           AND authority.publication_revision IS NOT NULL AND authority.status = 'active')
        AND listing.price_currency_code IS NOT NULL
        AND listing.listing_stream_version > 0
        AND COALESCE(availability.status, 'available') = 'available'`,
@@ -1062,6 +1065,9 @@ ${listingPageColumnSelectSql},
        ON availability.account_id = listing.account_id
      WHERE listing.product_id = $1
        AND listing.status = 'active'
+       AND EXISTS (SELECT 1 FROM marketplace_listing_native_authority AS authority
+         WHERE authority.listing_id = listing.listing_id AND authority.native_visibility = 'enabled'
+           AND authority.publication_revision IS NOT NULL AND authority.status = 'active')
        AND listing.price_currency_code IS NOT NULL
        AND listing.listing_stream_version > 0
        AND COALESCE(availability.status, 'available') = 'available'

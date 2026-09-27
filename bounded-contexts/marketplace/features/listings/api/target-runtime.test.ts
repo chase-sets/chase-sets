@@ -1,0 +1,244 @@
+import { describe, expect, it, vi } from "vitest";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
+import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import {
+  decideMarketplaceListing,
+  evolveMarketplaceListing,
+  initialMarketplaceListingState,
+  type MarketplaceListingEvent,
+} from "../domain/domain";
+import { createListingTargetRuntime } from "./target-runtime";
+import type { AcceptListingTargetPriceInput, ListingTargetAuthority } from "./target-contracts";
+
+const context: EventStoreContext = {
+  tenantId: "tnt_test" as never,
+  audit: { performedByUserId: "usr_seller" as never, forAccountId: "acc_seller" as never },
+};
+async function fixture(overrides: Partial<ListingTargetAuthority> = {}) {
+  const { eventStore } = createInMemoryEventStore();
+  const { repository, commandHandler } = createAggregateCommandHandler({
+    eventStore,
+    codec: createPassthroughDomainEventCodec<MarketplaceListingEvent>(),
+    initialState: () => initialMarketplaceListingState,
+    evolve: evolveMarketplaceListing,
+    decide: decideMarketplaceListing,
+  });
+  await commandHandler({
+    streamId: "marketplace.listing-lst_test",
+    context,
+    command: {
+      type: "CreateListing",
+      publicationScope: "channel-only",
+      listingId: "lst_test" as never,
+      accountId: "acc_seller" as never,
+      inventoryItemId: "inv_test",
+      catalogItemId: "cat_test" as never,
+      productId: "cat_test::" as never,
+      itemTitle: null,
+      itemSubtitle: null,
+      selectedOptions: [],
+      productSummary: null,
+      storageLocationName: null,
+      shipFromCode: null,
+      shipFromAddress: {
+        name: "Seller",
+        company: null,
+        line1: "1 Test St",
+        line2: null,
+        city: "Austin",
+        state: "TX",
+        postalCode: "78701",
+        country: "US",
+        phone: null,
+        email: null,
+      },
+      priceAmount: "10.00",
+      priceCurrencyCode: "USD",
+      feeLock: null,
+      quantityCap: 2,
+      evidenceRequirements: null,
+    },
+  });
+  const guards = [{ streamId: "synthetic-authority", expectedVersion: 0 }];
+  const authority: ListingTargetAuthority = {
+    authorizeManage: vi.fn(async () => ({ value: true, guards })),
+    resolveConnection: vi.fn<ListingTargetAuthority["resolveConnection"]>(async ({ accountId, connectionId }) => ({
+      value: {
+        accountId,
+        connectionId,
+        providerKey: "synthetic-provider",
+        environment: "sandbox",
+        identityRevision: 1,
+      },
+      guards,
+    })),
+    verifyDecision: vi.fn(async () => ({ value: true, guards })),
+    authorizeResume: vi.fn(async () => ({ value: true, guards })),
+    resolveAllocation: vi.fn(async (input) => ({ value: { ...input, eligibleQuantity: 2 }, guards })),
+    ...overrides,
+  };
+  const services = createListingTargetRuntime({
+    eventStore,
+    authority,
+    load: (id) => repository.load(`marketplace.listing-${id}`),
+    prepareNativeEnable: async () => {
+      throw new Error("Synthetic fixture has no native readiness.");
+    },
+    capacityAppends: async () => [],
+  });
+  const input: AcceptListingTargetPriceInput = {
+    accountId: "acc_seller",
+    listingId: "lst_test",
+    expectedListingVersion: 1,
+    expectedTargetPriceRevision: 0,
+    idempotencyKey: "price-1",
+    target: { kind: "channel-connection", connectionId: "con_one" },
+    priceAmount: "12.00",
+    priceCurrencyCode: "CAD",
+    decision: {
+      kind: "pricing-evaluation",
+      evaluationId: "synthetic-evaluation",
+      evaluationRevision: "1",
+      policyId: "synthetic-policy",
+      policyRevision: "1",
+      goal: null,
+      inputEvidenceRefs: ["synthetic-input"],
+      curveEvidenceRefs: [],
+      economicsSourceRevision: null,
+      economicsOverrideRevision: null,
+      basePriceRevision: 1,
+      standingAuthorizationId: "synthetic-authorization",
+      standingAuthorizationRevision: "1",
+    },
+  };
+  return { services, eventStore, repository, commandHandler, authority, input };
+}
+
+describe("Listing target owner authority", () => {
+  it("retains independent exact target pairs without changing the hidden native reference or fees", async () => {
+    const { services, input, repository } = await fixture();
+    await services.acceptListingTargetPrice(input, context);
+    await services.acceptListingTargetPrice(
+      {
+        ...input,
+        idempotencyKey: "price-2",
+        expectedListingVersion: 2,
+        target: { kind: "channel-connection", connectionId: "con_two" },
+        priceAmount: "15.00",
+        priceCurrencyCode: "EUR",
+      },
+      context,
+    );
+    const reads = await services.readAcceptedListingTargetPrices({
+      accountId: input.accountId,
+      targets: [
+        { listingId: input.listingId, target: input.target },
+        { listingId: input.listingId, target: { kind: "channel-connection", connectionId: "con_two" } },
+      ],
+    });
+    expect(
+      reads.map((read) => [read.acceptedTargetPrice?.priceAmount, read.acceptedTargetPrice?.priceCurrencyCode]),
+    ).toEqual([
+      ["12.00", "CAD"],
+      ["15.00", "EUR"],
+    ]);
+    expect((await repository.load("marketplace.listing-lst_test")).state).toMatchObject({
+      priceAmount: "10.00",
+      priceCurrencyCode: "USD",
+      nativeVisibility: "disabled",
+      feeLocks: [],
+    });
+  });
+
+  it("returns one durable acceptance for concurrent identical requests and rejects changed currency", async () => {
+    const { services, input, eventStore } = await fixture();
+    const [one, two] = await Promise.all([
+      services.acceptListingTargetPrice(input, context),
+      services.acceptListingTargetPrice(input, context),
+    ]);
+    expect(one).toEqual(two);
+    await expect(services.acceptListingTargetPrice({ ...input, priceCurrencyCode: "EUR" }, context)).rejects.toThrow(
+      "different command",
+    );
+    expect((await eventStore.readStream({ streamId: "marketplace.listing-lst_test" })).length).toBe(2);
+  });
+
+  it("fences concurrent different acceptances at the Listing version", async () => {
+    const { services, input } = await fixture();
+    const results = await Promise.allSettled([
+      services.acceptListingTargetPrice(input, context),
+      services.acceptListingTargetPrice({ ...input, idempotencyKey: "other", priceAmount: "13.00" }, context),
+    ]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+  });
+
+  it.each(["capability", "connection", "decision"])("fails closed for missing %s authority", async (kind) => {
+    const missing = async () => ({ value: null, guards: [] });
+    const { services, input, eventStore } = await fixture(
+      kind === "capability"
+        ? { authorizeManage: async () => ({ value: false, guards: [] }) }
+        : kind === "connection"
+          ? { resolveConnection: missing }
+          : { verifyDecision: async () => ({ value: false, guards: [] }) },
+    );
+    await expect(services.acceptListingTargetPrice(input, context)).rejects.toThrow();
+    expect(await eventStore.readAll()).toHaveLength(1);
+  });
+
+  it("rejects foreign accounts and fabricated external hard-price intent", async () => {
+    const { services, input } = await fixture();
+    await expect(services.acceptListingTargetPrice({ ...input, accountId: "acc_foreign" }, context)).rejects.toThrow(
+      "account authority mismatch",
+    );
+    await expect(
+      services.acceptListingTargetPrice({ ...input, decision: { kind: "seller-reference" } }, context),
+    ).rejects.toThrow("verified Pricing decision");
+  });
+
+  it("activates only the accepted target and never records native publication", async () => {
+    const { services, input, eventStore } = await fixture();
+    await services.acceptListingTargetPrice(input, context);
+    await services.activateListingForChannel(
+      {
+        accountId: input.accountId,
+        listingId: input.listingId,
+        expectedListingVersion: 2,
+        expectedTargetPriceRevision: 2,
+        idempotencyKey: "activate",
+        connectionId: "con_one",
+        allocationRevision: 1,
+      },
+      context,
+    );
+    expect(
+      (await services.readNativeListingEligibility({ accountId: input.accountId, listingIds: [input.listingId] }))[0],
+    ).toMatchObject({ eligible: false, blockingReason: "native-disabled", nativePublicationRevision: null });
+    expect((await eventStore.readAll()).some((event) => event.eventType === "marketplace.listing.published")).toBe(
+      false,
+    );
+  });
+
+  it("rejects missing Inventory allocation and leaves the listing draft", async () => {
+    const { services, input, repository } = await fixture({
+      resolveAllocation: async () => ({ value: null, guards: [] }),
+    });
+    await services.acceptListingTargetPrice(input, context);
+    await expect(
+      services.activateListingForChannel(
+        {
+          accountId: input.accountId,
+          listingId: input.listingId,
+          expectedListingVersion: 2,
+          expectedTargetPriceRevision: 2,
+          idempotencyKey: "activate",
+          connectionId: "con_one",
+          allocationRevision: 1,
+        },
+        context,
+      ),
+    ).rejects.toThrow("Inventory allocation");
+    expect((await repository.load("marketplace.listing-lst_test")).state.status).toBe("draft");
+  });
+});

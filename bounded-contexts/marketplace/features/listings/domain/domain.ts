@@ -460,6 +460,7 @@ export type UpdateListingPriceCommand = Readonly<{
   minimumChange?: Readonly<{ mode: "absolute"; amount: string }> | Readonly<{ mode: "percent"; percent: number }>;
   changeSource?: "repricing-engine";
   acceptedTargetPrice?: AcceptedListingTargetPriceV1;
+  requestFingerprint?: string;
 }>;
 
 export type AcceptListingTargetPriceCommand = Readonly<{
@@ -624,6 +625,7 @@ export type ListingPriceUpdatedEvent = DomainEvent<
   Readonly<{
     schemaVersion?: 2;
     acceptedTargetPrice?: AcceptedListingTargetPriceV1;
+    requestFingerprint?: string;
     priceAmount: string;
     /** Missing only on historical amount-only events. */
     priceCurrencyCode?: string | null;
@@ -954,6 +956,7 @@ export const decideMarketplaceListing: AggregateDecider<
       const data = {
         schemaVersion: 2 as const,
         ...(command.acceptedTargetPrice ? { acceptedTargetPrice: command.acceptedTargetPrice } : {}),
+        ...(command.requestFingerprint ? { requestFingerprint: command.requestFingerprint } : {}),
         priceAmount: normalizeMoneyAmount(command.priceAmount),
         priceCurrencyCode: normalizeListingPriceCurrencyCode(command.priceCurrencyCode),
         ...feeLockProjectionFields(feeLocks),

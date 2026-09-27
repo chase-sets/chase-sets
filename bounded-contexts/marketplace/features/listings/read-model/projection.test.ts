@@ -63,6 +63,21 @@ type SellerOrderCapacityPageRow = {
 };
 
 class ProjectionDb implements PgQueryable {
+  public readonly targetPrices = new Map<
+    string,
+    { priceRevision: number; activationRevision: number; accepted: unknown }
+  >();
+  public readonly nativeAuthority = new Map<
+    string,
+    {
+      visibility: string;
+      visibilityRevision: number;
+      publicationRevision: number | null;
+      status: string;
+      statusRevision: number;
+      listingRevision: number;
+    }
+  >();
   public readonly listings = new Map<string, ListingPageRow>();
   public readonly sellerListingAvailability = new Map<string, SellerListingAvailabilityPageRow>();
   public readonly sellerOrderCapacity = new Map<string, SellerOrderCapacityPageRow>();
@@ -72,6 +87,46 @@ class ProjectionDb implements PgQueryable {
     sql: string,
     values: readonly unknown[] = [],
   ): Promise<PgQueryResult<Row>> {
+    if (sql.includes("INSERT INTO marketplace_listing_target_prices")) {
+      const key = `${values[0]}:${values[1]}:${values[2]}`;
+      const prior = this.targetPrices.get(key) ?? { priceRevision: 0, activationRevision: 0, accepted: null };
+      if (sql.includes("accepted_price, price_revision")) {
+        const revision = Number(values[4]);
+        if (revision > prior.priceRevision)
+          this.targetPrices.set(key, {
+            ...prior,
+            priceRevision: revision,
+            accepted: values[3] ? JSON.parse(String(values[3])) : null,
+          });
+      } else {
+        const revision = Number(values[3]);
+        if (revision > prior.activationRevision) this.targetPrices.set(key, { ...prior, activationRevision: revision });
+      }
+      return { rows: [], rowCount: 1 };
+    }
+    if (sql.includes("INSERT INTO marketplace_listing_native_authority")) {
+      const key = String(values[0]);
+      const prior = this.nativeAuthority.get(key) ?? {
+        visibility: "disabled",
+        visibilityRevision: 0,
+        publicationRevision: null,
+        status: "draft",
+        statusRevision: 0,
+        listingRevision: 0,
+      };
+      const revision = Number(values[4]);
+      this.nativeAuthority.set(key, {
+        visibility: values[2] !== null && revision > prior.visibilityRevision ? String(values[2]) : prior.visibility,
+        visibilityRevision:
+          values[2] !== null ? Math.max(revision, prior.visibilityRevision) : prior.visibilityRevision,
+        publicationRevision:
+          values[3] !== null ? Math.max(Number(values[3]), prior.publicationRevision ?? 0) : prior.publicationRevision,
+        status: values[5] !== null && revision > prior.statusRevision ? String(values[5]) : prior.status,
+        statusRevision: values[5] !== null ? Math.max(revision, prior.statusRevision) : prior.statusRevision,
+        listingRevision: Math.max(revision, prior.listingRevision),
+      });
+      return { rows: [], rowCount: 1 };
+    }
     if (sql.includes("INSERT INTO marketplace_listing_pages (")) {
       const row = listingPage({
         listing_id: String(values[0]),
@@ -140,13 +195,22 @@ class ProjectionDb implements PgQueryable {
       return { rows: updated as Row[], rowCount: updated.length };
     }
 
-    if (sql.includes("UPDATE marketplace_listing_pages") && sql.includes("SET status = 'active'")) {
+    if (
+      sql.includes("UPDATE marketplace_listing_pages") &&
+      (sql.includes("SET status = 'active'") ||
+        sql.includes("SET status = 'paused'") ||
+        sql.includes("SET status = 'withdrawn'"))
+    ) {
       const row = this.listings.get(String(values[0]));
       if (!row) {
         return { rows: [], rowCount: 0 };
       }
 
-      row.status = "active";
+      row.status = sql.includes("SET status = 'paused'")
+        ? "paused"
+        : sql.includes("SET status = 'withdrawn'")
+          ? "withdrawn"
+          : "active";
       row.updated_at = String(values[1]);
       return { rows: [], rowCount: 1 };
     }
@@ -458,6 +522,82 @@ function event(
 }
 
 describe("marketplace listing projection", () => {
+  it("keeps independent target and activation revisions under reordered lifecycle replay", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+    await handlers["marketplace.listing.created"]!(
+      event("marketplace.listing.created", listingCreatedData(), "marketplace.listing-lst_1"),
+    );
+    const accepted = (connectionId: string, revision: number, amount: string, currency: string) => ({
+      schemaVersion: 1,
+      accountId: "acc_1",
+      listingId: "lst_1",
+      target: { kind: "channel-connection", connectionId },
+      priceAmount: amount,
+      priceCurrencyCode: currency,
+      targetPriceRevision: revision,
+      listingRevision: revision,
+      acceptedByUserId: "usr_1",
+      acceptedAt: "2026-05-09T00:01:00.000Z",
+      sourceEventId: "evt_1",
+      decision: { kind: "seller-reference" },
+      connectionAuthority: { connectionId, providerKey: "synthetic", environment: "sandbox", identityRevision: 1 },
+    });
+    for (const fact of [accepted("con_two", 4, "15.00", "EUR"), accepted("con_one", 2, "12.00", "CAD")]) {
+      await handlers["marketplace.listing.target-price-accepted"]!(
+        event(
+          "marketplace.listing.target-price-accepted",
+          { schemaVersion: 1, acceptedTargetPrice: fact },
+          "marketplace.listing-lst_1",
+          fact.targetPriceRevision,
+        ),
+      );
+    }
+    await handlers["marketplace.listing.channel-activated"]!(
+      event(
+        "marketplace.listing.channel-activated",
+        { connectionId: "con_one", targetPriceRevision: 2, allocationRevision: 1 },
+        "marketplace.listing-lst_1",
+        3,
+      ),
+    );
+    await handlers["marketplace.listing.paused"]!(
+      event("marketplace.listing.paused", {}, "marketplace.listing-lst_1", 6),
+    );
+    await handlers["marketplace.listing.resumed"]!(
+      event("marketplace.listing.resumed", { pauseReason: "seller" }, "marketplace.listing-lst_1", 5),
+    );
+    expect(db.targetPrices.get("acc_1:lst_1:channel-connection:con_one")).toMatchObject({
+      priceRevision: 2,
+      activationRevision: 3,
+      accepted: { priceAmount: "12.00", priceCurrencyCode: "CAD" },
+    });
+    expect(db.targetPrices.get("acc_1:lst_1:channel-connection:con_two")).toMatchObject({
+      priceRevision: 4,
+      activationRevision: 0,
+      accepted: { priceAmount: "15.00", priceCurrencyCode: "EUR" },
+    });
+    expect(db.nativeAuthority.get("lst_1")).toMatchObject({
+      visibility: "enabled",
+      publicationRevision: null,
+      status: "paused",
+      statusRevision: 6,
+    });
+  });
+
+  it("does not invent a complete native pair or publication from legacy creation", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+    await handlers["marketplace.listing.created"]!(
+      event(
+        "marketplace.listing.created",
+        listingCreatedData({ priceCurrencyCode: null }),
+        "marketplace.listing-lst_1",
+      ),
+    );
+    expect(db.targetPrices.get("acc_1:lst_1:native-marketplace")).toMatchObject({ priceRevision: 1, accepted: null });
+    expect(db.nativeAuthority.get("lst_1")).toMatchObject({ publicationRevision: null, status: "draft" });
+  });
   it("creates seller listing pages from listing created events", async () => {
     const db = new ProjectionDb();
     const handlers = buildMarketplaceListingProjectionHandlers(db);

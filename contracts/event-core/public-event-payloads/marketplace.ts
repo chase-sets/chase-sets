@@ -213,6 +213,10 @@ export type NativeListingEligibilityV1 = Readonly<{
 }>;
 
 export type MarketplaceListingCreatedPayload = Readonly<{
+  schemaVersion?: 2;
+  publicationScope?: "native" | "channel-only";
+  nativeVisibility?: "enabled" | "disabled";
+  nativeFeeState?: "enrolled" | "not-enrolled";
   listingId: string;
   accountId: AccountId;
   inventoryItemId: string;
@@ -230,27 +234,29 @@ export type MarketplaceListingCreatedPayload = Readonly<{
   priceAmount: string;
   /** Absent only when decoding historical amount-only listing events. */
   priceCurrencyCode?: string | null;
-  marketplaceSalesFeeUnitAmount: string;
-  sellerNetUnitAmount: string;
+  marketplaceSalesFeeUnitAmount: string | null;
+  sellerNetUnitAmount: string | null;
   shippingAllowancePercentageBps?: number;
   termsScheduleId: string | null;
   termsAgreementId: string | null;
-  termsResolvedAt: string;
+  termsResolvedAt: string | null;
   feeLocks: readonly MarketplaceListingFeeLockPayload[];
   quantityCap: number;
   purchaseLimits?: MarketplacePurchaseLimitsPayload;
 }>;
 
 export type MarketplaceListingPriceUpdatedPayload = Readonly<{
+  schemaVersion?: 2;
+  acceptedTargetPrice?: AcceptedListingTargetPriceV1;
   priceAmount: string;
   /** Absent only when decoding historical amount-only listing events. */
   priceCurrencyCode?: string | null;
-  marketplaceSalesFeeUnitAmount: string;
-  sellerNetUnitAmount: string;
+  marketplaceSalesFeeUnitAmount: string | null;
+  sellerNetUnitAmount: string | null;
   shippingAllowancePercentageBps?: number;
   termsScheduleId: string | null;
   termsAgreementId: string | null;
-  termsResolvedAt: string;
+  termsResolvedAt: string | null;
   feeLocks: readonly MarketplaceListingFeeLockPayload[];
 }>;
 
@@ -262,6 +268,28 @@ export type MarketplaceListingQuantityCapUpdatedPayload = MarketplaceListingPric
 
 export type MarketplaceListingPurchaseLimitsUpdatedPayload = Readonly<{
   purchaseLimits: MarketplacePurchaseLimitsPayload;
+}>;
+
+export type MarketplaceListingTargetPriceAcceptedPayload = Readonly<{
+  schemaVersion: 1;
+  acceptedTargetPrice: AcceptedListingTargetPriceV1;
+}>;
+
+export type MarketplaceListingChannelActivatedPayload = Readonly<{
+  connectionId: string;
+  targetPriceRevision: number;
+  allocationRevision: number;
+}>;
+
+export type MarketplaceListingNativeVisibilityChangedPayload = Readonly<{
+  nativeVisibility: "enabled" | "disabled";
+  nativeFeeState: "enrolled" | "not-enrolled";
+  feeLocks: readonly MarketplaceListingFeeLockPayload[];
+  evidenceRequirements: JsonValue;
+}>;
+
+export type MarketplaceListingResumedPayload = Readonly<{
+  pauseReason: "seller" | "policy-input-missing" | "channel-inbound-dark";
 }>;
 
 export type MarketplaceSellerListingAvailabilityPayload = Readonly<{
@@ -293,6 +321,10 @@ export type MarketplaceReportSubmittedPayload = Readonly<{
 export type MarketplaceEventPayloads = Readonly<{
   "marketplace.listing.created": MarketplaceListingCreatedPayload;
   "marketplace.listing.price-updated": MarketplaceListingPriceUpdatedPayload;
+  "marketplace.listing.target-price-accepted": MarketplaceListingTargetPriceAcceptedPayload;
+  "marketplace.listing.channel-activated": MarketplaceListingChannelActivatedPayload;
+  "marketplace.listing.native-visibility-changed": MarketplaceListingNativeVisibilityChangedPayload;
+  "marketplace.listing.resumed": MarketplaceListingResumedPayload;
   "marketplace.listing.quantity-cap-updated": MarketplaceListingQuantityCapUpdatedPayload;
   "marketplace.listing.purchase-limits-updated": MarketplaceListingPurchaseLimitsUpdatedPayload;
   "marketplace.listing.published": EmptyEventPayload;

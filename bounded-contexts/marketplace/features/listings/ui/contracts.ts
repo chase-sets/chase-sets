@@ -276,6 +276,7 @@ export interface MarketplaceListingPriceInput {
 }
 
 export interface MarketplaceCreateListingInput extends MarketplaceListingPriceInput {
+  publicationScope?: "native" | "channel-only";
   inventoryItemId: string;
   quantityCap: number;
   purchaseLimits?: Readonly<{
