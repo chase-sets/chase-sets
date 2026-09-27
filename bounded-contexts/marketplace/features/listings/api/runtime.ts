@@ -133,7 +133,7 @@ class MarketplaceListingNotFoundError extends Error {}
  * snapshot with a different schema version is ignored -- load() falls back
  * to full replay, exactly as if no snapshot existed.
  */
-const MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION = 6;
+const MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION = 7;
 /**
  * Marketplace listings are m113's proven-hot aggregate: reprice-heavy
  * listings accumulate hundreds of `UpdateListingPrice` events, and every

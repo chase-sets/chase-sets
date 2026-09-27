@@ -146,6 +146,72 @@ export type MarketplaceListingFeeLockPayload = Readonly<{
   feeQuoteFingerprint: string;
 }>;
 
+export type MarketplaceListingPriceTarget =
+  | Readonly<{ kind: "native-marketplace" }>
+  | Readonly<{ kind: "channel-connection"; connectionId: string }>;
+
+export type MarketplaceListingPriceDecision =
+  | Readonly<{ kind: "seller-reference" }>
+  | Readonly<{ kind: "legacy-native-anchor" }>
+  | Readonly<{
+      kind: "pricing-evaluation";
+      evaluationId: string;
+      evaluationRevision: string;
+      policyId: string;
+      policyRevision: string;
+      goal: Readonly<{ goalId: string; version: string }> | null;
+      inputEvidenceRefs: readonly string[];
+      curveEvidenceRefs: readonly string[];
+      economicsSourceRevision: string | null;
+      economicsOverrideRevision: string | null;
+      basePriceRevision: number;
+      standingAuthorizationId: string;
+      standingAuthorizationRevision: string;
+    }>;
+
+export type AcceptedListingTargetPriceV1 = Readonly<{
+  schemaVersion: 1;
+  accountId: string;
+  listingId: string;
+  target: MarketplaceListingPriceTarget;
+  priceAmount: string;
+  priceCurrencyCode: string;
+  targetPriceRevision: number;
+  listingRevision: number;
+  acceptedByUserId: string;
+  acceptedAt: string;
+  sourceEventId: string;
+  decision: MarketplaceListingPriceDecision;
+  connectionAuthority: Readonly<{
+    connectionId: string;
+    providerKey: string;
+    environment: "sandbox" | "production";
+    identityRevision: number;
+  }> | null;
+}>;
+
+export type NativeListingEligibilityV1 = Readonly<{
+  schemaVersion: 1;
+  accountId: string;
+  listingId: string;
+  priceAmount: string | null;
+  priceCurrencyCode: string | null;
+  targetPriceRevision: number;
+  listingRevision: number;
+  visibilityRevision: number;
+  nativePublicationRevision: number | null;
+  eligible: boolean;
+  blockingReason:
+    | "native-disabled"
+    | "native-unpublished"
+    | "listing-not-active"
+    | "price-incomplete"
+    | "source-stale"
+    | null;
+  sourceEventId: string;
+  generatedAt: string;
+}>;
+
 export type MarketplaceListingCreatedPayload = Readonly<{
   listingId: string;
   accountId: AccountId;

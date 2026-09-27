@@ -15,6 +15,11 @@ import {
 } from "./fee-lock";
 import type { ListingEvidenceRequirementSnapshot } from "./evidence-requirement-snapshot";
 import type { ListingEvidenceReadinessResult } from "./listing-evidence-readiness";
+import {
+  listingPriceTargetKey,
+  normalizeAcceptedListingPrice,
+  type AcceptedListingTargetPriceV1,
+} from "./target-price";
 
 export type { MarketplaceListingFeeLock, MarketplaceListingFeeTermsSnapshot } from "./fee-lock";
 
@@ -115,6 +120,18 @@ function isPurchaseLimitsUnchanged(
 }
 
 function feeLockProjectionFields(feeLocks: readonly MarketplaceListingFeeLock[]) {
+  if (feeLocks.length === 0) {
+    return {
+      marketplaceSalesFeeUnitAmount: null,
+      sellerNetUnitAmount: null,
+      shippingAllowancePercentageBps: 0,
+      termsScheduleId: null,
+      termsAgreementId: null,
+      termsResolvedAt: null,
+      feeQuoteFingerprint: null,
+      feeLocks: [],
+    };
+  }
   const current = currentMarketplaceListingFeeLock(feeLocks);
   return {
     marketplaceSalesFeeUnitAmount: current.marketplaceSalesFeeUnitAmount,
@@ -319,6 +336,15 @@ const gradeLabelAliases = new Map(
 );
 
 export type MarketplaceListingState = Readonly<{
+  streamRevision: number;
+  publicationScope: "native" | "channel-only";
+  nativeVisibility: "enabled" | "disabled";
+  nativeFeeState: "enrolled" | "not-enrolled";
+  nativeVisibilityRevision: number;
+  nativePublicationRevision: number | null;
+  nativePriceRevision: number;
+  acceptedTargetPrices: Readonly<Record<string, AcceptedListingTargetPriceV1>>;
+  channelActivations: Readonly<Record<string, Readonly<{ revision: number; allocationRevision: number }>>>;
   listingId: ListingId | null;
   accountId: AccountId | null;
   inventoryItemId: string | null;
@@ -353,6 +379,15 @@ export type MarketplaceListingState = Readonly<{
 }>;
 
 export const initialMarketplaceListingState: MarketplaceListingState = {
+  streamRevision: 0,
+  publicationScope: "native",
+  nativeVisibility: "enabled",
+  nativeFeeState: "not-enrolled",
+  nativeVisibilityRevision: 0,
+  nativePublicationRevision: null,
+  nativePriceRevision: 0,
+  acceptedTargetPrices: {},
+  channelActivations: {},
   listingId: null,
   accountId: null,
   inventoryItemId: null,
@@ -392,6 +427,7 @@ export const initialMarketplaceListingState: MarketplaceListingState = {
 
 export type CreateListingCommand = Readonly<{
   type: "CreateListing";
+  publicationScope?: "native" | "channel-only";
   listingId: ListingId;
   accountId: AccountId;
   inventoryItemId: string;
@@ -409,10 +445,10 @@ export type CreateListingCommand = Readonly<{
   shipFromAddress: AddressSnapshot;
   priceAmount: string;
   priceCurrencyCode: string;
-  feeLock: MarketplaceListingFeeLock;
+  feeLock: MarketplaceListingFeeLock | null;
   quantityCap: number;
   purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
-  evidenceRequirements: ListingEvidenceRequirementSnapshot;
+  evidenceRequirements: ListingEvidenceRequirementSnapshot | null;
   evidence?: readonly MarketplaceListingPhotoDraft[] | null;
 }>;
 
@@ -423,6 +459,34 @@ export type UpdateListingPriceCommand = Readonly<{
   feeLocks: readonly MarketplaceListingFeeLock[];
   minimumChange?: Readonly<{ mode: "absolute"; amount: string }> | Readonly<{ mode: "percent"; percent: number }>;
   changeSource?: "repricing-engine";
+  acceptedTargetPrice?: AcceptedListingTargetPriceV1;
+}>;
+
+export type AcceptListingTargetPriceCommand = Readonly<{
+  type: "AcceptListingTargetPrice";
+  acceptedTargetPrice: AcceptedListingTargetPriceV1;
+  expectedTargetPriceRevision: number;
+  feeLocks: readonly MarketplaceListingFeeLock[];
+}>;
+
+export type ActivateListingForChannelCommand = Readonly<{
+  type: "ActivateListingForChannel";
+  connectionId: string;
+  expectedTargetPriceRevision: number;
+  allocationRevision: number;
+}>;
+
+export type SetNativeListingVisibilityCommand = Readonly<{
+  type: "SetNativeListingVisibility";
+  nativeVisibility: "enabled" | "disabled";
+  feeLocks: readonly MarketplaceListingFeeLock[];
+  evidenceRequirements: ListingEvidenceRequirementSnapshot | null;
+  readiness: ListingEvidenceReadinessResult | null;
+}>;
+
+export type ResumeListingCommand = Readonly<{
+  type: "ResumeListing";
+  expectedPauseReason: NonNullable<MarketplaceListingState["pauseReason"]>;
 }>;
 
 export type UpdateListingQuantityCapCommand = Readonly<{
@@ -497,6 +561,10 @@ export type WithdrawListingCommand = Readonly<{ type: "WithdrawListing" }>;
 
 export type MarketplaceListingCommand =
   | CreateListingCommand
+  | AcceptListingTargetPriceCommand
+  | ActivateListingForChannelCommand
+  | SetNativeListingVisibilityCommand
+  | ResumeListingCommand
   | UpdateListingPriceCommand
   | UpdateListingQuantityCapCommand
   | UpdateListingPurchaseLimitsCommand
@@ -514,6 +582,10 @@ export type MarketplaceListingCommand =
 export type ListingCreatedEvent = DomainEvent<
   "marketplace.listing.created",
   Readonly<{
+    schemaVersion?: 2;
+    publicationScope?: "native" | "channel-only";
+    nativeVisibility?: "enabled" | "disabled";
+    nativeFeeState?: "enrolled" | "not-enrolled";
     listingId: ListingId;
     accountId: AccountId;
     inventoryItemId: string;
@@ -532,34 +604,36 @@ export type ListingCreatedEvent = DomainEvent<
     priceAmount: string;
     /** Missing only on historical amount-only events. */
     priceCurrencyCode?: string | null;
-    marketplaceSalesFeeUnitAmount: string;
-    sellerNetUnitAmount: string;
+    marketplaceSalesFeeUnitAmount: string | null;
+    sellerNetUnitAmount: string | null;
     shippingAllowancePercentageBps: number;
     termsScheduleId: string | null;
     termsAgreementId: string | null;
     termsResolvedAt: string | null;
-    feeQuoteFingerprint: string;
+    feeQuoteFingerprint: string | null;
     feeLocks: MarketplaceListingFeeLock[];
     changeSource?: "repricing-engine";
     quantityCap: number;
     purchaseLimits: MarketplaceListingPurchaseLimits;
-    evidenceRequirements: ListingEvidenceRequirementSnapshot;
+    evidenceRequirements: ListingEvidenceRequirementSnapshot | null;
     evidence: MarketplaceListingPhoto[];
   }>
 >;
 export type ListingPriceUpdatedEvent = DomainEvent<
   "marketplace.listing.price-updated",
   Readonly<{
+    schemaVersion?: 2;
+    acceptedTargetPrice?: AcceptedListingTargetPriceV1;
     priceAmount: string;
     /** Missing only on historical amount-only events. */
     priceCurrencyCode?: string | null;
-    marketplaceSalesFeeUnitAmount: string;
-    sellerNetUnitAmount: string;
+    marketplaceSalesFeeUnitAmount: string | null;
+    sellerNetUnitAmount: string | null;
     shippingAllowancePercentageBps: number;
     termsScheduleId: string | null;
     termsAgreementId: string | null;
     termsResolvedAt: string | null;
-    feeQuoteFingerprint: string;
+    feeQuoteFingerprint: string | null;
     feeLocks: MarketplaceListingFeeLock[];
   }>
 >;
@@ -568,13 +642,13 @@ export type ListingQuantityCapUpdatedEvent = DomainEvent<
   Readonly<{
     quantityCap: number;
     purchaseLimits: MarketplaceListingPurchaseLimits;
-    marketplaceSalesFeeUnitAmount: string;
-    sellerNetUnitAmount: string;
+    marketplaceSalesFeeUnitAmount: string | null;
+    sellerNetUnitAmount: string | null;
     shippingAllowancePercentageBps: number;
     termsScheduleId: string | null;
     termsAgreementId: string | null;
     termsResolvedAt: string | null;
-    feeQuoteFingerprint: string;
+    feeQuoteFingerprint: string | null;
     feeLocks: MarketplaceListingFeeLock[];
   }>
 >;
@@ -655,6 +729,10 @@ export type ListingOfferCommitmentRecordedEvent = DomainEvent<
 
 export type MarketplaceListingEvent =
   | ListingCreatedEvent
+  | ListingTargetPriceAcceptedEvent
+  | ListingChannelActivatedEvent
+  | ListingNativeVisibilityChangedEvent
+  | ListingResumedEvent
   | ListingPriceUpdatedEvent
   | ListingQuantityCapUpdatedEvent
   | ListingPurchaseLimitsUpdatedEvent
@@ -670,6 +748,28 @@ export type MarketplaceListingEvent =
   | ListingWithdrawnEvent
   | ListingOfferCommitmentRecordedEvent;
 
+export type ListingTargetPriceAcceptedEvent = DomainEvent<
+  "marketplace.listing.target-price-accepted",
+  Readonly<{ schemaVersion: 1; acceptedTargetPrice: AcceptedListingTargetPriceV1 }>
+>;
+export type ListingChannelActivatedEvent = DomainEvent<
+  "marketplace.listing.channel-activated",
+  Readonly<{ connectionId: string; targetPriceRevision: number; allocationRevision: number }>
+>;
+export type ListingNativeVisibilityChangedEvent = DomainEvent<
+  "marketplace.listing.native-visibility-changed",
+  Readonly<{
+    nativeVisibility: "enabled" | "disabled";
+    nativeFeeState: "enrolled" | "not-enrolled";
+    feeLocks: MarketplaceListingFeeLock[];
+    evidenceRequirements: ListingEvidenceRequirementSnapshot | null;
+  }>
+>;
+export type ListingResumedEvent = DomainEvent<
+  "marketplace.listing.resumed",
+  Readonly<{ pauseReason: NonNullable<MarketplaceListingState["pauseReason"]> }>
+>;
+
 export const decideMarketplaceListing: AggregateDecider<
   MarketplaceListingState,
   MarketplaceListingCommand,
@@ -682,12 +782,22 @@ export const decideMarketplaceListing: AggregateDecider<
         command.quantityCap,
         "Listing quantity cap must be a positive whole number.",
       );
-      const feeLock = normalizeMarketplaceListingFeeLock(command.feeLock);
-      assert(feeLock.unitCount === quantityCap, "Creation-time fee lock must cover every listed unit.");
+      const publicationScope = command.publicationScope ?? "native";
+      const feeLock = command.feeLock === null ? null : normalizeMarketplaceListingFeeLock(command.feeLock);
+      if (publicationScope === "native") {
+        assert(feeLock?.unitCount === quantityCap, "Creation-time fee lock must cover every listed unit.");
+        assert(command.evidenceRequirements, "Native listing evidence requirements are unavailable.");
+      } else {
+        assert(feeLock === null, "Channel-only creation cannot enroll native fee terms.");
+      }
       return [
         {
           type: "marketplace.listing.created",
           data: {
+            schemaVersion: 2,
+            publicationScope,
+            nativeVisibility: publicationScope === "native" ? "enabled" : "disabled",
+            nativeFeeState: publicationScope === "native" ? "enrolled" : "not-enrolled",
             listingId: command.listingId,
             accountId: command.accountId,
             inventoryItemId: command.inventoryItemId.trim(),
@@ -708,7 +818,7 @@ export const decideMarketplaceListing: AggregateDecider<
             shipFromAddress: normalizeAddressSnapshot(command.shipFromAddress, "Ship-from address"),
             priceAmount: normalizeMoneyAmount(command.priceAmount),
             priceCurrencyCode: normalizeListingPriceCurrencyCode(command.priceCurrencyCode),
-            ...feeLockProjectionFields([feeLock]),
+            ...feeLockProjectionFields(feeLock ? [feeLock] : []),
             quantityCap,
             purchaseLimits: normalizePurchaseLimits(command.purchaseLimits, quantityCap),
             evidenceRequirements: command.evidenceRequirements,
@@ -717,13 +827,133 @@ export const decideMarketplaceListing: AggregateDecider<
         },
       ];
     }
+    case "AcceptListingTargetPrice": {
+      assert(state.listingId !== null && state.status !== "withdrawn", "Listing cannot accept prices.");
+      const accepted = command.acceptedTargetPrice;
+      assert(accepted.listingId === state.listingId && accepted.accountId === state.accountId, "Price owner mismatch.");
+      const key = listingPriceTargetKey(accepted.target);
+      const revision =
+        accepted.target.kind === "native-marketplace"
+          ? state.nativePriceRevision
+          : (state.acceptedTargetPrices[key]?.targetPriceRevision ?? 0);
+      assert(revision === command.expectedTargetPriceRevision, "Accepted target price revision changed.");
+      assert(accepted.listingRevision === state.streamRevision + 1, "Listing revision changed.");
+      assert(accepted.targetPriceRevision === accepted.listingRevision, "Invalid target price revision.");
+      const pair = normalizeAcceptedListingPrice(accepted.priceAmount, accepted.priceCurrencyCode);
+      assert(
+        pair.priceAmount === accepted.priceAmount && pair.priceCurrencyCode === accepted.priceCurrencyCode,
+        "Price pair must be normalized.",
+      );
+      if (accepted.target.kind === "native-marketplace") {
+        assert(accepted.connectionAuthority === null, "Native prices cannot carry connection authority.");
+        return decideMarketplaceListing(state, {
+          type: "UpdateListingPrice",
+          ...pair,
+          feeLocks: command.feeLocks,
+          acceptedTargetPrice: accepted,
+        });
+      }
+      assert(
+        accepted.connectionAuthority?.connectionId === accepted.target.connectionId,
+        "Connection authority mismatch.",
+      );
+      assert(command.feeLocks.length === 0, "External price acceptance cannot change native fee locks.");
+      return [
+        {
+          type: "marketplace.listing.target-price-accepted",
+          data: { schemaVersion: 1, acceptedTargetPrice: accepted },
+        },
+      ];
+    }
+    case "ActivateListingForChannel": {
+      assert(state.listingId !== null && state.status !== "withdrawn", "Listing cannot be activated.");
+      assert(state.status !== "paused", "Channel activation cannot clear a listing pause.");
+      const accepted =
+        state.acceptedTargetPrices[
+          listingPriceTargetKey({ kind: "channel-connection", connectionId: command.connectionId })
+        ];
+      assert(
+        accepted && accepted.targetPriceRevision === command.expectedTargetPriceRevision,
+        "Current accepted target price is required.",
+      );
+      assert(
+        Number.isSafeInteger(command.allocationRevision) && command.allocationRevision > 0,
+        "Current Inventory allocation is required.",
+      );
+      return [
+        {
+          type: "marketplace.listing.channel-activated",
+          data: {
+            connectionId: command.connectionId,
+            targetPriceRevision: command.expectedTargetPriceRevision,
+            allocationRevision: command.allocationRevision,
+          },
+        },
+      ];
+    }
+    case "SetNativeListingVisibility": {
+      assert(state.listingId !== null && state.status !== "withdrawn", "Listing visibility cannot change.");
+      if (command.nativeVisibility === "disabled") {
+        assertFeeLockTranchesPreserved(state.feeLocks, command.feeLocks);
+        assert(
+          totalFeeLockedUnits(state.feeLocks) === totalFeeLockedUnits(command.feeLocks),
+          "Disabling cannot create fee locks.",
+        );
+        return [
+          {
+            type: "marketplace.listing.native-visibility-changed",
+            data: {
+              nativeVisibility: "disabled",
+              nativeFeeState: state.nativeFeeState,
+              feeLocks: [...state.feeLocks],
+              evidenceRequirements: state.evidenceRequirements,
+            },
+          },
+        ];
+      }
+      assert(state.status !== "paused", "Visibility changes cannot clear a listing pause.");
+      assert(state.priceAmount !== null && state.priceCurrencyCode !== null, "Native price is incomplete.");
+      assert(state.productMeasureSnapshot, "Listings require a resolved shipping measure before publication.");
+      assert(
+        command.evidenceRequirements &&
+          command.readiness?.ready &&
+          command.readiness.requirementHash === command.evidenceRequirements.requirementHash,
+        "Current native evidence readiness is required.",
+      );
+      const feeLocks = command.feeLocks.map(normalizeMarketplaceListingFeeLock);
+      assertFeeLockTranchesPreserved(state.feeLocks, feeLocks.slice(0, state.feeLocks.length));
+      assert(totalFeeLockedUnits(feeLocks) === state.quantityCap, "Native enrollment must cover listed quantity.");
+      return [
+        {
+          type: "marketplace.listing.native-visibility-changed",
+          data: {
+            nativeVisibility: "enabled",
+            nativeFeeState: "enrolled",
+            feeLocks,
+            evidenceRequirements: command.evidenceRequirements,
+          },
+        },
+        { type: "marketplace.listing.published", data: {} },
+      ];
+    }
+    case "ResumeListing":
+      assert(
+        state.status === "paused" && state.pauseReason === command.expectedPauseReason,
+        "Listing pause authority changed.",
+      );
+      return [{ type: "marketplace.listing.resumed", data: { pauseReason: command.expectedPauseReason } }];
     case "UpdateListingPrice": {
       assert(state.listingId !== null, "Listing must be created first.");
       assert(state.status !== "withdrawn", "Withdrawn listings cannot be updated.");
       const feeLocks = command.feeLocks.map(normalizeMarketplaceListingFeeLock);
       assertFeeLockTranchesPreserved(state.feeLocks, feeLocks);
-      assert(totalFeeLockedUnits(feeLocks) === state.quantityCap, "Price edit fee locks must cover listed quantity.");
+      assert(
+        state.nativeVisibility === "disabled" || totalFeeLockedUnits(feeLocks) === state.quantityCap,
+        "Price edit fee locks must cover listed quantity.",
+      );
       const data = {
+        schemaVersion: 2 as const,
+        ...(command.acceptedTargetPrice ? { acceptedTargetPrice: command.acceptedTargetPrice } : {}),
         priceAmount: normalizeMoneyAmount(command.priceAmount),
         priceCurrencyCode: normalizeListingPriceCurrencyCode(command.priceCurrencyCode),
         ...feeLockProjectionFields(feeLocks),
@@ -732,6 +962,7 @@ export const decideMarketplaceListing: AggregateDecider<
 
       const currencyUnchanged = state.priceCurrencyCode === data.priceCurrencyCode;
       if (
+        !command.acceptedTargetPrice &&
         currencyUnchanged &&
         command.minimumChange &&
         isWithinMinimumListingPriceChange(state.priceAmount, data.priceAmount, command.minimumChange)
@@ -740,6 +971,7 @@ export const decideMarketplaceListing: AggregateDecider<
       }
 
       if (
+        !command.acceptedTargetPrice &&
         isMoneyAmountUnchanged(state.priceAmount, data.priceAmount) &&
         currencyUnchanged &&
         areFeeLockQuotesUnchanged(state.feeLocks, feeLocks)
@@ -757,7 +989,14 @@ export const decideMarketplaceListing: AggregateDecider<
         "Listing quantity cap must be a positive whole number.",
       );
       const purchaseLimits = normalizePurchaseLimits(command.purchaseLimits ?? state.purchaseLimits, quantityCap);
-      const feeLocks = resizeMarketplaceListingFeeLocks(state.feeLocks, quantityCap, command.addedUnitsFeeLock);
+      if (state.nativeVisibility === "disabled") {
+        assert(command.addedUnitsFeeLock === null, "Native-disabled quantity edits cannot create fee locks.");
+      }
+      const coveredQuantity = totalFeeLockedUnits(state.feeLocks);
+      const feeLocks =
+        state.nativeVisibility === "disabled" && quantityCap >= coveredQuantity
+          ? [...state.feeLocks]
+          : resizeMarketplaceListingFeeLocks(state.feeLocks, quantityCap, command.addedUnitsFeeLock);
       const data = {
         quantityCap,
         purchaseLimits,
@@ -874,10 +1113,11 @@ export const decideMarketplaceListing: AggregateDecider<
     case "PublishListing":
       assert(state.listingId !== null, "Listing must be created first.");
       assert(state.status !== "withdrawn", "Withdrawn listings cannot be published.");
-      if (state.status === "active" && command.allowAlreadyActiveNoOp) {
+      assert(state.nativeVisibility === "enabled", "Native-disabled listings require explicit visibility consent.");
+      if (state.status === "active" && state.nativePublicationRevision !== null && command.allowAlreadyActiveNoOp) {
         return [];
       }
-      assert(state.status !== "active", "Listing is already active.");
+      assert(state.status !== "active" || state.nativePublicationRevision === null, "Listing is already active.");
       assert(
         state.priceAmount !== null && state.priceCurrencyCode !== null,
         "Listing price is incomplete. Supply an amount and currency before publication.",
@@ -933,13 +1173,19 @@ export const decideMarketplaceListing: AggregateDecider<
   }
 };
 
-export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState, MarketplaceListingEvent> = (
+const evolveMarketplaceListingEvent: AggregateEvolver<MarketplaceListingState, MarketplaceListingEvent> = (
   state,
   event,
 ) => {
   switch (event.type) {
     case "marketplace.listing.created":
       return {
+        ...initialMarketplaceListingState,
+        publicationScope: event.data.publicationScope ?? "native",
+        nativeVisibility: event.data.nativeVisibility ?? "enabled",
+        nativeFeeState: event.data.nativeFeeState ?? "enrolled",
+        nativeVisibilityRevision: state.streamRevision + 1,
+        nativePriceRevision: state.streamRevision + 1,
         listingId: event.data.listingId,
         accountId: event.data.accountId,
         inventoryItemId: event.data.inventoryItemId,
@@ -975,6 +1221,10 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
     case "marketplace.listing.price-updated":
       return {
         ...state,
+        nativePriceRevision: state.streamRevision + 1,
+        acceptedTargetPrices: event.data.acceptedTargetPrice
+          ? { ...state.acceptedTargetPrices, "native-marketplace": event.data.acceptedTargetPrice }
+          : state.acceptedTargetPrices,
         priceAmount: event.data.priceAmount,
         priceCurrencyCode: event.data.priceCurrencyCode ?? null,
         marketplaceSalesFeeUnitAmount: event.data.marketplaceSalesFeeUnitAmount,
@@ -1058,9 +1308,41 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
     case "marketplace.listing.published":
       return {
         ...state,
+        nativePublicationRevision: state.streamRevision + 1,
         status: "active",
         pauseReason: null,
       };
+    case "marketplace.listing.target-price-accepted":
+      return {
+        ...state,
+        acceptedTargetPrices: {
+          ...state.acceptedTargetPrices,
+          [listingPriceTargetKey(event.data.acceptedTargetPrice.target)]: event.data.acceptedTargetPrice,
+        },
+      };
+    case "marketplace.listing.channel-activated":
+      return {
+        ...state,
+        status: "active",
+        channelActivations: {
+          ...state.channelActivations,
+          [event.data.connectionId]: {
+            revision: state.streamRevision + 1,
+            allocationRevision: event.data.allocationRevision,
+          },
+        },
+      };
+    case "marketplace.listing.native-visibility-changed":
+      return {
+        ...state,
+        ...feeLockProjectionFields(event.data.feeLocks),
+        nativeVisibility: event.data.nativeVisibility,
+        nativeVisibilityRevision: state.streamRevision + 1,
+        nativeFeeState: event.data.nativeFeeState,
+        evidenceRequirements: event.data.evidenceRequirements,
+      };
+    case "marketplace.listing.resumed":
+      return { ...state, status: "active", pauseReason: null };
     case "marketplace.listing.paused":
       return { ...state, status: "paused", pauseReason: event.data.reason ?? "seller" };
     case "marketplace.listing.auto-unlisted":
@@ -1073,6 +1355,14 @@ export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState,
       return assertNever(event);
   }
 };
+
+export const evolveMarketplaceListing: AggregateEvolver<MarketplaceListingState, MarketplaceListingEvent> = (
+  state,
+  event,
+) => ({
+  ...evolveMarketplaceListingEvent(state, event),
+  streamRevision: state.streamRevision + 1,
+});
 
 function normalizeOptionalText(value: string | null | undefined): string | null {
   const normalized = value?.trim() ?? "";
