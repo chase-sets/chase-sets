@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { ProductMarketAggregate, ProductRollupSeriesPoint } from "@chase-sets/pricing/server";
+import type {
+  MarketHistoryAggregate,
+  MarketHistorySeriesPoint,
+} from "../features/item-detail/domain/item-detail-market-history";
 import {
   formatLastSold,
   formatMedianWindow,
@@ -7,7 +10,7 @@ import {
   formatVerifiedSaleMarkerLabel,
 } from "../features/item-detail/domain/item-detail-market-panel-formatting";
 
-function aggregate(overrides: Partial<ProductMarketAggregate> = {}): ProductMarketAggregate {
+function aggregate(overrides: Partial<MarketHistoryAggregate> = {}): MarketHistoryAggregate {
   return {
     lastSoldAt: null,
     lastSoldPriceAmount: null,
@@ -17,13 +20,20 @@ function aggregate(overrides: Partial<ProductMarketAggregate> = {}): ProductMark
     medianPrice90d: null,
     volume90d: 0,
     tradeCount90d: 0,
-    sellThroughRate: null,
     ...overrides,
     currencyCode: overrides.currencyCode ?? "USD",
   };
 }
 
 describe("formatLastSold", () => {
+  it.each([
+    ["EUR", "€12.00"],
+    ["USD", "$12.00"],
+  ])("formats a %s last sale in its recorded currency", (currencyCode, value) => {
+    expect(
+      formatLastSold(aggregate({ currencyCode, lastSoldAt: "2026-07-01", lastSoldPriceAmount: "12.00" })).value,
+    ).toBe(value);
+  });
   it("reports no sales yet when there is no aggregate row", () => {
     expect(formatLastSold(null)).toEqual({ value: "No sales yet", note: null });
   });
@@ -36,6 +46,20 @@ describe("formatLastSold", () => {
 });
 
 describe("formatMedianWindow", () => {
+  it.each([
+    ["EUR", "€11.00", "€10.00"],
+    ["USD", "$11.00", "$10.00"],
+  ])("formats both %s median windows in their recorded currency", (currencyCode, value30d, value90d) => {
+    const row = aggregate({
+      currencyCode,
+      medianPrice30d: "11.00",
+      medianPrice90d: "10.00",
+      volume30d: 5,
+      volume90d: 7,
+    });
+    expect(formatMedianWindow(row, "30d", 3)).toEqual({ value: value30d, note: "5 units sold" });
+    expect(formatMedianWindow(row, "90d", 3)).toEqual({ value: value90d, note: "7 units sold" });
+  });
   it("formats the median price and unit volume when the sample is sufficient", () => {
     const result = formatMedianWindow(aggregate({ medianPrice30d: "11.00", volume30d: 5, tradeCount30d: 5 }), "30d", 3);
     expect(result.value).toBe("$11.00");
@@ -89,9 +113,12 @@ describe("formatSpread", () => {
 });
 
 describe("formatVerifiedSaleMarkerLabel", () => {
-  it("builds an accessible label with price and date", () => {
-    const point: ProductRollupSeriesPoint = {
-      currencyCode: "USD",
+  it.each([
+    ["EUR", "Verified sale, €12.00, 2026-07-01"],
+    ["USD", "Verified sale, $12.00, 2026-07-01"],
+  ])("builds an accessible %s label with price and date", (currencyCode, label) => {
+    const point: MarketHistorySeriesPoint = {
+      currencyCode,
       day: "2026-07-01",
       firstPriceAmount: "10.00",
       lastPriceAmount: "12.00",
@@ -103,6 +130,6 @@ describe("formatVerifiedSaleMarkerLabel", () => {
       verifiedTradeCount: 3,
     };
 
-    expect(formatVerifiedSaleMarkerLabel(point)).toBe("Verified sale, $12.00, 2026-07-01");
+    expect(formatVerifiedSaleMarkerLabel(point)).toBe(label);
   });
 });

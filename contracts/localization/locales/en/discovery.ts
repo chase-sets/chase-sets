@@ -937,6 +937,7 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.publicListing.buy.this.listing": "Buy this listing",
   "discovery.features.itemDetail.ui.itemDetailPage.market.book": "Market book",
   "discovery.features.itemDetail.ui.marketPanel.range.selector.label": "Time range",
+  "discovery.features.itemDetail.ui.marketPanel.currencyGroup": "Sales in {currencyCode}",
   "discovery.features.itemDetail.ui.marketPanel.range.30d": "30 days",
   "discovery.features.itemDetail.ui.marketPanel.range.90d": "90 days",
   "discovery.features.itemDetail.ui.marketPanel.range.1y": "1 year",
