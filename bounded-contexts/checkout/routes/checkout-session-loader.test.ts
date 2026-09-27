@@ -162,7 +162,7 @@ describe("checkout web routes: checkout session loader", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       roleKey: "owner",
-      permissions: ["orders.view"],
+      permissions: ["orders.view", "payouts.view"],
     });
     mockGetCheckoutSession.mockResolvedValue(walletCheckoutSession());
     mockCreateCheckoutRequestApiClient.mockReturnValue({ getCheckoutSession: mockGetCheckoutSession });
@@ -190,8 +190,34 @@ describe("checkout web routes: checkout session loader", () => {
     },
   );
 
+  it("keeps payment start available without fetching a wallet for an actor lacking payouts.view", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_fulfillment",
+      roleKey: "fulfillment",
+      permissions: ["orders.view", "fulfillment.manage", "fulfillment.view"],
+    });
+    mockGetCheckoutSession.mockResolvedValue(walletCheckoutSession());
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ getCheckoutSession: mockGetCheckoutSession });
+    const fetch = vi.fn(async () => new Response(null, { status: 403 }));
+    vi.stubGlobal("fetch", fetch);
+
+    const result = await checkoutSessionLoader({
+      request: new Request("http://localhost/checkout/buy/session/chk_wallet"),
+      params: { sessionId: "chk_wallet" },
+      context: undefined,
+    } as never);
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(result.wallet).toBeNull();
+    expect(result.walletUnavailable).toBe(false);
+    expect(result.paymentPreview).not.toBeNull();
+    expect(result.paymentPreview?.wallet_credit.requested_amount).toBe("0.00");
+    expect(result.autoResumePaymentStart).toBe(true);
+  });
+
   it.each([
     ["HTTP error", async () => new Response("secret-wallet-marker", { status: 503 })],
+    ["authorization denial", async () => new Response("secret-wallet-marker", { status: 403 })],
     [
       "transport rejection",
       async () => {
@@ -213,8 +239,10 @@ describe("checkout web routes: checkout session loader", () => {
     ["malformed currency", async () => Response.json({ available_balance_amount: "5.00", currency_code: "US!" })],
     ["malformed envelope", async () => Response.json(null)],
   ])("keeps checkout usable without a zero quote for %s", async (_failure, response) => {
-    vi.stubGlobal("fetch", vi.fn(response));
+    const fetch = vi.fn(response);
+    vi.stubGlobal("fetch", fetch);
     const result = await loadSignedInWalletCheckout();
+    expect(fetch.mock.calls.some(([url]) => String(url).endsWith("/api/settlement/wallet"))).toBe(true);
     expect(result.session.session_id).toBe("chk_wallet");
     expect(result.wallet).toBeNull();
     expect(result.walletUnavailable).toBe(true);
@@ -359,7 +387,7 @@ describe("checkout web routes: checkout session loader", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       roleKey: "owner",
-      permissions: ["orders.view"],
+      permissions: ["orders.view", "payouts.view"],
     });
     mockGetCheckoutSession.mockResolvedValue(walletCheckoutSession("pay_existing"));
     mockGetCheckoutPaymentConfirmation.mockResolvedValue({
@@ -665,7 +693,7 @@ describe("checkout web routes: checkout session loader", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       roleKey: "owner",
-      permissions: ["accounts.view", "orders.manage"],
+      permissions: ["accounts.view", "orders.manage", "payouts.view"],
     });
     vi.stubGlobal(
       "fetch",
@@ -731,7 +759,7 @@ describe("checkout web routes: checkout session loader", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       roleKey: "owner",
-      permissions: ["orders.view"],
+      permissions: ["orders.view", "payouts.view"],
     });
     stubValidatedZeroWallet();
     mockGetCheckoutSession.mockResolvedValue({
@@ -856,7 +884,7 @@ describe("checkout web routes: checkout session loader", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       roleKey: "owner",
-      permissions: ["orders.view"],
+      permissions: ["orders.view", "payouts.view"],
     });
     stubValidatedZeroWallet();
     mockGetCheckoutSession.mockResolvedValue({
@@ -971,7 +999,7 @@ describe("checkout web routes: checkout session loader", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       roleKey: "owner",
-      permissions: ["orders.view"],
+      permissions: ["orders.view", "payouts.view"],
     });
     stubValidatedZeroWallet();
     mockGetCheckoutSession.mockResolvedValue({
@@ -1067,7 +1095,7 @@ describe("checkout web routes: checkout session loader", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       roleKey: "owner",
-      permissions: ["orders.view"],
+      permissions: ["orders.view", "payouts.view"],
     });
     stubValidatedZeroWallet();
     mockGetCheckoutSession.mockResolvedValue({
@@ -1160,7 +1188,7 @@ describe("checkout web routes: checkout session loader", () => {
     mockResolveActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",
       roleKey: "owner",
-      permissions: ["orders.view"],
+      permissions: ["orders.view", "payouts.view"],
     });
     stubValidatedZeroWallet();
     mockGetCheckoutSession.mockResolvedValue({

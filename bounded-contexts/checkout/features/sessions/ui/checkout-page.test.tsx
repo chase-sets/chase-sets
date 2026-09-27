@@ -1185,6 +1185,24 @@ describe("checkout session page", () => {
     }
   });
 
+  it("omits wallet credit from both summaries for a signed-in no-wallet quote", () => {
+    const markup = renderToString(
+      <CheckoutSessionPage
+        session={readySession}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        wallet={null}
+        walletUnavailable={false}
+        isSignedInBuyer
+        autoResumePaymentStart
+      />,
+    );
+
+    expect(countText(markup, "Checkout service fee")).toBe(2);
+    expect(markup).not.toContain("Wallet credit");
+    expect(markup).not.toContain("Wallet balance is temporarily unavailable");
+  });
+
   it("keeps the accelerated saved-instrument path from starting payment without a wallet quote", async () => {
     const submitListener = vi.fn((event: SubmitEvent) => event.preventDefault());
     document.addEventListener("submit", submitListener);

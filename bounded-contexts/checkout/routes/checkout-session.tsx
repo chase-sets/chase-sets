@@ -726,7 +726,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   }
 
   const ancillaryRequest = requestWithoutReadAfterWrite(resolvedRequest);
-  const wallet = actor && actor.roleKey !== "guest-buyer" ? await loadWalletBalance(ancillaryRequest) : null;
+  const wallet =
+    actor &&
+    actor.roleKey !== "guest-buyer" &&
+    Array.isArray(actor.permissions) &&
+    actor.permissions.includes("payouts.view")
+      ? await loadWalletBalance(ancillaryRequest)
+      : null;
   const savedShippingAddresses = await loadSavedShippingAddresses(ancillaryRequest, actor);
   const savedCheckoutInstruments = await loadSavedCheckoutInstruments(ancillaryRequest, actor);
   const guestCheckoutContact = await loadGuestCheckoutContact(ancillaryRequest, actor);
