@@ -26,6 +26,7 @@ Do not rebuild `deployables/design-system-showcase` as the default answer to com
 - Styling system: Tailwind CSS v4
 - Primitive behavior layer: Base UI Shadcn-compatible primitives
 - Theme model: Chase Sets marketplace theme with light, dark, and system semantic tokens
+- Embedded surfaces: `embedded-surface-theme/v1` is the closed 34-slot neutral theme input; `resolveEmbeddedSurfaceTheme`, `embeddedSurfaceThemeSnapshot`, and `observeEmbeddedSurfaceTheme` read the nearest theme scope. Provider-specific mapping and invalid-value fallbacks belong to browser adapters, not this package.
 - Typography: IBM Plex Sans with tabular numerals for price, rating, quantity, fee, and total displays
 - Motion runtime: Motion for React, configured centrally through `ChaseRoot`
 
@@ -254,7 +255,7 @@ The design system does not own:
 - data fetching
 - domain rules
 
-Provider-owned embedded flows still use design-system token mappings. See [Embedded Stripe Appearance](./EMBEDDED_STRIPE_APPEARANCE.md) for the Stripe-specific boundary and residual styling limits.
+Provider-owned embedded flows resolve this neutral contract; browser adapters document provider-specific limits.
 
 ## Validation
 

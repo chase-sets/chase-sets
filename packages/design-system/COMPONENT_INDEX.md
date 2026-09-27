@@ -4,7 +4,7 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 364
+- Runtime exports indexed: 363
 - Source modules covered: 128
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
@@ -97,8 +97,6 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `ConnectionStatusIndicator` | `packages/design-system/src/components/data-display/operational-workflow/connection-status-indicator.tsx` | Connection live/stale indicator: a compact "live" badge with a reduced- motion-aware pulse while a realtime stream or poll is actually advancing, escalating to an `OperationalStatusBanner` once the connection has gone quiet past the caller's staleness threshold. | `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/import-jobs/import-jobs-module.tsx` |
 | `Container` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Container. | `bounded-contexts/auth/routes/access-admin/sign-in.tsx` |
 | `CopyButton` | `packages/design-system/src/components/actions/copy-button.tsx` | Purpose not documented; symbol name suggests: Copy Button. | `bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx` |
-| `createStripeConnectAppearance` | `packages/design-system/src/theme/stripe-appearance.ts` | Purpose not documented; symbol name suggests: create Stripe Connect Appearance. | `bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx` |
-| `createStripeElementsAppearance` | `packages/design-system/src/theme/stripe-appearance.ts` | Purpose not documented; symbol name suggests: create Stripe Elements Appearance. | `bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx` |
 | `CurrencyInput` | `packages/design-system/src/components/forms/number-field.tsx` | Purpose not documented; symbol name suggests: Currency Input. | `bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx` |
 | `cx` | `packages/design-system/src/utils/cx.ts` | Purpose not documented; symbol name only: cx. | `No production consumer yet.` |
 | `DataTable` | `packages/design-system/src/components/data-display/data-table.tsx` | Purpose not documented; symbol name suggests: Data Table. | `bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx` |
@@ -117,6 +115,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `DiscountValue` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Discount Value. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |
 | `Divider` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Divider. | `bounded-contexts/auth/features/registration/ui/register-page.tsx` |
 | `EmbeddedProviderSurface` | `packages/design-system/src/primitives/layout.tsx` | Full-width host for provider-managed embedded flows whose iframe dimensions are controlled by a vendor runtime. | `bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx` |
+| `embeddedSurfaceThemeSnapshot` | `packages/design-system/src/theme/embedded-surface-theme.ts` | Purpose not documented; symbol name suggests: embedded Surface Theme Snapshot. | `bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx` |
 | `EmptyState` | `packages/design-system/src/components/feedback/empty-state.tsx` | Purpose not documented; symbol name suggests: Empty State. | `bounded-contexts/catalog/features/attention-queue/ui/attention-queue-panel.tsx` |
 | `EmptyStateIllustration` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Empty State Illustration. | `No production consumer yet.` |
 | `EvidenceCodeBlock` | `packages/design-system/src/patterns/dense-admin-workbench.tsx` | Purpose not documented; symbol name suggests: Evidence Code Block. | `bounded-contexts/auth/features/agent-grants/ui/agent-grant-detail-page.tsx` |
@@ -207,7 +206,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `normalizeFormErrors` | `packages/design-system/src/components/forms/form-state.ts` | Purpose not documented; symbol name suggests: normalize Form Errors. | `No production consumer yet.` |
 | `NotificationCenterSheet` | `packages/design-system/src/patterns/commerce-overlays.tsx` | Purpose not documented; symbol name suggests: Notification Center Sheet. | `bounded-contexts/notifications/features/notification-center/ui/notification-center-shell.tsx` |
 | `NumberField` | `packages/design-system/src/components/forms/number-field.tsx` | Purpose not documented; symbol name suggests: Number Field. | `bounded-contexts/checkout/features/cart/ui/add-to-cart-section.tsx` |
-| `observeStripeAppearance` | `packages/design-system/src/theme/stripe-appearance.ts` | Purpose not documented; symbol name suggests: observe Stripe Appearance. | `bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx` |
+| `observeEmbeddedSurfaceTheme` | `packages/design-system/src/theme/embedded-surface-theme.ts` | Purpose not documented; symbol name suggests: observe Embedded Surface Theme. | `bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx` |
 | `OfferCard` | `packages/design-system/src/components/commerce/panels.tsx` | Purpose not documented; symbol name suggests: Offer Card. | `bounded-contexts/marketplace/features/offers/ui/submitted-offer-detail-page.tsx` |
 | `OperationalLockBanner` | `packages/design-system/src/components/data-display/operational-workflow/operational-lock-banner.tsx` | Lock notice: a warning-toned surface with a padlock glyph that signals a workstation task is frozen against edits while it is in progress. | `bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx` |
 | `OperationalStatusBanner` | `packages/design-system/src/components/data-display/operational-workflow/operational-status-banner.tsx` | Operational status notice: a tone-tinted surface pairing a status glyph, heading, and supporting copy with an optional trailing action, used to flag the live state of a workstation task. | `bounded-contexts/catalog/features/provider-scope-mapping/ui/scope-coverage-matrix-panel.tsx` |
@@ -255,6 +254,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `resolveChaseMotion` | `packages/design-system/src/motion/config.ts` | Purpose not documented; symbol name suggests: resolve Chase Motion. | `No production consumer yet.` |
 | `resolveColumnsClass` | `packages/design-system/src/utils/system.ts` | Purpose not documented; symbol name suggests: resolve Columns Class. | `No production consumer yet.` |
 | `resolveDirectionClass` | `packages/design-system/src/utils/system.ts` | Purpose not documented; symbol name suggests: resolve Direction Class. | `No production consumer yet.` |
+| `resolveEmbeddedSurfaceTheme` | `packages/design-system/src/theme/embedded-surface-theme.ts` | Purpose not documented; symbol name suggests: resolve Embedded Surface Theme. | `bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx` |
 | `resolveJustifyClass` | `packages/design-system/src/utils/system.ts` | Purpose not documented; symbol name suggests: resolve Justify Class. | `No production consumer yet.` |
 | `resolveResponsiveClass` | `packages/design-system/src/utils/system.ts` | Purpose not documented; symbol name suggests: resolve Responsive Class. | `No production consumer yet.` |
 | `resolveSpaceClass` | `packages/design-system/src/utils/system.ts` | Purpose not documented; symbol name suggests: resolve Space Class. | `No production consumer yet.` |
@@ -308,7 +308,6 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `StickyBar` | `packages/design-system/src/primitives/layout.tsx` | Position-agnostic sticky action bar pinned to the top or bottom edge. | `No production consumer yet.` |
 | `StickyCtaBar` | `packages/design-system/src/components/checkout/marketplace.tsx` | Purpose not documented; symbol name suggests: Sticky Cta Bar. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
 | `StickyTaskFooter` | `packages/design-system/src/components/data-display/operational-workflow/sticky-task-footer.tsx` | Sticky task footer: an in-flow action bar that pins to the bottom of a workstation flow, carrying a running summary plus the primary action, with mobile offsets that clear the app shell's bottom navigation. | `bounded-contexts/fulfillment/features/shipments/ui/shipment-packing-page.tsx` |
-| `stripeAppearanceSnapshot` | `packages/design-system/src/theme/stripe-appearance.ts` | Purpose not documented; symbol name suggests: stripe Appearance Snapshot. | `bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx` |
 | `Subheading` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Subheading. | `No production consumer yet.` |
 | `Surface` | `packages/design-system/src/primitives/layout.tsx` | Canonical furniture surface with tone-driven fills and opt-in `flush`/`tinted`/`outlined`/`elevated` elevation intents. | `bounded-contexts/checkout/features/cart/ui/cart-page.tsx` |
 | `surfaceSemanticToneClasses` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: surface Semantic Tone Classes. | `No production consumer yet.` |

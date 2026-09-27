@@ -64,7 +64,6 @@
     "./tabs": "./src/components/actions/tabs.tsx",
     "./text-input": "./src/components/forms/text-input.tsx",
     "./theme": "./src/theme/provider.tsx",
-    "./theme/stripe-appearance": "./src/theme/stripe-appearance.ts",
     "./theme/tokens": "./src/theme/tokens.ts",
     "./toast": "./src/components/feedback/toast.tsx",
     "./toggle": "./src/components/actions/toggle.tsx",
@@ -92,6 +91,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
+    "@chase-sets/embedded-surface-theme": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
     "@fontsource/ibm-plex-mono": "^5.3.0",
     "@fontsource/ibm-plex-sans": "^5.2.8",
