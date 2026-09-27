@@ -450,7 +450,7 @@ describeDb("ordering purchase limits db", () => {
     expect(requiredSurfaces.every((table) => inventory.includes(table))).toBe(true);
     expect(
       requiredSurfaces.every((table) =>
-        inventory.replace("ordering_seller_open_order_claims", "omitted-surface").includes(table),
+        inventory.replaceAll("ordering_seller_open_order_claims", "omitted-surface").includes(table),
       ),
     ).toBe(false);
     expect(

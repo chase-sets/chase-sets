@@ -27,17 +27,26 @@ try {
   let usageFlipped = false;
   let sourceCompleted = false;
   let capacityInserts = 0;
+  let orderEventInserted = false;
+  let committedOrders = 0;
   let rootDeleted = false;
   const pause = async (name: string) => {
     if (cut !== name && releaseCut !== name) return;
     process.stdout.write(`CUT:${name}\n`);
     await new Promise<void>(() => undefined);
   };
-  const afterQuery = async (sql: string) => {
+  const afterQuery = async (sql: string, values?: readonly unknown[]) => {
     if (releaseCut && sql.includes("UPDATE ordering_evidence_window_sources") && sql.includes("SET discharged_at"))
       await pause("after reconcile/pre-root delete");
     if (releaseCut && sql.includes("DELETE FROM ordering_order_source_claims")) rootDeleted = true;
     if (sql.includes("INSERT INTO ordering_order_source_claims")) sourceInserted = true;
+    if (
+      sql.includes("INSERT INTO event_store_events") &&
+      values?.some(
+        (value, index) => index % 17 === 1 && typeof value === "string" && value.startsWith("ordering.order-"),
+      )
+    )
+      orderEventInserted = true;
     if (sql.includes("INSERT INTO ordering_listing_purchase_limit_claims")) await pause("claim-insert/pre-increment");
     if (sql.includes("SET day_quantity = day_quantity +")) await pause("increment/pre-flip");
     if (sql.includes("UPDATE ordering_listing_purchase_limit_claims") && sql.includes("SET status = 'claimed'")) {
@@ -58,11 +67,11 @@ try {
         usageFlipped = false;
         await pause("usage/pre-capacity");
       }
-      if (cut === "between Orders" || cut === "last Order/pre-complete") {
-        const orders = await db.query<{ n: string }>(
-          `SELECT count(*)::text AS n FROM event_store_events WHERE stream_id LIKE 'ordering.order-%'`,
-        );
-        if (Number(orders.rows[0]?.n) === (cut === "between Orders" ? 1 : listingIds.length)) await pause(cut);
+      if (orderEventInserted) {
+        orderEventInserted = false;
+        committedOrders++;
+        if (committedOrders === 1 && listingIds.length > 1) await pause("between Orders");
+        if (committedOrders === listingIds.length) await pause("last Order/pre-complete");
       }
       if (sourceCompleted) {
         sourceCompleted = false;
@@ -73,7 +82,7 @@ try {
   const wrapped: PgTransactionalPool = {
     query: async <Row = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
       const result = await db.query<Row>(sql, values);
-      await afterQuery(sql);
+      await afterQuery(sql, values);
       return result;
     },
     connect: async () => {
@@ -83,7 +92,7 @@ try {
         values?: readonly unknown[],
       ) => {
         const result = await client.query<Row>(sql, values);
-        await afterQuery(sql);
+        await afterQuery(sql, values);
         return result;
       };
       return { query, release: client.release.bind(client) };
