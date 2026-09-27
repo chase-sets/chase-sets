@@ -50,7 +50,7 @@
     "market-trades",
     "market-rollups",
     "market-estimates",
-    "buyer-offer-targets",
+    "offer-targets",
     "repricing-policies",
     "repricing-engine",
     "public-market-pages",
@@ -856,7 +856,7 @@
       "purpose": "Own the blended Market-Value Estimate: the event-sourced Market Price aggregate publishing pricing.market-price.estimated per resolved product (platform verified trades weighted highest, unverified next, external comps by the market-estimate policy, all time-decayed), its minimum-input gate, the current-estimate read model, and the estimate recompute pass riding the market-rollups closer job.",
       "expectedConsumers": ["Internal pricing module composition"]
     },
-    "buyer-offer-targets": {
+    "offer-targets": {
       "classification": "slice",
       "purpose": "Evaluate buyer Offer unit item targets from fresh published Market Price evidence and authorized Marketplace policy terms without seller inputs.",
       "expectedConsumers": ["Marketplace buyer Offer preview and application through the Pricing server contract"]

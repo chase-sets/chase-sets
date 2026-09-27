@@ -1,5 +1,5 @@
 export { getAccountRecommendation, listAccountRecommendations } from "./features/recommendations/read-model/queries";
-export { evaluateBuyerOfferTarget } from "./features/buyer-offer-targets/domain/evaluate";
+export { evaluateBuyerOfferTarget } from "./features/offer-targets/domain/evaluate";
 export type {
   BuyerMarketPrice,
   BuyerOfferTargetEvidence,
@@ -7,9 +7,9 @@ export type {
   BuyerOfferTargetInput,
   BuyerOfferTargetResult,
   BuyerOfferTargetSelection,
-} from "./features/buyer-offer-targets/domain/evaluate";
-export { loadBuyerOfferMarketPrices } from "./features/buyer-offer-targets/read-model/queries";
-export type { BuyerOfferProductKey } from "./features/buyer-offer-targets/read-model/queries";
+} from "./features/offer-targets/domain/evaluate";
+export { loadBuyerOfferMarketPrices } from "./features/offer-targets/read-model/queries";
+export type { BuyerOfferProductKey } from "./features/offer-targets/read-model/queries";
 export { getOwnSaleLows, listOwnSaleObservations } from "./features/own-sale-observations/read-model/queries";
 export type {
   GetOwnSaleLowsParams,

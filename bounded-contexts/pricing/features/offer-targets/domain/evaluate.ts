@@ -1,4 +1,5 @@
 import { centsToMoneyAmount, tryMoneyToCents } from "@chase-sets/primitives/money";
+import { MAX_MARKET_ESTIMATE_FRESH_HOURS } from "../../market-estimates/domain/estimate-policy";
 
 /** Authorized selection terms supplied by Marketplace's buyer Offer policy boundary. */
 export type BuyerOfferTargetSelection = Readonly<{
@@ -56,7 +57,12 @@ export type BuyerOfferTargetHoldReason =
 
 export type BuyerOfferTargetResult =
   | Readonly<{ status: "target"; unitItemAmount: string; evidence: BuyerOfferTargetEvidence }>
-  | Readonly<{ status: "held"; reason: BuyerOfferTargetHoldReason; buyerCopy: string; evidence: BuyerOfferTargetEvidence }>;
+  | Readonly<{
+      status: "held";
+      reason: BuyerOfferTargetHoldReason;
+      buyerCopy: string;
+      evidence: BuyerOfferTargetEvidence;
+    }>;
 
 const holdCopy: Record<BuyerOfferTargetHoldReason, string> = {
   "market-price-unavailable": "A Market Price is not available for this Product yet.",
@@ -73,7 +79,9 @@ function instant(value: string): number | null {
   const match = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d{1,3}))?Z$/.exec(value);
   if (!match) return null;
   const time = Date.parse(value);
-  return Number.isFinite(time) && new Date(time).toISOString() === `${match[1]}.${(match[2] ?? "0").padEnd(3, "0")}Z` ? time : null;
+  return Number.isFinite(time) && new Date(time).toISOString() === `${match[1]}.${(match[2] ?? "0").padEnd(3, "0")}Z`
+    ? time
+    : null;
 }
 
 /** Both preview and attempted application evaluate the same complete snapshot at their own real instant. */
@@ -81,11 +89,17 @@ export function evaluateBuyerOfferTarget(input: BuyerOfferTargetInput): BuyerOff
   const { selection, marketPrice } = input;
   const cap = tryMoneyToCents(selection.maximumUnitItemAmount);
   if (
-    cap === null || cap < 1n ||
-    !Number.isSafeInteger(input.adjustmentBps) || input.adjustmentBps < -2500 || input.adjustmentBps > 0 ||
-    !Number.isSafeInteger(input.policyRevision) || input.policyRevision < 1 ||
-    !Number.isSafeInteger(selection.quantity) || selection.quantity < 1 ||
-    !Number.isSafeInteger(selection.offerVersion) || selection.offerVersion < 1 ||
+    cap === null ||
+    cap < 1n ||
+    !Number.isSafeInteger(input.adjustmentBps) ||
+    input.adjustmentBps < -2500 ||
+    input.adjustmentBps > 0 ||
+    !Number.isSafeInteger(input.policyRevision) ||
+    input.policyRevision < 1 ||
+    !Number.isSafeInteger(selection.quantity) ||
+    selection.quantity < 1 ||
+    !Number.isSafeInteger(selection.offerVersion) ||
+    selection.offerVersion < 1 ||
     !/^[A-Z]{3}$/.test(input.currency)
   ) {
     throw new Error("Invalid authorized buyer Offer terms.");
@@ -102,19 +116,25 @@ export function evaluateBuyerOfferTarget(input: BuyerOfferTargetInput): BuyerOff
     adjustmentBps: input.adjustmentBps,
     maximumUnitItemAmount: selection.maximumUnitItemAmount,
     policyRevision: input.policyRevision,
-    marketPrice: marketPrice === null ? null : {
-      catalogItemId: marketPrice.catalogItemId,
-      productId: marketPrice.productId,
-      estimateVersion: marketPrice.estimateVersion,
-      amount: marketPrice.amount,
-      currencyCode: marketPrice.currencyCode,
-      estimatedAt: marketPrice.estimatedAt,
-      freshUntil: marketPrice.freshUntil,
-    },
+    marketPrice:
+      marketPrice === null
+        ? null
+        : {
+            catalogItemId: marketPrice.catalogItemId,
+            productId: marketPrice.productId,
+            estimateVersion: marketPrice.estimateVersion,
+            amount: marketPrice.amount,
+            currencyCode: marketPrice.currencyCode,
+            estimatedAt: marketPrice.estimatedAt,
+            freshUntil: marketPrice.freshUntil,
+          },
     evaluatedAt: input.evaluatedAt,
   };
   const held = (reason: BuyerOfferTargetHoldReason): BuyerOfferTargetResult => ({
-    status: "held", reason, buyerCopy: holdCopy[reason], evidence,
+    status: "held",
+    reason,
+    buyerCopy: holdCopy[reason],
+    evidence,
   });
 
   const now = instant(input.evaluatedAt);
@@ -131,12 +151,19 @@ export function evaluateBuyerOfferTarget(input: BuyerOfferTargetInput): BuyerOff
   const estimatedAt = instant(marketPrice.estimatedAt);
   const freshUntil = instant(marketPrice.freshUntil);
   if (
-    typeof marketPrice.estimateVersion !== "string" || !/^[1-9]\d{0,18}$/.test(marketPrice.estimateVersion) ||
-    amount === null || amount < 1n || estimatedAt === null || freshUntil === null || freshUntil <= estimatedAt
-  ) return held("market-price-invalid");
+    typeof marketPrice.estimateVersion !== "string" ||
+    !/^[1-9]\d{0,18}$/.test(marketPrice.estimateVersion) ||
+    amount === null ||
+    amount < 1n ||
+    estimatedAt === null ||
+    freshUntil === null ||
+    freshUntil <= estimatedAt ||
+    freshUntil - estimatedAt > MAX_MARKET_ESTIMATE_FRESH_HOURS * 60 * 60 * 1000
+  )
+    return held("market-price-invalid");
   if (estimatedAt > now || now >= freshUntil) return held("market-price-stale");
 
-  const adjusted = amount * BigInt(10_000 + input.adjustmentBps) / 10_000n;
+  const adjusted = (amount * BigInt(10_000 + input.adjustmentBps)) / 10_000n;
   if (adjusted < 1n) return held("target-below-minimum");
   return { status: "target", unitItemAmount: centsToMoneyAmount(adjusted < cap ? adjusted : cap), evidence };
 }

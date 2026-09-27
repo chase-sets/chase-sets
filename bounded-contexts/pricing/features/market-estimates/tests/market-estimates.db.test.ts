@@ -18,7 +18,8 @@ import { buildPricingMarketEstimateProjectionHandlers } from "../read-model/proj
 import { expireMarketPriceEstimate, getMarketPriceEstimateUpdatedAt } from "../read-model/queries";
 import { marketPriceEstimatedEventType } from "../domain/domain";
 import { MARKET_ESTIMATE_LAUNCH_POLICY_VALUE, type MarketEstimatePolicyValue } from "../domain/estimate-policy";
-import { evaluateBuyerOfferTarget, loadBuyerOfferMarketPrices } from "../../../server";
+import { evaluateBuyerOfferTarget } from "../../offer-targets/domain/evaluate";
+import { loadBuyerOfferMarketPrices } from "../../offer-targets/read-model/queries";
 
 // phantom-SQL rule: exercised against a real Postgres sandbox
 // (TEST_DATABASE_URL, see .env.sandbox.local / dev:bootstrap), never mocked.
@@ -216,31 +217,55 @@ describeDb("pricing market-estimates blended estimate publication (#4315)", () =
     expect(absent).toBeNull();
     expect(duplicate).toEqual(buyerPrice);
     expect(buyerPrice).toEqual({
-      catalogItemId: CATALOG_ITEM_ID, productId: PRODUCT_ID, estimateVersion: "1",
-      amount: payload.amount, currencyCode: "usd", estimatedAt: payload.estimatedAt,
+      catalogItemId: CATALOG_ITEM_ID,
+      productId: PRODUCT_ID,
+      estimateVersion: "1",
+      amount: payload.amount,
+      currencyCode: "usd",
+      estimatedAt: payload.estimatedAt,
       freshUntil: payload.freshUntil,
     });
     const buyerInput = {
       selection: {
-        offerId: "offer_1", offerVersion: 1, catalogItemId: CATALOG_ITEM_ID, productId: PRODUCT_ID,
-        selectedOptions: [], quantity: 5, maximumUnitItemAmount: "20.00",
+        offerId: "offer_1",
+        offerVersion: 1,
+        catalogItemId: CATALOG_ITEM_ID,
+        productId: PRODUCT_ID,
+        selectedOptions: [],
+        quantity: 5,
+        maximumUnitItemAmount: "20.00",
       },
-      currency: "USD", adjustmentBps: -2500, policyRevision: 2, marketPrice: buyerPrice,
+      currency: "USD",
+      adjustmentBps: -2500,
+      policyRevision: 2,
+      marketPrice: buyerPrice,
       evaluatedAt: NOW,
     };
     expect(evaluateBuyerOfferTarget(buyerInput).status).toBe("target");
-    expect(evaluateBuyerOfferTarget({ ...buyerInput, evaluatedAt: String(payload.freshUntil) }))
-      .toMatchObject({ status: "held", reason: "market-price-stale" });
-    expect(evaluateBuyerOfferTarget({ ...buyerInput, marketPrice: absent }))
-      .toMatchObject({ status: "held", reason: "market-price-unavailable" });
-    expect(evaluateBuyerOfferTarget({ ...buyerInput, currency: "EUR" }))
-      .toMatchObject({ status: "held", reason: "market-price-currency-mismatch" });
+    expect(evaluateBuyerOfferTarget({ ...buyerInput, evaluatedAt: String(payload.freshUntil) })).toMatchObject({
+      status: "held",
+      reason: "market-price-stale",
+    });
+    expect(evaluateBuyerOfferTarget({ ...buyerInput, marketPrice: absent })).toMatchObject({
+      status: "held",
+      reason: "market-price-unavailable",
+    });
+    expect(evaluateBuyerOfferTarget({ ...buyerInput, currency: "EUR" })).toMatchObject({
+      status: "held",
+      reason: "market-price-currency-mismatch",
+    });
   });
 
   it("bounds the buyer Market Price read to 100 Product keys", async () => {
-    await expect(loadBuyerOfferMarketPrices(pools.pricing, Array.from({ length: 101 }, (_, index) => ({
-      catalogItemId: CATALOG_ITEM_ID, productId: `product_${index}`,
-    })))).rejects.toThrow("At most 100");
+    await expect(
+      loadBuyerOfferMarketPrices(
+        pools.pricing,
+        Array.from({ length: 101 }, (_, index) => ({
+          catalogItemId: CATALOG_ITEM_ID,
+          productId: `product_${index}`,
+        })),
+      ),
+    ).rejects.toThrow("At most 100");
   });
 
   it("recompute is idempotent: an unchanged same-day closer pass appends nothing", async () => {
