@@ -19,6 +19,7 @@ import { evolveBuyerOfferPolicy, initialBuyerOfferPolicyState } from "../feature
 import { activate, context, fixture, seedOffer, terms } from "../features/offer-policy/tests/fixtures";
 import { createBuyerOfferPolicyRuntime } from "../features/offer-policy/api/runtime";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
+import { createListingRequestExecutor } from "../features/listings/api/listing-request";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI) {
@@ -48,6 +49,206 @@ describeDb("marketplace schema upgrades", () => {
 
   beforeEach(async () => resetMultiContextTestSchemas(pools));
   afterAll(async () => closeMultiContextTestPools(pools));
+
+  it("upgrades pre-target Listing storage and replays disabled target authority without native publication", async () => {
+    const pool = pools.marketplace;
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    await pool.query("DROP TABLE marketplace_listing_target_prices, marketplace_listing_native_authority");
+    await pool.query(`ALTER TABLE marketplace_listing_pages DROP COLUMN fee_stream_version,
+      DROP COLUMN quantity_stream_version, DROP COLUMN purchase_limits_stream_version, DROP COLUMN evidence_requirements_stream_version,
+      ALTER COLUMN marketplace_sales_fee_unit_amount SET NOT NULL,
+      ALTER COLUMN seller_net_unit_amount SET NOT NULL, ALTER COLUMN fee_quote_fingerprint SET NOT NULL`);
+    await pool.query(
+      "DELETE FROM bounded_context_schema_migrations WHERE migration_id = '20260927_marketplace_listing_target_authority'",
+    );
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    const ledger = await pool.query(
+      "SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id = '20260927_marketplace_listing_target_authority'",
+    );
+    expect(ledger.rows).toHaveLength(1);
+    expect(await readColumnNames(pool, "marketplace_listing_pages")).toContain("fee_stream_version");
+    const project = buildMarketplaceListingProjectionHandlers(pool);
+    const fact = (type: string, data: Record<string, unknown>, revision: number) =>
+      buildTransportEvent(type, data, {
+        id: `event_synthetic_${revision}`,
+        streamId: "marketplace.listing-lst_synthetic",
+        streamVersion: revision,
+        audit: { forAccountId: "account_synthetic", performedByUserId: "user_synthetic" },
+        timing: { occurredAt: "2026-09-27T12:00:00.000Z", recordedAt: "2026-09-27T12:00:00.000Z" },
+      });
+    const noFees = {
+      marketplaceSalesFeeUnitAmount: null,
+      sellerNetUnitAmount: null,
+      shippingAllowancePercentageBps: 0,
+      termsScheduleId: null,
+      termsAgreementId: null,
+      termsResolvedAt: null,
+      feeQuoteFingerprint: null,
+      feeLocks: [],
+    };
+    const created = fact(
+      "marketplace.listing.created",
+      {
+        ...noFees,
+        schemaVersion: 2,
+        publicationScope: "channel-only",
+        nativeVisibility: "disabled",
+        nativeFeeState: "not-enrolled",
+        listingId: "lst_synthetic",
+        accountId: "account_synthetic",
+        inventoryItemId: "inventory_synthetic",
+        catalogItemId: "catalog_synthetic",
+        productId: "catalog_synthetic::",
+        itemTitle: "Synthetic",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        storageLocationName: null,
+        shipFromCode: null,
+        shipFromAddress: {},
+        priceAmount: "10.00",
+        priceCurrencyCode: "CAD",
+        quantityCap: 2,
+        evidenceRequirements: null,
+        evidence: [],
+      },
+      1,
+    );
+    await project[created.type]!(created);
+    const targetFact = (connectionId: string, revision: number, priceCurrencyCode: string) =>
+      fact(
+        "marketplace.listing.target-price-accepted",
+        {
+          schemaVersion: 1,
+          acceptedTargetPrice: {
+            schemaVersion: 1,
+            accountId: "account_synthetic",
+            listingId: "lst_synthetic",
+            target: { kind: "channel-connection", connectionId },
+            priceAmount: "15.00",
+            priceCurrencyCode,
+            targetPriceRevision: revision,
+            listingRevision: revision,
+            acceptedByUserId: "user_synthetic",
+            acceptedAt: "2026-09-27T12:00:00.000Z",
+            sourceEventId: `event_synthetic_${revision}`,
+            decision: {
+              kind: "pricing-evaluation",
+              evaluationId: "evaluation_synthetic",
+              evaluationRevision: "1",
+              policyId: "policy_synthetic",
+              policyRevision: "1",
+              goal: null,
+              inputEvidenceRefs: [],
+              curveEvidenceRefs: [],
+              economicsSourceRevision: null,
+              economicsOverrideRevision: null,
+              basePriceRevision: 1,
+              standingAuthorizationId: "authorization_synthetic",
+              standingAuthorizationRevision: "1",
+            },
+            connectionAuthority: {
+              connectionId,
+              providerKey: "synthetic",
+              environment: "sandbox",
+              identityRevision: 1,
+            },
+          },
+        },
+        revision,
+      );
+    const events = [
+      targetFact("connection_two", 3, "EUR"),
+      targetFact("connection_one", 2, "CAD"),
+      fact("marketplace.listing.paused", { reason: "seller" }, 6),
+      fact("marketplace.listing.resumed", { pauseReason: "seller" }, 5),
+      fact(
+        "marketplace.listing.channel-activated",
+        { connectionId: "connection_one", targetPriceRevision: 2, allocationRevision: 1 },
+        4,
+      ),
+    ];
+    for (const event of events) await project[event.type]!(event);
+    await project[created.type]!(created);
+    expect(
+      (
+        await pool.query(
+          "SELECT status, marketplace_sales_fee_unit_amount, seller_net_unit_amount, fee_quote_fingerprint FROM marketplace_listing_pages",
+        )
+      ).rows,
+    ).toEqual([
+      {
+        status: "paused",
+        marketplace_sales_fee_unit_amount: null,
+        seller_net_unit_amount: null,
+        fee_quote_fingerprint: null,
+      },
+    ]);
+    expect(
+      (
+        await pool.query(
+          "SELECT native_visibility, publication_revision, status, status_revision FROM marketplace_listing_native_authority",
+        )
+      ).rows,
+    ).toEqual([{ native_visibility: "disabled", publication_revision: null, status: "paused", status_revision: 6 }]);
+    const targets = await pool.query(
+      "SELECT target_key, price_revision, activation_revision, accepted_price->>'priceCurrencyCode' AS currency FROM marketplace_listing_target_prices ORDER BY target_key",
+    );
+    expect(targets.rows).toEqual([
+      { target_key: "channel-connection:connection_one", price_revision: 2, activation_revision: 4, currency: "CAD" },
+      { target_key: "channel-connection:connection_two", price_revision: 3, activation_revision: 0, currency: "EUR" },
+      { target_key: "native-marketplace", price_revision: 1, activation_revision: 0, currency: "CAD" },
+    ]);
+    await expect(
+      project["marketplace.listing.target-price-accepted"]!(
+        fact("marketplace.listing.target-price-accepted", { schemaVersion: 99 }, 7),
+      ),
+    ).rejects.toThrow();
+    expect((await pool.query("SELECT listing_revision FROM marketplace_listing_native_authority")).rows).toEqual([
+      { listing_revision: 6 },
+    ]);
+    expect(
+      (await pool.query("SELECT generated_at IS NOT NULL AS generated FROM marketplace_listing_target_prices")).rows,
+    ).toEqual([{ generated: true }, { generated: true }, { generated: true }]);
+  });
+
+  it("atomically rolls back Listing request results with owner writes and resolves concurrent complete-command retries", async () => {
+    const pool = pools.marketplace;
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    const store = createPostgresEventStore({ pool });
+    const execute = createListingRequestExecutor(store);
+    const request = {
+      accountId: context.audit.forAccountId,
+      idempotencyKey: "listing-atomic-synthetic",
+      command: { type: "AcceptListingTargetPrice", priceAmount: "10.00", priceCurrencyCode: "CAD" },
+      context,
+    };
+    const prepare = (guardVersion: number) => async () => ({
+      result: { listingId: "lst_atomic_synthetic", version: 1 },
+      appends: [
+        { streamId: "synthetic-authority", expectedVersion: guardVersion, context, events: [] },
+        {
+          streamId: "marketplace.listing-lst_atomic_synthetic",
+          expectedVersion: 0,
+          context,
+          events: [{ eventType: "marketplace.listing.paused", payload: { reason: "seller" } }],
+        },
+      ],
+    });
+    await expect(execute({ ...request, prepare: prepare(1) })).rejects.toThrow();
+    expect(await store.readAll()).toHaveLength(0);
+    const [first, retry] = await Promise.all([
+      execute({ ...request, prepare: prepare(0) }),
+      execute({ ...request, prepare: prepare(0) }),
+    ]);
+    expect(retry).toEqual(first);
+    expect(await store.readAll()).toHaveLength(2);
+    await expect(
+      execute({ ...request, command: { ...request.command, priceCurrencyCode: "USD" }, prepare: prepare(0) }),
+    ).rejects.toThrow("different command");
+    expect(await store.readAll()).toHaveLength(2);
+  });
 
   it("serializes competing PostgreSQL consent bundles without partial policy or membership writes", async () => {
     const pool = pools.marketplace;

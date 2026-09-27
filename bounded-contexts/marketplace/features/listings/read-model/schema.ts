@@ -21,6 +21,10 @@ CREATE TABLE IF NOT EXISTS marketplace_listing_pages (
   price_amount numeric(12,2) NOT NULL,
   price_currency_code text NULL,
   listing_stream_version integer NULL,
+  fee_stream_version integer NOT NULL DEFAULT 0,
+  quantity_stream_version integer NOT NULL DEFAULT 0,
+  purchase_limits_stream_version integer NOT NULL DEFAULT 0,
+  evidence_requirements_stream_version integer NOT NULL DEFAULT 0,
   marketplace_sales_fee_unit_amount numeric(12,2) NULL,
   seller_net_unit_amount numeric(12,2) NULL,
   shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500,
@@ -145,6 +149,10 @@ export const marketplaceListingSchemaMigrations: readonly BcSchemaMigration[] = 
     statements: [
       "SET lock_timeout = '5s';",
       `ALTER TABLE marketplace_listing_pages
+        ADD COLUMN IF NOT EXISTS fee_stream_version integer NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS quantity_stream_version integer NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS purchase_limits_stream_version integer NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS evidence_requirements_stream_version integer NOT NULL DEFAULT 0,
         ALTER COLUMN marketplace_sales_fee_unit_amount DROP NOT NULL,
         ALTER COLUMN seller_net_unit_amount DROP NOT NULL,
         ALTER COLUMN fee_quote_fingerprint DROP NOT NULL`,
