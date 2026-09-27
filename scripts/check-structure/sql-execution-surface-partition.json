@@ -1089,6 +1089,7 @@
     "bounded-contexts/collections/features/saved-list-valuation/domain/valuation.ts",
     "bounded-contexts/collections/features/saved-list-valuation/integrations/pricing/market-price-estimated.ts",
     "bounded-contexts/collections/features/saved-list-valuation/read-model/schema.ts",
+    "bounded-contexts/collections/features/saved-lists/api/analytics-telemetry.ts",
     "bounded-contexts/collections/features/saved-lists/api/anonymous-cookie.ts",
     "bounded-contexts/collections/features/saved-lists/api/client.ts",
     "bounded-contexts/collections/features/saved-lists/api/discovery-contracts.ts",

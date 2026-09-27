@@ -17,6 +17,28 @@ function createRecordingDb() {
 }
 
 describe("pricing market-trades source projection", () => {
+  it("uses the Payments capture fact for order-keyed denomination and sold-day rederivation", async () => {
+    const { calls, db } = createRecordingDb();
+    const handlers = buildPricingMarketTradesProjectionHandlers(db);
+    await handlers["payments.payment-captured"]?.({
+      type: "payments.payment-captured",
+      streamId: "payments.payment-pay_1",
+      data: {
+        orderIds: ["ord_1", "ord_2"],
+        currencyCode: "usd",
+        capturedAt: "2026-07-01T09:05:00.000Z",
+      },
+      timing: { recordedAt: "2026-07-01T09:05:00.000Z" },
+    } as never);
+
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.sql).toContain("upper($2)");
+    expect(calls[0]?.sql).toContain("pricing_market_trade_denominations");
+    expect(calls[1]?.sql).toContain("trade.currency_code IS DISTINCT FROM denomination.currency_code");
+    expect(calls[1]?.sql).toContain("pricing_market_trade_rollup_rederive_queue");
+    expect(calls[0]?.params).toEqual([["ord_1", "ord_2"], "usd", "2026-07-01T09:05:00.000Z"]);
+  });
+
   it("prints a pending trade row per order line, channel-attributed from order sourceType", async () => {
     const { calls, db } = createRecordingDb();
     const handlers = buildPricingMarketTradesProjectionHandlers(db);
@@ -46,6 +68,7 @@ describe("pricing market-trades source projection", () => {
     expect(calls[0]?.sql).toContain("DELETE FROM pricing_market_trades");
     expect(calls[1]?.sql).toContain("INSERT INTO pricing_market_trades");
     expect(calls[1]?.sql).toContain("FROM pricing_market_trade_linkage_clusters");
+    expect(calls[1]?.sql).toContain("LEFT JOIN pricing_market_trade_denominations");
     expect(calls[1]?.sql).toContain("CASE WHEN linkage.self_dealing THEN 'self-dealing'");
     expect(calls[1]?.params).toEqual([
       "ord_1",

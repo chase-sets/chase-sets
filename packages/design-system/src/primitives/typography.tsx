@@ -326,6 +326,23 @@ export function InlineTextGroup({ children, gap = 2, align = "center", ...rest }
   );
 }
 
+export interface NumericValueProps extends Omit<HTMLAttributes<HTMLSpanElement>, "className" | "style"> {
+  children?: ReactNode;
+}
+
+/**
+ * Closed inline role carrier for prices and market data: IBM Plex Mono with
+ * tabular figures. It emits only the mono utility plus tabular figures, so
+ * the owning element keeps its font-size, weight, color, and line height.
+ */
+export function NumericValue({ children, ...rest }: NumericValueProps) {
+  return (
+    <span {...rest} className="font-mono tabular-nums">
+      {children}
+    </span>
+  );
+}
+
 type LinkTextTone = Extract<Tone, "accent" | "neutral">;
 
 export interface LinkTextProps extends Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "className" | "style"> {

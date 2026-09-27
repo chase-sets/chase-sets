@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 
+import { NumericValue } from "@chase-sets/design-system";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider, type ActionFunctionArgs } from "react-router";
 import type { SettlementWalletAdjustment, SettlementWalletAdjustmentPreview } from "../../../client";
@@ -194,5 +196,70 @@ describe("wallet adjustment action forms", () => {
     const link = screen.getByRole("link", { name: "Sign in again in a new tab" });
     expect(link.getAttribute("href")).toBe(walletAdjustmentReauthenticationHref("/commerce/wallet-workbench/acc_test"));
     expect(link.getAttribute("target")).toBe("_blank");
+  });
+});
+
+/**
+ * The role class is derived from a bare design-system render, never written
+ * here, so this suite cannot drift from the primitive it observes.
+ */
+const numericValueClassName = renderToStaticMarkup(<NumericValue>0</NumericValue>).match(/class="([^"]*)"/)?.[1] ?? "";
+const moneyPattern = /^-?\$[\d,]+\.\d{2}$/;
+
+function numericValues(root: ParentNode): HTMLElement[] {
+  return [...root.querySelectorAll("span")].filter((span) => span.className === numericValueClassName);
+}
+
+function textsOf(elements: readonly HTMLElement[]): string[] {
+  return elements.map((element) => element.textContent ?? "").sort();
+}
+
+describe("WalletAdjustmentGuidedFlowForm mono market-data role carriers", () => {
+  afterEach(cleanup);
+
+  it("derives the role class from the design system", () => {
+    expect(numericValueClassName).not.toBe("");
+  });
+
+  it("roles the before and after balances in the preview entity and leaves the confirmation sentence unroled", async () => {
+    const user = userEvent.setup();
+    const { action } = renderWithAction(
+      <WalletAdjustmentGuidedFlowForm
+        targetAccountId="acc_test"
+        targetAccountLabel="Test Account"
+        currencyCode="usd"
+        preview={preview}
+        flowError={null}
+        defaultValues={{
+          direction: "credit",
+          amount: "25.00",
+          reasonCode: "goodwill-cash-credit",
+          explanation: "Service recovery",
+          evidenceReferences: ["SUP-B2C3D4E5"],
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Request preview" }));
+    await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
+
+    const previewEntity = screen.getByTestId("wallet-adjustment-preview-entity");
+    const previewCarriers = numericValues(previewEntity);
+    expect(textsOf(previewCarriers)).toEqual(["$100.00", "$125.00"]);
+    for (const carrier of previewCarriers) {
+      expect(carrier.tagName).toBe("SPAN");
+      expect(carrier.parentElement?.tagName).toBe("DD");
+      expect(carrier.textContent).toMatch(moneyPattern);
+    }
+    expect(numericValues(document.body)).toHaveLength(2);
+
+    await user.click(screen.getByRole("button", { name: "Confirm & submit" }));
+    const confirmation = await screen.findByRole("alertdialog");
+    const description = within(confirmation).getByText(/The available balance will become/);
+
+    expect(description.textContent).toContain("$25.00");
+    expect(description.textContent).toContain("$125.00");
+    expect(numericValues(confirmation)).toHaveLength(0);
+    expect(numericValues(document.body)).toHaveLength(2);
   });
 });

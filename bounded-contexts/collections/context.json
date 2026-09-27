@@ -20,6 +20,11 @@
   "seedRequirements": ["catalog"],
   "hostPorts": [
     {
+      "portName": "savedListAnalyticsRecorder",
+      "providedBy": "platform-api",
+      "purpose": "Records closed, identifier-free Saved List interaction labels without affecting HTTP responses."
+    },
+    {
       "portName": "savedListProductCatalog",
       "providedBy": "platform-api",
       "purpose": "Validates exact Catalog Product selections before they enter a Saved List without Collections reading Catalog tables."

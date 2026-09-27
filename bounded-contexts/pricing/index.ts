@@ -78,8 +78,10 @@ export const module = defineBoundedContextModule<PricingServices, PgTransactiona
           "fulfillment.pricing-market-trades-projection": () => marketTradesHandlers,
           "identity.pricing-market-trades-projection": () =>
             buildPricingMarketTradesIdentityIntegrityProjectionHandlers(services.db),
-          "payments.pricing-market-trades-projection": () =>
-            buildPricingMarketTradesPaymentsIntegrityProjectionHandlers(services.db),
+          "payments.pricing-market-trades-projection": () => ({
+            ...marketTradesHandlers,
+            ...buildPricingMarketTradesPaymentsIntegrityProjectionHandlers(services.db),
+          }),
           "settlement.pricing-market-trades-projection": () =>
             buildPricingMarketTradesSettlementIntegrityProjectionHandlers(services.db),
           "authenticity.pricing-market-trades-projection": () =>

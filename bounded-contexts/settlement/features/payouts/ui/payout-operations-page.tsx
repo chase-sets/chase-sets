@@ -7,6 +7,7 @@ import {
   Card,
   DataTable,
   LinkButton,
+  NumericValue,
   Page,
   PageHeader,
   PageSection,
@@ -325,17 +326,17 @@ export function SettlementPayoutOperationsPage({
             {
               key: "requested_amount",
               header: t("settlement.features.payouts.ui.requestedAmount"),
-              cell: (row) => formatMoney(row.requested_amount, row.currency_code),
+              cell: (row) => <NumericValue>{formatMoney(row.requested_amount, row.currency_code)}</NumericValue>,
             },
             {
               key: "fee_amount",
               header: t("settlement.features.payouts.ui.payoutFee"),
-              cell: (row) => formatMoney(row.fee_amount, row.currency_code),
+              cell: (row) => <NumericValue>{formatMoney(row.fee_amount, row.currency_code)}</NumericValue>,
             },
             {
               key: "net_amount",
               header: t("settlement.features.payouts.ui.netPayout"),
-              cell: (row) => formatMoney(row.net_amount, row.currency_code),
+              cell: (row) => <NumericValue>{formatMoney(row.net_amount, row.currency_code)}</NumericValue>,
             },
             {
               key: "provider_payout_reference",
