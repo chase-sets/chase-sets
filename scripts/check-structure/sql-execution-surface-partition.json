@@ -1683,6 +1683,7 @@
     "bounded-contexts/payments/features/payments/api/balance-credit-resolver.ts",
     "bounded-contexts/payments/features/payments/api/checkout-processing-fee-policy-resolver.ts",
     "bounded-contexts/payments/features/payments/api/contracts.ts",
+    "bounded-contexts/payments/features/payments/api/evidence-window-disposition.ts",
     "bounded-contexts/payments/features/payments/api/marketplace-checkout-fee-policy.ts",
     "bounded-contexts/payments/features/payments/api/mcp.ts",
     "bounded-contexts/payments/features/payments/api/provider-webhook-paths.ts",

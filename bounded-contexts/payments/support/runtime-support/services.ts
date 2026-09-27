@@ -15,8 +15,16 @@ import type { BalanceCreditResolver } from "../../features/payments/api/balance-
 import type { CheckoutProcessingFeePolicyResolver } from "../../features/payments/api/checkout-processing-fee-policy-resolver";
 import type { ProviderWebhookTelemetry } from "@chase-sets/http/provider-errors";
 import type { ProviderModeObservation } from "../../features/payments/api/contracts";
+import {
+  createEvidenceWindowDisposition,
+  type EvidenceWindowDispositionOptions,
+} from "../../features/payments/api/evidence-window-disposition";
 
 export type PaymentsServiceOptions = Readonly<{
+  evidenceWindowDisposition?: Pick<
+    EvidenceWindowDispositionOptions,
+    "authority" | "requestCapturedRemedy" | "crossCheck"
+  >;
   evidenceWindowCorrelation?: import("@chase-sets/evidence-window-provider-write").ProviderWriteCorrelation;
   evidenceWindowProviderWrite?: import("@chase-sets/evidence-window-provider-write").EvidenceWindowProviderWrite;
   processorGateway?: PaymentProcessorGateway;
@@ -28,6 +36,7 @@ export type PaymentsServiceOptions = Readonly<{
 }>;
 
 export type PaymentsServices = Readonly<{
+  disposeEvidenceWindow: ReturnType<typeof createEvidenceWindowDisposition>;
   evidenceWindowCorrelation?: import("@chase-sets/evidence-window-provider-write").ProviderWriteCorrelation;
   payments: ReturnType<typeof createPaymentRuntime>;
   refunds: ReturnType<typeof createRefundRuntime>;
@@ -101,6 +110,12 @@ export function createPaymentsServices(
   });
 
   return {
+    disposeEvidenceWindow: createEvidenceWindowDisposition({
+      ...options.evidenceWindowDisposition,
+      processorGateway,
+      journal: options.evidenceWindowProviderWrite,
+      providerModeObservation: options.providerModeObservation,
+    }),
     payments,
     refunds,
     publicConfig: processorGateway.getPublicConfiguration(),
