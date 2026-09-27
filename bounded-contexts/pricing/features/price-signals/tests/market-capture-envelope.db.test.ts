@@ -540,7 +540,7 @@ function sale(index: number) {
     language: "English",
     quantity: 1,
     title: "synthetic",
-    listingType: "All",
+    listingType: "ListingWithoutPhotos",
     customListingId: `synthetic-${index}`,
     purchasePrice: 5 + index,
     shippingPrice: 0,

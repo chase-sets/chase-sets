@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { ProviderObservationPolicyValue } from "../domain/provider-observation-policy";
 
 export type ProviderObservationCoverage =
   | "complete"
@@ -46,12 +47,14 @@ export async function listProviderSaleEvidence(
   for (const row of result.rows) groups.set(row.sale_fingerprint, [...(groups.get(row.sale_fingerprint) ?? []), row]);
   return [...groups.values()].map((rows) => {
     const representative = rows[0]!;
+    const listingType = decodeStoredListingType(representative.listing_type);
     return {
       saleFingerprint: representative.sale_fingerprint,
       providerCondition: representative.provider_condition,
       providerVariant: representative.provider_variant,
       providerLanguage: representative.provider_language,
-      listingType: representative.listing_type,
+      listingType,
+      listingTypeDiagnostic: listingType === null ? "sale-listing-type-invalid" : null,
       soldAt: representative.sold_at,
       quantity: representative.quantity,
       unitPrice: representative.unit_price,
@@ -65,6 +68,10 @@ export async function listProviderSaleEvidence(
       coverage: consolidateSaleCoverage(rows.map((row) => row.sales_coverage)),
     };
   });
+}
+
+function decodeStoredListingType(value: string): ProviderObservationPolicyValue["sales"]["listingType"] | null {
+  return value === "ListingWithoutPhotos" || value === "ListingWithPhotos" || value === "All" ? value : null;
 }
 
 type WeeklyRow = Readonly<{

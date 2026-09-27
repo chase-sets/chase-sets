@@ -51,6 +51,7 @@ describe("provider sale evidence coverage", () => {
         providerVariant: "Normal",
         providerLanguage: "English",
         listingType: "ListingWithoutPhotos",
+        listingTypeDiagnostic: null,
         soldAt: "2026-08-31T12:00:00.000Z",
         quantity: 1,
         unitPrice: "5.39",
@@ -69,5 +70,29 @@ describe("provider sale evidence coverage", () => {
   it("returns no evidence when the query has no sale rows", async () => {
     const db = { query: async () => ({ rows: [] }) } as unknown as PgQueryable;
     expect(await listProviderSaleEvidence(db, params)).toEqual([]);
+  });
+
+  it("reports an unlisted stored listing type without throwing", async () => {
+    const row = {
+      sale_fingerprint: "synthetic-tuple",
+      observed_occurrence_count: 1,
+      provider_condition: "Near Mint",
+      provider_variant: "Normal",
+      provider_language: "English",
+      listing_type: "FutureListingType",
+      sold_at: "2026-08-31T12:00:00.000Z",
+      quantity: 1,
+      unit_price: "5.39",
+      order_shipping: "1.00",
+      capture_id: "synthetic-capture",
+      capture_started_at: "2026-09-01T15:00:00.000Z",
+      currency: "usd",
+      observation_policy_revision_id: "synthetic-policy-r1",
+      sales_coverage: "complete",
+    };
+    const db = { query: async () => ({ rows: [row] }) } as unknown as PgQueryable;
+    expect(await listProviderSaleEvidence(db, params)).toEqual([
+      expect.objectContaining({ listingType: null, listingTypeDiagnostic: "sale-listing-type-invalid" }),
+    ]);
   });
 });
