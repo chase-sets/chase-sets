@@ -23,6 +23,7 @@ import { createSellerAttentionQueueRuntime } from "../../features/seller-desk/re
 import { createListingActionAttentionSourceFromReadModel } from "../../features/listings/read-model/seller-attention-source";
 import { createOfferResponseAttentionSourceFromReadModel } from "../../features/offers/read-model/seller-attention-source";
 import { createMarketplaceChannelInboundClampRuntime } from "../../features/channel-inbound-clamp/api/runtime";
+import { createBuyerOfferPolicyRuntime } from "../../features/offer-policy/api/runtime";
 
 export type MarketplaceServiceOptions = Readonly<{
   commercialTermsResolver?: CommercialTermsResolver;
@@ -36,6 +37,7 @@ export type MarketplaceServiceOptions = Readonly<{
 export type MarketplaceServices = Readonly<{
   listings: ReturnType<typeof createMarketplaceListingRuntime>;
   offers: ReturnType<typeof createMarketplaceOfferRuntime>;
+  buyerOfferPolicies: ReturnType<typeof createBuyerOfferPolicyRuntime>;
   reports: ReturnType<typeof createMarketplaceReportRuntime>;
   reviews: ReturnType<typeof createReviewRuntime>;
   sellerMetrics: ReturnType<typeof createSellerMetricsRuntime>;
@@ -77,6 +79,7 @@ export function createMarketplaceServices(
   } as const;
   const listings = createMarketplaceListingRuntime(deps);
   const offers = createMarketplaceOfferRuntime(deps);
+  const buyerOfferPolicies = createBuyerOfferPolicyRuntime({ eventStore, db });
   const reports = createMarketplaceReportRuntime({
     eventStore,
     db,
@@ -97,12 +100,19 @@ export function createMarketplaceServices(
   return {
     listings,
     offers,
+    buyerOfferPolicies,
     reports,
     reviews,
     sellerMetrics,
     listingEvidencePolicies,
     policies,
-    projectors: [...listings.projectors, ...offers.projectors, ...reviews.projectors, ...policies.projectors],
+    projectors: [
+      ...listings.projectors,
+      ...offers.projectors,
+      ...buyerOfferPolicies.projectors,
+      ...reviews.projectors,
+      ...policies.projectors,
+    ],
     commercialTermsResolver,
     rateLimitPolicyResolver: options.rateLimitPolicyResolver,
     notificationOutbox,

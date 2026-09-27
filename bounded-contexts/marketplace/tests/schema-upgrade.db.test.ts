@@ -7,11 +7,18 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { buildMarketplaceListingProjectionHandlers } from "../features/listings/read-model/projection";
 import { marketplaceListingSchemaMigrations } from "../features/listings/read-model/schema";
 import { module as marketplaceModule } from "../index";
+import { marketplaceBuyerOfferPolicySchemaMigrations } from "../features/offer-policy/read-model/schema";
+import { buildBuyerOfferPolicyProjectionHandlers } from "../features/offer-policy/read-model/projection";
+import { buyerOfferPolicyCodec } from "../features/offer-policy/domain/codec";
+import { evolveBuyerOfferPolicy, initialBuyerOfferPolicyState } from "../features/offer-policy/domain/domain";
+import { activate, context, fixture, seedOffer, terms } from "../features/offer-policy/tests/fixtures";
+import { createBuyerOfferPolicyRuntime } from "../features/offer-policy/api/runtime";
+import { toTransportEvent } from "@chase-sets/event-core/transport";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI) {
@@ -41,6 +48,113 @@ describeDb("marketplace schema upgrades", () => {
 
   beforeEach(async () => resetMultiContextTestSchemas(pools));
   afterAll(async () => closeMultiContextTestPools(pools));
+
+  it("serializes competing PostgreSQL consent bundles without partial policy or membership writes", async () => {
+    const pool = pools.marketplace;
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    const store = createPostgresEventStore({ pool });
+    const runtime = createBuyerOfferPolicyRuntime({
+      eventStore: store,
+      db: pool,
+      enforcement: { assertInstalled() {} },
+    });
+    await seedOffer(store);
+    await seedOffer(store, "off_two");
+    const previews = [];
+    for (const policyId of ["bop_one", "bop_two"]) {
+      await runtime.execute(
+        policyId,
+        { type: "CreateBuyerOfferPolicy", expectedVersion: 0, operationId: "create" },
+        context,
+      );
+      previews.push(
+        await runtime.execute(
+          policyId,
+          {
+            type: "PreviewBuyerOfferPolicy",
+            expectedVersion: 1,
+            operationId: "preview",
+            terms: { ...terms, offers: [...terms.offers, { ...terms.offers[0]!, offerId: "off_two" }] },
+          },
+          context,
+        ),
+      );
+    }
+    const results = await Promise.allSettled(
+      previews.map((p) =>
+        runtime.execute(
+          p.policyId!,
+          {
+            type: "AuthorizeBuyerOfferPolicy",
+            expectedVersion: p.version,
+            operationId: "authorize",
+            previewId: p.preview!.previewId,
+            consent: true,
+          },
+          context,
+        ),
+      ),
+    );
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const winner = results[0]!.status === "fulfilled" ? "bop_one" : "bop_two";
+    const loser = winner === "bop_one" ? "bop_two" : "bop_one";
+    expect((await runtime.get(winner, "acc_buyer")).status).toBe("active");
+    expect((await runtime.get(loser, "acc_buyer")).status).toBe("draft");
+    for (const id of ["off_one", "off_two"]) {
+      const events = await store.readStream({ streamId: `marketplace.offer-${id}` });
+      expect(events).toHaveLength(2);
+      expect(events[1]!.payload.policyId).toBe(winner);
+    }
+  });
+
+  it("installs policy tables on existing schemas via the ledger and replays private authority without resetting it", async () => {
+    const pool = pools.marketplace;
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    await pool.query("DROP TABLE marketplace_buyer_offer_policy_pages, marketplace_buyer_offer_policy_memberships");
+    await pool.query(
+      "DELETE FROM bounded_context_schema_migrations WHERE migration_id = '20260927_marketplace_buyer_offer_policy'",
+    );
+    for (const statement of marketplaceBuyerOfferPolicySchemaMigrations[0]!.statements) await pool.query(statement);
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    const ledger = await pool.query(
+      "SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id = '20260927_marketplace_buyer_offer_policy'",
+    );
+    expect(ledger.rows).toHaveLength(1);
+    expect(await readColumnNames(pool, "marketplace_buyer_offer_policy_pages")).toEqual([
+      "buyer_account_id",
+      "last_stream_version",
+      "policy_id",
+      "state",
+    ]);
+    const indexes = await pool.query<{ indexname: string }>(
+      "SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() AND tablename LIKE 'marketplace_buyer_offer_policy_%'",
+    );
+    expect(indexes.rows.map((row) => row.indexname)).toEqual(
+      expect.arrayContaining([
+        "marketplace_buyer_offer_policy_account_idx",
+        "marketplace_buyer_offer_policy_membership_idx",
+      ]),
+    );
+    const { runtime, store } = await fixture();
+    await activate(runtime);
+    const events = await store.readAll();
+    const handlers = buildBuyerOfferPolicyProjectionHandlers(pool);
+    for (const event of events) await handlers[event.eventType]?.(toTransportEvent(event));
+    const state = (await store.readStream({ streamId: "marketplace.offer-policy-bop_one" }))
+      .map(buyerOfferPolicyCodec.decode)
+      .reduce(evolveBuyerOfferPolicy, initialBuyerOfferPolicyState);
+    expect(
+      (await pool.query("SELECT state FROM marketplace_buyer_offer_policy_pages WHERE policy_id = 'bop_one'")).rows,
+    ).toEqual([{ state }]);
+    for (const event of [...events].reverse()) await handlers[event.eventType]?.(toTransportEvent(event));
+    expect(
+      (await pool.query("SELECT state FROM marketplace_buyer_offer_policy_pages WHERE policy_id = 'bop_one'")).rows,
+    ).toEqual([{ state }]);
+    expect(
+      (await pool.query("SELECT offer_id, policy_id FROM marketplace_buyer_offer_policy_memberships")).rows,
+    ).toEqual([{ offer_id: "off_one", policy_id: "bop_one" }]);
+  });
 
   it("records the review-hold stream-version migration once across fresh boots", async () => {
     const pool = pools.marketplace;

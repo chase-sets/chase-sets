@@ -93,6 +93,13 @@ async function emitOfferPatch(db: PgQueryable, event: Parameters<ProjectorHandle
 
 export function buildMarketplaceOfferProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
+    "marketplace.offer.buyer-policy-bound": async (event) => {
+      await db.query(
+        `UPDATE marketplace_offer_pages SET last_stream_version = $2
+         WHERE offer_id = $1 AND last_stream_version < $2`,
+        [event.data.offerId, event.streamVersion],
+      );
+    },
     "marketplace.offer.submitted": async (event) => {
       const data = event.data as {
         offerId: string;

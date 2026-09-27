@@ -81,6 +81,7 @@ export type OfferStatus = "draft" | "submitted" | "accepted";
 export type MarketplaceOfferState = Readonly<{
   offerId: OfferId | null;
   buyerAccountId: AccountId | null;
+  buyerOfferPolicyId: string | null;
   catalogItemId: CatalogItemId | null;
   productId: ProductKey | null;
   itemTitle: string | null;
@@ -118,6 +119,7 @@ export type MarketplaceOfferState = Readonly<{
 export const initialMarketplaceOfferState: MarketplaceOfferState = {
   offerId: null,
   buyerAccountId: null,
+  buyerOfferPolicyId: null,
   catalogItemId: null,
   productId: null,
   itemTitle: null,
@@ -202,7 +204,16 @@ export type AcceptOfferCommand = Readonly<{
   acceptanceBatchSize?: number | null;
 }>;
 
-export type MarketplaceOfferCommand = SubmitOfferCommand | UpdateOfferPriceCommand | AcceptOfferCommand;
+export type BindOfferToBuyerPolicyCommand = Readonly<{
+  type: "BindOfferToBuyerPolicy";
+  buyerAccountId: AccountId;
+  policyId: string;
+}>;
+export type MarketplaceOfferCommand =
+  | SubmitOfferCommand
+  | UpdateOfferPriceCommand
+  | AcceptOfferCommand
+  | BindOfferToBuyerPolicyCommand;
 
 export type OfferSubmittedEvent = DomainEvent<
   "marketplace.offer.submitted",
@@ -274,7 +285,15 @@ export type OfferAcceptedEvent = DomainEvent<
   }>
 >;
 
-export type MarketplaceOfferEvent = OfferSubmittedEvent | OfferPriceUpdatedEvent | OfferAcceptedEvent;
+export type OfferBuyerPolicyBoundEvent = DomainEvent<
+  "marketplace.offer.buyer-policy-bound",
+  Readonly<{ offerId: OfferId; buyerAccountId: AccountId; policyId: string }>
+>;
+export type MarketplaceOfferEvent =
+  | OfferSubmittedEvent
+  | OfferPriceUpdatedEvent
+  | OfferAcceptedEvent
+  | OfferBuyerPolicyBoundEvent;
 
 export const decideMarketplaceOffer: AggregateDecider<
   MarketplaceOfferState,
@@ -282,6 +301,24 @@ export const decideMarketplaceOffer: AggregateDecider<
   MarketplaceOfferEvent
 > = (state, command) => {
   switch (command.type) {
+    case "BindOfferToBuyerPolicy":
+      assert(state.offerId !== null && state.status === "submitted", "Only submitted Offers can join a policy.");
+      assert(state.buyerAccountId === command.buyerAccountId, "Only the buyer can authorize policy membership.");
+      assert(
+        !state.buyerOfferPolicyId || state.buyerOfferPolicyId === command.policyId,
+        "Offer policy membership is permanent.",
+      );
+      if (state.buyerOfferPolicyId === command.policyId) return [];
+      return [
+        {
+          type: "marketplace.offer.buyer-policy-bound",
+          data: {
+            offerId: state.offerId,
+            buyerAccountId: command.buyerAccountId,
+            policyId: normalizeRequiredText(command.policyId, "Buyer Offer Policy identity is required."),
+          },
+        },
+      ];
     case "SubmitOffer":
       assert(state.offerId === null, "Offer has already been submitted.");
       if (command.sellerAccountId) {
@@ -317,6 +354,7 @@ export const decideMarketplaceOffer: AggregateDecider<
         },
       ];
     case "UpdateOfferPrice": {
+      assert(!state.buyerOfferPolicyId, "Managed Offer price changes require fresh policy authority.");
       assert(state.offerId !== null, "Offer must be submitted first.");
       assert(state.status === "submitted", "Only submitted offers can change price.");
       assert(state.buyerAccountId === command.buyerAccountId, "Only the Offer's buyer can change its price.");
@@ -338,6 +376,7 @@ export const decideMarketplaceOffer: AggregateDecider<
       ];
     }
     case "AcceptOffer":
+      assert(!state.buyerOfferPolicyId, "Managed Offer acceptance enforcement is unavailable.");
       assert(state.offerId !== null, "Offer must be submitted first.");
       assert(state.status === "submitted", "Only submitted offers can be accepted.");
       assert(state.buyerAccountId !== command.sellerAccountId, "Accounts cannot accept their own offers.");
@@ -439,6 +478,7 @@ export const evolveMarketplaceOffer: AggregateEvolver<MarketplaceOfferState, Mar
     return {
       offerId: event.data.offerId,
       buyerAccountId: event.data.buyerAccountId,
+      buyerOfferPolicyId: null,
       catalogItemId: event.data.catalogItemId,
       productId: event.data.productId,
       itemTitle: event.data.itemTitle,
@@ -472,6 +512,10 @@ export const evolveMarketplaceOffer: AggregateEvolver<MarketplaceOfferState, Mar
       acceptanceBatchId: null,
       acceptanceBatchSize: null,
     };
+  }
+
+  if (event.type === "marketplace.offer.buyer-policy-bound") {
+    return { ...state, buyerOfferPolicyId: event.data.policyId };
   }
 
   if (event.type === "marketplace.offer.price-updated") {

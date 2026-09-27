@@ -50,6 +50,7 @@ import { marketplaceOfferSchemaMigrations } from "./features/offers/read-model/s
 import { reviewSchemaMigrations } from "./features/reviews/read-model/schema";
 import { inspectMarketplaceSeedState, seedMarketplaceContextDatabase } from "./support/runtime-support/seed";
 import { marketplaceChannelInboundClampSchemaMigrations } from "./features/channel-inbound-clamp/read-model/schema";
+import { marketplaceBuyerOfferPolicySchemaMigrations } from "./features/offer-policy/read-model/schema";
 
 const marketplaceContextManifest = contextManifest as BcContextManifest;
 
@@ -62,6 +63,7 @@ export const module = defineBoundedContextModule<MarketplaceServices, PgTransact
     ...marketplaceListingSchemaMigrations,
     ...marketplaceListingReadModelSchemaMigrations,
     ...marketplaceOfferSchemaMigrations,
+    ...marketplaceBuyerOfferPolicySchemaMigrations,
     ...reviewSchemaMigrations,
     ...marketplaceSellerMetricsSourceSchemaMigrations,
     ...marketplaceSellerMetricsSummarySchemaMigrations,

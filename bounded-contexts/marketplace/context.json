@@ -3,6 +3,7 @@
   "packageName": "@chase-sets/marketplace",
   "localeCatalogs": ["contracts/localization/locales/en/marketplace.ts"],
   "ownedNouns": [
+    "offer-policy",
     "channel-inbound-clamp",
     "listing",
     "listing-evidence-policy",
@@ -17,6 +18,7 @@
   "streamPrefix": "marketplace.",
   "apiBasePath": "/api/marketplace",
   "slices": [
+    "offer-policy",
     "channel-inbound-clamp",
     "listing-evidence-policy",
     "listings",
@@ -319,6 +321,14 @@
   ],
   "projectionGroups": [
     {
+      "projectionName": "marketplace-offer-policy-projection",
+      "projectionRevision": 1,
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": ["marketplace_buyer_offer_policy_pages", "marketplace_buyer_offer_policy_memberships"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
       "projectionName": "marketplace-catalog-item-projection",
       "sourceContextNames": ["catalog"],
       "ownedTables": [
@@ -359,7 +369,7 @@
     },
     {
       "projectionName": "marketplace-offer-projection",
-      "projectionRevision": 2,
+      "projectionRevision": 3,
       "sourceContextNames": ["marketplace"],
       "ownedTables": [
         "marketplace_offer_pages",
@@ -1132,6 +1142,23 @@
     }
   ],
   "mutationConsistencyInventory": [
+    {
+      "id": "marketplace.offer-policy-command-snapshots",
+      "owner": "marketplace",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": ["api-route:bounded-contexts/marketplace/features/offer-policy/api/route.ts:POST /:id/commands"],
+      "visibleDestination": {
+        "description": "Account policy commands return the authoritative policy snapshot, stream version and exact preview, without depending on the account-list projection."
+      },
+      "proof": {
+        "authoritativeResponse": "The runtime folds committed events into the loaded aggregate, or reloads authoritative state for an exact operation retry. Detail reads also load the stream; lists are explicitly projected summaries.",
+        "tests": [
+          "bounded-contexts/marketplace/features/offer-policy/api/route.test.ts",
+          "bounded-contexts/marketplace/features/offer-policy/api/runtime.test.ts"
+        ]
+      }
+    },
     {
       "id": "marketplace.listing-api-client-command-snapshots",
       "owner": "marketplace",
@@ -2080,6 +2107,11 @@
     }
   ],
   "directoryIntent": {
+    "offer-policy": {
+      "classification": "slice",
+      "purpose": "Own private Buyer Offer Policy previews, buyer consent, lifecycle and permanent Offer membership authority.",
+      "expectedConsumers": ["Marketplace account API", "Marketplace managed Offer enforcement"]
+    },
     "channel-inbound-clamp": {
       "classification": "slice",
       "purpose": "Own the account-wide, revision-fenced Listing clamp and conservative recovery used while Channel inbound coverage is dark.",
