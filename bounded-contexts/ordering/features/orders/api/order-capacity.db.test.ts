@@ -215,7 +215,11 @@ describeDb("ordering seller order capacity db", () => {
         const created = await runtime().createOrdersFromCheckout(params, context);
         expect(created.orderIds).toHaveLength(1);
         if (explicitIds) expect(created.orderIds).toEqual(["ord_seed"]);
-        expect(await store.readStream({ streamId: `ordering.order-${created.orderIds[0]}` })).toHaveLength(1);
+        expect(
+          (await store.readStream({ streamId: `ordering.order-${created.orderIds[0]}` })).map(
+            (event) => event.eventType,
+          ),
+        ).toEqual(["ordering.order.created", "ordering.order.line-item-amounts-published"]);
         expect(await openClaimCount(pools.ordering, "acc_lst_a")).toBe(1);
         expect((await getOrderSourceClaim(pools.ordering, "cart-checkout", "chk_failed"))?.status).toBe("created");
         expect((await runtime().createOrdersFromCheckout(params, context)).orderIds).toEqual(created.orderIds);
@@ -303,7 +307,9 @@ describeDb("ordering seller order capacity db", () => {
       );
       const result = await runtime().createOrdersFromCheckout(checkout(), context);
       expect(result.orderIds).toHaveLength(1);
-      expect(await store.readStream({ streamId: `ordering.order-${result.orderIds[0]}` })).toHaveLength(1);
+      expect(
+        (await store.readStream({ streamId: `ordering.order-${result.orderIds[0]}` })).map((event) => event.eventType),
+      ).toEqual(["ordering.order.created", "ordering.order.line-item-amounts-published"]);
       expect(await signalTypes(store)).toEqual(
         failedSignal === "cleared"
           ? ["ordering.seller-capacity.reached", "ordering.seller-capacity.cleared", "ordering.seller-capacity.reached"]
@@ -364,7 +370,10 @@ describeDb("ordering seller order capacity db", () => {
     const streams = await Promise.all(
       claim.orderIds.map((id) => store.readStream({ streamId: `ordering.order-${id}` })),
     );
-    expect(streams.map((events) => events.length)).toEqual([1, 0]);
+    expect(streams.map((events) => events.map((event) => event.eventType))).toEqual([
+      ["ordering.order.created", "ordering.order.line-item-amounts-published"],
+      [],
+    ]);
     await expect(runtime().createOrdersFromCheckout(params, context)).rejects.toThrow("already in progress");
     expect(await snapshot()).toEqual(after);
   });
