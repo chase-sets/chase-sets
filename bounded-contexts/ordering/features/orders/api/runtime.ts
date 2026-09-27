@@ -128,6 +128,7 @@ import {
   completeOrderSourceClaim,
   getOrderSourceClaim,
   compensatePendingOrderSourceClaim,
+  finishOrderSourceCompensation,
   type OrderSourceClaim,
 } from "./order-source-claims";
 
@@ -1557,6 +1558,18 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
     context: EventStoreContext,
     governedSource?: EvidenceWindowSourceIdentity,
   ) => {
+    if (!governedSource) {
+      await reconcileSellerOrderCapacity(deps.db, sellerAccountId, undefined, async ({ atCapacity }) => {
+        await sellerCapacitySignalCommandHandler({
+          streamId: `ordering.seller-capacity-${sellerAccountId}`,
+          command: atCapacity
+            ? { type: "MarkSellerAtCapacity", accountId: sellerAccountId }
+            : { type: "ClearSellerAtCapacity", accountId: sellerAccountId },
+          context,
+        });
+      });
+      return;
+    }
     const { atCapacity } = await reconcileSellerOrderCapacity(deps.db, sellerAccountId, governedSource);
     const signal = {
       streamId: `ordering.seller-capacity-${sellerAccountId}`,
@@ -1618,6 +1631,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
   };
 
   const completedOrderSourceResult = async (claim: OrderSourceClaim, governed = false) => {
+    if (claim.status === "compensating") return null;
     if (claim.status === "created") {
       return { orderIds: [...claim.orderIds], rejectedSellerAccountIds: [] };
     }
@@ -2455,7 +2469,18 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
           throw new OrderingDomainError("Evidence window source binding refused.");
         }
       }
-      const existingClaim = await getOrderSourceClaim(deps.db, params.sourceType, params.checkoutSessionId);
+      let existingClaim = await getOrderSourceClaim(deps.db, params.sourceType, params.checkoutSessionId);
+      if (existingClaim?.status === "compensating" && existingClaim.buyerAccountId === params.buyerAccountId) {
+        const compensatingClaim = existingClaim;
+        await finishOrderSourceCompensation(
+          deps.db,
+          compensatingClaim,
+          async () => (await claimedOrderStreamStatus(compensatingClaim)).existingCount > 0,
+          (sellerAccountId) => reconcileAndSignalSellerCapacity(sellerAccountId, context),
+          evidenceWindowSourceAdmissionConfigured,
+        );
+        existingClaim = await getOrderSourceClaim(deps.db, params.sourceType, params.checkoutSessionId);
+      }
       if (existingClaim) {
         if (existingClaim.buyerAccountId !== params.buyerAccountId) {
           throw new OrderingDomainError("Order source identity is already claimed by another buyer account.");
@@ -2599,6 +2624,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
           sourceClaimResult.claim,
           async () => (await claimedOrderStreamStatus(sourceClaimResult.claim)).existingCount > 0,
           evidenceWindowSourceAdmissionConfigured,
+          (sellerAccountId) => reconcileAndSignalSellerCapacity(sellerAccountId, context),
         );
         throw error;
       }
