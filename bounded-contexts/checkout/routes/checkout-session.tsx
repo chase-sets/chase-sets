@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { isCanonicalMoneyAmount } from "@chase-sets/primitives/money";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useEffect } from "react";
 import {
@@ -78,19 +79,42 @@ type GuestCheckoutContact = Readonly<{
   contactName: string | null;
 }>;
 
-async function loadWalletBalance(request: Request) {
-  const response = await createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "settlement" })(
-    `${resolveRequestApiBaseUrl(request, "/api/settlement")}/wallet`,
-  );
+type WalletRead =
+  | Readonly<{ status: "available"; balance: { available_balance_amount: string; currency_code: string } }>
+  | Readonly<{ status: "unavailable" }>;
 
-  if (!response.ok) {
-    return null;
+async function loadWalletBalance(request: Request): Promise<WalletRead> {
+  try {
+    const response = await createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "settlement" })(
+      `${resolveRequestApiBaseUrl(request, "/api/settlement")}/wallet`,
+      {
+        signal: AbortSignal.any([request.signal, AbortSignal.timeout(CHECKOUT_SESSION_FRESH_READ_TIMEOUT_MS)]),
+      },
+    );
+    if (!response.ok) {
+      return { status: "unavailable" };
+    }
+
+    const payload: unknown = await response.json();
+    if (!payload || typeof payload !== "object") {
+      return { status: "unavailable" };
+    }
+    const { available_balance_amount: amount, currency_code: currency } = payload as Record<string, unknown>;
+    if (
+      typeof amount !== "string" ||
+      !isCanonicalMoneyAmount(amount) ||
+      typeof currency !== "string" ||
+      !/^[a-z]{3}$/i.test(currency.trim())
+    ) {
+      return { status: "unavailable" };
+    }
+    return {
+      status: "available",
+      balance: { available_balance_amount: amount, currency_code: currency.trim().toLowerCase() },
+    };
+  } catch {
+    return { status: "unavailable" };
   }
-
-  return response.json() as Promise<{
-    available_balance_amount: string;
-    currency_code: string;
-  }>;
 }
 
 function normalizeText(value: FormDataEntryValue | null) {
@@ -641,7 +665,7 @@ async function loadSavedCheckoutInstruments(
 function loadPaymentPreview(
   actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
   fulfillmentPreview: Awaited<ReturnType<typeof loadFulfillmentPreview>>["fulfillmentPreview"],
-  wallet: Awaited<ReturnType<typeof loadWalletBalance>>,
+  wallet: WalletRead | null,
   paymentMethodCategory: string,
   committedOrderIds: readonly string[],
 ): CheckoutPaymentPreviewStatus | null {
@@ -649,15 +673,15 @@ function loadPaymentPreview(
     return null;
   }
 
-  if (!fulfillmentPreview) {
+  if (!fulfillmentPreview || wallet?.status === "unavailable") {
     return null;
   }
 
   return buildCheckoutPaymentPreviewStatus({
     orderIds: committedOrderIds,
     amount: fulfillmentPreview.totals.totalAmount,
-    currencyCode: wallet?.currency_code ?? "usd",
-    requestedBalanceCreditAmount: wallet?.available_balance_amount ?? "0.00",
+    currencyCode: wallet?.status === "available" ? wallet.balance.currency_code : "usd",
+    requestedBalanceCreditAmount: wallet?.status === "available" ? wallet.balance.available_balance_amount : "0.00",
     paymentMethodCategory,
   });
 }
@@ -742,7 +766,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
   return {
     session,
-    wallet,
+    wallet: wallet?.status === "available" ? wallet.balance : null,
+    walletUnavailable: wallet?.status === "unavailable",
     paymentPreview,
     selectedPaymentMethodCategory,
     savedShippingAddresses,
@@ -1021,6 +1046,7 @@ export default function CheckoutSessionRoute() {
     <CheckoutSessionPage
       session={data.session}
       wallet={data.wallet}
+      walletUnavailable={data.walletUnavailable}
       paymentPreview={data.paymentPreview}
       selectedPaymentMethodCategory={data.selectedPaymentMethodCategory}
       fulfillmentPreview={data.fulfillmentPreview}

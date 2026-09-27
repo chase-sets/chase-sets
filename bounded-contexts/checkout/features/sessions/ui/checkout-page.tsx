@@ -51,7 +51,7 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
     hasPayment: model.hasPayment,
     paymentId: model.session.payment_id,
     isOfferIntent: model.isOfferIntent,
-    reservationExpired: model.reservationExpired,
+    reservationExpired: model.reservationExpired && !model.walletUnavailable,
     reReserveIntent: model.reReserveIntent,
     canConfirm: model.canConfirm,
     commitIntent: model.commitIntent,
@@ -106,7 +106,9 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
               fulfillmentPreviewRevision={model.preview?.revision}
               marketplaceCheckoutFeeQuoteFingerprint={model.payment?.marketplace_checkout_fee.quote_fingerprint}
               requestedBalanceCreditAmount={
-                model.payment?.wallet_credit.requested_amount ?? model.wallet?.available_balance_amount ?? "0.00"
+                model.walletUnavailable
+                  ? ""
+                  : model.payment?.wallet_credit.requested_amount ?? model.wallet?.available_balance_amount ?? "0.00"
               }
               effectivePaymentMethodCategory={model.effectivePaymentMethodCategory}
               canUseAcceleratedSavedPayment={model.canUseAcceleratedSavedPayment}
@@ -171,6 +173,7 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
               reservationMsRemaining={model.reservationMsRemaining}
               payment={model.payment}
               wallet={model.wallet}
+              walletUnavailable={model.walletUnavailable && !model.hasPayment}
               onFieldChange={model.markReviewStale}
             />
 

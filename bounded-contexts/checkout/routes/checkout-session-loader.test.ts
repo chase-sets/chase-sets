@@ -112,6 +112,22 @@ function fulfillmentPreviewSnapshot(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function walletCheckoutSession(paymentId: string | null = null) {
+  return {
+    session_id: "chk_wallet",
+    source_type: "buy-now",
+    payment_id: paymentId,
+    submitted_offer_id: null,
+    shipping_option: "standard",
+    shipping_address: null,
+    optimization_goal: "lowest-total",
+    fulfillment_preview_revision: "rev_1",
+    fulfillment_preview_snapshot: fulfillmentPreviewSnapshot(),
+    order_ids: [],
+    lines: [{ listingId: "lst_1", cartLineId: null, catalogItemId: "cat_1", productId: "prd_1", itemTitle: "Test card", itemSubtitle: null, selectedOptions: [], productSummary: null, quantity: 1 }],
+  };
+}
+
 describe("checkout web routes: checkout session loader", () => {
   beforeEach(() => {
     applyCheckoutRouteMockDefaults();
@@ -120,6 +136,99 @@ describe("checkout web routes: checkout session loader", () => {
   afterEach(() => {
     vi.resetAllMocks();
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  async function loadSignedInWalletCheckout(signal?: AbortSignal) {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer", roleKey: "owner", permissions: ["orders.view"],
+    });
+    mockGetCheckoutSession.mockResolvedValue(walletCheckoutSession());
+    mockCreateCheckoutRequestApiClient.mockReturnValue({ getCheckoutSession: mockGetCheckoutSession });
+    return checkoutSessionLoader({
+      request: new Request("http://localhost/checkout/buy/session/chk_wallet", { signal }),
+      params: { sessionId: "chk_wallet" }, context: undefined,
+    } as never);
+  }
+
+  it.each(["0.00", "5.00"])("quotes a validated %s wallet amount without changing the fee fingerprint", async (amount) => {
+    const fetch = vi.fn(async (_url: RequestInfo | URL) =>
+      Response.json({ available_balance_amount: amount, currency_code: " USD " }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const result = await loadSignedInWalletCheckout();
+    expect(fetch.mock.calls.some(([url]) => String(url).endsWith("/api/settlement/wallet"))).toBe(true);
+    expect(result.wallet).toEqual({ available_balance_amount: amount, currency_code: "usd" });
+    expect(result.walletUnavailable).toBe(false);
+    expect(result.paymentPreview?.wallet_credit.requested_amount).toBe(amount);
+    expect(result.paymentPreview?.marketplace_checkout_fee.quote_fingerprint).toContain(`|${amount}|`);
+    expect(result.autoResumePaymentStart).toBe(true);
+  });
+
+  it.each([
+    ["HTTP error", async () => new Response("secret-wallet-marker", { status: 503 })],
+    ["transport rejection", async () => { throw new Error("secret-wallet-marker"); }],
+    ["timeout", async (_url: unknown, init: RequestInit) => {
+      await new Promise((_, reject) => (init.signal as AbortSignal).addEventListener("abort", () => reject(new Error("secret-wallet-marker")), { once: true }));
+      throw new Error("unexpected completion");
+    }],
+    ["malformed amount", async () => Response.json({ available_balance_amount: "NaN", currency_code: "usd" })],
+    ["malformed currency", async () => Response.json({ available_balance_amount: "5.00", currency_code: "US!" })],
+    ["malformed envelope", async () => Response.json(null)],
+  ])("keeps checkout usable without a zero quote for %s", async (_failure, response) => {
+    vi.stubGlobal("fetch", vi.fn(response));
+    const result = await loadSignedInWalletCheckout();
+    expect(result.session.session_id).toBe("chk_wallet");
+    expect(result.wallet).toBeNull();
+    expect(result.walletUnavailable).toBe(true);
+    expect(result.paymentPreview).toBeNull();
+    expect(result.autoResumePaymentStart).toBe(false);
+    expect(JSON.stringify(result)).not.toContain("secret-wallet-marker");
+  });
+
+  it("composes the request abort with the wallet read without exposing its error", async () => {
+    const controller = new AbortController();
+    vi.stubGlobal("fetch", vi.fn(async (_url: unknown, init: RequestInit) => {
+      controller.abort("secret-wallet-marker");
+      (init.signal as AbortSignal).throwIfAborted();
+      throw new Error("wallet fetch unexpectedly continued");
+    }));
+    const result = await loadSignedInWalletCheckout(controller.signal);
+    expect(result.walletUnavailable).toBe(true);
+    expect(result.paymentPreview).toBeNull();
+    expect(JSON.stringify(result)).not.toContain("secret-wallet-marker");
+  });
+
+  it("replaces an unavailable wallet with the current balance on the next load", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValue(Response.json({ available_balance_amount: "7.00", currency_code: "USD" }));
+    vi.stubGlobal("fetch", fetch);
+    expect((await loadSignedInWalletCheckout()).paymentPreview).toBeNull();
+    const recovered = await loadSignedInWalletCheckout();
+    expect(recovered.walletUnavailable).toBe(false);
+    expect(recovered.paymentPreview?.wallet_credit.requested_amount).toBe("7.00");
+    expect(recovered.autoResumePaymentStart).toBe(true);
+  });
+
+  it("still loads an already-created Payment confirmation during a wallet outage", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 503 })));
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer", roleKey: "owner", permissions: ["orders.view"],
+    });
+    mockGetCheckoutSession.mockResolvedValue(walletCheckoutSession("pay_existing"));
+    mockGetCheckoutPaymentConfirmation.mockResolvedValue({ payment_id: "pay_existing", status: "pending-confirmation" });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+      getCheckoutPaymentConfirmation: mockGetCheckoutPaymentConfirmation,
+    });
+    const result = await checkoutSessionLoader({
+      request: new Request("http://localhost/checkout/buy/session/chk_wallet"),
+      params: { sessionId: "chk_wallet" }, context: undefined,
+    } as never);
+    expect(result.walletUnavailable).toBe(true);
+    expect(result.preparedPayment).toEqual({ payment_id: "pay_existing", status: "pending-confirmation" });
+    expect(result.autoResumePaymentStart).toBe(false);
   });
 
   it("keeps checkout visible when checkout totals are temporarily unavailable", async () => {
@@ -351,6 +460,8 @@ describe("checkout web routes: checkout session loader", () => {
 
   it("loads a Payments-owned checkout fee preview before order creation", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    const fetch = vi.fn(async (_url: RequestInfo | URL) => new Response(null, { status: 404 }));
+    vi.stubGlobal("fetch", fetch);
     mockGetCheckoutSession.mockResolvedValue({
       session_id: "chk_1",
       source_type: "buy-now",
@@ -388,6 +499,7 @@ describe("checkout web routes: checkout session loader", () => {
 
     expect(mockPreviewCheckoutStatus).not.toHaveBeenCalled();
     expect(mockCreatePaymentsRequestApiClient).not.toHaveBeenCalled();
+    expect(fetch.mock.calls.every(([url]) => !String(url).endsWith("/api/settlement/wallet"))).toBe(true);
     expect(result.paymentPreview).toEqual(
       expect.objectContaining({
         amount: "26.00",

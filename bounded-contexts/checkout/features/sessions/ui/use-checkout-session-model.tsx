@@ -25,6 +25,7 @@ import type {
 export function useCheckoutSessionModel({
   session,
   wallet,
+  walletUnavailable = false,
   paymentPreview,
   selectedPaymentMethodCategory = "card",
   fulfillmentPreview,
@@ -50,7 +51,7 @@ export function useCheckoutSessionModel({
   const signedInBuyCheckout = isSignedInBuyer && !isOfferIntent;
   const guestBuyCheckout = !isSignedInBuyer && !isOfferIntent;
   const preview = fulfillmentPreview ?? null;
-  const payment = paymentPreview ?? null;
+  const payment = walletUnavailable && !hasPayment ? null : paymentPreview ?? null;
   const fulfillmentPreviewChanged = Boolean(
     !isOfferIntent &&
     preview?.revision &&
@@ -151,6 +152,7 @@ export function useCheckoutSessionModel({
   );
   const canUseAcceleratedSavedPayment = Boolean(
     returningBuyerFastPath &&
+    !walletUnavailable &&
     payment &&
     selectedSavedPaymentInstrument?.confirmation_experience === "off-session-token",
   );
@@ -250,6 +252,7 @@ export function useCheckoutSessionModel({
   const hasAutoResumedPaymentStartRef = useRef(false);
   const canAutoResumePaymentStart = Boolean(
     autoResumePaymentStart &&
+    !walletUnavailable &&
     !hasPayment &&
     !isOfferIntent &&
     addressIsComplete(addressDefaults) &&
@@ -285,7 +288,7 @@ export function useCheckoutSessionModel({
     hasReservationUnavailableCheckoutLines,
     reservationUnavailableCheckoutLines,
     isOfferIntent,
-    reservationExpired,
+    reservationExpired: reservationExpired && !walletUnavailable,
     reReserveIntent,
     isSubmitting,
     unavailableCheckoutLines,
@@ -307,6 +310,7 @@ export function useCheckoutSessionModel({
   return {
     session,
     wallet,
+    walletUnavailable,
     errorMessage: errorMessage ?? null,
     isSubmitting,
     isSignedInBuyer,
