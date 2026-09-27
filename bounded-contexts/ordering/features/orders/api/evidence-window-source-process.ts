@@ -2,7 +2,12 @@ import {
   createMultiContextTestPools,
   closeMultiContextTestPools,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { createPostgresEventStore, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  createPostgresEventStore,
+  type PgPoolClient,
+  type PgQueryable,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import { createOrderingOrderRuntime } from "./runtime";
@@ -13,7 +18,7 @@ if (!databaseUrl || !windowOpenedAt) process.exit(2);
 
 const pools = createMultiContextTestPools({ ordering: databaseUrl });
 try {
-  const db = pools.ordering;
+  const db: PgTransactionalPool = pools.ordering;
   const cut = process.env.TEST_SOURCE_CUT;
   const releaseCut = process.env.TEST_SOURCE_RELEASE_CUT;
   const sourceReferenceId = process.env.TEST_SOURCE_REFERENCE_ID ?? "chk_fresh_process";
@@ -72,7 +77,7 @@ try {
       return result;
     },
     connect: async () => {
-      const client = await db.connect();
+      const client: PgPoolClient = await db.connect();
       const query: PgQueryable["query"] = async <Row = Record<string, unknown>>(
         sql: string,
         values?: readonly unknown[],

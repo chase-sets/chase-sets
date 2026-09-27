@@ -11,6 +11,7 @@ import {
 import {
   createPostgresEventStore,
   eventCorePostgresSchemaSql,
+  withPgTransaction,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import type { OrderId } from "@chase-sets/primitives/typed-ids";
@@ -22,6 +23,7 @@ import { context, createCheckpointStore, createOrderingOrderRuntimeForTest } fro
 import {
   bindEvidenceWindowSource,
   closeEvidenceWindowSource,
+  lockEvidenceWindowSourceIdentity,
   observeEvidenceWindowSource,
   readEvidenceWindowSources,
   releaseEvidenceWindowSource,
@@ -118,6 +120,51 @@ describeDb("Ordering evidence-window source recovery DB", () => {
       ),
     );
     expect((await readEvidenceWindowSources(db, windowId))[0]?.sourceIdentity).toEqual(identity);
+  });
+
+  it("AC-01 refuses a late binding after a real source claim", async () => {
+    await db.query(
+      `INSERT INTO ordering_order_source_claims
+       (source_type, source_reference_id, buyer_account_id, order_ids, status)
+       VALUES ($1, $2, $3, '["ord_before_bind"]'::jsonb, 'pending')`,
+      [identity.sourceType, identity.sourceReferenceId, identity.buyerAccountId],
+    );
+    expect((await bind()).outcome).toBe("drift");
+    expect(await readEvidenceWindowSources(db, windowId)).toEqual([]);
+  });
+
+  it("AC-01 waits for an in-flight first claim and refuses late binding", async () => {
+    let entered!: () => void;
+    let unblock!: () => void;
+    const locked = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      unblock = resolve;
+    });
+    const creator = withPgTransaction(db, async (client) => {
+      await lockEvidenceWindowSourceIdentity(client, identity);
+      entered();
+      await held;
+      await client.query(
+        `INSERT INTO ordering_order_source_claims
+         (source_type, source_reference_id, buyer_account_id, order_ids, status)
+         VALUES ($1, $2, $3, '["ord_concurrent"]'::jsonb, 'pending')`,
+        [identity.sourceType, identity.sourceReferenceId, identity.buyerAccountId],
+      );
+    });
+    await locked;
+    let bindingReturned = false;
+    const binding = bind().then((result) => {
+      bindingReturned = true;
+      return result;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(bindingReturned).toBe(false);
+    unblock();
+    await creator;
+    expect((await binding).outcome).toBe("drift");
+    expect(await readEvidenceWindowSources(db, windowId)).toEqual([]);
   });
 
   it("AC-02 stores no Order id in the source control record or terminal report", async () => {
