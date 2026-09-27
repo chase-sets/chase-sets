@@ -259,6 +259,8 @@
     "bounded-contexts/marketplace/features/listings/read-model/projection.ts",
     "bounded-contexts/marketplace/features/listings/read-model/queries.ts",
     "bounded-contexts/marketplace/features/listings/read-model/seller-attention-source.ts",
+    "bounded-contexts/marketplace/features/offer-policy/api/runtime.ts",
+    "bounded-contexts/marketplace/features/offer-policy/read-model/projection.ts",
     "bounded-contexts/marketplace/features/offers/api/runtime.ts",
     "bounded-contexts/marketplace/features/offers/read-model/projection.ts",
     "bounded-contexts/marketplace/features/offers/read-model/queries.ts",
@@ -448,7 +450,7 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 279,
+    "count": 281,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
       "bounded-contexts/auth/support/ucp-support/oauth.ts": 4,
@@ -502,6 +504,7 @@
       "bounded-contexts/inventory/features/storage-locations/api/route.ts": 1,
       "bounded-contexts/inventory/support/catalog-item-support/route.ts": 3,
       "bounded-contexts/marketplace/features/listings/api/route.ts": 12,
+      "bounded-contexts/marketplace/features/offer-policy/api/route.ts": 2,
       "bounded-contexts/marketplace/features/offers/api/route.ts": 8,
       "bounded-contexts/marketplace/features/reviews/api/route.ts": 9,
       "bounded-contexts/notifications/api.ts": 3,

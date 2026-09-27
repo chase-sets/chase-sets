@@ -3,6 +3,7 @@ import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { McpRequestProtocolContext } from "@chase-sets/platform-runtime/mcp";
 import { createMarketplaceOfferMcpHandlers } from "./mcp";
 import type { MarketplaceOfferServices } from "./runtime";
+import { privatePolicyFields } from "../../offer-policy/tests/fixtures";
 
 const actor = {
   sessionId: "sess_1",
@@ -33,6 +34,7 @@ function mcpRequest(arguments_: Record<string, unknown>, requestActor: ResolvedA
 
 function offerRow(overrides: Record<string, unknown> = {}) {
   return {
+    ...privatePolicyFields,
     offer_id: "off_1",
     buyer_account_id: "acc_buyer",
     catalog_catalog_item_id: "cat_1",
@@ -218,6 +220,13 @@ describe("marketplace offer MCP handlers", () => {
     expect(JSON.stringify(submitted)).not.toContain("shipping_destination_snapshot");
     expect(matched).toMatchObject({ accountId: "acc_1", side: "matched", total: 1, count: 1 });
     expect(JSON.stringify(matched)).not.toContain("shipping_destination_snapshot");
+    for (const output of [submitted, matched]) {
+      const serialized = JSON.stringify(output);
+      for (const [key, value] of Object.entries(privatePolicyFields)) {
+        expect(serialized).not.toContain(key);
+        if (typeof value !== "object") expect(serialized).not.toContain(String(value));
+      }
+    }
     expect(fakeServices.listOfferMatches).toHaveBeenCalledWith(
       expect.objectContaining({
         sellerAccountId: "acc_1",
@@ -270,5 +279,12 @@ describe("marketplace offer MCP handlers", () => {
     expect(JSON.stringify(submitted)).not.toContain("shipping_destination_snapshot");
     expect(matched).toMatchObject({ offer_id: "off_match", listing_id: "lst_1" });
     expect(JSON.stringify(matched)).not.toContain("shipping_destination_snapshot");
+    for (const output of [submitted, matched]) {
+      const serialized = JSON.stringify(output);
+      for (const [key, value] of Object.entries(privatePolicyFields)) {
+        expect(serialized).not.toContain(key);
+        if (typeof value !== "object") expect(serialized).not.toContain(String(value));
+      }
+    }
   });
 });

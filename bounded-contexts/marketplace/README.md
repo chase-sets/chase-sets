@@ -16,6 +16,7 @@ If an item uses a `condition` dimension, that condition is part of the selected 
 
 - Listing lifecycle
 - Offer capture and review
+- Buyer Offer Policy authorization, buyer limits and permanent managed Offer membership (`features/offer-policy`); activation fails closed until atomic acceptance/application enforcement is installed
 - Seller asking prices
 - Available sell quantity exposed to buyers
 - Buyer proposed prices

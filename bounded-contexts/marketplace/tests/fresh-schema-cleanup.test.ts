@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import contextManifest from "../context.json";
 import {
+  marketplaceBuyerOfferPolicySchemaMigrations,
+  marketplaceBuyerOfferPolicySchemaSql,
+} from "../features/offer-policy/read-model/schema";
+import { createMarketplaceServices } from "../support/runtime-support/services";
+import {
   marketplaceListingSchemaMigrations,
   marketplaceListingSchemaSql,
 } from "../features/listings/read-model/schema";
@@ -14,6 +19,28 @@ import {
 } from "../features/seller-metrics/read-model/schema";
 
 describe("marketplace fresh schema cleanup", () => {
+  it("registers every private policy table and index on boot and in ledgered migrations", () => {
+    const migration = marketplaceBuyerOfferPolicySchemaMigrations[0]!;
+    const sql = migration.statements.join("\n");
+    for (const name of [
+      "marketplace_buyer_offer_policy_pages",
+      "marketplace_buyer_offer_policy_memberships",
+      "marketplace_buyer_offer_policy_account_idx",
+      "marketplace_buyer_offer_policy_membership_idx",
+    ]) {
+      expect(marketplaceBuyerOfferPolicySchemaSql).toContain(name);
+      expect(sql).toContain(name);
+    }
+    expect(sql).toContain("CREATE INDEX CONCURRENTLY");
+    expect(
+      contextManifest.projectionGroups.find((group) => group.projectionName === "marketplace-offer-policy-projection")
+        ?.ownedTables,
+    ).toEqual(["marketplace_buyer_offer_policy_pages", "marketplace_buyer_offer_policy_memberships"]);
+    const services = createMarketplaceServices({ query: async () => ({ rows: [] }) } as never);
+    expect(
+      services.projectors.find((projector) => projector.projectionName === "marketplace-offer-policy-projection"),
+    ).toBeDefined();
+  });
   it("pins the generic evidence container and requirement snapshot on fresh and existing databases", () => {
     const migration = marketplaceListingSchemaMigrations.find(
       (entry) => entry.migrationId === "20260713_marketplace_listing_evidence_requirements_and_container",

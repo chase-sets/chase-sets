@@ -135,13 +135,18 @@ describe("platform worker projection wake interest graph", () => {
       )
       .sort();
 
-    // #7673: fulfillment.shipment.cancellation-conflict-recorded was added as a
-    // new handler on the existing fulfillment-shipment-projection:fulfillment:v1
-    // runner (self-subscription), so the runner's handler/event-type set grew
-    // without adding or removing a runner.
+    expect(runtime.subscriptionRunners).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceContextName: "marketplace",
+          targetContextName: "marketplace",
+          projectionName: "marketplace-offer-policy-projection",
+        }),
+      ]),
+    );
     expect(fingerprint(runtime.subscriptionRunners.map((runner) => fingerprintObject(runner)))).toEqual({
-      count: 246,
-      sha256: "9fd53d28cfa28a77a9dda48bb275e649c563c36c49cbb46a74508af7d024227a",
+      count: 247,
+      sha256: "6edca49f067cdefc1db3c8409762e2059d06ac2cb9b4dbd45d9716e9b18f88c6",
     });
     expect(
       fingerprint(
@@ -162,8 +167,8 @@ describe("platform worker projection wake interest graph", () => {
       sha256: "f53828b39f6b59b6dd2ee7e234e2add1a66a2f328a20a1245315ef8af9ce88fc",
     });
     expect(fingerprint(runtime.subscriptionRunners.map((runner) => runner.checkpointKey))).toEqual({
-      count: 246,
-      sha256: "a6450695ac9fe88f028441e156262596a2a67b7d9d532a2ea1d8e02683a1fdd1",
+      count: 247,
+      sha256: "e03e3c462b501840295a04a1d4551f91027611cb8007b3cb365856a7edfc0a67",
     });
     expect(sharedNames).toMatchObject({
       distinctNames: 118,

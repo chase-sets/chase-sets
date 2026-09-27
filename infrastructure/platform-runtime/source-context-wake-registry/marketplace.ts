@@ -28,6 +28,7 @@ export const marketplaceWakeRegistryEntry = registryEntry({
     "identity:identity-founder-claim-reaction",
     "marketplace:marketplace-identity-account-projection",
     "marketplace:marketplace-listing-projection",
+    "marketplace:marketplace-offer-policy-projection",
     "marketplace:marketplace-offer-projection",
     "marketplace:marketplace-review-hold-projection",
     "marketplace:marketplace-review-projection",

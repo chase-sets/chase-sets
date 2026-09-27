@@ -84,7 +84,9 @@ describe("marketplace offer domain", () => {
       shippingDestinationSnapshot,
     });
 
-    expect(event?.data.priceAmount).toBe("7.50");
+    expect(event?.type).toBe("marketplace.offer.submitted");
+    if (event?.type !== "marketplace.offer.submitted") throw new Error("Expected Offer submission.");
+    expect(event.data.priceAmount).toBe("7.50");
     expect(event?.data.priceCurrencyCode).toBe("USD");
   });
 

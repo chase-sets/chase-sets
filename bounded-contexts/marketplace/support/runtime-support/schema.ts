@@ -10,6 +10,7 @@ import { reviewSchemaSql } from "../../features/reviews/read-model/schema";
 import { marketplaceSellerMetricsSourceSchemaSql } from "../../features/seller-metrics/integrations/source/source-schema";
 import { marketplaceSellerMetricsSummarySchemaSql } from "../../features/seller-metrics/read-model/schema";
 import { marketplaceChannelInboundClampSchemaSql } from "../../features/channel-inbound-clamp/read-model/schema";
+import { marketplaceBuyerOfferPolicySchemaSql } from "../../features/offer-policy/read-model/schema";
 
 export const marketplaceSchemaSql = [
   eventCorePostgresSchemaSql,
@@ -20,6 +21,7 @@ export const marketplaceSchemaSql = [
   marketplaceSupplyProjectionSchemaSql,
   marketplaceListingSchemaSql,
   marketplaceOfferSchemaSql,
+  marketplaceBuyerOfferPolicySchemaSql,
   marketplaceReviewSourceProjectionSchemaSql,
   reviewSchemaSql,
   marketplaceSellerMetricsSourceSchemaSql,
