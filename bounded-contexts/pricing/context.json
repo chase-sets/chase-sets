@@ -893,7 +893,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide Pricing request HTTP client composition for route loaders and composition seams.",
-      "expectedConsumers": ["recommendations", "public-market-pages", "bulk-reprice-ingestion"],
+      "expectedConsumers": ["repricing-policies"],
       "crossCuttingRuntimeComposition": true
     },
     "route-support": {
