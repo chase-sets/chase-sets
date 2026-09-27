@@ -107,6 +107,8 @@ import {
   providerObservationPolicy,
   repricingEnginePolicy,
   repricingManagementPolicy,
+  createRepricingAttentionSourceFromReadModel,
+  type PricingServices,
 } from "@chase-sets/pricing/server";
 import {
   createBlockedPayoutAttentionSourceFromReadModel,
@@ -274,6 +276,19 @@ export function createPlatformApiHost(
     ...(inventoryPool ? [createImportResolutionAttentionSourceFromReadModel(inventoryPool)] : []),
     ...(settlementPool ? [createBlockedPayoutAttentionSourceFromReadModel(settlementPool)] : []),
     ...(channelsPool ? [createChannelActionAttentionSourceFromReadModel(channelsPool)] : []),
+    ...(pricingPool
+      ? [
+          // The halt item reads the same Repricing Halt aggregate as the Desk
+          // halt switch. Desk requests arrive only after the host is created.
+          createRepricingAttentionSourceFromReadModel(pricingPool, {
+            getHalt: (accountId) => {
+              const pricing = runtime?.services.pricing as PricingServices | undefined;
+              if (!pricing) throw new Error("Pricing services are not composed on this host.");
+              return pricing.repricingPolicies.getHalt(accountId);
+            },
+          }),
+        ]
+      : []),
   ];
   const marketplaceChannelInboundClamp = createPlatformApiMarketplaceChannelInboundClampBinding(
     Boolean(marketplacePool),

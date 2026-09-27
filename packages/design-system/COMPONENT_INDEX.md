@@ -332,7 +332,7 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `toastManager` | `packages/design-system/src/components/feedback/toast.tsx` | Purpose not documented; symbol name suggests: toast Manager. | `No production consumer yet.` |
 | `ToastProvider` | `packages/design-system/src/components/feedback/toast.tsx` | Purpose not documented; symbol name suggests: Toast Provider. | `No production consumer yet.` |
 | `ToastRegion` | `packages/design-system/src/components/feedback/toast.tsx` | Purpose not documented; symbol name suggests: Toast Region. | `bounded-contexts/catalog/support/shell-support/ui/toasts.tsx` |
-| `Toggle` | `packages/design-system/src/components/actions/toggle.tsx` | Purpose not documented; symbol name suggests: Toggle. | `No production consumer yet.` |
+| `Toggle` | `packages/design-system/src/components/actions/toggle.tsx` | Purpose not documented; symbol name suggests: Toggle. | `bounded-contexts/pricing/features/repricing-policies/ui/policy-activity-panel.tsx` |
 | `ToggleGroup` | `packages/design-system/src/components/actions/toggle.tsx` | Purpose not documented; symbol name suggests: Toggle Group. | `bounded-contexts/platform-operations/features/support-requests/ui/support-operations-page.tsx` |
 | `TokenSwatch` | `packages/design-system/src/patterns/app-shells/token-swatch.tsx` | Purpose not documented; symbol name suggests: Token Swatch. | `No production consumer yet.` |
 | `ToneIcon` | `packages/design-system/src/primitives/tone-icon.tsx` | A tone-colored icon circle: a tinted-soft badge wrapping the design-system `Icon`. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |

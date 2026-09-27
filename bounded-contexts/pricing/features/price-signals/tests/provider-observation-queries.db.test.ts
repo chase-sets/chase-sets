@@ -255,6 +255,7 @@ describeDb("typed provider observation persistence and frozen queries", () => {
         providerVariant: "Normal",
         providerLanguage: "English",
         listingType: "ListingWithoutPhotos",
+        listingTypeDiagnostic: null,
         soldAt: "2026-08-31 12:00:00+00",
         quantity: 1,
         unitPrice: "5.39",

@@ -45,7 +45,7 @@ export const PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE: ProviderObservationPolicy
     conditions: [],
     languages: [],
     variants: [],
-    listingType: "All",
+    listingType: "ListingWithoutPhotos",
   },
 };
 

@@ -129,7 +129,6 @@ const canonicalReserveZeroConsumerExports = [
   "ThemePreferenceControl",
   "toastManager",
   "ToastProvider",
-  "Toggle",
   "TokenSwatch",
   "Toolbar",
   "ToolbarButton",

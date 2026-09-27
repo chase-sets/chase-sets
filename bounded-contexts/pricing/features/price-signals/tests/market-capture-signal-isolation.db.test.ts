@@ -549,7 +549,7 @@ function transport(
                 language: "English",
                 quantity: 1,
                 title: "synthetic",
-                listingType: "All",
+                listingType: "ListingWithoutPhotos",
                 customListingId: "C12_SYNTHETIC_LISTING_SECRET",
                 purchasePrice: 5,
                 shippingPrice: 0,

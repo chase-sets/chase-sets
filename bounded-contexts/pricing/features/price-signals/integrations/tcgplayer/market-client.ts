@@ -186,7 +186,7 @@ async function fetchSales(
       const continuationBody = JSON.stringify(raw);
       if (seenContinuationBodies.has(continuationBody)) inconsistent = true;
       seenContinuationBodies.add(continuationBody);
-      const decoded = decodeLatestSales(raw);
+      const decoded = decodeLatestSales(raw, input.policy.sales.listingType);
       const pageRowCount = decoded.data.length + decoded.rejectedRows;
       const expectedPreviousPage = page === 0 ? "" : "Yes";
       if (
