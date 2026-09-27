@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context, type Next } from "hono";
 import type { OrderingOrderServices } from "@chase-sets/ordering/server";
 import { verifyPlatformInternalAuthSecret } from "./internal-auth";
 import {
@@ -14,6 +14,51 @@ export type EvidenceWindowSourceRecoveryRoutesOptions = Readonly<{
   registrationById: (windowId: string) => Promise<EvidenceWindowById | null>;
   sources: OrderingOrderServices["evidenceWindowSources"];
 }>;
+
+type AdmittedEvidenceWindowSource = NonNullable<
+  Parameters<OrderingOrderServices["createOrdersFromCheckout"]>[0]["evidenceWindowSource"]
+>;
+
+/**
+ * Host-owned checkout admission (#6755). In test mode it reads the nonsecret
+ * header pair, admits only an open, test-mode, unexpired registration through
+ * the private by-id read, and stamps the per-call context the Ordering
+ * checkout route hands to its runtime. It never answers the request, so the
+ * route's authentication and header refusals keep their order; outside test
+ * mode it stamps nothing and checkout stays ungoverned.
+ */
+export function createEvidenceWindowSourceAdmissionMiddleware(
+  options: Pick<EvidenceWindowSourceRecoveryRoutesOptions, "authority" | "registrationById">,
+) {
+  const admit = async (
+    windowId: string | undefined,
+    subInvocation: string | undefined,
+  ): Promise<AdmittedEvidenceWindowSource | null> => {
+    if (!windowId || !EVIDENCE_WINDOW_ID_PATTERN.test(windowId) || (subInvocation !== "2a" && subInvocation !== "2b"))
+      return null;
+    try {
+      const registration = await options.registrationById(windowId);
+      return registration?.state === "open" &&
+        registration.observedMode === "test" &&
+        Date.parse(registration.expiresAt) > Date.now()
+        ? { windowId, subInvocation, windowOpenedAt: registration.openedAt }
+        : null;
+    } catch {
+      return null;
+    }
+  };
+  return async function evidenceWindowSourceAdmission(c: Context, next: Next) {
+    if (options.authority.effectiveMode === "test" && c.req.method === "POST") {
+      const admission: Readonly<{ source: AdmittedEvidenceWindowSource | null }> = {
+        source: c.get("actor")
+          ? await admit(c.req.header("x-evidence-window-id"), c.req.header("x-evidence-window-sub-invocation"))
+          : null,
+      };
+      c.set("evidenceWindowSourceAdmission", admission);
+    }
+    await next();
+  };
+}
 
 export function createEvidenceWindowSourceRecoveryRoutes(options: EvidenceWindowSourceRecoveryRoutesOptions) {
   const routes = new Hono();

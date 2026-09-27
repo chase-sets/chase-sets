@@ -333,20 +333,6 @@ const runtime = createPlatformApiHost({
     adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
     registrationAdmission: config.registrationAdmission,
     evidenceWindowCorrelation,
-    ...(evidenceWindowById && config.stripeEffectiveMode === "test"
-      ? {
-          evidenceWindowSourceAdmission: {
-            admit: async (windowId: string, _subInvocation: "2a" | "2b") => {
-              const window = await evidenceWindowById(windowId);
-              return window?.state === "open" &&
-                window.observedMode === "test" &&
-                Date.parse(window.expiresAt) > Date.now()
-                ? { windowOpenedAt: window.openedAt }
-                : null;
-            },
-          },
-        }
-      : {}),
     securityLifetimes: config.authSecurityLifetimes,
     searchEmbeddingConfig: config.discoverySearchEmbeddings,
     searchTelemetry: {

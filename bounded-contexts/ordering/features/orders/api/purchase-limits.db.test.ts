@@ -1,6 +1,11 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { Hono } from "hono";
+import {
+  createEvidenceWindowSourceAdmissionMiddleware,
+  type EvidenceWindowById,
+} from "@chase-sets/platform-runtime/control-plane";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -17,8 +22,10 @@ import {
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { OrderId } from "@chase-sets/primitives/typed-ids";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
+import type { OrderingApiEnv } from "../../../api";
 import { buildOrderingOrderProjectionHandlers } from "../read-model/projection";
 import { module as orderingModule } from "../../../index";
+import { createAccountPurchaseOrderRoutes } from "./route";
 import { claimPlanPurchaseLimitUsage, releasePurchaseLimitClaimsForOrder } from "./purchase-limits";
 import { claimOrderSource, compensatePendingOrderSourceClaim, getOrderSourceClaim } from "./order-source-claims";
 import { closeEvidenceWindowSource, readEvidenceWindowSources } from "./evidence-window-source-release";
@@ -128,11 +135,7 @@ describeDb("ordering purchase limits db", () => {
     };
   }
 
-  function runtime(
-    eventStore: EventStore = createPostgresEventStore({ pool: pools.ordering }),
-    db = pools.ordering,
-    evidenceWindowSourceAdmission?: Readonly<{ admit: () => Promise<Readonly<{ windowOpenedAt: string }>> }>,
-  ) {
+  function runtime(eventStore: EventStore = createPostgresEventStore({ pool: pools.ordering }), db = pools.ordering) {
     return createOrderingOrderRuntimeForTest({
       db,
       eventStore,
@@ -140,7 +143,6 @@ describeDb("ordering purchase limits db", () => {
       shippingQuotePolicy: {
         quote: () => ({ shippingOption: "standard", baseAmount: "4.99", discountAmount: "0.00", chargeAmount: "4.99" }),
       },
-      evidenceWindowSourceAdmission,
     });
   }
 
@@ -229,13 +231,10 @@ describeDb("ordering purchase limits db", () => {
       runtime().createOrdersFromCheckout({ ...checkout(), evidenceWindowSource: admitted }, context),
     ).rejects.toThrow("binding refused");
     await expect(
-      runtime(undefined, pools.ordering, { admit: async () => ({ windowOpenedAt }) }).createOrdersFromCheckout(
-        checkout(),
-        context,
-      ),
+      runtime().createOrdersFromCheckout({ ...checkout(), evidenceWindowSourceAdmissionConfigured: true }, context),
     ).rejects.toThrow("requires admitted creation context");
     await expect(
-      runtime(undefined, pools.ordering, { admit: async () => ({ windowOpenedAt }) }).commandHandler({
+      runtime().commandHandler({
         streamId: "ordering.order-ord_late",
         command: {
           type: "CreateOrder",
@@ -271,6 +270,144 @@ describeDb("ordering purchase limits db", () => {
       ),
     ).rejects.toThrow("binding refused");
     expect((await snapshot()).streams).toHaveLength(0);
+  });
+
+  function checkoutApp(
+    options: Readonly<{ mode?: "test" | "live"; registration?: EvidenceWindowById; db?: PgTransactionalPool }>,
+  ) {
+    const app = new Hono<OrderingApiEnv>();
+    app.use("*", async (c, next) => {
+      c.set("actor", {
+        sessionId: "ses_1",
+        tenantId: context.tenantId,
+        userId: context.audit.performedByUserId,
+        accountId: context.audit.forAccountId,
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.manage"],
+      });
+      c.set("context", context);
+      await next();
+    });
+    if (options.mode) {
+      app.use(
+        "/account/purchases/checkout",
+        createEvidenceWindowSourceAdmissionMiddleware({
+          authority: {
+            effectiveMode: options.mode,
+            gatewayKinds: { paymentProcessor: "stripe", moneyMovement: "stripe" },
+          },
+          registrationById: async (id) => (options.registration?.windowId === id ? options.registration : null),
+        }),
+      );
+    }
+    app.route("/account", createAccountPurchaseOrderRoutes(runtime(undefined, options.db)));
+    return (body: unknown, headers: Readonly<Record<string, string>> = {}) =>
+      app.fetch(
+        new Request("http://ordering.test/account/purchases/checkout", {
+          method: "POST",
+          headers: { "content-type": "application/json", ...headers },
+          body: JSON.stringify(body),
+        }),
+      );
+  }
+
+  it("F3 HTTP checkout binds through the header pair, host admission and actor before its first claim write", async () => {
+    await supply("lst_a");
+    await supply("lst_b");
+    const windowId = "0123456789abcdef0123456789abcdef";
+    const registration: EvidenceWindowById = {
+      windowId,
+      openedAt: new Date(Date.now() - 1000).toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      state: "open",
+      observedMode: "test",
+    };
+    const pair = { "x-evidence-window-id": windowId, "x-evidence-window-sub-invocation": "2a" };
+    const sourceRows = async () =>
+      (await pools.ordering.query(`SELECT source_reference_id FROM ordering_evidence_window_sources`)).rows;
+    let observedInsideFirstWrite = false;
+    const wrap =
+      (client: PgQueryable): PgQueryable["query"] =>
+      async <Row = Record<string, unknown>>(sql: string, params?: readonly unknown[]) => {
+        if (sql.includes("INSERT INTO ordering_order_source_claims")) {
+          const sources = await readEvidenceWindowSources(pools.ordering, windowId);
+          expect(sources).toHaveLength(1);
+          expect(sources[0]).toMatchObject({
+            subInvocation: "2a",
+            windowOpenedAt: registration.openedAt,
+            creatorState: "open",
+            sourceIdentity: {
+              sourceType: "cart-checkout",
+              sourceReferenceId: "chk_http",
+              buyerAccountId: context.audit.forAccountId,
+            },
+          });
+          observedInsideFirstWrite = true;
+          throw new Error("first-write fence observed");
+        }
+        return client.query<Row>(sql, params);
+      };
+    const guardedDb: PgTransactionalPool = {
+      query: wrap(pools.ordering),
+      connect: async () => {
+        const client = await pools.ordering.connect();
+        return { query: wrap(client), release: client.release.bind(client) };
+      },
+    };
+    // Caller identity injection: the body forges a buyer, a source and its
+    // timing; the bound source must carry the actor and the registration.
+    const forged = {
+      ...checkout(["lst_a"], "chk_http"),
+      buyerAccountId: "acc_intruder",
+      windowOpenedAt: "2000-01-01T00:00:00.000Z",
+      evidenceWindowSource: { windowId, subInvocation: "2b", windowOpenedAt: "2000-01-01T00:00:00.000Z" },
+    };
+    const fenced = await checkoutApp({ mode: "test", registration, db: guardedDb })(forged, pair);
+    expect(fenced.status).toBe(409);
+    await expect(fenced.json()).resolves.toEqual({ error: { code: "evidence-window-source-failed" } });
+    expect(observedInsideFirstWrite).toBe(true);
+    expect(await sourceRows()).toEqual([{ source_reference_id: "chk_http" }]);
+
+    // Same-source no-header retry with admission mounted is refused before
+    // any Order write.
+    const retry = await checkoutApp({ mode: "test", registration })(checkout(["lst_a"], "chk_http"));
+    expect(retry.status).toBe(400);
+    expect(((await retry.json()) as { error: { message: string } }).error.message).toContain(
+      "requires admitted creation context",
+    );
+    expect((await snapshot()).streams).toHaveLength(0);
+
+    const refusals: ReadonlyArray<readonly [Parameters<typeof checkoutApp>[0], Record<string, string>, number]> = [
+      [{}, pair, 409],
+      [{ mode: "live", registration }, pair, 409],
+      [
+        { mode: "test", registration: { ...registration, expiresAt: new Date(Date.now() - 1).toISOString() } },
+        pair,
+        409,
+      ],
+      [{ mode: "test", registration: { ...registration, state: "closed" } }, pair, 409],
+      [{ mode: "test" }, pair, 409],
+      [{ mode: "test", registration }, { "x-evidence-window-id": windowId }, 400],
+      [{ mode: "test", registration }, { "x-evidence-window-sub-invocation": "2a" }, 400],
+    ];
+    for (const [options, headers, status] of refusals) {
+      const response = await checkoutApp(options)(checkout(["lst_b"], "chk_refused"), headers);
+      expect(response.status).toBe(status);
+      await expect(response.json()).resolves.toEqual({
+        error: {
+          code: status === 400 ? "evidence-window-source-admission-refused" : "evidence-window-source-failed",
+        },
+      });
+    }
+    expect(await sourceRows()).toEqual([{ source_reference_id: "chk_http" }]);
+    expect((await snapshot()).streams).toHaveLength(0);
+
+    // Without the host admission, a no-header checkout stays ungoverned.
+    const plain = await checkoutApp({})(checkout(["lst_b"], "chk_plain"));
+    expect(plain.status).toBe(201);
+    expect(await sourceRows()).toEqual([{ source_reference_id: "chk_http" }]);
+    expect((await snapshot()).streams).toHaveLength(1);
   });
 
   it("AC-10 creates a production checkout without governance or source-recovery I/O", async () => {

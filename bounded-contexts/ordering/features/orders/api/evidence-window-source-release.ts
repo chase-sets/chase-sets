@@ -479,7 +479,7 @@ export async function releaseEvidenceWindowSource(
     return observeEvidenceWindowSource(db, input.sourceIdentity, actions);
   }
 
-  const facts = await withPgTransaction(db, async (client) => {
+  const lockClosedFacts = async (client: PgQueryable) => {
     const locked = await client.query<SourceRow>(
       `SELECT ${sourceColumns} FROM ordering_evidence_window_sources
        WHERE window_id = $1 AND sub_invocation = $2 FOR UPDATE`,
@@ -488,7 +488,28 @@ export async function releaseEvidenceWindowSource(
     const current = locked.rows[0] ? mapSource(locked.rows[0]) : null;
     if (!current || current.creatorState !== "closed" || current.terminalReport !== null) return null;
     const present = await readFacts(client, current);
-    if (present.corrupt) return null;
+    return present.corrupt ? null : { current, present };
+  };
+  const facts = await withPgTransaction(db, async (client) => (await lockClosedFacts(client))?.present ?? null);
+  if (!facts) return observeEvidenceWindowSource(db, input.sourceIdentity, actions);
+
+  // Terminal Order authority comes first, outside the source lock: cancel only
+  // live Orders, then require every root Order to read cancelled or genuinely
+  // absent before any purchase usage or capacity is released.
+  for (const orderId of facts.orderIds) {
+    if ((await actions.readOrder(orderId, source).catch(() => "unknown")) === "live")
+      await actions.cancelOrder(orderId);
+  }
+  for (const orderId of facts.orderIds) {
+    const state = await actions.readOrder(orderId, source).catch(() => "unknown");
+    if (state !== "cancelled" && state !== "missing")
+      return observeEvidenceWindowSource(db, input.sourceIdentity, actions);
+  }
+
+  const authorized = await withPgTransaction(db, async (client) => {
+    const locked = await lockClosedFacts(client);
+    if (!locked || JSON.stringify(locked.present.orderIds) !== JSON.stringify(facts.orderIds)) return false;
+    const { current } = locked;
     const released = await client.query<PurchaseClaimRow>(
       `UPDATE ordering_listing_purchase_limit_claims
        SET status = 'released', released_at = now(),
@@ -505,14 +526,10 @@ export async function releaseEvidenceWindowSource(
     );
     const formerlyClaimed = released.rows.filter((row) => row.usage_residue_upper_bound_units === null);
     await actions.decrementUsage(client, current.sourceIdentity.buyerAccountId, formerlyClaimed);
-    return present;
+    return true;
   });
-  if (!facts) return observeEvidenceWindowSource(db, input.sourceIdentity, actions);
+  if (!authorized) return observeEvidenceWindowSource(db, input.sourceIdentity, actions);
 
-  for (const orderId of facts.orderIds) {
-    if ((await actions.readOrder(orderId, source).catch(() => "unknown")) === "live")
-      await actions.cancelOrder(orderId);
-  }
   const sellers = [...new Set(facts.capacityClaims.map((claim) => claim.seller_account_id))];
   for (const orderId of facts.orderIds) {
     await db.query(

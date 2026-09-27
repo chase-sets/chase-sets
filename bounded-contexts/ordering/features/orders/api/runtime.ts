@@ -241,17 +241,21 @@ type OrderRuntimeDeps = Readonly<{
   authenticityFeePolicyResolver?: AuthenticityFeePolicyResolver;
   /** Required host capability; see `OrderingServiceOptions`. */
   inventoryCleanupAuthority: OrderingInventoryCleanupAuthorityCapability;
-  evidenceWindowSourceAdmission?: OrderingEvidenceWindowSourceAdmission;
-}>;
-
-export type OrderingEvidenceWindowSourceAdmission = Readonly<{
-  admit: (windowId: string, subInvocation: "2a" | "2b") => Promise<Readonly<{ windowOpenedAt: string }> | null>;
 }>;
 
 export type AdmittedOrderingEvidenceWindowSource = Readonly<{
   windowId: string;
   subInvocation: "2a" | "2b";
   windowOpenedAt: string;
+}>;
+
+/**
+ * Server-owned checkout request context stamped by the host's evidence-window
+ * HTTP admission (#6755). It is present only when the host mounted admission;
+ * `source` is set only for an admitted open, test-mode, unexpired registration.
+ */
+export type OrderingEvidenceWindowSourceAdmissionContext = Readonly<{
+  source: AdmittedOrderingEvidenceWindowSource | null;
 }>;
 
 export type CheckoutOrderLineSnapshot = Readonly<{
@@ -454,10 +458,6 @@ export type OrderingOrderCreationResult = Readonly<{
 
 export type OrderingOrderServices = Readonly<{
   commandHandler: CommandHandler<OrderingOrderCommand, OrderingOrderState, OrderingOrderEvent>;
-  admitEvidenceWindowSource: (
-    windowId: string,
-    subInvocation: "2a" | "2b",
-  ) => Promise<AdmittedOrderingEvidenceWindowSource>;
   evidenceWindowSources: Readonly<{
     read: (windowId: string) => ReturnType<typeof readEvidenceWindowSources>;
     close: (input: Parameters<typeof closeEvidenceWindowSource>[1]) => ReturnType<typeof closeEvidenceWindowSource>;
@@ -480,7 +480,15 @@ export type OrderingOrderServices = Readonly<{
       checkoutReservations?: readonly CheckoutInventoryReservationInput[];
       customerAccountIsGuest?: boolean;
       orderIdsOverride?: readonly OrderId[];
+      /**
+       * Server-owned per-call context stamped by the host's HTTP admission
+       * (#6755): `evidenceWindowSource` is the admitted registration, and
+       * `evidenceWindowSourceAdmissionConfigured` says the host mounted
+       * admission for this call, so an unadmitted call still refuses a bound
+       * source. Neither value is ever read from the request body.
+       */
       evidenceWindowSource?: AdmittedOrderingEvidenceWindowSource;
+      evidenceWindowSourceAdmissionConfigured?: boolean;
       /**
        * The buyer's authenticity-check opt-in (m109), carrying the
        * quote fingerprint they last saw at checkout. Ordering
@@ -1512,9 +1520,11 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       evolve: evolveOrderingOrder,
       decide: decideOrderingOrder,
     }).commandHandler;
+  // A direct CreateOrder carries no per-call admission context, so it always
+  // honors a bound source's creator fence; production creation goes through
+  // `createOrdersFromPlan` and never reaches this read.
   const publicCommandHandler: typeof commandHandler = async (input) => {
-    if (input.command.type !== "CreateOrder" || !input.command.sourceReferenceId || !deps.evidenceWindowSourceAdmission)
-      return commandHandler(input);
+    if (input.command.type !== "CreateOrder" || !input.command.sourceReferenceId) return commandHandler(input);
     const identity: EvidenceWindowSourceIdentity = {
       sourceType: input.command.sourceType,
       sourceReferenceId: input.command.sourceReferenceId,
@@ -1633,7 +1643,10 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
   const sourceReaders = (identity: EvidenceWindowSourceIdentity): EvidenceWindowSourceReaders => ({
     readOrder: async (orderId, source) => {
       const loaded = await repository.load(`ordering.order-${orderId}`);
-      if (!loaded.state.orderId) return "missing";
+      // Only a physically empty stream proves absence; a nonempty history
+      // that folds to no Order identity is corrupt, never not-created.
+      if (loaded.storedEvents.length === 0) return "missing";
+      if (!loaded.state.orderId) return "unknown";
       if (
         loaded.state.sourceType !== identity.sourceType ||
         loaded.state.sourceReferenceId !== identity.sourceReferenceId ||
@@ -1728,6 +1741,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
     orderIdsOverride?: readonly OrderId[],
     authenticityPlan?: AuthenticityCheckFeeQuote | null,
     governedSource?: EvidenceWindowSourceIdentity,
+    evidenceWindowSourceAdmissionConfigured = false,
   ) => {
     if (orderIdsOverride && orderIdsOverride.length !== plan.orderDrafts.length) {
       throw new OrderingDomainError("Order seed overrides must match the number of generated seller orders.");
@@ -1735,7 +1749,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
     if (authenticityPlan && plan.orderDrafts.length !== 1) {
       throw new OrderingDomainError("Authenticity check requires a single-seller order.");
     }
-    if (!governedSource && deps.evidenceWindowSourceAdmission) {
+    if (!governedSource && evidenceWindowSourceAdmissionConfigured) {
       for (const draft of plan.orderDrafts) {
         if (
           draft.sourceReferenceId &&
@@ -2232,11 +2246,6 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       observe: (identity) => observeEvidenceWindowSource(deps.db, identity, sourceReaders(identity)),
       release: (input) => releaseEvidenceWindowSource(deps.db, input, sourceReleaseActions(input.sourceIdentity)),
     },
-    admitEvidenceWindowSource: async (windowId, subInvocation) => {
-      const registration = await deps.evidenceWindowSourceAdmission?.admit(windowId, subInvocation);
-      if (!registration) throw new OrderingDomainError("Evidence window source admission refused.");
-      return { windowId, subInvocation, windowOpenedAt: registration.windowOpenedAt };
-    },
     commandHandler: publicCommandHandler,
     previewCheckoutFulfillment: async (params) => {
       const optimizationGoal = params.optimizationGoal ?? "lowest-total";
@@ -2427,8 +2436,11 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         sourceReferenceId: params.checkoutSessionId,
         buyerAccountId: params.buyerAccountId,
       };
+      const evidenceWindowSourceAdmissionConfigured = Boolean(
+        params.evidenceWindowSourceAdmissionConfigured || params.evidenceWindowSource,
+      );
       if (
-        deps.evidenceWindowSourceAdmission &&
+        evidenceWindowSourceAdmissionConfigured &&
         !params.evidenceWindowSource &&
         (await readEvidenceWindowSourceByIdentity(deps.db, sourceIdentity))
       ) {
@@ -2527,7 +2539,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
           orderIds: proposedOrderIds,
         },
         Boolean(params.evidenceWindowSource),
-        Boolean(deps.evidenceWindowSourceAdmission),
+        evidenceWindowSourceAdmissionConfigured,
       );
       if (sourceClaimResult.outcome === "existing") {
         const completed = await completedOrderSourceResult(
@@ -2562,6 +2574,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
                 buyerAccountId: params.buyerAccountId,
               }
             : undefined,
+          evidenceWindowSourceAdmissionConfigured,
         );
 
         // Order Capacity enforcement (m127): per-group failure only --
@@ -2585,7 +2598,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
           deps.db,
           sourceClaimResult.claim,
           async () => (await claimedOrderStreamStatus(sourceClaimResult.claim)).existingCount > 0,
-          Boolean(deps.evidenceWindowSourceAdmission || params.evidenceWindowSource),
+          evidenceWindowSourceAdmissionConfigured,
         );
         throw error;
       }

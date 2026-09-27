@@ -10,7 +10,7 @@ import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createOrderingAccountRuntime } from "../account-support/runtime";
 import { createOrderingOrderRuntime } from "../../features/orders/api/runtime";
-import type { OrderingEvidenceWindowSourceAdmission, TaxQuoteResolver } from "../../features/orders/api/runtime";
+import type { TaxQuoteResolver } from "../../features/orders/api/runtime";
 import { createPostagePolicyRuntime } from "../../features/postage-policies/api/runtime";
 import { defaultShippingQuotePolicy, type ShippingQuotePolicy } from "../../features/orders/domain/policies";
 import type { AuthenticityFeePolicyResolver } from "../../features/orders/api/authenticity-fee-policy-resolver";
@@ -24,7 +24,6 @@ export type OrderingServiceOptions = Readonly<{
   taxQuoteResolver?: TaxQuoteResolver;
   notificationOutbox?: NotificationOutbox;
   authenticityFeePolicyResolver?: AuthenticityFeePolicyResolver;
-  evidenceWindowSourceAdmission?: OrderingEvidenceWindowSourceAdmission;
   /**
    * Required host capability. Every host states one of two explicit
    * variants: it either mounts the Inventory cleanup authority or it does
@@ -66,7 +65,6 @@ export function createOrderingServices(pool: PgTransactionalPool, options: Order
     taxQuoteResolver: options.taxQuoteResolver,
     notificationOutbox,
     authenticityFeePolicyResolver: options.authenticityFeePolicyResolver,
-    evidenceWindowSourceAdmission: options.evidenceWindowSourceAdmission,
     inventoryCleanupAuthority,
   });
 

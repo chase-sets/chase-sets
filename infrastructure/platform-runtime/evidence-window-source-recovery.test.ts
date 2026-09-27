@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { OrderingOrderServices } from "@chase-sets/ordering/server";
-import { createEvidenceWindowSourceRecoveryRoutes } from "./evidence-window-source-recovery";
+import { Hono } from "hono";
+import type { EvidenceWindowById } from "./evidence-window-registration";
+import {
+  createEvidenceWindowSourceAdmissionMiddleware,
+  createEvidenceWindowSourceRecoveryRoutes,
+} from "./evidence-window-source-recovery";
 
 const windowId = "abcdef0123456789abcdef0123456789";
 const openedAt = "2026-09-26T12:00:00.000Z";
@@ -97,5 +102,80 @@ describe("Ordering source recovery admission routes", () => {
     });
     expect(accepted.status).toBe(200);
     expect(privateRoutes.close).toHaveBeenCalledWith({ windowId, subInvocation: "2a", expectedVersion: 2 });
+  });
+});
+
+describe("checkout evidence-window source admission middleware (#6755 F3)", () => {
+  const openRegistration: EvidenceWindowById = {
+    windowId,
+    openedAt,
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    state: "open" as const,
+    observedMode: "test" as const,
+  };
+  const pair = { "x-evidence-window-id": windowId, "x-evidence-window-sub-invocation": "2b" };
+
+  type StampOptions = Readonly<{
+    mode?: "test" | "live";
+    method?: string;
+    actor?: boolean;
+    headers?: Readonly<Record<string, string>>;
+    registrationById?: () => Promise<EvidenceWindowById | null>;
+  }>;
+
+  async function stamped(options: StampOptions = {}) {
+    const registrationById = vi.fn(options.registrationById ?? (async () => openRegistration));
+    const host = new Hono<{ Variables: { actor: { accountId: string }; evidenceWindowSourceAdmission: unknown } }>();
+    host.use("*", async (c, next) => {
+      if (options.actor !== false) c.set("actor", { accountId: "acc_buyer" });
+      await next();
+    });
+    host.use(
+      "/checkout",
+      createEvidenceWindowSourceAdmissionMiddleware({
+        authority: {
+          effectiveMode: options.mode ?? "test",
+          gatewayKinds: { paymentProcessor: "fake", moneyMovement: "fake" },
+        },
+        registrationById,
+      }),
+    );
+    host.all("/checkout", (c) => c.json({ admission: c.get("evidenceWindowSourceAdmission") ?? "absent" }));
+    const response = await host.request("/checkout", {
+      method: options.method ?? "POST",
+      headers: options.headers ?? pair,
+    });
+    return { body: (await response.json()) as { admission: unknown }, registrationById };
+  }
+
+  it("stamps the registration's opening time for an open, unexpired test-mode window", async () => {
+    const { body, registrationById } = await stamped();
+    expect(body.admission).toEqual({ source: { windowId, subInvocation: "2b", windowOpenedAt: openedAt } });
+    expect(registrationById).toHaveBeenCalledExactlyOnceWith(windowId);
+  });
+
+  it("stamps nothing outside test mode or on a non-POST request", async () => {
+    for (const options of [{ mode: "live" as const }, { method: "GET" }]) {
+      const { body, registrationById } = await stamped(options);
+      expect(body.admission).toBe("absent");
+      expect(registrationById).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each<readonly [string, StampOptions]>([
+    ["no actor", { actor: false }],
+    ["a partial header pair", { headers: { "x-evidence-window-id": windowId } }],
+    ["an unknown sub-invocation", { headers: { ...pair, "x-evidence-window-sub-invocation": "3a" } }],
+    ["a malformed window id", { headers: { ...pair, "x-evidence-window-id": "not-a-window" } }],
+    ["an unknown registration", { registrationById: async () => null }],
+    ["a closed registration", { registrationById: async () => ({ ...openRegistration, state: "closed" }) }],
+    [
+      "an expired registration",
+      { registrationById: async () => ({ ...openRegistration, expiresAt: new Date(Date.now() - 1).toISOString() }) },
+    ],
+    ["an unreadable registration", { registrationById: async () => Promise.reject(new Error("storage unavailable")) }],
+  ])("stamps a refused admission for %s", async (_label, options) => {
+    const { body } = await stamped(options);
+    expect(body.admission).toEqual({ source: null });
   });
 });

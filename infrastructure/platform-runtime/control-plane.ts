@@ -28,6 +28,7 @@ export {
   type EvidenceWindowRoutesOptions,
 } from "./evidence-window-registration";
 export {
+  createEvidenceWindowSourceAdmissionMiddleware,
   createEvidenceWindowSourceRecoveryRoutes,
   type EvidenceWindowSourceRecoveryRoutesOptions,
 } from "./evidence-window-source-recovery";

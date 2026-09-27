@@ -14,11 +14,17 @@ import {
   withPgTransaction,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
+import type { JsonObject } from "@chase-sets/primitives/json";
 import type { OrderId } from "@chase-sets/primitives/typed-ids";
 import { module as orderingModule } from "../../../index";
 import { orderingOrderSchemaMigrations } from "../read-model/schema";
 import { decrementPurchaseLimitUsage } from "./purchase-limits";
 import { compensatePendingOrderSourceClaim } from "./order-source-claims";
+import {
+  SELLER_ACCOUNT_ID,
+  createStubInventoryAuthority,
+  orderCreatedPayload,
+} from "../../../tests/test-support/cleanup-authority";
 import { context, createCheckpointStore, createOrderingOrderRuntimeForTest } from "./runtime-test-harness";
 import {
   bindEvidenceWindowSource,
@@ -543,6 +549,195 @@ describeDb("Ordering evidence-window source recovery DB", () => {
         .rows[0]?.terminal_report,
     ).toBeNull();
     expect((await release())?.outcome).toBe("discharged");
+  });
+
+  async function governedOrder(orderId: string) {
+    await bind();
+    await claim("claimed", "lst_claimed", 2);
+    await db.query(
+      `INSERT INTO ordering_order_source_claims
+       (source_type, source_reference_id, buyer_account_id, order_ids, status)
+       VALUES ($1, $2, $3, $4::jsonb, 'pending')`,
+      [identity.sourceType, identity.sourceReferenceId, identity.buyerAccountId, JSON.stringify([orderId])],
+    );
+    await db.query(
+      `INSERT INTO ordering_seller_open_order_claims (order_id, seller_account_id, status, claimed_at)
+       VALUES ($1, 'acc_seller', 'claimed', now())`,
+      [orderId],
+    );
+  }
+  async function expectSourceEffectsRetained() {
+    expect(
+      (await db.query<{ status: string }>(`SELECT status FROM ordering_listing_purchase_limit_claims`)).rows,
+    ).toEqual([{ status: "claimed" }]);
+    expect(
+      (await db.query<{ day_quantity: number }>(`SELECT day_quantity FROM ordering_listing_purchase_limit_usage`)).rows,
+    ).toEqual([{ day_quantity: 2 }]);
+    expect((await db.query<{ status: string }>(`SELECT status FROM ordering_seller_open_order_claims`)).rows).toEqual([
+      { status: "claimed" },
+    ]);
+    expect((await db.query(`SELECT 1 FROM ordering_order_source_claims`)).rows).toHaveLength(1);
+    expect(
+      (
+        await db.query<{ terminal_report: unknown; discharged_at: unknown }>(
+          `SELECT terminal_report, discharged_at FROM ordering_evidence_window_sources`,
+        )
+      ).rows,
+    ).toEqual([{ terminal_report: null, discharged_at: null }]);
+  }
+  function realRuntime(eventStore = createPostgresEventStore({ pool: db }), cleanupAuthority = false) {
+    return createOrderingOrderRuntimeForTest({
+      db,
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      shippingQuotePolicy: {
+        quote: () => ({ shippingOption: "standard", baseAmount: "0.00", discountAmount: "0.00", chargeAmount: "0.00" }),
+      },
+      ...(cleanupAuthority
+        ? { inventoryCleanupAuthority: { kind: "available" as const, port: createStubInventoryAuthority({}) } }
+        : {}),
+    });
+  }
+  async function streamEventTypes(streamId: string) {
+    return (
+      await db.query<{ event_type: string }>(
+        `SELECT event_type FROM event_store_events WHERE stream_id = $1 ORDER BY stream_version`,
+        [streamId],
+      )
+    ).rows.map((row) => row.event_type);
+  }
+
+  it.each(["unknown", "read failure", "unknown after cancel"] as const)(
+    "F1 %s Order authority releases no purchase usage or seller capacity",
+    async (authority) => {
+      await governedOrder("ord_unknown");
+      await close();
+      let cancels = 0;
+      let reconciles = 0;
+      let decrementedUnits = 0;
+      const report = await releaseEvidenceWindowSource(
+        db,
+        { sourceIdentity: identity, windowOpenedAt: openedAt },
+        {
+          ...actions,
+          readOrder: async () => {
+            if (authority === "read failure") throw new Error("order read unavailable");
+            return authority === "unknown after cancel" && cancels === 0 ? "live" : "unknown";
+          },
+          cancelOrder: async () => {
+            cancels++;
+          },
+          reconcileSeller: async () => {
+            reconciles++;
+          },
+          decrementUsage: async (client, buyerAccountId, claims) => {
+            decrementedUnits += claims.reduce((sum, item) => sum + item.quantity, 0);
+            await decrementPurchaseLimitUsage(client, buyerAccountId, claims);
+          },
+        },
+      );
+      expect(report?.outcome).toBe("unknown");
+      expect(cancels).toBe(authority === "unknown after cancel" ? 1 : 0);
+      expect(decrementedUnits).toBe(0);
+      expect(reconciles).toBe(0);
+      await expectSourceEffectsRetained();
+      expect((await release())?.outcome).toBe("discharged");
+    },
+  );
+
+  it("F1 real runtime retains usage and capacity for a captured-remedy-required Order", async () => {
+    await governedOrder("ord_captured");
+    const eventStore = createPostgresEventStore({ pool: db });
+    const at = new Date().toISOString();
+    await eventStore.appendToStream({
+      streamId: "ordering.order-ord_captured",
+      expectedVersion: "no_stream",
+      context,
+      events: [
+        {
+          eventType: "ordering.order.created",
+          payload: orderCreatedPayload({
+            orderId: "ord_captured",
+            buyerAccountId: identity.buyerAccountId,
+            sourceReferenceId: identity.sourceReferenceId,
+          }) as JsonObject,
+        },
+        {
+          eventType: "ordering.order.reservation-confirmed",
+          payload: {
+            orderId: "ord_captured",
+            reservationRequestId: "rsv_1",
+            inventoryItemId: "inv_1",
+            sellerAccountId: SELLER_ACCOUNT_ID,
+            quantity: 1,
+            holdId: "hld_1",
+            confirmedAt: at,
+          },
+        },
+        {
+          eventType: "ordering.order.pending-payment-recorded",
+          payload: {
+            orderId: "ord_captured",
+            pendingPaymentAt: at,
+            paymentDeadlineAt: new Date(Date.now() + 86_400_000).toISOString(),
+            paymentDeadlinePolicy: "standard",
+          },
+        },
+        {
+          eventType: "ordering.order.ready-for-fulfillment-recorded",
+          payload: { orderId: "ord_captured", readyForFulfillmentAt: at },
+        },
+      ],
+    });
+    await close();
+    const report = await realRuntime(eventStore, true).evidenceWindowSources.release({
+      sourceIdentity: identity,
+      windowOpenedAt: openedAt,
+    });
+    expect(report?.outcome).toBe("unknown");
+    expect(report?.surfaces.orderStreams).toBe("unknown");
+    expect(await streamEventTypes("ordering.order-ord_captured")).toHaveLength(4);
+    expect(await streamEventTypes("ordering.seller-capacity-acc_seller")).toEqual([]);
+    await expectSourceEffectsRetained();
+  });
+
+  it("F2 real runtime reads a nonempty stream without creation as unknown, never not-created", async () => {
+    await governedOrder("ord_corrupt");
+    const eventStore = createPostgresEventStore({ pool: db });
+    await eventStore.appendToStream({
+      streamId: "ordering.order-ord_corrupt",
+      expectedVersion: "no_stream",
+      context,
+      events: [
+        { eventType: "ordering.order.line-item-amounts-published", payload: { orderId: "ord_corrupt", lineItems: [] } },
+      ],
+    });
+    await close();
+    const report = await realRuntime(eventStore).evidenceWindowSources.release({
+      sourceIdentity: identity,
+      windowOpenedAt: openedAt,
+    });
+    expect(report?.outcome).toBe("unknown");
+    expect(report?.surfaces.orderStreams).toBe("unknown");
+    expect(await streamEventTypes("ordering.order-ord_corrupt")).toEqual([
+      "ordering.order.line-item-amounts-published",
+    ]);
+    expect(await streamEventTypes("ordering.seller-capacity-acc_seller")).toEqual([]);
+    await expectSourceEffectsRetained();
+  });
+
+  it("F2 control: real runtime certifies a genuinely absent Order as not-created and replays", async () => {
+    await governedOrder("ord_absent");
+    await close();
+    const runtime = realRuntime();
+    const report = await runtime.evidenceWindowSources.release({ sourceIdentity: identity, windowOpenedAt: openedAt });
+    expect(report?.outcome).toBe("discharged");
+    expect(report?.surfaces.orderStreams).toBe("not-created");
+    expect(await streamEventTypes("ordering.order-ord_absent")).toEqual([]);
+    expect((await db.query(`SELECT 1 FROM ordering_order_source_claims`)).rows).toHaveLength(0);
+    expect(await runtime.evidenceWindowSources.release({ sourceIdentity: identity, windowOpenedAt: openedAt })).toEqual(
+      report,
+    );
   });
 
   it("AC-09 rejects a terminal-report write failure without deleting the source root", async () => {

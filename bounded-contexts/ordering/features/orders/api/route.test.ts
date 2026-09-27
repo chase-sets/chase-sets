@@ -1,5 +1,9 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
+import {
+  createEvidenceWindowSourceAdmissionMiddleware,
+  type EvidenceWindowById,
+} from "@chase-sets/platform-runtime/control-plane";
 import type { OrderingApiEnv } from "../../../api";
 import { createAccountPurchaseOrderRoutes, createAccountSaleOrderRoutes } from "./route";
 import type { OrderingOrderServices } from "./runtime";
@@ -633,5 +637,167 @@ describe("ordering purchase routes", () => {
       }),
       expect.anything(),
     );
+  });
+});
+
+describe("checkout evidence-window admission through the host middleware (#6755 F3)", () => {
+  const windowId = "abcdef0123456789abcdef0123456789";
+  const buyer: NonNullable<OrderingApiEnv["Variables"]["actor"]> = {
+    sessionId: "ses_1",
+    tenantId: "tnt_identity",
+    userId: "usr_buyer",
+    accountId: "acc_buyer",
+    membershipId: "mbr_1",
+    roleKey: "owner",
+    permissions: ["orders.manage"],
+  };
+  const openRegistration = (): EvidenceWindowById => ({
+    windowId,
+    openedAt: "2026-09-26T00:00:00.000Z",
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    state: "open",
+    observedMode: "test",
+  });
+  // The body carries forged identity and timing; only the actor and the
+  // registration may reach the runtime.
+  const forgedBody = {
+    checkoutSessionId: "chk_http",
+    sourceType: "cart-checkout",
+    buyerAccountId: "acc_intruder",
+    windowOpenedAt: "2000-01-01T00:00:00.000Z",
+    evidenceWindowSource: { windowId, subInvocation: "2b", windowOpenedAt: "2000-01-01T00:00:00.000Z" },
+    lines: [],
+  };
+  const pair = (subInvocation = "2a") => ({
+    "x-evidence-window-id": windowId,
+    "x-evidence-window-sub-invocation": subInvocation,
+  });
+
+  function admittedApp(
+    options: Readonly<{
+      mode?: "test" | "live";
+      actor?: OrderingApiEnv["Variables"]["actor"];
+      registrationById?: (id: string) => Promise<EvidenceWindowById | null>;
+    }>,
+  ) {
+    const services = createServices();
+    const registrationById = vi.fn(
+      options.registrationById ?? (async (id: string) => (id === windowId ? openRegistration() : null)),
+    );
+    const actor = options.actor === undefined ? buyer : options.actor;
+    const app = new Hono<OrderingApiEnv>();
+    app.use("*", async (c, next) => {
+      c.set("actor", actor);
+      c.set(
+        "context",
+        actor
+          ? {
+              tenantId: "tnt_identity" as never,
+              audit: { performedByUserId: actor.userId as never, forAccountId: actor.accountId as never },
+            }
+          : null,
+      );
+      await next();
+    });
+    if (options.mode) {
+      app.use(
+        "/account/purchases/checkout",
+        createEvidenceWindowSourceAdmissionMiddleware({
+          authority: {
+            effectiveMode: options.mode,
+            gatewayKinds: { paymentProcessor: "stripe", moneyMovement: "stripe" },
+          },
+          registrationById,
+        }),
+      );
+    }
+    app.route("/account", createAccountPurchaseOrderRoutes(services));
+    const checkout = (headers: Record<string, string> = {}) =>
+      app.fetch(
+        new Request("http://ordering.test/account/purchases/checkout", {
+          method: "POST",
+          headers: { "content-type": "application/json", ...headers },
+          body: JSON.stringify(forgedBody),
+        }),
+      );
+    return { checkout, registrationById, createOrders: vi.mocked(services.createOrdersFromCheckout) };
+  }
+
+  it("admits the header pair through the registration and hands the runtime the actor's identity", async () => {
+    const { checkout, registrationById, createOrders } = admittedApp({ mode: "test" });
+    const response = await checkout(pair());
+    expect(response.status).toBe(201);
+    expect(registrationById).toHaveBeenCalledExactlyOnceWith(windowId);
+    expect(createOrders.mock.calls[0]![0]).toMatchObject({
+      buyerAccountId: "acc_buyer",
+      checkoutSessionId: "chk_http",
+      evidenceWindowSource: { windowId, subInvocation: "2a", windowOpenedAt: "2026-09-26T00:00:00.000Z" },
+      evidenceWindowSourceAdmissionConfigured: true,
+    });
+  });
+
+  it("refuses a header pair when the host mounted no admission, and leaves no-header checkout ungoverned", async () => {
+    const { checkout, createOrders } = admittedApp({});
+    const refused = await checkout(pair());
+    expect(refused.status).toBe(409);
+    await expect(refused.json()).resolves.toEqual({ error: { code: "evidence-window-source-failed" } });
+    expect(createOrders).not.toHaveBeenCalled();
+    expect((await checkout()).status).toBe(201);
+    const input = createOrders.mock.calls[0]![0];
+    expect(input).not.toHaveProperty("evidenceWindowSource");
+    expect(input).not.toHaveProperty("evidenceWindowSourceAdmissionConfigured");
+    expect(input.buyerAccountId).toBe("acc_buyer");
+  });
+
+  it("stamps nothing in production mode: the pair is refused and no-header checkout stays ungoverned", async () => {
+    const { checkout, registrationById, createOrders } = admittedApp({ mode: "live" });
+    expect((await checkout(pair())).status).toBe(409);
+    expect(registrationById).not.toHaveBeenCalled();
+    expect(createOrders).not.toHaveBeenCalled();
+    expect((await checkout()).status).toBe(201);
+    expect(createOrders.mock.calls[0]![0]).not.toHaveProperty("evidenceWindowSourceAdmissionConfigured");
+  });
+
+  it.each([
+    ["expired", async () => ({ ...openRegistration(), expiresAt: new Date(Date.now() - 1).toISOString() })],
+    ["closed", async () => ({ ...openRegistration(), state: "closed" as const })],
+    ["unknown", async () => null],
+    ["unreadable", async () => Promise.reject(new Error("registration storage unavailable"))],
+  ])("refuses a %s registration before any runtime call", async (_label, registrationById) => {
+    const { checkout, createOrders } = admittedApp({ mode: "test", registrationById });
+    const response = await checkout(pair());
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: { code: "evidence-window-source-failed" } });
+    expect(createOrders).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ "x-evidence-window-id": windowId }],
+    [{ "x-evidence-window-sub-invocation": "2a" }],
+    [pair("2c")],
+    [{ "x-evidence-window-id": "ABCDEF", "x-evidence-window-sub-invocation": "2a" }],
+  ])("refuses partial or malformed headers %j with no registration read", async (headers) => {
+    const { checkout, registrationById, createOrders } = admittedApp({ mode: "test" });
+    const response = await checkout(headers);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: { code: "evidence-window-source-admission-refused" } });
+    expect(registrationById).not.toHaveBeenCalled();
+    expect(createOrders).not.toHaveBeenCalled();
+  });
+
+  it("admits nothing without an authenticated actor", async () => {
+    const { checkout, registrationById, createOrders } = admittedApp({ mode: "test", actor: null });
+    expect((await checkout(pair())).status).toBe(401);
+    expect(registrationById).not.toHaveBeenCalled();
+    expect(createOrders).not.toHaveBeenCalled();
+  });
+
+  it("carries the configured admission on a same-source no-header retry so the runtime can fence it", async () => {
+    const { checkout, registrationById, createOrders } = admittedApp({ mode: "test" });
+    expect((await checkout()).status).toBe(201);
+    expect(registrationById).not.toHaveBeenCalled();
+    const input = createOrders.mock.calls[0]![0];
+    expect(input).not.toHaveProperty("evidenceWindowSource");
+    expect(input).toMatchObject({ evidenceWindowSourceAdmissionConfigured: true, checkoutSessionId: "chk_http" });
   });
 });

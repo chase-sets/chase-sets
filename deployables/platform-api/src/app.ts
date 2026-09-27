@@ -146,6 +146,7 @@ import {
 import { createApiHost, resolveApiHostMounts, type ApiHostRuntime } from "@chase-sets/platform-runtime/api";
 import {
   createEvidenceWindowRegistrationRoutes,
+  createEvidenceWindowSourceAdmissionMiddleware,
   createEvidenceWindowSourceRecoveryRoutes,
   type EvidenceWindowRoutesOptions,
   type EvidenceWindowSourceRecoveryRoutesOptions,
@@ -1059,6 +1060,14 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     apiMounts.filter((mount) => mount.contextName === "catalog" && mount.requiresAuth).map((mount) => mount.mountPath),
     catalogApiPermissionMiddleware,
   );
+  if (options.evidenceWindowSourceRecovery && orderingServices?.orders) {
+    const evidenceWindowSourceAdmission = createEvidenceWindowSourceAdmissionMiddleware(
+      options.evidenceWindowSourceRecovery,
+    );
+    for (const mount of apiMounts.filter((entry) => entry.contextName === "ordering")) {
+      app.use(`${mount.mountPath}/account/purchases/checkout`, evidenceWindowSourceAdmission);
+    }
+  }
 
   attachWriteConsistencyMiddleware(app, apiMounts, runtime.projectionGroups, {
     enabled: options.projectionInlineApplyEnabled ?? false,
