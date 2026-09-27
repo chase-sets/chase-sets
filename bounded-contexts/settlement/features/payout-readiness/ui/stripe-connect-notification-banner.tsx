@@ -4,12 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   EmbeddedProviderSurface,
   Banner,
-  createStripeConnectAppearance,
+  resolveEmbeddedSurfaceTheme,
   LoadingSpinner,
-  observeStripeAppearance,
+  observeEmbeddedSurfaceTheme,
   Stack,
-  stripeAppearanceSnapshot,
+  embeddedSurfaceThemeSnapshot,
 } from "@chase-sets/design-system";
+import { createStripeConnectAppearance } from "@chase-sets/stripe-appearance";
 
 type StripeConnectNotificationBannerElement = ConnectHTMLElementRecord["notification-banner"];
 
@@ -50,7 +51,7 @@ export function StripeConnectNotificationBanner({ publishableKey }: { publishabl
   const setContainer = useCallback((node: HTMLDivElement | null) => {
     containerRef.current = node;
     setAppearanceScope(node);
-    setAppearanceVersion(node ? stripeAppearanceSnapshot({ scope: node }) : null);
+    setAppearanceVersion(node ? embeddedSurfaceThemeSnapshot({ scope: node }) : null);
   }, []);
 
   useEffect(() => {
@@ -58,8 +59,8 @@ export function StripeConnectNotificationBanner({ publishableKey }: { publishabl
       return undefined;
     }
 
-    return observeStripeAppearance({ scope: appearanceScope }, () => {
-      setAppearanceVersion(stripeAppearanceSnapshot({ scope: appearanceScope }));
+    return observeEmbeddedSurfaceTheme({ scope: appearanceScope }, () => {
+      setAppearanceVersion(embeddedSurfaceThemeSnapshot({ scope: appearanceScope }));
     });
   }, [appearanceScope]);
 
@@ -97,7 +98,7 @@ export function StripeConnectNotificationBanner({ publishableKey }: { publishabl
           return fetchNotificationBannerClientSecret();
         },
         locale: "en-US",
-        appearance: createStripeConnectAppearance({ scope: appearanceScope }),
+        appearance: createStripeConnectAppearance({ theme: resolveEmbeddedSurfaceTheme({ scope: appearanceScope }) }),
       });
       const component = connect.create("notification-banner");
       component.setOnLoaderStart(() => {

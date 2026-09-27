@@ -281,6 +281,19 @@ describe("account payment methods route", () => {
       ),
     );
     expect(paymentElement.destroy).not.toHaveBeenCalled();
+    rerender(
+      <ChaseRoot theme={{ colors: { foreground: "var(--missing)" } }}>
+        <AccountPaymentMethodsRoute />
+      </ChaseRoot>,
+    );
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appearance: expect.objectContaining({ variables: expect.objectContaining({ colorText: "#211d33" }) }),
+        }),
+      ),
+    );
+    expect(paymentElement.destroy).not.toHaveBeenCalled();
   });
 
   it("guards setup confirmation against double-submit and wires a saved instrument", async () => {

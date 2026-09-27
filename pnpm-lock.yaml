@@ -979,6 +979,9 @@ importers:
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
+      '@chase-sets/embedded-surface-theme':
+        specifier: workspace:*
+        version: link:../../contracts/embedded-surface-theme
       '@chase-sets/event-core':
         specifier: workspace:*
         version: link:../../contracts/event-core
@@ -1018,6 +1021,9 @@ importers:
       '@chase-sets/provider-webhook-inbox':
         specifier: workspace:*
         version: link:../../infrastructure/provider-webhook-inbox
+      '@chase-sets/stripe-appearance':
+        specifier: workspace:*
+        version: link:../../infrastructure/stripe-appearance
       '@stripe/stripe-js':
         specifier: 9.9.0
         version: 9.9.0
@@ -1028,6 +1034,9 @@ importers:
       '@chase-sets/stripe-config':
         specifier: workspace:*
         version: link:../../infrastructure/stripe-config
+      '@chase-sets/typescript-compiler-api':
+        specifier: workspace:*
+        version: link:../../packages/typescript-compiler-api
       vitest:
         specifier: ^4.1.4
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
@@ -1310,6 +1319,9 @@ importers:
       '@chase-sets/seller-attention-queue':
         specifier: workspace:*
         version: link:../../contracts/seller-attention-queue
+      '@chase-sets/stripe-appearance':
+        specifier: workspace:*
+        version: link:../../infrastructure/stripe-appearance
       '@stripe/connect-js':
         specifier: 3.4.5
         version: 3.4.5
@@ -1364,6 +1376,8 @@ importers:
       vitest:
         specifier: ^4.1.4
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
+
+  contracts/embedded-surface-theme: {}
 
   contracts/event-core: {}
 
@@ -1675,6 +1689,9 @@ importers:
       '@chase-sets/playwright-evidence':
         specifier: workspace:*
         version: link:../../infrastructure/playwright-evidence
+      '@chase-sets/typescript-compiler-api':
+        specifier: workspace:*
+        version: link:../../packages/typescript-compiler-api
       '@tailwindcss/vite':
         specifier: ^4.2.2
         version: 4.3.0(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
@@ -2325,6 +2342,16 @@ importers:
         specifier: ^4.1.4
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
 
+  infrastructure/stripe-appearance:
+    dependencies:
+      '@chase-sets/embedded-surface-theme':
+        specifier: workspace:*
+        version: link:../../contracts/embedded-surface-theme
+    devDependencies:
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
+
   infrastructure/stripe-config: {}
 
   infrastructure/stripe-connect:
@@ -2393,6 +2420,9 @@ importers:
       '@base-ui/react':
         specifier: ^1.4.1
         version: 1.4.1(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@chase-sets/embedded-surface-theme':
+        specifier: workspace:*
+        version: link:../../contracts/embedded-surface-theme
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives

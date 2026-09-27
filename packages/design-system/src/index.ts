@@ -19,7 +19,13 @@ export { ToneIcon, type ToneIconProps, type ToneIconSize, type ToneIconTone } fr
 export * from "./primitives/typography";
 export * from "./theme/provider";
 export type { LinkAdapterProps, LinkComponent } from "./theme/link-adapter";
-export * from "./theme/stripe-appearance";
+export {
+  resolveEmbeddedSurfaceTheme,
+  embeddedSurfaceThemeSnapshot,
+  observeEmbeddedSurfaceTheme,
+  type EmbeddedSurfaceThemeOptions,
+} from "./theme/embedded-surface-theme";
+export type { EmbeddedSurfaceTheme } from "@chase-sets/embedded-surface-theme";
 export { ThemePreferenceControl, type ThemePreference, type ThemePreferenceControlProps } from "./theme/theme-toggle";
 export {
   chaseDarkTheme,

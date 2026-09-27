@@ -328,6 +328,11 @@ describe("caller inventory (seed/bootstrap/import/reconciliation) — issue #583
 });
 
 describe("registration contract drift (fail-closed registration)", () => {
+  it("registers the extracted theme contract and appearance adapter as runtime libraries", () => {
+    expect(releaseQualificationScopeRegistry.contracts["embedded-surface-theme"]).toBe("runtime-library");
+    expect(releaseQualificationScopeRegistry.infrastructure["stripe-appearance"]).toBe("runtime-library");
+  });
+
   it("classifies the managed Postgres authority action and a real consumer as persistent release surfaces", () => {
     const actionPath = ".github/actions/export-managed-postgres-authority/action.yml";
     const workflowPath = ".github/workflows/catalog-provider-refresh-watch.yml";
