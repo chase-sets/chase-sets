@@ -444,6 +444,12 @@
       "@chase-sets/event-core/transport": [
         "./contracts/event-core/transport.ts"
       ],
+      "@chase-sets/evidence-window-provider-write": [
+        "./contracts/evidence-window-provider-write/index.ts"
+      ],
+      "@chase-sets/evidence-window-provider-write/material": [
+        "./contracts/evidence-window-provider-write/material.ts"
+      ],
       "@chase-sets/fulfillment": [
         "./bounded-contexts/fulfillment/index.ts"
       ],
@@ -698,6 +704,9 @@
       ],
       "@chase-sets/platform-runtime/error-handler": [
         "./infrastructure/platform-runtime/error-handler.ts"
+      ],
+      "@chase-sets/platform-runtime/evidence-window-provider-write-executor": [
+        "./infrastructure/platform-runtime/evidence-window-provider-write-executor.ts"
       ],
       "@chase-sets/platform-runtime/health": [
         "./infrastructure/platform-runtime/health.ts"

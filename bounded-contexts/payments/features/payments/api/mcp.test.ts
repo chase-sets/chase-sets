@@ -198,7 +198,7 @@ describe("payment MCP stored-payment-method rail", () => {
         audit: (record) => {
           records.push(record);
         },
-        idempotencyStore: { reserve, complete: vi.fn(), abandon: vi.fn() },
+        idempotencyStore: { reserve, get: vi.fn(() => null), put: vi.fn(), complete: vi.fn(), abandon: vi.fn() },
       }),
     );
     const response = await app.request("/", {
