@@ -205,6 +205,10 @@ export const checkoutEnglishTranslations = {
     "Review the latest total before payment starts.",
   "checkout.features.sessions.ui.checkoutPage.payment.review.next.with.wallet":
     "Up to {amount} {currency} wallet balance can be applied before payment starts.",
+  "checkout.features.sessions.ui.checkoutPage.wallet.unavailable": "Wallet balance is temporarily unavailable",
+  "checkout.features.sessions.ui.checkoutPage.wallet.unavailable.description":
+    "Retry to check your current wallet balance before starting payment. Your checkout details are saved.",
+  "checkout.features.sessions.ui.checkoutPage.retry.wallet": "Retry wallet balance",
   "checkout.features.sessions.ui.checkoutPage.reserved.for.you": "Reserved for you - {time}",
   "checkout.features.sessions.ui.checkoutPage.reservation.expired": "Reservation expired",
   "checkout.features.sessions.ui.checkoutPage.reservation.expired.description":
