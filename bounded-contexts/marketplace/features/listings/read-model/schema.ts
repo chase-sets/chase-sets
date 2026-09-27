@@ -57,6 +57,10 @@ CREATE INDEX IF NOT EXISTS marketplace_listing_pages_inventory_item_idx
   ON marketplace_listing_pages (inventory_item_id, status, updated_at DESC);
 
 ALTER TABLE marketplace_listing_pages
+  ADD COLUMN IF NOT EXISTS fee_stream_version integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS quantity_stream_version integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS purchase_limits_stream_version integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS evidence_requirements_stream_version integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS shipping_allowance_percentage_bps integer NOT NULL DEFAULT 500,
   ADD COLUMN IF NOT EXISTS ship_from_address jsonb NOT NULL DEFAULT '{}'::jsonb,
   ADD COLUMN IF NOT EXISTS item_language_code text NULL,
@@ -152,7 +156,8 @@ export const marketplaceListingSchemaMigrations: readonly BcSchemaMigration[] = 
         ADD COLUMN IF NOT EXISTS fee_stream_version integer NOT NULL DEFAULT 0,
         ADD COLUMN IF NOT EXISTS quantity_stream_version integer NOT NULL DEFAULT 0,
         ADD COLUMN IF NOT EXISTS purchase_limits_stream_version integer NOT NULL DEFAULT 0,
-        ADD COLUMN IF NOT EXISTS evidence_requirements_stream_version integer NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS evidence_requirements_stream_version integer NOT NULL DEFAULT 0`,
+      `ALTER TABLE marketplace_listing_pages
         ALTER COLUMN marketplace_sales_fee_unit_amount DROP NOT NULL,
         ALTER COLUMN seller_net_unit_amount DROP NOT NULL,
         ALTER COLUMN fee_quote_fingerprint DROP NOT NULL`,
