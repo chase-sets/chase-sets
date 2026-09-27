@@ -988,6 +988,9 @@ importers:
       '@chase-sets/event-core-postgres':
         specifier: workspace:*
         version: link:../../infrastructure/event-core-postgres
+      '@chase-sets/evidence-window-provider-write':
+        specifier: workspace:*
+        version: link:../../contracts/evidence-window-provider-write
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
@@ -1037,6 +1040,9 @@ importers:
       '@chase-sets/stripe-config':
         specifier: workspace:*
         version: link:../../infrastructure/stripe-config
+      '@chase-sets/stripe-connect':
+        specifier: workspace:*
+        version: link:../../infrastructure/stripe-connect
       '@chase-sets/stripe-payments':
         specifier: workspace:*
         version: link:../../infrastructure/stripe-payments
@@ -1286,6 +1292,9 @@ importers:
       '@chase-sets/event-core-postgres':
         specifier: workspace:*
         version: link:../../infrastructure/event-core-postgres
+      '@chase-sets/evidence-window-provider-write':
+        specifier: workspace:*
+        version: link:../../contracts/evidence-window-provider-write
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
@@ -1387,6 +1396,8 @@ importers:
 
   contracts/event-core: {}
 
+  contracts/evidence-window-provider-write: {}
+
   contracts/http:
     dependencies:
       '@chase-sets/primitives':
@@ -1431,6 +1442,9 @@ importers:
 
   contracts/money-movement:
     dependencies:
+      '@chase-sets/evidence-window-provider-write':
+        specifier: workspace:*
+        version: link:../evidence-window-provider-write
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../primitives
@@ -1454,6 +1468,9 @@ importers:
 
   contracts/payment-processing:
     dependencies:
+      '@chase-sets/evidence-window-provider-write':
+        specifier: workspace:*
+        version: link:../evidence-window-provider-write
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../primitives
@@ -2284,6 +2301,9 @@ importers:
       '@chase-sets/event-core-postgres':
         specifier: workspace:*
         version: link:../event-core-postgres
+      '@chase-sets/evidence-window-provider-write':
+        specifier: workspace:*
+        version: link:../../contracts/evidence-window-provider-write
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
@@ -2296,6 +2316,9 @@ importers:
       '@chase-sets/realtime':
         specifier: workspace:*
         version: link:../../contracts/realtime
+      '@chase-sets/stripe-config':
+        specifier: workspace:*
+        version: link:../stripe-config
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -2362,12 +2385,18 @@ importers:
 
   infrastructure/stripe-connect:
     dependencies:
+      '@chase-sets/evidence-window-provider-write':
+        specifier: workspace:*
+        version: link:../../contracts/evidence-window-provider-write
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
       '@chase-sets/money-movement':
         specifier: workspace:*
         version: link:../../contracts/money-movement
+      '@chase-sets/platform-runtime':
+        specifier: workspace:*
+        version: link:../platform-runtime
       '@chase-sets/stripe-config':
         specifier: workspace:*
         version: link:../stripe-config
@@ -2378,12 +2407,18 @@ importers:
 
   infrastructure/stripe-payments:
     dependencies:
+      '@chase-sets/evidence-window-provider-write':
+        specifier: workspace:*
+        version: link:../../contracts/evidence-window-provider-write
       '@chase-sets/http':
         specifier: workspace:*
         version: link:../../contracts/http
       '@chase-sets/payment-processing':
         specifier: workspace:*
         version: link:../../contracts/payment-processing
+      '@chase-sets/platform-runtime':
+        specifier: workspace:*
+        version: link:../platform-runtime
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives

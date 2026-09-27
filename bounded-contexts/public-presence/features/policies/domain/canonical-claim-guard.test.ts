@@ -508,7 +508,7 @@ const citationAuthorityRows: readonly CitationAuthorityRow[] = [
   },
   {
     id: "C8",
-    ref: `${termsAcceptanceSourcePath}:12-13`,
+    ref: `${termsAcceptanceSourcePath}:39-40`,
     targetPath: termsAcceptanceSourcePath,
     identity: "resolveTermsAcceptanceStatus",
     fragment: "active Terms of Service version",
@@ -518,7 +518,7 @@ const citationAuthorityRows: readonly CitationAuthorityRow[] = [
   },
   {
     id: "C9",
-    ref: `${termsAcceptanceSourcePath}:26-28`,
+    ref: `${termsAcceptanceSourcePath}:53-55`,
     targetPath: termsAcceptanceSourcePath,
     identity: "resolveTermsAcceptanceStatus",
     fragment: "exact active version string",
@@ -528,7 +528,7 @@ const citationAuthorityRows: readonly CitationAuthorityRow[] = [
   },
   {
     id: "C10",
-    ref: `${termsAcceptanceSourcePath}:19-30`,
+    ref: `${termsAcceptanceSourcePath}:46-57`,
     targetPath: termsAcceptanceSourcePath,
     identity: "resolveTermsAcceptanceStatus",
     fragment: "A thin fail-closed wrapper",
@@ -581,17 +581,17 @@ const expectedTermsAcceptanceCitationOccurrences: readonly TermsAcceptanceCitati
   {
     sectionId: "effective-date-notice-and-acceptance",
     fieldPath: "reviewManifest.productTruthRefs[1]",
-    ref: `${termsAcceptanceSourcePath}:12-13`,
+    ref: `${termsAcceptanceSourcePath}:39-40`,
   },
   {
     sectionId: "changes-notice-and-acceptance",
     fieldPath: "reviewManifest.productTruthRefs[2]",
-    ref: `${termsAcceptanceSourcePath}:26-28`,
+    ref: `${termsAcceptanceSourcePath}:53-55`,
   },
   {
     sectionId: "changes-notice-and-acceptance",
     fieldPath: "reviewManifest.assumptions[0].evidenceRef",
-    ref: `${termsAcceptanceSourcePath}:19-30`,
+    ref: `${termsAcceptanceSourcePath}:46-57`,
   },
 ];
 
@@ -931,7 +931,7 @@ describe("canonical claim consistency guard", () => {
     // Privacy keeps the same settled claim but swaps one canonical citation for
     // an adjacent range that still resolves and still contains a required
     // keyword, so only the provenance-identity rule can catch it.
-    const adjacentRef = "infrastructure/stripe-payments/index.ts:1466-1496";
+    const adjacentRef = "infrastructure/stripe-payments/index.ts:1603-1660";
     expect(canonicalRefs).not.toContain(adjacentRef);
     const drifted = publicPolicyRegistry.map((entry) =>
       entry.artifact.metadata.policyKey === "privacy-policy"
@@ -1495,7 +1495,7 @@ describe("line-keyed policy citation authority", () => {
       expect(validateCitationAuthority(row), row.id).toEqual([]);
       if (row.minimalEdges !== undefined) {
         const identity = row.spanOf(row.identity);
-        expect(identity, `${row.id} identity`).toEqual({ start: 11, end: 41 });
+        expect(identity, `${row.id} identity`).toEqual({ start: 38, end: 68 });
         const slice = readCitedSourceSlice(repoRoot, row.ref);
         if (slice.error !== undefined) {
           throw new Error(`${row.id}: ${slice.error}`);
@@ -1571,7 +1571,7 @@ describe("line-keyed policy citation authority", () => {
         registry: withTermsOfServiceSectionOverride(conduct.id, {
           reviewManifest: {
             ...conduct.reviewManifest,
-            productTruthRefs: [...conduct.reviewManifest.productTruthRefs, `${termsAcceptanceSourcePath}:12-13`],
+            productTruthRefs: [...conduct.reviewManifest.productTruthRefs, `${termsAcceptanceSourcePath}:39-40`],
           },
         }),
       },
@@ -1581,7 +1581,7 @@ describe("line-keyed policy citation authority", () => {
           reviewManifest: {
             ...effective.reviewManifest,
             productTruthRefs: effective.reviewManifest.productTruthRefs.filter(
-              (ref) => ref !== `${termsAcceptanceSourcePath}:12-13`,
+              (ref) => ref !== `${termsAcceptanceSourcePath}:39-40`,
             ),
           },
         }),
@@ -1592,7 +1592,7 @@ describe("line-keyed policy citation authority", () => {
           reviewManifest: {
             ...changes.reviewManifest,
             productTruthRefs: changes.reviewManifest.productTruthRefs.map((ref) =>
-              ref === `${termsAcceptanceSourcePath}:26-28`
+              ref === `${termsAcceptanceSourcePath}:53-55`
                 ? "bounded-contexts/identity/features/consents/api/terms-route.ts:31-90"
                 : ref,
             ),
@@ -1605,7 +1605,7 @@ describe("line-keyed policy citation authority", () => {
           reviewManifest: {
             ...effective.reviewManifest,
             productTruthRefs: effective.reviewManifest.productTruthRefs.map((ref) =>
-              ref === `${termsAcceptanceSourcePath}:12-13` ? `${termsAcceptanceSourcePath}:6-7` : ref,
+              ref === `${termsAcceptanceSourcePath}:39-40` ? `${termsAcceptanceSourcePath}:6-7` : ref,
             ),
           },
         }),

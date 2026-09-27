@@ -120,8 +120,18 @@ import {
 } from "./marketplace-checkout-fee-policy";
 import type { CheckoutProcessingFeePolicyResolver } from "./checkout-processing-fee-policy-resolver";
 
+import {
+  admitGovernedSetupInput,
+  admitGovernedPaymentInput,
+  ProviderWriteRefused,
+  requireProviderWrite,
+  type ProviderWriteWindow,
+} from "@chase-sets/evidence-window-provider-write";
+
 type PaymentRuntimeDeps = Readonly<{
   walletFunding?: WalletFundingServices;
+  evidenceWindowCorrelation?: import("@chase-sets/evidence-window-provider-write").ProviderWriteCorrelation;
+  evidenceWindowProviderWrite?: import("@chase-sets/evidence-window-provider-write").EvidenceWindowProviderWrite;
   eventStore: EventStore;
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
@@ -718,19 +728,45 @@ function savedInstrumentIdForProviderReference(providerReference: string) {
 }
 
 async function ensureProviderCustomer(
-  deps: Pick<PaymentRuntimeDeps, "db" | "processorGateway">,
-  params: Readonly<{ accountId: AccountId; displayName?: string | null; email?: string | null }>,
+  deps: Pick<
+    PaymentRuntimeDeps,
+    "db" | "processorGateway" | "evidenceWindowCorrelation" | "evidenceWindowProviderWrite"
+  >,
+  params: Readonly<{
+    accountId: AccountId;
+    displayName?: string | null;
+    email?: string | null;
+    evidenceWindow?: ProviderWriteWindow | null;
+  }>,
 ): Promise<ProviderCustomerRow> {
+  const window =
+    params.evidenceWindow === null
+      ? null
+      : (params.evidenceWindow ?? (await deps.evidenceWindowCorrelation?.currentOpenWindow()));
   const providerName = deps.processorGateway.getPublicConfiguration().processorName;
   const existing = await getProviderCustomer(deps.db, {
     accountId: params.accountId,
     provider: providerName,
   });
   if (existing) {
+    if (window) {
+      if (!deps.evidenceWindowProviderWrite) throw new ProviderWriteRefused("window-ineligible");
+      requireProviderWrite(
+        await deps.evidenceWindowProviderWrite.observeCustomerReuse({
+          windowId: window.windowId,
+          ownerAccountId: params.accountId,
+          providerReference: existing.provider_customer_reference,
+          retentionSeconds: 3600,
+        }),
+      );
+    }
     return existing;
   }
 
   const created = await deps.processorGateway.createCustomer({
+    ...(params.evidenceWindow !== undefined || deps.evidenceWindowCorrelation
+      ? { evidenceWindow: window ?? null }
+      : {}),
     accountId: params.accountId,
     displayName: params.displayName ?? `Chase Sets account ${params.accountId}`,
     email: params.email ?? null,
@@ -916,6 +952,7 @@ export type PaymentServices = Readonly<{
   ensureProviderCustomer: (params: Readonly<{ accountId: AccountId }>) => Promise<ProviderCustomerRow>;
   createSavedCheckoutSetupSession: (
     params: Readonly<{
+      evidenceWindow?: ProviderWriteWindow | null;
       accountId: AccountId;
       returnUrlBase?: string | null;
       returnUrlPath?: string | null;
@@ -1472,7 +1509,14 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
     ensureProviderCustomer: (params) => ensureProviderCustomer(deps, params),
     async createSavedCheckoutSetupSession(params) {
       const accountId = normalizeRequiredText(params.accountId, "Account is required.") as AccountId;
-      const customer = await ensureProviderCustomer(deps, { accountId });
+      const window =
+        params.evidenceWindow === null
+          ? null
+          : (params.evidenceWindow ?? (await deps.evidenceWindowCorrelation?.currentOpenWindow()));
+      const windowInput =
+        params.evidenceWindow !== undefined || deps.evidenceWindowCorrelation ? { evidenceWindow: window ?? null } : {};
+      if (window && params.uiMode !== "embedded") admitGovernedSetupInput(params);
+      const customer = await ensureProviderCustomer(deps, { accountId, ...windowInput });
       const setupReferenceId = createId("scs");
       const returnUrlBase = params.returnUrlBase?.trim().replace(/\/+$/, "") ?? "";
       const returnUrlPath = params.returnUrlPath?.trim() || "/account/payment-methods";
@@ -1481,6 +1525,8 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         : `${returnUrlPath}?setupReferenceId=${encodeURIComponent(setupReferenceId)}`;
       const consentId = createId("consent");
       const setupSession = await deps.processorGateway.createSetupSession({
+        ...windowInput,
+        ...(window ? { setupReferenceId } : {}),
         accountId,
         providerCustomerReference: customer.provider_customer_reference,
         currencyCode: "usd",
@@ -1772,6 +1818,12 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         accountRisk,
       });
       const paymentId = createId("pay") as PaymentId;
+      const window = (await deps.evidenceWindowCorrelation?.currentOpenWindow()) ?? undefined;
+      const windowInput = deps.evidenceWindowCorrelation ? { evidenceWindow: window ?? null } : {};
+      if (window && compareMoney(processorAmount, "0.00") > 0) {
+        if (params.agenticPayment) throw new ProviderWriteRefused("unsafe-material");
+        if (!savedCheckoutInstrument?.provider_reference) admitGovernedPaymentInput(params, paymentId);
+      }
       const createdAt = new Date().toISOString();
       const createAgenticPaymentSession = deps.processorGateway.createAgenticPaymentSession?.bind(
         deps.processorGateway,
@@ -1832,7 +1884,10 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       let savePaymentProviderCustomer: ProviderCustomerRow | null = null;
       if (!params.isGuestCheckout && compareMoney(processorAmount, "0.00") > 0) {
         try {
-          paymentProviderCustomer = await ensureProviderCustomer(deps, { accountId });
+          paymentProviderCustomer = await ensureProviderCustomer(deps, {
+            accountId,
+            ...windowInput,
+          });
         } catch (error) {
           await markPaymentCreationReservationInactive(deps.db, {
             paymentId,
@@ -1842,7 +1897,8 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         }
       }
       if (shouldSavePaymentMethod) {
-        savePaymentProviderCustomer = paymentProviderCustomer ?? (await ensureProviderCustomer(deps, { accountId }));
+        savePaymentProviderCustomer =
+          paymentProviderCustomer ?? (await ensureProviderCustomer(deps, { accountId, ...windowInput }));
       }
       const returnUrlBase = params.returnUrlBase?.trim().replace(/\/+$/, "") ?? "";
       const returnUrlPath = resolvePaymentReturnPath(params.returnUrlPath, paymentId);
@@ -1924,6 +1980,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
                   agenticPayment: params.agenticPayment,
                 })
               : await deps.processorGateway.createPaymentSession({
+                  ...windowInput,
                   paymentId,
                   buyerAccountId: accountId,
                   orderIds,

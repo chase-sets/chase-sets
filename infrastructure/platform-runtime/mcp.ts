@@ -87,7 +87,8 @@ export type McpResourceHandlerInput = Readonly<{
   protocol: McpRequestProtocolContext;
 }>;
 
-export type McpToolHandler = (input: McpToolHandlerInput) => Promise<unknown> | unknown;
+export type McpToolHandler = ((input: McpToolHandlerInput) => Promise<unknown> | unknown) &
+  Readonly<{ admit?: (input: McpToolHandlerInput) => Promise<McpToolHandler> }>;
 
 export type McpResourceHandler = (input: McpResourceHandlerInput) => Promise<unknown> | unknown;
 
@@ -1448,6 +1449,26 @@ async function callTool(
     return mcpToolErrorResult(agentGrantRateLimit);
   }
 
+  let handler = options.toolHandlers[tool.name];
+  if (handler?.admit) {
+    try {
+      handler = await handler.admit({ actor, tool, arguments: args, request, protocol });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "Tool admission refused.";
+      await audit(options.audit, {
+        outcome: "denied",
+        method: "tools/call",
+        toolName: tool.name,
+        ...mcpAuditActor(actor),
+        auditEventName: tool.audit.eventName,
+        targetType: tool.audit.targetType,
+        reason,
+        sensitiveInputFields: tool.audit.sensitiveInputFields,
+      });
+      return mcpToolErrorResult(reason);
+    }
+  }
+
   const idempotency =
     tool.guardrails.idempotencyKey === "required" && tool.guardrails.idempotencyAuthority === "platform"
       ? {
@@ -1504,7 +1525,6 @@ async function callTool(
     reservedIdempotency = reservation.record;
   }
 
-  const handler = options.toolHandlers[tool.name];
   if (!handler) {
     if (idempotency) {
       await options.idempotencyStore.abandon(idempotency);

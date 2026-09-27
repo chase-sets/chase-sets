@@ -1,4 +1,5 @@
 import type { AccountId, OrderId, PaymentId, TypedUlid } from "@chase-sets/primitives/typed-ids";
+import type { ProviderWriteWindow, ProviderCancelGovernance } from "@chase-sets/evidence-window-provider-write";
 
 export type ProcessorPaymentId = PaymentId | TypedUlid<"wfp">;
 
@@ -37,6 +38,7 @@ export type PaymentProcessorPublicConfig = Readonly<{
 export type CreateProcessorPaymentInput = Readonly<{
   paymentId: ProcessorPaymentId;
   purpose?: "wallet-funding";
+  evidenceWindow?: ProviderWriteWindow | null;
   buyerAccountId: AccountId;
   orderIds: readonly OrderId[];
   amount: string;
@@ -75,6 +77,7 @@ export type CreatedProcessorCustomer = Readonly<{
 }>;
 
 export type CreateProcessorCustomerInput = Readonly<{
+  evidenceWindow?: ProviderWriteWindow | null;
   accountId: AccountId;
   displayName?: string | null;
   email?: string | null;
@@ -91,6 +94,8 @@ export type CreatedProcessorSetupSession = Readonly<{
 }>;
 
 export type CreateProcessorSetupSessionInput = Readonly<{
+  evidenceWindow?: ProviderWriteWindow | null;
+  setupReferenceId?: string;
   accountId: AccountId;
   providerCustomerReference: string;
   currencyCode: PaymentCurrencyCode;
@@ -356,7 +361,10 @@ export interface PaymentProcessorGateway {
   createCustomer(input: CreateProcessorCustomerInput): Promise<CreatedProcessorCustomer>;
   createSetupSession(input: CreateProcessorSetupSessionInput): Promise<CreatedProcessorSetupSession>;
   retrieveSetupSessionResult(processorSetupReference: string): Promise<ProcessorSetupSessionResult>;
-  cancelSetupSession(processorSetupReference: string): Promise<ProcessorSetupSessionCancellationResult>;
+  cancelSetupSession(
+    processorSetupReference: string,
+    governance: ProviderCancelGovernance,
+  ): Promise<ProcessorSetupSessionCancellationResult>;
   retrieveSavedPaymentMethod(providerReference: string): Promise<ProcessorSavedPaymentMethod | null>;
   detachSavedPaymentMethod(providerReference: string): Promise<ProcessorSavedPaymentMethod | null>;
   /**
@@ -372,7 +380,10 @@ export interface PaymentProcessorGateway {
     processorPaymentReference: string,
   ): Promise<CreatedProcessorPayment | null>;
   createAgenticPaymentSession?(input: AgenticProcessorPaymentInput): Promise<CreatedProcessorPayment>;
-  cancelPayment(processorPaymentReference: string): Promise<ProcessorPaymentReconciliationResult>;
+  cancelPayment(
+    processorPaymentReference: string,
+    governance: ProviderCancelGovernance,
+  ): Promise<ProcessorPaymentReconciliationResult>;
   retrievePaymentResult(processorPaymentReference: string): Promise<ProcessorPaymentReconciliationResult | null>;
   retrievePaymentResultByPaymentId?(
     paymentId: ProcessorPaymentId,

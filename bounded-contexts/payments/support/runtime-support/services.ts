@@ -27,6 +27,8 @@ import { walletFundingLimitsPolicy } from "../../features/wallet-funding/api/lim
 export type PaymentsServiceOptions = Readonly<{
   prepaidRefundAuthority?: PrepaidRefundAuthority;
   walletFundingEligibilityResolver?: WalletFundingEligibilityResolver;
+  evidenceWindowCorrelation?: import("@chase-sets/evidence-window-provider-write").ProviderWriteCorrelation;
+  evidenceWindowProviderWrite?: import("@chase-sets/evidence-window-provider-write").EvidenceWindowProviderWrite;
   processorGateway?: PaymentProcessorGateway;
   balanceCreditResolver?: BalanceCreditResolver;
   checkoutProcessingFeePolicyResolver?: CheckoutProcessingFeePolicyResolver;
@@ -38,6 +40,7 @@ export type PaymentsServiceOptions = Readonly<{
 export type PaymentsServices = Readonly<{
   policies: ReturnType<typeof createPolicyRuntime>;
   walletFunding: WalletFundingServices;
+  evidenceWindowCorrelation?: import("@chase-sets/evidence-window-provider-write").ProviderWriteCorrelation;
   payments: ReturnType<typeof createPaymentRuntime>;
   refunds: ReturnType<typeof createRefundRuntime>;
   publicConfig: PaymentProcessorPublicConfig;
@@ -107,6 +110,8 @@ export function createPaymentsServices(
   });
   const payments = createPaymentRuntime({
     walletFunding,
+    evidenceWindowCorrelation: options.evidenceWindowCorrelation,
+    evidenceWindowProviderWrite: options.evidenceWindowProviderWrite,
     eventStore,
     checkpointStore,
     db,
@@ -125,6 +130,7 @@ export function createPaymentsServices(
     refunds,
     publicConfig: processorGateway.getPublicConfiguration(),
     projectors: [...payments.projectors, ...refunds.projectors, ...walletFunding.projectors, ...policies.projectors],
+    evidenceWindowCorrelation: options.evidenceWindowCorrelation,
     pool,
     db,
     ...(options.providerModeObservation ? { providerModeObservation: options.providerModeObservation } : {}),

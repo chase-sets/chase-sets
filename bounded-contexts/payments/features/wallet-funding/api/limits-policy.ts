@@ -7,6 +7,7 @@ export type WalletFundingLimits = Readonly<{
   minimumAmount: string;
   maximumAmount: string;
   rollingThirtyDayMaximumAmount: string;
+  rollingWindowDays: 30;
   allowedCurrencies: readonly "usd"[];
   allowedMethods: readonly "card"[];
 }>;
@@ -14,6 +15,7 @@ export const defaultWalletFundingLimits: WalletFundingLimits = {
   minimumAmount: "5.00",
   maximumAmount: "500.00",
   rollingThirtyDayMaximumAmount: "2000.00",
+  rollingWindowDays: 30,
   allowedCurrencies: ["usd"],
   allowedMethods: ["card"],
 };
@@ -37,6 +39,7 @@ export function decodeWalletFundingLimits(value: JsonValue): WalletFundingLimits
   const minimumAmount = amount("minimumAmount");
   const maximumAmount = amount("maximumAmount");
   const rollingThirtyDayMaximumAmount = amount("rollingThirtyDayMaximumAmount");
+  fundingRule(value.rollingWindowDays === 30, "funding_limits_invalid");
   fundingRule(
     compareMoney(minimumAmount, maximumAmount) <= 0 && compareMoney(maximumAmount, rollingThirtyDayMaximumAmount) <= 0,
     "funding_limits_invalid",
@@ -57,6 +60,7 @@ export function decodeWalletFundingLimits(value: JsonValue): WalletFundingLimits
     minimumAmount,
     maximumAmount,
     rollingThirtyDayMaximumAmount,
+    rollingWindowDays: value.rollingWindowDays,
     allowedCurrencies: value.allowedCurrencies.length ? ["usd"] : [],
     allowedMethods: value.allowedMethods.length ? ["card"] : [],
   };
@@ -65,7 +69,7 @@ export const walletFundingLimitsPolicy = definePolicy({
   policyKey: "payments.wallet-funding-limits",
   contextName: "payments",
   schemaSummary:
-    "payments.wallet-funding-limits/v1: closed positive decimal limits; allowedCurrencies: usd[]; allowedMethods: card[]",
+    "payments.wallet-funding-limits/v1: closed positive decimal limits; rollingWindowDays: 30; allowedCurrencies: usd[]; allowedMethods: card[]",
   defaultValue: defaultWalletFundingLimits,
   decodeValue: decodeWalletFundingLimits,
 });

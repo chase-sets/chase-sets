@@ -322,7 +322,7 @@ export function createWalletFundingRuntime(deps: WalletFundingRuntimeDeps) {
         context,
       );
       fundingRule(quoted.state.quote, "funding_quote_required");
-      await reserveWalletFundingCreation(deps.pool, quoted.state.quote, limits.rollingThirtyDayMaximumAmount);
+      await reserveWalletFundingCreation(deps.pool, quoted.state.quote, limits);
       const claimed = await command(input.fundingId, { type: "ClaimCreation", at: now() }, context);
       if (claimed.newEvents.length === 0) {
         const confirmation =
@@ -564,7 +564,9 @@ export function createWalletFundingRuntime(deps: WalletFundingRuntimeDeps) {
               let outcome = result.outcome;
               let cancelled = outcome === "cancelled";
               if ((outcome === "pending" || outcome === "failed") && stale) {
-                const cancellation = await deps.processorGateway.cancelPayment(result.processorPaymentReference);
+                const cancellation = await deps.processorGateway.cancelPayment(result.processorPaymentReference, {
+                  kind: "ungoverned",
+                });
                 cancelled = cancellation.outcome === "cancelled";
                 outcome = cancelled ? "failed" : cancellation.outcome;
               }

@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { Hono } from "hono";
+import { createMcpRoutes, type McpAuditRecord, type McpIdempotencyStore } from "@chase-sets/platform-runtime/mcp";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { McpRequestProtocolContext } from "@chase-sets/platform-runtime/mcp";
 import { createPaymentMcpHandlers } from "./mcp";
@@ -175,6 +177,56 @@ function setupServices(
 }
 
 describe("payment MCP stored-payment-method rail", () => {
+  it("J3 refuses governed raw credentials before the MCP idempotency hash, audit and output sinks", async () => {
+    const fakeServices = setupServices();
+    const handlers = createPaymentMcpHandlers(fakeServices, {
+      currentOpenWindow: async () => ({ windowId: "a".repeat(32), expiresAt: "2099-01-01T00:00:00Z" }),
+    });
+    const reserve = vi.fn<McpIdempotencyStore["reserve"]>(async () => {
+      throw new Error("Synthetic forbidden pre-admission persistence");
+    });
+    const records: McpAuditRecord[] = [];
+    const app = new Hono<{ Variables: { actor: ResolvedActor } }>();
+    app.use("*", async (context, next) => {
+      context.set("actor", managingActor);
+      await next();
+    });
+    app.route(
+      "/",
+      createMcpRoutes({
+        ...handlers,
+        audit: (record) => {
+          records.push(record);
+        },
+        idempotencyStore: { reserve, get: vi.fn(() => null), put: vi.fn(), complete: vi.fn(), abandon: vi.fn() },
+      }),
+    );
+    const response = await app.request("/", {
+      method: "POST",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "SYNTHETIC_REQUEST",
+        method: "tools/call",
+        params: {
+          name: "payments.start-payment-method-setup",
+          arguments: {
+            accountId: managingActor.accountId,
+            returnUrl:
+              "https://SYNTHETIC_REJECTED@marketplace.staging.chasesets.com/account/payment-methods#SYNTHETIC_REJECTED",
+            idempotencyKey: "SYNTHETIC_IDEMPOTENCY",
+            confirmationText: "Start Payment Method Setup.",
+          },
+          confirmation: { confirmed: true, text: "Start Payment Method Setup." },
+        },
+      }),
+    });
+    const output = await response.text();
+    expect(output).toContain("evidence-window-provider-write:unsafe-material");
+    expect(reserve).not.toHaveBeenCalled();
+    expect(fakeServices.createSavedCheckoutSetupSession).not.toHaveBeenCalled();
+    expect(JSON.stringify({ records, output })).not.toContain("SYNTHETIC_REJECTED");
+  });
+
   it("returns the hosted setup URL and never exposes the processor client secret", async () => {
     const fakeServices = setupServices();
     const handlers = createPaymentMcpHandlers(fakeServices);

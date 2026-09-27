@@ -1,11 +1,12 @@
 import { withPgTransaction, type PgTransactionalPool, type PgQueryable } from "@chase-sets/event-core-postgres";
 import { fundingRule, type WalletFundingId, type WalletFundingQuote, type WalletFundingState } from "../domain/domain";
 import { compareMoney, addMoney } from "../../../support/runtime-support/common";
+import type { WalletFundingLimits } from "../api/limits-policy";
 
 export async function reserveWalletFundingCreation(
   pool: PgTransactionalPool,
   quote: WalletFundingQuote,
-  maximum: string,
+  limits: WalletFundingLimits,
 ) {
   return withPgTransaction(pool, async (db) => {
     await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
@@ -27,11 +28,14 @@ export async function reserveWalletFundingCreation(
     const total = await db.query<{ amount: string }>(
       `SELECT COALESCE(sum(requested_amount), 0)::text AS amount
       FROM payments_wallet_funding_creation_reservations WHERE account_id = $1 AND NOT released
-      AND created_at > now() - interval '30 days'`,
-      [quote.accountId],
+      AND created_at > now() - ($2::text || ' days')::interval`,
+      [quote.accountId, limits.rollingWindowDays],
     );
     fundingRule(
-      compareMoney(addMoney(total.rows[0]?.amount ?? "0.00", quote.requestedAmount), maximum) <= 0,
+      compareMoney(
+        addMoney(total.rows[0]?.amount ?? "0.00", quote.requestedAmount),
+        limits.rollingThirtyDayMaximumAmount,
+      ) <= 0,
       "funding_rolling_limit_exceeded",
     );
     await db.query(

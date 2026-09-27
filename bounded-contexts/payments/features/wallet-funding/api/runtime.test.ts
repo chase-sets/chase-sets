@@ -184,6 +184,23 @@ describe("wallet-funding-fee-gross-up", () => {
 });
 
 describe("wallet-funding-eligibility", () => {
+  it("binds the policy's unchanged thirty-day rolling window and refuses totals over its maximum", async () => {
+    const observed: { sql: string; values: unknown }[] = [];
+    const query: PgQueryFunction = async <Row>(sql: string, values?: readonly unknown[]) => {
+      observed.push({ sql, values });
+      return { rows: (sql.includes("COALESCE(sum") ? [{ amount: "1990.01" }] : []) as Row[] };
+    };
+    const pool: PgTransactionalPool = { query, connect: async () => ({ query, release: () => {} }) };
+    const h = harness({ pool });
+    await expect(
+      h.runtime.create({ ...createInput, quoteFingerprint: h.quote.quote_fingerprint }, context),
+    ).rejects.toThrow("funding_rolling_limit_exceeded");
+    const total = observed.find(({ sql }) => sql.includes("COALESCE(sum"));
+    expect(total?.sql).toContain("created_at > now() - ($2::text || ' days')::interval");
+    expect(total?.values).toEqual([identity.accountId, 30]);
+    expect(defaultWalletFundingLimits.rollingWindowDays).toBe(30);
+    expect(h.gateway.createPaymentSession).not.toHaveBeenCalled();
+  });
   it.each([
     [{ requestedAmount: "4.99" }, "funding_below_minimum"],
     [{ requestedAmount: "500.01" }, "funding_above_maximum"],
@@ -230,6 +247,9 @@ describe("wallet-funding-eligibility", () => {
       { ...defaultWalletFundingLimits, allowedCurrencies: [{ code: "usd", bypass: true }] },
       { ...defaultWalletFundingLimits, minimumAmount: "0.00" },
       { ...defaultWalletFundingLimits, maximumAmount: "4.00" },
+      { ...defaultWalletFundingLimits, rollingWindowDays: 29 },
+      { ...defaultWalletFundingLimits, rollingWindowDays: 31 },
+      { ...defaultWalletFundingLimits, rollingWindowDays: "30" },
     ])
       expect(() => decodeWalletFundingLimits(value)).toThrow("funding_limits_invalid");
   });
@@ -617,6 +637,7 @@ describe("wallet-funding-dispute-fraud-reconcile", () => {
     await restarted.runtime.reconcile(context);
     expect((await restarted.runtime.stateFor(fundingId)).status).toBe("failed");
     expect(h.gateway.cancelPayment).toHaveBeenCalledOnce();
+    expect(h.gateway.cancelPayment).toHaveBeenCalledWith("pi_synthetic", { kind: "ungoverned" });
     expect(query).toHaveBeenCalledWith(
       "UPDATE payments_wallet_funding_creation_reservations SET released = true WHERE funding_id = $1",
       [fundingId],
