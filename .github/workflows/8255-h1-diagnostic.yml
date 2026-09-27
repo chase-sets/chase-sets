@@ -1,0 +1,45 @@
+name: 8255 H1 Hosted Admission Diagnostic
+
+on:
+  push:
+    branches:
+      - diagnostic/8255-h1-admission-r1
+
+permissions:
+  contents: read
+
+jobs:
+  h1-admission:
+    name: H1 pre-session browser admission
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Observe pre-session admission once
+        shell: bash
+        run: |
+          env -i \
+            PATH="$PATH" HOME="$HOME" LANG=C LC_ALL=C \
+            GITHUB_SHA="$GITHUB_SHA" GITHUB_RUN_ID="$GITHUB_RUN_ID" \
+            GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" GITHUB_JOB="$GITHUB_JOB" \
+            ImageOS="${ImageOS:-}" ImageVersion="${ImageVersion:-}" \
+            node scripts/diagnostics/8255-h1-admission.mjs
+
+      - name: Retain closed admission result
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: 8255-h1-admission
+          path: artifacts/8255-h1-diagnostic/admission.json
+          if-no-files-found: warn
+          retention-days: 14
