@@ -7,6 +7,10 @@ const runtime = readFileSync(new URL("./runtime.ts", import.meta.url), "utf8");
 const claims = readFileSync(new URL("./order-source-claims.ts", import.meta.url), "utf8");
 const limits = readFileSync(new URL("./purchase-limits.ts", import.meta.url), "utf8");
 const capacity = readFileSync(new URL("./order-capacity.ts", import.meta.url), "utf8");
+const recoveryRoute = readFileSync(
+  new URL("../../../../../infrastructure/platform-runtime/evidence-window-source-recovery.ts", import.meta.url),
+  "utf8",
+);
 
 function containsOrderIdInControl(value: unknown) {
   return /\bord_[A-Za-z0-9_-]+\b/.test(JSON.stringify(value));
@@ -27,6 +31,15 @@ function hasReleaseWriters(values: Readonly<{ claims: string; limits: string; so
   );
 }
 
+function retainsRootUntilSellerConvergence(value: string) {
+  const release = value.slice(value.indexOf("export async function releaseEvidenceWindowSource"));
+  return (
+    release.includes("facts.capacityClaims.map((claim) => claim.seller_account_id)") &&
+    release.indexOf("for (const sellerId of sellers) await actions.reconcileSeller(sellerId)") <
+      release.indexOf("DELETE FROM ordering_order_source_claims")
+  );
+}
+
 describe("Ordering source recovery contract inventory", () => {
   it("AC-02 keeps Order ids out of control columns/reports and detects a planted output marker", () => {
     const table = orderingOrderSchemaSql.match(
@@ -39,9 +52,13 @@ describe("Ordering source recovery contract inventory", () => {
   });
 
   it("AC-11 keeps the closed source path provider/liveness/runner-free and detects a planted call", () => {
-    for (const value of [source, claims, limits, capacity]) expect(forbiddenDependency(value)).toBe(false);
+    for (const value of [source, claims, limits, capacity, recoveryRoute])
+      expect(forbiddenDependency(value)).toBe(false);
     expect(forbiddenDependency(`${source}\nfetch('https://provider.example')`)).toBe(true);
     expect(runtime).toContain("bindEvidenceWindowSource");
+    expect(
+      runtime.slice(runtime.indexOf("const sourceReaders ="), runtime.indexOf("const createOrdersFromPlan =")),
+    ).not.toMatch(/fetch\s*\(|providerGateway\.|checkHealth\s*\(/);
     expect(source).not.toContain("phase:");
   });
 
@@ -66,5 +83,25 @@ describe("Ordering source recovery contract inventory", () => {
     );
     expect(migration?.statements[0]).toContain("ADD COLUMN IF NOT EXISTS usage_residue_upper_bound_units");
     expect(migration?.statements[0]).toContain("ordering_purchase_limit_usage_residue_bound_check");
+  });
+
+  it("AC-13 retains every observed seller through root-last discharge and rejects flipped-only/early-delete mutants", () => {
+    expect(retainsRootUntilSellerConvergence(source)).toBe(true);
+    expect(
+      retainsRootUntilSellerConvergence(
+        source.replaceAll(
+          "facts.capacityClaims.map((claim) => claim.seller_account_id)",
+          "facts.capacityClaims.filter((claim) => claim.status === 'claimed').map((claim) => claim.seller_account_id)",
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      retainsRootUntilSellerConvergence(
+        source.replace(
+          "for (const sellerId of sellers) await actions.reconcileSeller(sellerId);",
+          "DELETE FROM ordering_order_source_claims; for (const sellerId of sellers) await actions.reconcileSeller(sellerId);",
+        ),
+      ),
+    ).toBe(false);
   });
 });

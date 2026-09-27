@@ -264,7 +264,7 @@ async function readFacts(db: PgQueryable, source: EvidenceWindowSource): Promise
     [identity.sourceType, identity.sourceReferenceId, identity.buyerAccountId],
   );
   const usage =
-    claims.rows.length && claims.rows.length <= 256
+    claims.rows.length <= 256
       ? await db.query<{ listing_id: string }>(
           `SELECT listing_id FROM ordering_listing_purchase_limit_usage
        WHERE buyer_account_id = $1 AND listing_id = ANY($2::text[])`,
@@ -283,14 +283,13 @@ async function readFacts(db: PgQueryable, source: EvidenceWindowSource): Promise
       orderIds.length > 64 ||
       new Set(orderIds).size !== orderIds.length ||
       (root?.status !== "pending" && root?.status !== "created"));
-  const capacity =
-    orderIds.length && !invalidRoot
-      ? await db.query<CapacityRow>(
-          `SELECT order_id, seller_account_id, status FROM ordering_seller_open_order_claims
+  const capacity = !invalidRoot
+    ? await db.query<CapacityRow>(
+        `SELECT order_id, seller_account_id, status FROM ordering_seller_open_order_claims
        WHERE order_id = ANY($1::text[]) ORDER BY order_id LIMIT 65`,
-          [orderIds],
-        )
-      : { rows: [] as CapacityRow[] };
+        [orderIds],
+      )
+    : { rows: [] as CapacityRow[] };
   return {
     source,
     purchaseClaims: claims.rows,
@@ -303,8 +302,10 @@ async function readFacts(db: PgQueryable, source: EvidenceWindowSource): Promise
       invalidRoot ||
       capacity.rows.length > 64 ||
       new Set(capacity.rows.map((claim) => claim.seller_account_id)).size > 64 ||
+      capacity.rows.some((claim) => !["claimed", "released"].includes(claim.status) || !claim.seller_account_id) ||
       claims.rows.some(
         (claim) =>
+          !["pending", "claimed", "released"].includes(claim.status) ||
           !Number.isInteger(Number(claim.quantity)) ||
           Number(claim.quantity) < 1 ||
           (claim.usage_residue_upper_bound_units !== null &&
@@ -315,7 +316,7 @@ async function readFacts(db: PgQueryable, source: EvidenceWindowSource): Promise
   };
 }
 
-async function readSourceByIdentity(db: PgQueryable, identity: EvidenceWindowSourceIdentity) {
+export async function readEvidenceWindowSourceByIdentity(db: PgQueryable, identity: EvidenceWindowSourceIdentity) {
   assertIdentity(identity);
   const result = await db.query<SourceRow>(
     `SELECT ${sourceColumns} FROM ordering_evidence_window_sources
@@ -330,7 +331,7 @@ export async function observeEvidenceWindowSource(
   identity: EvidenceWindowSourceIdentity,
   readers: EvidenceWindowSourceReaders,
 ): Promise<EvidenceWindowSourceReport | null> {
-  const source = await readSourceByIdentity(db, identity);
+  const source = await readEvidenceWindowSourceByIdentity(db, identity);
   if (!source) return null;
   if (source.terminalReport !== null) return source.terminalReport as EvidenceWindowSourceReport;
   if (Date.now() > Date.parse(source.windowOpenedAt) + 30 * 86_400_000) {
@@ -432,7 +433,7 @@ export async function releaseEvidenceWindowSource(
   input: Readonly<{ sourceIdentity: EvidenceWindowSourceIdentity; windowOpenedAt: string }>,
   actions: EvidenceWindowSourceReleaseActions,
 ): Promise<EvidenceWindowSourceReport | null> {
-  const source = await readSourceByIdentity(db, input.sourceIdentity);
+  const source = await readEvidenceWindowSourceByIdentity(db, input.sourceIdentity);
   if (!source || source.windowOpenedAt !== input.windowOpenedAt) return null;
   if (source.terminalReport !== null) return source.terminalReport as EvidenceWindowSourceReport;
   if (source.creatorState !== "closed" || Date.now() > Date.parse(source.windowOpenedAt) + 30 * 86_400_000) {
@@ -508,13 +509,24 @@ export async function releaseEvidenceWindowSource(
       latest.corrupt ||
       latest.purchaseClaims.some((claim) => claim.status !== "released") ||
       latest.capacityClaims.some((claim) => claim.status !== "released") ||
-      latest.orderIds.length !== facts.orderIds.length
+      JSON.stringify(latest.orderIds) !== JSON.stringify(facts.orderIds)
     )
       return observeEvidenceWindowSource(client, input.sourceIdentity, actions);
+    const latestObservation = await observeEvidenceWindowSource(client, input.sourceIdentity, actions);
+    if (
+      !latestObservation ||
+      latestObservation.outcome === "unknown" ||
+      latestObservation.surfaces.purchaseLimits !== "discharged" ||
+      !["discharged", "discharged-with-bounded-usage-residue"].includes(latestObservation.surfaces.usage) ||
+      latestObservation.surfaces.capacityAndSellerSignals !== "discharged" ||
+      !["discharged", "not-created"].includes(latestObservation.surfaces.orderStreams)
+    ) {
+      return latestObservation;
+    }
     const report: EvidenceWindowSourceReport = {
-      ...observed,
-      outcome: observed.purchaseLimitResidue.length ? "discharged-with-bounded-usage-residue" : "discharged",
-      surfaces: { ...observed.surfaces, sourceClaim: "discharged" },
+      ...latestObservation,
+      outcome: latestObservation.purchaseLimitResidue.length ? "discharged-with-bounded-usage-residue" : "discharged",
+      surfaces: { ...latestObservation.surfaces, sourceClaim: "discharged" },
     };
     const updated = await client.query(
       `UPDATE ordering_evidence_window_sources

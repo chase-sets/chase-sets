@@ -1,4 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { spawn, spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -39,9 +41,11 @@ const contextNames = ["ordering"] as const;
 
 describeDb("ordering purchase limits db", () => {
   let pools: Readonly<Record<(typeof contextNames)[number], PgTransactionalPool>>;
+  let orderingDatabaseUrl: string;
 
   beforeAll(async () => {
     const databaseUrls = createMultiContextTestDatabaseUrls(databaseBaseUrl!, contextNames, "ordering_purchase_limits");
+    orderingDatabaseUrl = databaseUrls.ordering;
     await ensureMultiContextTestDatabases(databaseBaseUrl!, databaseUrls);
     pools = createMultiContextTestPools(databaseUrls);
   });
@@ -124,7 +128,11 @@ describeDb("ordering purchase limits db", () => {
     };
   }
 
-  function runtime(eventStore: EventStore = createPostgresEventStore({ pool: pools.ordering }), db = pools.ordering) {
+  function runtime(
+    eventStore: EventStore = createPostgresEventStore({ pool: pools.ordering }),
+    db = pools.ordering,
+    evidenceWindowSourceAdmission?: Readonly<{ admit: () => Promise<Readonly<{ windowOpenedAt: string }>> }>,
+  ) {
     return createOrderingOrderRuntimeForTest({
       db,
       eventStore,
@@ -132,6 +140,7 @@ describeDb("ordering purchase limits db", () => {
       shippingQuotePolicy: {
         quote: () => ({ shippingOption: "standard", baseAmount: "4.99", discountAmount: "0.00", chargeAmount: "4.99" }),
       },
+      evidenceWindowSourceAdmission,
     });
   }
 
@@ -219,6 +228,24 @@ describeDb("ordering purchase limits db", () => {
     await expect(
       runtime().createOrdersFromCheckout({ ...checkout(), evidenceWindowSource: admitted }, context),
     ).rejects.toThrow("binding refused");
+    await expect(
+      runtime(undefined, pools.ordering, { admit: async () => ({ windowOpenedAt }) }).createOrdersFromCheckout(
+        checkout(),
+        context,
+      ),
+    ).rejects.toThrow("requires admitted creation context");
+    await expect(
+      runtime(undefined, pools.ordering, { admit: async () => ({ windowOpenedAt }) }).commandHandler({
+        streamId: "ordering.order-ord_late",
+        command: {
+          type: "CreateOrder",
+          sourceType: "cart-checkout",
+          sourceReferenceId: "chk_limit",
+          buyerAccountId: context.audit.forAccountId,
+        } as never,
+        context,
+      }),
+    ).rejects.toThrow("creator is closed");
     expect((await snapshot()).streams).toHaveLength(0);
 
     const lateBindDb: PgTransactionalPool = {
@@ -244,6 +271,158 @@ describeDb("ordering purchase limits db", () => {
       ),
     ).rejects.toThrow("binding refused");
     expect((await snapshot()).streams).toHaveLength(0);
+  });
+
+  it("AC-06 last Order commit without a runner result recovers in a fresh process by identity alone", async () => {
+    await supply("lst_a");
+    const windowId = "0123456789abcdef0123456789abcdef";
+    const windowOpenedAt = new Date().toISOString();
+    const result = await runtime().createOrdersFromCheckout(
+      {
+        ...checkout(["lst_a"], "chk_fresh_process"),
+        evidenceWindowSource: { windowId, subInvocation: "2a", windowOpenedAt },
+      },
+      context,
+    );
+    expect(result.orderIds).toHaveLength(1);
+    expect((await snapshot()).streams).toHaveLength(1);
+    expect(
+      (
+        await closeEvidenceWindowSource(pools.ordering, {
+          windowId,
+          subInvocation: "2a",
+          expectedVersion: 1,
+        })
+      ).outcome,
+    ).toBe("closed");
+    const child = spawnSync(
+      process.execPath,
+      ["--import", "tsx", fileURLToPath(new URL("./evidence-window-source-process.ts", import.meta.url))],
+      {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: { ...process.env, TEST_SOURCE_DB_URL: orderingDatabaseUrl, TEST_SOURCE_OPENED_AT: windowOpenedAt },
+      },
+    );
+    expect(child.status, child.stderr).toBe(0);
+    expect(JSON.parse(child.stdout.trim())).toEqual({ outcome: "discharged" });
+    expect((await snapshot()).sources).toEqual([]);
+    const retained = (await readEvidenceWindowSources(pools.ordering, windowId))[0];
+    expect(retained?.terminalReport).toMatchObject({ outcome: "discharged" });
+  });
+
+  it.each([
+    "pre-source",
+    "source/pre-usage",
+    "claim-insert/pre-increment",
+    "increment/pre-flip",
+    "usage/pre-capacity",
+    "capacity/pre-Order",
+    "between Orders",
+    "last Order/pre-complete",
+    "complete/pre-response",
+  ])("AC-03/AC-04 read-only observation and real process kill/restart at %s", async (cut) => {
+    await supply("lst_a");
+    await supply("lst_b");
+    const windowId = "fedcba9876543210fedcba9876543210";
+    const windowOpenedAt = new Date().toISOString();
+    const sourceReferenceId = `chk_crash_${cut.replaceAll(/[^a-zA-Z0-9]/g, "_")}`;
+    const childEnv = {
+      ...process.env,
+      TEST_SOURCE_DB_URL: orderingDatabaseUrl,
+      TEST_SOURCE_OPENED_AT: windowOpenedAt,
+      TEST_SOURCE_REFERENCE_ID: sourceReferenceId,
+    };
+    const script = fileURLToPath(new URL("./evidence-window-source-process.ts", import.meta.url));
+    const creator = spawn(process.execPath, ["--import", "tsx", script], {
+      cwd: process.cwd(),
+      env: { ...childEnv, TEST_SOURCE_CUT: cut },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    let errorOutput = "";
+    creator.stderr.on("data", (chunk: Buffer) => {
+      errorOutput += chunk.toString();
+    });
+    const reached = new Promise<void>((resolve, reject) => {
+      creator.stdout.on("data", (chunk: Buffer) => {
+        output += chunk.toString();
+        if (output.includes(`CUT:${cut}\n`)) resolve();
+      });
+      creator.on("error", reject);
+      creator.on("exit", (code) => reject(new Error(`creator exited before cut ${cut}: ${code} ${errorOutput}`)));
+    });
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        reached,
+        new Promise<never>((_, reject) => {
+          watchdog = setTimeout(() => reject(new Error(`creator did not reach ${cut}: ${errorOutput}`)), 8000);
+        }),
+      ]);
+    } finally {
+      if (watchdog) clearTimeout(watchdog);
+      creator.kill();
+      if (creator.exitCode === null) await new Promise<void>((resolve) => creator.once("exit", () => resolve()));
+    }
+    if (cut === "pre-source") {
+      expect(await readEvidenceWindowSources(pools.ordering, windowId)).toHaveLength(0);
+      expect((await snapshot()).streams).toHaveLength(0);
+      return;
+    }
+    expect(await readEvidenceWindowSources(pools.ordering, windowId)).toHaveLength(1);
+    const observerQueries: string[] = [];
+    const readOnlyDb: PgTransactionalPool = {
+      query: async <Row = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
+        observerQueries.push(sql);
+        if (/\b(INSERT|UPDATE|DELETE|CREATE|ALTER)\b/i.test(sql)) throw new Error("observation wrote");
+        return pools.ordering.query<Row>(sql, values);
+      },
+      connect: async () => {
+        throw new Error("observation opened a write transaction");
+      },
+    };
+    const observation = await runtime(
+      createPostgresEventStore({ pool: readOnlyDb }),
+      readOnlyDb,
+    ).evidenceWindowSources.observe({ sourceType: "cart-checkout", sourceReferenceId, buyerAccountId: "acc_buyer" });
+    expect(observation).not.toBeNull();
+    const inventory = observerQueries.join("\n");
+    const requiredSurfaces = [
+      "ordering_evidence_window_sources",
+      "ordering_listing_purchase_limit_claims",
+      "ordering_listing_purchase_limit_usage",
+      "ordering_order_source_claims",
+      "ordering_seller_open_order_claims",
+    ];
+    expect(requiredSurfaces.every((table) => inventory.includes(table))).toBe(true);
+    expect(
+      requiredSurfaces.every((table) =>
+        inventory.replace("ordering_seller_open_order_claims", "omitted-surface").includes(table),
+      ),
+    ).toBe(false);
+    expect(
+      (
+        await closeEvidenceWindowSource(pools.ordering, {
+          windowId,
+          subInvocation: "2a",
+          expectedVersion: 1,
+        })
+      ).outcome,
+    ).toBe("closed");
+    const restarted = spawnSync(process.execPath, ["--import", "tsx", script], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: childEnv,
+    });
+    expect(restarted.status, restarted.stderr).toBe(0);
+    expect(JSON.parse(restarted.stdout.trim())).toEqual({ outcome: "discharged" });
+    const after = await snapshot();
+    expect(after.sources).toHaveLength(0);
+    expect(after.claims.every((row) => row.status === "released")).toBe(true);
+    expect((await readEvidenceWindowSources(pools.ordering, windowId))[0]?.terminalReport).toMatchObject({
+      outcome: "discharged",
+    });
   });
 
   it.each([false, true])("purchase-limit-plan-claim-is-atomic: reversed=%s", async (reversed) => {
