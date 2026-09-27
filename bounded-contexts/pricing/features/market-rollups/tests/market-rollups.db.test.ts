@@ -81,6 +81,12 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
     return buildPricingMarketplaceInputProjectionHandlers(pool);
   }
 
+  async function captureUsd(pool: PgTransactionalPool, orderIds: string[], capturedAt: string) {
+    await tradeHandlers(pool)["payments.payment-captured"]!(
+      event("payments.payment-captured", { orderIds, currencyCode: "USD", capturedAt }, capturedAt),
+    );
+  }
+
   /** Applies three included trades + one cancelled (excluded) trade on 2026-07-01 for cat_1/prod_1. */
   async function seedJuly1Trades(pool: PgTransactionalPool) {
     const handlers = tradeHandlers(pool);
@@ -187,6 +193,7 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
         "2026-07-01T19:30:00.000Z",
       ),
     );
+    await captureUsd(pool, ["ord_1", "ord_2", "ord_3", "ord_4"], "2026-07-01T19:30:00.000Z");
   }
 
   async function seedIncludedTrades(
@@ -230,6 +237,7 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
       await handlers["ordering.order.ready-for-fulfillment-recorded"]!(
         event("ordering.order.ready-for-fulfillment-recorded", { orderId, readyForFulfillmentAt: soldAt }, soldAt),
       );
+      await captureUsd(pool, [orderId], soldAt);
     }
   }
 
@@ -284,6 +292,71 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
       ],
     );
   }
+
+  it("separates USD and EUR daily/aggregate facts, removes stale EUR, and counts unknown trades", async () => {
+    const pool = pools.pricing;
+    for (const [index, currencyCode] of ["USD", "USD", "USD", "EUR", "EUR", null].entries()) {
+      await pool.query(
+        `INSERT INTO pricing_market_trades
+         (order_id, line_id, seller_account_id, buyer_account_id, catalog_catalog_item_id, product_id,
+          unit_price_amount, currency_code, quantity, sale_channel, sold_at, updated_at)
+         VALUES ($1, 'line_1', 'seller', 'buyer', 'cat_split', 'prod_split', $2, $3, 1,
+                 'buy-now', $4, now())`,
+        [`ord_split_${index}`, String(10 + index * 10), currencyCode, `2026-07-01T0${index}:00:00.000Z`],
+      );
+    }
+    const now = new Date("2026-07-02T00:00:00.000Z");
+    const result = await runDailyRollupCloser(pool, { now: now.toISOString() });
+    expect(result.undenominatedTradeCount).toBe(1);
+    const daily = await pool.query<{
+      currency_code: string;
+      trade_count: number;
+      first_price_amount: string;
+      last_price_amount: string;
+    }>(
+      `SELECT currency_code, trade_count, first_price_amount, last_price_amount
+       FROM pricing_daily_product_rollups WHERE product_id = 'prod_split' ORDER BY currency_code`,
+    );
+    expect(daily.rows).toEqual([
+      { currency_code: "EUR", trade_count: 2, first_price_amount: "40.00", last_price_amount: "50.00" },
+      { currency_code: "USD", trade_count: 3, first_price_amount: "10.00", last_price_amount: "30.00" },
+    ]);
+    const eurSeries = await getProductRollupSeries(pool, {
+      catalogItemId: "cat_split",
+      productId: "prod_split",
+      currencyCode: "EUR",
+      from: "2026-07-01",
+      to: "2026-07-01",
+    });
+    expect(eurSeries).toHaveLength(1);
+    expect(eurSeries[0]).toMatchObject({ currencyCode: "EUR", tradeCount: 2, firstPriceAmount: "40.00" });
+    const stats = await getProductMarketStatsSnapshot(pool, { catalogItemId: "cat_split", productId: "prod_split" });
+    expect(
+      stats.aggregates.map((aggregate) => ({
+        currencyCode: aggregate.currencyCode,
+        tradeCount30d: aggregate.tradeCount30d,
+        tradeCount90d: aggregate.tradeCount90d,
+        lastSoldPriceAmount: aggregate.lastSoldPriceAmount,
+        volume30d: aggregate.volume30d,
+      })),
+    ).toEqual([
+      { currencyCode: "USD", tradeCount30d: 3, tradeCount90d: 3, lastSoldPriceAmount: "30.00", volume30d: 3 },
+      { currencyCode: "EUR", tradeCount30d: 2, tradeCount90d: 2, lastSoldPriceAmount: "50.00", volume30d: 2 },
+    ]);
+    await pool.query(`UPDATE pricing_market_trades
+      SET excluded = true, exclusion_reason = 'fraud-flagged' WHERE currency_code = 'EUR'`);
+    await recomputeDailyProductRollup(pool, { catalogItemId: "cat_split", productId: "prod_split", day: "2026-07-01" });
+    await recomputeProductMarketAggregate(pool, { catalogItemId: "cat_split", productId: "prod_split" }, now);
+    expect(
+      (
+        await getProductMarketStatsSnapshot(pool, { catalogItemId: "cat_split", productId: "prod_split" })
+      ).aggregates.map((aggregate) => aggregate.currencyCode),
+    ).toEqual(["USD"]);
+    expect(
+      (await pool.query(`SELECT currency_code FROM pricing_daily_product_rollups WHERE product_id = 'prod_split'`))
+        .rows,
+    ).toEqual([{ currency_code: "USD" }]);
+  });
 
   it("computes the daily rollup from included trades only: min/max/median/first/last/volume/count", async () => {
     const pool = pools.pricing;
@@ -361,7 +434,7 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
       catalogItemId: "cat_trim",
       productId: "prod_trim",
     });
-    expect(aggregate.aggregate).toMatchObject({
+    expect(aggregate.aggregates[0]).toMatchObject({
       lastSoldPriceAmount: "100.00",
       medianPrice30d: "8.00",
       volume30d: 20,
@@ -437,6 +510,7 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
         ),
       );
     }
+    await captureUsd(pool, ["ord_a", "ord_b"], "2026-07-02T14:00:00.000Z");
 
     await recomputeDailyProductRollup(pool, { catalogItemId: "cat_2", productId: "prod_2", day: "2026-07-02" });
 
@@ -449,6 +523,7 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
 
     // The query layer gates it: median is suppressed, but volume/count still surface.
     const series = await getProductRollupSeries(pool, {
+      currencyCode: "USD",
       catalogItemId: "cat_2",
       productId: "prod_2",
       from: "2026-07-02",
@@ -595,11 +670,13 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
         ),
       );
     }
+    await captureUsd(pool, ["ord_5", "ord_6", "ord_7"], "2026-07-02T18:00:00.000Z");
 
     await recomputeDailyProductRollup(pool, { catalogItemId: "cat_1", productId: "prod_1", day: "2026-07-01" });
     await recomputeDailyProductRollup(pool, { catalogItemId: "cat_1", productId: "prod_1", day: "2026-07-02" });
 
     const weekly = await getProductRollupSeries(pool, {
+      currencyCode: "USD",
       catalogItemId: "cat_1",
       productId: "prod_1",
       from: "2026-06-29",
@@ -914,10 +991,10 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
 
     async function getProductMarketAggregateOrThrow(dbPool: PgTransactionalPool) {
       const snapshot = await getProductMarketStatsSnapshot(dbPool, { catalogItemId: "cat_1", productId: "prod_1" });
-      if (!snapshot.aggregate) {
+      if (!snapshot.aggregates[0]) {
         throw new Error("Expected a product market aggregate row.");
       }
-      return snapshot.aggregate;
+      return snapshot.aggregates[0];
     }
   });
 
@@ -1077,7 +1154,7 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
        FROM pricing_daily_product_rollups
        WHERE catalog_catalog_item_id = 'cat_rederive' AND product_id = 'prod_rederive' AND day = '2026-06-01'`,
     );
-    expect(productDay.rows).toEqual([{ trade_count: 0, median_price_amount: null }]);
+    expect(productDay.rows).toEqual([]);
     platformDay = await pool.query<{ trade_count: number; gmv_amount: string }>(
       `SELECT trade_count, gmv_amount FROM pricing_platform_daily_rollups WHERE day = '2026-06-01'`,
     );
@@ -1131,7 +1208,9 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
     expect(initialQueue.rowCount).toBe(1);
 
     const [readTuple] = await listQueuedTradeRollupRederives(pool, 1);
-    expect(readTuple?.generation).toBe("1");
+    expect(readTuple).toBeDefined();
+    const capturedGeneration = BigInt(readTuple!.generation);
+    expect(capturedGeneration).toBeGreaterThan(1n);
     await recomputeDailyProductRollup(pool, readTuple!);
     await recomputePlatformDailyRollup(pool, day);
 
@@ -1155,7 +1234,7 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
        WHERE catalog_catalog_item_id = $1 AND product_id = $2 AND day = $3`,
       [catalogItemId, productId, day],
     );
-    expect(stillPending.rows).toEqual([{ generation: "2" }]);
+    expect(stillPending.rows).toEqual([{ generation: String(capturedGeneration + 1n) }]);
 
     await runDailyRollupCloser(pool, {
       now: "2026-07-20T00:05:00.000Z",
@@ -1168,7 +1247,7 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
        WHERE catalog_catalog_item_id = $1 AND product_id = $2 AND day = $3`,
       [catalogItemId, productId, day],
     );
-    expect(rederived.rows).toEqual([{ trade_count: 0 }]);
+    expect(rederived.rows).toEqual([]);
     const queueCount = await pool.query<{ count: number }>(
       `SELECT COUNT(*)::integer AS count FROM pricing_market_trade_rollup_rederive_queue`,
     );
@@ -1267,7 +1346,7 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
       catalogItemId: "cat_runtime_trim",
       productId: "prod_runtime_trim",
     });
-    expect(aggregate.aggregate).toMatchObject({
+    expect(aggregate.aggregates[0]).toMatchObject({
       lastSoldPriceAmount: "100.00",
       medianPrice30d: "10.00",
       tradeCount30d: 16,
@@ -1359,7 +1438,7 @@ describeDb("pricing market-rollups SQL persistence boundary (#4305)", () => {
       throw new Error(`Expected a "summary" change, got "${change.op}".`);
     }
     const stats = change.value as Awaited<ReturnType<typeof getProductMarketStatsSnapshot>>;
-    expect(stats.aggregate?.lastSoldPriceAmount).toBe("30.00");
+    expect(stats.aggregates[0]?.lastSoldPriceAmount).toBe("30.00");
   });
 
   it("does not emit a realtime patch for products with no trade activity in the trailing window", async () => {

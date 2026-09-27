@@ -81,7 +81,8 @@ export async function getPrimaryTradedProductId(db: PgQueryable, catalogItemId: 
     `SELECT product_id
      FROM pricing_product_market_aggregates
      WHERE catalog_catalog_item_id = $1
-     ORDER BY (trade_count_30d + trade_count_90d) DESC, product_id ASC
+     GROUP BY product_id
+     ORDER BY SUM(trade_count_30d + trade_count_90d) DESC, product_id ASC
      LIMIT 1`,
     [catalogItemId],
   );
@@ -109,7 +110,7 @@ export type PublicMarketPageData = Readonly<{
   slug: string;
   productId: string | null;
   series: readonly ProductRollupSeriesPoint[];
-  aggregate: ProductMarketAggregate | null;
+  aggregates: readonly ProductMarketAggregate[];
   marketState: MarketStateSnapshotPoint | null;
 }>;
 
@@ -145,7 +146,7 @@ export async function getPublicMarketPageData(
 
   const productId = await getPrimaryTradedProductId(db, catalogItem.catalogItemId);
   if (!productId) {
-    return { ...catalogItem, productId: null, series: [], aggregate: null, marketState: null };
+    return { ...catalogItem, productId: null, series: [], aggregates: [], marketState: null };
   }
 
   const now = options.now ?? new Date();
@@ -155,16 +156,24 @@ export async function getPublicMarketPageData(
   const to = isoDate(now);
   const from = isoDate(new Date(now.getTime() - historyWindowDays * 24 * 60 * 60 * 1000));
 
-  const [series, stats] = await Promise.all([
-    getProductRollupSeries(db, { catalogItemId: catalogItem.catalogItemId, productId, from, to }, minimumTradeSample),
-    getProductMarketStatsSnapshot(db, { catalogItemId: catalogItem.catalogItemId, productId }),
-  ]);
+  const stats = await getProductMarketStatsSnapshot(db, { catalogItemId: catalogItem.catalogItemId, productId });
+  const series = (
+    await Promise.all(
+      stats.aggregates.map((aggregate) =>
+        getProductRollupSeries(
+          db,
+          { catalogItemId: catalogItem.catalogItemId, productId, currencyCode: aggregate.currencyCode, from, to },
+          minimumTradeSample,
+        ),
+      ),
+    )
+  ).flat();
 
   return {
     ...catalogItem,
     productId,
     series,
-    aggregate: stats.aggregate,
+    aggregates: stats.aggregates,
     marketState: stats.marketState,
   };
 }

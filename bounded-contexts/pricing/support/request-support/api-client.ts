@@ -175,6 +175,7 @@ export function createPricingApiClient({
           query: {
             from: params.from,
             to: params.to,
+            currencyCode: params.currencyCode,
             ...(params.granularity ? { granularity: params.granularity } : {}),
           },
           header: headers,

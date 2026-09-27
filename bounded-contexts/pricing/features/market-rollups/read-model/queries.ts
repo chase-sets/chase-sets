@@ -18,6 +18,7 @@ import { MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE } from "../../market-trades/dom
 export type RollupGranularity = "daily" | "weekly" | "monthly";
 
 export type ProductRollupSeriesPoint = Readonly<{
+  currencyCode: string;
   /** ISO calendar date (UTC). For weekly/monthly granularity, the bucket's first day. */
   day: string;
   firstPriceAmount: string | null;
@@ -42,6 +43,7 @@ export type ProductRollupSeriesPoint = Readonly<{
 export type GetProductRollupSeriesParams = Readonly<{
   catalogItemId: string;
   productId: string;
+  currencyCode: string;
   /** Inclusive, YYYY-MM-DD (UTC calendar date). */
   from: string;
   /** Inclusive, YYYY-MM-DD (UTC calendar date). */
@@ -67,11 +69,12 @@ export async function getProductRollupSeries(
 
 async function getDailyProductRollupSeries(
   db: PgQueryable,
-  params: Pick<GetProductRollupSeriesParams, "catalogItemId" | "productId" | "from" | "to">,
+  params: Pick<GetProductRollupSeriesParams, "catalogItemId" | "productId" | "currencyCode" | "from" | "to">,
   minimumTradeSample: number,
 ): Promise<readonly ProductRollupSeriesPoint[]> {
   const result = await db.query<{
     day: string;
+    currency_code: string;
     first_price_amount: string | null;
     last_price_amount: string | null;
     min_price_amount: string | null;
@@ -82,7 +85,7 @@ async function getDailyProductRollupSeries(
     verified_trade_count: number;
   }>(
     `SELECT
-       day::text AS day,
+       day::text AS day, currency_code,
        first_price_amount,
        last_price_amount,
        min_price_amount,
@@ -94,9 +97,9 @@ async function getDailyProductRollupSeries(
      FROM pricing_daily_product_rollups
      WHERE catalog_catalog_item_id = $1
        AND product_id = $2
-       AND day BETWEEN $3::date AND $4::date
+       AND day BETWEEN $3::date AND $4::date AND currency_code = $6
      ORDER BY day ASC`,
-    [params.catalogItemId, params.productId, params.from, params.to, minimumTradeSample],
+    [params.catalogItemId, params.productId, params.from, params.to, minimumTradeSample, params.currencyCode],
   );
 
   return result.rows.map(toRollupSeriesPoint);
@@ -104,12 +107,13 @@ async function getDailyProductRollupSeries(
 
 async function getBucketedProductRollupSeries(
   db: PgQueryable,
-  params: Pick<GetProductRollupSeriesParams, "catalogItemId" | "productId" | "from" | "to"> &
+  params: Pick<GetProductRollupSeriesParams, "catalogItemId" | "productId" | "currencyCode" | "from" | "to"> &
     Readonly<{ bucket: "week" | "month" }>,
   minimumTradeSample: number,
 ): Promise<readonly ProductRollupSeriesPoint[]> {
   const result = await db.query<{
     day: string;
+    currency_code: string;
     first_price_amount: string | null;
     last_price_amount: string | null;
     min_price_amount: string | null;
@@ -120,7 +124,7 @@ async function getBucketedProductRollupSeries(
     verified_trade_count: number;
   }>(
     `SELECT
-       date_trunc($5, day)::date::text AS day,
+       date_trunc($5, day)::date::text AS day, currency_code,
        (array_agg(first_price_amount ORDER BY day ASC) FILTER (WHERE first_price_amount IS NOT NULL))[1]
          AS first_price_amount,
        (array_agg(last_price_amount ORDER BY day DESC) FILTER (WHERE last_price_amount IS NOT NULL))[1]
@@ -141,10 +145,18 @@ async function getBucketedProductRollupSeries(
      FROM pricing_daily_product_rollups
      WHERE catalog_catalog_item_id = $1
        AND product_id = $2
-       AND day BETWEEN $3::date AND $4::date
-     GROUP BY date_trunc($5, day)
+       AND day BETWEEN $3::date AND $4::date AND currency_code = $7
+     GROUP BY date_trunc($5, day), currency_code
      ORDER BY date_trunc($5, day) ASC`,
-    [params.catalogItemId, params.productId, params.from, params.to, params.bucket, minimumTradeSample],
+    [
+      params.catalogItemId,
+      params.productId,
+      params.from,
+      params.to,
+      params.bucket,
+      minimumTradeSample,
+      params.currencyCode,
+    ],
   );
 
   return result.rows.map(toRollupSeriesPoint);
@@ -152,6 +164,7 @@ async function getBucketedProductRollupSeries(
 
 function toRollupSeriesPoint(row: {
   day: string;
+  currency_code: string;
   first_price_amount: string | null;
   last_price_amount: string | null;
   min_price_amount: string | null;
@@ -163,6 +176,7 @@ function toRollupSeriesPoint(row: {
 }): ProductRollupSeriesPoint {
   return {
     day: row.day,
+    currencyCode: row.currency_code,
     firstPriceAmount: row.first_price_amount,
     lastPriceAmount: row.last_price_amount,
     minPriceAmount: row.min_price_amount,
@@ -257,6 +271,7 @@ function toMarketStateSnapshotPoint(row: {
 }
 
 export type ProductMarketAggregate = Readonly<{
+  currencyCode: string;
   lastSoldAt: string | null;
   lastSoldPriceAmount: string | null;
   medianPrice30d: string | null;
@@ -271,12 +286,13 @@ export type ProductMarketAggregate = Readonly<{
 export async function getProductMarketAggregate(
   db: PgQueryable,
   params: Readonly<{ catalogItemId: string; productId: string }>,
-): Promise<ProductMarketAggregate | null> {
+): Promise<readonly ProductMarketAggregate[]> {
   // `last_sold_at` is timestamptz -- the driver returns it as a JS Date, not
   // a string (pg's default type parser; no OID override in this repo).
   // Converted to an ISO string below, matching this codebase's timestamptz
   // read-model convention.
   const result = await db.query<{
+    currency_code: string;
     last_sold_at: Date | null;
     last_sold_price_amount: string | null;
     median_price_30d: string | null;
@@ -288,21 +304,18 @@ export async function getProductMarketAggregate(
     sell_through_rate: string | null;
   }>(
     `SELECT
-       last_sold_at, last_sold_price_amount,
+       currency_code, last_sold_at, last_sold_price_amount,
        median_price_30d, volume_30d, trade_count_30d,
        median_price_90d, volume_90d, trade_count_90d,
        sell_through_rate
      FROM pricing_product_market_aggregates
-     WHERE catalog_catalog_item_id = $1 AND product_id = $2`,
+     WHERE catalog_catalog_item_id = $1 AND product_id = $2
+     ORDER BY trade_count_90d DESC, currency_code ASC`,
     [params.catalogItemId, params.productId],
   );
 
-  const row = result.rows[0];
-  if (!row) {
-    return null;
-  }
-
-  return {
+  return result.rows.map((row) => ({
+    currencyCode: row.currency_code,
     lastSoldAt: row.last_sold_at ? new Date(row.last_sold_at).toISOString() : null,
     lastSoldPriceAmount: row.last_sold_price_amount,
     medianPrice30d: row.median_price_30d,
@@ -312,11 +325,11 @@ export async function getProductMarketAggregate(
     volume90d: row.volume_90d,
     tradeCount90d: row.trade_count_90d,
     sellThroughRate: row.sell_through_rate,
-  };
+  }));
 }
 
 export type ProductMarketStatsSnapshot = Readonly<{
-  aggregate: ProductMarketAggregate | null;
+  aggregates: readonly ProductMarketAggregate[];
   marketState: MarketStateSnapshotPoint | null;
 }>;
 
@@ -329,10 +342,10 @@ export async function getProductMarketStatsSnapshot(
   db: PgQueryable,
   params: Readonly<{ catalogItemId: string; productId: string }>,
 ): Promise<ProductMarketStatsSnapshot> {
-  const [aggregate, marketState] = await Promise.all([
+  const [aggregates, marketState] = await Promise.all([
     getProductMarketAggregate(db, params),
     getLatestMarketStateSnapshot(db, params),
   ]);
 
-  return { aggregate, marketState };
+  return { aggregates, marketState };
 }

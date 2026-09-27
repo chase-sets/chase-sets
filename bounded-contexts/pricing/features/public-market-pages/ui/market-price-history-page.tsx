@@ -1,4 +1,5 @@
 import { formatDate, formatMoney, t } from "@chase-sets/localization";
+import { Fragment } from "react";
 import {
   Badge,
   Breadcrumbs,
@@ -17,9 +18,9 @@ import {
 } from "@chase-sets/design-system";
 import type { PublicMarketPageData } from "../read-model/queries";
 
-function money(amount: string | null): string {
-  return amount
-    ? formatMoney(amount, "USD")
+function money(amount: string | null, currencyCode: string | undefined): string {
+  return amount && currencyCode
+    ? formatMoney(amount, currencyCode)
     : t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.no.data");
 }
 
@@ -31,7 +32,11 @@ function percent(ratio: string | null): string | null {
   return Number.isFinite(value) ? `${Math.round(value * 100)}%` : null;
 }
 
-function toChartSeries(series: PublicMarketPageData["series"], label: string): TimeSeriesSeries {
+function toChartSeries(
+  series: PublicMarketPageData["series"],
+  label: string,
+  currencyCode: string | undefined,
+): TimeSeriesSeries {
   return {
     id: "median-price",
     name: label,
@@ -43,7 +48,7 @@ function toChartSeries(series: PublicMarketPageData["series"], label: string): T
         value: Number(point.medianPriceAmount ?? point.lastPriceAmount),
         label: t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.chart.point", {
           date: formatDate(point.day),
-          amount: money(point.medianPriceAmount ?? point.lastPriceAmount),
+          amount: money(point.medianPriceAmount ?? point.lastPriceAmount, currencyCode),
         }),
       })),
     band: series
@@ -63,9 +68,9 @@ export type MarketPriceHistoryPageProps = Readonly<{
 }>;
 
 export function MarketPriceHistoryPage({ page, marketplaceItemUrl }: MarketPriceHistoryPageProps) {
-  const { title, subtitle, aggregate, marketState, series } = page;
-  const chartSeries = toChartSeries(series, title);
-  const sellThrough30d = percent(aggregate?.sellThroughRate ?? null);
+  const { title, subtitle, aggregates, marketState, series } = page;
+  // Preserve the original empty chart/stats furniture when there is no trade-derived currency.
+  const displays = aggregates.length ? aggregates : [null];
 
   return (
     <ChaseRoot>
@@ -91,98 +96,127 @@ export function MarketPriceHistoryPage({ page, marketplaceItemUrl }: MarketPrice
                 ) : null}
               </Stack>
 
-              <PageSection
-                data-testid="market-price-history-chart-furniture"
-                title={t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.price.history")}
-              >
-                <TimeSeriesChart
-                  series={[chartSeries]}
-                  label={t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.chart.label", {
-                    item: title,
-                  })}
-                  formatValue={(value) => formatMoney(value.toFixed(2), "USD")}
-                  minimumSamples={2}
-                />
-              </PageSection>
+              {displays.map((aggregate) => {
+                const currencyCode = aggregate?.currencyCode;
+                const chartSeries = toChartSeries(
+                  series.filter((point) => point.currencyCode === currencyCode),
+                  title,
+                  currencyCode,
+                );
+                const sellThrough30d = percent(aggregate?.sellThroughRate ?? null);
+                return (
+                  <Fragment key={currencyCode}>
+                    <PageSection
+                      data-testid="market-price-history-chart-furniture"
+                      title={
+                        aggregates.length > 1
+                          ? t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.price.history.currency", {
+                              currencyCode,
+                            })
+                          : t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.price.history")
+                      }
+                    >
+                      <TimeSeriesChart
+                        series={[chartSeries]}
+                        label={t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.chart.label", {
+                          item: title,
+                        })}
+                        formatValue={(value) => money(value.toFixed(2), currencyCode)}
+                        minimumSamples={2}
+                      />
+                    </PageSection>
 
-              <PageSection
-                data-testid="market-price-history-stats-furniture"
-                title={t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.market.stats")}
-              >
-                <Grid columns={{ base: 1, sm: 2, lg: 4 }} gap={4}>
-                  <Stack gap={1}>
-                    <Text size="sm" tone="secondary">
-                      {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.last.sold")}
-                    </Text>
-                    <Heading level={2} visualSize={4}>
-                      {aggregate?.lastSoldPriceAmount ? (
-                        <NumericValue>{money(aggregate.lastSoldPriceAmount)}</NumericValue>
-                      ) : (
-                        money(null)
-                      )}
-                    </Heading>
-                    {aggregate?.lastSoldAt ? (
-                      <Text size="sm" tone="secondary">
-                        {formatDate(aggregate.lastSoldAt)}
-                      </Text>
-                    ) : null}
-                  </Stack>
-                  <Stack gap={1}>
-                    <Text size="sm" tone="secondary">
-                      {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.median.30.day")}
-                    </Text>
-                    <Heading level={2} visualSize={4}>
-                      {aggregate?.medianPrice30d ? (
-                        <NumericValue>{money(aggregate.medianPrice30d)}</NumericValue>
-                      ) : (
-                        money(null)
-                      )}
-                    </Heading>
-                    <Text size="sm" tone="secondary">
-                      {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.trades.count", {
-                        count: aggregate?.tradeCount30d ?? 0,
-                      })}
-                    </Text>
-                  </Stack>
-                  <Stack gap={1}>
-                    <Text size="sm" tone="secondary">
-                      {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.median.90.day")}
-                    </Text>
-                    <Heading level={2} visualSize={4}>
-                      {aggregate?.medianPrice90d ? (
-                        <NumericValue>{money(aggregate.medianPrice90d)}</NumericValue>
-                      ) : (
-                        money(null)
-                      )}
-                    </Heading>
-                    <Text size="sm" tone="secondary">
-                      {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.trades.count", {
-                        count: aggregate?.tradeCount90d ?? 0,
-                      })}
-                    </Text>
-                  </Stack>
-                  <Stack gap={1}>
-                    <Text size="sm" tone="secondary">
-                      {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.active.listings")}
-                    </Text>
-                    <Heading level={2} visualSize={4}>
-                      {marketState?.activeListingCount ?? 0}
-                    </Heading>
-                    <Text size="sm" tone="secondary">
-                      {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.starting.at", {
-                        amount: money(marketState?.minAskAmount ?? null),
-                      })}
-                    </Text>
-                  </Stack>
-                </Grid>
-                {sellThrough30d ? (
-                  <Badge tone="info">
-                    {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.sell.through", {
-                      rate: sellThrough30d,
-                    })}
-                  </Badge>
-                ) : null}
-              </PageSection>
+                    <PageSection
+                      data-testid="market-price-history-stats-furniture"
+                      title={
+                        aggregates.length > 1
+                          ? t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.market.stats.currency", {
+                              currencyCode,
+                            })
+                          : t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.market.stats")
+                      }
+                    >
+                      <Grid columns={{ base: 1, sm: 2, lg: 4 }} gap={4}>
+                        <Stack gap={1}>
+                          <Text size="sm" tone="secondary">
+                            {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.last.sold")}
+                          </Text>
+                          <Heading level={2} visualSize={4}>
+                            {aggregate?.lastSoldPriceAmount ? (
+                              <NumericValue>{money(aggregate.lastSoldPriceAmount, currencyCode)}</NumericValue>
+                            ) : (
+                              money(null, currencyCode)
+                            )}
+                          </Heading>
+                          {aggregate?.lastSoldAt ? (
+                            <Text size="sm" tone="secondary">
+                              {formatDate(aggregate.lastSoldAt)}
+                            </Text>
+                          ) : null}
+                        </Stack>
+                        <Stack gap={1}>
+                          <Text size="sm" tone="secondary">
+                            {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.median.30.day")}
+                          </Text>
+                          <Heading level={2} visualSize={4}>
+                            {aggregate?.medianPrice30d ? (
+                              <NumericValue>{money(aggregate.medianPrice30d, currencyCode)}</NumericValue>
+                            ) : (
+                              money(null, currencyCode)
+                            )}
+                          </Heading>
+                          <Text size="sm" tone="secondary">
+                            {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.trades.count", {
+                              count: aggregate?.tradeCount30d ?? 0,
+                            })}
+                          </Text>
+                        </Stack>
+                        <Stack gap={1}>
+                          <Text size="sm" tone="secondary">
+                            {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.median.90.day")}
+                          </Text>
+                          <Heading level={2} visualSize={4}>
+                            {aggregate?.medianPrice90d ? (
+                              <NumericValue>{money(aggregate.medianPrice90d, currencyCode)}</NumericValue>
+                            ) : (
+                              money(null, currencyCode)
+                            )}
+                          </Heading>
+                          <Text size="sm" tone="secondary">
+                            {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.trades.count", {
+                              count: aggregate?.tradeCount90d ?? 0,
+                            })}
+                          </Text>
+                        </Stack>
+                        <Stack gap={1}>
+                          <Text size="sm" tone="secondary">
+                            {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.active.listings")}
+                          </Text>
+                          <Heading level={2} visualSize={4}>
+                            {marketState?.activeListingCount ?? 0}
+                          </Heading>
+                          <Text size="sm" tone="secondary">
+                            {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.starting.at", {
+                              // Market-state asks are not currency-keyed; never assign a mixed product's ask to a trade currency.
+                              amount: money(
+                                aggregates.length === 1 ? (marketState?.minAskAmount ?? null) : null,
+                                currencyCode,
+                              ),
+                            })}
+                          </Text>
+                        </Stack>
+                      </Grid>
+                      {sellThrough30d ? (
+                        <Badge tone="info">
+                          {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.sell.through", {
+                            rate: sellThrough30d,
+                          })}
+                        </Badge>
+                      ) : null}
+                    </PageSection>
+                  </Fragment>
+                );
+              })}
 
               <PageSection title={t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.buy.or.sell")}>
                 <Stack gap={3} direction={{ base: "column", sm: "row" }}>

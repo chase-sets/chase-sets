@@ -14,6 +14,7 @@ const page = {
   productId: "product_1",
   series: [
     {
+      currencyCode: "USD",
       day: "2026-08-13",
       firstPriceAmount: "19.00",
       lastPriceAmount: "20.00",
@@ -25,6 +26,7 @@ const page = {
       verifiedTradeCount: 3,
     },
     {
+      currencyCode: "USD",
       day: "2026-08-14",
       firstPriceAmount: "20.00",
       lastPriceAmount: "22.00",
@@ -36,17 +38,20 @@ const page = {
       verifiedTradeCount: 4,
     },
   ],
-  aggregate: {
-    lastSoldAt: "2026-08-14T15:00:00.000Z",
-    lastSoldPriceAmount: "22.00",
-    medianPrice30d: "21.00",
-    volume30d: 7,
-    tradeCount30d: 7,
-    medianPrice90d: "20.00",
-    volume90d: 12,
-    tradeCount90d: 12,
-    sellThroughRate: "0.50",
-  },
+  aggregates: [
+    {
+      currencyCode: "USD",
+      lastSoldAt: "2026-08-14T15:00:00.000Z",
+      lastSoldPriceAmount: "22.00",
+      medianPrice30d: "21.00",
+      volume30d: 7,
+      tradeCount30d: 7,
+      medianPrice90d: "20.00",
+      volume90d: 12,
+      tradeCount90d: 12,
+      sellThroughRate: "0.50",
+    },
+  ],
   marketState: {
     day: "2026-08-14",
     activeListingCount: 6,
@@ -70,8 +75,39 @@ describe("MarketPriceHistoryPage", () => {
     expect(chart?.textContent).toContain("Charizard ex");
     expect(stats?.textContent).toContain("$22.00");
     expect(stats?.textContent).toContain("$21.00");
+    expect(html).not.toContain("(USD)");
     expect(chart?.querySelector(".surface-border")).toBeNull();
     expect(stats?.querySelector(".surface-border")).toBeNull();
+  });
+
+  it("renders separate labeled chart and stats blocks with their own denominations", () => {
+    const eur = {
+      ...page.aggregates[0]!,
+      currencyCode: "EUR",
+      lastSoldPriceAmount: "25.00",
+      medianPrice30d: "24.00",
+      medianPrice90d: "23.00",
+    };
+    const html = renderToStaticMarkup(
+      <MarketPriceHistoryPage
+        page={{
+          ...page,
+          aggregates: [page.aggregates[0]!, eur],
+          series: [...page.series, { ...page.series[0]!, currencyCode: "EUR", medianPriceAmount: "24.00" }],
+        }}
+        marketplaceItemUrl="https://example.test/items/charizard-ex"
+      />,
+    );
+    const rendered = parse(html);
+    const charts = rendered.querySelectorAll('[data-testid="market-price-history-chart-furniture"]');
+    const stats = rendered.querySelectorAll('[data-testid="market-price-history-stats-furniture"]');
+    expect(charts).toHaveLength(2);
+    expect(stats).toHaveLength(2);
+    expect(charts[0]?.textContent).toContain("USD");
+    expect(charts[1]?.textContent).toContain("EUR");
+    expect(stats[0]?.textContent).toContain("$22.00");
+    expect(stats[1]?.textContent).toContain("€25.00");
+    expect(stats[1]?.textContent).toContain("Starting at No data yet");
   });
 });
 
@@ -142,7 +178,7 @@ describe("MarketPriceHistoryPage mono market-data role carriers", () => {
   it("renders the no-data placeholder without a carrier when the headline values are null", () => {
     const stats = renderStats({
       ...page,
-      aggregate: { ...page.aggregate, lastSoldPriceAmount: null, medianPrice30d: null, medianPrice90d: null },
+      aggregates: [{ ...page.aggregates[0]!, lastSoldPriceAmount: null, medianPrice30d: null, medianPrice90d: null }],
     });
 
     expect(stats.textContent?.match(/No data yet/g)).toHaveLength(3);

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
   closeMultiContextTestPools,
@@ -16,6 +16,7 @@ import {
 import { runDailyRollupCloser } from "../../market-rollups/read-model/rollup-maintenance";
 import {
   getPricingCatalogItemBySlugOrId,
+  getPrimaryTradedProductId,
   getPublicMarketPageData,
   listPublicMarketPageSlugs,
 } from "../read-model/queries";
@@ -115,6 +116,13 @@ describeDb("pricing public market pages read model", () => {
           orderId,
         ),
       );
+      await tradeHandlers["payments.payment-captured"]!(
+        event(
+          "payments.payment-captured",
+          { orderIds: [orderId], currencyCode: "USD", capturedAt: "2026-07-01T10:00:00.000Z" },
+          "2026-07-01T10:00:00.000Z",
+        ),
+      );
     }
 
     const listingHandlers = buildPricingMarketplaceInputProjectionHandlers(pool);
@@ -173,7 +181,7 @@ describeDb("pricing public market pages read model", () => {
     expect(page).not.toBeNull();
     expect(page?.productId).toBe("prod_near_mint");
     expect(page?.series.length).toBeGreaterThan(0);
-    expect(page?.aggregate?.tradeCount30d).toBe(3);
+    expect(page?.aggregates[0]?.tradeCount30d).toBe(3);
     expect(page?.marketState?.activeListingCount).toBe(1);
   });
 
@@ -220,10 +228,57 @@ describeDb("pricing public market pages read model", () => {
         "ord_low",
       ),
     );
+    await tradeHandlers["payments.payment-captured"]!(
+      event(
+        "payments.payment-captured",
+        { orderIds: ["ord_low"], currencyCode: "USD", capturedAt: "2026-07-01T10:00:00.000Z" },
+        "2026-07-01T10:00:00.000Z",
+      ),
+    );
     await runDailyRollupCloser(pool, { now: "2026-07-02T00:00:00.000Z" });
 
     const page = await getPublicMarketPageData(pool, "cat_1", { now: new Date("2026-07-02T00:00:00.000Z") });
     expect(page?.productId).toBe("prod_high");
+  });
+
+  it("ranks products by the sum of their currency rows and loads each currency series", async () => {
+    const pool = pools.pricing;
+    await seedCatalogItem(pool);
+    await pool.query(`INSERT INTO pricing_product_market_aggregates
+      (catalog_catalog_item_id, product_id, currency_code, trade_count_90d, updated_at)
+      VALUES ('cat_1', 'A', 'USD', 10, now()),
+             ('cat_1', 'B', 'USD', 6, now()), ('cat_1', 'B', 'EUR', 7, now())`);
+    await pool.query(`INSERT INTO pricing_daily_product_rollups
+      (catalog_catalog_item_id, product_id, day, currency_code, trade_count, median_price_amount, updated_at)
+      VALUES ('cat_1', 'B', '2026-07-01', 'USD', 6, 10, now()),
+             ('cat_1', 'B', '2026-07-01', 'EUR', 7, 20, now())`);
+    expect(await getPrimaryTradedProductId(pool, "cat_1")).toBe("B");
+    const query = vi.spyOn(pool, "query");
+    const page = await getPublicMarketPageData(pool, "cat_1", { now: new Date("2026-07-02T00:00:00.000Z") });
+    const statements = query.mock.calls.map(([sql]) => String(sql));
+    query.mockRestore();
+    expect(statements.filter((sql) => sql.includes("FROM pricing_product_market_aggregates"))).toHaveLength(2);
+    expect(statements.filter((sql) => sql.includes("FROM pricing_daily_product_rollups"))).toHaveLength(2);
+    expect(page?.aggregates.map((aggregate) => aggregate.currencyCode)).toEqual(["EUR", "USD"]);
+    expect(page?.series.map((point) => [point.currencyCode, point.medianPriceAmount])).toEqual([
+      ["EUR", "20.00"],
+      ["USD", "10.00"],
+    ]);
+  });
+
+  it("does not request a rollup series for an active listing without aggregate currencies", async () => {
+    const pool = pools.pricing;
+    await seedCatalogItem(pool);
+    await pool.query(`INSERT INTO pricing_market_listing_inputs
+      (listing_id, seller_account_id, catalog_catalog_item_id, product_id, price_amount, quantity_cap, status, updated_at)
+      VALUES ('listing_only', 'seller', 'cat_1', 'prod_empty', 10, 1, 'active', now())`);
+    const query = vi.spyOn(pool, "query");
+    const page = await getPublicMarketPageData(pool, "cat_1");
+    const statements = query.mock.calls.map(([sql]) => String(sql));
+    query.mockRestore();
+    expect(page?.productId).toBe("prod_empty");
+    expect(page?.aggregates).toEqual([]);
+    expect(statements.filter((sql) => sql.includes("FROM pricing_daily_product_rollups"))).toHaveLength(0);
   });
 
   it("still renders (with null productId, empty series/stats) for a published item with zero market activity", async () => {
@@ -235,7 +290,7 @@ describeDb("pricing public market pages read model", () => {
     expect(page).not.toBeNull();
     expect(page?.productId).toBeNull();
     expect(page?.series).toEqual([]);
-    expect(page?.aggregate).toBeNull();
+    expect(page?.aggregates).toEqual([]);
   });
 
   it("lists sitemap-feeding slugs only for catalog items with recorded trade history", async () => {

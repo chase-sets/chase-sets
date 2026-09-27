@@ -273,11 +273,11 @@ The **Market Analytics Display Policy** is Pricing's m110 platform-policy declar
 
 ## Daily Product Rollup
 
-A **Daily Product Rollup** is the computed snapshot of a resolved product's Trades Tape activity for one UTC calendar day: first/last/min/max/median trade price, unit volume, trade count, verified-trade count, and the immutable Stat-Hygiene Policy revision that shaped its median, with excluded trades omitted. It is derived entirely from already-recorded trades and is never an estimate -- see Market Price Snapshot and Market-Value Estimate for the distinct estimate concepts. Days with too few trades still carry their counts; only the median is suppressed for display below the minimum-sample threshold.
+A **Daily Product Rollup** is the computed snapshot of a resolved product's Trades Tape activity for one UTC calendar day per currency: first/last/min/max/median trade price, unit volume, trade count, verified-trade count, and the immutable Stat-Hygiene Policy revision that shaped its median, with excluded and undenominated trades omitted. It is derived entirely from already-recorded trades and is never an estimate -- see Market Price Snapshot and Market-Value Estimate for the distinct estimate concepts. Days with too few trades still carry their counts; only the median is suppressed for display below the minimum-sample threshold.
 
 ## Platform Daily Rollup
 
-A **Platform Daily Rollup** is the computed snapshot of platform-wide Trades Tape activity for one UTC calendar day, summed across every product: Gross Merchandise Value, trade count, unit volume, order count, and verified-trade count, with excluded trades omitted. It is the platform-wide sibling of the Daily Product Rollup and the sole source pricing publishes for platform-operations' GMV/liquidity ops dashboards (#4309) -- there is no second GMV computation path.
+A **Platform Daily Rollup** is the computed snapshot of platform-wide Trades Tape activity for one UTC calendar day, summed across every product: Gross Merchandise Value, trade count, unit volume, order count, and verified-trade count, with excluded trades omitted. Its GMV remains undenominated (parked); unlike the per-currency Daily Product Rollup, it does not split by denomination. It is the sole source pricing publishes for platform-operations' GMV/liquidity ops dashboards (#4309) -- there is no second GMV computation path.
 
 ## Gross Merchandise Value
 
@@ -289,7 +289,7 @@ A **Market-State Snapshot** is the recorded end-of-day supply/demand state for a
 
 ## Product Market Aggregate
 
-A **Product Market Aggregate** is the denormalized, always-current summary for a resolved product -- last-sold trade, 30/90-day median price and volume, and Sell-Through Rate -- maintained for cheap surface reads without querying the Trades Tape or Daily Product Rollups directly.
+A **Product Market Aggregate** is the denormalized, always-current summary for a resolved product per currency -- last-sold trade, 30/90-day median price and volume, and Sell-Through Rate -- maintained for cheap surface reads without querying the Trades Tape or Daily Product Rollups directly.
 
 ## Spread
 

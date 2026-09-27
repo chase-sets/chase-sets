@@ -195,6 +195,8 @@ export const pricingEnglishTranslations = {
   "pricing.features.marketRollups.api.route.from.and.to.must.be.iso.calendar":
     "from and to must be ISO calendar dates (YYYY-MM-DD).",
   "pricing.features.marketRollups.api.route.invalid.granularity": "granularity must be daily, weekly, or monthly.",
+  "pricing.features.marketRollups.api.route.currency.required":
+    "currencyCode must be a three-letter uppercase currency code.",
   "pricing.features.publicMarketPages.api.route.market.page.not.found": "Market page not found.",
   "pricing.features.publicMarketPages.routes.marketPriceHistory.not.found": "Market page not found.",
   "pricing.features.publicMarketPages.routes.marketPriceHistory.meta.title": "{item} Price History | Chase Sets",
@@ -203,9 +205,12 @@ export const pricingEnglishTranslations = {
   "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.no.data": "No data yet",
   "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.home": "Home",
   "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.price.history": "Price history",
+  "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.price.history.currency":
+    "Price history ({currencyCode})",
   "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.chart.label": "Price history for {item}",
   "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.chart.point": "{date}: {amount}",
   "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.market.stats": "Market stats",
+  "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.market.stats.currency": "Market stats ({currencyCode})",
   "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.last.sold": "Last sold",
   "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.median.30.day": "Median (30 days)",
   "pricing.features.publicMarketPages.ui.marketPriceHistoryPage.median.90.day": "Median (90 days)",
