@@ -478,7 +478,7 @@ function salesPage(totalResults = 1, nextPage = "", previousPage = "") {
         language: "English",
         quantity: 1,
         title: "synthetic",
-        listingType: "All",
+        listingType: "ListingWithoutPhotos",
         customListingId: "synthetic-transient-sale",
         purchasePrice: 5,
         shippingPrice: 0,

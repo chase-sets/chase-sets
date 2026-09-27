@@ -16,6 +16,10 @@ export const pricingWakeRegistryEntry = registryEntry({
     "pricing:pricing-repricing-evaluation-projection",
     "pricing:pricing-repricing-evaluation-reaction",
     "pricing:pricing-repricing-halt-projection",
+    "pricing:pricing-repricing-policy-projection",
   ],
-  routeDependencyIds: [],
+  routeDependencyIds: [
+    "pricing.seller-desk-repricing-policy-detail-self-refresh",
+    "pricing.seller-desk-repricing-policy-list-refresh",
+  ],
 });

@@ -1,3 +1,5 @@
+import type { ProviderObservationPolicyValue } from "../../domain/provider-observation-policy";
+
 type RecordValue = Readonly<Record<string, unknown>>;
 
 export type DecodedPricePoint = Readonly<{
@@ -28,6 +30,7 @@ export type DecodedLatestSales = Readonly<{
   totalResults: number;
   data: readonly DecodedSale[];
   rejectedRows: number;
+  diagnostics: readonly string[];
 }>;
 
 export type DecodedListing = Readonly<{
@@ -162,28 +165,39 @@ export function decodePricePoints(value: unknown): readonly DecodedPricePoint[] 
   });
 }
 
-export function decodeLatestSales(value: unknown): DecodedLatestSales {
+export function decodeLatestSales(
+  value: unknown,
+  requestedListingType: ProviderObservationPolicyValue["sales"]["listingType"] = "All",
+): DecodedLatestSales {
   const envelope = exactRecord(value, SALES_ENVELOPE_KEYS, "sales-envelope-invalid");
   if (!Array.isArray(envelope.data)) throw new Error("sales-envelope-invalid");
   let rejectedRows = 0;
+  const diagnostics: string[] = [];
   const data: DecodedSale[] = [];
   for (const item of envelope.data) {
     try {
       const row = exactRecord(item, SALE_KEYS, "sale-item-invalid");
       text(row.title, "sale-title-invalid", false);
+      const listingType = text(row.listingType, "sale-listing-type-invalid");
+      if (requestedListingType !== "All" && listingType !== requestedListingType) {
+        throw new Error("sale-listing-type-mismatch");
+      }
       data.push({
         condition: text(row.condition, "sale-condition-invalid"),
         variant: text(row.variant, "sale-variant-invalid"),
         language: text(row.language, "sale-language-invalid"),
         quantity: integer(row.quantity, "sale-quantity-invalid", true),
-        listingType: text(row.listingType, "sale-listing-type-invalid"),
+        listingType,
         customListingId: text(row.customListingId, "sale-custom-listing-invalid", false),
         purchasePrice: moneyNumber(row.purchasePrice, "sale-price-invalid"),
         shippingPrice: moneyNumber(row.shippingPrice, "sale-shipping-invalid"),
         orderDate: instant(row.orderDate, "sale-time-invalid"),
       });
-    } catch {
+    } catch (error) {
       rejectedRows += 1;
+      if (error instanceof Error && error.message === "sale-listing-type-mismatch") {
+        diagnostics.push("sale-listing-type-mismatch");
+      }
     }
   }
   return {
@@ -193,6 +207,7 @@ export function decodeLatestSales(value: unknown): DecodedLatestSales {
     totalResults: integer(envelope.totalResults, "sales-total-invalid"),
     data,
     rejectedRows,
+    diagnostics,
   };
 }
 
