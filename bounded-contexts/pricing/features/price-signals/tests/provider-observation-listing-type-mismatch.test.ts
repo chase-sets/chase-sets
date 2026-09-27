@@ -50,8 +50,7 @@ describe("provider-observation-listing-type-mismatch", () => {
       ),
     ).toMatchObject({ rejectedRows: 1, diagnostics: ["sale-listing-type-mismatch"], data: [] });
     expect(
-      decodeLatestSales({ previousPage: "", nextPage: "", resultCount: 1, totalResults: 1, data: [sale] }, "All")
-        .data,
+      decodeLatestSales({ previousPage: "", nextPage: "", resultCount: 1, totalResults: 1, data: [sale] }, "All").data,
     ).toHaveLength(1);
     const sales = await fetchSales(createTcgplayerMarketClient);
     expect(sales).toMatchObject({ rows: [], rejectedRows: 1, coverage: "unknown", returnedCount: 0 });
