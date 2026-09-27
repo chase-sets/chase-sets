@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildTransportEvent } from "@chase-sets/event-core/test-support";
+import { buildTransportEvent, createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
+import { createWalletRuntime } from "../../api/runtime";
 import { buildSettlementPaymentInputProjectionHandlers } from "./payment-source-projection";
 
 function createDb() {
@@ -39,6 +40,52 @@ function transportEvent(type: string, data: Record<string, unknown>, streamVersi
 }
 
 describe("settlement payment source projection", () => {
+  it("does not reallocate a captured credit after zero balance becomes negative", async () => {
+    const { db } = createDb();
+    const { eventStore } = createInMemoryEventStore();
+    const wallets = createWalletRuntime({ eventStore, db, checkpointStore: {} as never });
+    const handlers = buildSettlementPaymentInputProjectionHandlers(db, wallets);
+    const event = transportEvent("payments.payment-captured", {
+      paymentId: "pay_1",
+      buyerAccountId: "acc_buyer",
+      currencyCode: "usd",
+      capturedAt: "2026-05-01T00:00:00.000Z",
+      processorStatus: "succeeded",
+      sellerPayouts: [
+        {
+          orderId: "ord_1",
+          sellerAccountId: "acc_seller",
+          sellerItemNetAmount: "20.00",
+          shippingAllowanceAmount: "3.00",
+          sellerShippingPayoutAmount: "3.00",
+          sellerPayoutAmount: "23.00",
+        },
+      ],
+    });
+    await handlers["payments.payment-captured"]!(event);
+    await wallets.postEntry(
+      {
+        accountId: "acc_seller" as never,
+        ledgerEntryId: "led_debit" as never,
+        kind: "refund",
+        direction: "debit",
+        amount: "15.00",
+        allowNegativeBalance: true,
+      },
+      { tenantId: event.tenantId, audit: event.audit },
+    );
+    // The old implementation reads this changed projection and chooses new _pending identities.
+    vi.spyOn(wallets, "getWallet").mockResolvedValue({ available_balance_amount: "-15.00" } as never);
+    await handlers["payments.payment-captured"]!(event);
+    expect(wallets.getWallet).not.toHaveBeenCalled();
+    const state = await wallets.loadWalletState("acc_seller" as never);
+    expect(state.totalCreditedAmount).toBe("23.00");
+    expect(state.entries.filter((entry) => entry.direction === "credit").map((entry) => entry.ledgerEntryId)).toEqual([
+      "led_sale_pay_1_ord_1",
+      "led_shipping_allowance_pay_1_ord_1",
+    ]);
+  });
+
   it("records one replay-idempotent protection reserve contribution per captured order", async () => {
     const { db, queryMock } = createDb();
     const handlers = buildSettlementPaymentInputProjectionHandlers(db);
@@ -249,10 +296,9 @@ describe("settlement payment source projection", () => {
     const db = {
       query: vi.fn(async () => ({ rows: [] })),
     };
-    const wallets = {
-      postEntry: vi.fn(async () => ({ accountId: "acc_seller", version: 1 })),
-    };
-    const handlers = buildSettlementPaymentInputProjectionHandlers(db as never, wallets as never);
+    const { eventStore } = createInMemoryEventStore();
+    const wallets = createWalletRuntime({ eventStore, db, checkpointStore: {} as never });
+    const handlers = buildSettlementPaymentInputProjectionHandlers(db, wallets);
 
     await handlers["payments.payment-captured"]!(
       transportEvent("payments.payment-captured", {
@@ -275,47 +321,37 @@ describe("settlement payment source projection", () => {
       }),
     );
 
-    expect(wallets.postEntry).toHaveBeenCalledTimes(2);
-    expect(wallets.postEntry).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        accountId: "acc_seller",
+    const state = await wallets.loadWalletState("acc_seller" as never);
+    expect(state.totalCreditedAmount).toBe("20.00");
+    expect(state.entries).toMatchObject([
+      {
         ledgerEntryId: "led_sale_pay_1_ord_1",
         kind: "sale",
         direction: "credit",
         amount: "19.00",
         fundsStatus: "pending",
+        currencyCode: "usd",
         orderId: "ord_1",
         paymentId: "pay_1",
-      }),
-      expect.objectContaining({
-        tenantId: "tnt_test",
-      }),
-    );
-    expect(wallets.postEntry).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        accountId: "acc_seller",
+      },
+      {
         ledgerEntryId: "led_shipping_allowance_pay_1_ord_1",
         kind: "rebate",
         direction: "credit",
         amount: "1.00",
         fundsStatus: "pending",
+        currencyCode: "usd",
         orderId: "ord_1",
         paymentId: "pay_1",
-      }),
-      expect.objectContaining({
-        tenantId: "tnt_test",
-      }),
-    );
+      },
+    ]);
   });
 
   it("audits capped fee lines and credits the byte-exact multi-quantity seller net", async () => {
     const db = { query: vi.fn(async () => ({ rows: [] })) };
-    const wallets = {
-      postEntry: vi.fn(async () => ({ accountId: "acc_seller", version: 1 })),
-    };
-    const handlers = buildSettlementPaymentInputProjectionHandlers(db as never, wallets as never);
+    const { eventStore } = createInMemoryEventStore();
+    const wallets = createWalletRuntime({ eventStore, db, checkpointStore: {} as never });
+    const handlers = buildSettlementPaymentInputProjectionHandlers(db, wallets);
     const feeLines = (
       [
         ["line_10", "10.00", 1, "0.50", "0.50"],
@@ -357,14 +393,14 @@ describe("settlement payment source projection", () => {
       }),
     );
 
-    expect(wallets.postEntry).toHaveBeenCalledTimes(1);
-    expect(wallets.postEntry).toHaveBeenCalledWith(
-      expect.objectContaining({
+    const state = await wallets.loadWalletState("acc_seller" as never);
+    expect(state.totalCreditedAmount).toBe("3889.50");
+    expect(state.entries).toMatchObject([
+      {
         ledgerEntryId: "led_sale_pay_cap_examples_ord_cap_examples",
         amount: "3889.50",
-      }),
-      expect.anything(),
-    );
+      },
+    ]);
   });
 
   it("rejects settlement economics that do not apply the snapshotted per-item cap", async () => {
@@ -478,13 +514,21 @@ describe("settlement payment source projection", () => {
     const db = {
       query: vi.fn(async () => ({ rows: [] })),
     };
-    const wallets = {
-      getWallet: vi.fn(async () => ({
-        available_balance_amount: "-15.00",
-      })),
-      postEntry: vi.fn(async () => ({ accountId: "acc_seller", version: 1 })),
-    };
-    const handlers = buildSettlementPaymentInputProjectionHandlers(db as never, wallets as never);
+    const { eventStore } = createInMemoryEventStore();
+    const wallets = createWalletRuntime({ eventStore, db, checkpointStore: {} as never });
+    const event = transportEvent("payments.payment-captured", {});
+    await wallets.postEntry(
+      {
+        accountId: "acc_seller" as never,
+        ledgerEntryId: "led_debit" as never,
+        kind: "refund",
+        direction: "debit",
+        amount: "15.00",
+        allowNegativeBalance: true,
+      },
+      { tenantId: event.tenantId, audit: event.audit },
+    );
+    const handlers = buildSettlementPaymentInputProjectionHandlers(db, wallets);
 
     await handlers["payments.payment-captured"]!(
       transportEvent("payments.payment-captured", {
@@ -507,35 +551,28 @@ describe("settlement payment source projection", () => {
       }),
     );
 
-    expect(wallets.postEntry).toHaveBeenCalledTimes(3);
-    expect(wallets.postEntry).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
+    const state = await wallets.loadWalletState("acc_seller" as never);
+    expect(state.totalCreditedAmount).toBe("23.00");
+    expect(state.availableBalanceAmount).toBe("0.00");
+    expect(state.pendingBalanceAmount).toBe("8.00");
+    expect(state.entries.filter((entry) => entry.direction === "credit")).toMatchObject([
+      {
         ledgerEntryId: "led_sale_pay_1_ord_1_pending",
         amount: "5.00",
         fundsStatus: "pending",
-      }),
-      expect.anything(),
-    );
-    expect(wallets.postEntry).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
+      },
+      {
         ledgerEntryId: "led_sale_pay_1_ord_1",
         amount: "15.00",
         fundsStatus: "available",
         description: "Negative balance offset from item sale proceeds for order ord_1",
-      }),
-      expect.anything(),
-    );
-    expect(wallets.postEntry).toHaveBeenNthCalledWith(
-      3,
-      expect.objectContaining({
+      },
+      {
         ledgerEntryId: "led_shipping_allowance_pay_1_ord_1",
         amount: "3.00",
         fundsStatus: "pending",
-      }),
-      expect.anything(),
-    );
+      },
+    ]);
   });
 
   it("posts idempotent seller refund debits when a payment refund webhook is projected", async () => {
