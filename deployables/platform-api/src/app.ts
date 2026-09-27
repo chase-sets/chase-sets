@@ -153,7 +153,10 @@ import {
 import { createApiHost, resolveApiHostMounts, type ApiHostRuntime } from "@chase-sets/platform-runtime/api";
 import {
   createEvidenceWindowRegistrationRoutes,
+  createEvidenceWindowSourceAdmissionMiddleware,
+  createEvidenceWindowSourceRecoveryRoutes,
   type EvidenceWindowRoutesOptions,
+  type EvidenceWindowSourceRecoveryRoutesOptions,
   type PlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
 import {
@@ -279,6 +282,7 @@ export type BuildPlatformApiOptions = Readonly<{
   checkoutClosed?: boolean;
   controlPlane?: PlatformControlPlane;
   evidenceWindowRegistration?: EvidenceWindowRoutesOptions;
+  evidenceWindowSourceRecovery?: Omit<EvidenceWindowSourceRecoveryRoutesOptions, "sources">;
   workSignalStore?: ProjectionWakeStatusWorkSignalStore;
   readConsistencyAuditLogger?: Readonly<{
     info: (message: string, fields?: Readonly<Record<string, unknown>>) => void;
@@ -988,6 +992,15 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
   if (options.evidenceWindowRegistration) {
     app.route("/internal/evidence-windows", createEvidenceWindowRegistrationRoutes(options.evidenceWindowRegistration));
   }
+  if (options.evidenceWindowSourceRecovery && orderingServices?.orders) {
+    app.route(
+      "/internal/evidence-windows",
+      createEvidenceWindowSourceRecoveryRoutes({
+        ...options.evidenceWindowSourceRecovery,
+        sources: orderingServices.orders.evidenceWindowSources,
+      }),
+    );
+  }
   if (marketplacePlatformRoutesEnabled) {
     app.get("/internal/realtime/status", async (c) =>
       c.json(
@@ -1103,6 +1116,14 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     apiMounts.filter((mount) => mount.contextName === "catalog" && mount.requiresAuth).map((mount) => mount.mountPath),
     catalogApiPermissionMiddleware,
   );
+  if (options.evidenceWindowSourceRecovery && orderingServices?.orders) {
+    const evidenceWindowSourceAdmission = createEvidenceWindowSourceAdmissionMiddleware(
+      options.evidenceWindowSourceRecovery,
+    );
+    for (const mount of apiMounts.filter((entry) => entry.contextName === "ordering")) {
+      app.use(`${mount.mountPath}/account/purchases/checkout`, evidenceWindowSourceAdmission);
+    }
+  }
 
   attachWriteConsistencyMiddleware(app, apiMounts, runtime.projectionGroups, {
     enabled: options.projectionInlineApplyEnabled ?? false,

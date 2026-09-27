@@ -82,6 +82,10 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("ordering.features.orders.api.route.request.failed");
 }
 
+function refuseEvidenceWindowSourceAdmission(): never {
+  throw new Error("Evidence window source admission refused.");
+}
+
 function errorCode(error: unknown) {
   return errorMessage(error).startsWith("Sign in is required") ? "account_sign_in_required" : "validation_failed";
 }
@@ -297,11 +301,32 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
       );
     }
 
+    const windowId = c.req.header("x-evidence-window-id");
+    const subInvocation = c.req.header("x-evidence-window-sub-invocation");
+    if (
+      Boolean(windowId) !== Boolean(subInvocation) ||
+      (windowId !== undefined && !/^[0-9a-f]{32}$/.test(windowId)) ||
+      (subInvocation !== undefined && subInvocation !== "2a" && subInvocation !== "2b")
+    ) {
+      return c.json({ error: { code: "evidence-window-source-admission-refused" } }, 400);
+    }
+
     const body = await c.req.json();
+    // Stamped only by the host's evidence-window admission; absent when the
+    // host did not mount it, and never read from the request body.
+    const admission = c.get("evidenceWindowSourceAdmission");
 
     try {
+      const evidenceWindowSource =
+        windowId && subInvocation
+          ? admission?.source?.windowId === windowId && admission.source.subInvocation === subInvocation
+            ? admission.source
+            : refuseEvidenceWindowSourceAdmission()
+          : null;
       const result = await services.createOrdersFromCheckout(
         {
+          ...(evidenceWindowSource ? { evidenceWindowSource } : {}),
+          ...(admission ? { evidenceWindowSourceAdmissionConfigured: true } : {}),
           buyerAccountId: access.actor.accountId as AccountId,
           checkoutSessionId: String(body.checkoutSessionId ?? ""),
           sourceType: parseCheckoutOrderingSourceType(body.sourceType),
@@ -348,6 +373,12 @@ export function createAccountPurchaseOrderRoutes(services: OrderingOrderServices
 
       return c.json({ ...result, status: "created" }, 201);
     } catch (error) {
+      if (windowId || subInvocation) {
+        return (
+          staleAuthenticityFeeQuoteResponse(c, error) ??
+          c.json({ error: { code: "evidence-window-source-failed" } }, 409)
+        );
+      }
       return (
         staleAuthenticityFeeQuoteResponse(c, error) ??
         c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400)

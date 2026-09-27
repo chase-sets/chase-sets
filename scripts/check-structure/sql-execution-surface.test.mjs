@@ -982,6 +982,13 @@ describe("repository-wide SQL execution partition", () => {
       ]),
     );
     expect(partition.sqlExecuting).toContain("bounded-contexts/channels/features/reconciliation/read-model/detail.ts");
+    expect(partition.sqlExecuting).toEqual(
+      expect.arrayContaining([
+        "bounded-contexts/ordering/features/orders/api/evidence-window-source-process.ts",
+        "bounded-contexts/ordering/features/orders/api/evidence-window-source-release.ts",
+      ]),
+    );
+    expect(partition.notSql).toContain("infrastructure/platform-runtime/evidence-window-source-recovery.ts");
     expect(partition.notSql).toContain("bounded-contexts/channels/features/reconciliation/api/route.ts");
     expect(partition.notSql).toContain("bounded-contexts/pricing/features/market-rollups/api/route.ts");
     expect(

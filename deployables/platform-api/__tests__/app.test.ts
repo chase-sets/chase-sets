@@ -406,9 +406,12 @@ describe("platform api app wiring", () => {
       app.request("/internal/evidence-windows/open", { method: "POST" }),
       app.request("/internal/evidence-windows/current"),
       app.request("/internal/evidence-windows/0123456789abcdef0123456789abcdef/close", { method: "POST" }),
+      app.request("/internal/evidence-windows/0123456789abcdef0123456789abcdef/sources"),
+      app.request("/internal/evidence-windows/0123456789abcdef0123456789abcdef/sources/2a/close", { method: "POST" }),
+      app.request("/internal/evidence-windows/0123456789abcdef0123456789abcdef/sources/2a/release", { method: "POST" }),
     ]);
 
-    expect(responses.map((response) => response.status)).toEqual([404, 404, 404]);
+    expect(responses.map((response) => response.status)).toEqual([404, 404, 404, 404, 404, 404]);
   });
 
   it("mounts the three registration-only routes under the dedicated admission contract", async () => {
