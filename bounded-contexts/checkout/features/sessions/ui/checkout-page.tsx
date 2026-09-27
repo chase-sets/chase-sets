@@ -100,7 +100,19 @@ export function CheckoutSessionPage(props: CheckoutSessionPageProps) {
           totalsPayableTotal={model.totalsTotal}
         />
       ) : (
-        <Form spacing="none" id="checkout-confirmation-form" method="post">
+        <Form
+          spacing="none"
+          id="checkout-confirmation-form"
+          method="post"
+          onSubmit={(event) => {
+            if ((event.nativeEvent as SubmitEvent).submitter?.getAttribute("value") === "retry-wallet-balance") {
+              if (props.onRetryWalletBalance) {
+                event.preventDefault();
+                props.onRetryWalletBalance();
+              }
+            }
+          }}
+        >
           <Stack gap={4}>
             <CheckoutFormLevelHiddenFields
               fulfillmentPreviewRevision={model.preview?.revision}

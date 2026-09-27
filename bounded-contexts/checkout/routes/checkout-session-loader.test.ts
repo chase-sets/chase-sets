@@ -140,6 +140,13 @@ function walletCheckoutSession(paymentId: string | null = null) {
   };
 }
 
+function stubValidatedZeroWallet() {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json({ available_balance_amount: "0.00", currency_code: "usd" })),
+  );
+}
+
 describe("checkout web routes: checkout session loader", () => {
   beforeEach(() => {
     applyCheckoutRouteMockDefaults();
@@ -260,11 +267,12 @@ describe("checkout web routes: checkout session loader", () => {
     const loading = loadSignedInWalletCheckout(request);
     const signal = await capturedSignal;
     expect(signal.aborted).toBe(false);
-    const ancillaryRequest = mockCreateCheckoutRequestApiClient.mock.calls.at(-1)?.[0] as Request;
-    expect(new URL(ancillaryRequest.url).searchParams.has("afterWrite")).toBe(false);
     controller.abort("secret-wallet-marker");
     expect(signal.aborted).toBe(true);
     const result = await loading;
+    const ancillaryRequest = mockCreateCheckoutRequestApiClient.mock.calls.at(-1)?.[0] as Request;
+    expect(new URL(ancillaryRequest.url).searchParams.has("afterWrite")).toBe(false);
+    expect(ancillaryRequest.signal.aborted).toBe(true);
     expect(result.walletUnavailable).toBe(true);
     expect(result.paymentPreview).toBeNull();
     expect(JSON.stringify(result)).not.toContain("secret-wallet-marker");
@@ -725,10 +733,7 @@ describe("checkout web routes: checkout session loader", () => {
       roleKey: "owner",
       permissions: ["orders.view"],
     });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response(null, { status: 404 })),
-    );
+    stubValidatedZeroWallet();
     mockGetCheckoutSession.mockResolvedValue({
       session_id: "chk_1",
       source_type: "buy-now",
@@ -853,10 +858,7 @@ describe("checkout web routes: checkout session loader", () => {
       roleKey: "owner",
       permissions: ["orders.view"],
     });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response(null, { status: 404 })),
-    );
+    stubValidatedZeroWallet();
     mockGetCheckoutSession.mockResolvedValue({
       session_id: "chk_1",
       source_type: "buy-now",
@@ -971,10 +973,7 @@ describe("checkout web routes: checkout session loader", () => {
       roleKey: "owner",
       permissions: ["orders.view"],
     });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response(null, { status: 404 })),
-    );
+    stubValidatedZeroWallet();
     mockGetCheckoutSession.mockResolvedValue({
       session_id: "chk_1",
       source_type: "buy-now",
@@ -1070,10 +1069,7 @@ describe("checkout web routes: checkout session loader", () => {
       roleKey: "owner",
       permissions: ["orders.view"],
     });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response(null, { status: 404 })),
-    );
+    stubValidatedZeroWallet();
     mockGetCheckoutSession.mockResolvedValue({
       session_id: "chk_1",
       source_type: "buy-now",
@@ -1166,10 +1162,7 @@ describe("checkout web routes: checkout session loader", () => {
       roleKey: "owner",
       permissions: ["orders.view"],
     });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response(null, { status: 404 })),
-    );
+    stubValidatedZeroWallet();
     mockGetCheckoutSession.mockResolvedValue({
       session_id: "chk_1",
       source_type: "buy-now",

@@ -9,6 +9,7 @@ import {
   useLoaderData,
   useLocation,
   useNavigation,
+  useRevalidator,
   useRouteError,
 } from "react-router";
 import {
@@ -805,6 +806,10 @@ async function handleAction(intent: string, { request, params, formData }: FormA
   if (!params.sessionId) {
     throw new Response(t("checkout.routes.checkoutSession.checkout.session.not.found.2"), { status: 404 });
   }
+  if (intent === "retry-wallet-balance") {
+    // A non-redirecting action revalidates the wallet loader without replacing unsaved form fields.
+    return null;
+  }
 
   const internalApiRequest = requestWithoutReadAfterWrite(resolvedRequest);
   const readApi = createCheckoutRequestApiClient(resolvedRequest);
@@ -1013,6 +1018,7 @@ export const action = defineFormAction({
   prepare: async (args) => ({ ...args, request: await resolveCheckoutSessionPostWriteRequest(args.request) }),
   intents: {
     "confirm-checkout": (context) => handleAction("confirm-checkout", context),
+    "retry-wallet-balance": (context) => handleAction("retry-wallet-balance", context),
     "refresh-checkout-preview": (context) => handleAction("refresh-checkout-preview", context),
     "select-optimization-goal": (context) => handleAction("select-optimization-goal", context),
   },
@@ -1029,6 +1035,7 @@ export default function CheckoutSessionRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
+  const revalidator = useRevalidator();
   const realtimeTopics = checkoutPreviewRealtimeTopics(data.session.lines);
   const realtimeSubscriptionKey = realtimeTopics.join("\n");
   const actionEditSection = actionData && "editSection" in actionData ? actionData.editSection : null;
@@ -1048,6 +1055,7 @@ export default function CheckoutSessionRoute() {
       session={data.session}
       wallet={data.wallet}
       walletUnavailable={data.walletUnavailable}
+      onRetryWalletBalance={() => revalidator.revalidate()}
       paymentPreview={data.paymentPreview}
       selectedPaymentMethodCategory={data.selectedPaymentMethodCategory}
       fulfillmentPreview={data.fulfillmentPreview}

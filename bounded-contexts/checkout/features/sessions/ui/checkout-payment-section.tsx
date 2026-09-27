@@ -67,8 +67,9 @@ export function CheckoutPaymentSection({
         <Button
           type="submit"
           form="checkout-confirmation-form"
+          formNoValidate
           name="intent"
-          value="refresh-checkout-preview"
+          value="retry-wallet-balance"
           leadingIcon="refreshCcw"
           size="sm"
         >

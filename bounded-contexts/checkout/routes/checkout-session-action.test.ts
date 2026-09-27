@@ -1410,6 +1410,33 @@ describe("checkout web routes: checkout session action", () => {
     expect(response.headers.get("Location")).toBe("/checkout/buy/session/chk_1");
   });
 
+  it("revalidates an unavailable wallet with incomplete edited fields without writing or starting payment", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: [] });
+    const form = new URLSearchParams({
+      intent: "retry-wallet-balance",
+      shippingEmail: "edited-buyer@example.com",
+      shippingName: "Edited Buyer",
+      shippingLine1: "100 Market Street",
+      shippingPhone: "3125550100",
+    });
+
+    const response = await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/buy/session/chk_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never);
+
+    expect(response).toBeNull();
+    expect(mockCreateCheckoutRequestApiClient).not.toHaveBeenCalled();
+    expect(mockSelectShippingAddress).not.toHaveBeenCalled();
+    expect(mockSelectShippingOption).not.toHaveBeenCalled();
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+  });
+
   it("refreshes checkout totals by saving the current shipping address without confirming", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: [] });
     mockSelectShippingOption.mockResolvedValue({});
