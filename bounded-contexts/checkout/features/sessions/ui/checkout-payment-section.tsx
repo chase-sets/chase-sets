@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  Button,
   Checkbox,
   CheckoutFormSection,
   CheckoutStateNotice,
@@ -30,6 +31,7 @@ export type CheckoutPaymentSectionProps = Readonly<{
   reservationMsRemaining: number | null;
   payment: CheckoutPaymentPreview | null;
   wallet: { available_balance_amount: string; currency_code: string } | null | undefined;
+  walletUnavailable: boolean;
   onFieldChange: () => void;
 }>;
 
@@ -49,15 +51,38 @@ export function CheckoutPaymentSection({
   reservationMsRemaining,
   payment,
   wallet,
+  walletUnavailable,
   onFieldChange,
 }: CheckoutPaymentSectionProps) {
   if (isOfferIntent) {
     return null;
   }
 
+  const unavailableNotice = walletUnavailable ? (
+    <CheckoutStateNotice
+      tone="warning"
+      title={t("checkout.features.sessions.ui.checkoutPage.wallet.unavailable")}
+      description={t("checkout.features.sessions.ui.checkoutPage.wallet.unavailable.description")}
+      action={
+        <Button
+          type="submit"
+          form="checkout-confirmation-form"
+          formNoValidate
+          name="intent"
+          value="retry-wallet-balance"
+          leadingIcon="refreshCcw"
+          size="sm"
+        >
+          {t("checkout.features.sessions.ui.checkoutPage.retry.wallet")}
+        </Button>
+      }
+    />
+  ) : null;
+
   if (!showPaymentForm) {
     return (
       <>
+        {unavailableNotice}
         <HiddenInput type="hidden" name="previewPaymentMethodCategory" value={effectivePaymentMethodCategory} />
         {selectedSavedPaymentInstrument ? (
           <HiddenInput
@@ -77,6 +102,7 @@ export function CheckoutPaymentSection({
         description={t("checkout.features.sessions.ui.checkoutPage.payment.section.description")}
         badge={<SecurePaymentIndicator label={t("checkout.features.sessions.ui.checkoutPage.secure.payment")} />}
       >
+        {unavailableNotice}
         <NativeSelect
           label={t("checkout.features.sessions.ui.checkoutPage.payment.method")}
           name="previewPaymentMethodCategory"
