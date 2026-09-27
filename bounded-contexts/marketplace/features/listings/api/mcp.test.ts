@@ -79,6 +79,65 @@ function services(): MarketplaceListingServices {
 }
 
 describe("marketplace listing MCP handlers", () => {
+  const targetCommands = [
+    {
+      tool: "marketplace.accept-listing-target-price",
+      service: "acceptListingTargetPrice",
+      body: {
+        target: { kind: "native-marketplace" },
+        priceAmount: "12.00",
+        priceCurrencyCode: "CAD",
+        expectedTargetPriceRevision: 1,
+        decision: { kind: "seller-reference" },
+      },
+    },
+    {
+      tool: "marketplace.activate-listing-for-channel",
+      service: "activateListingForChannel",
+      body: {
+        connectionId: "connection_synthetic",
+        expectedTargetPriceRevision: 2,
+        allocationRevision: 1,
+      },
+    },
+    {
+      tool: "marketplace.set-native-listing-visibility",
+      service: "setNativeListingVisibility",
+      body: { nativeVisibility: "disabled" },
+    },
+    { tool: "marketplace.resume-listing", service: "resumeListing", body: { expectedPauseReason: "seller" } },
+  ] as const;
+  it.each(targetCommands)(
+    "fences foreign accounts, capability and unknown authority in $tool",
+    async ({ tool, service, body }) => {
+      const call = vi.fn(async () => ({ listingId: "lst_synthetic", version: 3 }));
+      const handlers = createMarketplaceListingMcpHandlers({ ...services(), [service]: call });
+      const invoke = (args: Record<string, unknown>, scopedActor: ResolvedActor = actor) =>
+        handlers.toolHandlers[tool]!({
+          actor: scopedActor,
+          tool: null as never,
+          arguments: args,
+          request: new Request("https://api.test/mcp"),
+          protocol: legacyMcpProtocol,
+        });
+      const args = {
+        ...body,
+        accountId: "acc_1",
+        listingId: "lst_synthetic",
+        expectedListingVersion: 2,
+        idempotencyKey: "request_synthetic",
+      };
+      await expect(invoke({ ...args, accountId: "foreign" })).rejects.toThrow();
+      await expect(invoke(args, { ...actor, permissions: ["listings.view"] })).rejects.toThrow("listings.manage");
+      await expect(invoke({ ...args, connectionAuthority: {} })).rejects.toThrow();
+      expect(call).not.toHaveBeenCalled();
+      await invoke(args);
+      expect(call).toHaveBeenCalledWith(
+        args,
+        expect.objectContaining({ audit: { forAccountId: "acc_1", performedByUserId: "usr_1" } }),
+      );
+    },
+  );
   it("lists seller listings through the Marketplace listing read model", async () => {
     const fakeServices = services();
     const handlers = createMarketplaceListingMcpHandlers(fakeServices);

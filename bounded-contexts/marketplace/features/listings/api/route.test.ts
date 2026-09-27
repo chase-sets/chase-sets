@@ -301,6 +301,99 @@ const sellerActor: MarketplaceApiEnv["Variables"]["actor"] = {
   permissions: ["listings.view", "listings.manage"],
 };
 
+describe("Listing target command HTTP boundary", () => {
+  const commands = [
+    {
+      path: "accept-target-price",
+      service: "acceptListingTargetPrice",
+      body: {
+        target: { kind: "native-marketplace" },
+        priceAmount: "12.00",
+        priceCurrencyCode: "CAD",
+        expectedTargetPriceRevision: 1,
+        decision: { kind: "seller-reference" },
+      },
+    },
+    {
+      path: "activate-channel",
+      service: "activateListingForChannel",
+      body: {
+        connectionId: "connection_synthetic",
+        expectedTargetPriceRevision: 2,
+        allocationRevision: 1,
+      },
+    },
+    { path: "native-visibility", service: "setNativeListingVisibility", body: { nativeVisibility: "disabled" } },
+    { path: "resume", service: "resumeListing", body: { expectedPauseReason: "seller" } },
+  ] as const;
+  const request = (path: string, body: unknown) =>
+    new Request(`https://api.test/account/listings/lst_synthetic/${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  it.each(commands)(
+    "binds $path to authenticated ownership and rejects submitted authority fields",
+    async ({ path, service, body }) => {
+      const services = createServices();
+      const call = vi.fn(async () => ({ listingId: "lst_synthetic", version: 3 }));
+      const app = buildApp({ actor: sellerActor, services: { ...services, [service]: call } });
+      const input = { ...body, expectedListingVersion: 2, idempotencyKey: "request_synthetic" };
+      for (const extra of [
+        { accountId: "foreign" },
+        { listingId: "foreign" },
+        { connectionAuthority: {} },
+        { nativePublicationRevision: 1 },
+      ]) {
+        expect((await app.request(request(path, { ...input, ...extra }))).status).toBe(400);
+      }
+      expect(call).not.toHaveBeenCalled();
+      expect((await app.request(request(path, input))).status).toBe(200);
+      expect(call).toHaveBeenCalledWith(
+        { ...input, accountId: "acc_seller", listingId: "lst_synthetic" },
+        expect.objectContaining({
+          audit: { forAccountId: "acc_seller", performedByUserId: "usr_seller" },
+        }),
+      );
+    },
+  );
+
+  it.each(commands)(
+    "refuses $path without listings.manage before invoking the owner",
+    async ({ path, service, body }) => {
+      const call = vi.fn();
+      const app = buildApp({
+        actor: { ...sellerActor, permissions: ["listings.view"] },
+        services: { ...createServices(), [service]: call },
+      });
+      expect(
+        (await app.request(request(path, { ...body, expectedListingVersion: 2, idempotencyKey: "request_synthetic" })))
+          .status,
+      ).toBe(403);
+      expect(call).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not turn an owner allocation failure into a successful channel activation", async () => {
+    const activateListingForChannel = vi.fn(async () => {
+      throw new Error("Current owned Inventory allocation and stock are required.");
+    });
+    const app = buildApp({ actor: sellerActor, services: { ...createServices(), activateListingForChannel } });
+    const response = await app.request(
+      request("activate-channel", {
+        ...commands[1].body,
+        expectedListingVersion: 2,
+        idempotencyKey: "request_synthetic",
+      }),
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: { message: "Current owned Inventory allocation and stock are required." },
+    });
+  });
+});
+
 const validShipFromAddress = {
   name: "Seller shelf",
   company: null,
