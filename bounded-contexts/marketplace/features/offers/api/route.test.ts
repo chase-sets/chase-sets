@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { MarketplaceApiEnv } from "../../../api";
 import { createAccountOfferMatchRoutes, createAccountSubmittedOfferRoutes } from "./route";
 import { MarketplaceOfferFeeQuoteStaleError, type MarketplaceOfferServices } from "./runtime";
+import { privatePolicyFields } from "../../offer-policy/tests/fixtures";
 
 function buildApp(
   options: Readonly<{
@@ -303,11 +304,7 @@ describe("marketplace offer routes", () => {
     const services = createServices();
     vi.mocked(services.getPublicOffer).mockResolvedValue({
       ...submittedOfferWithPrivateDestination,
-      buyerOfferPolicyId: "bop_private",
-      authority: { itemCommitmentAllowance: "5000.00", offers: ["off_private_scope"] },
-      preview: { maximumUnitItemAmount: "1000.00" },
-      consumedItemAmount: "50.00",
-      remainingItemAllowance: "4950.00",
+      ...privatePolicyFields,
       offer_id: "off_air_balloon",
       catalog_catalog_item_id: "cat_air_balloon",
       product_id: "cat_air_balloon::condition:damaged|form:raw",
@@ -348,9 +345,10 @@ describe("marketplace offer routes", () => {
       price_amount: "24.96",
     });
     expect(body).not.toHaveProperty("shipping_destination_snapshot");
-    for (const field of ["buyerOfferPolicyId", "authority", "preview", "consumedItemAmount", "remainingItemAllowance"])
-      expect(body).not.toHaveProperty(field);
-    expect(JSON.stringify(body)).not.toContain("off_private_scope");
+    for (const [key, value] of Object.entries(privatePolicyFields)) {
+      expect(body).not.toHaveProperty(key);
+      if (typeof value !== "object") expect(JSON.stringify(body)).not.toContain(String(value));
+    }
     expect(JSON.stringify(body)).not.toContain("alternate-contact@example.test");
     expect(services.getPublicOffer).toHaveBeenCalledWith("off_air_balloon");
   });

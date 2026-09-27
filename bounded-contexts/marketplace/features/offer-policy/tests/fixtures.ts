@@ -31,6 +31,23 @@ export const terms: BuyerOfferPolicyTerms = {
     },
   ],
 };
+export const privateLimitTerms: BuyerOfferPolicyTerms = {
+  ...terms,
+  adjustmentBps: -2345,
+  itemCommitmentAllowance: "98765.43",
+  offers: [{ ...terms.offers[0]!, maximumUnitItemAmount: "8765.43" }],
+};
+export const privatePolicyFields = {
+  buyerOfferPolicyId: "bop_private",
+  buyer_offer_policy_id: "bop_private",
+  authority: privateLimitTerms,
+  preview: { previewId: "private_preview", terms: privateLimitTerms },
+  maximumUnitItemAmount: privateLimitTerms.offers[0]!.maximumUnitItemAmount,
+  adjustmentBps: privateLimitTerms.adjustmentBps,
+  itemCommitmentAllowance: privateLimitTerms.itemCommitmentAllowance,
+  consumedItemAmount: "1234.56",
+  remainingItemAllowance: "97530.87",
+};
 export async function seedOffer(store: EventStore, id = "off_one", buyer = "acc_buyer") {
   const events = decideMarketplaceOffer(initialMarketplaceOfferState, {
     type: "SubmitOffer",

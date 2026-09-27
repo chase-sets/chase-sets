@@ -218,52 +218,67 @@ describe("Buyer Offer Policy authoritative runtime", () => {
     ).rejects.toMatchObject({ code: "stale_preview" });
     expect(await store.readAll()).toEqual(before);
   });
-  it("two policies cannot bind the same Offer, including after stop", async () => {
-    const { runtime, store } = await fixture();
-    const first = await preview(runtime);
-    await runtime.execute(
-      "bop_two",
-      { type: "CreateBuyerOfferPolicy", expectedVersion: 0, operationId: "create" },
-      context,
-    );
-    const second = await runtime.execute(
-      "bop_two",
-      { type: "PreviewBuyerOfferPolicy", expectedVersion: 1, operationId: "preview", terms },
-      context,
-    );
-    const results = await Promise.allSettled(
-      [first, second].map((p) =>
-        runtime.execute(
-          p.policyId!,
+  it.each(["active", "paused", "stopped"] as const)(
+    "two policies cannot bind the same Offer while its owner is %s",
+    async (status) => {
+      const { runtime, store } = await fixture();
+      const first = await preview(runtime);
+      await runtime.execute(
+        "bop_two",
+        { type: "CreateBuyerOfferPolicy", expectedVersion: 0, operationId: "create" },
+        context,
+      );
+      const second = await runtime.execute(
+        "bop_two",
+        { type: "PreviewBuyerOfferPolicy", expectedVersion: 1, operationId: "preview", terms },
+        context,
+      );
+      const results = await Promise.allSettled(
+        [first, second].map((p) =>
+          runtime.execute(
+            p.policyId!,
+            {
+              type: "AuthorizeBuyerOfferPolicy",
+              expectedVersion: p.version,
+              previewId: p.preview!.previewId,
+              consent: true,
+              operationId: "authorize",
+            },
+            context,
+          ),
+        ),
+      );
+      expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      const winner = results[0]!.status === "fulfilled" ? "bop_one" : "bop_two";
+      const loser = winner === "bop_one" ? "bop_two" : "bop_one";
+      if (status !== "active") {
+        await runtime.execute(
+          winner,
           {
-            type: "AuthorizeBuyerOfferPolicy",
-            expectedVersion: p.version,
-            previewId: p.preview!.previewId,
-            consent: true,
-            operationId: "authorize",
+            type: status === "paused" ? "PauseBuyerOfferPolicy" : "StopBuyerOfferPolicy",
+            expectedVersion: 3,
+            operationId: status,
+          },
+          context,
+        );
+      }
+      const before = await store.readAll();
+      await expect(
+        runtime.execute(
+          loser,
+          {
+            type: "PreviewBuyerOfferPolicy",
+            expectedVersion: 2,
+            operationId: "new_preview",
+            terms: { ...terms, offers: [{ ...terms.offers[0]!, offerVersion: 2 }] },
           },
           context,
         ),
-      ),
-    );
-    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-    const winner = results[0]!.status === "fulfilled" ? "bop_one" : "bop_two";
-    const loser = winner === "bop_one" ? "bop_two" : "bop_one";
-    await runtime.execute(winner, { type: "StopBuyerOfferPolicy", expectedVersion: 3, operationId: "stop" }, context);
-    await expect(
-      runtime.execute(
-        loser,
-        {
-          type: "PreviewBuyerOfferPolicy",
-          expectedVersion: 2,
-          operationId: "new_preview",
-          terms: { ...terms, offers: [{ ...terms.offers[0]!, offerVersion: 2 }] },
-        },
-        context,
-      ),
-    ).rejects.toThrow("permanently");
-    expect(await store.readStream({ streamId: "marketplace.offer-off_one" })).toHaveLength(2);
-  });
+      ).rejects.toThrow("permanently");
+      expect(await store.readAll()).toEqual(before);
+      expect(await store.readStream({ streamId: "marketplace.offer-off_one" })).toHaveLength(2);
+    },
+  );
   it("pause/resume requires fresh preview, revisions require consent, and retries do not resurrect stopped policy", async () => {
     const { runtime } = await fixture();
     await activate(runtime);

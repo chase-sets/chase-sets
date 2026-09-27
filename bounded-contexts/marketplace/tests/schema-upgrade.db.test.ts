@@ -138,6 +138,15 @@ describeDb("marketplace schema upgrades", () => {
     );
     const { runtime, store } = await fixture();
     await activate(runtime);
+    await runtime.execute(
+      "bop_one",
+      {
+        type: "StopBuyerOfferPolicy",
+        expectedVersion: 3,
+        operationId: "stop",
+      },
+      context,
+    );
     const events = await store.readAll();
     const handlers = buildBuyerOfferPolicyProjectionHandlers(pool);
     for (const event of events) await handlers[event.eventType]?.(toTransportEvent(event));
@@ -154,6 +163,12 @@ describeDb("marketplace schema upgrades", () => {
     expect(
       (await pool.query("SELECT offer_id, policy_id FROM marketplace_buyer_offer_policy_memberships")).rows,
     ).toEqual([{ offer_id: "off_one", policy_id: "bop_one" }]);
+    await expect(
+      pool.query(
+        `INSERT INTO marketplace_buyer_offer_policy_memberships (offer_id, policy_id, buyer_account_id)
+       VALUES ('off_one', 'bop_other', 'acc_buyer')`,
+      ),
+    ).rejects.toMatchObject({ code: "23505" });
   });
 
   it("records the review-hold stream-version migration once across fresh boots", async () => {

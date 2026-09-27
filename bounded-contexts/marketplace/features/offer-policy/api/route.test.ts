@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import type { MarketplaceApiEnv } from "../../../api";
-import { context, fixture, preview, seedOffer, terms } from "../tests/fixtures";
+import { context, fixture, preview, privateLimitTerms, seedOffer, terms } from "../tests/fixtures";
 import { createBuyerOfferPolicyRoutes } from "./route";
 import type { BuyerOfferPolicyServices } from "./runtime";
 
@@ -35,6 +35,45 @@ const post = (body: unknown): RequestInit => ({
 });
 
 describe("Buyer Offer Policy real account routes", () => {
+  it("retains private-limit sentinels only in owner reads throughout the lifecycle", async () => {
+    const { runtime } = await fixture();
+    const p = await preview(runtime, privateLimitTerms);
+    for (const status of ["draft", "active", "paused", "stopped"] as const) {
+      if (status === "active") {
+        await runtime.execute(
+          "bop_one",
+          {
+            type: "AuthorizeBuyerOfferPolicy",
+            expectedVersion: 2,
+            operationId: "authorize",
+            previewId: p.preview!.previewId,
+            consent: true,
+          },
+          context,
+        );
+      } else if (status !== "draft") {
+        await runtime.execute(
+          "bop_one",
+          {
+            type: status === "paused" ? "PauseBuyerOfferPolicy" : "StopBuyerOfferPolicy",
+            expectedVersion: status === "paused" ? 3 : 4,
+            operationId: status,
+          },
+          context,
+        );
+      }
+      const response = await app(runtime).request("/policies/bop_one");
+      expect(response.status).toBe(200);
+      const owner = await response.json();
+      expect(owner.status).toBe(status);
+      expect(status === "draft" ? owner.preview.terms : owner.authority).toEqual(privateLimitTerms);
+      expect(owner.consumedItemAmount).toBe("0.00");
+      expect(owner.remainingItemAllowance).toBe(status === "draft" ? null : "98765.43");
+      const foreign = await app(runtime, "acc_other").request("/policies/bop_one");
+      expect(foreign.status).toBe(404);
+      expect(await foreign.json()).toEqual({ error: { code: "not_found" } });
+    }
+  });
   it("rejects foreign and accepted selection through the authenticated route without events", async () => {
     const { runtime, store } = await fixture();
     await seedOffer(store, "off_foreign", "acc_other");
