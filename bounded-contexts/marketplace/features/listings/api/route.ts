@@ -503,7 +503,15 @@ export function createAccountListingRoutes(
       if (access.response) return access.response;
       const context = c.get("context");
       if (!context)
-        return c.json({ error: { code: "authentication_required", message: "Authentication context missing." } }, 401);
+        return c.json(
+          {
+            error: {
+              code: "authentication_required",
+              message: t("marketplace.features.listings.api.route.authentication.required"),
+            },
+          },
+          401,
+        );
       try {
         const body = await c.req.json();
         if (!body || typeof body !== "object" || Array.isArray(body) || "accountId" in body || "listingId" in body) {

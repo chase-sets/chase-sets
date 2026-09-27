@@ -8,6 +8,7 @@ function buildApp(
   options: Readonly<{
     actor: MarketplaceApiEnv["Variables"]["actor"];
     services: MarketplaceListingServices;
+    omitContext?: boolean;
   }>,
 ) {
   const app = new Hono<MarketplaceApiEnv>();
@@ -16,7 +17,7 @@ function buildApp(
     c.set("actor", options.actor);
     c.set(
       "context",
-      options.actor
+      options.actor && !options.omitContext
         ? {
             tenantId: "tnt_identity" as never,
             audit: {
@@ -391,6 +392,21 @@ describe("Listing target command HTTP boundary", () => {
     expect(await response.json()).toMatchObject({
       error: { message: "Current owned Inventory allocation and stock are required." },
     });
+  });
+
+  it.each(commands)("refuses $path without authenticated context", async ({ path, service, body }) => {
+    const call = vi.fn();
+    const app = buildApp({
+      actor: sellerActor,
+      services: { ...createServices(), [service]: call },
+      omitContext: true,
+    });
+    const response = await app.request(
+      request(path, { ...body, expectedListingVersion: 2, idempotencyKey: "request_synthetic" }),
+    );
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({ error: { code: "authentication_required" } });
+    expect(call).not.toHaveBeenCalled();
   });
 });
 
