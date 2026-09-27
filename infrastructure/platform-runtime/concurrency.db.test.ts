@@ -1,5 +1,14 @@
-import { createProjectionGroupWorkerRunner } from "./worker";
+import { createProjectionGroupWorkerRunner, createWorkerRunnerLoop } from "./worker";
+import { createProjectionWakeSchedulerRunners } from "./projection-wake-scheduler";
+import { Hono } from "hono";
+import type { ProjectorHandler } from "@chase-sets/event-core/projector";
 import {
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
+  encodeFreshWriteReceipt,
+} from "@chase-sets/http/responses";
+import {
+  attachReadConsistencyMiddleware,
   bootstrapContextDatabase,
   loadProjectionGroupGeneration,
   resetProjectionGroup,
@@ -7,7 +16,11 @@ import {
 } from "@chase-sets/bounded-context-runtime";
 import { defineBoundedContextModule } from "@chase-sets/bounded-context-module";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  createPostgresEventStore,
+  type PgQueryFunction,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
 import {
   closeMultiContextTestPools,
   createMountedContextTestRuntime,
@@ -1262,6 +1275,413 @@ describe("platform runtime Postgres concurrency guards", () => {
       "SELECT COUNT(*)::integer AS total_count FROM evidence_window",
     );
     expect(retained.rows[0]).toEqual({ total_count: 2 });
+  });
+});
+
+describe("busy-group-pass-attribution Postgres", () => {
+  let pools: Readonly<Record<"platform" | "inventory" | "catalog" | "marketplace", PgTransactionalPool>>;
+
+  beforeAll(async () => {
+    if (!adminDatabaseUrl) throw new Error("TEST_DATABASE_URL is required for busy-group attribution.");
+    const urls = createMultiContextTestDatabaseUrls(
+      adminDatabaseUrl,
+      ["platform", "inventory", "catalog", "marketplace"],
+      "busy_group_attribution",
+    );
+    await ensureMultiContextTestDatabases(adminDatabaseUrl, urls);
+    pools = createMultiContextTestPools(urls);
+  });
+
+  beforeEach(async () => {
+    await resetMultiContextTestSchemas(pools);
+    await pools.platform.query(platformControlPlaneSchemaSql);
+  });
+
+  afterAll(async () => {
+    if (pools) await closeMultiContextTestPools(pools);
+  });
+
+  it.each([
+    {
+      shape: "inventory-supply",
+      sourceContextName: "inventory" as const,
+      projectionName: "marketplace-inventory-supply-projection",
+      subscriptionVersion: 1,
+      order: 30,
+      initialCount: 50,
+      concurrentCount: 1,
+      createdType: "inventory.item.created",
+      changedType: "inventory.item.adjusted",
+      timeoutMs: 2500,
+      pollIntervalMs: 75,
+    },
+    {
+      shape: "marketplace-listing",
+      sourceContextName: "marketplace" as const,
+      projectionName: "marketplace-listing-projection",
+      subscriptionVersion: 2,
+      order: 22,
+      initialCount: 172,
+      concurrentCount: 5,
+      createdType: "marketplace.listing.created",
+      changedType: "marketplace.listing.price-updated",
+      timeoutMs: 900,
+      pollIntervalMs: 50,
+    },
+  ])("busy-group-exact-receipt-read $shape", async (fixture) => {
+    const startedAt = performance.now();
+    const traceLimit = 5 * 1024 * 1024;
+    let traceBytes = 0;
+    let omittedRecords = 0;
+    let sequence = 0;
+    const trace = (phase: string, fields: Readonly<Record<string, unknown>> = {}) => {
+      const line = JSON.stringify({
+        attribution: "busy-group-pass-attribution",
+        case: fixture.shape,
+        group: fixture.projectionName,
+        sequence: ++sequence,
+        elapsedMs: performance.now() - startedAt,
+        phase,
+        ...fields,
+      });
+      const bytes = Buffer.byteLength(line + "\n", "utf8");
+      // Reserve space for the terminal completeness record, even if a noisy runner fills the cap.
+      if (traceBytes + bytes > traceLimit - 1024) {
+        omittedRecords += 1;
+        return;
+      }
+      traceBytes += bytes;
+      console.info(line);
+    };
+    let connectionId = 0;
+    const targetPool: PgTransactionalPool = {
+      ...pools.marketplace,
+      query: (sql, values) => pools.marketplace.query(sql, values),
+      connect: async () => {
+        const connection = ++connectionId;
+        trace("connection-request", { connection });
+        const client = await pools.marketplace.connect();
+        trace("connection-acquired", { connection });
+        let checkpoint: Readonly<{ checkpointKey: unknown; position: unknown }> | undefined;
+        const query: PgQueryFunction = async (sql, values) => {
+          const command = sql.trim().toUpperCase();
+          const checkpointWrite = command.includes("INSERT INTO EVENT_SUBSCRIPTION_CHECKPOINTS");
+          const ownedWrite = command.includes("INSERT INTO BUSY_GROUP_OWNED_ITEMS");
+          const kind = checkpointWrite
+            ? "checkpoint-write"
+            : command.includes("PG_ADVISORY_XACT_LOCK")
+              ? "advisory-lock"
+              : ["BEGIN", "COMMIT", "ROLLBACK"].includes(command)
+                ? command
+                : "statement";
+          const identity = {
+            connection,
+            kind,
+            ...(ownedWrite ? { position: values?.[1], eventId: values?.[2] } : {}),
+          };
+          trace("db-request", identity);
+          try {
+            const result = await client.query(sql, values);
+            trace("db-returned", identity);
+            if (checkpointWrite) checkpoint = { checkpointKey: values?.[0], position: values?.[4] };
+            if (command === "COMMIT" && checkpoint) trace("checkpoint-committed", { connection, ...checkpoint });
+            if (command === "COMMIT" || command === "ROLLBACK") checkpoint = undefined;
+            return result;
+          } catch (error) {
+            trace("db-failed", { connection, kind });
+            throw error;
+          }
+        };
+        return {
+          query,
+          release: (error) => {
+            trace("connection-release", { connection, failed: error !== undefined });
+            client.release(error);
+          },
+        };
+      },
+    };
+    const applying = Promise.withResolvers<void>();
+    const apply: ProjectorHandler = async (event, context) => {
+      const identity = { eventId: event.eventId, position: event.globalPosition, streamId: event.streamId };
+      trace("apply-start", identity);
+      applying.resolve();
+      try {
+        await context!.db!.query(
+          `INSERT INTO busy_group_owned_items (stream_id, position, event_id)
+           VALUES ($1, $2::bigint, $3)
+           ON CONFLICT (stream_id) DO UPDATE SET position = EXCLUDED.position, event_id = EXCLUDED.event_id`,
+          [event.streamId, event.globalPosition, event.eventId],
+        );
+        trace("apply-end", identity);
+      } catch (error) {
+        trace("apply-failed", identity);
+        throw error;
+      }
+    };
+    const subscriptions = [
+      ...(fixture.sourceContextName === "marketplace"
+        ? [
+            {
+              sourceContextName: "catalog",
+              projectionName: fixture.projectionName,
+              subscriptionName: "marketplace.catalog-listing-projection",
+              subscriptionVersion: 1,
+              filterToEventTypes: true,
+              eventTypes: ["catalog.catalog-item.product-measures-resolved"],
+              order: 21,
+              handlers: { "catalog.catalog-item.product-measures-resolved": apply },
+            },
+          ]
+        : []),
+      {
+        sourceContextName: fixture.sourceContextName,
+        projectionName: fixture.projectionName,
+        subscriptionName:
+          fixture.sourceContextName === "marketplace"
+            ? "marketplace.self-listing-projection"
+            : "marketplace.inventory-supply-projection",
+        subscriptionVersion: fixture.subscriptionVersion,
+        filterToEventTypes: fixture.sourceContextName === "marketplace",
+        eventTypes: [fixture.createdType, fixture.changedType],
+        order: fixture.order,
+        handlers: { [fixture.createdType]: apply, [fixture.changedType]: apply },
+      },
+    ];
+    const sourceModule = (contextName: string) =>
+      defineBoundedContextModule({
+        manifest: { contextName, apiBasePath: `/${contextName}`, streamPrefix: `${contextName}.` },
+        schemaSql: "",
+        createServices: () => ({}),
+        buildApis: () => [],
+      });
+    const marketplace = defineBoundedContextModule({
+      manifest: {
+        contextName: "marketplace",
+        apiBasePath: "/marketplace",
+        streamPrefix: "marketplace.",
+        eventSubscriptions: subscriptions.map(({ handlers: _handlers, ...subscription }) => ({
+          ...subscription,
+          projectionHandlerSetNames: [fixture.projectionName],
+        })),
+        projectionGroups: [
+          {
+            projectionName: fixture.projectionName,
+            sourceContextNames: subscriptions.map((subscription) => subscription.sourceContextName),
+            ownedTables: ["busy_group_owned_items"],
+            resetStrategy: "truncate-owned-tables",
+          },
+        ],
+      },
+      schemaSql:
+        "CREATE TABLE busy_group_owned_items (stream_id text PRIMARY KEY, position bigint NOT NULL, event_id text NOT NULL)",
+      createServices: () => ({}),
+      buildApis: () => [],
+      buildSubscriptions: () => subscriptions,
+    });
+    const inventory = sourceModule("inventory");
+    const catalog = sourceModule("catalog");
+    let pollLoop: ReturnType<typeof createWorkerRunnerLoop> | undefined;
+    let wakeLoop: ReturnType<typeof createWorkerRunnerLoop> | undefined;
+    let clientTimer: ReturnType<typeof setTimeout> | undefined;
+    let passed = false;
+    try {
+      await bootstrapContextDatabase(inventory, pools.inventory);
+      await bootstrapContextDatabase(catalog, pools.catalog);
+      await bootstrapContextDatabase(marketplace, pools.marketplace);
+      const runtime = createMountedContextTestRuntime([
+        { contextName: "inventory", module: inventory, pool: pools.inventory, ports: {}, mountRole: "source-only" },
+        { contextName: "catalog", module: catalog, pool: pools.catalog, ports: {}, mountRole: "source-only" },
+        { contextName: "marketplace", module: marketplace, pool: targetPool, ports: {} },
+      ]);
+      const group = runtime.projectionGroups[0];
+      const realControlPlane = createPostgresPlatformControlPlane(pools.platform);
+      const controlPlane: typeof realControlPlane = {
+        ...realControlPlane,
+        acquireLease: async (input) => {
+          const identity = { leaseName: input.leaseName, ownerId: input.ownerId };
+          trace("lease-request", identity);
+          const lease = await realControlPlane.acquireLease(input);
+          trace(lease ? "lease-acquired" : "lease-busy", { ...identity, fencingToken: lease?.fencingToken });
+          return lease;
+        },
+        releaseLease: async (lease) => {
+          const identity = { leaseName: lease.leaseName, ownerId: lease.ownerId, fencingToken: lease.fencingToken };
+          trace("lease-release-request", identity);
+          await realControlPlane.releaseLease(lease);
+          trace("lease-released", identity);
+        },
+      };
+      const signals = createPostgresWorkSignalStore(pools.platform, { readConsistencyGateway: {} });
+      const worker = createProjectionGroupWorkerRunner(group);
+      const loopOptions = {
+        controlPlane,
+        maxConcurrentRunners: 2,
+        leaseTtlMs: 30_000,
+        leaseRenewIntervalMs: 10_000,
+        pollIntervalMs: 1000,
+        observer: {
+          runnerCompleted: (event: { runnerName: string; processed: number }) => trace("runner-completed", event),
+          runnerFailed: (event: { runnerName: string }) => trace("runner-failed", { runnerName: event.runnerName }),
+        },
+      };
+      pollLoop = createWorkerRunnerLoop({
+        ...loopOptions,
+        workerId: `attribution-poll-${fixture.shape}`,
+        runners: [
+          {
+            ...worker,
+            runOnce: async (context) => {
+              trace("pass-start", { ownerId: context?.ownerId });
+              try {
+                const result = await worker.runOnce(context);
+                trace("pass-end", { processed: result.processed, position: result.lastGlobalPosition });
+                return result;
+              } catch (error) {
+                trace("pass-failed");
+                throw error;
+              }
+            },
+          },
+        ],
+      });
+      wakeLoop = createWorkerRunnerLoop({
+        ...loopOptions,
+        workerId: `attribution-wake-${fixture.shape}`,
+        runners: createProjectionWakeSchedulerRunners({
+          workerId: `attribution-wake-${fixture.shape}`,
+          controlPlane,
+          workSignalStore: signals,
+          projectionGroups: runtime.projectionGroups,
+          observer: {
+            wakeIntentClaimed: (event) =>
+              trace("wake-claimed", { checkpointKey: event.checkpointKey, position: event.requiredPosition }),
+            wakeIntentDeferred: (event) =>
+              trace("wake-deferred", { checkpointKey: event.checkpointKey, position: event.requiredPosition }),
+            wakeIntentCompleted: (event) =>
+              trace("wake-completed", { checkpointKey: event.checkpointKey, position: event.checkpointPosition }),
+            wakeIntentRunFailed: () => trace("wake-failed"),
+          },
+        }),
+      });
+      const store = createPostgresEventStore({ pool: pools[fixture.sourceContextName] });
+      const eventContext = {
+        tenantId: "tenant_attribution" as never,
+        audit: { performedByUserId: "user_attribution" as never, forAccountId: "account_attribution" as never },
+      };
+      const streamId = `${fixture.sourceContextName}.attribution`;
+      const initial = await store.appendToStream({
+        streamId,
+        expectedVersion: "no_stream",
+        events: Array.from({ length: fixture.initialCount }, (_, index) => ({
+          eventType: index === 0 ? fixture.createdType : fixture.changedType,
+          payload: {},
+        })),
+        context: eventContext,
+      });
+      trace("initial-appended", { position: initial.at(-1)!.globalPosition, count: initial.length });
+      pollLoop.start();
+      // Observe real application starting; do not hold the transaction or delay the holder.
+      await applying.promise;
+      trace("concurrent-append-start");
+      const appended = await store.appendToStream({
+        streamId,
+        expectedVersion: fixture.initialCount,
+        events: Array.from({ length: fixture.concurrentCount }, () => ({
+          eventType: fixture.changedType,
+          payload: {},
+        })),
+        context: eventContext,
+      });
+      const position = appended.at(-1)!.globalPosition;
+      const eventIds = appended.map((event) => event.eventId);
+      const receipt = encodeFreshWriteReceipt({
+        observedAtMs: Date.now(),
+        sources: [{ sourceContextName: fixture.sourceContextName, maxGlobalPosition: position, eventIds }],
+      });
+      trace("receipt", { sourceContextName: fixture.sourceContextName, position, eventIds });
+      const app = new Hono();
+      attachReadConsistencyMiddleware(
+        app,
+        [
+          {
+            contextName: "marketplace",
+            mountPath: "/api/marketplace",
+            readFreshnessRoutes: [{ routePath: "/owned", dependencies: [{ projectionName: fixture.projectionName }] }],
+          },
+        ],
+        runtime.projectionGroups,
+        {
+          timeoutMs: fixture.timeoutMs,
+          pollIntervalMs: fixture.pollIntervalMs,
+          workSignalGateway: signals.readConsistencyGateway,
+          recordReadConsistencyAudit: (record) =>
+            trace("read-audit", {
+              outcome: record.outcome,
+              durationMs: record.durationMs,
+              waitMode: record.waitMode,
+              pending: record.pending,
+            }),
+        },
+      );
+      app.get("/api/marketplace/owned", async (context) => {
+        const result = await pools.marketplace.query<{ position: string; event_id: string }>(
+          "SELECT position::text, event_id FROM busy_group_owned_items WHERE stream_id = $1",
+          [streamId],
+        );
+        trace("owned-query-visible", { requiredPosition: position, rows: result.rows });
+        return context.json(result.rows);
+      });
+      const readStartedAt = performance.now();
+      trace("read-start", { position, serverBoundMs: fixture.timeoutMs, clientBoundMs: 5000 });
+      const read = app.request("/api/marketplace/owned", {
+        headers: {
+          [CHASE_SETS_READ_AFTER_WRITE_HEADER]: receipt,
+          [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: "marketplace",
+        },
+      });
+      wakeLoop.start();
+      const response = await Promise.race([
+        read,
+        new Promise<never>((_resolve, reject) => {
+          clientTimer = setTimeout(
+            () => reject(new Error("busy-group exact receipt exceeded 5000ms client bound")),
+            5000,
+          );
+        }),
+      ]);
+      const elapsedMs = performance.now() - readStartedAt;
+      trace("read-end", { status: response.status, elapsedMs, position });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual([{ position, event_id: appended.at(-1)!.eventId }]);
+      expect(elapsedMs).toBeLessThan(fixture.timeoutMs);
+      expect(elapsedMs).toBeLessThan(5000);
+      expect(omittedRecords).toBe(0);
+      passed = true;
+    } finally {
+      if (clientTimer) clearTimeout(clientTimer);
+      try {
+        trace("read-bound-snapshot-start", { passed });
+        const checkpoints = await pools.marketplace.query(
+          "SELECT checkpoint_key, last_global_position::text FROM event_subscription_checkpoints ORDER BY checkpoint_key",
+        );
+        const visible = await pools.marketplace.query("SELECT position::text, event_id FROM busy_group_owned_items");
+        trace("read-bound-durable-state", { checkpoints: checkpoints.rows, visible: visible.rows });
+      } finally {
+        trace("cleanup-start", { passed });
+        await Promise.all([pollLoop?.stop(), wakeLoop?.stop()]);
+        console.info(
+          JSON.stringify({
+            attribution: "busy-group-pass-attribution",
+            case: fixture.shape,
+            phase: "trace-complete",
+            passed,
+            traceBytes,
+            omittedRecords,
+          }),
+        );
+      }
+    }
   });
 });
 
