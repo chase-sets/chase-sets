@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CatalogApiError } from "../client";
@@ -525,7 +525,12 @@ describe("Catalog integrations route", () => {
     });
   }
 
-  function renderDailyRouteWithAttention(
+  // Rendered inside an awaited act so a settled deferred result commits its
+  // Suspense retry before the harness returns. Left to the scheduler, the retry
+  // is time-sliced between the polling query's DOM walks over this large
+  // workbench; hosted runners starved the ready branch past the query timeout
+  // while the smaller unavailable branch squeaked through.
+  async function renderDailyRouteWithAttention(
     deferredAttentionQueue: Promise<CatalogDeferredAttentionQueueResult>,
     input: { canManageCatalog: boolean } = { canManageCatalog: true },
   ) {
@@ -541,7 +546,9 @@ describe("Catalog integrations route", () => {
     mockUseRouteLoaderData.mockReturnValue({
       actor: { permissions: input.canManageCatalog ? ["catalog.view", "catalog.manage"] : ["catalog.view"] },
     });
-    render(<IntegrationsRoute />);
+    await act(async () => {
+      render(<IntegrationsRoute />);
+    });
     return readModel;
   }
 
@@ -563,7 +570,7 @@ describe("Catalog integrations route", () => {
 
   it("renders the Catalog attention empty state only from a successful read", async () => {
     const readModel = catalogAttentionQueueReadModelFixture([]);
-    renderDailyRouteWithAttention(Promise.resolve({ status: "ready", readModel }));
+    await renderDailyRouteWithAttention(Promise.resolve({ status: "ready", readModel }));
 
     // The zero-item success renders the panel's own localized empty state and
     // its zero count — never the unavailable warning.
@@ -576,7 +583,7 @@ describe("Catalog integrations route", () => {
   });
 
   it("keeps daily work usable while attention is visibly unavailable", async () => {
-    const readModel = renderDailyRouteWithAttention(Promise.resolve({ status: "unavailable" }));
+    const readModel = await renderDailyRouteWithAttention(Promise.resolve({ status: "unavailable" }));
 
     // Exactly one localized warning in the attention slot, rendered through the
     // design-system banner as a polite status region — and none of the
@@ -607,7 +614,7 @@ describe("Catalog integrations route", () => {
 
   it("preserves attention commands after the result envelope", async () => {
     const queue = catalogAttentionQueueReadModelFixture();
-    const readModel = renderDailyRouteWithAttention(Promise.resolve({ status: "ready", readModel: queue }));
+    const readModel = await renderDailyRouteWithAttention(Promise.resolve({ status: "ready", readModel: queue }));
 
     expect(await screen.findByText("2 need you")).toBeTruthy();
     expect(screen.queryByText(ATTENTION_UNAVAILABLE_TITLE)).toBeNull();
@@ -636,7 +643,9 @@ describe("Catalog integrations route", () => {
 
   it("keeps catalog.manage gating on attention commands after the result envelope", async () => {
     const queue = catalogAttentionQueueReadModelFixture();
-    renderDailyRouteWithAttention(Promise.resolve({ status: "ready", readModel: queue }), { canManageCatalog: false });
+    await renderDailyRouteWithAttention(Promise.resolve({ status: "ready", readModel: queue }), {
+      canManageCatalog: false,
+    });
 
     expect(await screen.findByText("2 need you")).toBeTruthy();
     const acceptButtons = attentionCommandButtons("accept");
@@ -685,7 +694,7 @@ describe("Catalog integrations route", () => {
   it.each(attentionStates)(
     "discriminates the $state attention state from the other three",
     async ({ state, deferred, visible }) => {
-      renderDailyRouteWithAttention(deferred());
+      await renderDailyRouteWithAttention(deferred());
 
       expect(await screen.findByText(visible)).toBeTruthy();
       for (const [other, signal] of Object.entries(attentionSignals) as Array<[AttentionState, string | RegExp]>) {
@@ -702,7 +711,7 @@ describe("Catalog integrations route", () => {
     // empty state for an unavailable queue, the unavailable expectations above
     // would not hold. Prove it by feeding the empty branch where unavailable
     // belongs and checking that every unavailable signal is absent.
-    renderDailyRouteWithAttention(
+    await renderDailyRouteWithAttention(
       Promise.resolve({ status: "ready", readModel: catalogAttentionQueueReadModelFixture([]) }),
     );
 
