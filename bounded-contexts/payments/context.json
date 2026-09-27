@@ -2,10 +2,10 @@
   "contextName": "payments",
   "packageName": "@chase-sets/payments",
   "localeCatalogs": ["contracts/localization/locales/en/payments.ts"],
-  "ownedNouns": ["payment", "refund"],
+  "ownedNouns": ["payment", "refund", "wallet-funding"],
   "streamPrefix": "payments.",
   "apiBasePath": "/api/marketplace",
-  "slices": ["payments", "refunds"],
+  "slices": ["payments", "refunds", "wallet-funding"],
   "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support", "ucp-support", "ui-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
   "allowedContextDependencies": [
@@ -127,6 +127,20 @@
   ],
   "projectionGroups": [
     {
+      "projectionName": "payments-wallet-funding-projection",
+      "sourceContextNames": ["payments"],
+      "ownedTables": ["payments_wallet_funding_pages"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "platform-policy-document-projection",
+      "sourceContextNames": ["payments"],
+      "ownedTables": ["platform_policy_documents", "platform_policy_document_history"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
       "projectionName": "payments-order-input-projection",
       "sourceContextNames": ["ordering"],
       "ownedTables": ["payments_order_inputs"],
@@ -185,6 +199,16 @@
     }
   ],
   "hostPorts": [
+    {
+      "portName": "walletFundingEligibilityResolver",
+      "providedBy": "identity",
+      "purpose": "Resolve account standing and active Payments Terms acceptance before wallet funding."
+    },
+    {
+      "portName": "prepaidRefundAuthority",
+      "providedBy": "settlement",
+      "purpose": "Reserve, commit and release exact prepaid refunds; absent authority refuses all reservations."
+    },
     {
       "portName": "processorGateway",
       "providedBy": "platform-api",
@@ -352,6 +376,23 @@
     }
   ],
   "mutationConsistencyInventory": [
+    {
+      "id": "payments.wallet-funding-command-snapshots",
+      "owner": "payments",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/payments/features/wallet-funding/api/route.ts:POST /wallet-fundings",
+        "api-route:bounded-contexts/payments/features/wallet-funding/api/route.ts:POST /wallet-fundings/:fundingId/refunds"
+      ],
+      "visibleDestination": {
+        "description": "Funding and refund requests return their authoritative aggregate state, not a projection reread."
+      },
+      "proof": {
+        "authoritativeResponse": "The Wallet Funding command result and refund operation are loaded from the event stream before returning.",
+        "tests": ["bounded-contexts/payments/features/wallet-funding/api/runtime.test.ts"]
+      }
+    },
     {
       "id": "payments.payment-command-snapshots",
       "owner": "payments",
@@ -607,6 +648,11 @@
   ],
   "shellContributions": [],
   "directoryIntent": {
+    "wallet-funding": {
+      "classification": "slice",
+      "purpose": "Own Wallet Funding card charges, fee quotes and reserved refund execution without order payments or wallet ledger writes.",
+      "expectedConsumers": ["platform-api", "platform-worker", "settlement"]
+    },
     "payments": {
       "classification": "slice",
       "purpose": "Own payments feature behavior, read models, and UI contracts for the payments context.",

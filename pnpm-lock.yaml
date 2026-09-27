@@ -1012,6 +1012,9 @@ importers:
       '@chase-sets/payment-processing':
         specifier: workspace:*
         version: link:../../contracts/payment-processing
+      '@chase-sets/platform-policy':
+        specifier: workspace:*
+        version: link:../../infrastructure/platform-policy
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime
@@ -1034,6 +1037,9 @@ importers:
       '@chase-sets/stripe-config':
         specifier: workspace:*
         version: link:../../infrastructure/stripe-config
+      '@chase-sets/stripe-payments':
+        specifier: workspace:*
+        version: link:../../infrastructure/stripe-payments
       '@chase-sets/typescript-compiler-api':
         specifier: workspace:*
         version: link:../../packages/typescript-compiler-api

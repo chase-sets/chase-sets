@@ -38,6 +38,7 @@ import type {
   ProcessorPaymentReconciliationResult,
 } from "@chase-sets/payment-processing";
 import type { BalanceCreditResolver } from "./balance-credit-resolver";
+import type { WalletFundingServices } from "../../wallet-funding/api/runtime";
 import { listPaymentOrderInputs, type PaymentOrderInputRow } from "../integrations/order-input/order-input-queries";
 import {
   submitPaymentDisputeEvidence,
@@ -120,6 +121,7 @@ import {
 import type { CheckoutProcessingFeePolicyResolver } from "./checkout-processing-fee-policy-resolver";
 
 type PaymentRuntimeDeps = Readonly<{
+  walletFunding?: WalletFundingServices;
   eventStore: EventStore;
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
@@ -2472,6 +2474,11 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
             await recordProcessed();
           }
           return { received: true, ignored: !instrument };
+        }
+
+        if (deps.walletFunding && (await deps.walletFunding.processWebhook(webhookEvent, context))) {
+          await recordProcessed();
+          return { received: true, ignored: false };
         }
 
         const payment = webhookEvent.internalPaymentId

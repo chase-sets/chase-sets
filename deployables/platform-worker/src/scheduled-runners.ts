@@ -204,6 +204,21 @@ export function createRegisteredScheduledRunners({
   if (payments && input.paymentReconciliationIntervalMs) {
     runners.push(
       createScheduledJobRunner(
+        "payments.wallet-funding-reconciliation",
+        input.paymentReconciliationIntervalMs,
+        controlPlane,
+        async () => {
+          const result = await payments.walletFunding.reconcile(SYSTEM_CONTEXT);
+          logger.info("Wallet funding reconciliation completed.", {
+            type: "payments.wallet-funding-reconciliation",
+            result,
+          });
+          return result.checked;
+        },
+      ),
+    );
+    runners.push(
+      createScheduledJobRunner(
         "payments.reconciliation",
         input.paymentReconciliationIntervalMs,
         controlPlane,
