@@ -29,7 +29,7 @@ const ROOTS = Object.freeze([
   ".github/workflows",
 ]);
 const EXPECTED_BASE_ROOT_COUNTS = Object.freeze([6, 0, 1, 0, 0, 15, 7]);
-const EXPECTED_CANDIDATE_ROOT_COUNTS = Object.freeze([6, 0, 1, 0, 0, 13, 4]);
+const EXPECTED_CANDIDATE_ROOT_COUNTS = Object.freeze([6, 0, 1, 1, 0, 13, 4]);
 const PLANNED_FOOTPRINT = Object.freeze(
   [
     ".github/workflows/platform-pr.yml",
@@ -525,16 +525,22 @@ describe("workflow CLI and leakage controls", () => {
 describe("seven-root tracked inventory and closed partition", () => {
   const baseline = scanTrackedRepository({ ref: INVENTORY_BASE_SHA });
   const candidate = scanTrackedRepository();
-  const classS = anchorsFrom(baseline, CLASS_S_BASE_ANCHORS);
+  const classS = [
+    ...anchorsFrom(baseline, CLASS_S_BASE_ANCHORS),
+    {
+      path: "contracts/evidence-window-provider-write/material.ts",
+      text: String.raw`const unsafe = /(?:\b(?:sk|rk)_(?:test|live)_|whsec_|_secret_|\bBearer\s|\bBasic\s|[\u0000-\u001f\u007f])/;`,
+    },
+  ];
   const nonPredicates = anchorsFrom(baseline, NON_PREDICATE_BASE_ANCHORS);
   const classSKeys = new Set(classS.map(candidateKey));
   const nonPredicateKeys = new Set(nonPredicates.map(candidateKey));
 
-  it("reproduces the 29-line baseline and exact 24-line D1/D2 candidate partition", () => {
+  it("reproduces the 29-line baseline and exact 25-line D1/D2 candidate partition", () => {
     expect(baseline.candidates).toHaveLength(29);
     expect(baseline.census.map((entry) => entry.candidates)).toEqual(EXPECTED_BASE_ROOT_COUNTS);
     expect(baseline.candidates.filter((entry) => entry.detectors.includes("D2"))).toEqual([]);
-    expect(candidate.candidates).toHaveLength(24);
+    expect(candidate.candidates).toHaveLength(25);
     expect(candidate.census.map((entry) => entry.candidates)).toEqual(EXPECTED_CANDIDATE_ROOT_COUNTS);
     expect(candidate.candidates.filter((entry) => entry.detectors.includes("D2"))).toEqual([]);
     expect(partitionErrors(candidate.candidates, classSKeys, nonPredicateKeys)).toEqual([]);
@@ -607,7 +613,9 @@ describe("seven-root tracked inventory and closed partition", () => {
       ["sk_test_abc-123", "SK_TEST_abc"],
       ["sk_live_abc-123", "rk_live_abc"],
       ["pk_test_abc", "rk_test_abc"],
+      ["rk_test_SYNTHETIC_REJECTED", "cus_SYNTHETIC_SAFE"],
     ];
+    expect(witnesses).toHaveLength(classS.length);
     for (const [index, anchor] of classS.entries()) {
       const regex = regexFrom(anchor.text.trim().replace(/;$/u, ""));
       expect(regex.test(witnesses[index][0]), anchor.path).toBe(true);

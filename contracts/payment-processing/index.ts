@@ -1,4 +1,5 @@
 import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
+import type { ProviderWriteWindow, ProviderCancelGovernance } from "@chase-sets/evidence-window-provider-write";
 
 export type PaymentCurrencyCode = "usd";
 export type PaymentProcessorName = "stripe";
@@ -33,6 +34,7 @@ export type PaymentProcessorPublicConfig = Readonly<{
 }>;
 
 export type CreateProcessorPaymentInput = Readonly<{
+  evidenceWindow?: ProviderWriteWindow | null;
   paymentId: PaymentId;
   buyerAccountId: AccountId;
   orderIds: readonly OrderId[];
@@ -72,6 +74,7 @@ export type CreatedProcessorCustomer = Readonly<{
 }>;
 
 export type CreateProcessorCustomerInput = Readonly<{
+  evidenceWindow?: ProviderWriteWindow | null;
   accountId: AccountId;
   displayName?: string | null;
   email?: string | null;
@@ -88,6 +91,8 @@ export type CreatedProcessorSetupSession = Readonly<{
 }>;
 
 export type CreateProcessorSetupSessionInput = Readonly<{
+  evidenceWindow?: ProviderWriteWindow | null;
+  setupReferenceId?: string;
   accountId: AccountId;
   providerCustomerReference: string;
   currencyCode: PaymentCurrencyCode;
@@ -334,7 +339,10 @@ export interface PaymentProcessorGateway {
   createCustomer(input: CreateProcessorCustomerInput): Promise<CreatedProcessorCustomer>;
   createSetupSession(input: CreateProcessorSetupSessionInput): Promise<CreatedProcessorSetupSession>;
   retrieveSetupSessionResult(processorSetupReference: string): Promise<ProcessorSetupSessionResult>;
-  cancelSetupSession(processorSetupReference: string): Promise<ProcessorSetupSessionCancellationResult>;
+  cancelSetupSession(
+    processorSetupReference: string,
+    governance: ProviderCancelGovernance,
+  ): Promise<ProcessorSetupSessionCancellationResult>;
   retrieveSavedPaymentMethod(providerReference: string): Promise<ProcessorSavedPaymentMethod | null>;
   detachSavedPaymentMethod(providerReference: string): Promise<ProcessorSavedPaymentMethod | null>;
   /**
@@ -346,7 +354,10 @@ export interface PaymentProcessorGateway {
    */
   createPaymentSession(input: CreateProcessorPaymentInput): Promise<CreatedProcessorPayment>;
   createAgenticPaymentSession?(input: AgenticProcessorPaymentInput): Promise<CreatedProcessorPayment>;
-  cancelPayment(processorPaymentReference: string): Promise<ProcessorPaymentReconciliationResult>;
+  cancelPayment(
+    processorPaymentReference: string,
+    governance: ProviderCancelGovernance,
+  ): Promise<ProcessorPaymentReconciliationResult>;
   retrievePaymentResult(processorPaymentReference: string): Promise<ProcessorPaymentReconciliationResult | null>;
   retrievePaymentResultByPaymentId?(paymentId: PaymentId): Promise<ProcessorPaymentReconciliationResult | null>;
   createRefund(input: CreateProcessorRefundInput): Promise<CreatedProcessorRefund>;

@@ -5,6 +5,7 @@ import {
   readMcpTypedIdArgument,
   type McpResourceHandler,
   type McpToolHandler,
+  type McpToolHandlerInput,
 } from "@chase-sets/platform-runtime/mcp";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { PaymentServices } from "./runtime";
@@ -119,6 +120,14 @@ async function readPayment(
   };
 }
 
+import {
+  admitGovernedSetupInput,
+  GOVERNED_RETURN_ORIGIN,
+  GOVERNED_SETUP_PATH,
+  type ProviderWriteCorrelation,
+  type ProviderWriteWindow,
+} from "@chase-sets/evidence-window-provider-write";
+
 export function createPaymentMcpHandlers(
   services: Pick<
     PaymentServices,
@@ -127,13 +136,24 @@ export function createPaymentMcpHandlers(
     | "createSavedCheckoutSetupSession"
     | "reconcileSavedCheckoutSetupSession"
   >,
+  evidenceWindowCorrelation?: ProviderWriteCorrelation,
 ): PaymentMcpHandlers {
-  const startPaymentMethodSetup: McpToolHandler = async ({ actor, arguments: args }) => {
+  const runPaymentMethodSetup = async (
+    { actor, arguments: args }: McpToolHandlerInput,
+    window: ProviderWriteWindow | null | undefined,
+  ) => {
     const scopedActor = ensureMcpActorAccount(actor, readRequiredString(args, "accountId"));
     requirePermission(scopedActor, PAYMENT_METHOD_SETUP_PERMISSION);
+    if (window)
+      admitGovernedSetupInput({
+        returnUrlBase: GOVERNED_RETURN_ORIGIN,
+        returnUrlPath: GOVERNED_SETUP_PATH,
+        rawReturnUrl: typeof args.returnUrl === "string" ? args.returnUrl : "",
+      });
     const returnUrl = readHttpsUrl(args, "returnUrl");
     const session = await services.createSavedCheckoutSetupSession({
       accountId: scopedActor.accountId as AccountId,
+      ...(evidenceWindowCorrelation ? { evidenceWindow: window ?? null } : {}),
       returnUrlBase: `${returnUrl.protocol}//${returnUrl.host}`,
       returnUrlPath: `${returnUrl.pathname}${returnUrl.search}`,
       agentGrantId: scopedActor.agentGrant?.grantId ?? null,
@@ -150,6 +170,21 @@ export function createPaymentMcpHandlers(
       consentText: session.consent_text,
     };
   };
+
+  async function admitPaymentMethodSetup(input: McpToolHandlerInput): Promise<McpToolHandler> {
+    const window = await evidenceWindowCorrelation?.currentOpenWindow();
+    if (window)
+      admitGovernedSetupInput({
+        returnUrlBase: GOVERNED_RETURN_ORIGIN,
+        returnUrlPath: GOVERNED_SETUP_PATH,
+        rawReturnUrl: typeof input.arguments.returnUrl === "string" ? input.arguments.returnUrl : "",
+      });
+    return (admittedInput) => runPaymentMethodSetup(admittedInput, window);
+  }
+  const startPaymentMethodSetup: McpToolHandler = Object.assign(
+    async (input: McpToolHandlerInput) => (await admitPaymentMethodSetup(input))(input),
+    { admit: admitPaymentMethodSetup },
+  );
 
   const confirmPaymentMethodSetup: McpToolHandler = async ({ actor, arguments: args }) => {
     const scopedActor = ensureMcpActorAccount(actor, readRequiredString(args, "accountId"));

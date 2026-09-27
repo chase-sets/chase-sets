@@ -160,7 +160,7 @@ describe("payments terms artifact", () => {
     );
     const refs = section?.reviewManifest.productTruthRefs.join(" ") ?? "";
     expect(refs).not.toContain("runtime.ts:491-509");
-    expect(refs).toContain("runtime.ts:1890-1943");
+    expect(refs).toContain("runtime.ts:1980-2000");
   });
 
   it("does not assert Wallet-balance no-interest as settled while the sibling Terms artifact leaves it unresolved (#6052 finding 2)", () => {

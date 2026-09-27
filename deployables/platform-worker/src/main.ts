@@ -100,6 +100,7 @@ import {
   createEvidenceWindowCorrelation,
   createNullEvidenceWindowCorrelation,
   createPostgresEvidenceWindowRegistration,
+  createPostgresEvidenceWindowProviderWrite,
   createPostgresPlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
 import { createProcessDrainState, startGracefulHttpServer } from "@chase-sets/platform-runtime/process-lifecycle";
@@ -181,9 +182,12 @@ const workSignalStore = createPostgresWorkSignalStore(pools.workSignal, {
   },
 });
 
+const evidenceWindowProviderWrite = createPostgresEvidenceWindowProviderWrite(pools.control);
 const paymentProcessorGateway =
   config.paymentProcessor.kind === "stripe"
     ? createStripePaymentProcessorGateway({
+        evidenceWindowCorrelation,
+        evidenceWindowProviderWrite,
         secretKey: config.paymentProcessor.secretKey,
         publishableKey: config.paymentProcessor.publishableKey,
         webhookSecret: config.paymentProcessor.webhookSecret,
@@ -194,6 +198,8 @@ const paymentProcessorGateway =
 const moneyMovementGateway =
   config.moneyMovement.kind === "stripe"
     ? createStripeConnectMoneyMovementGateway({
+        evidenceWindowCorrelation,
+        evidenceWindowProviderWrite,
         secretKey: config.moneyMovement.secretKey,
         webhookSecret: config.moneyMovement.webhookSecret,
         previousWebhookSecrets: config.moneyMovement.previousWebhookSecrets,
@@ -303,6 +309,7 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
       ...(pricingHostPorts ?? {}),
       sourceObservationTelemetry,
       evidenceWindowCorrelation,
+      evidenceWindowProviderWrite,
       ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
       ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
       ...(checkoutProcessingFeePolicyResolver ? { checkoutProcessingFeePolicyResolver } : {}),

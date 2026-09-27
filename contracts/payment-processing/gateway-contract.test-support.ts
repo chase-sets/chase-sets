@@ -60,11 +60,11 @@ export function testPaymentProcessorGatewayContract(
     it("converges setup-session cancellation through the exact closed result contract", async () => {
       const gateway = await createPreparedGateway();
 
-      await expect(gateway.cancelSetupSession("seti_gateway_contract")).resolves.toStrictEqual({
+      await expect(gateway.cancelSetupSession("seti_gateway_contract", { kind: "ungoverned" })).resolves.toStrictEqual({
         outcome: "cancelled",
         processorStatus: "canceled",
       });
-      await expect(gateway.cancelSetupSession("seti_gateway_contract")).resolves.toStrictEqual({
+      await expect(gateway.cancelSetupSession("seti_gateway_contract", { kind: "ungoverned" })).resolves.toStrictEqual({
         outcome: "already-terminal",
         processorStatus: "canceled",
       });
@@ -74,8 +74,8 @@ export function testPaymentProcessorGatewayContract(
       const gateway = await createPreparedGateway();
 
       const results = await Promise.all([
-        gateway.cancelSetupSession("seti_gateway_contract"),
-        gateway.cancelSetupSession("seti_gateway_contract"),
+        gateway.cancelSetupSession("seti_gateway_contract", { kind: "ungoverned" }),
+        gateway.cancelSetupSession("seti_gateway_contract", { kind: "ungoverned" }),
       ]);
       const outcomes = results.map((result) => result.outcome).sort();
 
@@ -93,7 +93,7 @@ export function testPaymentProcessorGatewayContract(
       async (reference) => {
         const gateway = await createPreparedGateway();
 
-        await expect(gateway.cancelSetupSession(reference)).resolves.toStrictEqual({
+        await expect(gateway.cancelSetupSession(reference, { kind: "ungoverned" })).resolves.toStrictEqual({
           outcome: "refused",
           reason: "invalid-reference",
           httpStatus: null,

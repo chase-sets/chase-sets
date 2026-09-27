@@ -9,6 +9,7 @@ import {
   MCP_OAUTH_PROTECTED_RESOURCE_METADATA_PATH,
   validateMcpModuleRegistrations,
   type McpAuditRecord,
+  type McpToolHandler,
   type McpToolHandlerInput,
 } from "./mcp";
 import {
@@ -765,7 +766,7 @@ describe("MCP runtime routes", () => {
             capabilities: {},
             handlers: {
               toolHandlers: {
-                "inventory.account-defaulted-summary": vi.fn(),
+                "inventory.account-defaulted-summary": vi.fn<McpToolHandler>(),
               },
             },
           },
@@ -1808,7 +1809,7 @@ describe("MCP runtime routes", () => {
   it("rejects sensitive tools with blank idempotency after schema validation", async () => {
     const app = createActorApp(actor, {
       toolHandlers: {
-        "settlement.request-payout": vi.fn(),
+        "settlement.request-payout": vi.fn<McpToolHandler>(),
       },
     });
 
