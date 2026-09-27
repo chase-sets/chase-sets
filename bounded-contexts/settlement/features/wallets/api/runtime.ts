@@ -31,6 +31,7 @@ import {
   decideWallet,
   evolveWallet,
   initialWalletState,
+  type CreditSellerCaptureCommand,
   type WalletLedgerEntryPostedEvent,
   type WalletCommand,
   type WalletEvent,
@@ -112,6 +113,10 @@ export type WalletServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<void>;
+  creditSellerCapture: (
+    params: Omit<CreditSellerCaptureCommand, "type"> & Readonly<{ accountId: AccountId }>,
+    context: EventStoreContext,
+  ) => Promise<{ accountId: AccountId; version: number }>;
   postEntry: (
     params: Readonly<{
       accountId: AccountId;
@@ -311,6 +316,25 @@ export function createWalletRuntime(deps: WalletRuntimeDeps): WalletServices {
     getWalletAdjustmentForAccount: (params) => getWalletAdjustmentForAccount(deps.db, params),
     listNegativeBalanceAccounts: (params = {}) => listNegativeBalanceAccounts(deps.db, params),
     ensureWallet,
+    async creditSellerCapture(params, context) {
+      for (let attempt = 0; attempt < WALLET_MAX_COMMIT_ATTEMPTS; attempt += 1) {
+        try {
+          await ensureWallet(
+            { accountId: params.accountId, currencyCode: params.currencyCode, openedAt: params.postedAt },
+            context,
+          );
+          const result = await commandHandler({
+            streamId: `settlement.wallet-${params.accountId}`,
+            command: { type: "CreditSellerCapture", ...params },
+            context,
+          });
+          return { accountId: params.accountId, version: result.version };
+        } catch (error) {
+          if (!isConcurrencyConflict(error) || attempt === WALLET_MAX_COMMIT_ATTEMPTS - 1) throw error;
+        }
+      }
+      throw new SettlementDomainError("Seller capture credit did not converge.");
+    },
     async postEntry(params, context) {
       const postedAt = params.postedAt ?? new Date().toISOString();
       const currencyCode = normalizeCurrencyCode(params.currencyCode ?? "usd");
