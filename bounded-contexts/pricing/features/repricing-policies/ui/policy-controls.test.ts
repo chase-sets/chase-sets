@@ -42,7 +42,7 @@ describe("policy union coverage and preset round trips", () => {
       const floor = { mode: "cost-basis-plus-margin" as const, marginPercent: 10, absoluteFallbackAmount: "4.00" };
       const body = compileRepricingPreset({
         preset,
-        name: t(config.title),
+        name: t(config.titleKey),
         currencyCode: "CAD",
         floor,
         knob: config.defaultValue,

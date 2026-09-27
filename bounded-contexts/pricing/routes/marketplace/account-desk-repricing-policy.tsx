@@ -176,7 +176,10 @@ export default function MarketplaceSellerDeskRepricingPolicyRoute() {
   const location = useLocation();
   const submit = useSubmit();
   const [editorOpen, setEditorOpen] = useState(false);
-  useEffect(() => setEditorOpen(false), [location.key]);
+  const [openedAtKey, setOpenedAtKey] = useState(location.key);
+  useEffect(() => {
+    if (!actionData?.error) setEditorOpen(false);
+  }, [location.key]);
   const [, setSearchParams] = useSearchParams();
   useRepricingDeskCatchUp(data.recovery === "catching-up");
   if (data.recovery === "catching-up") {
@@ -191,7 +194,12 @@ export default function MarketplaceSellerDeskRepricingPolicyRoute() {
       <PricingRepricingPolicyDetailPage
         editAction={
           data.policy.status !== "deleted" ? (
-            <Button onClick={() => setEditorOpen(true)}>
+            <Button
+              onClick={() => {
+                setOpenedAtKey(location.key);
+                setEditorOpen(true);
+              }}
+            >
               {t("pricing.features.repricingPolicies.ui.editor.revise")}
             </Button>
           ) : null
@@ -226,7 +234,15 @@ export default function MarketplaceSellerDeskRepricingPolicyRoute() {
           }}
           onClose={() => setEditorOpen(false)}
           saving={navigation.state === "submitting"}
-          saveErrors={actionData?.details?.length ? actionData.details : actionData?.error ? [actionData.error] : []}
+          saveErrors={
+            location.key === openedAtKey
+              ? []
+              : actionData?.details?.length
+                ? actionData.details
+                : actionData?.error
+                  ? [actionData.error]
+                  : []
+          }
           onSave={({ body }) =>
             submit({ intent: "revise-policy", policyId, body: JSON.stringify(body) }, { method: "post" })
           }

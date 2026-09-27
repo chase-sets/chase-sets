@@ -159,7 +159,10 @@ export default function MarketplaceSellerDeskRepricingRoute() {
   const location = useLocation();
   const submit = useSubmit();
   const [editorOpen, setEditorOpen] = useState(false);
-  useEffect(() => setEditorOpen(false), [location.key]);
+  const [openedAtKey, setOpenedAtKey] = useState(location.key);
+  useEffect(() => {
+    if (!actionData?.error) setEditorOpen(false);
+  }, [location.key]);
   useRepricingDeskCatchUp(data.catchingUp);
   const pendingPolicyId = navigation.formData ? repricingPolicyIdFrom(navigation.formData) : "";
   const submitIntent = (intent: string, policyId?: string) =>
@@ -169,7 +172,12 @@ export default function MarketplaceSellerDeskRepricingRoute() {
     <>
       <PricingRepricingPolicyListPage
         createAction={
-          <Button onClick={() => setEditorOpen(true)}>
+          <Button
+            onClick={() => {
+              setOpenedAtKey(location.key);
+              setEditorOpen(true);
+            }}
+          >
             {t("pricing.features.repricingPolicies.ui.editor.create")}
           </Button>
         }
@@ -189,7 +197,15 @@ export default function MarketplaceSellerDeskRepricingRoute() {
         <PolicyEditorDrawer
           onClose={() => setEditorOpen(false)}
           saving={navigation.state === "submitting"}
-          saveErrors={actionData?.details?.length ? actionData.details : actionData?.error ? [actionData.error] : []}
+          saveErrors={
+            location.key === openedAtKey
+              ? []
+              : actionData?.details?.length
+                ? actionData.details
+                : actionData?.error
+                  ? [actionData.error]
+                  : []
+          }
           onSave={({ body, dryRunId }) =>
             submit({ intent: "create-policy", name: body.name, dryRunId: dryRunId ?? "" }, { method: "post" })
           }

@@ -78,7 +78,7 @@ export function PolicyEditorDrawer({
   const [loadFailed, setLoadFailed] = useState(false);
   const [retry, setRetry] = useState(0);
   const [preset, setPreset] = useState<RepricingPreset>("track-market");
-  const [name, setName] = useState(initialBody?.name ?? t(repricingPresets["track-market"].title));
+  const [name, setName] = useState(initialBody?.name ?? t(repricingPresets["track-market"].titleKey));
   const [currency, setCurrency] = useState("");
   const [floor, setFloor] = useState<RepricingFloor>({ mode: "absolute", amount: "" });
   const [knob, setKnob] = useState(0);
@@ -292,14 +292,14 @@ export function PolicyEditorDrawer({
                     label={editorCopy("strategy")}
                     items={Object.entries(repricingPresets).map(([value, option]) => ({
                       value,
-                      label: t(option.title),
+                      label: t(option.titleKey),
                     }))}
                     value={preset}
                     onValueChange={(value) =>
                       edit(() => {
                         const next = value as RepricingPreset;
                         setPreset(next);
-                        setName(t(repricingPresets[next].title));
+                        setName(t(repricingPresets[next].titleKey));
                         setKnob(repricingPresets[next].defaultValue);
                         setAge(45);
                       })

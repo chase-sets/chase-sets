@@ -3,7 +3,7 @@ import type { RepricingFloor, RepricingPolicyScope, RepricingRuleDirective } fro
 
 export const repricingPresets = {
   "track-market": {
-    title: "pricing.features.repricingPolicies.ui.editor.preset.track",
+    titleKey: "pricing.features.repricingPolicies.ui.editor.preset.track",
     promise: "pricing.features.repricingPolicies.ui.editor.promise.track",
     knob: "pricing.features.repricingPolicies.ui.editor.adjust",
     min: -25,
@@ -11,7 +11,7 @@ export const repricingPresets = {
     defaultValue: 0,
   },
   "beat-lowest": {
-    title: "pricing.features.repricingPolicies.ui.editor.preset.beat",
+    titleKey: "pricing.features.repricingPolicies.ui.editor.preset.beat",
     promise: "pricing.features.repricingPolicies.ui.editor.promise.beat",
     knob: "pricing.features.repricingPolicies.ui.editor.undercut",
     min: 0,
@@ -19,7 +19,7 @@ export const repricingPresets = {
     defaultValue: 2,
   },
   premium: {
-    title: "pricing.features.repricingPolicies.ui.editor.preset.premium",
+    titleKey: "pricing.features.repricingPolicies.ui.editor.preset.premium",
     promise: "pricing.features.repricingPolicies.ui.editor.promise.premium",
     knob: "pricing.features.repricingPolicies.ui.editor.premium",
     min: 0,
@@ -27,7 +27,7 @@ export const repricingPresets = {
     defaultValue: 5,
   },
   "slow-stock": {
-    title: "pricing.features.repricingPolicies.ui.editor.preset.slow",
+    titleKey: "pricing.features.repricingPolicies.ui.editor.preset.slow",
     promise: "pricing.features.repricingPolicies.ui.editor.promise.slow",
     knob: "pricing.features.repricingPolicies.ui.editor.markdown",
     min: 0,

@@ -178,7 +178,13 @@ test.describe("Seller Desk repricing policies", () => {
       await expect(page.getByRole("button", { name: "Activate policy", exact: true })).toBeEnabled();
       await page.getByRole("button", { name: "Activate policy", exact: true }).click();
       await expect(page.getByTestId("repricing-policy-editor")).toHaveCount(0);
+      await expect
+        .poll(async () => (await listPolicies(request)).find((policy) => policy.name === policyName)?.policyId, {
+          timeout: 30_000,
+        })
+        .toBeTruthy();
       policyId = (await listPolicies(request)).find((policy) => policy.name === policyName)!.policyId;
+      await expect(page.getByRole("link", { name: policyName }).filter({ visible: true })).toBeVisible();
       await deletePolicy(request, baselineId);
       await expectListedPolicyIds(request, [baselineId], false);
 
