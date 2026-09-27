@@ -54,6 +54,7 @@ import {
   createEvidenceWindowCorrelation,
   createNullEvidenceWindowCorrelation,
   createPostgresEvidenceWindowRegistration,
+  createPostgresEvidenceWindowById,
   createPostgresEvidenceWindowProviderWrite,
   createPostgresPlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
@@ -121,6 +122,9 @@ const runtimeLifecycle = createRuntimeLifecycleRegistry();
 const controlPlane = createPostgresPlatformControlPlane(pools.control, { lifecycle: runtimeLifecycle });
 const evidenceWindowRegistration = config.evidenceWindowAdmissionSecret
   ? createPostgresEvidenceWindowRegistration(pools.control)
+  : undefined;
+const evidenceWindowById = config.evidenceWindowAdmissionSecret
+  ? createPostgresEvidenceWindowById(pools.control)
   : undefined;
 const evidenceWindowCorrelation =
   evidenceWindowRegistration && config.stripeEffectiveMode === "test"
@@ -598,7 +602,7 @@ const app = buildPlatformApiApp(runtime, {
   adminRegistrationEnabled: config.adminRegistrationEnabled,
   checkoutClosed: config.checkoutClosed,
   controlPlane,
-  ...(evidenceWindowRegistration && config.evidenceWindowAdmissionSecret
+  ...(evidenceWindowRegistration && evidenceWindowById && config.evidenceWindowAdmissionSecret
     ? {
         evidenceWindowRegistration: {
           admissionSecret: config.evidenceWindowAdmissionSecret,
@@ -610,6 +614,17 @@ const app = buildPlatformApiApp(runtime, {
             },
           },
           registration: evidenceWindowRegistration,
+        },
+        evidenceWindowSourceRecovery: {
+          admissionSecret: config.evidenceWindowAdmissionSecret,
+          authority: {
+            effectiveMode: config.stripeEffectiveMode,
+            gatewayKinds: {
+              paymentProcessor: config.paymentProcessor.kind,
+              moneyMovement: config.moneyMovement.kind,
+            },
+          },
+          registrationById: evidenceWindowById,
         },
       }
     : {}),

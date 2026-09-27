@@ -39,6 +39,9 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
         "bounded-contexts/channels/features/reconciliation/api/route.ts",
         "bounded-contexts/channels/features/reconciliation/read-model/detail.ts",
         "bounded-contexts/channels/features/reconciliation/ui/drift-panel.tsx",
+        "bounded-contexts/ordering/features/orders/api/evidence-window-source-process.ts",
+        "bounded-contexts/ordering/features/orders/api/evidence-window-source-release.ts",
+        "infrastructure/platform-runtime/evidence-window-source-recovery.ts",
       ]),
     );
     expect(production.roots).toContain("bounded-contexts/channels/support/runtime-support/services.ts");
