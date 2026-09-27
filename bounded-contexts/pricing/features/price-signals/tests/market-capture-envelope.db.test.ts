@@ -19,10 +19,33 @@ import {
   commitProviderObservationCapture,
   selectMarketCaptureSignalWork,
 } from "../read-model/provider-observation-writes";
+import { captureSourceMutants, expectSourceMutantRed, settled } from "./source-mutant-test-support";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required in CI.");
 const describeDb = databaseBaseUrl ? describe : describe.skip;
+
+type CreateCapture = typeof createTcgplayerMarketCapture;
+type CaptureModule = Readonly<{ createTcgplayerMarketCapture: CreateCapture }>;
+const captureEntry = "api/market-capture.ts";
+const invalidSaleClasses = [
+  [
+    "non-array complete envelope",
+    { previousPage: "", nextPage: "", resultCount: 0, totalResults: 0, data: "not-an-array" },
+    true,
+  ],
+  [
+    "nested owned key",
+    salesPage({ total: 2, rows: [sale(1), { ...sale(2), ownedUnknown: "C12_NESTED_SECRET" }] }),
+    false,
+  ],
+  ["fractional quantity", salesPage({ total: 2, rows: [sale(1), { ...sale(2), quantity: 1.5 }] }), false],
+  ["SQL integer overflow", salesPage({ total: 2, rows: [sale(1), { ...sale(2), quantity: 2147483648 }] }), false],
+  ["three-decimal money", salesPage({ total: 2, rows: [sale(1), { ...sale(2), purchasePrice: 5.001 }] }), false],
+  ["invalid instant", salesPage({ total: 2, rows: [sale(1), { ...sale(2), orderDate: "not-an-instant" }] }), false],
+  ["terminal quantity zero", salesPage({ total: 2, rows: [sale(1), { ...sale(2), quantity: 0 }] }), false],
+] as const;
+const rowRejectionClasses = invalidSaleClasses.filter(([, , envelopeInvalid]) => !envelopeInvalid);
 
 describeDb("provider market-capture envelope reconciliation", () => {
   let pool: PgTransactionalPool;
@@ -92,38 +115,16 @@ describeDb("provider market-capture envelope reconciliation", () => {
   });
 
   it("rejects one malformed listing component while persisting valid sale, listing and history siblings", async () => {
-    await runCapture(pool, [salesPage({ total: 1, rows: [sale(1)] })], {}, true, true);
-    const header = await pool.query<{
-      outcome_kind: string;
-      rejected_row_count: number;
-      sales_status: string;
-      listings_status: string;
-      history_status: string;
-      listings_coverage: string;
-    }>(
-      "SELECT outcome_kind, rejected_row_count, sales_status, listings_status, history_status, listings_coverage FROM pricing_external_market_captures",
+    await malformedListingScenario(pool, createTcgplayerMarketCapture);
+  });
+
+  it("turns the malformed-listing outcome red when rejections are recorded as a clean capture", async () => {
+    await expectSourceMutantRed<CaptureModule>(
+      captureSourceMutants.outcomeBypass,
+      captureEntry,
+      ["F5:listing-header"],
+      (mutant) => malformedListingScenario(pool, mutant.createTcgplayerMarketCapture),
     );
-    expect(header.rows).toEqual([
-      {
-        outcome_kind: "recorded-with-rejections",
-        rejected_row_count: 1,
-        sales_status: "observed",
-        listings_status: "observed",
-        history_status: "observed",
-        listings_coverage: "page-budget-truncated",
-      },
-    ]);
-    for (const table of [
-      "pricing_external_sale_observations",
-      "pricing_external_weekly_sale_buckets",
-      "pricing_external_listing_ask_depth",
-    ]) {
-      expect((await pool.query(`SELECT * FROM ${table}`)).rows).toHaveLength(1);
-    }
-    expect(
-      (await pool.query<{ generation: string }>("SELECT generation::text FROM pricing_external_market_capture_cursors"))
-        .rows,
-    ).toEqual([{ generation: "1" }]);
   });
 
   it("preserves request-cap, page-budget, and unavailable classifications", async () => {
@@ -179,305 +180,49 @@ describeDb("provider market-capture envelope reconciliation", () => {
     expect(JSON.stringify({ header: header.rows, rows: rows.rows, cursor: cursor.rows })).not.toContain(privateMarker);
   });
 
-  it.each([
-    [
-      "non-array complete envelope",
-      { previousPage: "", nextPage: "", resultCount: 0, totalResults: 0, data: "not-an-array" },
-      true,
-    ],
-    [
-      "nested owned key",
-      salesPage({ total: 2, rows: [sale(1), { ...sale(2), ownedUnknown: "C12_NESTED_SECRET" }] }),
-      false,
-    ],
-    ["fractional quantity", salesPage({ total: 2, rows: [sale(1), { ...sale(2), quantity: 1.5 }] }), false],
-    ["SQL integer overflow", salesPage({ total: 2, rows: [sale(1), { ...sale(2), quantity: 2147483648 }] }), false],
-    ["three-decimal money", salesPage({ total: 2, rows: [sale(1), { ...sale(2), purchasePrice: 5.001 }] }), false],
-    ["invalid instant", salesPage({ total: 2, rows: [sale(1), { ...sale(2), orderDate: "not-an-instant" }] }), false],
-    ["terminal quantity zero", salesPage({ total: 2, rows: [sale(1), { ...sale(2), quantity: 0 }] }), false],
-  ] as const)("isolates %s through runtime, decoder and durable write", async (_label, response, envelopeInvalid) => {
-    const logs: string[] = [];
-    const log = vi.spyOn(console, "log").mockImplementation((...args) => {
-      logs.push(args.join(" "));
-    });
-    const warn = vi.spyOn(console, "warn").mockImplementation((...args) => {
-      logs.push(args.join(" "));
-    });
-    const error = vi.spyOn(console, "error").mockImplementation((...args) => {
-      logs.push(args.join(" "));
-    });
-    try {
-      await runCapture(pool, [response], {}, true);
-    } finally {
-      log.mockRestore();
-      warn.mockRestore();
-      error.mockRestore();
-    }
-    const header = await pool.query<{
-      outcome_kind: string;
-      rejected_row_count: number;
-      sales_status: string;
-      sales_coverage: string;
-      sales_returned_count: number;
-      history_status: string;
-    }>(
-      "SELECT outcome_kind, rejected_row_count, sales_status, sales_coverage, sales_returned_count, history_status FROM pricing_external_market_captures",
-    );
-    expect(header.rows).toEqual([
-      expect.objectContaining(
-        envelopeInvalid
-          ? {
-              outcome_kind: "recorded",
-              rejected_row_count: 0,
-              sales_status: "unavailable",
-              sales_coverage: "unknown",
-              sales_returned_count: 0,
-            }
-          : {
-              outcome_kind: "recorded-with-rejections",
-              rejected_row_count: 1,
-              sales_status: "observed",
-              sales_coverage: "unknown",
-              sales_returned_count: 1,
-            },
-      ),
-    ]);
-    const sales = await pool.query<{ unit_price: string; quantity: number }>(
-      "SELECT unit_price::text, quantity FROM pricing_external_sale_observations",
-    );
-    expect(sales.rows).toEqual(envelopeInvalid ? [] : [{ unit_price: "6.00", quantity: 1 }]);
-    expect(header.rows[0]!.history_status).toBe("observed");
-    expect((await pool.query("SELECT * FROM pricing_external_weekly_sale_buckets")).rows).toHaveLength(1);
-    expect((await pool.query("SELECT * FROM pricing_external_listing_ask_depth")).rows).toHaveLength(1);
-    const cursor = await pool.query<{ after_external_key: string; generation: string }>(
-      "SELECT after_external_key, generation::text FROM pricing_external_market_capture_cursors",
-    );
-    expect(cursor.rows).toEqual([{ after_external_key: "", generation: "1" }]);
-    const durable = JSON.stringify({ header: header.rows, sales: sales.rows, cursor: cursor.rows, logs });
-    expect(durable).not.toMatch(/C12_(?:NESTED|SYNTHETIC|EXCEPTION)_SECRET/);
-  });
+  it.each(invalidSaleClasses)(
+    "isolates %s through runtime, decoder and durable write",
+    async (_label, response, envelopeInvalid) => {
+      await saleClassScenario(pool, createTcgplayerMarketCapture, response, envelopeInvalid);
+    },
+  );
+
+  it.each(invalidSaleClasses)(
+    "turns %s red when the strict sales decoders accept input unchanged",
+    async (_label, response, envelopeInvalid) => {
+      await expectSourceMutantRed<CaptureModule>(
+        captureSourceMutants.decoderBypass,
+        captureEntry,
+        ["F5:run-result", "F5:class-header", "F5:class-sales"],
+        (mutant) => saleClassScenario(pool, mutant.createTcgplayerMarketCapture, response, envelopeInvalid),
+      );
+    },
+  );
+
+  it.each(rowRejectionClasses)(
+    "turns %s red when rejections are recorded as a clean capture",
+    async (_label, response, envelopeInvalid) => {
+      await expectSourceMutantRed<CaptureModule>(
+        captureSourceMutants.outcomeBypass,
+        captureEntry,
+        ["F5:class-header"],
+        (mutant) => saleClassScenario(pool, mutant.createTcgplayerMarketCapture, response, envelopeInvalid),
+      );
+    },
+  );
 
   it("binds transport arguments, non-USD provenance, local ceiling, annual range and closed hostile diagnostics", async () => {
-    const calls: Array<{ endpoint: string; path: string; body: unknown }> = [];
-    const logs: string[] = [];
-    const artifacts: string[] = [];
-    let salesPageIndex = 0;
-    const pages = [
-      salesPage({ total: 2, rows: [sale(1)], nextPage: "Yes" }),
-      salesPage({ total: 2, rows: [sale(2)], previousPage: "Yes" }),
-    ];
-    const transportWithFacts: TcgplayerMarketTransport = {
-      mpGateway: { post: async <T>() => [pricePoint()] as T },
-      mpApi: {
-        post: async <T>(path: string, body?: unknown) => {
-          calls.push({ endpoint: "sales", path, body });
-          return pages[salesPageIndex++] as T;
-        },
-      },
-      mpSearchApi: {
-        post: async <T>(path: string, body?: unknown) => {
-          calls.push({ endpoint: "listings", path, body });
-          return {
-            errors: [],
-            results: [
-              {
-                totalResults: 3,
-                resultId: "synthetic",
-                aggregations: {},
-                results: [listing("synthetic-own-seller", 4), listing("synthetic-other", 8)],
-              },
-            ],
-          } as T;
-        },
-      },
-      infiniteApi: {
-        get: async <T>(
-          path: string,
-          params?: Readonly<Record<string, string | number | boolean | null | undefined>>,
-        ) => {
-          calls.push({ endpoint: "history", path, body: params });
-          throw Object.assign(new Error("C12_EXCEPTION_SECRET_history"), { status: 503 }) as T;
-        },
-      },
-    };
-    const sink = createObjectStorageTcgplayerMarketCaptureReceiptSink({
-      putObject: async (input) => {
-        expect(input.visibility).toBe("private");
-        artifacts.push(new TextDecoder().decode(input.body));
-      },
-    });
-    const spy = vi.spyOn(console, "error").mockImplementation((...args) => {
-      logs.push(args.join(" "));
-    });
-    try {
-      await expect(
-        createTcgplayerMarketCapture({
-          pool,
-          transport: transportWithFacts,
-          receiptSink: sink,
-          now: clock(),
-          resolveSignalPolicy: async () => ({ revisionId: "synthetic-signal-r1", value: { productsPerPass: 1 } }),
-          resolveObservationPolicy: async () => ({
-            revisionId: "synthetic-observation-r1",
-            value: {
-              ...PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE,
-              currency: "cad",
-              capturesPerPass: 1,
-              sales: {
-                ...PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.sales,
-                pageSize: 1,
-                limit: 2,
-                conditions: [1],
-                languages: [2],
-                variants: [3],
-                listingType: "ListingWithoutPhotos",
-              },
-              listings: { ...PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.listings, pageSize: 2, deliveredCeiling: "5.00" },
-            },
-          }),
-          resolveStatHygienePolicy: async () => ({ revisionId: "synthetic-stat-r1" }),
-          recordTcgplayerPriceSignal: async () => ({
-            status: "unresolved",
-            reason: "sku-reference-not-mapped",
-            externalKey: "sku:9001",
-          }),
-        })(),
-      ).resolves.toMatchObject({ status: "completed", capturesCommitted: 1 });
-    } finally {
-      spy.mockRestore();
-    }
-    expect(calls).toEqual([
-      {
-        endpoint: "sales",
-        path: "/v2/product/7001/latestsales",
-        body: {
-          conditions: [1],
-          languages: [2],
-          variants: [3],
-          listingType: "ListingWithoutPhotos",
-          offset: 0,
-          limit: 1,
-        },
-      },
-      {
-        endpoint: "listings",
-        path: "/v1/product/7001/listings",
-        body: {
-          aggregations: ["condition", "language", "listingType", "printing"],
-          context: { shippingCountry: "US" },
-          filters: { term: { "verified-seller": true } },
-          from: 0,
-          size: 2,
-          sort: { field: "price+shipping", order: "asc" },
-        },
-      },
-      { endpoint: "history", path: "/price/history/7001/detailed", body: { range: "annual" } },
-      {
-        endpoint: "sales",
-        path: "/v2/product/7001/latestsales",
-        body: {
-          conditions: [1],
-          languages: [2],
-          variants: [3],
-          listingType: "ListingWithoutPhotos",
-          offset: 1,
-          limit: 1,
-        },
-      },
-    ]);
-    const header = (await pool.query<Record<string, unknown>>("SELECT * FROM pricing_external_market_captures"))
-      .rows[0]!;
-    expect(header).toMatchObject({
-      signal_policy_revision_id: "synthetic-signal-r1",
-      products_per_pass: 1,
-      observation_policy_revision_id: "synthetic-observation-r1",
-      stat_hygiene_policy_revision_id: "synthetic-stat-r1",
-      captures_per_pass: 1,
-      currency: "cad",
-      outcome_kind: "recorded",
-      rejected_row_count: 0,
-      sales_status: "observed",
-      sales_coverage: "complete",
-      sales_pages_fetched: 2,
-      sales_returned_count: 2,
-      sales_first_reported_total: 2,
-      sales_last_reported_total: 2,
-      sales_first_result_count: 1,
-      sales_last_result_count: 1,
-      sales_last_next_page: "",
-      listings_status: "observed",
-      listings_coverage: "ceiling-truncated",
-      listings_pages_fetched: 1,
-      listings_returned_count: 2,
-      listings_reported_total: 3,
-      own_seller_exclusion_applied: false,
-      history_status: "unavailable",
-      history_coverage: "unknown",
-      history_result_count: 0,
-      history_bucket_count: 0,
-      history_response_observed_at: null,
-      history_http_status_class: "5xx",
-      history_range: "annual",
-      request_posture: expect.objectContaining({
-        salesConditions: [1],
-        salesLanguages: [2],
-        salesVariants: [3],
-        salesListingType: "ListingWithoutPhotos",
-        listingsDeliveredCeiling: "5.00",
-        historyRange: "annual",
-      }),
-    });
-    for (const endpoint of ["sales", "listings", "history"]) {
-      expect(Date.parse(String(header[`${endpoint}_requested_at`]))).toBeGreaterThanOrEqual(
-        Date.parse(String(header.capture_started_at)),
-      );
-    }
-    for (const endpoint of ["sales", "listings"]) {
-      expect(Date.parse(String(header[`${endpoint}_response_observed_at`]))).toBeGreaterThanOrEqual(
-        Date.parse(String(header[`${endpoint}_requested_at`])),
-      );
-    }
-    expect(Date.parse(String(header.signal_pass_started_at))).toBeLessThan(
-      Date.parse(String(header.capture_started_at)),
+    await hostileTransportScenario(pool, createTcgplayerMarketCapture);
+  });
+
+  it.each([
+    ["lostCurrency", ["F2:header"]],
+    ["ignoredCeiling", ["F2:calls", "F2:header"]],
+    ["receiptLeak", ["F2:marker"]],
+  ] as const)("turns the hostile-transport proof red under the %s mutant", async (key, labels) => {
+    await expectSourceMutantRed<CaptureModule>(captureSourceMutants[key], captureEntry, labels, (mutant) =>
+      hostileTransportScenario(pool, mutant.createTcgplayerMarketCapture),
     );
-    expect(Date.parse(String(header.capture_completed_at))).toBeGreaterThan(
-      Date.parse(String(header.capture_started_at)),
-    );
-    expect(artifacts).toHaveLength(1);
-    expect(artifacts[0]).toContain('"salesPages"');
-    expect(artifacts[0]).toContain('"listingPages"');
-    expect(artifacts[0]).toContain('"failurePhase": "transport"');
-    const evidence: unknown[] = [header, logs, artifacts];
-    for (const table of [
-      "pricing_external_sale_observations",
-      "pricing_external_weekly_sale_buckets",
-      "pricing_external_listing_snapshots",
-      "pricing_external_listing_ask_depth",
-      "pricing_external_market_capture_cursors",
-    ]) {
-      evidence.push((await pool.query(`SELECT row_to_json(t) AS row FROM ${table} t`)).rows);
-    }
-    const serialized = JSON.stringify(evidence);
-    for (const marker of [
-      "external-seller-secret",
-      "C12_SELLER_ID_SECRET",
-      "C12_SELLER_NAME_SECRET",
-      "C12_SELLER_RATING_SECRET",
-      "C12_SELLER_SALES_SECRET",
-      "C12_SELLER_BADGES_SECRET",
-      "C12_LISTING_ID_SECRET",
-      "C12_CUSTOM_LISTING_ID_SECRET",
-      "C12_LISTING_TITLE_SECRET",
-      "C12_CUSTOM_TITLE_SECRET",
-      "C12_CUSTOM_DATA_SECRET",
-      "C12_COOKIE_SECRET",
-      "C12_AUTH_SECRET",
-      "C12_RESPONSE_SECRET",
-      "C12_EXCEPTION_SECRET",
-      "synthetic-own-seller",
-      "synthetic-other",
-    ])
-      expect(serialized).not.toContain(marker);
   });
 
   it("persists the synthetic injected-client own-seller control without claiming runtime wiring", async () => {
@@ -550,9 +295,10 @@ async function runCapture(
   salesPolicy: Readonly<{ pageSize?: number; pageBudget?: number; limit?: number }> = {},
   otherEndpoints = false,
   invalidListing = false,
+  create: CreateCapture = createTcgplayerMarketCapture,
 ) {
   let page = 0;
-  const run = createTcgplayerMarketCapture({
+  const run = create({
     pool,
     transport: transport(
       () => {
@@ -585,7 +331,109 @@ async function runCapture(
       externalKey: "sku:9001",
     }),
   });
-  await expect(run()).resolves.toMatchObject({ status: "completed", capturesCommitted: 1 });
+  expect(await settled(run()), "F5:run-result").toMatchObject({ status: "completed", capturesCommitted: 1 });
+}
+
+async function malformedListingScenario(pool: PgTransactionalPool, create: CreateCapture) {
+  await runCapture(pool, [salesPage({ total: 1, rows: [sale(1)] })], {}, true, true, create);
+  const header = await pool.query<{
+    outcome_kind: string;
+    rejected_row_count: number;
+    sales_status: string;
+    listings_status: string;
+    history_status: string;
+    listings_coverage: string;
+  }>(
+    "SELECT outcome_kind, rejected_row_count, sales_status, listings_status, history_status, listings_coverage FROM pricing_external_market_captures",
+  );
+  expect(header.rows, "F5:listing-header").toEqual([
+    {
+      outcome_kind: "recorded-with-rejections",
+      rejected_row_count: 1,
+      sales_status: "observed",
+      listings_status: "observed",
+      history_status: "observed",
+      listings_coverage: "page-budget-truncated",
+    },
+  ]);
+  for (const table of [
+    "pricing_external_sale_observations",
+    "pricing_external_weekly_sale_buckets",
+    "pricing_external_listing_ask_depth",
+  ]) {
+    expect((await pool.query(`SELECT * FROM ${table}`)).rows).toHaveLength(1);
+  }
+  expect(
+    (await pool.query<{ generation: string }>("SELECT generation::text FROM pricing_external_market_capture_cursors"))
+      .rows,
+  ).toEqual([{ generation: "1" }]);
+}
+
+async function saleClassScenario(
+  pool: PgTransactionalPool,
+  create: CreateCapture,
+  response: unknown,
+  envelopeInvalid: boolean,
+) {
+  const logs: string[] = [];
+  const log = vi.spyOn(console, "log").mockImplementation((...args) => {
+    logs.push(args.join(" "));
+  });
+  const warn = vi.spyOn(console, "warn").mockImplementation((...args) => {
+    logs.push(args.join(" "));
+  });
+  const error = vi.spyOn(console, "error").mockImplementation((...args) => {
+    logs.push(args.join(" "));
+  });
+  try {
+    await runCapture(pool, [response], {}, true, false, create);
+  } finally {
+    log.mockRestore();
+    warn.mockRestore();
+    error.mockRestore();
+  }
+  const header = await pool.query<{
+    outcome_kind: string;
+    rejected_row_count: number;
+    sales_status: string;
+    sales_coverage: string;
+    sales_returned_count: number;
+    history_status: string;
+  }>(
+    "SELECT outcome_kind, rejected_row_count, sales_status, sales_coverage, sales_returned_count, history_status FROM pricing_external_market_captures",
+  );
+  expect(header.rows, "F5:class-header").toEqual([
+    expect.objectContaining(
+      envelopeInvalid
+        ? {
+            outcome_kind: "recorded",
+            rejected_row_count: 0,
+            sales_status: "unavailable",
+            sales_coverage: "unknown",
+            sales_returned_count: 0,
+          }
+        : {
+            outcome_kind: "recorded-with-rejections",
+            rejected_row_count: 1,
+            sales_status: "observed",
+            sales_coverage: "unknown",
+            sales_returned_count: 1,
+          },
+    ),
+  ]);
+  const sales = await pool.query<{ unit_price: string; quantity: number }>(
+    "SELECT unit_price::text, quantity FROM pricing_external_sale_observations",
+  );
+  expect(sales.rows, "F5:class-sales").toEqual(envelopeInvalid ? [] : [{ unit_price: "6.00", quantity: 1 }]);
+  expect(header.rows[0]!.history_status).toBe("observed");
+  expect((await pool.query("SELECT * FROM pricing_external_weekly_sale_buckets")).rows).toHaveLength(1);
+  expect((await pool.query("SELECT * FROM pricing_external_listing_ask_depth")).rows).toHaveLength(1);
+  const cursor = await pool.query<{ after_external_key: string; generation: string }>(
+    "SELECT after_external_key, generation::text FROM pricing_external_market_capture_cursors",
+  );
+  expect(cursor.rows).toEqual([{ after_external_key: "", generation: "1" }]);
+  const durable = JSON.stringify({ header: header.rows, sales: sales.rows, cursor: cursor.rows, logs });
+  expect(durable).not.toMatch(/C12_(?:NESTED|SYNTHETIC|EXCEPTION)_SECRET/);
 }
 
 function transport(
@@ -764,4 +612,222 @@ async function resetCaptureFacts(pool: PgTransactionalPool) {
 function clock() {
   let value = Date.parse("2026-09-01T14:59:59.000Z");
   return () => new Date((value += 1_000)).toISOString();
+}
+
+async function hostileTransportScenario(pool: PgTransactionalPool, create: CreateCapture) {
+  const calls: Array<{ endpoint: string; path: string; body: unknown }> = [];
+  const logs: string[] = [];
+  const artifacts: string[] = [];
+  let salesPageIndex = 0;
+  const pages = [
+    salesPage({ total: 2, rows: [sale(1)], nextPage: "Yes" }),
+    salesPage({ total: 2, rows: [sale(2)], previousPage: "Yes" }),
+  ];
+  const transportWithFacts: TcgplayerMarketTransport = {
+    mpGateway: { post: async <T>() => [pricePoint()] as T },
+    mpApi: {
+      post: async <T>(path: string, body?: unknown) => {
+        calls.push({ endpoint: "sales", path, body });
+        return pages[salesPageIndex++] as T;
+      },
+    },
+    mpSearchApi: {
+      post: async <T>(path: string, body?: unknown) => {
+        calls.push({ endpoint: "listings", path, body });
+        return {
+          errors: [],
+          results: [
+            {
+              totalResults: 3,
+              resultId: "synthetic",
+              aggregations: {},
+              results: [listing("synthetic-own-seller", 4), listing("synthetic-other", 8)],
+            },
+          ],
+        } as T;
+      },
+    },
+    infiniteApi: {
+      get: async <T>(path: string, params?: Readonly<Record<string, string | number | boolean | null | undefined>>) => {
+        calls.push({ endpoint: "history", path, body: params });
+        throw Object.assign(new Error("C12_EXCEPTION_SECRET_history"), { status: 503 }) as T;
+      },
+    },
+  };
+  const sink = createObjectStorageTcgplayerMarketCaptureReceiptSink({
+    putObject: async (input) => {
+      expect(input.visibility).toBe("private");
+      artifacts.push(new TextDecoder().decode(input.body));
+    },
+  });
+  const consoleSpies = (["log", "warn", "error"] as const).map((method) =>
+    vi.spyOn(console, method).mockImplementation((...args) => {
+      logs.push(args.join(" "));
+    }),
+  );
+  const result = await settled(
+    create({
+      pool,
+      transport: transportWithFacts,
+      receiptSink: sink,
+      now: clock(),
+      resolveSignalPolicy: async () => ({ revisionId: "synthetic-signal-r1", value: { productsPerPass: 1 } }),
+      resolveObservationPolicy: async () => ({
+        revisionId: "synthetic-observation-r1",
+        value: {
+          ...PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE,
+          currency: "cad",
+          capturesPerPass: 1,
+          sales: {
+            ...PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.sales,
+            pageSize: 1,
+            limit: 2,
+            conditions: [1],
+            languages: [2],
+            variants: [3],
+            listingType: "ListingWithoutPhotos",
+          },
+          listings: { ...PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.listings, pageSize: 2, deliveredCeiling: "5.00" },
+        },
+      }),
+      resolveStatHygienePolicy: async () => ({ revisionId: "synthetic-stat-r1" }),
+      recordTcgplayerPriceSignal: async () => ({
+        status: "unresolved",
+        reason: "sku-reference-not-mapped",
+        externalKey: "sku:9001",
+      }),
+    })(),
+  ).finally(() => {
+    for (const spy of consoleSpies) spy.mockRestore();
+  });
+  expect(calls, "F2:calls").toEqual([
+    {
+      endpoint: "sales",
+      path: "/v2/product/7001/latestsales",
+      body: {
+        conditions: [1],
+        languages: [2],
+        variants: [3],
+        listingType: "ListingWithoutPhotos",
+        offset: 0,
+        limit: 1,
+      },
+    },
+    {
+      endpoint: "listings",
+      path: "/v1/product/7001/listings",
+      body: {
+        aggregations: ["condition", "language", "listingType", "printing"],
+        context: { shippingCountry: "US" },
+        filters: { term: { "verified-seller": true } },
+        from: 0,
+        size: 2,
+        sort: { field: "price+shipping", order: "asc" },
+      },
+    },
+    { endpoint: "history", path: "/price/history/7001/detailed", body: { range: "annual" } },
+    {
+      endpoint: "sales",
+      path: "/v2/product/7001/latestsales",
+      body: {
+        conditions: [1],
+        languages: [2],
+        variants: [3],
+        listingType: "ListingWithoutPhotos",
+        offset: 1,
+        limit: 1,
+      },
+    },
+  ]);
+  expect(result, "F2:run").toMatchObject({ status: "completed", capturesCommitted: 1 });
+  const header = (await pool.query<Record<string, unknown>>("SELECT * FROM pricing_external_market_captures")).rows[0]!;
+  expect(header, "F2:header").toMatchObject({
+    signal_policy_revision_id: "synthetic-signal-r1",
+    products_per_pass: 1,
+    observation_policy_revision_id: "synthetic-observation-r1",
+    stat_hygiene_policy_revision_id: "synthetic-stat-r1",
+    captures_per_pass: 1,
+    currency: "cad",
+    outcome_kind: "recorded",
+    rejected_row_count: 0,
+    sales_status: "observed",
+    sales_coverage: "complete",
+    sales_pages_fetched: 2,
+    sales_returned_count: 2,
+    sales_first_reported_total: 2,
+    sales_last_reported_total: 2,
+    sales_first_result_count: 1,
+    sales_last_result_count: 1,
+    sales_last_next_page: "",
+    listings_status: "observed",
+    listings_coverage: "ceiling-truncated",
+    listings_pages_fetched: 1,
+    listings_returned_count: 2,
+    listings_reported_total: 3,
+    own_seller_exclusion_applied: false,
+    history_status: "unavailable",
+    history_coverage: "unknown",
+    history_result_count: 0,
+    history_bucket_count: 0,
+    history_response_observed_at: null,
+    history_http_status_class: "5xx",
+    history_range: "annual",
+    request_posture: expect.objectContaining({
+      salesConditions: [1],
+      salesLanguages: [2],
+      salesVariants: [3],
+      salesListingType: "ListingWithoutPhotos",
+      listingsDeliveredCeiling: "5.00",
+      historyRange: "annual",
+    }),
+  });
+  for (const endpoint of ["sales", "listings", "history"]) {
+    expect(Date.parse(String(header[`${endpoint}_requested_at`]))).toBeGreaterThanOrEqual(
+      Date.parse(String(header.capture_started_at)),
+    );
+  }
+  for (const endpoint of ["sales", "listings"]) {
+    expect(Date.parse(String(header[`${endpoint}_response_observed_at`]))).toBeGreaterThanOrEqual(
+      Date.parse(String(header[`${endpoint}_requested_at`])),
+    );
+  }
+  expect(Date.parse(String(header.signal_pass_started_at))).toBeLessThan(Date.parse(String(header.capture_started_at)));
+  expect(Date.parse(String(header.capture_completed_at))).toBeGreaterThan(
+    Date.parse(String(header.capture_started_at)),
+  );
+  expect(artifacts).toHaveLength(1);
+  expect(artifacts[0]).toContain('"salesPages"');
+  expect(artifacts[0]).toContain('"listingPages"');
+  expect(artifacts[0]).toContain('"failurePhase": "transport"');
+  const evidence: unknown[] = [header, logs, artifacts];
+  for (const table of [
+    "pricing_external_sale_observations",
+    "pricing_external_weekly_sale_buckets",
+    "pricing_external_listing_snapshots",
+    "pricing_external_listing_ask_depth",
+    "pricing_external_market_capture_cursors",
+  ]) {
+    evidence.push((await pool.query(`SELECT row_to_json(t) AS row FROM ${table} t`)).rows);
+  }
+  const serialized = JSON.stringify(evidence);
+  const leakedMarkers = [
+    "external-seller-secret",
+    "C12_SELLER_ID_SECRET",
+    "C12_SELLER_NAME_SECRET",
+    "C12_SELLER_RATING_SECRET",
+    "C12_SELLER_SALES_SECRET",
+    "C12_SELLER_BADGES_SECRET",
+    "C12_LISTING_ID_SECRET",
+    "C12_CUSTOM_LISTING_ID_SECRET",
+    "C12_LISTING_TITLE_SECRET",
+    "C12_CUSTOM_TITLE_SECRET",
+    "C12_CUSTOM_DATA_SECRET",
+    "C12_COOKIE_SECRET",
+    "C12_AUTH_SECRET",
+    "C12_RESPONSE_SECRET",
+    "C12_EXCEPTION_SECRET",
+    "synthetic-own-seller",
+    "synthetic-other",
+  ].filter((marker) => serialized.includes(marker));
+  expect(leakedMarkers, "F2:marker").toEqual([]);
 }

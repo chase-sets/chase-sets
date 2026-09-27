@@ -16,11 +16,16 @@ import {
   commitProviderObservationCapture,
   type MarketCaptureWorkItem,
 } from "../read-model/provider-observation-writes";
+import { captureSourceMutants, expectSourceMutantRed, settled } from "./source-mutant-test-support";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI)
   throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
 const describeDb = databaseBaseUrl ? describe : describe.skip;
+
+type CreateCapture = typeof createTcgplayerMarketCapture;
+type CaptureModule = Readonly<{ createTcgplayerMarketCapture: CreateCapture }>;
+const captureEntry = "api/market-capture.ts";
 
 describeDb("provider observation source-watermark interleaving", () => {
   let pool: PgTransactionalPool;
@@ -91,62 +96,75 @@ describeDb("provider observation source-watermark interleaving", () => {
   });
 
   it("backfills an annual-history SKU only after the runtime selector sees its new link", async () => {
-    await pool.query(`INSERT INTO pricing_external_catalog_item_reference_inputs
-      (provider_key, external_key, catalog_item_id, updated_at)
-      VALUES ('tcgplayer','product:7001','cat_synthetic','2026-09-01T14:00:00.000Z')`);
-    await pool.query(`INSERT INTO pricing_external_product_reference_inputs
-      (provider_key, external_key, catalog_item_id, catalog_product_key, selected_options, updated_at)
-      VALUES ('tcgplayer','sku:9002','cat_synthetic','cat_synthetic::sibling','[]','2026-09-01T14:00:00.000Z')`);
-    const weekly = () =>
-      pool.query<{ catalog_product_key: string | null; last_capture_id: string; last_observed_at: string }>(
-        `SELECT catalog_product_key, last_capture_id, last_observed_at::text
-       FROM pricing_external_weekly_sale_buckets WHERE external_key = 'sku:9001'`,
-      );
-    const runAt = (started: string) => {
-      let tick = Date.parse(started);
-      return createTcgplayerMarketCapture({
-        pool,
-        transport: annualHistoryTransport(),
-        receiptSink: { kind: "not-mounted" },
-        now: () => new Date((tick += 1000)).toISOString(),
-        resolveSignalPolicy: async () => ({ revisionId: "synthetic-signal-r1", value: { productsPerPass: 1 } }),
-        resolveObservationPolicy: async () => ({
-          revisionId: "synthetic-observation-r1",
-          value: { ...PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE, capturesPerPass: 1 },
-        }),
-        resolveStatHygienePolicy: async () => ({ revisionId: "synthetic-stat-r1" }),
-        recordTcgplayerPriceSignal: async (input) => ({
-          status: "unresolved",
-          reason: "sku-reference-not-mapped",
-          externalKey: `sku:${input.skuId}`,
-        }),
-      })();
-    };
-    await expect(runAt("2026-09-01T14:59:59.000Z")).resolves.toMatchObject({
-      status: "completed",
-      capturesCommitted: 1,
-    });
-    const first = (await weekly()).rows;
-    expect(first).toEqual([expect.objectContaining({ catalog_product_key: null })]);
-    await pool.query(`INSERT INTO pricing_external_product_reference_inputs
-      (provider_key, external_key, catalog_item_id, catalog_product_key, selected_options, updated_at)
-      VALUES ('tcgplayer','sku:9001','cat_synthetic','cat_synthetic::','[]','2026-09-01T16:00:00.000Z')`);
-    expect((await weekly()).rows).toEqual(first);
-    await expect(runAt("2026-09-02T14:59:59.000Z")).resolves.toMatchObject({
-      status: "completed",
-      capturesCommitted: 1,
-    });
-    const second = (await weekly()).rows;
-    expect(second).toEqual([expect.objectContaining({ catalog_product_key: "cat_synthetic::" })]);
-    expect(second[0]!.last_capture_id).not.toBe(first[0]!.last_capture_id);
-    expect(second[0]!.last_observed_at).not.toBe(first[0]!.last_observed_at);
-    const headers = await pool.query<{ capture_id: string }>(
-      "SELECT capture_id FROM pricing_external_market_captures ORDER BY capture_started_at",
-    );
-    expect(headers.rows).toHaveLength(2);
-    expect([first[0]!.last_capture_id, second[0]!.last_capture_id]).toEqual(headers.rows.map((row) => row.capture_id));
+    await annualBackfillScenario(pool, createTcgplayerMarketCapture);
   });
+
+  it.each([["selectorOmitsMapping"], ["mapperIgnoresMapping"]] as const)(
+    "turns the runtime backfill red under the %s mutant",
+    async (key) => {
+      await expectSourceMutantRed<CaptureModule>(captureSourceMutants[key], captureEntry, ["F4:backfill"], (mutant) =>
+        annualBackfillScenario(pool, mutant.createTcgplayerMarketCapture),
+      );
+    },
+  );
 });
+
+async function annualBackfillScenario(pool: PgTransactionalPool, create: CreateCapture) {
+  await pool.query(`INSERT INTO pricing_external_catalog_item_reference_inputs
+    (provider_key, external_key, catalog_item_id, updated_at)
+    VALUES ('tcgplayer','product:7001','cat_synthetic','2026-09-01T14:00:00.000Z')`);
+  await pool.query(`INSERT INTO pricing_external_product_reference_inputs
+    (provider_key, external_key, catalog_item_id, catalog_product_key, selected_options, updated_at)
+    VALUES ('tcgplayer','sku:9002','cat_synthetic','cat_synthetic::sibling','[]','2026-09-01T14:00:00.000Z')`);
+  const weekly = () =>
+    pool.query<{ catalog_product_key: string | null; last_capture_id: string; last_observed_at: string }>(
+      `SELECT catalog_product_key, last_capture_id, last_observed_at::text
+     FROM pricing_external_weekly_sale_buckets WHERE external_key = 'sku:9001'`,
+    );
+  const runAt = (started: string) => {
+    let tick = Date.parse(started);
+    return create({
+      pool,
+      transport: annualHistoryTransport(),
+      receiptSink: { kind: "not-mounted" },
+      now: () => new Date((tick += 1000)).toISOString(),
+      resolveSignalPolicy: async () => ({ revisionId: "synthetic-signal-r1", value: { productsPerPass: 1 } }),
+      resolveObservationPolicy: async () => ({
+        revisionId: "synthetic-observation-r1",
+        value: { ...PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE, capturesPerPass: 1 },
+      }),
+      resolveStatHygienePolicy: async () => ({ revisionId: "synthetic-stat-r1" }),
+      recordTcgplayerPriceSignal: async (input) => ({
+        status: "unresolved",
+        reason: "sku-reference-not-mapped",
+        externalKey: `sku:${input.skuId}`,
+      }),
+    })();
+  };
+  expect(await settled(runAt("2026-09-01T14:59:59.000Z")), "F4:first-run").toMatchObject({
+    status: "completed",
+    capturesCommitted: 1,
+  });
+  const first = (await weekly()).rows;
+  expect(first).toEqual([expect.objectContaining({ catalog_product_key: null })]);
+  await pool.query(`INSERT INTO pricing_external_product_reference_inputs
+    (provider_key, external_key, catalog_item_id, catalog_product_key, selected_options, updated_at)
+    VALUES ('tcgplayer','sku:9001','cat_synthetic','cat_synthetic::','[]','2026-09-01T16:00:00.000Z')`);
+  expect((await weekly()).rows).toEqual(first);
+  expect(await settled(runAt("2026-09-02T14:59:59.000Z")), "F4:second-run").toMatchObject({
+    status: "completed",
+    capturesCommitted: 1,
+  });
+  const second = (await weekly()).rows;
+  expect(second, "F4:backfill").toEqual([expect.objectContaining({ catalog_product_key: "cat_synthetic::" })]);
+  expect(second[0]!.last_capture_id).not.toBe(first[0]!.last_capture_id);
+  expect(second[0]!.last_observed_at).not.toBe(first[0]!.last_observed_at);
+  const headers = await pool.query<{ capture_id: string }>(
+    "SELECT capture_id FROM pricing_external_market_captures ORDER BY capture_started_at",
+  );
+  expect(headers.rows).toHaveLength(2);
+  expect([first[0]!.last_capture_id, second[0]!.last_capture_id]).toEqual(headers.rows.map((row) => row.capture_id));
+}
 
 function annualHistoryTransport(): TcgplayerMarketTransport {
   return {

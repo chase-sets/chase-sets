@@ -7,6 +7,7 @@ import {
 } from "../domain/provider-observation-policy";
 import { decodePriceSignalPolicyValue } from "../domain/price-signal-policy";
 import type { TcgplayerMarketTransport } from "../integrations/tcgplayer/transport-port";
+import { captureSourceMutants, expectSourceMutantRed, settled } from "./source-mutant-test-support";
 
 describe("ruled provider market-capture policy order", () => {
   it("disables a withheld host transport without selecting work or making a request", async () => {
@@ -339,45 +340,66 @@ describe("ruled provider market-capture policy order", () => {
   });
 
   it("continues after two invalid headers, wraps a valid bound-one pass, and refreshes next day", async () => {
-    const pool = new CapturePool(3);
-    const events: string[] = [];
-    let valid = false;
-    let tick = Date.parse("2026-09-01T14:59:59.000Z");
-    const run = createTcgplayerMarketCapture({
-      pool,
-      transport: fakeTransport(events),
-      receiptSink: { kind: "not-mounted" },
-      now: () => new Date((tick += 1000)).toISOString(),
-      resolveSignalPolicy: async () => ({ revisionId: "signal-r1", value: { productsPerPass: 2 } }),
-      resolveObservationPolicy: async () =>
-        valid
-          ? { revisionId: "capture-r1", value: { ...PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE, capturesPerPass: 1 } }
-          : null,
-      resolveStatHygienePolicy: async () => ({ revisionId: "stat-r1" }),
-      recordTcgplayerPriceSignal: async (input) => {
-        events.push(`signal:${input.skuId}`);
-        return { status: "unresolved", reason: "sku-reference-not-mapped", externalKey: `sku:${input.skuId}` };
-      },
-    });
-    expect(await run()).toMatchObject({ status: "configuration-invalid", signalWorkCount: 2, capturesCommitted: 2 });
-    expect(pool.headers.map((header) => header.externalKey)).toEqual(["product:7001", "product:7002"]);
-    expect(pool.cursor).toEqual({ afterExternalKey: "product:7002", generation: 2 });
-    valid = true;
-    events.length = 0;
-    expect(await run()).toMatchObject({ status: "completed", signalWorkCount: 2, capturesCommitted: 1 });
-    expect(events.filter((event) => event.startsWith("signal:"))).toEqual(["signal:9003", "signal:9001"]);
-    expect(pool.headers.map((header) => header.externalKey)).toEqual(["product:7001", "product:7002", "product:7003"]);
-    expect(pool.cursor).toEqual({ afterExternalKey: "", generation: 3 });
-    const firstIds = pool.headers.map((header) => header.captureId);
-    tick = Date.parse("2026-09-02T14:59:59.000Z");
-    events.length = 0;
-    expect(await run()).toMatchObject({ status: "completed", capturesCommitted: 1 });
-    expect(events.filter((event) => event.startsWith("signal:"))).toEqual(["signal:9001", "signal:9002"]);
-    expect(pool.cursor).toEqual({ afterExternalKey: "product:7001", generation: 4 });
-    expect(pool.headers.slice(0, 3).map((header) => header.captureId)).toEqual(firstIds);
-    expect(pool.headers[3]!.captureId).not.toBe(firstIds[0]);
+    await continuationScenario(createTcgplayerMarketCapture);
+  });
+
+  // Executed negative controls on the fake pool; the real-DB arms of the same
+  // mutants run in market-capture-signal-isolation.db.test.ts.
+  it.each([
+    ["validOnlyAdvance", ["F6:invalid-run", "F6:invalid-cursor"]],
+    ["reusedCaptureId", ["F6:day-after-id"]],
+  ] as const)("negative %s turns the continuation and day-after case red", async (key, labels) => {
+    await expectSourceMutantRed<CaptureModule>(captureSourceMutants[key], "api/market-capture.ts", labels, (mutant) =>
+      continuationScenario(mutant.createTcgplayerMarketCapture),
+    );
   });
 });
+
+type CaptureModule = Readonly<{ createTcgplayerMarketCapture: typeof createTcgplayerMarketCapture }>;
+
+async function continuationScenario(create: typeof createTcgplayerMarketCapture) {
+  const pool = new CapturePool(3);
+  const events: string[] = [];
+  let valid = false;
+  let tick = Date.parse("2026-09-01T14:59:59.000Z");
+  const run = create({
+    pool,
+    transport: fakeTransport(events),
+    receiptSink: { kind: "not-mounted" },
+    now: () => new Date((tick += 1000)).toISOString(),
+    resolveSignalPolicy: async () => ({ revisionId: "signal-r1", value: { productsPerPass: 2 } }),
+    resolveObservationPolicy: async () =>
+      valid
+        ? { revisionId: "capture-r1", value: { ...PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE, capturesPerPass: 1 } }
+        : null,
+    resolveStatHygienePolicy: async () => ({ revisionId: "stat-r1" }),
+    recordTcgplayerPriceSignal: async (input) => {
+      events.push(`signal:${input.skuId}`);
+      return { status: "unresolved", reason: "sku-reference-not-mapped", externalKey: `sku:${input.skuId}` };
+    },
+  });
+  expect(await settled(run()), "F6:invalid-run").toMatchObject({
+    status: "configuration-invalid",
+    signalWorkCount: 2,
+    capturesCommitted: 2,
+  });
+  expect(pool.headers.map((header) => header.externalKey)).toEqual(["product:7001", "product:7002"]);
+  expect(pool.cursor, "F6:invalid-cursor").toEqual({ afterExternalKey: "product:7002", generation: 2 });
+  valid = true;
+  events.length = 0;
+  expect(await run()).toMatchObject({ status: "completed", signalWorkCount: 2, capturesCommitted: 1 });
+  expect(events.filter((event) => event.startsWith("signal:"))).toEqual(["signal:9003", "signal:9001"]);
+  expect(pool.headers.map((header) => header.externalKey)).toEqual(["product:7001", "product:7002", "product:7003"]);
+  expect(pool.cursor).toEqual({ afterExternalKey: "", generation: 3 });
+  const firstIds = pool.headers.map((header) => header.captureId);
+  tick = Date.parse("2026-09-02T14:59:59.000Z");
+  events.length = 0;
+  expect(await run()).toMatchObject({ status: "completed", capturesCommitted: 1 });
+  expect(events.filter((event) => event.startsWith("signal:"))).toEqual(["signal:9001", "signal:9002"]);
+  expect(pool.cursor).toEqual({ afterExternalKey: "product:7001", generation: 4 });
+  expect(pool.headers.slice(0, 3).map((header) => header.captureId)).toEqual(firstIds);
+  expect(pool.headers[3]!.captureId, "F6:day-after-id").not.toBe(firstIds[0]);
+}
 
 class CapturePool implements PgTransactionalPool {
   public cursor = { afterExternalKey: "", generation: 0 };
