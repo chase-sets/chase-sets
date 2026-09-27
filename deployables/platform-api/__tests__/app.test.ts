@@ -33,7 +33,7 @@ import {
   UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
   UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
 } from "@chase-sets/platform-runtime/ucp";
-import { buildPlatformApiApp } from "../src/app";
+import { buildPlatformApiApp, createSavedListAnalyticsRecorder } from "../src/app";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
 
 const NO_API_ENTRIES: ReturnType<typeof authModule.buildApis> = [];
@@ -295,6 +295,69 @@ function createIdentityRuntime(services: Record<string, unknown>) {
 }
 
 describe("platform api app wiring", () => {
+  it("supplies the real Saved List recorder in the host composition and keeps failures out of requests", () => {
+    const source = readFileSync(new URL("../src/app.ts", import.meta.url), "utf8");
+    expect(source).toContain("savedListAnalyticsRecorder: createSavedListAnalyticsRecorder()");
+
+    const info = vi.fn((_message: string, _fields?: Readonly<Record<string, unknown>>) => undefined);
+    const recorder = createSavedListAnalyticsRecorder({ info });
+    recorder.record({
+      event: "product_added",
+      surface: "search",
+      outcome: "added",
+      coverage_band: "none",
+      estimate_state: "none",
+    });
+    expect(info).toHaveBeenCalledTimes(1);
+    expect(Object.keys(info.mock.calls[0]?.[1] ?? {}).sort()).toEqual(
+      ["context", "event", "surface", "outcome", "coverage_band", "estimate_state", "type"].sort(),
+    );
+    expect(info.mock.calls[0]?.[1]).toMatchObject({
+      context: "collections",
+      event: "product_added",
+      surface: "search",
+      outcome: "added",
+      type: "collections.saved_list.analytics_event",
+    });
+
+    const counterFailureLog = vi.fn((_message: string, _fields?: Readonly<Record<string, unknown>>) => undefined);
+    const counterFailure = vi.fn((_event: unknown) => {
+      throw new Error("SYNTHETIC_SAVED_LIST_COUNTER_FAILURE_MARKER");
+    });
+    const counterFailureRecorder = createSavedListAnalyticsRecorder({ info: counterFailureLog }, counterFailure);
+    expect(() =>
+      counterFailureRecorder.record({
+        event: "list_created",
+        surface: "search",
+        outcome: "none",
+        coverage_band: "none",
+        estimate_state: "none",
+      }),
+    ).not.toThrow();
+    expect(counterFailure).toHaveBeenCalledTimes(1);
+    expect(counterFailureLog).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(counterFailureLog.mock.calls[0]?.[1])).not.toContain(
+      "SYNTHETIC_SAVED_LIST_COUNTER_FAILURE_MARKER",
+    );
+
+    const markerLogger = {
+      info: vi.fn((_message: string, _fields?: Readonly<Record<string, unknown>>) => {
+        throw new Error("SYNTHETIC_SAVED_LIST_FAILURE_MARKER");
+      }),
+    };
+    expect(() =>
+      createSavedListAnalyticsRecorder(markerLogger).record({
+        event: "list_created",
+        surface: "search",
+        outcome: "none",
+        coverage_band: "none",
+        estimate_state: "none",
+      }),
+    ).not.toThrow();
+    expect(markerLogger.info).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(markerLogger.info.mock.calls[0]?.[1])).not.toContain("SYNTHETIC_SAVED_LIST_FAILURE_MARKER");
+  });
+
   it("keeps every evidence-window route unmounted until dedicated admission is configured", async () => {
     const app = buildPlatformApiApp(createEmptyRuntime());
 
