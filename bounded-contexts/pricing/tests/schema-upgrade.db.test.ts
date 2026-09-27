@@ -115,6 +115,16 @@ describeDb("pricing schema upgrades", () => {
     await pool.query(`DELETE FROM pricing_market_trade_rollup_rederive_queue`);
 
     await bootstrapContextDatabase(pricingModule, pool);
+    const pendingBeforeRetry = await pool.query(
+      `SELECT * FROM pricing_market_trade_rollup_rederive_queue ORDER BY product_id, day`,
+    );
+    // Simulate losing the connection after reshape commit but before its ledger receipt.
+    await pool.query(`DELETE FROM bounded_context_schema_migrations
+      WHERE migration_id IN ('20260927_pricing_currency_keyed_rollups', '20260927_pricing_currency_rollup_series_index')`);
+    await bootstrapContextDatabase(pricingModule, pool);
+    expect(
+      (await pool.query(`SELECT * FROM pricing_market_trade_rollup_rederive_queue ORDER BY product_id, day`)).rows,
+    ).toEqual(pendingBeforeRetry.rows);
     await bootstrapContextDatabase(pricingModule, pool);
     const existing = await pool.query<{ product_id: string; currency_code: string }>(
       `SELECT product_id, currency_code FROM pricing_daily_product_rollups ORDER BY product_id`,
@@ -146,10 +156,18 @@ describeDb("pricing schema upgrades", () => {
 
   it("boots currency-keyed tables and series index on a fresh database", async () => {
     await bootstrapContextDatabase(pricingModule, pools.pricing);
-    const index = await pools.pricing.query<{ definition: string }>(
-      `SELECT indexdef AS definition FROM pg_indexes WHERE indexname = 'pricing_daily_product_rollups_series_idx'`,
+    await bootstrapContextDatabase(pricingModule, pools.pricing);
+    const index = await pools.pricing.query<{ definition: string; valid: boolean }>(
+      `SELECT pg_get_indexdef(indexrelid) AS definition, indisvalid AS valid FROM pg_index
+       WHERE indexrelid = 'pricing_daily_product_rollups_series_idx'::regclass`,
     );
     expect(index.rows[0]?.definition).toContain("currency_code");
+    expect(index.rows[0]?.valid).toBe(true);
+    const checks = await pools.pricing.query<{ convalidated: boolean }>(
+      `SELECT convalidated FROM pg_constraint
+       WHERE conname IN ('pricing_daily_product_rollups_currency_required', 'pricing_product_market_aggregates_currency_required')`,
+    );
+    expect(checks.rows).toEqual([{ convalidated: true }, { convalidated: true }]);
     const keys = await pools.pricing.query<{ table_name: string; column_name: string }>(
       `SELECT table_name, column_name FROM information_schema.columns
        WHERE table_name IN ('pricing_daily_product_rollups', 'pricing_product_market_aggregates')

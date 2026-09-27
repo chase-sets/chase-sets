@@ -60,14 +60,8 @@ CREATE TABLE IF NOT EXISTS pricing_daily_product_rollups (
   PRIMARY KEY (catalog_catalog_item_id, product_id, day, currency_code)
 );
 
--- Boot SQL also runs before migrations on a deployed table without currency_code.
-DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.columns
-             WHERE table_name = 'pricing_daily_product_rollups' AND column_name = 'currency_code') THEN
-    CREATE INDEX IF NOT EXISTS pricing_daily_product_rollups_series_idx
-      ON pricing_daily_product_rollups (catalog_catalog_item_id, product_id, currency_code, day DESC);
-  END IF;
-END $$;
+ALTER TABLE pricing_daily_product_rollups
+  ADD COLUMN IF NOT EXISTS currency_code text;
 
 CREATE TABLE IF NOT EXISTS pricing_market_state_snapshots (
   catalog_catalog_item_id text NOT NULL,
@@ -101,6 +95,9 @@ CREATE TABLE IF NOT EXISTS pricing_product_market_aggregates (
   updated_at timestamptz NOT NULL,
   PRIMARY KEY (catalog_catalog_item_id, product_id, currency_code)
 );
+
+ALTER TABLE pricing_product_market_aggregates
+  ADD COLUMN IF NOT EXISTS currency_code text;
 
 /**
  * Platform Daily Rollup: the platform-wide sibling of the daily
@@ -136,17 +133,29 @@ export const pricingMarketRollupsSchemaMigrations: readonly BcSchemaMigration[] 
     description: "Key trade-derived daily and market aggregates by their recorded denomination.",
     statements: [
       `BEGIN`,
+      `SET LOCAL lock_timeout = '5s'`,
       `DO $$ BEGIN
+  -- A committed reshape can outlive its ledger receipt if the connection drops.
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'pricing_daily_product_rollups'::regclass
+      AND conname = 'pricing_daily_product_rollups_currency_required' AND convalidated
+  ) AND EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'pricing_product_market_aggregates'::regclass
+      AND conname = 'pricing_product_market_aggregates_currency_required' AND convalidated
+  ) THEN
+    RETURN;
+  END IF;
   IF EXISTS (SELECT 1 FROM pricing_market_trade_rollup_rederive_queue) THEN
     RAISE EXCEPTION 'Trades Tape rebuild queue must drain before currency-keyed rollup migration';
   END IF;
   IF EXISTS (SELECT 1 FROM pricing_market_trades WHERE sold_at IS NOT NULL AND excluded = false AND currency_code IS NULL) THEN
     RAISE EXCEPTION 'Sold non-excluded Trades Tape rows must have currency before rollup migration';
   END IF;
-END $$`,
-      `ALTER TABLE pricing_daily_product_rollups ADD COLUMN IF NOT EXISTS currency_code text`,
-      `ALTER TABLE pricing_product_market_aggregates ADD COLUMN IF NOT EXISTS currency_code text`,
-      `UPDATE pricing_daily_product_rollups AS rollup
+  ALTER TABLE pricing_daily_product_rollups ADD COLUMN IF NOT EXISTS currency_code text;
+  ALTER TABLE pricing_product_market_aggregates ADD COLUMN IF NOT EXISTS currency_code text;
+  UPDATE pricing_daily_product_rollups AS rollup
 SET currency_code = trade.currency_code
 FROM (
   SELECT catalog_catalog_item_id, product_id, (sold_at AT TIME ZONE 'UTC')::date AS day,
@@ -157,9 +166,9 @@ FROM (
   HAVING COUNT(DISTINCT currency_code) = 1
 ) AS trade
 WHERE rollup.catalog_catalog_item_id = trade.catalog_catalog_item_id
-  AND rollup.product_id = trade.product_id AND rollup.day = trade.day`,
-      `DELETE FROM pricing_daily_product_rollups WHERE currency_code IS NULL`,
-      `UPDATE pricing_product_market_aggregates AS aggregate
+  AND rollup.product_id = trade.product_id AND rollup.day = trade.day;
+  DELETE FROM pricing_daily_product_rollups WHERE currency_code IS NULL;
+  UPDATE pricing_product_market_aggregates AS aggregate
 SET currency_code = trade.currency_code
 FROM (
   SELECT catalog_catalog_item_id, product_id, MIN(currency_code) AS currency_code
@@ -169,27 +178,41 @@ FROM (
   HAVING COUNT(DISTINCT currency_code) = 1
 ) AS trade
 WHERE aggregate.catalog_catalog_item_id = trade.catalog_catalog_item_id
-  AND aggregate.product_id = trade.product_id`,
-      `DELETE FROM pricing_product_market_aggregates WHERE currency_code IS NULL`,
-      `ALTER TABLE pricing_daily_product_rollups ALTER COLUMN currency_code SET NOT NULL`,
-      `ALTER TABLE pricing_product_market_aggregates ALTER COLUMN currency_code SET NOT NULL`,
-      `ALTER TABLE pricing_daily_product_rollups ADD CONSTRAINT pricing_daily_product_rollups_currency_check CHECK (currency_code ~ '^[A-Z]{3}$')`,
-      `ALTER TABLE pricing_product_market_aggregates ADD CONSTRAINT pricing_product_market_aggregates_currency_check CHECK (currency_code ~ '^[A-Z]{3}$')`,
-      `ALTER TABLE pricing_daily_product_rollups DROP CONSTRAINT pricing_daily_product_rollups_pkey`,
-      `ALTER TABLE pricing_daily_product_rollups ADD PRIMARY KEY (catalog_catalog_item_id, product_id, day, currency_code)`,
-      `ALTER TABLE pricing_product_market_aggregates DROP CONSTRAINT pricing_product_market_aggregates_pkey`,
-      `ALTER TABLE pricing_product_market_aggregates ADD PRIMARY KEY (catalog_catalog_item_id, product_id, currency_code)`,
-      `DROP INDEX IF EXISTS pricing_daily_product_rollups_series_idx`,
-      `CREATE INDEX pricing_daily_product_rollups_series_idx
-  ON pricing_daily_product_rollups (catalog_catalog_item_id, product_id, currency_code, day DESC)`,
-      `INSERT INTO pricing_market_trade_rollup_rederive_queue
+  AND aggregate.product_id = trade.product_id;
+  DELETE FROM pricing_product_market_aggregates WHERE currency_code IS NULL;
+  ALTER TABLE pricing_daily_product_rollups ADD CONSTRAINT pricing_daily_product_rollups_currency_required
+    CHECK (currency_code IS NOT NULL AND currency_code ~ '^[A-Z]{3}$') NOT VALID;
+  ALTER TABLE pricing_product_market_aggregates ADD CONSTRAINT pricing_product_market_aggregates_currency_required
+    CHECK (currency_code IS NOT NULL AND currency_code ~ '^[A-Z]{3}$') NOT VALID;
+  ALTER TABLE pricing_daily_product_rollups VALIDATE CONSTRAINT pricing_daily_product_rollups_currency_required;
+  ALTER TABLE pricing_product_market_aggregates VALIDATE CONSTRAINT pricing_product_market_aggregates_currency_required;
+  ALTER TABLE pricing_daily_product_rollups ALTER COLUMN currency_code SET NOT NULL;
+  ALTER TABLE pricing_product_market_aggregates ALTER COLUMN currency_code SET NOT NULL;
+  ALTER TABLE pricing_daily_product_rollups DROP CONSTRAINT pricing_daily_product_rollups_pkey;
+  ALTER TABLE pricing_daily_product_rollups ADD PRIMARY KEY (catalog_catalog_item_id, product_id, day, currency_code);
+  ALTER TABLE pricing_product_market_aggregates DROP CONSTRAINT pricing_product_market_aggregates_pkey;
+  ALTER TABLE pricing_product_market_aggregates ADD PRIMARY KEY (catalog_catalog_item_id, product_id, currency_code);
+  DROP INDEX IF EXISTS pricing_daily_product_rollups_series_idx;
+  INSERT INTO pricing_market_trade_rollup_rederive_queue
   (catalog_catalog_item_id, product_id, day, queued_at)
 SELECT DISTINCT catalog_catalog_item_id, product_id, (sold_at AT TIME ZONE 'UTC')::date, now()
 FROM pricing_market_trades WHERE sold_at IS NOT NULL
 ON CONFLICT (catalog_catalog_item_id, product_id, day) DO UPDATE
 SET queued_at = EXCLUDED.queued_at,
-    generation = pricing_market_trade_rollup_rederive_queue.generation + 1`,
+    generation = pricing_market_trade_rollup_rederive_queue.generation + 1;
+END $$`,
       `COMMIT`,
+    ],
+  },
+  {
+    migrationId: "20260927_pricing_currency_rollup_series_index",
+    description: "Build the currency-keyed series index outside the atomic rollup reshape.",
+    statements: [
+      `SET lock_timeout = '5s'`,
+      // Retrying an interrupted concurrent build must not retain an invalid index.
+      `DROP INDEX CONCURRENTLY IF EXISTS pricing_daily_product_rollups_series_idx`,
+      `CREATE INDEX CONCURRENTLY pricing_daily_product_rollups_series_idx
+  ON pricing_daily_product_rollups (catalog_catalog_item_id, product_id, currency_code, day DESC)`,
     ],
   },
   {
