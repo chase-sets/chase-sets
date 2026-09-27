@@ -1356,14 +1356,17 @@ describe("busy-group-pass-attribution Postgres", () => {
     let connectionId = 0;
     const targetPool: PgTransactionalPool = {
       ...pools.marketplace,
-      query: (sql, values) => pools.marketplace.query(sql, values),
+      query: <Row = Record<string, unknown>>(...[sql, values]: Parameters<PgQueryFunction>) =>
+        pools.marketplace.query<Row>(sql, values),
       connect: async () => {
         const connection = ++connectionId;
         trace("connection-request", { connection });
         const client = await pools.marketplace.connect();
         trace("connection-acquired", { connection });
         let checkpoint: Readonly<{ checkpointKey: unknown; position: unknown }> | undefined;
-        const query: PgQueryFunction = async (sql, values) => {
+        const query: PgQueryFunction = async <Row = Record<string, unknown>>(
+          ...[sql, values]: Parameters<PgQueryFunction>
+        ) => {
           const command = sql.trim().toUpperCase();
           const checkpointWrite = command.includes("INSERT INTO EVENT_SUBSCRIPTION_CHECKPOINTS");
           const ownedWrite = command.includes("INSERT INTO BUSY_GROUP_OWNED_ITEMS");
@@ -1381,7 +1384,7 @@ describe("busy-group-pass-attribution Postgres", () => {
           };
           trace("db-request", identity);
           try {
-            const result = await client.query(sql, values);
+            const result = await client.query<Row>(sql, values);
             trace("db-returned", identity);
             if (checkpointWrite) checkpoint = { checkpointKey: values?.[0], position: values?.[4] };
             if (command === "COMMIT" && checkpoint) trace("checkpoint-committed", { connection, ...checkpoint });
@@ -1401,17 +1404,20 @@ describe("busy-group-pass-attribution Postgres", () => {
         };
       },
     };
-    const applying = Promise.withResolvers<void>();
+    let resolveApplying: (() => void) | null = null;
+    const applying = new Promise<void>((resolve) => {
+      resolveApplying = resolve;
+    });
     const apply: ProjectorHandler = async (event, context) => {
-      const identity = { eventId: event.eventId, position: event.globalPosition, streamId: event.streamId };
+      const identity = { eventId: event.id, position: event.globalPosition, streamId: event.streamId };
       trace("apply-start", identity);
-      applying.resolve();
+      resolveApplying?.();
       try {
         await context!.db!.query(
           `INSERT INTO busy_group_owned_items (stream_id, position, event_id)
            VALUES ($1, $2::bigint, $3)
            ON CONFLICT (stream_id) DO UPDATE SET position = EXCLUDED.position, event_id = EXCLUDED.event_id`,
-          [event.streamId, event.globalPosition, event.eventId],
+          [event.streamId, event.globalPosition, event.id],
         );
         trace("apply-end", identity);
       } catch (error) {
@@ -1582,7 +1588,7 @@ describe("busy-group-pass-attribution Postgres", () => {
       trace("initial-appended", { position: initial.at(-1)!.globalPosition, count: initial.length });
       pollLoop.start();
       // Observe real application starting; do not hold the transaction or delay the holder.
-      await applying.promise;
+      await applying;
       trace("concurrent-append-start");
       const appended = await store.appendToStream({
         streamId,
@@ -1651,7 +1657,7 @@ describe("busy-group-pass-attribution Postgres", () => {
         }),
       ]);
       const elapsedMs = performance.now() - readStartedAt;
-      trace("read-end", { status: response.status, elapsedMs, position });
+      trace("read-end", { status: response.status, requestDurationMs: elapsedMs, position });
       expect(response.status).toBe(200);
       expect(await response.json()).toEqual([{ position, event_id: appended.at(-1)!.eventId }]);
       expect(elapsedMs).toBeLessThan(fixture.timeoutMs);
