@@ -1,6 +1,6 @@
 import { createId, type EventId } from "@chase-sets/primitives/typed-ids";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
-import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import { marketplaceListingCodec } from "../domain/codec";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
 import {
@@ -58,7 +58,7 @@ export function createListingTargetRuntime(
   }>,
 ): ListingTargetServices {
   const execute = createListingRequestExecutor(deps.eventStore);
-  const codec = createPassthroughDomainEventCodec<MarketplaceListingEvent>();
+  const codec = marketplaceListingCodec;
 
   async function owned(listingId: string, accountId: string) {
     const loaded = await deps.load(listingId);

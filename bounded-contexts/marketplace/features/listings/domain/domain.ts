@@ -644,6 +644,7 @@ export type ListingPriceUpdatedEvent = DomainEvent<
 export type ListingQuantityCapUpdatedEvent = DomainEvent<
   "marketplace.listing.quantity-cap-updated",
   Readonly<{
+    schemaVersion?: 2;
     quantityCap: number;
     purchaseLimits: MarketplaceListingPurchaseLimits;
     marketplaceSalesFeeUnitAmount: string | null;
@@ -1004,6 +1005,7 @@ export const decideMarketplaceListing: AggregateDecider<
           ? [...state.feeLocks]
           : resizeMarketplaceListingFeeLocks(state.feeLocks, quantityCap, command.addedUnitsFeeLock);
       const data = {
+        schemaVersion: 2 as const,
         quantityCap,
         purchaseLimits,
         ...feeLockProjectionFields(feeLocks),

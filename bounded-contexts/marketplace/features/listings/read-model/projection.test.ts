@@ -540,7 +540,21 @@ describe("marketplace listing projection", () => {
       acceptedByUserId: "usr_1",
       acceptedAt: "2026-05-09T00:01:00.000Z",
       sourceEventId: "evt_1",
-      decision: { kind: "seller-reference" },
+      decision: {
+        kind: "pricing-evaluation",
+        evaluationId: "evaluation_synthetic",
+        evaluationRevision: "1",
+        policyId: "policy_synthetic",
+        policyRevision: "1",
+        goal: null,
+        inputEvidenceRefs: [],
+        curveEvidenceRefs: [],
+        economicsSourceRevision: null,
+        economicsOverrideRevision: null,
+        basePriceRevision: 1,
+        standingAuthorizationId: "authorization_synthetic",
+        standingAuthorizationRevision: "1",
+      },
       connectionAuthority: { connectionId, providerKey: "synthetic", environment: "sandbox", identityRevision: 1 },
     });
     for (const fact of [accepted("con_two", 4, "15.00", "EUR"), accepted("con_one", 2, "12.00", "CAD")]) {

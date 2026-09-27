@@ -365,6 +365,7 @@ export interface MarketplacePublicStandardTermsPreview {
 }
 
 export interface MarketplaceListingFeeHistoryEntry {
+  fee_locks: readonly MarketplaceListingFeeLock[];
   event_type: string;
   stream_version: number;
   price_amount: string | null;

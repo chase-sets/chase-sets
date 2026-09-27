@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import sharp from "sharp";
 import { createListingTargetRuntime } from "./target-runtime";
+import { marketplaceListingCodec } from "../domain/codec";
 import { listingRequestFingerprint, ListingRequestConflictError } from "./listing-request";
 import type { ListingAuthorityGuard, ListingTargetServices } from "./target-contracts";
 import { totalFeeLockedUnits } from "../domain/fee-lock";
@@ -694,7 +695,7 @@ function normalizeAnonymousOwnerId(value: string) {
 }
 
 export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): MarketplaceListingServices {
-  const listingCodec = createPassthroughDomainEventCodec<MarketplaceListingEvent>();
+  const listingCodec = marketplaceListingCodec;
   const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: listingCodec,
@@ -1404,24 +1405,34 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         "marketplace.listing.created",
         "marketplace.listing.price-updated",
         "marketplace.listing.quantity-cap-updated",
+        "marketplace.listing.native-visibility-changed",
       ].includes(event.eventType)
     ) {
       return null;
     }
 
+    const decoded = listingCodec.decode({ eventType: event.eventType, payload: event.payload });
+    const feeLocks = "feeLocks" in decoded.data ? decoded.data.feeLocks : [];
+    const last = feeLocks.at(-1);
+    if (!last && stringField(data, "marketplaceSalesFeeUnitAmount") === null) return null;
+    const snapshot =
+      event.eventType === "marketplace.listing.native-visibility-changed" && last
+        ? { ...data, ...last, ...last.terms }
+        : data;
     return {
       event_type: event.eventType,
       stream_version: event.streamVersion,
       price_amount: stringField(data, "priceAmount"),
       price_currency_code: stringField(data, "priceCurrencyCode"),
       quantity_cap: numberField(data, "quantityCap"),
-      marketplace_sales_fee_unit_amount: stringField(data, "marketplaceSalesFeeUnitAmount"),
-      seller_net_unit_amount: stringField(data, "sellerNetUnitAmount"),
-      shipping_allowance_percentage_bps: Number(data.shippingAllowancePercentageBps ?? 500),
-      terms_schedule_id: stringField(data, "termsScheduleId"),
-      terms_agreement_id: stringField(data, "termsAgreementId"),
-      terms_resolved_at: stringField(data, "termsResolvedAt"),
-      fee_quote_fingerprint: stringField(data, "feeQuoteFingerprint"),
+      marketplace_sales_fee_unit_amount: stringField(snapshot, "marketplaceSalesFeeUnitAmount"),
+      seller_net_unit_amount: stringField(snapshot, "sellerNetUnitAmount"),
+      shipping_allowance_percentage_bps: numberField(snapshot, "shippingAllowancePercentageBps"),
+      terms_schedule_id: stringField(snapshot, "termsScheduleId"),
+      terms_agreement_id: stringField(snapshot, "termsAgreementId"),
+      terms_resolved_at: stringField(snapshot, "termsResolvedAt"),
+      fee_quote_fingerprint: stringField(snapshot, "feeQuoteFingerprint"),
+      fee_locks: feeLocks,
       recorded_at: String(event.recordedAt),
       performed_by_user_id: event.performedByUserId ? String(event.performedByUserId) : null,
     } satisfies MarketplaceListingFeeHistoryEntry;
@@ -2029,7 +2040,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           const lane = createBulkAppendLane({
             eventStore: deps.eventStore,
             repository,
-            codec: createPassthroughDomainEventCodec<MarketplaceListingEvent>(),
+            codec: listingCodec,
             evolve: evolveMarketplaceListing,
             decide: decideMarketplaceListing,
             chunkSize: laneItems.length,

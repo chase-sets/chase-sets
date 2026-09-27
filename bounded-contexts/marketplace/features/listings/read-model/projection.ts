@@ -4,6 +4,7 @@ import { recordRealtimeProjectionPatch } from "@chase-sets/platform-runtime/real
 import { createMarketplaceListingPatch } from "../../../support/realtime-support/projection-patches";
 import { marketplaceRealtimeTopics } from "../../../support/realtime-support/topics";
 import { buildMarketplaceListingTargetProjectionHandlers } from "./target-projection";
+import { marketplaceListingCodec } from "../domain/codec";
 
 async function loadRealtimeListing(db: PgQueryable, listingId: string) {
   const result = await db.query<{
@@ -128,6 +129,9 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
   return Object.fromEntries(
     [...new Set([...Object.keys(listing), ...Object.keys(targets)])].map((type) => {
       const handler: ProjectorHandlerMap[string] = async (event) => {
+        if (event.type.startsWith("marketplace.listing.")) {
+          marketplaceListingCodec.decode({ eventType: event.type, payload: event.data });
+        }
         await listing[type]?.(event);
         await targets[type]?.(event);
       };

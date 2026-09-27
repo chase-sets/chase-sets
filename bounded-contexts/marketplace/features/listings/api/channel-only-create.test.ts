@@ -87,6 +87,9 @@ describe("channel-only creation runtime", () => {
       feeQuoteFingerprint: null,
     });
     expect(resolveListingTerms).not.toHaveBeenCalled();
+    expect(await services.listSellerListingFeeHistory({ accountId: input.accountId, listingId: "lst_test" })).toEqual(
+      [],
+    );
     expect(await services.loadListingState("lst_test")).toMatchObject({
       status: "draft",
       nativeVisibility: "disabled",
@@ -107,6 +110,53 @@ describe("channel-only creation runtime", () => {
     const { services, eventStore, input, context } = fixture(false);
     await expect(services.createListing(input, context)).rejects.toThrow("capability");
     expect(await eventStore.readAll()).toHaveLength(0);
+  });
+  it("includes first native enrollment and immutable tranche formulas in fee history", async () => {
+    const { services, eventStore, input, context } = fixture();
+    await services.createListing(input, context);
+    const lock = {
+      unitCount: 2,
+      terms: {
+        marketplaceSalesFeePercentageBps: 500,
+        marketplaceSalesFeeFixedAmount: "0.00",
+        marketplaceSalesFeeCapAmount: null,
+        shippingAllowancePercentageBps: 500,
+        termsScheduleId: "terms_synthetic",
+        termsAgreementId: null,
+        termsResolvedAt: "2026-09-27T12:00:00.000Z",
+      },
+      marketplaceSalesFeeUnitAmount: "0.50",
+      sellerNetUnitAmount: "9.50",
+      feeQuoteFingerprint: "quote_synthetic",
+    };
+    await eventStore.appendToStream({
+      streamId: "marketplace.listing-lst_test",
+      expectedVersion: 1,
+      context,
+      events: [
+        {
+          eventType: "marketplace.listing.native-visibility-changed",
+          payload: {
+            nativeVisibility: "enabled",
+            nativeFeeState: "enrolled",
+            feeLocks: [lock],
+            evidenceRequirements: null,
+          },
+        },
+        { eventType: "marketplace.listing.published", payload: {} },
+      ],
+    });
+    expect(await services.listSellerListingFeeHistory({ accountId: input.accountId, listingId: "lst_test" })).toEqual([
+      expect.objectContaining({
+        event_type: "marketplace.listing.native-visibility-changed",
+        stream_version: 2,
+        marketplace_sales_fee_unit_amount: "0.50",
+        seller_net_unit_amount: "9.50",
+        terms_schedule_id: "terms_synthetic",
+        fee_quote_fingerprint: "quote_synthetic",
+        fee_locks: [lock],
+      }),
+    ]);
   });
   it("binds creation retries to purchase limits, evidence, scope and actor", async () => {
     const { services, eventStore, input, context } = fixture();
