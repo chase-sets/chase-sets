@@ -100,7 +100,12 @@ export function createEvidenceWindowDisposition(options: EvidenceWindowDispositi
         emittedBy: "executor",
         startedAt,
         finishedAt: new Date().toISOString(),
-        deploymentEnvironment: observation?.deploymentEnvironment === "dev" ? "dev" : "test",
+        // The legacy receipt has no production/unknown environment value. Its
+        // fallback on a pre-network refusal is a convention, not TEST authority.
+        deploymentEnvironment:
+          observation && ["dev", "test", "staging"].includes(observation.deploymentEnvironment)
+            ? observation.deploymentEnvironment
+            : "test",
         providerMode: "test",
         windowId: /^[a-f0-9]{32}$/.test(windowId) ? windowId : "0".repeat(32),
         classes,

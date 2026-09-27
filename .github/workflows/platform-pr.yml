@@ -159,6 +159,9 @@ jobs:
       - name: Check generated metadata
         run: pnpm run verify:metadata
 
+      - name: Install Chromium for zero-network provider boundary controls
+        run: pnpm exec playwright install --with-deps chromium
+
       - name: Run static checks
         env:
           CHANGED_FILES_JSON: ${{ needs.change-scope.outputs.changed_files_json }}
