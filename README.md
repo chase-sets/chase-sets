@@ -4,6 +4,22 @@ Chase Sets is a trading card and collectibles marketplace built for high-volume,
 
 The codebase is a TypeScript monorepo organized around bounded contexts, event-sourced domain behavior, event-driven integration, and thin deployable composition roots.
 
+## License
+
+Copyright (c) 2026 Chase Sets Limited Company. All rights reserved.
+
+This repository is public for source inspection, **not open source**. The
+[Chase Sets Proprietary Source Inspection License](LICENSE) permits reading,
+unmodified local inspection copies, and unmodified GitHub forks, while preserving
+permissions granted by GitHub's Terms of Service.
+
+Building, running, deploying, modifying, redistributing beyond those permissions,
+or using this code in another product or service requires prior written
+permission from Chase Sets Limited Company. Commercial use, including competing
+services and internal business operations, is not permitted without that
+permission. Third-party licenses, separate agreements, and applicable legal
+exceptions remain unaffected. See [LICENSE](LICENSE) for the complete terms.
+
 ## Product Direction
 
 Chase Sets prioritizes:
