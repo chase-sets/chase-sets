@@ -967,6 +967,7 @@ export function createStripeConnectMoneyMovementGateway(
             error.providerStatus !== undefined &&
             error.providerStatus >= 400 &&
             error.providerStatus < 500 &&
+            error.providerStatus !== 409 &&
             error.providerStatus !== 429,
         })
       : await stripeRequest<StripeAccountSessionResponse>("/v1/account_sessions", request);

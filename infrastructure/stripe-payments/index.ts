@@ -1326,6 +1326,7 @@ export function createStripePaymentProcessorGateway(
         error.providerStatus !== undefined &&
         error.providerStatus >= 400 &&
         error.providerStatus < 500 &&
+        error.providerStatus !== 409 &&
         error.providerStatus !== 429,
     });
   }

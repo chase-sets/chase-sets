@@ -17,6 +17,153 @@ import type { PaymentId } from "@chase-sets/primitives/typed-ids";
 
 afterEach(() => vi.unstubAllGlobals());
 
+// Stateful journal honoring the store's full-key + expected-version CAS semantics.
+function casJournal() {
+  let row: ProviderWriteRow | null = null;
+  const completions: string[] = [];
+  const bump = (patch: Partial<ProviderWriteRow>) => (row = { ...row!, ...patch, version: row!.version + 1 });
+  const port: EvidenceWindowProviderWrite = {
+    async reserveOrResolve(input) {
+      if (row) return { kind: "existing", row };
+      const shape = providerWriterShape(input.binding);
+      row = {
+        key: {
+          windowId: input.windowId,
+          objectClass: shape.objectClass,
+          creationOrdinal: 1,
+          operation: shape.operation,
+        },
+        binding: input.binding,
+        envelope: input.envelope,
+        digest: await providerWriteDigest(input.envelope),
+        state: "pending",
+        version: 1,
+        observedClass: null,
+        reusedExisting: false,
+        replayAttempts: 0,
+        logicalSlot: shape.logicalSlot,
+        providerReference: null,
+        responseExpiresAt: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        replayDeadline: "2099-01-01T00:00:00.000Z",
+      };
+      return { kind: "reserved", row };
+    },
+    async complete(_key, version, result) {
+      if (version !== row!.version || row!.state !== "pending") {
+        completions.push(`stale:${result.state}`);
+        return { kind: "stale-write-rejected" };
+      }
+      completions.push(result.state);
+      return {
+        kind: "existing",
+        row: bump({
+          state: result.state,
+          providerReference: result.state === "succeeded" ? result.providerReference : null,
+        }),
+      };
+    },
+    async claimReplay(_key, version) {
+      if (version !== row!.version) return { kind: "stale-write-rejected" };
+      if (row!.state !== "pending")
+        return { kind: "refused", code: row!.state === "failed" ? "write-failed" : "write-unresolved" };
+      if (row!.replayAttempts === 1) {
+        bump({ state: "ambiguous" });
+        return { kind: "refused", code: "write-unresolved" };
+      }
+      return { kind: "existing", row: bump({ replayAttempts: 1 }) };
+    },
+    observeCapture: async (_key, version) =>
+      version === row!.version
+        ? { kind: "existing", row: bump({ observedClass: 1 }) }
+        : { kind: "stale-write-rejected" },
+    observeCustomerReuse: vi.fn(),
+    admitSavedResponse: vi.fn(),
+    readWindow: async () => (row ? [row] : []),
+  };
+  return { port, current: () => row, completions };
+}
+
+it("J4 a concurrent same-key replay answered 409 idempotency_key_in_use stays pending, then ambiguous, never failed", async () => {
+  const journal = casJournal();
+  let release!: () => void;
+  let entered!: () => void;
+  const firstInFlight = new Promise<void>((resolve) => (entered = resolve));
+  const releaseFirst = new Promise<void>((resolve) => (release = resolve));
+  let posts = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => {
+      if (++posts === 1) {
+        entered();
+        await releaseFirst;
+        // Provider created and confirmed the PaymentIntent (money moved).
+        return Response.json({ id: "pi_SYNTHETIC_CHARGED", status: "succeeded" });
+      }
+      // Stripe's documented answer to a second request that reuses an in-progress Idempotency-Key.
+      return Response.json(
+        {
+          error: {
+            type: "idempotency_error",
+            code: "idempotency_key_in_use",
+            message: "There is currently another in-progress request using this Idempotent Key.",
+          },
+        },
+        { status: 409 },
+      );
+    }),
+  );
+  const gateway = createStripePaymentProcessorGateway({
+    secretKey: "sk_test_SYNTHETIC",
+    publishableKey: "pk_test_SYNTHETIC",
+    webhookSecret: "whsec_SYNTHETIC",
+    evidenceWindowCorrelation: {
+      currentOpenWindow: async () => ({ windowId: "a".repeat(32), expiresAt: "2099-01-01T00:00:00Z" }),
+    },
+    evidenceWindowProviderWrite: journal.port,
+  });
+  const input = {
+    paymentId: "pay_SYNTHETIC" as PaymentId,
+    buyerAccountId: "acc_SYNTHETIC" as AccountId,
+    orderIds: [],
+    amount: "12.34",
+    currencyCode: "usd",
+    paymentMethodCategory: "card" as const,
+    description: "Synthetic saved payment",
+    providerCustomerReference: "cus_SYNTHETIC",
+    savedCheckoutInstrument: {
+      instrumentId: "sci_SYNTHETIC",
+      providerReference: "pm_SYNTHETIC",
+      confirmationExperience: "off-session-token" as const,
+    },
+  };
+  const tabA = gateway.createPaymentSession(input).then(
+    () => "ok",
+    (error: Error) => error.message,
+  );
+  await firstInFlight;
+  const tabB = await gateway.createPaymentSession(input).then(
+    () => "ok",
+    (error: Error) => error.message,
+  );
+  release();
+  const a = await tabA;
+  expect(posts).toBe(2);
+  expect(tabB).toBe("evidence-window-provider-write:write-unresolved");
+  expect(a).toBe("evidence-window-provider-write:stale-write-rejected");
+  expect(journal.completions).toEqual(["stale:succeeded"]);
+  expect(journal.current()).toMatchObject({ state: "pending", providerReference: null, replayAttempts: 1, version: 2 });
+  await expect(gateway.createPaymentSession(input)).rejects.toThrow("evidence-window-provider-write:write-unresolved");
+  expect(posts).toBe(2);
+  expect(journal.current()).toMatchObject({
+    state: "ambiguous",
+    providerReference: null,
+    replayAttempts: 1,
+    version: 3,
+  });
+});
+
 function recordingJournal() {
   let row: ProviderWriteRow | null = null;
   const port: EvidenceWindowProviderWrite = {
