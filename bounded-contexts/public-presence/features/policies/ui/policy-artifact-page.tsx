@@ -156,7 +156,7 @@ export function PolicyArtifactPage({
           <Banner tone="warning" title={copy.counselPendingTitle} description={copy.counselPendingDescription} />
         ) : null}
 
-        <Surface element="section" tone="subtle" aria-label={copy.metadataLabel}>
+        <Surface element="section" tone="subtle" elevation="tinted" aria-label={copy.metadataLabel}>
           <Stack gap={2}>
             <Heading level={2} visualSize={4}>
               {copy.metadataTitle}
@@ -171,7 +171,7 @@ export function PolicyArtifactPage({
           </Stack>
         </Surface>
 
-        <Surface element="nav" tone="subtle" aria-label={copy.tocLabel}>
+        <Surface element="nav" tone="subtle" elevation="tinted" aria-label={copy.tocLabel}>
           <Stack gap={3}>
             <Heading level={2} visualSize={4}>
               {copy.tocTitle}
@@ -188,7 +188,7 @@ export function PolicyArtifactPage({
 
         <Stack element="article" gap={5}>
           {artifact.sections.map((section) => (
-            <Surface key={section.id} element="section" elevated aria-labelledby={section.id}>
+            <Surface key={section.id} element="section" elevation="flush" aria-labelledby={section.id}>
               <Stack gap={3}>
                 <Heading id={section.id} level={2}>
                   {section.title}
