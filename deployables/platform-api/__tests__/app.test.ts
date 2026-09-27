@@ -33,7 +33,8 @@ import {
   UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
   UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
 } from "@chase-sets/platform-runtime/ucp";
-import { buildPlatformApiApp, createSavedListAnalyticsRecorder } from "../src/app";
+import { buildPlatformApiApp, createPlatformApiHost, createSavedListAnalyticsRecorder } from "../src/app";
+import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
 
 const NO_API_ENTRIES: ReturnType<typeof authModule.buildApis> = [];
@@ -122,6 +123,22 @@ function createEmptyRuntime(
     projectionGroups: [],
     subscriptionRunners: [],
   } as never;
+}
+
+async function withUninstrumentedPlatformApiRuntime(
+  action: (runtime: ReturnType<typeof createPlatformApiHost>) => void | Promise<void>,
+) {
+  const pools = createPlatformApiPools({
+    runtimeProfile: "public",
+    sharedDatabaseUrl: "postgresql://localhost/shared",
+    contextDatabaseUrls: {},
+    port: 6182,
+  });
+  try {
+    await action(createPlatformApiHost({ runtimeProfile: "public", pools, hostPorts: {} }));
+  } finally {
+    await closePlatformApiPools(pools);
+  }
 }
 
 function statelessMcpMeta() {
@@ -295,10 +312,23 @@ function createIdentityRuntime(services: Record<string, unknown>) {
 }
 
 describe("platform api app wiring", () => {
-  it("supplies the real Saved List recorder in the host composition and keeps failures out of requests", () => {
-    const source = readFileSync(new URL("../src/app.ts", import.meta.url), "utf8");
-    expect(source).toContain("savedListAnalyticsRecorder: createSavedListAnalyticsRecorder()");
+  it("supplies the real recorder to the built Collections host ports", async () => {
+    await withUninstrumentedPlatformApiRuntime((runtime) => {
+      expect(runtime.services.collections).toHaveProperty("savedListAnalyticsRecorder");
+    });
+  });
 
+  it("starts and serves Collections routes without an observability runtime", async () => {
+    await withUninstrumentedPlatformApiRuntime(async (runtime) => {
+      const response = await buildPlatformApiApp(runtime).request("/api/collections/account/lists/recent");
+      expect(response.status).toBe(401);
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: "authentication_required" },
+      });
+    });
+  });
+
+  it("supplies the real Saved List recorder in the host composition and keeps failures out of requests", () => {
     const info = vi.fn((_message: string, _fields?: Readonly<Record<string, unknown>>) => undefined);
     const recorder = createSavedListAnalyticsRecorder({ info });
     recorder.record({

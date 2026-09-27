@@ -838,6 +838,22 @@ describe("Saved List analytics observability", () => {
     expect(Object.values(unknownToken)).not.toContain("synthetic_valid_but_unregistered_value_000001");
   });
 
+  it("maps an unknown event name to a fixed fallback without indexing an absent tuple", () => {
+    const attributes = savedListAnalyticsAttributes(
+      JSON.parse(
+        '{"event":"synthetic_unregistered_event","surface":"search","outcome":"added","coverage_band":"high","estimate_state":"current"}',
+      ),
+    );
+    expect(attributes).toEqual({
+      context: "collections",
+      event: "invalid",
+      surface: "none",
+      outcome: "none",
+      coverage_band: "none",
+      estimate_state: "none",
+    });
+  });
+
   it("matches both event keys and all allowed values in the Collections privacy contract", () => {
     const contract = readFileSync(
       resolve(process.cwd(), "../../bounded-contexts/collections/docs/saved-list-analytics.md"),

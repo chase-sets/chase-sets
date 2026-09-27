@@ -1594,8 +1594,11 @@ export function recordItemDetailRailAnalytics(event: ItemDetailRailAnalyticsSign
 }
 
 export function savedListAnalyticsAttributes(event: SavedListAnalyticsSignal): Attributes {
-  const eventName = savedListAnalyticsEvents.includes(event.event) ? event.event : "invalid";
-  const eventKeys: readonly string[] = savedListAnalyticsKeys[eventName as SavedListAnalyticsEventName];
+  const isKnownEvent = savedListAnalyticsEvents.includes(event.event);
+  const eventName = isKnownEvent ? event.event : "invalid";
+  const eventKeys: readonly string[] = isKnownEvent
+    ? savedListAnalyticsKeys[eventName as SavedListAnalyticsEventName]
+    : [];
   const label = <K extends SavedListAnalyticsLabelKey>(key: K): SavedListAnalyticsLabelValue<K> => {
     if (!eventKeys.includes(key)) {
       return "none";
