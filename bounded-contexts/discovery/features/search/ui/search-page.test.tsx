@@ -114,7 +114,7 @@ const searchResponse: DiscoverySearchResponse = {
   resultSetKey: "b".repeat(64),
 };
 
-const heroHeadline = "Find cards, comics, figures, sneakers, and memorabilia worth chasing.";
+const heroHeadline = "Find trading cards worth chasing.";
 const heroDescription =
   "Search live supply, compare active markets, and move from discovery to item detail with buyer confidence built in.";
 
@@ -568,7 +568,7 @@ describe("SearchPage", () => {
     expect(headline.contains(foilSites[0]!)).toBe(true);
     expect(foilSites[0]!.textContent).toBe("chasing");
     expect(Array.from(headline.childNodes).map((node) => [node.nodeType, node.textContent])).toEqual([
-      [Node.TEXT_NODE, "Find cards, comics, figures, sneakers, and memorabilia worth "],
+      [Node.TEXT_NODE, "Find trading cards worth "],
       [Node.ELEMENT_NODE, "chasing"],
       [Node.TEXT_NODE, "."],
     ]);
@@ -580,6 +580,9 @@ describe("SearchPage", () => {
 
     // The hero search form is the existing one-search-input call site.
     const searchForm = heroView.getByRole("search");
+    expect(within(searchForm).getByRole("searchbox", { name: "Marketplace search" }).getAttribute("placeholder")).toBe(
+      "Search Charizard, Black Lotus, Dark Magician, Luffy...",
+    );
     fireEvent.change(within(searchForm).getByRole("searchbox", { name: "Marketplace search" }), {
       target: { value: "charizard" },
     });

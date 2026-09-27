@@ -60,7 +60,7 @@ const populatedSearchPriceProof = {
 // it to pathname `/`), so Home-section anchors are proven on `/` and the two
 // registered `/search` claims capture the hero, count, rail branch, and the
 // unchanged populated Search card.
-const heroHeadline = "Find cards, comics, figures, sneakers, and memorabilia worth chasing.";
+const heroHeadline = "Find trading cards worth chasing.";
 const heroFoilWord = "chasing";
 const heroDescription =
   "Search live supply, compare active markets, and move from discovery to item detail with buyer confidence built in.";
@@ -104,7 +104,7 @@ async function assertInkFoilHero(page: Page, viewport: InkFoilViewport) {
   // DOM node types as numerals: this assertion runs in the Node.js test process,
   // where the browser `Node` global does not exist (3 = text, 1 = element).
   expect(headlineNodes, "the foil wraps only the treated word; punctuation stays outside").toEqual([
-    [3, "Find cards, comics, figures, sneakers, and memorabilia worth "],
+    [3, "Find trading cards worth "],
     [1, heroFoilWord],
     [3, "."],
   ]);
@@ -112,7 +112,10 @@ async function assertInkFoilHero(page: Page, viewport: InkFoilViewport) {
   await expect(hero.getByText("Marketplace", { exact: true })).toBeVisible();
   await expect(hero.getByText("Verified supply", { exact: true })).toBeVisible();
   await expect(hero.getByText(heroDescription, { exact: true })).toBeVisible();
-  await expect(hero.getByRole("searchbox", { name: "Marketplace search" })).toBeVisible();
+  await expect(hero.getByRole("searchbox", { name: "Marketplace search" })).toHaveAttribute(
+    "placeholder",
+    "Search Charizard, Black Lotus, Dark Magician, Luffy...",
+  );
 
   const categoryActions = hero.getByRole("button");
   await expect(categoryActions.first()).toHaveText("All");
