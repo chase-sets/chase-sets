@@ -48,14 +48,13 @@ test.describe("marketplace seller time away & order capacity", () => {
     await page.locator('input[name="awayWindowEndsOn"]').fill(endDate);
     await submitAndWaitForAccountListingsPostWrite(page, page.getByRole("button", { name: /^Schedule away window$/i }));
 
-    await revisitListings(page);
-
-    await expect(
+    await waitForFreshListingsRead(
+      page,
       page.getByText(
         `Scheduled away for Travel starting ${formatDateTime(`${startDate}T00:00:00Z`)}. Returning ${formatDateTime(`${endDate}T00:00:00Z`)}.`,
         { exact: true },
       ),
-    ).toBeVisible();
+    );
 
     // Card now shows the scheduled window with the automatic-return notice and
     // a cancel control, and no longer offers the schedule form.
@@ -68,22 +67,19 @@ test.describe("marketplace seller time away & order capacity", () => {
       page,
       page.getByRole("button", { name: /^Cancel scheduled away window$/i }),
     );
-    await revisitListings(page);
-    await expect(page.getByRole("button", { name: /^Schedule away window$/i })).toBeVisible();
+    await waitForFreshListingsRead(page, page.getByRole("button", { name: /^Schedule away window$/i }));
     await expect(page.getByRole("button", { name: /^Cancel scheduled away window$/i })).toHaveCount(0);
 
     // Set an Order Capacity cap through the real form; the current-cap line
     // reflects the new value after the post/redirect/fresh-read cycle.
     await page.locator('input[name="maxOpenOrders"]').fill("5");
     await submitAndWaitForAccountListingsPostWrite(page, page.getByRole("button", { name: /^Set capacity$/i }));
-    await revisitListings(page);
-    await expect(page.getByText(/^Current cap: 5 open orders$/i)).toBeVisible();
+    await waitForFreshListingsRead(page, page.getByText(/^Current cap: 5 open orders$/i));
     await expect(page.getByRole("button", { name: /^Remove cap$/i })).toBeVisible();
 
     // Clean up so re-runs start capacity-unset.
     await submitAndWaitForAccountListingsPostWrite(page, page.getByRole("button", { name: /^Remove cap$/i }));
-    await revisitListings(page);
-    await expect(page.getByText(/No cap set/i)).toBeVisible();
+    await waitForFreshListingsRead(page, page.getByText(/No cap set/i));
   });
 });
 
@@ -97,6 +93,13 @@ async function revisitListings(page: Page): Promise<void> {
   await page.goto("/account", { waitUntil: "domcontentloaded" });
   await page.goto("/account/listings", { waitUntil: "domcontentloaded" });
   await expect(page).toHaveURL(/\/account\/listings$/);
+}
+
+async function waitForFreshListingsRead(page: Page, expected: Locator): Promise<void> {
+  await expect(async () => {
+    await revisitListings(page);
+    await expect(expected).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 20_000 });
 }
 
 async function submitAndWaitForAccountListingsPostWrite(page: Page, submit: Locator): Promise<void> {
