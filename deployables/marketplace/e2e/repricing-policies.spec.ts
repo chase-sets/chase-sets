@@ -232,11 +232,17 @@ test.describe("Seller Desk repricing policies", () => {
       const revisedResponse = await request.get(`${repricingApi}/${policyId}`);
       expect((await revisedResponse.json()).rules).toHaveLength(2);
 
+      const pauseFrom = page.url();
       await page.getByRole("button", { name: "Pause", exact: true }).click();
+      await page.waitForURL((url) => url.pathname === `/account/desk/repricing/${policyId}` && url.href !== pauseFrom);
+      await page.getByTestId("repricing-policy-rules").waitFor();
       await expect(page.getByRole("button", { name: "Resume", exact: true })).toBeVisible();
       await expect(visibleText(page, "Paused")).toBeVisible();
       await expectPathname(page, `/account/desk/repricing/${policyId}`);
+      const resumeFrom = page.url();
       await page.getByRole("button", { name: "Resume", exact: true }).click();
+      await page.waitForURL((url) => url.pathname === `/account/desk/repricing/${policyId}` && url.href !== resumeFrom);
+      await page.getByTestId("repricing-policy-rules").waitFor();
       await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
       await expect(visibleText(page, "Active")).toBeVisible();
       await expectPathname(page, `/account/desk/repricing/${policyId}`);
