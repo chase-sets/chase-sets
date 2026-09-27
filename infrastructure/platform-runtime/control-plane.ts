@@ -17,16 +17,23 @@ export {
   createEvidenceWindowRegistrationRoutes,
   createNullEvidenceWindowCorrelation,
   createPostgresEvidenceWindowRegistration,
+  createPostgresEvidenceWindowById,
   EVIDENCE_WINDOW_ADMISSION_HEADER,
   EvidenceWindowRegistrationError,
   type EvidenceWindowAuthorityProbe,
   type EvidenceWindowAuthoritySnapshot,
   type EvidenceWindowCorrelation,
   type EvidenceWindowCurrent,
+  type EvidenceWindowById,
   type EvidenceWindowRegistration,
   type EvidenceWindowRegistrationErrorCode,
   type EvidenceWindowRoutesOptions,
 } from "./evidence-window-registration";
+export {
+  createEvidenceWindowSourceAdmissionMiddleware,
+  createEvidenceWindowSourceRecoveryRoutes,
+  type EvidenceWindowSourceRecoveryRoutesOptions,
+} from "./evidence-window-source-recovery";
 
 const DEFAULT_PROJECTION_OPERATION_LIMIT = 50;
 const PROJECTION_OPERATION_NOTIFY_CHANNEL = "platform_projection_operation_events";

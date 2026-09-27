@@ -3,6 +3,7 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import { OrderingDomainError, type OrderSourceType } from "../domain/common";
 import type { MarketplaceSupplyCandidate } from "../domain/policies";
 import { getOrderingSupplyCandidateByListingId } from "../integrations/supply/supply-queries";
+import { lockOpenEvidenceWindowSource } from "./evidence-window-source-release";
 
 type PurchaseLimitCheckoutPlan = Readonly<{
   orderDrafts: readonly Readonly<{
@@ -183,6 +184,7 @@ export async function claimPlanPurchaseLimitUsage(
   db: PgTransactionalPool,
   buyerAccountId: string,
   plan: PurchaseLimitCheckoutPlan,
+  governed = false,
 ) {
   const quantities = new Map<string, number>();
   let sourceType: OrderSourceType | null = null;
@@ -201,6 +203,9 @@ export async function claimPlanPurchaseLimitUsage(
   }
 
   await withPgTransaction(db, async (client) => {
+    if (governed && !(await lockOpenEvidenceWindowSource(client, { sourceType, sourceReferenceId, buyerAccountId }))) {
+      throw new OrderingDomainError("Evidence window source binding is missing.");
+    }
     // Every checkout takes usage locks in the same order, including reversed plans.
     for (const [listingId, quantity] of [...quantities.entries()].sort(([a], [b]) => a.localeCompare(b))) {
       const candidate = await getOrderingSupplyCandidateByListingId(client, listingId);
@@ -348,7 +353,8 @@ export async function releasePurchaseLimitClaimsForOrder(
     }>(
       `UPDATE ordering_listing_purchase_limit_claims
        SET status = 'released',
-           released_at = now()
+           released_at = now(),
+           usage_residue_upper_bound_units = NULL
        WHERE source_type = $1
          AND source_reference_id = $2
          AND buyer_account_id = $3
@@ -362,7 +368,7 @@ export async function releasePurchaseLimitClaimsForOrder(
   });
 }
 
-type ReleasedPurchaseLimitClaim = Readonly<{
+export type ReleasedPurchaseLimitClaim = Readonly<{
   listing_id: string;
   quantity: number | string;
   claimed_day: string;
@@ -386,7 +392,7 @@ export async function releasePurchaseLimitClaimsForFailedSource(
   );
 }
 
-async function decrementPurchaseLimitUsage(
+export async function decrementPurchaseLimitUsage(
   client: PgQueryable,
   buyerAccountId: string,
   claims: readonly ReleasedPurchaseLimitClaim[],

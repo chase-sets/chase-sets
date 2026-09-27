@@ -136,8 +136,13 @@ import {
 } from "@chase-sets/bounded-context-runtime";
 import {
   createHonoObservabilityMiddleware,
+  createLogger,
+  recordSavedListAnalytics,
   recordProjectionFreshnessAudit,
   recordProjectionInlineApplyOutcome,
+  savedListAnalyticsAttributes,
+  type Logger,
+  type SavedListAnalyticsSignal,
 } from "@chase-sets/observability";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
@@ -148,7 +153,10 @@ import {
 import { createApiHost, resolveApiHostMounts, type ApiHostRuntime } from "@chase-sets/platform-runtime/api";
 import {
   createEvidenceWindowRegistrationRoutes,
+  createEvidenceWindowSourceAdmissionMiddleware,
+  createEvidenceWindowSourceRecoveryRoutes,
   type EvidenceWindowRoutesOptions,
+  type EvidenceWindowSourceRecoveryRoutesOptions,
   type PlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
 import {
@@ -214,6 +222,41 @@ export function createPlatformApiMarketplaceChannelInboundClampBinding(
   return createMarketplaceChannelInboundClampCapability(mounted, getServices);
 }
 
+export function createSavedListAnalyticsRecorder(
+  logger: Pick<Logger, "info" | "warn"> = createLogger(),
+  recordMetric: typeof recordSavedListAnalytics = recordSavedListAnalytics,
+) {
+  return {
+    record(event: SavedListAnalyticsSignal) {
+      try {
+        const attributes = savedListAnalyticsAttributes(event);
+        try {
+          recordMetric(event);
+        } catch {
+          try {
+            logger.warn("Collections Saved List analytics recorder failed.", {
+              failure: "counter",
+              type: "collections.saved_list.analytics_recorder_failure",
+            });
+          } catch {
+            // Failure reporting is best-effort and must not affect the Saved List response.
+          }
+        }
+        try {
+          logger.info("Collections Saved List analytics event captured.", {
+            ...attributes,
+            type: "collections.saved_list.analytics_event",
+          });
+        } catch {
+          // Structured logging is best-effort and must not affect the Saved List response.
+        }
+      } catch {
+        // Invalid event objects are ignored without exposing input or exception text.
+      }
+    },
+  };
+}
+
 export type BuildPlatformApiOptions = Readonly<{
   runtimeProfile?: PlatformApiRuntimeProfile;
   getProjectionReplay?: () => HealthProjectionReplaySummary | Promise<HealthProjectionReplaySummary>;
@@ -239,6 +282,7 @@ export type BuildPlatformApiOptions = Readonly<{
   checkoutClosed?: boolean;
   controlPlane?: PlatformControlPlane;
   evidenceWindowRegistration?: EvidenceWindowRoutesOptions;
+  evidenceWindowSourceRecovery?: Omit<EvidenceWindowSourceRecoveryRoutesOptions, "sources">;
   workSignalStore?: ProjectionWakeStatusWorkSignalStore;
   readConsistencyAuditLogger?: Readonly<{
     info: (message: string, fields?: Readonly<Record<string, unknown>>) => void;
@@ -598,6 +642,7 @@ export function createPlatformApiHost(
       ...(authenticityFeePolicyResolver ? { authenticityFeePolicyResolver } : {}),
       ...(rateLimitPolicyResolver ? { rateLimitPolicyResolver } : {}),
       ...(savedListProductCatalog ? { savedListProductCatalog } : {}),
+      savedListAnalyticsRecorder: createSavedListAnalyticsRecorder(),
       registrationAdmission,
       ...(policyConsoleCrossContext ? { policyConsoleCrossContext } : {}),
       ...(supportReferenceLookupCrossContext ? { supportReferenceLookupCrossContext } : {}),
@@ -947,6 +992,15 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
   if (options.evidenceWindowRegistration) {
     app.route("/internal/evidence-windows", createEvidenceWindowRegistrationRoutes(options.evidenceWindowRegistration));
   }
+  if (options.evidenceWindowSourceRecovery && orderingServices?.orders) {
+    app.route(
+      "/internal/evidence-windows",
+      createEvidenceWindowSourceRecoveryRoutes({
+        ...options.evidenceWindowSourceRecovery,
+        sources: orderingServices.orders.evidenceWindowSources,
+      }),
+    );
+  }
   if (marketplacePlatformRoutesEnabled) {
     app.get("/internal/realtime/status", async (c) =>
       c.json(
@@ -1062,6 +1116,14 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     apiMounts.filter((mount) => mount.contextName === "catalog" && mount.requiresAuth).map((mount) => mount.mountPath),
     catalogApiPermissionMiddleware,
   );
+  if (options.evidenceWindowSourceRecovery && orderingServices?.orders) {
+    const evidenceWindowSourceAdmission = createEvidenceWindowSourceAdmissionMiddleware(
+      options.evidenceWindowSourceRecovery,
+    );
+    for (const mount of apiMounts.filter((entry) => entry.contextName === "ordering")) {
+      app.use(`${mount.mountPath}/account/purchases/checkout`, evidenceWindowSourceAdmission);
+    }
+  }
 
   attachWriteConsistencyMiddleware(app, apiMounts, runtime.projectionGroups, {
     enabled: options.projectionInlineApplyEnabled ?? false,

@@ -33,7 +33,8 @@ import {
   UCP_MCP_CHECKOUT_HANDOFF_RESOURCE_URI,
   UCP_MCP_PRODUCT_CARDS_RESOURCE_URI,
 } from "@chase-sets/platform-runtime/ucp";
-import { buildPlatformApiApp } from "../src/app";
+import { buildPlatformApiApp, createPlatformApiHost, createSavedListAnalyticsRecorder } from "../src/app";
+import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
 
 const NO_API_ENTRIES: ReturnType<typeof authModule.buildApis> = [];
@@ -122,6 +123,22 @@ function createEmptyRuntime(
     projectionGroups: [],
     subscriptionRunners: [],
   } as never;
+}
+
+async function withUninstrumentedPlatformApiRuntime(
+  action: (runtime: ReturnType<typeof createPlatformApiHost>) => void | Promise<void>,
+) {
+  const pools = createPlatformApiPools({
+    runtimeProfile: "public",
+    sharedDatabaseUrl: "postgresql://localhost/shared",
+    contextDatabaseUrls: {},
+    port: 6182,
+  });
+  try {
+    await action(createPlatformApiHost({ runtimeProfile: "public", pools, hostPorts: {} }));
+  } finally {
+    await closePlatformApiPools(pools);
+  }
 }
 
 function statelessMcpMeta() {
@@ -295,6 +312,93 @@ function createIdentityRuntime(services: Record<string, unknown>) {
 }
 
 describe("platform api app wiring", () => {
+  it("supplies the real recorder to the built Collections host ports", async () => {
+    await withUninstrumentedPlatformApiRuntime((runtime) => {
+      expect(
+        (runtime.services.collections as { savedListAnalyticsRecorder?: unknown }).savedListAnalyticsRecorder,
+      ).toEqual(expect.objectContaining({ record: expect.any(Function) }));
+    });
+  });
+
+  it("starts and serves Collections routes without an observability runtime", async () => {
+    await withUninstrumentedPlatformApiRuntime(async (runtime) => {
+      const response = await buildPlatformApiApp(runtime).request("/api/collections/account/lists/recent");
+      expect(response.status).toBe(401);
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: "authentication_required" },
+      });
+    });
+  });
+
+  it("supplies the real Saved List recorder in the host composition and keeps failures out of requests", () => {
+    const info = vi.fn((_message: string, _fields?: Readonly<Record<string, unknown>>) => undefined);
+    const recorder = createSavedListAnalyticsRecorder({ info, warn: vi.fn() });
+    recorder.record({
+      event: "product_added",
+      surface: "search",
+      outcome: "added",
+      coverage_band: "none",
+      estimate_state: "none",
+    });
+    expect(info).toHaveBeenCalledTimes(1);
+    expect(Object.keys(info.mock.calls[0]?.[1] ?? {}).sort()).toEqual(
+      ["context", "event", "surface", "outcome", "coverage_band", "estimate_state", "type"].sort(),
+    );
+    expect(info.mock.calls[0]?.[1]).toMatchObject({
+      context: "collections",
+      event: "product_added",
+      surface: "search",
+      outcome: "added",
+      type: "collections.saved_list.analytics_event",
+    });
+
+    const counterFailureLog = {
+      info: vi.fn((_message: string, _fields?: Readonly<Record<string, unknown>>) => undefined),
+      warn: vi.fn((_message: string, _fields?: Readonly<Record<string, unknown>>) => undefined),
+    };
+    const counterFailure = vi.fn((_event: unknown) => {
+      throw new Error("SYNTHETIC_SAVED_LIST_COUNTER_FAILURE_MARKER");
+    });
+    const counterFailureRecorder = createSavedListAnalyticsRecorder(counterFailureLog, counterFailure);
+    expect(() =>
+      counterFailureRecorder.record({
+        event: "list_created",
+        surface: "search",
+        outcome: "none",
+        coverage_band: "none",
+        estimate_state: "none",
+      }),
+    ).not.toThrow();
+    expect(counterFailure).toHaveBeenCalledTimes(1);
+    expect(counterFailureLog.warn).toHaveBeenCalledTimes(1);
+    expect(counterFailureLog.warn).toHaveBeenCalledWith("Collections Saved List analytics recorder failed.", {
+      failure: "counter",
+      type: "collections.saved_list.analytics_recorder_failure",
+    });
+    expect(counterFailureLog.info).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(counterFailureLog.warn.mock.calls[0]?.[1])).not.toContain(
+      "SYNTHETIC_SAVED_LIST_COUNTER_FAILURE_MARKER",
+    );
+
+    const markerLogger = {
+      info: vi.fn((_message: string, _fields?: Readonly<Record<string, unknown>>) => {
+        throw new Error("SYNTHETIC_SAVED_LIST_FAILURE_MARKER");
+      }),
+      warn: vi.fn(),
+    };
+    expect(() =>
+      createSavedListAnalyticsRecorder(markerLogger).record({
+        event: "list_created",
+        surface: "search",
+        outcome: "none",
+        coverage_band: "none",
+        estimate_state: "none",
+      }),
+    ).not.toThrow();
+    expect(markerLogger.info).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(markerLogger.info.mock.calls[0]?.[1])).not.toContain("SYNTHETIC_SAVED_LIST_FAILURE_MARKER");
+  });
+
   it("keeps every evidence-window route unmounted until dedicated admission is configured", async () => {
     const app = buildPlatformApiApp(createEmptyRuntime());
 
@@ -302,9 +406,12 @@ describe("platform api app wiring", () => {
       app.request("/internal/evidence-windows/open", { method: "POST" }),
       app.request("/internal/evidence-windows/current"),
       app.request("/internal/evidence-windows/0123456789abcdef0123456789abcdef/close", { method: "POST" }),
+      app.request("/internal/evidence-windows/0123456789abcdef0123456789abcdef/sources"),
+      app.request("/internal/evidence-windows/0123456789abcdef0123456789abcdef/sources/2a/close", { method: "POST" }),
+      app.request("/internal/evidence-windows/0123456789abcdef0123456789abcdef/sources/2a/release", { method: "POST" }),
     ]);
 
-    expect(responses.map((response) => response.status)).toEqual([404, 404, 404]);
+    expect(responses.map((response) => response.status)).toEqual([404, 404, 404, 404, 404, 404]);
   });
 
   it("mounts the three registration-only routes under the dedicated admission contract", async () => {
@@ -2313,7 +2420,7 @@ describe("platform API payment provider mode observation", () => {
       .map((entry) => entry.file);
 
     // Includes the shared-seed bootstrap host, whose owned pools close in finally.
-    expect(hostCallCount).toBe(25);
+    expect(hostCallCount).toBe(26);
     expect(productionHostFiles.sort()).toEqual([
       "deployables/platform-api/src/admin-qa-actor-fixtures.ts",
       "deployables/platform-api/src/bootstrap.ts",
@@ -2323,7 +2430,7 @@ describe("platform API payment provider mode observation", () => {
     ]);
     expect(
       hostCallSites.filter((entry) => entry.file.includes("/__tests__/")).reduce((total, e) => total + e.count, 0),
-    ).toBe(20);
+    ).toBe(21);
 
     // Only the serving composition root supplies the port, and the manifest declares it once.
     const mainSource = readFileSync(join(repositoryRoot, "deployables/platform-api/src/main.ts"), "utf8");
