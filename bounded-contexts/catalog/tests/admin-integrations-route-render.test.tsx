@@ -22,7 +22,7 @@ import {
 import type { CatalogIntegrationControlPlaneUnitReadiness } from "../features/source-observations/ui/contracts";
 import { isActionAvailable } from "../features/source-observations/ui/admin-control-plane/import-to-promotion/command-controls";
 import { catalogPrimaryWorkbenchHref } from "../features/source-observations/ui/primary-workbench-route-context";
-import type { CatalogDeferredAttentionQueueResult } from "../support/route-support/admin-integrations/attention-queue-result";
+import type { CatalogDeferredAttentionQueueResult } from "../features/attention-queue/api/contracts";
 import { catalogAttentionQueueReadModelFixture } from "../features/attention-queue/api/attention-queue-test-fixtures";
 
 import {

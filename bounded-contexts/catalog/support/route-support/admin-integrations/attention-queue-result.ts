@@ -1,4 +1,7 @@
-import type { CatalogAttentionQueueReadModel } from "../../../features/attention-queue/api/contracts";
+import type {
+  CatalogAttentionQueueReadModel,
+  CatalogDeferredAttentionQueueResult,
+} from "../../../features/attention-queue/api/contracts";
 import {
   CATALOG_ATTENTION_ITEM_KINDS,
   summarizeCatalogAttentionItems,
@@ -25,9 +28,7 @@ import {
 // contract, so it is the only place that checks it.
 // ---------------------------------------------------------------------------
 
-export type CatalogDeferredAttentionQueueResult =
-  | Readonly<{ status: "ready"; readModel: CatalogAttentionQueueReadModel }>
-  | Readonly<{ status: "unavailable" }>;
+export type { CatalogDeferredAttentionQueueResult };
 
 export const CATALOG_ATTENTION_QUEUE_UNAVAILABLE: CatalogDeferredAttentionQueueResult = Object.freeze({
   status: "unavailable",

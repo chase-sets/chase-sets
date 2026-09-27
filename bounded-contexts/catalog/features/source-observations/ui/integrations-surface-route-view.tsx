@@ -10,7 +10,7 @@ import type {
   SourceObservationIntegrationImportPreview,
 } from "./contracts";
 import type { CatalogAliasReviewReadModel } from "../../alias-equivalence/api/alias-review-admin-contracts";
-import type { CatalogDeferredAttentionQueueResult } from "../../../support/route-support/admin-integrations/attention-queue-result";
+import type { CatalogDeferredAttentionQueueResult } from "../../attention-queue/api/contracts";
 import { CatalogAttentionQueuePanel } from "../../attention-queue/ui/attention-queue-panel";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "./primary-workbench-command-feedback";
 import { CatalogIntegrationsSurfacePage } from "./integrations-surface-page";
