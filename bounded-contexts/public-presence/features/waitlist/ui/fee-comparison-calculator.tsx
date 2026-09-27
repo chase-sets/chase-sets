@@ -435,7 +435,7 @@ function FeeCalculatorWorkbench({
             </Inline>
           </Stack>
         ) : null}
-        <Surface tone="subtle">
+        <Surface tone="subtle" elevation="tinted">
           <Stack gap={2}>
             <Inline gap={2} align="center">
               <Badge tone="trust">{t("publicPresence.home.feeCalculator.founders.badge")}</Badge>

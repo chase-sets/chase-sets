@@ -25,6 +25,19 @@ function stubPromoBarFetch() {
   );
 }
 
+const surfaceRootSelector = ".min-w-0.max-w-full.rounded-tokenLg";
+
+// Reads a Surface root's rendered intent from design-system-owned classes:
+// flush/tinted carry no `surface-border` and no `shadow-` class.
+function surfaceIntent(surface: Element | null) {
+  const classes = [...(surface?.classList ?? [])];
+  if (classes.includes("surface-border") || classes.some((name) => name.startsWith("shadow-"))) {
+    return classes.includes("shadow-tokenLg") ? "elevated" : "legacy";
+  }
+  if (classes.includes("border")) return "outlined";
+  return classes.includes("bg-surface-2") ? "tinted" : "flush";
+}
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -65,6 +78,29 @@ describe("ComparePage (#4087)", () => {
     expect(table.textContent).toContain("13.25%");
     expect(container.textContent).toContain("Where eBay is ahead today");
   });
+
+  it.each([
+    {
+      competitor: "tcgplayer" as const,
+      feeSchedule: ratifiedSchedule,
+      intents: ["tinted", "tinted", "tinted", "tinted"],
+    },
+    { competitor: "ebay" as const, feeSchedule: null, intents: ["tinted", "tinted", "tinted"] },
+  ])(
+    "tints the explanatory, founders and CTA panels on /compare/$competitor",
+    ({ competitor, feeSchedule, intents }) => {
+      stubPromoBarFetch();
+      const { container } = render(<ComparePage competitor={competitor} feeSchedule={feeSchedule} />);
+      const main = container.querySelector("main#main-content")!;
+
+      // why + honesty, the calculator's founders panel when a schedule is live, then the CTA.
+      expect([...main.querySelectorAll(surfaceRootSelector)].map(surfaceIntent)).toEqual(intents);
+      const honestyTitle = within(main as HTMLElement).getByRole("heading", { level: 2, name: /is ahead today/ });
+      expect(surfaceIntent(honestyTitle.closest(surfaceRootSelector))).toBe("tinted");
+      const ctaLink = main.querySelector('a[href="/#waitlist-form"]');
+      expect(surfaceIntent(ctaLink!.closest(surfaceRootSelector))).toBe("tinted");
+    },
+  );
 
   it("links the landing-page calculator to both comparison pages by default", () => {
     const { container } = render(<FeeCalculatorSection schedule={ratifiedSchedule} />);

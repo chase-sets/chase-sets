@@ -17,6 +17,19 @@ function render(ui: ReactNode, options?: RenderOptions) {
   return renderWithoutRouter(ui, { wrapper: MemoryRouter, ...options });
 }
 
+const surfaceRootSelector = ".min-w-0.max-w-full.rounded-tokenLg";
+
+// Reads a Surface root's rendered intent from design-system-owned classes:
+// flush/tinted carry no `surface-border` and no `shadow-` class.
+function surfaceIntent(surface: Element | null) {
+  const classes = [...(surface?.classList ?? [])];
+  if (classes.includes("surface-border") || classes.some((name) => name.startsWith("shadow-"))) {
+    return classes.includes("shadow-tokenLg") ? "elevated" : "legacy";
+  }
+  if (classes.includes("border")) return "outlined";
+  return classes.includes("bg-surface-2") ? "tinted" : "flush";
+}
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -54,6 +67,34 @@ function cohortQualityCalls(fetchMock: ReturnType<typeof stubFetch>) {
 }
 
 describe("waitlist success page", () => {
+  it.each([
+    { role: "sell" as const, intents: ["tinted", "tinted", "tinted"] },
+    { role: "buy" as const, intents: ["tinted", "tinted"] },
+  ])("tints the wave-placement, referral and share panels for a $role signup", async ({ role, intents }) => {
+    vi.stubGlobal("fetch", stubFetch(1));
+    window.dataLayer = [];
+
+    const { container } = render(
+      <WaitlistSuccessPage
+        signupId="wls_public"
+        publicOrigin="https://chasesets.com"
+        discordInviteUrl="https://discord.gg/chase-sets"
+        role={role}
+      />,
+    );
+    await waitFor(() => {
+      expect(screen.getByText("1 of 3")).toBeTruthy();
+    });
+
+    const main = container.querySelector("main#main-content")!;
+    // Wave placement renders for sell/both only; referral status and share always render.
+    expect([...main.querySelectorAll(surfaceRootSelector)].map(surfaceIntent)).toEqual(intents);
+    const referralLink = screen.getByDisplayValue(
+      "https://chasesets.com/?ref=wls_public&utm_source=referral&utm_medium=waitlist_share",
+    );
+    expect(surfaceIntent(referralLink.closest(surfaceRootSelector))).toBe("tinted");
+  });
+
   it("renders the confirmation, referral link, and progress toward founding status", async () => {
     vi.stubGlobal("fetch", stubFetch(1));
     window.dataLayer = [];
