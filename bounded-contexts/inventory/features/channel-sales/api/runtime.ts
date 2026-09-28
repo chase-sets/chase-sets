@@ -1,5 +1,6 @@
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
-import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
+import type { AppendToStreamInput, EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
+import type { AppendToStreamsResult } from "@chase-sets/event-core/event-store";
 import type { IsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
 import { createId, type EventId } from "@chase-sets/primitives/typed-ids";
 import { toJsonValue } from "@chase-sets/primitives/json";
@@ -67,7 +68,10 @@ type Rehydration =
   | Readonly<{ kind: "invalid"; failure: ExternalChannelSaleHistoryFailure }>;
 
 export function createInventoryExternalChannelSaleRuntime(
-  deps: InventoryRuntimeDeps,
+  deps: InventoryRuntimeDeps &
+    Readonly<{
+      appendRetained(inputs: readonly AppendToStreamInput[]): Promise<readonly AppendToStreamsResult[]>;
+    }>,
   holdCollisions: InventoryHoldCollisionServices,
 ): InventoryExternalChannelSaleServices {
   async function record(
@@ -115,12 +119,65 @@ export function createInventoryExternalChannelSaleRuntime(
       }
     }
     if (
-      admission.length !== 1 ||
+      (admission.length !== 1 && admission.length !== 2) ||
       admission[0]!.eventType !== "inventory.channel-sale.admitted" ||
       admission[0]!.tenantId !== context.tenantId ||
+      admission[0]!.forAccountId !== command.accountId ||
       admission[0]!.payload.commandFingerprint !== incomingFingerprint
     ) {
       throw new InventoryDomainError("External sale admission conflicts with its retained command.");
+    }
+    function retainedAppends(history: readonly StoredEvent[]): readonly AppendToStreamInput[] | null {
+      if (history.length === 1) return null;
+      const prepared = history[1];
+      if (
+        history.length !== 2 ||
+        prepared?.eventType !== "inventory.channel-sale.prepared" ||
+        prepared.tenantId !== admission[0]!.tenantId ||
+        prepared.payload.commandFingerprint !== incomingFingerprint ||
+        !Array.isArray(prepared.payload.appends)
+      )
+        throw new InventoryDomainError("External sale prepared attempt is missing or mismatched.");
+      const appends = prepared.payload.appends as unknown as readonly AppendToStreamInput[];
+      const saleAppends = appends.filter((input) => input.streamId === saleStreamId);
+      const saleEvent = saleAppends[0]?.events[0];
+      if (
+        appends.some(
+          (input) =>
+            input.context.tenantId !== context.tenantId || input.context.audit.forAccountId !== command.accountId,
+        ) ||
+        saleAppends.length !== 1 ||
+        saleAppends[0]!.events.length !== 1 ||
+        saleEvent?.eventType !== EXTERNAL_CHANNEL_SALE_EVENT_TYPE ||
+        saleEvent.payload.commandFingerprint !== incomingFingerprint ||
+        !sameJson(saleEvent.payload.saleKey, command.saleKey)
+      )
+        throw new InventoryDomainError("External sale prepared inputs do not match its admitted command.");
+      return appends;
+    }
+    async function appendAdmitted(inputs: readonly AppendToStreamInput[]) {
+      let retained = retainedAppends(await readCompleteStream(deps.eventStore, { streamId: admissionStream }));
+      if (!retained) {
+        try {
+          await deps.eventStore.appendToStream({
+            streamId: admissionStream,
+            expectedVersion: 1,
+            context,
+            events: [
+              {
+                eventType: "inventory.channel-sale.prepared",
+                payload: { commandFingerprint: incomingFingerprint, appends: toJsonValue(inputs) },
+              },
+            ],
+          });
+        } catch (error) {
+          const winner = retainedAppends(await readCompleteStream(deps.eventStore, { streamId: admissionStream }));
+          if (!winner) throw error;
+        }
+        retained = retainedAppends(await readCompleteStream(deps.eventStore, { streamId: admissionStream }));
+      }
+      if (!retained) throw new InventoryDomainError("External sale has no durable append attempt.");
+      return deps.appendRetained(retained);
     }
 
     const claimGeneration = createId("iaj");
@@ -138,58 +195,66 @@ export function createInventoryExternalChannelSaleRuntime(
     let committedSale: CommittedExternalChannelSale | null = null;
 
     try {
-      await holdCollisions.reduceItem(
-        {
-          accountId: command.accountId,
-          itemId: command.inventoryItemId,
-          requestedQuantity: command.requestedQuantity,
-          reason: "External channel sale",
-          reasonCode: EXTERNAL_CHANNEL_SALE_REASON_CODE,
-          mode: EXTERNAL_CHANNEL_SALE_COLLISION_MODE,
-          actorRole: null,
-          externalChannelSale: {
-            saleStreamId,
-            storageLocationId: command.storageLocationId,
-            inventoryAdjustmentEventId: inventoryAdjustmentEventId,
-            buildTerminalEvent: ({ appliedQuantity, refusedQuantity, protectedOrderIds }) => {
-              assertProtectedOrderIds(protectedOrderIds);
-              committedSale = {
-                saleKey: command.saleKey,
-                saleStreamId,
-                saleEventId,
-                accountId: command.accountId,
-                inventoryItemId: command.inventoryItemId,
-                storageLocationId: command.storageLocationId,
-                requestedQuantity: command.requestedQuantity,
-                appliedQuantity,
-                refusedQuantity,
-                protectedOrderIds,
-                collisionPolicyRef: EXTERNAL_CHANNEL_SALE_COLLISION_POLICY_REF,
-                collisionPolicyRevision: EXTERNAL_CHANNEL_SALE_COLLISION_POLICY_REVISION,
-                inventoryAdjustmentEventId: appliedQuantity === 0 ? null : inventoryAdjustmentEventId,
-                saleShortfallKey:
-                  refusedQuantity === 0 ? null : externalChannelSaleShortfallKey(command.saleKey, incomingFingerprint),
-                committedAt,
-              };
-              const payload = eventPayload(command, incomingFingerprint, committedSale);
-              const encoded = externalChannelSaleEventCodec.encode({
-                type: EXTERNAL_CHANNEL_SALE_EVENT_TYPE,
-                data: payload,
-              });
-              return {
-                ...encoded,
-                eventId: saleEventId,
-                occurredAt: committedAt as IsoUtcTimestamp,
-              };
+      const prepared = retainedAppends(admission);
+      if (prepared) {
+        await appendAdmitted(prepared);
+      } else {
+        await holdCollisions.reduceItem(
+          {
+            accountId: command.accountId,
+            itemId: command.inventoryItemId,
+            requestedQuantity: command.requestedQuantity,
+            reason: "External channel sale",
+            reasonCode: EXTERNAL_CHANNEL_SALE_REASON_CODE,
+            mode: EXTERNAL_CHANNEL_SALE_COLLISION_MODE,
+            actorRole: null,
+            externalChannelSale: {
+              appendAdmitted,
+              saleStreamId,
+              storageLocationId: command.storageLocationId,
+              inventoryAdjustmentEventId: inventoryAdjustmentEventId,
+              buildTerminalEvent: ({ appliedQuantity, refusedQuantity, protectedOrderIds }) => {
+                assertProtectedOrderIds(protectedOrderIds);
+                committedSale = {
+                  saleKey: command.saleKey,
+                  saleStreamId,
+                  saleEventId,
+                  accountId: command.accountId,
+                  inventoryItemId: command.inventoryItemId,
+                  storageLocationId: command.storageLocationId,
+                  requestedQuantity: command.requestedQuantity,
+                  appliedQuantity,
+                  refusedQuantity,
+                  protectedOrderIds,
+                  collisionPolicyRef: EXTERNAL_CHANNEL_SALE_COLLISION_POLICY_REF,
+                  collisionPolicyRevision: EXTERNAL_CHANNEL_SALE_COLLISION_POLICY_REVISION,
+                  inventoryAdjustmentEventId: appliedQuantity === 0 ? null : inventoryAdjustmentEventId,
+                  saleShortfallKey:
+                    refusedQuantity === 0
+                      ? null
+                      : externalChannelSaleShortfallKey(command.saleKey, incomingFingerprint),
+                  committedAt,
+                };
+                const payload = eventPayload(command, incomingFingerprint, committedSale);
+                const encoded = externalChannelSaleEventCodec.encode({
+                  type: EXTERNAL_CHANNEL_SALE_EVENT_TYPE,
+                  data: payload,
+                });
+                return {
+                  ...encoded,
+                  eventId: saleEventId,
+                  occurredAt: committedAt as IsoUtcTimestamp,
+                };
+              },
             },
           },
-        },
-        context,
-      );
-
-      if (!committedSale) {
-        throw new InventoryDomainError("External channel sale terminal result was not constructed.");
+          context,
+        );
       }
+      const completed = await rehydrateExternalChannelSale(deps, saleStreamId, command.saleKey);
+      if (completed.kind !== "valid")
+        throw new InventoryDomainError("External channel sale has no canonical terminal result.");
+      committedSale = completed.sale.result.sale;
       if (claimOwned) {
         await completeInventoryAdjustmentIdempotency(deps.db, {
           idempotencyKey: saleStreamId,
@@ -236,7 +301,7 @@ export function createInventoryExternalChannelSaleRuntime(
       const streamId = `inventory.channel-sale-admission-${externalChannelSaleStreamId(saleKey)}`;
       const admission = await readCompleteStream(deps.eventStore, { streamId });
       if (
-        admission.length !== 1 ||
+        (admission.length !== 1 && admission.length !== 2) ||
         admission[0]!.tenantId !== context.tenantId ||
         admission[0]!.forAccountId !== context.audit.forAccountId
       ) {

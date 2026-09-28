@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -506,6 +506,7 @@ describeDb("external-channel-sale real event-store authority", () => {
       };
       const deps = {
         eventStore,
+        appendRetained: eventStore.appendToStreams!,
         checkpointStore: createPostgresProjectionStore({ db: pool }),
         db: db as never,
       };
@@ -582,5 +583,32 @@ describeDb("external-channel-sale real event-store authority", () => {
       await countEvents("inventory.external-channel-sale.recorded", externalChannelSaleStreamId(saleCommand.saleKey)),
     ).toBe(1);
     expect(await countEvents("inventory.item.adjusted")).toBe(1);
+  });
+
+  it("resumes the durable admitted append attempt after restart without minting a new writer mutation", async () => {
+    const saleCommand = command("retained-preparation");
+    const pause = vi
+      .spyOn(services.listingAuthority.source, "mutate")
+      .mockRejectedValueOnce(new Error("Synthetic crash after writer admission"));
+    await expect(services.channelSales.record(saleCommand, context)).rejects.toThrow("Synthetic crash");
+    pause.mockRestore();
+    const streamId = `inventory.channel-sale-admission-${externalChannelSaleStreamId(saleCommand.saleKey)}`;
+    const before = await eventStore.readStream({ streamId });
+    expect(before.map((event) => event.eventType)).toEqual([
+      "inventory.channel-sale.admitted",
+      "inventory.channel-sale.prepared",
+    ]);
+    expect(await countEvents("inventory.listing-authority-write.started")).toBe(1);
+    const restarted = inventoryModule.createServices(pool, {});
+    await expect(restarted.channelSales.resumeAdmitted(saleCommand.saleKey, context)).resolves.toMatchObject({
+      status: "committed",
+      sale: { appliedQuantity: 1 },
+    });
+    expect(await eventStore.readStream({ streamId })).toEqual(before);
+    expect(await countEvents("inventory.listing-authority-write.started")).toBe(1);
+    expect(await countEvents("inventory.item.adjusted")).toBe(1);
+    await expect(
+      restarted.channelSales.record({ ...saleCommand, requestedQuantity: 2 }, context),
+    ).resolves.toMatchObject({ code: "external-channel-sale-conflict" });
   });
 });

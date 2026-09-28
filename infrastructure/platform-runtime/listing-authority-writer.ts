@@ -61,10 +61,13 @@ export function createListingAuthorityWriter(
     return { attempt, status, version: history.at(-1)?.streamVersion ?? 0 };
   }
 
-  async function append(inputs: readonly AppendToStreamInput[]): Promise<readonly AppendToStreamsResult[]> {
+  async function append(
+    inputs: readonly AppendToStreamInput[],
+    retainAttempt = false,
+  ): Promise<readonly AppendToStreamsResult[]> {
     const writeId = authorityHash({ inputs });
     let journal = await readAttempt(writeId);
-    if (!journal.attempt || journal.status === "resources-conflict") {
+    if (!journal.attempt || (!retainAttempt && journal.status === "resources-conflict")) {
       let resources = [...new Set(await deps.resources(inputs))].sort();
       if (!resources.length && !journal.attempt) return atomic!(inputs);
       if (!resources.length) resources = [...journal.attempt!.resources];
@@ -81,14 +84,22 @@ export function createListingAuthorityWriter(
         resources,
         inputs,
       };
-      await appendAuthorityAppends(raw, [
-        {
-          streamId: writeStream(writeId),
-          expectedVersion: journal.version,
-          context,
-          events: [{ eventType: `${deps.owner}.listing-authority-write.started`, payload: authorityPayload(attempt) }],
-        },
-      ]);
+      try {
+        await appendAuthorityAppends(raw, [
+          {
+            streamId: writeStream(writeId),
+            expectedVersion: journal.version,
+            context,
+            events: [
+              { eventType: `${deps.owner}.listing-authority-write.started`, payload: authorityPayload(attempt) },
+            ],
+          },
+        ]);
+      } catch (error) {
+        const retained = await readAttempt(writeId);
+        if (!retained.attempt || retained.attempt.mutationId !== attempt.mutationId) throw error;
+        assertSameAuthority(retained.attempt, attempt);
+      }
       journal = await readAttempt(writeId);
     }
     return execute(journal);
@@ -117,46 +128,65 @@ export function createListingAuthorityWriter(
         localCommits.push(operation);
       }
     }
-    if (journal.status === "pending")
-      await deps.source.mutate({
-        resources,
-        mutationId,
-        command,
-        context,
-        localCommits,
-        prepare: async () => {
-          // Closure prevents new grants. A previous writer may have won before closure;
-          // reject its stale successor durably rather than stranding the predicate closed.
-          const currentResources = await deps.resources(inputs);
-          const resourcesChanged = currentResources.some((resource) => !resources.includes(resource));
-          let sourceChanged = false;
-          for (const input of inputs) {
-            const events = await readCompleteStream(raw, { streamId: input.streamId });
-            const version = events.at(-1)?.streamVersion ?? 0;
-            const expected = input.expectedVersion === "no_stream" ? 0 : input.expectedVersion;
-            if (version !== expected) sourceChanged = true;
-            if (input.authorizationDeadline && !(Date.now() < Date.parse(input.authorizationDeadline)))
-              sourceChanged = true;
-          }
-          return [
-            ...(sourceChanged || resourcesChanged ? [] : inputs),
-            {
-              streamId: writeStream(writeId),
-              expectedVersion: journal.version,
-              context,
-              events: [
-                {
-                  eventType: `${deps.owner}.listing-authority-write.completed`,
-                  payload: {
-                    mutationId,
-                    status: sourceChanged ? "source-conflict" : resourcesChanged ? "resources-conflict" : "appended",
+    if (journal.status === "pending") {
+      const mutate = () =>
+        deps.source.mutate({
+          resources,
+          mutationId,
+          command,
+          context,
+          localCommits,
+          prepare: async () => {
+            // Closure prevents new grants. A previous writer may have won before closure;
+            // reject its stale successor durably rather than stranding the predicate closed.
+            const currentResources = await deps.resources(inputs);
+            const resourcesChanged = currentResources.some((resource) => !resources.includes(resource));
+            let sourceChanged = false;
+            for (const input of inputs) {
+              const events = await readCompleteStream(raw, { streamId: input.streamId });
+              const version = events.at(-1)?.streamVersion ?? 0;
+              const expected = input.expectedVersion === "no_stream" ? 0 : input.expectedVersion;
+              if (version !== expected) sourceChanged = true;
+              if (input.authorizationDeadline && !(Date.now() < Date.parse(input.authorizationDeadline)))
+                sourceChanged = true;
+            }
+            return [
+              ...(sourceChanged || resourcesChanged ? [] : inputs),
+              {
+                streamId: writeStream(writeId),
+                expectedVersion: journal.version,
+                context,
+                events: [
+                  {
+                    eventType: `${deps.owner}.listing-authority-write.completed`,
+                    payload: {
+                      mutationId,
+                      status: sourceChanged ? "source-conflict" : resourcesChanged ? "resources-conflict" : "appended",
+                    },
                   },
-                },
-              ],
-            },
-          ];
-        },
-      });
+                ],
+              },
+            ];
+          },
+        });
+      try {
+        await mutate();
+      } catch (error) {
+        const retained = await readAttempt(writeId);
+        if (retained.attempt?.mutationId !== mutationId) throw error;
+        if (retained.status !== "appended") {
+          if ((error as { code?: string }).code !== "concurrency_conflict") throw error;
+          // Retry the admitted mutation, never append a new writer attempt. A
+          // second executor may already have acquired its durable closure.
+          try {
+            await mutate();
+          } catch (retryError) {
+            const completed = await readAttempt(writeId);
+            if (completed.attempt?.mutationId !== mutationId || completed.status !== "appended") throw retryError;
+          }
+        }
+      }
+    }
     const receipt = await readAttempt(writeId);
     if (receipt.attempt?.mutationId !== mutationId) {
       throw new Error("Missing authoritative source mutation receipt.");
@@ -219,6 +249,8 @@ export function createListingAuthorityWriter(
 
   return {
     eventStore,
+    /** Durable admissions may reconcile their original mutation, never acquire a replacement. */
+    appendRetained: (inputs: readonly AppendToStreamInput[]) => append(inputs, true),
     async resumeWrite(writeId: string) {
       return execute(await readAttempt(writeId));
     },

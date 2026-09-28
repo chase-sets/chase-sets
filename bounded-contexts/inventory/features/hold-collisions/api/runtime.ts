@@ -4,6 +4,7 @@ import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { AppendToStreamInput, EventRecordToStore, EventStoreContext } from "@chase-sets/event-core/storage";
+import type { AppendToStreamsResult } from "@chase-sets/event-core/event-store";
 import type {
   InventoryAdjustmentReason,
   InventoryHoldOrderSourceRef,
@@ -74,6 +75,7 @@ export type InventoryOfflineSaleReduction = Readonly<{
 }>;
 
 export type InventoryExternalChannelSaleReduction = Readonly<{
+  appendAdmitted: (inputs: readonly AppendToStreamInput[]) => Promise<readonly AppendToStreamsResult[]>;
   saleStreamId: string;
   storageLocationId: string;
   inventoryAdjustmentEventId: EventId;
@@ -393,7 +395,9 @@ export function createInventoryHoldCollisionRuntime(deps: InventoryRuntimeDeps):
               });
             }
 
-            const results = await appendToStreams(appends);
+            const results = await (externalChannelSale
+              ? externalChannelSale.appendAdmitted(appends)
+              : appendToStreams(appends));
             claimOwned = false;
             const stored = results.flatMap((result) => result.storedEvents);
             recordCommittedEvents(stored);

@@ -40,6 +40,18 @@ function fixture() {
 }
 
 describe("source authority writer", () => {
+  it("reconciles concurrent execution of one exact retained writer attempt", async () => {
+    const f = fixture();
+    const [left, right] = await Promise.all([
+      f.restart().eventStore.appendToStream(f.input),
+      f.restart().eventStore.appendToStream(f.input),
+    ]);
+    expect(right).toEqual(left);
+    expect(await f.eventStore.readStream({ streamId: f.input.streamId })).toHaveLength(1);
+    const events = await f.eventStore.readAll();
+    expect(events.filter((event) => event.eventType === "inventory.listing-authority-write.started")).toHaveLength(1);
+    expect(events.filter((event) => event.eventType === "inventory.listing-authority-write.completed")).toHaveLength(1);
+  });
   it("retains a source CAS conflict until the same mutation is authoritatively reconciled", async () => {
     const f = fixture();
     const prepare = vi.fn(async () => [f.input]);
@@ -113,6 +125,21 @@ describe("source authority writer", () => {
     await expect(writer.eventStore.appendToStream(f.input)).rejects.toMatchObject({ code: "concurrency_conflict" });
     await expect(writer.eventStore.appendToStream(f.input)).resolves.toHaveLength(1);
     expect(await f.eventStore.readStream({ streamId: f.input.streamId })).toHaveLength(1);
+  });
+  it("does not mint a replacement mutation for a retained admission after resource conflict", async () => {
+    const f = fixture();
+    let reads = 0;
+    const writer = createListingAuthorityWriter({
+      eventStore: f.eventStore,
+      source: f.source,
+      owner: "inventory",
+      resources: async () => (++reads === 1 ? ["synthetic-item"] : ["synthetic-item", "new-related-item"]),
+    });
+    await expect(writer.appendRetained([f.input])).rejects.toMatchObject({ code: "concurrency_conflict" });
+    const history = await f.eventStore.readAll();
+    await expect(writer.appendRetained([f.input])).rejects.toMatchObject({ code: "concurrency_conflict" });
+    expect(await f.eventStore.readAll()).toEqual(history);
+    expect(history.filter((event) => event.eventType === "inventory.listing-authority-write.started")).toHaveLength(1);
   });
   it("replays a successful write even if its affected resources later change", async () => {
     const f = fixture();

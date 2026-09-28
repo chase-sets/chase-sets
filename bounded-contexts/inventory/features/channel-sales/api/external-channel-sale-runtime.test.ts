@@ -137,7 +137,12 @@ function createHarness(options: Readonly<{ total?: number; activeHolds?: readonl
     tenantId: "tnt_inventory" as never,
     audit: { performedByUserId: "usr_inventory" as never, forAccountId: "acc_seller" as never },
   };
-  const deps = { eventStore: memory.eventStore, checkpointStore: checkpointStore(), db: db as never };
+  const deps = {
+    eventStore: memory.eventStore,
+    checkpointStore: checkpointStore(),
+    db: db as never,
+    appendRetained: memory.eventStore.appendToStreams!,
+  };
   const holdCollisions = createInventoryHoldCollisionRuntime(deps);
   const sales = createInventoryExternalChannelSaleRuntime(deps, holdCollisions);
 
@@ -244,7 +249,7 @@ describe("external-channel-sale-idempotency", () => {
       harness.context,
     );
     await authority.source.prepare(operation, harness.context);
-    const deps = { ...harness.deps, eventStore: authority.eventStore };
+    const deps = { ...harness.deps, eventStore: authority.eventStore, appendRetained: authority.appendRetained };
     const sales = createInventoryExternalChannelSaleRuntime(deps, createInventoryHoldCollisionRuntime(deps));
     const command = baseCommand("synthetic-pending-reservation");
     await expect(sales.record(command, harness.context)).rejects.toThrow("synthetic consumer partition");

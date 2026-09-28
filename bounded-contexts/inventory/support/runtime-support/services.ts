@@ -95,15 +95,15 @@ export function createInventoryExternalChannelSaleRecorderForPool(
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "inventory" }),
   });
-  const deps = {
+  const rawDeps = {
     eventStore: rawEventStore,
     checkpointStore: createPostgresProjectionStore({ db: pool }),
     db: pool,
   } as const;
-  const authority = createInventoryListingAuthority(deps, listingAuthorityConsumer);
-  const guardedDeps = { ...deps, eventStore: authority.eventStore };
-  const holdCollisions = createInventoryHoldCollisionRuntime(guardedDeps);
-  return createInventoryExternalChannelSaleRuntime(guardedDeps, holdCollisions).bind(context);
+  const authority = createInventoryListingAuthority(rawDeps, listingAuthorityConsumer);
+  const deps = { ...rawDeps, eventStore: authority.eventStore, appendRetained: authority.appendRetained };
+  const holdCollisions = createInventoryHoldCollisionRuntime(deps);
+  return createInventoryExternalChannelSaleRuntime(deps, holdCollisions).bind(context);
 }
 
 export function createInventoryServices(
@@ -126,7 +126,7 @@ export function createInventoryServices(
   if (!appendToStreams) {
     throw new Error("Inventory order reservation workflow requires atomic multi-stream event appends.");
   }
-  const deps = { eventStore, checkpointStore, db } as const;
+  const deps = { eventStore, checkpointStore, db, appendRetained: listingAuthority.appendRetained } as const;
 
   const catalogItems = createInventoryCatalogItemRuntime(deps);
   const storageLocations = createStorageLocationRuntime(deps);
