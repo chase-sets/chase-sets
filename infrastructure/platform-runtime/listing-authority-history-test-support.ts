@@ -4,7 +4,18 @@ import type { StoredAggregateSnapshot } from "@chase-sets/event-core/aggregate-s
 import { createListingAuthorityFence, type ListingAuthorityOperationInput } from "./listing-authority-fence";
 import { createListingAuthorityParticipant } from "./listing-authority-participant";
 import { createListingAuthorityWriter } from "./listing-authority-writer";
-import type { ListingAuthorityHistoryFixture } from "./listing-authority-history-conformance";
+import assert from "node:assert/strict";
+import {
+  bindListingAuthorityHistories,
+  type ListingAuthorityHistoryFixture,
+} from "./listing-authority-history-conformance";
+
+/** The r12 class corpus deliberately uses one resource; never silently narrow an owner fixture. */
+export function bindSingleResourceHistories(...args: Parameters<typeof bindListingAuthorityHistories>) {
+  const journals = bindListingAuthorityHistories(...args);
+  assert.equal(journals.resource.length, 1, "single-resource class fixture");
+  return { ...journals, resource: journals.resource[0]! };
+}
 
 export type ListingAuthorityHistoryTestFixture = ListingAuthorityHistoryFixture & {
   snapshots: Map<string, StoredAggregateSnapshot<unknown>>;
@@ -18,6 +29,7 @@ export async function historyFixture(
     cache?: boolean;
     principal?: boolean;
     multipleResources?: boolean;
+    reservationResources?: readonly string[];
     cacheUnavailable?: boolean;
   } = {},
 ) {
@@ -88,11 +100,12 @@ export async function historyFixture(
               },
             },
       participant: { owner: "catalog", purpose: "product-measures" },
-      resources: (operation) => [
-        options.multipleResources && operation.subject.catalogItemId !== "cat_synthetic_history"
-          ? operation.subject.catalogItemId
-          : "synthetic-product",
-      ],
+      resources: (operation) =>
+        options.reservationResources ?? [
+          options.multipleResources && operation.subject.catalogItemId !== "cat_synthetic_history"
+            ? operation.subject.catalogItemId
+            : "synthetic-product",
+        ],
       consumer: () => ({
         inspect: fence.inspect,
         invalidate: (operation, reason) => {

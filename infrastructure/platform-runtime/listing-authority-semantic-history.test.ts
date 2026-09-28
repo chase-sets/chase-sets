@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 import type { StoredEvent } from "@chase-sets/event-core/storage";
-import { historyFixture } from "./listing-authority-history-test-support";
-import { bindListingAuthorityHistories } from "./listing-authority-history-conformance";
+import { historyFixture, bindSingleResourceHistories } from "./listing-authority-history-test-support";
 import { authorityEventHash, authorityJournalStreams, readAuthorityJournal } from "./listing-authority-journal";
 
 // Executable field-to-case map: paths are selected from the real protocol schema.
@@ -183,7 +182,7 @@ async function prepared(phase: "pending" | "effective" | "committed") {
     grant,
     terminal,
     effects,
-    journals: bindListingAuthorityHistories(f, operation, grant, before),
+    journals: bindSingleResourceHistories(f, operation, grant, before),
   };
 }
 
