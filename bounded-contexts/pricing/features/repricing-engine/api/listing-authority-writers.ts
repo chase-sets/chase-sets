@@ -8,9 +8,8 @@ import { createPricingListingAuthority, type PricingListingAuthorityPorts } from
 import { createPricingEvaluationBudget } from "./listing-authority-sql";
 import { createPricingProductRoundAuthority } from "./listing-authority-product-state";
 
-/** Owner composition for the writer-first rollout. Mount this entire set, never only the granting port.
- * The legacy live gateway/round executor is deliberately not mounted here: its consumer migration
- * follows A's final freeze, and must invoke Product mutations outside its old session advisory lock.
+/** Writer-first composition. The live round invokes Product mutations only after durable admission,
+ * outside database locks. Granting consumers remain disabled until their post-freeze migration.
  */
 export function createPricingListingAuthorityWriters(
   deps: Readonly<{

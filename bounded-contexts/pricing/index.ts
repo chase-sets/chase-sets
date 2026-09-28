@@ -92,6 +92,12 @@ export const module = defineBoundedContextModule<PricingServices, PgTransactiona
         contextName: "pricing",
         manifest: pricingContextManifest,
         handlers: {
+          "catalog.pricing-authority-observation-reaction": () =>
+            services.listingAuthority.observations.handlers("catalog"),
+          "inventory.pricing-authority-observation-reaction": () =>
+            services.listingAuthority.observations.handlers("inventory"),
+          "marketplace.pricing-authority-observation-reaction": () =>
+            services.listingAuthority.observations.handlers("marketplace"),
           "marketplace.pricing-repricing-evaluation-reaction": () =>
             buildCompetingAskRepricingReactionHandlers(services.repricingEngine),
           "pricing.pricing-repricing-evaluation-reaction": () =>

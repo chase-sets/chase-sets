@@ -53,6 +53,26 @@ snapshot, then send only beyond-tolerance targets through Marketplace's existing
 path. The same evaluator powers dry-run preview; live execution adds daily-budget admission and publishes
 `RepricingPolicyEvaluated` facts.
 
+Live Product rounds retain admission under the durable evaluation job ID, rather than holding a database
+session lock across Marketplace calls. Competing jobs requeue before reading inputs or reserving budget.
+An executor claim can expire, but Product admission cannot: recovery resumes the same round, captured
+inputs, gateway identities and Product mutation. Failed jobs require `repricingEngine.resumeFailedRound`
+with a recorded reason. Admission closes only after the owning job's durable completion; the next worker
+pass reconciles a crash between completion and closure.
+
+`createPricingServices` requires `pricingListingAuthorityConsumer` and mounts the entire canonical writer
+bundle. The scheduled rollup closer also runs bounded owner recovery with independent event, Product SQL
+and activation SQL cursors. Input-observation reactions replay through the same canonical event writer.
+
+Writer-closure rollout is schema/readers, whole writer bundle and durable admission, then recovery, before
+granting consumers enable. Old repricing executors must stop completely before new executors admit work;
+session locks and durable admission do not exclude each other. Existing expired job claims resume under
+the same durable job ID. This is stop-then-start, not a permanent unmount or a rolling overlap.
+Before grants enable, rollback below writer closure remains possible. After any grant enables, rollback
+must never restore raw writers or session-locked rounds. The same floor applies to the later budget
+consolidation. Until that consolidation removes the legacy counter path, granting consumers remain disabled.
+Elapsed time alone never closes durable admission or releases an authority promise.
+
 Candidate Repricing Dry Runs use the same `planRepricingRound` as preview and live execution.
 The page loader captures listings, competing asks, estimates, and last sold in four set-based queries,
 then plans in memory. Each nonempty page has at most 500 Product keys and seven statements: keyset,

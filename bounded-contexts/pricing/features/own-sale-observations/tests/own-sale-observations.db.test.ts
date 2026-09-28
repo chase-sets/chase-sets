@@ -394,6 +394,7 @@ describeDb("Pricing Own-Sale Observation projection and reads (#7782)", () => {
 
 function pricingServices(pool: PgTransactionalPool) {
   return pricingModule.createServices(pool, {
+    pricingListingAuthorityConsumer: syntheticPricingConsumer,
     tcgplayerMarketTransport: { kind: "not-mounted" },
     tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
     commercialTermsResolver: createNoopCommercialTermsResolver(),
@@ -735,3 +736,4 @@ async function jsonRows(
   );
   return result.rows.map((entry) => entry.row);
 }
+import { syntheticPricingConsumer } from "../../../tests/listing-authority-consumer-fixture";

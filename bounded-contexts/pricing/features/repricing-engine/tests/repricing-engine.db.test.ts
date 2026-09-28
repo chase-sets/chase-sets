@@ -24,7 +24,8 @@ import {
   reserveProductRoundCooldown,
 } from "../read-model/product-round-state";
 import { pricingRepricingEngineSchemaMigrations } from "../read-model/schema";
-import { createRepricingEngineRuntime, type RepricingMarketplaceGateway } from "../api/runtime";
+import type { RepricingMarketplaceGateway } from "../api/runtime";
+import { createRepricingEngineRuntime } from "./round-runtime-fixture";
 import { buildRepricingEvaluationProjectionHandlers } from "../read-model/projection";
 import { listAssignedRepricingProducts, loadRepricingRoundInputs } from "../read-model/queries";
 import { buildRepricingHaltProjectionHandlers } from "../../repricing-policies/read-model/halt-projection";
@@ -395,13 +396,14 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
           ...store,
           appendToStream: async (request) => {
             const result = await store.appendToStream(request);
-            appended();
-            await appendReleased;
+            if (request.streamId.startsWith("pricing.repricing-evaluation-")) {
+              appended();
+              await appendReleased;
+            }
             return result;
           },
         },
       });
-      let waiterPid: number | undefined;
       let loserInputReads = 0;
       const loser = createRepricingEngineRuntime({
         eventStore: store,
@@ -415,9 +417,6 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
             return {
               release: client.release.bind(client),
               query: async <Row>(sql: string, values?: readonly unknown[]) => {
-                if (sql.includes("pg_advisory_lock(")) {
-                  waiterPid = (await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]!.pid;
-                }
                 return client.query<Row>(sql, values);
               },
             };
@@ -441,18 +440,11 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
         await precondition.reached;
         await loser.enqueueMarketPriceSignal({ ...signal("evt_synthetic_f1_loser"), ...syntheticProduct });
         loserWork = run(loser, "loser", loserGateway);
-        await vi.waitFor(async () => {
-          expect(waiterPid).toBeDefined();
-          const waiting = await pool.query(
-            "SELECT 1 FROM pg_locks WHERE pid = $1 AND locktype = 'advisory' AND NOT granted",
-            [waiterPid],
-          );
-          expect(waiting.rows).toHaveLength(1);
-        });
+        expect(await loserWork).toBe(0);
         const jobs = await pool.query(
           "SELECT claim_owner_id FROM pricing_repricing_evaluation_jobs WHERE status = 'running'",
         );
-        expect(jobs.rows).toHaveLength(2);
+        expect(jobs.rows).toHaveLength(1);
         expect(loserInputReads).toBe(0);
         await other.enqueueMarketPriceSignal({ ...signal("evt_synthetic_f1_other"), ...otherProduct });
         expect(await run(other, "other", otherGateway)).toBe(1);
@@ -475,7 +467,10 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
         expect(loserGateway.calls).toHaveLength(0);
         releaseAppend();
         expect(await winnerWork).toBe(1);
-        expect(await loserWork).toBe(1);
+        await pool.query(
+          "UPDATE pricing_repricing_evaluation_jobs SET next_eligible_at = now() WHERE status = 'queued'",
+        );
+        expect(await run(loser, "loser-resumed", loserGateway)).toBe(1);
         expect(winnerGateway.calls).toHaveLength(1);
         expect(loserGateway.calls).toHaveLength(0);
         expect(loserGateway.pauseCalls).toHaveLength(0);
@@ -506,8 +501,8 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
     },
   );
 
-  it.each(["acquire", "input", "pause", "fact", "unlock", "input-and-unlock"] as const)(
-    "releases the product lock and preserves the error after %s failure",
+  it.each(["acquire", "input", "pause", "fact", "settle", "input-and-rollback"] as const)(
+    "retains durable admission and preserves the error after %s failure until recorded recovery",
     async (failure) => {
       vi.useFakeTimers({ toFake: ["Date"] });
       vi.setSystemTime(now);
@@ -528,7 +523,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
       });
       if (failure === "pause") await pool.query("DELETE FROM pricing_market_price_estimates");
       const originalError = new Error(`synthetic ${failure} failure`);
-      const cleanupError = new Error("synthetic unlock failure");
+      const cleanupError = new Error("synthetic rollback failure");
       const store = createPostgresEventStore({ pool });
       const released = vi.fn();
       let lockPid: number | undefined;
@@ -536,34 +531,30 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
         eventStore: {
           ...store,
           appendToStream: async (request) => {
-            if (failure === "fact") throw originalError;
+            if (failure === "fact" && request.streamId.startsWith("pricing.repricing-evaluation-")) throw originalError;
             return store.appendToStream(request);
           },
         },
         db: {
           query: async <Row>(sql: string, values?: readonly unknown[]) => {
-            if ((failure === "input" || failure === "input-and-unlock") && sql.includes("AS policy_revision"))
+            if ((failure === "input" || failure === "input-and-rollback") && sql.includes("AS policy_revision"))
               throw originalError;
+            if (failure === "settle" && sql.includes("SET status = 'completed', closed_at")) throw originalError;
             return pool.query<Row>(sql, values);
           },
           connect: async () => {
             const client = await pool.connect();
-            let lockSession = false;
             return {
               query: async <Row>(sql: string, values?: readonly unknown[]) => {
-                if (sql.includes("pg_advisory_lock(")) {
-                  lockSession = true;
+                if (sql.includes("INSERT INTO pricing_repricing_round_admissions")) {
                   lockPid = (await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]!.pid;
                   if (failure === "acquire") throw originalError;
                 }
-                if (sql.includes("pg_advisory_unlock(")) {
-                  if (failure === "unlock") throw originalError;
-                  if (failure === "input-and-unlock") throw cleanupError;
-                }
+                if (sql === "ROLLBACK" && failure === "input-and-rollback") throw cleanupError;
                 return client.query<Row>(sql, values);
               },
               release: (error?: unknown) => {
-                if (lockSession) released(error);
+                released(error);
                 client.release(error);
               },
             };
@@ -584,13 +575,29 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
           marketplaceGatewayForAccount: () => failingGateway,
         }),
       ).rejects.toBe(originalError);
-      expect(released).toHaveBeenCalledExactlyOnceWith(failure === "input-and-unlock" ? cleanupError : originalError);
+      expect(released).toHaveBeenCalled();
       await vi.waitFor(async () => {
         expect(
           (await pool.query("SELECT 1 FROM pg_locks WHERE pid = $1 AND locktype = 'advisory'", [lockPid])).rows,
         ).toHaveLength(0);
       });
       const next = createRepricingEngineRuntime({ db: pool, eventStore: store });
+      const roundId = `repricing-evaluation:evt_synthetic_failure_${failure}`;
+      if (failure !== "settle") expect(await next.resumeFailedRound(roundId, "Synthetic recorded recovery")).toBe(true);
+      else
+        await next.processNextEvaluationJob({
+          claimOwnerId: "worker:terminal-recovery",
+          claimTtlMs: 30_000,
+          marketplaceGatewayForAccount: () => gateway(() => "applied"),
+        });
+      if (failure !== "settle")
+        expect(
+          await next.processNextEvaluationJob({
+            claimOwnerId: "worker:resume-original",
+            claimTtlMs: 30_000,
+            marketplaceGatewayForAccount: () => gateway(() => "applied"),
+          }),
+        ).toBe(1);
       await next.enqueueMarketPriceSignal({ ...signal(`evt_synthetic_recovery_${failure}`), ...syntheticProduct });
       expect(
         await next.processNextEvaluationJob({
@@ -623,7 +630,14 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
       const append = vi.fn(store.appendToStream);
       const afterAdmissionQueries: string[] = [];
       let admitted = false;
-      let waiterPid: number | undefined;
+      let reached!: () => void;
+      let releaseAdmission!: () => void;
+      const admissionReached = new Promise<void>((resolve) => {
+        reached = resolve;
+      });
+      const admissionReleased = new Promise<void>((resolve) => {
+        releaseAdmission = resolve;
+      });
       const runtime = createRepricingEngineRuntime({
         eventStore: { ...store, appendToStream: append },
         db: {
@@ -633,12 +647,15 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
           },
           connect: async () => {
             const client = await pool.connect();
+            let admissionTransaction = false;
             return {
               release: client.release.bind(client),
               query: async <Row>(sql: string, values?: readonly unknown[]) => {
-                if (sql.includes("pg_advisory_lock(")) {
-                  waiterPid = (await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]!.pid;
+                if (sql.includes("INSERT INTO pricing_repricing_round_admissions")) admissionTransaction = true;
+                if (sql === "COMMIT" && admissionTransaction) {
                   const result = await client.query<Row>(sql, values);
+                  reached();
+                  await admissionReleased;
                   admitted = true;
                   return result;
                 }
@@ -652,13 +669,6 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
         ...signal(`evt_synthetic_claim_fence_${failure}`),
         ...syntheticProduct,
       });
-      const lockKey = JSON.stringify([
-        "pricing:product-round",
-        syntheticProduct.catalogItemId,
-        syntheticProduct.productId,
-      ]);
-      const lockClient = await pool.connect();
-      await lockClient.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", [lockKey]);
       const controller = new AbortController();
       const leaseError = new Error("Synthetic platform runner lease lost.");
       let leaseLost = false;
@@ -679,20 +689,13 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
       );
       let recoveryWork: Promise<number> | undefined;
       try {
-        await vi.waitFor(async () => {
-          expect(waiterPid).toBeDefined();
-          expect(
-            (
-              await pool.query("SELECT 1 FROM pg_locks WHERE pid = $1 AND locktype = 'advisory' AND NOT granted", [
-                waiterPid,
-              ])
-            ).rows,
-          ).toHaveLength(1);
-        });
+        await admissionReached;
         if (failure === "cancelled") controller.abort();
         if (failure === "lease-lost") leaseLost = true;
         if (failure === "claim-expired") {
-          await new Promise((resolve) => setTimeout(resolve, 1_500));
+          await pool.query(
+            "UPDATE pricing_repricing_evaluation_jobs SET claimed_until = now() - interval '1 second', next_eligible_at = now()",
+          );
           expect(
             (
               await pool.query(`SELECT claim_owner_id, claimed_until <= clock_timestamp() AS claim_expired,
@@ -705,14 +708,10 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
             claimTtlMs: 30_000,
             marketplaceGatewayForAccount: () => recoveryGateway,
           });
-          await vi.waitFor(async () => {
-            expect(
-              (await pool.query("SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted")).rows,
-            ).toHaveLength(2);
-          });
+          expect(await recoveryWork).toBe(1);
         }
         expect(admitted).toBe(false);
-        await lockClient.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [lockKey]);
+        releaseAdmission();
         const result = await outcome;
         expect(result.value).toBeUndefined();
         if (failure === "lease-lost") expect(result.error).toBe(leaseError);
@@ -751,8 +750,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
           expect(await readProductRoundState(pool, syntheticProduct)).toBeNull();
         }
       } finally {
-        await lockClient.query("SELECT pg_advisory_unlock_all()");
-        lockClient.release();
+        releaseAdmission();
         await Promise.allSettled([outcome, ...(recoveryWork ? [recoveryWork] : [])]);
       }
     },

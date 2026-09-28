@@ -1,5 +1,9 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 import {
+  pricingRoundAdmissionSchemaSql,
+  pricingRoundAdmissionSchemaMigrations,
+} from "../../features/repricing-engine/read-model/round-admission-schema";
+import {
   pricingListingAuthoritySchemaSql,
   pricingListingAuthoritySchemaMigrations,
 } from "../../features/repricing-engine/read-model/listing-authority-schema";
@@ -59,6 +63,7 @@ export const pricingFeatureSchemaMigrations = [
   ...pricingBulkRepriceIngestionSchemaMigrations,
   ...pricingEconomicsSchemaMigrations,
   ...pricingListingAuthoritySchemaMigrations,
+  ...pricingRoundAdmissionSchemaMigrations,
 ];
 
 export const pricingSchemaSql = [
@@ -82,6 +87,7 @@ export const pricingSchemaSql = [
   pricingRepricingPolicySchemaSql,
   pricingRepricingEngineSchemaSql,
   pricingListingAuthoritySchemaSql,
+  pricingRoundAdmissionSchemaSql,
   pricingRepricingDryRunSchemaSql,
   // Adopts the shared platform-policy machinery (see infrastructure/platform-policy)
   // for the market-stat-hygiene and market-analytics-display policies -- see

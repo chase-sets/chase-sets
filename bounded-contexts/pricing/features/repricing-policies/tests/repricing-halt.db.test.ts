@@ -12,7 +12,8 @@ import { module as pricingModule } from "../../../index";
 import { createRepricingPolicyRuntime } from "../api/runtime";
 import { buildRepricingHaltProjectionHandlers } from "../read-model/halt-projection";
 import { buildRepricingPolicyProjectionHandlers } from "../read-model/projection";
-import { createRepricingEngineRuntime, type RepricingMarketplaceGateway } from "../../repricing-engine/api/runtime";
+import type { RepricingMarketplaceGateway } from "../../repricing-engine/api/runtime";
+import { createRepricingEngineRuntime } from "../../repricing-engine/tests/round-runtime-fixture";
 import { dryRunBody, dryRunContext, seedDryRunListings } from "../../repricing-engine/tests/dry-run-fixture";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;

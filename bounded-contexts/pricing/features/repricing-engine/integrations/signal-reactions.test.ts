@@ -12,6 +12,7 @@ function engineMock() {
       enqueueDailyDriftSweep: vi.fn(),
       previewProductRound: vi.fn(),
       processNextEvaluationJob: vi.fn(),
+      resumeFailedRound: vi.fn(),
       enqueueDryRun: vi.fn(async () => null),
       getDryRun: vi.fn(async () => null),
       listDryRuns: vi.fn(async () => []),
