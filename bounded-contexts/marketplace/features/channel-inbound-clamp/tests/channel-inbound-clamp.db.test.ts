@@ -1,3 +1,4 @@
+import { withSyntheticListingPrincipal } from "@chase-sets/event-core/test-support";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   closeMultiContextTestPools,
@@ -17,10 +18,10 @@ import { createMarketplaceChannelInboundClampRuntime } from "../api/runtime";
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const describeDb = databaseBaseUrl ? describe : describe.skip;
 const contextNames = ["marketplace"] as const;
-const context: EventStoreContext = {
+const context = withSyntheticListingPrincipal({
   tenantId: "tnt_test" as never,
   audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_seller" as never },
-};
+});
 
 // Real Marketplace storage, explicitly synthetic foreign authority; integrated owner DB proof is separate.
 function createMarketplaceServices(pool: PgTransactionalPool) {
@@ -615,8 +616,8 @@ function createListingCommand(
 }
 
 function contextFor(accountId: string): EventStoreContext {
-  return {
+  return withSyntheticListingPrincipal({
     tenantId: context.tenantId,
     audit: { performedByUserId: context.audit.performedByUserId, forAccountId: accountId as never },
-  };
+  });
 }

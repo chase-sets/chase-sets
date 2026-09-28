@@ -1,3 +1,4 @@
+import { withSyntheticListingPrincipal } from "@chase-sets/event-core/test-support";
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
@@ -15,10 +16,10 @@ import { createSyntheticListingAuthority } from "./authority-test-support";
 import { createListingCurrentReads } from "../read-model/target-queries";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-const context: EventStoreContext = {
+const context = withSyntheticListingPrincipal({
   tenantId: "tnt_test" as never,
   audit: { performedByUserId: "usr_seller" as never, forAccountId: "acc_seller" as never },
-};
+});
 async function fixture(overrides: Partial<ListingTargetAuthority> = {}) {
   const { eventStore } = createInMemoryEventStore();
   const { repository, commandHandler } = createAggregateCommandHandler({
@@ -142,6 +143,23 @@ async function fixture(overrides: Partial<ListingTargetAuthority> = {}) {
 }
 
 describe("Listing target owner authority", () => {
+  it("does not replay a committed request for a different authenticated delegation", async () => {
+    const { services, input } = await fixture();
+    const first = await services.acceptListingTargetPrice(input, context);
+    expect(await services.acceptListingTargetPrice(input, context)).toEqual(first);
+    const principal = context.listingAuthorityPrincipal!;
+    if (principal.kind !== "user") throw new Error("Synthetic user required");
+    await expect(
+      services.acceptListingTargetPrice(input, {
+        ...context,
+        listingAuthorityPrincipal: {
+          ...principal,
+          delegation: { delegationId: "grant_synthetic_restricted", revision: "1", scopeCeiling: ["listings:read"] },
+        },
+      }),
+    ).rejects.toThrow("different command");
+  });
+
   it("accepts unchanged authority from its distinct owning event store", async () => {
     const { services, input, eventStore, participantFixture } = await fixture();
     const identityStore = participantFixture.stores.get("identity")!;

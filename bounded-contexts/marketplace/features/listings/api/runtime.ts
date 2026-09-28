@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { requireListingAuthorityPrincipal } from "@chase-sets/event-core/listing-authority";
 import { isDeepStrictEqual } from "node:util";
 import { toJsonValue } from "@chase-sets/primitives/json";
 import sharp from "sharp";
@@ -1393,7 +1394,10 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         {
           tenantId: context.tenantId,
           accountId: params.accountId,
-          actor: await deps.listingTargetAuthority.resolveActor(context),
+          actor: await deps.listingTargetAuthority.resolveActor({
+            principal: requireListingAuthorityPrincipal(context),
+            context,
+          }),
           committingOwner: "marketplace",
           kind: "create-listing",
           requestId: listingId,

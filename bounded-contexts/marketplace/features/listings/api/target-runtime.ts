@@ -3,6 +3,7 @@ import { moneyToCents, roundRational } from "@chase-sets/primitives/money";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import { createBulkAppendLane } from "@chase-sets/platform-runtime/bulk-append-lane";
 import { createListingAuthorityFence } from "@chase-sets/platform-runtime/listing-authority-fence";
+import { requireListingAuthorityPrincipal } from "@chase-sets/event-core/listing-authority";
 import type {
   ListingAuthorityOperation,
   ListingAuthorityParticipant,
@@ -210,7 +211,7 @@ export function createListingTargetRuntime(
         {
           tenantId: context.tenantId,
           accountId: input.accountId,
-          actor: await deps.authority!.resolveActor(context),
+          actor: await deps.authority!.resolveActor({ principal: requireListingAuthorityPrincipal(context), context }),
           committingOwner: "marketplace",
           kind: "accept-price",
           requestId: input.idempotencyKey,
@@ -452,7 +453,7 @@ export function createListingTargetRuntime(
         {
           tenantId: context.tenantId,
           accountId: input.accountId,
-          actor: await deps.authority!.resolveActor(context),
+          actor: await deps.authority!.resolveActor({ principal: requireListingAuthorityPrincipal(context), context }),
           committingOwner: "marketplace",
           kind:
             type === "ActivateListingForChannel"

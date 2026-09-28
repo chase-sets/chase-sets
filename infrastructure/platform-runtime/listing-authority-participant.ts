@@ -5,6 +5,7 @@ import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-c
 import {
   LISTING_AUTHORITY_RESOURCE_LIMIT,
   listingAuthorityParticipantKey,
+  requireListingAuthorityPrincipal,
   type ListingAuthorityConsumerPort,
   type ListingAuthorityOperation,
   type ListingAuthorityParticipant,
@@ -158,6 +159,11 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
     context: EventStoreContext,
     attempt = 0,
   ): Promise<ListingAuthorityReservation> {
+    if (deps.participant.owner === "identity") {
+      assertSameAuthority(requireListingAuthorityPrincipal(context), operation.principal);
+    } else if (context.listingAuthorityPrincipal) {
+      assertSameAuthority(requireListingAuthorityPrincipal(context), operation.principal);
+    }
     if (
       context.tenantId !== operation.tenantId ||
       context.audit.forAccountId !== operation.accountId ||

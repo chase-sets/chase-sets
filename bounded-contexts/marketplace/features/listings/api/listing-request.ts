@@ -34,6 +34,7 @@ export function listingRequestFingerprint(command: JsonObject, context: EventSto
         tenant: context.tenantId,
         account: context.audit.forAccountId,
         actor: context.audit.performedByUserId,
+        principal: (context.listingAuthorityPrincipal ?? null) as JsonValue,
       }),
     )
     .digest("hex");

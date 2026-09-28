@@ -1,3 +1,4 @@
+import { withSyntheticListingPrincipal } from "@chase-sets/event-core/test-support";
 import { describe, expect, it } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -20,10 +21,10 @@ async function fixture() {
   const memory = createInMemoryEventStore();
   const { eventStore: consumerStore } = createInMemoryEventStore();
   const { eventStore: identityStore } = createInMemoryEventStore();
-  const context: EventStoreContext = {
+  const context = withSyntheticListingPrincipal({
     tenantId: "tnt_synthetic",
     audit: { forAccountId: "acc_synthetic", performedByUserId: "usr_synthetic" },
-  };
+  });
   const now = new Date();
   const before = new Date(now.getTime() - 60_000).toISOString();
   const future = new Date(now.getTime() + 30_000).toISOString();

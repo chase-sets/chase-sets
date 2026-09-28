@@ -1,3 +1,4 @@
+import { withSyntheticListingPrincipal } from "@chase-sets/event-core/test-support";
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
@@ -157,10 +158,10 @@ function fixture(
     priceCurrencyCode: "CAD",
     quantityCap: 2,
   };
-  const context = {
+  const context = withSyntheticListingPrincipal({
     tenantId: "tnt_test" as never,
     audit: { forAccountId: "acc_seller" as never, performedByUserId: "usr_test" as never },
-  };
+  });
   return { services, resolveListingTerms, eventStore, input, context, authority, db, participants };
 }
 

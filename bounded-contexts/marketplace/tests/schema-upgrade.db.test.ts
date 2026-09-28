@@ -8,7 +8,7 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { buildTransportEvent } from "@chase-sets/event-core/test-support";
+import { buildTransportEvent, withSyntheticListingPrincipal } from "@chase-sets/event-core/test-support";
 import { buildMarketplaceListingProjectionHandlers } from "../features/listings/read-model/projection";
 import { createListingCurrentReads, assertListingReadFreshness } from "../features/listings/read-model/target-queries";
 import { marketplaceListingSchemaMigrations } from "../features/listings/read-model/schema";
@@ -17,7 +17,7 @@ import { marketplaceBuyerOfferPolicySchemaMigrations } from "../features/offer-p
 import { buildBuyerOfferPolicyProjectionHandlers } from "../features/offer-policy/read-model/projection";
 import { buyerOfferPolicyCodec } from "../features/offer-policy/domain/codec";
 import { evolveBuyerOfferPolicy, initialBuyerOfferPolicyState } from "../features/offer-policy/domain/domain";
-import { activate, context, fixture, seedOffer, terms } from "../features/offer-policy/tests/fixtures";
+import { activate, context as auditContext, fixture, seedOffer, terms } from "../features/offer-policy/tests/fixtures";
 import { createBuyerOfferPolicyRuntime } from "../features/offer-policy/api/runtime";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { createListingRequestExecutor } from "../features/listings/api/listing-request";
@@ -28,6 +28,7 @@ import { marketplaceListingCodec } from "../features/listings/domain/codec";
 import { evolveMarketplaceListing, initialMarketplaceListingState } from "../features/listings/domain/domain";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
+const context = withSyntheticListingPrincipal(auditContext);
 if (!adminDatabaseUrl && process.env.CI) {
   throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
 }

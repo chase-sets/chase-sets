@@ -1,3 +1,4 @@
+import { withSyntheticListingPrincipal } from "@chase-sets/event-core/test-support";
 import { describe, expect, it, vi } from "vitest";
 import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
@@ -112,13 +113,13 @@ function createCheckpointStore(): ProjectionCheckpointStore {
   };
 }
 
-const context = {
+const context = withSyntheticListingPrincipal({
   tenantId: "tnt_marketplace" as never,
   audit: {
     performedByUserId: "usr_seller" as never,
     forAccountId: "acc_seller" as never,
   },
-};
+});
 
 const shipFromAddress = {
   name: "Seller Shipping",

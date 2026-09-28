@@ -1,6 +1,7 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type {
   ListingAuthorityOperation,
+  ListingAuthorityPrincipal,
   ListingAuthorityParticipantPort,
   ListingAuthorityReservation,
 } from "@chase-sets/event-core/listing-authority";
@@ -98,7 +99,10 @@ export type ListingTargetAuthority = Readonly<{
     context: EventStoreContext,
   ): Promise<ListingAuthorityResult<CatalogListingAuthorityFacts>>;
   participants: readonly ListingAuthorityParticipantPort[];
-  resolveActor(context: EventStoreContext): Promise<ListingAuthorityOperation["actor"]>;
+  /** Identity resolves the verified selected principal, never an audit-user role lookup. */
+  resolveActor(
+    input: Readonly<{ principal: ListingAuthorityPrincipal; context: EventStoreContext }>,
+  ): Promise<ListingAuthorityOperation["actor"]>;
   verifyNativeFeeQuote?(
     input: Readonly<{ accountId: string; quote: MarketplaceListingTermsPreview }>,
     operation: ListingAuthorityOperation,

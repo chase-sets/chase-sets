@@ -1,3 +1,4 @@
+import { withSyntheticListingPrincipal } from "@chase-sets/event-core/test-support";
 import { describe, expect, it } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
@@ -48,10 +49,10 @@ const requirements = createListingEvidenceRequirementSnapshot(
 async function fixture(selectedOptions: readonly { dimensionId: string; optionId: string }[] = []) {
   const memory = createInMemoryEventStore();
   const consumer = createInMemoryEventStore();
-  const context: EventStoreContext = {
+  const context = withSyntheticListingPrincipal({
     tenantId: "tnt_synthetic",
     audit: { forAccountId: "acc_synthetic", performedByUserId: "usr_synthetic" },
-  };
+  });
   const db: PgQueryable = {
     async query<Row>(sql: string, values?: readonly unknown[]) {
       if (sql.includes("WITH documents"))

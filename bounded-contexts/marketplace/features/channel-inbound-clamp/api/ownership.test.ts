@@ -1,3 +1,4 @@
+import { withSyntheticListingPrincipal } from "@chase-sets/event-core/test-support";
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
@@ -17,10 +18,10 @@ import { createListingInboundClampOwnership } from "./ownership";
 async function fixture() {
   const memory = createInMemoryEventStore();
   const eventStore = memory.eventStore;
-  const context: EventStoreContext = {
+  const context = withSyntheticListingPrincipal({
     tenantId: "tnt_synthetic",
     audit: { forAccountId: "acc_synthetic", performedByUserId: "usr_synthetic" },
-  };
+  });
   const { repository, commandHandler } = createAggregateCommandHandler({
     eventStore,
     codec: marketplaceListingCodec,

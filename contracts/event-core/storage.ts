@@ -66,6 +66,11 @@ export type EventStoreContext = Readonly<{
   tenantId: TenantId;
   audit: EventAuditContext;
   trace?: EventTraceContext;
+  /** Trusted authentication adapter only; not persisted as event audit metadata.
+   * Recovery reconstructs this from the authoritative retained operation, never
+   * from a new request or a projected principal. Missing authentication fails closed.
+   */
+  listingAuthorityPrincipal?: import("./listing-authority").ListingAuthorityPrincipal;
 }>;
 
 export type EventRecordToStore = Readonly<{
