@@ -1,16 +1,20 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import type { StoredAggregateSnapshot } from "@chase-sets/event-core/aggregate-snapshot-store";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   listingAuthorityConformance,
-  type ListingAuthorityConformanceFixture,
+  listingAuthorityHistoryConformance,
+  type ListingAuthorityHistoryFixture,
 } from "@chase-sets/platform-runtime/listing-authority-conformance";
 import { createListingAuthorityFence } from "@chase-sets/platform-runtime/listing-authority-fence";
 import { createListingAuthorityParticipant } from "@chase-sets/platform-runtime/listing-authority-participant";
+import { createListingAuthorityWriter } from "@chase-sets/platform-runtime/listing-authority-writer";
 
 // Protocol-checkpoint probe only, not a Pricing evaluator or owner-writer proof.
-async function fixture() {
+async function fixture(useWriter = false, cacheResources = false) {
   const sourceMemory = createInMemoryEventStore();
   const consumerMemory = createInMemoryEventStore();
   const consumerStore = consumerMemory.eventStore;
@@ -21,12 +25,28 @@ async function fixture() {
   };
   const resource = "synthetic-pricing-policy-predicate";
   const policyStream = "pricing.synthetic-policy-authority";
+  const snapshots = new Map<string, StoredAggregateSnapshot<unknown>>();
+  let blocked = false;
 
-  function restart(): ListingAuthorityConformanceFixture {
+  function restart(): ListingAuthorityHistoryFixture {
     const source = createListingAuthorityParticipant({
       eventStore: sourceStore,
+      snapshots: cacheResources
+        ? {
+            loadLatest: async (streamId) => snapshots.get(streamId) ?? null,
+            save: async (snapshot) => {
+              snapshots.set(snapshot.streamId, { ...snapshot, updatedAt: new Date().toISOString() as never });
+            },
+          }
+        : undefined,
       participant: { owner: "pricing", purpose: "evaluated-price" },
-      consumer: () => fence.forParticipant("pricing"),
+      consumer: () => ({
+        inspect: fence.inspect,
+        invalidate: (operation, reason) => {
+          if (blocked) throw new Error("Synthetic invalidation transport unavailable.");
+          return fence.forParticipant("pricing").invalidate(operation, reason);
+        },
+      }),
       resources: () => [resource],
       validate: async (operation, audit) => {
         const history = await readCompleteStream(sourceStore, { streamId: policyStream });
@@ -44,6 +64,12 @@ async function fixture() {
       owner: "marketplace",
       participants: [source],
     });
+    const writer = createListingAuthorityWriter({
+      eventStore: sourceStore,
+      source,
+      owner: "pricing",
+      resources: async () => [resource],
+    });
     return {
       sourceStore,
       consumerStore,
@@ -51,6 +77,12 @@ async function fixture() {
       fence,
       context,
       restart,
+      sourceHistories: sourceMemory.streams,
+      consumerHistories: consumerMemory.streams,
+      sourceEffectStream: policyStream,
+      blockInvalidation(value) {
+        blocked = value;
+      },
       input: {
         tenantId: context.tenantId,
         accountId: context.audit.forAccountId,
@@ -77,8 +109,17 @@ async function fixture() {
         expectedPublicationRevision: null,
         participants: [{ owner: "pricing", purpose: "evaluated-price" }],
       },
-      invalidate: () =>
-        source.mutate({
+      invalidate: async () => {
+        if (useWriter) {
+          await writer.eventStore.appendToStream({
+            streamId: policyStream,
+            expectedVersion: 0,
+            context,
+            events: [{ eventType: "pricing.synthetic-policy-revoked", payload: {} }],
+          });
+          return;
+        }
+        await source.mutate({
           resources: [resource],
           mutationId: "synthetic-policy-revoke",
           command: { revoke: true },
@@ -91,13 +132,15 @@ async function fixture() {
               events: [{ eventType: "pricing.synthetic-policy-revoked", payload: {} }],
             },
           ],
-        }),
+        });
+      },
     };
   }
-  return { ...restart(), sourceMemory, consumerMemory, policyStream };
+  return { ...restart(), sourceMemory, consumerMemory, policyStream, snapshots };
 }
 
 describe("Pricing participant checkpoint protocol", () => listingAuthorityConformance(it, fixture));
+describe("Pricing checkpoint retained history", () => listingAuthorityHistoryConformance(it, () => fixture(true)));
 
 it("fails closed when resource history is missing but its durable reservation still exists", async () => {
   const f = await fixture();
@@ -230,3 +273,80 @@ it("never completes revocation over a lost resource and integrity pair while a p
     await readCompleteStream(f.consumerStore, { streamId: "marketplace.synthetic-paired-loss-pricing-effect" }),
   ).toHaveLength(0);
 });
+
+for (const scenario of [
+  { name: "corrupt disposable snapshot alone", corruptCache: true, corruptWitnesses: false },
+  { name: "two corrupt fold witnesses without a cached fold", corruptCache: false, corruptWitnesses: true },
+  { name: "two corrupt fold witnesses plus a corrupt disposable snapshot", corruptCache: true, corruptWitnesses: true },
+])
+  it(`retains canonical grants with ${scenario.name}`, async () => {
+    const f = await fixture(false, true);
+    const operation = await f.fence.open(f.input, f.context);
+    const reservation = await f.source.prepare(operation, f.context);
+    const delayedCommit = await f.fence.prepareCommit(operation, [reservation], { accepted: true });
+    const resources = [...f.sourceMemory.streams.keys()].filter((id) =>
+      id.startsWith("pricing.listing-authority-resource-"),
+    );
+    expect(resources).toHaveLength(1);
+    const resource = resources[0]!;
+    const canonicalBefore = structuredClone(f.sourceMemory.streams.get(resource)!);
+    expect(canonicalBefore).toHaveLength(1);
+    expect(canonicalBefore[0]!.payload.reservation).toMatchObject({ reservationId: reservation.reservationId });
+    const snapshot = f.snapshots.get(resource)!;
+    expect(snapshot.state).toMatchObject({ grants: [{ reservationId: reservation.reservationId }], pending: null });
+
+    // Synthetic corruption of two authoritative witness payloads and an untrusted
+    // disposable cache, NOT destruction of all three authoritative histories.
+    // Canonical events, opening IDs, versions, event hashes and the reservation
+    // remain intact. A fold digest must be anchored to the surviving canonical
+    // history, not established solely by two agreeing witness copies.
+    const emptyState = { grants: [], pending: null };
+    const emptyHash = createHash("sha256").update(JSON.stringify(emptyState)).digest("hex");
+    if (scenario.corruptCache) f.snapshots.set(resource, { ...snapshot, state: emptyState });
+    else f.snapshots.clear();
+    for (const witness of scenario.corruptWitnesses
+      ? [resource.replace("-resource-", "-integrity-"), resource.replace("-resource-", "-registration-resource-")]
+      : []) {
+      const history = f.sourceMemory.streams.get(witness)!;
+      expect(history).toHaveLength(1);
+      f.sourceMemory.streams.set(
+        witness,
+        history.map((event) => ({ ...event, payload: { ...event.payload, stateHash: emptyHash } })),
+      );
+    }
+    expect(f.sourceMemory.streams.get(resource)).toEqual(canonicalBefore);
+    const restarted = f.restart();
+    expect((await restarted.fence.inspect(operation)).status).toBe("pending");
+    try {
+      await restarted.invalidate();
+    } catch {
+      // Rejection before any source effect is safe; replaying the surviving
+      // canonical grants and fencing their consumers is also a valid repair.
+      expect(await readCompleteStream(f.sourceStore, { streamId: f.policyStream })).toHaveLength(0);
+      expect(
+        (await restarted.source.inspectInvalidation(f.context.tenantId, "synthetic-policy-revoke"))?.status,
+      ).not.toBe("completed");
+      return;
+    }
+    expect((await restarted.source.inspectInvalidation(f.context.tenantId, "synthetic-policy-revoke"))?.status).toBe(
+      "completed",
+    );
+    expect(await readCompleteStream(f.sourceStore, { streamId: f.policyStream })).toHaveLength(1);
+    await expect(
+      (async () => {
+        await f.consumerStore.appendToStreams!([
+          ...delayedCommit,
+          {
+            streamId: "marketplace.synthetic-corrupt-fold-pricing-effect",
+            expectedVersion: 0,
+            context: f.context,
+            events: [{ eventType: "marketplace.synthetic-price-accepted", payload: { amount: "12.00" } }],
+          },
+        ]);
+        return "committed-after-corrupt-fold-and-effective-revocation";
+      })(),
+    ).rejects.toThrow();
+    expect(
+      await readCompleteStream(f.consumerStore, { streamId: "marketplace.synthetic-corrupt-fold-pricing-effect" }),
+    ).toHaveLength(0);
+  });
