@@ -87,7 +87,10 @@ vi.mock("@chase-sets/payments/server", async () => {
 });
 
 vi.mock("@chase-sets/marketplace/server", () => ({
-  createMarketplaceRequestApiClient: mockCreateMarketplaceRequestApiClient,
+  createMarketplaceRequestApiClient: (...args: unknown[]) => ({
+    listOfferMatches: async () => ({ items: [{ offer_id: "off_1", managed_status: null }], total: 1 }),
+    ...mockCreateMarketplaceRequestApiClient(...args),
+  }),
   MarketplaceApiError: MockMarketplaceApiError,
 }));
 
@@ -165,6 +168,53 @@ describe("checkout web routes: account sell list", () => {
       }),
     );
   });
+
+  it.each(["unavailable", "held", "refresh_required", null])(
+    "refreshes selected Offer messaging from safe current Match status %s without changing durable lines",
+    async (managed_status) => {
+      mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+      const line = {
+        line_id: "sll_managed",
+        line_type: "selected-offer",
+        offer_id: "off_managed",
+        product_id: "cat_one::",
+        quantity: 2,
+      };
+      const review = {
+        lineId: line.line_id,
+        status: "ready",
+        terms: { basis_amount: "10.00" },
+        message: null,
+        comparison: null,
+      };
+      mockCreateCheckoutRequestApiClient.mockReturnValue({
+        getSellList: vi.fn(async () => ({ items: [line], count: 1, latestConfirmation: null })),
+        getSellListCompositeReview: vi.fn(async () => ({
+          offerReviews: [review],
+          productOfferReviews: [],
+          inventoryItems: [],
+        })),
+      });
+      const listOfferMatches = vi.fn(async () => ({ items: [{ offer_id: line.offer_id, managed_status }], total: 1 }));
+      mockCreateMarketplaceRequestApiClient.mockReturnValue({ listOfferMatches });
+      const result = await accountSellListLoader({
+        request: new Request("http://localhost/account/sell-list"),
+        params: {},
+        context: undefined,
+      } as never);
+      expect(result.sellList.items).toEqual([line]);
+      expect(listOfferMatches).toHaveBeenCalledTimes(1);
+      if (managed_status)
+        expect(result.offerReviews[0]).toMatchObject({
+          status: "unavailable",
+          terms: null,
+          message: expect.stringContaining("selection has been kept"),
+        });
+      else expect(result.offerReviews[0]).toEqual(review);
+      expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
+      expect(mockRemoveGuestSellListLine).not.toHaveBeenCalled();
+    },
+  );
 
   it("shows temporary Sell List recovery when a valid add-line handoff still reads an empty account projection", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });

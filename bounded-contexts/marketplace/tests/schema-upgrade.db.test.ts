@@ -21,6 +21,8 @@ import { createBuyerOfferPolicyRuntime } from "../features/offer-policy/api/runt
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { managedFixture } from "../features/offers/tests/managed-fixture";
 import { buildManagedOfferProjectionHandlers } from "../features/offers/read-model/managed-projection";
+import { buildMarketplaceOfferProjectionHandlers } from "../features/offers/read-model/projection";
+import { getOfferMatch, listOfferMatches } from "../features/offers/read-model/queries";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI) {
@@ -50,6 +52,81 @@ describeDb("marketplace schema upgrades", () => {
 
   beforeEach(async () => resetMultiContextTestSchemas(pools));
   afterAll(async () => closeMultiContextTestPools(pools));
+
+  it("keeps fixed demand actionable and managed Match queries closed across target, held, pause, projection lag and stop", async () => {
+    const pool = pools.marketplace;
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    const store = createPostgresEventStore({ pool });
+    let amount = "10.00";
+    let held = false;
+    const freshUntil = new Date(Date.now() + 3600000).toISOString();
+    const f = await managedFixture(store, "100.00", {
+      evaluateTargets: async (requests) =>
+        requests.map((request) => {
+          const evidence = { policyRevision: request.policyRevision, marketPrice: { amount, freshUntil } };
+          return held
+            ? { status: "held" as const, reason: "market-price-unavailable", evidence }
+            : { status: "target" as const, unitItemAmount: amount, evidence };
+        }),
+    });
+    await seedOffer(store, "off_fixed");
+    const handlers = [
+      buildMarketplaceOfferProjectionHandlers(pool),
+      buildMarketplaceListingProjectionHandlers(pool),
+      buildBuyerOfferPolicyProjectionHandlers(pool),
+      buildManagedOfferProjectionHandlers(pool),
+    ];
+    const project = async () => {
+      for (const event of await store.readAll())
+        for (const map of handlers) if (map[event.eventType]) await map[event.eventType]!(toTransportEvent(event));
+    };
+    await project();
+    await pool.query(
+      "INSERT INTO marketplace_supply_items (item_id, account_id, catalog_catalog_item_id, product_id, storage_location_id, total_quantity) VALUES ('inv_one','acc_one','cat_one','cat_one::','loc_one',100)",
+    );
+    expect(await getOfferMatch(pool, "off_fixed", "acc_one")).toMatchObject({
+      can_fulfill: true,
+      managed_status: null,
+    });
+    expect(await getOfferMatch(pool, "off_one", "acc_one")).toMatchObject({ can_fulfill: true, managed_status: null });
+    amount = "12.00";
+    await expect(f.offers.acceptOffer(await f.acceptance(), context)).rejects.toMatchObject({
+      code: "managed_offer_refresh_required",
+    });
+    held = true;
+    await f.offers.applyManagedOffer("off_one" as never, "held", context);
+    await project();
+    expect(await getOfferMatch(pool, "off_one", "acc_one")).toMatchObject({
+      can_fulfill: false,
+      managed_status: "held",
+    });
+    const paused = await f.policies.execute(
+      "bop_one",
+      { type: "PauseBuyerOfferPolicy", expectedVersion: 3, operationId: "pause" },
+      context,
+    );
+    expect(await getOfferMatch(pool, "off_one", "acc_one")).toMatchObject({
+      can_fulfill: false,
+      managed_status: "refresh_required",
+    });
+    await project();
+    expect(await getOfferMatch(pool, "off_one", "acc_one")).toMatchObject({
+      can_fulfill: false,
+      managed_status: "unavailable",
+    });
+    await f.policies.execute(
+      "bop_one",
+      { type: "StopBuyerOfferPolicy", expectedVersion: paused.version, operationId: "stop" },
+      context,
+    );
+    await project();
+    const matches = await listOfferMatches(pool, { sellerAccountId: "acc_one", canFulfill: true });
+    expect(matches.items.map((offer) => offer.offer_id)).toEqual(["off_fixed"]);
+    expect(await getOfferMatch(pool, "off_one", "acc_one")).toMatchObject({
+      can_fulfill: false,
+      managed_status: "unavailable",
+    });
+  });
 
   it("rolls back a debit when a later stream append fails, then races identical retries without duplicate events", async () => {
     const pool = pools.marketplace;
@@ -163,6 +240,14 @@ describeDb("marketplace schema upgrades", () => {
       eventStore: store,
       db: pool,
       enforcement: { assertInstalled() {} },
+      managedOfferPricing: {
+        evaluateTargets: async (requests) =>
+          requests.map(() => ({
+            status: "held" as const,
+            reason: "market-price-unavailable",
+            evidence: { marketPrice: null },
+          })),
+      },
     });
     await seedOffer(store);
     await seedOffer(store, "off_two");

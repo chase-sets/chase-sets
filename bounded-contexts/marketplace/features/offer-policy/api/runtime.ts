@@ -31,6 +31,8 @@ import {
   type BuyerOfferPolicyState,
 } from "../domain/domain";
 import { buildBuyerOfferPolicyProjectionHandlers } from "../read-model/projection";
+import type { ManagedOfferPricing } from "../../offers/api/managed-authority";
+import { buyerOfferPolicyOutcomeSchema } from "../domain/contracts";
 
 function hash(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -59,6 +61,7 @@ export function createBuyerOfferPolicyRuntime(
   deps: Readonly<{
     eventStore: EventStore;
     db: PgQueryable;
+    managedOfferPricing?: ManagedOfferPricing;
     /** Installed only alongside atomic application/acceptance enforcement, never an account-controlled flag. */
     enforcement?: Readonly<{ assertInstalled(): void }>;
   }>,
@@ -127,7 +130,41 @@ export function createBuyerOfferPolicyRuntime(
       const loadedOffers = await Promise.all(
         terms.offers.map((selection) => offers.load(`marketplace.offer-${selection.offerId}`)),
       );
+      if (
+        request.type === "AuthorizeBuyerOfferPolicy" &&
+        loadedOffers.some((offer, index) => offer.version !== terms.offers[index]!.offerVersion)
+      )
+        throw new BuyerOfferPolicyError("stale_preview", "Offer selection is stale. Request a fresh preview.");
       assertBuyerOfferPolicySelection(policyId, buyerAccountId, terms, loadedOffers);
+      if (!deps.managedOfferPricing)
+        throw new BuyerOfferPolicyError("enforcement_unavailable", "Market Price evaluation is unavailable.");
+      const evaluatedAt = new Date().toISOString();
+      const targets = await deps.managedOfferPricing.evaluateTargets(
+        terms.offers.map((selection) => ({
+          selection,
+          currency: terms.currency,
+          adjustmentBps: terms.adjustmentBps,
+          policyRevision: current.state.revision + 1,
+          evaluatedAt,
+        })),
+      );
+      assertPolicy(targets.length === terms.offers.length, "Complete Market Price evaluation is required.");
+      const outcomes = targets.map((result, index) =>
+        buyerOfferPolicyOutcomeSchema.parse({
+          offerId: terms.offers[index]!.offerId,
+          currentUnitItemAmount: loadedOffers[index]!.state.priceAmount,
+          result,
+        }),
+      );
+      // Re-evaluate at the current instant, but bind stable evidence and outcomes,
+      // not the clock tick at which Pricing evaluated them.
+      const evidenceHash = (value: unknown) =>
+        hash(JSON.parse(JSON.stringify(value, (key, item) => (key === "evaluatedAt" ? undefined : item))));
+      if (
+        request.type === "AuthorizeBuyerOfferPolicy" &&
+        evidenceHash(outcomes) !== evidenceHash(current.state.preview?.outcomes ?? null)
+      )
+        throw new BuyerOfferPolicyError("stale_preview", "Market Price evidence changed. Request a fresh preview.");
       for (const [index, loaded] of loadedOffers.entries()) {
         guards.push({
           streamId: `marketplace.offer-${terms.offers[index]!.offerId}`,
@@ -146,9 +183,10 @@ export function createBuyerOfferPolicyRuntime(
           type: request.type,
           audit,
           preview: {
-            previewId: hash({ policyId, policyVersion: current.version + 1, terms }),
+            previewId: hash({ policyId, policyVersion: current.version + 1, terms, outcomes }),
             policyVersion: current.version + 1,
             terms,
+            outcomes,
           },
         };
       } else {
@@ -204,16 +242,23 @@ export function createBuyerOfferPolicyRuntime(
       const current = await owned(policyId, buyerAccountId);
       return serializeBuyerOfferPolicy(current.state, current.version);
     },
-    async list(buyerAccountId: string, afterPolicyId = "", limit = 100) {
+    async list(buyerAccountId: string, afterPolicyId = "", limit = 100, offerIds: readonly string[] = []) {
       assertPolicy(
         Number.isInteger(limit) && limit >= 1 && limit <= 100,
         "Policy page size must be between 1 and 100.",
       );
       if (afterPolicyId) buyerOfferPolicyIdSchema.parse(afterPolicyId);
+      assertPolicy(offerIds.length <= 100, "Offer selection is bounded to 100.");
+      for (const id of offerIds) buyerOfferPolicyIdSchema.parse(id);
       const result = await deps.db.query<{ state: BuyerOfferPolicyState; last_stream_version: number }>(
         `SELECT state, last_stream_version FROM marketplace_buyer_offer_policy_pages
-         WHERE buyer_account_id = $1 AND policy_id > $2 ORDER BY policy_id LIMIT $3`,
-        [buyerAccountId, afterPolicyId, limit],
+         WHERE buyer_account_id = $1 AND policy_id > $2
+           AND (cardinality($4::text[]) = 0 OR policy_id IN (
+             SELECT policy_id FROM marketplace_buyer_offer_policy_memberships WHERE offer_id = ANY($4::text[])
+           ) OR EXISTS (SELECT 1 FROM jsonb_array_elements(state->'preview'->'terms'->'offers') selected
+                        WHERE selected->>'offerId' = ANY($4::text[])))
+         ORDER BY policy_id LIMIT $3`,
+        [buyerAccountId, afterPolicyId, limit, offerIds],
       );
       return {
         items: result.rows.map((row) => serializeBuyerOfferPolicy(row.state, row.last_stream_version)),

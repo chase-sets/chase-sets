@@ -1,4 +1,6 @@
 export const checkoutEnglishTranslations = {
+  "checkout.routes.accountSellList.current.offer.refresh":
+    "This Offer is held, unavailable or needs current pricing terms. Refresh the Match and review its price, fees and evidence before accepting. Your Sell List selection has been kept.",
   "checkout.features.cart.api.route.authentication.context.missing": "Authentication context missing.",
   "checkout.features.cart.api.route.authentication.context.missing.2": "Authentication context missing.",
   "checkout.features.cart.api.route.authentication.context.missing.3": "Authentication context missing.",

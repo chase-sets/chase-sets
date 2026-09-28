@@ -14,6 +14,7 @@ import {
 import { MarketplaceSubmittedOfferDetailPage } from "../features/offers/ui/submitted-offer-detail-page";
 
 export { SubmittedOfferDetailErrorBoundary as ErrorBoundary };
+export { action } from "./account-offers-submitted";
 
 const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountOfferSubmitted.review.pricing.demand.and.status.for");
 const SUBMITTED_OFFER_POST_WRITE_TELEMETRY = {
@@ -56,6 +57,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
   return {
     submittedOffer: submittedOfferDestination.data,
+    policies: (await api.listBuyerOfferPolicies([params.offerId!])).items,
   };
 }
 
@@ -78,5 +80,7 @@ export default function MarketplaceAccountSubmittedOfferRoute() {
     );
   }
 
-  return <MarketplaceSubmittedOfferDetailPage offer={data.submittedOffer as SubmittedOfferDetail} />;
+  return (
+    <MarketplaceSubmittedOfferDetailPage offer={data.submittedOffer as SubmittedOfferDetail} policies={data.policies} />
+  );
 }

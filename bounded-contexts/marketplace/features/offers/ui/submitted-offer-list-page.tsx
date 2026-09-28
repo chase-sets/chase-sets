@@ -16,6 +16,8 @@ import {
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type { SubmittedOfferListItem } from "./contracts";
+import type { BuyerOfferPolicySnapshot } from "../../../client";
+import { MarketFollowingOfferControls } from "./submitted-offer-detail-page";
 
 function statusTone(status: string) {
   switch (status) {
@@ -29,9 +31,11 @@ function statusTone(status: string) {
 export function MarketplaceSubmittedOfferListPage({
   data,
   errorMessage,
+  policies,
 }: {
   data: { items: readonly SubmittedOfferListItem[] };
   errorMessage?: string | null;
+  policies?: readonly BuyerOfferPolicySnapshot[];
 }) {
   return (
     <Page>
@@ -49,6 +53,7 @@ export function MarketplaceSubmittedOfferListPage({
         />
       ) : null}
 
+      {policies ? <MarketFollowingOfferControls offers={data.items} policies={policies} /> : null}
       <PageSection title={t("marketplace.features.offers.ui.submittedOfferListPage.submitted.offers.2")}>
         {data.items.length === 0 ? (
           <MarketplaceEmptyState
