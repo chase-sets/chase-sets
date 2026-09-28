@@ -50,13 +50,19 @@ export function memoryTokens(): SessionTokenStore {
 }
 
 export async function authFixture(
-  options: { owner?: "marketplace" | "ordering"; expiresAt?: string; tokenExpiresAt?: string } = {},
+  options: {
+    owner?: "marketplace" | "ordering";
+    expiresAt?: string;
+    tokenExpiresAt?: string;
+    sourceOnly?: boolean;
+  } = {},
 ) {
   const owner = options.owner ?? "marketplace";
   const authMemory = createInMemoryEventStore();
   const authStore = authMemory.eventStore;
   const identityStore = createInMemoryEventStore().eventStore;
-  const consumerStore = createInMemoryEventStore().eventStore;
+  const consumerMemory = createInMemoryEventStore();
+  const consumerStore = consumerMemory.eventStore;
   const tokens = memoryTokens();
   const auth = createAuthSecretAdapters();
   const audit: EventStoreContext = {
@@ -163,7 +169,9 @@ export async function authFixture(
     expectedTargetRevision: 1,
     expectedVisibilityRevision: null,
     expectedPublicationRevision: null,
-    participants: [sessions.listingAuthority.port.participant, identity.participant],
+    participants: options.sourceOnly
+      ? [sessions.listingAuthority.port.participant]
+      : [sessions.listingAuthority.port.participant, identity.participant],
   };
   const fixture: ListingAuthoritySessionConformanceFixture = {
     context,
@@ -175,10 +183,10 @@ export async function authFixture(
     invalidate: async () => {
       await sessions.commandHandler({ streamId, context: audit, command: { type: "RevokeSession" } });
     },
-    prepareAuthorities: async (operation, carrier) => [
-      await sessions.listingAuthority.port.prepare(operation, carrier),
-      await identity.prepare(operation, carrier),
-    ],
+    prepareAuthorities: async (operation, carrier) => {
+      const authGrant = await sessions.listingAuthority.port.prepare(operation, carrier);
+      return options.sourceOnly ? [authGrant] : [authGrant, await identity.prepare(operation, carrier)];
+    },
     restart: () => {
       sessions = makeSessions();
       return { ...fixture, source: sessions.listingAuthority.source };
@@ -188,6 +196,7 @@ export async function authFixture(
     ...fixture,
     authStore,
     authMemory,
+    consumerMemory,
     identityStore,
     tokens,
     auth,
