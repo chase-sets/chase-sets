@@ -1,10 +1,18 @@
 import type { ProviderObservationCapture } from "../../domain/provider-observation-mapper";
-import type { EndpointFailurePhase, SafeHttpStatusClass, TcgplayerEndpointFailurePhases } from "./market-client";
+import {
+  sanitizeEndpointStageTrace,
+  type EndpointFailurePhase,
+  type SafeHttpStatusClass,
+  type TcgplayerEndpointFailurePhases,
+  type TcgplayerEndpointStageTrace,
+  type TcgplayerEndpointStageTraces,
+} from "./market-client";
 import type { TcgplayerResponseFieldSummaryV1 } from "./response-receipt";
 
 type EndpointDiagnostic = Readonly<{
   failurePhase: EndpointFailurePhase;
   httpStatusClass: SafeHttpStatusClass | null;
+  stageTrace?: TcgplayerEndpointStageTrace;
 }>;
 
 export type TcgplayerMarketCaptureReceiptV1 = Readonly<{
@@ -91,8 +99,17 @@ export function sanitizeTcgplayerMarketCaptureReceipt(
   capture: ProviderObservationCapture,
   fieldPresenceAndTypes: TcgplayerResponseFieldSummaryV1,
   failurePhases: TcgplayerEndpointFailurePhases,
+  stageTraces?: TcgplayerEndpointStageTraces,
 ): TcgplayerMarketCaptureReceiptV1 {
   const header = capture.header;
+  const diagnostic = (
+    failurePhase: EndpointFailurePhase,
+    httpStatusClass: SafeHttpStatusClass | null,
+    trace: TcgplayerEndpointStageTrace | undefined,
+  ): EndpointDiagnostic => {
+    const stageTrace = sanitizeEndpointStageTrace(trace);
+    return { failurePhase, httpStatusClass, ...(stageTrace ? { stageTrace } : {}) };
+  };
   return {
     kind: "tcgplayer-market-capture-v1",
     captureId: header.captureId,
@@ -110,9 +127,9 @@ export function sanitizeTcgplayerMarketCaptureReceipt(
     responseSummary: {
       fieldPresenceAndTypes,
       endpointDiagnostics: {
-        sales: { failurePhase: failurePhases.sales, httpStatusClass: header.sales?.httpStatusClass ?? null },
-        listings: { failurePhase: failurePhases.listings, httpStatusClass: header.listings?.httpStatusClass ?? null },
-        history: { failurePhase: failurePhases.history, httpStatusClass: header.history?.httpStatusClass ?? null },
+        sales: diagnostic(failurePhases.sales, header.sales?.httpStatusClass ?? null, stageTraces?.sales),
+        listings: diagnostic(failurePhases.listings, header.listings?.httpStatusClass ?? null, stageTraces?.listings),
+        history: diagnostic(failurePhases.history, header.history?.httpStatusClass ?? null, stageTraces?.history),
       },
       salesStatus: header.sales?.status ?? "not-requested",
       listingsStatus: header.listings?.status ?? "not-requested",

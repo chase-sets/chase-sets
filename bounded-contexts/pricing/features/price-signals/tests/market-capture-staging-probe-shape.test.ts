@@ -11,6 +11,7 @@ import {
   type TcgplayerMarketCaptureReceiptV1,
 } from "../integrations/tcgplayer/capture-sanitizer";
 import type { TcgplayerMarketTransport } from "../integrations/tcgplayer/transport-port";
+import type { TcgplayerMarketStageFact } from "../integrations/tcgplayer/transport-port";
 import {
   createTcgplayerMarketClient,
   type EndpointFailurePhase,
@@ -28,6 +29,160 @@ const PAGE_POLICY: ProviderObservationPolicyValue = {
 };
 
 describe("tcgplayer-market-capture-v1 response-receipt shape", () => {
+  it("retains only closed per-endpoint stage facts in the existing post-commit private object", async () => {
+    const baseline = syntheticTransport();
+    const at = "2026-09-01T15:00:00.000Z";
+    const emit = (
+      callback: ((fact: TcgplayerMarketStageFact) => void) | undefined,
+      stage: TcgplayerMarketStageFact["stage"],
+      extra: Partial<TcgplayerMarketStageFact> = {},
+    ) => callback?.({ stage, at, attempt: 1, ...extra });
+    let failing = true;
+    const transport: TcgplayerMarketTransport = {
+      mpGateway: baseline.mpGateway,
+      mpApi: {
+        post: async <T>(
+          path: string,
+          data?: unknown,
+          options?: Parameters<TcgplayerMarketTransport["mpApi"]["post"]>[2],
+        ) => {
+          for (let index = 0; index < 90; index += 1) emit(options?.onStage, "config-wait");
+          emit(options?.onStage, "fetch-start");
+          emit(options?.onStage, "headers-received", { statusClass: failing ? "4xx" : "2xx" });
+          if (failing) {
+            emit(options?.onStage, "cooldown-start");
+            emit(options?.onStage, "abort", { activeStage: "cooldown-start" });
+            emit(options?.onStage, "terminal", { outcome: "aborted" });
+            throw hostileError(403);
+          }
+          emit(options?.onStage, "parse-start");
+          emit(options?.onStage, "parse-end");
+          emit(options?.onStage, "terminal", { outcome: "success" });
+          return baseline.mpApi.post<T>(path, data, options);
+        },
+      },
+      mpSearchApi: baseline.mpSearchApi,
+      infiniteApi: baseline.infiniteApi,
+    };
+    const probe = captureProbe(transport);
+    const failed = await probe.run();
+    const trace = failed.responseSummary.endpointDiagnostics!.sales.stageTrace!;
+    expect(trace.entries).toHaveLength(64);
+    expect(trace.entries[0]).toMatchObject({ page: 1, attempt: 1, stage: "config-wait", at });
+    expect(trace.entries.slice(-3)).toEqual([
+      { page: 1, attempt: 1, stage: "headers-received", at, statusClass: "4xx" },
+      { page: 1, attempt: 1, stage: "abort", at, activeStage: "cooldown-start" },
+      { page: 1, attempt: 1, stage: "terminal", at, outcome: "aborted" },
+    ]);
+    expect(trace).toMatchObject({ overflow: 31, retryCount: 0, cooldownCount: 1 });
+    expect(failed.responseSummary.salesStatus).toBe("unavailable");
+    expect(failed.responseSummary.salesCoverage).toBe("unknown");
+    expectPrivate(probe, failed);
+    failing = false;
+    const healthy = await probe.run();
+    expect(healthy.responseSummary.endpointDiagnostics!.sales.stageTrace).toMatchObject({
+      entries: expect.arrayContaining([{ page: 1, attempt: 1, stage: "headers-received", at, statusClass: "2xx" }]),
+    });
+    expect(
+      healthy.responseSummary.endpointDiagnostics!.sales.stageTrace!.entries.some((entry) => entry.stage === "abort"),
+    ).toBe(false);
+    expect(healthy.responseSummary.salesStatus).toBe("observed");
+    expectPrivate(probe, healthy, 1);
+    expect(failed.kind).toBe(healthy.kind);
+  });
+
+  it("attributes retries and pagination to independent pages and attempts", async () => {
+    const baseline = syntheticTransport();
+    let salesCalls = 0;
+    const at = "2026-09-01T15:00:00.000Z";
+    const transport: TcgplayerMarketTransport = {
+      ...baseline,
+      mpApi: {
+        post: async <T>(
+          _path: string,
+          _data?: unknown,
+          options?: Parameters<TcgplayerMarketTransport["mpApi"]["post"]>[2],
+        ) => {
+          salesCalls += 1;
+          const onStage = options?.onStage;
+          onStage?.({ stage: "fetch-start", at, attempt: 1 });
+          onStage?.({ stage: "headers-received", at, attempt: 1, statusClass: "4xx" });
+          onStage?.({ stage: "retry-start", at, attempt: 1 });
+          onStage?.({ stage: "cooldown-start", at, attempt: 1 });
+          onStage?.({ stage: "cooldown-end", at, attempt: 1 });
+          onStage?.({ stage: "fetch-start", at, attempt: 2 });
+          onStage?.({ stage: "headers-received", at, attempt: 2, statusClass: "2xx" });
+          onStage?.({ stage: "terminal", at, attempt: 2, outcome: "success" });
+          return salesPage(2, salesCalls === 1 ? "Yes" : "", salesCalls === 1 ? "" : "Yes") as T;
+        },
+      },
+    };
+    const result = await createTcgplayerMarketClient(transport).fetchSecondary({
+      productId: 7001,
+      policy: PAGE_POLICY,
+      now: () => at,
+    });
+    expect(salesCalls).toBe(2);
+    expect(result.observation.sales).toMatchObject({ status: "observed", coverage: "complete", pagesFetched: 2 });
+    expect(result.stageTraces.sales).toMatchObject({ retryCount: 2, cooldownCount: 2, overflow: 1 });
+    expect(result.stageTraces.sales!.entries.filter((entry) => entry.stage === "headers-received")).toEqual([
+      { page: 1, attempt: 1, stage: "headers-received", at, statusClass: "4xx" },
+      { page: 1, attempt: 2, stage: "headers-received", at, statusClass: "2xx" },
+      { page: 2, attempt: 1, stage: "headers-received", at, statusClass: "4xx" },
+      { page: 2, attempt: 2, stage: "headers-received", at, statusClass: "2xx" },
+    ]);
+    expect(result.stageTraces.listings).toBeUndefined();
+    expect(result.stageTraces.history).toBeUndefined();
+  });
+
+  it("does not turn received headers or null history into qualification coverage", async () => {
+    const baseline = syntheticTransport();
+    const at = "2026-09-01T15:00:00.000Z";
+    const transport: TcgplayerMarketTransport = {
+      ...baseline,
+      mpApi: {
+        post: async <T>(
+          _path: string,
+          _data?: unknown,
+          options?: Parameters<TcgplayerMarketTransport["mpApi"]["post"]>[2],
+        ) => {
+          options?.onStage?.({ stage: "fetch-start", at, attempt: 1 });
+          options?.onStage?.({ stage: "headers-received", at, attempt: 1, statusClass: "2xx" });
+          options?.onStage?.({ stage: "parse-start", at, attempt: 1 });
+          options?.onStage?.({ stage: "parse-failure", at, attempt: 1 });
+          options?.onStage?.({ stage: "terminal", at, attempt: 1, outcome: "failure" });
+          throw hostileError();
+        },
+      },
+      infiniteApi: {
+        get: async <T>(
+          _path: string,
+          _params?: Parameters<TcgplayerMarketTransport["infiniteApi"]["get"]>[1],
+          options?: Parameters<TcgplayerMarketTransport["infiniteApi"]["get"]>[2],
+        ) => {
+          options?.onStage?.({ stage: "headers-received", at, attempt: 1, statusClass: "2xx" });
+          return { count: 0, result: null } as T;
+        },
+      },
+    };
+    const probe = captureProbe(transport);
+    const receipt = await probe.run();
+    expect(receipt.responseSummary).toMatchObject({
+      salesStatus: "unavailable",
+      salesCoverage: "unknown",
+      historyStatus: "unavailable",
+      historyCoverage: "unknown",
+    });
+    expect(receipt.responseSummary.endpointDiagnostics!.sales.stageTrace!.entries.map((entry) => entry.stage)).toEqual([
+      "fetch-start",
+      "headers-received",
+      "parse-start",
+      "parse-failure",
+      "terminal",
+    ]);
+    expect(receipt.responseSummary.endpointDiagnostics!.sales.httpStatusClass).toBe("other");
+    expectPrivate(probe, receipt);
+  });
   it("composes one privacy-safe sink receipt from field summaries captured before decoding", async () => {
     const receipts: TcgplayerMarketCaptureReceiptV1[] = [];
     const retainedObjects: Array<Readonly<{ key: string; body: Uint8Array; visibility: string }>> = [];

@@ -7,6 +7,7 @@ import {
   sanitizeTcgplayerMarketCaptureReceipt,
 } from "../integrations/tcgplayer/capture-sanitizer";
 import type { TcgplayerSecondaryObservation } from "../integrations/tcgplayer/market-client";
+import type { TcgplayerEndpointStageTrace } from "../integrations/tcgplayer/market-client";
 import { emptyTcgplayerResponseFieldSummary } from "../integrations/tcgplayer/response-receipt";
 import { pricingProviderObservationsSchemaSql } from "../read-model/provider-observations-schema";
 
@@ -78,6 +79,32 @@ describe("provider observation privacy boundary", () => {
       listingsStatus: "not-requested",
       historyStatus: "not-requested",
     });
+    const safeTrace: TcgplayerEndpointStageTrace = {
+      entries: [{ page: 1, attempt: 1, stage: "headers-received", at: "2026-09-01T15:00:00.000Z", statusClass: "4xx" }],
+      overflow: 0,
+      retryCount: 0,
+      cooldownCount: 0,
+    };
+    const safe = sanitizeTcgplayerMarketCaptureReceipt(capture, emptyTcgplayerResponseFieldSummary(), phases, {
+      sales: safeTrace,
+    });
+    expect(safe.responseSummary.endpointDiagnostics?.sales.stageTrace).toEqual(safeTrace);
+    for (const entry of [
+      { ...safeTrace.entries[0], body: "C12_SECRET_COOKIE" },
+      { ...safeTrace.entries[0], at: "2026-09-01" },
+      { ...safeTrace.entries[0], attempt: 10001 },
+      { ...safeTrace.entries[0], statusClass: "403" },
+    ]) {
+      const invalid = sanitizeTcgplayerMarketCaptureReceipt(capture, emptyTcgplayerResponseFieldSummary(), phases, {
+        sales: { ...safeTrace, entries: [entry] } as TcgplayerEndpointStageTrace,
+      });
+      expect(invalid.responseSummary.endpointDiagnostics?.sales).not.toHaveProperty("stageTrace");
+      assertNoC12Values(JSON.stringify(invalid));
+    }
+    const overflow = sanitizeTcgplayerMarketCaptureReceipt(capture, emptyTcgplayerResponseFieldSummary(), phases, {
+      sales: { ...safeTrace, entries: Array.from({ length: 65 }, () => safeTrace.entries[0]!) },
+    });
+    expect(overflow.responseSummary.endpointDiagnostics?.sales).not.toHaveProperty("stageTrace");
   });
 
   it("self-tests the C12 key and value assertions against hand-built leaks", () => {
