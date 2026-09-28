@@ -199,6 +199,31 @@ describe("campaign start gate checklist", () => {
     });
 
     it.each([
+      'export const publicLaunchDate = "September 1, 2026";',
+      'const d = "September 1, 2026"; export { d as publicLaunchDate };',
+      'export default "September 1, 2026";',
+      "export function publicLaunchDate() {}",
+      "export class PublicLaunchDate {}",
+      'export * from "./public-launch-date";',
+    ])("rejects an additional launch config export: %s", (additionalExport) => {
+      fixtureRoot = mkdtempSync(path.join(tmpdir(), "campaign-start-gate-"));
+      const launchConfigDir = path.join(fixtureRoot, "bounded-contexts/public-presence/features/waitlist/ui");
+      mkdirSync(launchConfigDir, { recursive: true });
+      writeFileSync(
+        path.join(launchConfigDir, "launch-config.ts"),
+        `export const launchTimeline = { waveOneInviteCount: inviteCount(1), waveTwoInviteCount: inviteCount(2), waveThreeInviteCount: inviteCount(3) } as const;\n${additionalExport}\n`,
+      );
+      const timelineRow = buildCampaignStartGateChecklist({
+        repoRoot: fixtureRoot,
+        reference: "CAMPAIGN-START-GATE-FIXTURE-2026-07-13",
+        owner: "Operations",
+        checkedAt,
+      }).checklist.find((row) => row.key === "launch-timeline-synced");
+      expect(timelineRow.status).toBe("fail");
+      expect(timelineRow.evidence.policyCountsOnly).toBe(false);
+    });
+
+    it.each([
       "",
       "// export const launchTimeline = { waveOneInviteCount: inviteCount(1), waveTwoInviteCount: inviteCount(2), waveThreeInviteCount: inviteCount(3) };",
       "export const launchTimeline = {};",

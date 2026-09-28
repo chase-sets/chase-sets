@@ -272,14 +272,21 @@ function buildLaunchTimelineRow(repoRootPath) {
   const exists = existsSync(fullPath);
   const content = exists ? readFileSync(fullPath, "utf8") : "";
   const source = ts.createSourceFile("launch-config.ts", content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-  const declarations = source.statements
-    .filter(
-      (statement) =>
-        ts.isVariableStatement(statement) && statement.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword),
-    )
-    .flatMap((statement) => [...statement.declarationList.declarations])
-    .filter((declaration) => ts.isIdentifier(declaration.name) && declaration.name.text === "launchTimeline");
-  let initializer = declarations.length === 1 ? declarations[0].initializer : undefined;
+  const exports = source.statements.filter(
+    (statement) =>
+      ts.isExportDeclaration(statement) ||
+      ts.isExportAssignment(statement) ||
+      statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword),
+  );
+  const launchTimelineExport = exports.length === 1 && ts.isVariableStatement(exports[0]) ? exports[0] : undefined;
+  const declaration =
+    launchTimelineExport?.declarationList.declarations.length === 1
+      ? launchTimelineExport.declarationList.declarations[0]
+      : undefined;
+  let initializer =
+    declaration && ts.isIdentifier(declaration.name) && declaration.name.text === "launchTimeline"
+      ? declaration.initializer
+      : undefined;
   if (initializer && ts.isAsExpression(initializer)) initializer = initializer.expression;
   const countKeys = ["waveOneInviteCount", "waveTwoInviteCount", "waveThreeInviteCount"];
   // Fail closed on added date/window fields, computed values, spreads, or an
