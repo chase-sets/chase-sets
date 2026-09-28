@@ -118,12 +118,13 @@ function formatPrice(item: DiscoverySearchItem): string | undefined {
 // Splits the shipped locale headline around its one treated word so the landed
 // BrandFoilText wraps only that word: punctuation stays outside and the
 // concatenated visible/accessible text stays byte-identical to the locale value.
-// A zero- or multi-match headline is a contract failure, never a guessed split.
+// Zero or multiple whole-word matches stay plain, never a guessed split.
 function heroHeadlineContent(headline: string, treatedWord: string) {
-  const index = headline.indexOf(treatedWord);
-  if (index === -1 || headline.indexOf(treatedWord, index + treatedWord.length) !== -1) {
-    throw new Error(`Expected exactly one "${treatedWord}" in hero headline "${headline}".`);
+  const matches = Array.from(headline.matchAll(new RegExp(`\\b${treatedWord}\\b`, "g")));
+  if (matches.length !== 1) {
+    return headline;
   }
+  const index = matches[0]!.index;
   return (
     <>
       {headline.slice(0, index)}
