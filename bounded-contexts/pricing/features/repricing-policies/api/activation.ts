@@ -4,6 +4,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   withPgTransaction,
   type PgPoolClient,
+  type PgQueryable,
   type PgTransactionalPool,
   type PostgresEventStore,
 } from "@chase-sets/event-core-postgres";
@@ -42,10 +43,9 @@ export function createRepricingPolicyActivationServices(
   }>,
 ) {
   const codec = createPassthroughDomainEventCodec<RepricingPolicyEvent>();
-  const apply = async (
-    client: PgPoolClient,
+  const readReadyRun = async (
+    client: PgQueryable,
     input: Readonly<{ accountId: string; dryRunId: string; name: string }>,
-    context: EventStoreContext,
   ) => {
     const run = (
       await client.query<{
@@ -80,6 +80,11 @@ export function createRepricingPolicyActivationServices(
     } catch {
       throw new DryRunRequiredError();
     }
+    return run;
+  };
+  const apply = async (client: PgPoolClient, input: Parameters<typeof readReadyRun>[1], context: EventStoreContext) => {
+    const run = await readReadyRun(client, input);
+    if (!run) return null;
     const policyId = createId("rpp");
     const createdAt = new Date().toISOString();
     const events = decideRepricingPolicy(initialRepricingPolicyState, {
@@ -149,8 +154,14 @@ export function createRepricingPolicyActivationServices(
     },
     activateRepricingPolicy: async (input: Parameters<typeof apply>[1], context: EventStoreContext) => {
       if (input.accountId !== context.audit.forAccountId) throw new Error("Pricing activation account mismatch.");
+      const mutationId = `activation-${pricingAuthorityDigest([input.accountId, input.dryRunId])}`;
+      if (writer && !(await deps.authority!.inspectInvalidation(context.tenantId, mutationId))) {
+        // Readiness is only an early rejection, never authorization: apply rechecks inside the transaction.
+        // A queued run must remain usable when it completes; an unknown prior attempt must instead resume.
+        if (!(await readReadyRun(deps.pool, input))) return null;
+      }
       const result = writer
-        ? ((await writer.run(`activation-${pricingAuthorityDigest([input.accountId, input.dryRunId])}`, {
+        ? ((await writer.run(mutationId, {
             kind: "activate-repricing-policy",
             body: { input: toJsonValue(input), context: toJsonValue(context) },
             context,

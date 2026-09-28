@@ -13,14 +13,15 @@ it.each([false, true])(
     const f = await fixture();
     const operation = await f.fence.open(f.input, f.context);
     await f.source.prepare(operation, f.context);
-    const sql = sqlFixture({ consumed: false, policies: [] as string[] }, (data, query, values) => {
+    let queued = true;
+    const sql = sqlFixture({ consumed: false, policies: [] as string[] }, (data, query, values): { rows: unknown[] } => {
       if (query.includes("SELECT run.body"))
         return {
           rows: [
             {
               body: dryRunBody,
               body_hash: hashRepricingDryRunBody(dryRunBody),
-              status: rejected ? "queued" : "completed",
+              status: queued || (rejected && sql.inTransaction) ? "queued" : "completed",
               consumed_at: data.consumed ? "2026-09-28T00:00:00.000Z" : null,
               job_status: "completed",
             },
@@ -66,6 +67,10 @@ it.each([false, true])(
       dryRunId: "synthetic-activation",
       name: "Synthetic activation",
     };
+    await expect(services().activateRepricingPolicy(input, f.context)).rejects.toBeInstanceOf(DryRunRequiredError);
+    expect(sql.receipts.size).toBe(0);
+    expect((await f.fence.inspect(operation)).status).toBe("pending");
+    queued = false;
     sql.loseNextCommit();
     await expect(services().activateRepricingPolicy(input, f.context)).rejects.toThrow("unresolved");
     expect(sql.receipts.size).toBe(1);
