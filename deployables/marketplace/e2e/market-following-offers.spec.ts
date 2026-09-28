@@ -53,8 +53,15 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
     });
     await page.goto("/account/offers/submitted");
     await page.getByRole("switch", { name: "Follow the market for selected Offers" }).click();
-    await page.getByRole("checkbox", { name: `Select Surging Sparks Booster Box (${fixture.offerId})` }).check();
-    await page.getByRole("checkbox", { name: `Select Pikachu (${fixture.heldOfferId})` }).check();
+    for (const name of [
+      `Select Surging Sparks Booster Box (${fixture.offerId})`,
+      `Select Pikachu (${fixture.heldOfferId})`,
+    ]) {
+      const selection = page.getByRole("checkbox", { name });
+      await selection.focus();
+      await page.keyboard.press("Space");
+      await expect(selection).toBeChecked();
+    }
     await page.getByLabel("Maximum unit item amount: Surging Sparks Booster Box").fill("140.00");
     await page.getByLabel("Lifetime Item Commitment Allowance", { exact: false }).fill("400.00");
     const advanced = page.getByRole("button", { name: "Advanced adjustment" });
@@ -82,7 +89,10 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       await page.screenshot({ path: testInfo.outputPath(`market-following-review-${width}.png`), fullPage: true });
     }
-    await page.getByRole("checkbox", { name: /^I authorize/ }).check();
+    const consent = page.getByRole("checkbox", { name: /^I authorize/ });
+    await consent.focus();
+    await page.keyboard.press("Space");
+    await expect(consent).toBeChecked();
     await page.getByRole("button", { name: "Authorize reviewed Offers" }).dblclick();
     await expect(page.getByText("Active", { exact: true }).first()).toBeVisible();
     expect(authorizations).toHaveLength(1);
@@ -128,10 +138,15 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
     }
     await page.getByRole("button", { name: "Preview to resume" }).click();
     await expect(page.getByText("Review exact Offer authority")).toBeVisible();
-    await page.getByRole("checkbox", { name: /^I authorize/ }).check();
+    await consent.focus();
+    await page.keyboard.press("Space");
+    await expect(consent).toBeChecked();
     await page.getByRole("button", { name: "Authorize reviewed Offers" }).click();
     await expect(page.getByText("Active", { exact: true }).first()).toBeVisible();
-    await page.getByRole("checkbox", { name: /^Stop is permanent/ }).check();
+    const stopConfirmation = page.getByRole("checkbox", { name: /^Stop is permanent/ });
+    await stopConfirmation.focus();
+    await page.keyboard.press("Space");
+    await expect(stopConfirmation).toBeChecked();
     await page.getByRole("button", { name: "Stop market following" }).click();
     await expect(page.getByText("Stopped", { exact: true }).first()).toBeVisible();
     await expect(page.getByRole("button", { name: "Preview to resume" })).toHaveCount(0);
