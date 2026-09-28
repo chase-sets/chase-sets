@@ -85,6 +85,7 @@ async function assertNoDocumentOverflow(page: Page, label: string) {
 }
 
 async function assertInkFoilHero(page: Page, viewport: InkFoilViewport) {
+  expect(page.viewportSize(), "the selected Ink & Foil viewport must be applied").toEqual(viewport);
   const hero = homeHero(page);
   await expect(hero, "the no-query hero must render exactly once").toHaveCount(1);
   await expect(hero).toBeVisible();
@@ -259,29 +260,33 @@ async function assertVisibleFocus(page: Page) {
 
 async function assertForcedColorsContinuity(page: Page, viewport: InkFoilViewport) {
   await page.emulateMedia({ forcedColors: "active" });
-  await gotoAndSettle(page, "/");
-  await expect(page.locator("h1")).toHaveText(heroHeadline);
-  const foil = page.locator("h1 .ds-brand-foil-text");
-  await expect(foil).toHaveCount(1);
-  await expect(foil).toBeVisible();
-  const paint = await foil.evaluate((element) => ({
-    color: getComputedStyle(element).color,
-    backgroundImage: getComputedStyle(element).backgroundImage,
-  }));
-  console.log(`forced-colors foil paint: ${JSON.stringify(paint)}`);
-  expect(paint.backgroundImage).toBe("none");
-  expect(paint.color).toMatch(/^rgb\(/);
-  expect(paint.color).not.toBe("rgba(0, 0, 0, 0)");
-  await assertHomeMerchandising(page, viewport);
-  await page.emulateMedia({ forcedColors: "none" });
+  try {
+    await gotoAndSettle(page, "/");
+    await assertInkFoilHero(page, viewport);
+    const foil = page.locator("h1 .ds-brand-foil-text");
+    const paint = await foil.evaluate((element) => ({
+      color: getComputedStyle(element).color,
+      backgroundImage: getComputedStyle(element).backgroundImage,
+    }));
+    console.log(`forced-colors foil paint: ${JSON.stringify(paint)}`);
+    expect(paint.backgroundImage).toBe("none");
+    expect(paint.color).toMatch(/^rgb\(/);
+    expect(paint.color).not.toBe("rgba(0, 0, 0, 0)");
+    await assertHomeMerchandising(page, viewport);
+  } finally {
+    await page.emulateMedia({ forcedColors: "none" });
+  }
 }
 
 async function assertReducedMotionContinuity(page: Page, viewport: InkFoilViewport) {
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await gotoAndSettle(page, "/");
-  await assertInkFoilHero(page, viewport);
-  await assertHomeMerchandising(page, viewport);
-  await page.emulateMedia({ reducedMotion: "no-preference" });
+  try {
+    await gotoAndSettle(page, "/");
+    await assertInkFoilHero(page, viewport);
+    await assertHomeMerchandising(page, viewport);
+  } finally {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+  }
 }
 
 // The exact seeded Home state, asserted at the lifecycle moment before any
@@ -619,6 +624,16 @@ test.describe("Ink & Foil rendered visual identity", () => {
     await assertInkFoilHome(page, viewport);
     await assertInkFoilSearch(page, viewport);
     await assertPopulatedSearchPriceRole(page);
+    await assertForcedColorsContinuity(page, viewport);
+    await assertReducedMotionContinuity(page, viewport);
+  });
+
+  test("preserves Home Ink & Foil desktop continuity at 1280x900 under forced colors and reduced motion @marketplace-browse", async ({
+    page,
+  }) => {
+    const viewport = { width: 1280, height: 900 };
+    await page.setViewportSize(viewport);
+    await page.emulateMedia({ colorScheme: "light" });
     await assertForcedColorsContinuity(page, viewport);
     await assertReducedMotionContinuity(page, viewport);
   });
