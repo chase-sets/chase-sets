@@ -141,6 +141,54 @@ describe("platform worker projection wake interest graph", () => {
       )
       .sort();
 
+    const observationName = "pricing-authority-observation-reaction";
+    const existingRunners = runtime.subscriptionRunners.filter((runner) => runner.projectionName !== observationName);
+    const existingSubscriptions = rawSubscriptions.filter(
+      ({ subscription }) => subscription.projectionName !== observationName,
+    );
+    // The three new Pricing reactions must not change any pre-existing runner or checkpoint.
+    expect(fingerprint(existingRunners.map((runner) => fingerprintObject(runner)))).toEqual({
+      count: 247,
+      sha256: "6edca49f067cdefc1db3c8409762e2059d06ac2cb9b4dbd45d9716e9b18f88c6",
+    });
+    expect(
+      fingerprint(
+        existingSubscriptions.map(({ targetContextName, subscription }) => ({
+          targetContextName,
+          subscription: fingerprintObject(subscription),
+        })),
+      ),
+    ).toEqual({
+      count: 153,
+      sha256: "82ca28b18aecf6ef936f2f4e7e103d8cb621bfa73a6f536d9c0c4ae0e182e655",
+    });
+    expect(fingerprint(existingRunners.map((runner) => runner.checkpointKey))).toEqual({
+      count: 247,
+      sha256: "e03e3c462b501840295a04a1d4551f91027611cb8007b3cb365856a7edfc0a67",
+    });
+    const existingCheckpoints = rawCheckpointIdentities.filter((key) => !key.startsWith(`${observationName}:`));
+    expect({ count: existingCheckpoints.length, sha256: sha256(JSON.stringify(existingCheckpoints)) }).toEqual({
+      count: 153,
+      sha256: "f53828b39f6b59b6dd2ee7e234e2add1a66a2f328a20a1245315ef8af9ce88fc",
+    });
+    expect(
+      runtime.subscriptionRunners
+        .filter((runner) => runner.projectionName === observationName)
+        .map((runner) => ({
+          source: runner.sourceContextName,
+          target: runner.targetContextName,
+          kind: runner.handlerKind,
+          checkpoint: runner.checkpointKey,
+        })),
+    ).toEqual(
+      ["catalog", "inventory", "marketplace"].map((source) => ({
+        source,
+        target: "pricing",
+        kind: "reaction",
+        checkpoint: `${observationName}:${source}:v1`,
+      })),
+    );
+
     expect(runtime.subscriptionRunners).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -151,8 +199,8 @@ describe("platform worker projection wake interest graph", () => {
       ]),
     );
     expect(fingerprint(runtime.subscriptionRunners.map((runner) => fingerprintObject(runner)))).toEqual({
-      count: 247,
-      sha256: "6edca49f067cdefc1db3c8409762e2059d06ac2cb9b4dbd45d9716e9b18f88c6",
+      count: 250,
+      sha256: "d6b431ac37b74d4be0a034f72c578e398fe588d73a153eb00487500d4f8ad7b3",
     });
     expect(
       fingerprint(
@@ -162,25 +210,26 @@ describe("platform worker projection wake interest graph", () => {
         })),
       ),
     ).toEqual({
-      count: 153,
-      sha256: "82ca28b18aecf6ef936f2f4e7e103d8cb621bfa73a6f536d9c0c4ae0e182e655",
+      count: 156,
+      sha256: "e18b937f8b05b6e767a53b89c34f75e6f1ca8f804bd8293667388232c7985007",
     });
     expect({
       count: rawCheckpointIdentities.length,
       sha256: sha256(JSON.stringify(rawCheckpointIdentities)),
     }).toEqual({
-      count: 153,
-      sha256: "f53828b39f6b59b6dd2ee7e234e2add1a66a2f328a20a1245315ef8af9ce88fc",
+      count: 156,
+      sha256: "dadc43030cec6c8779dc23070243cfe56b979fe62e6a154d801895b13d79a607",
     });
     expect(fingerprint(runtime.subscriptionRunners.map((runner) => runner.checkpointKey))).toEqual({
-      count: 247,
-      sha256: "e03e3c462b501840295a04a1d4551f91027611cb8007b3cb365856a7edfc0a67",
+      count: 250,
+      sha256: "4b3dd8f341278d42a8d2089fd7f34b6cb287f4410b69c56ed4fe6a013af57b75",
     });
     expect(sharedNames).toMatchObject({
-      distinctNames: 118,
-      distinctSharedNames: 20,
-      runnersUsingSharedNames: 55,
+      distinctNames: 119,
+      distinctSharedNames: 21,
+      runnersUsingSharedNames: 58,
     });
+    expect(sharedNames.values["pricing.authority-observation-reaction"]).toBe(3);
     expect(sharedNames.values["checkout.checkout.sell-list-projection"]).toBe(3);
     expect(sharedNames.values["support.affected-line-amount-projection"]).toBe(2);
     // One projection, two source declarations: Ordering and Payments share the name.
