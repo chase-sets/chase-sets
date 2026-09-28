@@ -150,7 +150,7 @@ export function createInventoryExternalChannelSaleRuntime(
         saleAppends[0]!.events.length !== 1 ||
         saleEvent?.eventType !== EXTERNAL_CHANNEL_SALE_EVENT_TYPE ||
         saleEvent.payload.commandFingerprint !== incomingFingerprint ||
-        !sameJson(saleEvent.payload.saleKey, command.saleKey)
+        !sameJson(parseExternalChannelSaleKey(saleEvent.payload.saleKey), command.saleKey)
       )
         throw new InventoryDomainError("External sale prepared inputs do not match its admitted command.");
       return appends;
