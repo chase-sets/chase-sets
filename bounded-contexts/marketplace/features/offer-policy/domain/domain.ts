@@ -1,5 +1,6 @@
 import type { DomainEvent } from "@chase-sets/event-core";
-import { moneyToCents } from "@chase-sets/primitives/money";
+import type { JsonObject } from "@chase-sets/primitives/json";
+import { centsToMoneyAmount, moneyToCents } from "@chase-sets/primitives/money";
 import type { MarketplaceOfferState } from "../../offers/domain/domain";
 import { buyerOfferPolicyTermsSchema, type BuyerOfferPolicyTerms } from "./contracts";
 
@@ -46,7 +47,21 @@ export type BuyerOfferPolicyEvent =
       BuyerOfferPolicyAudit & BuyerOfferPolicyPreview & { revision: number; consentedAt: string }
     >
   | DomainEvent<"marketplace.offer-policy.paused", BuyerOfferPolicyAudit>
-  | DomainEvent<"marketplace.offer-policy.stopped", BuyerOfferPolicyAudit>;
+  | DomainEvent<"marketplace.offer-policy.stopped", BuyerOfferPolicyAudit>
+  | DomainEvent<
+      "marketplace.offer-policy.commitment-consumed",
+      BuyerOfferPolicyAudit & {
+        offerId: string;
+        offerVersion: number;
+        revision: number;
+        currency: string;
+        unitItemAmount: string;
+        quantity: number;
+        itemAmount: string;
+        consumedItemAmount: string;
+        evaluationEvidence: JsonObject;
+      }
+    >;
 
 export class BuyerOfferPolicyError extends Error {
   constructor(
@@ -216,6 +231,8 @@ export function evolveBuyerOfferPolicy(
       return { ...state, status: "paused", preview: null };
     case "marketplace.offer-policy.stopped":
       return { ...state, status: "stopped", preview: null };
+    case "marketplace.offer-policy.commitment-consumed":
+      return { ...state, consumedItemAmount: event.data.consumedItemAmount, preview: null };
   }
 }
 
@@ -229,4 +246,35 @@ export function assertBuyerOfferPolicyAdmission(state: BuyerOfferPolicyState, of
   assertBuyerOfferPolicySelection(state.policyId!, state.buyerAccountId!, { ...state.authority, offers: [selection] }, [
     { state: offer, version: selection.offerVersion },
   ]);
+}
+
+export function consumeBuyerOfferCommitment(
+  state: BuyerOfferPolicyState,
+  offer: MarketplaceOfferState,
+  offerVersion: number,
+  audit: BuyerOfferPolicyAudit,
+  evaluationEvidence: JsonObject,
+): BuyerOfferPolicyEvent {
+  assertBuyerOfferPolicyAdmission(state, offer);
+  const itemAmount = moneyToCents(offer.priceAmount!) * BigInt(offer.quantityRequested);
+  const consumed = moneyToCents(state.consumedItemAmount) + itemAmount;
+  assertPolicy(
+    itemAmount > 0n && consumed <= moneyToCents(state.authority!.itemCommitmentAllowance),
+    "Item commitment allowance is insufficient.",
+  );
+  return {
+    type: "marketplace.offer-policy.commitment-consumed",
+    data: {
+      ...audit,
+      offerId: offer.offerId!,
+      offerVersion,
+      revision: state.revision,
+      currency: state.currency!,
+      unitItemAmount: offer.priceAmount!,
+      quantity: offer.quantityRequested,
+      itemAmount: centsToMoneyAmount(itemAmount),
+      consumedItemAmount: centsToMoneyAmount(consumed),
+      evaluationEvidence,
+    },
+  };
 }

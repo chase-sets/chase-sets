@@ -214,6 +214,9 @@
             },
             {
               "readModelTable": "auth_identity_memberships"
+            },
+            {
+              "readModelTable": "auth_identity_users"
             }
           ]
         },

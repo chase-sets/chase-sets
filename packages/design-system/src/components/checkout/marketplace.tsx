@@ -52,7 +52,7 @@ export function PriceBreakdown({
   const isQuiet = deferred || pending;
 
   return (
-    <Card>
+    <Card elevation="tinted">
       {title || description ? (
         <Card.Header>
           {title ? <Card.Title>{title}</Card.Title> : null}
@@ -118,7 +118,7 @@ export function ListingPurchasePanel({
   reassurance,
 }: ListingPurchasePanelProps) {
   return (
-    <Card>
+    <Card elevation="elevated">
       <Card.Header>
         <Card.Title>{title}</Card.Title>
         {reassurance ? <Card.Description>{reassurance}</Card.Description> : null}
@@ -180,7 +180,7 @@ export function OrderIntentSummary({
   paymentStatus,
 }: OrderIntentSummaryProps) {
   return (
-    <Card>
+    <Card elevation="tinted">
       <Card.Body>
         <Stack gap={4}>
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -218,7 +218,7 @@ export interface OrderProtectionModuleProps {
 
 export function OrderProtectionModule({ title, items }: OrderProtectionModuleProps) {
   return (
-    <Card>
+    <Card elevation="tinted" data-card-emitter="order-protection">
       {title ? (
         <Card.Header>
           <Card.Title>
@@ -305,7 +305,7 @@ export function PaymentRecoveryPanel({
   secondaryAction,
 }: PaymentRecoveryPanelProps) {
   return (
-    <Card>
+    <Card elevation="tinted">
       <Card.Header>
         <div>
           <Badge tone="warning" variant="soft">

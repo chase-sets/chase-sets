@@ -7,6 +7,7 @@ import { buildMarketplaceOfferProjectionHandlers } from "../../offers/read-model
 import { buildBuyerOfferPolicyProjectionHandlers } from "./projection";
 import type { BuyerOfferPolicyEvent } from "../domain/domain";
 import { privatePolicyFields } from "../tests/fixtures";
+import { buildManagedOfferProjectionHandlers } from "../../offers/read-model/managed-projection";
 
 describe("private policy serialization and projection isolation", () => {
   it("public demand, seller reads and MCP shared serializers discard policy authority", () => {
@@ -27,12 +28,23 @@ describe("private policy serialization and projection isolation", () => {
       (subscription: { sourceContextName: string }) => subscription.sourceContextName === "marketplace",
     );
     expect(subscriptions.length).toBeGreaterThan(0);
-    const privateEvents = Object.keys(buildBuyerOfferPolicyProjectionHandlers({ query: vi.fn() }));
+    const privateEvents = [
+      ...Object.keys(buildBuyerOfferPolicyProjectionHandlers({ query: vi.fn() })),
+      ...Object.keys(buildManagedOfferProjectionHandlers({ query: vi.fn() })),
+    ];
     for (const subscription of subscriptions) {
       expect(subscription.filterToEventTypes).toBe(true);
       expect(subscription.eventTypes.length).toBeGreaterThan(0);
       for (const eventType of privateEvents) expect(subscription.eventTypes).not.toContain(eventType);
     }
+  });
+  it("payment, cancel and refund events cannot release consumed commitment", () => {
+    const handlers = buildBuyerOfferPolicyProjectionHandlers({ query: vi.fn() });
+    expect(Object.keys(handlers)).not.toEqual(
+      expect.arrayContaining(["ordering.order.cancelled", "payments.payment.failed", "settlement.refund.completed"]),
+    );
+    for (const event of ["ordering.order.cancelled", "payments.payment.failed", "settlement.refund.completed"])
+      expect(handlers[event]).toBeUndefined();
   });
   it("public projections see only the Offer version, never private policy authority or membership", async () => {
     const db = { query: vi.fn(async () => ({ rows: [] })) };

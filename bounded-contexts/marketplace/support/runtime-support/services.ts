@@ -32,12 +32,17 @@ import { createListingActionAttentionSourceFromReadModel } from "../../features/
 import { createOfferResponseAttentionSourceFromReadModel } from "../../features/offers/read-model/seller-attention-source";
 import { createMarketplaceChannelInboundClampRuntime } from "../../features/channel-inbound-clamp/api/runtime";
 import { createBuyerOfferPolicyRuntime } from "../../features/offer-policy/api/runtime";
+import type { ManagedOfferPricing } from "../../features/offers/api/managed-authority";
+import { createManagedOfferWork } from "../../features/offers/integrations/managed-work";
+import { buildManagedOfferProjectionHandlers } from "../../features/offers/read-model/managed-projection";
+import { createProjectionHandlerSet } from "@chase-sets/event-core/projector";
 
 export type MarketplaceServiceOptions = Readonly<{
   listingTargetAuthority?: import("../../features/listings/api/target-contracts").ListingTargetAuthority;
   listingCurrentReadiness?: import("../../features/listings/read-model/target-queries").ListingCurrentReadinessReader;
   listingCurrentOwnerFacts?: MarketplaceListingCurrentReadinessPorts;
   listingAuthority?: MarketplaceListingAuthorityPorts;
+  managedOfferPricing?: ManagedOfferPricing;
   commercialTermsResolver?: CommercialTermsResolver;
   listingPhotoStorage?: ListingPhotoStorage;
   rateLimitPolicyResolver?: RateLimitRuleResolver;
@@ -48,6 +53,7 @@ export type MarketplaceServiceOptions = Readonly<{
 
 export type MarketplaceServices = Readonly<{
   listingAuthority: ReturnType<typeof createMarketplaceListingAuthority>;
+  managedOfferWork: ReturnType<typeof createManagedOfferWork>;
   listings: ReturnType<typeof createMarketplaceListingRuntime>;
   offers: ReturnType<typeof createMarketplaceOfferRuntime>;
   buyerOfferPolicies: ReturnType<typeof createBuyerOfferPolicyRuntime>;
@@ -109,11 +115,25 @@ export function createMarketplaceServices(
         }
       : {}),
     ...(listingCurrentReadiness ? { listingCurrentReadiness } : {}),
+    ...(options.managedOfferPricing ? { managedOfferPricing: options.managedOfferPricing } : {}),
     ...(options.listingPhotoStorage ? { listingPhotoStorage: options.listingPhotoStorage } : {}),
   } as const;
   const listings = createMarketplaceListingRuntime(deps);
   const offers = createMarketplaceOfferRuntime(deps);
-  const buyerOfferPolicies = createBuyerOfferPolicyRuntime({ eventStore, db });
+  const managedOfferWork = createManagedOfferWork({ eventStore, db, offers });
+  const buyerOfferPolicies = createBuyerOfferPolicyRuntime({
+    eventStore,
+    db,
+    ...(options.managedOfferPricing
+      ? {
+          enforcement: {
+            assertInstalled() {
+              if (!eventStore.appendToStreams) throw new Error("Managed Offer atomic enforcement is unavailable.");
+            },
+          },
+        }
+      : {}),
+  });
   const reports = createMarketplaceReportRuntime({
     eventStore,
     db,
@@ -133,6 +153,7 @@ export function createMarketplaceServices(
   const channelInboundClamp = createMarketplaceChannelInboundClampRuntime(pool, listings, eventStore);
   return {
     listingAuthority,
+    managedOfferWork,
     listings,
     offers,
     buyerOfferPolicies,
@@ -142,6 +163,10 @@ export function createMarketplaceServices(
     listingEvidencePolicies,
     policies,
     projectors: [
+      createProjectionHandlerSet({
+        projectionName: "marketplace-managed-offer-projection",
+        handlers: buildManagedOfferProjectionHandlers(db),
+      }),
       ...listings.projectors,
       ...offers.projectors,
       ...buyerOfferPolicies.projectors,

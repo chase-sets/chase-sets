@@ -1,5 +1,20 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { BuyerMarketPrice } from "../domain/evaluate";
+import { evaluateBuyerOfferTarget, type BuyerOfferTargetInput } from "../domain/evaluate";
+
+export function createBuyerOfferPricing(db: PgQueryable) {
+  return {
+    async evaluateTargets(requests: readonly Omit<BuyerOfferTargetInput, "marketPrice">[]) {
+      const prices = await loadBuyerOfferMarketPrices(
+        db,
+        requests.map((request) => request.selection),
+      );
+      return requests.map((request, index) =>
+        evaluateBuyerOfferTarget({ ...request, marketPrice: prices[index] ?? null }),
+      );
+    },
+  };
+}
 
 export type BuyerOfferProductKey = Readonly<{ catalogItemId: string; productId: string }>;
 

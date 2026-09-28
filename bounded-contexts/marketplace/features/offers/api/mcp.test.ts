@@ -3,6 +3,7 @@ import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { McpRequestProtocolContext } from "@chase-sets/platform-runtime/mcp";
 import { createMarketplaceOfferMcpHandlers } from "./mcp";
 import type { MarketplaceOfferServices } from "./runtime";
+import { ManagedOfferConflictError } from "./managed-authority";
 import { privatePolicyFields } from "../../offer-policy/tests/fixtures";
 
 const actor = {
@@ -203,6 +204,18 @@ describe("marketplace offer MCP handlers", () => {
       },
       expect.any(Object),
     );
+  });
+
+  it("propagates managed refresh conflicts without silently requoting or retrying acceptance", async () => {
+    const fake = services();
+    vi.mocked(fake.acceptOffer).mockRejectedValue(new ManagedOfferConflictError("managed_offer_refresh_required"));
+    const handlers = createMarketplaceOfferMcpHandlers(fake);
+    await expect(
+      handlers.toolHandlers["marketplace.accept-offer"]!(
+        mcpRequest({ accountId: "acc_1", offerId: "off_1", listingId: "lst_1", feeQuoteFingerprint: "old" }),
+      ),
+    ).rejects.toMatchObject({ code: "managed_offer_refresh_required" });
+    expect(fake.acceptOffer).toHaveBeenCalledTimes(1);
   });
 
   it("lists buyer submitted offers and seller matched offers without private shipping snapshots", async () => {

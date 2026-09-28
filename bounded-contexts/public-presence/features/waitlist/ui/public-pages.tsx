@@ -819,28 +819,30 @@ function OpenOffersSection() {
             />
           </Stack>
         </Surface>
-        <Surface tone="subtle" elevation="tinted">
-          <Stack gap={3}>
-            <BadgeRow>
-              <Badge tone="success">{t("publicPresence.home.openOffers.after.badge")}</Badge>
-            </BadgeRow>
-            <Heading level={3}>{t("publicPresence.home.openOffers.after.title")}</Heading>
-            <Text tone="secondary">{t("publicPresence.home.openOffers.after.description")}</Text>
-            <OfferCard
-              title={t("publicPresence.home.openOffers.after.offerCard.title")}
-              amount={t("publicPresence.home.openOffers.after.offerCard.amount")}
-              status={t("publicPresence.home.openOffers.after.offerCard.status")}
-              details={t("publicPresence.home.openOffers.after.offerCard.details")}
-            />
-            <List
-              items={[
-                t("publicPresence.home.openOffers.after.point.accept"),
-                t("publicPresence.home.openOffers.after.point.checkout"),
-                t("publicPresence.home.openOffers.after.point.record"),
-              ]}
-            />
-          </Stack>
-        </Surface>
+        <Stack gap={3}>
+          <Surface tone="subtle" elevation="tinted">
+            <Stack gap={3}>
+              <BadgeRow>
+                <Badge tone="success">{t("publicPresence.home.openOffers.after.badge")}</Badge>
+              </BadgeRow>
+              <Heading level={3}>{t("publicPresence.home.openOffers.after.title")}</Heading>
+              <Text tone="secondary">{t("publicPresence.home.openOffers.after.description")}</Text>
+            </Stack>
+          </Surface>
+          <OfferCard
+            title={t("publicPresence.home.openOffers.after.offerCard.title")}
+            amount={t("publicPresence.home.openOffers.after.offerCard.amount")}
+            status={t("publicPresence.home.openOffers.after.offerCard.status")}
+            details={t("publicPresence.home.openOffers.after.offerCard.details")}
+          />
+          <List
+            items={[
+              t("publicPresence.home.openOffers.after.point.accept"),
+              t("publicPresence.home.openOffers.after.point.checkout"),
+              t("publicPresence.home.openOffers.after.point.record"),
+            ]}
+          />
+        </Stack>
       </Grid>
       <Grid columns={{ base: 1, md: 3 }} gap={3}>
         {[
@@ -1113,18 +1115,14 @@ function FoundersOfferSection() {
   );
 }
 
-// Launch timeline: answers "when can I use this?" with the one hard public
-// date (September 1, 2026) and the beta-wave window before it. Truth gate:
-// wave-to-wave progression is conditioned on ops metrics, so per-wave dates
-// are never promised — the copy stays at "late July" resolution and only the
-// public launch date is concrete. Both values interpolate from
-// `launch-config.ts` so a date change is one edit.
+// Access follows waitlist -> numbered beta invite waves -> open signup.
+// Wave progression depends on operational readiness, not promised dates.
 function LaunchTimelineSection() {
   const landingExperimentVariant = useLandingExperimentVariant();
 
   const steps = [
-    { key: "waves", badgeTone: "info" as const },
-    { key: "founders", badgeTone: "trust" as const },
+    { key: "waitlist", badgeTone: "info" as const },
+    { key: "waves", badgeTone: "trust" as const },
     { key: "launch", badgeTone: "success" as const },
   ];
 
@@ -1132,20 +1130,16 @@ function LaunchTimelineSection() {
     <PageSection
       data-public-presence-section="launch_timeline"
       title={t("publicPresence.home.launchTimeline.title")}
-      description={t("publicPresence.home.launchTimeline.description", launchTimeline)}
+      description={t("publicPresence.home.launchTimeline.description")}
     >
       <Grid columns={{ base: 1, md: 3 }} gap={4}>
         {steps.map((step) => (
           <Surface key={step.key} tone="subtle" elevation="tinted">
             <Stack gap={3}>
               <BadgeRow>
-                <Badge tone={step.badgeTone}>
-                  {t(`publicPresence.home.launchTimeline.step.${step.key}.badge`, launchTimeline)}
-                </Badge>
+                <Badge tone={step.badgeTone}>{t(`publicPresence.home.launchTimeline.step.${step.key}.badge`)}</Badge>
               </BadgeRow>
-              <Heading level={3}>
-                {t(`publicPresence.home.launchTimeline.step.${step.key}.title`, launchTimeline)}
-              </Heading>
+              <Heading level={3}>{t(`publicPresence.home.launchTimeline.step.${step.key}.title`)}</Heading>
               <Text tone="secondary">
                 {t(`publicPresence.home.launchTimeline.step.${step.key}.description`, launchTimeline)}
               </Text>
@@ -1154,6 +1148,7 @@ function LaunchTimelineSection() {
                   items={[
                     t("publicPresence.home.launchTimeline.step.waves.qualification"),
                     t("publicPresence.home.launchTimeline.step.waves.gates"),
+                    t("publicPresence.home.launchTimeline.step.waves.founders"),
                   ]}
                 />
               ) : null}
@@ -1719,7 +1714,7 @@ function FaqPreview({ checkoutFeePreview }: { checkoutFeePreview: CheckoutFeePre
     ["publicPresence.faq.launch.question", "publicPresence.faq.launch.answer"],
     ["publicPresence.faq.fees.question", "publicPresence.faq.fees.answer"],
   ];
-  const answerValues = { ...launchTimeline, ...checkoutFeeTranslationValues(checkoutFeePreview) };
+  const answerValues = checkoutFeeTranslationValues(checkoutFeePreview);
 
   return (
     <PageSection
@@ -1737,8 +1732,6 @@ function FaqPreview({ checkoutFeePreview }: { checkoutFeePreview: CheckoutFeePre
           <Surface key={question} tone="subtle" elevation="tinted">
             <Stack gap={2}>
               <Heading level={3}>{t(question)}</Heading>
-              {/* Launch-timeline and checkout-fee values interpolate here;
-                  keys without those tokens ignore the extra values. */}
               <Text tone="secondary">{t(answer, answerValues)}</Text>
             </Stack>
           </Surface>

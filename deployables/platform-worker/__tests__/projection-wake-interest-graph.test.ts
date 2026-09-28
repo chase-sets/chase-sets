@@ -153,16 +153,16 @@ describe("platform worker projection wake interest graph", () => {
           ? "marketplace-listing-projection:marketplace:v2"
           : key;
     expect(fingerprint(existingRunners.map((runner) => previousCheckpoint(runner.checkpointKey)))).toEqual({
-      count: 247,
-      sha256: "e03e3c462b501840295a04a1d4551f91027611cb8007b3cb365856a7edfc0a67",
+      count: 249,
+      sha256: "9daf8c47b4d9e121eb06dd41843f6127a88fb9ae570b1448073050ad1b79b6a3",
     });
     const existingCheckpoints = rawCheckpointIdentities
       .filter((key) => !key.startsWith(`${observationName}:`))
       .map(previousCheckpoint)
       .sort();
     expect({ count: existingCheckpoints.length, sha256: sha256(JSON.stringify(existingCheckpoints)) }).toEqual({
-      count: 153,
-      sha256: "f53828b39f6b59b6dd2ee7e234e2add1a66a2f328a20a1245315ef8af9ce88fc",
+      count: 154,
+      sha256: "815c6ac53f7e5c515bb6da32351f4dde5f2f51506db6e2a83f21272fece8652f",
     });
     expect(
       runtime.subscriptionRunners
@@ -189,11 +189,33 @@ describe("platform worker projection wake interest graph", () => {
           targetContextName: "marketplace",
           projectionName: "marketplace-offer-policy-projection",
         }),
+        expect.objectContaining({
+          sourceContextName: "marketplace",
+          targetContextName: "marketplace",
+          projectionName: "marketplace-managed-offer-projection",
+          checkpointKey: "marketplace-managed-offer-projection:marketplace:v1",
+        }),
+        expect.objectContaining({
+          sourceContextName: "pricing",
+          targetContextName: "marketplace",
+          projectionName: "marketplace-managed-offer-reaction",
+          checkpointKey: "marketplace-managed-offer-reaction:pricing:v1",
+          eventTypes: ["pricing.market-price.estimated"],
+        }),
+      ]),
+    );
+    expect(runtime.projectionGroups).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          targetContextName: "marketplace",
+          projectionName: "marketplace-managed-offer-projection",
+          projectionRevision: 2,
+        }),
       ]),
     );
     expect(fingerprint(runtime.subscriptionRunners.map((runner) => fingerprintObject(runner)))).toEqual({
-      count: 250,
-      sha256: "d6b431ac37b74d4be0a034f72c578e398fe588d73a153eb00487500d4f8ad7b3",
+      count: 252,
+      sha256: "ceec5b8075739800cac6c04c547aac3f14b13f59f66db2a0ffd277f00eea622f",
     });
     expect(
       fingerprint(
@@ -203,22 +225,22 @@ describe("platform worker projection wake interest graph", () => {
         })),
       ),
     ).toEqual({
-      count: 156,
-      sha256: "e18b937f8b05b6e767a53b89c34f75e6f1ca8f804bd8293667388232c7985007",
+      count: 157,
+      sha256: "f8a70da5a0cb4d1494b95154dce830e0d8d3504c0e2bbe3209b08ea9f99d0767",
     });
     expect({
       count: rawCheckpointIdentities.length,
       sha256: sha256(JSON.stringify(rawCheckpointIdentities)),
     }).toEqual({
-      count: 156,
-      sha256: "dadc43030cec6c8779dc23070243cfe56b979fe62e6a154d801895b13d79a607",
+      count: 157,
+      sha256: "5634188381baf80821a15c73b170e92a02893db4d4ba9a21bef03dbacc98f3c9",
     });
     expect(fingerprint(runtime.subscriptionRunners.map((runner) => runner.checkpointKey))).toEqual({
-      count: 250,
-      sha256: "4b3dd8f341278d42a8d2089fd7f34b6cb287f4410b69c56ed4fe6a013af57b75",
+      count: 252,
+      sha256: "76ed97b48e809d129f8559fe09a046933436c629c1cbaad5058b2902f7cc75c0",
     });
     expect(sharedNames).toMatchObject({
-      distinctNames: 119,
+      distinctNames: 120,
       distinctSharedNames: 21,
       runnersUsingSharedNames: 58,
     });

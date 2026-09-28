@@ -2,7 +2,7 @@ import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, CatalogItemId, OfferId } from "@chase-sets/primitives/typed-ids";
@@ -27,6 +27,7 @@ import {
 import { buildListingEvidenceSnapshot, type ListingEvidenceSnapshot } from "../../listings/domain/evidence-snapshot";
 import {
   decideMarketplaceOffer,
+  decideManagedMarketplaceOffer,
   evolveMarketplaceOffer,
   initialMarketplaceOfferState,
   normalizeOfferPriceCurrencyCode,
@@ -62,6 +63,8 @@ import {
   listOfferMatches,
 } from "../read-model/queries";
 import { createMarketplaceProductDescriptor, type MarketplaceVersionSchema } from "../domain/versioning";
+import { createManagedOfferAuthority, ManagedOfferConflictError, type ManagedOfferTarget } from "./managed-authority";
+import { BuyerOfferPolicyError } from "../../offer-policy/domain/domain";
 
 export class MarketplaceOfferFeeQuoteStaleError extends Error {
   public constructor(public readonly currentQuote: MarketplaceListingTermsPreview) {
@@ -103,6 +106,17 @@ export type MarketplaceOfferAcceptanceResult = Readonly<{
 }>;
 
 export type MarketplaceOfferServices = Readonly<{
+  applyManagedOfferPage: (
+    items: readonly { offerId: OfferId; operationId: string }[],
+    context: EventStoreContext,
+    workGuard: AppendToStreamInput,
+  ) => Promise<void>;
+  applyManagedOffer: (
+    offerId: OfferId,
+    operationId: string,
+    context: EventStoreContext,
+    workGuard?: AppendToStreamInput,
+  ) => Promise<{ status: "applied" | "held" | "unchanged"; version: number }>;
   commandHandler: CommandHandler<MarketplaceOfferCommand, MarketplaceOfferState, MarketplaceOfferEvent>;
   sellerControlCommandHandler: CommandHandler<
     MarketplaceOfferSellerControlCommand,
@@ -186,6 +200,7 @@ export type MarketplaceOfferServices = Readonly<{
 }>;
 
 export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): MarketplaceOfferServices {
+  const managed = createManagedOfferAuthority(deps.eventStore, deps.managedOfferPricing);
   const offerCodec = createPassthroughDomainEventCodec<MarketplaceOfferEvent>();
   const listingCodec = createPassthroughDomainEventCodec<MarketplaceListingEvent>();
   const sellerAvailabilityCodec = createPassthroughDomainEventCodec<SellerListingAvailabilityEvent>();
@@ -354,10 +369,17 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
       throw new Error("Offer not found.");
     }
 
-    return quoteMarketplaceTerms(deps.commercialTermsResolver, {
+    const current = await repository.load(`marketplace.offer-${offerId}`);
+    const quote = await quoteMarketplaceTerms(deps.commercialTermsResolver, {
       accountId: sellerAccountId,
-      priceAmount: offer.price_amount,
+      priceAmount: current.state.buyerOfferPolicyId ? current.state.priceAmount! : offer.price_amount,
     });
+    if (!current.state.buyerOfferPolicyId) return quote;
+    const listing = await listingRepository.load(`marketplace.listing-${listingId}`);
+    return {
+      ...quote,
+      fee_quote_fingerprint: `${quote.fee_quote_fingerprint}|${offerId}:${current.version}|${listingId}:${listing.version}`,
+    };
   }
 
   function assertConfirmedFeeQuote(
@@ -369,7 +391,117 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
     }
   }
 
+  async function applyManagedOffer(
+    offerId: OfferId,
+    operationId: string,
+    context: EventStoreContext,
+    workGuard?: AppendToStreamInput,
+    prepared?: {
+      current: Awaited<ReturnType<typeof repository.load>>;
+      policy: Awaited<ReturnType<typeof managed.load>>;
+      target: ManagedOfferTarget;
+    },
+  ): Promise<{ status: "applied" | "held" | "unchanged"; version: number }> {
+    const current = prepared?.current ?? (await repository.load(`marketplace.offer-${offerId}`));
+    if (current.state.status !== "submitted" || !current.state.buyerOfferPolicyId)
+      return { status: "unchanged", version: current.version };
+    const prior = current.events.find(
+      (event) => event.type === "marketplace.offer.managed-evaluated" && event.data.operationId === operationId,
+    );
+    if (prior?.type === "marketplace.offer.managed-evaluated")
+      return { status: prior.data.status, version: current.version };
+    const policy = prepared?.policy ?? (await managed.load(current.state));
+    const target = prepared?.target ?? (await managed.evaluate(current.state, current.version, policy));
+    if (target.status === "target" && target.unitItemAmount === current.state.priceAmount)
+      return { status: "unchanged", version: current.version };
+    const last = current.events.at(-1);
+    if (
+      target.status === "held" &&
+      last?.type === "marketplace.offer.managed-evaluated" &&
+      last.data.status === "held" &&
+      last.data.policyId === policy.state.policyId &&
+      last.data.reason === target.reason &&
+      managed.hasSameConsentRevision(policy, last.data.policyVersion)
+    )
+      return { status: "held", version: current.version };
+    const events: MarketplaceOfferEvent[] =
+      target.status === "target"
+        ? [
+            ...decideManagedMarketplaceOffer(
+              current.state,
+              {
+                type: "UpdateOfferPrice",
+                buyerAccountId: current.state.buyerAccountId!,
+                priceAmount: target.unitItemAmount,
+                priceCurrencyCode: policy.state.currency!,
+              },
+              policy.state,
+            ),
+          ]
+        : [];
+    events.push({
+      type: "marketplace.offer.managed-evaluated",
+      data: {
+        offerId,
+        policyId: policy.state.policyId!,
+        policyVersion: policy.version,
+        operationId,
+        status: target.status === "target" ? "applied" : "held",
+        reason: target.status === "held" ? target.reason : "market-price-target",
+        evidence: target.evidence,
+      },
+    });
+    if (!deps.eventStore.appendToStreams) throw new Error("Managed Offers require atomic multi-stream append support.");
+    try {
+      await deps.eventStore.appendToStreams([
+        managed.guard(policy, context),
+        {
+          streamId: `marketplace.offer-${offerId}`,
+          expectedVersion: current.version,
+          events: events.map(offerCodec.encode),
+          context,
+        },
+        ...(workGuard ? [workGuard] : []),
+      ]);
+    } catch (error) {
+      if (typeof error === "object" && error !== null && "code" in error && error.code === "concurrency_conflict")
+        throw new ManagedOfferConflictError("managed_offer_conflict");
+      throw error;
+    }
+    return { status: target.status === "target" ? "applied" : "held", version: current.version + events.length };
+  }
   return {
+    applyManagedOffer,
+    applyManagedOfferPage: async (items, context, workGuard) => {
+      if (items.length > 100) throw new Error("Managed Offer work pages are bounded to 100 Offers.");
+      const prepared = [];
+      for (const item of items) {
+        const current = await repository.load(`marketplace.offer-${item.offerId}`);
+        if (
+          current.state.status !== "submitted" ||
+          !current.state.buyerOfferPolicyId ||
+          current.events.some(
+            (event) =>
+              event.type === "marketplace.offer.managed-evaluated" && event.data.operationId === item.operationId,
+          )
+        )
+          continue;
+        try {
+          prepared.push({ item, current, policy: await managed.load(current.state) });
+        } catch (error) {
+          if (!(error instanceof BuyerOfferPolicyError)) throw error;
+        }
+      }
+      if (prepared.length === 0) return;
+      const targets = await managed.evaluatePage(
+        prepared.map(({ current, policy }) => managed.request(current.state, current.version, policy)),
+      );
+      for (const [index, entry] of prepared.entries())
+        await applyManagedOffer(entry.item.offerId, entry.item.operationId, context, workGuard, {
+          ...entry,
+          target: targets[index]!,
+        });
+    },
     commandHandler,
     sellerControlCommandHandler,
     submitOffer: async (params, context) => {
@@ -432,6 +564,49 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
       return { offerId, version: result.version };
     },
     updateOfferPrice: async (params, context) => {
+      const current = await repository.load(`marketplace.offer-${params.offerId}`);
+      if (current.state.buyerOfferPolicyId) {
+        const policy = await managed.load(current.state);
+        const events = [
+          ...decideManagedMarketplaceOffer(current.state, { type: "UpdateOfferPrice", ...params }, policy.state),
+        ];
+        if (events.length > 0)
+          events.push({
+            type: "marketplace.offer.managed-evaluated",
+            data: {
+              offerId: params.offerId,
+              policyId: policy.state.policyId!,
+              policyVersion: policy.version,
+              operationId: `manual_${params.offerId}_${current.version}`,
+              status: "applied",
+              reason: "buyer-price-edit",
+              evidence: {
+                policyRevision: policy.state.revision,
+                offerVersion: current.version,
+                priceAmount: params.priceAmount,
+                currency: policy.state.currency!,
+              },
+            },
+          });
+        if (!deps.eventStore.appendToStreams)
+          throw new Error("Managed Offers require atomic multi-stream append support.");
+        try {
+          await deps.eventStore.appendToStreams([
+            managed.guard(policy, context),
+            {
+              streamId: `marketplace.offer-${params.offerId}`,
+              expectedVersion: current.version,
+              events: events.map(offerCodec.encode),
+              context,
+            },
+          ]);
+        } catch (error) {
+          if (typeof error === "object" && error !== null && "code" in error && error.code === "concurrency_conflict")
+            throw new ManagedOfferConflictError("managed_offer_conflict");
+          throw error;
+        }
+        return { offerId: params.offerId, version: current.version + events.length };
+      }
       const result = await commandHandler({
         streamId: `marketplace.offer-${params.offerId}`,
         command: {
@@ -538,6 +713,9 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
       }
 
       const listingStreamId = `marketplace.listing-${params.listingId}`;
+      const commitment = current.state.buyerOfferPolicyId
+        ? await managed.acceptance(current.state, current.version, context)
+        : null;
       const availabilityStreamId = `marketplace.seller-listing-availability-${params.sellerAccountId}`;
       const [offer, listing, sellerAvailability] = await Promise.all([
         getOfferMatchForListing(deps.db, params.offerId, params.sellerAccountId, params.listingId),
@@ -620,8 +798,14 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
         accountId: params.sellerAccountId,
         priceAmount: String(current.state.priceAmount),
       });
-      assertConfirmedFeeQuote(params.feeQuoteFingerprint, quote);
-      const [acceptedEvent] = decideMarketplaceOffer(current.state, {
+      const confirmedQuote = commitment
+        ? {
+            ...quote,
+            fee_quote_fingerprint: `${quote.fee_quote_fingerprint}|${params.offerId}:${current.version}|${params.listingId}:${listing.version}`,
+          }
+        : quote;
+      assertConfirmedFeeQuote(params.feeQuoteFingerprint, confirmedQuote);
+      const acceptCommand = {
         type: "AcceptOffer",
         sellerAccountId: params.sellerAccountId,
         listingId: params.listingId,
@@ -646,10 +830,13 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
         termsScheduleId: quote.schedule_id,
         termsAgreementId: quote.agreement_id,
         termsResolvedAt: quote.resolved_at,
-        feeQuoteFingerprint: quote.fee_quote_fingerprint,
+        feeQuoteFingerprint: confirmedQuote.fee_quote_fingerprint,
         acceptanceBatchId: params.acceptanceBatchId ?? null,
         acceptanceBatchSize: params.acceptanceBatchSize ?? null,
-      });
+      } as const;
+      const [acceptedEvent] = commitment
+        ? decideManagedMarketplaceOffer(current.state, acceptCommand, commitment.policy.state)
+        : decideMarketplaceOffer(current.state, acceptCommand);
       if (!acceptedEvent || acceptedEvent.type !== "marketplace.offer.accepted") {
         throw new Error("Offer acceptance did not produce a commitment fact.");
       }
@@ -673,6 +860,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
 
       try {
         await appendToStreams([
+          ...(commitment ? [commitment.append] : []),
           {
             streamId: offerStreamId,
             expectedVersion: current.version,
@@ -709,6 +897,7 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
               version: latest.version,
             };
           }
+          if (commitment) throw new ManagedOfferConflictError("managed_offer_conflict");
           throw new MarketplaceOfferAcceptanceReadinessError(
             latest.state.status === "accepted" ? "offer_already_accepted" : "listing_not_eligible",
             { listingId: params.listingId },

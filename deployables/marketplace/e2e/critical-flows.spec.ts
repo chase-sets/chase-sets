@@ -169,7 +169,8 @@ test.describe("marketplace critical flows", () => {
 
     const searchBox = page.getByRole("searchbox").first();
     await expect(searchBox).toBeVisible();
-    await expect(page.getByText(/Find cards, comics, figures, sneakers/i)).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Find trading cards worth chasing.");
+    await expect(searchBox).toHaveAttribute("placeholder", "Search Charizard, Black Lotus, Dark Magician, Luffy...");
     await expect(page.getByRole("link", { name: "Sign In" }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Register" }).first()).toBeVisible();
 

@@ -211,8 +211,7 @@ export const discoveryEnglishTranslations = {
   "discovery.features.search.ui.searchPage.reference.facet.description":
     "Narrow by rich catalog references on matching items.",
   "discovery.features.search.ui.searchPage.filters": "Filters",
-  "discovery.features.search.ui.searchPage.find.cards.comics.figures.sneakers.and":
-    "Find cards, comics, figures, sneakers, and memorabilia worth chasing.",
+  "discovery.features.search.ui.searchPage.find.cards.comics.figures.sneakers.and": "Find trading cards worth chasing.",
   "discovery.features.search.ui.searchPage.get.alerts.when.supply.matches":
     "Get alerted when active supply matches this search.",
   "discovery.features.search.ui.searchPage.japanese": "Japanese",
@@ -284,7 +283,7 @@ export const discoveryEnglishTranslations = {
   "discovery.features.search.ui.searchPage.search.live.supply.compare.active.markets":
     "Search live supply, compare active markets, and move from discovery to item detail with buyer confidence built in.",
   "discovery.features.search.ui.searchPage.search.pikachu.spider.man.jordan.vintage":
-    "Search Pikachu, Spider-Man, Jordan, vintage packs...",
+    "Search Charizard, Black Lotus, Dark Magician, Luffy...",
   "discovery.features.search.ui.searchPage.searching": "Searching...",
   "discovery.features.search.ui.searchPage.updating.results": "Updating results...",
   "discovery.features.search.ui.searchPage.selected.facet.values": "{count} selected",

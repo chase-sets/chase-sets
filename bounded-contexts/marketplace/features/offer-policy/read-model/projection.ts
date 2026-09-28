@@ -50,6 +50,9 @@ export function buildBuyerOfferPolicyProjectionHandlers(db: PgQueryable): Projec
       case "marketplace.offer-policy.stopped":
         patch = { status: "stopped", preview: null };
         break;
+      case "marketplace.offer-policy.commitment-consumed":
+        patch = { consumedItemAmount: decoded.data.consumedItemAmount, preview: null };
+        break;
     }
     await db.query(
       `UPDATE marketplace_buyer_offer_policy_pages SET state = state || $2::jsonb, last_stream_version = $3
@@ -63,6 +66,7 @@ export function buildBuyerOfferPolicyProjectionHandlers(db: PgQueryable): Projec
     "marketplace.offer-policy.authorized": policy,
     "marketplace.offer-policy.paused": policy,
     "marketplace.offer-policy.stopped": policy,
+    "marketplace.offer-policy.commitment-consumed": policy,
     "marketplace.offer.buyer-policy-bound": async (event) => {
       await db.query(
         `INSERT INTO marketplace_buyer_offer_policy_memberships (offer_id, policy_id, buyer_account_id)

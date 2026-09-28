@@ -28,6 +28,8 @@ import { createSyntheticListingAuthority } from "../features/listings/api/author
 import { marketplaceListingCodec } from "../features/listings/domain/codec";
 import { evolveMarketplaceListing, initialMarketplaceListingState } from "../features/listings/domain/domain";
 import { seedMarketplaceContextDatabase, inspectMarketplaceSeedState } from "../support/runtime-support/seed";
+import { managedFixture } from "../features/offers/tests/managed-fixture";
+import { buildManagedOfferProjectionHandlers } from "../features/offers/read-model/managed-projection";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 const context = withSyntheticListingPrincipal(auditContext);
@@ -664,6 +666,110 @@ describeDb("marketplace schema upgrades", () => {
     expect((await store.readStream({ streamId: "marketplace.listing-lst_two" })).at(-1)?.payload.priceAmount).toBe(
       "14.00",
     );
+  });
+
+  it("rolls back a debit when a later stream append fails, then races identical retries without duplicate events", async () => {
+    const pool = pools.marketplace;
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    const store = createPostgresEventStore({ pool });
+    const f = await managedFixture(store);
+    const params = await f.acceptance();
+    const before = await store.readAll();
+    await pool.query(`CREATE FUNCTION reject_managed_acceptance() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.event_type = 'marketplace.offer.accepted' THEN
+          IF NOT EXISTS (SELECT 1 FROM event_store_events WHERE event_type = 'marketplace.offer-policy.commitment-consumed') THEN
+            RAISE EXCEPTION 'fault placement did not follow debit';
+          END IF;
+          RAISE EXCEPTION 'injected after allowance debit before Offer append';
+        END IF;
+        RETURN NEW;
+      END $$;
+      CREATE TRIGGER reject_managed_acceptance BEFORE INSERT ON event_store_events
+      FOR EACH ROW EXECUTE FUNCTION reject_managed_acceptance();`);
+    await expect(f.offers.acceptOffer(params, context)).rejects.toMatchObject({
+      code: "infrastructure_failure",
+      details: { cause: "injected after allowance debit before Offer append" },
+    });
+    expect(await store.readAll()).toEqual(before);
+    expect((await f.policies.get("bop_one", "acc_buyer")).consumedItemAmount).toBe("0.00");
+    await pool.query(
+      "DROP TRIGGER reject_managed_acceptance ON event_store_events; DROP FUNCTION reject_managed_acceptance();",
+    );
+    const results = await Promise.all([f.offers.acceptOffer(params, context), f.offers.acceptOffer(params, context)]);
+    expect(results[0]).toEqual(results[1]);
+    const events = await store.readAll();
+    expect(events.slice(before.length).map((event) => event.eventType)).toEqual([
+      "marketplace.offer-policy.commitment-consumed",
+      "marketplace.offer.accepted",
+      "marketplace.listing.evidence-requirements-refreshed",
+      "marketplace.listing.offer-commitment-recorded",
+      "marketplace.seller-listing-availability.commitment-checked",
+    ]);
+    const project = buildBuyerOfferPolicyProjectionHandlers(pool);
+    for (const event of events) if (project[event.eventType]) await project[event.eventType]!(toTransportEvent(event));
+    for (const event of events) if (project[event.eventType]) await project[event.eventType]!(toTransportEvent(event));
+    const projection = await pool.query<{ state: { consumedItemAmount: string } }>(
+      "SELECT state FROM marketplace_buyer_offer_policy_pages WHERE policy_id = 'bop_one'",
+    );
+    expect(projection.rows[0]!.state.consumedItemAmount).toBe("20.00");
+  });
+
+  it("serializes real DB acceptances across different Offers, Listings and sellers sharing one policy", async () => {
+    const pool = pools.marketplace;
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    const f = await managedFixture(createPostgresEventStore({ pool }));
+    const params = await Promise.all([f.acceptance("one"), f.acceptance("two")]);
+    const result = await Promise.allSettled(params.map((p) => f.offers.acceptOffer(p, context)));
+    expect(result.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const loser = result[0]!.status === "rejected" ? 0 : 1;
+    await expect(f.offers.acceptOffer(params[loser]!, context)).rejects.toMatchObject({ code: "managed_offer_held" });
+    const events = await f.store.readAll();
+    for (const type of [
+      "marketplace.offer.accepted",
+      "marketplace.offer-policy.commitment-consumed",
+      "marketplace.listing.offer-commitment-recorded",
+      "marketplace.seller-listing-availability.commitment-checked",
+    ])
+      expect(events.filter((event) => event.eventType === type)).toHaveLength(1);
+  });
+
+  it("upgrades managed work and private audit tables with indexes and replayable evidence", async () => {
+    const pool = pools.marketplace;
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    await pool.query(
+      "DROP TABLE marketplace_managed_offer_work, marketplace_managed_offer_audit, marketplace_managed_offer_recovery",
+    );
+    await pool.query(
+      "DELETE FROM bounded_context_schema_migrations WHERE migration_id IN ('20260927_marketplace_managed_offer_work', '20260927_marketplace_managed_offer_scheduling')",
+    );
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    const f = await managedFixture(createPostgresEventStore({ pool }));
+    f.setTarget({ status: "target", unitItemAmount: "12.00", evidence: { estimateVersion: "2" } });
+    await f.offers.applyManagedOffer("off_one" as never, "work_one", context);
+    const handlers = buildManagedOfferProjectionHandlers(pool);
+    const events = await f.store.readAll();
+    for (let replay = 0; replay < 2; replay++)
+      for (const event of events)
+        if (handlers[event.eventType]) await handlers[event.eventType]!(toTransportEvent(event));
+    expect((await pool.query("SELECT status, reason, evidence FROM marketplace_managed_offer_audit")).rows).toEqual([
+      { status: "applied", reason: "market-price-target", evidence: { estimateVersion: "2" } },
+    ]);
+    expect(
+      (
+        await pool.query(
+          "SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id IN ('20260927_marketplace_managed_offer_work', '20260927_marketplace_managed_offer_scheduling')",
+        )
+      ).rows,
+    ).toHaveLength(2);
+    const indexes = await pool.query<{ indexname: string }>(
+      "SELECT indexname FROM pg_indexes WHERE indexname IN ('marketplace_managed_offer_work_runnable_idx','marketplace_offer_managed_product_idx','marketplace_managed_offer_work_priority_idx','marketplace_managed_offer_work_product_idx')",
+    );
+    expect(indexes.rows).toHaveLength(4);
+    await pool.query("INSERT INTO marketplace_managed_offer_recovery (singleton) VALUES (true)");
+    expect((await pool.query("SELECT pending_work_ids FROM marketplace_managed_offer_recovery")).rows).toEqual([
+      { pending_work_ids: [] },
+    ]);
   });
 
   it("serializes competing PostgreSQL consent bundles without partial policy or membership writes", async () => {

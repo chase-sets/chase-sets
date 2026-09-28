@@ -49,7 +49,7 @@ Founders also join the founders-circle Discord and help shape seller tools such 
 
 ## Beta invite waves
 
-Before signup opens to everyone on September 1, 2026, beta access is admitted in three numbered waves:
+Join the waitlist first. Beta access is then admitted in three numbered waves, followed by open signup for everyone. No launch or wave dates are promised:
 
 - Wave 1: 100 invites
 - Wave 2: 250 invites

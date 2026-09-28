@@ -13,8 +13,8 @@ promiseTable:
   - claim: Published fee figures resolve from the current ratified policy documents.
     issues: ["#4353"]
     tests: ["bounded-contexts/commercial-terms/routes/public/sales-fees.test.tsx"]
-  - claim: Public launch is September 1, 2026, with beta invite waves beginning late July 2026.
-    issues: ["#3952"]
+  - claim: Access follows the waitlist, numbered beta invite waves, then open signup, with no promised dates.
+    issues: ["#8371"]
     tests: ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx"]
   - claim: Every order includes a 1% Order Protection reserve contribution without a separate buyer fee line.
     issues: ["#4098"]
@@ -28,10 +28,11 @@ Marketplace checkout is not open yet. During prelaunch the public site takes ear
 
 ## Launch timeline
 
-- Beta invite waves begin late July 2026.
-- Public launch — open signup for everyone — is September 1, 2026.
+- Join the waitlist first.
+- Numbered beta invite waves come next.
+- Open signup for everyone follows beta.
 
-Invite waves are gated on operational readiness between waves, so Chase Sets does not promise per-wave dates.
+Invite waves are gated on operational readiness between waves. Chase Sets does not promise a launch date or per-wave dates.
 
 ## The founders offer
 

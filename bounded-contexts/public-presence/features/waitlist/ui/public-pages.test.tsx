@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { act, cleanup, fireEvent, render as renderWithoutRouter, type RenderOptions } from "@testing-library/react";
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ts from "@chase-sets/typescript-compiler-api";
@@ -10,6 +10,13 @@ import { PublicInfoPage, PublicPresenceHomePage } from "./public-pages";
 import { publicPresenceT as t } from "./public-presence-translator";
 
 const titleOverrides = vi.hoisted(() => new Map<string, string>());
+vi.mock("@chase-sets/design-system", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@chase-sets/design-system")>();
+  return {
+    ...original,
+    Surface: (props: ComponentProps<typeof original.Surface>) => <original.Surface {...props} data-test-surface />,
+  };
+});
 vi.mock("./public-presence-translator", async (importOriginal) => {
   const original = await importOriginal<typeof import("./public-presence-translator")>();
   return {
@@ -59,6 +66,34 @@ afterEach(() => {
 });
 
 describe("public waitlist form migration smoke", () => {
+  it("renders the open_offers OfferCard outside every Surface ancestor without changing content order", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
+    const section = container.querySelector('[data-public-presence-section="open_offers"]');
+    expect(section).not.toBeNull();
+    const titles = Array.from(section!.querySelectorAll("h3"));
+    const offerTitle = titles.find(
+      (element) => element.textContent === t("publicPresence.home.openOffers.after.offerCard.title"),
+    );
+    expect(offerTitle).toBeDefined();
+    expect(offerTitle!.closest("[data-test-surface]")).toBeNull();
+    expect(offerTitle!.closest(".ds-glass")?.textContent).toContain(
+      t("publicPresence.home.openOffers.after.offerCard.details"),
+    );
+    expect(titles[0]!.closest("[data-test-surface]")).not.toBeNull();
+    expect(titles.map((title) => title.textContent)).toEqual([
+      t("publicPresence.home.openOffers.before.title"),
+      t("publicPresence.home.openOffers.after.title"),
+      t("publicPresence.home.openOffers.after.offerCard.title"),
+    ]);
+  });
+
   it("renders the buyer hero and records seller_first_v2 for an explicit buyer intent", () => {
     vi.stubGlobal(
       "fetch",
@@ -420,7 +455,7 @@ describe("public waitlist form migration smoke", () => {
     );
   });
 
-  it("answers when access opens with numbered invite capacities, qualification, and the public launch date", () => {
+  it("orders waitlist, numbered beta invite waves, and open signup without promising dates", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -447,24 +482,29 @@ describe("public waitlist form migration smoke", () => {
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
 
-    // The one hard public date and the season-level beta window, interpolated
-    // from launch-config (no leaked tokens).
-    expect(timelineSection.textContent).toContain("September 1, 2026");
-    expect(timelineSection.textContent).toContain("late July 2026");
+    expect(container.innerHTML).not.toContain("September 1, 2026");
+    expect(container.innerHTML).not.toContain("late July 2026");
+    expect(timelineSection.textContent).toMatch(/waitlist.*numbered beta invite waves.*open signup/i);
+    expect([...timelineSection.querySelectorAll("h3")].map((heading) => heading.textContent)).toEqual([
+      "Join the waitlist",
+      "Numbered beta invite waves",
+      "Public launch: open signup",
+    ]);
     expect(timelineSection.textContent).toContain("Wave 1: 100 invites");
     expect(timelineSection.textContent).toContain("Wave 2: 250 invites");
     expect(timelineSection.textContent).toContain("Wave 3: 500 invites");
     expect(timelineSection.textContent).toContain(t("publicPresence.home.launchTimeline.step.waves.qualification"));
     expect(timelineSection.textContent).toContain(t("publicPresence.home.launchTimeline.step.waves.gates"));
+    expect(timelineSection.textContent).toContain(t("publicPresence.home.launchTimeline.step.waves.founders"));
     expect(timelineSection.textContent).not.toContain("{publicLaunchDate}");
     expect(timelineSection.textContent).not.toContain("{betaWavesWindow}");
     // Wave-to-wave progression is operations-gated, so target dates are not promises.
     expect(timelineSection.textContent).not.toMatch(/July 31|August \d/i);
     expect(timelineSection.querySelector('a[href="/#waitlist-form"]')).not.toBeNull();
 
-    // The FAQ preview answers the same question with the same dates.
+    // Visible FAQ copy states the same access order as the timeline.
     expect(faqSection.textContent).toContain(t("publicPresence.faq.launch.question"));
-    expect(faqSection.textContent).toContain("September 1, 2026");
+    expect(faqSection.textContent).toMatch(/waitlist.*numbered beta invite waves.*open signup/i);
     expect(faqSection.textContent).not.toContain("{publicLaunchDate}");
   });
 

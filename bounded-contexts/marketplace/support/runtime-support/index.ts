@@ -6,6 +6,7 @@ import type { ObjectStorage } from "@chase-sets/object-storage";
 import type { CommercialTermsResolver } from "../../api";
 import type { ListingEvidencePolicyEvaluator } from "../../features/listings/api/evidence-requirement-resolver";
 import type { ListingTargetAuthority } from "../../features/listings/api/target-contracts";
+import type { ManagedOfferPricing } from "../../features/offers/api/managed-authority";
 
 export type ListingPhotoStorage = Readonly<{
   getObject: ObjectStorage["getObject"];
@@ -32,4 +33,5 @@ export type MarketplaceRuntimeDeps = Readonly<{
   listingEvidencePolicyEvaluator?: ListingEvidencePolicyEvaluator;
   listingTargetAuthority?: ListingTargetAuthority;
   listingCurrentReadiness?: import("../../features/listings/read-model/target-queries").ListingCurrentReadinessReader;
+  managedOfferPricing?: ManagedOfferPricing;
 }>;

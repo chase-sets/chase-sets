@@ -16,6 +16,7 @@ import {
 import { isChannelsServices, type ChannelsServices } from "@chase-sets/channels/server";
 import {
   createObjectStorageTcgplayerMarketCaptureReceiptSink,
+  createBuyerOfferPricing,
   type ChannelConnectionIdentityReader,
   type PricingHostPorts,
 } from "@chase-sets/pricing/server";
@@ -322,6 +323,7 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
           return catalog.listingAuthority.readCurrentProducts(subjects, { maxAgeMs: 1000 });
         },
       } satisfies MarketplaceListingCurrentReadinessPorts,
+      ...(pools.pricing ? { managedOfferPricing: createBuyerOfferPricing(pools.pricing) } : {}),
       processorGateway: paymentProcessorGateway,
       moneyMovementGateway,
       operationsRecorder: settlementOperationsRecorder,

@@ -13,6 +13,11 @@ export const marketplaceRetentionSweeps: readonly BcRetentionSweep[] = [
 
 export const marketplaceRetentionExemptions: readonly BcRetentionExemption[] = [
   {
+    tableName: "marketplace_managed_offer_recovery",
+    owner: "marketplace",
+    reason: "Durable keyset continuation ensures managed Offer recovery visits the tail across worker replacements.",
+  },
+  {
     tableName: "marketplace_channel_inbound_clamps",
     owner: "marketplace",
     reason:

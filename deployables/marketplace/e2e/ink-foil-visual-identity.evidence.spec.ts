@@ -60,7 +60,7 @@ const populatedSearchPriceProof = {
 // it to pathname `/`), so Home-section anchors are proven on `/` and the two
 // registered `/search` claims capture the hero, count, rail branch, and the
 // unchanged populated Search card.
-const heroHeadline = "Find cards, comics, figures, sneakers, and memorabilia worth chasing.";
+const heroHeadline = "Find trading cards worth chasing.";
 const heroFoilWord = "chasing";
 const heroDescription =
   "Search live supply, compare active markets, and move from discovery to item detail with buyer confidence built in.";
@@ -85,6 +85,7 @@ async function assertNoDocumentOverflow(page: Page, label: string) {
 }
 
 async function assertInkFoilHero(page: Page, viewport: InkFoilViewport) {
+  expect(page.viewportSize(), "the selected Ink & Foil viewport must be applied").toEqual(viewport);
   const hero = homeHero(page);
   await expect(hero, "the no-query hero must render exactly once").toHaveCount(1);
   await expect(hero).toBeVisible();
@@ -104,7 +105,7 @@ async function assertInkFoilHero(page: Page, viewport: InkFoilViewport) {
   // DOM node types as numerals: this assertion runs in the Node.js test process,
   // where the browser `Node` global does not exist (3 = text, 1 = element).
   expect(headlineNodes, "the foil wraps only the treated word; punctuation stays outside").toEqual([
-    [3, "Find cards, comics, figures, sneakers, and memorabilia worth "],
+    [3, "Find trading cards worth "],
     [1, heroFoilWord],
     [3, "."],
   ]);
@@ -112,7 +113,10 @@ async function assertInkFoilHero(page: Page, viewport: InkFoilViewport) {
   await expect(hero.getByText("Marketplace", { exact: true })).toBeVisible();
   await expect(hero.getByText("Verified supply", { exact: true })).toBeVisible();
   await expect(hero.getByText(heroDescription, { exact: true })).toBeVisible();
-  await expect(hero.getByRole("searchbox", { name: "Marketplace search" })).toBeVisible();
+  await expect(hero.getByRole("searchbox", { name: "Marketplace search" })).toHaveAttribute(
+    "placeholder",
+    "Search Charizard, Black Lotus, Dark Magician, Luffy...",
+  );
 
   const categoryActions = hero.getByRole("button");
   await expect(categoryActions.first()).toHaveText("All");
@@ -256,29 +260,33 @@ async function assertVisibleFocus(page: Page) {
 
 async function assertForcedColorsContinuity(page: Page, viewport: InkFoilViewport) {
   await page.emulateMedia({ forcedColors: "active" });
-  await gotoAndSettle(page, "/");
-  await expect(page.locator("h1")).toHaveText(heroHeadline);
-  const foil = page.locator("h1 .ds-brand-foil-text");
-  await expect(foil).toHaveCount(1);
-  await expect(foil).toBeVisible();
-  const paint = await foil.evaluate((element) => ({
-    color: getComputedStyle(element).color,
-    backgroundImage: getComputedStyle(element).backgroundImage,
-  }));
-  console.log(`forced-colors foil paint: ${JSON.stringify(paint)}`);
-  expect(paint.backgroundImage).toBe("none");
-  expect(paint.color).toMatch(/^rgb\(/);
-  expect(paint.color).not.toBe("rgba(0, 0, 0, 0)");
-  await assertHomeMerchandising(page, viewport);
-  await page.emulateMedia({ forcedColors: "none" });
+  try {
+    await gotoAndSettle(page, "/");
+    await assertInkFoilHero(page, viewport);
+    const foil = page.locator("h1 .ds-brand-foil-text");
+    const paint = await foil.evaluate((element) => ({
+      color: getComputedStyle(element).color,
+      backgroundImage: getComputedStyle(element).backgroundImage,
+    }));
+    console.log(`forced-colors foil paint: ${JSON.stringify(paint)}`);
+    expect(paint.backgroundImage).toBe("none");
+    expect(paint.color).toMatch(/^rgb\(/);
+    expect(paint.color).not.toBe("rgba(0, 0, 0, 0)");
+    await assertHomeMerchandising(page, viewport);
+  } finally {
+    await page.emulateMedia({ forcedColors: "none" });
+  }
 }
 
 async function assertReducedMotionContinuity(page: Page, viewport: InkFoilViewport) {
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await gotoAndSettle(page, "/");
-  await assertInkFoilHero(page, viewport);
-  await assertHomeMerchandising(page, viewport);
-  await page.emulateMedia({ reducedMotion: "no-preference" });
+  try {
+    await gotoAndSettle(page, "/");
+    await assertInkFoilHero(page, viewport);
+    await assertHomeMerchandising(page, viewport);
+  } finally {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+  }
 }
 
 // The exact seeded Home state, asserted at the lifecycle moment before any
@@ -616,6 +624,16 @@ test.describe("Ink & Foil rendered visual identity", () => {
     await assertInkFoilHome(page, viewport);
     await assertInkFoilSearch(page, viewport);
     await assertPopulatedSearchPriceRole(page);
+    await assertForcedColorsContinuity(page, viewport);
+    await assertReducedMotionContinuity(page, viewport);
+  });
+
+  test("preserves Home Ink & Foil desktop continuity at 1280x900 under forced colors and reduced motion @marketplace-browse", async ({
+    page,
+  }) => {
+    const viewport = { width: 1280, height: 900 };
+    await page.setViewportSize(viewport);
+    await page.emulateMedia({ colorScheme: "light" });
     await assertForcedColorsContinuity(page, viewport);
     await assertReducedMotionContinuity(page, viewport);
   });

@@ -21,7 +21,6 @@ import {
   type FeeComparisonCompetitor,
   type PublicMarketplaceFeeSchedule,
 } from "./fee-comparison-calculator";
-import { launchTimeline } from "./launch-config";
 import { PublicPresencePageShell } from "./public-pages";
 import { publicPresenceT as t } from "./public-presence-translator";
 
@@ -62,7 +61,6 @@ function competitorKey(competitor: FeeComparisonCompetitor, suffix: string) {
 function competitorValues(competitor: FeeComparisonCompetitor) {
   return {
     ...competitorFeeFactValues[competitor],
-    ...launchTimeline,
     competitor: t(competitorNameKeys[competitor]),
   };
 }
@@ -108,7 +106,7 @@ export function buildCompareFaqEntries(competitor: FeeComparisonCompetitor) {
     },
     {
       question: t("publicPresence.faq.launch.question"),
-      answer: t("publicPresence.faq.launch.answer", launchTimeline),
+      answer: t("publicPresence.faq.launch.answer"),
     },
   ] as const;
 }
@@ -217,7 +215,7 @@ export function ComparePage({
     [t("publicPresence.compare.row.sellerFees"), chaseSetsFeeCell, t(competitorKey(competitor, "sellerFees"), values)],
     ...chaseSetsCellKeys.map(([rowKey, chaseSetsKey], index) => [
       t(rowKey),
-      t(chaseSetsKey, launchTimeline),
+      t(chaseSetsKey),
       t(competitorKey(competitor, competitorCellSuffixes[index]), values),
     ]),
   ];
@@ -271,7 +269,7 @@ export function ComparePage({
         </PageSection>
         <Surface tone="subtle" elevation="tinted">
           <Stack gap={3}>
-            <Text tone="secondary">{t("publicPresence.compare.cta.text", launchTimeline)}</Text>
+            <Text tone="secondary">{t("publicPresence.compare.cta.text")}</Text>
             <Inline gap={2}>
               <LinkButton
                 href="/#waitlist-form"

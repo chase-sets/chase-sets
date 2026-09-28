@@ -39,6 +39,7 @@ import {
 import type { SavedListProductCatalog } from "@chase-sets/collections/server";
 import {
   pricingRealtimeManifest,
+  createBuyerOfferPricing,
   type ChannelConnectionIdentityReader,
   type PricingHostPorts,
 } from "@chase-sets/pricing/server";
@@ -664,6 +665,7 @@ export function createPlatformApiHost(
           return catalog.listingAuthority.readCurrentProducts(subjects, { maxAgeMs: 1000 });
         },
       } satisfies MarketplaceListingCurrentReadinessPorts,
+      ...(pricingPool ? { managedOfferPricing: createBuyerOfferPricing(pricingPool) } : {}),
       ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
       ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
       ...(checkoutProcessingFeePolicyResolver ? { checkoutProcessingFeePolicyResolver } : {}),

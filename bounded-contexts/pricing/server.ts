@@ -22,7 +22,7 @@ export type {
   BuyerOfferTargetResult,
   BuyerOfferTargetSelection,
 } from "./features/offer-targets/domain/evaluate";
-export { loadBuyerOfferMarketPrices } from "./features/offer-targets/read-model/queries";
+export { loadBuyerOfferMarketPrices, createBuyerOfferPricing } from "./features/offer-targets/read-model/queries";
 export type { BuyerOfferProductKey } from "./features/offer-targets/read-model/queries";
 export { getOwnSaleLows, listOwnSaleObservations } from "./features/own-sale-observations/read-model/queries";
 export type {

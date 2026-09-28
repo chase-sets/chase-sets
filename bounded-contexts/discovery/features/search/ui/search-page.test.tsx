@@ -10,8 +10,18 @@ import { productAlertSettingsHref } from "./product-alert-settings-link";
 import type { DiscoveryCategoryItem } from "../../categories/ui/contracts";
 import type { DiscoverySearchItem, DiscoverySearchResponse } from "../../../support/client-support/contracts";
 
+const titleOverrides = vi.hoisted(() => new Map<string, string>());
+vi.mock("@chase-sets/localization", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@chase-sets/localization")>();
+  return {
+    ...original,
+    t: (key: string, values?: Parameters<typeof original.t>[1]) => titleOverrides.get(key) ?? original.t(key, values),
+  };
+});
+
 afterEach(() => {
   cleanup();
+  titleOverrides.clear();
   vi.unstubAllGlobals();
 });
 
@@ -114,7 +124,7 @@ const searchResponse: DiscoverySearchResponse = {
   resultSetKey: "b".repeat(64),
 };
 
-const heroHeadline = "Find cards, comics, figures, sneakers, and memorabilia worth chasing.";
+const heroHeadline = "Find trading cards worth chasing.";
 const heroDescription =
   "Search live supply, compare active markets, and move from discovery to item detail with buyer confidence built in.";
 
@@ -568,7 +578,7 @@ describe("SearchPage", () => {
     expect(headline.contains(foilSites[0]!)).toBe(true);
     expect(foilSites[0]!.textContent).toBe("chasing");
     expect(Array.from(headline.childNodes).map((node) => [node.nodeType, node.textContent])).toEqual([
-      [Node.TEXT_NODE, "Find cards, comics, figures, sneakers, and memorabilia worth "],
+      [Node.TEXT_NODE, "Find trading cards worth "],
       [Node.ELEMENT_NODE, "chasing"],
       [Node.TEXT_NODE, "."],
     ]);
@@ -580,6 +590,9 @@ describe("SearchPage", () => {
 
     // The hero search form is the existing one-search-input call site.
     const searchForm = heroView.getByRole("search");
+    expect(within(searchForm).getByRole("searchbox", { name: "Marketplace search" }).getAttribute("placeholder")).toBe(
+      "Search Charizard, Black Lotus, Dark Magician, Luffy...",
+    );
     fireEvent.change(within(searchForm).getByRole("searchbox", { name: "Marketplace search" }), {
       target: { value: "charizard" },
     });
@@ -623,6 +636,42 @@ describe("SearchPage", () => {
         "Verified supply, transparent pricing, and item-level market history help buyers move with confidence.",
       ),
     ).toBeTruthy();
+  });
+
+  it.each([
+    { match: "zero", title: "Find trading cards worth collecting." },
+    { match: "subword-only", title: "Find the chasingest trading cards." },
+    { match: "multiple whole-word", title: "Keep chasing trading cards worth chasing." },
+  ])("renders the entire hero title plain for $match matches without throwing", ({ title }) => {
+    titleOverrides.set("discovery.features.search.ui.searchPage.find.cards.comics.figures.sneakers.and", title);
+
+    renderSearchPage({ data: { ...searchResponse, total: 352 } });
+
+    const headline = screen.getByRole("heading", { level: 1 });
+    expect(headline.textContent).toBe(title);
+    expect(Array.from(headline.childNodes).map((node) => [node.nodeType, node.textContent])).toEqual([
+      [Node.TEXT_NODE, title],
+    ]);
+    expect(document.querySelectorAll(".ds-brand-foil-text")).toHaveLength(0);
+  });
+
+  it("foils the single whole-word hero subject after an earlier subword match", () => {
+    const title = "The chasingest cards worth chasing.";
+    titleOverrides.set("discovery.features.search.ui.searchPage.find.cards.comics.figures.sneakers.and", title);
+
+    renderSearchPage({ data: { ...searchResponse, total: 352 } });
+
+    const headline = screen.getByRole("heading", { level: 1 });
+    expect(headline.textContent).toBe(title);
+    const foilSites = document.querySelectorAll(".ds-brand-foil-text");
+    expect(foilSites).toHaveLength(1);
+    expect(headline.contains(foilSites[0]!)).toBe(true);
+    expect(foilSites[0]!.textContent).toBe("chasing");
+    expect(Array.from(headline.childNodes).map((node) => [node.nodeType, node.textContent])).toEqual([
+      [Node.TEXT_NODE, "The chasingest cards worth "],
+      [Node.ELEMENT_NODE, "chasing"],
+      [Node.TEXT_NODE, "."],
+    ]);
   });
 
   it.each(inkFoilRouteStateRows)(

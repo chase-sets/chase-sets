@@ -133,6 +133,9 @@ const OFFER_ACCEPTANCE_STALE_CODES = new Set([
   "listing_evidence_incomplete",
   "listing_seller_trust_incomplete",
   "listing_not_eligible",
+  "managed_offer_held",
+  "managed_offer_refresh_required",
+  "managed_offer_conflict",
 ]);
 
 /**
