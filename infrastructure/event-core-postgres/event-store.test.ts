@@ -666,6 +666,41 @@ describe("postgres event store", () => {
 });
 
 describe("postgres event store independent multi-stream appends", () => {
+  for (const sequential of [false, true])
+    for (const fault of ["loss", "truncation", "recreation"] as const)
+      for (const affected of [[0], [1], [2], [0, 1], [0, 2], [1, 2]])
+        it(`retained terminal head/index ${fault} at ${affected.join("+")} rejects all effects (sequential=${sequential})`, async () => {
+          const streams = ["synthetic.operation", "synthetic.integrity", "synthetic.registration"];
+          const versions = Object.fromEntries(
+            streams.map((id, index) => [id, affected.includes(index) ? (fault === "loss" ? 0 : 1) : 2]),
+          );
+          const firstEventIds = Object.fromEntries(
+            streams.flatMap((id, index) =>
+              affected.includes(index) && fault === "loss"
+                ? []
+                : [
+                    [
+                      id,
+                      affected.includes(index) && fault === "recreation" ? "evt_recreated" : `evt_original-${index}`,
+                    ],
+                  ],
+            ),
+          );
+          const { pool, calls } = createIndependentAppendPool({ versions, firstEventIds });
+          const store = createPostgresEventStore({ pool, now: () => NOW as never });
+          const inputs = [
+            independentInput({ streamId: "synthetic.business", expectedVersion: 0 }),
+            independentInput({ streamId: "synthetic.request", expectedVersion: 0 }),
+            ...streams.map((streamId, index) =>
+              independentInput({ streamId, expectedVersion: 1, expectedFirstEventId: `evt_original-${index}` }),
+            ),
+            ...(sequential ? [independentInput({ streamId: "synthetic.business", expectedVersion: "any" })] : []),
+          ];
+          await expect(store.appendToStreams!(inputs)).rejects.toMatchObject({ code: "concurrency_conflict" });
+          expect(calls.filter(isEventInsertCall)).toHaveLength(0);
+          expect(calls.at(-1)?.sql).toBe("ROLLBACK");
+        });
+
   it.each([false, true])(
     "checks original opening under the row lock before all writes (sequential=%s)",
     async (sequential) => {

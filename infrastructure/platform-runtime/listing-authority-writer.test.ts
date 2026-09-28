@@ -167,7 +167,7 @@ describe("source authority writer", () => {
       );
       const grant = await source.prepare(operation, context);
       const terminal = await fence.prepareCommit(operation, [grant], { accepted: true });
-      const { expectedFirstEventId, ...unguarded } = terminal;
+      const { expectedFirstEventId, ...unguarded } = terminal[0]!;
       const appends = [
         {
           streamId: "marketplace.synthetic-listing",
@@ -175,11 +175,11 @@ describe("source authority writer", () => {
           context,
           events: [{ eventType: "marketplace.synthetic-listing.committed", payload: {} }],
         },
-        opening === "original"
+        ...(opening === "original"
           ? terminal
           : opening === "missing"
-            ? unguarded
-            : { ...terminal, expectedFirstEventId: "evt_wrong" as const },
+            ? [unguarded, ...terminal.slice(1)]
+            : [{ ...terminal[0]!, expectedFirstEventId: "evt_wrong" as const }, ...terminal.slice(1)]),
       ];
       expect(expectedFirstEventId).toBe(operation.openingEventId);
       if (opening !== "original") {

@@ -204,7 +204,7 @@ describe("Catalog Product and measures participation", () => {
     const f = await fixture();
     const operation = await f.fence.open(f.input, f.context);
     const grant = await f.source.prepare(operation, f.context);
-    await f.consumerStore.appendToStreams!([await f.fence.prepareCommit(operation, [grant], { enabled: true })]);
+    await f.consumerStore.appendToStreams!([...(await f.fence.prepareCommit(operation, [grant], { enabled: true }))]);
     await f.invalidate();
     expect((await f.fence.inspect(operation)).status).toBe("committed");
     const next = await f.fence.open({ ...f.input, requestId: "synthetic-after-archive" }, f.context);

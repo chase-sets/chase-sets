@@ -122,7 +122,7 @@ it("fails closed when resource history is missing but its durable reservation st
   await expect(
     (async () => {
       const terminal = await restarted.fence.prepareCommit(operation, [reservation], { accepted: true });
-      await f.consumerStore.appendToStreams!([terminal]);
+      await f.consumerStore.appendToStreams!([...terminal]);
       return (await restarted.fence.inspect(operation)).status;
     })(),
   ).rejects.toThrow();
@@ -142,10 +142,10 @@ it("never reuses a lost consumer terminal identity for a delayed pre-revocation 
   // Synthetic loss of the consumer's authoritative operation stream and head.
   // The source's reservation, resource/integrity pair and effective revocation
   // remain intact. This is not missing projection data or a legitimate writer.
-  f.consumerMemory.streams.delete(delayedCommit.streamId);
+  f.consumerMemory.streams.delete(delayedCommit[0]!.streamId);
   const restarted = f.restart();
   expect((await restarted.fence.inspect(operation)).status).toBe("unknown");
-  await expect(f.consumerStore.appendToStreams!([delayedCommit])).rejects.toThrow();
+  await expect(f.consumerStore.appendToStreams!([...delayedCommit])).rejects.toThrow();
 
   // A repair may reject reopening the lost identity or install a distinct,
   // non-reusable fence. Either way, the original executor must stay fenced out.
@@ -157,7 +157,7 @@ it("never reuses a lost consumer terminal identity for a delayed pre-revocation 
   await expect(
     (async () => {
       await f.consumerStore.appendToStreams!([
-        delayedCommit,
+        ...delayedCommit,
         {
           streamId: "marketplace.synthetic-delayed-pricing-effect",
           expectedVersion: 0,

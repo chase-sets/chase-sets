@@ -160,9 +160,10 @@ describe("synthetic session protocol conformance, not actual owner proof", () =>
       const operation = await f.fence.open(f.input, context);
       const grants = await f.prepareAuthorities(operation, context);
       const terminal = await f.fence.prepareCommit(operation, grants, { accepted: true });
-      expect(terminal.authorizationDeadline).toBe(context.listingAuthorityPrincipal.validBefore);
+      for (const append of terminal)
+        expect(append.authorizationDeadline).toBe(context.listingAuthorityPrincipal.validBefore);
       vi.setSystemTime(Date.now() + 31_000);
-      await expect(f.consumerStore.appendToStreams!([terminal])).rejects.toThrow();
+      await expect(f.consumerStore.appendToStreams!([...terminal])).rejects.toThrow();
       expect((await f.source.inspect(operation))?.status).toBe("reserved");
       expect(await f.restart().fence.open(f.input, authorityContext(operation))).toEqual(operation);
       await f.fence.abort(operation, "synthetic-expiry");

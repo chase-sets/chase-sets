@@ -598,7 +598,11 @@ describe("channel-only creation runtime", () => {
     await expect(services.createListing(input, context)).rejects.toThrow("capability");
     expect((await eventStore.readAll()).map((event) => event.eventType)).toEqual([
       "marketplace.listing-authority-operation.opened",
+      "marketplace.listing-authority.history-witness",
+      "marketplace.listing-authority.history-witness",
       "marketplace.listing-authority-operation.aborted",
+      "marketplace.listing-authority.history-witness",
+      "marketplace.listing-authority.history-witness",
     ]);
     expect(await eventStore.readStream({ streamId: "marketplace.listing-lst_test" })).toHaveLength(0);
   });
@@ -699,7 +703,11 @@ describe("channel-only creation runtime", () => {
     );
     expect((await eventStore.readAll()).map((event) => event.eventType)).toEqual([
       "marketplace.listing-authority-operation.opened",
+      "marketplace.listing-authority.history-witness",
+      "marketplace.listing-authority.history-witness",
       "marketplace.listing-authority-operation.aborted",
+      "marketplace.listing-authority.history-witness",
+      "marketplace.listing-authority.history-witness",
     ]);
     expect(resolveListingTerms).not.toHaveBeenCalled();
   });

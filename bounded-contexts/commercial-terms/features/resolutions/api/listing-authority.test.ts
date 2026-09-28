@@ -168,7 +168,7 @@ describe("Commercial Terms source participation", () => {
     expect(identity?.status).toBe("reserved");
     expect(grant.value.identityReservationId).toBe(identity!.reservationId);
     await f.consumerStore.appendToStreams!([
-      await f.fence.prepareCommit(operation, [grant, identity!], { enabled: true }),
+      ...(await f.fence.prepareCommit(operation, [grant, identity!], { enabled: true })),
     ]);
     await f.policies.revisePolicyDocument(
       marketplaceSalesFeeSchedulePolicy,

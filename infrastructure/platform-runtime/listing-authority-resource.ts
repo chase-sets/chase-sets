@@ -5,13 +5,14 @@ import type { AppendToStreamInput, EventRecordToStore } from "@chase-sets/event-
 import type { ListingAuthorityReservation } from "@chase-sets/event-core/listing-authority";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import { assertSameAuthority, authorityHash, authorityValue } from "./listing-authority-state";
+import { prepareAuthorityAppend, prepareAuthorityAppends, readAuthorityJournal } from "./listing-authority-journal";
 
 type InvalidationIntent = Readonly<{ mutationId: string; command: JsonObject }>;
 type ResourceState = { pending: InvalidationIntent | null; grants: ListingAuthorityReservation[] };
 
-/** Integrity records are atomically paired with resource events. They are not a
- * replacement source of grants: either history missing/contradictory blocks the
- * writer and retains promises for explicit owner reconciliation.
+/** Resource, integrity and registration histories share one atomic append. The
+ * independent registration distinguishes joint resource/integrity loss from
+ * initial admission. No witness or disposable snapshot reconstructs lost grants.
  */
 export function createListingAuthorityResources(
   deps: Readonly<{
@@ -52,6 +53,7 @@ export function createListingAuthorityResources(
   }
 
   async function read(streamId: string) {
+    await readAuthorityJournal(store, streamId);
     let state = empty();
     let version = 0;
     // A disposable snapshot is usable only when both retained histories prove
@@ -72,7 +74,7 @@ export function createListingAuthorityResources(
         if (
           anchor[0]?.streamVersion === snapshot.streamVersion &&
           proof[0]?.streamVersion === snapshot.streamVersion &&
-          proof[0].eventType === `${prefix}.resource-integrity` &&
+          proof[0].eventType === `${prefix}.history-witness` &&
           proof[0].payload.eventHash === eventHash(anchor[0]) &&
           proof[0].payload.stateHash === stateHash(candidate)
         ) {
@@ -92,7 +94,7 @@ export function createListingAuthorityResources(
     for (let index = 0; index < events.length; index++) {
       const event = events[index]!;
       const proof = proofs[index]!;
-      if (proof.eventType !== `${prefix}.resource-integrity` || proof.payload.eventHash !== eventHash(event)) {
+      if (proof.eventType !== `${prefix}.history-witness` || proof.payload.eventHash !== eventHash(event)) {
         throw new Error("Contradictory authority resource integrity; retain source promise.");
       }
       state = fold(state, event);
@@ -119,27 +121,28 @@ export function createListingAuthorityResources(
 
   async function append(inputs: readonly AppendToStreamInput[]) {
     if (!store.appendToStreams) throw new Error("Atomic authority persistence unavailable.");
-    const proofs: AppendToStreamInput[] = [];
+    const appends: AppendToStreamInput[] = [];
     for (const input of inputs) {
-      if (!input.streamId.startsWith(`${prefix}-resource-`)) continue;
+      if (!input.streamId.startsWith(`${prefix}-resource-`)) {
+        appends.push(input);
+        continue;
+      }
       const current = await read(input.streamId);
       if (input.expectedVersion !== current.version)
         throw createEventStoreError("concurrency_conflict", "Authority resource changed before atomic append.");
       let state: ResourceState = { pending: current.pending, grants: [...current.grants.values()] };
-      proofs.push({
-        streamId: integrityStream(input.streamId),
-        expectedVersion: current.version,
-        context: input.context,
-        events: input.events.map((event) => {
-          state = fold(state, event);
-          return {
-            eventType: `${prefix}.resource-integrity`,
-            payload: { eventHash: eventHash(event), stateHash: stateHash(state) },
-          };
-        }),
-      });
+      appends.push(
+        ...(await prepareAuthorityAppend(
+          store,
+          input,
+          input.events.map((event) => {
+            state = fold(state, event);
+            return { stateHash: stateHash(state) };
+          }),
+        )),
+      );
     }
-    return store.appendToStreams([...inputs, ...proofs]);
+    return store.appendToStreams(await prepareAuthorityAppends(store, appends));
   }
   return { read, append };
 }

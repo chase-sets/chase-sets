@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { createListingRequestExecutor, ListingRequestConflictError } from "./listing-request";
+import {
+  createListingRequestExecutor,
+  ListingRequestConflictError,
+  prepareListingRequest,
+  listingRequestStreamId,
+} from "./listing-request";
+import { createListingAuthorityFence } from "@chase-sets/platform-runtime/listing-authority-fence";
+import { createListingAuthorityParticipant } from "@chase-sets/platform-runtime/listing-authority-participant";
 
 const context: EventStoreContext = {
   tenantId: "tnt_test" as never,
@@ -10,7 +17,8 @@ const context: EventStoreContext = {
 };
 
 function fixture() {
-  const { eventStore } = createInMemoryEventStore();
+  const memory = createInMemoryEventStore();
+  const { eventStore } = memory;
   const execute = createListingRequestExecutor(eventStore);
   const input = {
     accountId: "acc_test",
@@ -39,8 +47,129 @@ function fixture() {
       ],
     }),
   };
-  return { eventStore, execute, input };
+  return { eventStore, execute, input, memory };
 }
+
+async function authorityFixture() {
+  const f = fixture();
+  const sourceMemory = createInMemoryEventStore();
+  const source = createListingAuthorityParticipant({
+    eventStore: sourceMemory.eventStore,
+    participant: { owner: "catalog", purpose: "product-measures" },
+    consumer: () => fence.forParticipant("catalog"),
+    resources: () => ["synthetic-product"],
+    validate: async (operation) => ({
+      value: {},
+      sourceRevisions: [{ resourceId: "synthetic-product", revision: "0" }],
+      validBefore: operation.prepareBefore,
+    }),
+  });
+  const fence = createListingAuthorityFence({ eventStore: f.eventStore, owner: "marketplace", participants: [source] });
+  const operation = await fence.open(
+    {
+      tenantId: context.tenantId,
+      accountId: context.audit.forAccountId,
+      actor: { kind: "user", userId: context.audit.performedByUserId },
+      committingOwner: "marketplace",
+      kind: "native-visibility",
+      requestId: f.input.idempotencyKey,
+      command: f.input.command,
+      listingId: "lst_test",
+      target: { kind: "native-marketplace" },
+      subject: {
+        inventoryItemId: "inv_synthetic",
+        catalogItemId: "cat_synthetic",
+        productId: "cat_synthetic::",
+        selectedOptions: [],
+        quantity: 1,
+        pair: { amount: "10.00", currencyCode: "USD" },
+        allocationRevision: null,
+        commitmentSourceId: null,
+      },
+      expectedListingRevision: 0,
+      expectedTargetRevision: null,
+      expectedVisibilityRevision: null,
+      expectedPublicationRevision: null,
+      participants: [source.participant],
+    },
+    context,
+  );
+  const input = {
+    ...f.input,
+    authority: { fence, operation },
+    prepare: async () => ({
+      ...(await f.input.prepare()),
+      reservations: [await source.prepare(operation, context)],
+    }),
+  };
+  const prepared = await prepareListingRequest(f.eventStore, input);
+  return {
+    ...f,
+    source,
+    sourceMemory,
+    fence,
+    operation,
+    input,
+    prepared,
+    invalidate: () =>
+      source.mutate({
+        resources: ["synthetic-product"],
+        mutationId: "synthetic-request-revoke",
+        command: { revoke: true },
+        context,
+        prepare: async () => [
+          {
+            streamId: "catalog.synthetic-request-source",
+            expectedVersion: 0,
+            context,
+            events: [{ eventType: "catalog.synthetic-revoked", payload: {} }],
+          },
+        ],
+      }),
+  };
+}
+
+describe("request result history cannot reopen authority", () => {
+  it("a recreated success result cannot release a pending source promise", async () => {
+    const f = await authorityFixture();
+    const streamId = listingRequestStreamId(f.input.accountId, f.input.idempotencyKey);
+    const forged = f.prepared.appends.find((append) => append.streamId === streamId)!;
+    await f.eventStore.appendToStream(forged);
+    await expect(f.execute(f.input)).rejects.toThrow("matching committed authority terminal");
+    expect((await f.source.inspect(f.operation))?.status).toBe("reserved");
+    expect((await f.fence.inspect(f.operation)).status).toBe("pending");
+    expect(await f.eventStore.readStream({ streamId: "marketplace.listing-lst_test" })).toHaveLength(0);
+  });
+
+  for (const fault of ["loss", "truncation", "recreation"] as const)
+    for (const pairedOperationLoss of [false, true])
+      it(`${fault} request result${pairedOperationLoss ? " plus consumer history" : ""} cannot repeat a prior effect`, async () => {
+        const f = await authorityFixture();
+        await f.eventStore.appendToStreams!(f.prepared.appends);
+        await f.invalidate();
+        const streamId = listingRequestStreamId(f.input.accountId, f.input.idempotencyKey);
+        const events = f.memory.streams.get(streamId)!;
+        if (fault === "loss") f.memory.streams.delete(streamId);
+        else if (fault === "truncation") f.memory.streams.set(streamId, []);
+        else
+          f.memory.streams.set(streamId, [
+            {
+              ...events[0]!,
+              eventId: "evt_synthetic-request-recreated",
+              payload: { ...events[0]!.payload, result: { listingId: "lst_test", version: 999 } },
+            },
+          ]);
+        if (pairedOperationLoss)
+          f.memory.streams.delete(`marketplace.listing-authority-operation-${f.operation.operationId}`);
+        await expect(f.execute(f.input)).rejects.toThrow();
+        await expect(f.eventStore.appendToStreams!(f.prepared.appends)).rejects.toThrow();
+        expect(await f.eventStore.readStream({ streamId: "marketplace.listing-lst_test" })).toHaveLength(1);
+        expect(
+          await f.sourceMemory.eventStore.readStream({ streamId: "catalog.synthetic-request-source" }),
+        ).toHaveLength(1);
+        expect((await f.source.inspect(f.operation))?.status).toBe("consumed");
+      });
+});
 
 describe("atomic listing request retry", () => {
   it("retains the original committed source checkpoint on a durable replay", async () => {

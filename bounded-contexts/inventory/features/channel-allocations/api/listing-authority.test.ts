@@ -137,7 +137,7 @@ describe("Inventory Listing participation", () => {
       sourceRef: { offerId: "off_synthetic" },
     });
     await f.consumerStore.appendToStreams!([
-      await f.fence.prepareCommit(operation, [grant], { offerId: "off_synthetic" }),
+      ...(await f.fence.prepareCommit(operation, [grant], { offerId: "off_synthetic" })),
     ]);
     await f.fence.settle(operation);
     const input = {
@@ -175,7 +175,7 @@ describe("Inventory Listing participation", () => {
         try {
           const grant = await f.authority.source.prepare(operation, f.context);
           await f.consumerStore.appendToStreams!([
-            await f.fence.prepareCommit(operation, [grant], { orderId: `ord_${requestId}` }),
+            ...(await f.fence.prepareCommit(operation, [grant], { orderId: `ord_${requestId}` })),
           ]);
           await f.fence.settle(operation);
           return operation;
@@ -264,7 +264,7 @@ describe("Inventory Listing participation", () => {
     const operation = await f.fence.open(f.input, f.context);
     const grant = await f.authority.source.prepare(operation, f.context);
     const commit = await f.fence.prepareCommit(operation, [grant], { orderId: "ord_synthetic" });
-    await f.consumerStore.appendToStreams!([commit]);
+    await f.consumerStore.appendToStreams!([...commit]);
     await f.fence.settle(operation);
     const next = await f.fence.open({ ...f.input, requestId: "synthetic-other-purchase" }, f.context);
     await expect(f.restart().source.prepare(next, f.context)).rejects.toThrow("current sellable Inventory stock");
