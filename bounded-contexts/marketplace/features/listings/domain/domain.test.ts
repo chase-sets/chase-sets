@@ -738,7 +738,13 @@ describe("marketplace listing no-op suppression", () => {
         evolveMarketplaceListing,
         active,
       );
-      const resumed = decideMarketplaceListing(paused, publishListingCommand).reduce(evolveMarketplaceListing, paused);
+      expect(() => decideMarketplaceListing(paused, publishListingCommand)).toThrow(
+        "Publishing cannot clear a listing pause; use ResumeListing.",
+      );
+      const resumed = decideMarketplaceListing(paused, {
+        type: "ResumeListing",
+        expectedPauseReason: "seller",
+      }).reduce(evolveMarketplaceListing, paused);
       const autoUnlisted = decideMarketplaceListing(resumed, {
         type: "AutoUnlistListing",
         reportId: "rpt_1",
