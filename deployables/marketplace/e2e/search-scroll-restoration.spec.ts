@@ -82,7 +82,20 @@ test.describe("marketplace search scroll restoration", () => {
     const beforeRoundtrip = await page.evaluate(() => window.scrollY);
     expect(beforeRoundtrip).toBeGreaterThan(0);
 
-    await roundtripLink.click();
+    // The stretched detail link shares the card with independent commerce actions.
+    // Its center can be the Sell List action, particularly on a card without a price.
+    // Click the title's detail area with normal pointer hit-testing instead.
+    const title = page.getByRole("heading", { name: /loaded-twice item 24$/ });
+    const titleBounds = await title.boundingBox();
+    const linkBounds = await roundtripLink.boundingBox();
+    expect(titleBounds).not.toBeNull();
+    expect(linkBounds).not.toBeNull();
+    await roundtripLink.click({
+      position: {
+        x: titleBounds!.x + titleBounds!.width / 2 - linkBounds!.x,
+        y: titleBounds!.y + titleBounds!.height / 2 - linkBounds!.y,
+      },
+    });
     await expect(page).toHaveURL(/\/items\//);
 
     const restorationStart = Date.now();
