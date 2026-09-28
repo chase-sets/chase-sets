@@ -2,6 +2,7 @@ import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { IsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
 import { createId, type EventId } from "@chase-sets/primitives/typed-ids";
+import { toJsonValue } from "@chase-sets/primitives/json";
 import type { InventoryExternalChannelSaleRecordedPayload } from "@chase-sets/event-core/public-event-payloads";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
 import { InventoryDomainError } from "../../../support/runtime-support/common";
@@ -49,6 +50,10 @@ export type InventoryExternalChannelSaleServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<RecordExternalChannelSaleOutcome>;
   bind: (context: EventStoreContext) => RecordExternalChannelSale;
+  resumeAdmitted: (
+    saleKey: RecordExternalChannelSaleCommand["saleKey"],
+    context: EventStoreContext,
+  ) => Promise<RecordExternalChannelSaleOutcome>;
 }>;
 
 type RehydratedSale = Readonly<{
@@ -82,6 +87,40 @@ export function createInventoryExternalChannelSaleRuntime(
         await completeRecoveredJournal(deps, saleStreamId, incomingFingerprint, terminal.sale);
       }
       return terminal;
+    }
+
+    // Incoming sale evidence is independently durable. A partition or a pending
+    // Listing invalidation may defer stock reconciliation, never erase the sale.
+    const admissionStream = `inventory.channel-sale-admission-${saleStreamId}`;
+    let admission = await readCompleteStream(deps.eventStore, { streamId: admissionStream });
+    if (!admission.length) {
+      try {
+        admission = await deps.eventStore.appendToStream({
+          streamId: admissionStream,
+          expectedVersion: 0,
+          context,
+          events: [
+            {
+              eventType: "inventory.channel-sale.admitted",
+              payload: {
+                command: toJsonValue(command),
+                commandFingerprint: incomingFingerprint,
+              },
+            },
+          ],
+        });
+      } catch (error) {
+        admission = await readCompleteStream(deps.eventStore, { streamId: admissionStream });
+        if (!admission.length) throw error;
+      }
+    }
+    if (
+      admission.length !== 1 ||
+      admission[0]!.eventType !== "inventory.channel-sale.admitted" ||
+      admission[0]!.tenantId !== context.tenantId ||
+      admission[0]!.payload.commandFingerprint !== incomingFingerprint
+    ) {
+      throw new InventoryDomainError("External sale admission conflicts with its retained command.");
     }
 
     const claimGeneration = createId("iaj");
@@ -193,6 +232,18 @@ export function createInventoryExternalChannelSaleRuntime(
   return {
     record,
     bind: (context) => (command) => record(command, context),
+    async resumeAdmitted(saleKey, context) {
+      const streamId = `inventory.channel-sale-admission-${externalChannelSaleStreamId(saleKey)}`;
+      const admission = await readCompleteStream(deps.eventStore, { streamId });
+      if (
+        admission.length !== 1 ||
+        admission[0]!.tenantId !== context.tenantId ||
+        admission[0]!.forAccountId !== context.audit.forAccountId
+      ) {
+        throw new InventoryDomainError("External sale admission is missing or not owned by this account.");
+      }
+      return record(admission[0]!.payload.command as unknown as RecordExternalChannelSaleCommand, context);
+    },
   };
 }
 

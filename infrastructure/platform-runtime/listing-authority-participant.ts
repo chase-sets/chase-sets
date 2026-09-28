@@ -29,11 +29,15 @@ export type ListingAuthoritySourceValidation = Readonly<{
   localAppends?: readonly AppendToStreamInput[];
 }>;
 
+type InvalidationIntent = Readonly<{ mutationId: string; command: JsonObject }>;
+
 /** Technical persistence only. Owners supply authoritative predicates and route every conflicting writer here. */
 export type ListingAuthorityParticipantConfig = Readonly<{
   eventStore: EventStore;
   snapshots?: AggregateSnapshotStore;
   participant: ListingAuthorityParticipant;
+  /** Global Catalog/policy predicates are shared across tenants, unlike account-owned stock. */
+  resourceScope?: "tenant" | "owner";
   consumer(operation: ListingAuthorityOperation): ListingAuthorityConsumerPort;
   resources(operation: ListingAuthorityOperation): readonly string[];
   validate(operation: ListingAuthorityOperation, context: EventStoreContext): Promise<ListingAuthoritySourceValidation>;
@@ -52,7 +56,7 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
   const reservationStream = (operation: ListingAuthorityOperation) =>
     `${prefix}-reservation-${authorityHash([key, operation.operationId, operation.generation])}`;
   const resourceStream = (tenantId: string, resource: string) =>
-    `${prefix}-resource-${authorityHash([tenantId, resource])}`;
+    `${prefix}-resource-${authorityHash([deps.resourceScope === "owner" ? null : tenantId, resource])}`;
 
   function resources(values: readonly string[]) {
     const result = [...new Set(values)].sort();
@@ -68,12 +72,14 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
 
   async function resource(tenantId: string, id: string) {
     const streamId = resourceStream(tenantId, id);
-    let pending: Readonly<{ mutationId: string; command: JsonObject }> | null = null;
+    let pending: InvalidationIntent | null = null;
     const grants = new Map<string, ListingAuthorityReservation>();
     let version = 0;
     try {
       const snapshot = await deps.snapshots?.loadLatest(streamId);
-      const state = snapshot?.state as { pending?: typeof pending; grants?: ListingAuthorityReservation[] } | undefined;
+      const state = snapshot?.state as
+        | { pending?: InvalidationIntent | null; grants?: ListingAuthorityReservation[] }
+        | undefined;
       if (
         snapshot?.schemaVersion === 1 &&
         snapshot.streamId === streamId &&
@@ -97,7 +103,7 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
       } else if (event.eventType === `${prefix}.settled`) {
         grants.delete(String(event.payload.reservationId));
       } else if (event.eventType === `${prefix}.invalidation-started`) {
-        pending = authorityValue<typeof pending>(event.payload.invalidation);
+        pending = authorityValue<InvalidationIntent | null>(event.payload.invalidation);
       } else if (event.eventType === `${prefix}.invalidation-completed`) {
         pending = null;
       } else throw new Error("Corrupt authority resource history.");
@@ -160,14 +166,87 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
     }
     const prior = await inspect(operation);
     if (prior) return prior;
-    const consumer = await deps.consumer(operation).inspect(operation);
-    if (consumer.status !== "pending") throw new Error("Authority consumer is not pending.");
-    assertSameAuthority(consumer.operation, operation);
     const ids = resources(deps.resources(operation));
-    const scopes = await Promise.all(ids.map((id) => resource(operation.tenantId, id)));
-    if (scopes.some((scope) => scope.pending || scope.grants.size >= 128))
+    let scopes = await Promise.all(ids.map((id) => resource(operation.tenantId, id)));
+    const preparationId = `prepare-${authorityHash([key, operation.operationId, operation.generation])}`;
+    const preparationIntent = { mutationId: preparationId, command: authorityPayload({ operation }) };
+    const preparationStream = `${prefix}-mutation-${authorityHash([operation.tenantId, preparationId])}`;
+    const resumedPreparation = scopes.some((scope) => scope.pending?.mutationId === preparationId);
+    const consumer = await deps.consumer(operation).inspect(operation);
+    if (consumer.status !== "pending") {
+      if (resumedPreparation && consumer.status === "aborted") await completeRejectedPreparation();
+      throw new Error("Authority consumer is not pending.");
+    }
+    assertSameAuthority(consumer.operation, operation);
+    if (
+      scopes.some((scope) => (scope.pending && scope.pending.mutationId !== preparationId) || scope.grants.size >= 128)
+    )
       throw new Error("Authority resource is pending invalidation or full.");
-    const checked = await deps.validate(operation, context);
+    let checked: ListingAuthoritySourceValidation;
+    checked = await deps.validate(operation, context);
+    if (resumedPreparation || checked.localAppends?.some((input) => input.events.length)) {
+      if (!store.appendToStreams) throw new Error("Atomic authority persistence unavailable.");
+      if (!resumedPreparation) {
+        await store.appendToStreams([
+          ...scopes.map((scope) => ({
+            streamId: scope.streamId,
+            expectedVersion: scope.version,
+            context,
+            events: [
+              {
+                eventType: `${prefix}.invalidation-started`,
+                payload: authorityPayload({ invalidation: preparationIntent }),
+              },
+            ],
+          })),
+          {
+            streamId: preparationStream,
+            expectedVersion: 0,
+            context,
+            events: [
+              {
+                eventType: `${prefix}.invalidation-started`,
+                payload: authorityPayload({ intent: { ...preparationIntent, resources: ids } }),
+              },
+            ],
+          },
+        ]);
+      }
+      scopes = await Promise.all(ids.map((id) => resource(operation.tenantId, id)));
+      for (const scope of scopes) assertSameAuthority(scope.pending, preparationIntent);
+      const outstanding = new Map(scopes.flatMap((scope) => [...scope.grants]));
+      for (const grant of outstanding.values()) {
+        const terminal = await deps.consumer(grant.operation).invalidate(grant.operation, preparationId);
+        assertSameAuthority(terminal.operation, grant.operation);
+        if ((terminal.status !== "committed" && terminal.status !== "aborted") || !terminal.terminalEventId) {
+          throw new Error("Authority preparation has no durable terminal receipt.");
+        }
+        if (listingAuthorityParticipantKey(grant.participant) === key) await settle(grant.operation);
+      }
+      // Actual purchase holds change the availability predicate. They must revoke
+      // earlier grants before joining the new reservation's atomic source append.
+      checked = await deps.validate(operation, context);
+      scopes = await Promise.all(ids.map((id) => resource(operation.tenantId, id)));
+    }
+
+    async function completeRejectedPreparation() {
+      if (!store.appendToStreams) throw new Error("Atomic authority persistence unavailable.");
+      for (const scope of scopes) assertSameAuthority(scope.pending, preparationIntent);
+      await store.appendToStreams([
+        ...scopes.map((scope) => ({
+          streamId: scope.streamId,
+          expectedVersion: scope.version,
+          context,
+          events: [{ eventType: `${prefix}.invalidation-completed`, payload: { mutationId: preparationId } }],
+        })),
+        {
+          streamId: preparationStream,
+          expectedVersion: 1,
+          context,
+          events: [{ eventType: `${prefix}.invalidation-completed`, payload: {} }],
+        },
+      ]);
+    }
     if (!Number.isFinite(Date.parse(checked.validBefore))) throw new Error("Invalid source validity boundary.");
     if (
       !checked.sourceRevisions.length ||
@@ -192,16 +271,29 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
     };
     if (!store.appendToStreams) throw new Error("Atomic authority persistence unavailable.");
     const event = { eventType: `${prefix}.reserved`, payload: authorityPayload({ reservation: grant }) };
+    const closesPreparation = scopes.some((scope) => scope.pending?.mutationId === preparationId);
     try {
       await store.appendToStreams([
         ...(checked.localAppends ?? []),
         ...scopes.map((scope) => ({
           streamId: scope.streamId,
           expectedVersion: scope.version,
-          events: [event],
+          events: closesPreparation
+            ? [event, { eventType: `${prefix}.invalidation-completed`, payload: { mutationId: preparationId } }]
+            : [event],
           context,
         })),
         { streamId: reservationStream(operation), expectedVersion: 0, events: [event], context },
+        ...(closesPreparation
+          ? [
+              {
+                streamId: preparationStream,
+                expectedVersion: 1,
+                context,
+                events: [{ eventType: `${prefix}.invalidation-completed`, payload: {} }],
+              },
+            ]
+          : []),
       ]);
       return grant;
     } catch (error) {
@@ -311,6 +403,7 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
       if ((terminal.status !== "committed" && terminal.status !== "aborted") || !terminal.terminalEventId) {
         throw new Error("Authority invalidation has no durable terminal receipt.");
       }
+      if (listingAuthorityParticipantKey(grant.participant) === key) await settle(grant.operation);
       // A resource may include another purpose owned by this same context. Its owner
       // settles that reservation; mutation needs only the authoritative terminal.
     }

@@ -186,6 +186,27 @@ const orderHold = (orderId: string, quantity: number) => ({
 });
 
 describe("external-channel-sale-idempotency", () => {
+  it("retains independently admitted sale evidence when stock reconciliation is unavailable and resumes that command", async () => {
+    const harness = createHarness();
+    await harness.seedItem();
+    const command = baseCommand("synthetic-admission-recovery");
+    harness.crashAfterClaim();
+    await expect(harness.record(command)).rejects.toThrow();
+    expect(
+      harness.readAllEvents().filter((event) => event.eventType === "inventory.channel-sale.admitted"),
+    ).toHaveLength(1);
+    expect(
+      harness.readAllEvents().filter((event) => event.eventType === "inventory.external-channel-sale.recorded"),
+    ).toHaveLength(0);
+    expect(await harness.sales.resumeAdmitted(command.saleKey, harness.context)).toMatchObject({ status: "committed" });
+    expect(
+      harness.readAllEvents().filter((event) => event.eventType === "inventory.channel-sale.admitted"),
+    ).toHaveLength(1);
+    expect(
+      harness.readAllEvents().filter((event) => event.eventType === "inventory.external-channel-sale.recorded"),
+    ).toHaveLength(1);
+  });
+
   it("returns the immutable first result across delivery paths and conflicts without another decrement", async () => {
     const harness = createHarness();
     await harness.seedItem();

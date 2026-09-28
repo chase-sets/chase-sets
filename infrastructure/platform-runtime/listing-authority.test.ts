@@ -8,7 +8,11 @@ import { listingAuthorityConformance } from "./listing-authority-conformance";
 import { createListingAuthorityFence } from "./listing-authority-fence";
 import { createListingAuthorityParticipant } from "./listing-authority-participant";
 
-async function fixture(snapshots?: AggregateSnapshotStore) {
+async function fixture(
+  snapshots?: AggregateSnapshotStore,
+  mutatingPreparation = false,
+  resourceScope: "tenant" | "owner" = "tenant",
+) {
   const { eventStore: sourceStore } = createInMemoryEventStore();
   const { eventStore: consumerStore } = createInMemoryEventStore();
   const context: EventStoreContext = {
@@ -20,16 +24,24 @@ async function fixture(snapshots?: AggregateSnapshotStore) {
       eventStore: sourceStore,
       snapshots,
       participant: { owner: "catalog", purpose: "product-measures" },
+      resourceScope,
       consumer: () => fence.forParticipant("catalog"),
       resources: (operation) => [`${operation.accountId}/synthetic-product-measures`],
       validate: async (operation, context) => {
         const events = await readCompleteStream(sourceStore, { streamId: "catalog.synthetic-product" });
-        if (events.length) throw new Error("Synthetic source is revoked.");
+        if (events.length && !mutatingPreparation) throw new Error("Synthetic source is revoked.");
         return {
           value: { ready: true },
-          sourceRevisions: [{ resourceId: "synthetic-product", revision: "0" }],
+          sourceRevisions: [{ resourceId: "synthetic-product", revision: String(events.length) }],
           validBefore: operation.prepareBefore,
-          localAppends: [{ streamId: "catalog.synthetic-product", expectedVersion: 0, context, events: [] }],
+          localAppends: [
+            {
+              streamId: "catalog.synthetic-product",
+              expectedVersion: events.length,
+              context,
+              events: mutatingPreparation ? [{ eventType: "catalog.synthetic-product.changed", payload: {} }] : [],
+            },
+          ],
         };
       },
     });
@@ -94,6 +106,32 @@ async function fixture(snapshots?: AggregateSnapshotStore) {
 describe("durable Listing authority protocol conformance", () => listingAuthorityConformance(it, fixture));
 
 describe("Listing authority unknown outcomes and predicate serialization", () => {
+  it("fences globally owned source predicates even when the writer has a different audit tenant", async () => {
+    const f = await fixture(undefined, false, "owner");
+    const operation = await f.fence.open(f.input, f.context);
+    await f.source.prepare(operation, f.context);
+    await f.source.mutate({
+      resources: [`${operation.accountId}/synthetic-product-measures`],
+      mutationId: "synthetic-global-authoring",
+      command: { revoke: true },
+      context: { ...f.context, tenantId: "tnt_synthetic_authoring" },
+      prepare: async () => [],
+    });
+    expect((await f.fence.inspect(operation)).status).toBe("aborted");
+  });
+
+  it("orders a mutating preparation before earlier grants can consume the changed predicate", async () => {
+    const f = await fixture(undefined, true);
+    const first = await f.fence.open(f.input, f.context);
+    const firstGrant = await f.source.prepare(first, f.context);
+    const second = await f.fence.open({ ...f.input, requestId: "synthetic-second" }, f.context);
+    await f.source.prepare(second, f.context);
+    expect((await f.fence.inspect(first)).status).toBe("aborted");
+    expect((await f.source.inspect(first))?.status).toBe("released");
+    await expect(f.fence.prepareCommit(first, [firstGrant], {})).rejects.toThrow();
+    expect((await f.source.inspect(second))?.status).toBe("reserved");
+  });
+
   it("does not acknowledge settlement when a committed participant reservation is missing", async () => {
     const f = await fixture();
     const operation = await f.fence.open(f.input, f.context);

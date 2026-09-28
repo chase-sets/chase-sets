@@ -25,6 +25,7 @@
     "./listing-authority-fence": "./listing-authority-fence.ts",
     "./listing-authority-conformance": "./listing-authority-conformance.ts",
     "./listing-authority-participant": "./listing-authority-participant.ts",
+    "./listing-authority-writer": "./listing-authority-writer.ts",
     "./mcp": "./mcp.ts",
     "./mcp-audit-log": "./mcp-audit-log.ts",
     "./mcp-contracts": "./mcp-contracts.ts",
