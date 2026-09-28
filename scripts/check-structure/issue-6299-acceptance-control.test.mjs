@@ -16,7 +16,6 @@ const expectedInventory = [
   ],
   ["bounded-contexts/catalog/features/product-measures/api/runtime.ts", "resolveCatalogItemMeasures"],
   ["bounded-contexts/catalog/features/product-contents/api/runtime.ts", "replaceProductContents"],
-  ["bounded-contexts/marketplace/features/listings/api/runtime.ts", "findReplayedListingMutation"],
   ["bounded-contexts/marketplace/features/listings/api/runtime.ts", "listSellerListingFeeHistory"],
   ["bounded-contexts/customer-feedback/features/csat/api/runtime.ts", "loadCooldownClaim"],
   [
@@ -103,7 +102,7 @@ function callsInside(node, targetName) {
 }
 
 describe("issue-6299-acceptance-control", () => {
-  it("derives the exact tracked nine-file, eleven-symbol complete-reader inventory from syntax", () => {
+  it("derives the exact tracked nine-file, ten-symbol complete-reader inventory from syntax", () => {
     const actual = [];
     for (const relativeFile of [...new Set(expectedInventory.map(([file]) => file))]) {
       for (const call of callsInFile(relativeFile, "readCompleteStream")) {
@@ -120,6 +119,25 @@ describe("issue-6299-acceptance-control", () => {
     }
 
     expect(actual).toEqual(expectedInventory);
+  });
+
+  it("registers the command-bound singleton readers that replaced Listing mutation history replay", () => {
+    const runtime = sourceFile("bounded-contexts/marketplace/features/listings/api/runtime.ts");
+    expect(runtime.text).not.toContain("findReplayedListingMutation");
+    const file = "bounded-contexts/marketplace/features/listings/api/listing-request.ts";
+    const readers = callsInFile(file, "readStream");
+    expect(readers.map(({ owner }) => owner)).toEqual([
+      "readListingRequestOperation",
+      "replay",
+    ]);
+    for (const { ownerNode } of readers) {
+      const calls = callsInside(ownerNode, "readStream");
+      expect(calls).toHaveLength(1);
+      const input = calls[0].arguments[0];
+      expect(ts.isObjectLiteralExpression(input)).toBe(true);
+      const limit = input.properties.find((property) => property.name?.getText() === "limit");
+      expect(limit?.initializer?.getText()).toBe("2");
+    }
   });
 
   it("derives the complete registration-history caller inventory from tracked production sources", () => {
