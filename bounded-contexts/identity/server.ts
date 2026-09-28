@@ -3,6 +3,7 @@ import {
   hasPermission as hasActorPermission,
   type ResolvedActor,
 } from "@chase-sets/platform-runtime/auth";
+export { withFixtureListingApiKey, type FixtureListingApiKey } from "./features/api-keys/api/fixture-listing-key";
 export {
   createIdentityListingAuthority,
   IdentityAuthorityMutationPendingError,

@@ -982,6 +982,7 @@ describe("Identity API mutation snapshots", () => {
       keyPrefix: "key_secret_1",
       status,
       lastUsedAt: null,
+      listingScope: null,
     });
     const apiKeyCommandResult = (version: number, status: "active" | "revoked") => ({
       version,

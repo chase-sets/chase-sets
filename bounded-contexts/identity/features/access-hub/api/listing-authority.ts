@@ -225,6 +225,19 @@ export function createIdentityListingAuthority(
       if (!credential?.authority_revision) return null;
       const key = await policy.apiKey(credential.api_key_id);
       const m = await policy.membership(membershipId);
+      const scope = key.state.listingScope;
+      if (scope) {
+        if (
+          scope.accountId !== m.state.accountId ||
+          scope.membershipId !== membershipId ||
+          scope.permissions.length !== 1 ||
+          scope.permissions[0] !== "listings.manage"
+        )
+          return null;
+        const deadline = Math.min(Date.parse(validBefore), Date.parse(scope.expiresAt));
+        if (!(Date.now() < deadline)) return null;
+        validBefore = new Date(deadline).toISOString();
+      }
       if (
         !key.tenantId ||
         key.state.status !== "active" ||
