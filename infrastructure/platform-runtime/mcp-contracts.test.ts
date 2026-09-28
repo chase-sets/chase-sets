@@ -45,8 +45,11 @@ function actualType(value: unknown) {
   return typeof value;
 }
 
-function matchesType(value: unknown, expected: McpJsonSchemaProperty["type"]) {
+function matchesType(value: unknown, expected: McpJsonSchemaProperty["type"]): boolean {
+  if (typeof expected !== "string") return expected.some((type) => matchesType(value, type));
   switch (expected) {
+    case "null":
+      return value === null;
     case "array":
       return Array.isArray(value);
     case "integer":
@@ -67,15 +70,20 @@ function validateProperty(value: unknown, schema: McpJsonSchemaProperty, path: s
   }
 
   const errors: string[] = [];
+  if (
+    schema.oneOf &&
+    schema.oneOf.filter((variant) => validateProperty(value, variant, path).length === 0).length !== 1
+  )
+    errors.push(`${path} expected exactly one complete schema variant.`);
   if (schema.enum && typeof value === "string" && !schema.enum.includes(value)) {
     errors.push(`${path} expected one of ${schema.enum.join(", ")} but received ${value}.`);
   }
-  if (schema.type === "array" && schema.items) {
+  if (Array.isArray(value) && schema.items) {
     (value as readonly unknown[]).forEach((item, index) => {
       errors.push(...validateProperty(item, schema.items as McpJsonSchemaProperty, `${path}[${index}]`));
     });
   }
-  if (schema.type === "object" && schema.properties) {
+  if (typeof value === "object" && value !== null && !Array.isArray(value) && schema.properties) {
     errors.push(
       ...validateObject(value as Readonly<Record<string, unknown>>, {
         additionalProperties: schema.additionalProperties,
@@ -168,7 +176,9 @@ describe("MCP service catalog", () => {
       "inventory.get-import-batch",
       "inventory.list-import-sources",
       "inventory.list-items",
+      "marketplace.accept-listing-target-price",
       "marketplace.accept-offer",
+      "marketplace.activate-listing-for-channel",
       "marketplace.counter-offer",
       "marketplace.create-listing",
       "marketplace.decline-offer",
@@ -179,6 +189,8 @@ describe("MCP service catalog", () => {
       "marketplace.list-offers",
       "marketplace.list-reviews",
       "marketplace.publish-listing",
+      "marketplace.resume-listing",
+      "marketplace.set-native-listing-visibility",
       "marketplace.submit-offer",
       "marketplace.unpublish-listing",
       "marketplace.update-listing-price",
@@ -275,9 +287,80 @@ describe("MCP service catalog", () => {
     expect(createSchema?.required).toContain("priceAmount");
     expect(createSchema?.required).toContain("priceCurrencyCode");
     expect(createSchema?.properties.purchaseLimits).toMatchObject({ additionalProperties: false });
+    expect(createSchema?.properties.publicationScope?.enum).toEqual(["native", "channel-only"]);
     expect(updateSchema?.additionalProperties).toBe(false);
     expect(updateSchema?.required).toContain("priceAmount");
     expect(updateSchema?.required).toContain("priceCurrencyCode");
+  });
+
+  it("publishes all exact-revision Listing mutation tools and nullable Pricing decision facts", () => {
+    for (const name of [
+      "accept-listing-target-price",
+      "activate-listing-for-channel",
+      "set-native-listing-visibility",
+      "resume-listing",
+    ]) {
+      const tool = findMcpTool(`marketplace.${name}`)!;
+      expect(tool.availability).toBe("available");
+      expect(tool.permissionBoundary.requiredPermissions).toEqual(["listings.manage"]);
+      expect(tool.inputSchema.additionalProperties).toBe(false);
+      expect(tool.inputSchema.required).toEqual(
+        expect.arrayContaining([
+          "accountId",
+          "listingId",
+          "expectedListingVersion",
+          "idempotencyKey",
+          "confirmationText",
+        ]),
+      );
+    }
+    const schema = findMcpTool("marketplace.accept-listing-target-price")!.inputSchema;
+    const input = {
+      accountId: "acc_synthetic",
+      listingId: "lst_synthetic",
+      expectedListingVersion: 1,
+      idempotencyKey: "synthetic-request",
+      confirmationText: "Accept Listing Target Price.",
+      target: { kind: "channel-connection", connectionId: "con_synthetic" },
+      priceAmount: "10.00",
+      priceCurrencyCode: "USD",
+      expectedTargetPriceRevision: 0,
+      decision: {
+        kind: "pricing-evaluation",
+        evaluationId: "evaluation",
+        evaluationRevision: "1",
+        policyId: "policy",
+        policyRevision: "1",
+        goal: null,
+        inputEvidenceRefs: [],
+        curveEvidenceRefs: [],
+        economicsSourceRevision: null,
+        economicsOverrideRevision: null,
+        basePriceRevision: 1,
+        standingAuthorizationId: "authorization",
+        standingAuthorizationRevision: "1",
+      },
+    };
+    expect(validateObject(input, schema)).toEqual([]);
+    expect(validateObject({ ...input, decision: { ...input.decision, goal: { goalId: "goal" } } }, schema)).toContain(
+      "version is required.",
+    );
+    expect(
+      validateObject({ ...input, decision: { ...input.decision, economicsSourceRevision: 42 } }, schema).join(" "),
+    ).toContain("expected string,null");
+    expect(validateObject({ ...input, foreignGrant: {} }, schema).length).toBeGreaterThan(0);
+    expect(validateObject({ ...input, target: { kind: "channel-connection" } }, schema).join(" ")).toContain(
+      "complete schema variant",
+    );
+    expect(
+      validateObject({ ...input, target: { kind: "native-marketplace", connectionId: "foreign" } }, schema).join(" "),
+    ).toContain("complete schema variant");
+    expect(validateObject({ ...input, decision: { kind: "pricing-evaluation" } }, schema).join(" ")).toContain(
+      "complete schema variant",
+    );
+    expect(
+      validateObject({ ...input, decision: { kind: "seller-reference", evaluationId: "forged" } }, schema).join(" "),
+    ).toContain("complete schema variant");
   });
 
   it("carries selected Listing currency and source version through both closed Checkout write schemas", () => {

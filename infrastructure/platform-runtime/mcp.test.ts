@@ -323,7 +323,9 @@ describe("MCP runtime routes", () => {
       "inventory.get-import-batch",
       "inventory.list-import-sources",
       "inventory.list-items",
+      "marketplace.accept-listing-target-price",
       "marketplace.accept-offer",
+      "marketplace.activate-listing-for-channel",
       "marketplace.counter-offer",
       "marketplace.create-listing",
       "marketplace.decline-offer",
@@ -334,6 +336,8 @@ describe("MCP runtime routes", () => {
       "marketplace.list-offers",
       "marketplace.list-reviews",
       "marketplace.publish-listing",
+      "marketplace.resume-listing",
+      "marketplace.set-native-listing-visibility",
       "marketplace.submit-offer",
       "marketplace.unpublish-listing",
       "marketplace.update-listing-price",
@@ -1384,6 +1388,70 @@ describe("MCP runtime routes", () => {
         reason: "MCP tool accountId must match the authenticated actor account.",
       }),
     );
+  });
+
+  it("validates nullable Listing decision fields without skipping nested object requirements", async () => {
+    const receipt = {
+      accountId: actor.accountId,
+      id: "lst_synthetic",
+      listingId: "lst_synthetic",
+      version: 2,
+      status: "accept",
+      resourceUri: `chase-sets://marketplace/${actor.accountId}/listings/lst_synthetic`,
+    };
+    const handler = vi.fn(async () => receipt);
+    const app = createActorApp(
+      { ...actor, permissions: [...actor.permissions, "listings.manage"] },
+      {
+        toolHandlers: { "marketplace.accept-listing-target-price": handler },
+      },
+    );
+    const args = {
+      accountId: actor.accountId,
+      listingId: "lst_synthetic",
+      expectedListingVersion: 1,
+      idempotencyKey: "synthetic-nullable-decision",
+      confirmationText: "Accept Listing Target Price.",
+      target: { kind: "channel-connection", connectionId: "con_synthetic" },
+      priceAmount: "10.00",
+      priceCurrencyCode: "USD",
+      expectedTargetPriceRevision: 0,
+      decision: {
+        kind: "pricing-evaluation",
+        evaluationId: "evaluation",
+        evaluationRevision: "1",
+        policyId: "policy",
+        policyRevision: "1",
+        goal: null,
+        inputEvidenceRefs: [],
+        curveEvidenceRefs: [],
+        economicsSourceRevision: null,
+        economicsOverrideRevision: null,
+        basePriceRevision: 1,
+        standingAuthorizationId: "authorization",
+        standingAuthorizationRevision: "1",
+      },
+    };
+    const call = (arguments_: unknown) =>
+      app.request("/", {
+        method: "POST",
+        body: JSON.stringify(
+          createRequest("tools/call", {
+            name: "marketplace.accept-listing-target-price",
+            arguments: arguments_,
+            confirmation: { confirmed: true, text: args.confirmationText },
+          }),
+        ),
+      });
+    const valid = await call(args);
+    expect(valid.status).toBe(200);
+    expect(await valid.json()).toEqual(toolSuccessResponse("request_1", receipt));
+    expect(handler).toHaveBeenCalledOnce();
+    for (const goal of [{ goalId: "goal" }, { goalId: "goal", version: "1", foreignGrant: {} }, 42]) {
+      const invalid = await call({ ...args, decision: { ...args.decision, goal } });
+      expect(JSON.stringify(await invalid.json())).toContain("goal");
+      expect(handler).toHaveBeenCalledOnce();
+    }
   });
 
   it("allows account-scoped tool calls without an accountId argument", async () => {

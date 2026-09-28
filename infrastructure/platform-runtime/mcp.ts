@@ -681,8 +681,11 @@ function typeName(value: unknown) {
   return typeof value;
 }
 
-function validatePrimitiveType(value: unknown, expected: McpJsonSchemaProperty["type"]) {
+function validatePrimitiveType(value: unknown, expected: McpJsonSchemaProperty["type"]): boolean {
+  if (typeof expected !== "string") return expected.some((type) => validatePrimitiveType(value, type));
   switch (expected) {
+    case "null":
+      return value === null;
     case "array":
       return Array.isArray(value);
     case "integer":
@@ -707,13 +710,25 @@ function validateSchemaProperty(
       {
         path,
         message: `Expected ${schema.type}.`,
-        expected: schema.type,
+        expected: typeof schema.type === "string" ? schema.type : schema.type.join(" | "),
         actual: typeName(value),
       },
     ];
   }
 
   const issues: McpInputValidationIssue[] = [];
+
+  if (
+    schema.oneOf &&
+    schema.oneOf.filter((variant) => validateSchemaProperty(value, variant, path).length === 0).length !== 1
+  ) {
+    issues.push({
+      path,
+      message: "Expected exactly one complete schema variant.",
+      expected: "oneOf",
+      actual: typeName(value),
+    });
+  }
 
   if (schema.enum && typeof value === "string" && !schema.enum.includes(value)) {
     issues.push({
@@ -724,13 +739,13 @@ function validateSchemaProperty(
     });
   }
 
-  if (schema.type === "array" && schema.items) {
+  if (Array.isArray(value) && schema.items) {
     (value as readonly unknown[]).forEach((item, index) => {
       issues.push(...validateSchemaProperty(item, schema.items as McpJsonSchemaProperty, `${path}[${index}]`));
     });
   }
 
-  if (schema.type === "object" && schema.properties) {
+  if (isRecord(value) && schema.properties) {
     issues.push(
       ...validateObjectProperties(
         value as Readonly<Record<string, unknown>>,
