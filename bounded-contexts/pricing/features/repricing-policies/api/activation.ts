@@ -120,32 +120,44 @@ export function createRepricingPolicyActivationServices(
               const input = body.input as { accountId: string };
               return [pricingAuthorityResources.account(input.accountId)];
             },
-            apply: async (client, body) =>
-              toJsonValue(
-                await apply(
-                  client as PgPoolClient,
-                  body.input as unknown as Parameters<typeof apply>[1],
-                  body.context as unknown as EventStoreContext,
-                ),
-              ),
+            apply: async (client, body) => {
+              try {
+                return toJsonValue(
+                  await apply(
+                    client as PgPoolClient,
+                    body.input as unknown as Parameters<typeof apply>[1],
+                    body.context as unknown as EventStoreContext,
+                  ),
+                );
+              } catch (error) {
+                if (error instanceof DryRunRequiredError) return { rejection: "dry_run_required" };
+                throw error;
+              }
+            },
           },
         },
       })
     : null;
   return {
+    recoverAuthorityMutations: async (input: Readonly<{ after?: string; limit?: number }> = {}) => {
+      if (!writer) throw new Error("Pricing activation authority is not mounted.");
+      return writer.recover(input);
+    },
     resumeAuthorityMutation: async (mutationId: string, context: EventStoreContext) => {
       if (!writer) throw new Error("Pricing activation authority is not mounted.");
       return writer.resume(mutationId, context);
     },
     activateRepricingPolicy: async (input: Parameters<typeof apply>[1], context: EventStoreContext) => {
+      if (input.accountId !== context.audit.forAccountId) throw new Error("Pricing activation account mismatch.");
       const result = writer
         ? ((await writer.run(`activation-${pricingAuthorityDigest([input.accountId, input.dryRunId])}`, {
             kind: "activate-repricing-policy",
             body: { input: toJsonValue(input), context: toJsonValue(context) },
             context,
-          })) as Awaited<ReturnType<typeof apply>>)
+          })) as Awaited<ReturnType<typeof apply>> | { rejection: "dry_run_required" })
         : await withPgTransaction(deps.pool, (client) => apply(client, input, context));
       if (!result) return null;
+      if ("rejection" in result) throw new DryRunRequiredError();
       recordCommittedEvents(result.storedEvents, "pricing");
       return result.state;
     },

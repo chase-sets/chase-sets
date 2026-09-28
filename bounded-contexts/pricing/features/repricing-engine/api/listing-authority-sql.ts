@@ -86,8 +86,10 @@ export function createPricingAuthoritySqlWriter(
       throw new PricingSqlMutationPendingError(mutationId, { cause });
     }
   }
-  return {
+  const api = {
     async run(mutationId: string, command: PricingSqlAuthorityCommand) {
+      // Compare the durable JSON wire shape, not optional undefined properties erased by PostgreSQL.
+      command = JSON.parse(JSON.stringify(command)) as PricingSqlAuthorityCommand;
       const retained = await deps.source.inspectInvalidation(command.context.tenantId, mutationId);
       if (retained) {
         if (!isDeepStrictEqual(retained.intent.command, command))
@@ -102,8 +104,45 @@ export function createPricingAuthoritySqlWriter(
       const retained = await deps.source.inspectInvalidation(context.tenantId, mutationId);
       if (!retained) throw new Error("Unknown Pricing SQL mutation.");
       const command = retained.intent.command as unknown as PricingSqlAuthorityCommand;
-      if (!isDeepStrictEqual(command.context, context)) throw new Error("Pricing SQL recovery context changed.");
+      if (pricingAuthorityDigest(command.context) !== pricingAuthorityDigest(context))
+        throw new Error("Pricing SQL recovery context changed.");
       return execute(mutationId, command, retained.intent.resources);
+    },
+  };
+  return {
+    ...api,
+    async recover(input: Readonly<{ after?: string; limit?: number }> = {}) {
+      const after = input.after ?? "0";
+      const limit = input.limit ?? 25;
+      if (!/^\d+$/.test(after) || !Number.isSafeInteger(limit) || limit < 1 || limit > 100)
+        throw new Error("Invalid Pricing SQL recovery page.");
+      const page = await deps.pool.query<{ global_position: string; tenant_id: string; payload: JsonObject }>(
+        `SELECT global_position::text, tenant_id, payload FROM event_store_events pending
+         WHERE event_type = 'pricing.listing-authority.invalidation-started' AND global_position > $1::bigint
+           AND payload->'intent'->'command'->>'kind' = ANY($2::text[])
+           AND NOT EXISTS (SELECT 1 FROM event_store_events terminal WHERE terminal.stream_id = pending.stream_id
+             AND terminal.event_type = 'pricing.listing-authority.invalidation-completed')
+         ORDER BY global_position LIMIT $3`,
+        [after, Object.keys(deps.handlers), limit],
+      );
+      if (page.rows.length > limit) throw new Error("Pricing SQL recovery exceeded its bound.");
+      const outcomes: { mutationId: string; status: "resumed" | "pending"; error: string | null }[] = [];
+      for (const row of page.rows) {
+        const intent = row.payload.intent as unknown as { mutationId: string; command: PricingSqlAuthorityCommand };
+        try {
+          if (!intent?.mutationId || intent.command?.context?.tenantId !== row.tenant_id)
+            throw new Error("Pricing SQL discovery record is incomplete.");
+          await api.resume(intent.mutationId, intent.command.context);
+          outcomes.push({ mutationId: intent.mutationId, status: "resumed", error: null });
+        } catch (error) {
+          outcomes.push({
+            mutationId: intent?.mutationId ?? "unknown",
+            status: "pending",
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      return { after: page.rows.at(-1)?.global_position ?? after, outcomes };
     },
   };
 }

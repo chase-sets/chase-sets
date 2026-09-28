@@ -216,6 +216,7 @@ export async function readPricingAuthorityInputs(
     revisions,
     policyId: selected.state.policyId!,
     policyRevision: String(selected.version),
+    nativePriceRevision: listing.nativePriceRevision,
     evidenceRevision: pricingAuthorityDigest({ round, enginePolicy, productState, revisions }),
     validBefore: boundaries.sort((a, b) => Date.parse(a) - Date.parse(b))[0]!,
   };

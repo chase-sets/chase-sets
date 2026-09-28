@@ -41,9 +41,16 @@ export function createPricingProductRoundAuthority(pool: PgTransactionalPool, so
   });
   return {
     resume: writer.resume,
+    recover: writer.recover,
     async reserve(input: Reserve, at: string, context: EventStoreContext): Promise<boolean> {
       const mutationId = `cooldown-${pricingAuthorityDigest([input.catalogItemId, input.productId, input.triggerEventId])}`;
       const prior = await source.inspectInvalidation(context.tenantId, mutationId);
+      if (
+        prior &&
+        pricingAuthorityDigest((prior.intent.command.body as { input: unknown }).input) !==
+          pricingAuthorityDigest(input)
+      )
+        throw new Error("Pricing Product cooldown identity conflict.");
       return (
         prior
           ? await writer.resume(mutationId, context)
@@ -64,6 +71,19 @@ export function createPricingProductRoundAuthority(pool: PgTransactionalPool, so
     ) {
       const mutationId = `direction-${pricingAuthorityDigest([product.catalogItemId, product.productId, roundId])}`;
       const prior = await source.inspectInvalidation(context.tenantId, mutationId);
+      if (prior) {
+        const body = prior.intent.command.body as {
+          product: unknown;
+          direction: unknown;
+          policy: unknown;
+          roundId: unknown;
+        };
+        if (
+          pricingAuthorityDigest([body.product, body.direction, body.policy, body.roundId]) !==
+          pricingAuthorityDigest([product, direction, policy, roundId])
+        )
+          throw new Error("Pricing Product round identity conflict.");
+      }
       return (
         prior
           ? await writer.resume(mutationId, context)

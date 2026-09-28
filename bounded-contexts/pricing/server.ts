@@ -9,7 +9,10 @@ export type {
   PricingEvaluatedDecision,
   PricingEvaluationRequest,
 } from "./features/repricing-engine/api/listing-authority";
-export { createPricingEvaluationBudget } from "./features/repricing-engine/api/listing-authority-sql";
+export { createPricingListingAuthorityWriters } from "./features/repricing-engine/api/listing-authority-writers";
+export type { PricingListingAuthorityWriters } from "./features/repricing-engine/api/listing-authority-writers";
+export { PricingSqlMutationPendingError } from "./features/repricing-engine/api/listing-authority-sql";
+export { pricingAuthorityObservationEventTypes } from "./features/repricing-engine/api/listing-authority-observations";
 export { evaluateBuyerOfferTarget } from "./features/offer-targets/domain/evaluate";
 export type {
   BuyerMarketPrice,

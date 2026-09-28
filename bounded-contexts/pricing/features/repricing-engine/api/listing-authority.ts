@@ -1,8 +1,9 @@
 import { isDeepStrictEqual } from "node:util";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
-import type { EventStore } from "@chase-sets/event-core/event-store";
+import { createEventStoreError, type EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
 import {
+  LISTING_AUTHORITY_RESOURCE_LIMIT,
   requireListingAuthorityPrincipal,
   type ListingAuthorityConsumerPort,
   type ListingAuthorityOperation,
@@ -18,6 +19,7 @@ import { createListingAuthorityParticipant } from "@chase-sets/platform-runtime/
 import { createListingAuthorityWriter } from "@chase-sets/platform-runtime/listing-authority-writer";
 import { createListingAuthorityRecovery } from "@chase-sets/platform-runtime/listing-authority-recovery";
 import { planRepricingRound } from "../domain/round";
+import { repricingPolicyEvaluatedEventType } from "../domain/fact";
 import { readPricingAuthorityInputs, type PricingAuthorityInputRequest } from "./listing-authority-inputs";
 import { pricingAuthorityDigest, pricingAuthorityResources as resource } from "./listing-authority-resources";
 import { createPricingAuthorityObservations, pricingObservationResources } from "./listing-authority-observations";
@@ -120,6 +122,8 @@ export function createPricingListingAuthority(
     }
     const capturedAt = now();
     const inputs = await readPricingAuthorityInputs(deps, request, capturedAt);
+    if (request.basePriceRevision !== inputs.nativePriceRevision)
+      throw new Error("Pricing evaluation native base revision changed.");
     const listing = inputs.round.listings[0]!;
     const evaluation = planRepricingRound(inputs.round, capturedAt, inputs.enginePolicy)[0]!;
     if (
@@ -160,6 +164,8 @@ export function createPricingListingAuthority(
       revisions: inputs.revisions,
       evidenceRevision: inputs.evidenceRevision,
     };
+    if (record.resources.length > LISTING_AUTHORITY_RESOURCE_LIMIT || record.resources.some((id) => id.length > 500))
+      throw new Error("Pricing evaluation exceeds the bounded authority predicate set.");
     if (dryRun) return record;
     if (
       !(await deps.budget.reserve({
@@ -211,6 +217,21 @@ export function createPricingListingAuthority(
     listingId: operation.listingId,
     target: operation.target,
   });
+  function principalFor(operation: ListingAuthorityOperation, context: EventStoreContext) {
+    const principal = requireListingAuthorityPrincipal(context);
+    const decision = decisionOf(operation);
+    if (!isDeepStrictEqual(principal, operation.principal)) throw new Error("Pricing principal binding mismatch.");
+    if (
+      principal.kind === "standing-system" &&
+      (principal.admittingOwner !== "pricing" ||
+        principal.userId !== "usr_pricing_system" ||
+        principal.authorityId !== decision.standingAuthorizationId ||
+        principal.authorityRevision !== decision.standingAuthorizationRevision ||
+        !isDeepStrictEqual(principal.scopeCeiling, ["listings.manage"]))
+    )
+      throw new Error("Pricing standing authority does not admit this operation.");
+    return principal;
+  }
   const participant = createListingAuthorityParticipant({
     eventStore: deps.eventStore,
     participant: { owner: "pricing", purpose: "evaluated-price" },
@@ -241,17 +262,7 @@ export function createPricingListingAuthority(
       )
         throw new Error("Pricing decision does not bind this exact operation, target, pair and subject.");
       if (Date.parse(record.validBefore) <= Date.parse(now())) throw new Error("Pricing decision validity ended.");
-      const principal = requireListingAuthorityPrincipal(context);
-      if (!isDeepStrictEqual(principal, operation.principal)) throw new Error("Pricing principal binding mismatch.");
-      if (
-        principal.kind === "standing-system" &&
-        (principal.admittingOwner !== "pricing" ||
-          principal.userId !== "usr_pricing_system" ||
-          principal.authorityId !== decision.standingAuthorizationId ||
-          principal.authorityRevision !== decision.standingAuthorizationRevision ||
-          !isDeepStrictEqual(principal.scopeCeiling, ["listings.manage"]))
-      )
-        throw new Error("Pricing standing authority does not admit this operation.");
+      const principal = principalFor(operation, context);
       const budget = await deps.budget.inspect(evaluationStream(record.request, operation.tenantId));
       if (
         budget?.status !== "reserved" ||
@@ -307,9 +318,7 @@ export function createPricingListingAuthority(
   const source = {
     ...participant,
     async prepare(operation: ListingAuthorityOperation, context: EventStoreContext) {
-      const principal = requireListingAuthorityPrincipal(context);
-      if (!isDeepStrictEqual(principal, operation.principal)) throw new Error("Pricing principal binding mismatch.");
-      const id = decisionOf(operation).evaluationId;
+      principalFor(operation, context);
       const evaluated = await readEvaluation(selector(operation), operation.tenantId);
       if (
         !evaluated ||
@@ -318,6 +327,11 @@ export function createPricingListingAuthority(
         evaluated.request.accountId !== operation.accountId ||
         evaluated.actorId !== operation.actor.userId ||
         evaluated.request.listingId !== operation.listingId ||
+        evaluated.request.catalogItemId !== operation.subject.catalogItemId ||
+        evaluated.request.productId !== operation.subject.productId ||
+        evaluated.inventoryItemId !== operation.subject.inventoryItemId ||
+        evaluated.quantity !== operation.subject.quantity ||
+        evaluated.listingRevision !== operation.expectedListingRevision ||
         !isDeepStrictEqual(evaluated.request.target, operation.target) ||
         !isDeepStrictEqual(evaluated.pair, operation.subject.pair)
       )
@@ -371,6 +385,7 @@ export function createPricingListingAuthority(
             affected.add(id);
         }
         for (const event of [...history.slice(0, 1), ...input.events]) {
+          if (event.eventType === repricingPolicyEvaluatedEventType) continue;
           if (event.eventType.startsWith("pricing.repricing-policy.")) {
             const accountId = event.payload.accountId ?? history[0]?.payload.accountId;
             if (typeof accountId !== "string") throw new Error("Pricing policy writer lost account authority.");
@@ -408,7 +423,31 @@ export function createPricingListingAuthority(
   const eventStore: EventStore = {
     ...writer.eventStore,
     appendToStreams: append,
-    appendToStream: async (input) => (await append([input]))[0]!.storedEvents,
+    appendToStream: async (input) => {
+      if (input.expectedFirstEventId !== undefined || input.authorizationDeadline !== undefined)
+        throw new Error("Stream opening and deadline guards require atomic appendToStreams.");
+      return (await append([input]))[0]!.storedEvents;
+    },
+    appendToStreamsIndependently: async (inputs) => {
+      if (inputs.some((input) => input.expectedFirstEventId !== undefined || input.authorizationDeadline !== undefined))
+        throw new Error("Stream opening and deadline guards require atomic appendToStreams.");
+      const results = [];
+      for (const input of inputs) {
+        try {
+          const [result] = await append([input]);
+          results.push({ ...result!, outcome: input.events.length ? ("appended" as const) : ("no_op" as const) });
+        } catch (error) {
+          if ((error as { code?: string }).code !== "concurrency_conflict") throw error;
+          results.push({
+            streamId: input.streamId,
+            storedEvents: [],
+            outcome: "conflict" as const,
+            error: createEventStoreError("concurrency_conflict", (error as Error).message),
+          });
+        }
+      }
+      return results;
+    },
   };
   const standingAuthority: ListingAuthorityStandingAuthorityPort = source;
   return {
