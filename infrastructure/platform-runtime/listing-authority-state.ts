@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
-import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import { readAuthorityJournal } from "./listing-authority-journal";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
@@ -46,7 +46,7 @@ export function authorityContext(operation: ListingAuthorityOperation): EventSto
 }
 
 export async function authorityHistory(store: EventStore, streamId: string) {
-  const events = await readCompleteStream(store, { streamId });
+  const { events } = await readAuthorityJournal(store, streamId);
   return { events, version: events.at(-1)?.streamVersion ?? 0 };
 }
 

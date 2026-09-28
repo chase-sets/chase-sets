@@ -105,7 +105,7 @@ describe("Channels connection owner proofs", () => {
         const stale = await f.fence.prepareCommit(operation, [grant], { accepted: true });
         await write();
         expect((await f.fence.inspect(operation)).status).toBe("aborted");
-        await expect(f.consumerStore.appendToStreams!([stale])).rejects.toThrow();
+        await expect(f.consumerStore.appendToStreams!([...stale])).rejects.toThrow();
         await f.source.settle(operation);
       }
       await expect(connectFixture(f.services)).rejects.toMatchObject({ code: "connection-disconnected" });
@@ -130,7 +130,9 @@ describe("Channels connection owner proofs", () => {
         providerKey: "fixture-provider",
         environment: "sandbox",
       });
-      await f.consumerStore.appendToStreams!([await f.fence.prepareCommit(operation, [grant], { accepted: true })]);
+      await f.consumerStore.appendToStreams!([
+        ...(await f.fence.prepareCommit(operation, [grant], { accepted: true })),
+      ]);
       await services.listingAuthority.settle(operation);
       expect((await f.fence.inspect(operation)).status).toBe("committed");
     },
@@ -295,7 +297,7 @@ describe("Channels connection owner proofs", () => {
       return result;
     });
     const grant = await f.source.prepare(operation, testContext);
-    await f.consumerStore.appendToStreams!([await f.fence.prepareCommit(operation, [grant], { accepted: true })]);
+    await f.consumerStore.appendToStreams!([...(await f.fence.prepareCommit(operation, [grant], { accepted: true }))]);
     expect((await f.source.inspect(operation))?.status).toBe("reserved");
     expect(await f.restart().services.recoverAuthorityPage({ tenantId: testContext.tenantId })).toEqual({
       nextCursor: null,

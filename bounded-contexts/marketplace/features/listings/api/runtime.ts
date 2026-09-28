@@ -815,7 +815,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
             )
           : null;
         const results = await appendToStreams([
-          ...(terminal ? [terminal] : []),
+          ...(terminal ?? []),
           {
             streamId: capacityStreamId,
             expectedVersion: capacity.version,

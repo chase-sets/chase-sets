@@ -17,6 +17,11 @@ import {
 import type { JsonObject } from "@chase-sets/primitives/json";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import {
+  appendAuthorityAppends,
+  prepareAuthorityAppend,
+  ListingAuthorityHistoryError,
+} from "./listing-authority-journal";
+import {
   assertSameAuthority,
   authorityContext,
   authorityHash,
@@ -136,7 +141,10 @@ export function createListingAuthorityFence(
   async function read(operation: ListingAuthorityOperation) {
     authorityContext(operation);
     if (operation.committingOwner !== deps.owner) throw new Error("Wrong committing owner.");
-    const history = await authorityHistory(store, stream(operation));
+    const history = await authorityHistory(store, stream(operation)).catch((error: unknown) => {
+      if (error instanceof ListingAuthorityHistoryError && error.canonicalMissing) return { events: [], version: 0 };
+      throw error;
+    });
     if (history.events.length === 0)
       return { ...history, status: { status: "unknown" } as ListingAuthorityOperationStatus };
     const retained = authorityValue<ListingAuthorityOperation>(history.events[0]!.payload.operation);
@@ -237,18 +245,20 @@ export function createListingAuthorityFence(
     if (principal && !(now().getTime() < Date.parse(principal.validBefore)))
       throw new Error("Listing authenticated principal expired.");
     try {
-      await store.appendToStream({
-        streamId: stream(operation),
-        expectedVersion: 0,
-        context,
-        events: [
-          {
-            eventId: operation.openingEventId,
-            eventType: `${deps.owner}.listing-authority-operation.opened`,
-            payload: authorityPayload({ operation }),
-          },
-        ],
-      });
+      await appendAuthorityAppends(store, [
+        {
+          streamId: stream(operation),
+          expectedVersion: 0,
+          context,
+          events: [
+            {
+              eventId: operation.openingEventId,
+              eventType: `${deps.owner}.listing-authority-operation.opened`,
+              payload: authorityPayload({ operation }),
+            },
+          ],
+        },
+      ]);
       return operation;
     } catch (error) {
       const recovered = await authorityHistory(store, stream(operation));
@@ -267,7 +277,7 @@ export function createListingAuthorityFence(
     if (current.status.status !== "pending") return current.status;
     try {
       if (!store.appendToStreams) throw new Error("Authority terminals require atomic appendToStreams.");
-      await store.appendToStreams([
+      await appendAuthorityAppends(store, [
         {
           streamId: stream(operation),
           expectedVersion: current.version,
@@ -289,11 +299,14 @@ export function createListingAuthorityFence(
     return terminal;
   }
 
+  /** Keep the entire returned append set in the final business/request transaction.
+   * Every member fences retained executors against partial history rollback.
+   */
   async function prepareCommit(
     operation: ListingAuthorityOperation,
     reservations: readonly ListingAuthorityReservation[],
     result: JsonObject,
-  ): Promise<AppendToStreamInput> {
+  ): Promise<readonly AppendToStreamInput[]> {
     const current = await read(operation);
     if (current.status.status !== "pending") throw new Error(`Authority operation is ${current.status.status}.`);
     if (!(now().getTime() < Date.parse(operation.prepareBefore))) {
@@ -315,14 +328,14 @@ export function createListingAuthorityFence(
       if (verified?.status !== "reserved") throw new Error("Authority promise is not reserved.");
       deadlines.push(verified.validBefore);
     }
-    return {
+    return prepareAuthorityAppend(store, {
       streamId: stream(operation),
       expectedVersion: current.version,
       expectedFirstEventId: operation.openingEventId,
       context: authorityContext(operation),
       authorizationDeadline: new Date(Math.min(...deadlines.map(Date.parse))).toISOString(),
       events: [{ eventType: `${deps.owner}.listing-authority-operation.committed`, payload: { result, reason: null } }],
-    };
+    });
   }
 
   async function settle(operation: ListingAuthorityOperation) {

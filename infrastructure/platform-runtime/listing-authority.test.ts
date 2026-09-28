@@ -7,13 +7,15 @@ import type { ListingAuthorityConformanceFixture } from "./listing-authority-con
 import { listingAuthorityConformance } from "./listing-authority-conformance";
 import { createListingAuthorityFence } from "./listing-authority-fence";
 import { createListingAuthorityParticipant } from "./listing-authority-participant";
+import { authorityJournalStreams } from "./listing-authority-journal";
 
 async function fixture(
   snapshots?: AggregateSnapshotStore,
   mutatingPreparation = false,
   resourceScope: "tenant" | "owner" = "tenant",
 ) {
-  const { eventStore: sourceStore } = createInMemoryEventStore();
+  const sourceMemory = createInMemoryEventStore();
+  const sourceStore = sourceMemory.eventStore;
   const consumerMemory = createInMemoryEventStore();
   const consumerStore = consumerMemory.eventStore;
   const context: EventStoreContext = {
@@ -101,19 +103,68 @@ async function fixture(
         }),
     };
   }
-  return { ...restart(), consumerMemory };
+  return { ...restart(), consumerMemory, sourceMemory };
 }
 
 describe("durable Listing authority protocol conformance", () => listingAuthorityConformance(it, fixture));
 
 describe("Listing authority unknown outcomes and predicate serialization", () => {
+  it("B-AUTH-03: paired resource and integrity loss cannot permit effective mutation then retained commit", async () => {
+    const f = await fixture();
+    const operation = await f.fence.open(f.input, f.context);
+    const grant = await f.source.prepare(operation, f.context);
+    const terminal = await f.fence.prepareCommit(operation, [grant], { accepted: true });
+    const effects = ["business", "request-success"].map((kind) => ({
+      streamId: `marketplace.synthetic-paired-loss-${kind}`,
+      expectedVersion: 0 as const,
+      context: f.context,
+      events: [{ eventType: `marketplace.synthetic-paired-loss-${kind}`, payload: { accepted: true } }],
+    }));
+    for (const id of f.sourceMemory.streams.keys())
+      if (id.startsWith("catalog.listing-authority-resource-") || id.startsWith("catalog.listing-authority-integrity-"))
+        f.sourceMemory.streams.delete(id);
+    const restarted = f.restart();
+    const outcome = await restarted.invalidate().then(
+      () => "effective",
+      () => "blocked",
+    );
+    if (outcome === "blocked") {
+      expect(await readCompleteStream(f.sourceStore, { streamId: "catalog.synthetic-product" })).toHaveLength(0);
+      const promises = [...f.sourceMemory.streams.entries()].filter(([id]) =>
+        id.startsWith("catalog.listing-authority-reservation-"),
+      );
+      expect(promises).toHaveLength(1);
+      expect(promises[0]![1]).toHaveLength(1);
+      return;
+    }
+    expect(await f.sourceStore.readStream({ streamId: "catalog.synthetic-product" })).toHaveLength(1);
+    await expect(f.consumerStore.appendToStreams!([...terminal, ...effects])).rejects.toThrow();
+    for (const effect of effects)
+      expect(await f.consumerStore.readStream({ streamId: effect.streamId })).toHaveLength(0);
+  });
+
+  it("terminal truncation cannot revive a retained pre-revocation commit", async () => {
+    const f = await fixture();
+    const operation = await f.fence.open(f.input, f.context);
+    const grant = await f.source.prepare(operation, f.context);
+    const terminal = await f.fence.prepareCommit(operation, [grant], { accepted: true });
+    await f.invalidate();
+    expect((await f.fence.inspect(operation)).status).toBe("aborted");
+    const events = f.consumerMemory.streams.get(terminal[0]!.streamId)!;
+    f.consumerMemory.streams.set(terminal[0]!.streamId, events.slice(0, 1));
+    await expect(f.consumerStore.appendToStreams!([...terminal])).rejects.toThrow();
+  });
+
   it("retains the opening on recovery but cannot refresh old grants against recreated history", async () => {
     const f = await fixture();
     const operation = await f.fence.open(f.input, f.context);
     const grant = await f.source.prepare(operation, f.context);
     expect(await f.restart().fence.open(f.input, f.context)).toEqual(operation);
     const delayed = await f.fence.prepareCommit(operation, [grant], { accepted: true });
-    f.consumerMemory.streams.delete(delayed.streamId);
+    f.consumerMemory.streams.delete(delayed[0]!.streamId);
+    await expect(f.restart().fence.open(f.input, f.context)).rejects.toThrow("retain source promise");
+    // Even total loss of all witnesses may not let an old opening authorize the replacement.
+    for (const id of authorityJournalStreams(delayed[0]!.streamId)) f.consumerMemory.streams.delete(id);
     const replacement = await f.restart().fence.open(f.input, f.context);
     expect(replacement.operationId).toBe(operation.operationId);
     expect(replacement.commandFingerprint).toBe(operation.commandFingerprint);
@@ -121,7 +172,7 @@ describe("Listing authority unknown outcomes and predicate serialization", () =>
     await expect(f.fence.prepareCommit(operation, [grant], { accepted: true })).rejects.toThrow("binding conflict");
     await expect(f.source.prepare(replacement, f.context)).rejects.toThrow("binding conflict");
     await expect(f.source.settle(operation)).rejects.toThrow("binding conflict");
-    await expect(f.consumerStore.appendToStreams!([delayed])).rejects.toThrow("opening identity conflict");
+    await expect(f.consumerStore.appendToStreams!([...delayed])).rejects.toThrow("opening identity conflict");
     expect((await f.fence.inspect(replacement)).status).toBe("pending");
   });
 
@@ -131,6 +182,7 @@ describe("Listing authority unknown outcomes and predicate serialization", () =>
     const append = f.consumerStore.appendToStreams!.bind(f.consumerStore);
     vi.spyOn(f.consumerStore, "appendToStreams").mockImplementationOnce(async (inputs) => {
       f.consumerMemory.streams.delete(inputs[0]!.streamId);
+      for (const id of authorityJournalStreams(inputs[0]!.streamId)) f.consumerMemory.streams.delete(id);
       await f.restart().fence.open(f.input, f.context);
       return append(inputs);
     });
@@ -146,8 +198,8 @@ describe("Listing authority unknown outcomes and predicate serialization", () =>
     const streamId = `marketplace.listing-authority-operation-${operation.operationId}`;
     const events = f.consumerMemory.streams.get(streamId)!;
     f.consumerMemory.streams.set(streamId, [{ ...events[0]!, eventId: "evt_synthetic-replacement" }]);
-    await expect(f.fence.inspect(operation)).rejects.toThrow("Corrupt authority terminal history");
-    await expect(f.fence.open(f.input, f.context)).rejects.toThrow("Corrupt authority terminal history");
+    await expect(f.fence.inspect(operation)).rejects.toThrow("history integrity");
+    await expect(f.fence.open(f.input, f.context)).rejects.toThrow("history integrity");
   });
 
   it("does not manufacture an opening identity for an older retained operation", async () => {
@@ -158,7 +210,7 @@ describe("Listing authority unknown outcomes and predicate serialization", () =>
     const { openingEventId, ...olderOperation } = operation;
     expect(openingEventId).toBe(events[0]!.eventId);
     f.consumerMemory.streams.set(streamId, [{ ...events[0]!, payload: { operation: olderOperation } }]);
-    await expect(f.restart().fence.open(f.input, f.context)).rejects.toThrow("Corrupt authority terminal history");
+    await expect(f.restart().fence.open(f.input, f.context)).rejects.toThrow("history integrity");
     expect(f.consumerMemory.streams.get(streamId)).toHaveLength(1);
   });
 
@@ -196,6 +248,49 @@ describe("Listing authority unknown outcomes and predicate serialization", () =>
     expect((await f.fence.inspect(operation)).status).toBe("aborted");
   });
 
+  for (const fault of ["loss", "truncation", "recreation"] as const)
+    for (const paired of [null, 0, 1, 2] as const)
+      it(`disposable snapshot ${fault} with retained history ${paired ?? "intact"} cannot reopen authority`, async () => {
+        const snapshots = new Map<string, StoredAggregateSnapshot<unknown>>();
+        const f = await fixture({
+          loadLatest: async (id) => snapshots.get(id) ?? null,
+          save: async (snapshot) => {
+            snapshots.set(snapshot.streamId, { ...snapshot, updatedAt: "2026-09-28T00:00:00.000Z" as never });
+          },
+        });
+        const operation = await f.fence.open(f.input, f.context);
+        const grant = await f.source.prepare(operation, f.context);
+        const terminal = await f.fence.prepareCommit(operation, [grant], { accepted: true });
+        expect(snapshots.size).toBe(1);
+        for (const [id, snapshot] of snapshots) {
+          if (fault === "loss") snapshots.delete(id);
+          else
+            snapshots.set(id, {
+              ...snapshot,
+              streamVersion: fault === "truncation" ? 0 : 999,
+              state: { pending: null, grants: [] },
+            });
+          if (paired !== null) {
+            const streamId = authorityJournalStreams(id)[paired];
+            const events = f.sourceMemory.streams.get(streamId)!;
+            if (fault === "loss") f.sourceMemory.streams.delete(streamId);
+            else if (fault === "truncation") f.sourceMemory.streams.set(streamId, events.slice(0, -1));
+            else f.sourceMemory.streams.set(streamId, [{ ...events[0]!, eventId: "evt_synthetic-cache-recreation" }]);
+          }
+        }
+        await expect(f.restart().source.settle(operation)).rejects.toThrow();
+        await f
+          .restart()
+          .invalidate()
+          .catch(() => undefined);
+        const effective = (await f.sourceStore.readStream({ streamId: "catalog.synthetic-product" })).length > 0;
+        const committed = await f.consumerStore.appendToStreams!(terminal).then(
+          () => true,
+          () => false,
+        );
+        expect(effective && committed).toBe(false);
+      });
+
   it.each(["resource", "integrity"])(
     "retains promises when the %s history disappears, including with a cached fold",
     async (lost) => {
@@ -223,7 +318,7 @@ describe("Listing authority unknown outcomes and predicate serialization", () =>
       fault.mockRestore();
       expect((await f.source.inspect(operation))?.status).toBe("reserved");
       await f.restart().invalidate();
-      await expect(f.consumerStore.appendToStreams!([delayed])).rejects.toThrow();
+      await expect(f.consumerStore.appendToStreams!([...delayed])).rejects.toThrow();
       expect((await f.source.inspect(operation))?.status).toBe("released");
     },
   );
@@ -303,9 +398,9 @@ describe("Listing authority unknown outcomes and predicate serialization", () =>
     const operation = await f.fence.open(f.input, f.context);
     const reservation = await f.source.prepare(operation, f.context);
     const terminal = await f.fence.prepareCommit(operation, [reservation], { accepted: true });
-    await f.consumerStore.appendToStreams!([terminal]);
+    await f.consumerStore.appendToStreams!([...terminal]);
     const read = vi.spyOn(f.sourceStore, "readStream").mockResolvedValueOnce([]);
-    await expect(f.fence.settle(operation)).rejects.toThrow("Committed authority reservation is missing");
+    await expect(f.fence.settle(operation)).rejects.toThrow("retain source promise");
     read.mockRestore();
     expect((await f.source.inspect(operation))?.status).toBe("reserved");
     await f.restart().fence.settle(operation);
@@ -354,7 +449,7 @@ describe("Listing authority unknown outcomes and predicate serialization", () =>
       await consumerAppend(appends);
       throw new Error("lost commit reply");
     });
-    await expect(f.consumerStore.appendToStreams!([terminal])).rejects.toThrow("lost commit reply");
+    await expect(f.consumerStore.appendToStreams!([...terminal])).rejects.toThrow("lost commit reply");
     const restarted = f.restart();
     expect((await restarted.fence.inspect(operation)).status).toBe("committed");
     vi.spyOn(f.sourceStore, "appendToStreams").mockImplementationOnce(async (appends) => {
