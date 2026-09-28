@@ -27,7 +27,6 @@
     "@chase-sets/bounded-context-runtime": "workspace:*",
     "@chase-sets/seller-attention-queue": "workspace:*",
     "@chase-sets/catalog-seed": "workspace:*",
-    "@chase-sets/catalog": "workspace:*",
     "@chase-sets/commercial-terms": "workspace:*",
     "@chase-sets/customer-feedback": "workspace:*",
     "@chase-sets/design-system": "workspace:*",

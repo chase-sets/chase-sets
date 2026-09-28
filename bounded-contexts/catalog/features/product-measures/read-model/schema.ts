@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS catalog_product_measure_profiles (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-${profileRevisionSql}
+ALTER TABLE catalog_product_measure_profiles
+  ADD COLUMN IF NOT EXISTS source_revision bigint NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS catalog_product_measure_profiles_status_idx
   ON catalog_product_measure_profiles (status, precedence, key);

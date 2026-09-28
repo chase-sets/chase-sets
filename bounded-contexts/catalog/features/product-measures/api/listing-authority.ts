@@ -5,7 +5,7 @@ import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { ListingAuthorityConsumerPort, ListingAuthorityOperation } from "@chase-sets/event-core/listing-authority";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { toJsonValue } from "@chase-sets/primitives/json";
-import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
+import type { CatalogListingAuthorityFacts } from "@chase-sets/product-measures";
 import { createListingAuthorityParticipant } from "@chase-sets/platform-runtime/listing-authority-participant";
 import { createListingAuthorityWriter } from "@chase-sets/platform-runtime/listing-authority-writer";
 import { createListingAuthorityRecovery } from "@chase-sets/platform-runtime/listing-authority-recovery";
@@ -39,15 +39,7 @@ import { enumerateProducts, resolveProductMeasures } from "./runtime";
 
 export type CatalogListingAuthorityConsumer = (operation: ListingAuthorityOperation) => ListingAuthorityConsumerPort;
 
-export type CatalogListingAuthorityFacts = Readonly<{
-  catalogItemId: string;
-  productId: string;
-  blueprintId: string;
-  categoryIds: readonly string[];
-  selectedOptions: readonly Readonly<{ dimensionId: string; optionId: string }>[];
-  productMeasureSnapshot: ProductMeasureSnapshot | null;
-  productMeasureRevision: number;
-}>;
+export type { CatalogListingAuthorityFacts } from "@chase-sets/product-measures";
 export type CatalogListingProductSubject = Pick<
   CatalogListingAuthorityFacts,
   "catalogItemId" | "productId" | "selectedOptions"

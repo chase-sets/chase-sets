@@ -2,7 +2,7 @@ import { isDeepStrictEqual } from "node:util";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { CatalogListingAuthorityFacts } from "@chase-sets/catalog/server";
+import type { CatalogListingAuthorityFacts } from "@chase-sets/product-measures";
 import { createNativeAuthorityFacts } from "../api/native-authority-facts";
 import type { MarketplaceListingPhoto } from "../domain/domain";
 import {

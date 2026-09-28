@@ -8,7 +8,7 @@ import { marketplaceListingCodec } from "../domain/codec";
 import { listingRequestFingerprint } from "./listing-request";
 import type { ListingTargetServices } from "./target-contracts";
 import type { ListingAuthorityOperation, ListingAuthorityReservation } from "@chase-sets/event-core/listing-authority";
-import type { CatalogListingAuthorityFacts } from "@chase-sets/catalog/server";
+import type { CatalogListingAuthorityFacts } from "@chase-sets/product-measures";
 import {
   createListingAuthorityFence,
   type ListingAuthorityFence,

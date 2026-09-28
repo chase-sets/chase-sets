@@ -9,7 +9,7 @@ import type {
 } from "@chase-sets/event-core/listing-authority";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { CatalogListingAuthorityFacts } from "@chase-sets/catalog/server";
+import type { CatalogListingAuthorityFacts } from "@chase-sets/product-measures";
 import { toJsonValue } from "@chase-sets/primitives/json";
 import { createListingAuthorityParticipant } from "@chase-sets/platform-runtime/listing-authority-participant";
 import { createListingAuthorityWriter } from "@chase-sets/platform-runtime/listing-authority-writer";

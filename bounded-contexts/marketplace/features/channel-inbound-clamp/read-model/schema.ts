@@ -35,7 +35,14 @@ export const marketplaceChannelInboundClampSchemaMigrations: readonly BcSchemaMi
   {
     migrationId: "20260927_marketplace_inbound_clamp_resume_authority",
     description: "Index bounded discovery of exact source-owned inbound clamp resume attempts.",
-    statements: [resumeAuthorityIndexSql.replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY")],
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS marketplace_inbound_clamp_resume_authority_idx
+        ON event_store_events (tenant_id, (payload->'operation'->>'accountId'), (payload->'operation'->>'listingId'),
+          (payload->'operation'->'command'->'inboundClamp'->>'connectionId'),
+          (payload->'operation'->'command'->'inboundClamp'->>'runId'),
+          (payload->'operation'->'command'->'inboundClamp'->>'generation'), global_position DESC)
+        WHERE event_type='marketplace.listing-authority-operation.opened' AND payload->'operation'->>'kind'='resume'`,
+    ],
   },
   {
     migrationId: "20260910_marketplace_channel_inbound_clamps",

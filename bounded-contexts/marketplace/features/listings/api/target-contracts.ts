@@ -5,7 +5,7 @@ import type {
   ListingAuthorityReservation,
 } from "@chase-sets/event-core/listing-authority";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
-import type { CatalogListingAuthorityFacts } from "@chase-sets/catalog/server";
+import type { CatalogListingAuthorityFacts } from "@chase-sets/product-measures";
 import type { ListingEvidenceRequirementSnapshot } from "../domain/evidence-requirement-snapshot";
 import type { ListingEvidenceSellerFacts } from "../domain/listing-evidence-readiness";
 import type { MarketplaceListingTermsPreview } from "../ui/contracts";

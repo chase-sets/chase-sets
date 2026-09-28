@@ -745,9 +745,6 @@ importers:
 
   bounded-contexts/marketplace:
     dependencies:
-      '@chase-sets/catalog':
-        specifier: workspace:*
-        version: link:../catalog
       '@chase-sets/auth-context':
         specifier: workspace:*
         version: link:../../contracts/auth-context
