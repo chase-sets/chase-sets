@@ -112,8 +112,12 @@ function discoverCardEmitters(root: string) {
     const target = resolved && path.resolve(resolved.resolvedFileName);
     return target && sources.has(target) ? target : undefined;
   }
+  const exportResolutions = new Map<string, string>();
+  const localResolutions = new Map<string, string | undefined>();
   function resolveExport(file: string, name: string, seen = new Set<string>()): string | undefined {
     const id = identity(file, name);
+    const cached = exportResolutions.get(id);
+    if (cached) return cached;
     if (seen.has(id)) return undefined;
     seen.add(id);
     if (exported.has(id)) return id;
@@ -126,13 +130,20 @@ function discoverCardEmitters(root: string) {
       if (!target) continue;
       if (!statement.exportClause) {
         const match = resolveExport(target, name, seen);
-        if (match) return match;
+        if (match) {
+          exportResolutions.set(id, match);
+          return match;
+        }
       } else if (ts.isNamedExports(statement.exportClause)) {
         const entry = statement.exportClause.elements.find((entry) => !entry.isTypeOnly && entry.name.text === name);
-        if (entry)
-          return target === file
-            ? resolveLocal(sources.get(file)!, (entry.propertyName ?? entry.name).text, seen)
-            : resolveExport(target, (entry.propertyName ?? entry.name).text, seen);
+        if (entry) {
+          const match =
+            target === file
+              ? resolveLocal(sources.get(file)!, (entry.propertyName ?? entry.name).text, seen)
+              : resolveExport(target, (entry.propertyName ?? entry.name).text, seen);
+          if (match) exportResolutions.set(id, match);
+          return match;
+        }
       }
     }
     return undefined;
@@ -140,6 +151,7 @@ function discoverCardEmitters(root: string) {
   function resolveLocal(source: ts.SourceFile, name: string, seen = new Set<string>()): string | undefined {
     const id = identity(source.fileName, name);
     if (declarations.has(id)) return id;
+    if (localResolutions.has(id)) return localResolutions.get(id);
     for (const statement of source.statements) {
       if (
         !ts.isImportDeclaration(statement) ||
@@ -151,8 +163,13 @@ function discoverCardEmitters(root: string) {
       if (!bindings || !ts.isNamedImports(bindings)) continue;
       const entry = bindings.elements.find((entry) => !entry.isTypeOnly && entry.name.text === name);
       const target = entry && resolveModule(source.fileName, statement.moduleSpecifier.text);
-      if (entry && target) return resolveExport(target, (entry.propertyName ?? entry.name).text, seen);
+      if (entry && target) {
+        const match = resolveExport(target, (entry.propertyName ?? entry.name).text, seen);
+        localResolutions.set(id, match);
+        return match;
+      }
     }
+    localResolutions.set(id, undefined);
     return undefined;
   }
   const seed = identity(path.join(directory, "components/data-display/card.tsx"), "Card");
