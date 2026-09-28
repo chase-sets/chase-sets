@@ -845,6 +845,11 @@ describe("platform api app wiring", () => {
         lastError: null,
       };
     });
+    const refreshAuthUser = vi.fn(async () => ({
+      lastGlobalPosition: "19853",
+      state: "caught-up",
+      lastError: null,
+    }));
     const app = buildPlatformApiApp(
       {
         mountedContexts: [
@@ -874,6 +879,12 @@ describe("platform api app wiring", () => {
             projectionName: "auth-identity-membership-projection",
             ownedTables: ["auth_identity_memberships", "auth_identity_user_memberships"],
             subscriptionRunners: [{ sourceContextName: "identity", refreshStatus: refreshAuthMembership }],
+          },
+          {
+            targetContextName: "auth",
+            projectionName: "auth-identity-user-projection",
+            ownedTables: ["auth_identity_users", "auth_identity_user_emails", "auth_identity_user_phones"],
+            subscriptionRunners: [{ sourceContextName: "identity", refreshStatus: refreshAuthUser }],
           },
         ],
         subscriptionRunners: [],
@@ -912,6 +923,7 @@ describe("platform api app wiring", () => {
     });
     expect(refreshAuthSession).toHaveBeenCalledTimes(1);
     expect(refreshAuthMembership).toHaveBeenCalledTimes(1);
+    expect(refreshAuthUser).toHaveBeenCalledTimes(1);
     expect(authServices.identity.getActiveMembershipForUserAccount).toHaveBeenCalledWith("usr_1", "acc_1");
   });
 
