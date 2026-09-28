@@ -171,6 +171,55 @@ function fixture(mutatingPreparation = false) {
 describe("owner Listing authority recovery", () => {
   for (const fault of ["loss", "truncation", "recreation"] as const)
     for (const after of [undefined, "0", "999999999999"])
+      for (const damaged of ["reservation-loss", "resource-witness-pair"] as const)
+        it(`discovery ${fault}/cursor ${after ?? "lost"}/${damaged} retains authority until original histories reconcile`, async () => {
+          const f = fixture();
+          const operation = await f.fence.open(f.input, f.context);
+          await f.source.prepare(operation, f.context);
+          const retained = structuredClone(f.memory.streams);
+          const damagedIds: string[] = [];
+          if (damaged === "reservation-loss") {
+            const ids = [...f.memory.streams.keys()].filter((id) =>
+              id.startsWith("inventory.listing-authority-reservation-"),
+            );
+            expect(ids).toHaveLength(1);
+            damagedIds.push(ids[0]!);
+            f.memory.streams.delete(ids[0]!);
+          } else {
+            const ids = [...f.memory.streams.keys()].filter((id) =>
+              id.startsWith("inventory.listing-authority-resource-"),
+            );
+            expect(ids).toHaveLength(1);
+            for (const id of [
+              ids[0]!.replace("-resource-", "-integrity-"),
+              ids[0]!.replace("-resource-", "-registration-resource-"),
+            ]) {
+              damagedIds.push(id);
+              f.memory.streams.set(
+                id,
+                f.memory.streams
+                  .get(id)!
+                  .map((event) => ({ ...event, payload: { ...event.payload, stateHash: "synthetic-corrupt-fold" } })),
+              );
+            }
+          }
+          f.expire();
+          f.setIndexFault(fault);
+          await f.restart()({ after, limit: 2 });
+          expect((await f.fence.inspect(operation)).status).toBe("pending");
+          expect(
+            [...f.memory.streams.values()].flat().filter((event) => event.eventType.endsWith(".settled")),
+          ).toHaveLength(0);
+          // Explicit fixture repair of the damaged records, not automatic backfill
+          // or a rotating fault budget. Original operation and mutation IDs survive.
+          for (const id of damagedIds) f.memory.streams.set(id, retained.get(id)!);
+          f.setIndexFault("none");
+          await f.restart()({ after: "0", limit: 2 });
+          expect((await f.fence.inspect(operation)).status).toBe("aborted");
+          expect((await f.source.inspect(operation))?.status).toBe("released");
+        });
+  for (const fault of ["loss", "truncation", "recreation"] as const)
+    for (const after of [undefined, "0", "999999999999"])
       it(`recovery index ${fault} with cursor ${after ?? "lost"} cannot release unknown promises`, async () => {
         const f = fixture();
         const operations = [];
