@@ -253,7 +253,7 @@ describeDb("channel-listing-desired-state-production-path", () => {
   });
   it("drives the canonical TCGplayer connection aggregate through both projections, reservation settlement, replay, and malformed delist", async () => {
     const connectionId = "connection-boundary";
-    const accountId = "account-boundary";
+    const accountId = "acc_owner";
     const policyAuthority = createConnectionHarness().ports.policyAuthority;
     if (!policyAuthority) throw new Error("The canonical policy authority fixture is unavailable.");
     const rootServices = channelsModule.createServices(pools.channels, {
