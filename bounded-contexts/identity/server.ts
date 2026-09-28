@@ -4,6 +4,7 @@ import {
   type ResolvedActor,
 } from "@chase-sets/platform-runtime/auth";
 export { createListingRequestPrincipalResolver } from "./features/access-hub/api/listing-request-principal";
+export { withFixtureListingApiKey, type FixtureListingApiKey } from "./features/api-keys/api/fixture-listing-key";
 export {
   createIdentityListingAuthority,
   IdentityAuthorityMutationPendingError,

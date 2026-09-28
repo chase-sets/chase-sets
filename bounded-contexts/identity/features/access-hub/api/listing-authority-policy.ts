@@ -119,6 +119,17 @@ export function createIdentityListingPolicy(eventStore: EventStore, credentials?
         if (p.authentication.kind === "api-key") {
           const key = await apiKey(p.authentication.keyId);
           const credential = await credentials?.readApiKey(p.authentication.keyId);
+          const scope = key.state.listingScope;
+          if (scope) {
+            if (
+              scope.accountId !== p.accountId ||
+              scope.membershipId !== p.membershipId ||
+              scope.permissions.length !== 1 ||
+              scope.permissions[0] !== "listings.manage"
+            )
+              throw new Error("Selected API key does not permit this listing account or membership.");
+            deadline = Math.min(deadline, Date.parse(scope.expiresAt));
+          }
           if (
             key.tenantId !== p.tenantId ||
             key.state.id !== p.authentication.keyId ||

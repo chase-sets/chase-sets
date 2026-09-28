@@ -3,6 +3,35 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import { identityFixture } from "./listing-authority-test-support";
 import { createIdentityListingCurrentFacts } from "./listing-current-facts";
 
+const siteId = "bounded-contexts/identity/features/access-hub/api/listing-current-facts.ts#readStream#1";
+
+it(`${siteId} consumes exactly the folded tip and rejects a two-event tail`, async () => {
+  const f = await identityFixture();
+  const streamId = `identity.account-${f.accountId}`;
+  const original = f.memory.eventStore.readStream.bind(f.memory.eventStore);
+  const tip = f.memory.streams.get(streamId)!.at(-1)!;
+  const readStream = vi.fn(original);
+  await expect(
+    createIdentityListingCurrentFacts({ ...f.memory.eventStore, readStream })(f.accountId, { maxAgeMs: 1000 }),
+  ).resolves.toMatchObject({ value: { active: true } });
+  expect(readStream).toHaveBeenLastCalledWith({ streamId, fromVersion: tip.streamVersion, limit: 2 });
+
+  // Keep the folded tip identical. Only the overflow event changes the outcome.
+  for (const tail of [
+    [],
+    [{ ...tip, eventId: createId("evt") }],
+    [tip, { ...tip, eventId: createId("evt"), streamVersion: tip.streamVersion + 1 }],
+  ]) {
+    const controlled = {
+      ...f.memory.eventStore,
+      readStream: async (input: Parameters<typeof original>[0]) => (input.limit === 2 ? tail : original(input)),
+    };
+    await expect(createIdentityListingCurrentFacts(controlled)(f.accountId, { maxAgeMs: 1000 })).rejects.toThrow(
+      "changed",
+    );
+  }
+});
+
 it("reads actual current seller facts without projections, grants, or writes", async () => {
   const f = await identityFixture();
   await f.accounts.commandHandler({

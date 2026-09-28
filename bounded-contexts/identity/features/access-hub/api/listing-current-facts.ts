@@ -11,6 +11,7 @@ export function createIdentityListingCurrentFacts(eventStore: EventStore, now = 
     const account = await policy.account(accountId);
     if (account.state.id !== accountId || !account.tenantId || !account.state.accountType)
       throw new Error("Identity current seller account history is missing or mismatched.");
+    // @stream-read-contract bounded-contexts/identity/features/access-hub/api/listing-current-facts.test.ts
     const tail = await eventStore.readStream({
       streamId: account.streamId,
       fromVersion: Number(account.revision),
