@@ -336,13 +336,19 @@ export function selectListingTermsBasis(
   assert(isCommercialAccountType(account.account_type), `Account ${accountId} is missing account type.`);
 
   assert(schedule || agreement, `No active commercial terms were found for account ${accountId}.`);
+  for (const instant of [effectiveAt, account.founders_window_started_at, account.founders_window_ends_at]) {
+    assert(
+      instant == null || Number.isFinite(Date.parse(instant)),
+      "Commercial terms validity requires valid timestamps.",
+    );
+  }
   const foundersWindowActive =
     account.founders_window_started_at !== null &&
     account.founders_window_started_at !== undefined &&
     account.founders_window_ends_at !== null &&
     account.founders_window_ends_at !== undefined &&
-    account.founders_window_started_at <= effectiveAt &&
-    account.founders_window_ends_at > effectiveAt;
+    Date.parse(account.founders_window_started_at) <= Date.parse(effectiveAt) &&
+    Date.parse(account.founders_window_ends_at) > Date.parse(effectiveAt);
   assert(
     !foundersWindowActive ||
       (agreement?.marketplace_sales_fee_percentage_bps === 0 &&

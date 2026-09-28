@@ -134,6 +134,27 @@ async function fixture() {
 }
 
 describe("Commercial Terms source participation", () => {
+  it("compares effective windows as instants, not lexical timestamp representations", async () => {
+    const f = await fixture();
+    const offset = (instant: string) =>
+      new Date(Date.parse(instant) + 5 * 3_600_000).toISOString().replace("Z", "+05:00");
+    await f.policies.revisePolicyDocument(
+      marketplaceSalesFeeSchedulePolicy,
+      f.created.documentId,
+      {
+        value: MARKETPLACE_SALES_FEE_SCHEDULE_LAUNCH_POLICY_VALUE,
+        status: "active",
+        effectiveFrom: offset(f.before),
+        effectiveUntil: offset(f.future),
+        actorUserId: f.context.audit.performedByUserId,
+      },
+      f.context,
+    );
+    const operation = await f.fence.open(f.input, f.context);
+    const grant = await f.source.prepare(operation, f.context);
+    expect(grant.value.terms).toMatchObject({ marketplaceSalesFeeUnitAmount: "5.00" });
+    expect(Date.parse(grant.validBefore)).toBe(Date.parse(f.future));
+  });
   it("uses the existing fee formula from authoritative policy history and reserves Identity through the final operation", async () => {
     const f = await fixture();
     const operation = await f.fence.open(f.input, f.context);

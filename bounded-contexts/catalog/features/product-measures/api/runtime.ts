@@ -20,9 +20,14 @@ import {
   listResolvedProductMeasures,
   type CatalogProductMeasureProfileRow,
 } from "../read-model/queries";
-import { recordProductMeasureProfile, productMeasureProfileRecorded } from "./profiles";
+import {
+  recordProductMeasureProfile,
+  productMeasureProfileRecorded,
+  readAuthoritativeProductMeasureProfiles,
+} from "./profiles";
 
 export type ProductMeasureProfileInput = Readonly<{
+  status?: "active" | "inactive";
   profileId: string;
   key: string;
   name: string;
@@ -64,6 +69,7 @@ type ProductSchema = Readonly<{
 type ProductDimension = NonNullable<ProductSchema["dimensions"]>[number];
 
 export type ProductMeasureServices = Readonly<{
+  reconcileProfileAuthority: (context: EventStoreContext) => Promise<number>;
   upsertProfile: (profile: ProductMeasureProfileInput, context: EventStoreContext) => Promise<void>;
   resolveCatalogItemMeasures: (catalogItemId: string, context?: EventStoreContext) => Promise<void>;
   resolveAllCatalogItemMeasures: (context?: EventStoreContext) => Promise<void>;
@@ -74,9 +80,45 @@ export type ProductMeasureServices = Readonly<{
 
 export function createProductMeasureRuntime(deps: CatalogRuntimeDeps): ProductMeasureServices {
   return {
+    reconcileProfileAuthority: async (context) => {
+      const legacy = await deps.db
+        .query<CatalogProductMeasureProfileRow>(`SELECT * FROM catalog_product_measure_profiles
+        WHERE source_revision = 0 ORDER BY profile_id LIMIT 100`);
+      for (const row of legacy.rows) {
+        const measure = row.measure_snapshot;
+        if (row.status !== "active" && row.status !== "inactive")
+          throw new Error("Unknown legacy Product Measure Profile status.");
+        await recordProductMeasureProfile(
+          deps.eventStore,
+          {
+            profileId: row.profile_id,
+            key: row.key,
+            name: row.name,
+            status: row.status,
+            matchBlueprintId: row.match_blueprint_id,
+            matchCategoryIds: row.match_category_ids,
+            matchSelectedOptions: row.match_selected_options,
+            precedence: row.precedence,
+            unitLengthInches: measure.unitLengthInches,
+            unitWidthInches: measure.unitWidthInches,
+            unitHeightInches: measure.unitHeightInches,
+            unitWeightOunces: measure.unitWeightOunces,
+            physicalFlags: measure.physicalFlags,
+            stackBehavior: measure.stackBehavior,
+            confidence: measure.confidence,
+          },
+          context,
+          "initialize",
+        );
+        const current = (await readAuthoritativeProductMeasureProfiles(deps.eventStore)).records.get(row.profile_id);
+        if (!current) throw new Error("Product Measure Profile reconciliation lost its source record.");
+        await upsertProfile(deps.db, current.profile, current.revision);
+      }
+      return legacy.rows.length;
+    },
     upsertProfile: async (profile, context) => {
-      await recordProductMeasureProfile(deps.eventStore, profile, context);
-      await upsertProfile(deps.db, profile);
+      const revision = await recordProductMeasureProfile(deps.eventStore, profile, context);
+      await upsertProfile(deps.db, profile, revision);
     },
     resolveCatalogItemMeasures: (catalogItemId, context) => resolveCatalogItemMeasures(deps, catalogItemId, context),
     resolveAllCatalogItemMeasures: (context) => resolveAllCatalogItemMeasures(deps, context),
@@ -88,7 +130,7 @@ export function createProductMeasureRuntime(deps: CatalogRuntimeDeps): ProductMe
         handlers: {
           [productMeasureProfileRecorded]: async (event, context) => {
             const data = event.data as { profile: ProductMeasureProfileInput };
-            await upsertProfile(resolveProjectionDb(context, deps.db), data.profile);
+            await upsertProfile(resolveProjectionDb(context, deps.db), data.profile, event.streamVersion);
           },
           "catalog.catalog-item.product-measures-resolved": async (event, context) => {
             const data = event.data as { catalogItemId: string; products: ProductMeasureSnapshot[] };
@@ -104,9 +146,9 @@ export function createProductMeasureRuntime(deps: CatalogRuntimeDeps): ProductMe
   };
 }
 
-async function upsertProfile(db: PgQueryable, profile: ProductMeasureProfileInput) {
+async function upsertProfile(db: PgQueryable, profile: ProductMeasureProfileInput, revision: number) {
   const measure: Omit<ProductMeasureSnapshot, "catalogItemId" | "productId" | "selectedOptions"> = {
-    measureVersion: `${profile.key}:v1`,
+    measureVersion: `${profile.key}:r${revision}`,
     unitLengthInches: profile.unitLengthInches,
     unitWidthInches: profile.unitWidthInches,
     unitHeightInches: profile.unitHeightInches,
@@ -128,8 +170,9 @@ async function upsertProfile(db: PgQueryable, profile: ProductMeasureProfileInpu
        match_selected_options,
        measure_snapshot,
        precedence,
+       source_revision,
        updated_at
-     ) VALUES ($1, $2, $3, 'active', $4, $5, $6, $7, $8, now())
+     ) VALUES ($1, $2, $3, $10, $4, $5, $6, $7, $8, $9, now())
      ON CONFLICT (profile_id) DO UPDATE SET
        key = EXCLUDED.key,
        name = EXCLUDED.name,
@@ -139,7 +182,9 @@ async function upsertProfile(db: PgQueryable, profile: ProductMeasureProfileInpu
        match_selected_options = EXCLUDED.match_selected_options,
        measure_snapshot = EXCLUDED.measure_snapshot,
        precedence = EXCLUDED.precedence,
-       updated_at = EXCLUDED.updated_at`,
+       source_revision = EXCLUDED.source_revision,
+       updated_at = EXCLUDED.updated_at
+     WHERE catalog_product_measure_profiles.source_revision <= EXCLUDED.source_revision`,
     [
       profile.profileId,
       profile.key,
@@ -149,6 +194,8 @@ async function upsertProfile(db: PgQueryable, profile: ProductMeasureProfileInpu
       JSON.stringify(profile.matchSelectedOptions ?? []),
       JSON.stringify(measure),
       profile.precedence ?? 100,
+      revision,
+      profile.status ?? "active",
     ],
   );
 }

@@ -12,6 +12,7 @@ import { toJsonValue } from "@chase-sets/primitives/json";
 import { initialPolicyDocumentState, decidePolicyDocument } from "@chase-sets/platform-policy/domain";
 import { createListingAuthorityParticipant } from "@chase-sets/platform-runtime/listing-authority-participant";
 import { createListingAuthorityWriter } from "@chase-sets/platform-runtime/listing-authority-writer";
+import { createListingAuthorityRecovery } from "@chase-sets/platform-runtime/listing-authority-recovery";
 import {
   evolveCommercialTermsPolicyDocument,
   type CommercialTermsPolicyDocumentEvent,
@@ -92,8 +93,8 @@ export function createCommercialTermsListingAuthority(
         ({ state }) =>
           state.status === "active" &&
           state.effectiveFrom !== null &&
-          state.effectiveFrom <= at &&
-          (state.effectiveUntil === null || state.effectiveUntil > at),
+          Date.parse(state.effectiveFrom) <= Date.parse(at) &&
+          (state.effectiveUntil === null || Date.parse(state.effectiveUntil) > Date.parse(at)),
       );
       const schedules = active.filter(({ state }) => state.policyKey === keys[0]);
       const agreements = active.filter(({ state }) => state.policyKey === keys[1]);
@@ -131,7 +132,7 @@ export function createCommercialTermsListingAuthority(
         account.founders_window_started_at,
         account.founders_window_ends_at,
         ...documents.flatMap(({ state }) => [state.effectiveFrom, state.effectiveUntil]),
-      ].filter((value): value is string => typeof value === "string" && value > at);
+      ].filter((value): value is string => typeof value === "string" && Date.parse(value) > Date.parse(at));
       if (
         Date.parse(operation.prepareBefore) <= Date.parse(at) ||
         Date.parse(identityGrant.validBefore) <= Date.parse(at)
@@ -188,7 +189,19 @@ export function createCommercialTermsListingAuthority(
       return [...affected];
     },
   });
-  return { source, ...writer };
+  return {
+    source,
+    ...writer,
+    recover: createListingAuthorityRecovery({
+      db: deps.db,
+      owner: "commercial-terms",
+      sources: [source],
+      consumer: ports.consumer,
+      resume: writer.resume,
+      resumeWrite: writer.resumeWrite,
+      now: deps.now,
+    }),
+  };
 }
 
 /** Query the owner's event history, not platform_policy_documents or a foreign projection. */

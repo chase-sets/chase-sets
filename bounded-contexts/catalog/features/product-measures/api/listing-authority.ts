@@ -6,6 +6,7 @@ import { toJsonValue } from "@chase-sets/primitives/json";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import { createListingAuthorityParticipant } from "@chase-sets/platform-runtime/listing-authority-participant";
 import { createListingAuthorityWriter } from "@chase-sets/platform-runtime/listing-authority-writer";
+import { createListingAuthorityRecovery } from "@chase-sets/platform-runtime/listing-authority-recovery";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { resolveProduct } from "../../../support/runtime-support/versioning";
 import type { CatalogItemId, SelectedOptionEntry } from "../../../ids";
@@ -213,6 +214,14 @@ export function createCatalogListingAuthority(deps: CatalogRuntimeDeps, consumer
       ).flat(),
   });
   return {
+    recover: createListingAuthorityRecovery({
+      db: deps.db,
+      owner: "catalog",
+      sources: [source],
+      consumer,
+      resume: writer.resume,
+      resumeWrite: writer.resumeWrite,
+    }),
     async readFacts(operation: ListingAuthorityOperation): Promise<CatalogListingAuthorityFacts> {
       const grant = await source.inspect(operation);
       if (!grant || grant.status !== "reserved") throw new Error("Catalog authority is not reserved.");
@@ -222,6 +231,11 @@ export function createCatalogListingAuthority(deps: CatalogRuntimeDeps, consumer
       ...source,
       async prepare(operation: ListingAuthorityOperation, context: Parameters<typeof source.prepare>[1]) {
         if (await source.inspect(operation)) return source.prepare(operation, context);
+        const legacy = await deps.db.query<{ profile_id: string }>(
+          `SELECT profile_id FROM catalog_product_measure_profiles WHERE source_revision = 0 LIMIT 1`,
+        );
+        if (legacy.rows.length)
+          throw new Error("Catalog Product Measure Profile authority reconciliation is incomplete.");
         if ((await consumer(operation).inspect(operation)).status !== "pending")
           throw new Error("Catalog consumer is not pending.");
         const itemStream = `catalog.item-${operation.subject.catalogItemId}`;

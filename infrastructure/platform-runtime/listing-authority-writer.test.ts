@@ -40,7 +40,7 @@ function fixture() {
 }
 
 describe("source authority writer", () => {
-  it("rejects a changed affected-resource predicate after closure and replays that conflict", async () => {
+  it("can retry the same append intent after a confirmed resource-selection conflict", async () => {
     const f = fixture();
     let reads = 0;
     const writer = createListingAuthorityWriter({
@@ -50,12 +50,43 @@ describe("source authority writer", () => {
       resources: async () => (++reads === 1 ? ["synthetic-item"] : ["synthetic-item", "new-related-item"]),
     });
     await expect(writer.eventStore.appendToStream(f.input)).rejects.toMatchObject({ code: "concurrency_conflict" });
-    await expect(writer.eventStore.appendToStream(f.input)).rejects.toMatchObject({ code: "concurrency_conflict" });
-    expect(await f.eventStore.readStream({ streamId: f.input.streamId })).toHaveLength(0);
-    await writer.eventStore.appendToStream({
-      ...f.input,
-      events: [{ eventType: "inventory.synthetic.changed", payload: { quantity: 2 } }],
+    await expect(writer.eventStore.appendToStream(f.input)).resolves.toHaveLength(1);
+    expect(await f.eventStore.readStream({ streamId: f.input.streamId })).toHaveLength(1);
+  });
+  it("replays a successful write even if its affected resources later change", async () => {
+    const f = fixture();
+    let reads = 0;
+    const writer = createListingAuthorityWriter({
+      eventStore: f.eventStore,
+      source: f.source,
+      owner: "inventory",
+      resources: async () => (++reads <= 2 ? ["synthetic-item"] : []),
     });
+    const first = await writer.eventStore.appendToStream(f.input);
+    await expect(writer.eventStore.appendToStream(f.input)).resolves.toEqual(first);
+    expect(await f.eventStore.readStream({ streamId: f.input.streamId })).toHaveLength(1);
+  });
+  it("recovers the same intent after a crash before invalidation starts", async () => {
+    const f = fixture();
+    const writer = createListingAuthorityWriter({
+      eventStore: f.eventStore,
+      owner: "inventory",
+      source: {
+        ...f.source,
+        mutate: async () => {
+          throw new Error("synthetic pre-invalidation crash");
+        },
+      },
+      resources: async () => ["synthetic-item"],
+    });
+    await expect(writer.eventStore.appendToStream(f.input)).rejects.toThrow("synthetic pre-invalidation crash");
+    const started = (await f.eventStore.readAll()).find(
+      (event) => event.eventType === "inventory.listing-authority-write.started",
+    )!;
+    expect(await f.source.inspectInvalidation(f.context.tenantId, String(started.payload.mutationId))).toBeNull();
+    await f.restart().resumeWrite(String(started.payload.writeId));
+    expect(await f.eventStore.readStream({ streamId: f.input.streamId })).toHaveLength(1);
+    await f.restart().resumeWrite(String(started.payload.writeId));
     expect(await f.eventStore.readStream({ streamId: f.input.streamId })).toHaveLength(1);
   });
   it("co-commits a same-store consumer terminal instead of revoking its own native commitment", async () => {

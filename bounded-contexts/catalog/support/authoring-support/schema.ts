@@ -15,7 +15,10 @@ import { catalogDimensionSchemaSql } from "../../features/dimensions/read-model/
 import { catalogDisplayTemplateSchemaSql } from "../../features/display-templates/read-model/schema";
 import { catalogFieldSchemaSql } from "../../features/fields/read-model/schema";
 import { catalogProductContentsSchemaSql } from "../../features/product-contents/read-model/schema";
-import { catalogProductMeasureSchemaSql } from "../../features/product-measures/read-model/schema";
+import {
+  catalogProductMeasureSchemaSql,
+  catalogProductMeasureSchemaMigrations,
+} from "../../features/product-measures/read-model/schema";
 import {
   catalogProviderScopeDiscoverySchemaMigrations,
   catalogProviderScopeDiscoverySchemaSql,
@@ -66,6 +69,7 @@ export const catalogAuthoringSchemaSql = [
 ].join("\n\n");
 
 export const catalogAuthoringSchemaMigrations = [
+  ...catalogProductMeasureSchemaMigrations,
   ...durableJobSchemaMigrations({
     jobsTable: "catalog_authoring_bulk_jobs",
   }),

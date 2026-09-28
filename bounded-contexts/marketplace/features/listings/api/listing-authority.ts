@@ -12,6 +12,7 @@ import type { CatalogListingAuthorityFacts } from "@chase-sets/catalog/server";
 import { toJsonValue } from "@chase-sets/primitives/json";
 import { createListingAuthorityParticipant } from "@chase-sets/platform-runtime/listing-authority-participant";
 import { createListingAuthorityWriter } from "@chase-sets/platform-runtime/listing-authority-writer";
+import { createListingAuthorityRecovery } from "@chase-sets/platform-runtime/listing-authority-recovery";
 import { initialMarketplaceListingState, evolveMarketplaceListing } from "../domain/domain";
 import { marketplaceListingCodec } from "../domain/codec";
 import {
@@ -260,6 +261,15 @@ export function createMarketplaceListingAuthority(
   });
 
   return {
+    recover: createListingAuthorityRecovery({
+      db: deps.db,
+      owner: "marketplace",
+      sources: [readiness, commitment],
+      consumer: ports.consumer,
+      resume: writer.resume,
+      resumeWrite: writer.resumeWrite,
+      now: deps.now,
+    }),
     readiness,
     commitment,
     ...writer,

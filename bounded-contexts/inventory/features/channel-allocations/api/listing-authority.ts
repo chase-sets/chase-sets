@@ -8,6 +8,7 @@ import { toJsonValue } from "@chase-sets/primitives/json";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { createListingAuthorityParticipant } from "@chase-sets/platform-runtime/listing-authority-participant";
 import { createListingAuthorityWriter } from "@chase-sets/platform-runtime/listing-authority-writer";
+import { createListingAuthorityRecovery } from "@chase-sets/platform-runtime/listing-authority-recovery";
 import type { InventoryRuntimeDeps } from "../../../support/runtime-support";
 import { loadAuthoritativeInventoryStockSnapshot } from "../../../support/runtime-support/stock-snapshot";
 import { type InventoryHoldId, InventoryDomainError } from "../../../support/runtime-support/common";
@@ -227,5 +228,16 @@ export function createInventoryListingAuthority(
       return [...affected];
     },
   });
-  return { source, ...writer };
+  return {
+    source,
+    ...writer,
+    recover: createListingAuthorityRecovery({
+      db: deps.db,
+      owner: "inventory",
+      sources: [source],
+      consumer,
+      resume: writer.resume,
+      resumeWrite: writer.resumeWrite,
+    }),
+  };
 }
