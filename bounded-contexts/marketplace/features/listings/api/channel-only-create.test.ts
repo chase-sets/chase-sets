@@ -183,6 +183,13 @@ async function nativeFixture() {
 }
 
 describe("current native enable authority", () => {
+  it("rejects the audit-only seed shape without inventing a principal or writing a Listing", async () => {
+    const f = fixture();
+    const context = { tenantId: f.context.tenantId, audit: f.context.audit };
+    await expect(f.services.createListing(f.input, context)).rejects.toThrow("Trusted Listing authenticated principal");
+    expect(await f.eventStore.readStream({ streamId: "marketplace.listing-lst_test" })).toEqual([]);
+  });
+
   it("completes Auth exactly once for creation and the largest native-enable participant set", async () => {
     const f = await nativeFixture();
     await f.services.setNativeListingVisibility(f.enable, f.context);

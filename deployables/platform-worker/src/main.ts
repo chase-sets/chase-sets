@@ -301,13 +301,14 @@ const draftListingCreator: InventoryDraftListingCreator = async (params, context
   return createDraft(params, context);
 };
 
+const listingSourceHostPorts = createListingSourceHostPorts(() => runtime?.services, pools);
 const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceLabelPostageActivation) =>
   createWorkerHost(workerContextRegistry, "platform-worker", {
     pools,
     runtimeProfile: config.runtimeProfile,
     runtimeLifecycle,
     hostPorts: {
-      ...createListingSourceHostPorts(() => runtime?.services, pools),
+      ...listingSourceHostPorts,
       listingCurrentOwnerFacts: {
         seller: (accountId) => {
           const identity = runtime?.services.identity as ReturnType<typeof identityModule.createServices> | undefined;
@@ -351,7 +352,7 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
         ? {
             channelSaleRecorder: createPlatformChannelSaleRecorder(
               pools.inventory,
-              createListingSourceHostPorts(() => runtime?.services, pools)["inventory.listingAuthorityConsumer"],
+              listingSourceHostPorts["inventory.listingAuthorityConsumer"],
             ),
           }
         : {}),
