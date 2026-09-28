@@ -142,6 +142,33 @@ function fixture(owner: "marketplace" | "ordering" = "marketplace") {
 }
 
 describe("synthetic session protocol conformance, not actual owner proof", () => {
+  it.each([
+    "infrastructure/platform-runtime/listing-authority-conformance.ts#readStream#1",
+    "infrastructure/platform-runtime/listing-authority-conformance.ts#readStream#2",
+  ])("synthetic effect census %s rejects an incorrect count", async (siteId) => {
+    const cases = new Map<string, () => Promise<void>>();
+    listingAuthoritySessionConformance(
+      (name, run) => cases.set(name, run),
+      async () => {
+        const f = fixture();
+        const read = f.consumerStore.readStream;
+        vi.spyOn(f.consumerStore, "readStream").mockImplementation(async (input) => {
+          const events = await read(input);
+          if (input.streamId.includes("listing-authority")) return events;
+          return siteId.endsWith("#1") ? [{ synthetic: true } as never] : [];
+        });
+        return f;
+      },
+    );
+    const name = siteId.endsWith("#1")
+      ? "session revoke rejects a retained append and atomically leaves no business or request success"
+      : "unchanged session commits once and commit-wins preserves business and request success";
+    await expect(cases.get(name)!()).rejects.toMatchObject({
+      code: "ERR_ASSERTION",
+      actual: siteId.endsWith("#1") ? 1 : 0,
+      expected: siteId.endsWith("#1") ? 0 : 1,
+    });
+  });
   for (const owner of ["marketplace", "ordering"] as const)
     describe(owner, () => listingAuthoritySessionConformance(it, async () => fixture(owner)));
 

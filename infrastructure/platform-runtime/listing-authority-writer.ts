@@ -186,8 +186,9 @@ export function createListingAuthorityWriter(
   }
 
   const eventStore: EventStore = {
-    readAll: raw.readAll,
-    readStream: raw.readStream,
+    readAll: (input) => raw.readAll(input),
+    // @stream-read-contract infrastructure/platform-runtime/listing-authority-writer.test.ts
+    readStream: (input) => raw.readStream(input),
     appendToStream: async (input) => {
       if (input.expectedFirstEventId !== undefined)
         throw new Error("Stream opening guards require atomic appendToStreams.");

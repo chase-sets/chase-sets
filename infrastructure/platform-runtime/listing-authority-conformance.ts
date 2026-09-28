@@ -127,6 +127,7 @@ export function listingAuthoritySessionConformance(
     assert.equal((await f.restart().fence.inspect(operation)).status, "aborted");
     await assert.rejects(f.consumerStore.appendToStreams!([...terminal, ...business]));
     for (const append of business)
+      // @stream-read-contract infrastructure/platform-runtime/listing-authority-session.test.ts
       assert.equal((await f.consumerStore.readStream({ streamId: append.streamId })).length, 0);
     assert.equal((await f.fence.inspect(operation)).status, "aborted");
   });
@@ -138,6 +139,7 @@ export function listingAuthoritySessionConformance(
     await f.invalidate();
     assert.equal((await f.restart().fence.inspect(operation)).status, "committed");
     for (const append of business)
+      // @stream-read-contract infrastructure/platform-runtime/listing-authority-session.test.ts
       assert.equal((await f.consumerStore.readStream({ streamId: append.streamId })).length, 1);
     await assert.rejects(f.consumerStore.appendToStreams!([...terminal, ...business]));
     await f.fence.settle(operation);

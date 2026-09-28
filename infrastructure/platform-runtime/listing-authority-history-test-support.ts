@@ -114,6 +114,7 @@ export async function historyFixture(
         },
       }),
       validate: async (operation) => {
+        // @stream-read-contract infrastructure/platform-runtime/listing-authority-history.test.ts
         if (
           (!options.multipleResources || operation.subject.catalogItemId === "cat_synthetic_history") &&
           (await sourceMemory.eventStore.readStream({ streamId: sourceEffectStream })).length > baseline

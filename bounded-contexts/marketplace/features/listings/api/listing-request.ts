@@ -58,6 +58,7 @@ export async function readListingRequestOperation(
     context: EventStoreContext;
   }>,
 ): Promise<ListingAuthorityOperation | null> {
+  // @stream-read-contract bounded-contexts/marketplace/features/listings/api/listing-request.test.ts
   const events = await eventStore.readStream({
     streamId: listingRequestStreamId(input.accountId, input.idempotencyKey),
     limit: 2,
@@ -103,6 +104,7 @@ export async function prepareListingRequest<Result extends JsonObject>(
   const streamId = listingRequestStreamId(input.accountId, input.idempotencyKey);
   const fingerprint = listingRequestFingerprint(input.command, input.context);
   async function replay(): Promise<Result | null> {
+    // @stream-read-contract bounded-contexts/marketplace/features/listings/api/listing-request.test.ts
     const events = await eventStore.readStream({ streamId, limit: 2 });
     if (events.length === 0) return null;
     const event = events[0]!;

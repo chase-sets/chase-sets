@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { EventStoreContext, ReadStreamInput } from "@chase-sets/event-core/storage";
 import { createListingAuthorityParticipant } from "./listing-authority-participant";
 import { createListingAuthorityFence } from "./listing-authority-fence";
 import { createListingAuthorityWriter } from "./listing-authority-writer";
@@ -40,6 +40,51 @@ function fixture() {
 }
 
 describe("source authority writer", () => {
+  it("retains a source CAS conflict until the same mutation is authoritatively reconciled", async () => {
+    const f = fixture();
+    const prepare = vi.fn(async () => [f.input]);
+    const input = {
+      resources: ["synthetic-item"],
+      mutationId: "synthetic-concurrent-invalidation",
+      command: { reason: "synthetic-sale" },
+      context: f.context,
+      prepare,
+    };
+    const results = await Promise.allSettled([f.source.mutate(input), f.source.mutate(input)]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")).toEqual([
+      expect.objectContaining({ reason: expect.objectContaining({ code: "concurrency_conflict" }) }),
+    ]);
+    await expect(f.source.mutate(input)).resolves.toBeUndefined();
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(await f.eventStore.readStream({ streamId: f.input.streamId })).toHaveLength(1);
+    await expect(f.source.mutate({ ...input, command: { reason: "different-sale" } })).rejects.toThrow();
+    expect(await f.eventStore.readStream({ streamId: f.input.streamId })).toHaveLength(1);
+  });
+  it("infrastructure/platform-runtime/listing-authority-writer.ts#readStream#1", async () => {
+    const f = fixture();
+    const input = { streamId: "synthetic-reader", fromVersion: 3, limit: 2 };
+    const raw = {
+      ...f.eventStore,
+      async readStream(received: ReadStreamInput) {
+        expect(this).toBe(raw);
+        expect(received).toBe(input);
+        return [];
+      },
+      async readAll() {
+        expect(this).toBe(raw);
+        return [];
+      },
+    };
+    const writer = createListingAuthorityWriter({
+      eventStore: raw,
+      source: f.source,
+      owner: "inventory",
+      resources: async () => [],
+    });
+    await expect(writer.eventStore.readStream(input)).resolves.toEqual([]);
+    await expect(writer.eventStore.readAll()).resolves.toEqual([]);
+  });
   it("preserves append attribution through the durable source mutation", async () => {
     const f = fixture();
     const append = vi.spyOn(f.eventStore, "appendToStreams");

@@ -7,6 +7,7 @@ import {
   ListingRequestConflictError,
   prepareListingRequest,
   listingRequestStreamId,
+  readListingRequestOperation,
 } from "./listing-request";
 import { createListingAuthorityFence } from "@chase-sets/platform-runtime/listing-authority-fence";
 import { createListingAuthorityParticipant } from "@chase-sets/platform-runtime/listing-authority-participant";
@@ -15,6 +16,43 @@ const context: EventStoreContext = {
   tenantId: "tnt_test" as never,
   audit: { forAccountId: "acc_test" as never, performedByUserId: "usr_test" as never },
 };
+
+describe.each([
+  "bounded-contexts/marketplace/features/listings/api/listing-request.ts#readStream#1",
+  "bounded-contexts/marketplace/features/listings/api/listing-request.ts#readStream#2",
+])("singleton request contract %s", (siteId) => {
+  it("accepts absence and one matching completion, but rejects a second event", async () => {
+    const f = await authorityFixture();
+    const read = () =>
+      siteId.endsWith("#1")
+        ? readListingRequestOperation(f.eventStore, f.input)
+        : prepareListingRequest(f.eventStore, f.input);
+    await expect(read()).resolves.toBeDefined();
+    await f.eventStore.appendToStreams!(f.prepared.appends);
+    if (siteId.endsWith("#1")) await expect(read()).resolves.toEqual(f.operation);
+    else await expect(read()).resolves.toMatchObject({ result: f.prepared.result, appends: [] });
+    const streamId = listingRequestStreamId(f.input.accountId, f.input.idempotencyKey);
+    const [completion] = await f.eventStore.readStream({ streamId });
+    await f.eventStore.appendToStream({
+      streamId,
+      expectedVersion: 1,
+      context,
+      events: [{ eventType: completion!.eventType, payload: completion!.payload }],
+    });
+    await expect(read()).rejects.toBeInstanceOf(ListingRequestConflictError);
+  });
+
+  it("rejects a different command even when the request has only one completion", async () => {
+    const f = fixture();
+    await f.execute(f.input);
+    const input = { ...f.input, command: { ...f.input.command, priceAmount: "11.00" } };
+    await expect(
+      siteId.endsWith("#1")
+        ? readListingRequestOperation(f.eventStore, input)
+        : prepareListingRequest(f.eventStore, input),
+    ).rejects.toBeInstanceOf(ListingRequestConflictError);
+  });
+});
 
 function fixture() {
   const memory = createInMemoryEventStore();

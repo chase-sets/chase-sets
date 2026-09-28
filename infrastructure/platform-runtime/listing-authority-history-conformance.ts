@@ -231,6 +231,7 @@ export function listingAuthorityHistoryConformance(
             );
             if (effectCount)
               for (const effect of effects)
+                // @stream-read-contract infrastructure/platform-runtime/listing-authority-history.test.ts
                 assert.equal((await f.consumerStore.readStream({ streamId: effect.streamId })).length, 0);
           }
         });

@@ -183,6 +183,23 @@ async function nativeFixture() {
 }
 
 describe("current native enable authority", () => {
+  it("bounded-contexts/marketplace/features/listings/api/runtime.ts#readStream#1", async () => {
+    const f = fixture();
+    const created = await f.services.createListing(f.input, f.context);
+    await f.services.updateListingQuantityCap(
+      {
+        accountId: "acc_seller",
+        listingId: "lst_test",
+        quantityCap: 1,
+        expectedVersion: 1,
+        idempotencyKey: "synthetic-after-creation",
+      },
+      f.context,
+    );
+    await expect(f.services.createListing(f.input, f.context)).resolves.toEqual(created);
+    await expect(f.services.createListing({ ...f.input, priceAmount: "11.00" }, f.context)).rejects.toThrow();
+    expect(await f.eventStore.readStream({ streamId: "marketplace.listing-lst_test" })).toHaveLength(2);
+  });
   it("rejects the audit-only seed shape without inventing a principal or writing a Listing", async () => {
     const f = fixture();
     const context = { tenantId: f.context.tenantId, audit: f.context.audit };

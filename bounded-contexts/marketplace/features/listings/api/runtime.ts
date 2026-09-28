@@ -1573,6 +1573,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     streamId: string,
     requestFingerprint: string | undefined,
   ): Promise<MarketplaceNativeListingCreationResult | MarketplaceChannelOnlyListingCreationResult> {
+    // @stream-read-contract bounded-contexts/marketplace/features/listings/api/channel-only-create.test.ts
     const [created] = await deps.eventStore.readStream({ streamId, limit: 1 });
     assert(
       requestFingerprint &&
