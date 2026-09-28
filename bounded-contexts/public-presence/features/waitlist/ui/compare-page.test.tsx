@@ -44,6 +44,19 @@ afterEach(() => {
 });
 
 describe("ComparePage (#4087)", () => {
+  it.each(["tcgplayer", "ebay"] as const)("renders undated availability and FAQ copy for %s", (competitor) => {
+    stubPromoBarFetch();
+    const { container } = render(<ComparePage competitor={competitor} feeSchedule={ratifiedSchedule} />);
+    expect(container.innerHTML).not.toContain("September 1, 2026");
+    expect(container.innerHTML).not.toContain("late July 2026");
+    expect(container.querySelector('[data-public-presence-section="compare_table"]')?.textContent).toMatch(
+      /waitlist.*numbered beta invite waves.*open signup/i,
+    );
+    expect(
+      buildCompareFaqEntries(competitor).find(({ question }) => question === "Is Chase Sets live yet?")?.answer,
+    ).toMatch(/waitlist.*numbered beta invite waves.*open signup/i);
+  });
+
   it("renders the side-by-side table with live Chase Sets numbers and dated TCGplayer numbers", () => {
     stubPromoBarFetch();
     const { container } = render(<ComparePage competitor="tcgplayer" feeSchedule={ratifiedSchedule} />);
@@ -63,7 +76,7 @@ describe("ComparePage (#4087)", () => {
     expect(container.querySelector('a[href="/compare/ebay"]')).not.toBeNull();
     expect(container.querySelector('a[href="/founders"]')).not.toBeNull();
     expect(container.textContent).toContain("Where TCGplayer is ahead today");
-    expect(container.textContent).toContain("September 1, 2026");
+    expect(container.textContent).toContain("open signup for everyone");
   });
 
   it("stays truthful without a live schedule: no invented Chase Sets numbers, calculator hidden", () => {

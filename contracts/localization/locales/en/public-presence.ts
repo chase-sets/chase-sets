@@ -84,7 +84,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.appRoot.unknownError": "Unknown error",
   "publicPresence.brand": "Chase Sets",
   "publicPresence.compare.chaseSets.availability":
-    "Prelaunch. Beta invite waves begin {betaWavesWindow}; signup opens to everyone on {publicLaunchDate}.",
+    "Prelaunch. Join the waitlist for numbered beta invite waves, followed by open signup for everyone.",
   "publicPresence.compare.chaseSets.coverage":
     "Five games at launch: Magic: The Gathering, Pokemon (English and Japanese), Yu-Gi-Oh!, Disney Lorcana, and One Piece. Curated catalogs cover raw and graded cards.",
   "publicPresence.compare.chaseSets.feeLock":
@@ -177,7 +177,7 @@ export const publicPresenceEnglishTranslations = {
     "Listings created during beta keep a 0% seller fee until sold. Chase Sets also does not pass separate seller payment-processing fees to sellers. Buyers pay only payment processing at cost, shown before payment: {checkoutCardRate} + {checkoutCardFixed} by card, {checkoutBankRate} by bank account, $0.00 with Chase Sets balance.",
   "publicPresence.faq.fees.question": "What do sellers pay during beta?",
   "publicPresence.faq.launch.answer":
-    "Not yet. Chase Sets opens to everyone on {publicLaunchDate}, and beta invite waves begin {betaWavesWindow}. Join the waitlist for an invite before launch and founders offer eligibility.",
+    "Not yet. Join the waitlist first. Numbered beta invite waves come next, followed by open signup for everyone. Joining the waitlist gives you a chance at an invite before launch and founders offer eligibility. No launch or wave dates are promised.",
   "publicPresence.faq.launch.question": "Is Chase Sets live yet?",
   "publicPresence.faq.safety.answer":
     "Before you pay, checkout shows item details, seller profile, shipping, and return options. After you buy, support reviews tracking, payment status, and order details.",
@@ -286,17 +286,19 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.heroImageAlt": "Trading cards being sorted, priced, and prepared for shipment.",
   "publicPresence.home.launchTimeline.action": "Get in line for a beta wave",
   "publicPresence.home.launchTimeline.description":
-    "Chase Sets opens to everyone on {publicLaunchDate}. Numbered beta invite waves begin {betaWavesWindow}, and invites go to the waitlist first.",
-  "publicPresence.home.launchTimeline.step.founders.badge": "During beta",
-  "publicPresence.home.launchTimeline.step.founders.title": "Founders window runs through beta",
-  "publicPresence.home.launchTimeline.step.founders.description":
+    "Join the waitlist first. Numbered beta invite waves come next, followed by open signup for everyone. No launch or wave dates are promised.",
+  "publicPresence.home.launchTimeline.step.waitlist.badge": "First",
+  "publicPresence.home.launchTimeline.step.waitlist.title": "Join the waitlist",
+  "publicPresence.home.launchTimeline.step.waitlist.description":
+    "Get in line for a beta invite. Invites go to the waitlist first; joining does not guarantee a place in a wave.",
+  "publicPresence.home.launchTimeline.step.waves.founders":
     "Beta access starts your 60-day 0% fee-lock window, and your first listing or offer claims one of 500 numbered founder badges while numbers remain.",
-  "publicPresence.home.launchTimeline.step.launch.badge": "{publicLaunchDate}",
+  "publicPresence.home.launchTimeline.step.launch.badge": "After beta",
   "publicPresence.home.launchTimeline.step.launch.title": "Public launch: open signup",
   "publicPresence.home.launchTimeline.step.launch.description":
-    "On {publicLaunchDate}, signup opens to everyone — no invite needed. Waiting until then means no beta wave and a later shot at the founder numbers.",
-  "publicPresence.home.launchTimeline.step.waves.badge": "Beta invite waves",
-  "publicPresence.home.launchTimeline.step.waves.title": "Invites begin {betaWavesWindow}",
+    "After beta, signup opens to everyone — no invite needed. Waiting until then means no beta wave and a later shot at the founder numbers.",
+  "publicPresence.home.launchTimeline.step.waves.badge": "Next",
+  "publicPresence.home.launchTimeline.step.waves.title": "Numbered beta invite waves",
   "publicPresence.home.launchTimeline.step.waves.description":
     "Wave 1: {waveOneInviteCount} invites. Wave 2: {waveTwoInviteCount} invites. Wave 3: {waveThreeInviteCount} invites. Each wave opens only after marketplace checks pass.",
   "publicPresence.home.launchTimeline.step.waves.gates":

@@ -42,10 +42,10 @@ const fontStack = `'IBM Plex Sans', 'Segoe UI', Arial, sans-serif`;
  * Card copy stays inside shipped public claims: game names and the
  * "Full curated catalogs. Raw and graded." roster line mirror the landing
  * roster (contracts/localization/locales/en/public-presence.ts), the founders
- * card mirrors the published /founders offer terms, and the launch date is
- * the one hard public date (launch-config.ts). No traction numbers.
+ * card mirrors the published /founders offer terms. Access follows the
+ * waitlist, beta waves, then open signup. No dates or traction numbers.
  */
-const launchFooter = "Public launch · September 1, 2026";
+const launchFooter = "Waitlist · Beta waves · Open signup";
 const rosterSubtitle = "Full curated catalog · Raw and graded";
 
 const cards = [
