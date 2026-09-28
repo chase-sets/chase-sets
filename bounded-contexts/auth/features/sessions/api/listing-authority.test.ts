@@ -33,7 +33,7 @@ describe("Auth session invalidators", () => {
       return;
     }
     // An effective receipt is only safe if every retained executor has lost the terminal.
-    await expect(f.consumerStore.appendToStreams!([terminal, ...effects])).rejects.toThrow();
+    await expect(f.consumerStore.appendToStreams!([...terminal, ...effects])).rejects.toThrow();
     expect((await f.fence.inspect(operation)).status).toBe("aborted");
     for (const effect of effects)
       expect(await f.consumerStore.readStream({ streamId: effect.streamId })).toHaveLength(0);
@@ -76,7 +76,7 @@ describe("Auth session invalidators", () => {
           });
       }
       expect((await f.fence.inspect(operation)).status).toBe("aborted");
-      await expect(f.consumerStore.appendToStreams!([append])).rejects.toThrow();
+      await expect(f.consumerStore.appendToStreams!(append)).rejects.toThrow();
       const later = await f.fence.open({ ...f.input, requestId: "synthetic-stale-carrier" }, f.context);
       await expect(f.prepareAuthorities(later, f.context)).rejects.toThrow();
     });
@@ -109,7 +109,7 @@ describe("Auth session invalidators", () => {
       const append = await f.fence.prepareCommit(operation, grants, {});
       vi.spyOn(Date, "now").mockReturnValue(Date.parse(expiry) + 1);
       try {
-        await expect(f.consumerStore.appendToStreams!([append])).rejects.toThrow();
+        await expect(f.consumerStore.appendToStreams!(append)).rejects.toThrow();
         expect((await f.source.inspect(operation))?.status).toBe("reserved");
         expect((await f.sessions.getSessionState(f.sessionId))?.status).toBe("active");
       } finally {
