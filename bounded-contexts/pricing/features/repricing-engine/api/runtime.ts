@@ -543,19 +543,8 @@ async function executeAdmittedProductRound(
     message?: string;
   }>;
   const outcomesByListingId = new Map<string, CommandOutcome>();
-  const commandsByAccount = new Map<
-    string,
-    Array<
-      Readonly<{
-        listingId: string;
-        priceAmount: string;
-        priceCurrencyCode: string;
-        expectedVersion: number;
-        minimumChange: RepricingListingEvaluation["tolerance"];
-        idempotencyKey: string;
-      }>
-    >
-  >();
+  type PriceUpdate = Parameters<RepricingMarketplaceGateway["applyBulkListingPriceUpdates"]>[0]["updates"][number];
+  const commandsByAccount = new Map<string, PriceUpdate[]>();
   const preconditionFailedPolicyIds = new Set<string>();
   const resumeEligibleListingIds = new Set<string>();
   const resumeWaitingListingIds = new Set<string>();
@@ -563,7 +552,16 @@ async function executeAdmittedProductRound(
   const frozenUntil = await admission.once(claim, "freeze", async (db) =>
     activeProductFreeze(await readProductRoundState(db, job.payload), new Date().toISOString()),
   );
-  for (const plan of plans) {
+  type Dispatch = {
+    commands: Array<[string, PriceUpdate[]]>;
+    outcomes: CommandOutcome[];
+    preconditionFailed: string[];
+    resumeEligible: string[];
+    resumeWaiting: string[];
+    repauseCooldown: string[];
+  };
+  const priorDispatch = await admission.read<Dispatch>(claim, "dispatch");
+  for (const plan of priorDispatch ? [] : plans) {
     if (frozenUntil) {
       continue;
     }
@@ -634,6 +632,25 @@ async function executeAdmittedProductRound(
     );
     commandsByAccount.set(plan.first.listing.sellerAccountId, accountCommands);
   }
+  // Recovery must not reinterpret an already-sent command after policy/projection changes.
+  // The request identities, full bodies and trace admission decisions belong to this round.
+  const dispatch =
+    priorDispatch ??
+    (await admission.once<Dispatch>(claim, "dispatch", async () => ({
+      commands: [...commandsByAccount],
+      outcomes: [...outcomesByListingId.values()],
+      preconditionFailed: [...preconditionFailedPolicyIds],
+      resumeEligible: [...resumeEligibleListingIds],
+      resumeWaiting: [...resumeWaitingListingIds],
+      repauseCooldown: [...repauseCooldownListingIds],
+    })));
+  commandsByAccount.clear();
+  dispatch.commands.forEach(([accountId, commands]) => commandsByAccount.set(accountId, commands));
+  dispatch.outcomes.forEach((outcome) => outcomesByListingId.set(outcome.listingId, outcome));
+  dispatch.preconditionFailed.forEach((id) => preconditionFailedPolicyIds.add(id));
+  dispatch.resumeEligible.forEach((id) => resumeEligibleListingIds.add(id));
+  dispatch.resumeWaiting.forEach((id) => resumeWaitingListingIds.add(id));
+  dispatch.repauseCooldown.forEach((id) => repauseCooldownListingIds.add(id));
   // Exactly one command-path call per account in the simultaneous product
   // round: Marketplace therefore opens one terms session and applies the
   // whole round through its existing chunked append lane.

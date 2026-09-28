@@ -18,6 +18,7 @@ import { createPricingServices, type PricingHostPorts } from "../../../support/r
 import { fixture } from "./listing-authority-fixture";
 import { createPricingProductRoundAuthority } from "../api/listing-authority-product-state";
 import { createPricingEvaluationBudget } from "../api/listing-authority-sql";
+import { pricingAuthorityDigest } from "../api/listing-authority-resources";
 import { readPricingAuthorityInputs } from "../api/listing-authority-inputs";
 import { repricingEnginePolicy, decodeRepricingEnginePolicyValue } from "../domain/policy";
 import { buildPricingMarketplaceInputProjectionHandlers } from "../../recommendations/integrations/source/source-projection";
@@ -240,118 +241,150 @@ describe("Pricing writer closure through production composition", () => {
     ).toEqual([{ writer: "activation" }, { writer: "event" }, { writer: "product" }]);
   });
 
-  it("reclaims the same round after gateway success, retains failed admission without TTL, and records recovery", async () => {
-    const f = await setup();
-    // These setup evaluations have never granted a consumer. Isolate the interim worker budget path.
-    await pools.pricing.query("DELETE FROM pricing_evaluation_budget_admissions");
-    await pools.pricing.query("DELETE FROM pricing_repricing_daily_change_budgets");
-    let crash = true;
-    const failingPool: PgTransactionalPool = {
-      query: pools.pricing.query.bind(pools.pricing),
-      connect: async () => {
-        const client = await pools.pricing.connect();
-        return {
-          release: client.release.bind(client),
-          query: async <Row>(sql: string, values?: readonly unknown[]) => {
-            if (crash && sql.includes("SET same_direction_rounds")) {
-              crash = false;
-              throw new Error("Synthetic crash after gateway before direction");
-            }
-            return client.query<Row>(sql, values);
+  it.each(["direction", "finalization"] as const)(
+    "reclaims after a %s crash without TTL release, duplicate budget or changed command meaning",
+    async (phase) => {
+      const f = await setup();
+      // These setup evaluations have never granted a consumer. Isolate the interim worker budget path.
+      await pools.pricing.query("DELETE FROM pricing_evaluation_budget_admissions");
+      await pools.pricing.query("DELETE FROM pricing_repricing_daily_change_budgets");
+      let crash = true;
+      const failingPool: PgTransactionalPool = {
+        query: pools.pricing.query.bind(pools.pricing),
+        connect: async () => {
+          const client = await pools.pricing.connect();
+          return {
+            release: client.release.bind(client),
+            query: async <Row>(sql: string, values?: readonly unknown[]) => {
+              if (
+                crash &&
+                (phase === "direction"
+                  ? sql.includes("SET same_direction_rounds")
+                  : sql.includes("SET checkpoints") &&
+                    Object.hasOwn(JSON.parse(String(values?.[1] ?? "{}")), "finalization"))
+              ) {
+                crash = false;
+                throw new Error("Synthetic crash after gateway before direction");
+              }
+              return client.query<Row>(sql, values);
+            },
+          };
+        },
+      };
+      const first = createPricingServices(failingPool, f.ports);
+      const enqueue = (eventId: string) =>
+        first.repricingEngine.enqueueMarketPriceSignal({
+          catalogItemId: f.request.catalogItemId,
+          productId: f.request.productId,
+          amount: "12.00",
+          previousAmount: "11.00",
+          context: f.context,
+          trigger: {
+            kind: "market-price-estimated",
+            eventId,
+            signalVersion: "1",
+            occurredAt: new Date().toISOString(),
           },
-        };
-      },
-    };
-    const first = createPricingServices(failingPool, f.ports);
-    const enqueue = (eventId: string) =>
-      first.repricingEngine.enqueueMarketPriceSignal({
-        catalogItemId: f.request.catalogItemId,
-        productId: f.request.productId,
-        amount: "12.00",
-        previousAmount: "11.00",
-        context: f.context,
-        trigger: { kind: "market-price-estimated", eventId, signalVersion: "1", occurredAt: new Date().toISOString() },
-      });
-    let calls = 0;
-    const run = (services: typeof first, claimOwnerId: string) =>
-      services.repricingEngine.processNextEvaluationJob({
-        claimOwnerId,
-        claimTtlMs: 30_000,
-        marketplaceGatewayForAccount: () => ({
-          pauseListing: async () => {
-            throw new Error("Unexpected pause");
-          },
-          publishListing: async () => {
-            throw new Error("Unexpected publish");
-          },
-          applyBulkListingPriceUpdates: async ({ updates }) => {
-            calls++;
-            return { items: updates.map(({ listingId }) => ({ listingId, outcome: "applied" as const })) };
-          },
-        }),
-      });
-    await enqueue("synthetic-crashed-round");
-    await expect(run(first, "synthetic-before-crash")).rejects.toThrow("unresolved");
-    expect(calls).toBe(1);
-    const pending = await pools.pricing.query<{ payload: { intent: { mutationId: string } } }>(
-      "SELECT payload FROM event_store_events WHERE event_type = 'pricing.listing-authority.invalidation-started' AND payload->'intent'->>'mutationId' LIKE 'direction-%'",
-    );
-    expect(pending.rows).toHaveLength(1);
-    const mutationId = pending.rows[0]!.payload.intent.mutationId;
-    const before = (await pools.pricing.query("SELECT changes_reserved FROM pricing_repricing_daily_change_budgets"))
-      .rows;
-    expect(before).toEqual([{ changes_reserved: 1 }]);
-    expect((await pools.pricing.query("SELECT * FROM pricing_evaluation_budget_admissions")).rows).toHaveLength(0);
-    await pools.pricing.query(
-      "UPDATE pricing_repricing_round_admissions SET admitted_at = now() - interval '10 years'",
-    );
-    await enqueue("synthetic-contending-round");
-    const restarted = createPricingServices(pools.pricing, f.ports);
-    expect(await run(restarted, "synthetic-contender")).toBe(0);
-    for (let attempt = 0; attempt < 12; attempt++) {
-      await pools.pricing.query(
-        "UPDATE pricing_repricing_evaluation_jobs SET next_eligible_at = now() WHERE status = 'queued'",
+        });
+      let calls = 0;
+      const run = (services: typeof first, claimOwnerId: string) =>
+        services.repricingEngine.processNextEvaluationJob({
+          claimOwnerId,
+          claimTtlMs: 30_000,
+          marketplaceGatewayForAccount: () => ({
+            pauseListing: async () => {
+              throw new Error("Unexpected pause");
+            },
+            publishListing: async () => {
+              throw new Error("Unexpected publish");
+            },
+            applyBulkListingPriceUpdates: async ({ updates }) => {
+              calls++;
+              return { items: updates.map(({ listingId }) => ({ listingId, outcome: "applied" as const })) };
+            },
+          }),
+        });
+      await enqueue("synthetic-crashed-round");
+      await expect(run(first, "synthetic-before-crash")).rejects.toThrow(
+        phase === "direction" ? "unresolved" : "Synthetic crash",
       );
-      expect(await run(restarted, `synthetic-contender-${attempt}`)).toBe(0);
-    }
-    expect(
-      (
+      expect(calls).toBe(1);
+      const pending = await pools.pricing.query<{ payload: { intent: { mutationId: string } } }>(
+        "SELECT payload FROM event_store_events WHERE event_type = 'pricing.listing-authority.invalidation-started' AND payload->'intent'->>'mutationId' LIKE 'direction-%'",
+      );
+      expect(pending.rows).toHaveLength(phase === "direction" ? 1 : 0);
+      const mutationId = `direction-${pricingAuthorityDigest([f.request.catalogItemId, f.request.productId, "repricing-evaluation:synthetic-crashed-round"])}`;
+      if (phase === "direction") expect(pending.rows[0]!.payload.intent.mutationId).toBe(mutationId);
+      else {
+        await f.services.repricingPolicies.executeOwnedRepricingPolicy({
+          policyId: f.policyId,
+          accountId: f.context.audit.forAccountId,
+          context: f.context,
+          command: { type: "PauseRepricingPolicy", pausedAt: new Date().toISOString() },
+        });
+        const projectors = buildRepricingPolicyProjectionHandlers(pools.pricing);
+        for (const event of await f.sourceStore.readStream({
+          streamId: f.services.repricingPolicies.streamIdForPolicy(f.policyId),
+        }))
+          await projectors[event.eventType]?.(toTransportEvent(event));
+      }
+      const before = (await pools.pricing.query("SELECT changes_reserved FROM pricing_repricing_daily_change_budgets"))
+        .rows;
+      expect(before).toEqual([{ changes_reserved: 1 }]);
+      expect((await pools.pricing.query("SELECT * FROM pricing_evaluation_budget_admissions")).rows).toHaveLength(0);
+      await pools.pricing.query(
+        "UPDATE pricing_repricing_round_admissions SET admitted_at = now() - interval '10 years'",
+      );
+      await enqueue("synthetic-contending-round");
+      const restarted = createPricingServices(pools.pricing, f.ports);
+      expect(await run(restarted, "synthetic-contender")).toBe(0);
+      for (let attempt = 0; attempt < 12; attempt++) {
         await pools.pricing.query(
-          "SELECT status, attempt_count FROM pricing_repricing_evaluation_jobs WHERE job_id = 'repricing-evaluation:synthetic-contending-round'",
-        )
-      ).rows,
-    ).toEqual([{ status: "queued", attempt_count: 0 }]);
-    expect(calls).toBe(1);
-    expect(
-      (await pools.pricing.query("SELECT changes_reserved FROM pricing_repricing_daily_change_budgets")).rows,
-    ).toEqual(before);
-    expect((await pools.pricing.query("SELECT status FROM pricing_repricing_round_admissions")).rows).toEqual([
-      { status: "active" },
-    ]);
-    expect((await pools.pricing.query("SELECT * FROM pricing_repricing_product_round_cooldowns")).rows).toHaveLength(0);
-    expect(
-      await restarted.repricingEngine.resumeFailedRound(
-        "repricing-evaluation:synthetic-crashed-round",
-        "Synthetic operator-recorded recovery",
-      ),
-    ).toBe(true);
-    expect(await run(restarted, "synthetic-resumed-round")).toBe(1);
-    expect(calls).toBe(1);
-    expect(
-      (
-        await pools.pricing.query(
-          "SELECT mutation_id FROM pricing_authority_sql_mutations WHERE mutation_id LIKE 'direction-%'",
-        )
-      ).rows,
-    ).toEqual([{ mutation_id: mutationId }]);
-    expect(
-      (await pools.pricing.query("SELECT same_direction_rounds FROM pricing_repricing_product_round_cooldowns")).rows,
-    ).toEqual([{ same_direction_rounds: 1 }]);
-    expect(
-      (await pools.pricing.query("SELECT changes_reserved FROM pricing_repricing_daily_change_budgets")).rows,
-    ).toEqual(before);
-    expect(
-      (await pools.pricing.query("SELECT status, closure_reason FROM pricing_repricing_round_admissions")).rows,
-    ).toEqual([{ status: "completed", closure_reason: "Synthetic operator-recorded recovery" }]);
-  });
+          "UPDATE pricing_repricing_evaluation_jobs SET next_eligible_at = now() WHERE status = 'queued'",
+        );
+        expect(await run(restarted, `synthetic-contender-${attempt}`)).toBe(0);
+      }
+      expect(
+        (
+          await pools.pricing.query(
+            "SELECT status, attempt_count FROM pricing_repricing_evaluation_jobs WHERE job_id = 'repricing-evaluation:synthetic-contending-round'",
+          )
+        ).rows,
+      ).toEqual([{ status: "queued", attempt_count: 0 }]);
+      expect(calls).toBe(1);
+      expect(
+        (await pools.pricing.query("SELECT changes_reserved FROM pricing_repricing_daily_change_budgets")).rows,
+      ).toEqual(before);
+      expect((await pools.pricing.query("SELECT status FROM pricing_repricing_round_admissions")).rows).toEqual([
+        { status: "active" },
+      ]);
+      expect((await pools.pricing.query("SELECT * FROM pricing_repricing_product_round_cooldowns")).rows).toHaveLength(
+        0,
+      );
+      expect(
+        await restarted.repricingEngine.resumeFailedRound(
+          "repricing-evaluation:synthetic-crashed-round",
+          "Synthetic operator-recorded recovery",
+        ),
+      ).toBe(true);
+      expect(await run(restarted, "synthetic-resumed-round")).toBe(1);
+      expect(calls).toBe(1);
+      expect(
+        (
+          await pools.pricing.query(
+            "SELECT mutation_id FROM pricing_authority_sql_mutations WHERE mutation_id LIKE 'direction-%'",
+          )
+        ).rows,
+      ).toEqual([{ mutation_id: mutationId }]);
+      expect(
+        (await pools.pricing.query("SELECT same_direction_rounds FROM pricing_repricing_product_round_cooldowns")).rows,
+      ).toEqual([{ same_direction_rounds: 1 }]);
+      expect(
+        (await pools.pricing.query("SELECT changes_reserved FROM pricing_repricing_daily_change_budgets")).rows,
+      ).toEqual(before);
+      expect(
+        (await pools.pricing.query("SELECT status, closure_reason FROM pricing_repricing_round_admissions")).rows,
+      ).toEqual([{ status: "completed", closure_reason: "Synthetic operator-recorded recovery" }]);
+    },
+  );
 });
