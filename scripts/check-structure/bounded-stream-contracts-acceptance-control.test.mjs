@@ -68,6 +68,12 @@ const boundedSites = [
     limit: "2",
   })),
   {
+    id: "bounded-contexts/identity/features/access-hub/api/listing-current-facts.ts#readStream#1",
+    pointer: "bounded-contexts/identity/features/access-hub/api/listing-current-facts.test.ts",
+    consumption: "singleton",
+    limit: "2",
+  },
+  {
     id: "bounded-contexts/marketplace/features/listings/api/runtime.ts#readStream#1",
     pointer: "bounded-contexts/marketplace/features/listings/api/channel-only-create.test.ts",
     consumption: "creation",
@@ -147,6 +153,23 @@ describe("bounded-stream-contracts-acceptance-control", () => {
         });
     }
     expect(errorCodes(mutatedInventory(file, source.replaceAll("limit: 2", "limit: 1")))).toContain(
+      "bounded-limit-changed",
+    );
+  });
+
+  it("rejects Identity current-facts overflow, later-event and bound mutations", () => {
+    const file = "bounded-contexts/identity/features/access-hub/api/listing-current-facts.ts";
+    const source = readSource(file);
+    for (const mutated of [
+      source.replace("tail.length !== 1", "tail.length > 2"),
+      source.replace("tail[0]", "tail[1]"),
+    ]) {
+      expect(acceptanceErrors(mutatedInventory(file, mutated))).toContainEqual({
+        code: "singleton-consumption-changed",
+        siteId: `${file}#readStream#1`,
+      });
+    }
+    expect(errorCodes(mutatedInventory(file, source.replace("limit: 2", "limit: 1")))).toContain(
       "bounded-limit-changed",
     );
   });
