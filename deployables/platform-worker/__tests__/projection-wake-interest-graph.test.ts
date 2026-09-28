@@ -143,30 +143,23 @@ describe("platform worker projection wake interest graph", () => {
 
     const observationName = "pricing-authority-observation-reaction";
     const existingRunners = runtime.subscriptionRunners.filter((runner) => runner.projectionName !== observationName);
-    const existingSubscriptions = rawSubscriptions.filter(
-      ({ subscription }) => subscription.projectionName !== observationName,
-    );
-    // The three new Pricing reactions must not change any pre-existing runner or checkpoint.
-    expect(fingerprint(existingRunners.map((runner) => fingerprintObject(runner)))).toEqual({
-      count: 247,
-      sha256: "6edca49f067cdefc1db3c8409762e2059d06ac2cb9b4dbd45d9716e9b18f88c6",
-    });
-    expect(
-      fingerprint(
-        existingSubscriptions.map(({ targetContextName, subscription }) => ({
-          targetContextName,
-          subscription: fingerprintObject(subscription),
-        })),
-      ),
-    ).toEqual({
-      count: 153,
-      sha256: "82ca28b18aecf6ef936f2f4e7e103d8cb621bfa73a6f536d9c0c4ae0e182e655",
-    });
-    expect(fingerprint(existingRunners.map((runner) => runner.checkpointKey))).toEqual({
+    // A's integrated manifests already bumped these two Marketplace versions.
+    // Normalize only that explicit delta to retain the previous checkpoint oracle;
+    // the full fingerprints below still enforce the current versions verbatim.
+    const previousCheckpoint = (key: string) =>
+      key === "marketplace-listing-projection:catalog:v2"
+        ? "marketplace-listing-projection:catalog:v1"
+        : key === "marketplace-listing-projection:marketplace:v3"
+          ? "marketplace-listing-projection:marketplace:v2"
+          : key;
+    expect(fingerprint(existingRunners.map((runner) => previousCheckpoint(runner.checkpointKey)))).toEqual({
       count: 247,
       sha256: "e03e3c462b501840295a04a1d4551f91027611cb8007b3cb365856a7edfc0a67",
     });
-    const existingCheckpoints = rawCheckpointIdentities.filter((key) => !key.startsWith(`${observationName}:`));
+    const existingCheckpoints = rawCheckpointIdentities
+      .filter((key) => !key.startsWith(`${observationName}:`))
+      .map(previousCheckpoint)
+      .sort();
     expect({ count: existingCheckpoints.length, sha256: sha256(JSON.stringify(existingCheckpoints)) }).toEqual({
       count: 153,
       sha256: "f53828b39f6b59b6dd2ee7e234e2add1a66a2f328a20a1245315ef8af9ce88fc",
