@@ -1,4 +1,5 @@
 import type { JsonObject } from "../primitives/json";
+import type { EventId } from "../primitives/typed-ids";
 import type { EventStoreContext } from "./storage";
 import type { MarketplaceListingPriceTarget } from "./public-event-payloads/marketplace";
 
@@ -119,6 +120,8 @@ export type ListingAuthorityOperation = Readonly<{
   expectedVisibilityRevision: number | null;
   expectedPublicationRevision: number | null;
   generation: number;
+  /** Non-reusable original opening, retained on identical recovery and bound by the atomic terminal append. */
+  openingEventId: EventId;
   participants: readonly ListingAuthorityParticipant[];
   /** Consumer-clock deadline. Expiry selects ABORTED; it never releases a promise by itself. */
   prepareBefore: string;

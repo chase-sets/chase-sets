@@ -268,6 +268,8 @@ export function createInMemoryEventStore(): InMemoryEventStore {
 
   const eventStore: EventStore = {
     appendToStream: async (input) => {
+      if (input.expectedFirstEventId !== undefined)
+        throw new Error("Stream opening guards require atomic appendToStreams.");
       if (input.authorizationDeadline !== undefined)
         throw new Error("Authority deadlines require atomic appendToStreams.");
       return appendToStream(input);
@@ -278,6 +280,17 @@ export function createInMemoryEventStore(): InMemoryEventStore {
       // not write to, and skipping it would silently drop the guard.
       for (const input of inputs) {
         assertExpectedVersion(input.streamId, input.expectedVersion, currentVersion(input));
+        if (
+          input.expectedFirstEventId !== undefined &&
+          (typeof input.expectedFirstEventId !== "string" ||
+            !input.expectedFirstEventId.trim() ||
+            typeof input.expectedVersion !== "number" ||
+            !Number.isSafeInteger(input.expectedVersion) ||
+            input.expectedVersion < 1 ||
+            streams.get(input.streamId)?.[0]?.eventId !== input.expectedFirstEventId)
+        ) {
+          throw createEventStoreError("concurrency_conflict", "Stream opening identity conflict.");
+        }
         if (input.authorizationDeadline !== undefined && !(Date.now() < Date.parse(input.authorizationDeadline))) {
           throw createEventStoreError("concurrency_conflict", "Authority decision boundary expired.");
         }
@@ -309,6 +322,8 @@ export function createInMemoryEventStore(): InMemoryEventStore {
       }
     },
     appendToStreamsIndependently: async (inputs) => {
+      if (inputs.some((input) => input.expectedFirstEventId !== undefined))
+        throw new Error("Stream opening guards require atomic appendToStreams.");
       if (inputs.some((input) => input.authorizationDeadline !== undefined))
         throw new Error("Authority deadlines require atomic appendToStreams.");
       const results: AppendToStreamsIndependentResult[] = [];

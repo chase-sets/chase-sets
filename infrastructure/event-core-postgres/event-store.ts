@@ -249,6 +249,8 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
   return {
     readStreamInTransaction: readStream,
     appendToStreamInTransaction: async (client, input) => {
+      if (input.expectedFirstEventId !== undefined)
+        throw new Error("Stream opening guards require atomic appendToStreams.");
       if (input.authorizationDeadline !== undefined)
         throw new Error("Authority deadlines require atomic appendToStreams.");
       if (input.events.length === 0) return [];
@@ -289,6 +291,8 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
       );
     },
     appendToStream: async (input) => {
+      if (input.expectedFirstEventId !== undefined)
+        throw new Error("Stream opening guards require atomic appendToStreams.");
       if (input.authorizationDeadline !== undefined)
         throw new Error("Authority deadlines require atomic appendToStreams.");
       if (input.events.length === 0) {
@@ -424,6 +428,8 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
       );
     },
     appendToStreamsIndependently: async (inputs, options) => {
+      if (inputs.some((input) => input.expectedFirstEventId !== undefined))
+        throw new Error("Stream opening guards require atomic appendToStreams.");
       if (inputs.some((input) => input.authorizationDeadline !== undefined))
         throw new Error("Authority deadlines require atomic appendToStreams.");
       const appendInputs = inputs.filter((input) => input.events.length > 0);
@@ -819,6 +825,28 @@ const EVENT_INSERT_COLUMN_COUNT = 17;
 const POSTGRES_PARAMETER_LIMIT = 65_535;
 
 async function appendEventsToStreams(args: AppendStreamsInTransactionArgs): Promise<readonly AppendToStreamsResult[]> {
+  // Check before either the batched or sequential path, including deterministic-ID replays.
+  // The stream row locks remain held through every business/request write and COMMIT.
+  for (const input of args.inputs) {
+    if (input.expectedFirstEventId === undefined) continue;
+    if (
+      typeof input.expectedFirstEventId !== "string" ||
+      !input.expectedFirstEventId.trim() ||
+      typeof input.expectedVersion !== "number" ||
+      !Number.isSafeInteger(input.expectedVersion) ||
+      input.expectedVersion < 1
+    ) {
+      throw createEventStoreError("concurrency_conflict", "Invalid stream opening guard.");
+    }
+    await assertStreamExpectedVersionInTransaction({ ...args, input });
+    const opening = await args.client.query<{ event_id: string }>(
+      `SELECT event_id FROM ${args.eventsTable} WHERE stream_id = $1 AND stream_version = 1`,
+      [input.streamId],
+    );
+    if (opening.rows.length !== 1 || opening.rows[0]!.event_id !== input.expectedFirstEventId) {
+      throw createEventStoreError("concurrency_conflict", "Stream opening identity conflict.");
+    }
+  }
   const eventCount = args.inputs.reduce((count, input) => count + input.events.length, 0);
   if (
     new Set(args.inputs.map((input) => input.streamId)).size === args.inputs.length &&

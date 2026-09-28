@@ -15,6 +15,7 @@ import {
   type ListingAuthoritySessionAuthorityPort,
 } from "@chase-sets/event-core/listing-authority";
 import type { JsonObject } from "@chase-sets/primitives/json";
+import { createId } from "@chase-sets/primitives/typed-ids";
 import {
   assertSameAuthority,
   authorityContext,
@@ -26,7 +27,13 @@ import {
 
 export type ListingAuthorityOperationInput = Omit<
   ListingAuthorityOperation,
-  "schemaVersion" | "operationId" | "commandFingerprint" | "prepareBefore" | "generation" | "principal"
+  | "schemaVersion"
+  | "operationId"
+  | "commandFingerprint"
+  | "prepareBefore"
+  | "generation"
+  | "openingEventId"
+  | "principal"
 >;
 
 /** Identity/composites retain this host-bound Auth grant through the FINAL consumer terminal. */
@@ -137,6 +144,7 @@ export function createListingAuthorityFence(
     const last = history.events.at(-1)!;
     if (
       history.events.length > 2 ||
+      history.events[0]!.eventId !== operation.openingEventId ||
       history.events[0]!.eventType !== `${deps.owner}.listing-authority-operation.opened` ||
       history.events.some(
         (event) => event.tenantId !== operation.tenantId || event.forAccountId !== operation.accountId,
@@ -215,6 +223,7 @@ export function createListingAuthorityFence(
       operationId: authorityHash([input.tenantId, input.accountId, deps.owner, input.requestId]),
       commandFingerprint: authorityHash({ ...input, principal }),
       generation: 1,
+      openingEventId: createId("evt"),
       prepareBefore: new Date(now().getTime() + 60_000).toISOString(),
     };
     const history = await authorityHistory(store, stream(operation));
@@ -233,7 +242,11 @@ export function createListingAuthorityFence(
         expectedVersion: 0,
         context,
         events: [
-          { eventType: `${deps.owner}.listing-authority-operation.opened`, payload: authorityPayload({ operation }) },
+          {
+            eventId: operation.openingEventId,
+            eventType: `${deps.owner}.listing-authority-operation.opened`,
+            payload: authorityPayload({ operation }),
+          },
         ],
       });
       return operation;
@@ -253,12 +266,18 @@ export function createListingAuthorityFence(
     if (current.status.status === "unknown") throw new Error("Unknown authority operation; retain reservations.");
     if (current.status.status !== "pending") return current.status;
     try {
-      await store.appendToStream({
-        streamId: stream(operation),
-        expectedVersion: current.version,
-        context: authorityContext(operation),
-        events: [{ eventType: `${deps.owner}.listing-authority-operation.aborted`, payload: { result: null, reason } }],
-      });
+      if (!store.appendToStreams) throw new Error("Authority terminals require atomic appendToStreams.");
+      await store.appendToStreams([
+        {
+          streamId: stream(operation),
+          expectedVersion: current.version,
+          expectedFirstEventId: operation.openingEventId,
+          context: authorityContext(operation),
+          events: [
+            { eventType: `${deps.owner}.listing-authority-operation.aborted`, payload: { result: null, reason } },
+          ],
+        },
+      ]);
     } catch (error) {
       const recovered = await read(operation);
       if (recovered.status.status === "pending" || recovered.status.status === "unknown") throw error;
@@ -299,6 +318,7 @@ export function createListingAuthorityFence(
     return {
       streamId: stream(operation),
       expectedVersion: current.version,
+      expectedFirstEventId: operation.openingEventId,
       context: authorityContext(operation),
       authorizationDeadline: new Date(Math.min(...deadlines.map(Date.parse))).toISOString(),
       events: [{ eventType: `${deps.owner}.listing-authority-operation.committed`, payload: { result, reason: null } }],

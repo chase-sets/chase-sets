@@ -413,6 +413,8 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
       if (terminal) {
         if (
           terminal.expectedVersion !== 1 ||
+          !operation.openingEventId ||
+          terminal.expectedFirstEventId !== operation.openingEventId ||
           !terminal.authorizationDeadline ||
           terminal.events.length !== 1 ||
           terminal.events[0]!.eventType !== `${operation.committingOwner}.listing-authority-operation.committed`

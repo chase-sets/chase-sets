@@ -185,9 +185,15 @@ export function createListingAuthorityWriter(
   const eventStore: EventStore = {
     readAll: raw.readAll,
     readStream: raw.readStream,
-    appendToStream: async (input) => (await append([input]))[0]!.storedEvents,
+    appendToStream: async (input) => {
+      if (input.expectedFirstEventId !== undefined)
+        throw new Error("Stream opening guards require atomic appendToStreams.");
+      return (await append([input]))[0]!.storedEvents;
+    },
     appendToStreams: append,
     appendToStreamsIndependently: async (inputs) => {
+      if (inputs.some((input) => input.expectedFirstEventId !== undefined))
+        throw new Error("Stream opening guards require atomic appendToStreams.");
       const results = [];
       for (const input of inputs) {
         try {

@@ -259,6 +259,7 @@ export function listingAuthorityConformance(
     }),
     revision: (operation) => ({ ...operation, expectedListingRevision: operation.expectedListingRevision + 1 }),
     generation: (operation) => ({ ...operation, generation: operation.generation + 1 }),
+    "opening identity": (operation) => ({ ...operation, openingEventId: "evt_synthetic-other-opening" }),
   };
   for (const [name, alter] of Object.entries(alterations)) {
     test(`a reservation cannot authorize another ${name}`, async () => {
