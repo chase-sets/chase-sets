@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { StoredEvent } from "@chase-sets/event-core/storage";
 import type { ListingAuthorityConformanceFixture } from "./listing-authority-conformance";
 import { authorityJournalStreams } from "./listing-authority-journal";
@@ -99,7 +100,7 @@ export function listingAuthorityHistoryConformance(
           const grant = await f.source.prepare(operation, f.context);
           const terminal = await f.fence.prepareCommit(operation, [grant], { accepted: true });
           const beforeInvalidation = new Set(f.sourceHistories.keys());
-          const baseline = (await f.sourceStore.readStream({ streamId: f.sourceEffectStream })).length;
+          const baseline = (await readCompleteStream(f.sourceStore, { streamId: f.sourceEffectStream })).length;
           const settledBefore = [...f.sourceHistories.values()]
             .flat()
             .filter((e) => e.eventType.endsWith(".settled")).length;
@@ -146,7 +147,7 @@ export function listingAuthorityHistoryConformance(
             );
           }
           await restarted.invalidate().catch(() => undefined);
-          const sourceEffects = await f.sourceStore.readStream({ streamId: f.sourceEffectStream });
+          const sourceEffects = await readCompleteStream(f.sourceStore, { streamId: f.sourceEffectStream });
           const effectCount = sourceEffects.length - baseline;
           assert.ok(effectCount >= 0 && effectCount <= 1, "same-key recovery never repeats the source effect");
           const committed = await f.consumerStore.appendToStreams!([...terminal, ...effects]).then(
@@ -168,7 +169,7 @@ export function listingAuthorityHistoryConformance(
     const operation = await f.fence.open(f.input, f.context);
     const grant = await f.source.prepare(operation, f.context);
     const terminal = await f.fence.prepareCommit(operation, [grant], { accepted: true });
-    const baseline = (await f.sourceStore.readStream({ streamId: f.sourceEffectStream })).length;
+    const baseline = (await readCompleteStream(f.sourceStore, { streamId: f.sourceEffectStream })).length;
     const candidates = [...f.sourceHistories].filter(
       ([id, events]) =>
         id.startsWith(`${grant.participant.owner}.listing-authority-resource-`) &&
@@ -185,7 +186,7 @@ export function listingAuthorityHistoryConformance(
     f.sourceHistories.delete(integrity);
     assert.ok(f.sourceHistories.get(registration)?.length);
     await assert.rejects(f.restart().invalidate());
-    assert.equal((await f.sourceStore.readStream({ streamId: f.sourceEffectStream })).length, baseline);
+    assert.equal((await readCompleteStream(f.sourceStore, { streamId: f.sourceEffectStream })).length, baseline);
     assert.equal((await f.fence.inspect(operation)).status, "pending");
     await assert.rejects(f.restart().source.settle(operation));
     // The old executor may still commit only because source authority has NOT changed.

@@ -1,7 +1,46 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { historyFixture } from "./listing-authority-history-test-support";
 import { authorityHash } from "./listing-authority-state";
 import { authorityJournalStreams } from "./listing-authority-journal";
+import { bindListingAuthorityHistories } from "./listing-authority-history-conformance";
+import { historyRecords } from "./listing-authority-history-faults";
+
+for (const [index, first] of historyRecords.entries())
+  for (const selected of [[first], ...historyRecords.slice(index + 1).map((second) => [first, second])])
+    it(`unreadable retained histories/${selected.map((r) => `${r.kind}.${r.copy}`).join("+")}`, async () => {
+      const f = await historyFixture();
+      const operation = await f.fence.open(f.input, f.context);
+      const grant = await f.source.prepare(operation, f.context);
+      const terminal = await f.fence.prepareCommit(operation, [grant], { accepted: true });
+      const before = new Set(f.sourceHistories.keys());
+      f.blockInvalidation(true);
+      await expect(f.invalidate()).rejects.toThrow();
+      f.blockInvalidation(false);
+      const journals = bindListingAuthorityHistories(f, operation, grant, before);
+      const unavailable = new Set(selected.map((r) => authorityJournalStreams(journals[r.kind])[r.index]));
+      const spies = [f.sourceStore, f.consumerStore].map((store) => {
+        const read = store.readStream;
+        return vi.spyOn(store, "readStream").mockImplementation((input) => {
+          if (unavailable.has(input.streamId))
+            return Promise.reject(new Error("synthetic authoritative read unavailable"));
+          return read(input);
+        });
+      });
+      let committed = false;
+      try {
+        await expect(f.restart().source.settle(operation)).rejects.toThrow();
+        await expect(f.restart().invalidate()).rejects.toThrow();
+        expect(await f.sourceStore.readStream({ streamId: f.sourceEffectStream })).toHaveLength(0);
+        // Retained append may win only while the source effect remains absent.
+        committed = await f.consumerStore.appendToStreams!(terminal).then(
+          () => true,
+          () => false,
+        );
+      } finally {
+        for (const spy of spies) spy.mockRestore();
+      }
+      expect((await f.fence.inspect(operation)).status).toBe(committed ? "committed" : "aborted");
+    });
 
 for (const commitFirst of [false, true])
   it(`unavailable snapshot port preserves nominal ${commitFirst ? "commit" : "abort"}-first operation`, async () => {

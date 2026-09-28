@@ -28,11 +28,12 @@ function changeCache(
   f: Awaited<ReturnType<typeof historyFixture>>,
   variant: Cache,
   retained: StoredAggregateSnapshot<unknown>,
+  prefix: StoredAggregateSnapshot<unknown>,
 ) {
   f.snapshots.clear();
   if (variant === "absent") return;
   let snapshot = structuredClone(retained);
-  if (variant === "stale-prefix") snapshot = { ...snapshot, streamVersion: 0, state: { grants: [], pending: null } };
+  if (variant === "stale-prefix") snapshot = structuredClone(prefix);
   if (variant === "malformed") snapshot = { ...snapshot, state: null, schemaVersion: -1 };
   if (variant === "fabricated-empty") snapshot = { ...snapshot, state: { grants: [], pending: null } };
   if (variant === "fabricated-membership")
@@ -83,7 +84,7 @@ async function scenario(
           write: "not-created",
         }
       : bindListingAuthorityHistories(f, operation, grant, before);
-  if (cache) changeCache(f, cache, tail ? prefixSnapshot : f.snapshots.get(resource[0]!)!);
+  if (cache) changeCache(f, cache, tail ? prefixSnapshot : f.snapshots.get(resource[0]!)!, prefixSnapshot);
   // A tip snapshot and a retained prefix plus canonical closure tail are distinct boundaries.
   if (cache && tail) assert.ok(f.sourceHistories.get(resource[0]!)!.length > prefixSnapshot.streamVersion);
   for (const fault of selected)
