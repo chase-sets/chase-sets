@@ -2645,7 +2645,7 @@
         {
           "identity": "back-action-height",
           "scope": "page",
-          "selector": "main a[href=\"/support/platform-feedback\"]:text-is(\"Back\")",
+          "selector": "main a[href=\"/support/platform-feedback\"]:has(> span:text-is(\"Back\"))",
           "property": "height",
           "assertion": {
             "minimum": 44
@@ -2706,7 +2706,7 @@
         {
           "identity": "back-action-height",
           "scope": "page",
-          "selector": "main a[href=\"/support/platform-feedback\"]:text-is(\"Back\")",
+          "selector": "main a[href=\"/support/platform-feedback\"]:has(> span:text-is(\"Back\"))",
           "property": "height",
           "assertion": {
             "minimum": 44
@@ -2767,7 +2767,7 @@
         {
           "identity": "back-action-height",
           "scope": "page",
-          "selector": "main a[href=\"/support/platform-feedback\"]:text-is(\"Back\")",
+          "selector": "main a[href=\"/support/platform-feedback\"]:has(> span:text-is(\"Back\"))",
           "property": "height",
           "assertion": {
             "minimum": 44
@@ -2828,7 +2828,7 @@
         {
           "identity": "back-action-height",
           "scope": "page",
-          "selector": "main a[href=\"/support/platform-feedback\"]:text-is(\"Back\")",
+          "selector": "main a[href=\"/support/platform-feedback\"]:has(> span:text-is(\"Back\"))",
           "property": "height",
           "assertion": {
             "minimum": 44
