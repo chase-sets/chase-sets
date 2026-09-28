@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { parseEnv } from "node:util";
 import { createPgPool, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
-import { seedSyntheticOfferMarketPrice } from "../../../bounded-contexts/pricing/support/runtime-support/seed";
+import { seedSyntheticOfferMarketPrice } from "@chase-sets/pricing/server";
 import { signInWithPassword } from "./support/auth";
 import {
   marketplaceBrowserE2eBuyerCredentials,
@@ -15,14 +17,23 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
   const fixture = marketplaceBrowserE2eSeedContract.marketFollowing;
   const catalogDatabaseUrl: unknown = testInfo.config.metadata.catalogDatabaseUrl;
   if (typeof catalogDatabaseUrl !== "string") throw new Error("The owned E2E database target is required.");
-  const databaseUrl = new URL(catalogDatabaseUrl);
+  const sandbox = parseEnv(
+    readFileSync(
+      process.env.CHASE_SETS_SANDBOX_ENV_FILE ?? new URL("../../../.env.sandbox.local", import.meta.url),
+      "utf8",
+    ),
+  );
+  if (catalogDatabaseUrl !== sandbox.DATABASE_URL_CATALOG || !sandbox.DATABASE_URL_PRICING)
+    throw new Error("Synthetic estimate requires the current owned E2E sandbox.");
+  const databaseUrl = new URL(sandbox.DATABASE_URL_PRICING);
+  const catalogUrl = new URL(catalogDatabaseUrl);
   if (
-    !/^\/cs_[a-z0-9_]+_catalog$/.test(databaseUrl.pathname) ||
-    !["localhost", "127.0.0.1"].includes(databaseUrl.hostname)
+    !/^\/cs_[a-z0-9_]+_pricing$/.test(databaseUrl.pathname) ||
+    !["localhost", "127.0.0.1"].includes(databaseUrl.hostname) ||
+    databaseUrl.host !== catalogUrl.host ||
+    databaseUrl.pathname !== catalogUrl.pathname.replace(/_catalog$/, "_pricing")
   )
     throw new Error("Synthetic estimate requires the owned local E2E database.");
-  // sandbox.mjs names every context database cs_<sandbox-id>_<context>.
-  databaseUrl.pathname = databaseUrl.pathname.replace(/_catalog$/, "_pricing");
   const pool = createPgPool(databaseUrl.toString(), { max: 1 });
   let removeEstimate: (() => Promise<void>) | undefined;
   let policyId: string | undefined;

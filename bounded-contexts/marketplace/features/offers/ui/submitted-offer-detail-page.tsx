@@ -1,6 +1,6 @@
 import { formatDateTime, formatMoney, t } from "@chase-sets/localization";
 import { useEffect, useRef, useState } from "react";
-import { useFetcher, useNavigate } from "react-router";
+import { useFetcher } from "react-router";
 import type { BuyerOfferPolicySnapshot } from "../../../client";
 import type { BuyerOfferPolicyRequest, BuyerOfferPolicyTerms } from "../../offer-policy/domain/contracts";
 import {
@@ -184,8 +184,7 @@ export function MarketFollowingOfferControls({
   offers: readonly SubmittedOfferDetail[];
   policies: readonly BuyerOfferPolicySnapshot[];
 }) {
-  const fetcher = useFetcher<{ policy: BuyerOfferPolicySnapshot | null; error: string | null; refreshHref?: string }>();
-  const navigate = useNavigate();
+  const fetcher = useFetcher<{ policy: BuyerOfferPolicySnapshot | null; error: string | null }>();
   const [policy, setPolicy] = useState<BuyerOfferPolicySnapshot | null>(null);
   const [enabled, setEnabled] = useState(false);
   const [selected, setSelected] = useState<string[]>(
@@ -230,8 +229,7 @@ export function MarketFollowingOfferControls({
       }
     }
     feedback.current?.focus();
-    if (fetcher.data.refreshHref) void navigate(fetcher.data.refreshHref, { replace: true });
-  }, [fetcher.data, fetcher.state, navigate]);
+  }, [fetcher.data, fetcher.state]);
 
   function edit() {
     setReview(false);

@@ -605,31 +605,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const sellListCompositeReview = await loadSellListCompositeReviewFromCheckout(accountSellListApi, {
     includeStandardComparison: registrationReturn === "seller-checkout",
   });
-  const selectedLines = accountSellList.items.filter((line) => line.line_type === "selected-offer" && line.offer_id);
-  let offerReviews = sellListCompositeReview.offerReviews;
-  if (selectedLines.length) {
-    const query = new URLSearchParams({
-      limit: "250",
-      productIds: [...new Set(selectedLines.map((line) => line.product_id))].join(","),
-    });
-    const currentMatches = await createMarketplaceRequestApiClient(accountSellListRequest)
-      .listOfferMatches(query.toString())
-      .catch(() => null);
-    const byOffer = new Map((currentMatches?.items ?? []).map((offer) => [offer.offer_id, offer]));
-    offerReviews = offerReviews.map((review) => {
-      const line = selectedLines.find((item) => item.line_id === review.lineId);
-      if (!line?.offer_id) return review;
-      const match = byOffer.get(line.offer_id);
-      if (!match && review.status === "unavailable") return review;
-      if (match && !match.managed_status) return review;
-      return {
-        ...review,
-        status: "unavailable" as const,
-        terms: null,
-        message: t("checkout.routes.accountSellList.current.offer.refresh"),
-      };
-    });
-  }
   return {
     isSignedIn: true,
     registrationReturn,
@@ -640,7 +615,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     freshnessError,
     sellListRecovery: effectiveSellListRecovery,
     sellList: accountSellList,
-    offerReviews,
+    offerReviews: sellListCompositeReview.offerReviews,
     productOfferReviews: sellListCompositeReview.productOfferReviews,
     inventoryItems: sellListCompositeReview.inventoryItems,
     payoutReadiness: await loadPayoutReadiness(resolvedRequest, accountSellListApi),
