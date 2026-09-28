@@ -51,7 +51,9 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
   let policyId: string | undefined;
   const authorizations: unknown[] = [];
   try {
-    removeEstimate = await seedSyntheticOfferMarketPrice(pool, fixture);
+    await test.step("Prepare and verify the exact synthetic Pricing estimate before Preview (not worker proof)", async () => {
+      removeEstimate = await seedSyntheticOfferMarketPrice(pool, fixture);
+    });
     const credentials = marketplaceBrowserE2eBuyerCredentials();
     await signInWithPassword(page, String(testInfo.project.use.baseURL), credentials);
     // The scenario collector starts with an unverified email. Every invocation (retries

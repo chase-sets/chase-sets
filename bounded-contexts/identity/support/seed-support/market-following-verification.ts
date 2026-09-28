@@ -167,7 +167,7 @@ export async function verifyMarketFollowingBuyerContactInOwnedSandbox(
     const eventStore = createPostgresEventStore({
       pool,
       wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({
-        sourceContextName: IDENTITY_COMMIT_SOURCE_CONTEXT_NAME,
+        sourceContextName: "identity",
       }),
     });
     const checkpointStore = createPostgresProjectionStore({ db: pool });
