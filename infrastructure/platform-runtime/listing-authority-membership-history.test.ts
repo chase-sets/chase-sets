@@ -1,8 +1,7 @@
 import { expect, it, vi } from "vitest";
-import { historyFixture } from "./listing-authority-history-test-support";
+import { historyFixture, bindSingleResourceHistories } from "./listing-authority-history-test-support";
 import { authorityHash } from "./listing-authority-state";
 import { authorityJournalStreams } from "./listing-authority-journal";
-import { bindListingAuthorityHistories } from "./listing-authority-history-conformance";
 import { historyRecords } from "./listing-authority-history-faults";
 
 for (const [index, first] of historyRecords.entries())
@@ -16,7 +15,7 @@ for (const [index, first] of historyRecords.entries())
       f.blockInvalidation(true);
       await expect(f.invalidate()).rejects.toThrow();
       f.blockInvalidation(false);
-      const journals = bindListingAuthorityHistories(f, operation, grant, before);
+      const journals = bindSingleResourceHistories(f, operation, grant, before);
       const unavailable = new Set(selected.map((r) => authorityJournalStreams(journals[r.kind])[r.index]));
       const spies = [f.sourceStore, f.consumerStore].map((store) => {
         const read = store.readStream;

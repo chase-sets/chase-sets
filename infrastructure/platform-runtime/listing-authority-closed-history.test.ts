@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 import type { StoredAggregateSnapshot } from "@chase-sets/event-core/aggregate-snapshot-store";
-import { historyFixture } from "./listing-authority-history-test-support";
-import { bindListingAuthorityHistories } from "./listing-authority-history-conformance";
+import { historyFixture, bindSingleResourceHistories } from "./listing-authority-history-test-support";
 import { authorityJournalStreams } from "./listing-authority-journal";
 import {
   damageHistory,
@@ -83,7 +82,7 @@ async function scenario(
           mutation: "not-created",
           write: "not-created",
         }
-      : bindListingAuthorityHistories(f, operation, grant, before);
+      : bindSingleResourceHistories(f, operation, grant, before);
   if (cache) changeCache(f, cache, tail ? prefixSnapshot : f.snapshots.get(resource[0]!)!, prefixSnapshot);
   // A tip snapshot and a retained prefix plus canonical closure tail are distinct boundaries.
   if (cache && tail) assert.ok(f.sourceHistories.get(resource[0]!)!.length > prefixSnapshot.streamVersion);
