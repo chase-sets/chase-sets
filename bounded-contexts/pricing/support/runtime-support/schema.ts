@@ -1,4 +1,8 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
+import {
+  pricingListingAuthoritySchemaSql,
+  pricingListingAuthoritySchemaMigrations,
+} from "../../features/repricing-engine/read-model/listing-authority-schema";
 import { realtimeOutboxSchemaSql } from "@chase-sets/platform-runtime/realtime";
 import { platformPolicySchemaSql } from "@chase-sets/platform-policy/schema";
 import { pricingPriceSignalSchemaSql } from "../../features/price-signals/read-model/schema";
@@ -54,6 +58,7 @@ export const pricingFeatureSchemaMigrations = [
   ...pricingMarketRollupsSchemaMigrations,
   ...pricingBulkRepriceIngestionSchemaMigrations,
   ...pricingEconomicsSchemaMigrations,
+  ...pricingListingAuthoritySchemaMigrations,
 ];
 
 export const pricingSchemaSql = [
@@ -76,6 +81,7 @@ export const pricingSchemaSql = [
   // pricing_market_listing_inputs and pricing_catalog_item_inputs.
   pricingRepricingPolicySchemaSql,
   pricingRepricingEngineSchemaSql,
+  pricingListingAuthoritySchemaSql,
   pricingRepricingDryRunSchemaSql,
   // Adopts the shared platform-policy machinery (see infrastructure/platform-policy)
   // for the market-stat-hygiene and market-analytics-display policies -- see

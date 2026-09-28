@@ -1,4 +1,15 @@
 export { getAccountRecommendation, listAccountRecommendations } from "./features/recommendations/read-model/queries";
+export {
+  createPricingListingAuthority,
+  PricingAuthorityMutationPendingError,
+} from "./features/repricing-engine/api/listing-authority";
+export type {
+  PricingListingAuthority,
+  PricingListingAuthorityPorts,
+  PricingEvaluatedDecision,
+  PricingEvaluationRequest,
+} from "./features/repricing-engine/api/listing-authority";
+export { createPricingEvaluationBudget } from "./features/repricing-engine/api/listing-authority-sql";
 export { evaluateBuyerOfferTarget } from "./features/offer-targets/domain/evaluate";
 export type {
   BuyerMarketPrice,
