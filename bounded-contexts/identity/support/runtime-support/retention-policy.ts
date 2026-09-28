@@ -4,7 +4,8 @@ export const identityRetentionExemptions: readonly BcRetentionExemption[] = [
   {
     tableName: "identity_listing_credential_mutations",
     owner: "identity",
-    reason: "Durable credential mutation receipts prevent delayed retries from restoring obsolete key or delegation authority.",
+    reason:
+      "Durable credential mutation receipts prevent delayed retries from restoring obsolete key or delegation authority.",
   },
   {
     tableName: "identity_invitations",
