@@ -3,15 +3,16 @@ import { readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 import { createPgPool, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { seedSyntheticOfferMarketPrice } from "@chase-sets/pricing/server";
-import { createPlatformInternalAuthHeaders } from "@chase-sets/platform-runtime/http";
 import {
-  CHASE_SETS_COMMIT_RECEIPT_HEADER,
   CHASE_SETS_READ_AFTER_WRITE_HEADER,
   CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
-  decodeCommitReceipt,
   encodeFreshWriteReceipt,
 } from "@chase-sets/http/responses";
 import { identitySeedIds } from "@chase-sets/identity-seed";
+import {
+  requireIdentityCommitSource,
+  verifyMarketFollowingBuyerContactInOwnedSandbox,
+} from "@chase-sets/identity/seed-support/market-following-verification";
 import { signInWithPassword } from "./support/auth";
 import {
   marketplaceBrowserE2eBuyerCredentials,
@@ -34,6 +35,8 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
   );
   if (catalogDatabaseUrl !== sandbox.DATABASE_URL_CATALOG || !sandbox.DATABASE_URL_PRICING)
     throw new Error("Synthetic estimate requires the current owned E2E sandbox.");
+  if (!sandbox.DATABASE_URL_IDENTITY)
+    throw new Error("Buyer fixture verification requires the current owned E2E Identity sandbox.");
   const databaseUrl = new URL(sandbox.DATABASE_URL_PRICING);
   const catalogUrl = new URL(catalogDatabaseUrl);
   if (
@@ -51,47 +54,36 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
     removeEstimate = await seedSyntheticOfferMarketPrice(pool, fixture);
     const credentials = marketplaceBrowserE2eBuyerCredentials();
     await signInWithPassword(page, String(testInfo.project.use.baseURL), credentials);
-    const session = await page.request.get("/api/auth/session");
-    expect(session.ok()).toBe(true);
-    expect((await session.json()).actor).toMatchObject({
+    // The scenario collector starts with an unverified email. Every invocation (retries
+    // included) issues Identity's existing VerifyContactMethod command against the seeded
+    // user's actual stored primary email contact in the owned E2E Identity database and
+    // keeps only the commit metadata captured inside that command's scope. The receipt is
+    // forwarded to Auth on the very session read whose actor and permissions are asserted,
+    // so readiness is proven by that response, never by polling or a neighboring wait.
+    const verification = await verifyMarketFollowingBuyerContactInOwnedSandbox({
+      identityDatabaseUrl: sandbox.DATABASE_URL_IDENTITY,
+      companionDatabaseUrl: catalogDatabaseUrl,
       userId: identitySeedIds.collector.userId,
-      accountId: identitySeedIds.collector.accountId,
+      primaryEmail: marketplaceBrowserE2eSeedContract.buyer.email,
     });
-    const apiOrigin = new URL(sandbox.PLATFORM_API_URL!);
-    if (!["localhost", "127.0.0.1"].includes(apiOrigin.hostname))
-      throw new Error("Buyer fixture verification requires the owned local E2E API.");
-    // The scenario collector starts with an unverified email. Seed verification
-    // through Identity's existing command, never by granting permissions directly.
-    const verified = await fetch(
-      new URL(`/api/identity/internal/auth/users/${identitySeedIds.collector.userId}/email-verification`, apiOrigin),
-      {
-        method: "POST",
-        redirect: "error",
-        headers: createPlatformInternalAuthHeaders(
-          { "Content-Type": "application/json" },
-          sandbox.PLATFORM_INTERNAL_AUTH_SECRET,
-        ),
-        body: JSON.stringify({ email: marketplaceBrowserE2eSeedContract.buyer.email }),
-      },
-    );
-    expect(verified.ok, "owned buyer fixture email verification").toBe(true);
-    const identityCommit = decodeCommitReceipt(verified.headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER)).find(
-      (source) => source.sourceContextName === "identity",
-    );
-    expect(identityCommit, "email verification must return an Identity commit receipt").toBeDefined();
-    const identityRead = await page.request.get("/api/identity/current-actor-display", {
+    expect(verification.userId).toBe(identitySeedIds.collector.userId);
+    const identityCommit = requireIdentityCommitSource(verification.sources);
+    const session = await page.request.get("/api/auth/session", {
       headers: {
         [CHASE_SETS_READ_AFTER_WRITE_HEADER]: encodeFreshWriteReceipt({
           observedAtMs: Date.now(),
-          sources: [identityCommit!],
+          sources: [identityCommit],
         }),
-        [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: "identity",
+        [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: "auth",
       },
     });
-    expect(identityRead.ok(), "receipt-honoring Identity user projection read").toBe(true);
-    const readySession = await page.request.get("/api/auth/session");
-    expect(readySession.ok()).toBe(true);
-    expect((await readySession.json()).actor.permissions).toContain("offers.manage");
+    expect(session.ok(), "receipt-honoring Auth session read").toBe(true);
+    const actor = (await session.json()).actor;
+    expect(actor).toMatchObject({
+      userId: identitySeedIds.collector.userId,
+      accountId: identitySeedIds.collector.accountId,
+    });
+    expect(actor.permissions, "offers.manage on the receipted session response").toContain("offers.manage");
     page.on("request", (request) => {
       if (request.method() === "POST" && request.url().includes("/account/offers/submitted")) {
         const fields = new URLSearchParams(request.postData() ?? "");
