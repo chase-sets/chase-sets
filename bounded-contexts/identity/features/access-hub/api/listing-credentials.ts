@@ -237,11 +237,11 @@ async function applyCredential(
 }
 
 export const identityListingCredentialSchemaStatements = [
-  "ALTER TABLE identity_api_key_secrets ADD COLUMN IF NOT EXISTS authority_revision text NULL",
-  "ALTER TABLE identity_linked_platform_authorizations ADD COLUMN IF NOT EXISTS authority_revision text NULL",
-  "CREATE INDEX IF NOT EXISTS identity_api_key_secrets_hash_idx ON identity_api_key_secrets(secret_hash)",
+  "ALTER TABLE identity_api_key_secrets ADD COLUMN IF NOT EXISTS authority_revision text NULL;",
+  "ALTER TABLE identity_linked_platform_authorizations ADD COLUMN IF NOT EXISTS authority_revision text NULL;",
+  "CREATE INDEX IF NOT EXISTS identity_api_key_secrets_hash_idx ON identity_api_key_secrets(secret_hash);",
   `CREATE TABLE IF NOT EXISTS identity_listing_credential_mutations (
     mutation_id text PRIMARY KEY, command jsonb NOT NULL, context jsonb NOT NULL,
-    applied boolean NOT NULL DEFAULT false, completed boolean NOT NULL DEFAULT false, result jsonb NULL)`,
-  "CREATE INDEX IF NOT EXISTS identity_listing_credential_pending_idx ON identity_listing_credential_mutations(mutation_id) WHERE completed = false",
+    applied boolean NOT NULL DEFAULT false, completed boolean NOT NULL DEFAULT false, result jsonb NULL);`,
+  "CREATE INDEX IF NOT EXISTS identity_listing_credential_pending_idx ON identity_listing_credential_mutations(mutation_id) WHERE completed = false;",
 ] as const;

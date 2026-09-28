@@ -9,9 +9,85 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { identitySchemaSql, identityListingAuthorityMigrations } from "../../../support/runtime-support/schema";
 import { createIdentityCredentialStore } from "./listing-credentials";
+import { identityLinkedPlatformAuthorizationSchemaSql } from "./linked-platform-authorizations";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseUrl) throw new Error("TEST_DATABASE_URL is required for Identity credential DB proof.");
+
+describe("Identity schema bootstrap", () => {
+  let pools: Readonly<Record<"identity", PgTransactionalPool>>;
+  beforeAll(async () => {
+    const urls = createMultiContextTestDatabaseUrls(databaseUrl, ["identity"], "identity_credential_bootstrap");
+    await ensureMultiContextTestDatabases(databaseUrl, urls);
+    pools = createMultiContextTestPools(urls);
+  });
+  beforeEach(async () => {
+    await resetMultiContextTestSchemas(pools);
+  });
+  afterAll(async () => {
+    if (pools) await closeMultiContextTestPools(pools);
+  });
+
+  it.each(["fresh", "upgraded"] as const)(
+    "bootstraps and reboots a %s schema without losing credentials",
+    async (state) => {
+      if (state === "upgraded") {
+        await pools.identity.query(`
+        CREATE TABLE identity_api_key_secrets (
+          api_key_id text PRIMARY KEY, user_id text NOT NULL, key_prefix text NOT NULL UNIQUE,
+          secret_hash text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        );
+        ${identityLinkedPlatformAuthorizationSchemaSql}
+        INSERT INTO identity_api_key_secrets(api_key_id, user_id, key_prefix, secret_hash)
+          VALUES ('synthetic-bootstrap-key', 'synthetic-user', 'synthetic-prefix', 'synthetic-key-hash');
+        INSERT INTO identity_linked_platform_authorizations (
+          authorization_id, platform_profile_url, client_id, user_id, account_id, status,
+          access_token_hash, access_token_expires_at, granted_at
+        ) VALUES (
+          'synthetic-bootstrap-delegation', 'https://synthetic.example.test', 'synthetic-client',
+          'synthetic-user', 'synthetic-account', 'active', 'synthetic-access-hash', '2099-01-01', '2026-01-01'
+        );
+      `);
+      }
+
+      await pools.identity.query(identitySchemaSql);
+      await pools.identity.query(identitySchemaSql);
+
+      const columns = await pools.identity.query(`
+      SELECT table_name, data_type, is_nullable FROM information_schema.columns
+      WHERE table_schema = 'public' AND column_name = 'authority_revision'
+        AND table_name IN ('identity_api_key_secrets', 'identity_linked_platform_authorizations')
+      ORDER BY table_name
+    `);
+      expect(columns.rows).toEqual([
+        { table_name: "identity_api_key_secrets", data_type: "text", is_nullable: "YES" },
+        { table_name: "identity_linked_platform_authorizations", data_type: "text", is_nullable: "YES" },
+      ]);
+      const indexes = await pools.identity.query(`
+      SELECT indexname FROM pg_indexes WHERE schemaname = 'public'
+        AND indexname IN ('identity_api_key_secrets_hash_idx', 'identity_listing_credential_pending_idx')
+      ORDER BY indexname
+    `);
+      expect(indexes.rows).toEqual([
+        { indexname: "identity_api_key_secrets_hash_idx" },
+        { indexname: "identity_listing_credential_pending_idx" },
+      ]);
+      expect((await pools.identity.query("SELECT * FROM identity_listing_credential_mutations")).rows).toEqual([]);
+
+      const store = createIdentityCredentialStore(pools.identity);
+      const key = await store.readApiKey("synthetic-bootstrap-key");
+      const delegation = await store.readDelegation("synthetic-bootstrap-delegation");
+      if (state === "upgraded") {
+        expect(key).toMatchObject({ secret_hash: "synthetic-key-hash", authority_revision: null });
+        expect(delegation).toMatchObject({ access_token_hash: "synthetic-access-hash", authority_revision: null });
+      } else {
+        expect(key).toBeNull();
+        expect(delegation).toBeNull();
+      }
+    },
+  );
+});
 
 describe("Identity owner-local credential transaction", () => {
   let pools: Readonly<Record<"identity", PgTransactionalPool>>;
