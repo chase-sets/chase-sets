@@ -43,6 +43,10 @@ export type EventStore = Readonly<{
   /**
    * Appends events for many streams in ONE all-or-nothing transaction: any
    * stream's expected-version mismatch rolls back every stream's events.
+   * `expectedFirstEventId` additionally binds a preexisting stream's original
+   * opening under its write lock, before any writes or event-ID replay. Missing
+   * or recreated history conflicts even if its numeric version matches again.
+   * Other append methods reject this guard rather than silently dropping it.
    *
    * Every input's `expectedVersion` is enforced, INCLUDING an input that
    * carries zero events. A zero-event input is a pure version guard: a caller

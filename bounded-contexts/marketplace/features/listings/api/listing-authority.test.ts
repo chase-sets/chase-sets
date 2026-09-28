@@ -48,10 +48,13 @@ const requirements = createListingEvidenceRequirementSnapshot(
 async function fixture(selectedOptions: readonly { dimensionId: string; optionId: string }[] = []) {
   const memory = createInMemoryEventStore();
   const consumer = createInMemoryEventStore();
-  const context = withSyntheticListingPrincipal({
-    tenantId: "tnt_synthetic",
-    audit: { forAccountId: "acc_synthetic", performedByUserId: "usr_synthetic" },
-  });
+  const context = withSyntheticListingPrincipal(
+    {
+      tenantId: "tnt_synthetic",
+      audit: { forAccountId: "acc_synthetic", performedByUserId: "usr_synthetic" },
+    },
+    { kind: "session", sessionId: "ses_synthetic", revision: "1", tokenRevision: "synthetic-token-version-1" },
+  );
   const db: PgQueryable = {
     async query<Row>(sql: string, values?: readonly unknown[]) {
       if (sql.includes("WITH documents"))
@@ -81,21 +84,29 @@ async function fixture(selectedOptions: readonly { dimensionId: string; optionId
       { owner: "identity", purpose: "manage-listing" },
       { owner: "catalog", purpose: "product-measures" },
       { owner: "inventory", purpose: "stock-allocation" },
+      { owner: "auth", purpose: "authenticated-session" },
     ] as const
   ).map((participant) =>
     createListingAuthorityParticipant({
       eventStore: createInMemoryEventStore().eventStore,
+      resourceScope: "owner",
       participant,
       consumer: () => fence.forParticipant(participant.owner),
-      resources: () => ["synthetic-upstream"],
+      resources: () => [participant.owner === "auth" ? "session/ses_synthetic" : "synthetic-upstream"],
       validate: async (operation) => ({
         value: {},
-        sourceRevisions: [{ resourceId: "synthetic-upstream", revision: "1" }],
+        sourceRevisions:
+          participant.owner === "auth"
+            ? [
+                { resourceId: "session/ses_synthetic", revision: "1" },
+                { resourceId: "session-token/ses_synthetic", revision: "synthetic-token-version-1" },
+              ]
+            : [{ resourceId: "synthetic-upstream", revision: "1" }],
         validBefore: operation.prepareBefore,
       }),
     }),
   );
-  const restart = () =>
+  const restart = (mountSession = true) =>
     createMarketplaceListingAuthority(
       { eventStore: memory.eventStore, db },
       {
@@ -114,6 +125,9 @@ async function fixture(selectedOptions: readonly { dimensionId: string; optionId
           }),
         },
         inventory: upstream[2],
+        ...(mountSession
+          ? { session: { ...upstream[3]!, participant: { owner: "auth", purpose: "authenticated-session" } as const } }
+          : {}),
       },
     );
   const authority = restart();
@@ -230,6 +244,41 @@ async function fixture(selectedOptions: readonly { dimensionId: string; optionId
 }
 
 describe("Marketplace native owner participation", () => {
+  it("fences the actual final Ordering append when synthetic Auth invalidates after native preparation", async () => {
+    const f = await fixture();
+    const { operation, grants } = await f.prepare();
+    expect(grants.some((grant) => grant.participant.owner === "auth")).toBe(true);
+    const terminal = await f.fence.prepareCommit(operation, grants, { ordered: true });
+    await f.upstream[3]!.mutate({
+      context: f.context,
+      resources: ["session/ses_synthetic"],
+      mutationId: "synthetic-session-revoke",
+      command: { revoke: true },
+      prepare: async () => [],
+    });
+    await expect(
+      f.consumer.eventStore.appendToStreams!([
+        terminal,
+        {
+          streamId: "ordering.synthetic-business",
+          expectedVersion: 0,
+          context: f.context,
+          events: [{ eventType: "ordering.synthetic-business", payload: {} }],
+        },
+      ]),
+    ).rejects.toThrow();
+    expect((await f.fence.inspect(operation)).status).toBe("aborted");
+    expect(await f.consumer.eventStore.readStream({ streamId: "ordering.synthetic-business" })).toHaveLength(0);
+  });
+
+  it("cannot prepare session-authenticated native authority without the Auth port", async () => {
+    const f = await fixture();
+    const operation = await f.fence.open(f.input, f.context);
+    await expect(f.restart(false).commitment.prepare(operation, f.context)).rejects.toThrow(
+      "Auth session authority is not mounted",
+    );
+  });
+
   it("accepts equivalent selection objects after durable writer key canonicalization", async () => {
     const f = await fixture([{ optionId: "opt_synthetic", dimensionId: "dim_synthetic" }]);
     await expect(f.prepare()).resolves.toMatchObject({ grants: expect.any(Array) });
@@ -319,7 +368,10 @@ describe("Marketplace native owner participation", () => {
 
   it("rejects upstream omission rather than inventing an intermediate readiness authority", async () => {
     const f = await fixture();
-    const operation = await f.fence.open({ ...f.input, participants: [f.authority.commitment.participant] }, f.context);
+    const operation = await f.fence.open(
+      { ...f.input, participants: [f.upstream[3]!.participant, f.authority.commitment.participant] },
+      f.context,
+    );
     await expect(f.authority.commitment.prepare(operation, f.context)).rejects.toThrow();
   });
 

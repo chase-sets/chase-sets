@@ -105,77 +105,104 @@ describe("source authority writer", () => {
     await f.restart().resumeWrite(String(started.payload.writeId));
     expect(await f.eventStore.readStream({ streamId: f.input.streamId })).toHaveLength(1);
   });
-  it("co-commits a same-store consumer terminal instead of revoking its own native commitment", async () => {
-    const { eventStore } = createInMemoryEventStore();
-    const context: EventStoreContext = {
-      tenantId: "tnt_synthetic",
-      audit: { forAccountId: "acc_synthetic", performedByUserId: "usr_synthetic" },
-    };
-    const source = createListingAuthorityParticipant({
-      eventStore,
-      participant: { owner: "marketplace", purpose: "native-commitment" },
-      consumer: () => fence.forParticipant("marketplace"),
-      resources: () => ["synthetic-listing"],
-      validate: async (operation) => ({
-        value: { eligible: true },
-        sourceRevisions: [{ resourceId: "synthetic-listing", revision: "0" }],
-        validBefore: operation.prepareBefore,
-      }),
-    });
-    const writer = createListingAuthorityWriter({
-      eventStore,
-      source,
-      owner: "marketplace",
-      resources: async (inputs) =>
-        inputs.some((input) => input.streamId === "marketplace.synthetic-listing") ? ["synthetic-listing"] : [],
-    });
-    const fence = createListingAuthorityFence({
-      eventStore: writer.eventStore,
-      owner: "marketplace",
-      participants: [source],
-    });
-    const operation = await fence.open(
-      {
-        tenantId: context.tenantId,
-        accountId: context.audit.forAccountId,
-        actor: { kind: "user", userId: context.audit.performedByUserId },
-        committingOwner: "marketplace",
-        kind: "native-commitment",
-        requestId: "synthetic-local-commit",
-        command: {},
-        listingId: "lst_synthetic",
-        subject: {
-          inventoryItemId: "inv_synthetic",
-          catalogItemId: "cat_synthetic",
-          productId: "cat_synthetic::",
-          selectedOptions: [],
-          quantity: 1,
-          pair: { amount: "1.00", currencyCode: "USD" },
-          allocationRevision: null,
-          commitmentSourceId: "off_synthetic",
+  it.each(["original", "missing", "wrong"])(
+    "requires the original opening on a same-store consumer terminal (%s)",
+    async (opening) => {
+      const { eventStore } = createInMemoryEventStore();
+      const context: EventStoreContext = {
+        tenantId: "tnt_synthetic",
+        audit: { forAccountId: "acc_synthetic", performedByUserId: "usr_synthetic" },
+      };
+      const source = createListingAuthorityParticipant({
+        eventStore,
+        participant: { owner: "marketplace", purpose: "native-commitment" },
+        consumer: () => fence.forParticipant("marketplace"),
+        resources: () => ["synthetic-listing"],
+        validate: async (operation) => ({
+          value: { eligible: true },
+          sourceRevisions: [{ resourceId: "synthetic-listing", revision: "0" }],
+          validBefore: operation.prepareBefore,
+        }),
+      });
+      const writer = createListingAuthorityWriter({
+        eventStore,
+        source,
+        owner: "marketplace",
+        resources: async (inputs) =>
+          inputs.some((input) => input.streamId === "marketplace.synthetic-listing") ? ["synthetic-listing"] : [],
+      });
+      const fence = createListingAuthorityFence({
+        eventStore: writer.eventStore,
+        owner: "marketplace",
+        participants: [source],
+      });
+      const operation = await fence.open(
+        {
+          tenantId: context.tenantId,
+          accountId: context.audit.forAccountId,
+          actor: { kind: "user", userId: context.audit.performedByUserId },
+          committingOwner: "marketplace",
+          kind: "native-commitment",
+          requestId: "synthetic-local-commit",
+          command: {},
+          listingId: "lst_synthetic",
+          subject: {
+            inventoryItemId: "inv_synthetic",
+            catalogItemId: "cat_synthetic",
+            productId: "cat_synthetic::",
+            selectedOptions: [],
+            quantity: 1,
+            pair: { amount: "1.00", currencyCode: "USD" },
+            allocationRevision: null,
+            commitmentSourceId: "off_synthetic",
+          },
+          target: { kind: "native-marketplace" },
+          expectedListingRevision: 0,
+          expectedTargetRevision: null,
+          expectedVisibilityRevision: null,
+          expectedPublicationRevision: null,
+          participants: [source.participant],
         },
-        target: { kind: "native-marketplace" },
-        expectedListingRevision: 0,
-        expectedTargetRevision: null,
-        expectedVisibilityRevision: null,
-        expectedPublicationRevision: null,
-        participants: [source.participant],
-      },
-      context,
-    );
-    const grant = await source.prepare(operation, context);
-    await writer.eventStore.appendToStreams!([
-      {
-        streamId: "marketplace.synthetic-listing",
-        expectedVersion: 0,
         context,
-        events: [{ eventType: "marketplace.synthetic-listing.committed", payload: {} }],
-      },
-      await fence.prepareCommit(operation, [grant], { accepted: true }),
-    ]);
-    expect((await fence.inspect(operation)).status).toBe("committed");
-    await fence.settle(operation);
-    expect((await source.inspect(operation))?.status).toBe("consumed");
+      );
+      const grant = await source.prepare(operation, context);
+      const terminal = await fence.prepareCommit(operation, [grant], { accepted: true });
+      const { expectedFirstEventId, ...unguarded } = terminal;
+      const appends = [
+        {
+          streamId: "marketplace.synthetic-listing",
+          expectedVersion: 0,
+          context,
+          events: [{ eventType: "marketplace.synthetic-listing.committed", payload: {} }],
+        },
+        opening === "original"
+          ? terminal
+          : opening === "missing"
+            ? unguarded
+            : { ...terminal, expectedFirstEventId: "evt_wrong" as const },
+      ];
+      expect(expectedFirstEventId).toBe(operation.openingEventId);
+      if (opening !== "original") {
+        await expect(writer.eventStore.appendToStreams!(appends)).rejects.toThrow("guarded terminal append");
+        expect((await fence.inspect(operation)).status).toBe("pending");
+        expect((await source.inspect(operation))?.status).toBe("reserved");
+        expect(await eventStore.readStream({ streamId: "marketplace.synthetic-listing" })).toHaveLength(0);
+        return;
+      }
+      await writer.eventStore.appendToStreams!(appends);
+      expect((await fence.inspect(operation)).status).toBe("committed");
+      await fence.settle(operation);
+      expect((await source.inspect(operation))?.status).toBe("consumed");
+    },
+  );
+
+  it("rejects opening guards on non-atomic writer methods before starting a source intent", async () => {
+    const f = fixture();
+    const writer = f.restart();
+    const input = { ...f.input, expectedFirstEventId: "evt_original" as const };
+    await expect(writer.eventStore.appendToStream(input)).rejects.toThrow("atomic appendToStreams");
+    await expect(writer.eventStore.appendToStreamsIndependently!([input])).rejects.toThrow("atomic appendToStreams");
+    expect(await f.eventStore.readAll()).toHaveLength(0);
   });
 
   it("replays an exact committed mutation across restart without another business event", async () => {

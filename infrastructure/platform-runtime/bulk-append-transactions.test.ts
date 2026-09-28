@@ -37,6 +37,89 @@ function fixture() {
 }
 
 describe("bulk guarded transactions", () => {
+  it.each([false, true])(
+    "never drops a merged opening guard when the other input omits it (guardFirst=%s)",
+    async (guardFirst) => {
+      const { eventStore } = createInMemoryEventStore();
+      await eventStore.appendToStream({
+        streamId: "synthetic.shared-opening",
+        expectedVersion: 0,
+        context,
+        events: [{ eventId: "evt_recreated", eventType: "synthetic.opened", payload: {} }],
+      });
+      const lane = createBulkAppendLane({
+        eventStore,
+        chunkSize: 2,
+        yieldIntervalMs: 0,
+        prepare: async (id: string) => ({
+          result: { id },
+          recover: async (error: unknown): Promise<{ id: string }> => {
+            throw error;
+          },
+          appends: [
+            {
+              streamId: "synthetic.shared-opening",
+              expectedVersion: 1,
+              context,
+              events: [],
+              ...((id === "a") === guardFirst ? { expectedFirstEventId: "evt_original" as const } : {}),
+            },
+            {
+              streamId: id,
+              expectedVersion: 0,
+              context,
+              events: [{ eventType: "synthetic.committed", payload: { id } }],
+            },
+          ],
+        }),
+      });
+      const outcomes = await lane(["a", "b"]);
+      expect(outcomes[guardFirst ? 0 : 1]?.error).toMatchObject({ code: "concurrency_conflict" });
+      expect(outcomes[guardFirst ? 1 : 0]?.result).toEqual({ id: guardFirst ? "b" : "a" });
+      expect(await eventStore.readStream({ streamId: guardFirst ? "a" : "b" })).toHaveLength(0);
+    },
+  );
+
+  it("separates conflicting opening identities instead of picking one for both requests", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    await eventStore.appendToStream({
+      streamId: "synthetic.shared-opening",
+      expectedVersion: 0,
+      context,
+      events: [{ eventId: "evt_current", eventType: "synthetic.opened", payload: {} }],
+    });
+    const lane = createBulkAppendLane({
+      eventStore,
+      chunkSize: 2,
+      yieldIntervalMs: 0,
+      prepare: async (id: string) => ({
+        result: { id },
+        recover: async (error: unknown): Promise<{ id: string }> => {
+          throw error;
+        },
+        appends: [
+          {
+            streamId: "synthetic.shared-opening",
+            expectedVersion: 1,
+            context,
+            events: [],
+            expectedFirstEventId: id === "a" ? ("evt_old" as const) : ("evt_current" as const),
+          },
+          {
+            streamId: id,
+            expectedVersion: 0,
+            context,
+            events: [{ eventType: "synthetic.committed", payload: { id } }],
+          },
+        ],
+      }),
+    });
+    const outcomes = await lane(["a", "b"]);
+    expect(outcomes[0]?.error).toMatchObject({ code: "concurrency_conflict" });
+    expect(outcomes[1]?.result).toEqual({ id: "b" });
+    expect(await eventStore.readStream({ streamId: "a" })).toHaveLength(0);
+  });
+
   it("attributes the complete atomic chunk without changing business metadata", async () => {
     const f = fixture();
     await f.lane(["a", "b"]);

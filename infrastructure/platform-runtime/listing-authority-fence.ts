@@ -1,7 +1,7 @@
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
 import {
-  assertListingAuthorityParticipants,
+  assertListingAuthorityAuthenticationParticipants,
   requireListingAuthorityPrincipal,
   listingAuthorityParticipantKey,
   type ListingAuthorityConsumerPort,
@@ -12,8 +12,10 @@ import {
   type ListingAuthorityReservation,
   type ListingAuthorityTerminal,
   type ListingAuthorityStandingAuthorityPort,
+  type ListingAuthoritySessionAuthorityPort,
 } from "@chase-sets/event-core/listing-authority";
 import type { JsonObject } from "@chase-sets/primitives/json";
+import { createId } from "@chase-sets/primitives/typed-ids";
 import {
   assertSameAuthority,
   authorityContext,
@@ -25,8 +27,64 @@ import {
 
 export type ListingAuthorityOperationInput = Omit<
   ListingAuthorityOperation,
-  "schemaVersion" | "operationId" | "commandFingerprint" | "prepareBefore" | "generation" | "principal"
+  | "schemaVersion"
+  | "operationId"
+  | "commandFingerprint"
+  | "prepareBefore"
+  | "generation"
+  | "openingEventId"
+  | "principal"
 >;
+
+/** Identity/composites retain this host-bound Auth grant through the FINAL consumer terminal. */
+export async function prepareListingSessionAuthority(
+  operation: ListingAuthorityOperation,
+  context: EventStoreContext,
+  port: ListingAuthoritySessionAuthorityPort,
+): Promise<ListingAuthorityReservation> {
+  const principal = requireListingAuthorityPrincipal(context);
+  assertSameAuthority(principal, operation.principal);
+  assertListingAuthorityAuthenticationParticipants(operation.participants, principal);
+  if (principal.kind !== "user" || principal.authentication.kind !== "session")
+    throw new Error("Session authority requires a session principal.");
+  assertSameAuthority(port.participant, { owner: "auth", purpose: "authenticated-session" });
+  const grant = await port.prepare(operation, context);
+  assertSameAuthority(grant.operation, operation);
+  assertSameAuthority(grant.participant, port.participant);
+  assertSameAuthority(await port.inspect(operation), grant);
+  const authentication = principal.authentication;
+  assertSameAuthority(grant.resources, [`session/${authentication.sessionId}`]);
+  assertSameAuthority(
+    [...grant.sourceRevisions].sort((a, b) => a.resourceId.localeCompare(b.resourceId)),
+    [
+      { resourceId: `session/${authentication.sessionId}`, revision: authentication.revision },
+      { resourceId: `session-token/${authentication.sessionId}`, revision: authentication.tokenRevision },
+    ].sort((a, b) => a.resourceId.localeCompare(b.resourceId)),
+  );
+  if (
+    grant.status !== "reserved" ||
+    !Number.isFinite(Date.parse(grant.validBefore)) ||
+    Date.parse(grant.validBefore) > Date.parse(principal.validBefore)
+  )
+    throw new Error("Session authority promise or validity is invalid.");
+  return grant;
+}
+
+/** Composite preparation can repeat a grant, but cannot replace one by participant name or ID alone. */
+export function combineListingAuthorityReservations(
+  operation: ListingAuthorityOperation,
+  reservations: readonly ListingAuthorityReservation[],
+): readonly ListingAuthorityReservation[] {
+  const exact = new Map<string, ListingAuthorityReservation>();
+  for (const reservation of reservations) {
+    assertSameAuthority(reservation.operation, operation);
+    const key = listingAuthorityParticipantKey(reservation.participant);
+    const prior = exact.get(key);
+    if (prior) assertSameAuthority(prior, reservation);
+    else exact.set(key, reservation);
+  }
+  return [...exact.values()];
+}
 
 /** Called by Identity with the host-bound admitting owner, not a caller-selected port. */
 export async function prepareListingStandingAuthority(
@@ -76,6 +134,7 @@ export function createListingAuthorityFence(
   if (ports.size !== deps.participants.length) throw new Error("Duplicate authority participant mounting.");
 
   async function read(operation: ListingAuthorityOperation) {
+    authorityContext(operation);
     if (operation.committingOwner !== deps.owner) throw new Error("Wrong committing owner.");
     const history = await authorityHistory(store, stream(operation));
     if (history.events.length === 0)
@@ -85,6 +144,7 @@ export function createListingAuthorityFence(
     const last = history.events.at(-1)!;
     if (
       history.events.length > 2 ||
+      history.events[0]!.eventId !== operation.openingEventId ||
       history.events[0]!.eventType !== `${deps.owner}.listing-authority-operation.opened` ||
       history.events.some(
         (event) => event.tenantId !== operation.tenantId || event.forAccountId !== operation.accountId,
@@ -110,11 +170,11 @@ export function createListingAuthorityFence(
   }
 
   async function open(input: ListingAuthorityOperationInput, context: EventStoreContext) {
-    assertListingAuthorityParticipants(input.participants);
     const principal =
       context.listingAuthorityPrincipal || input.participants.some((p) => p.owner === "identity")
         ? requireListingAuthorityPrincipal(context)
         : null;
+    assertListingAuthorityAuthenticationParticipants(input.participants, principal);
     if (
       principal &&
       (principal.kind !== input.actor.kind ||
@@ -163,6 +223,7 @@ export function createListingAuthorityFence(
       operationId: authorityHash([input.tenantId, input.accountId, deps.owner, input.requestId]),
       commandFingerprint: authorityHash({ ...input, principal }),
       generation: 1,
+      openingEventId: createId("evt"),
       prepareBefore: new Date(now().getTime() + 60_000).toISOString(),
     };
     const history = await authorityHistory(store, stream(operation));
@@ -170,6 +231,7 @@ export function createListingAuthorityFence(
       const prior = authorityValue<ListingAuthorityOperation>(history.events[0]!.payload.operation);
       if (prior.commandFingerprint !== operation.commandFingerprint)
         throw new Error("Listing request key was already used for a different command.");
+      await read(prior);
       return prior;
     }
     if (principal && !(now().getTime() < Date.parse(principal.validBefore)))
@@ -180,7 +242,11 @@ export function createListingAuthorityFence(
         expectedVersion: 0,
         context,
         events: [
-          { eventType: `${deps.owner}.listing-authority-operation.opened`, payload: authorityPayload({ operation }) },
+          {
+            eventId: operation.openingEventId,
+            eventType: `${deps.owner}.listing-authority-operation.opened`,
+            payload: authorityPayload({ operation }),
+          },
         ],
       });
       return operation;
@@ -190,6 +256,7 @@ export function createListingAuthorityFence(
       const prior = authorityValue<ListingAuthorityOperation>(recovered.events[0]!.payload.operation);
       if (prior.commandFingerprint !== operation.commandFingerprint)
         throw new Error("Listing request key was already used for a different command.");
+      await read(prior);
       return prior;
     }
   }
@@ -199,12 +266,18 @@ export function createListingAuthorityFence(
     if (current.status.status === "unknown") throw new Error("Unknown authority operation; retain reservations.");
     if (current.status.status !== "pending") return current.status;
     try {
-      await store.appendToStream({
-        streamId: stream(operation),
-        expectedVersion: current.version,
-        context: authorityContext(operation),
-        events: [{ eventType: `${deps.owner}.listing-authority-operation.aborted`, payload: { result: null, reason } }],
-      });
+      if (!store.appendToStreams) throw new Error("Authority terminals require atomic appendToStreams.");
+      await store.appendToStreams([
+        {
+          streamId: stream(operation),
+          expectedVersion: current.version,
+          expectedFirstEventId: operation.openingEventId,
+          context: authorityContext(operation),
+          events: [
+            { eventType: `${deps.owner}.listing-authority-operation.aborted`, payload: { result: null, reason } },
+          ],
+        },
+      ]);
     } catch (error) {
       const recovered = await read(operation);
       if (recovered.status.status === "pending" || recovered.status.status === "unknown") throw error;
@@ -245,6 +318,7 @@ export function createListingAuthorityFence(
     return {
       streamId: stream(operation),
       expectedVersion: current.version,
+      expectedFirstEventId: operation.openingEventId,
       context: authorityContext(operation),
       authorizationDeadline: new Date(Math.min(...deadlines.map(Date.parse))).toISOString(),
       events: [{ eventType: `${deps.owner}.listing-authority-operation.committed`, payload: { result, reason: null } }],

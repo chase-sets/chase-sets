@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { ListingAuthorityOperation } from "@chase-sets/event-core/listing-authority";
+import type { ListingAuthorityOperation, ListingAuthorityReservation } from "@chase-sets/event-core/listing-authority";
 import type { ListingAuthorityFence, ListingAuthorityOperationInput } from "./listing-authority-fence";
 import type { ListingAuthoritySource } from "./listing-authority-participant";
 
@@ -19,6 +19,15 @@ export type ListingAuthorityConformanceFixture = Readonly<{
 
 /** Domain proofs supplement, rather than substitute for, the storage protocol suite. */
 export type ListingAuthorityOwnerProofs = Readonly<{
+  auth: Readonly<{
+    actualTokenAuthenticationAndSessionTokenRevisionBinding: () => Promise<void>;
+    revokeSwitchExpireAndTokenMutationWriters: () => Promise<void>;
+    tokenOnlyRotationAndSwitchAwayAndBack: () => Promise<void>;
+    naturalSessionAndTokenExpiryFenceRetainedAppend: () => Promise<void>;
+    closureRestartUnknownAndSqlMutationIdempotency: () => Promise<void>;
+    ownerScopedSessionResourceAndIntegrityLoss: () => Promise<void>;
+    routesInternalSeedAndDirectWriterCoverage: () => Promise<void>;
+  }>;
   identity: Readonly<{
     removalSuspensionRoleKeyBadgeAndFounderWriters: () => Promise<void>;
     authenticatedUserAndStandingSystemAuthority: () => Promise<void>;
@@ -53,6 +62,102 @@ export type ListingAuthorityOwnerProofs = Readonly<{
     availabilityEvidencePolicyAndReviewScoringWritersInvalidate: () => Promise<void>;
   }>;
 }>;
+
+/** Auth source pass supplies actual Auth; the combined pass also supplies actual Identity.
+ * Protocol fixtures are explicitly synthetic and cannot certify either owner pass.
+ */
+export type ListingAuthoritySessionConformanceFixture = ListingAuthorityConformanceFixture &
+  Readonly<{
+    prepareAuthorities(
+      operation: ListingAuthorityOperation,
+      context: EventStoreContext,
+    ): Promise<readonly ListingAuthorityReservation[]>;
+  }>;
+
+export function listingAuthoritySessionConformance(
+  test: (name: string, run: () => Promise<void>) => void,
+  create: () => Promise<ListingAuthoritySessionConformanceFixture>,
+) {
+  async function prepared() {
+    const f = await create();
+    assert.notEqual(f.sourceStore, f.consumerStore);
+    assert.equal(f.context.listingAuthorityPrincipal?.kind, "user");
+    const operation = await f.fence.open(f.input, f.context);
+    const grants = await f.prepareAuthorities(operation, f.context);
+    return { f, operation, grants };
+  }
+  function effects(f: ListingAuthoritySessionConformanceFixture, operation: ListingAuthorityOperation) {
+    return ["business", "request-success"].map((kind) => ({
+      streamId: `${operation.committingOwner}.synthetic-session-${kind}-${operation.operationId}`,
+      expectedVersion: 0 as const,
+      context: f.context,
+      events: [{ eventType: `${operation.committingOwner}.synthetic-session-${kind}`, payload: { accepted: true } }],
+    }));
+  }
+  test("session final operation cannot omit Auth even when Identity is present", async () => {
+    const f = await create();
+    await assert.rejects(
+      f.fence.open({ ...f.input, participants: f.input.participants.filter((p) => p.owner !== "auth") }, f.context),
+    );
+  });
+  test("session partial preparation cannot commit or release without a final terminal", async () => {
+    const { f, operation, grants } = await prepared();
+    await assert.rejects(
+      f.fence.prepareCommit(
+        operation,
+        grants.filter((g) => g.participant.owner !== "auth"),
+        {},
+      ),
+    );
+    await assert.rejects(f.source.settle(operation));
+    assert.equal((await f.source.inspect(operation))?.status, "reserved");
+    await f.fence.abort(operation, "synthetic-partial-preparation");
+    await f.fence.settle(operation);
+    assert.equal((await f.source.inspect(operation))?.status, "released");
+  });
+  test("session revoke rejects a retained append and atomically leaves no business or request success", async () => {
+    const { f, operation, grants } = await prepared();
+    const terminal = await f.fence.prepareCommit(operation, grants, { accepted: true });
+    const business = effects(f, operation);
+    await f.invalidate();
+    assert.equal((await f.restart().fence.inspect(operation)).status, "aborted");
+    await assert.rejects(f.consumerStore.appendToStreams!([terminal, ...business]));
+    for (const append of business)
+      assert.equal((await f.consumerStore.readStream({ streamId: append.streamId })).length, 0);
+    assert.equal((await f.fence.inspect(operation)).status, "aborted");
+  });
+  test("unchanged session commits once and commit-wins preserves business and request success", async () => {
+    const { f, operation, grants } = await prepared();
+    const terminal = await f.fence.prepareCommit(operation, grants, { accepted: true });
+    const business = effects(f, operation);
+    await f.consumerStore.appendToStreams!([terminal, ...business]);
+    await f.invalidate();
+    assert.equal((await f.restart().fence.inspect(operation)).status, "committed");
+    for (const append of business)
+      assert.equal((await f.consumerStore.readStream({ streamId: append.streamId })).length, 1);
+    await assert.rejects(f.consumerStore.appendToStreams!([terminal, ...business]));
+    await f.fence.settle(operation);
+    assert.equal((await f.source.inspect(operation))?.status, "consumed");
+    const later = await f.fence.open({ ...f.input, requestId: "synthetic-session-after-revoke" }, f.context);
+    await assert.rejects(f.prepareAuthorities(later, f.context));
+  });
+  for (const field of ["revision", "tokenRevision"] as const)
+    test(`session same-key recovery cannot upgrade ${field}`, async () => {
+      const { f, operation } = await prepared();
+      const principal = operation.principal;
+      assert(principal?.kind === "user" && principal.authentication.kind === "session");
+      const context = {
+        ...f.context,
+        listingAuthorityPrincipal: {
+          ...principal,
+          authentication: { ...principal.authentication, [field]: "synthetic-substituted-revision" },
+        },
+      };
+      await assert.rejects(f.fence.open(f.input, context));
+      await assert.rejects(f.source.prepare(operation, context));
+      assert.deepEqual((await f.restart().source.inspect(operation))?.operation.principal, principal);
+    });
+}
 
 export function listingAuthorityOwnerConformance<Owner extends keyof ListingAuthorityOwnerProofs>(
   test: (name: string, run: () => Promise<void>) => void,
@@ -154,6 +259,7 @@ export function listingAuthorityConformance(
     }),
     revision: (operation) => ({ ...operation, expectedListingRevision: operation.expectedListingRevision + 1 }),
     generation: (operation) => ({ ...operation, generation: operation.generation + 1 }),
+    "opening identity": (operation) => ({ ...operation, openingEventId: "evt_synthetic-other-opening" }),
   };
   for (const [name, alter] of Object.entries(alterations)) {
     test(`a reservation cannot authorize another ${name}`, async () => {

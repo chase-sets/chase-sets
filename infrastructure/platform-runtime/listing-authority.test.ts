@@ -14,7 +14,8 @@ async function fixture(
   resourceScope: "tenant" | "owner" = "tenant",
 ) {
   const { eventStore: sourceStore } = createInMemoryEventStore();
-  const { eventStore: consumerStore } = createInMemoryEventStore();
+  const consumerMemory = createInMemoryEventStore();
+  const consumerStore = consumerMemory.eventStore;
   const context: EventStoreContext = {
     tenantId: "tnt_synthetic",
     audit: { forAccountId: "acc_synthetic", performedByUserId: "usr_synthetic" },
@@ -100,12 +101,67 @@ async function fixture(
         }),
     };
   }
-  return restart();
+  return { ...restart(), consumerMemory };
 }
 
 describe("durable Listing authority protocol conformance", () => listingAuthorityConformance(it, fixture));
 
 describe("Listing authority unknown outcomes and predicate serialization", () => {
+  it("retains the opening on recovery but cannot refresh old grants against recreated history", async () => {
+    const f = await fixture();
+    const operation = await f.fence.open(f.input, f.context);
+    const grant = await f.source.prepare(operation, f.context);
+    expect(await f.restart().fence.open(f.input, f.context)).toEqual(operation);
+    const delayed = await f.fence.prepareCommit(operation, [grant], { accepted: true });
+    f.consumerMemory.streams.delete(delayed.streamId);
+    const replacement = await f.restart().fence.open(f.input, f.context);
+    expect(replacement.operationId).toBe(operation.operationId);
+    expect(replacement.commandFingerprint).toBe(operation.commandFingerprint);
+    expect(replacement.openingEventId).not.toBe(operation.openingEventId);
+    await expect(f.fence.prepareCommit(operation, [grant], { accepted: true })).rejects.toThrow("binding conflict");
+    await expect(f.source.prepare(replacement, f.context)).rejects.toThrow("binding conflict");
+    await expect(f.source.settle(operation)).rejects.toThrow("binding conflict");
+    await expect(f.consumerStore.appendToStreams!([delayed])).rejects.toThrow("opening identity conflict");
+    expect((await f.fence.inspect(replacement)).status).toBe("pending");
+  });
+
+  it("fences a delayed abort against same-key recreation between read and append", async () => {
+    const f = await fixture();
+    const operation = await f.fence.open(f.input, f.context);
+    const append = f.consumerStore.appendToStreams!.bind(f.consumerStore);
+    vi.spyOn(f.consumerStore, "appendToStreams").mockImplementationOnce(async (inputs) => {
+      f.consumerMemory.streams.delete(inputs[0]!.streamId);
+      await f.restart().fence.open(f.input, f.context);
+      return append(inputs);
+    });
+    await expect(f.fence.abort(operation, "synthetic-delayed-abort")).rejects.toThrow("binding conflict");
+    const replacement = await f.fence.open(f.input, f.context);
+    expect(replacement.openingEventId).not.toBe(operation.openingEventId);
+    expect((await f.fence.inspect(replacement)).status).toBe("pending");
+  });
+
+  it("rejects retained history whose opening identity is contradicted", async () => {
+    const f = await fixture();
+    const operation = await f.fence.open(f.input, f.context);
+    const streamId = `marketplace.listing-authority-operation-${operation.operationId}`;
+    const events = f.consumerMemory.streams.get(streamId)!;
+    f.consumerMemory.streams.set(streamId, [{ ...events[0]!, eventId: "evt_synthetic-replacement" }]);
+    await expect(f.fence.inspect(operation)).rejects.toThrow("Corrupt authority terminal history");
+    await expect(f.fence.open(f.input, f.context)).rejects.toThrow("Corrupt authority terminal history");
+  });
+
+  it("does not manufacture an opening identity for an older retained operation", async () => {
+    const f = await fixture();
+    const operation = await f.fence.open(f.input, f.context);
+    const streamId = `marketplace.listing-authority-operation-${operation.operationId}`;
+    const events = f.consumerMemory.streams.get(streamId)!;
+    const { openingEventId, ...olderOperation } = operation;
+    expect(openingEventId).toBe(events[0]!.eventId);
+    f.consumerMemory.streams.set(streamId, [{ ...events[0]!, payload: { operation: olderOperation } }]);
+    await expect(f.restart().fence.open(f.input, f.context)).rejects.toThrow("Corrupt authority terminal history");
+    expect(f.consumerMemory.streams.get(streamId)).toHaveLength(1);
+  });
+
   it("rejects a contradictory final integrity digest instead of trusting the resource fold", async () => {
     const f = await fixture();
     const operation = await f.fence.open(f.input, f.context);
@@ -311,9 +367,9 @@ describe("Listing authority unknown outcomes and predicate serialization", () =>
     const f = await fixture();
     const operation = await f.fence.open(f.input, f.context);
     await f.source.prepare(operation, f.context);
-    const append = f.consumerStore.appendToStream;
+    const append = f.consumerStore.appendToStreams!;
     const read = f.consumerStore.readStream;
-    vi.spyOn(f.consumerStore, "appendToStream").mockImplementationOnce(async (input) => {
+    vi.spyOn(f.consumerStore, "appendToStreams").mockImplementationOnce(async (input) => {
       await append(input);
       throw new Error("lost abort reply");
     });

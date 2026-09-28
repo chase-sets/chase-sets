@@ -106,6 +106,10 @@ export type StoredEvent<
 
 export type AppendToStreamInput = Readonly<{
   streamId: StreamId;
+  /** appendToStreams only: compare the original stream opening under the write lock, before any effects.
+   * Requires a positive numeric expectedVersion. A recreated stream cannot satisfy an old opening identity.
+   */
+  expectedFirstEventId?: EventId;
   /** appendToStreams only: checked with the store clock after acquiring all write locks. Other append methods reject it. */
   authorizationDeadline?: string;
   /** Technical append attribution, retained by durable owner writer intents, not stored as business metadata. */

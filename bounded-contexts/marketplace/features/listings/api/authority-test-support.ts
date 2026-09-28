@@ -5,6 +5,7 @@ import type {
   ListingAuthorityOperation,
   ListingAuthorityParticipant,
   ListingAuthorityPurpose,
+  ListingAuthorityReservation,
 } from "@chase-sets/event-core/listing-authority";
 import { createListingAuthorityFence } from "@chase-sets/platform-runtime/listing-authority-fence";
 import { createListingAuthorityParticipant } from "@chase-sets/platform-runtime/listing-authority-participant";
@@ -14,6 +15,7 @@ import type { ListingTargetAuthority } from "./target-contracts";
 /** Synthetic domain facts; real durable participant APIs and separate owner stores. */
 export function createSyntheticListingAuthority(consumerStore: EventStore) {
   const definitions: readonly ListingAuthorityParticipant[] = [
+    { owner: "auth", purpose: "authenticated-session" },
     { owner: "identity", purpose: "manage-listing" },
     { owner: "channels", purpose: "connection" },
     { owner: "pricing", purpose: "evaluated-price" },
@@ -35,6 +37,7 @@ export function createSyntheticListingAuthority(consumerStore: EventStore) {
     return createListingAuthorityParticipant({
       eventStore,
       participant,
+      ...(participant.owner === "auth" ? { resourceScope: "owner" as const } : {}),
       consumer: () =>
         createListingAuthorityFence({
           eventStore: consumerStore,
@@ -58,9 +61,14 @@ export function createSyntheticListingAuthority(consumerStore: EventStore) {
     purpose: ListingAuthorityPurpose,
     operation: ListingAuthorityOperation,
     context?: EventStoreContext,
-  ) {
+  ): Promise<readonly ListingAuthorityReservation[]> {
     const source = sources.find((candidate) => candidate.participant.purpose === purpose)!;
     return [
+      ...(purpose === "manage-listing" &&
+      operation.principal?.kind === "user" &&
+      operation.principal.authentication.kind === "session"
+        ? await reserve("authenticated-session", operation, context)
+        : []),
       await source.prepare(
         operation,
         context ?? {

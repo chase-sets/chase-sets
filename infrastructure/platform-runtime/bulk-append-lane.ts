@@ -188,13 +188,21 @@ function transactionLane<Item, Result>(config: BulkAppendTransactionLaneConfig<I
           const prior = merged.get(input.streamId);
           if (
             prior &&
-            (prior.expectedVersion !== input.expectedVersion || (prior.events.length > 0 && input.events.length > 0))
+            (prior.expectedVersion !== input.expectedVersion ||
+              (prior.expectedFirstEventId !== undefined &&
+                input.expectedFirstEventId !== undefined &&
+                prior.expectedFirstEventId !== input.expectedFirstEventId) ||
+              (prior.events.length > 0 && input.events.length > 0))
           ) {
             overlaps = true;
           } else if (!prior) {
             merged.set(input.streamId, input);
           } else {
-            const chosen = input.events.length > 0 ? input : prior;
+            const expectedFirstEventId = prior.expectedFirstEventId ?? input.expectedFirstEventId;
+            const chosen = {
+              ...(input.events.length > 0 ? input : prior),
+              ...(expectedFirstEventId !== undefined ? { expectedFirstEventId } : {}),
+            };
             const deadlines = [prior.authorizationDeadline, input.authorizationDeadline].filter(
               (value): value is string => value !== undefined,
             );

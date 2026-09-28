@@ -1,8 +1,10 @@
 import type { JsonObject } from "../primitives/json";
+import type { EventId } from "../primitives/typed-ids";
 import type { EventStoreContext } from "./storage";
 import type { MarketplaceListingPriceTarget } from "./public-event-payloads/marketplace";
 
 export type ListingAuthorityOwner =
+  | "auth"
   | "marketplace"
   | "identity"
   | "channels"
@@ -12,6 +14,7 @@ export type ListingAuthorityOwner =
   | "commercial-terms";
 
 export type ListingAuthorityPurpose =
+  | "authenticated-session"
   | "manage-listing"
   | "connection"
   | "evaluated-price"
@@ -37,6 +40,26 @@ export type ListingAuthoritySubject = Readonly<{
   commitmentSourceId: string | null;
 }>;
 
+/** Auth's non-secret, non-reused persisted revisions, never a token/hash or timestamp guess. */
+export type ListingAuthoritySessionAuthentication = Readonly<{
+  kind: "session";
+  sessionId: string;
+  revision: string;
+  tokenRevision: string;
+}>;
+
+/** Authenticated server-internal Auth-to-Identity result, not a browser DTO or a capability.
+ * validBefore cannot exceed either token or session expiry. Identity adds/revalidates
+ * membership and delegation, and may only narrow this boundary in the final principal.
+ */
+export type ListingAuthoritySessionEvidence = Readonly<{
+  tenantId: string;
+  userId: string;
+  accountId: string;
+  authentication: ListingAuthoritySessionAuthentication;
+  validBefore: string;
+}>;
+
 /** Verified server input, never decoded from command bodies, audit IDs, or owner headers.
  * IDs/revisions are non-secret selectors. Identity revalidates them and reserves
  * the effective membership/credential/scope ceiling, not the account's full role.
@@ -52,7 +75,7 @@ export type ListingAuthorityPrincipal = Readonly<{
         kind: "user";
         membershipId: string;
         authentication:
-          | Readonly<{ kind: "session"; sessionId: string; revision: string }>
+          | ListingAuthoritySessionAuthentication
           | Readonly<{ kind: "api-key"; keyId: string; revision: string }>
           | Readonly<{ kind: "delegation"; delegationId: string; revision: string; scopeCeiling: readonly string[] }>;
         delegation: Readonly<{ delegationId: string; revision: string; scopeCeiling: readonly string[] }> | null;
@@ -72,7 +95,7 @@ export type ListingAuthorityOperation = Readonly<{
   operationId: string;
   tenantId: string;
   accountId: string;
-  /** Required whenever Identity participates; null only for operations without Identity authority. */
+  /** Required whenever Identity or Auth participates. Session authentication always requires Auth. */
   principal: ListingAuthorityPrincipal | null;
   actor:
     | Readonly<{ kind: "user"; userId: string }>
@@ -97,6 +120,8 @@ export type ListingAuthorityOperation = Readonly<{
   expectedVisibilityRevision: number | null;
   expectedPublicationRevision: number | null;
   generation: number;
+  /** Non-reusable original opening, retained on identical recovery and bound by the atomic terminal append. */
+  openingEventId: EventId;
   participants: readonly ListingAuthorityParticipant[];
   /** Consumer-clock deadline. Expiry selects ABORTED; it never releases a promise by itself. */
   prepareBefore: string;
@@ -150,6 +175,17 @@ export type ListingAuthorityParticipantPort = Readonly<{
  */
 export type ListingAuthorityStandingAuthorityPort = ListingAuthorityParticipantPort;
 
+/** Auth protects session/<sessionId> with resourceScope: 'owner', binding the full
+ * final operation/principal and both session/<sessionId> and session-token/<sessionId>
+ * exact source revisions. Auth validates lifecycle/credential, not Identity permissions.
+ * Every session/token invalidator closes that shared resource before competing for
+ * final terminals. Unknown outcomes retain closure and the stable mutation identity.
+ * Token SQL needs owner-local durable CAS/idempotency and reconciliation before
+ * reopening; the participant mutation callback alone cannot make SQL idempotent.
+ */
+export type ListingAuthoritySessionAuthorityPort = Omit<ListingAuthorityParticipantPort, "participant"> &
+  Readonly<{ participant: Readonly<{ owner: "auth"; purpose: "authenticated-session" }> }>;
+
 export function requireListingAuthorityPrincipal(context: EventStoreContext): ListingAuthorityPrincipal {
   const principal = context.listingAuthorityPrincipal;
   const nonempty = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0;
@@ -165,7 +201,7 @@ export function requireListingAuthorityPrincipal(context: EventStoreContext): Li
         !principal.authentication ||
         !nonempty(principal.authentication.revision) ||
         (principal.authentication.kind === "session"
-          ? !nonempty(principal.authentication.sessionId)
+          ? !nonempty(principal.authentication.sessionId) || !nonempty(principal.authentication.tokenRevision)
           : principal.authentication.kind === "api-key"
             ? !nonempty(principal.authentication.keyId)
             : principal.authentication.kind !== "delegation" ||
@@ -197,6 +233,7 @@ export function listingAuthorityParticipantKey(participant: ListingAuthorityPart
 
 export function assertListingAuthorityParticipants(participants: readonly ListingAuthorityParticipant[]): void {
   const owners: Record<ListingAuthorityPurpose, ListingAuthorityOwner> = {
+    "authenticated-session": "auth",
     "manage-listing": "identity",
     connection: "channels",
     "evaluated-price": "pricing",
@@ -219,4 +256,31 @@ export function assertListingAuthorityParticipants(participants: readonly Listin
   ) {
     throw new Error("Invalid Listing authority participant set.");
   }
+}
+
+/** Required at admission AND when validating retained final operations. */
+export function assertListingAuthorityAuthenticationParticipants(
+  participants: readonly ListingAuthorityParticipant[],
+  principal: ListingAuthorityPrincipal | null,
+): void {
+  assertListingAuthorityParticipants(participants);
+  const session = principal?.kind === "user" && principal.authentication.kind === "session";
+  if (participants.some((participant) => participant.owner === "auth") !== session)
+    throw new Error("Listing authenticated-session participation must match the selected authentication.");
+}
+
+/** Call before fingerprinting a NEW final operation, never to upgrade retained history. */
+export function completeListingAuthorityParticipants(
+  participants: readonly ListingAuthorityParticipant[],
+  principal: ListingAuthorityPrincipal | null,
+): readonly ListingAuthorityParticipant[] {
+  const completed = [...participants];
+  if (
+    principal?.kind === "user" &&
+    principal.authentication.kind === "session" &&
+    !completed.some((participant) => participant.owner === "auth")
+  )
+    completed.push({ owner: "auth", purpose: "authenticated-session" });
+  assertListingAuthorityAuthenticationParticipants(completed, principal);
+  return completed;
 }

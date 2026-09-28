@@ -15,11 +15,14 @@ import { createSyntheticListingAuthority } from "./authority-test-support";
 import { createListingCurrentReads } from "../read-model/target-queries";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-const context = withSyntheticListingPrincipal({
-  tenantId: "tnt_test" as never,
-  audit: { performedByUserId: "usr_seller" as never, forAccountId: "acc_seller" as never },
-});
-async function fixture(overrides: Partial<ListingTargetAuthority> = {}) {
+const context = withSyntheticListingPrincipal(
+  {
+    tenantId: "tnt_test" as never,
+    audit: { performedByUserId: "usr_seller" as never, forAccountId: "acc_seller" as never },
+  },
+  { kind: "session", sessionId: "ses_synthetic", revision: "1", tokenRevision: "synthetic-token-version-1" },
+);
+async function fixture(overrides: Partial<ListingTargetAuthority> = {}, mountSession = true) {
   const { eventStore } = createInMemoryEventStore();
   const { repository, commandHandler } = createAggregateCommandHandler({
     eventStore,
@@ -65,7 +68,13 @@ async function fixture(overrides: Partial<ListingTargetAuthority> = {}) {
     },
   });
   const participantFixture = createSyntheticListingAuthority(eventStore);
-  const authority: ListingTargetAuthority = { ...participantFixture.authority, ...overrides };
+  const authority: ListingTargetAuthority = {
+    ...participantFixture.authority,
+    participants: participantFixture.authority.participants.filter(
+      (port) => mountSession || port.participant.owner !== "auth",
+    ),
+    ...overrides,
+  };
   const services = createListingTargetRuntime({
     eventStore,
     authority,
@@ -142,6 +151,65 @@ async function fixture(overrides: Partial<ListingTargetAuthority> = {}) {
 }
 
 describe("Listing target owner authority", () => {
+  it("retains Auth on the actual Listing terminal and cannot commit its prebuilt append after session invalidation", async () => {
+    const { services, input, eventStore, participantFixture } = await fixture();
+    const append = eventStore.appendToStreams!;
+    vi.spyOn(eventStore, "appendToStreams").mockImplementationOnce(async (appends) => {
+      expect(
+        appends.some((entry) =>
+          entry.events.some((event) => event.eventType === "marketplace.listing-authority-operation.committed"),
+        ),
+      ).toBe(true);
+      await participantFixture.change("authenticated-session", context, false);
+      return append(appends);
+    });
+    await expect(services.acceptListingTargetPrice(input, context)).rejects.toThrow();
+    expect(await eventStore.readStream({ streamId: `marketplace.listing-${input.listingId}` })).toHaveLength(1);
+    const events = await eventStore.readAll();
+    expect(events.some((event) => event.eventType === "marketplace.listing-request.completed")).toBe(false);
+    expect(events.some((event) => event.eventType === "marketplace.listing-authority-operation.committed")).toBe(false);
+    expect(events.some((event) => event.eventType === "marketplace.listing-authority-operation.aborted")).toBe(true);
+  });
+
+  it("rejects missing Auth mounting and a token-only revision upgrade on completed replay", async () => {
+    const f = await fixture();
+    await f.services.acceptListingTargetPrice(f.input, context);
+    const principal = context.listingAuthorityPrincipal!;
+    if (principal.kind !== "user" || principal.authentication.kind !== "session") throw new Error("session fixture");
+    await expect(
+      f.services.acceptListingTargetPrice(f.input, {
+        ...context,
+        listingAuthorityPrincipal: {
+          ...principal,
+          authentication: { ...principal.authentication, tokenRevision: "synthetic-token-version-2" },
+        },
+      }),
+    ).rejects.toThrow("different command");
+    const unmounted = await fixture({}, false);
+    await expect(unmounted.services.acceptListingTargetPrice(unmounted.input, context)).rejects.toThrow(
+      "Authority settlement participant unavailable.",
+    );
+    const events = await unmounted.eventStore.readAll();
+    expect(events.some((event) => event.eventType.endsWith(".committed"))).toBe(false);
+    expect(events.some((event) => event.eventType === "marketplace.listing-request.completed")).toBe(false);
+    expect(events.some((event) => event.eventType === "marketplace.listing-authority-operation.aborted")).toBe(true);
+    expect(
+      await unmounted.eventStore.readStream({ streamId: `marketplace.listing-${unmounted.input.listingId}` }),
+    ).toHaveLength(1);
+    const grantEvent = (await unmounted.participantFixture.stores.get("auth")!.readAll()).find(
+      (event) => event.eventType === "auth.listing-authority.reserved",
+    )!;
+    const reservation = grantEvent.payload
+      .reservation as unknown as import("@chase-sets/event-core/listing-authority").ListingAuthorityReservation;
+    expect(
+      (
+        await unmounted.participantFixture.sources
+          .find((source) => source.participant.owner === "auth")!
+          .inspect(reservation.operation)
+      )?.status,
+    ).toBe("reserved");
+  });
+
   it("requires the trusted carrier and rejects principal assertions in the command body", async () => {
     const { services, input, eventStore } = await fixture();
     const { listingAuthorityPrincipal, ...auditOnly } = context;
