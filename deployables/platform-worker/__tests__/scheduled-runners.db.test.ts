@@ -362,6 +362,10 @@ describeDatabase("registered platform-worker scheduled runners", () => {
       await pools.control.query("DELETE FROM platform_scheduled_runners WHERE runner_name = $1", [runner.name]);
       await runner.runOnce();
     }
+    const initialCursor = await pools.marketplace.query(
+      "SELECT generation::text FROM marketplace_managed_offer_recovery",
+    );
+    const initialGeneration = BigInt(initialCursor.rows[0].generation);
     let firstHold: Awaited<ReturnType<typeof store.readStream>> | undefined;
     for (let generation = 0; generation < 4; generation++) {
       await runRegistered(recovery);
@@ -384,7 +388,9 @@ describeDatabase("registered platform-worker scheduled runners", () => {
       const cursor = await pools.marketplace.query(
         "SELECT generation::text, pending_work_ids FROM marketplace_managed_offer_recovery",
       );
-      expect(cursor.rows).toEqual([{ generation: String(generation + 1), pending_work_ids: [] }]);
+      expect(cursor.rows).toEqual([
+        { generation: String(initialGeneration + BigInt(generation + 1)), pending_work_ids: [] },
+      ]);
     }
     expect(externalFetch).not.toHaveBeenCalled();
   });
