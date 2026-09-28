@@ -100,7 +100,14 @@ export function createMarketplaceServices(
     commercialTermsResolver,
     policies,
     listingEvidencePolicyEvaluator: listingEvidencePolicies,
-    ...(options.listingTargetAuthority ? { listingTargetAuthority: options.listingTargetAuthority } : {}),
+    ...(options.listingTargetAuthority
+      ? {
+          listingTargetAuthority: {
+            ...options.listingTargetAuthority,
+            authorizeResume: listingAuthority.authorizeResume,
+          },
+        }
+      : {}),
     ...(listingCurrentReadiness ? { listingCurrentReadiness } : {}),
     ...(options.listingPhotoStorage ? { listingPhotoStorage: options.listingPhotoStorage } : {}),
   } as const;

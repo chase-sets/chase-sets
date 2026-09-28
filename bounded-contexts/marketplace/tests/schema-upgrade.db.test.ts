@@ -27,6 +27,7 @@ import { createListingTargetRuntime } from "../features/listings/api/target-runt
 import { createSyntheticListingAuthority } from "../features/listings/api/authority-test-support";
 import { marketplaceListingCodec } from "../features/listings/domain/codec";
 import { evolveMarketplaceListing, initialMarketplaceListingState } from "../features/listings/domain/domain";
+import { seedMarketplaceContextDatabase, inspectMarketplaceSeedState } from "../support/runtime-support/seed";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 const context = withSyntheticListingPrincipal(auditContext);
@@ -57,6 +58,31 @@ describeDb("marketplace schema upgrades", () => {
 
   beforeEach(async () => resetMultiContextTestSchemas(pools));
   afterAll(async () => closeMultiContextTestPools(pools));
+
+  it("scenario seed completes non-Listing policies without attempting unavailable Listing or dependent writes", async () => {
+    const pool = pools.marketplace;
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await seedMarketplaceContextDatabase(pool);
+      expect(
+        output.mock.calls.filter(([line]) => String(line).includes("Marketplace Listing seed unavailable")),
+      ).toHaveLength(1);
+      const store = createPostgresEventStore({ pool });
+      const events = await store.readAll();
+      // The non-Listing policy writer retains its own authority journals; no Listing business event is seeded.
+      expect(events.filter((event) => event.eventType.startsWith("marketplace.listing."))).toEqual([]);
+      expect(events.filter((event) => /^marketplace\.(offer|review)-/.test(event.streamId))).toEqual([]);
+      expect(events.some((event) => event.eventType === "platform-policy.document.created")).toBe(true);
+      const listingReports = (await inspectMarketplaceSeedState(pool)).filter(
+        (report) => report.aggregateName === "Listing",
+      );
+      expect(listingReports.length).toBeGreaterThan(0);
+      expect(listingReports.every((report) => report.status === "unavailable" && report.eventCount === 0)).toBe(true);
+    } finally {
+      output.mockRestore();
+    }
+  });
 
   it("persists channel-only creation and native enable with original-carrier SQL retry and no partial stale enable", async () => {
     const pool = pools.marketplace;

@@ -7,7 +7,8 @@ import {
   resetMultiContextTestSchemas,
   seedMountedContextTestRuntimeIfEmpty,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createListingAuthorityConsumerResolver } from "@chase-sets/platform-runtime/listing-authority-host";
 import { afterAll, beforeAll, beforeEach, describe } from "vitest";
 import { module as catalogModule } from "@chase-sets/catalog";
 import { module as checkoutModule } from "@chase-sets/checkout";
@@ -151,6 +152,13 @@ export function createMarketplaceSeedRuntime(
   });
   const listingPhotoStorage = createMarketplaceSeedListingPhotoStorage();
   const pricingHostPorts: PricingHostPorts = {
+    pricingListingAuthorityConsumer: createListingAuthorityConsumerResolver(
+      {
+        marketplace: createPostgresEventStore({ pool: pools.marketplace }),
+        ordering: createPostgresEventStore({ pool: pools.ordering }),
+      },
+      "pricing",
+    ),
     tcgplayerMarketTransport: { kind: "not-mounted" },
     tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
     commercialTermsResolver,

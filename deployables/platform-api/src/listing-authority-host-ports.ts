@@ -1,5 +1,7 @@
 import type { module as authModule } from "@chase-sets/auth";
 import type { module as identityModule } from "@chase-sets/identity";
+import type { IdentityListingAuthorityHostPorts } from "@chase-sets/identity/server";
+import type { PricingServices } from "@chase-sets/pricing/server";
 import type { module as inventoryModule } from "@chase-sets/inventory";
 import type { CatalogServices } from "@chase-sets/catalog/server";
 import type { CommercialTermsListingAuthorityPorts } from "@chase-sets/commercial-terms/server";
@@ -23,6 +25,11 @@ export function createListingSourceHostPorts(
   const identity = () => service<ReturnType<typeof identityModule.createServices>>("identity").listingAuthority;
   const catalog = () => service<CatalogServices>("catalog").listingAuthority;
   const inventory = () => service<ReturnType<typeof inventoryModule.createServices>>("inventory").listingAuthority;
+  const standingAuthority: NonNullable<IdentityListingAuthorityHostPorts["standingAuthority"]> = (operation) => {
+    if (operation.principal?.kind !== "standing-system" || operation.principal.admittingOwner !== "pricing")
+      throw new Error("The retained standing authority owner is not mounted.");
+    return service<PricingServices>("pricing").listingAuthority.standingAuthority;
+  };
   const stores = {
     ...(pools.marketplace ? { marketplace: createPostgresEventStore({ pool: pools.marketplace }) } : {}),
     ...(pools.ordering ? { ordering: createPostgresEventStore({ pool: pools.ordering }) } : {}),
@@ -41,9 +48,11 @@ export function createListingSourceHostPorts(
     "auth.listingAuthorityConsumer": consumer("auth"),
     "identity.listingAuthorityConsumer": consumer("identity"),
     "identity.sessionAuthority": session,
+    "identity.standingAuthority": standingAuthority,
     "catalog.listingAuthorityConsumer": consumer("catalog"),
     "inventory.listingAuthorityConsumer": consumer("inventory"),
     "channels.listingAuthorityConsumer": consumer("channels"),
+    pricingListingAuthorityConsumer: consumer("pricing"),
     "marketplace.listingAuthority": {
       consumer: consumer("marketplace"),
       session,

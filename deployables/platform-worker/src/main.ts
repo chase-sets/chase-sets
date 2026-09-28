@@ -261,8 +261,10 @@ const commercialTermsResolver = pools["commercial-terms"]
       ),
     })
   : undefined;
+const listingSourceHostPorts = createListingSourceHostPorts(() => runtime?.services, pools);
 const pricingHostPorts: PricingHostPorts | undefined = pools.pricing
   ? {
+      pricingListingAuthorityConsumer: listingSourceHostPorts.pricingListingAuthorityConsumer,
       tcgplayerMarketTransport: tcgplayerAutomationHttpClients ?? { kind: "not-mounted" },
       tcgplayerMarketCaptureReceiptSink: createObjectStorageTcgplayerMarketCaptureReceiptSink(catalogAssetStorage),
       commercialTermsResolver: requirePricingCommercialTermsResolver(commercialTermsResolver),
@@ -301,7 +303,6 @@ const draftListingCreator: InventoryDraftListingCreator = async (params, context
   return createDraft(params, context);
 };
 
-const listingSourceHostPorts = createListingSourceHostPorts(() => runtime?.services, pools);
 const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceLabelPostageActivation) =>
   createWorkerHost(workerContextRegistry, "platform-worker", {
     pools,

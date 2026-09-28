@@ -508,10 +508,10 @@ describe("Platform API bootstrap DB enrollment", () => {
     const fileName = "seed-command-full-pools.db.test.ts";
     const source = readFileSync(join(testDirectory, fileName));
     expect(createHash("sha256").update(source).digest("hex")).toBe(
-      "21112a33cfbe069967b24c03321a5d35842519376128bae813836dbf4bf79bbe",
+      "cbc06e9c04d4bf783c8c2570c745318bdd4f7bb0ddcb3b770807761fb76c2b57",
     );
     expect(deriveBootstrapDbCaseIdentities(fileName, source.toString()).map((testCase) => testCase.identity)).toEqual([
-      "68dfd0998ec22c33",
+      "9322620862648a5d",
       "9e7b99abfd2756ab",
     ]);
   });

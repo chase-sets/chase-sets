@@ -635,6 +635,7 @@ export function createPlatformApiHost(
   };
   const pricingHostPorts: PricingHostPorts | undefined = pricingPool
     ? {
+        pricingListingAuthorityConsumer: listingSourceHostPorts.pricingListingAuthorityConsumer,
         tcgplayerMarketTransport: { kind: "not-mounted" },
         tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
         commercialTermsResolver: requirePricingCommercialTermsResolver(commercialTermsResolver),

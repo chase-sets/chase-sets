@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CatalogServices } from "../../../support/authoring-support/services";
 import { seedProductMeasures } from "./seed";
+import { seedContext } from "../../../support/seed-support/context";
 
 function createSeedServices() {
   const productMeasures = {
@@ -36,6 +37,7 @@ describe("product measure seed", () => {
         ],
         precedence: 25,
       }),
+      seedContext,
     );
     expect(productMeasures.resolveAllCatalogItemMeasures).not.toHaveBeenCalled();
   });

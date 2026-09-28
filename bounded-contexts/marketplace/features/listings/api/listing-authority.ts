@@ -26,7 +26,11 @@ import {
 import { evaluateListingEvidencePolicy } from "../../listing-evidence-policy/domain/policy";
 import { createListingEvidenceRequirementSnapshot } from "../domain/evidence-requirement-snapshot";
 import { evaluateListingEvidenceReadiness } from "../domain/listing-evidence-readiness";
-import type { ListingAuthorityResult, ListingNativeReadinessAuthority } from "./target-contracts";
+import type {
+  ListingAuthorityResult,
+  ListingNativeReadinessAuthority,
+  ListingTargetAuthority,
+} from "./target-contracts";
 import { createNativeAuthorityFacts, nativeAuthorityResources as resource } from "./native-authority-facts";
 
 export type MarketplaceListingAuthorityPorts = Readonly<{
@@ -269,7 +273,29 @@ export function createMarketplaceListingAuthority(
     resources: facts.writerResources,
   });
 
+  const authorizeResume: ListingTargetAuthority["authorizeResume"] = async (input, _context, operation) => {
+    const history = await readCompleteStream(deps.eventStore, { streamId: `marketplace.listing-${input.listingId}` });
+    const state = history.reduce(
+      (current, event) => evolveMarketplaceListing(current, marketplaceListingCodec.decode(event)),
+      initialMarketplaceListingState,
+    );
+    // opus-8349-original-authority-decision-r1: standing resume is unavailable at freeze.
+    const value =
+      operation.kind === "resume" &&
+      operation.principal?.kind === "user" &&
+      state.accountId === operation.accountId &&
+      state.listingId === operation.listingId &&
+      state.streamRevision === operation.expectedListingRevision &&
+      state.status === "paused" &&
+      state.pauseReason === input.expectedPauseReason &&
+      (state.pauseReason === "seller" ||
+        state.pauseReason === "policy-input-missing" ||
+        (state.pauseReason === "channel-inbound-dark" && input.inboundClamp !== undefined));
+    return { value, reservations: [] };
+  };
+
   return {
+    authorizeResume,
     recover: createListingAuthorityRecovery({
       db: deps.db,
       owner: "marketplace",

@@ -826,7 +826,7 @@ export async function inspectMarketplaceSeedState(
       key: listing.inventoryItemId,
       streamId: marketplaceListingStreamId(listing.listingId),
       kind: state.listingId === null ? "absent" : state.status === listing.finalStatus ? "active" : "draft",
-      status: state.listingId === null ? null : String(state.status),
+      status: "unavailable",
       eventCount: committed.length,
     });
   }
@@ -865,7 +865,7 @@ export async function inspectMarketplaceSeedState(
   return reports;
 }
 
-export async function seedMarketplaceDatabase(
+async function seedMarketplaceDatabase(
   pool: PgTransactionalPool,
   services: MarketplaceServices = createMarketplaceServices(pool),
 ) {
@@ -1078,7 +1078,7 @@ function createReputationSeedContext(accountId: string, userId: string): EventSt
   };
 }
 
-export async function seedReputationData(
+async function seedReputationData(
   pool: PgTransactionalPool,
   services: MarketplaceServices = createMarketplaceServices(pool),
 ) {
@@ -1227,6 +1227,14 @@ export async function seedMarketplaceContextDatabase(
   services: MarketplaceServices = createMarketplaceServices(pool),
 ) {
   await seedListingEvidencePolicy(services);
+  // opus-8349-original-authority-decision-r1: no Listing or dependent fixture writes at freeze.
+  const listingSeedAvailability: "unavailable" | "available" = "unavailable";
+  if (listingSeedAvailability === "unavailable") {
+    console.log(
+      "Marketplace Listing seed unavailable: create, publish/native-enable, pause, withdraw, offers and reviews (opus-8349-original-authority-decision-r1).",
+    );
+    return;
+  }
   await seedMarketplaceDatabase(pool, services);
   await seedReputationData(pool, services);
 }

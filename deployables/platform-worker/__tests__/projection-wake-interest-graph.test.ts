@@ -2,6 +2,8 @@ import { parseGlobalPosition } from "@chase-sets/event-core/storage";
 import { parseIsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
 import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import type { PricingHostPorts } from "@chase-sets/pricing/server";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { createListingAuthorityConsumerResolver } from "@chase-sets/platform-runtime/listing-authority-host";
 import { createHash } from "node:crypto";
 import {
   buildProjectionInterestIndex,
@@ -24,6 +26,10 @@ import {
 } from "../src/test-support/provider-gateways";
 
 const syntheticPricingHostPorts = {
+  pricingListingAuthorityConsumer: createListingAuthorityConsumerResolver(
+    { marketplace: createInMemoryEventStore().eventStore, ordering: createInMemoryEventStore().eventStore },
+    "pricing",
+  ),
   tcgplayerMarketTransport: { kind: "not-mounted" },
   tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
   commercialTermsResolver: createNoopCommercialTermsResolver(),

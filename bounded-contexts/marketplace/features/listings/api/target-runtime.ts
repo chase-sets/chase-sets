@@ -506,8 +506,10 @@ export function createListingTargetRuntime(
       prepare: async () => {
         const { state, version } = await owned(input.listingId, input.accountId);
         assert(version === input.expectedListingVersion, "Listing revision changed.");
+        // Pause-owner denial must abort before a standing carrier asks an unrelated source for a grant.
+        const resume = type === "ResumeListing" ? await prepare(state, operation) : undefined;
         const capabilityReservations = await authorize(input, context, operation);
-        const prepared = await prepare(state, operation);
+        const prepared = resume ?? (await prepare(state, operation));
         const events = decideMarketplaceListing(state, prepared.command);
         const capacity = prepared.capacity
           ? await deps.capacityAppends(state, events, context, operation)

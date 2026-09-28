@@ -1165,6 +1165,7 @@ export const decideMarketplaceListing: AggregateDecider<
       ];
     case "PublishListing":
       assert(state.listingId !== null, "Listing must be created first.");
+      assert(state.status !== "paused", "Publishing cannot clear a listing pause; use ResumeListing.");
       assert(state.status !== "withdrawn", "Withdrawn listings cannot be published.");
       assert(state.nativeVisibility === "enabled", "Native-disabled listings require explicit visibility consent.");
       if (state.status === "active" && state.nativePublicationRevision !== null && command.allowAlreadyActiveNoOp) {

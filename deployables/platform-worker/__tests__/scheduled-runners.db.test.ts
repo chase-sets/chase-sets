@@ -9,6 +9,8 @@ import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import { isChannelsServices } from "@chase-sets/channels/server";
 import type { PricingHostPorts } from "@chase-sets/pricing/server";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { createListingAuthorityConsumerResolver } from "@chase-sets/platform-runtime/listing-authority-host";
 import {
   bootstrapPlatformControlPlane,
   createPostgresPlatformControlPlane,
@@ -40,6 +42,10 @@ const NEGATIVE_CONTROL_RUNNER_NAME = "negative-control.ambiguous-joined-sql";
 const runtimeProfile = "public" as const;
 const contextNames = getPlatformWorkerContextsForRuntimeProfile(runtimeProfile);
 const syntheticPricingHostPorts = {
+  pricingListingAuthorityConsumer: createListingAuthorityConsumerResolver(
+    { marketplace: createInMemoryEventStore().eventStore, ordering: createInMemoryEventStore().eventStore },
+    "pricing",
+  ),
   tcgplayerMarketTransport: { kind: "not-mounted" },
   tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
   commercialTermsResolver: createNoopCommercialTermsResolver(),
