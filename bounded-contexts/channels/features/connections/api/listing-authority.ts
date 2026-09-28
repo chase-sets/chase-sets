@@ -227,7 +227,7 @@ export function createChannelConnectionAuthority(
       if (event.tenantId !== input.tenantId) throw new Error("Foreign connection authority recovery history.");
       if (event.eventType === "channels.listing-authority.invalidation-started") {
         const intent = event.payload.intent;
-        if (!intent || typeof intent !== "object" || Array.isArray(intent) || typeof intent.mutationId !== "string") {
+        if (!isRecord(intent) || typeof intent.mutationId !== "string") {
           throw new Error("Corrupt connection authority recovery intent.");
         }
         await recoverMutation(intent.mutationId, {
@@ -236,14 +236,7 @@ export function createChannelConnectionAuthority(
         });
       } else {
         const retained = event.payload.reservation;
-        if (
-          !retained ||
-          typeof retained !== "object" ||
-          Array.isArray(retained) ||
-          !retained.operation ||
-          typeof retained.operation !== "object" ||
-          Array.isArray(retained.operation)
-        )
+        if (!isRecord(retained) || !isRecord(retained.operation))
           throw new Error("Corrupt connection reservation recovery history.");
         const operation = retained.operation as unknown as ListingAuthorityOperation;
         const grant = await source.inspect(operation);
@@ -263,6 +256,10 @@ export function createChannelConnectionAuthority(
   }
 
   return { source, append, recoverMutation, recoverPage };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function targetConnection(operation: ListingAuthorityOperation) {

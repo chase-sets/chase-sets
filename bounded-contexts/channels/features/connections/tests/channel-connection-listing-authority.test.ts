@@ -320,4 +320,40 @@ describe("Channels connection owner proofs", () => {
     expect((await f.source.inspect(operation))?.status).toBe("released");
     expect(f.memory.streams.get("channels.connection-connection_1")).toHaveLength(2);
   });
+
+  it("bounds connection fan-out without blocking unrelated targets", async () => {
+    const f = await fixture();
+    for (let index = 0; index < 128; index += 1) {
+      const operation = await f.fence.open({ ...f.input, requestId: `synthetic-bound-${index}` }, testContext);
+      await f.source.prepare(operation, testContext);
+    }
+    const overflow = await f.fence.open({ ...f.input, requestId: "synthetic-overflow" }, testContext);
+    await expect(f.source.prepare(overflow, testContext)).rejects.toThrow("full");
+    const other = await f.fence.open(
+      {
+        ...f.input,
+        requestId: "synthetic-other-bound",
+        target: { kind: "channel-connection", connectionId: "con_synthetic_second" },
+      },
+      testContext,
+    );
+    await f.source.prepare(other, testContext);
+    await f.invalidate();
+    expect((await f.fence.inspect(other)).status).toBe("pending");
+  });
+
+  it("retains closure and promises when authoritative consumer history is missing", async () => {
+    const f = await fixture();
+    const operation = await f.fence.open(f.input, testContext);
+    await f.source.prepare(operation, testContext);
+    const read = f.consumerStore.readStream.bind(f.consumerStore);
+    vi.spyOn(f.consumerStore, "readStream").mockImplementation((input) =>
+      input.streamId.includes(operation.operationId) ? Promise.resolve([]) : read(input),
+    );
+    await expect(f.invalidate()).rejects.toBeInstanceOf(ChannelConnectionMutationPendingError);
+    await expect(f.source.settle(operation)).rejects.toThrow("unresolved");
+    expect((await f.source.inspect(operation))?.status).toBe("reserved");
+    expect(f.memory.streams.get("channels.connection-connection_1")).toHaveLength(1);
+    await expect(f.services.recoverAuthorityPage({ tenantId: testContext.tenantId })).rejects.toThrow("Unknown");
+  });
 });
