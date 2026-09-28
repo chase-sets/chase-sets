@@ -25,9 +25,17 @@ import type {
 } from "./storage";
 import type { TransportEvent } from "./transport";
 import type { EventStoreContext } from "./storage";
+import type { ListingAuthorityPrincipal } from "./listing-authority";
 
 /** Synthetic verified input only; production authentication must never use this helper. */
-export function withSyntheticListingPrincipal(context: EventStoreContext): EventStoreContext {
+export function withSyntheticListingPrincipal(
+  context: EventStoreContext,
+  authentication: Extract<ListingAuthorityPrincipal, { kind: "user" }>["authentication"] = {
+    kind: "api-key",
+    keyId: "key_synthetic",
+    revision: "1",
+  },
+): EventStoreContext {
   return {
     ...context,
     listingAuthorityPrincipal: {
@@ -36,7 +44,7 @@ export function withSyntheticListingPrincipal(context: EventStoreContext): Event
       accountId: context.audit.forAccountId,
       userId: context.audit.performedByUserId,
       membershipId: "mbr_synthetic",
-      authentication: { kind: "session", sessionId: "ses_synthetic", revision: "1" },
+      authentication,
       delegation: null,
       validBefore: "2099-01-01T00:00:00.000Z",
     },

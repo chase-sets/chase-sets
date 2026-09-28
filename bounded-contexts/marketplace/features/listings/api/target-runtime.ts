@@ -3,7 +3,10 @@ import { moneyToCents, roundRational } from "@chase-sets/primitives/money";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import { createBulkAppendLane } from "@chase-sets/platform-runtime/bulk-append-lane";
 import { createListingAuthorityFence } from "@chase-sets/platform-runtime/listing-authority-fence";
-import { requireListingAuthorityPrincipal } from "@chase-sets/event-core/listing-authority";
+import {
+  completeListingAuthorityParticipants,
+  requireListingAuthorityPrincipal,
+} from "@chase-sets/event-core/listing-authority";
 import type {
   ListingAuthorityOperation,
   ListingAuthorityParticipant,
@@ -223,15 +226,18 @@ export function createListingTargetRuntime(
           expectedTargetRevision: input.expectedTargetPriceRevision,
           expectedVisibilityRevision: null,
           expectedPublicationRevision: null,
-          participants: [
-            { owner: "identity", purpose: "manage-listing" },
-            ...(input.decision.kind === "pricing-evaluation"
-              ? [{ owner: "pricing", purpose: "evaluated-price" } as const]
-              : []),
-            ...(input.target.kind === "channel-connection"
-              ? [{ owner: "channels", purpose: "connection" } as const]
-              : []),
-          ],
+          participants: completeListingAuthorityParticipants(
+            [
+              { owner: "identity", purpose: "manage-listing" },
+              ...(input.decision.kind === "pricing-evaluation"
+                ? [{ owner: "pricing", purpose: "evaluated-price" } as const]
+                : []),
+              ...(input.target.kind === "channel-connection"
+                ? [{ owner: "channels", purpose: "connection" } as const]
+                : []),
+            ],
+            requireListingAuthorityPrincipal(context),
+          ),
         },
         context,
       ));
@@ -487,7 +493,7 @@ export function createListingTargetRuntime(
           expectedTargetRevision: null,
           expectedVisibilityRevision: initial.state.nativeVisibilityRevision,
           expectedPublicationRevision: initial.state.nativePublicationRevision,
-          participants,
+          participants: completeListingAuthorityParticipants(participants, requireListingAuthorityPrincipal(context)),
         },
         context,
       ));
@@ -508,14 +514,7 @@ export function createListingTargetRuntime(
           : { appends: [], reservations: [] };
         return {
           result: { listingId: input.listingId, version: version + events.length },
-          reservations: [
-            ...new Map(
-              [...capabilityReservations, ...prepared.reservations, ...capacity.reservations].map((reservation) => [
-                reservation.reservationId,
-                reservation,
-              ]),
-            ).values(),
-          ],
+          reservations: [...capabilityReservations, ...prepared.reservations, ...capacity.reservations],
           appends: [
             ...(prepared.localGuards ?? []),
             ...capacity.appends,

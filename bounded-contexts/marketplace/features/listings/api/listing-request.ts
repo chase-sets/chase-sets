@@ -4,7 +4,10 @@ import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type { ListingAuthorityOperation, ListingAuthorityReservation } from "@chase-sets/event-core/listing-authority";
-import type { ListingAuthorityFence } from "@chase-sets/platform-runtime/listing-authority-fence";
+import {
+  combineListingAuthorityReservations,
+  type ListingAuthorityFence,
+} from "@chase-sets/platform-runtime/listing-authority-fence";
 
 function canonical(value: JsonValue): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -139,7 +142,7 @@ export async function prepareListingRequest<Result extends JsonObject>(
     const terminal = input.authority
       ? await input.authority.fence.prepareCommit(
           input.authority.operation,
-          prepared.reservations ?? [],
+          combineListingAuthorityReservations(input.authority.operation, prepared.reservations ?? []),
           prepared.result,
         )
       : null;

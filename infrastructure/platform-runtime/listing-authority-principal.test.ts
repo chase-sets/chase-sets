@@ -59,6 +59,18 @@ function fixture() {
 }
 
 describe("trusted Listing principal binding", () => {
+  it("rejects a session operation omitting Auth before recording any operation", async () => {
+    const f = fixture();
+    const context = withSyntheticListingPrincipal(f.context, {
+      kind: "session",
+      sessionId: "ses_synthetic",
+      revision: "1",
+      tokenRevision: "synthetic-token-revision-1",
+    });
+    await expect(f.fence.open(f.input, context)).rejects.toThrow("authenticated-session");
+    expect(await f.consumer.readAll()).toHaveLength(0);
+  });
+
   it("carries a delegated bearer without inventing a session or key and binds its exact scope ceiling", async () => {
     const f = fixture();
     const user = requireListingAuthorityPrincipal(f.context);
@@ -91,7 +103,7 @@ describe("trusted Listing principal binding", () => {
     expect(await f.consumer.readAll()).toHaveLength(0);
   });
 
-  it("distinguishes the interactive and restricted principal that have identical audit identity", async () => {
+  it("distinguishes selected and restricted principals that have identical audit identity", async () => {
     const f = fixture();
     const principal = requireListingAuthorityPrincipal(f.context);
     if (principal.kind !== "user") throw new Error("Synthetic user required");

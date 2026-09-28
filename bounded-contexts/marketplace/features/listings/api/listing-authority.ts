@@ -6,6 +6,7 @@ import type {
   ListingAuthorityOperation,
   ListingAuthorityParticipantPort,
   ListingAuthorityReservation,
+  ListingAuthoritySessionAuthorityPort,
 } from "@chase-sets/event-core/listing-authority";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -14,6 +15,7 @@ import { toJsonValue } from "@chase-sets/primitives/json";
 import { createListingAuthorityParticipant } from "@chase-sets/platform-runtime/listing-authority-participant";
 import { createListingAuthorityWriter } from "@chase-sets/platform-runtime/listing-authority-writer";
 import { createListingAuthorityRecovery } from "@chase-sets/platform-runtime/listing-authority-recovery";
+import { prepareListingSessionAuthority } from "@chase-sets/platform-runtime/listing-authority-fence";
 import { initialMarketplaceListingState, evolveMarketplaceListing } from "../domain/domain";
 import { marketplaceListingCodec } from "../domain/codec";
 import {
@@ -29,6 +31,8 @@ import { createNativeAuthorityFacts, nativeAuthorityResources as resource } from
 
 export type MarketplaceListingAuthorityPorts = Readonly<{
   consumer(operation: ListingAuthorityOperation): ListingAuthorityConsumerPort;
+  /** Required for session-authenticated final readiness/commitment operations. */
+  session?: ListingAuthoritySessionAuthorityPort;
   identity?: Readonly<{
     participant: ListingAuthorityParticipantPort;
     /** Identity's owner API supplies badges from the same retained account reservation. */
@@ -122,6 +126,9 @@ export function createMarketplaceListingAuthority(
     )
       throw new Error("Seller Listing availability is disabled.");
     // Every upstream grant names this final operation. No intermediate Marketplace terminal releases it.
+    const session = operation.principal?.kind === "user" && operation.principal.authentication.kind === "session";
+    if (session && !ports.session) throw new Error("Native Auth session authority is not mounted.");
+    const sessionGrant = session ? await prepareListingSessionAuthority(operation, context, ports.session!) : null;
     const identityGrant = await identity.participant.prepare(operation, context);
     const catalogGrant = await catalog.participant.prepare(operation, context);
     if (identityGrant.status !== "reserved" || catalogGrant.status !== "reserved")
@@ -168,6 +175,7 @@ export function createMarketplaceListingAuthority(
       operation.prepareBefore,
       identityGrant.validBefore,
       catalogGrant.validBefore,
+      sessionGrant?.validBefore,
       availability.pendingAwayWindow?.startsAt,
       ...policy.boundaries.filter((boundary) => boundary && Date.parse(boundary) > Date.parse(at)),
     ];
@@ -179,7 +187,7 @@ export function createMarketplaceListingAuthority(
           new Date(Date.parse(photo.capturedAt ?? photo.uploadedAt) + slot.maximumAgeHours * 3_600_000).toISOString(),
         );
     }
-    const upstream = [identityGrant, catalogGrant];
+    const upstream = [...(sessionGrant ? [sessionGrant] : []), identityGrant, catalogGrant];
     if (commitment) {
       if (
         !ports.inventory ||
@@ -282,9 +290,13 @@ export function createMarketplaceListingAuthority(
       const identity = await ports.identity!.participant.inspect(operation);
       const catalog = await ports.catalog!.participant.inspect(operation);
       if (!identity || !catalog) throw new Error("Native upstream reservation history is missing.");
+      const sessionRequired =
+        operation.principal?.kind === "user" && operation.principal.authentication.kind === "session";
+      const session = sessionRequired ? await ports.session?.inspect(operation) : null;
+      if (sessionRequired && !session) throw new Error("Native Auth session reservation history is missing.");
       return {
         value: own.value.readiness as unknown as ListingNativeReadinessAuthority,
-        reservations: [identity, catalog, own],
+        reservations: [...(session ? [session] : []), identity, catalog, own],
       };
     },
   };

@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
-import { requireListingAuthorityPrincipal } from "@chase-sets/event-core/listing-authority";
+import {
+  completeListingAuthorityParticipants,
+  requireListingAuthorityPrincipal,
+} from "@chase-sets/event-core/listing-authority";
+import { combineListingAuthorityReservations } from "@chase-sets/platform-runtime/listing-authority-fence";
 import { isDeepStrictEqual } from "node:util";
 import { toJsonValue } from "@chase-sets/primitives/json";
 import sharp from "sharp";
@@ -801,10 +805,14 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       });
       try {
         const terminal = authority
-          ? await authority.fence.prepareCommit(authority.operation, authority.reservations, {
-              listingId: command.listingId,
-              version: listing.version + listingEvents.length,
-            })
+          ? await authority.fence.prepareCommit(
+              authority.operation,
+              combineListingAuthorityReservations(authority.operation, authority.reservations),
+              {
+                listingId: command.listingId,
+                version: listing.version + listingEvents.length,
+              },
+            )
           : null;
         const results = await appendToStreams([
           ...(terminal ? [terminal] : []),
@@ -1421,14 +1429,17 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           expectedTargetRevision: null,
           expectedVisibilityRevision: null,
           expectedPublicationRevision: null,
-          participants: [
-            { owner: "identity", purpose: "manage-listing" },
-            { owner: "inventory", purpose: "stock-allocation" },
-            { owner: "catalog", purpose: "product-measures" },
-            ...(publicationScope === "native"
-              ? [{ owner: "commercial-terms" as const, purpose: "native-fee" as const }]
-              : []),
-          ],
+          participants: completeListingAuthorityParticipants(
+            [
+              { owner: "identity", purpose: "manage-listing" },
+              { owner: "inventory", purpose: "stock-allocation" },
+              { owner: "catalog", purpose: "product-measures" },
+              ...(publicationScope === "native"
+                ? [{ owner: "commercial-terms" as const, purpose: "native-fee" as const }]
+                : []),
+            ],
+            requireListingAuthorityPrincipal(context),
+          ),
         },
         context,
       );

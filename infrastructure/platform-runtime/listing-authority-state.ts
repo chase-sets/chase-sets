@@ -3,7 +3,11 @@ import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { ListingAuthorityOperation } from "@chase-sets/event-core/listing-authority";
+import {
+  assertListingAuthorityAuthenticationParticipants,
+  requireListingAuthorityPrincipal,
+  type ListingAuthorityOperation,
+} from "@chase-sets/event-core/listing-authority";
 
 export function authorityCanonical(value: unknown): string {
   if (value === undefined) throw new Error("Undefined authority value.");
@@ -27,7 +31,8 @@ export function assertSameAuthority(left: unknown, right: unknown): void {
 }
 
 export function authorityContext(operation: ListingAuthorityOperation): EventStoreContext {
-  return {
+  assertListingAuthorityAuthenticationParticipants(operation.participants, operation.principal);
+  const context: EventStoreContext = {
     ...(operation.principal ? { listingAuthorityPrincipal: operation.principal } : {}),
     tenantId: operation.tenantId as EventStoreContext["tenantId"],
     audit: {
@@ -35,6 +40,9 @@ export function authorityContext(operation: ListingAuthorityOperation): EventSto
       performedByUserId: operation.actor.userId as EventStoreContext["audit"]["performedByUserId"],
     },
   };
+  if (operation.principal || operation.participants.some((participant) => participant.owner === "identity"))
+    requireListingAuthorityPrincipal(context);
+  return context;
 }
 
 export async function authorityHistory(store: EventStore, streamId: string) {

@@ -3,6 +3,7 @@ import type { AggregateSnapshotStore } from "@chase-sets/event-core/aggregate-sn
 import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   LISTING_AUTHORITY_RESOURCE_LIMIT,
+  assertListingAuthorityParticipants,
   listingAuthorityParticipantKey,
   requireListingAuthorityPrincipal,
   type ListingAuthorityConsumerPort,
@@ -51,6 +52,9 @@ export type ListingAuthorityParticipantConfig = Readonly<{
 }>;
 
 export function createListingAuthorityParticipant(deps: ListingAuthorityParticipantConfig) {
+  assertListingAuthorityParticipants([deps.participant]);
+  if (deps.participant.owner === "auth" && deps.resourceScope !== "owner")
+    throw new Error("Auth session authority requires owner-scoped resource serialization.");
   const store = deps.eventStore;
   const key = listingAuthorityParticipantKey(deps.participant);
   const prefix = `${deps.participant.owner}.listing-authority`;
@@ -77,6 +81,7 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
   }
 
   async function inspect(operation: ListingAuthorityOperation): Promise<ListingAuthorityReservation | null> {
+    authorityContext(operation);
     const history = await authorityHistory(store, reservationStream(operation));
     if (!history.events.length) return null;
     const grant = authorityValue<ListingAuthorityReservation>(history.events[0]!.payload.reservation);
@@ -119,7 +124,7 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
     context: EventStoreContext,
     attempt = 0,
   ): Promise<ListingAuthorityReservation> {
-    if (deps.participant.owner === "identity") {
+    if (deps.participant.owner === "identity" || deps.participant.owner === "auth") {
       assertSameAuthority(requireListingAuthorityPrincipal(context), operation.principal);
     } else if (context.listingAuthorityPrincipal) {
       assertSameAuthority(requireListingAuthorityPrincipal(context), operation.principal);
