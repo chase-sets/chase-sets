@@ -148,8 +148,8 @@ describe("Pricing writer closure through production composition", () => {
           {
             contextName: "pricing",
             pool: pools.pricing,
-              services,
-              projectionHandlerSets: [],
+            services,
+            projectionHandlerSets: [],
             module: { ...pricingModule, projectionGroups: [declaration] },
           },
         ],
