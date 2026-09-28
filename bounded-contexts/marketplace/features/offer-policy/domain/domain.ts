@@ -133,7 +133,12 @@ export function assertBuyerOfferPolicySelection(
       "Offer scope and quantity must match exactly.",
     );
     assertPolicy(
-      JSON.stringify(state.selectedOptions) === JSON.stringify(selected.selectedOptions),
+      state.selectedOptions.length === selected.selectedOptions.length &&
+        state.selectedOptions.every(
+          (option, index) =>
+            option.dimensionId === selected.selectedOptions[index]?.dimensionId &&
+            option.optionId === selected.selectedOptions[index]?.optionId,
+        ),
       "Offer options must match exactly.",
     );
     assertPolicy(

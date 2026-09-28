@@ -4,6 +4,13 @@ import { parseEnv } from "node:util";
 import { createPgPool, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { seedSyntheticOfferMarketPrice } from "@chase-sets/pricing/server";
 import { createPlatformInternalAuthHeaders } from "@chase-sets/platform-runtime/http";
+import {
+  CHASE_SETS_COMMIT_RECEIPT_HEADER,
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
+  decodeCommitReceipt,
+  encodeFreshWriteReceipt,
+} from "@chase-sets/http/responses";
 import { identitySeedIds } from "@chase-sets/identity-seed";
 import { signInWithPassword } from "./support/auth";
 import {
@@ -68,13 +75,23 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
       },
     );
     expect(verified.ok, "owned buyer fixture email verification").toBe(true);
-    await expect
-      .poll(async () => {
-        const current = await page.request.get("/api/auth/session");
-        expect(current.ok()).toBe(true);
-        return (await current.json()).actor.permissions;
-      })
-      .toContain("offers.manage");
+    const identityCommit = decodeCommitReceipt(verified.headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER)).find(
+      (source) => source.sourceContextName === "identity",
+    );
+    expect(identityCommit, "email verification must return an Identity commit receipt").toBeDefined();
+    const identityRead = await page.request.get("/api/identity/current-actor-display", {
+      headers: {
+        [CHASE_SETS_READ_AFTER_WRITE_HEADER]: encodeFreshWriteReceipt({
+          observedAtMs: Date.now(),
+          sources: [identityCommit!],
+        }),
+        [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: "identity",
+      },
+    });
+    expect(identityRead.ok(), "receipt-honoring Identity user projection read").toBe(true);
+    const readySession = await page.request.get("/api/auth/session");
+    expect(readySession.ok()).toBe(true);
+    expect((await readySession.json()).actor.permissions).toContain("offers.manage");
     page.on("request", (request) => {
       if (request.method() === "POST" && request.url().includes("/account/offers/submitted")) {
         const fields = new URLSearchParams(request.postData() ?? "");

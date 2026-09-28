@@ -44,8 +44,8 @@ describeDb("option-bearing Offer policy Preview on Postgres", () => {
     const pool = pools.marketplace;
     const store = createPostgresEventStore({ pool });
     const selectedOptions = [
-      { dimensionId: "dim_form", optionId: "opt_regular" },
       { dimensionId: "dim_condition", optionId: "opt_excellent" },
+      { dimensionId: "dim_form", optionId: "opt_regular" },
     ];
     const submitted = decideMarketplaceOffer(initialMarketplaceOfferState, {
       type: "SubmitOffer",
@@ -82,8 +82,8 @@ describeDb("option-bearing Offer policy Preview on Postgres", () => {
       "dimensionId",
     ]);
     expect(persisted[0]?.payload.selectedOptions).toEqual([
-      { optionId: "opt_regular", dimensionId: "dim_form" },
       { optionId: "opt_excellent", dimensionId: "dim_condition" },
+      { optionId: "opt_regular", dimensionId: "dim_form" },
     ]);
     const runtime = createBuyerOfferPolicyRuntime({
       eventStore: store,
