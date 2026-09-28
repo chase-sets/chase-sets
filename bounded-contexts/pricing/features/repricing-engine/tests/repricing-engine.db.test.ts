@@ -537,8 +537,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
         },
         db: {
           query: async <Row>(sql: string, values?: readonly unknown[]) => {
-            if ((failure === "input" || failure === "input-and-rollback") && sql.includes("AS policy_revision"))
-              throw originalError;
+            if (failure === "input" && sql.includes("AS policy_revision")) throw originalError;
             if (failure === "settle" && sql.includes("SET status = 'completed', closed_at")) throw originalError;
             return pool.query<Row>(sql, values);
           },
@@ -551,6 +550,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
                   if (failure === "acquire") throw originalError;
                 }
                 if (sql === "ROLLBACK" && failure === "input-and-rollback") throw cleanupError;
+                if (sql.includes("SELECT checkpoints") && failure === "input-and-rollback") throw originalError;
                 return client.query<Row>(sql, values);
               },
               release: (error?: unknown) => {
@@ -576,6 +576,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
         }),
       ).rejects.toBe(originalError);
       expect(released).toHaveBeenCalled();
+      if (failure === "input-and-rollback") expect(released).toHaveBeenCalledWith(cleanupError);
       await vi.waitFor(async () => {
         expect(
           (await pool.query("SELECT 1 FROM pg_locks WHERE pid = $1 AND locktype = 'advisory'", [lockPid])).rows,

@@ -308,6 +308,19 @@ describe("Pricing writer closure through production composition", () => {
     await enqueue("synthetic-contending-round");
     const restarted = createPricingServices(pools.pricing, f.ports);
     expect(await run(restarted, "synthetic-contender")).toBe(0);
+    for (let attempt = 0; attempt < 12; attempt++) {
+      await pools.pricing.query(
+        "UPDATE pricing_repricing_evaluation_jobs SET next_eligible_at = now() WHERE status = 'queued'",
+      );
+      expect(await run(restarted, `synthetic-contender-${attempt}`)).toBe(0);
+    }
+    expect(
+      (
+        await pools.pricing.query(
+          "SELECT status, attempt_count FROM pricing_repricing_evaluation_jobs WHERE job_id = 'repricing-evaluation:synthetic-contending-round'",
+        )
+      ).rows,
+    ).toEqual([{ status: "queued", attempt_count: 0 }]);
     expect(calls).toBe(1);
     expect(
       (await pools.pricing.query("SELECT changes_reserved FROM pricing_repricing_daily_change_budgets")).rows,

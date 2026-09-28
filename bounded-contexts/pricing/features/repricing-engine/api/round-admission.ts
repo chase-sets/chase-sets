@@ -53,6 +53,12 @@ export function createPricingRoundAdmission(pool: PgTransactionalPool) {
             claim.roundId,
             claim.executorId,
           ]);
+        else
+          // Waiting for another Product round is not an execution failure or a dead-letter attempt.
+          await db.query(
+            "UPDATE pricing_repricing_evaluation_jobs SET attempt_count = GREATEST(0, attempt_count - 1) WHERE job_id = $1",
+            [claim.roundId],
+          );
         return row.rows.length === 1;
       });
     },
