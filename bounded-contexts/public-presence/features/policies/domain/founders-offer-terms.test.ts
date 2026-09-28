@@ -261,7 +261,7 @@ const feeQuotes = "bounded-contexts/marketplace/support/runtime-support/fee-quot
 type Citation = readonly [ref: string, ...patterns: RegExp[]];
 const quoteChain: Citation[] = [
   [
-    `${listingRuntime}:913-933`,
+    `${listingRuntime}:914-934`,
     /async function quoteListingTerms\(accountId: string, priceAmount: string\)\s*\{\s*return quoteMarketplaceTerms\(deps.commercialTermsResolver,/,
     /providedFingerprint !== currentQuote.fee_quote_fingerprint/,
   ],
@@ -290,7 +290,7 @@ const creationChain: Citation[] = [
     /feeLocks: event.data.feeLocks/,
   ],
   [
-    `${listingRuntime}:1484-1540`,
+    `${listingRuntime}:1485-1541`,
     /const quote = publicationScope === "native" \? await quoteListingTerms\(params.accountId, params.priceAmount\) : null/,
     /type: "CreateListing"/,
     /feeLock: quote \? feeLockFromMarketplaceTermsQuote\(params.quantityCap, quote\) : null/,
@@ -382,7 +382,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Single and bulk",
     [
       [
-        `${listingRuntime}:2095-2096`,
+        `${listingRuntime}:2096-2097`,
         /updateListingPrice: targetServices.updateNativePrice/,
         /applyBulkListingPriceUpdates: targetServices.applyNativePrices/,
       ],
@@ -468,7 +468,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
         /const latest = resized.pop\(\)/,
       ],
       [
-        `${listingRuntime}:2112-2134`,
+        `${listingRuntime}:2113-2135`,
         /addedUnitCount = Math.max\(0, params.quantityCap - listing.quantityCap\)/,
         /addedUnitCount > 0 && listing.nativeVisibility === "enabled"\s*\? await quoteListingTerms\(params.accountId, listing.priceAmount\)\s*: null/,
         /assertConfirmedFeeQuote\(params.feeQuoteFingerprint, quote\)/,
