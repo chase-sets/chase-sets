@@ -1,4 +1,11 @@
 export { channelsServicesMembers, isChannelsServices, type ChannelsServices } from "./support/runtime-support/services";
+export { ChannelConnectionMutationPendingError } from "./features/connections/api/listing-authority";
+export { createChannelConnectionRuntime } from "./features/connections/api/runtime";
+export type {
+  ChannelConnectionHostPorts,
+  ChannelConnectionServices,
+  ChannelConnectionAuthorityServices,
+} from "./features/connections/domain/contracts";
 export { parseChannelCredentialKeyring, assertKeyringContinuity } from "./features/credentials/domain/codecs";
 export {
   ChannelCredentialError,

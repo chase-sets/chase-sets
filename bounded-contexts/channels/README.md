@@ -91,6 +91,37 @@ the accepted observed/expected fingerprint pair or a repush request.
 
 Injected setup, credential, policy, and storage-location authority resolvers.
 
+## Listing Connection Authority
+
+`createChannelConnectionRuntime` from `@chase-sets/channels/server` returns
+`ChannelConnectionAuthorityServices`: the existing commands plus
+`listingAuthority`, `recoverAuthorityMutation`, and `recoverAuthorityPage`.
+The host supplies `listingAuthorityConsumer`, bound to the consumer fence's
+authenticated `channels` participant. An absent port cannot prepare grants or
+apply a conflicting mutation while an outstanding promise exists.
+
+The `channels/connection` participant reserves current account ownership,
+immutable provider/environment identity, and the complete connection revision.
+It reads event history, not the connection projection. Pending setup and paused
+connections may retain accepted intent; disconnected connections cannot.
+Setup, credentials, health, publication capabilities, and provider transport are
+not evidence for this reservation and are not consulted.
+
+Connect, activate, pause, resume, disconnect, and the manual-sync connection seed
+use the same connection resource, including its absent state. Mutation closure
+and intent persist before remote invalidation. The next source revision selects
+one durable mutation identity; unknown outcomes expose that identity through
+`ChannelConnectionMutationPendingError`. Recovery applies the retained exact
+intent, never a new key or freshly inferred command.
+
+The owner recovery page processes at most 16 protocol records, preserving the
+cursor on failure. The host restarts each completed sweep from the beginning
+to revisit pending promises. Terminal receipts alone permit settlement. Mount
+this recovery loop and every fenced writer before enabling grants. Do not roll
+back to unfenced writers with outstanding reservations; disable new consumers
+and resolve or retain their promises first. Host mounting and Listing target
+composition migration belong to the integrated final-contract pass.
+
 ## Credential Custody
 
 `ChannelsServices.credentials` is server-only. Callers supply their transaction
