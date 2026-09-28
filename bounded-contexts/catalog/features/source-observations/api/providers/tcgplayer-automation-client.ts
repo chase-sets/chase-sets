@@ -59,6 +59,37 @@ export type TcgplayerAutomationHttpRequestOptions = Readonly<{
   headers?: Readonly<Record<string, string>>;
   signal?: AbortSignal;
   responseType?: "json" | "text" | "raw";
+  onStage?: (fact: TcgplayerAutomationStageFact) => void;
+}>;
+
+export type TcgplayerAutomationStage =
+  | "config-wait"
+  | "limiter-wait"
+  | "throttle-wait"
+  | "request-construction"
+  | "fetch-start"
+  | "headers-received"
+  | "error-body-read-start"
+  | "error-body-read-end"
+  | "parse-start"
+  | "parse-end"
+  | "parse-failure"
+  | "retry-start"
+  | "retry-end"
+  | "retry-backoff-start"
+  | "retry-backoff-end"
+  | "cooldown-start"
+  | "cooldown-end"
+  | "abort"
+  | "terminal";
+
+export type TcgplayerAutomationStageFact = Readonly<{
+  stage: TcgplayerAutomationStage;
+  at: string;
+  attempt: number;
+  statusClass?: "2xx" | "3xx" | "4xx" | "5xx" | "other";
+  activeStage?: TcgplayerAutomationStage;
+  outcome?: "success" | "failure" | "aborted";
 }>;
 
 export type TcgplayerAutomationHttpClientDeps = Readonly<{
@@ -118,6 +149,7 @@ export class TcgplayerAutomationDomainHttpClient {
   private readonly fetchImpl: typeof fetch;
   private readonly sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
   private readonly random: () => number;
+  private readonly now: () => number;
 
   constructor(
     domainKey: TcgplayerAutomationDomainKey,
@@ -131,6 +163,7 @@ export class TcgplayerAutomationDomainHttpClient {
     this.fetchImpl = deps.fetch ?? fetch;
     this.sleep = deps.sleep ?? sleepWithAbort;
     this.random = deps.random ?? Math.random;
+    this.now = deps.now ?? Date.now;
     this.throttler = new TcgplayerAutomationRequestThrottler(domainKey, configStore, {
       sleep: this.sleep,
       now: deps.now ?? Date.now,
@@ -170,48 +203,114 @@ export class TcgplayerAutomationDomainHttpClient {
     body?: BodyInit;
     options: TcgplayerAutomationHttpRequestOptions;
   }): Promise<TResponse> {
-    const initialConfig = await this.configStore.loadConfig();
-    let recordedRateLimit = false;
-
-    for (let attempt = 0; attempt <= initialConfig.maxRetries; attempt += 1) {
-      const domainConfig = await this.configStore.loadDomainConfig(this.domainKey);
-      await this.limiter.acquire(domainConfig.maxConcurrentRequests);
-
+    const { onStage, signal } = input.options;
+    let attempt = 1;
+    let activeStage: TcgplayerAutomationStage = "config-wait";
+    let terminal = false;
+    const emit = (
+      stage: TcgplayerAutomationStage,
+      detail: Partial<Pick<TcgplayerAutomationStageFact, "statusClass" | "activeStage" | "outcome">> = {},
+    ) => {
+      if (!onStage || (terminal && stage !== "terminal")) return;
+      if (stage !== "abort" && stage !== "terminal") activeStage = stage;
       try {
-        await this.throttler.waitToStart(input.options.signal);
-        const response = await this.fetchImpl(this.requestUrl(input.path, input.params), {
-          method: input.method,
-          body: input.body,
-          headers: await this.requestHeaders(input.options.headers),
-          signal: input.options.signal,
-        });
-
-        if (!response.ok) {
-          throw await this.httpError(response);
-        }
-
-        await this.throttler.recordSuccess(initialConfig.adaptiveConfig);
-        return parseResponse<TResponse>(response, input.options.responseType ?? "json");
-      } catch (error) {
-        if (!isRetryableTcgplayerAutomationError(error) || attempt === initialConfig.maxRetries) {
-          throw error;
-        }
-
-        if (isTcgplayerAutomationRateLimitError(error)) {
-          const updatedConfig = recordedRateLimit
-            ? await this.configStore.loadDomainConfig(this.domainKey)
-            : await this.throttler.recordRateLimit(initialConfig.adaptiveConfig);
-          recordedRateLimit = true;
-          await this.throttler.applyRateLimitCooldown(updatedConfig, input.options.signal);
-        } else {
-          await this.sleep(backoffMs(attempt, domainConfig.requestDelayMs, this.random), input.options.signal);
-        }
-      } finally {
-        this.limiter.release();
+        onStage({ stage, at: new Date(this.now()).toISOString(), attempt, ...detail });
+      } catch {
+        // Telemetry must not affect requests, including abort and limiter release.
       }
+    };
+    const finish = (outcome: "success" | "failure" | "aborted") => {
+      if (terminal) return;
+      terminal = true;
+      emit("terminal", { outcome });
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const onAbort = () => {
+      emit("abort", { activeStage });
+      finish("aborted");
+    };
+    if (onStage) {
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) onAbort();
     }
+    emit("config-wait");
+    try {
+      const initialConfig = await this.configStore.loadConfig();
+      let recordedRateLimit = false;
 
-    throw new Error(`Request to ${this.domainKey} failed after ${initialConfig.maxRetries} retries.`);
+      for (let retry = 0; retry <= initialConfig.maxRetries; retry += 1) {
+        attempt = retry + 1;
+        emit("config-wait");
+        const domainConfig = await this.configStore.loadDomainConfig(this.domainKey);
+        emit("limiter-wait");
+        await this.limiter.acquire(domainConfig.maxConcurrentRequests);
+
+        try {
+          emit("throttle-wait");
+          await this.throttler.waitToStart(input.options.signal);
+          emit("request-construction");
+          const url = this.requestUrl(input.path, input.params);
+          const headers = await this.requestHeaders(input.options.headers);
+          emit("fetch-start");
+          const response = await this.fetchImpl(url, {
+            method: input.method,
+            body: input.body,
+            headers,
+            signal: input.options.signal,
+          });
+          emit("headers-received", { statusClass: httpStatusClass(response.status) });
+
+          if (!response.ok) {
+            emit("error-body-read-start");
+            const error = await this.httpError(response);
+            emit("error-body-read-end");
+            throw error;
+          }
+
+          await this.throttler.recordSuccess(initialConfig.adaptiveConfig);
+          emit("parse-start");
+          return parseResponse<TResponse>(response, input.options.responseType ?? "json").then(
+            (value) => {
+              emit("parse-end");
+              finish("success");
+              return value;
+            },
+            (error: unknown) => {
+              emit("parse-failure");
+              finish("failure");
+              throw error;
+            },
+          );
+        } catch (error) {
+          if (!isRetryableTcgplayerAutomationError(error) || retry === initialConfig.maxRetries) {
+            throw error;
+          }
+
+          emit("retry-start");
+          if (isTcgplayerAutomationRateLimitError(error)) {
+            emit("cooldown-start");
+            const updatedConfig = recordedRateLimit
+              ? await this.configStore.loadDomainConfig(this.domainKey)
+              : await this.throttler.recordRateLimit(initialConfig.adaptiveConfig);
+            recordedRateLimit = true;
+            await this.throttler.applyRateLimitCooldown(updatedConfig, input.options.signal);
+            emit("cooldown-end");
+          } else {
+            emit("retry-backoff-start");
+            await this.sleep(backoffMs(retry, domainConfig.requestDelayMs, this.random), input.options.signal);
+            emit("retry-backoff-end");
+          }
+          emit("retry-end");
+        } finally {
+          this.limiter.release();
+        }
+      }
+
+      throw new Error(`Request to ${this.domainKey} failed after ${initialConfig.maxRetries} retries.`);
+    } catch (error) {
+      finish(signal?.aborted ? "aborted" : "failure");
+      throw error;
+    }
   }
 
   private requestUrl(
@@ -251,6 +350,14 @@ export class TcgplayerAutomationDomainHttpClient {
       redactTcgplayerAutomationProviderDiagnostic(responseBody),
     );
   }
+}
+
+function httpStatusClass(status: number): "2xx" | "3xx" | "4xx" | "5xx" | "other" {
+  if (status >= 200 && status < 300) return "2xx";
+  if (status >= 300 && status < 400) return "3xx";
+  if (status >= 400 && status < 500) return "4xx";
+  if (status >= 500 && status < 600) return "5xx";
+  return "other";
 }
 
 export function createTcgplayerAutomationHttpClients(
