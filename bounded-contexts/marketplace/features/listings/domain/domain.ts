@@ -1,7 +1,7 @@
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
-import { centsToMoneyAmount, moneyToCents, roundRational, tryMoneyToCents } from "@chase-sets/primitives/money";
+import { centsToMoneyAmount, moneyToCents, tryMoneyToCents } from "@chase-sets/primitives/money";
 import type { AccountId, CatalogItemId, ListingId } from "@chase-sets/primitives/typed-ids";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import type { JsonObject } from "@chase-sets/primitives/json";
@@ -77,24 +77,6 @@ function normalizePercentageBps(value: number, fieldName: string): number {
  */
 function isMoneyAmountUnchanged(current: string | null, next: string): boolean {
   return current !== null && moneyToCents(current) === moneyToCents(next);
-}
-
-function isWithinMinimumListingPriceChange(
-  currentAmount: string | null,
-  nextAmount: string,
-  minimumChange: NonNullable<UpdateListingPriceCommand["minimumChange"]>,
-): boolean {
-  if (currentAmount === null) {
-    return false;
-  }
-  const current = moneyToCents(currentAmount);
-  const next = moneyToCents(nextAmount);
-  const delta = current >= next ? current - next : next - current;
-  const threshold =
-    minimumChange.mode === "absolute"
-      ? moneyToCents(minimumChange.amount)
-      : roundRational(current * BigInt(Math.round(minimumChange.percent * 100)), 10_000n, "nearest");
-  return delta <= threshold;
 }
 
 function areFeeLockQuotesUnchanged(
@@ -463,7 +445,6 @@ export type UpdateListingPriceCommand = Readonly<{
   priceAmount: string;
   priceCurrencyCode: string;
   feeLocks: readonly MarketplaceListingFeeLock[];
-  minimumChange?: Readonly<{ mode: "absolute"; amount: string }> | Readonly<{ mode: "percent"; percent: number }>;
   changeSource?: "repricing-engine";
   acceptedTargetPrice?: AcceptedListingTargetPriceV1;
   requestFingerprint?: string;
@@ -1078,15 +1059,6 @@ export const decideMarketplaceListing: AggregateDecider<
       };
 
       const currencyUnchanged = state.priceCurrencyCode === data.priceCurrencyCode;
-      if (
-        !command.acceptedTargetPrice &&
-        currencyUnchanged &&
-        command.minimumChange &&
-        isWithinMinimumListingPriceChange(state.priceAmount, data.priceAmount, command.minimumChange)
-      ) {
-        return [];
-      }
-
       if (
         !command.acceptedTargetPrice &&
         isMoneyAmountUnchanged(state.priceAmount, data.priceAmount) &&

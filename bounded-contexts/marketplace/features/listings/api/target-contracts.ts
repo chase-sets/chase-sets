@@ -166,6 +166,7 @@ export type AcceptedListingTargetPriceRead = Readonly<{
   generatedAt: string;
   sourceEventId: string;
   sourceGlobalPosition: string;
+  projectionGeneration: string;
 }>;
 
 export type ListingTargetServices = Readonly<{

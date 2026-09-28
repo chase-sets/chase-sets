@@ -103,6 +103,8 @@ export type AppendToStreamInput = Readonly<{
   streamId: StreamId;
   /** appendToStreams only: checked with the store clock after acquiring all write locks. Other append methods reject it. */
   authorizationDeadline?: string;
+  /** Technical append attribution, retained by durable owner writer intents, not stored as business metadata. */
+  appendTelemetry?: Readonly<{ holderKind?: string; sourceContextName?: string }>;
   wakeSourceContextName?: string;
   expectedVersion: ExpectedStreamVersion;
   events: readonly EventRecordToStore[];

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { toJsonValue } from "@chase-sets/primitives/json";
 import sharp from "sharp";
 import { createListingTargetRuntime } from "./target-runtime";
+import { createListingCurrentReads } from "../read-model/target-queries";
 import { marketplaceListingCodec } from "../domain/codec";
 import { listingRequestFingerprint } from "./listing-request";
 import type { ListingTargetServices } from "./target-contracts";
@@ -1610,6 +1611,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
 
   const targetServices = createListingTargetRuntime({
     eventStore: deps.eventStore,
+    currentReads: createListingCurrentReads(deps.db, deps.listingCurrentReadiness),
     authority: deps.listingTargetAuthority,
     bulkPolicy: resolveBulkPriceUpdatePolicy,
     confirmNativePrice: async (accountId, amount, fingerprint) =>

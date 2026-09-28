@@ -12,6 +12,8 @@ import {
 import { createListingTargetRuntime } from "./target-runtime";
 import type { AcceptListingTargetPriceInput, ListingTargetAuthority } from "./target-contracts";
 import { createSyntheticListingAuthority } from "./authority-test-support";
+import { createListingCurrentReads } from "../read-model/target-queries";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 const context: EventStoreContext = {
   tenantId: "tnt_test" as never,
@@ -67,6 +69,44 @@ async function fixture(overrides: Partial<ListingTargetAuthority> = {}) {
   const services = createListingTargetRuntime({
     eventStore,
     authority,
+    // Synthetic read-model storage follows actual owner writes; SQL semantics have separate tests.
+    currentReads: createListingCurrentReads({
+      query: async (_sql: string, values: readonly unknown[]) => {
+        const requests = JSON.parse(String(values[1])) as { ordinal: number; listingId: string; targetKey: string }[];
+        return {
+          rows: await Promise.all(
+            requests.map(async (request) => {
+              const { state, version } = await repository.load(`marketplace.listing-${request.listingId}`);
+              const latest = (
+                await eventStore.readStream({
+                  streamId: `marketplace.listing-${request.listingId}`,
+                  fromVersion: version,
+                })
+              )[0]!;
+              return {
+                ordinal: request.ordinal,
+                listing_id: request.listingId,
+                account_id: state.accountId,
+                target_key: request.targetKey,
+                accepted_price: state.acceptedTargetPrices[request.targetKey] ?? null,
+                activation_revision:
+                  state.channelActivations[request.targetKey.replace("channel-connection:", "")]?.revision ?? null,
+                listing_revision: version,
+                native_visibility: state.nativeVisibility,
+                visibility_revision: state.nativeVisibilityRevision,
+                publication_revision: state.nativePublicationRevision,
+                status: state.status,
+                source_event_id: latest.eventId,
+                source_global_position: latest.globalPosition,
+                active_generation: "1",
+                generated_at: new Date().toISOString(),
+                source_current: true,
+              };
+            }),
+          ),
+        };
+      },
+    } as unknown as PgQueryable),
     load: (id) => repository.load(`marketplace.listing-${id}`),
     prepareNativeEnable: async () => {
       throw new Error("Synthetic fixture has no native readiness.");

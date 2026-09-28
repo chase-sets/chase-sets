@@ -107,6 +107,7 @@ export type BulkAppendTransactionLaneConfig<Item, Result> = Readonly<{
   prepare(item: Item): Promise<BulkAppendTransaction<Result>>;
   chunkSize: number;
   yieldIntervalMs: number;
+  telemetry?: AppendToStreamsIndependentlyTelemetry;
   sleep?: (ms: number) => Promise<void>;
 }>;
 
@@ -215,7 +216,14 @@ function transactionLane<Item, Result>(config: BulkAppendTransactionLaneConfig<I
       if (overlaps && entries.length > 1) return split();
       try {
         if (overlaps) throw new Error("A bulk transaction contains incompatible stream writes or guards.");
-        const results = merged.size > 0 ? await append!([...merged.values()]) : [];
+        const results =
+          merged.size > 0
+            ? await append!(
+                [...merged.values()].map((input) =>
+                  config.telemetry ? { ...input, appendTelemetry: config.telemetry } : input,
+                ),
+              )
+            : [];
         const byStream = new Map(results.map((result) => [result.streamId, result.storedEvents]));
         for (const { index, transaction } of entries) {
           let result = transaction.result;

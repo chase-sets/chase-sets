@@ -891,6 +891,27 @@ describe("postgres event store independent multi-stream appends", () => {
     recordSpy.mockRestore();
   });
 
+  it("retains caller attribution on atomic multi-stream append samples", async () => {
+    const record = vi.spyOn(observability, "recordEventStoreAppendAdvisoryLockHold");
+    record.mockClear();
+    const { pool } = createIndependentAppendPool();
+    const store = createPostgresEventStore({ pool, createEventId: createSequentialEventId() });
+    await store.appendToStreams!([
+      {
+        ...independentInput({ streamId: "marketplace.listing-atomic-telemetry", expectedVersion: "no_stream" }),
+        appendTelemetry: { holderKind: "bulk_listing_price_update", sourceContextName: "marketplace" },
+      },
+    ]);
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "committed",
+        holderKind: "bulk_listing_price_update",
+        sourceContextName: "marketplace",
+      }),
+    );
+    record.mockRestore();
+  });
+
   it("rejects a batch that repeats the same stream id more than once", async () => {
     const { pool } = createIndependentAppendPool();
     const store = createPostgresEventStore({ pool, createEventId: createSequentialEventId() });

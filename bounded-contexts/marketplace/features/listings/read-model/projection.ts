@@ -27,13 +27,13 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
     price_amount: string;
     price_currency_code: string | null;
     listing_stream_version: number | null;
-    marketplace_sales_fee_unit_amount: string;
-    seller_net_unit_amount: string;
+    marketplace_sales_fee_unit_amount: string | null;
+    seller_net_unit_amount: string | null;
     shipping_allowance_percentage_bps: number;
     terms_schedule_id: string | null;
     terms_agreement_id: string | null;
     terms_resolved_at: string | null;
-    fee_quote_fingerprint: string;
+    fee_quote_fingerprint: string | null;
     fee_locks: unknown;
     quantity_cap: number;
     max_units_per_order: number | null;

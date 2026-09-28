@@ -31,6 +31,7 @@ import { createBuyerOfferPolicyRuntime } from "../../features/offer-policy/api/r
 
 export type MarketplaceServiceOptions = Readonly<{
   listingTargetAuthority?: import("../../features/listings/api/target-contracts").ListingTargetAuthority;
+  listingCurrentReadiness?: import("../../features/listings/read-model/target-queries").ListingCurrentReadinessReader;
   listingAuthority?: MarketplaceListingAuthorityPorts;
   commercialTermsResolver?: CommercialTermsResolver;
   listingPhotoStorage?: ListingPhotoStorage;
@@ -92,6 +93,7 @@ export function createMarketplaceServices(
     policies,
     listingEvidencePolicyEvaluator: listingEvidencePolicies,
     ...(options.listingTargetAuthority ? { listingTargetAuthority: options.listingTargetAuthority } : {}),
+    ...(options.listingCurrentReadiness ? { listingCurrentReadiness: options.listingCurrentReadiness } : {}),
     ...(options.listingPhotoStorage ? { listingPhotoStorage: options.listingPhotoStorage } : {}),
   } as const;
   const listings = createMarketplaceListingRuntime(deps);

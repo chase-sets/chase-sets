@@ -1,5 +1,5 @@
 import { createId, type EventId } from "@chase-sets/primitives/typed-ids";
-import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import { moneyToCents, roundRational } from "@chase-sets/primitives/money";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import { createBulkAppendLane } from "@chase-sets/platform-runtime/bulk-append-lane";
 import { createListingAuthorityFence } from "@chase-sets/platform-runtime/listing-authority-fence";
@@ -42,7 +42,6 @@ import type {
   ListingTargetAuthority,
   ListingTargetServices,
   ListingTargetPriceAcceptanceResult,
-  NativeListingEligibilityV1,
   SetNativeListingVisibilityInput,
 } from "./target-contracts";
 
@@ -78,9 +77,38 @@ function authoritySubject(state: MarketplaceListingState): ListingAuthoritySubje
   };
 }
 
+function suppressSellerPriceRequest(
+  state: MarketplaceListingState,
+  pair: Readonly<{ priceAmount: string; priceCurrencyCode: string }>,
+  minimumChange: MarketplaceBulkListingPriceUpdateInput["minimumChange"],
+) {
+  if (state.priceAmount === null || state.priceCurrencyCode !== pair.priceCurrencyCode) return false;
+  const current = moneyToCents(state.priceAmount);
+  const next = moneyToCents(pair.priceAmount);
+  const delta = current > next ? current - next : next - current;
+  if (minimumChange) {
+    const threshold =
+      minimumChange.mode === "absolute"
+        ? moneyToCents(minimumChange.amount)
+        : roundRational(current * BigInt(Math.round(minimumChange.percent * 100)), 10_000n, "nearest");
+    if (delta <= threshold) return true;
+  }
+  return (
+    delta === 0n &&
+    state.feeLocks.every((lock) => {
+      const quote = requoteMarketplaceListingFeeLock(lock, pair.priceAmount);
+      return (
+        moneyToCents(quote.marketplaceSalesFeeUnitAmount) === moneyToCents(lock.marketplaceSalesFeeUnitAmount) &&
+        moneyToCents(quote.sellerNetUnitAmount) === moneyToCents(lock.sellerNetUnitAmount)
+      );
+    })
+  );
+}
+
 export function createListingTargetRuntime(
   deps: Readonly<{
     eventStore: EventStore;
+    currentReads?: Pick<ListingTargetServices, "readAcceptedListingTargetPrices" | "readNativeListingEligibility">;
     authority?: ListingTargetAuthority;
     bulkPolicy?(): Promise<Readonly<{ chunkSize: number; yieldIntervalMs: number }>>;
     nativePriceConfirmation?(accountId: string): Promise<(priceAmount: string, fingerprint: string) => void>;
@@ -327,17 +355,8 @@ export function createListingTargetRuntime(
         if (state.nativeVisibility === "enabled" && update.feeQuoteFingerprint)
           await confirm(pair.priceAmount, update.feeQuoteFingerprint);
         const prepared = await acceptedRequest.prepare();
-        // Legacy native callers preserve suppression, but a new Pricing decision is always a new authority fact.
-        if (
-          !update.decision &&
-          !update.changeSource &&
-          decideMarketplaceListing(state, {
-            type: "UpdateListingPrice",
-            ...pair,
-            feeLocks: state.feeLocks.map((lock) => requoteMarketplaceListingFeeLock(lock, pair.priceAmount)),
-            minimumChange: update.minimumChange,
-          }).length === 0
-        ) {
+        // Seller request policy never suppresses a verified Pricing authority fact.
+        if (!update.decision && !update.changeSource && suppressSellerPriceRequest(state, pair, update.minimumChange)) {
           return {
             result: { listingId: update.listingId, version, outcome: "no_op" },
             reservations: prepared.reservations,
@@ -368,6 +387,7 @@ export function createListingTargetRuntime(
     const policy = (await deps.bulkPolicy?.()) ?? { chunkSize: 100, yieldIntervalMs: 0 };
     const lane = createBulkAppendLane({
       eventStore: deps.eventStore,
+      telemetry: { holderKind: "bulk_listing_price_update", sourceContextName: "marketplace" },
       ...policy,
       prepare: async (update: MarketplaceBulkListingPriceUpdateInput) =>
         prepareListingRequest(deps.eventStore, await nativeRequest(input.accountId, update, context, confirm)),
@@ -510,43 +530,6 @@ export function createListingTargetRuntime(
     });
   }
 
-  async function source(listingId: string, accountId: string) {
-    // Load history once rather than mix an aggregate read with a later event read.
-    const events = await readCompleteStream(deps.eventStore, { streamId: `marketplace.listing-${listingId}` });
-    const latest = events.at(-1);
-    assert(latest, "Listing not found.");
-    const loaded = await owned(listingId, accountId);
-    assert(loaded.version === latest.streamVersion, "Listing source changed during read.");
-    return { ...loaded, events, latest };
-  }
-
-  function nativeAccepted(read: Awaited<ReturnType<typeof source>>): AcceptedListingTargetPriceV1 | null {
-    const current = read.state.acceptedTargetPrices["native-marketplace"];
-    if (current?.targetPriceRevision === read.state.nativePriceRevision) return current;
-    const event = read.events.find((entry) => entry.streamVersion === read.state.nativePriceRevision);
-    if (!event || !read.state.priceAmount || !read.state.priceCurrencyCode) return null;
-    return {
-      schemaVersion: 1,
-      accountId: read.state.accountId!,
-      listingId: read.state.listingId!,
-      target: { kind: "native-marketplace" },
-      priceAmount: read.state.priceAmount,
-      priceCurrencyCode: read.state.priceCurrencyCode,
-      targetPriceRevision: event.streamVersion,
-      listingRevision: event.streamVersion,
-      acceptedByUserId: event.performedByUserId,
-      acceptedAt: event.occurredAt,
-      sourceEventId: event.eventId,
-      decision: {
-        kind:
-          event.eventType === "marketplace.listing.created" && event.payload.schemaVersion === 2
-            ? "seller-reference"
-            : "legacy-native-anchor",
-      },
-      connectionAuthority: null,
-    };
-  }
-
   const services: ListingTargetServices = {
     acceptListingTargetPrice,
     acceptListingTargetPrices: async ({ accountId, updates }, context) => {
@@ -641,66 +624,13 @@ export function createListingTargetRuntime(
         };
       });
     },
-    readAcceptedListingTargetPrices: async ({ accountId, targets }) => {
-      assert(targets.length <= 100, "At most 100 target reads are allowed.");
-      const reads = new Map<string, Awaited<ReturnType<typeof source>>>();
-      const results = [];
-      for (const target of targets) {
-        const read = reads.get(target.listingId) ?? (await source(target.listingId, accountId));
-        reads.set(target.listingId, read);
-        const key = listingPriceTargetKey(target.target);
-        results.push({
-          ...target,
-          acceptedTargetPrice:
-            target.target.kind === "native-marketplace"
-              ? nativeAccepted(read)
-              : (read.state.acceptedTargetPrices[key] ?? null),
-          activationRevision:
-            target.target.kind === "channel-connection"
-              ? (read.state.channelActivations[target.target.connectionId]?.revision ?? null)
-              : read.state.nativePublicationRevision,
-          listingRevision: read.version,
-          status: read.state.status,
-          generatedAt: new Date().toISOString(),
-          sourceEventId: read.latest.eventId,
-          sourceGlobalPosition: read.latest.globalPosition,
-        });
-      }
-      return results;
+    readAcceptedListingTargetPrices: async (input) => {
+      assert(deps.currentReads, "Listing current-read storage is unavailable.");
+      return deps.currentReads.readAcceptedListingTargetPrices(input);
     },
-    readNativeListingEligibility: async ({ accountId, listingIds }) => {
-      assert(listingIds.length <= 100, "At most 100 native eligibility reads are allowed.");
-      const results: NativeListingEligibilityV1[] = [];
-      for (const listingId of listingIds) {
-        const read = await source(listingId, accountId);
-        const state = read.state;
-        const blockingReason =
-          state.nativeVisibility !== "enabled"
-            ? "native-disabled"
-            : state.nativePublicationRevision === null
-              ? "native-unpublished"
-              : state.status !== "active"
-                ? "listing-not-active"
-                : !state.priceAmount || !state.priceCurrencyCode
-                  ? "price-incomplete"
-                  : null;
-        results.push({
-          schemaVersion: 1,
-          accountId,
-          listingId,
-          priceAmount: state.priceAmount,
-          priceCurrencyCode: state.priceCurrencyCode,
-          targetPriceRevision: state.nativePriceRevision,
-          listingRevision: read.version,
-          visibilityRevision: state.nativeVisibilityRevision,
-          nativePublicationRevision: state.nativePublicationRevision,
-          eligible: blockingReason === null,
-          blockingReason,
-          sourceEventId: read.latest.eventId,
-          generatedAt: new Date().toISOString(),
-        });
-      }
-      return results;
+    readNativeListingEligibility: async (input) => {
+      assert(deps.currentReads, "Listing current-read storage is unavailable.");
+      return deps.currentReads.readNativeListingEligibility(input);
     },
   };
   return {

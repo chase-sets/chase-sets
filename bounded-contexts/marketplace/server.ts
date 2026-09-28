@@ -135,6 +135,11 @@ export type { MarketplaceSellerBehavioralMetricsPolicyValue } from "./features/s
  * listing volume without querying `marketplace_listing_pages` directly.
  */
 export { getLockedFeeListingCohortSummary } from "./features/listings/read-model/queries";
+export { assertListingReadFreshness } from "./features/listings/read-model/target-queries";
+export type {
+  ListingCurrentReadiness,
+  ListingCurrentReadinessReader,
+} from "./features/listings/read-model/target-queries";
 export type {
   MarketplaceLockedFeeListingCohortSummary,
   MarketplaceLockedFeeListingCohortWeeklyPoint,

@@ -206,9 +206,12 @@ export type NativeListingEligibilityV1 = Readonly<{
     | "native-unpublished"
     | "listing-not-active"
     | "price-incomplete"
+    | "native-not-ready"
     | "source-stale"
     | null;
   sourceEventId: string;
+  sourceGlobalPosition: string;
+  projectionGeneration: string | null;
   generatedAt: string;
 }>;
 

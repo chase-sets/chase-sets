@@ -31,4 +31,5 @@ export type MarketplaceRuntimeDeps = Readonly<{
   policies?: Pick<PolicyRuntime, "resolvePolicy">;
   listingEvidencePolicyEvaluator?: ListingEvidencePolicyEvaluator;
   listingTargetAuthority?: ListingTargetAuthority;
+  listingCurrentReadiness?: import("../../features/listings/read-model/target-queries").ListingCurrentReadinessReader;
 }>;

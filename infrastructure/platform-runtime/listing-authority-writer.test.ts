@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createListingAuthorityParticipant } from "./listing-authority-participant";
@@ -40,6 +40,22 @@ function fixture() {
 }
 
 describe("source authority writer", () => {
+  it("preserves append attribution through the durable source mutation", async () => {
+    const f = fixture();
+    const append = vi.spyOn(f.eventStore, "appendToStreams");
+    await f.restart().eventStore.appendToStreams!([
+      { ...f.input, appendTelemetry: { holderKind: "bulk_listing_price_update", sourceContextName: "marketplace" } },
+    ]);
+    expect(
+      append.mock.calls.some(([inputs]) =>
+        inputs.some(
+          (input) =>
+            input.streamId === f.input.streamId && input.appendTelemetry?.holderKind === "bulk_listing_price_update",
+        ),
+      ),
+    ).toBe(true);
+    expect((await f.eventStore.readStream({ streamId: f.input.streamId }))[0]?.metadata).toEqual({});
+  });
   it("can retry the same append intent after a confirmed resource-selection conflict", async () => {
     const f = fixture();
     let reads = 0;
