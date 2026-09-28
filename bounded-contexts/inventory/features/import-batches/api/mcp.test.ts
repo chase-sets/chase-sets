@@ -231,6 +231,28 @@ describe("inventory import batch MCP handlers", () => {
     expect(fakeServices.commitBatch).not.toHaveBeenCalled();
   });
 
+  it("preserves the original verified carrier when committing an import batch", async () => {
+    const fakeServices = services();
+    const handlers = createInventoryImportBatchMcpHandlers(fakeServices, storageLocations());
+    const context = withSyntheticListingPrincipal({
+      tenantId: actor.tenantId as never,
+      audit: { performedByUserId: actor.userId as never, forAccountId: actor.accountId as never },
+    });
+    await handlers.toolHandlers["inventory.commit-import-batch"]!({
+      actor,
+      context,
+      tool: null as never,
+      arguments: { accountId: actor.accountId, batchId: "imb_1" },
+      request: new Request("https://api.test/mcp"),
+      protocol: legacyMcpProtocol,
+    });
+    expect(fakeServices.commitBatch).toHaveBeenCalledWith(
+      expect.objectContaining({ batchId: "imb_1", accountId: actor.accountId }),
+      context,
+    );
+    expect(vi.mocked(fakeServices.commitBatch).mock.calls[0]![1]).toBe(context);
+  });
+
   it("rejects dry-run writes before mutating import state", async () => {
     const fakeServices = services();
     const handlers = createInventoryImportBatchMcpHandlers(fakeServices, storageLocations());

@@ -347,7 +347,14 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
       inventoryCleanupAuthority: { kind: "not-mounted" },
       marketplaceChannelInboundClamp,
       channelCredentialKeyring: config.channelCredentialKeyring,
-      ...(pools.inventory ? { channelSaleRecorder: createPlatformChannelSaleRecorder(pools.inventory) } : {}),
+      ...(pools.inventory
+        ? {
+            channelSaleRecorder: createPlatformChannelSaleRecorder(
+              pools.inventory,
+              createListingSourceHostPorts(() => runtime?.services, pools)["inventory.listingAuthorityConsumer"],
+            ),
+          }
+        : {}),
       searchEmbeddingConfig: config.discoverySearchEmbeddings,
       ...(marketplaceLabelPostageActivation ? { marketplaceLabelPostageActivation } : {}),
     },

@@ -9,9 +9,16 @@ import type { PlatformControlPlane } from "@chase-sets/platform-runtime/control-
 import type { WorkerRunner } from "@chase-sets/platform-runtime/worker";
 import { createScheduledJobRunner } from "./scheduled-runners";
 
-export function createPlatformChannelSaleRecorder(pool: PgTransactionalPool): RecordExternalChannelSale {
+export function createPlatformChannelSaleRecorder(
+  pool: PgTransactionalPool,
+  consumer?: Parameters<typeof createInventoryExternalChannelSaleRecorderForPool>[2],
+): RecordExternalChannelSale {
   return async (command) =>
-    createInventoryExternalChannelSaleRecorderForPool(pool, accountScopedWorkerContext(command.accountId))(command);
+    createInventoryExternalChannelSaleRecorderForPool(
+      pool,
+      accountScopedWorkerContext(command.accountId),
+      consumer,
+    )(command);
 }
 
 export function createChannelsReconciliationRunners(

@@ -611,7 +611,13 @@ export function createPlatformApiHost(
   const inventoryCleanupAuthority: OrderingInventoryCleanupAuthorityCapability = inventoryPool
     ? { kind: "available", port: createInventoryHoldCleanupAuthorityForPool(inventoryPool) }
     : { kind: "not-mounted" };
-  const channelSaleRecorder = inventoryPool ? createPlatformApiChannelSaleRecorder(inventoryPool) : undefined;
+  const listingSourceHostPorts = createListingSourceHostPorts(() => runtime?.services, {
+    marketplace: marketplacePool,
+    ordering: orderingPool,
+  });
+  const channelSaleRecorder = inventoryPool
+    ? createPlatformApiChannelSaleRecorder(inventoryPool, listingSourceHostPorts["inventory.listingAuthorityConsumer"])
+    : undefined;
   const inventorySavedListImportBatchCreator: SavedListInventoryImportBatchCreator = async (params, context) => {
     const inventoryServices = runtime?.services.inventory as
       | {
@@ -644,10 +650,7 @@ export function createPlatformApiHost(
     runtimeProfile,
     hostPorts: {
       ...options.hostPorts,
-      ...createListingSourceHostPorts(() => runtime?.services, {
-        marketplace: marketplacePool,
-        ordering: orderingPool,
-      }),
+      ...listingSourceHostPorts,
       listingCurrentOwnerFacts: {
         seller: (accountId) => {
           const identity = runtime?.services.identity as ReturnType<typeof identityModule.createServices> | undefined;
@@ -714,7 +717,10 @@ function getPlatformApiPool(value: unknown): PgTransactionalPool | undefined {
   return value && typeof value === "object" && "query" in value ? (value as PgTransactionalPool) : undefined;
 }
 
-function createPlatformApiChannelSaleRecorder(pool: PgTransactionalPool): RecordExternalChannelSale {
+function createPlatformApiChannelSaleRecorder(
+  pool: PgTransactionalPool,
+  consumer: NonNullable<Parameters<typeof createInventoryExternalChannelSaleRecorderForPool>[2]>,
+): RecordExternalChannelSale {
   return async (command) => {
     const context: EventStoreContext = {
       tenantId: "tnt_channels_api" as never,
@@ -723,7 +729,7 @@ function createPlatformApiChannelSaleRecorder(pool: PgTransactionalPool): Record
         forAccountId: command.accountId as never,
       },
     };
-    return createInventoryExternalChannelSaleRecorderForPool(pool, context)(command);
+    return createInventoryExternalChannelSaleRecorderForPool(pool, context, consumer)(command);
   };
 }
 

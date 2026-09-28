@@ -62,6 +62,9 @@ describeDb("marketplace schema upgrades", () => {
     const pool = pools.marketplace;
     await bootstrapContextDatabase(marketplaceModule, pool);
     const f = createListingSqlFixture(pool);
+    const auditOnly = { tenantId: f.context.tenantId, audit: f.context.audit };
+    await expect(f.services.createListing(f.input, auditOnly)).rejects.toThrow("principal");
+    expect(await f.eventStore.readStream({ streamId: `marketplace.listing-${f.input.listingIdOverride}` })).toEqual([]);
     const created = await f.services.createListing(f.input, f.context);
     expect(created).toMatchObject({ version: 1, nativeFeeState: "not-enrolled" });
     expect(await f.services.createListing(f.input, f.context)).toEqual(created);

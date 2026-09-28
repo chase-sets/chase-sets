@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { withSyntheticListingPrincipal } from "@chase-sets/event-core/test-support";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -47,6 +48,10 @@ describe("durable job store", () => {
 
   it("enqueues and claims jobs with ordered status events", async () => {
     const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const originalContext = withSyntheticListingPrincipal({
+      tenantId: "tnt_1",
+      audit: { performedByUserId: "usr_1", forAccountId: "acc_1" },
+    });
     const row = {
       job_id: "job_1",
       job_kind: "commit",
@@ -55,7 +60,7 @@ describe("durable job store", () => {
       progress: { phase: "queued" },
       result: null,
       error_message: null,
-      event_context: { tenantId: "tnt_1" },
+      event_context: JSON.stringify(originalContext),
       claim_owner_id: null,
       claimed_until: null,
       created_at: "2026-05-28T00:00:00.000Z",
@@ -97,7 +102,7 @@ describe("durable job store", () => {
         jobKind: "commit",
         payload: { batchId: "imb_1" },
         progress: { phase: "queued" },
-        eventContext: { tenantId: "tnt_1" } as never,
+        eventContext: originalContext,
       }),
     ).resolves.toMatchObject({ jobId: "job_1", status: "queued" });
     await expect(
@@ -106,7 +111,13 @@ describe("durable job store", () => {
         claimTtlMs: 60_000,
         jobKinds: ["commit"],
       }),
-    ).resolves.toMatchObject({ jobId: "job_1", status: "running", claimOwnerId: "worker-a" });
+    ).resolves.toMatchObject({
+      jobId: "job_1",
+      status: "running",
+      claimOwnerId: "worker-a",
+      eventContext: originalContext,
+    });
+    expect(JSON.parse(String(calls[0].values[4]))).toEqual(originalContext);
 
     expect(calls[0].sql).toContain("INSERT INTO inventory_import_batch_jobs");
     expect(calls[1].sql).toContain("INSERT INTO inventory_import_batch_job_events");
