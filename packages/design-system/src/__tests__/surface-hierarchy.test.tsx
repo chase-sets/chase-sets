@@ -8,6 +8,7 @@ import ts from "@chase-sets/typescript-compiler-api";
 import { fireEvent, render } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import type { SurfaceOwnProps } from "../primitives/layout";
 import {
   Card,
   DetailPanel,
@@ -178,28 +179,40 @@ function discoverCardEmitters(root: string) {
   const inset = identity(path.join(directory, "primitives/layout.tsx"), "Inset");
   const rowList = identity(path.join(directory, "components/data-display/key-value-list.tsx"), "KeyValueList");
   const edges = new Map<string, Set<string>>();
+  const raisedEdges = new Map<string, Set<string>>();
   const roots: Array<{ owner: string; node: ts.JsxOpeningElement | ts.JsxSelfClosingElement }> = [];
   for (const [id, declaration] of declarations) {
     const dependencies = new Set<string>();
+    const raisedDependencies = new Set<string>();
     function visit(node: ts.Node) {
       if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && ts.isIdentifier(node.tagName)) {
         const target = resolveLocal(declaration.getSourceFile(), node.tagName.text);
         if (target) dependencies.add(target);
+        if (target && (target !== surface || !hasFlatElevation(node))) raisedDependencies.add(target);
         if (target === seed) roots.push({ owner: id, node });
       }
       ts.forEachChild(node, visit);
     }
     visit(declaration);
     edges.set(id, dependencies);
+    raisedEdges.set(id, raisedDependencies);
   }
   const card = new Set([seed]);
+  const surfaceEmitters = new Set([surface]);
+  const raisedSurfaceEmitters = new Set([surface]);
   let changed = true;
   while (changed) {
     changed = false;
     for (const [id, dependencies] of edges) {
-      if (!card.has(id) && [...dependencies].some((dependency) => card.has(dependency))) {
-        card.add(id);
-        changed = true;
+      for (const [closure, targets] of [
+        [card, dependencies],
+        [surfaceEmitters, dependencies],
+        [raisedSurfaceEmitters, raisedEdges.get(id)!],
+      ] as const) {
+        if (!closure.has(id) && [...targets].some((dependency) => closure.has(dependency))) {
+          closure.add(id);
+          changed = true;
+        }
       }
     }
   }
@@ -212,6 +225,12 @@ function discoverCardEmitters(root: string) {
     seed,
     card,
     surface,
+    surfaceEmitters,
+    raisedSurfaceEmitters,
+    surfaceDirect: [...exported].filter((id) => edges.get(id)?.has(surface)).sort(),
+    surfaceTransitive: [...exported]
+      .filter((id) => id !== surface && surfaceEmitters.has(id) && !edges.get(id)?.has(surface))
+      .sort(),
     inset,
     rowList,
     direct,
@@ -249,10 +268,10 @@ function directCardCandidates(root: string) {
   return { tracked, excluded, candidates, digest };
 }
 
-function directCardRoots(source: ts.SourceFile, discovery: CardDiscovery) {
+function directCardRoots(source: ts.SourceFile, discovery: CardDiscovery, seed = discovery.seed) {
   const roots: Array<{ file: string; line: number; tag: string; explicit: boolean }> = [];
   function isCard(tag: ts.JsxTagNameExpression) {
-    if (ts.isIdentifier(tag)) return discovery.resolveLocal(source, tag.text) === discovery.seed;
+    if (ts.isIdentifier(tag)) return discovery.resolveLocal(source, tag.text) === seed;
     if (!ts.isPropertyAccessExpression(tag) || !ts.isIdentifier(tag.expression)) return false;
     const namespace = tag.expression.text;
     for (const statement of source.statements) {
@@ -265,7 +284,7 @@ function directCardRoots(source: ts.SourceFile, discovery: CardDiscovery) {
       const bindings = statement.importClause?.namedBindings;
       if (!bindings || !ts.isNamespaceImport(bindings) || bindings.name.text !== namespace) continue;
       const target = discovery.resolveModule(source.fileName, statement.moduleSpecifier.text);
-      return !!target && discovery.resolveExport(target, tag.name.text) === discovery.seed;
+      return !!target && discovery.resolveExport(target, tag.name.text) === seed;
     }
     return false;
   }
@@ -287,16 +306,34 @@ function directCardRoots(source: ts.SourceFile, discovery: CardDiscovery) {
   return roots;
 }
 
-function scanDirectCards(root: string, discovery = productionCardEmitters()) {
+function scanDirectCards(root: string, discovery = productionCardEmitters(), seed = discovery.seed) {
   const partition = directCardCandidates(root);
   const roots = partition.candidates.flatMap((file) => {
     const absolute = path.resolve(root, file);
     return directCardRoots(
       ts.createSourceFile(absolute, fs.readFileSync(absolute, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX),
       discovery,
+      seed,
     );
   });
   return { ...partition, roots, violations: roots.filter((root) => !root.explicit) };
+}
+
+function hasFlatElevation(node: ts.JsxOpeningElement | ts.JsxSelfClosingElement) {
+  const attributes = node.attributes.properties;
+  const lastSpread = attributes.reduce(
+    (last, attribute, index) => (ts.isJsxSpreadAttribute(attribute) ? index : last),
+    -1,
+  );
+  return attributes.some(
+    (attribute, index) =>
+      index > lastSpread &&
+      ts.isJsxAttribute(attribute) &&
+      attribute.name.getText() === "elevation" &&
+      attribute.initializer &&
+      ts.isStringLiteral(attribute.initializer) &&
+      (attribute.initializer.text === "flush" || attribute.initializer.text === "tinted"),
+  );
 }
 
 function nearestSurface(stack: readonly SurfaceFrame[]) {
@@ -353,7 +390,7 @@ function collectSurfaceNames(sourceFile: ts.SourceFile, discovery: CardDiscovery
           if (specifier.isTypeOnly) continue;
           const id = discovery.resolveLocal(sourceFile, specifier.name.text);
 
-          if (id && (discovery.card.has(id) || id === discovery.surface)) {
+          if (id && (discovery.card.has(id) || discovery.raisedSurfaceEmitters.has(id))) {
             cardLikeNames.add(specifier.name.text);
           }
 
@@ -375,7 +412,7 @@ function collectSurfaceNames(sourceFile: ts.SourceFile, discovery: CardDiscovery
         ts.isIdentifier(node.name)
       ) {
         const id = discovery.resolveLocal(sourceFile, node.name.text);
-        if (id && (discovery.card.has(id) || id === discovery.surface)) {
+        if (id && (discovery.card.has(id) || discovery.raisedSurfaceEmitters.has(id))) {
           cardLikeNames.add(node.name.text);
         }
 
@@ -625,10 +662,136 @@ describe("direct Card elevation guard", () => {
   });
 });
 
+describe("Surface elevation guard", () => {
+  it("derives the Surface closure and scans the shared tracked production partition with zero allowlist entries", () => {
+    const discovery = productionCardEmitters();
+    const result = scanDirectCards(repositoryRoot(), discovery, discovery.surface);
+    const relative = (id: string) => path.relative(repositoryRoot(), id).replaceAll("\\", "/");
+    console.info(
+      "Surface derivation and census",
+      JSON.stringify({
+        scanned: result.candidates.length,
+        total: result.tracked.length,
+        excluded: result.excluded.length,
+        digest: result.digest,
+        roots: result.roots.length,
+        violations: result.violations,
+        allowlist: [],
+        direct: discovery.surfaceDirect.map(relative),
+        transitive: discovery.surfaceTransitive.map(relative),
+        raised: [...discovery.raisedSurfaceEmitters].sort().map(relative),
+      }),
+    );
+    expect(result.candidates.length + result.excluded.length).toBe(result.tracked.length);
+    expect(result.roots.length).toBeGreaterThan(0);
+    expect(result.violations).toEqual([]);
+    expect(new Set([discovery.surface, ...discovery.surfaceDirect, ...discovery.surfaceTransitive])).toEqual(
+      new Set([...discovery.surfaceEmitters].filter((id) => discovery.exported.has(id))),
+    );
+  });
+
+  const controls = [
+    {
+      name: "planted direct root",
+      file: "bounded-contexts/example/arbitrary.tsx",
+      source: 'import { Surface } from "@chase-sets/design-system"; export const Example = <Surface />;',
+      tag: "Surface",
+    },
+    {
+      name: "renamed root alias",
+      file: "bounded-contexts/example/alias.tsx",
+      source: 'import { Surface as Furniture } from "@chase-sets/design-system"; export const Example = <Furniture />;',
+      tag: "Furniture",
+    },
+    {
+      name: "subpath alias",
+      file: "bounded-contexts/example/subpath.tsx",
+      source: 'import { Surface as Frame } from "@chase-sets/design-system/layout"; export const Example = <Frame />;',
+      tag: "Frame",
+    },
+    {
+      name: "namespace root",
+      file: "bounded-contexts/example/namespace.tsx",
+      source: 'import * as DS from "@chase-sets/design-system"; export const Example = <DS.Surface />;',
+      tag: "DS.Surface",
+    },
+    {
+      name: "local Surface symbol",
+      file: "packages/design-system/src/primitives/layout.tsx",
+      source: "export function Surface() { return <div />; } export const Example = <Surface />;",
+      tag: "Surface",
+    },
+  ];
+  it.each(controls)("candidate/bypass: $name rejects only the bare-elevation clause", ({ name, file, source, tag }) => {
+    const discovery = productionCardEmitters();
+    const roots = (text: string) =>
+      directCardRoots(
+        ts.createSourceFile(path.join(repositoryRoot(), file), text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX),
+        discovery,
+        discovery.surface,
+      );
+    expect(roots(source)).toEqual([{ file, line: 1, tag, explicit: false }]);
+    expect(roots(source.replace(`<${tag}`, `<${tag} elevation="flush"`))).toEqual([
+      { file, line: 1, tag, explicit: true },
+    ]);
+    console.info("Surface candidate/bypass", JSON.stringify({ name, clause: "bare elevation", bare: 1, explicit: 0 }));
+  });
+
+  it.each([
+    ["public-presence shell #8270", "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx"],
+    ["payments root #8272", "bounded-contexts/payments/features/payments/ui/account-payment/account-payment-page.tsx"],
+    ["design-system emitter #8273", "packages/design-system/src/components/checkout/status.tsx"],
+  ])("restores exactly the owned historical omission: %s", (name, file) => {
+    const absolute = path.join(repositoryRoot(), file!);
+    const source = ts.createSourceFile(
+      absolute,
+      fs.readFileSync(absolute, "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX,
+    );
+    const discovery = productionCardEmitters();
+    let removed: ts.JsxAttribute | undefined;
+    function visit(node: ts.Node) {
+      if (
+        !removed &&
+        (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
+        ts.isIdentifier(node.tagName) &&
+        discovery.resolveLocal(source, node.tagName.text) === discovery.surface
+      ) {
+        removed = node.attributes.properties.find(
+          (attribute): attribute is ts.JsxAttribute =>
+            ts.isJsxAttribute(attribute) && attribute.name.getText(source) === "elevation",
+        );
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(source);
+    expect(removed).toBeDefined();
+    const green = directCardRoots(source, discovery, discovery.surface);
+    expect(green.filter((root) => !root.explicit)).toEqual([]);
+    const attribute = removed!;
+    const mutant =
+      source.text.slice(0, attribute.getStart(source)) +
+      source.text.slice(attribute.getStart(source), attribute.end).replace(/[^\r\n]/g, " ") +
+      source.text.slice(attribute.end);
+    const red = directCardRoots(
+      ts.createSourceFile(absolute, mutant, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX),
+      discovery,
+      discovery.surface,
+    );
+    expect(red).toEqual(green.map((root, index) => (index === 0 ? { ...root, explicit: false } : root)));
+    console.info(
+      "Surface historical mutant",
+      JSON.stringify({ name, violation: red.filter((root) => !root.explicit), restored: 0 }),
+    );
+  });
+});
+
 describe("surface hierarchy", () => {
   it("uses Inset as the only nested surface level", () => {
     const violations = surfaceHierarchyViolations(repositoryRoot(), productionCardEmitters());
-
+    console.info("Card and Surface nesting", JSON.stringify({ violations: violations.length, sites: violations }));
     expect(violations).toEqual([]);
   }, 15_000);
 
@@ -684,17 +847,21 @@ describe("surface hierarchy", () => {
         'import { Surface as Frame } from "../primitives/layout"; export function FixtureSurfaceOnly() { return <Frame />; }',
       );
       write(
+        "packages/design-system/src/unconventional/second-furniture.tsx",
+        'import { FixtureSurfaceOnly as Child } from "./furniture"; export function FixtureSecondFurniture() { return <Child />; }',
+      );
+      write(
         "packages/design-system/src/unconventional/bridge.ts",
-        'export { FixtureEntity as RenamedEntity } from "./direct"; export * from "./second"; export * from "./furniture";',
+        'export { FixtureEntity as RenamedEntity } from "./direct"; export * from "./second"; export * from "./furniture"; export { FixtureSecondFurniture as OddFurniture } from "./second-furniture";',
       );
       write(
         "bounded-contexts/example/ui.tsx",
-        'import { Surface, Inset } from "../../packages/design-system/src/primitives/layout"; import { RenamedEntity as Direct, FixtureSecondOrder as Second, FixtureSurfaceOnly as Furniture } from "@unusual/bridge"; export function Example() { return <><Surface><Direct /><Second /><Furniture /><Inset><Second /></Inset></Surface></>; }',
+        'import { Surface, Inset } from "../../packages/design-system/src/primitives/layout"; import { RenamedEntity as Direct, FixtureSecondOrder as Second, FixtureSurfaceOnly as Furniture, OddFurniture as SecondFurniture } from "@unusual/bridge"; export function Example() { return <><Surface elevation="elevated"><Direct /><Second /><Furniture /><SecondFurniture /><Inset><Second /></Inset></Surface></>; }',
       );
       write("bounded-contexts/example/not-design-system.tsx", "export function RenamedEntity() { return <div />; }");
       write(
         "bounded-contexts/example/unrelated.tsx",
-        'import { RenamedEntity as Direct } from "./not-design-system"; import { Surface } from "../../packages/design-system/src/primitives/layout"; export function Unrelated() { return <Surface><Direct /></Surface>; }',
+        'import { RenamedEntity as Direct } from "./not-design-system"; import { Surface } from "../../packages/design-system/src/primitives/layout"; export function Unrelated() { return <Surface elevation="flush"><Direct /></Surface>; }',
       );
       execFileSync("git", ["init", "--quiet"], { cwd: root });
       execFileSync("git", ["add", "."], { cwd: root });
@@ -702,10 +869,17 @@ describe("surface hierarchy", () => {
       expect(clean.direct.map((id) => id.split("#")[1])).toEqual(["FixtureEntity"]);
       expect(clean.transitive.map((id) => id.split("#")[1])).toEqual(["FixtureSecondOrder"]);
       expect(clean.nonCard.map((id) => id.split("#")[1])).toContain("FixtureSurfaceOnly");
+      expect(clean.surfaceDirect.map((id) => id.split("#")[1])).toEqual(["FixtureSurfaceOnly"]);
+      expect(clean.surfaceTransitive.map((id) => id.split("#")[1])).toEqual(["FixtureSecondFurniture"]);
+      const bare = scanDirectCards(root, clean, clean.surface);
+      expect(bare.violations).toHaveLength(1);
+      expect(bare.violations[0]).toMatchObject({ tag: "Frame", explicit: false });
       const violations = surfaceHierarchyViolations(root, clean);
       expect(violations.map(({ tag, parent }) => ({ tag, parent }))).toEqual([
         { tag: "Direct", parent: "Surface" },
         { tag: "Second", parent: "Surface" },
+        { tag: "Furniture", parent: "Surface" },
+        { tag: "SecondFurniture", parent: "Surface" },
         { tag: "Second", parent: "Inset" },
       ]);
       write("packages/design-system/src/unconventional/direct.js", "export function GeneratedEntity() {}");
@@ -723,6 +897,37 @@ describe("surface hierarchy", () => {
       expect(built.transitive).toEqual(clean.transitive);
       expect(built.nonCard).toEqual(clean.nonCard);
       expect(surfaceHierarchyViolations(root, built)).toEqual(violations);
+      for (const elevation of ["flush", "tinted", "outlined", "elevated"] as const) {
+        write(
+          "packages/design-system/src/unconventional/furniture.tsx",
+          `import { Surface as Frame } from "../primitives/layout"; export function FixtureSurfaceOnly() { return <Frame elevation="${elevation}" />; }`,
+        );
+        const explicit = discoverCardEmitters(root);
+        expect(explicit.surfaceDirect).toEqual(clean.surfaceDirect);
+        expect(explicit.surfaceTransitive).toEqual(clean.surfaceTransitive);
+        expect(scanDirectCards(root, explicit, explicit.surface).violations).toEqual([]);
+        const flat = elevation === "flush" || elevation === "tinted";
+        expect(surfaceHierarchyViolations(root, explicit)).toEqual(
+          flat ? violations.filter(({ tag }) => tag !== "Furniture" && tag !== "SecondFurniture") : violations,
+        );
+      }
+      for (const attributes of ["elevation={intent}", 'elevation="flush" {...props}']) {
+        write(
+          "packages/design-system/src/unconventional/furniture.tsx",
+          `import { Surface as Frame } from "../primitives/layout"; export function FixtureSurfaceOnly() { return <Frame ${attributes} />; }`,
+        );
+        const uncertain = discoverCardEmitters(root);
+        expect(surfaceHierarchyViolations(root, uncertain)).toEqual(violations);
+      }
+      console.info(
+        "Surface candidate/bypass",
+        JSON.stringify({
+          name: "second-order unconventional specifier",
+          clause: "bare elevation at emission",
+          bare: 1,
+          explicit: 0,
+        }),
+      );
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -908,8 +1113,7 @@ const surfaceElevationMatrix: Record<ElevationName, Record<SurfaceToneName, stri
   },
 };
 
-const surfaceGlowChrome: Record<"legacy" | ElevationName, string> = {
-  legacy: "surface-border min-w-0 max-w-full rounded-tokenLg ds-glass bg-elevated p-4 shadow-tokenSm ds-glow",
+const surfaceGlowChrome: Record<ElevationName, string> = {
   flush: "min-w-0 max-w-full rounded-tokenLg p-4",
   tinted: "min-w-0 max-w-full rounded-tokenLg bg-surface-2 p-4",
   outlined: "min-w-0 max-w-full rounded-tokenLg border border-muted bg-elevated p-4",
@@ -1084,43 +1288,42 @@ describe("Card elevation oracle", () => {
 });
 
 describe("Surface elevation oracle", () => {
-  it("classifies every design-system Surface emission with an explicit elevation", () => {
-    const root = repositoryRoot();
-    const bareRoots: string[] = [];
-    let emissions = 0;
-
-    for (const file of scanFiles(path.join(root, "packages/design-system/src"))) {
-      const source = ts.createSourceFile(
-        file,
-        fs.readFileSync(file, "utf8"),
-        ts.ScriptTarget.Latest,
-        true,
-        ts.ScriptKind.TSX,
-      );
-      function visit(node: ts.Node) {
-        if (
-          (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
-          ts.isIdentifier(node.tagName) &&
-          node.tagName.text === "Surface"
-        ) {
-          emissions += 1;
-          if (
-            !node.attributes.properties.some(
-              (attribute) =>
-                ts.isJsxAttribute(attribute) && attribute.name.getText(source) === "elevation" && attribute.initializer,
-            )
-          ) {
-            const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
-            bareRoots.push(`${path.relative(root, file)}:${line + 1}`);
-          }
-        }
-        ts.forEachChild(node, visit);
+  it("documents the omission rule and the retired boolean in the canonical catalog", () => {
+    const directory = path.join(repositoryRoot(), "packages/design-system");
+    const readme = fs.readFileSync(path.join(directory, "README.md"), "utf8");
+    const index = fs.readFileSync(path.join(directory, "COMPONENT_INDEX.md"), "utf8");
+    expect(readme).toContain("omitting it on `Surface` renders exactly the `flush` treatment for its tone");
+    expect(readme).toContain("Surface has no `elevated` boolean");
+    const surface = index.split("\n").find((line) => line.startsWith("| `Surface` |"));
+    expect(surface).toContain("flush-by-default");
+    expect(surface).not.toContain("legacy");
+  });
+  it("retires the elevated boolean from the public prop contract", () => {
+    // @ts-expect-error Surface no longer accepts the legacy boolean.
+    const legacy = <Surface elevated />;
+    const hasLegacyProp: "elevated" extends keyof SurfaceOwnProps ? true : false = false;
+    expect(legacy).toBeDefined();
+    expect(hasLegacyProp).toBe(false);
+  });
+  it("renders the omitted-default row byte-identically to flush for every tone and glow state", () => {
+    for (const tone of surfaceTones) {
+      for (const glow of [false, true]) {
+        const omitted = (
+          <Surface tone={tone} glow={glow}>
+            cell content
+          </Surface>
+        );
+        expect(renderToString(omitted)).toBe(
+          renderToString(
+            <Surface tone={tone} glow={glow} elevation="flush">
+              cell content
+            </Surface>,
+          ),
+        );
+        expect(rootElement(omitted).className).toBe(surfaceElevationMatrix.flush[tone]);
+        expect(rootElement(omitted).className).not.toMatch(/surface-border|shadow-tokenSm|shadow-tokenLg|ds-glow/);
       }
-      visit(source);
     }
-
-    expect(emissions).toBeGreaterThanOrEqual(14);
-    expect(bareRoots).toEqual([]);
   });
 
   const cells = elevations.flatMap((elevation) => surfaceTones.map((tone) => ({ elevation, tone })));
@@ -1135,10 +1338,10 @@ describe("Surface elevation oracle", () => {
     ).toBe(surfaceElevationMatrix[elevation][tone]);
   });
 
-  it.each(["legacy", ...elevations] as const)("pins the Surface glow state chrome for %s", (cell) => {
+  it.each(elevations)("pins the Surface glow state chrome for %s", (cell) => {
     expect(
       rootElement(
-        <Surface glow elevation={cell === "legacy" ? undefined : cell}>
+        <Surface glow elevation={cell}>
           cell content
         </Surface>,
       ).className,
