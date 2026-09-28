@@ -8,7 +8,7 @@ import {
   marketplaceBrowserE2eSeedContract,
 } from "./support/seed-contract";
 
-test("market-following consent, held evidence and permanent stop @browser-e2e-seed", async ({
+test("market-following consent, held evidence and permanent stop @marketplace-account @browser-e2e-seed", async ({
   page,
   browser,
 }, testInfo) => {
