@@ -32,6 +32,7 @@ import {
   catalogRealtimeManifest,
   catalogRealtimeTopicPolicyManifest,
   resolveCatalogProductSelection,
+  type CatalogServices,
 } from "@chase-sets/catalog/server";
 import type { SavedListProductCatalog } from "@chase-sets/collections/server";
 import {
@@ -75,6 +76,7 @@ import {
   marketplaceRealtimeManifest,
   marketplaceRealtimeTopicPolicyManifest,
   marketplaceSellerBehavioralMetricsPolicy,
+  type MarketplaceListingCurrentReadinessPorts,
 } from "@chase-sets/marketplace/server";
 import {
   createRateLimitPolicyResolver,
@@ -636,6 +638,18 @@ export function createPlatformApiHost(
     runtimeProfile,
     hostPorts: {
       ...options.hostPorts,
+      listingCurrentOwnerFacts: {
+        seller: (accountId) => {
+          const identity = runtime?.services.identity as ReturnType<typeof identityModule.createServices> | undefined;
+          if (!identity) throw new Error("Identity current seller facts are not mounted.");
+          return identity.listingAuthority.readCurrentSeller(accountId, { maxAgeMs: 1000 });
+        },
+        products: (subjects) => {
+          const catalog = runtime?.services.catalog as CatalogServices | undefined;
+          if (!catalog) throw new Error("Catalog current Product facts are not mounted.");
+          return catalog.listingAuthority.readCurrentProducts(subjects, { maxAgeMs: 1000 });
+        },
+      } satisfies MarketplaceListingCurrentReadinessPorts,
       ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
       ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
       ...(checkoutProcessingFeePolicyResolver ? { checkoutProcessingFeePolicyResolver } : {}),

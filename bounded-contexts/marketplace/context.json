@@ -508,6 +508,11 @@
   ],
   "hostPorts": [
     {
+      "portName": "listingCurrentOwnerFacts",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Bind canonical Identity seller and Catalog Product current reads to Marketplace-owned native readiness without granting commit authority."
+    },
+    {
       "portName": "listingTargetAuthority",
       "providedBy": "platform-api, platform-worker",
       "purpose": "Binds current owner reservations for Listing creation, target acceptance, native publication, capacity and scoped resume commands."

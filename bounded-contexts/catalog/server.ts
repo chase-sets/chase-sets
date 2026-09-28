@@ -1,4 +1,5 @@
 export { createCatalogRequestApiClient } from "./support/request-support/api-client";
+export type { CatalogServices } from "./support/authoring-support/services";
 export {
   createCatalogListingAuthority,
   type CatalogListingAuthorityFacts,

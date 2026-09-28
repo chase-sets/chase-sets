@@ -41,6 +41,7 @@ export function createIdentityListingPolicy(eventStore: EventStore, credentials?
     return {
       state: events.reduce((state, event) => evolve(state, codec.decode(event)), initial),
       revision: String(events.at(-1)?.streamVersion ?? 0),
+      lastEventId: events.at(-1)?.eventId ?? null,
       tenantId,
       streamId,
     };

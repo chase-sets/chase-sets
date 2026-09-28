@@ -14,6 +14,10 @@ import type { ListingPhotoStorage } from ".";
 import { createMarketplaceCommercialTermsResolver, type CommercialTermsResolver } from "../../api";
 import { createMarketplaceListingRuntime } from "../../features/listings/api/runtime";
 import {
+  createMarketplaceListingCurrentReadiness,
+  type MarketplaceListingCurrentReadinessPorts,
+} from "../../features/listings/read-model/native-current-readiness";
+import {
   createMarketplaceListingAuthority,
   type MarketplaceListingAuthorityPorts,
 } from "../../features/listings/api/listing-authority";
@@ -32,6 +36,7 @@ import { createBuyerOfferPolicyRuntime } from "../../features/offer-policy/api/r
 export type MarketplaceServiceOptions = Readonly<{
   listingTargetAuthority?: import("../../features/listings/api/target-contracts").ListingTargetAuthority;
   listingCurrentReadiness?: import("../../features/listings/read-model/target-queries").ListingCurrentReadinessReader;
+  listingCurrentOwnerFacts?: MarketplaceListingCurrentReadinessPorts;
   listingAuthority?: MarketplaceListingAuthorityPorts;
   commercialTermsResolver?: CommercialTermsResolver;
   listingPhotoStorage?: ListingPhotoStorage;
@@ -85,6 +90,9 @@ export function createMarketplaceServices(
   const notificationOutbox = options.notificationOutbox ?? createPostgresNotificationOutbox({ db });
   const policies = createPolicyRuntime({ eventStore, db });
   const listingEvidencePolicies = createListingEvidencePolicyRuntime({ db, policies });
+  const listingCurrentReadiness = options.listingCurrentOwnerFacts
+    ? createMarketplaceListingCurrentReadiness({ db, eventStore: rawEventStore }, options.listingCurrentOwnerFacts)
+    : options.listingCurrentReadiness;
   const deps = {
     eventStore,
     checkpointStore,
@@ -93,7 +101,7 @@ export function createMarketplaceServices(
     policies,
     listingEvidencePolicyEvaluator: listingEvidencePolicies,
     ...(options.listingTargetAuthority ? { listingTargetAuthority: options.listingTargetAuthority } : {}),
-    ...(options.listingCurrentReadiness ? { listingCurrentReadiness: options.listingCurrentReadiness } : {}),
+    ...(listingCurrentReadiness ? { listingCurrentReadiness } : {}),
     ...(options.listingPhotoStorage ? { listingPhotoStorage: options.listingPhotoStorage } : {}),
   } as const;
   const listings = createMarketplaceListingRuntime(deps);

@@ -10,6 +10,7 @@ import {
   createPostgresTcgplayerAutomationHttpConfigStore,
   createTcgplayerAutomationCatalogClient,
   createTcgplayerAutomationHttpClients,
+  type CatalogServices,
 } from "@chase-sets/catalog/server";
 import { isChannelsServices, type ChannelsServices } from "@chase-sets/channels/server";
 import {
@@ -30,7 +31,12 @@ import type {
   InventoryAccountSellerSkuItemResolution,
   InventoryDraftListingCreator,
 } from "@chase-sets/inventory/server";
-import { type MarketplaceListingServices, type MarketplaceServices } from "@chase-sets/marketplace/server";
+import {
+  type MarketplaceListingServices,
+  type MarketplaceServices,
+  type MarketplaceListingCurrentReadinessPorts,
+} from "@chase-sets/marketplace/server";
+import type { module as identityModule } from "@chase-sets/identity";
 import type {
   BulkRepriceIngestionServices,
   PricingRecommendationServices,
@@ -299,6 +305,18 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
     runtimeProfile: config.runtimeProfile,
     runtimeLifecycle,
     hostPorts: {
+      listingCurrentOwnerFacts: {
+        seller: (accountId) => {
+          const identity = runtime?.services.identity as ReturnType<typeof identityModule.createServices> | undefined;
+          if (!identity) throw new Error("Identity current seller facts are not mounted.");
+          return identity.listingAuthority.readCurrentSeller(accountId, { maxAgeMs: 1000 });
+        },
+        products: (subjects) => {
+          const catalog = runtime?.services.catalog as CatalogServices | undefined;
+          if (!catalog) throw new Error("Catalog current Product facts are not mounted.");
+          return catalog.listingAuthority.readCurrentProducts(subjects, { maxAgeMs: 1000 });
+        },
+      } satisfies MarketplaceListingCurrentReadinessPorts,
       processorGateway: paymentProcessorGateway,
       moneyMovementGateway,
       operationsRecorder: settlementOperationsRecorder,
