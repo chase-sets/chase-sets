@@ -27,7 +27,20 @@ const registeredCallers = new Map([
   ],
   [
     "bounded-contexts/marketplace/features/listings/api/runtime.ts",
-    ["priceCurrencyCode: params.priceCurrencyCode", "priceCurrencyCode: update.priceCurrencyCode"],
+    [
+      "priceCurrencyCode: params.priceCurrencyCode",
+      "updateListingPrice: targetServices.updateNativePrice",
+      "applyBulkListingPriceUpdates: targetServices.applyNativePrices",
+    ],
+  ],
+  [
+    "bounded-contexts/marketplace/features/listings/api/target-runtime.ts",
+    [
+      "normalizeAcceptedListingPrice(update.priceAmount, update.priceCurrencyCode)",
+      'const command = { type: "AcceptNativeListingPrice", accountId, ...update, ...pair }',
+      "prepareListingRequest(deps.eventStore, await nativeRequest(input.accountId, update, context, confirm))",
+      "await nativeRequest(accountId, update, context, async (amount, fingerprint)",
+    ],
   ],
   ["bounded-contexts/marketplace/routes/account-listing.tsx", ["priceCurrencyCode: priceDraftCurrencyCode"]],
   ["bounded-contexts/marketplace/routes/account-listings-new.tsx", ["priceCurrencyCode: createForm.priceCurrencyCode"]],

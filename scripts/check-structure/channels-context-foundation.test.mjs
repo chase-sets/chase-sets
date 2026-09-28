@@ -193,6 +193,12 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
     JSON.stringify(candidate.hostPorts) !==
     JSON.stringify([
       {
+        portName: "listingAuthorityConsumer",
+        providedBy: "marketplace, ordering",
+        purpose:
+          "Bind each consuming Listing operation to its authenticated Channels participant fence for connection authority reservation, invalidation, and terminal recovery.",
+      },
+      {
         portName: "marketplaceChannelInboundClamp",
         providedBy: "platform-api, platform-worker",
         purpose:
@@ -364,6 +370,12 @@ describe("channels-context-foundation", () => {
       allowedContextDependencies: ["@chase-sets/marketplace", "@chase-sets/inventory"],
       seedRequirements: ["inventory"],
       hostPorts: [
+        {
+          portName: "listingAuthorityConsumer",
+          providedBy: "marketplace, ordering",
+          purpose:
+            "Bind each consuming Listing operation to its authenticated Channels participant fence for connection authority reservation, invalidation, and terminal recovery.",
+        },
         {
           portName: "marketplaceChannelInboundClamp",
           providedBy: "platform-api, platform-worker",
