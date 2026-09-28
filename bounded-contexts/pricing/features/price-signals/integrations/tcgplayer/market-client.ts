@@ -73,8 +73,11 @@ function createStageTrace() {
       else if (entry.stage === "abort" && !firstAbort) firstAbort = entry;
       else if (entry.stage === "terminal") {
         if (lastTerminal) {
-          order.delete(lastTerminal);
-          overflow = Math.min(65535, overflow + 1);
+          if (ordinary.length < 61) ordinary.push(lastTerminal);
+          else {
+            order.delete(lastTerminal);
+            overflow = Math.min(65535, overflow + 1);
+          }
         }
         lastTerminal = entry;
       } else if (ordinary.length < 61) ordinary.push(entry);
