@@ -12,7 +12,8 @@ import { createListingAuthorityParticipant } from "@chase-sets/platform-runtime/
 // Protocol-checkpoint probe only, not a Pricing evaluator or owner-writer proof.
 async function fixture() {
   const sourceMemory = createInMemoryEventStore();
-  const { eventStore: consumerStore } = createInMemoryEventStore();
+  const consumerMemory = createInMemoryEventStore();
+  const consumerStore = consumerMemory.eventStore;
   const sourceStore = sourceMemory.eventStore;
   const context: EventStoreContext = {
     tenantId: "tnt_synthetic_pricing",
@@ -93,7 +94,7 @@ async function fixture() {
         }),
     };
   }
-  return { ...restart(), sourceMemory, policyStream };
+  return { ...restart(), sourceMemory, consumerMemory, policyStream };
 }
 
 describe("Pricing participant checkpoint protocol", () => listingAuthorityConformance(it, fixture));
@@ -125,4 +126,49 @@ it("fails closed when resource history is missing but its durable reservation st
       return (await restarted.fence.inspect(operation)).status;
     })(),
   ).rejects.toThrow();
+});
+
+it("never reuses a lost consumer terminal identity for a delayed pre-revocation commit", async () => {
+  const f = await fixture();
+  const operation = await f.fence.open(f.input, f.context);
+  const reservation = await f.source.prepare(operation, f.context);
+  const delayedCommit = await f.fence.prepareCommit(operation, [reservation], { accepted: true });
+  await f.invalidate();
+  expect((await f.fence.inspect(operation)).status).toBe("aborted");
+  expect((await f.source.inspect(operation))?.status).toBe("released");
+  expect((await f.source.inspectInvalidation(f.context.tenantId, "synthetic-policy-revoke"))?.status).toBe("completed");
+  expect(await readCompleteStream(f.sourceStore, { streamId: f.policyStream })).toHaveLength(1);
+
+  // Synthetic loss of the consumer's authoritative operation stream and head.
+  // The source's reservation, resource/integrity pair and effective revocation
+  // remain intact. This is not missing projection data or a legitimate writer.
+  f.consumerMemory.streams.delete(delayedCommit.streamId);
+  const restarted = f.restart();
+  expect((await restarted.fence.inspect(operation)).status).toBe("unknown");
+  await expect(f.consumerStore.appendToStreams!([delayedCommit])).rejects.toThrow();
+
+  // A repair may reject reopening the lost identity or install a distinct,
+  // non-reusable fence. Either way, the original executor must stay fenced out.
+  try {
+    await restarted.fence.open(f.input, f.context);
+  } catch {
+    // Fail-closed recovery is allowed; it must not make the old append valid.
+  }
+  await expect(
+    (async () => {
+      await f.consumerStore.appendToStreams!([
+        delayedCommit,
+        {
+          streamId: "marketplace.synthetic-delayed-pricing-effect",
+          expectedVersion: 0,
+          context: f.context,
+          events: [{ eventType: "marketplace.synthetic-price-accepted", payload: { amount: "12.00" } }],
+        },
+      ]);
+      return "committed-after-effective-revocation";
+    })(),
+  ).rejects.toThrow();
+  expect(
+    await readCompleteStream(f.consumerStore, { streamId: "marketplace.synthetic-delayed-pricing-effect" }),
+  ).toHaveLength(0);
 });
