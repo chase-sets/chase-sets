@@ -37,6 +37,16 @@ import { buyerOfferPolicyOutcomeSchema } from "../domain/contracts";
 function hash(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
+function stableEvidence(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableEvidence);
+  if (typeof value !== "object" || value === null) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => key !== "evaluatedAt")
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([key, item]) => [key, stableEvidence(item)]),
+  );
+}
 const streamId = (policyId: string) => `marketplace.offer-policy-${policyId}`;
 
 export function serializeBuyerOfferPolicy(state: BuyerOfferPolicyState, version: number) {
@@ -158,8 +168,7 @@ export function createBuyerOfferPolicyRuntime(
       );
       // Re-evaluate at the current instant, but bind stable evidence and outcomes,
       // not the clock tick at which Pricing evaluated them.
-      const evidenceHash = (value: unknown) =>
-        hash(JSON.parse(JSON.stringify(value, (key, item) => (key === "evaluatedAt" ? undefined : item))));
+      const evidenceHash = (value: unknown) => hash(stableEvidence(value));
       if (
         request.type === "AuthorizeBuyerOfferPolicy" &&
         evidenceHash(outcomes) !== evidenceHash(current.state.preview?.outcomes ?? null)

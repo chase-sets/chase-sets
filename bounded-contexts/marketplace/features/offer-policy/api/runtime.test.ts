@@ -8,6 +8,44 @@ import { vi } from "vitest";
 import type { ManagedOfferTarget } from "../../offers/api/managed-authority";
 
 describe("Buyer Offer Policy authoritative runtime", () => {
+  it("accepts identical nested evidence after JSONB changes object key order", async () => {
+    const { store, db } = await fixture();
+    let reordered = false;
+    const runtime = createBuyerOfferPolicyRuntime({
+      eventStore: store,
+      db,
+      enforcement: { assertInstalled() {} },
+      managedOfferPricing: {
+        evaluateTargets: async (requests) =>
+          requests.map(() => ({
+            status: "target" as const,
+            unitItemAmount: "10.00",
+            evidence: {
+              marketPrice: reordered
+                ? { freshUntil: "2026-09-29T00:00:00.000Z", estimateVersion: "1", amount: "10.00" }
+                : { amount: "10.00", estimateVersion: "1", freshUntil: "2026-09-29T00:00:00.000Z" },
+            },
+          })),
+      },
+    });
+    const p = await preview(runtime);
+    reordered = true;
+    expect(
+      (
+        await runtime.execute(
+          "bop_one",
+          {
+            type: "AuthorizeBuyerOfferPolicy",
+            operationId: "reordered",
+            expectedVersion: p.version,
+            previewId: p.preview!.previewId,
+            consent: true,
+          },
+          context,
+        )
+      ).status,
+    ).toBe("active");
+  });
   it("previews target and held evidence at draft revision 1 and binds every price-only/evidence change", async () => {
     const { store, db } = await fixture();
     await seedOffer(store, "off_two");
