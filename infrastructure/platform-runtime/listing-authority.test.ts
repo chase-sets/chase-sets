@@ -13,7 +13,8 @@ async function fixture(
   mutatingPreparation = false,
   resourceScope: "tenant" | "owner" = "tenant",
 ) {
-  const { eventStore: sourceStore } = createInMemoryEventStore();
+  const sourceMemory = createInMemoryEventStore();
+  const sourceStore = sourceMemory.eventStore;
   const consumerMemory = createInMemoryEventStore();
   const consumerStore = consumerMemory.eventStore;
   const context: EventStoreContext = {
@@ -101,12 +102,44 @@ async function fixture(
         }),
     };
   }
-  return { ...restart(), consumerMemory };
+  return { ...restart(), consumerMemory, sourceMemory };
 }
 
 describe("durable Listing authority protocol conformance", () => listingAuthorityConformance(it, fixture));
 
 describe("Listing authority unknown outcomes and predicate serialization", () => {
+  it("B-AUTH-03: paired resource and integrity loss cannot permit effective mutation then retained commit", async () => {
+    const f = await fixture();
+    const operation = await f.fence.open(f.input, f.context);
+    const grant = await f.source.prepare(operation, f.context);
+    const terminal = await f.fence.prepareCommit(operation, [grant], { accepted: true });
+    for (const id of f.sourceMemory.streams.keys())
+      if (id.startsWith("catalog.listing-authority-resource-") || id.startsWith("catalog.listing-authority-integrity-"))
+        f.sourceMemory.streams.delete(id);
+    const restarted = f.restart();
+    const outcome = await restarted.invalidate().then(() => "effective", () => "blocked");
+    if (outcome === "blocked") {
+      expect(await readCompleteStream(f.sourceStore, { streamId: "catalog.synthetic-product" })).toHaveLength(0);
+      const promises = [...f.sourceMemory.streams.entries()].filter(([id]) => id.includes("-reservation-"));
+      expect(promises).toHaveLength(1);
+      expect(promises[0]![1]).toHaveLength(1);
+      return;
+    }
+    await expect(f.consumerStore.appendToStreams!([terminal])).rejects.toThrow();
+  });
+
+  it("terminal truncation cannot revive a retained pre-revocation commit", async () => {
+    const f = await fixture();
+    const operation = await f.fence.open(f.input, f.context);
+    const grant = await f.source.prepare(operation, f.context);
+    const terminal = await f.fence.prepareCommit(operation, [grant], { accepted: true });
+    await f.invalidate();
+    expect((await f.fence.inspect(operation)).status).toBe("aborted");
+    const events = f.consumerMemory.streams.get(terminal.streamId)!;
+    f.consumerMemory.streams.set(terminal.streamId, events.slice(0, 1));
+    await expect(f.consumerStore.appendToStreams!([terminal])).rejects.toThrow();
+  });
+
   it("retains the opening on recovery but cannot refresh old grants against recreated history", async () => {
     const f = await fixture();
     const operation = await f.fence.open(f.input, f.context);
