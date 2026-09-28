@@ -83,7 +83,7 @@ function discoverCardEmitters(root: string) {
     ]),
   );
   const config = ts.readConfigFile(path.join(root, "tsconfig.json"), ts.sys.readFile);
-  const options = ts.parseJsonConfigFileContent(config.config, ts.sys, root).options;
+  const options = ts.parseJsonConfigFileContent({ ...config.config, files: [], include: [] }, ts.sys, root).options;
   const resolutionCache = ts.createModuleResolutionCache(root, (file) => file, options);
   const declarations = new Map<string, ts.FunctionDeclaration | ts.VariableDeclaration>();
   const exported = new Set<string>();
@@ -256,14 +256,16 @@ function hasSurfaceVariant(node: ts.JsxElement | ts.JsxSelfClosingElement) {
 }
 
 function collectSurfaceNames(sourceFile: ts.SourceFile, discovery: CardDiscovery) {
+  const designSystemSource = discovery.sources.has(path.resolve(sourceFile.fileName));
   const cardLikeNames = new Set<string>();
   const insetNames = new Set<string>();
   const rowListNames = new Set<string>();
 
   function visit(node: ts.Node) {
-    if (ts.isImportDeclaration(node) && node.importClause?.namedBindings) {
+    if (ts.isImportDeclaration(node) && node.importClause?.namedBindings && !node.importClause.isTypeOnly) {
       if (ts.isNamedImports(node.importClause.namedBindings)) {
         for (const specifier of node.importClause.namedBindings.elements) {
+          if (specifier.isTypeOnly) continue;
           const id = discovery.resolveLocal(sourceFile, specifier.name.text);
 
           if (id && (discovery.card.has(id) || id === discovery.surface)) {
@@ -281,7 +283,7 @@ function collectSurfaceNames(sourceFile: ts.SourceFile, discovery: CardDiscovery
       }
     }
 
-    if (discovery.sources.has(path.resolve(sourceFile.fileName))) {
+    if (designSystemSource) {
       if (
         (ts.isFunctionDeclaration(node) || ts.isVariableDeclaration(node)) &&
         node.name &&
@@ -305,7 +307,8 @@ function collectSurfaceNames(sourceFile: ts.SourceFile, discovery: CardDiscovery
     ts.forEachChild(node, visit);
   }
 
-  visit(sourceFile);
+  if (designSystemSource) visit(sourceFile);
+  else sourceFile.statements.filter(ts.isImportDeclaration).forEach(visit);
 
   return { cardLikeNames, insetNames, rowListNames };
 }
@@ -319,9 +322,17 @@ function surfaceHierarchyViolations(root: string, discovery = discoverCardEmitte
     }
 
     return scanFiles(absoluteRoot).flatMap((filePath) => {
-      const sourceText = fs.readFileSync(filePath, "utf8");
-      const sourceFile = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+      const sourceFile =
+        discovery.sources.get(filePath) ??
+        ts.createSourceFile(
+          filePath,
+          fs.readFileSync(filePath, "utf8"),
+          ts.ScriptTarget.Latest,
+          true,
+          ts.ScriptKind.TSX,
+        );
       const { cardLikeNames, insetNames, rowListNames } = collectSurfaceNames(sourceFile, discovery);
+      if (cardLikeNames.size === 0 && insetNames.size === 0 && rowListNames.size === 0) return [];
       const violations: SurfaceViolation[] = [];
 
       function visit(node: ts.Node, stack: SurfaceFrame[]) {
