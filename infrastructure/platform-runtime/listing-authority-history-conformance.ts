@@ -2,18 +2,78 @@ import assert from "node:assert/strict";
 import type { StoredEvent } from "@chase-sets/event-core/storage";
 import type { ListingAuthorityConformanceFixture } from "./listing-authority-conformance";
 import { authorityJournalStreams } from "./listing-authority-journal";
+import type { ListingAuthorityOperation, ListingAuthorityReservation } from "@chase-sets/event-core/listing-authority";
 
 export type ListingAuthorityHistoryFixture = ListingAuthorityConformanceFixture &
   Readonly<{
     sourceHistories: Map<string, StoredEvent[]>;
     consumerHistories: Map<string, StoredEvent[]>;
     blockInvalidation(blocked: boolean): void;
+    /** Complete owner stream; creation/setup events are a retained baseline, not invalidation effects. */
     sourceEffectStream: string;
+    restart(): ListingAuthorityHistoryFixture;
   }>;
 
 export const LISTING_AUTHORITY_HISTORY_RECORDS = ["operation", "reservation", "resource", "mutation", "write"] as const;
 export const LISTING_AUTHORITY_HISTORY_FAULTS = ["loss", "truncation", "recreation"] as const;
 export const LISTING_AUTHORITY_HISTORY_COPIES = ["canonical", "integrity", "registration"] as const;
+
+/** Bind by the tested durable identities, never by a first owner-prefix match.
+ * Setup journals remain visible and are not candidates for the tested invalidation.
+ */
+export function bindListingAuthorityHistories(
+  f: ListingAuthorityHistoryFixture,
+  operation: ListingAuthorityOperation,
+  grant: ListingAuthorityReservation,
+  beforeInvalidation: ReadonlySet<string>,
+) {
+  const exact = (kind: string, candidates: string[]) => {
+    assert.equal(candidates.length, 1, `exact tested ${kind} history`);
+    return candidates[0]!;
+  };
+  const entries = [...f.sourceHistories];
+  const member = (event: StoredEvent) =>
+    (event.payload.reservation as unknown as ListingAuthorityReservation | undefined)?.reservationId ===
+    grant.reservationId;
+  const matching = (kind: string) =>
+    entries
+      .filter(
+        ([id, events]) => id.startsWith(`${grant.participant.owner}.listing-authority-${kind}-`) && events.some(member),
+      )
+      .map(([id]) => id);
+  const write = exact(
+    "write",
+    entries
+      .filter(
+        ([id, events]) =>
+          !beforeInvalidation.has(id) &&
+          id.startsWith(`${grant.participant.owner}.listing-authority-write-`) &&
+          (events[0]?.payload.inputs as unknown as { streamId: string }[] | undefined)?.some(
+            (input) => input.streamId === f.sourceEffectStream,
+          ),
+      )
+      .map(([id]) => id),
+  );
+  const mutationId = f.sourceHistories.get(write)![0]!.payload.mutationId;
+  const mutation = exact(
+    "mutation",
+    entries
+      .filter(
+        ([id, events]) =>
+          !beforeInvalidation.has(id) &&
+          id.startsWith(`${grant.participant.owner}.listing-authority-mutation-`) &&
+          (events[0]?.payload.intent as { mutationId?: string } | undefined)?.mutationId === mutationId,
+      )
+      .map(([id]) => id),
+  );
+  return {
+    operation: `${operation.committingOwner}.listing-authority-operation-${operation.operationId}`,
+    reservation: exact("reservation", matching("reservation")),
+    resource: exact("resource", matching("resource")),
+    mutation,
+    write,
+  };
+}
 
 /** Faults target authoritative retained histories, not missing projections or expired leases.
  * The complete pair sweep includes cross-record pairs, not just each journal's two witnesses.
@@ -38,6 +98,11 @@ export function listingAuthorityHistoryConformance(
           const operation = await f.fence.open(f.input, f.context);
           const grant = await f.source.prepare(operation, f.context);
           const terminal = await f.fence.prepareCommit(operation, [grant], { accepted: true });
+          const beforeInvalidation = new Set(f.sourceHistories.keys());
+          const baseline = (await f.sourceStore.readStream({ streamId: f.sourceEffectStream })).length;
+          const settledBefore = [...f.sourceHistories.values()]
+            .flat()
+            .filter((e) => e.eventType.endsWith(".settled")).length;
           const effects = ["business", "request-result"].map((kind) => ({
             streamId: `${operation.committingOwner}.synthetic-history-${kind}`,
             expectedVersion: 0 as const,
@@ -54,13 +119,10 @@ export function listingAuthorityHistoryConformance(
             assert.equal((await f.fence.inspect(operation)).status, "aborted");
             assert.equal((await f.source.inspect(operation))?.status, "released");
           }
-          const knownStreams = [...f.consumerHistories.keys(), ...f.sourceHistories.keys()];
+          const journals = bindListingAuthorityHistories(f, operation, grant, beforeInvalidation);
           for (const record of selected) {
             const histories = record.kind === "operation" ? f.consumerHistories : f.sourceHistories;
-            const prefix = record.kind === "operation" ? operation.committingOwner : grant.participant.owner;
-            const canonical = knownStreams.filter((id) => id.startsWith(`${prefix}.listing-authority-${record.kind}-`));
-            assert.equal(canonical.length, 1, `exact ${record.kind} history`);
-            const streamId = authorityJournalStreams(canonical[0]!)[record.index]!;
+            const streamId = authorityJournalStreams(journals[record.kind])[record.index]!;
             const events = histories.get(streamId)!;
             assert.ok(events.length, `${record.kind}.${record.copy} exists before fault`);
             if (fault === "loss") histories.delete(streamId);
@@ -80,22 +142,23 @@ export function listingAuthorityHistoryConformance(
             await assert.rejects(restarted.source.settle(operation));
             assert.equal(
               [...f.sourceHistories.values()].flat().filter((e) => e.eventType.endsWith(".settled")).length,
-              0,
+              settledBefore,
             );
           }
           await restarted.invalidate().catch(() => undefined);
           const sourceEffects = await f.sourceStore.readStream({ streamId: f.sourceEffectStream });
-          assert.ok(sourceEffects.length <= 1, "same-key recovery never repeats the source effect");
+          const effectCount = sourceEffects.length - baseline;
+          assert.ok(effectCount >= 0 && effectCount <= 1, "same-key recovery never repeats the source effect");
           const committed = await f.consumerStore.appendToStreams!([...terminal, ...effects]).then(
             () => true,
             () => false,
           );
           assert.equal(
-            sourceEffects.length > 0 && committed,
+            effectCount > 0 && committed,
             false,
             "effective mutation cannot coexist with stale consumer commit",
           );
-          if (sourceEffects.length)
+          if (effectCount)
             for (const effect of effects)
               assert.equal((await f.consumerStore.readStream({ streamId: effect.streamId })).length, 0);
         });
@@ -105,15 +168,24 @@ export function listingAuthorityHistoryConformance(
     const operation = await f.fence.open(f.input, f.context);
     const grant = await f.source.prepare(operation, f.context);
     const terminal = await f.fence.prepareCommit(operation, [grant], { accepted: true });
-    const canonical = [...f.sourceHistories.keys()].find((id) =>
-      id.startsWith(`${grant.participant.owner}.listing-authority-resource-`),
-    )!;
+    const baseline = (await f.sourceStore.readStream({ streamId: f.sourceEffectStream })).length;
+    const candidates = [...f.sourceHistories].filter(
+      ([id, events]) =>
+        id.startsWith(`${grant.participant.owner}.listing-authority-resource-`) &&
+        events.some(
+          (event) =>
+            (event.payload.reservation as unknown as ListingAuthorityReservation | undefined)?.reservationId ===
+            grant.reservationId,
+        ),
+    );
+    assert.equal(candidates.length, 1, "exact tested resource history");
+    const canonical = candidates[0]![0];
     const [resource, integrity, registration] = authorityJournalStreams(canonical);
     f.sourceHistories.delete(resource);
     f.sourceHistories.delete(integrity);
     assert.ok(f.sourceHistories.get(registration)?.length);
     await assert.rejects(f.restart().invalidate());
-    assert.equal((await f.sourceStore.readStream({ streamId: f.sourceEffectStream })).length, 0);
+    assert.equal((await f.sourceStore.readStream({ streamId: f.sourceEffectStream })).length, baseline);
     assert.equal((await f.fence.inspect(operation)).status, "pending");
     await assert.rejects(f.restart().source.settle(operation));
     // The old executor may still commit only because source authority has NOT changed.

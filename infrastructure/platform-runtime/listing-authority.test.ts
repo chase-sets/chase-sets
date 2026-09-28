@@ -407,7 +407,7 @@ describe("Listing authority unknown outcomes and predicate serialization", () =>
     expect((await f.source.inspect(operation))?.status).toBe("consumed");
   });
 
-  it("replays reservation tails from disposable owner snapshots without losing pending promises", async () => {
+  it("replays complete canonical reservations regardless of disposable owner snapshots", async () => {
     const snapshots = new Map<string, StoredAggregateSnapshot<unknown>>();
     const f = await fixture({
       loadLatest: async (streamId) => snapshots.get(streamId) ?? null,
@@ -422,11 +422,9 @@ describe("Listing authority unknown outcomes and predicate serialization", () =>
     expect(snapshots.size).toBe(1);
     const reads = vi.spyOn(f.sourceStore, "readStream");
     await f.restart().invalidate();
-    expect(
-      reads.mock.calls.some(
-        ([input]) => input.streamId.includes("authority-resource-") && (input.fromVersion ?? 1) > 1,
-      ),
-    ).toBe(true);
+    const resourceReads = reads.mock.calls.filter(([input]) => input.streamId.includes("authority-resource-"));
+    expect(resourceReads.length).toBeGreaterThan(0);
+    expect(resourceReads.every(([input]) => (input.fromVersion ?? 1) === 1)).toBe(true);
     expect((await f.fence.inspect(first)).status).toBe("aborted");
     expect((await f.fence.inspect(second)).status).toBe("aborted");
     snapshots.clear();

@@ -6,16 +6,45 @@ import { createListingAuthorityParticipant } from "./listing-authority-participa
 import { createListingAuthorityWriter } from "./listing-authority-writer";
 import type { ListingAuthorityHistoryFixture } from "./listing-authority-history-conformance";
 
-export async function historyFixture() {
+export type ListingAuthorityHistoryTestFixture = ListingAuthorityHistoryFixture & {
+  snapshots: Map<string, StoredAggregateSnapshot<unknown>>;
+  writer: ReturnType<typeof createListingAuthorityWriter>;
+  restart(): ListingAuthorityHistoryTestFixture;
+};
+
+export async function historyFixture(
+  options: {
+    setup?: boolean;
+    cache?: boolean;
+    principal?: boolean;
+    multipleResources?: boolean;
+    cacheUnavailable?: boolean;
+  } = {},
+) {
   const sourceMemory = createInMemoryEventStore();
   const consumerMemory = createInMemoryEventStore();
   const snapshots = new Map<string, StoredAggregateSnapshot<unknown>>();
   const context: EventStoreContext = {
     tenantId: "tnt_synthetic_history",
     audit: { forAccountId: "acc_synthetic_history", performedByUserId: "usr_synthetic_history" },
+    ...(options.principal
+      ? {
+          listingAuthorityPrincipal: {
+            kind: "user" as const,
+            tenantId: "tnt_synthetic_history",
+            accountId: "acc_synthetic_history",
+            userId: "usr_synthetic_history",
+            membershipId: "mem_synthetic_history",
+            validBefore: "2099-01-01T00:00:00.000Z",
+            authentication: { kind: "api-key" as const, keyId: "key_synthetic_history", revision: "1" },
+            delegation: { delegationId: "del_synthetic_history", revision: "1", scopeCeiling: ["listings.manage"] },
+          },
+        }
+      : {}),
   };
   let blocked = false;
   const sourceEffectStream = "catalog.synthetic-history-product";
+  const baseline = options.setup ? 1 : 0;
   const input: ListingAuthorityOperationInput = {
     tenantId: context.tenantId,
     accountId: context.audit.forAccountId,
@@ -42,17 +71,28 @@ export async function historyFixture() {
     expectedPublicationRevision: null,
     participants: [{ owner: "catalog", purpose: "product-measures" }],
   };
-  function restart() {
+  function restart(): ListingAuthorityHistoryTestFixture {
     const source = createListingAuthorityParticipant({
       eventStore: sourceMemory.eventStore,
-      snapshots: {
-        loadLatest: async (streamId) => snapshots.get(streamId) ?? null,
-        save: async (snapshot) => {
-          snapshots.set(snapshot.streamId, { ...snapshot, updatedAt: "2026-09-28T00:00:00.000Z" as never });
-        },
-      },
+      snapshots:
+        options.cache === false
+          ? undefined
+          : {
+              loadLatest: async (streamId) => {
+                if (options.cacheUnavailable) throw new Error("synthetic cache unavailable");
+                return snapshots.get(streamId) ?? null;
+              },
+              save: async (snapshot) => {
+                if (options.cacheUnavailable) throw new Error("synthetic cache unavailable");
+                snapshots.set(snapshot.streamId, { ...snapshot, updatedAt: "2026-09-28T00:00:00.000Z" as never });
+              },
+            },
       participant: { owner: "catalog", purpose: "product-measures" },
-      resources: () => ["synthetic-product"],
+      resources: (operation) => [
+        options.multipleResources && operation.subject.catalogItemId !== "cat_synthetic_history"
+          ? operation.subject.catalogItemId
+          : "synthetic-product",
+      ],
       consumer: () => ({
         inspect: fence.inspect,
         invalidate: (operation, reason) => {
@@ -61,7 +101,10 @@ export async function historyFixture() {
         },
       }),
       validate: async (operation) => {
-        if ((await sourceMemory.eventStore.readStream({ streamId: sourceEffectStream })).length)
+        if (
+          (!options.multipleResources || operation.subject.catalogItemId === "cat_synthetic_history") &&
+          (await sourceMemory.eventStore.readStream({ streamId: sourceEffectStream })).length > baseline
+        )
           throw new Error("Synthetic source revoked.");
         return {
           value: { ready: true },
@@ -91,6 +134,7 @@ export async function historyFixture() {
       sourceHistories: sourceMemory.streams,
       consumerHistories: consumerMemory.streams,
       snapshots,
+      writer,
       sourceEffectStream,
       blockInvalidation(value) {
         blocked = value;
@@ -99,12 +143,27 @@ export async function historyFixture() {
       async invalidate() {
         await writer.eventStore.appendToStream({
           streamId: sourceEffectStream,
-          expectedVersion: 0,
+          expectedVersion: baseline,
           context,
           events: [{ eventType: "catalog.synthetic-product-revoked", payload: { revoked: true } }],
         });
       },
-    } satisfies ListingAuthorityHistoryFixture;
+    };
   }
-  return restart();
+  const f = restart();
+  if (options.setup) {
+    await f.writer.eventStore.appendToStream({
+      streamId: sourceEffectStream,
+      expectedVersion: 0,
+      context,
+      events: [{ eventType: "catalog.synthetic-product-created", payload: { active: true } }],
+    });
+    await f.writer.eventStore.appendToStream({
+      streamId: "catalog.synthetic-history-unrelated",
+      expectedVersion: 0,
+      context,
+      events: [{ eventType: "catalog.synthetic-setup", payload: { active: true } }],
+    });
+  }
+  return f;
 }

@@ -130,6 +130,50 @@ async function authorityFixture() {
 }
 
 describe("request result history cannot reopen authority", () => {
+  for (const damage of ["operation-loss", "operation-witness-pair", "resource-witness-pair"] as const)
+    it(`fabricated request success with ${damage} never substitutes for the exact terminal`, async () => {
+      const f = await authorityFixture();
+      const streamId = listingRequestStreamId(f.input.accountId, f.input.idempotencyKey);
+      await f.eventStore.appendToStream(f.prepared.appends.find((append) => append.streamId === streamId)!);
+      const operationStream = `marketplace.listing-authority-operation-${f.operation.operationId}`;
+      if (damage === "operation-loss") f.memory.streams.delete(operationStream);
+      else {
+        const histories = damage === "operation-witness-pair" ? f.memory.streams : f.sourceMemory.streams;
+        const canonical =
+          damage === "operation-witness-pair"
+            ? operationStream
+            : [...histories.keys()].filter((id) => id.startsWith("catalog.listing-authority-resource-"))[0]!;
+        const witnesses =
+          damage === "operation-witness-pair"
+            ? [
+                canonical.replace("-operation-", "-integrity-operation-"),
+                canonical.replace("-operation-", "-registration-operation-"),
+              ]
+            : [
+                canonical.replace("-resource-", "-integrity-"),
+                canonical.replace("-resource-", "-registration-resource-"),
+              ];
+        for (const witness of witnesses)
+          histories.set(
+            witness,
+            histories.get(witness)!.map((event) => ({
+              ...event,
+              payload: {
+                ...event.payload,
+                [damage === "operation-witness-pair" ? "eventHash" : "stateHash"]: "synthetic-false-success",
+              },
+            })),
+          );
+      }
+      await expect(f.execute(f.input)).rejects.toThrow();
+      expect(await f.eventStore.readStream({ streamId: "marketplace.listing-lst_test" })).toHaveLength(0);
+      expect(await f.sourceMemory.eventStore.readStream({ streamId: "catalog.synthetic-request-source" })).toHaveLength(
+        0,
+      );
+      expect(
+        [...f.sourceMemory.streams.values()].flat().filter((event) => event.eventType.endsWith(".settled")),
+      ).toHaveLength(0);
+    });
   it("a recreated success result cannot release a pending source promise", async () => {
     const f = await authorityFixture();
     const streamId = listingRequestStreamId(f.input.accountId, f.input.idempotencyKey);
