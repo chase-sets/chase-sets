@@ -14,45 +14,48 @@ it.each([false, true])(
     const operation = await f.fence.open(f.input, f.context);
     await f.source.prepare(operation, f.context);
     let queued = true;
-    const sql = sqlFixture({ consumed: false, policies: [] as string[] }, (data, query, values): { rows: unknown[] } => {
-      if (query.includes("SELECT run.body"))
-        return {
-          rows: [
-            {
-              body: dryRunBody,
-              body_hash: hashRepricingDryRunBody(dryRunBody),
-              status: queued || (rejected && sql.inTransaction) ? "queued" : "completed",
-              consumed_at: data.consumed ? "2026-09-28T00:00:00.000Z" : null,
-              job_status: "completed",
-            },
-          ],
-        };
-      if (query.includes("UPDATE pricing_repricing_dry_runs")) {
-        if (data.consumed) return { rows: [] };
-        data.consumed = true;
-        return { rows: [{ dry_run_id: "synthetic-activation" }] };
-      }
-      if (query === "synthetic-policy-append") {
-        const input = values[0] as AppendToStreamInput;
-        data.policies.push(input.streamId);
-        return {
-          rows: input.events.map((event, i) => ({
-            ...event,
-            eventId: `evt_synthetic_policy_${i}`,
-            streamId: input.streamId,
-            streamVersion: i + 1,
-            globalPosition: parseGlobalPosition(String(i + 1)),
-            tenantId: input.context.tenantId,
-            performedByUserId: input.context.audit.performedByUserId,
-            forAccountId: input.context.audit.forAccountId,
-            metadata: {},
-            occurredAt: "2026-09-28T00:00:00.000Z",
-            recordedAt: "2026-09-28T00:00:00.000Z",
-          })),
-        };
-      }
-      throw new Error(`Unexpected activation SQL: ${query}`);
-    });
+    const sql = sqlFixture(
+      { consumed: false, policies: [] as string[] },
+      (data, query, values): { rows: unknown[] } => {
+        if (query.includes("SELECT run.body"))
+          return {
+            rows: [
+              {
+                body: dryRunBody,
+                body_hash: hashRepricingDryRunBody(dryRunBody),
+                status: queued || (rejected && sql.inTransaction) ? "queued" : "completed",
+                consumed_at: data.consumed ? "2026-09-28T00:00:00.000Z" : null,
+                job_status: "completed",
+              },
+            ],
+          };
+        if (query.includes("UPDATE pricing_repricing_dry_runs")) {
+          if (data.consumed) return { rows: [] };
+          data.consumed = true;
+          return { rows: [{ dry_run_id: "synthetic-activation" }] };
+        }
+        if (query === "synthetic-policy-append") {
+          const input = values[0] as AppendToStreamInput;
+          data.policies.push(input.streamId);
+          return {
+            rows: input.events.map((event, i) => ({
+              ...event,
+              eventId: `evt_synthetic_policy_${i}`,
+              streamId: input.streamId,
+              streamVersion: i + 1,
+              globalPosition: parseGlobalPosition(String(i + 1)),
+              tenantId: input.context.tenantId,
+              performedByUserId: input.context.audit.performedByUserId,
+              forAccountId: input.context.audit.forAccountId,
+              metadata: {},
+              occurredAt: "2026-09-28T00:00:00.000Z",
+              recordedAt: "2026-09-28T00:00:00.000Z",
+            })),
+          };
+        }
+        throw new Error(`Unexpected activation SQL: ${query}`);
+      },
+    );
     const eventStore: Pick<PostgresEventStore, "appendToStreamInTransaction"> = {
       appendToStreamInTransaction: async (client, input) => {
         expect(sql.inTransaction).toBe(true);
