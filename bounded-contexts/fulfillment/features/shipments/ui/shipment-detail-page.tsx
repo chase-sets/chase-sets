@@ -477,7 +477,7 @@ export function FulfillmentShipmentDetailPage({
               />
             ) : (
               shipment.postage_label_operations.map((operation) => (
-                <Stack key={operation.operation_key} gap={2}>
+                <Stack key={operation.operation_key} gap={2} data-elevation-role="furniture">
                   <Text weight="semibold">
                     {t("fulfillment.features.shipments.ui.shipmentDetailPage.operation.kind.status", {
                       operationKind: operation.operation_kind,
@@ -558,34 +558,35 @@ export function FulfillmentShipmentDetailPage({
                   {t("fulfillment.features.shipments.ui.shipmentDetailPage.provider.events")}
                 </Text>
                 {shipment.postage_provider_events.map((event) => (
-                  <DetailConfidenceModule
-                    key={event.provider_event_id}
-                    title={t("fulfillment.features.shipments.ui.shipmentDetailPage.provider.event.kind.status", {
-                      eventKind: event.event_kind,
-                      status: event.status,
-                    })}
-                    items={[
-                      {
-                        label: t("fulfillment.features.shipments.ui.shipmentDetailPage.postage.provider"),
-                        value: t("fulfillment.features.shipments.ui.shipmentDetailPage.provider.name.mode", {
-                          providerName: event.provider_name,
-                          providerMode: event.provider_mode,
-                        }),
-                      },
-                      {
-                        label: t("fulfillment.features.shipments.ui.shipmentDetailPage.tracking"),
-                        value: formatDiagnosticValue(event.tracking_identifier),
-                      },
-                      {
-                        label: t("fulfillment.features.shipments.ui.shipmentDetailPage.provider.processing.result"),
-                        value: formatDiagnosticValue(event.processing_result),
-                      },
-                      {
-                        label: t("fulfillment.features.shipments.ui.shipmentDetailPage.provider.status.detail"),
-                        value: formatDiagnosticValue(event.status_detail),
-                      },
-                    ]}
-                  />
+                  <Stack key={event.provider_event_id} data-elevation-role="furniture">
+                    <DetailConfidenceModule
+                      title={t("fulfillment.features.shipments.ui.shipmentDetailPage.provider.event.kind.status", {
+                        eventKind: event.event_kind,
+                        status: event.status,
+                      })}
+                      items={[
+                        {
+                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.postage.provider"),
+                          value: t("fulfillment.features.shipments.ui.shipmentDetailPage.provider.name.mode", {
+                            providerName: event.provider_name,
+                            providerMode: event.provider_mode,
+                          }),
+                        },
+                        {
+                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.tracking"),
+                          value: formatDiagnosticValue(event.tracking_identifier),
+                        },
+                        {
+                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.provider.processing.result"),
+                          value: formatDiagnosticValue(event.processing_result),
+                        },
+                        {
+                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.provider.status.detail"),
+                          value: formatDiagnosticValue(event.status_detail),
+                        },
+                      ]}
+                    />
+                  </Stack>
                 ))}
               </Stack>
             ) : null}
