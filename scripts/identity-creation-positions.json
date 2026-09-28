@@ -61,6 +61,34 @@
       "composition": "invitation-acceptance"
     },
     {
+      "path": "bounded-contexts/identity/features/access-hub/api/listing-authority-test-support.ts",
+      "command": "CreateAccount",
+      "occurrences": 1,
+      "disposition": "test-fixture",
+      "reason": "The in-memory authority fixture creates a canonical Account for real-owner conformance and writer tests, not a registration surface."
+    },
+    {
+      "path": "bounded-contexts/identity/features/access-hub/api/listing-authority-test-support.ts",
+      "command": "CreateUser",
+      "occurrences": 1,
+      "disposition": "test-fixture",
+      "reason": "The in-memory authority fixture creates a canonical User for real-owner conformance and writer tests, not a registration surface."
+    },
+    {
+      "path": "bounded-contexts/identity/features/access-hub/api/listing-authority-test-support.ts",
+      "command": "GrantMembership",
+      "occurrences": 1,
+      "disposition": "test-fixture",
+      "reason": "The in-memory authority fixture grants its synthetic user's membership for real-owner conformance and writer tests."
+    },
+    {
+      "path": "bounded-contexts/identity/features/access-hub/api/listing-authority-writers.test.ts",
+      "command": "CreateAccount",
+      "occurrences": 1,
+      "disposition": "test-fixture",
+      "reason": "This writer isolation test creates an unrelated synthetic Account while a selected membership's invalidation is blocked."
+    },
+    {
       "path": "bounded-contexts/identity/features/accounts/api/route.ts",
       "command": "CreateAccount",
       "occurrences": 1,
