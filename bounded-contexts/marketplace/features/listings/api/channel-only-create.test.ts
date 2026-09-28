@@ -51,6 +51,18 @@ function fixture(capability = true, availableQuantity = 2) {
   const participants = createSyntheticListingAuthority(eventStore);
   const authority: ListingTargetAuthority = {
     ...participants.authority,
+    readCatalogProduct: async (operation) => ({
+      value: {
+        catalogItemId: "cat_test",
+        productId: "cat_test::",
+        selectedOptions: [],
+        blueprintId: "bpt_synthetic",
+        categoryIds: [],
+        productMeasureSnapshot: null,
+        productMeasureRevision: 0,
+      },
+      reservations: await participants.reserve("product-measures", operation),
+    }),
     authorizeManage: async (_input, context, operation) => ({
       value: capability,
       reservations: await participants.reserve("manage-listing", operation, context),
@@ -66,7 +78,7 @@ function fixture(capability = true, availableQuantity = 2) {
           inventoryItemId: "inv_test",
           catalogItemId: "cat_test",
           productId: "cat_test::",
-          availableQuantity: 3,
+          availableQuantity,
         },
         reservations: await participants.reserve("stock-allocation", operation),
       },
@@ -163,6 +175,65 @@ async function nativeFixture() {
 }
 
 describe("current native enable authority", () => {
+  it("keeps native-off quantity edits free of fee enrollment and replays the exact capacity request", async () => {
+    const { services, context, authority } = await nativeFixture();
+    const input = {
+      accountId: "acc_seller",
+      listingId: "lst_test",
+      quantityCap: 3,
+      expectedVersion: 1,
+      idempotencyKey: "synthetic-capacity",
+    };
+    const result = await services.updateListingQuantityCap(input, context);
+    expect(await services.updateListingQuantityCap(input, context)).toEqual(result);
+    expect(authority.verifyNativeFeeQuote).not.toHaveBeenCalled();
+    expect(await services.loadListingState("lst_test")).toMatchObject({
+      quantityCap: 3,
+      nativeVisibility: "disabled",
+      feeLocks: [],
+    });
+  });
+  it("rejects a native restock when current fee authority is revoked before commitment", async () => {
+    const { services, context, enable, authority, participants } = await nativeFixture();
+    await services.setNativeListingVisibility(enable, context);
+    vi.spyOn(authority, "verifyNativeFeeQuote").mockImplementation(async (_input, operation) => {
+      const reservations = await participants.reserve("native-fee", operation);
+      await participants.change("native-fee", context, false);
+      return { value: true, reservations };
+    });
+    await expect(
+      services.updateListingQuantityCap(
+        {
+          accountId: "acc_seller",
+          listingId: "lst_test",
+          quantityCap: 3,
+          feeQuoteFingerprint: enable.feeQuoteFingerprint,
+          idempotencyKey: "synthetic-restock",
+        },
+        context,
+      ),
+    ).rejects.toThrow();
+    expect(await services.loadListingState("lst_test")).toMatchObject({ quantityCap: 2, feeLocks: [{ unitCount: 2 }] });
+  });
+  it("publishes through current native authority when the creation-time measure is absent", async () => {
+    const { services, context, enable, authority } = await nativeFixture();
+    const input = {
+      accountId: enable.accountId,
+      listingId: enable.listingId,
+      idempotencyKey: "synthetic-legacy-publish",
+      feeQuoteFingerprint: enable.feeQuoteFingerprint,
+    };
+    const result = await services.publishListing(input, context);
+    expect(result).toEqual({ listingId: "lst_test", version: 3 });
+    expect(await services.publishListing(input, context)).toEqual(result);
+    expect(authority.readNativeReadiness).toHaveBeenCalledTimes(1);
+    expect(await services.loadListingState("lst_test")).toMatchObject({
+      status: "active",
+      nativeVisibility: "enabled",
+      nativeFeeState: "enrolled",
+      productMeasureSnapshot: currentMeasure,
+    });
+  });
   it("resolves an absent creation-time measure and commits enrollment, publication and retry result together", async () => {
     const { services, eventStore, context, enable, authority } = await nativeFixture();
     const append = vi.spyOn(eventStore, "appendToStreams");
@@ -428,6 +499,38 @@ describe("current native enable authority", () => {
 });
 
 describe("channel-only creation runtime", () => {
+  it("rejects stale projected availability using current Inventory and creates no Listing", async () => {
+    const { services, authority, participants, eventStore, input, context } = fixture();
+    vi.spyOn(authority, "readInventory").mockImplementation(async (_input, operation) => [
+      {
+        value: {
+          accountId: input.accountId,
+          inventoryItemId: input.inventoryItemId,
+          catalogItemId: "cat_test",
+          productId: "cat_test::",
+          availableQuantity: 1,
+        },
+        reservations: await participants.reserve("stock-allocation", operation),
+      },
+    ]);
+    await expect(services.createListing(input, context)).rejects.toThrow("current owned Inventory availability");
+    expect(await eventStore.readStream({ streamId: "marketplace.listing-lst_test" })).toEqual([]);
+  });
+  it("rejects creation-time native enrollment when the fee source wins the terminal fence", async () => {
+    const { services, authority, participants, eventStore, input, context } = fixture();
+    vi.spyOn(authority, "verifyNativeFeeQuote").mockImplementation(async (_input, operation) => {
+      const reservations = await participants.reserve("native-fee", operation);
+      await participants.change("native-fee", context, false);
+      return { value: true, reservations };
+    });
+    await expect(services.createListing({ ...input, publicationScope: "native" }, context)).rejects.toThrow();
+    expect(await eventStore.readStream({ streamId: "marketplace.listing-lst_test" })).toEqual([]);
+    expect(
+      (await eventStore.readAll()).filter(
+        (event) => event.eventType === "marketplace.listing-authority-operation.committed",
+      ),
+    ).toEqual([]);
+  });
   it("returns typed absent native fees without native terms, evidence or shipping measure readiness", async () => {
     const { services, resolveListingTerms, eventStore, input, context } = fixture();
     expect(await services.createListing(input, context)).toEqual({
@@ -560,7 +663,10 @@ describe("channel-only creation runtime", () => {
     await expect(services.createListing({ ...input, quantityCap: 3 }, context)).rejects.toThrow(
       "Inventory availability",
     );
-    expect(await eventStore.readAll()).toHaveLength(0);
+    expect((await eventStore.readAll()).map((event) => event.eventType)).toEqual([
+      "marketplace.listing-authority-operation.opened",
+      "marketplace.listing-authority-operation.aborted",
+    ]);
     expect(resolveListingTerms).not.toHaveBeenCalled();
   });
 });

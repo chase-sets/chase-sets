@@ -13,6 +13,8 @@ import type {
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createMarketplaceListingRuntime as createRuntime } from "./runtime";
 import { createSyntheticListingAuthority } from "./authority-test-support";
+import { getInventoryItemSupply, getMarketplaceAccountRisk } from "../read-model/queries";
+import { resolveListingEvidenceRequirements } from "./evidence-requirement-resolver";
 import type { MarketplaceListingFeeLock, MarketplaceListingFeeTermsSnapshot } from "../domain/fee-lock";
 import {
   openMarketplaceListingTermsSession,
@@ -20,8 +22,81 @@ import {
 } from "../../../support/runtime-support/fee-quotes";
 
 function createMarketplaceListingRuntime(deps: Parameters<typeof createRuntime>[0]) {
+  const synthetic = createSyntheticListingAuthority(deps.eventStore);
   return createRuntime({
-    listingTargetAuthority: createSyntheticListingAuthority(deps.eventStore).authority,
+    listingTargetAuthority: {
+      ...synthetic.authority,
+      readCatalogProduct: async (operation) => {
+        const supply = await getInventoryItemSupply(deps.db, operation.subject.inventoryItemId, operation.accountId);
+        if (!supply) throw new Error("Synthetic Catalog Product is absent.");
+        return {
+          value: {
+            catalogItemId: supply.catalog_catalog_item_id,
+            productId: supply.product_id,
+            selectedOptions: supply.selected_options,
+            blueprintId: "bpt_synthetic",
+            categoryIds: [],
+            productMeasureSnapshot: supply.product_measure_snapshot,
+            productMeasureRevision: supply.product_measure_snapshot ? 1 : 0,
+          },
+          reservations: await synthetic.reserve("product-measures", operation),
+        };
+      },
+      readInventory: async (input, operation) =>
+        Promise.all(
+          input.inventoryItemIds.map(async (inventoryItemId) => {
+            const supply = await getInventoryItemSupply(deps.db, inventoryItemId, input.accountId);
+            return {
+              value: supply
+                ? {
+                    accountId: supply.account_id,
+                    inventoryItemId,
+                    catalogItemId: supply.catalog_catalog_item_id,
+                    productId: supply.product_id,
+                    availableQuantity: supply.available_quantity,
+                  }
+                : null,
+              reservations: await synthetic.reserve("stock-allocation", operation),
+            };
+          }),
+        ),
+      readNativeReadiness: async (input, operation) =>
+        Promise.all(
+          input.listings.map(async (listing) => {
+            // These legacy unit fixtures supply synthetic owner facts through their existing fixture rows.
+            // Production owner participation is exercised separately against authoritative source writers.
+            const supply = await getInventoryItemSupply(deps.db, operation.subject.inventoryItemId, input.accountId);
+            const evidenceRequirements = await resolveListingEvidenceRequirements(deps, {
+              ...listing,
+              accountId: input.accountId,
+              evaluatedAt: input.evaluatedAt,
+            });
+            const seller = evidenceRequirements.requirements.sellerTrustRequirements.length
+              ? await getMarketplaceAccountRisk(deps.db, input.accountId)
+              : { review_count: 0, badges: [] };
+            if (!supply?.product_measure_snapshot)
+              throw new Error("Listings require a resolved shipping measure before publication.");
+            return {
+              value: {
+                listingId: listing.listingId,
+                accountId: input.accountId,
+                productMeasureSnapshot: supply.product_measure_snapshot,
+                productMeasureRevision: 1,
+                evidenceRequirements,
+                seller: { reviewCount: seller.review_count, badgeKeys: seller.badges },
+              },
+              reservations: [
+                ...(await synthetic.reserve("product-measures", operation)),
+                ...(await synthetic.reserve("native-readiness", operation)),
+              ],
+            };
+          }),
+        ),
+      verifyNativeFeeQuote: async (_input, operation) => ({
+        value: true,
+        reservations: await synthetic.reserve("native-fee", operation),
+      }),
+    },
     ...deps,
   });
 }
@@ -410,15 +485,20 @@ describe("marketplace listing runtime", () => {
       listingId: "lst_seed_1",
       version: 3,
     });
+    const committedEvents = allEvents.filter(
+      (event) =>
+        !event.eventType.startsWith("marketplace.listing-authority") ||
+        event.eventType === "marketplace.listing-authority-operation.committed",
+    );
     expect(metadata).toEqual({
-      eventIds: allEvents.map((event) => event.eventId),
-      maxGlobalPosition: allEvents.at(-1)?.globalPosition,
-      committedEvents: allEvents,
+      eventIds: committedEvents.map((event) => event.eventId),
+      maxGlobalPosition: committedEvents.at(-1)?.globalPosition,
+      committedEvents,
       sources: [
         {
           sourceContextName: "marketplace",
-          eventIds: allEvents.map((event) => event.eventId),
-          maxGlobalPosition: allEvents.at(-1)?.globalPosition,
+          eventIds: committedEvents.map((event) => event.eventId),
+          maxGlobalPosition: committedEvents.at(-1)?.globalPosition,
         },
       ],
     });
@@ -495,9 +575,7 @@ describe("marketplace listing runtime", () => {
 
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     const rejected = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
-    expect((rejected?.reason as Error).message).toBe(
-      "Active listing quantity caps cannot exceed current sellable inventory.",
-    );
+    expect(rejected?.reason).toMatchObject({ code: "concurrency_conflict" });
     const published = await Promise.all(
       ["lst_concurrent_1", "lst_concurrent_2"].map(
         async (listingId) =>
@@ -797,6 +875,12 @@ describe("marketplace listing runtime", () => {
     });
 
     expect(history).toMatchObject([
+      {
+        event_type: "marketplace.listing.native-visibility-changed",
+        stream_version: 2,
+        marketplace_sales_fee_unit_amount: "1.00",
+        seller_net_unit_amount: "19.00",
+      },
       {
         event_type: "marketplace.listing.created",
         stream_version: 1,
@@ -1155,7 +1239,7 @@ describe("marketplace listing runtime", () => {
             storageLocationName: "Batch shelf",
             shipFromCode: "CHI",
             shipFromAddress: shipFromAddress,
-            totalQuantity: Number(values[6]),
+            totalQuantity: Number(values[7]),
           });
           return { rows: [] };
         }

@@ -1,5 +1,7 @@
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { EventStore } from "@chase-sets/event-core/event-store";
+import { createListingInboundClampOwnership } from "./ownership";
 import type { MarketplaceListingServices } from "../../listings/api/runtime";
 import {
   MARKETPLACE_CHANNEL_INBOUND_CLAMP_MAX_LISTINGS,
@@ -25,17 +27,19 @@ type Candidate = Readonly<{
 
 export function createMarketplaceChannelInboundClampRuntime(
   db: PgTransactionalPool,
-  listings: Pick<MarketplaceListingServices, "commandHandler" | "loadListingState" | "publishListing">,
+  listings: Pick<MarketplaceListingServices, "commandHandler" | "loadListingState" | "resumeListing">,
+  eventStore: EventStore,
 ): MarketplaceChannelInboundClampPort {
+  const ownership = createListingInboundClampOwnership({ db, listings, eventStore });
   return {
-    engage: async (input, context) => engage(db, listings, input, context),
-    recover: async (input, context) => recover(db, listings, input, context),
+    engage: async (input, context) => engage(db, ownership, input, context),
+    recover: async (input, context) => recover(db, ownership, input, context),
   };
 }
 
 async function engage(
   pool: PgTransactionalPool,
-  listings: Pick<MarketplaceListingServices, "commandHandler" | "loadListingState">,
+  ownership: ReturnType<typeof createListingInboundClampOwnership>,
   input: MarketplaceChannelInboundClampInput,
   context: EventStoreContext,
 ): Promise<MarketplaceChannelInboundClampResult> {
@@ -45,86 +49,27 @@ async function engage(
   const recoveryListingIds = new Set<string>();
 
   for (const candidate of candidates) {
-    if (candidate.clampState === "recovery") {
-      recoveryListingIds.add(candidate.listingId);
-      continue;
-    }
-    if (candidate.clampState === "engaged") {
-      const current = await readCurrentListing(pool, input.accountId, candidate.listingId);
-      const state = await listings.loadListingState(candidate.listingId);
-      if (
-        current?.streamVersion === candidate.pausedStreamVersion &&
-        state.accountId === input.accountId &&
-        state.status === "paused" &&
-        state.pauseReason === "channel-inbound-dark"
-      ) {
-        clampedListingCount += 1;
-      } else {
-        await markRecovery(pool, input, candidate.listingId, candidate.streamVersion);
-        recoveryListingIds.add(candidate.listingId);
-      }
-      continue;
-    }
-
-    if (candidate.clampState === "pending") {
-      const current = await readCurrentListing(pool, input.accountId, candidate.listingId);
-      const state = await listings.loadListingState(candidate.listingId);
-      if (
-        current?.streamVersion === candidate.streamVersion + 1 &&
-        state.accountId === input.accountId &&
-        state.status === "paused" &&
-        state.pauseReason === "channel-inbound-dark"
-      ) {
-        const updated = await markPendingEngaged(pool, input, candidate, current.streamVersion);
-        if (updated === 1) clampedListingCount += 1;
-        else recoveryListingIds.add(candidate.listingId);
-      } else {
-        await markRecovery(pool, input, candidate.listingId, candidate.streamVersion);
-        recoveryListingIds.add(candidate.listingId);
-      }
-      continue;
-    }
-
-    if (candidate.sharedObservedStreamVersion !== null && candidate.sharedPausedStreamVersion !== null) {
-      const current = await readCurrentListing(pool, input.accountId, candidate.listingId);
-      const state = await listings.loadListingState(candidate.listingId);
-      if (
-        current?.streamVersion === candidate.sharedPausedStreamVersion &&
-        state.accountId === input.accountId &&
-        state.status === "paused" &&
-        state.pauseReason === "channel-inbound-dark" &&
-        (await insertSharedEngagedClamp(pool, input, candidate))
-      ) {
-        clampedListingCount += 1;
-      } else {
-        recoveryListingIds.add(candidate.listingId);
-      }
-      continue;
-    }
-
     await insertPendingClamp(pool, input, candidate);
     try {
-      const result = await listings.commandHandler({
-        streamId: `marketplace.listing-${candidate.listingId}`,
-        expectedVersion: candidate.streamVersion,
-        command: { type: "PauseListing", reason: "channel-inbound-dark" },
+      const result = await ownership.engage(
+        {
+          accountId: input.accountId,
+          connectionId: input.connectionId,
+          runId: input.runId,
+          listingId: candidate.listingId,
+        },
         context,
-      });
-      if (
-        result.newEvents.length !== 1 ||
-        result.state.accountId !== input.accountId ||
-        result.state.status !== "paused" ||
-        result.state.pauseReason !== "channel-inbound-dark"
-      ) {
-        await markRecovery(pool, input, candidate.listingId, candidate.streamVersion);
-        recoveryListingIds.add(candidate.listingId);
-        continue;
-      }
-      if ((await markPendingEngaged(pool, input, candidate, result.version)) !== 1) {
-        await markRecovery(pool, input, candidate.listingId, candidate.streamVersion);
-        recoveryListingIds.add(candidate.listingId);
-        continue;
-      }
+      );
+      await pool.query(
+        `UPDATE marketplace_channel_inbound_clamps SET state='engaged', observed_stream_version=$5,
+        paused_stream_version=$6, updated_at=now() WHERE account_id=$1 AND connection_id=$2 AND run_id=$3 AND listing_id=$4`,
+        [input.accountId, input.connectionId, input.runId, candidate.listingId, result.generation - 1, result.version],
+      );
+      await pool.query(
+        `UPDATE marketplace_channel_inbound_clamps SET paused_stream_version=$3, updated_at=now()
+        WHERE account_id=$1 AND listing_id=$2 AND state='engaged' AND paused_stream_version < $3`,
+        [input.accountId, candidate.listingId, result.version],
+      );
       clampedListingCount += 1;
     } catch {
       await markRecovery(pool, input, candidate.listingId, candidate.streamVersion);
@@ -150,99 +95,62 @@ async function engage(
   };
 }
 
-async function markPendingEngaged(
-  pool: PgQueryable,
-  input: MarketplaceChannelInboundClampInput,
-  candidate: Candidate,
-  pausedVersion: number,
-) {
-  const updated = await pool.query(
-    `UPDATE marketplace_channel_inbound_clamps
-        SET state='engaged', paused_stream_version=$5, updated_at=now()
-      WHERE account_id=$1 AND connection_id=$2 AND run_id=$3 AND listing_id=$4
-        AND state='pending' AND observed_stream_version=$6`,
-    [input.accountId, input.connectionId, input.runId, candidate.listingId, pausedVersion, candidate.streamVersion],
-  );
-  return updated.rowCount ?? 0;
-}
-
 async function recover(
   pool: PgTransactionalPool,
-  listings: Pick<MarketplaceListingServices, "loadListingState" | "publishListing">,
+  ownership: ReturnType<typeof createListingInboundClampOwnership>,
   input: MarketplaceChannelInboundClampInput,
   context: EventStoreContext,
 ): Promise<MarketplaceChannelInboundClampRecoveryResult> {
   validateInput(input);
   await assertRequestedListings(pool, input);
-  const rows = await pool.query<{
-    listing_id: string;
-    paused_stream_version: string | number;
-  }>(
-    `SELECT listing_id,paused_stream_version
-       FROM marketplace_channel_inbound_clamps
-      WHERE account_id=$1 AND connection_id=$2 AND run_id=$3 AND state='engaged'
-      ORDER BY listing_id`,
-    [input.accountId, input.connectionId, input.runId],
-  );
   let releasedListingCount = 0;
   let retainedListingCount = 0;
   let recoveryListingCount = 0;
-
-  for (const row of rows.rows) {
-    const pausedVersion = toPositiveInteger(row.paused_stream_version);
-    const otherOwners = await pool.query(
-      `SELECT 1
-         FROM marketplace_channel_inbound_clamps AS owner
-         JOIN event_store_streams AS stream
-           ON stream.stream_id='marketplace.listing-' || owner.listing_id
-        WHERE owner.account_id=$1 AND owner.listing_id=$2 AND owner.state='engaged'
-          AND owner.paused_stream_version=stream.current_version
-          AND NOT (owner.connection_id=$3 AND owner.run_id=$4)
-        LIMIT 1`,
-      [input.accountId, row.listing_id, input.connectionId, input.runId],
+  let examinedListingCount = 0;
+  let cursor = "";
+  for (;;) {
+    const rows = await pool.query<{ listing_id: string }>(
+      `SELECT listing_id
+       FROM marketplace_channel_inbound_clamps
+      WHERE account_id=$1 AND connection_id=$2 AND run_id=$3 AND state IN ('pending','engaged','recovery')
+        AND listing_id > $4 ORDER BY listing_id LIMIT ${MARKETPLACE_CHANNEL_INBOUND_CLAMP_PAGE_SIZE}`,
+      [input.accountId, input.connectionId, input.runId, cursor],
     );
-    if (otherOwners.rows.length > 0) {
-      const current = await readCurrentListing(pool, input.accountId, row.listing_id);
-      const state = await listings.loadListingState(row.listing_id);
-      if (
-        current?.streamVersion !== pausedVersion ||
-        state.accountId !== input.accountId ||
-        state.status !== "paused" ||
-        state.pauseReason !== "channel-inbound-dark"
-      ) {
-        await markRecovery(pool, input, row.listing_id, pausedVersion);
+    if (rows.rows.length > MARKETPLACE_CHANNEL_INBOUND_CLAMP_PAGE_SIZE)
+      throw new Error("Clamp recovery page exceeded its bound.");
+    examinedListingCount += rows.rows.length;
+    for (const row of rows.rows) {
+      try {
+        const result = await ownership.release(
+          {
+            accountId: input.accountId,
+            connectionId: input.connectionId,
+            runId: input.runId,
+            listingId: row.listing_id,
+          },
+          context,
+        );
+        const released = await releaseOwnership(pool, input, row.listing_id);
+        if (result.retained) {
+          await pool.query(
+            `UPDATE marketplace_channel_inbound_clamps SET paused_stream_version=$3, updated_at=now()
+           WHERE account_id=$1 AND listing_id=$2 AND state='engaged' AND paused_stream_version < $3`,
+            [input.accountId, row.listing_id, result.version],
+          );
+        }
+        releasedListingCount += released;
+        if (result.retained) retainedListingCount += released;
+      } catch {
         recoveryListingCount += 1;
-        continue;
       }
-      const released = await releaseOwnership(pool, input, row.listing_id, pausedVersion);
-      releasedListingCount += released;
-      retainedListingCount += released;
-      continue;
     }
-    const current = await readCurrentListing(pool, input.accountId, row.listing_id);
-    const state = await listings.loadListingState(row.listing_id);
-    if (
-      current?.streamVersion !== pausedVersion ||
-      state.accountId !== input.accountId ||
-      state.status !== "paused" ||
-      state.pauseReason !== "channel-inbound-dark"
-    ) {
-      await markRecovery(pool, input, row.listing_id, pausedVersion);
-      recoveryListingCount += 1;
-      continue;
-    }
-    try {
-      await listings.publishListing({ accountId: input.accountId, listingId: row.listing_id }, context);
-      releasedListingCount += await releaseOwnership(pool, input, row.listing_id, pausedVersion);
-    } catch {
-      await markRecovery(pool, input, row.listing_id, pausedVersion);
-      recoveryListingCount += 1;
-    }
+    if (rows.rows.length < MARKETPLACE_CHANNEL_INBOUND_CLAMP_PAGE_SIZE) break;
+    cursor = rows.rows.at(-1)!.listing_id;
   }
 
   return {
     kind: recoveryListingCount === 0 ? "released" : "recovery",
-    examinedListingCount: rows.rows.length,
+    examinedListingCount,
     releasedListingCount,
     retainedListingCount,
     recoveryListingCount,
@@ -267,11 +175,9 @@ async function readCandidates(
           AND (listing.status='active' OR EXISTS (
             SELECT 1 FROM marketplace_channel_inbound_clamps AS clamp
              WHERE clamp.account_id=$1 AND clamp.listing_id=listing.listing_id
-               AND ((clamp.connection_id=$3 AND clamp.run_id=$4
-                     AND clamp.state IN ('pending','engaged','recovery'))
-                 OR (clamp.state='engaged' AND clamp.paused_stream_version=stream.current_version))
+               AND clamp.state IN ('pending','engaged','recovery')
           ))`,
-      [input.accountId, inventoryItemIds, input.connectionId, input.runId],
+      [input.accountId, inventoryItemIds],
     );
     const affectedListingCount = toNonNegativeInteger(count.rows[0]?.total);
     if (affectedListingCount > MARKETPLACE_CHANNEL_INBOUND_CLAMP_MAX_LISTINGS) {
@@ -301,15 +207,15 @@ async function readCandidates(
             ON clamp.account_id=$1 AND clamp.connection_id=$3 AND clamp.run_id=$4
             AND clamp.listing_id=listing.listing_id AND clamp.state IN ('pending','engaged','recovery')
            LEFT JOIN LATERAL (
-             SELECT owner.observed_stream_version,owner.paused_stream_version
+             SELECT owner.listing_id,owner.observed_stream_version,owner.paused_stream_version
                FROM marketplace_channel_inbound_clamps AS owner
               WHERE owner.account_id=$1 AND owner.listing_id=listing.listing_id
-                AND owner.state='engaged' AND owner.paused_stream_version=stream.current_version
+                AND owner.state IN ('pending','engaged','recovery')
               ORDER BY owner.connection_id,owner.run_id
               LIMIT 1
            ) AS shared ON true
           WHERE listing.account_id=$1 AND listing.inventory_item_id = ANY($2::text[])
-            AND (listing.status='active' OR clamp.listing_id IS NOT NULL OR shared.paused_stream_version IS NOT NULL)
+            AND (listing.status='active' OR clamp.listing_id IS NOT NULL OR shared.listing_id IS NOT NULL)
             AND listing.listing_id > $5
           ORDER BY listing.listing_id
           LIMIT ${MARKETPLACE_CHANNEL_INBOUND_CLAMP_PAGE_SIZE}`,
@@ -347,51 +253,6 @@ async function readCandidates(
   } finally {
     client.release();
   }
-}
-
-async function insertSharedEngagedClamp(
-  pool: PgQueryable,
-  input: MarketplaceChannelInboundClampInput,
-  candidate: Candidate,
-) {
-  const result = await pool.query(
-    `INSERT INTO marketplace_channel_inbound_clamps
-     (account_id,connection_id,run_id,listing_id,inventory_item_id,state,observed_stream_version,
-      paused_stream_version,observed_updated_at,created_at,updated_at)
-     SELECT $1,$2,$3,$4,$5,'engaged',$6,$7,$8,now(),now()
-      WHERE EXISTS (
-        SELECT 1
-          FROM marketplace_channel_inbound_clamps AS owner
-          JOIN event_store_streams AS stream
-            ON stream.stream_id='marketplace.listing-' || owner.listing_id
-         WHERE owner.account_id=$1 AND owner.listing_id=$4 AND owner.state='engaged'
-           AND owner.observed_stream_version=$6 AND owner.paused_stream_version=$7
-           AND stream.current_version=$7
-      )
-     ON CONFLICT (connection_id,run_id,listing_id) DO NOTHING`,
-    [
-      input.accountId,
-      input.connectionId,
-      input.runId,
-      candidate.listingId,
-      candidate.inventoryItemId,
-      candidate.sharedObservedStreamVersion,
-      candidate.sharedPausedStreamVersion,
-      candidate.updatedAt,
-    ],
-  );
-  if ((result.rowCount ?? 0) === 1) return true;
-  const existing = await pool.query(
-    `SELECT 1
-       FROM marketplace_channel_inbound_clamps AS clamp
-       JOIN event_store_streams AS stream
-         ON stream.stream_id='marketplace.listing-' || clamp.listing_id
-      WHERE clamp.account_id=$1 AND clamp.connection_id=$2 AND clamp.run_id=$3 AND clamp.listing_id=$4
-        AND clamp.state='engaged' AND clamp.paused_stream_version=$5 AND stream.current_version=$5
-      LIMIT 1`,
-    [input.accountId, input.connectionId, input.runId, candidate.listingId, candidate.sharedPausedStreamVersion],
-  );
-  return existing.rows.length === 1;
 }
 
 async function assertRequestedListings(db: PgQueryable, input: MarketplaceChannelInboundClampInput) {
@@ -447,32 +308,15 @@ async function markRecovery(
   );
 }
 
-async function releaseOwnership(
-  pool: PgQueryable,
-  input: MarketplaceChannelInboundClampInput,
-  listingId: string,
-  pausedVersion: number,
-) {
+async function releaseOwnership(pool: PgQueryable, input: MarketplaceChannelInboundClampInput, listingId: string) {
   const result = await pool.query(
     `UPDATE marketplace_channel_inbound_clamps
         SET state='released', paused_stream_version=NULL, updated_at=now()
       WHERE account_id=$1 AND connection_id=$2 AND run_id=$3 AND listing_id=$4
-        AND state='engaged' AND paused_stream_version=$5`,
-    [input.accountId, input.connectionId, input.runId, listingId, pausedVersion],
+        AND state IN ('pending','engaged','recovery')`,
+    [input.accountId, input.connectionId, input.runId, listingId],
   );
   return result.rowCount ?? 0;
-}
-
-async function readCurrentListing(pool: PgQueryable, accountId: string, listingId: string) {
-  const result = await pool.query<{ current_version: string | number }>(
-    `SELECT stream.current_version
-       FROM marketplace_listing_pages AS listing
-       JOIN event_store_streams AS stream ON stream.stream_id='marketplace.listing-' || listing.listing_id
-      WHERE listing.account_id=$1 AND listing.listing_id=$2`,
-    [accountId, listingId],
-  );
-  const row = result.rows[0];
-  return row ? { streamVersion: toPositiveInteger(row.current_version) } : null;
 }
 
 async function countCurrentCoverage(
@@ -483,9 +327,9 @@ async function countCurrentCoverage(
   if (inventoryItemIds.length === 0) return { covered: 0, unowned: 0 };
   const result = await pool.query<{ covered: string | number; unowned: string | number }>(
     `SELECT count(*) AS covered,
-            count(*) FILTER (WHERE NOT (
+            count(*) FILTER (WHERE (
               clamp.state='engaged' AND clamp.paused_stream_version=stream.current_version
-            )) AS unowned
+            ) IS NOT TRUE) AS unowned
        FROM marketplace_listing_pages AS listing
        JOIN event_store_streams AS stream ON stream.stream_id='marketplace.listing-' || listing.listing_id
        LEFT JOIN marketplace_channel_inbound_clamps AS clamp
@@ -495,7 +339,7 @@ async function countCurrentCoverage(
         AND (listing.status='active' OR clamp.listing_id IS NOT NULL OR EXISTS (
           SELECT 1 FROM marketplace_channel_inbound_clamps AS owner
            WHERE owner.account_id=$1 AND owner.listing_id=listing.listing_id
-             AND owner.state='engaged' AND owner.paused_stream_version=stream.current_version
+             AND owner.state IN ('pending','engaged','recovery')
         ))`,
     [input.accountId, [...new Set(inventoryItemIds)], input.connectionId, input.runId],
   );

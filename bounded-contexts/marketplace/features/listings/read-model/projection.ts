@@ -216,6 +216,9 @@ function buildListingProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "marketplace.listing.channel-activated": projectLifecycle,
     "marketplace.listing.resumed": projectLifecycle,
+    "marketplace.listing.inbound-clamp-engaged": projectLifecycle,
+    "marketplace.listing.inbound-clamp-released": projectLifecycle,
+    "marketplace.listing.inbound-clamp-ownership-adopted": projectLifecycle,
     "marketplace.listing.native-visibility-changed": async (event) => {
       const listingId = event.streamId.slice("marketplace.listing-".length);
       await projectFees(event);

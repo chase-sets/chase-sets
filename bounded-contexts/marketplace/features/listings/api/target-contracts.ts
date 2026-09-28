@@ -5,6 +5,7 @@ import type {
   ListingAuthorityReservation,
 } from "@chase-sets/event-core/listing-authority";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
+import type { CatalogListingAuthorityFacts } from "@chase-sets/catalog/server";
 import type { ListingEvidenceRequirementSnapshot } from "../domain/evidence-requirement-snapshot";
 import type { ListingEvidenceSellerFacts } from "../domain/listing-evidence-readiness";
 import type { MarketplaceListingTermsPreview } from "../ui/contracts";
@@ -55,6 +56,7 @@ export type SetNativeListingVisibilityInput = ListingMutationInput &
 export type ResumeListingInput = ListingMutationInput &
   Readonly<{
     expectedPauseReason: "seller" | "policy-input-missing" | "channel-inbound-dark";
+    inboundClamp?: import("../domain/domain").ListingInboundClampOwner;
   }>;
 
 export type ListingMutationResult = Readonly<{ listingId: string; version: number }>;
@@ -91,6 +93,10 @@ export type ListingNativeReadinessAuthority = Readonly<{
 }>;
 
 export type ListingTargetAuthority = Readonly<{
+  readCatalogProduct?(
+    operation: ListingAuthorityOperation,
+    context: EventStoreContext,
+  ): Promise<ListingAuthorityResult<CatalogListingAuthorityFacts>>;
   participants: readonly ListingAuthorityParticipantPort[];
   resolveActor(context: EventStoreContext): Promise<ListingAuthorityOperation["actor"]>;
   verifyNativeFeeQuote?(

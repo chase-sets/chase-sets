@@ -7,6 +7,7 @@ import {
   type CreateListingCommand,
   type MarketplaceListingFeeLock,
   type PublishListingCommand,
+  type MarketplaceListingState,
 } from "./domain";
 
 const shipFromAddress = {
@@ -110,6 +111,85 @@ const createListingCommand = {
 } satisfies CreateListingCommand;
 
 describe("channel-only activation and native visibility/fee locks", () => {
+  it("retains every inbound clamp owner and resumes without changing native visibility or publication", () => {
+    let state: MarketplaceListingState = { ...channelOnly(), status: "active" };
+    state = decideMarketplaceListing(state, {
+      type: "EngageListingInboundClamp",
+      connectionId: "con_one",
+      runId: "run_one",
+    }).reduce(evolveMarketplaceListing, state);
+    const first = state.inboundClampOwners[0]!;
+    state = decideMarketplaceListing(state, {
+      type: "EngageListingInboundClamp",
+      connectionId: "con_two",
+      runId: "run_two",
+    }).reduce(evolveMarketplaceListing, state);
+    expect(() =>
+      decideMarketplaceListing(state, {
+        type: "ResumeListing",
+        expectedPauseReason: "channel-inbound-dark",
+        inboundClamp: first,
+      }),
+    ).toThrow("Another inbound clamp");
+    state = decideMarketplaceListing(state, { type: "ReleaseListingInboundClamp", owner: first }).reduce(
+      evolveMarketplaceListing,
+      state,
+    );
+    expect(state.status).toBe("paused");
+    const remaining = state.inboundClampOwners[0]!;
+    expect(() =>
+      decideMarketplaceListing(state, {
+        type: "ResumeListing",
+        expectedPauseReason: "channel-inbound-dark",
+        inboundClamp: { ...remaining, generation: remaining.generation + 1 },
+      }),
+    ).toThrow("ownership");
+    state = decideMarketplaceListing(state, {
+      type: "ResumeListing",
+      expectedPauseReason: "channel-inbound-dark",
+      inboundClamp: remaining,
+    }).reduce(evolveMarketplaceListing, state);
+    expect(state).toMatchObject({
+      status: "active",
+      nativeVisibility: "disabled",
+      nativePublicationRevision: null,
+      feeLocks: [],
+      inboundClampOwners: [],
+    });
+  });
+  it("does not release a source-owned clamp after a newer seller edit or a legacy unowned pause", () => {
+    let state: MarketplaceListingState = { ...channelOnly(), status: "active" };
+    state = decideMarketplaceListing(state, {
+      type: "EngageListingInboundClamp",
+      connectionId: "con_one",
+      runId: "run_one",
+    }).reduce(evolveMarketplaceListing, state);
+    const owner = state.inboundClampOwners[0]!;
+    state = decideMarketplaceListing(state, { type: "PauseListing", reason: "seller" }).reduce(
+      evolveMarketplaceListing,
+      state,
+    );
+    expect(() =>
+      decideMarketplaceListing(state, {
+        type: "ResumeListing",
+        expectedPauseReason: "channel-inbound-dark",
+        inboundClamp: owner,
+      }),
+    ).toThrow("pause authority changed");
+    const legacy = {
+      ...state,
+      pauseReason: "channel-inbound-dark" as const,
+      inboundClampOwners: [],
+      inboundClampRevision: null,
+    };
+    expect(() =>
+      decideMarketplaceListing(legacy, {
+        type: "ResumeListing",
+        expectedPauseReason: "channel-inbound-dark",
+        inboundClamp: owner,
+      }),
+    ).toThrow("ownership");
+  });
   function channelOnly() {
     const [created] = decideMarketplaceListing(initialMarketplaceListingState, {
       ...createListingCommand,

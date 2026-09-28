@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { MARKETPLACE_CHANNEL_INBOUND_CLAMP_MAX_LISTINGS } from "../domain/contracts";
 import { createMarketplaceChannelInboundClampRuntime } from "./runtime";
@@ -11,7 +12,11 @@ const context: EventStoreContext = {
 describe("marketplace-channel-inbound-clamp membership reconciliation", () => {
   it("refuses membership 1000001 before opening a database snapshot", async () => {
     const database = { connect: vi.fn(), query: vi.fn() };
-    const runtime = createMarketplaceChannelInboundClampRuntime(database as never, unreachableListings());
+    const runtime = createMarketplaceChannelInboundClampRuntime(
+      database as never,
+      unreachableListings(),
+      createInMemoryEventStore().eventStore,
+    );
 
     await expect(
       runtime.engage(
@@ -29,7 +34,11 @@ describe("marketplace-channel-inbound-clamp membership reconciliation", () => {
   it("fails closed when the independently counted membership drifts from the paged candidates", async () => {
     const client = queryClient({ total: 2, pages: [candidateRows(1)] });
     const listings = unreachableListings();
-    const runtime = createMarketplaceChannelInboundClampRuntime(pool(client) as never, listings);
+    const runtime = createMarketplaceChannelInboundClampRuntime(
+      pool(client) as never,
+      listings,
+      createInMemoryEventStore().eventStore,
+    );
 
     await expect(runtime.engage(input(), context)).rejects.toMatchObject({
       code: "listing-membership-incomplete",
@@ -43,6 +52,11 @@ describe("marketplace-channel-inbound-clamp membership reconciliation", () => {
     const client = queryClient({ total: 251, pages: [rows.slice(0, 250), rows.slice(250)] });
     const database = pool(client);
     database.query.mockImplementation(async (sql: string) => {
+      if (
+        sql.includes("INSERT INTO marketplace_channel_inbound_clamps") ||
+        sql.includes("UPDATE marketplace_channel_inbound_clamps")
+      )
+        return { rows: [], rowCount: 1 };
       if (sql.includes("SELECT stream.current_version")) return { rows: [{ current_version: 2 }] };
       if (sql.includes("SELECT count(*) AS covered")) {
         return { rows: [{ covered: 251, unowned: 0 }] };
@@ -50,16 +64,26 @@ describe("marketplace-channel-inbound-clamp membership reconciliation", () => {
       throw new Error(`Unexpected outer query: ${sql}`);
     });
     const listings = {
-      commandHandler: vi.fn(),
-      publishListing: vi.fn(),
+      commandHandler: vi.fn(async () => ({
+        version: 2,
+        newEvents: [],
+        state: { inboundClampOwners: [{ connectionId: input().connectionId, runId: input().runId, generation: 2 }] },
+      })),
+      resumeListing: vi.fn(),
       loadListingState: vi.fn(async (listingId: string) => ({
         listingId,
         accountId: "account-synthetic",
         status: "paused",
         pauseReason: "channel-inbound-dark",
+        streamRevision: 2,
+        inboundClampOwners: [{ connectionId: input().connectionId, runId: input().runId, generation: 2 }],
       })),
     };
-    const runtime = createMarketplaceChannelInboundClampRuntime(database as never, listings as never);
+    const runtime = createMarketplaceChannelInboundClampRuntime(
+      database as never,
+      listings as never,
+      createInMemoryEventStore().eventStore,
+    );
 
     await expect(runtime.engage(input(), context)).resolves.toEqual({
       kind: "engaged",
@@ -69,7 +93,8 @@ describe("marketplace-channel-inbound-clamp membership reconciliation", () => {
       recoveryListingCount: 0,
     });
     expect(client.pageCursors).toEqual(["", "listing-0249"]);
-    expect(listings.commandHandler).not.toHaveBeenCalled();
+    expect(listings.commandHandler).toHaveBeenCalledTimes(251);
+    expect(listings.commandHandler.mock.results.every((result) => result.type === "return")).toBe(true);
   });
 });
 
@@ -132,7 +157,7 @@ function unreachableListings() {
     loadListingState: vi.fn(async () => {
       throw new Error("not reached");
     }),
-    publishListing: vi.fn(async () => {
+    resumeListing: vi.fn(async () => {
       throw new Error("not reached");
     }),
   };

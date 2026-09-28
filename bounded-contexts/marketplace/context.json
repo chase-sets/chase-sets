@@ -122,6 +122,9 @@
         "marketplace.listing.channel-activated",
         "marketplace.listing.native-visibility-changed",
         "marketplace.listing.resumed",
+        "marketplace.listing.inbound-clamp-engaged",
+        "marketplace.listing.inbound-clamp-released",
+        "marketplace.listing.inbound-clamp-ownership-adopted",
         "marketplace.listing.quantity-cap-updated",
         "marketplace.listing.purchase-limits-updated",
         "marketplace.listing.published",
@@ -504,6 +507,11 @@
     }
   ],
   "hostPorts": [
+    {
+      "portName": "listingTargetAuthority",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Binds current owner reservations for Listing creation, target acceptance, native publication, capacity and scoped resume commands."
+    },
     {
       "portName": "listingAuthority",
       "providedBy": "platform-api, platform-worker",

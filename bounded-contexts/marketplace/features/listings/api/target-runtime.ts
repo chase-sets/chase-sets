@@ -12,6 +12,7 @@ import type {
 import { marketplaceListingCodec } from "../domain/codec";
 import { createEventStoreError, type EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
+import type { JsonObject } from "@chase-sets/primitives/json";
 import {
   decideMarketplaceListing,
   type MarketplaceListingCommand,
@@ -399,6 +400,7 @@ export function createListingTargetRuntime(
         capacity: boolean;
       }>
     >,
+    requestCommand?: JsonObject,
   ) {
     const initial = await owned(input.listingId, input.accountId);
     const nativeEnable =
@@ -417,7 +419,13 @@ export function createListingTargetRuntime(
         participants.push({ owner: "commercial-terms", purpose: "native-fee" });
       }
     }
-    const command = { ...input, type };
+    if (
+      type === "UpdateListingQuantityCap" &&
+      initial.state.nativeVisibility === "enabled" &&
+      (input as ListingMutationInput & { quantityCap: number }).quantityCap > initial.state.quantityCap
+    )
+      participants.push({ owner: "commercial-terms", purpose: "native-fee" });
+    const command = requestCommand ?? { ...input, type };
     const operation =
       (await readListingRequestOperation(deps.eventStore, { ...input, command, context })) ??
       (await fence.open(
@@ -431,7 +439,9 @@ export function createListingTargetRuntime(
               ? "activate-channel"
               : type === "ResumeListing"
                 ? "resume"
-                : "native-visibility",
+                : type === "UpdateListingQuantityCap"
+                  ? "capacity"
+                  : "native-visibility",
           requestId: input.idempotencyKey,
           command,
           listingId: input.listingId,
@@ -445,6 +455,9 @@ export function createListingTargetRuntime(
           expectedListingRevision: input.expectedListingVersion,
           subject: {
             ...authoritySubject(initial.state),
+            ...(type === "UpdateListingQuantityCap"
+              ? { quantity: (input as ListingMutationInput & { quantityCap: number }).quantityCap }
+              : {}),
             allocationRevision:
               type === "ActivateListingForChannel"
                 ? (input as import("./target-contracts").ActivateListingForChannelInput).allocationRevision
@@ -618,7 +631,11 @@ export function createListingTargetRuntime(
         const authorization = await deps.authority!.authorizeResume(input, context, operation);
         assert(authorization.value, "Current pause-owner authority is required.");
         return {
-          command: { type: "ResumeListing", expectedPauseReason: input.expectedPauseReason },
+          command: {
+            type: "ResumeListing",
+            expectedPauseReason: input.expectedPauseReason,
+            inboundClamp: input.inboundClamp,
+          },
           reservations: authorization.reservations,
           capacity: true,
         };
@@ -688,6 +705,73 @@ export function createListingTargetRuntime(
   };
   return {
     ...services,
+    commitCapacity: async (
+      input: Readonly<{
+        accountId: string;
+        listingId: string;
+        quantityCap: number;
+        idempotencyKey?: string;
+        expectedVersion?: number;
+      }>,
+      context: EventStoreContext,
+      requestCommand: JsonObject,
+      prepare: (
+        state: MarketplaceListingState,
+        operation: ListingAuthorityOperation,
+      ) => Promise<
+        Readonly<{
+          command: MarketplaceListingCommand;
+          reservations: readonly ListingAuthorityReservation[];
+        }>
+      >,
+    ) => {
+      const current = await owned(input.listingId, input.accountId);
+      return mutate(
+        {
+          ...input,
+          expectedListingVersion: input.expectedVersion ?? current.version,
+          idempotencyKey: input.idempotencyKey ?? `capacity:${input.listingId}:${current.version}`,
+        },
+        context,
+        "UpdateListingQuantityCap",
+        async (state, operation) => ({ ...(await prepare(state, operation)), capacity: true }),
+        requestCommand,
+      );
+    },
+    publishNative: async (
+      input: Readonly<{
+        accountId: string;
+        listingId: string;
+        idempotencyKey?: string;
+        feeQuoteFingerprint?: string | null;
+      }>,
+      context: EventStoreContext,
+    ) => {
+      const current = await owned(input.listingId, input.accountId);
+      const mutation: SetNativeListingVisibilityInput = {
+        accountId: input.accountId,
+        listingId: input.listingId,
+        expectedListingVersion: current.version,
+        idempotencyKey: input.idempotencyKey ?? `publish:${input.listingId}:${current.version}`,
+        nativeVisibility: "enabled",
+        ...(input.feeQuoteFingerprint ? { feeQuoteFingerprint: input.feeQuoteFingerprint } : {}),
+      };
+      return mutate(
+        mutation,
+        context,
+        "SetNativeListingVisibility",
+        async (state, operation) => ({
+          ...(await deps.prepareNativeEnable(state, mutation, operation)),
+          capacity: true,
+        }),
+        {
+          type: "PublishListing",
+          accountId: input.accountId,
+          listingId: input.listingId,
+          feeQuoteFingerprint: input.feeQuoteFingerprint ?? null,
+        },
+      );
+    },
     applyNativePrices,
     updateNativePrice: async (
       input: MarketplaceBulkListingPriceUpdateInput & Readonly<{ accountId: string }>,

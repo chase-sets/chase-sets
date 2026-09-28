@@ -245,6 +245,22 @@ const schemas = {
       "Unenrolled native visibility must stay disabled and unlocked.",
     ),
   "marketplace.listing.resumed": z.strictObject({ pauseReason }),
+  "marketplace.listing.inbound-clamp-engaged": z.strictObject({
+    connectionId: text,
+    runId: text,
+    generation: revision,
+  }),
+  "marketplace.listing.inbound-clamp-released": z.strictObject({
+    connectionId: text,
+    runId: text,
+    generation: revision,
+  }),
+  "marketplace.listing.inbound-clamp-ownership-adopted": z.strictObject({
+    owners: z
+      .array(z.strictObject({ connectionId: text, runId: text, generation: revision }))
+      .min(1)
+      .max(128),
+  }),
   "marketplace.listing.published": z.strictObject({ csatOutcomeFact: z.json().optional() }),
   "marketplace.listing.paused": z.strictObject({ reason: pauseReason.optional() }),
   "marketplace.listing.withdrawn": z.strictObject({}),

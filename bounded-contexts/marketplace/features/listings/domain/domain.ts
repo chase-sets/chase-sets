@@ -146,6 +146,7 @@ function feeLockProjectionFields(feeLocks: readonly MarketplaceListingFeeLock[])
 }
 
 export type ListingStatus = "draft" | "active" | "paused" | "withdrawn";
+export type ListingInboundClampOwner = Readonly<{ connectionId: string; runId: string; generation: number }>;
 
 export type MarketplaceListingPurchaseLimits = Readonly<{
   maxUnitsPerOrder: number | null;
@@ -376,6 +377,8 @@ export type MarketplaceListingState = Readonly<{
   evidence: readonly MarketplaceListingPhoto[];
   status: ListingStatus;
   pauseReason: "seller" | "policy-input-missing" | "channel-inbound-dark" | null;
+  inboundClampOwners: readonly ListingInboundClampOwner[];
+  inboundClampRevision: number | null;
 }>;
 
 export const initialMarketplaceListingState: MarketplaceListingState = {
@@ -423,6 +426,8 @@ export const initialMarketplaceListingState: MarketplaceListingState = {
   evidence: [],
   status: "draft",
   pauseReason: null,
+  inboundClampOwners: [],
+  inboundClampRevision: null,
 };
 
 export type CreateListingCommand = Readonly<{
@@ -487,11 +492,26 @@ export type SetNativeListingVisibilityCommand = Readonly<{
   readiness: ListingEvidenceReadinessResult | null;
   productMeasureSnapshot?: ProductMeasureSnapshot | null;
   productMeasureRevision?: number;
+  csatOutcomeFact?: JsonObject;
 }>;
 
 export type ResumeListingCommand = Readonly<{
   type: "ResumeListing";
   expectedPauseReason: NonNullable<MarketplaceListingState["pauseReason"]>;
+  inboundClamp?: ListingInboundClampOwner;
+}>;
+export type EngageListingInboundClampCommand = Readonly<{
+  type: "EngageListingInboundClamp";
+  connectionId: string;
+  runId: string;
+}>;
+export type ReleaseListingInboundClampCommand = Readonly<{
+  type: "ReleaseListingInboundClamp";
+  owner: ListingInboundClampOwner;
+}>;
+export type AdoptListingInboundClampOwnersCommand = Readonly<{
+  type: "AdoptListingInboundClampOwners";
+  owners: readonly Readonly<{ connectionId: string; runId: string }>[];
 }>;
 
 export type UpdateListingQuantityCapCommand = Readonly<{
@@ -570,6 +590,9 @@ export type MarketplaceListingCommand =
   | ActivateListingForChannelCommand
   | SetNativeListingVisibilityCommand
   | ResumeListingCommand
+  | EngageListingInboundClampCommand
+  | ReleaseListingInboundClampCommand
+  | AdoptListingInboundClampOwnersCommand
   | UpdateListingPriceCommand
   | UpdateListingQuantityCapCommand
   | UpdateListingPurchaseLimitsCommand
@@ -741,6 +764,12 @@ export type MarketplaceListingEvent =
   | ListingChannelActivatedEvent
   | ListingNativeVisibilityChangedEvent
   | ListingResumedEvent
+  | DomainEvent<"marketplace.listing.inbound-clamp-engaged", ListingInboundClampOwner>
+  | DomainEvent<"marketplace.listing.inbound-clamp-released", ListingInboundClampOwner>
+  | DomainEvent<
+      "marketplace.listing.inbound-clamp-ownership-adopted",
+      Readonly<{ owners: readonly ListingInboundClampOwner[] }>
+    >
   | ListingPriceUpdatedEvent
   | ListingQuantityCapUpdatedEvent
   | ListingPurchaseLimitsUpdatedEvent
@@ -955,15 +984,80 @@ export const decideMarketplaceListing: AggregateDecider<
               : { productMeasureRevision: command.productMeasureRevision }),
           },
         },
-        { type: "marketplace.listing.published", data: {} },
+        {
+          type: "marketplace.listing.published",
+          data: command.csatOutcomeFact ? { csatOutcomeFact: command.csatOutcomeFact } : {},
+        },
       ];
     }
-    case "ResumeListing":
+    case "AdoptListingInboundClampOwners": {
+      assert(
+        state.status === "paused" &&
+          state.pauseReason === "channel-inbound-dark" &&
+          state.inboundClampOwners.length === 0,
+        "Only a legacy unowned inbound pause can adopt its retained owners.",
+      );
+      assert(
+        command.owners.length > 0 &&
+          command.owners.length <= 128 &&
+          command.owners.every((owner) => owner.connectionId.trim() && owner.runId.trim()) &&
+          new Set(command.owners.map((owner) => JSON.stringify([owner.connectionId, owner.runId]))).size ===
+            command.owners.length,
+        "Invalid retained inbound clamp owner set.",
+      );
+      return [
+        {
+          type: "marketplace.listing.inbound-clamp-ownership-adopted",
+          data: { owners: command.owners.map((owner) => ({ ...owner, generation: state.streamRevision + 1 })) },
+        },
+      ];
+    }
+    case "EngageListingInboundClamp": {
+      assert(command.connectionId.trim() && command.runId.trim(), "Inbound clamp owner is required.");
+      assert(
+        state.status === "active" ||
+          (state.status === "paused" &&
+            state.pauseReason === "channel-inbound-dark" &&
+            state.inboundClampOwners.length > 0 &&
+            state.inboundClampRevision === state.streamRevision),
+        "Listing pause ownership changed.",
+      );
+      if (
+        state.inboundClampOwners.some(
+          (owner) => owner.connectionId === command.connectionId && owner.runId === command.runId,
+        )
+      )
+        return [];
+      assert(state.inboundClampOwners.length < 128, "Listing inbound clamp owner limit reached.");
+      return [
+        {
+          type: "marketplace.listing.inbound-clamp-engaged",
+          data: { connectionId: command.connectionId, runId: command.runId, generation: state.streamRevision + 1 },
+        },
+      ];
+    }
+    case "ReleaseListingInboundClamp": {
+      assertInboundClampOwner(state, command.owner);
+      assert(state.inboundClampOwners.length > 1, "Final inbound clamp release requires guarded resume.");
+      return [{ type: "marketplace.listing.inbound-clamp-released", data: command.owner }];
+    }
+    case "ResumeListing": {
       assert(
         state.status === "paused" && state.pauseReason === command.expectedPauseReason,
         "Listing pause authority changed.",
       );
-      return [{ type: "marketplace.listing.resumed", data: { pauseReason: command.expectedPauseReason } }];
+      if (command.expectedPauseReason === "channel-inbound-dark") {
+        assert(command.inboundClamp, "Exact inbound clamp owner is required.");
+        assertInboundClampOwner(state, command.inboundClamp);
+        assert(state.inboundClampOwners.length === 1, "Another inbound clamp still owns the Listing pause.");
+      } else assert(!command.inboundClamp && state.inboundClampOwners.length === 0, "Listing pause ownership changed.");
+      return [
+        ...(command.inboundClamp
+          ? [{ type: "marketplace.listing.inbound-clamp-released" as const, data: command.inboundClamp }]
+          : []),
+        { type: "marketplace.listing.resumed", data: { pauseReason: command.expectedPauseReason } },
+      ];
+    }
     case "UpdateListingPrice": {
       assert(state.listingId !== null, "Listing must be created first.");
       assert(state.status !== "withdrawn", "Withdrawn listings cannot be updated.");
@@ -1197,6 +1291,21 @@ export const decideMarketplaceListing: AggregateDecider<
   }
 };
 
+function assertInboundClampOwner(state: MarketplaceListingState, owner: ListingInboundClampOwner) {
+  assert(
+    state.status === "paused" &&
+      state.pauseReason === "channel-inbound-dark" &&
+      state.inboundClampRevision === state.streamRevision &&
+      state.inboundClampOwners.some(
+        (current) =>
+          current.connectionId === owner.connectionId &&
+          current.runId === owner.runId &&
+          current.generation === owner.generation,
+      ),
+    "Listing inbound clamp ownership or pause revision changed.",
+  );
+}
+
 const evolveMarketplaceListingEvent: AggregateEvolver<MarketplaceListingState, MarketplaceListingEvent> = (
   state,
   event,
@@ -1368,8 +1477,34 @@ const evolveMarketplaceListingEvent: AggregateEvolver<MarketplaceListingState, M
       };
     case "marketplace.listing.resumed":
       return { ...state, status: "active", pauseReason: null };
+    case "marketplace.listing.inbound-clamp-engaged":
+      return {
+        ...state,
+        status: "paused",
+        pauseReason: "channel-inbound-dark",
+        inboundClampRevision: state.streamRevision + 1,
+        inboundClampOwners: [...state.inboundClampOwners, event.data],
+      };
+    case "marketplace.listing.inbound-clamp-ownership-adopted":
+      return { ...state, inboundClampRevision: state.streamRevision + 1, inboundClampOwners: event.data.owners };
+    case "marketplace.listing.inbound-clamp-released":
+      return {
+        ...state,
+        inboundClampRevision: state.streamRevision + 1,
+        inboundClampOwners: state.inboundClampOwners.filter(
+          (owner) =>
+            owner.connectionId !== event.data.connectionId ||
+            owner.runId !== event.data.runId ||
+            owner.generation !== event.data.generation,
+        ),
+      };
     case "marketplace.listing.paused":
-      return { ...state, status: "paused", pauseReason: event.data.reason ?? "seller" };
+      return {
+        ...state,
+        status: "paused",
+        pauseReason: event.data.reason ?? "seller",
+        ...(event.data.reason !== "channel-inbound-dark" ? { inboundClampOwners: [], inboundClampRevision: null } : {}),
+      };
     case "marketplace.listing.auto-unlisted":
       return { ...state, status: "paused" };
     case "marketplace.listing.withdrawn":

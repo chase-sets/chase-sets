@@ -30,6 +30,7 @@ import { createMarketplaceChannelInboundClampRuntime } from "../../features/chan
 import { createBuyerOfferPolicyRuntime } from "../../features/offer-policy/api/runtime";
 
 export type MarketplaceServiceOptions = Readonly<{
+  listingTargetAuthority?: import("../../features/listings/api/target-contracts").ListingTargetAuthority;
   listingAuthority?: MarketplaceListingAuthorityPorts;
   commercialTermsResolver?: CommercialTermsResolver;
   listingPhotoStorage?: ListingPhotoStorage;
@@ -90,6 +91,7 @@ export function createMarketplaceServices(
     commercialTermsResolver,
     policies,
     listingEvidencePolicyEvaluator: listingEvidencePolicies,
+    ...(options.listingTargetAuthority ? { listingTargetAuthority: options.listingTargetAuthority } : {}),
     ...(options.listingPhotoStorage ? { listingPhotoStorage: options.listingPhotoStorage } : {}),
   } as const;
   const listings = createMarketplaceListingRuntime(deps);
@@ -111,7 +113,7 @@ export function createMarketplaceServices(
     createOfferResponseAttentionSourceFromReadModel(db),
     createListingActionAttentionSourceFromReadModel(db),
   ]);
-  const channelInboundClamp = createMarketplaceChannelInboundClampRuntime(pool, listings);
+  const channelInboundClamp = createMarketplaceChannelInboundClampRuntime(pool, listings, eventStore);
   return {
     listingAuthority,
     listings,

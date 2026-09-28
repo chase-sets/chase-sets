@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
+import { toJsonValue } from "@chase-sets/primitives/json";
 import sharp from "sharp";
 import { createListingTargetRuntime } from "./target-runtime";
 import { marketplaceListingCodec } from "../domain/codec";
 import { listingRequestFingerprint } from "./listing-request";
 import type { ListingTargetServices } from "./target-contracts";
 import type { ListingAuthorityOperation, ListingAuthorityReservation } from "@chase-sets/event-core/listing-authority";
+import type { CatalogListingAuthorityFacts } from "@chase-sets/catalog/server";
 import {
   createListingAuthorityFence,
   type ListingAuthorityFence,
@@ -136,7 +138,7 @@ class MarketplaceListingNotFoundError extends Error {}
  * snapshot with a different schema version is ignored -- load() falls back
  * to full replay, exactly as if no snapshot existed.
  */
-const MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION = 7;
+const MARKETPLACE_LISTING_SNAPSHOT_SCHEMA_VERSION = 8;
 /**
  * Marketplace listings are m113's proven-hot aggregate: reprice-heavy
  * listings accumulate hundreds of `UpdateListingPrice` events, and every
@@ -409,6 +411,8 @@ type MarketplaceListingLifecycleServices = Readonly<{
       quantityCap: number;
       purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
       feeQuoteFingerprint?: string | null;
+      idempotencyKey?: string;
+      expectedVersion?: number;
     }>,
     context: EventStoreContext,
   ) => Promise<{ listingId: string; version: number }>;
@@ -827,97 +831,6 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       }
     }
     throw new Error("Inventory listing registration did not converge.");
-  }
-
-  async function commitCapacityBoundListingCommand(
-    listingId: string,
-    accountId: string,
-    command: MarketplaceListingCommand,
-    context: EventStoreContext,
-  ): Promise<number> {
-    const appendToStreams = deps.eventStore.appendToStreams;
-    assert(appendToStreams, "Atomic inventory listing capacity writes are unavailable.");
-    const listingStreamId = `marketplace.listing-${listingId}`;
-
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      const listing = await repository.load(listingStreamId);
-      assert(listing.state.listingId !== null && listing.state.accountId === accountId, "Listing not found.");
-      assert(listing.state.inventoryItemId, "Listing inventory item is missing.");
-      const inventoryItemId = listing.state.inventoryItemId;
-      const capacityStreamId = inventoryListingCapacityStreamId(inventoryItemId);
-      const capacity = await inventoryListingCapacityRepository.load(capacityStreamId);
-      const discoveredListingIds =
-        capacity.state.listingIds.length === 0 ? await discoverInventoryListingIds(inventoryItemId) : [];
-      const registeredListingIds = [
-        ...new Set([...capacity.state.listingIds, ...discoveredListingIds, listingId]),
-      ].sort();
-      const listingEvents = decideMarketplaceListing(listing.state, command);
-      if (listingEvents.length === 0) {
-        return listing.version;
-      }
-      const nextListing = applyEvents(listing.state, evolveMarketplaceListing, listingEvents);
-      const otherListings = await Promise.all(
-        registeredListingIds
-          .filter((registeredListingId) => registeredListingId !== listingId)
-          .map((registeredListingId) => repository.load(`marketplace.listing-${registeredListingId}`)),
-      );
-      const supply = await getInventoryItemSupply(deps.db, inventoryItemId);
-      assert(supply, "Inventory item not found.");
-      assertActiveListingCapacity(
-        [nextListing, ...otherListings.map((aggregate) => aggregate.state)].map((state) => ({
-          status: state.status,
-          quantityCap: state.quantityCap,
-        })),
-        supply.available_quantity,
-      );
-      const registrationEvents = decideInventoryListingCapacity(capacity.state, {
-        type: "RegisterInventoryListings",
-        inventoryItemId,
-        listingIds: registeredListingIds,
-      });
-      const capacityEvents = [
-        ...registrationEvents,
-        ...decideInventoryListingCapacity(
-          applyEvents(capacity.state, evolveInventoryListingCapacity, registrationEvents),
-          {
-            type: "CommitInventoryListingCapacity",
-            inventoryItemId,
-            listingId,
-            quantityCap: nextListing.quantityCap,
-          },
-        ),
-      ];
-
-      try {
-        const results = await appendToStreams([
-          {
-            streamId: capacityStreamId,
-            expectedVersion: capacity.version,
-            context,
-            events: capacityEvents.map(capacityCodec.encode),
-          },
-          {
-            streamId: listingStreamId,
-            expectedVersion: listing.version,
-            context,
-            events: listingEvents.map(listingCodec.encode),
-          },
-        ]);
-        recordCommittedEvents(results.flatMap((result) => result.storedEvents));
-        repository.scheduleSnapshot?.({
-          streamId: listingStreamId,
-          priorVersion: listing.version,
-          version: listing.version + listingEvents.length,
-          state: nextListing,
-        });
-        return listing.version + listingEvents.length;
-      } catch (error) {
-        if (!isConcurrencyConflict(error) || attempt === 4) {
-          throw error;
-        }
-      }
-    }
-    throw new Error("Inventory listing capacity write did not converge.");
   }
 
   async function reconcileInventoryCapacity(inventoryItemId: string) {
@@ -1437,6 +1350,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           fence: ListingAuthorityFence;
           operation: ListingAuthorityOperation;
           reservations: readonly ListingAuthorityReservation[];
+          product: CatalogListingAuthorityFacts;
         }>
       | undefined;
     assert(context.audit.forAccountId === params.accountId, "Listing not found.");
@@ -1466,7 +1380,6 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     const supply = await getInventoryItemSupply(deps.db, params.inventoryItemId, params.accountId);
     assert(supply, "Inventory item not found.");
     async function prepareCreationAuthority() {
-      if (publicationScope !== "channel-only") return undefined;
       assert(supply, "Inventory item not found.");
       assert(deps.listingTargetAuthority, "Listing target authority is unavailable.");
       const fence = createListingAuthorityFence({
@@ -1502,7 +1415,14 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           expectedTargetRevision: null,
           expectedVisibilityRevision: null,
           expectedPublicationRevision: null,
-          participants: [{ owner: "identity", purpose: "manage-listing" }],
+          participants: [
+            { owner: "identity", purpose: "manage-listing" },
+            { owner: "inventory", purpose: "stock-allocation" },
+            { owner: "catalog", purpose: "product-measures" },
+            ...(publicationScope === "native"
+              ? [{ owner: "commercial-terms" as const, purpose: "native-fee" as const }]
+              : []),
+          ],
         },
         context,
       );
@@ -1516,17 +1436,50 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           capability.value && capability.reservations.length > 0,
           "Current listings.manage capability is required.",
         );
-        return { fence, operation, reservations: capability.reservations };
+        assert(deps.listingTargetAuthority.readInventory, "Current Inventory authority is unavailable.");
+        const inventory = await deps.listingTargetAuthority.readInventory(
+          { accountId: params.accountId, inventoryItemIds: [params.inventoryItemId] },
+          operation,
+        );
+        const owned = inventory[0];
+        assert(
+          inventory.length === 1 &&
+            owned?.value &&
+            owned.reservations.length > 0 &&
+            owned.value.accountId === params.accountId &&
+            owned.value.inventoryItemId === params.inventoryItemId &&
+            owned.value.catalogItemId === operation.subject.catalogItemId &&
+            owned.value.productId === operation.subject.productId &&
+            Number.isSafeInteger(owned.value.availableQuantity) &&
+            owned.value.availableQuantity >= params.quantityCap,
+          "Listing quantity exceeds current owned Inventory availability.",
+        );
+        assert(deps.listingTargetAuthority.readCatalogProduct, "Current Catalog Product authority is unavailable.");
+        const product = await deps.listingTargetAuthority.readCatalogProduct(operation, context);
+        assert(
+          product.reservations.length > 0 &&
+            product.value.catalogItemId === operation.subject.catalogItemId &&
+            product.value.productId === operation.subject.productId &&
+            JSON.stringify(product.value.selectedOptions) === JSON.stringify(operation.subject.selectedOptions),
+          "Current Catalog Product identity is required.",
+        );
+        const reservations = [...capability.reservations, ...owned.reservations, ...product.reservations];
+        if (quote) {
+          assert(deps.listingTargetAuthority.verifyNativeFeeQuote, "Current native fee authority is unavailable.");
+          const verified = await deps.listingTargetAuthority.verifyNativeFeeQuote(
+            { accountId: params.accountId, quote },
+            operation,
+          );
+          assert(verified.value && verified.reservations.length > 0, "Current native fee authority is required.");
+          reservations.push(...verified.reservations);
+        }
+        return { fence, operation, reservations, product: product.value };
       } catch (error) {
         await fence.abort(operation, "creation-preparation-failed");
         await fence.settle(operation);
         throw error;
       }
     }
-    assert(
-      publicationScope === "native" || supply.available_quantity >= params.quantityCap,
-      "Listing quantity exceeds current Inventory availability.",
-    );
     const quote = publicationScope === "native" ? await quoteListingTerms(params.accountId, params.priceAmount) : null;
     const evidence = await normalizePhotoUploads({
       accountId: params.accountId,
@@ -1571,7 +1524,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           itemSubtitle: supply.item_subtitle,
           selectedOptions: supply.selected_options,
           productSummary: supply.product_summary,
-          productMeasureSnapshot: supply.product_measure_snapshot,
+          productMeasureSnapshot: creationAuthority.product.productMeasureSnapshot,
           gradedCard: supply.graded_card,
           storageLocationName: supply.storage_location_name,
           shipFromCode: supply.ship_from_code,
@@ -1611,15 +1564,15 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       "Listing creation request changed.",
     );
     const listingId = String(created.payload.listingId) as ListingId;
+    if (created.metadata.authorityOperation) {
+      const fence = createListingAuthorityFence({
+        eventStore: deps.eventStore,
+        owner: "marketplace",
+        participants: deps.listingTargetAuthority?.participants ?? [],
+      });
+      await fence.settle(created.metadata.authorityOperation as ListingAuthorityOperation);
+    }
     if (created.payload.publicationScope === "channel-only") {
-      if (created.metadata.authorityOperation) {
-        const fence = createListingAuthorityFence({
-          eventStore: deps.eventStore,
-          owner: "marketplace",
-          participants: deps.listingTargetAuthority?.participants ?? [],
-        });
-        await fence.settle(created.metadata.authorityOperation as ListingAuthorityOperation);
-      }
       return { listingId, version: created.streamVersion, nativeFeeState: "not-enrolled", feeQuoteFingerprint: null };
     }
     const feeQuoteFingerprint = created.payload.feeQuoteFingerprint;
@@ -1756,6 +1709,10 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         command: {
           type: "SetNativeListingVisibility",
           nativeVisibility: "enabled",
+          csatOutcomeFact: createListingPublishedCsatOutcomeFact({
+            accountId: listing.accountId,
+            listingId: input.listingId,
+          }),
           evidenceRequirements,
           productMeasureSnapshot,
           productMeasureRevision,
@@ -2136,35 +2093,47 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     updateListingPrice: targetServices.updateNativePrice,
     applyBulkListingPriceUpdates: targetServices.applyNativePrices,
     updateListingQuantityCap: async (params, context) => {
-      const listing = await loadOwnedListingState(params.listingId, params.accountId);
-      assert(listing.priceAmount, "Listing price is missing.");
-      const addedUnitCount = Math.max(0, params.quantityCap - listing.quantityCap);
-      const quote =
-        addedUnitCount > 0 && listing.nativeVisibility === "enabled"
-          ? await quoteListingTerms(params.accountId, listing.priceAmount)
-          : null;
-      if (quote) {
-        assertConfirmedFeeQuote(params.feeQuoteFingerprint, quote);
-      }
-
-      const command = {
-        type: "UpdateListingQuantityCap",
-        quantityCap: params.quantityCap,
-        purchaseLimits: params.purchaseLimits,
-        addedUnitsFeeLock: quote ? feeLockFromMarketplaceTermsQuote(addedUnitCount, quote) : null,
-      } as const satisfies MarketplaceListingCommand;
-      const version =
-        listing.status === "active"
-          ? await commitCapacityBoundListingCommand(params.listingId, params.accountId, command, context)
-          : (
-              await commandHandler({
-                streamId: `marketplace.listing-${params.listingId}`,
-                command,
-                context,
-              })
-            ).version;
-
-      return { listingId: params.listingId, version };
+      return targetServices.commitCapacity(
+        params,
+        context,
+        {
+          type: "UpdateListingQuantityCap",
+          accountId: params.accountId,
+          listingId: params.listingId,
+          quantityCap: params.quantityCap,
+          purchaseLimits: toJsonValue(params.purchaseLimits ?? null),
+          feeQuoteFingerprint: params.feeQuoteFingerprint ?? null,
+          expectedVersion: params.expectedVersion ?? null,
+        },
+        async (listing, operation) => {
+          assert(listing.priceAmount, "Listing price is missing.");
+          const addedUnitCount = Math.max(0, params.quantityCap - listing.quantityCap);
+          const quote =
+            addedUnitCount > 0 && listing.nativeVisibility === "enabled"
+              ? await quoteListingTerms(params.accountId, listing.priceAmount)
+              : null;
+          const reservations: ListingAuthorityReservation[] = [];
+          if (quote) {
+            assertConfirmedFeeQuote(params.feeQuoteFingerprint, quote);
+            assert(deps.listingTargetAuthority?.verifyNativeFeeQuote, "Current native fee authority is unavailable.");
+            const verified = await deps.listingTargetAuthority.verifyNativeFeeQuote(
+              { accountId: params.accountId, quote },
+              operation,
+            );
+            assert(verified.value && verified.reservations.length > 0, "Current native fee authority is required.");
+            reservations.push(...verified.reservations);
+          }
+          return {
+            command: {
+              type: "UpdateListingQuantityCap",
+              quantityCap: params.quantityCap,
+              purchaseLimits: params.purchaseLimits,
+              addedUnitsFeeLock: quote ? feeLockFromMarketplaceTermsQuote(addedUnitCount, quote) : null,
+            },
+            reservations,
+          };
+        },
+      );
     },
     updateListingPurchaseLimits: async (params, context) => {
       await loadOwnedListingState(params.listingId, params.accountId);
@@ -2180,44 +2149,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
 
       return { listingId: params.listingId, version: result.version };
     },
-    publishListing: async (params, context) => {
-      const listing = await loadOwnedListingState(params.listingId, params.accountId);
-      assert(listing.inventoryItemId, "Listing inventory item is missing.");
-      assert(listing.priceAmount, "Listing price is missing.");
-      assert(listing.productMeasureSnapshot, "Listings require a resolved shipping measure before publication.");
-      const evaluatedAt = new Date().toISOString();
-      const evidenceRequirements = await resolveEvidenceRequirementsForListing(listing, evaluatedAt);
-      await commandHandler({
-        streamId: `marketplace.listing-${params.listingId}`,
-        command: { type: "RefreshListingEvidenceRequirements", evidenceRequirements },
-        context,
-      });
-      const readiness = await evaluateListingReadiness(listing, evidenceRequirements, evaluatedAt);
-      if (!readiness.ready) {
-        const evidenceReadiness = buildMarketplaceListingEvidenceReadiness(
-          evidenceRequirements,
-          listing.evidence,
-          readiness,
-        );
-        throw new MarketplaceListingEvidenceIncompleteError(evidenceReadiness);
-      }
-      const version = await commitCapacityBoundListingCommand(
-        params.listingId,
-        params.accountId,
-        {
-          type: "PublishListing",
-          readiness,
-          allowAlreadyActiveNoOp: params.idempotencyKey?.startsWith("repricing:"),
-          csatOutcomeFact: createListingPublishedCsatOutcomeFact({
-            accountId: params.accountId,
-            listingId: params.listingId,
-          }),
-        },
-        context,
-      );
-
-      return { listingId: params.listingId, version };
-    },
+    publishListing: targetServices.publishNative,
     pauseListing: async (params, context) => {
       await loadOwnedListingState(params.listingId, params.accountId);
 
