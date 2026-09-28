@@ -13,6 +13,24 @@ it("persists closure before remote invalidation; unknown consumer never reaches 
   const operation = await f.fence.open(f.input, f.context);
   await f.source.prepare(operation, f.context);
   const sql = sqlFixture({ effects: 0 }, (data, query) => {
+    if (query.includes("FROM event_store_events pending")) {
+      const rows = [...f.sourceMemory.streams.values()].flatMap((history) =>
+        history
+          .filter(
+            (event) =>
+              event.eventType === "pricing.listing-authority.invalidation-started" &&
+              (event.payload.intent as { command?: { kind?: string } } | undefined)?.command?.kind ===
+                "synthetic-effect" &&
+              !history.some((terminal) => terminal.eventType === "pricing.listing-authority.invalidation-completed"),
+          )
+          .map((event) => ({
+            global_position: String(event.globalPosition),
+            tenant_id: event.tenantId,
+            payload: event.payload,
+          })),
+      );
+      return { rows };
+    }
     expect(query).toBe("synthetic-effect");
     data.effects++;
     return { rows: [] };
@@ -50,6 +68,7 @@ it("persists closure before remote invalidation; unknown consumer never reaches 
   expect(sql.receipts.size).toBe(1);
   expect((await restarted.source.inspectInvalidation(f.context.tenantId, mutationId))?.status).toBe("pending");
   const recovered = writer(f.restart().source);
+  expect((await recovered.recover({ limit: 1 })).outcomes).toEqual([{ mutationId, status: "resumed", error: null }]);
   expect(await recovered.resume(mutationId, command.context)).toEqual({ effect: 1 });
   expect(await recovered.run(mutationId, command)).toEqual({ effect: 1 });
   expect(sql.data.effects).toBe(1);
