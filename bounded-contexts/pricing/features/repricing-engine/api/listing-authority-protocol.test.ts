@@ -215,7 +215,7 @@ it("never completes revocation over a lost resource and integrity pair while a p
   await expect(
     (async () => {
       await f.consumerStore.appendToStreams!([
-        delayedCommit,
+        ...delayedCommit,
         {
           streamId: "marketplace.synthetic-paired-loss-pricing-effect",
           expectedVersion: 0,
