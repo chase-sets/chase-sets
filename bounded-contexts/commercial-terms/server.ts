@@ -1,4 +1,9 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+export {
+  createCommercialTermsListingAuthority,
+  type CommercialTermsListingAuthorityPorts,
+} from "./features/resolutions/api/listing-authority";
+export type { CommercialTermsAccountFacts } from "./features/resolutions/read-model/resolve";
 import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
 import {
   createCommercialTermsResolver,

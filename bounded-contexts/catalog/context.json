@@ -59,6 +59,11 @@
   "seedRequirements": [],
   "hostPorts": [
     {
+      "portName": "listingAuthorityConsumer",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Binds authenticated committing-owner fences for Catalog Product and measure reservations."
+    },
+    {
       "portName": "catalogAssetStorage",
       "providedBy": "platform-api",
       "purpose": "Stores Catalog-owned provider asset bytes and returns public URLs for Source Observation promotion."

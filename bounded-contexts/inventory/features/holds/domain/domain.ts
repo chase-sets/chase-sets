@@ -212,7 +212,10 @@ export const decideInventoryHold: AggregateDecider<InventoryHoldState, Inventory
     case "ConvertInventoryHold":
       requireCreatedInventoryHold(state);
       assert(state.status === "active", "Only active holds can be converted.");
-      assert(state.purpose === "checkout", "Only checkout inventory holds can be converted to orders.");
+      assert(
+        state.purpose === "checkout" || state.purpose === "offer",
+        "Only checkout or accepted Offer holds can be converted to orders.",
+      );
       return [
         {
           type: "inventory.hold.converted",
@@ -342,7 +345,7 @@ function validateHoldPurpose(purpose: InventoryHoldPurpose) {
     `Unsupported inventory hold purpose: ${String(purpose)}.`,
   );
   assert(
-    purpose === "order" || purpose === "manual" || purpose === "checkout",
+    purpose === "order" || purpose === "offer" || purpose === "manual" || purpose === "checkout",
     `Inventory hold purpose ${purpose} is planned but not active yet.`,
   );
 }
@@ -355,6 +358,15 @@ function validateReleaseReason(releaseReason: InventoryHoldReleaseReason) {
 }
 
 function validateHoldSourceRef(purpose: InventoryHoldPurpose, sourceRef: InventoryHoldSourceRef) {
+  if (purpose === "offer") {
+    assert(sourceRef !== null && "offerId" in sourceRef, "Offer inventory holds require an Offer source reference.");
+    assert(normalizeLabel(sourceRef.offerId).length > 0, "Offer inventory holds require an Offer id.");
+    assert(
+      normalizeLabel(sourceRef.reservationRequestId).length > 0,
+      "Offer inventory holds require a reservation request id.",
+    );
+    return;
+  }
   if (purpose === "order") {
     assert(sourceRef !== null, "Order inventory holds require a source reference.");
     assert("orderId" in sourceRef, "Order inventory holds require an order source reference.");
@@ -381,7 +393,7 @@ function validateHoldSourceRef(purpose: InventoryHoldPurpose, sourceRef: Invento
 }
 
 function validateHoldExpiry(purpose: InventoryHoldPurpose, expiresAt: string | null) {
-  if (purpose === "order" || purpose === "manual") {
+  if (purpose === "order" || purpose === "offer" || purpose === "manual") {
     assert(expiresAt === null, `${purpose} inventory holds do not expire automatically.`);
     return;
   }
@@ -406,6 +418,13 @@ function normalizeHoldSourceRef(sourceRef: InventoryHoldSourceRef): InventoryHol
     return {
       checkoutSessionId: normalizeLabel(sourceRef.checkoutSessionId) as never,
       lineKey: normalizeLabel(sourceRef.lineKey),
+    };
+  }
+
+  if ("offerId" in sourceRef) {
+    return {
+      offerId: normalizeLabel(sourceRef.offerId),
+      reservationRequestId: normalizeLabel(sourceRef.reservationRequestId),
     };
   }
 

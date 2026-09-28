@@ -1,7 +1,7 @@
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { createEventStoreError, type AppendToStreamsResult, type EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
-import type { ListingAuthorityOwner } from "@chase-sets/event-core/listing-authority";
+import type { ListingAuthorityOwner, ListingAuthorityOperation } from "@chase-sets/event-core/listing-authority";
 import type { ListingAuthoritySource } from "./listing-authority-participant";
 import { assertSameAuthority, authorityHash, authorityPayload } from "./listing-authority-state";
 
@@ -19,7 +19,7 @@ export function createListingAuthorityWriter(
   if (!atomic) throw new Error("Authority writers require atomic source appends.");
 
   async function append(inputs: readonly AppendToStreamInput[]): Promise<readonly AppendToStreamsResult[]> {
-    const resources = await deps.resources(inputs);
+    let resources = await deps.resources(inputs);
     if (!resources.length) return atomic!(inputs);
     const context = inputs[0]?.context;
     if (!context || inputs.some((input) => input.context.tenantId !== context.tenantId)) {
@@ -30,21 +30,37 @@ export function createListingAuthorityWriter(
     }
     const command = authorityPayload({ inputs });
     const mutationId = `writer-${authorityHash(command)}`;
+    const prior = await deps.source.inspectInvalidation(context.tenantId, mutationId);
+    if (prior) resources = prior.intent.resources;
     const receiptStream = `${deps.owner}.listing-authority-write-${authorityHash([context.tenantId, mutationId])}`;
+    const localCommits: ListingAuthorityOperation[] = [];
+    for (const input of inputs) {
+      if (input.events.some((event) => event.eventType === `${deps.owner}.listing-authority-operation.committed`)) {
+        const history = await readCompleteStream(raw, { streamId: input.streamId });
+        const operation = history[0]?.payload.operation as unknown as ListingAuthorityOperation | undefined;
+        if (!operation || input.streamId !== `${deps.owner}.listing-authority-operation-${operation.operationId}`)
+          throw new Error("Source-local commit lost its operation history.");
+        localCommits.push(operation);
+      }
+    }
     await deps.source.mutate({
       resources,
       mutationId,
       command,
       context,
+      localCommits,
       prepare: async () => {
         // Closure prevents new grants. A previous writer may have won before closure;
         // reject its stale successor durably rather than stranding the predicate closed.
-        let conflict = false;
+        const currentResources = await deps.resources(inputs);
+        let conflict =
+          authorityHash([...new Set(currentResources)].sort()) !== authorityHash([...new Set(resources)].sort());
         for (const input of inputs) {
           const events = await readCompleteStream(raw, { streamId: input.streamId });
           const version = events.at(-1)?.streamVersion ?? 0;
           const expected = input.expectedVersion === "no_stream" ? 0 : input.expectedVersion;
           if (version !== expected) conflict = true;
+          if (input.authorizationDeadline && !(Date.now() < Date.parse(input.authorizationDeadline))) conflict = true;
         }
         return [
           ...(conflict ? [] : inputs),

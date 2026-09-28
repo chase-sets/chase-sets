@@ -1,6 +1,7 @@
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { CatalogServices } from "../../../support/authoring-support/services";
 import { seedContext } from "../../../support/seed-support/context";
+import type { ProductMeasureProfileInput } from "./runtime";
 
 export async function seedProductMeasures(
   services: CatalogServices,
@@ -8,252 +9,221 @@ export async function seedProductMeasures(
     resolveExistingCatalogItems?: boolean;
   }> = {},
 ) {
-  await services.productMeasures.upsertProfile(
-    {
-      profileId: "pmp_seed_pokemon_raw_single",
-      key: "pokemon-raw-single",
-      name: "Pokemon raw single",
-      matchBlueprintId: catalogSeedIds.blueprints.pokemonCardSingle,
-      matchSelectedOptions: [
-        {
-          dimensionId: catalogSeedIds.dimensions.form.dimensionId,
-          optionId: catalogSeedIds.dimensions.form.optionIds.raw,
-        },
-      ],
-      precedence: 10,
-      unitLengthInches: 3.5,
-      unitWidthInches: 2.5,
-      unitHeightInches: 0.012,
-      unitWeightOunces: 0.064,
-      physicalFlags: ["raw-card", "bendable"],
-      stackBehavior: "stackable-thickness",
-      confidence: "conservative-estimate",
-    },
-    seedContext,
-  );
+  const upsertProfile = (profile: ProductMeasureProfileInput) =>
+    services.productMeasures.upsertProfile(profile, seedContext);
+  await upsertProfile({
+    profileId: "pmp_seed_pokemon_raw_single",
+    key: "pokemon-raw-single",
+    name: "Pokemon raw single",
+    matchBlueprintId: catalogSeedIds.blueprints.pokemonCardSingle,
+    matchSelectedOptions: [
+      {
+        dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+        optionId: catalogSeedIds.dimensions.form.optionIds.raw,
+      },
+    ],
+    precedence: 10,
+    unitLengthInches: 3.5,
+    unitWidthInches: 2.5,
+    unitHeightInches: 0.012,
+    unitWeightOunces: 0.064,
+    physicalFlags: ["raw-card", "bendable"],
+    stackBehavior: "stackable-thickness",
+    confidence: "conservative-estimate",
+  });
 
-  await services.productMeasures.upsertProfile(
-    {
-      profileId: "pmp_seed_pokemon_psa_slab",
-      key: "pokemon-psa-slab",
-      name: "Pokemon PSA slab",
-      matchBlueprintId: catalogSeedIds.blueprints.pokemonCardSingle,
-      matchSelectedOptions: [
-        {
-          dimensionId: catalogSeedIds.dimensions.form.dimensionId,
-          optionId: catalogSeedIds.dimensions.form.optionIds.graded,
-        },
-        {
-          dimensionId: catalogSeedIds.dimensions.gradingCompany.dimensionId,
-          optionId: catalogSeedIds.dimensions.gradingCompany.optionIds.psa,
-        },
-      ],
-      precedence: 20,
-      unitLengthInches: 5.375,
-      unitWidthInches: 3.25,
-      unitHeightInches: 0.375,
-      unitWeightOunces: 2.4,
-      physicalFlags: ["slab", "rigid"],
-      stackBehavior: "stackable-height",
-      confidence: "conservative-estimate",
-    },
-    seedContext,
-  );
+  await upsertProfile({
+    profileId: "pmp_seed_pokemon_psa_slab",
+    key: "pokemon-psa-slab",
+    name: "Pokemon PSA slab",
+    matchBlueprintId: catalogSeedIds.blueprints.pokemonCardSingle,
+    matchSelectedOptions: [
+      {
+        dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+        optionId: catalogSeedIds.dimensions.form.optionIds.graded,
+      },
+      {
+        dimensionId: catalogSeedIds.dimensions.gradingCompany.dimensionId,
+        optionId: catalogSeedIds.dimensions.gradingCompany.optionIds.psa,
+      },
+    ],
+    precedence: 20,
+    unitLengthInches: 5.375,
+    unitWidthInches: 3.25,
+    unitHeightInches: 0.375,
+    unitWeightOunces: 2.4,
+    physicalFlags: ["slab", "rigid"],
+    stackBehavior: "stackable-height",
+    confidence: "conservative-estimate",
+  });
 
-  await services.productMeasures.upsertProfile(
-    {
-      profileId: "pmp_seed_pokemon_graded_slab",
-      key: "pokemon-graded-slab",
-      name: "Pokemon graded slab",
-      matchBlueprintId: catalogSeedIds.blueprints.pokemonCardSingle,
-      matchSelectedOptions: [
-        {
-          dimensionId: catalogSeedIds.dimensions.form.dimensionId,
-          optionId: catalogSeedIds.dimensions.form.optionIds.graded,
-        },
-      ],
-      precedence: 25,
-      unitLengthInches: 5.375,
-      unitWidthInches: 3.25,
-      unitHeightInches: 0.375,
-      unitWeightOunces: 2.4,
-      physicalFlags: ["slab", "rigid"],
-      stackBehavior: "stackable-height",
-      confidence: "conservative-estimate",
-    },
-    seedContext,
-  );
+  await upsertProfile({
+    profileId: "pmp_seed_pokemon_graded_slab",
+    key: "pokemon-graded-slab",
+    name: "Pokemon graded slab",
+    matchBlueprintId: catalogSeedIds.blueprints.pokemonCardSingle,
+    matchSelectedOptions: [
+      {
+        dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+        optionId: catalogSeedIds.dimensions.form.optionIds.graded,
+      },
+    ],
+    precedence: 25,
+    unitLengthInches: 5.375,
+    unitWidthInches: 3.25,
+    unitHeightInches: 0.375,
+    unitWeightOunces: 2.4,
+    physicalFlags: ["slab", "rigid"],
+    stackBehavior: "stackable-height",
+    confidence: "conservative-estimate",
+  });
 
-  await services.productMeasures.upsertProfile(
-    {
-      profileId: "pmp_seed_pokemon_booster_pack",
-      key: "pokemon-booster-pack",
-      name: "Pokemon booster pack",
-      matchBlueprintId: catalogSeedIds.blueprints.pokemonSealedProduct,
-      matchCategoryIds: [catalogSeedIds.categories.boosterPacks],
-      precedence: 30,
-      unitLengthInches: 5,
-      unitWidthInches: 2.75,
-      unitHeightInches: 0.18,
-      unitWeightOunces: 0.9,
-      physicalFlags: ["sealed"],
-      stackBehavior: "stackable-height",
-      confidence: "conservative-estimate",
-    },
-    seedContext,
-  );
+  await upsertProfile({
+    profileId: "pmp_seed_pokemon_booster_pack",
+    key: "pokemon-booster-pack",
+    name: "Pokemon booster pack",
+    matchBlueprintId: catalogSeedIds.blueprints.pokemonSealedProduct,
+    matchCategoryIds: [catalogSeedIds.categories.boosterPacks],
+    precedence: 30,
+    unitLengthInches: 5,
+    unitWidthInches: 2.75,
+    unitHeightInches: 0.18,
+    unitWeightOunces: 0.9,
+    physicalFlags: ["sealed"],
+    stackBehavior: "stackable-height",
+    confidence: "conservative-estimate",
+  });
 
-  await services.productMeasures.upsertProfile(
-    {
-      profileId: "pmp_seed_pokemon_booster_box",
-      key: "pokemon-booster-box",
-      name: "Pokemon booster box",
-      matchBlueprintId: catalogSeedIds.blueprints.pokemonSealedProduct,
-      matchCategoryIds: [catalogSeedIds.categories.boosterBoxes],
-      precedence: 40,
-      unitLengthInches: 5.5,
-      unitWidthInches: 5,
-      unitHeightInches: 2.75,
-      unitWeightOunces: 27,
-      physicalFlags: ["sealed", "rigid"],
-      stackBehavior: "non-stackable",
-      confidence: "conservative-estimate",
-    },
-    seedContext,
-  );
+  await upsertProfile({
+    profileId: "pmp_seed_pokemon_booster_box",
+    key: "pokemon-booster-box",
+    name: "Pokemon booster box",
+    matchBlueprintId: catalogSeedIds.blueprints.pokemonSealedProduct,
+    matchCategoryIds: [catalogSeedIds.categories.boosterBoxes],
+    precedence: 40,
+    unitLengthInches: 5.5,
+    unitWidthInches: 5,
+    unitHeightInches: 2.75,
+    unitWeightOunces: 27,
+    physicalFlags: ["sealed", "rigid"],
+    stackBehavior: "non-stackable",
+    confidence: "conservative-estimate",
+  });
 
-  await services.productMeasures.upsertProfile(
-    {
-      profileId: "pmp_seed_pokemon_elite_trainer_box",
-      key: "pokemon-elite-trainer-box",
-      name: "Pokemon Elite Trainer Box",
-      matchBlueprintId: catalogSeedIds.blueprints.pokemonSealedProduct,
-      matchCategoryIds: [catalogSeedIds.categories.eliteTrainerBoxes],
-      precedence: 50,
-      unitLengthInches: 7.5,
-      unitWidthInches: 6.5,
-      unitHeightInches: 3.5,
-      unitWeightOunces: 32,
-      physicalFlags: ["sealed", "rigid"],
-      stackBehavior: "non-stackable",
-      confidence: "conservative-estimate",
-    },
-    seedContext,
-  );
+  await upsertProfile({
+    profileId: "pmp_seed_pokemon_elite_trainer_box",
+    key: "pokemon-elite-trainer-box",
+    name: "Pokemon Elite Trainer Box",
+    matchBlueprintId: catalogSeedIds.blueprints.pokemonSealedProduct,
+    matchCategoryIds: [catalogSeedIds.categories.eliteTrainerBoxes],
+    precedence: 50,
+    unitLengthInches: 7.5,
+    unitWidthInches: 6.5,
+    unitHeightInches: 3.5,
+    unitWeightOunces: 32,
+    physicalFlags: ["sealed", "rigid"],
+    stackBehavior: "non-stackable",
+    confidence: "conservative-estimate",
+  });
 
-  await services.productMeasures.upsertProfile(
-    {
-      profileId: "pmp_seed_magic_raw_single",
-      key: "magic-raw-single",
-      name: "Magic raw single",
-      matchBlueprintId: catalogSeedIds.blueprints.magicCardPrint,
-      matchSelectedOptions: [
-        {
-          dimensionId: catalogSeedIds.dimensions.form.dimensionId,
-          optionId: catalogSeedIds.dimensions.form.optionIds.raw,
-        },
-      ],
-      precedence: 10,
-      unitLengthInches: 3.5,
-      unitWidthInches: 2.5,
-      unitHeightInches: 0.012,
-      unitWeightOunces: 0.064,
-      physicalFlags: ["raw-card", "bendable"],
-      stackBehavior: "stackable-thickness",
-      confidence: "conservative-estimate",
-    },
-    seedContext,
-  );
+  await upsertProfile({
+    profileId: "pmp_seed_magic_raw_single",
+    key: "magic-raw-single",
+    name: "Magic raw single",
+    matchBlueprintId: catalogSeedIds.blueprints.magicCardPrint,
+    matchSelectedOptions: [
+      {
+        dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+        optionId: catalogSeedIds.dimensions.form.optionIds.raw,
+      },
+    ],
+    precedence: 10,
+    unitLengthInches: 3.5,
+    unitWidthInches: 2.5,
+    unitHeightInches: 0.012,
+    unitWeightOunces: 0.064,
+    physicalFlags: ["raw-card", "bendable"],
+    stackBehavior: "stackable-thickness",
+    confidence: "conservative-estimate",
+  });
 
-  await services.productMeasures.upsertProfile(
-    {
-      profileId: "pmp_seed_magic_psa_slab",
-      key: "magic-psa-slab",
-      name: "Magic PSA slab",
-      matchBlueprintId: catalogSeedIds.blueprints.magicCardPrint,
-      matchSelectedOptions: [
-        {
-          dimensionId: catalogSeedIds.dimensions.form.dimensionId,
-          optionId: catalogSeedIds.dimensions.form.optionIds.graded,
-        },
-        {
-          dimensionId: catalogSeedIds.dimensions.gradingCompany.dimensionId,
-          optionId: catalogSeedIds.dimensions.gradingCompany.optionIds.psa,
-        },
-      ],
-      precedence: 20,
-      unitLengthInches: 5.375,
-      unitWidthInches: 3.25,
-      unitHeightInches: 0.375,
-      unitWeightOunces: 2.4,
-      physicalFlags: ["slab", "rigid"],
-      stackBehavior: "stackable-height",
-      confidence: "conservative-estimate",
-    },
-    seedContext,
-  );
+  await upsertProfile({
+    profileId: "pmp_seed_magic_psa_slab",
+    key: "magic-psa-slab",
+    name: "Magic PSA slab",
+    matchBlueprintId: catalogSeedIds.blueprints.magicCardPrint,
+    matchSelectedOptions: [
+      {
+        dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+        optionId: catalogSeedIds.dimensions.form.optionIds.graded,
+      },
+      {
+        dimensionId: catalogSeedIds.dimensions.gradingCompany.dimensionId,
+        optionId: catalogSeedIds.dimensions.gradingCompany.optionIds.psa,
+      },
+    ],
+    precedence: 20,
+    unitLengthInches: 5.375,
+    unitWidthInches: 3.25,
+    unitHeightInches: 0.375,
+    unitWeightOunces: 2.4,
+    physicalFlags: ["slab", "rigid"],
+    stackBehavior: "stackable-height",
+    confidence: "conservative-estimate",
+  });
 
-  await services.productMeasures.upsertProfile(
-    {
-      profileId: "pmp_seed_magic_graded_slab",
-      key: "magic-graded-slab",
-      name: "Magic graded slab",
-      matchBlueprintId: catalogSeedIds.blueprints.magicCardPrint,
-      matchSelectedOptions: [
-        {
-          dimensionId: catalogSeedIds.dimensions.form.dimensionId,
-          optionId: catalogSeedIds.dimensions.form.optionIds.graded,
-        },
-      ],
-      precedence: 25,
-      unitLengthInches: 5.375,
-      unitWidthInches: 3.25,
-      unitHeightInches: 0.375,
-      unitWeightOunces: 2.4,
-      physicalFlags: ["slab", "rigid"],
-      stackBehavior: "stackable-height",
-      confidence: "conservative-estimate",
-    },
-    seedContext,
-  );
+  await upsertProfile({
+    profileId: "pmp_seed_magic_graded_slab",
+    key: "magic-graded-slab",
+    name: "Magic graded slab",
+    matchBlueprintId: catalogSeedIds.blueprints.magicCardPrint,
+    matchSelectedOptions: [
+      {
+        dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+        optionId: catalogSeedIds.dimensions.form.optionIds.graded,
+      },
+    ],
+    precedence: 25,
+    unitLengthInches: 5.375,
+    unitWidthInches: 3.25,
+    unitHeightInches: 0.375,
+    unitWeightOunces: 2.4,
+    physicalFlags: ["slab", "rigid"],
+    stackBehavior: "stackable-height",
+    confidence: "conservative-estimate",
+  });
 
-  await services.productMeasures.upsertProfile(
-    {
-      profileId: "pmp_seed_magic_booster_pack",
-      key: "magic-booster-pack",
-      name: "Magic booster pack",
-      matchBlueprintId: catalogSeedIds.blueprints.magicSealedProduct,
-      matchCategoryIds: [catalogSeedIds.categories.magicBoosterPacks],
-      precedence: 30,
-      unitLengthInches: 5,
-      unitWidthInches: 2.75,
-      unitHeightInches: 0.18,
-      unitWeightOunces: 0.9,
-      physicalFlags: ["sealed"],
-      stackBehavior: "stackable-height",
-      confidence: "conservative-estimate",
-    },
-    seedContext,
-  );
+  await upsertProfile({
+    profileId: "pmp_seed_magic_booster_pack",
+    key: "magic-booster-pack",
+    name: "Magic booster pack",
+    matchBlueprintId: catalogSeedIds.blueprints.magicSealedProduct,
+    matchCategoryIds: [catalogSeedIds.categories.magicBoosterPacks],
+    precedence: 30,
+    unitLengthInches: 5,
+    unitWidthInches: 2.75,
+    unitHeightInches: 0.18,
+    unitWeightOunces: 0.9,
+    physicalFlags: ["sealed"],
+    stackBehavior: "stackable-height",
+    confidence: "conservative-estimate",
+  });
 
-  await services.productMeasures.upsertProfile(
-    {
-      profileId: "pmp_seed_magic_booster_box",
-      key: "magic-booster-box",
-      name: "Magic booster box",
-      matchBlueprintId: catalogSeedIds.blueprints.magicSealedProduct,
-      matchCategoryIds: [catalogSeedIds.categories.magicBoosterBoxes],
-      precedence: 40,
-      unitLengthInches: 5.5,
-      unitWidthInches: 5,
-      unitHeightInches: 2.75,
-      unitWeightOunces: 27,
-      physicalFlags: ["sealed", "rigid"],
-      stackBehavior: "non-stackable",
-      confidence: "conservative-estimate",
-    },
-    seedContext,
-  );
+  await upsertProfile({
+    profileId: "pmp_seed_magic_booster_box",
+    key: "magic-booster-box",
+    name: "Magic booster box",
+    matchBlueprintId: catalogSeedIds.blueprints.magicSealedProduct,
+    matchCategoryIds: [catalogSeedIds.categories.magicBoosterBoxes],
+    precedence: 40,
+    unitLengthInches: 5.5,
+    unitWidthInches: 5,
+    unitHeightInches: 2.75,
+    unitWeightOunces: 27,
+    physicalFlags: ["sealed", "rigid"],
+    stackBehavior: "non-stackable",
+    confidence: "conservative-estimate",
+  });
 
   if (options.resolveExistingCatalogItems ?? true) {
     await services.productMeasures.resolveAllCatalogItemMeasures(seedContext);

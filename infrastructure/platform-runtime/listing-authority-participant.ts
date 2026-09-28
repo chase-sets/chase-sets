@@ -255,9 +255,7 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
       !checked.sourceRevisions.length ||
       new Set(checked.sourceRevisions.map((revision) => revision.resourceId)).size !== checked.sourceRevisions.length ||
       checked.sourceRevisions.some((revision) => !revision.resourceId || !revision.revision) ||
-      checked.localAppends?.some(
-        (guard) => guard.context.tenantId !== operation.tenantId,
-      )
+      checked.localAppends?.some((guard) => guard.context.tenantId !== operation.tenantId)
     ) {
       throw new Error("Invalid source-owned authority revision vector or local appends.");
     }
@@ -351,13 +349,29 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
       mutationId: string;
       command: JsonObject;
       context: EventStoreContext;
+      /** Only same-store consuming operations whose terminal append joins this source mutation. */
+      localCommits?: readonly ListingAuthorityOperation[];
       prepare(): Promise<readonly AppendToStreamInput[]>;
     }>,
   ): Promise<void> {
     if (!input.mutationId || input.mutationId.length > 200) throw new Error("Authority mutation identity required.");
     if (!store.appendToStreams) throw new Error("Atomic authority persistence unavailable.");
     const ids = resources(input.resources);
-    const intent = { mutationId: input.mutationId, command: input.command };
+    const intent = {
+      mutationId: input.mutationId,
+      command: input.command,
+      ...(input.localCommits?.length ? { localCommits: input.localCommits } : {}),
+    };
+    for (const operation of input.localCommits ?? []) {
+      if (operation.committingOwner !== deps.participant.owner || operation.tenantId !== input.context.tenantId) {
+        throw new Error("Only a source-local consumer terminal can share an invalidating transaction.");
+      }
+      const opened = await authorityHistory(
+        store,
+        `${operation.committingOwner}.listing-authority-operation-${operation.operationId}`,
+      );
+      assertSameAuthority(opened.events[0]?.payload.operation, operation);
+    }
     const mutationStream = `${prefix}-mutation-${authorityHash([input.context.tenantId, input.mutationId])}`;
     const mutation = await authorityHistory(store, mutationStream);
     if (mutation.events.length) {
@@ -398,7 +412,16 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
     }
     const closed = await Promise.all(ids.map((id) => resource(input.context.tenantId, id)));
     const outstanding = new Map(closed.flatMap((scope) => [...scope.grants]));
+    const localGrants: ListingAuthorityReservation[] = [];
     for (const grant of outstanding.values()) {
+      if (input.localCommits?.some((operation) => operation.operationId === grant.operation.operationId)) {
+        assertSameAuthority(
+          input.localCommits.find((operation) => operation.operationId === grant.operation.operationId),
+          grant.operation,
+        );
+        localGrants.push(grant);
+        continue;
+      }
       // This RPC competes with commit. Inspect-then-write is deliberately not used.
       const terminal = await deps.consumer(grant.operation).invalidate(grant.operation, input.mutationId);
       assertSameAuthority(terminal.operation, grant.operation);
@@ -410,6 +433,30 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
       // settles that reservation; mutation needs only the authoritative terminal.
     }
     const appends = await input.prepare();
+    for (const grant of localGrants) {
+      const operation = grant.operation;
+      const terminal = appends.find(
+        (append) =>
+          append.streamId === `${operation.committingOwner}.listing-authority-operation-${operation.operationId}`,
+      );
+      if (terminal) {
+        if (
+          terminal.expectedVersion !== 1 ||
+          !terminal.authorizationDeadline ||
+          terminal.events.length !== 1 ||
+          terminal.events[0]!.eventType !== `${operation.committingOwner}.listing-authority-operation.committed`
+        ) {
+          throw new Error("A source-local commitment requires its guarded terminal append.");
+        }
+      } else {
+        const receipt = await deps.consumer(operation).invalidate(operation, input.mutationId);
+        assertSameAuthority(receipt.operation, operation);
+        if ((receipt.status !== "committed" && receipt.status !== "aborted") || !receipt.terminalEventId) {
+          throw new Error("Authority invalidation has no durable terminal receipt.");
+        }
+        if (listingAuthorityParticipantKey(grant.participant) === key) await settle(operation);
+      }
+    }
     const guarded = await Promise.all(ids.map((id) => resource(input.context.tenantId, id)));
     for (const scope of guarded) assertSameAuthority(scope.pending, intent);
     await store.appendToStreams([

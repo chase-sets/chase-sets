@@ -38,6 +38,7 @@
   ],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
   "allowedContextDependencies": [
+    "@chase-sets/catalog",
     "@chase-sets/commercial-terms",
     "@chase-sets/customer-feedback",
     "@chase-sets/inventory"
@@ -503,6 +504,11 @@
     }
   ],
   "hostPorts": [
+    {
+      "portName": "listingAuthority",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Binds final committing-owner fences and Identity, Catalog, and Inventory source participants for native Listing readiness and purchase commitments."
+    },
     {
       "portName": "sellerAttentionSources",
       "providedBy": "platform-api",

@@ -80,7 +80,13 @@
       "resetStrategy": "truncate-owned-tables"
     }
   ],
-  "hostPorts": [],
+  "hostPorts": [
+    {
+      "portName": "listingAuthority",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Binds authenticated consumer fences and Identity account/founder participation for native fee authorization."
+    }
+  ],
   "apiDeployables": ["platform-api"],
   "apiMounts": [
     {

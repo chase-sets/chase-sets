@@ -3,6 +3,7 @@ import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec"
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { ListingAuthorityConsumerPort, ListingAuthorityOperation } from "@chase-sets/event-core/listing-authority";
 import { toJsonValue } from "@chase-sets/primitives/json";
+import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import { createListingAuthorityParticipant } from "@chase-sets/platform-runtime/listing-authority-participant";
 import { createListingAuthorityWriter } from "@chase-sets/platform-runtime/listing-authority-writer";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
@@ -34,6 +35,16 @@ import {
 import { enumerateProducts, resolveProductMeasures } from "./runtime";
 
 export type CatalogListingAuthorityConsumer = (operation: ListingAuthorityOperation) => ListingAuthorityConsumerPort;
+
+export type CatalogListingAuthorityFacts = Readonly<{
+  catalogItemId: string;
+  productId: string;
+  blueprintId: string;
+  categoryIds: readonly string[];
+  selectedOptions: readonly Readonly<{ dimensionId: string; optionId: string }>[];
+  productMeasureSnapshot: ProductMeasureSnapshot | null;
+  productMeasureRevision: number;
+}>;
 
 export function createCatalogListingAuthority(deps: CatalogRuntimeDeps, consumer: CatalogListingAuthorityConsumer) {
   const { repository: items } = createAggregateCommandHandler({
@@ -136,6 +147,8 @@ export function createCatalogListingAuthority(deps: CatalogRuntimeDeps, consumer
         value: {
           catalogItemId: subject.catalogItemId,
           productId: product.productId,
+          blueprintId: item.state.blueprintId,
+          categoryIds: [...item.state.categoryIds],
           selectedOptions: toJsonValue(product.selectedOptions),
           productMeasureSnapshot: toJsonValue(measures[0] ?? null),
           productMeasureRevision: resolved?.streamVersion ?? 0,
@@ -200,6 +213,11 @@ export function createCatalogListingAuthority(deps: CatalogRuntimeDeps, consumer
       ).flat(),
   });
   return {
+    async readFacts(operation: ListingAuthorityOperation): Promise<CatalogListingAuthorityFacts> {
+      const grant = await source.inspect(operation);
+      if (!grant || grant.status !== "reserved") throw new Error("Catalog authority is not reserved.");
+      return grant.value as unknown as CatalogListingAuthorityFacts;
+    },
     source: {
       ...source,
       async prepare(operation: ListingAuthorityOperation, context: Parameters<typeof source.prepare>[1]) {

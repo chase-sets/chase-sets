@@ -40,6 +40,97 @@ function fixture() {
 }
 
 describe("source authority writer", () => {
+  it("rejects a changed affected-resource predicate after closure and replays that conflict", async () => {
+    const f = fixture();
+    let reads = 0;
+    const writer = createListingAuthorityWriter({
+      eventStore: f.eventStore,
+      source: f.source,
+      owner: "inventory",
+      resources: async () => (++reads === 1 ? ["synthetic-item"] : ["synthetic-item", "new-related-item"]),
+    });
+    await expect(writer.eventStore.appendToStream(f.input)).rejects.toMatchObject({ code: "concurrency_conflict" });
+    await expect(writer.eventStore.appendToStream(f.input)).rejects.toMatchObject({ code: "concurrency_conflict" });
+    expect(await f.eventStore.readStream({ streamId: f.input.streamId })).toHaveLength(0);
+    await writer.eventStore.appendToStream({
+      ...f.input,
+      events: [{ eventType: "inventory.synthetic.changed", payload: { quantity: 2 } }],
+    });
+    expect(await f.eventStore.readStream({ streamId: f.input.streamId })).toHaveLength(1);
+  });
+  it("co-commits a same-store consumer terminal instead of revoking its own native commitment", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const context: EventStoreContext = {
+      tenantId: "tnt_synthetic",
+      audit: { forAccountId: "acc_synthetic", performedByUserId: "usr_synthetic" },
+    };
+    const source = createListingAuthorityParticipant({
+      eventStore,
+      participant: { owner: "marketplace", purpose: "native-commitment" },
+      consumer: () => fence.forParticipant("marketplace"),
+      resources: () => ["synthetic-listing"],
+      validate: async (operation) => ({
+        value: { eligible: true },
+        sourceRevisions: [{ resourceId: "synthetic-listing", revision: "0" }],
+        validBefore: operation.prepareBefore,
+      }),
+    });
+    const writer = createListingAuthorityWriter({
+      eventStore,
+      source,
+      owner: "marketplace",
+      resources: async (inputs) =>
+        inputs.some((input) => input.streamId === "marketplace.synthetic-listing") ? ["synthetic-listing"] : [],
+    });
+    const fence = createListingAuthorityFence({
+      eventStore: writer.eventStore,
+      owner: "marketplace",
+      participants: [source],
+    });
+    const operation = await fence.open(
+      {
+        tenantId: context.tenantId,
+        accountId: context.audit.forAccountId,
+        actor: { kind: "user", userId: context.audit.performedByUserId },
+        committingOwner: "marketplace",
+        kind: "native-commitment",
+        requestId: "synthetic-local-commit",
+        command: {},
+        listingId: "lst_synthetic",
+        subject: {
+          inventoryItemId: "inv_synthetic",
+          catalogItemId: "cat_synthetic",
+          productId: "cat_synthetic::",
+          selectedOptions: [],
+          quantity: 1,
+          pair: { amount: "1.00", currencyCode: "USD" },
+          allocationRevision: null,
+          commitmentSourceId: "off_synthetic",
+        },
+        target: { kind: "native-marketplace" },
+        expectedListingRevision: 0,
+        expectedTargetRevision: null,
+        expectedVisibilityRevision: null,
+        expectedPublicationRevision: null,
+        participants: [source.participant],
+      },
+      context,
+    );
+    const grant = await source.prepare(operation, context);
+    await writer.eventStore.appendToStreams!([
+      {
+        streamId: "marketplace.synthetic-listing",
+        expectedVersion: 0,
+        context,
+        events: [{ eventType: "marketplace.synthetic-listing.committed", payload: {} }],
+      },
+      await fence.prepareCommit(operation, [grant], { accepted: true }),
+    ]);
+    expect((await fence.inspect(operation)).status).toBe("committed");
+    await fence.settle(operation);
+    expect((await source.inspect(operation))?.status).toBe("consumed");
+  });
+
   it("replays an exact committed mutation across restart without another business event", async () => {
     const f = fixture();
     const first = await f.restart().eventStore.appendToStream(f.input);

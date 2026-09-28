@@ -10,7 +10,7 @@ import { createInventoryListingAuthority } from "./listing-authority";
 import { createInventoryChannelStockAllocationRuntime } from "./runtime";
 import { createInventoryHoldRuntime } from "../../holds/api/runtime";
 
-async function fixture(quantity = 2) {
+async function fixture(quantity = 2, owner: "ordering" | "marketplace" = "ordering") {
   const memory = createInMemoryEventStore();
   const { eventStore: consumerStore } = createInMemoryEventStore();
   const context: EventStoreContext = {
@@ -46,7 +46,7 @@ async function fixture(quantity = 2) {
   const authority = restart();
   const fence = createListingAuthorityFence({
     eventStore: consumerStore,
-    owner: "ordering",
+    owner,
     participants: [authority.source],
   });
   await authority.eventStore.appendToStream({
@@ -74,7 +74,7 @@ async function fixture(quantity = 2) {
     tenantId: context.tenantId,
     accountId: context.audit.forAccountId,
     actor: { kind: "user", userId: context.audit.performedByUserId },
-    committingOwner: "ordering",
+    committingOwner: owner,
     kind: "native-commitment",
     requestId: "synthetic-purchase",
     command: { orderId: "ord_synthetic" },
@@ -112,6 +112,89 @@ async function fixture(quantity = 2) {
 }
 
 describe("Inventory Listing participation", () => {
+  it("retains an accepted Offer hold and converts that exact hold to its Order without claiming stock twice", async () => {
+    const f = await fixture(1, "marketplace");
+    const operation = await f.fence.open(
+      { ...f.input, subject: { ...f.input.subject, commitmentSourceId: "off_synthetic" } },
+      f.context,
+    );
+    const grant = await f.authority.source.prepare(operation, f.context);
+    const holdId = String(grant.value.holdId);
+    const placed = (await f.eventStore.readStream({ streamId: `inventory.hold-${holdId}` }))[0]!;
+    expect(placed.payload).toMatchObject({
+      purpose: "offer",
+      expiresAt: null,
+      sourceRef: { offerId: "off_synthetic" },
+    });
+    await f.consumerStore.appendToStreams!([
+      await f.fence.prepareCommit(operation, [grant], { offerId: "off_synthetic" }),
+    ]);
+    await f.fence.settle(operation);
+    const input = {
+      holdId: holdId as never,
+      accountId: "acc_synthetic" as never,
+      itemId: "inv_synthetic",
+      quantity: 1,
+      offerId: "off_synthetic",
+      orderId: "ord_from_offer",
+      reservationRequestId: "rsv_from_offer",
+    };
+    await expect(f.holds.planConvertOfferHold({ ...input, offerId: "off_wrong" }, f.context)).rejects.toThrow(
+      "accepted Offer",
+    );
+    const conversion = await f.holds.planConvertOfferHold(input, f.context);
+    expect(conversion.kind).toBe("append");
+    if (conversion.kind !== "append") throw new Error("Expected Offer hold conversion.");
+    await f.authority.eventStore.appendToStreams!([conversion.append]);
+    expect((await f.eventStore.readStream({ streamId: `inventory.hold-${holdId}` })).at(-1)?.payload).toMatchObject({
+      purpose: "order",
+      sourceRef: { orderId: "ord_from_offer" },
+    });
+    expect((await f.holds.planConvertOfferHold(input, f.context)).kind).toBe("already-converted");
+    expect([...f.memory.streams.keys()].filter((id) => id.startsWith("inventory.hold-"))).toHaveLength(1);
+  });
+
+  it("serializes two simultaneous purchases of the last unit using actual Inventory holds", async () => {
+    const f = await fixture(1);
+    const attempts = await Promise.allSettled(
+      ["first", "second"].map(async (requestId) => {
+        const operation = await f.fence.open(
+          { ...f.input, requestId, subject: { ...f.input.subject, commitmentSourceId: `ord_${requestId}` } },
+          f.context,
+        );
+        try {
+          const grant = await f.authority.source.prepare(operation, f.context);
+          await f.consumerStore.appendToStreams!([
+            await f.fence.prepareCommit(operation, [grant], { orderId: `ord_${requestId}` }),
+          ]);
+          await f.fence.settle(operation);
+          return operation;
+        } catch (error) {
+          await f.fence.abort(operation, "competing-purchase");
+          if (await f.authority.source.inspect(operation)) await f.authority.source.settle(operation);
+          throw error;
+        }
+      }),
+    );
+    expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(1);
+    const active = [...f.memory.streams.entries()].filter(
+      ([id, events]) => id.startsWith("inventory.hold-") && events.at(-1)?.eventType === "inventory.hold.placed",
+    );
+    expect(active).toHaveLength(1);
+  });
+
+  it("fences the owned stock even when a writer's audit account is a system account", async () => {
+    const f = await fixture();
+    const operation = await f.fence.open({ ...f.input, kind: "activate-channel" }, f.context);
+    await f.authority.source.prepare(operation, f.context);
+    await f.authority.eventStore.appendToStream({
+      streamId: "inventory.item-inv_synthetic",
+      expectedVersion: 1,
+      context: { ...f.context, audit: { ...f.context.audit, forAccountId: "acc_synthetic_system" } },
+      events: [{ eventType: "inventory.item.quantity-adjusted", payload: { quantityDelta: -1 } }],
+    });
+    expect((await f.fence.inspect(operation)).status).toBe("aborted");
+  });
   it("creates a real purchase hold and atomically releases it against an aborted terminal after restart", async () => {
     const f = await fixture();
     const operation = await f.fence.open(f.input, f.context);

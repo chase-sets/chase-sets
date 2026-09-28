@@ -115,10 +115,10 @@ export function createInventoryListingAuthority(
         },
       ];
       if (operation.kind === "native-commitment") {
-        // The final Ordering command supplies its real order identity. Activation
+        // The committing owner supplies its real Offer or Order identity. Activation
         // never reaches this branch and therefore never creates a stock hold.
-        if (operation.committingOwner !== "ordering" || !subject.commitmentSourceId) {
-          throw new InventoryDomainError("A purchase hold requires its final Ordering commitment identity.");
+        if (!subject.commitmentSourceId) {
+          throw new InventoryDomainError("A purchase hold requires its final Offer or Order commitment identity.");
         }
         const plan = await holdPlans.planCreateHold(
           {
@@ -127,8 +127,11 @@ export function createInventoryListingAuthority(
             itemId: subject.inventoryItemId,
             quantity: subject.quantity,
             reason: "Native purchase commitment",
-            purpose: "order",
-            sourceRef: { orderId: subject.commitmentSourceId, reservationRequestId: operation.requestId },
+            purpose: operation.committingOwner === "ordering" ? "order" : "offer",
+            sourceRef:
+              operation.committingOwner === "ordering"
+                ? { orderId: subject.commitmentSourceId, reservationRequestId: operation.requestId }
+                : { offerId: subject.commitmentSourceId, reservationRequestId: operation.requestId },
           },
           context,
         );
@@ -209,7 +212,17 @@ export function createInventoryListingAuthority(
           itemId = created.payload.itemId;
           accountId = created.payload.accountId;
         }
-        if (itemId) affected.add(resource(accountId, itemId));
+        if (itemId) {
+          const item = await items.load(`inventory.item-${itemId}`);
+          const owners = new Set<string>();
+          if (item.state.accountId) owners.add(item.state.accountId);
+          for (const event of input.events) {
+            if (typeof event.payload.accountId === "string") owners.add(event.payload.accountId);
+          }
+          if (!owners.size) throw new InventoryDomainError("Stock mutation has no authoritative Inventory owner.");
+          if (input.streamId.startsWith("inventory.hold-")) owners.add(accountId);
+          for (const owner of owners) affected.add(resource(owner, itemId));
+        }
       }
       return [...affected];
     },

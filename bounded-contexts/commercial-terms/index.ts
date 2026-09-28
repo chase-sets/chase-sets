@@ -13,17 +13,21 @@ import { buildCommercialTermsAccountProjectionHandlers } from "./features/resolu
 import { commercialTermsSchemaSql } from "./support/runtime-support/schema";
 import { commercialTermsUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { reconcileCommercialTermsBootstrapState, seedCommercialTermsDatabase } from "./support/runtime-support/seed";
-import type { CommercialTermsServices } from "./support/runtime-support/services";
+import type { CommercialTermsServices, CommercialTermsHostPorts } from "./support/runtime-support/services";
 import { createCommercialTermsServices } from "./support/runtime-support/services";
 import { buildFoundersWindowReactionHandlers } from "./features/agreements/integrations/identity/founders-window-reaction";
 
 const commercialTermsContextManifest = contextManifest as BcContextManifest;
 
-export const module = defineBoundedContextModule<CommercialTermsServices, PgTransactionalPool, void>({
+export const module = defineBoundedContextModule<
+  CommercialTermsServices,
+  PgTransactionalPool,
+  CommercialTermsHostPorts
+>({
   manifest: commercialTermsContextManifest,
   schemaSql: commercialTermsSchemaSql,
   schemaMigrations: commercialTermsUnloggedProjectionSchemaMigrations,
-  createServices: (pool) => createCommercialTermsServices(pool),
+  createServices: (pool, ports) => createCommercialTermsServices(pool, ports),
   buildApis: (services) => [
     {
       mountPath: "/api/commercial-terms",
