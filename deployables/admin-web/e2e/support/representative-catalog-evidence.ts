@@ -104,6 +104,33 @@ export function inventoryDigest(members: readonly RepresentativeCoordinate[]): s
 }
 
 export type ItemInstant = Readonly<{ id: string; updatedAt: string }>;
+export type CatalogReadItem = ItemInstant & Readonly<{ status: "draft" | "active" }>;
+type CatalogReadDigest = Readonly<{ census: string; updated: string; count: number }>;
+type ItemComparison = Readonly<{
+  catalogItemId: string | null;
+  verdict: "created" | "refreshed" | "refused" | "not-evaluated";
+  code: string | null;
+}>;
+
+export function catalogReadDigest(items: readonly CatalogReadItem[]): CatalogReadDigest {
+  const ordered = [...items].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  if (new Set(ordered.map((item) => item.id)).size !== ordered.length)
+    throw new EvidenceUnknown("duplicate-read-identity");
+  for (const item of ordered) {
+    if (!/^[A-Za-z0-9_-]+$/.test(item.id) || !["draft", "active"].includes(item.status))
+      throw new EvidenceUnknown("invalid-read-item");
+    parseInstant(item.updatedAt);
+  }
+  return {
+    census: digestValue(ordered.map(({ id, status }) => [id, status])),
+    updated: digestValue(ordered.map(({ id, updatedAt }) => [id, updatedAt])),
+    count: ordered.length,
+  };
+}
+
+function digestValue(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
 export type CatalogScope = Readonly<{ source: string; tag: string; language: string; status: "draft" | "active" }>;
 export type CatalogPage = Readonly<{
   pathname: string;
@@ -290,8 +317,8 @@ export async function readCatalogBaseline(
   page: Page,
   member: RepresentativeCoordinate,
   budget: RepresentativeBudget,
-): Promise<readonly ItemInstant[]> {
-  const items = new Map<string, ItemInstant>();
+): Promise<readonly CatalogReadItem[]> {
+  const items = new Map<string, CatalogReadItem>();
   for (const status of ["draft", "active"] as const) {
     const scope: CatalogScope = {
       source: member.providerKey,
@@ -306,7 +333,7 @@ export async function readCatalogBaseline(
     );
     for (const id of ids) {
       if (items.has(id)) throw new EvidenceUnknown("item-crossed-status-during-census");
-      items.set(id, await readUpdatedItem(page, id, scope, budget));
+      items.set(id, { ...(await readUpdatedItem(page, id, scope, budget)), status });
     }
     const reconciled = await collectCatalogCensus(
       scope,
@@ -340,37 +367,53 @@ export function evaluateCausalReadback(
     exactTarget: boolean;
     competingMutation: boolean;
   }>,
+  record: (comparison: ItemComparison) => void = () => undefined,
 ): "created" | "refreshed" {
-  if (
-    !input.exactTarget ||
-    input.competingMutation ||
-    !input.successful ||
-    input.commandState !== "completed" ||
-    input.observationId !== input.outcomeObservationId ||
-    !input.catalogItemId ||
-    !input.promotedAt
-  )
-    throw new EvidenceUnknown("unproven-command-causality");
-  const watermark = parseInstant(input.watermark);
-  const completed = parseInstant(input.completedAt);
-  const promoted = parseInstant(input.promotedAt);
-  // Two seconds permits bounded server/client skew; own baseline advancement
-  // and the command's exact observation/item join remain mandatory.
-  const skew = 2_000;
-  const item = input.after.find((candidate) => candidate.id === input.catalogItemId);
-  if (!item) throw new EvidenceUnknown("missing-causal-item");
-  const updated = parseInstant(item.updatedAt);
-  if (
-    updated < watermark - skew ||
-    updated > completed + skew ||
-    promoted < watermark - skew ||
-    promoted > completed + skew ||
-    Math.abs(updated - promoted) > skew
-  )
-    throw new EvidenceUnknown("outside-causal-interval");
-  const old = input.before.find((candidate) => candidate.id === item.id);
-  if (old && updated <= parseInstant(old.updatedAt)) throw new EvidenceUnknown("unchanged-preexisting-item");
-  return old ? "refreshed" : "created";
+  try {
+    const verdict = evaluateItem();
+    record({ catalogItemId: input.catalogItemId, verdict, code: null });
+    return verdict;
+  } catch (error) {
+    record({
+      catalogItemId: input.catalogItemId,
+      verdict: "refused",
+      code: error instanceof EvidenceUnknown ? error.code : "causal-evaluation-failed",
+    });
+    throw error;
+  }
+
+  function evaluateItem(): "created" | "refreshed" {
+    if (
+      !input.exactTarget ||
+      input.competingMutation ||
+      !input.successful ||
+      input.commandState !== "completed" ||
+      input.observationId !== input.outcomeObservationId ||
+      !input.catalogItemId ||
+      !input.promotedAt
+    )
+      throw new EvidenceUnknown("unproven-command-causality");
+    const watermark = parseInstant(input.watermark);
+    const completed = parseInstant(input.completedAt);
+    const promoted = parseInstant(input.promotedAt);
+    // Two seconds permits bounded server/client skew; own baseline advancement
+    // and the command's exact observation/item join remain mandatory.
+    const skew = 2_000;
+    const item = input.after.find((candidate) => candidate.id === input.catalogItemId);
+    if (!item) throw new EvidenceUnknown("missing-causal-item");
+    const updated = parseInstant(item.updatedAt);
+    if (
+      updated < watermark - skew ||
+      updated > completed + skew ||
+      promoted < watermark - skew ||
+      promoted > completed + skew ||
+      Math.abs(updated - promoted) > skew
+    )
+      throw new EvidenceUnknown("outside-causal-interval");
+    const old = input.before.find((candidate) => candidate.id === item.id);
+    if (old && updated <= parseInstant(old.updatedAt)) throw new EvidenceUnknown("unchanged-preexisting-item");
+    return old ? "refreshed" : "created";
+  }
 }
 
 export function activeMemberProfile(
@@ -491,11 +534,16 @@ export type MemberOutcome = Readonly<{
   updatedAt: string | null;
   absoluteCount: number | null;
   causalCount: number;
+  before: CatalogReadDigest | null;
+  after: CatalogReadDigest | null;
+  comparison: ItemComparison;
+  readbackDigest: string;
 }>;
 export type RepresentativeReceipt = Readonly<{
   version: "representative-catalog-v1";
   runId: string;
   attempt: string;
+  retry: number;
   sha: string;
   digest: string;
   members: readonly MemberOutcome[];
@@ -520,14 +568,44 @@ export function emptyMemberOutcome(member: RepresentativeCoordinate): MemberOutc
     updatedAt: null,
     absoluteCount: null,
     causalCount: 0,
+    before: null,
+    after: null,
+    comparison: { catalogItemId: null, verdict: "not-evaluated", code: null },
+    readbackDigest: "",
   };
+}
+
+type ReceiptIdentity = Pick<RepresentativeReceipt, "runId" | "attempt" | "retry" | "sha">;
+
+function memberReadbackDigest(member: RepresentativeCoordinate, identity: ReceiptIdentity, row: MemberOutcome): string {
+  const read = (value: CatalogReadDigest | null) => value && [value.census, value.updated, value.count];
+  // The ordered envelope binds both read instants, including partial/refused
+  // evidence, to the eventual command identity without retaining raw tuples.
+  return digestValue([
+    "representative-command-readback-v1",
+    inventoryDigest([member]),
+    identity.runId,
+    identity.attempt,
+    identity.retry,
+    identity.sha,
+    row.observationId,
+    row.commandJobId,
+    row.previewId,
+    row.watermark,
+    row.catalogItemId,
+    row.state,
+    row.code,
+    ["before", read(row.before)],
+    ["after", read(row.after)],
+    [row.comparison.catalogItemId, row.comparison.verdict, row.comparison.code],
+  ]);
 }
 
 export async function runRepresentativeMembers<T extends RepresentativeCoordinate>(
   members: readonly T[],
   budget: RepresentativeBudget,
   execute: (member: T, progress: { current: MemberOutcome }) => Promise<MemberOutcome>,
-  identity: Pick<RepresentativeReceipt, "runId" | "attempt" | "sha">,
+  identity: ReceiptIdentity,
 ): Promise<RepresentativeReceipt> {
   const outcomes: MemberOutcome[] = [];
   for (const member of members) {
@@ -561,7 +639,10 @@ export async function runRepresentativeMembers<T extends RepresentativeCoordinat
     version: "representative-catalog-v1",
     ...identity,
     digest: inventoryDigest(members),
-    members: outcomes,
+    members: outcomes.map((row, index) => ({
+      ...row,
+      readbackDigest: memberReadbackDigest(members[index]!, identity, row),
+    })),
     groups,
   };
   validateRepresentativeReceipt(receipt, members);
@@ -574,13 +655,15 @@ export function validateRepresentativeReceipt(
 ): void {
   if (
     Object.keys(receipt).sort().join() !==
-    ["version", "runId", "attempt", "sha", "digest", "members", "groups"].sort().join()
+    ["version", "runId", "attempt", "retry", "sha", "digest", "members", "groups"].sort().join()
   )
     throw new EvidenceUnknown("unexpected-receipt-field");
   if (
     receipt.version !== "representative-catalog-v1" ||
     !/^(?:\d+|synthetic-[a-z0-9-]+)$/.test(receipt.runId) ||
     !/^\d+$/.test(receipt.attempt) ||
+    !Number.isSafeInteger(receipt.retry) ||
+    receipt.retry < 0 ||
     !/^[a-f0-9]{40}$/.test(receipt.sha) ||
     receipt.digest !== inventoryDigest(authority)
   )
@@ -601,6 +684,56 @@ export function validateRepresentativeReceipt(
       row.group !== authority.find((member) => member.id === row.id)?.group
     )
       throw new EvidenceUnknown("invalid-receipt-member");
+    for (const read of [row.before, row.after]) {
+      if (read === null) continue;
+      if (
+        !read ||
+        Object.keys(read).sort().join() !== ["census", "updated", "count"].sort().join() ||
+        typeof read.census !== "string" ||
+        !/^[a-f0-9]{64}$/.test(read.census) ||
+        typeof read.updated !== "string" ||
+        !/^[a-f0-9]{64}$/.test(read.updated) ||
+        !Number.isSafeInteger(read.count) ||
+        read.count < 0
+      )
+        throw new EvidenceUnknown("invalid-read-digest");
+    }
+    const comparison = row.comparison;
+    if (
+      !comparison ||
+      Object.keys(comparison).sort().join() !== ["catalogItemId", "verdict", "code"].sort().join() ||
+      !["created", "refreshed", "refused", "not-evaluated"].includes(comparison.verdict) ||
+      (comparison.catalogItemId !== null &&
+        (typeof comparison.catalogItemId !== "string" || !/^[A-Za-z0-9_-]{1,256}$/.test(comparison.catalogItemId))) ||
+      (comparison.code !== null &&
+        (typeof comparison.code !== "string" || !/^[a-z0-9-]{1,256}$/.test(comparison.code))) ||
+      (comparison.verdict === "not-evaluated" && (comparison.catalogItemId !== null || comparison.code !== null)) ||
+      (comparison.verdict === "refused" &&
+        (!comparison.code || row.state !== "failed" || row.code !== comparison.code)) ||
+      (comparison.verdict !== "not-evaluated" && (!row.before || !row.after)) ||
+      (row.after !== null && row.before === null)
+    )
+      throw new EvidenceUnknown("invalid-item-comparison");
+    const causal = row.state === "created" || row.state === "refreshed";
+    if (
+      causal !== ["created", "refreshed"].includes(comparison.verdict) ||
+      (causal &&
+        (comparison.verdict !== row.state ||
+          comparison.catalogItemId !== row.catalogItemId ||
+          comparison.code !== null)) ||
+      (!causal && row.causalCount !== 0) ||
+      (causal && (!row.after?.count || (row.state === "refreshed" && !row.before?.count))) ||
+      (row.after && row.absoluteCount !== row.after.count) ||
+      (row.after && (!row.commandJobId || !row.watermark)) ||
+      (row.before && (!row.observationId || !row.selected || !row.executed))
+    )
+      throw new EvidenceUnknown("inconsistent-readback");
+    if (
+      typeof row.readbackDigest !== "string" ||
+      !/^[a-f0-9]{64}$/.test(row.readbackDigest) ||
+      row.readbackDigest !== memberReadbackDigest(authority.find((member) => member.id === row.id)!, receipt, row)
+    )
+      throw new EvidenceUnknown("readback-digest-mismatch");
     for (const key of [
       "selectedProductId",
       "observationId",
