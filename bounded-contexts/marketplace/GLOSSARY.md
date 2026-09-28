@@ -40,6 +40,14 @@ An **Accepted Listing Target Price** (`AcceptedListingTargetPriceV1`) is the exa
 
 **Native Listing Eligibility** (`NativeListingEligibilityV1`) is the owner verdict with native price, Listing, visibility and publication revisions and source freshness identity. A previously read verdict is not authority for a new commitment after the Listing changes.
 
+## Listing Authority Reservation
+
+A **Listing Authority Reservation** is a source owner's durable promise for one exact consuming operation, actor, account, Listing, target, price, quantity, source identity, and generation. It is not a stock allocation, accepted price, projected revision, or reusable bearer permission. Source invalidation must first win the consuming owner's terminal operation fence, or observe that the operation already committed. Expiry alone never releases the promise.
+
+## Listing Authority Operation
+
+A **Listing Authority Operation** binds the complete command and its closed participant set. The committing owner records either committed business effects and the exact request result in one local transaction, or a permanent abort with no successful business effects. Source owners settle reservations only from that owner's authoritative terminal receipt. An unknown outcome retains reservations; it does not permit a fresh-key retry or source reclamation.
+
 ## Listing Evidence
 
 **Listing Evidence** is the typed, policy-classified evidence collection attached to a Listing. Its current entries are seller-supplied images.

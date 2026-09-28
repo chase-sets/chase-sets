@@ -17,6 +17,51 @@ export type ListingAuthorityConformanceFixture = Readonly<{
   restart(): ListingAuthorityConformanceFixture;
 }>;
 
+/** Domain proofs supplement, rather than substitute for, the storage protocol suite. */
+export type ListingAuthorityOwnerProofs = Readonly<{
+  identity: Readonly<{
+    removalSuspensionRoleKeyBadgeAndFounderWriters: () => Promise<void>;
+    authenticatedUserAndStandingSystemAuthority: () => Promise<void>;
+  }>;
+  channels: Readonly<{
+    disconnectAndConnectionIdentityWriters: () => Promise<void>;
+    retainedAcceptanceWithoutProviderTransport: () => Promise<void>;
+  }>;
+  pricing: Readonly<{
+    exactEvaluatedPairTargetAndDecisionBinding: () => Promise<void>;
+    policyGoalAndStandingAuthorizationInvalidation: () => Promise<void>;
+    dryRunHasNoReservationsOrEmission: () => Promise<void>;
+  }>;
+  inventory: Readonly<{
+    newHoldAndAllocationPredicatePhantoms: () => Promise<void>;
+    concurrentStockClaimsUseActualHolds: () => Promise<void>;
+    inboundSaleAdmissionSurvivesConflictingReservation: () => Promise<void>;
+  }>;
+  catalog: Readonly<{
+    newProfileAndSelectionPredicatePhantoms: () => Promise<void>;
+    productAndMeasureWritersInvalidate: () => Promise<void>;
+  }>;
+  "commercial-terms": Readonly<{
+    competingScheduleAndAgreementPredicatePhantoms: () => Promise<void>;
+    effectiveTimeBoundaryAndIdentityFacts: () => Promise<void>;
+  }>;
+  marketplace: Readonly<{
+    nativeEnableFeeVisibilityAndPublicationAtomicity: () => Promise<void>;
+    nativeOffEditsWithoutFeeOrShippingParticipants: () => Promise<void>;
+    twoIndependentTargetsAndBatchFailureScope: () => Promise<void>;
+    staleCartOfferAndOrderingCommitmentsRejectWithoutCancelingPriorCommitments: () => Promise<void>;
+    availabilityEvidencePolicyAndReviewScoringWritersInvalidate: () => Promise<void>;
+  }>;
+}>;
+
+export function listingAuthorityOwnerConformance<Owner extends keyof ListingAuthorityOwnerProofs>(
+  test: (name: string, run: () => Promise<void>) => void,
+  owner: Owner,
+  proofs: ListingAuthorityOwnerProofs[Owner],
+) {
+  for (const [name, run] of Object.entries(proofs)) test(`${owner} authority: ${name}`, run);
+}
+
 export function listingAuthorityConformance(
   test: (name: string, run: () => Promise<void>) => void,
   create: () => Promise<ListingAuthorityConformanceFixture>,
@@ -100,6 +145,13 @@ export function listingAuthorityConformance(
     target: (operation) => ({ ...operation, target: { kind: "channel-connection", connectionId: "con_wrong" } }),
     pair: (operation) => ({ ...operation, command: { ...operation.command, priceCurrencyCode: "EUR" } }),
     quantity: (operation) => ({ ...operation, command: { ...operation.command, quantity: 99 } }),
+    inventory: (operation) => ({ ...operation, subject: { ...operation.subject, inventoryItemId: "inv_wrong" } }),
+    product: (operation) => ({ ...operation, subject: { ...operation.subject, productId: "cat_wrong::" } }),
+    allocation: (operation) => ({ ...operation, subject: { ...operation.subject, allocationRevision: 99 } }),
+    "commitment source": (operation) => ({
+      ...operation,
+      subject: { ...operation.subject, commitmentSourceId: "ord_wrong" },
+    }),
     revision: (operation) => ({ ...operation, expectedListingRevision: operation.expectedListingRevision + 1 }),
     generation: (operation) => ({ ...operation, generation: operation.generation + 1 }),
   };
@@ -121,6 +173,24 @@ export function listingAuthorityConformance(
     await f.restart().fence.settle(operation);
     assert.equal((await f.restart().source.inspect(operation))?.status, "consumed");
     await assert.rejects(commit(f.restart(), operation, [reservation]));
+  });
+  test("two independent target operations cannot borrow each other's reservations or terminal results", async () => {
+    const f = await create();
+    const first = await prepared(f);
+    const secondOperation = await f.fence.open(
+      {
+        ...f.input,
+        requestId: "synthetic-second-target",
+        target: { kind: "channel-connection", connectionId: "con_synthetic_second" },
+      },
+      f.context,
+    );
+    const second = await f.source.prepare(secondOperation, f.context);
+    await assert.rejects(commit(f, secondOperation, [first.reservation]));
+    await commit(f, secondOperation, [second]);
+    await commit(f, first.operation, [first.reservation]);
+    assert.equal((await f.fence.inspect(first.operation)).status, "committed");
+    assert.equal((await f.fence.inspect(secondOperation)).status, "committed");
   });
   test("expiry requires terminal abort and never releases a live source promise on elapsed time alone", async () => {
     const f = await create();

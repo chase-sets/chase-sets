@@ -190,8 +190,19 @@ function transactionLane<Item, Result>(config: BulkAppendTransactionLaneConfig<I
             (prior.expectedVersion !== input.expectedVersion || (prior.events.length > 0 && input.events.length > 0))
           ) {
             overlaps = true;
-          } else if (!prior || input.events.length > 0) {
+          } else if (!prior) {
             merged.set(input.streamId, input);
+          } else {
+            const chosen = input.events.length > 0 ? input : prior;
+            const deadlines = [prior.authorizationDeadline, input.authorizationDeadline].filter(
+              (value): value is string => value !== undefined,
+            );
+            merged.set(
+              input.streamId,
+              deadlines.length
+                ? { ...chosen, authorizationDeadline: new Date(Math.min(...deadlines.map(Date.parse))).toISOString() }
+                : chosen,
+            );
           }
         }
       }
@@ -207,10 +218,22 @@ function transactionLane<Item, Result>(config: BulkAppendTransactionLaneConfig<I
         const results = merged.size > 0 ? await append!([...merged.values()]) : [];
         const byStream = new Map(results.map((result) => [result.streamId, result.storedEvents]));
         for (const { index, transaction } of entries) {
-          await transaction.complete?.();
+          let result = transaction.result;
+          let completionError: Error | null = null;
+          try {
+            await transaction.complete?.();
+          } catch (error) {
+            // Source acknowledgements happen after commit. Their conflicts must
+            // never enter the optimistic-rollback subdivision path below.
+            try {
+              result = await transaction.recover(error);
+            } catch (failure) {
+              completionError = failure instanceof Error ? failure : new Error(String(failure));
+            }
+          }
           outcomes[index] = {
-            result: transaction.result,
-            error: null,
+            result: completionError ? null : result,
+            error: completionError,
             storedEvents: transaction.appends.flatMap((input) => byStream.get(input.streamId) ?? []),
           };
         }

@@ -7,6 +7,7 @@ import type {
   ListingAuthorityOperation,
   ListingAuthorityParticipant,
   ListingAuthorityReservation,
+  ListingAuthoritySubject,
 } from "@chase-sets/event-core/listing-authority";
 import { marketplaceListingCodec } from "../domain/codec";
 import { createEventStoreError, type EventStore } from "@chase-sets/event-core/event-store";
@@ -54,6 +55,26 @@ function validateMutation(input: ListingMutationInput) {
     Number.isSafeInteger(input.expectedListingVersion) && input.expectedListingVersion > 0,
     "Listing version is required.",
   );
+}
+
+function authoritySubject(state: MarketplaceListingState): ListingAuthoritySubject {
+  assert(
+    state.inventoryItemId && state.catalogItemId && state.productId,
+    "Listing authority product identity is incomplete.",
+  );
+  return {
+    inventoryItemId: state.inventoryItemId,
+    catalogItemId: state.catalogItemId,
+    productId: state.productId,
+    selectedOptions: state.selectedOptions,
+    quantity: state.quantityCap,
+    pair:
+      state.priceAmount && state.priceCurrencyCode
+        ? { amount: state.priceAmount, currencyCode: state.priceCurrencyCode }
+        : null,
+    allocationRevision: null,
+    commitmentSourceId: null,
+  };
 }
 
 export function createListingTargetRuntime(
@@ -152,6 +173,7 @@ export function createListingTargetRuntime(
       "External prices require a verified Pricing decision.",
     );
     const command = requestCommand ?? { type: "AcceptListingTargetPrice", ...input, ...pair };
+    const subject = authoritySubject((await owned(input.listingId, input.accountId)).state);
     const operation =
       existingOperation ??
       (await readListingRequestOperation(deps.eventStore, { ...input, command, context })) ??
@@ -165,6 +187,7 @@ export function createListingTargetRuntime(
           requestId: input.idempotencyKey,
           command,
           listingId: input.listingId,
+          subject: { ...subject, pair: { amount: pair.priceAmount, currencyCode: pair.priceCurrencyCode } },
           target: input.target,
           expectedListingRevision: input.expectedListingVersion,
           expectedTargetRevision: input.expectedTargetPriceRevision,
@@ -420,6 +443,13 @@ export function createListingTargetRuntime(
                 }
               : { kind: "native-marketplace" },
           expectedListingRevision: input.expectedListingVersion,
+          subject: {
+            ...authoritySubject(initial.state),
+            allocationRevision:
+              type === "ActivateListingForChannel"
+                ? (input as import("./target-contracts").ActivateListingForChannelInput).allocationRevision
+                : null,
+          },
           expectedTargetRevision: null,
           expectedVisibilityRevision: initial.state.nativeVisibilityRevision,
           expectedPublicationRevision: initial.state.nativePublicationRevision,

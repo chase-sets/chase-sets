@@ -2296,9 +2296,9 @@ describe("marketplace listing runtime", () => {
       );
 
       expect(outcomes.every((outcome) => outcome.outcome === "applied")).toBe(true);
-      // 3 listings at chunkSize 2 -> two transactions, each including request results and capability guards.
+      // Each row atomically commits its Listing, request result, and terminal operation fence.
       expect(appendSpy).toHaveBeenCalledTimes(2);
-      expect(appendSpy.mock.calls[0]?.[0]).toHaveLength(5);
+      expect(appendSpy.mock.calls[0]?.[0]).toHaveLength(6);
       expect(appendSpy.mock.calls[1]?.[0]).toHaveLength(3);
       expect(resolvePolicy).toHaveBeenCalledWith(
         expect.objectContaining({ policyKey: "marketplace.listing-bulk-price-update" }),

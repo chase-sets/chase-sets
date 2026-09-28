@@ -49,7 +49,7 @@ export function createSyntheticListingAuthority(consumerStore: EventStore) {
           value: {},
           sourceRevisions: [{ resourceId: streamId, revision: String(events.length) }],
           validBefore: operation.prepareBefore,
-          localGuards: [{ streamId, expectedVersion: events.length, context, events: [] }],
+          localAppends: [{ streamId, expectedVersion: events.length, context, events: [] }],
         };
       },
     });

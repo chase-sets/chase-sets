@@ -77,14 +77,33 @@ export function createListingAuthorityFence(
 
   async function open(input: ListingAuthorityOperationInput, context: EventStoreContext) {
     assertListingAuthorityParticipants(input.participants);
+    const actorValid =
+      input.actor.kind === "user" ||
+      (input.actor.kind === "standing-system" && !!input.actor.authorityId && !!input.actor.authorityRevision);
+    const targetValid =
+      input.target.kind === "native-marketplace" ||
+      (input.target.kind === "channel-connection" && !!input.target.connectionId.trim());
     if (
+      !actorValid ||
+      !targetValid ||
       input.committingOwner !== deps.owner ||
       input.tenantId !== context.tenantId ||
       input.accountId !== context.audit.forAccountId ||
       input.actor.userId !== context.audit.performedByUserId ||
-      !input.requestId ||
+      !input.requestId.trim() ||
       input.requestId.length > 200 ||
       !input.listingId ||
+      !input.subject.inventoryItemId ||
+      !input.subject.catalogItemId ||
+      !input.subject.productId ||
+      !Number.isSafeInteger(input.subject.quantity) ||
+      input.subject.quantity < 1 ||
+      [
+        input.expectedTargetRevision,
+        input.expectedVisibilityRevision,
+        input.expectedPublicationRevision,
+        input.subject.allocationRevision,
+      ].some((revision) => revision !== null && (!Number.isSafeInteger(revision) || revision < 0)) ||
       !Number.isSafeInteger(input.expectedListingRevision) ||
       input.expectedListingRevision < 0
     )
@@ -187,7 +206,10 @@ export function createListingAuthorityFence(
     for (const participant of operation.participants) {
       const port = ports.get(listingAuthorityParticipantKey(participant));
       if (!port) throw new Error("Authority settlement participant unavailable.");
-      if (await port.inspect(operation)) await port.settle(operation);
+      const reservation = await port.inspect(operation);
+      if (!reservation && status.status === "committed")
+        throw new Error("Committed authority reservation is missing; reconciliation required.");
+      if (reservation) await port.settle(operation);
     }
     return status;
   }

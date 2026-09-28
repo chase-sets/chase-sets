@@ -407,7 +407,7 @@ describe("current native enable authority", () => {
       ),
     ).rejects.toThrow("Fee quote is stale");
     await services.setNativeListingVisibility(
-      { ...enable, expectedListingVersion: 5, idempotencyKey: "synthetic-restock-enable" },
+      { ...enable, expectedListingVersion: 5, idempotencyKey: "synthetic-restock-enable-confirmed" },
       context,
     );
     expect((await services.loadListingState("lst_test")).feeLocks).toEqual([
@@ -456,10 +456,14 @@ describe("channel-only creation runtime", () => {
       "request changed",
     );
   });
-  it("rejects missing capability without any owner events", async () => {
+  it("rejects missing capability with an aborted operation and no Listing events", async () => {
     const { services, eventStore, input, context } = fixture(false);
     await expect(services.createListing(input, context)).rejects.toThrow("capability");
-    expect(await eventStore.readAll()).toHaveLength(0);
+    expect((await eventStore.readAll()).map((event) => event.eventType)).toEqual([
+      "marketplace.listing-authority-operation.opened",
+      "marketplace.listing-authority-operation.aborted",
+    ]);
+    expect(await eventStore.readStream({ streamId: "marketplace.listing-lst_test" })).toHaveLength(0);
   });
   it("includes first native enrollment and immutable tranche formulas in fee history", async () => {
     const { services, eventStore, input, context } = fixture();

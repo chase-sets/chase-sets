@@ -2,12 +2,13 @@ import { describe, it, expect, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { AggregateSnapshotStore, StoredAggregateSnapshot } from "@chase-sets/event-core/aggregate-snapshot-store";
 import type { ListingAuthorityConformanceFixture } from "./listing-authority-conformance";
 import { listingAuthorityConformance } from "./listing-authority-conformance";
 import { createListingAuthorityFence } from "./listing-authority-fence";
 import { createListingAuthorityParticipant } from "./listing-authority-participant";
 
-async function fixture() {
+async function fixture(snapshots?: AggregateSnapshotStore) {
   const { eventStore: sourceStore } = createInMemoryEventStore();
   const { eventStore: consumerStore } = createInMemoryEventStore();
   const context: EventStoreContext = {
@@ -17,6 +18,7 @@ async function fixture() {
   function restart(): ListingAuthorityConformanceFixture {
     const source = createListingAuthorityParticipant({
       eventStore: sourceStore,
+      snapshots,
       participant: { owner: "catalog", purpose: "product-measures" },
       consumer: () => fence.forParticipant("catalog"),
       resources: (operation) => [`${operation.accountId}/synthetic-product-measures`],
@@ -27,7 +29,7 @@ async function fixture() {
           value: { ready: true },
           sourceRevisions: [{ resourceId: "synthetic-product", revision: "0" }],
           validBefore: operation.prepareBefore,
-          localGuards: [{ streamId: "catalog.synthetic-product", expectedVersion: 0, context, events: [] }],
+          localAppends: [{ streamId: "catalog.synthetic-product", expectedVersion: 0, context, events: [] }],
         };
       },
     });
@@ -52,6 +54,16 @@ async function fixture() {
         requestId: "synthetic-request",
         command: { priceAmount: "12.00", priceCurrencyCode: "USD", quantity: 1 },
         listingId: "lst_synthetic",
+        subject: {
+          inventoryItemId: "inv_synthetic",
+          catalogItemId: "cat_synthetic",
+          productId: "cat_synthetic::",
+          selectedOptions: [],
+          quantity: 1,
+          pair: { amount: "12.00", currencyCode: "USD" },
+          allocationRevision: null,
+          commitmentSourceId: null,
+        },
         target: { kind: "native-marketplace" },
         expectedListingRevision: 1,
         expectedTargetRevision: 1,
@@ -82,6 +94,47 @@ async function fixture() {
 describe("durable Listing authority protocol conformance", () => listingAuthorityConformance(it, fixture));
 
 describe("Listing authority unknown outcomes and predicate serialization", () => {
+  it("does not acknowledge settlement when a committed participant reservation is missing", async () => {
+    const f = await fixture();
+    const operation = await f.fence.open(f.input, f.context);
+    const reservation = await f.source.prepare(operation, f.context);
+    const terminal = await f.fence.prepareCommit(operation, [reservation], { accepted: true });
+    await f.consumerStore.appendToStreams!([terminal]);
+    const read = vi.spyOn(f.sourceStore, "readStream").mockResolvedValueOnce([]);
+    await expect(f.fence.settle(operation)).rejects.toThrow("Committed authority reservation is missing");
+    read.mockRestore();
+    expect((await f.source.inspect(operation))?.status).toBe("reserved");
+    await f.restart().fence.settle(operation);
+    expect((await f.source.inspect(operation))?.status).toBe("consumed");
+  });
+
+  it("replays reservation tails from disposable owner snapshots without losing pending promises", async () => {
+    const snapshots = new Map<string, StoredAggregateSnapshot<unknown>>();
+    const f = await fixture({
+      loadLatest: async (streamId) => snapshots.get(streamId) ?? null,
+      save: async (snapshot) => {
+        snapshots.set(snapshot.streamId, { ...snapshot, updatedAt: "2026-09-27T00:00:00.000Z" as never });
+      },
+    });
+    const first = await f.fence.open(f.input, f.context);
+    await f.source.prepare(first, f.context);
+    const second = await f.fence.open({ ...f.input, requestId: "synthetic-snapshot-second" }, f.context);
+    await f.source.prepare(second, f.context);
+    expect(snapshots.size).toBe(1);
+    const reads = vi.spyOn(f.sourceStore, "readStream");
+    await f.restart().invalidate();
+    expect(
+      reads.mock.calls.some(
+        ([input]) => input.streamId.includes("authority-resource-") && (input.fromVersion ?? 1) > 1,
+      ),
+    ).toBe(true);
+    expect((await f.fence.inspect(first)).status).toBe("aborted");
+    expect((await f.fence.inspect(second)).status).toBe("aborted");
+    snapshots.clear();
+    await f.restart().source.settle(first);
+    await f.restart().source.settle(second);
+    expect((await f.source.inspect(first))?.status).toBe("released");
+  });
   it("recovers ambiguous prepare, commit and settle replies from authoritative histories", async () => {
     const f = await fixture();
     const operation = await f.fence.open(f.input, f.context);
@@ -92,7 +145,12 @@ describe("Listing authority unknown outcomes and predicate serialization", () =>
     });
     const reservation = await f.source.prepare(operation, f.context);
     const terminal = await f.fence.prepareCommit(operation, [reservation], { accepted: true });
-    await f.consumerStore.appendToStreams!([terminal]);
+    const consumerAppend = f.consumerStore.appendToStreams!;
+    vi.spyOn(f.consumerStore, "appendToStreams").mockImplementationOnce(async (appends) => {
+      await consumerAppend(appends);
+      throw new Error("lost commit reply");
+    });
+    await expect(f.consumerStore.appendToStreams!([terminal])).rejects.toThrow("lost commit reply");
     const restarted = f.restart();
     expect((await restarted.fence.inspect(operation)).status).toBe("committed");
     vi.spyOn(f.sourceStore, "appendToStreams").mockImplementationOnce(async (appends) => {
@@ -132,5 +190,24 @@ describe("Listing authority unknown outcomes and predicate serialization", () =>
     });
     await expect(f.source.prepare(operation, f.context)).rejects.toThrow();
     expect(await f.source.inspect(operation)).toBeNull();
+  });
+
+  it("missing authoritative consumer history is unknown, never permission to release", async () => {
+    const f = await fixture();
+    const operation = await f.fence.open(f.input, f.context);
+    await f.source.prepare(operation, f.context);
+    const spy = vi.spyOn(f.consumerStore, "readStream").mockResolvedValueOnce([]);
+    await expect(f.source.settle(operation)).rejects.toThrow("retain source promise");
+    spy.mockRestore();
+    expect((await f.source.inspect(operation))?.status).toBe("reserved");
+  });
+
+  it("only a bound authenticated owner can invalidate the consumer", async () => {
+    const f = await fixture();
+    const operation = await f.fence.open(f.input, f.context);
+    expect(() => f.fence.forParticipant("identity").invalidate(operation, "unbound")).toThrow(
+      "Unbound authority owner",
+    );
+    expect((await f.fence.inspect(operation)).status).toBe("pending");
   });
 });

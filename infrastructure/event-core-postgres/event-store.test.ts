@@ -682,6 +682,44 @@ describe("postgres event store independent multi-stream appends", () => {
     expect(calls.filter(isEventInsertCall).every((call) => call.params!.length <= 65_535)).toBe(true);
   });
 
+  it.each([true, false])(
+    "checks authority validity with the database clock after write locks (valid=%s)",
+    async (valid) => {
+      const { pool, calls } = createIndependentAppendPool({ authorityValid: valid });
+      const store = createPostgresEventStore({
+        pool,
+        now: () => NOW as never,
+        createEventId: createSequentialEventId(),
+      });
+      const append = store.appendToStreams!([
+        independentInput({
+          streamId: "marketplace.listing-authority-operation-test",
+          authorizationDeadline: "2026-06-10T12:01:00.000Z",
+        }),
+        independentInput({ streamId: "marketplace.listing-test" }),
+      ]);
+      if (valid) await expect(append).resolves.toHaveLength(2);
+      else await expect(append).rejects.toMatchObject({ code: "concurrency_conflict" });
+      const boundaryIndex = calls.findIndex(
+        (call) => call.sql === "SELECT clock_timestamp() < $1::timestamptz AS valid",
+      );
+      expect(boundaryIndex).toBeGreaterThan(calls.findIndex(isEventInsertCall));
+      expect(calls[boundaryIndex]!.params).toEqual(["2026-06-10T12:01:00.000Z"]);
+      expect(calls.at(-1)?.sql).toBe(valid ? "COMMIT" : "ROLLBACK");
+      expect(calls.some((call) => call.sql === (valid ? "ROLLBACK" : "COMMIT"))).toBe(false);
+    },
+  );
+
+  it("refuses an authority deadline on append methods without the complete atomic authorization boundary", async () => {
+    const { pool, calls } = createIndependentAppendPool();
+    const store = createPostgresEventStore({ pool });
+    const input = independentInput({ authorizationDeadline: "2026-06-10T12:01:00.000Z" });
+    await expect(store.appendToStream(input)).rejects.toThrow("atomic appendToStreams");
+    await expect(store.appendToStreamsIndependently!([input])).rejects.toThrow("atomic appendToStreams");
+    await expect(store.appendToStreamInTransaction(pool, input)).rejects.toThrow("atomic appendToStreams");
+    expect(calls).toHaveLength(0);
+  });
+
   it("batches atomic owner and request writes behind one append fence while retaining pure guards", async () => {
     const { pool, calls } = createIndependentAppendPool();
     const store = createPostgresEventStore({ pool, now: () => NOW as never, createEventId: createSequentialEventId() });
@@ -1202,7 +1240,7 @@ function createAppendPool(
 }
 
 function createIndependentAppendPool(
-  options: Readonly<{ versions?: Readonly<Record<string, number>> }> = {},
+  options: Readonly<{ versions?: Readonly<Record<string, number>>; authorityValid?: boolean }> = {},
 ): Readonly<{ pool: PgTransactionalPool; calls: QueryCall[] }> {
   const calls: QueryCall[] = [];
   let insertCount = 0;
@@ -1218,6 +1256,10 @@ function createIndependentAppendPool(
 
       if (normalizedSql === "SELECT pg_notify($1, $2)") {
         return { rows: [], rowCount: 1 };
+      }
+
+      if (normalizedSql === "SELECT clock_timestamp() < $1::timestamptz AS valid") {
+        return { rows: [{ valid: options.authorityValid === true }], rowCount: 1 };
       }
 
       if (normalizedSql.includes("SELECT current_version")) {

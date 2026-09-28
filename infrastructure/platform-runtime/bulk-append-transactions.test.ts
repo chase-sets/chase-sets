@@ -36,6 +36,70 @@ function fixture() {
 }
 
 describe("bulk guarded transactions", () => {
+  it("retains the earliest authorization deadline when merging a common pure guard", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const lane = createBulkAppendLane({
+      eventStore,
+      chunkSize: 2,
+      yieldIntervalMs: 0,
+      prepare: async (id: string) => ({
+        result: { id },
+        recover: async (error: unknown): Promise<{ id: string }> => {
+          throw error;
+        },
+        appends: [
+          {
+            streamId: "synthetic.shared-deadline",
+            expectedVersion: 0,
+            context,
+            events: [],
+            authorizationDeadline: id === "a" ? "2999-01-01T00:00:00.000Z" : "2000-01-01T00:00:00.000Z",
+          },
+          {
+            streamId: id,
+            expectedVersion: 0,
+            context,
+            events: [{ eventType: "synthetic.committed", payload: { id } }],
+          },
+        ],
+      }),
+    });
+    const outcomes = await lane(["a", "b"]);
+    expect(outcomes[0]?.result).toEqual({ id: "a" });
+    expect(outcomes[1]?.error).toMatchObject({ code: "concurrency_conflict" });
+    expect(await eventStore.readStream({ streamId: "b" })).toHaveLength(0);
+  });
+  it("does not subdivide or resend a committed batch when source acknowledgement conflicts", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const append = vi.spyOn(eventStore, "appendToStreams");
+    const recover = vi.fn(async (id: string) => {
+      expect(await eventStore.readStream({ streamId: id })).toHaveLength(1);
+      return { id };
+    });
+    const lane = createBulkAppendLane({
+      eventStore,
+      chunkSize: 2,
+      yieldIntervalMs: 0,
+      prepare: async (id: string) => ({
+        result: { id },
+        appends: [
+          {
+            streamId: id,
+            expectedVersion: 0,
+            context,
+            events: [{ eventType: "synthetic.committed", payload: { id } }],
+          },
+        ],
+        complete: async () => {
+          throw Object.assign(new Error("source acknowledgement raced"), { code: "concurrency_conflict" });
+        },
+        recover: () => recover(id),
+      }),
+    });
+    expect((await lane(["a", "b"])).map((outcome) => outcome.result)).toEqual([{ id: "a" }, { id: "b" }]);
+    expect(append).toHaveBeenCalledTimes(1);
+    expect(recover).toHaveBeenCalledTimes(2);
+  });
   it("amortizes complete transactions and common guards in bounded chunks", async () => {
     const { lane, append, sleep, eventStore } = fixture();
     const result = await lane(["a", "b", "c"]);

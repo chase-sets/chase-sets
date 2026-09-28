@@ -811,7 +811,10 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
             streamId: listingStreamId,
             expectedVersion: listing.version,
             context,
-            events: listingEvents.map(listingCodec.encode),
+            events: listingEvents.map((event) => ({
+              ...listingCodec.encode(event),
+              ...(authority ? { metadata: { authorityOperation: authority.operation } } : {}),
+            })),
           },
         ]);
         recordCommittedEvents(results.flatMap((result) => result.storedEvents));
@@ -1460,7 +1463,11 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       assert(existing.state.accountId === params.accountId, "Listing not found.");
       return replayListingCreation(streamId, requestFingerprint);
     }
-    if (publicationScope === "channel-only") {
+    const supply = await getInventoryItemSupply(deps.db, params.inventoryItemId, params.accountId);
+    assert(supply, "Inventory item not found.");
+    async function prepareCreationAuthority() {
+      if (publicationScope !== "channel-only") return undefined;
+      assert(supply, "Inventory item not found.");
       assert(deps.listingTargetAuthority, "Listing target authority is unavailable.");
       const fence = createListingAuthorityFence({
         eventStore: deps.eventStore,
@@ -1477,6 +1484,19 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           requestId: listingId,
           command: { type: "CreateListing", requestFingerprint },
           listingId,
+          subject: {
+            inventoryItemId: params.inventoryItemId,
+            catalogItemId: supply.catalog_catalog_item_id,
+            productId: supply.product_id,
+            selectedOptions: supply.selected_options,
+            quantity: params.quantityCap,
+            pair: {
+              amount: normalizePriceAmount(params.priceAmount),
+              currencyCode: normalizeListingPriceCurrencyCode(params.priceCurrencyCode),
+            },
+            allocationRevision: null,
+            commitmentSourceId: null,
+          },
           target: { kind: "native-marketplace" },
           expectedListingRevision: 0,
           expectedTargetRevision: null,
@@ -1486,16 +1506,23 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
         },
         context,
       );
-      const capability = await deps.listingTargetAuthority.authorizeManage(
-        { accountId: params.accountId },
-        context,
-        operation,
-      );
-      assert(capability.value && capability.reservations.length > 0, "Current listings.manage capability is required.");
-      creationAuthority = { fence, operation, reservations: capability.reservations };
+      try {
+        const capability = await deps.listingTargetAuthority.authorizeManage(
+          { accountId: params.accountId },
+          context,
+          operation,
+        );
+        assert(
+          capability.value && capability.reservations.length > 0,
+          "Current listings.manage capability is required.",
+        );
+        return { fence, operation, reservations: capability.reservations };
+      } catch (error) {
+        await fence.abort(operation, "creation-preparation-failed");
+        await fence.settle(operation);
+        throw error;
+      }
     }
-    const supply = await getInventoryItemSupply(deps.db, params.inventoryItemId, params.accountId);
-    assert(supply, "Inventory item not found.");
     assert(
       publicationScope === "native" || supply.available_quantity >= params.quantityCap,
       "Listing quantity exceeds current Inventory availability.",
@@ -1525,39 +1552,49 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       throw new Error("Listing evidence requirements are unavailable.");
     }
 
-    await commitListingCreation(
-      streamId,
-      supply.item_id,
-      {
-        type: "CreateListing",
-        requestFingerprint,
-        publicationScope,
-        listingId,
-        accountId: params.accountId,
-        inventoryItemId: supply.item_id,
-        catalogItemId: supply.catalog_catalog_item_id as CatalogItemId,
-        productId: supply.product_id as ProductKey,
-        itemLanguageCode: supply.item_language_code,
-        itemTitle: supply.item_title,
-        itemSubtitle: supply.item_subtitle,
-        selectedOptions: supply.selected_options,
-        productSummary: supply.product_summary,
-        productMeasureSnapshot: supply.product_measure_snapshot,
-        gradedCard: supply.graded_card,
-        storageLocationName: supply.storage_location_name,
-        shipFromCode: supply.ship_from_code,
-        shipFromAddress: supply.ship_from_address,
-        priceAmount: params.priceAmount,
-        priceCurrencyCode: params.priceCurrencyCode,
-        feeLock: quote ? feeLockFromMarketplaceTermsQuote(params.quantityCap, quote) : null,
-        quantityCap: params.quantityCap,
-        purchaseLimits: params.purchaseLimits,
-        evidenceRequirements,
-        evidence,
-      },
-      context,
-      creationAuthority,
-    );
+    creationAuthority = await prepareCreationAuthority();
+    try {
+      await commitListingCreation(
+        streamId,
+        supply.item_id,
+        {
+          type: "CreateListing",
+          requestFingerprint,
+          publicationScope,
+          listingId,
+          accountId: params.accountId,
+          inventoryItemId: supply.item_id,
+          catalogItemId: supply.catalog_catalog_item_id as CatalogItemId,
+          productId: supply.product_id as ProductKey,
+          itemLanguageCode: supply.item_language_code,
+          itemTitle: supply.item_title,
+          itemSubtitle: supply.item_subtitle,
+          selectedOptions: supply.selected_options,
+          productSummary: supply.product_summary,
+          productMeasureSnapshot: supply.product_measure_snapshot,
+          gradedCard: supply.graded_card,
+          storageLocationName: supply.storage_location_name,
+          shipFromCode: supply.ship_from_code,
+          shipFromAddress: supply.ship_from_address,
+          priceAmount: params.priceAmount,
+          priceCurrencyCode: params.priceCurrencyCode,
+          feeLock: quote ? feeLockFromMarketplaceTermsQuote(params.quantityCap, quote) : null,
+          quantityCap: params.quantityCap,
+          purchaseLimits: params.purchaseLimits,
+          evidenceRequirements,
+          evidence,
+        },
+        context,
+        creationAuthority,
+      );
+    } catch (error) {
+      if (creationAuthority) {
+        const terminal = await creationAuthority.fence.abort(creationAuthority.operation, "creation-failed");
+        await creationAuthority.fence.settle(creationAuthority.operation);
+        if (terminal.status === "committed") return replayListingCreation(streamId, requestFingerprint);
+      }
+      throw error;
+    }
 
     return replayListingCreation(streamId, requestFingerprint);
   }
@@ -1575,6 +1612,14 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     );
     const listingId = String(created.payload.listingId) as ListingId;
     if (created.payload.publicationScope === "channel-only") {
+      if (created.metadata.authorityOperation) {
+        const fence = createListingAuthorityFence({
+          eventStore: deps.eventStore,
+          owner: "marketplace",
+          participants: deps.listingTargetAuthority?.participants ?? [],
+        });
+        await fence.settle(created.metadata.authorityOperation as ListingAuthorityOperation);
+      }
       return { listingId, version: created.streamVersion, nativeFeeState: "not-enrolled", feeQuoteFingerprint: null };
     }
     const feeQuoteFingerprint = created.payload.feeQuoteFingerprint;

@@ -97,12 +97,12 @@ export type ListingTargetAuthority = Readonly<{
     input: Readonly<{ accountId: string; quote: MarketplaceListingTermsPreview }>,
     operation: ListingAuthorityOperation,
   ): Promise<ListingAuthorityResult<boolean>>;
-  /** Current owner facts, not unfenced projection rows. Every source revision participates in the append. */
+  /** Current owner facts backed by reservations retained through the consuming operation's terminal fence. */
   readInventory?(
     input: Readonly<{ accountId: string; inventoryItemIds: readonly string[] }>,
     operation: ListingAuthorityOperation,
   ): Promise<readonly ListingAuthorityResult<ListingInventoryAuthority | null>[]>;
-  /** Bounded Catalog, evidence-policy and seller-trust facts; Marketplace evaluates its own evidence. */
+  /** Composite facts must retain each owner's reservation; Marketplace evaluates its own evidence. */
   readNativeReadiness?(
     input: Readonly<{ accountId: string; listings: readonly ListingNativeReadinessInput[]; evaluatedAt: string }>,
     operation: ListingAuthorityOperation,

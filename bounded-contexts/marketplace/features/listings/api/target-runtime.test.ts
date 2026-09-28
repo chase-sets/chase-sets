@@ -321,7 +321,7 @@ describe("Listing target owner authority", () => {
     expect(outcomes[0]?.result?.acceptedTargetPrice.priceCurrencyCode).toBe("CAD");
     expect(outcomes[1]?.result).toEqual(outcomes[0]?.result);
     expect(outcomes[2]?.error).toContain("different command");
-    expect(append).toHaveBeenCalledTimes(3);
+    expect(append).toHaveBeenCalledTimes(2);
     expect(await eventStore.readAll()).toHaveLength(5);
     expect(
       (await eventStore.readAll()).filter(

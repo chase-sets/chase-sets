@@ -28,7 +28,14 @@ export class ListingRequestConflictError extends Error {
 
 export function listingRequestFingerprint(command: JsonObject, context: EventStoreContext): string {
   return createHash("sha256")
-    .update(canonical({ command, tenant: context.tenantId, account: context.audit.forAccountId, actor: context.audit.performedByUserId }))
+    .update(
+      canonical({
+        command,
+        tenant: context.tenantId,
+        account: context.audit.forAccountId,
+        actor: context.audit.performedByUserId,
+      }),
+    )
     .digest("hex");
 }
 

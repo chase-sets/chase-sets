@@ -1,4 +1,6 @@
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import type { AggregateSnapshotStore } from "@chase-sets/event-core/aggregate-snapshot-store";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   LISTING_AUTHORITY_RESOURCE_LIMIT,
@@ -23,13 +25,14 @@ export type ListingAuthoritySourceValidation = Readonly<{
   value: JsonObject;
   sourceRevisions: ListingAuthorityReservation["sourceRevisions"];
   validBefore: string;
-  /** Only this source owner's streams. Never passed to another context. */
-  localGuards?: readonly AppendToStreamInput[];
+  /** Source-local guards and, for real commitments, existing Inventory hold appends. Never sent to the consumer. */
+  localAppends?: readonly AppendToStreamInput[];
 }>;
 
 /** Technical persistence only. Owners supply authoritative predicates and route every conflicting writer here. */
 export type ListingAuthorityParticipantConfig = Readonly<{
   eventStore: EventStore;
+  snapshots?: AggregateSnapshotStore;
   participant: ListingAuthorityParticipant;
   consumer(operation: ListingAuthorityOperation): ListingAuthorityConsumerPort;
   resources(operation: ListingAuthorityOperation): readonly string[];
@@ -65,10 +68,29 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
 
   async function resource(tenantId: string, id: string) {
     const streamId = resourceStream(tenantId, id);
-    const history = await authorityHistory(store, streamId);
     let pending: Readonly<{ mutationId: string; command: JsonObject }> | null = null;
     const grants = new Map<string, ListingAuthorityReservation>();
-    for (const event of history.events) {
+    let version = 0;
+    try {
+      const snapshot = await deps.snapshots?.loadLatest(streamId);
+      const state = snapshot?.state as { pending?: typeof pending; grants?: ListingAuthorityReservation[] } | undefined;
+      if (
+        snapshot?.schemaVersion === 1 &&
+        snapshot.streamId === streamId &&
+        Number.isSafeInteger(snapshot.streamVersion) &&
+        snapshot.streamVersion > 0 &&
+        state?.pending !== undefined &&
+        Array.isArray(state.grants)
+      ) {
+        pending = state.pending;
+        for (const grant of state.grants) grants.set(grant.reservationId, grant);
+        version = snapshot.streamVersion;
+      }
+    } catch {
+      // Snapshots are a disposable owner-local fold cache, never release evidence.
+    }
+    const events = await readCompleteStream(store, { streamId, fromVersion: version + 1 });
+    for (const event of events) {
       if (event.eventType === `${prefix}.reserved`) {
         const grant = authorityValue<ListingAuthorityReservation>(event.payload.reservation);
         grants.set(grant.reservationId, grant);
@@ -80,7 +102,20 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
         pending = null;
       } else throw new Error("Corrupt authority resource history.");
     }
-    return { ...history, streamId, pending, grants };
+    version = events.at(-1)?.streamVersion ?? version;
+    if (version && events.length && deps.snapshots) {
+      try {
+        await deps.snapshots.save({
+          streamId,
+          streamVersion: version,
+          schemaVersion: 1,
+          state: { pending, grants: [...grants.values()] },
+        });
+      } catch {
+        // A failed cache write cannot change source or consumer authority.
+      }
+    }
+    return { version, streamId, pending, grants };
   }
 
   async function inspect(operation: ListingAuthorityOperation): Promise<ListingAuthorityReservation | null> {
@@ -89,6 +124,21 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
     const grant = authorityValue<ListingAuthorityReservation>(history.events[0]!.payload.reservation);
     assertSameAuthority(grant.operation, operation);
     const last = history.events.at(-1)!;
+    if (
+      history.events.length > 2 ||
+      history.events[0]!.eventType !== `${prefix}.reserved` ||
+      listingAuthorityParticipantKey(grant.participant) !== key ||
+      grant.status !== "reserved" ||
+      history.events.some(
+        (event) => event.tenantId !== operation.tenantId || event.forAccountId !== operation.accountId,
+      ) ||
+      (history.events.length === 2 &&
+        (last.eventType !== `${prefix}.settled` ||
+          (last.payload.status !== "consumed" && last.payload.status !== "released") ||
+          typeof last.payload.terminalEventId !== "string"))
+    ) {
+      throw new Error("Corrupt source reservation history; retain source promise.");
+    }
     return {
       ...grant,
       status: history.events.length === 1 ? "reserved" : authorityValue<"consumed" | "released">(last.payload.status),
@@ -112,6 +162,7 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
     if (prior) return prior;
     const consumer = await deps.consumer(operation).inspect(operation);
     if (consumer.status !== "pending") throw new Error("Authority consumer is not pending.");
+    assertSameAuthority(consumer.operation, operation);
     const ids = resources(deps.resources(operation));
     const scopes = await Promise.all(ids.map((id) => resource(operation.tenantId, id)));
     if (scopes.some((scope) => scope.pending || scope.grants.size >= 128))
@@ -122,7 +173,7 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
       !checked.sourceRevisions.length ||
       new Set(checked.sourceRevisions.map((revision) => revision.resourceId)).size !== checked.sourceRevisions.length ||
       checked.sourceRevisions.some((revision) => !revision.resourceId || !revision.revision) ||
-      checked.localGuards?.some(
+      checked.localAppends?.some(
         (guard) =>
           !guard.streamId.startsWith(`${deps.participant.owner}.`) || guard.context.tenantId !== operation.tenantId,
       )
@@ -143,7 +194,7 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
     const event = { eventType: `${prefix}.reserved`, payload: authorityPayload({ reservation: grant }) };
     try {
       await store.appendToStreams([
-        ...(checked.localGuards ?? []),
+        ...(checked.localAppends ?? []),
         ...scopes.map((scope) => ({
           streamId: scope.streamId,
           expectedVersion: scope.version,
@@ -170,6 +221,7 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
     if (terminal.status === "pending" || terminal.status === "unknown")
       throw new Error("Consumer outcome unresolved; retain source promise.");
     assertSameAuthority(terminal.operation, operation);
+    if (!terminal.terminalEventId) throw new Error("Authoritative terminal receipt is incomplete.");
     const status = terminal.status === "committed" ? "consumed" : "released";
     const scopes = await Promise.all(grant.resources.map((id) => resource(operation.tenantId, id)));
     const context = authorityContext(operation);
@@ -215,6 +267,13 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
     const mutationStream = `${prefix}-mutation-${authorityHash([input.context.tenantId, input.mutationId])}`;
     const mutation = await authorityHistory(store, mutationStream);
     if (mutation.events.length) {
+      if (
+        mutation.events.length > 2 ||
+        mutation.events[0]!.eventType !== `${prefix}.invalidation-started` ||
+        (mutation.events.length === 2 && mutation.events[1]!.eventType !== `${prefix}.invalidation-completed`)
+      ) {
+        throw new Error("Corrupt authority invalidation history.");
+      }
       assertSameAuthority(mutation.events[0]!.payload.intent, authorityPayload({ ...intent, resources: ids }));
       if (mutation.events.length === 2) return;
     } else {
@@ -247,7 +306,11 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
     const outstanding = new Map(closed.flatMap((scope) => [...scope.grants]));
     for (const grant of outstanding.values()) {
       // This RPC competes with commit. Inspect-then-write is deliberately not used.
-      await deps.consumer(grant.operation).invalidate(grant.operation, input.mutationId);
+      const terminal = await deps.consumer(grant.operation).invalidate(grant.operation, input.mutationId);
+      assertSameAuthority(terminal.operation, grant.operation);
+      if ((terminal.status !== "committed" && terminal.status !== "aborted") || !terminal.terminalEventId) {
+        throw new Error("Authority invalidation has no durable terminal receipt.");
+      }
       // A resource may include another purpose owned by this same context. Its owner
       // settles that reservation; mutation needs only the authoritative terminal.
     }

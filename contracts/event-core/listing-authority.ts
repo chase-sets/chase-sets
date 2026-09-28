@@ -26,6 +26,17 @@ export type ListingAuthorityParticipant = Readonly<{
   purpose: ListingAuthorityPurpose;
 }>;
 
+export type ListingAuthoritySubject = Readonly<{
+  inventoryItemId: string;
+  catalogItemId: string;
+  productId: string;
+  selectedOptions: readonly Readonly<{ dimensionId: string; optionId: string }>[];
+  quantity: number;
+  pair: Readonly<{ amount: string; currencyCode: string }> | null;
+  allocationRevision: number | null;
+  commitmentSourceId: string | null;
+}>;
+
 /** Constructed by the committing owner, never accepted from a browser body. */
 export type ListingAuthorityOperation = Readonly<{
   schemaVersion: 1;
@@ -48,6 +59,7 @@ export type ListingAuthorityOperation = Readonly<{
   commandFingerprint: string;
   command: JsonObject;
   listingId: string;
+  subject: ListingAuthoritySubject;
   target: MarketplaceListingPriceTarget;
   expectedListingRevision: number;
   expectedTargetRevision: number | null;
@@ -120,7 +132,12 @@ export function assertListingAuthorityParticipants(participants: readonly Listin
     participants.length === 0 ||
     participants.length > LISTING_AUTHORITY_PARTICIPANT_LIMIT ||
     new Set(participants.map(listingAuthorityParticipantKey)).size !== participants.length ||
-    participants.some((participant) => owners[participant.purpose] !== participant.owner)
+    participants.some(
+      (participant) =>
+        !owners[participant.purpose] ||
+        owners[participant.purpose] !== participant.owner ||
+        Object.keys(participant).some((key) => key !== "owner" && key !== "purpose"),
+    )
   ) {
     throw new Error("Invalid Listing authority participant set.");
   }
