@@ -48,6 +48,12 @@ export async function readAuthorityJournal(store: EventStore, streamId: string) 
     const proof = integrity![index]!;
     const registered = registration![index]!;
     if (
+      event.streamId !== streams[0] ||
+      proof.streamId !== streams[1] ||
+      registered.streamId !== streams[2] ||
+      !event.eventId ||
+      !proof.eventId ||
+      !registered.eventId ||
       proof.eventType !== witnessType(streamId) ||
       registered.eventType !== proof.eventType ||
       proof.payload.eventId !== event.eventId ||

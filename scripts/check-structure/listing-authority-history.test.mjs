@@ -35,7 +35,120 @@ function journalViolations(text) {
   return errors;
 }
 
+function canonicalFoldViolations(text) {
+  const file = ts.createSourceFile("resource.ts", text, ts.ScriptTarget.Latest, true);
+  let read;
+  let empty;
+  function find(node) {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === "read") read = node;
+    if (ts.isVariableDeclaration(node) && node.name.getText(file) === "empty") empty = node;
+    ts.forEachChild(node, find);
+  }
+  find(file);
+  if (!read?.body) return ["missing canonical resource reader"];
+  const compact = (node) => node.getText(file).replace(/\s/g, "");
+  const declarations = [];
+  const assignments = [];
+  const loops = [];
+  const returns = [];
+  const forbidden = [];
+  function visit(node) {
+    if (ts.isVariableDeclaration(node)) declarations.push(node);
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) assignments.push(node);
+    if (ts.isForOfStatement(node)) loops.push(node);
+    if (ts.isReturnStatement(node)) returns.push(node);
+    if (ts.isCallExpression(node) && /(?:loadLatest|readStream|readCompleteStream)$/.test(compact(node.expression)))
+      forbidden.push(node);
+    if (ts.isBreakStatement(node) || ts.isContinueStatement(node)) forbidden.push(node);
+    ts.forEachChild(node, visit);
+  }
+  visit(read.body);
+  const journal = declarations.find(
+    (node) => compact(node.initializer ?? node) === "awaitreadAuthorityJournal(store,streamId)",
+  );
+  const binds =
+    journal && ts.isObjectBindingPattern(journal.name) && journal.name.elements.map((element) => compact(element));
+  const state = declarations.find((node) => compact(node.name) === "state");
+  const canonicalLoop = loops.find(
+    (node) => compact(node.expression) === "events" && compact(node.statement) === "{state=fold(state,event);}",
+  );
+  const semanticAssignments = assignments.filter((node) =>
+    /^(state|version|events)(?:\.|\[|$)/.test(compact(node.left)),
+  );
+  const result = returns[0] && compact(returns[0]);
+  if (
+    !empty?.initializer ||
+    !ts.isArrowFunction(empty.initializer) ||
+    compact(empty.initializer.body) !== "({pending:null,grants:[]})" ||
+    !binds?.includes("events") ||
+    !binds.includes("version") ||
+    !binds.includes("histories") ||
+    compact(state?.initializer ?? read) !== "empty()" ||
+    !canonicalLoop ||
+    semanticAssignments.length !== 1 ||
+    compact(semanticAssignments[0]) !== "state=fold(state,event)" ||
+    declarations.some((node) => compact(node.name) === "version") ||
+    forbidden.length ||
+    returns.length !== 1 ||
+    returns[0] !== read.body.statements.at(-1) ||
+    !result.includes("version,pending:state.pending,grants:newMap(state.grants.map(")
+  )
+    return ["resource authority must fold the complete returned canonical history from empty state"];
+  return [];
+}
+
 describe("retained-authority structural guard", () => {
+  it("canonical fold provenance: only returned canonical events establish membership, closure and version", () => {
+    expect(canonicalFoldViolations(source("./listing-authority-resource.ts"))).toEqual([]);
+  });
+
+  it("negative control: r11 discarded history plus witness-authorized snapshot fails canonical provenance", () => {
+    const original = source("./listing-authority-resource.ts");
+    const start = original.indexOf("  async function read(streamId: string) {");
+    const end = original.indexOf("  async function append(", start);
+    expect(start).toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(start);
+    // The r11 authority shortcut, not a missing-call mutant: the journal call
+    // remains, but its events are discarded and matching witness hashes admit cache state.
+    const regressed = `  async function read(streamId: string) {
+      await readAuthorityJournal(store, streamId);
+      let state = empty();
+      let version = 0;
+      const snapshot = await deps.snapshots?.loadLatest(streamId);
+      if (snapshot?.schemaVersion === 1 && snapshot.streamId === streamId && snapshot.streamVersion > 0) {
+        const candidate = snapshot.state as ResourceState;
+        const [anchor, proof] = await Promise.all([
+          store.readStream({ streamId, fromVersion: snapshot.streamVersion, limit: 1 }),
+          store.readStream({ streamId: integrityStream(streamId), fromVersion: snapshot.streamVersion, limit: 1 }),
+        ]);
+        if (anchor[0]?.streamVersion === snapshot.streamVersion && proof[0]?.streamVersion === snapshot.streamVersion &&
+          proof[0].eventType === prefix + '.history-witness' && proof[0].payload.eventHash === eventHash(anchor[0]) &&
+          proof[0].payload.stateHash === stateHash(candidate)) {
+          state = candidate;
+          version = snapshot.streamVersion;
+        }
+      }
+      const events = await readCompleteStream(store, { streamId, fromVersion: version + 1 });
+      for (const event of events) { state = fold(state, event); version = event.streamVersion; }
+      return { streamId, version, pending: state.pending, grants: new Map(state.grants.map((grant) => [grant.reservationId, grant])) };
+    }
+`;
+    const mutant = original.slice(0, start) + regressed + original.slice(end);
+    expect(mutant).toContain("await readAuthorityJournal(store, streamId)");
+    expect(canonicalFoldViolations(mutant)).toEqual([
+      "resource authority must fold the complete returned canonical history from empty state",
+    ]);
+    expect(() => expect(canonicalFoldViolations(mutant)).toEqual([])).toThrow();
+  });
+
+  it("negative controls: a cache seed or a skipped canonical prefix fails even with a retained journal binding", () => {
+    const original = source("./listing-authority-resource.ts");
+    for (const mutant of [
+      original.replace("let state = empty();", "let state = (await deps.snapshots.loadLatest(streamId)).state;"),
+      original.replace("for (const event of events)", "for (const event of events.slice(1))"),
+    ])
+      expect(canonicalFoldViolations(mutant)).not.toEqual([]);
+  });
   it("all journal reads validate both independent histories before returning even an empty record", () => {
     expect(journalViolations(source("./listing-authority-journal.ts"))).toEqual([]);
   });
