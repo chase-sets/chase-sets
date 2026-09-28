@@ -139,7 +139,7 @@ export function createPricingListingAuthority(
       evaluationRevision: "1",
       policyId: inputs.policyId,
       policyRevision: inputs.policyRevision,
-      // The existing evaluator has no goal/curve/economics computation. Do not invent one for #8349.
+      // The existing evaluator has no goal/curve/economics computation. Do not invent one.
       goal: null,
       curveEvidenceRefs: [],
       economicsSourceRevision: null,
