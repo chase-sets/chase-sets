@@ -14,12 +14,10 @@ import {
 import { createActorEventStoreContext } from "@chase-sets/platform-runtime/auth";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
-import { buildAuthApi } from "../../../api";
+import { buildAuthApi, type AuthApiEnv } from "../../../api";
 import contextManifest from "../../../context.json" with { type: "json" };
-import type { AuthApiEnv } from "../../../support/api-support/support";
-import { createAuthServicesFake } from "../../../support/auth-support/test-support";
-import { AUTH_SESSION_COOKIE_NAME } from "../../../support/request-support/cookies";
 import { createAuthBootstrapContext, resolveActorFromRequest } from "../../../support/runtime-support/runtime";
+import type { AuthServices } from "../../../support/runtime-support/services";
 
 /**
  * Composed regression for the receipt-bound `/api/auth/session` read (#8390).
@@ -41,7 +39,10 @@ const IDENTITY_SOURCE_POSITION = "19853";
 const STALE_IDENTITY_POSITION = "19852";
 const SESSION_EXPIRES_AT = new Date(Date.now() + 60_000).toISOString();
 const SESSION_AUTHENTICATED_AT = new Date(Date.now() - 1_000).toISOString();
-const SESSION_COOKIE = `${AUTH_SESSION_COOKIE_NAME}=session_token`;
+// Auth session cookie name (`AUTH_SESSION_COOKIE_NAME`), spelled out so this
+// slice test only consumes the runtime-support seam the sessions slice already
+// declares in `directoryIntent.expectedConsumers`.
+const SESSION_COOKIE = "chase_sets_session=session_token";
 
 const SESSION_PROJECTION_NAME = "auth-session-projection";
 const MEMBERSHIP_PROJECTION_NAME = "auth-identity-membership-projection";
@@ -99,17 +100,17 @@ function createFixture(options: FixtureOptions = {}) {
     social_login_links: [],
   });
 
-  const services = createAuthServicesFake({
+  // Minimal AuthServices double: only the members the real session resolver
+  // (`resolveActorFromRequest` -> `resolveActorFromSessionId`) and the Auth
+  // API router touch. The unverified/verified flip lives in `readUser`.
+  const services = {
     db: {
       query: vi.fn(async () => ({
         rows: [{ session_id: "ses_1", token_hash: "hashed:session_token", expires_at: SESSION_EXPIRES_AT }],
       })),
     },
-    session: {
-      session_id: "ses_1",
-      user_id: "usr_1",
-      account_id: "acc_1",
-      available_account_ids: ["acc_1"],
+    auth: {
+      hashSecret: vi.fn((value: string) => `hashed:${value}`),
     },
     identity: {
       bootstrapTenantId: "tnt_identity",
@@ -125,6 +126,7 @@ function createFixture(options: FixtureOptions = {}) {
       })),
     },
     sessions: {
+      getSession: vi.fn(async () => null),
       readAuthenticatedSession: vi.fn(async (sessionId: string) => {
         authenticatedSessionReads += 1;
         if (sessionId !== "ses_1") return null;
@@ -143,7 +145,10 @@ function createFixture(options: FixtureOptions = {}) {
         };
       }),
     },
-  });
+    socialLoginProviders: [],
+    adminGoogleWorkspaceSso: null,
+    projectors: [],
+  } as unknown as AuthServices;
 
   const refreshAuthSession = vi.fn(async () => ({
     lastGlobalPosition: AUTH_SOURCE_POSITION,
