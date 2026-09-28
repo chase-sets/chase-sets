@@ -73,6 +73,7 @@ import {
   type RegistrationOperationConsent,
 } from "./support/runtime-support/registration-operation";
 import { apiKeyRoutes } from "./features/api-keys/api/route";
+import { identityAuthorityMutationErrorHandler } from "./features/access-hub/api/listing-authority";
 import { consentRoutes } from "./features/consents/api/route";
 import { termsOfServiceConsentRoutes } from "./features/consents/api/terms-route";
 import {
@@ -1537,7 +1538,7 @@ export function buildIdentityApi(
   services: IdentityServices,
   consentActivationOptions: ConsentActivationRouteOptions = {},
 ) {
-  const app = new Hono<IdentityApiEnv>();
+  const app = new Hono<IdentityApiEnv>().onError(identityAuthorityMutationErrorHandler);
 
   app.post("/internal/auth/guest-accounts", async (c) => {
     const body = await c.req.json();
@@ -1878,7 +1879,13 @@ export function buildIdentityApi(
   app.route("/invitations", invitationRoutes(services.invitations, services.accounts));
   app.route(
     "/api-keys",
-    apiKeyRoutes({ ...services.apiKeys, db: services.db, auth: services.auth, getUser: services.users.getUser }),
+    apiKeyRoutes({
+      ...services.apiKeys,
+      db: services.db,
+      listingAuthority: services.listingAuthority,
+      auth: services.auth,
+      getUser: services.users.getUser,
+    }),
   );
   app.route("/consents", consentRoutes(services.consents));
   app.route("/admin/consents", consentActivationRoutes(services.policies, consentActivationOptions));
@@ -1943,7 +1950,7 @@ export function buildIdentityApi(
 }
 
 export function buildIdentityPublicApi(services: IdentityServices) {
-  const app = new Hono<IdentityApiEnv>();
+  const app = new Hono<IdentityApiEnv>().onError(identityAuthorityMutationErrorHandler);
   app.get("/founders-cohort", async (c) => c.json(await services.foundersCohort.getCount()));
   return app;
 }

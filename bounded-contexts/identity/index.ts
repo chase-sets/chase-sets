@@ -12,7 +12,7 @@ import type { IdentityHostPorts, IdentityServices } from "./support/runtime-supp
 import { buildIdentityApi, buildIdentityPublicApi } from "./api";
 import { createAccountMcpHandlers } from "./features/accounts/api/mcp";
 import { createIdentityServices } from "./support/runtime-support/services";
-import { identitySchemaSql } from "./support/runtime-support/schema";
+import { identitySchemaSql, identityListingAuthorityMigrations } from "./support/runtime-support/schema";
 import { identityUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { identityAccountSchemaMigrations } from "./features/accounts/read-model/schema";
 import { inspectIdentitySeedState, seedIdentityDatabase } from "./support/runtime-support/seed";
@@ -23,7 +23,11 @@ const identityContextManifest = contextManifest as BcContextManifest;
 export const module = defineBoundedContextModule<IdentityServices, PgTransactionalPool, IdentityHostPorts>({
   manifest: identityContextManifest,
   schemaSql: identitySchemaSql,
-  schemaMigrations: [...identityAccountSchemaMigrations, ...identityUnloggedProjectionSchemaMigrations],
+  schemaMigrations: [
+    ...identityAccountSchemaMigrations,
+    ...identityUnloggedProjectionSchemaMigrations,
+    ...identityListingAuthorityMigrations,
+  ],
   retentionExemptions: identityRetentionExemptions,
   createServices: (pool, options) => createIdentityServices(pool, options ?? {}),
   buildApis: (services) => [

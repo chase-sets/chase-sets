@@ -8,6 +8,21 @@ import type { AuthApiEnv } from "../../../api";
 import { authRetentionExemptions, authRetentionSweeps } from "../../../support/runtime-support/retention-policy";
 
 describe("actual Auth recovery and writer boundary", () => {
+  it("reconciles a lost abort reply before reporting effective revoke", async () => {
+    const f = await authFixture();
+    const operation = await f.fence.open(f.input, f.context);
+    const grants = await f.prepareAuthorities(operation, f.context);
+    const terminal = await f.fence.prepareCommit(operation, grants, {});
+    f.loseAbortReply();
+    const pending = await f.invalidate().catch((error: unknown) => error);
+    expect(pending).toBeInstanceOf(AuthSessionMutationPendingError);
+    expect((await f.fence.inspect(operation)).status).toBe("aborted");
+    expect((await f.sessions.getSessionState(f.sessionId))?.status).toBe("active");
+    f.restart();
+    await f.sessions.listingAuthority.resumeMutation((pending as AuthSessionMutationPendingError).mutationId, f.audit);
+    expect((await f.sessions.getSessionState(f.sessionId))?.status).toBe("revoked");
+    await expect(f.consumerStore.appendToStreams!(terminal)).rejects.toThrow();
+  });
   it("retains token closure after a lost persistence reply and cannot rotate twice on delayed replay", async () => {
     const f = await authFixture();
     const operation = await f.fence.open(f.input, f.context);

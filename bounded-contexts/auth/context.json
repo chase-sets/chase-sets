@@ -160,6 +160,11 @@
   ],
   "hostPorts": [
     {
+      "portName": "listingAuthorityConsumer",
+      "providedBy": "platform-api",
+      "purpose": "Binds Auth session invalidation and recovery to the final consuming owner's authenticated Auth port."
+    },
+    {
       "portName": "notificationOutbox",
       "providedBy": "platform-worker",
       "purpose": "Durable outbound notification outbox used for magic-link email, SMS sign-in codes, and future Auth notification channels."

@@ -12,6 +12,8 @@ import { createListingAuthorityParticipant } from "@chase-sets/platform-runtime/
 import { createListingAuthorityWriter } from "@chase-sets/platform-runtime/listing-authority-writer";
 import { randomUUID } from "node:crypto";
 import { HTTPException } from "hono/http-exception";
+import type { Context } from "hono";
+import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
 import { toJsonValue } from "@chase-sets/primitives/json";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { AUTH_SESSION_STREAM_PREFIX, toSessionStreamId } from "../domain/auth-flow";
@@ -39,6 +41,9 @@ export class AuthSessionMutationPendingError extends HTTPException {
 }
 
 const resource = (sessionId: string) => `session/${sessionId}`;
+export function authSessionMutationErrorHandler(error: Error, context: Context): Response {
+  return error instanceof AuthSessionMutationPendingError ? error.getResponse() : errorHandler(error, context);
+}
 const participant = { owner: "auth", purpose: "authenticated-session" } as const;
 
 export function createAuthListingSessionAuthority(
@@ -193,8 +198,11 @@ export function createAuthListingSessionAuthority(
     appendToStreams: append,
   };
   async function resumeToken(mutationId: string) {
-    const retained = await deps.tokens.readMutation(mutationId);
-    if (!retained) throw new Error("Unknown session token mutation.");
+    const retained = await deps.tokens.readMutation(mutationId).catch((cause: unknown) => {
+      throw new AuthSessionMutationPendingError(mutationId, { cause });
+    });
+    if (!retained)
+      throw new AuthSessionMutationPendingError(mutationId, { cause: new Error("Unknown session token mutation.") });
     const command = { kind: "session-token", mutationId, sessionId: retained.sessionId };
     try {
       await source.mutate({

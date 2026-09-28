@@ -1,4 +1,5 @@
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
+import { identityAuthorityEventStore } from "../../access-hub/api/listing-authority";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -26,7 +27,7 @@ export function createFoundersCohortRuntime(deps: IdentityRuntimeDeps, accounts:
     ClaimFounderNumberCommand,
     FounderNumberClaimedEvent
   >({
-    eventStore: deps.eventStore,
+    eventStore: identityAuthorityEventStore(deps.eventStore),
     codec: createPassthroughDomainEventCodec<FounderNumberClaimedEvent>(),
     initialState: () => initialFoundersCohortState,
     evolve: evolveFoundersCohort,

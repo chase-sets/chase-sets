@@ -3,6 +3,12 @@ import {
   hasPermission as hasActorPermission,
   type ResolvedActor,
 } from "@chase-sets/platform-runtime/auth";
+export {
+  createIdentityListingAuthority,
+  IdentityAuthorityMutationPendingError,
+  type IdentityListingAuthorityHostPorts,
+  type IdentityListingAuthorityServices,
+} from "./features/access-hub/api/listing-authority";
 import {
   createPlatformInternalAuthHeaders,
   createForwardedAuthFetch,

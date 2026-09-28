@@ -1,4 +1,5 @@
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
+import { identityAuthorityEventStore } from "../../access-hub/api/listing-authority";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
@@ -23,7 +24,7 @@ export type ApiKeyServices = Readonly<{
 
 export function createApiKeyRuntime(deps: IdentityRuntimeDeps): ApiKeyServices {
   const { commandHandler } = createAggregateCommandHandler({
-    eventStore: deps.eventStore,
+    eventStore: identityAuthorityEventStore(deps.eventStore),
     codec: createPassthroughDomainEventCodec<ApiKeyEvent>(),
     initialState: () => initialApiKeyState,
     evolve: evolveApiKey,

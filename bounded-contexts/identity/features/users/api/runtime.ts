@@ -1,4 +1,5 @@
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
+import { identityAuthorityEventStore } from "../../access-hub/api/listing-authority";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
@@ -27,7 +28,7 @@ export type UserServices = Readonly<{
 
 export function createUserRuntime(deps: IdentityRuntimeDeps): UserServices {
   const { commandHandler, repository } = createAggregateCommandHandler({
-    eventStore: deps.eventStore,
+    eventStore: identityAuthorityEventStore(deps.eventStore),
     codec: createPassthroughDomainEventCodec<UserEvent>(),
     initialState: () => initialUserState,
     evolve: evolveUser,

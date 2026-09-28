@@ -8,6 +8,7 @@ import { PLATFORM_ADMIN_ROLE_KEY } from "../../../support/runtime-support/common
 import type { IdentitySecretAdapters } from "./secret-adapters";
 import { deleteApiKeySecret, upsertApiKeySecret } from "./secret-store";
 import type { ApiKeyServices } from "./runtime";
+import type { IdentityListingAuthorityServices } from "../../access-hub/api/listing-authority";
 
 function canManageApiKey(actor: IdentityApiEnv["Variables"]["actor"], apiKey: Readonly<{ user_id: string }>) {
   return !actor || actor.roleKey === PLATFORM_ADMIN_ROLE_KEY || actor.userId === apiKey.user_id;
@@ -25,6 +26,7 @@ function forbidden() {
 export type ApiKeyRouteServices = ApiKeyServices &
   Readonly<{
     db: PgQueryable;
+    listingAuthority: IdentityListingAuthorityServices;
     auth: IdentitySecretAdapters;
     getUser: (userId: string) => Promise<unknown | null>;
   }>;
@@ -70,7 +72,8 @@ export function apiKeyRoutes(services: ApiKeyRouteServices) {
       },
       context: c.get("context"),
     });
-    await upsertApiKeySecret(services.db, {
+    await upsertApiKeySecret(services.listingAuthority, {
+      context: c.get("context"),
       apiKeyId,
       userId,
       keyPrefix,
@@ -112,7 +115,8 @@ export function apiKeyRoutes(services: ApiKeyRouteServices) {
       },
       context: c.get("context"),
     });
-    await upsertApiKeySecret(services.db, {
+    await upsertApiKeySecret(services.listingAuthority, {
+      context: c.get("context"),
       apiKeyId,
       userId: apiKey.user_id,
       keyPrefix,
@@ -145,7 +149,7 @@ export function apiKeyRoutes(services: ApiKeyRouteServices) {
       command: { type: "RevokeApiKey" },
       context: c.get("context"),
     });
-    await deleteApiKeySecret(services.db, apiKeyId);
+    await deleteApiKeySecret(services.listingAuthority, apiKeyId, c.get("context"));
     return c.json({ id: apiKeyId, version: result.version, status: result.state.status });
   });
 

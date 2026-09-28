@@ -148,6 +148,21 @@
   ],
   "hostPorts": [
     {
+      "portName": "listingAuthorityConsumer",
+      "providedBy": "platform-api",
+      "purpose": "Binds Identity invalidation and recovery to the final consuming owner's authenticated Identity port."
+    },
+    {
+      "portName": "sessionAuthority",
+      "providedBy": "auth",
+      "purpose": "Protects the selected session and token through the final Listing operation, without moving authentication into Identity."
+    },
+    {
+      "portName": "standingAuthority",
+      "providedBy": "platform-api",
+      "purpose": "Binds the real admitting owner's operation-bound standing authority; audit system users alone grant nothing."
+    },
+    {
       "portName": "addressVerificationProvider",
       "providedBy": "platform-api",
       "purpose": "Verifies buyer-saved shipping addresses through the configured postage provider before Identity commits address snapshots."

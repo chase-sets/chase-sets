@@ -70,9 +70,9 @@ describeDb("auth token store persistence boundary", () => {
         context: {
           tenantId: "tnt_synthetic_sql",
           audit: { performedByUserId: "usr_synthetic_sql", forAccountId: "acc_synthetic_sql" },
-          correlationId: undefined,
+          trace: undefined,
         },
-      };
+      } as const;
       await tokens.stage(input);
       await tokens.stage(input);
       await expect(tokens.stage({ ...input, tokenHash: "synthetic-changed-hash" })).rejects.toThrow(
@@ -108,7 +108,7 @@ describeDb("auth token store persistence boundary", () => {
           tenantId: "tnt_synthetic_sql",
           audit: { performedByUserId: "usr_synthetic_sql", forAccountId: "acc_synthetic_sql" },
         },
-      };
+      } as const;
       await tokens.stage(input);
       await expect(tokens.apply(input.mutationId)).rejects.toThrow();
       expect((await tokens.readMutation(input.mutationId))?.applied).toBe(false);

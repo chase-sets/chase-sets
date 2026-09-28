@@ -8,6 +8,7 @@ import { getAccount, listAccounts } from "../features/accounts/read-model/querie
 import type { SignedRegistrationConsentResolution } from "../features/consents/domain/registration-consent";
 import { IdentityDomainError } from "../support/runtime-support/common";
 import type { IdentityServices } from "../support/runtime-support/services";
+import { IdentityAuthorityMutationPendingError } from "../features/access-hub/api/listing-authority";
 import { createInMemoryEventStore, type InMemoryEventStore } from "./in-memory-event-store";
 
 const actor: ResolvedActor = {
@@ -53,6 +54,9 @@ function createServices(
 ) {
   return {
     eventStore: createInMemoryEventStore(),
+    listingAuthority: {
+      mutateCredential: vi.fn<IdentityServices["listingAuthority"]["mutateCredential"]>(async () => true),
+    },
     db: {
       query: vi.fn(async (sql: string, params: readonly unknown[] = []) => {
         if (sql.includes("identity_account_display_name_reservations")) {
@@ -931,20 +935,28 @@ describe("Identity API mutation snapshots", () => {
       version: 51,
       status: "revoked",
     });
-    expect(services.db.query).toHaveBeenCalledWith(expect.stringContaining("DELETE FROM identity_api_key_secrets"), [
-      "key_existing",
-    ]);
+    expect(services.listingAuthority.mutateCredential).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mutationId: expect.any(String),
+        command: { kind: "api-key-delete", apiKeyId: "key_existing" },
+        context: expect.objectContaining({ tenantId: "tnt_identity" }),
+      }),
+    );
+    expect(services.db.query).not.toHaveBeenCalledWith(
+      expect.stringContaining("DELETE FROM identity_api_key_secrets"),
+      expect.anything(),
+    );
   });
 
   it("rejects a revoked API-key secret after revocation invalidates the stored secret", async () => {
     let secretPresent = true;
     let apiKeyStatus: "active" | "revoked" = "active";
     const services = createServices();
+    vi.mocked(services.listingAuthority.mutateCredential).mockImplementation(async (input) => {
+      if (input.command.kind === "api-key-delete") secretPresent = false;
+      return true;
+    });
     vi.mocked(services.db.query).mockImplementation(async (sql: string, params: readonly unknown[] = []) => {
-      if (sql.includes("DELETE FROM identity_api_key_secrets")) {
-        secretPresent = false;
-        return { rows: [] };
-      }
       if (sql.includes("FROM identity_api_key_secrets")) {
         return {
           rows:
@@ -1004,6 +1016,22 @@ describe("Identity API mutation snapshots", () => {
     });
     expect(rejected.response.status).toBe(401);
     expect(rejected.body).toMatchObject({ error: { code: "authentication_required" } });
+  });
+
+  it("preserves the typed pending credential identity and withholds a new secret on unknown rotation", async () => {
+    const services = createServices();
+    vi.mocked(services.listingAuthority.mutateCredential).mockRejectedValue(
+      new IdentityAuthorityMutationPendingError("synthetic-pending-key", new Error("Synthetic unknown SQL outcome")),
+    );
+    const response = await requestJson(buildApp(services), "/api-keys/key_existing/rotate", {
+      method: "POST",
+      body: "{}",
+    });
+    expect(response.response.status).toBe(503);
+    expect(response.body).toMatchObject({
+      error: { code: "identity_authority_mutation_pending", mutationId: "synthetic-pending-key" },
+    });
+    expect(JSON.stringify(response.body)).not.toContain("key_secret_1_value");
   });
 
   it("rejects a stale API-key secret row when the aggregate is already revoked", async () => {

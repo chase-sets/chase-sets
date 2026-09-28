@@ -5,6 +5,12 @@ import {
   type ListingAuthorityOperationInput,
 } from "@chase-sets/platform-runtime/listing-authority-fence";
 import { createListingAuthorityParticipant } from "@chase-sets/platform-runtime/listing-authority-participant";
+import type { ListingAuthoritySource } from "@chase-sets/platform-runtime/listing-authority-participant";
+import type { EventStore } from "@chase-sets/event-core/event-store";
+import type {
+  ListingAuthorityConsumerPort,
+  ListingAuthoritySessionAuthorityPort,
+} from "@chase-sets/event-core/listing-authority";
 import type { ListingAuthoritySessionConformanceFixture } from "@chase-sets/platform-runtime/listing-authority-conformance";
 import type { SessionTokenMutation, SessionTokenRecord, SessionTokenStore } from "./session-token-store";
 import { createSessionRuntime } from "./runtime";
@@ -59,6 +65,16 @@ export async function authFixture(
     expiresAt?: string;
     tokenExpiresAt?: string;
     sourceOnly?: boolean;
+    makeIdentity?: (
+      store: EventStore,
+      consumer: () => ListingAuthorityConsumerPort,
+      session: ListingAuthoritySessionAuthorityPort,
+    ) => Promise<ListingAuthoritySource>;
+    restartIdentity?: (
+      store: EventStore,
+      consumer: () => ListingAuthorityConsumerPort,
+      session: ListingAuthoritySessionAuthorityPort,
+    ) => ListingAuthoritySource;
   } = {},
 ) {
   const owner = options.owner ?? "marketplace";
@@ -78,6 +94,7 @@ export async function authFixture(
   const expiresAt = options.expiresAt ?? "2099-01-01T00:00:00.000Z";
   const tokenExpiresAt = options.tokenExpiresAt ?? expiresAt;
   let unknownAbort = false;
+  let lostAbortReply = false;
   const makeSessions = () =>
     createSessionRuntime({
       eventStore: authStore,
@@ -94,7 +111,12 @@ export async function authFixture(
           ...port,
           invalidate: async (...args) => {
             if (unknownAbort) throw new Error("Synthetic unavailable consumer");
-            return port.invalidate(...args);
+            const terminal = await port.invalidate(...args);
+            if (lostAbortReply) {
+              lostAbortReply = false;
+              throw new Error("Synthetic lost abort reply");
+            }
+            return terminal;
           },
         };
       },
@@ -133,17 +155,19 @@ export async function authFixture(
     },
   };
   // Only Identity is synthetic in the Auth-first pass. Replaced by the real Identity fixture in its pass.
-  const identity = createListingAuthorityParticipant({
-    eventStore: identityStore,
-    participant: { owner: "identity", purpose: "manage-listing" },
-    consumer: () => fence.forParticipant("identity"),
-    resources: () => ["synthetic-membership"],
-    validate: async (operation) => ({
-      value: {},
-      sourceRevisions: [{ resourceId: "synthetic-membership", revision: "1" }],
-      validBefore: operation.prepareBefore,
-    }),
-  });
+  let identity = options.makeIdentity
+    ? await options.makeIdentity(identityStore, () => fence.forParticipant("identity"), sessions.listingAuthority.port)
+    : createListingAuthorityParticipant({
+        eventStore: identityStore,
+        participant: { owner: "identity", purpose: "manage-listing" },
+        consumer: () => fence.forParticipant("identity"),
+        resources: () => ["synthetic-membership"],
+        validate: async (operation) => ({
+          value: {},
+          sourceRevisions: [{ resourceId: "synthetic-membership", revision: "1" }],
+          validBefore: operation.prepareBefore,
+        }),
+      });
   const fence = createListingAuthorityFence({
     eventStore: consumerStore,
     owner,
@@ -193,6 +217,12 @@ export async function authFixture(
     },
     restart: () => {
       sessions = makeSessions();
+      if (options.restartIdentity)
+        identity = options.restartIdentity(
+          identityStore,
+          () => fence.forParticipant("identity"),
+          sessions.listingAuthority.port,
+        );
       return { ...fixture, source: sessions.listingAuthority.source };
     },
   };
@@ -202,6 +232,9 @@ export async function authFixture(
     authMemory,
     consumerMemory,
     identityStore,
+    get identity() {
+      return identity;
+    },
     tokens,
     auth,
     audit,
@@ -213,6 +246,9 @@ export async function authFixture(
     },
     setUnknownAbort: (value: boolean) => {
       unknownAbort = value;
+    },
+    loseAbortReply: () => {
+      lostAbortReply = true;
     },
   };
 }

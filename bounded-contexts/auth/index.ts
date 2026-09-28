@@ -9,6 +9,7 @@ import {
   authRetentionSweeps,
 } from "./support/runtime-support/retention-policy";
 import { buildAuthApi } from "./api";
+import { authSessionMutationErrorHandler } from "./features/sessions/api/listing-authority";
 import {
   buildAuthIdentityAccountProjectionHandlers,
   buildAuthIdentityInvitationProjectionHandlers,
@@ -36,7 +37,13 @@ export const module = defineBoundedContextModule<AuthServices, PgTransactionalPo
     ...authSessionAuthoritySchemaMigrations,
   ],
   createServices: (pool, ports) => createAuthServices(pool, ports),
-  buildApis: (services) => [{ mountPath: "/api/auth", contextMountOrdinal: 1, router: buildAuthApi(services) }],
+  buildApis: (services) => [
+    {
+      mountPath: "/api/auth",
+      contextMountOrdinal: 1,
+      router: buildAuthApi(services).onError(authSessionMutationErrorHandler),
+    },
+  ],
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) =>
     buildEventSubscriptionsFromManifest({
