@@ -101,6 +101,8 @@ export type StoredEvent<
 
 export type AppendToStreamInput = Readonly<{
   streamId: StreamId;
+  /** appendToStreams only: checked with the store clock after acquiring all write locks. Other append methods reject it. */
+  authorizationDeadline?: string;
   wakeSourceContextName?: string;
   expectedVersion: ExpectedStreamVersion;
   events: readonly EventRecordToStore[];

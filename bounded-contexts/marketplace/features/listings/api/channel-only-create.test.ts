@@ -3,6 +3,7 @@ import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createMarketplaceListingRuntime } from "./runtime";
 import type { ListingTargetAuthority } from "./target-contracts";
+import { createSyntheticListingAuthority } from "./authority-test-support";
 import { createListingEvidenceRequirementSnapshot } from "../domain/evidence-requirement-snapshot";
 
 const currentMeasure = {
@@ -47,18 +48,18 @@ function fixture(capability = true, availableQuantity = 2) {
     agreementId: null,
     resolvedAt: "2026-09-27T12:00:00.000Z",
   }));
-  const guards = [{ streamId: "synthetic-capability", expectedVersion: 0 }];
+  const participants = createSyntheticListingAuthority(eventStore);
   const authority: ListingTargetAuthority = {
-    authorizeManage: async () => ({ value: capability, guards }),
-    resolveConnection: async () => ({ value: null, guards: [] }),
-    resolveAllocation: async () => ({ value: null, guards: [] }),
-    verifyDecision: async () => ({ value: false, guards: [] }),
-    authorizeResume: async () => ({ value: false, guards: [] }),
-    verifyNativeFeeQuote: vi.fn(async () => ({
+    ...participants.authority,
+    authorizeManage: async (_input, context, operation) => ({
+      value: capability,
+      reservations: await participants.reserve("manage-listing", operation, context),
+    }),
+    verifyNativeFeeQuote: vi.fn(async (_input, operation) => ({
       value: true,
-      guards: [{ streamId: "synthetic-terms", expectedVersion: 0 }],
+      reservations: await participants.reserve("native-fee", operation),
     })),
-    readInventory: vi.fn(async () => [
+    readInventory: vi.fn(async (_input, operation) => [
       {
         value: {
           accountId: "acc_seller",
@@ -67,10 +68,10 @@ function fixture(capability = true, availableQuantity = 2) {
           productId: "cat_test::",
           availableQuantity: 3,
         },
-        guards: [{ streamId: "synthetic-inventory", expectedVersion: 0 }],
+        reservations: await participants.reserve("stock-allocation", operation),
       },
     ]),
-    readNativeReadiness: vi.fn(async () => [
+    readNativeReadiness: vi.fn(async (_input, operation) => [
       {
         value: {
           listingId: "lst_test",
@@ -80,10 +81,9 @@ function fixture(capability = true, availableQuantity = 2) {
           evidenceRequirements: requirements,
           seller: { reviewCount: 0, badgeKeys: [] },
         },
-        guards: [
-          { streamId: "synthetic-catalog", expectedVersion: 0 },
-          { streamId: "synthetic-evidence-policy", expectedVersion: 0 },
-          { streamId: "synthetic-seller-trust", expectedVersion: 0 },
+        reservations: [
+          ...(await participants.reserve("product-measures", operation)),
+          ...(await participants.reserve("native-readiness", operation)),
         ],
       },
     ]),
@@ -145,7 +145,7 @@ function fixture(capability = true, availableQuantity = 2) {
     tenantId: "tnt_test" as never,
     audit: { forAccountId: "acc_seller" as never, performedByUserId: "usr_test" as never },
   };
-  return { services, resolveListingTerms, eventStore, input, context, authority, db };
+  return { services, resolveListingTerms, eventStore, input, context, authority, db, participants };
 }
 
 async function nativeFixture() {
@@ -169,7 +169,12 @@ describe("current native enable authority", () => {
     const result = await services.setNativeListingVisibility(enable, context);
     expect(result).toEqual({ listingId: "lst_test", version: 3 });
     expect(await services.setNativeListingVisibility(enable, context)).toEqual(result);
-    expect(append).toHaveBeenCalledTimes(1);
+    const commits = append.mock.calls.filter(([appends]) =>
+      appends.some((entry) =>
+        entry.events.some((event) => event.eventType === "marketplace.listing-request.completed"),
+      ),
+    );
+    expect(commits).toHaveLength(1);
     expect(authority.readNativeReadiness).toHaveBeenCalledTimes(1);
     expect(await services.loadListingState("lst_test")).toMatchObject({
       status: "active",
@@ -179,12 +184,8 @@ describe("current native enable authority", () => {
       nativeFeeState: "enrolled",
       feeLocks: [{ unitCount: 2 }],
     });
-    expect(append.mock.calls[0]![0].map((entry) => entry.streamId)).toEqual(
+    expect(commits[0]![0].map((entry) => entry.streamId)).toEqual(
       expect.arrayContaining([
-        "synthetic-inventory",
-        "synthetic-catalog",
-        "synthetic-evidence-policy",
-        "synthetic-seller-trust",
         "marketplace.seller-listing-availability-acc_seller",
         "marketplace.inventory-listing-capacity-inv_test",
         "marketplace.listing-lst_test",
@@ -201,16 +202,37 @@ describe("current native enable authority", () => {
     "marketplace.inventory-listing-capacity-inv_test",
     "synthetic-terms",
   ])("rolls back the entire enable when %s changes before append", async (streamId) => {
-    const { services, eventStore, context, enable } = await nativeFixture();
+    const { services, eventStore, context, enable, participants } = await nativeFixture();
     const append = eventStore.appendToStreams!;
-    vi.spyOn(eventStore, "appendToStreams").mockImplementationOnce(async (appends) => {
-      const participant = appends.find((entry) => entry.streamId === streamId)!;
-      await eventStore.appendToStream({
-        streamId,
-        expectedVersion: participant.expectedVersion,
-        context,
-        events: [{ eventType: "synthetic.authority-changed", payload: {} }],
-      });
+    let changed = false;
+    vi.spyOn(eventStore, "appendToStreams").mockImplementation(async (appends) => {
+      if (
+        !changed &&
+        appends.some((entry) =>
+          entry.events.some((event) => event.eventType === "marketplace.listing-request.completed"),
+        )
+      ) {
+        changed = true;
+        const purpose = (
+          {
+            "synthetic-inventory": "stock-allocation",
+            "synthetic-catalog": "product-measures",
+            "synthetic-evidence-policy": "native-readiness",
+            "synthetic-seller-trust": "manage-listing",
+            "synthetic-terms": "native-fee",
+          } as const
+        )[streamId as "synthetic-inventory"];
+        if (purpose) await participants.change(purpose, context);
+        else {
+          const participant = appends.find((entry) => entry.streamId === streamId)!;
+          await eventStore.appendToStream({
+            streamId,
+            expectedVersion: participant.expectedVersion,
+            context,
+            events: [{ eventType: "synthetic.authority-changed", payload: {} }],
+          });
+        }
+      }
       return append(appends);
     });
     await expect(services.setNativeListingVisibility(enable, context)).rejects.toThrow();
@@ -268,7 +290,16 @@ describe("current native enable authority", () => {
     const { services, context, enable, eventStore, input } = await nativeFixture();
     await services.createListing({ ...input, listingIdOverride: "lst_other" as never, quantityCap: 1 }, context);
     const append = eventStore.appendToStreams!;
-    vi.spyOn(eventStore, "appendToStreams").mockImplementationOnce(async (appends) => {
+    let raced = false;
+    vi.spyOn(eventStore, "appendToStreams").mockImplementation(async (appends) => {
+      if (
+        raced ||
+        !appends.some((entry) =>
+          entry.events.some((event) => event.eventType === "marketplace.listing-request.completed"),
+        )
+      )
+        return append(appends);
+      raced = true;
       expect(appends).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ streamId: "marketplace.listing-lst_other", expectedVersion: 1, events: [] }),
@@ -319,8 +350,8 @@ describe("current native enable authority", () => {
   });
 
   it("rejects current Inventory identity drift and shortages rather than using the supply projection", async () => {
-    const { services, context, enable, authority } = await nativeFixture();
-    vi.mocked(authority.readInventory!).mockResolvedValue([
+    const { services, context, enable, authority, participants } = await nativeFixture();
+    vi.mocked(authority.readInventory!).mockImplementation(async (_input, operation) => [
       {
         value: {
           accountId: "acc_seller",
@@ -329,11 +360,11 @@ describe("current native enable authority", () => {
           productId: "different-product",
           availableQuantity: 100,
         },
-        guards: [{ streamId: "synthetic-inventory", expectedVersion: 0 }],
+        reservations: await participants.reserve("stock-allocation", operation),
       },
     ]);
     await expect(services.setNativeListingVisibility(enable, context)).rejects.toThrow("product identity");
-    vi.mocked(authority.readInventory!).mockResolvedValue([
+    vi.mocked(authority.readInventory!).mockImplementation(async (_input, operation) => [
       {
         value: {
           accountId: "acc_seller",
@@ -342,10 +373,12 @@ describe("current native enable authority", () => {
           productId: "cat_test::",
           availableQuantity: 1,
         },
-        guards: [{ streamId: "synthetic-inventory", expectedVersion: 0 }],
+        reservations: await participants.reserve("stock-allocation", operation),
       },
     ]);
-    await expect(services.setNativeListingVisibility(enable, context)).rejects.toThrow("sellable inventory");
+    await expect(
+      services.setNativeListingVisibility({ ...enable, idempotencyKey: "short-stock" }, context),
+    ).rejects.toThrow("sellable inventory");
     expect(await services.loadListingState("lst_test")).toMatchObject({ nativeVisibility: "disabled", feeLocks: [] });
   });
 

@@ -22,6 +22,7 @@ import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { createListingRequestExecutor } from "../features/listings/api/listing-request";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { createListingTargetRuntime } from "../features/listings/api/target-runtime";
+import { createSyntheticListingAuthority } from "../features/listings/api/authority-test-support";
 import { marketplaceListingCodec } from "../features/listings/domain/codec";
 import { evolveMarketplaceListing, initialMarketplaceListingState } from "../features/listings/domain/domain";
 
@@ -309,7 +310,7 @@ describeDb("marketplace schema upgrades", () => {
     await bootstrapContextDatabase(marketplaceModule, pool);
     const store = createPostgresEventStore({ pool });
     const accountId = context.audit.forAccountId;
-    const guards = [{ streamId: "synthetic-listing-authority", expectedVersion: 0 }];
+    const participants = createSyntheticListingAuthority(store);
     for (const listingId of ["lst_one", "lst_two"]) {
       await store.appendToStream({
         streamId: `marketplace.listing-${listingId}`,
@@ -355,16 +356,7 @@ describeDb("marketplace schema upgrades", () => {
     }
     const runtime = createListingTargetRuntime({
       eventStore: store,
-      authority: {
-        authorizeManage: async () => ({ value: true, guards }),
-        verifyDecision: async () => ({ value: true, guards }),
-        resolveConnection: async ({ connectionId }) => ({
-          value: { accountId, connectionId, providerKey: "synthetic", environment: "sandbox", identityRevision: 1 },
-          guards,
-        }),
-        resolveAllocation: async () => ({ value: null, guards: [] }),
-        authorizeResume: async () => ({ value: false, guards: [] }),
-      },
+      authority: participants.authority,
       load: async (listingId) => {
         const events = await readCompleteStream(store, { streamId: `marketplace.listing-${listingId}` });
         return {
@@ -378,7 +370,7 @@ describeDb("marketplace schema upgrades", () => {
       prepareNativeEnable: async () => {
         throw new Error("Synthetic fixture never enables native publication.");
       },
-      capacityAppends: async () => [],
+      capacityAppends: async () => ({ appends: [], reservations: [] }),
     });
     const updates = ["lst_one", "lst_two"].map((listingId) => ({
       listingId,
@@ -434,13 +426,10 @@ describeDb("marketplace schema upgrades", () => {
       context,
     );
     expect(await runtime.applyNativePrices({ accountId, updates: [noOp] }, context)).toEqual(noOpResult);
-    await store.appendToStream({
-      streamId: guards[0]!.streamId,
-      expectedVersion: 0,
-      context,
-      events: [{ eventType: "synthetic.authority.changed", payload: {} }],
-    });
-    const count = (await store.readAll()).length;
+    await participants.change("manage-listing", context, false);
+    const businessEvents = async () =>
+      (await store.readAll()).filter((event) => !event.eventType.includes("listing-authority"));
+    const count = (await businessEvents()).length;
     expect(
       await runtime.applyNativePrices(
         {
@@ -449,8 +438,8 @@ describeDb("marketplace schema upgrades", () => {
         },
         context,
       ),
-    ).toMatchObject([{ outcome: "conflict" }]);
-    expect(await store.readAll()).toHaveLength(count);
+    ).toMatchObject([{ outcome: "error" }]);
+    expect(await businessEvents()).toHaveLength(count);
     expect((await store.readStream({ streamId: "marketplace.listing-lst_two" })).at(-1)?.payload.priceAmount).toBe(
       "14.00",
     );

@@ -1,4 +1,9 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type {
+  ListingAuthorityOperation,
+  ListingAuthorityParticipantPort,
+  ListingAuthorityReservation,
+} from "@chase-sets/event-core/listing-authority";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import type { ListingEvidenceRequirementSnapshot } from "../domain/evidence-requirement-snapshot";
 import type { ListingEvidenceSellerFacts } from "../domain/listing-evidence-readiness";
@@ -56,9 +61,7 @@ export type ListingMutationResult = Readonly<{ listingId: string; version: numbe
 export type ListingTargetPriceAcceptanceResult = ListingMutationResult &
   Readonly<{ acceptedTargetPrice: AcceptedListingTargetPriceV1 }>;
 
-/** Supplied by trusted owner adapters, never by a command's HTTP body. */
-export type ListingAuthorityGuard = Readonly<{ streamId: string; expectedVersion: number }>;
-export type ListingAuthorityResult<T> = Readonly<{ value: T; guards: readonly ListingAuthorityGuard[] }>;
+export type ListingAuthorityResult<T> = Readonly<{ value: T; reservations: readonly ListingAuthorityReservation[] }>;
 
 export type ListingInventoryAuthority = Readonly<{
   accountId: string;
@@ -88,23 +91,30 @@ export type ListingNativeReadinessAuthority = Readonly<{
 }>;
 
 export type ListingTargetAuthority = Readonly<{
+  participants: readonly ListingAuthorityParticipantPort[];
+  resolveActor(context: EventStoreContext): Promise<ListingAuthorityOperation["actor"]>;
   verifyNativeFeeQuote?(
     input: Readonly<{ accountId: string; quote: MarketplaceListingTermsPreview }>,
+    operation: ListingAuthorityOperation,
   ): Promise<ListingAuthorityResult<boolean>>;
   /** Current owner facts, not unfenced projection rows. Every source revision participates in the append. */
   readInventory?(
     input: Readonly<{ accountId: string; inventoryItemIds: readonly string[] }>,
+    operation: ListingAuthorityOperation,
   ): Promise<readonly ListingAuthorityResult<ListingInventoryAuthority | null>[]>;
   /** Bounded Catalog, evidence-policy and seller-trust facts; Marketplace evaluates its own evidence. */
   readNativeReadiness?(
     input: Readonly<{ accountId: string; listings: readonly ListingNativeReadinessInput[]; evaluatedAt: string }>,
+    operation: ListingAuthorityOperation,
   ): Promise<readonly ListingAuthorityResult<ListingNativeReadinessAuthority | null>[]>;
   authorizeManage(
     input: Readonly<{ accountId: string }>,
     context: EventStoreContext,
+    operation: ListingAuthorityOperation,
   ): Promise<ListingAuthorityResult<boolean>>;
   resolveConnection(
     input: Readonly<{ accountId: string; connectionId: string }>,
+    operation: ListingAuthorityOperation,
   ): Promise<
     ListingAuthorityResult<
       (NonNullable<AcceptedListingTargetPriceV1["connectionAuthority"]> & Readonly<{ accountId: string }>) | null
@@ -113,8 +123,13 @@ export type ListingTargetAuthority = Readonly<{
   verifyDecision(
     input: AcceptListingTargetPriceInput,
     context: EventStoreContext,
+    operation: ListingAuthorityOperation,
   ): Promise<ListingAuthorityResult<boolean>>;
-  authorizeResume(input: ResumeListingInput, context: EventStoreContext): Promise<ListingAuthorityResult<boolean>>;
+  authorizeResume(
+    input: ResumeListingInput,
+    context: EventStoreContext,
+    operation: ListingAuthorityOperation,
+  ): Promise<ListingAuthorityResult<boolean>>;
   resolveAllocation(
     input: Readonly<{
       accountId: string;
@@ -123,6 +138,7 @@ export type ListingTargetAuthority = Readonly<{
       connectionId: string;
       allocationRevision: number;
     }>,
+    operation: ListingAuthorityOperation,
   ): Promise<
     ListingAuthorityResult<Readonly<{
       accountId: string;

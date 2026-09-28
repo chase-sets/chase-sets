@@ -2,6 +2,12 @@ import { createId, type EventId } from "@chase-sets/primitives/typed-ids";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import { createBulkAppendLane } from "@chase-sets/platform-runtime/bulk-append-lane";
+import { createListingAuthorityFence } from "@chase-sets/platform-runtime/listing-authority-fence";
+import type {
+  ListingAuthorityOperation,
+  ListingAuthorityParticipant,
+  ListingAuthorityReservation,
+} from "@chase-sets/event-core/listing-authority";
 import { marketplaceListingCodec } from "../domain/codec";
 import { createEventStoreError, type EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
@@ -14,7 +20,12 @@ import {
 import { listingPriceTargetKey, normalizeAcceptedListingPrice } from "../domain/target-price";
 import { requoteMarketplaceListingFeeLock } from "../../../support/runtime-support/fee-quotes";
 import type { MarketplaceBulkListingPriceUpdateInput, MarketplaceBulkListingPriceUpdateOutcome } from "../ui/contracts";
-import { createListingRequestExecutor, prepareListingRequest, type ListingRequestInput } from "./listing-request";
+import {
+  createListingRequestExecutor,
+  prepareListingRequest,
+  readListingRequestOperation,
+  type ListingRequestInput,
+} from "./listing-request";
 import {
   acceptListingTargetPriceSchema,
   activateListingForChannelSchema,
@@ -25,7 +36,6 @@ import {
 import type {
   AcceptListingTargetPriceInput,
   AcceptedListingTargetPriceV1,
-  ListingAuthorityGuard,
   ListingMutationInput,
   ListingTargetAuthority,
   ListingTargetServices,
@@ -57,15 +67,30 @@ export function createListingTargetRuntime(
     prepareNativeEnable(
       state: MarketplaceListingState,
       input: SetNativeListingVisibilityInput,
-    ): Promise<Readonly<{ command: MarketplaceListingCommand; guards: readonly ListingAuthorityGuard[] }>>;
+      operation: ListingAuthorityOperation,
+    ): Promise<
+      Readonly<{
+        command: MarketplaceListingCommand;
+        reservations: readonly ListingAuthorityReservation[];
+        localGuards?: readonly AppendToStreamInput[];
+      }>
+    >;
     capacityAppends(
       state: MarketplaceListingState,
       events: readonly MarketplaceListingEvent[],
       context: EventStoreContext,
-    ): Promise<readonly AppendToStreamInput[]>;
+      operation: ListingAuthorityOperation,
+    ): Promise<
+      Readonly<{ appends: readonly AppendToStreamInput[]; reservations: readonly ListingAuthorityReservation[] }>
+    >;
   }>,
 ) {
   const execute = createListingRequestExecutor(deps.eventStore);
+  const fence = createListingAuthorityFence({
+    eventStore: deps.eventStore,
+    owner: "marketplace",
+    participants: deps.authority?.participants ?? [],
+  });
   const codec = marketplaceListingCodec;
 
   async function owned(listingId: string, accountId: string) {
@@ -74,48 +99,42 @@ export function createListingTargetRuntime(
     return loaded;
   }
 
-  async function authorize(input: ListingMutationInput, context: EventStoreContext) {
+  async function authorize(
+    input: ListingMutationInput,
+    context: EventStoreContext,
+    operation: ListingAuthorityOperation,
+  ) {
     validateMutation(input);
     assert(context.audit.forAccountId === input.accountId, "Listing request account authority mismatch.");
     assert(deps.authority, "Listing target authority is unavailable.");
-    const authority = await deps.authority.authorizeManage({ accountId: input.accountId }, context);
-    assert(authority.value && authority.guards.length > 0, "Current listings.manage capability is required.");
-    return authority.guards;
+    const authority = await deps.authority.authorizeManage({ accountId: input.accountId }, context, operation);
+    assert(authority.value && authority.reservations.length > 0, "Current listings.manage capability is required.");
+    return authority.reservations;
   }
 
-  function guardAppends(guards: readonly ListingAuthorityGuard[], context: EventStoreContext): AppendToStreamInput[] {
-    const unique = new Map<string, number>();
-    for (const guard of guards) {
-      assert(
-        guard.streamId && Number.isSafeInteger(guard.expectedVersion) && guard.expectedVersion >= 0,
-        "Invalid authority guard.",
-      );
-      const prior = unique.get(guard.streamId);
-      assert(prior === undefined || prior === guard.expectedVersion, "Authority changed while preparing the command.");
-      unique.set(guard.streamId, guard.expectedVersion);
-    }
-    return [...unique].map(([streamId, expectedVersion]) => ({ streamId, expectedVersion, context, events: [] }));
-  }
-
-  async function connection(accountId: string, connectionId: string) {
+  async function connection(accountId: string, connectionId: string, operation: ListingAuthorityOperation) {
     assert(deps.authority, "Listing target authority is unavailable.");
-    const resolved = await deps.authority.resolveConnection({ accountId, connectionId });
+    const resolved = await deps.authority.resolveConnection({ accountId, connectionId }, operation);
     assert(
       resolved.value?.connectionId === connectionId &&
         resolved.value.accountId === accountId &&
-        resolved.guards.length > 0,
+        resolved.reservations.length > 0,
       "Owned current connection authority is required.",
     );
     assert(resolved.value.identityRevision > 0 && resolved.value.providerKey, "Connection identity is incomplete.");
-    return { value: resolved.value, guards: resolved.guards };
+    return { value: resolved.value, reservations: resolved.reservations };
   }
 
   async function acceptanceRequest(
     input: AcceptListingTargetPriceInput,
     context: EventStoreContext,
+    existingOperation?: ListingAuthorityOperation,
+    requestCommand?: import("@chase-sets/primitives/json").JsonObject,
   ): Promise<ListingRequestInput<ListingTargetPriceAcceptanceResult>> {
     input = acceptListingTargetPriceSchema.parse(input);
-    const capabilityGuards = await authorize(input, context);
+    validateMutation(input);
+    assert(context.audit.forAccountId === input.accountId, "Listing request account authority mismatch.");
+    assert(deps.authority, "Listing target authority is unavailable.");
     listingPriceTargetKey(input.target);
     const pair = normalizeAcceptedListingPrice(input.priceAmount, input.priceCurrencyCode);
     assert(
@@ -132,26 +151,58 @@ export function createListingTargetRuntime(
       input.target.kind === "native-marketplace" || input.decision.kind === "pricing-evaluation",
       "External prices require a verified Pricing decision.",
     );
+    const command = requestCommand ?? { type: "AcceptListingTargetPrice", ...input, ...pair };
+    const operation =
+      existingOperation ??
+      (await readListingRequestOperation(deps.eventStore, { ...input, command, context })) ??
+      (await fence.open(
+        {
+          tenantId: context.tenantId,
+          accountId: input.accountId,
+          actor: await deps.authority!.resolveActor(context),
+          committingOwner: "marketplace",
+          kind: "accept-price",
+          requestId: input.idempotencyKey,
+          command,
+          listingId: input.listingId,
+          target: input.target,
+          expectedListingRevision: input.expectedListingVersion,
+          expectedTargetRevision: input.expectedTargetPriceRevision,
+          expectedVisibilityRevision: null,
+          expectedPublicationRevision: null,
+          participants: [
+            { owner: "identity", purpose: "manage-listing" },
+            ...(input.decision.kind === "pricing-evaluation"
+              ? [{ owner: "pricing", purpose: "evaluated-price" } as const]
+              : []),
+            ...(input.target.kind === "channel-connection"
+              ? [{ owner: "channels", purpose: "connection" } as const]
+              : []),
+          ],
+        },
+        context,
+      ));
     return {
       accountId: input.accountId,
       idempotencyKey: input.idempotencyKey,
-      command: { type: "AcceptListingTargetPrice", ...input, ...pair },
+      command,
       context,
+      authority: { fence, operation },
       prepare: async () => {
         const { state, version } = await owned(input.listingId, input.accountId);
         assert(version === input.expectedListingVersion, "Listing revision changed.");
-        const guards = [...capabilityGuards];
+        const reservations = [...(await authorize(input, context, operation))];
         if (input.decision.kind === "pricing-evaluation") {
-          const verified = await deps.authority!.verifyDecision({ ...input, ...pair }, context);
-          assert(verified.value && verified.guards.length > 0, "Current Pricing decision authority is required.");
+          const verified = await deps.authority!.verifyDecision({ ...input, ...pair }, context, operation);
+          assert(verified.value && verified.reservations.length > 0, "Current Pricing decision authority is required.");
           assert(input.decision.basePriceRevision === state.nativePriceRevision, "Pricing base reference changed.");
-          guards.push(...verified.guards);
+          reservations.push(...verified.reservations);
         }
         const resolved =
           input.target.kind === "channel-connection"
-            ? await connection(input.accountId, input.target.connectionId)
+            ? await connection(input.accountId, input.target.connectionId, operation)
             : null;
-        if (resolved) guards.push(...resolved.guards);
+        if (resolved) reservations.push(...resolved.reservations);
         const sourceEventId = createId("evt");
         const accepted: AcceptedListingTargetPriceV1 = {
           schemaVersion: 1,
@@ -187,8 +238,8 @@ export function createListingTargetRuntime(
         assert(events.length === 1, "Price acceptance must retain one owner fact.");
         return {
           result: { listingId: input.listingId, version: version + 1, acceptedTargetPrice: accepted },
+          reservations,
           appends: [
-            ...guardAppends(guards, context),
             {
               streamId: `marketplace.listing-${input.listingId}`,
               expectedVersion: version,
@@ -212,20 +263,26 @@ export function createListingTargetRuntime(
   ): Promise<ListingRequestInput<{ listingId: string; version: number; outcome: "applied" | "no_op" }>> {
     update = nativeListingPriceUpdateSchema.parse(update);
     const pair = normalizeAcceptedListingPrice(update.priceAmount, update.priceCurrencyCode);
-    const guards = await authorize(
-      {
-        accountId,
-        listingId: update.listingId,
-        expectedListingVersion: update.expectedVersion ?? 1,
-        idempotencyKey: update.idempotencyKey ?? "native-adapter",
-      },
-      context,
-    );
+    const initial = await owned(update.listingId, accountId);
+    const normalized = {
+      accountId,
+      listingId: update.listingId,
+      ...pair,
+      expectedListingVersion: update.expectedVersion ?? initial.version,
+      expectedTargetPriceRevision: update.expectedTargetPriceRevision ?? initial.state.nativePriceRevision,
+      idempotencyKey: update.idempotencyKey ?? createId("evt"),
+      target: { kind: "native-marketplace" } as const,
+      decision: update.decision ?? ({ kind: "seller-reference" } as const),
+      ...(update.changeSource ? { changeSource: update.changeSource } : {}),
+    };
+    const command = { type: "AcceptNativeListingPrice", accountId, ...update, ...pair };
+    const acceptedRequest = await acceptanceRequest(normalized, context, undefined, command);
     return {
       accountId,
-      idempotencyKey: update.idempotencyKey ?? createId("evt"),
-      command: { type: "AcceptNativeListingPrice", accountId, ...update, ...pair },
+      idempotencyKey: normalized.idempotencyKey,
+      command,
       context,
+      authority: acceptedRequest.authority,
       prepare: async () => {
         const { state, version } = await owned(update.listingId, accountId);
         if (update.expectedVersion !== undefined && update.expectedVersion !== version) {
@@ -245,19 +302,7 @@ export function createListingTargetRuntime(
         }
         if (state.nativeVisibility === "enabled" && update.feeQuoteFingerprint)
           await confirm(pair.priceAmount, update.feeQuoteFingerprint);
-        const input = {
-          accountId,
-          listingId: update.listingId,
-          ...pair,
-          expectedListingVersion: version,
-          expectedTargetPriceRevision: state.nativePriceRevision,
-          idempotencyKey: update.idempotencyKey ?? "native-adapter",
-          target: { kind: "native-marketplace" } as const,
-          decision: update.decision ?? ({ kind: "seller-reference" } as const),
-          ...(update.changeSource ? { changeSource: update.changeSource } : {}),
-        };
-        const request = await acceptanceRequest(input, context);
-        const prepared = await request.prepare();
+        const prepared = await acceptedRequest.prepare();
         // Legacy native callers preserve suppression, but a new Pricing decision is always a new authority fact.
         if (
           !update.decision &&
@@ -271,14 +316,15 @@ export function createListingTargetRuntime(
         ) {
           return {
             result: { listingId: update.listingId, version, outcome: "no_op" },
+            reservations: prepared.reservations,
             appends: [
-              ...guardAppends(guards, context),
               { streamId: `marketplace.listing-${update.listingId}`, expectedVersion: version, events: [], context },
             ],
           };
         }
         return {
           result: { listingId: update.listingId, version: prepared.result.version, outcome: "applied" },
+          reservations: prepared.reservations,
           appends: prepared.appends,
         };
       },
@@ -321,27 +367,94 @@ export function createListingTargetRuntime(
     type: string,
     prepare: (
       state: MarketplaceListingState,
+      operation: ListingAuthorityOperation,
     ) => Promise<
-      Readonly<{ command: MarketplaceListingCommand; guards: readonly ListingAuthorityGuard[]; capacity: boolean }>
+      Readonly<{
+        command: MarketplaceListingCommand;
+        reservations: readonly ListingAuthorityReservation[];
+        localGuards?: readonly AppendToStreamInput[];
+        capacity: boolean;
+      }>
     >,
   ) {
-    const capabilityGuards = await authorize(input, context);
+    const initial = await owned(input.listingId, input.accountId);
+    const nativeEnable =
+      type === "SetNativeListingVisibility" &&
+      (input as SetNativeListingVisibilityInput).nativeVisibility === "enabled";
+    const participants: ListingAuthorityParticipant[] = [{ owner: "identity", purpose: "manage-listing" }];
+    if (type === "ActivateListingForChannel") participants.push({ owner: "channels", purpose: "connection" });
+    if (nativeEnable || type !== "SetNativeListingVisibility")
+      participants.push({ owner: "inventory", purpose: "stock-allocation" });
+    if (nativeEnable) {
+      participants.push(
+        { owner: "catalog", purpose: "product-measures" },
+        { owner: "marketplace", purpose: "native-readiness" },
+      );
+      if (initial.state.feeLocks.reduce((sum, lock) => sum + lock.unitCount, 0) < initial.state.quantityCap) {
+        participants.push({ owner: "commercial-terms", purpose: "native-fee" });
+      }
+    }
+    const command = { ...input, type };
+    const operation =
+      (await readListingRequestOperation(deps.eventStore, { ...input, command, context })) ??
+      (await fence.open(
+        {
+          tenantId: context.tenantId,
+          accountId: input.accountId,
+          actor: await deps.authority!.resolveActor(context),
+          committingOwner: "marketplace",
+          kind:
+            type === "ActivateListingForChannel"
+              ? "activate-channel"
+              : type === "ResumeListing"
+                ? "resume"
+                : "native-visibility",
+          requestId: input.idempotencyKey,
+          command,
+          listingId: input.listingId,
+          target:
+            type === "ActivateListingForChannel"
+              ? {
+                  kind: "channel-connection",
+                  connectionId: (input as import("./target-contracts").ActivateListingForChannelInput).connectionId,
+                }
+              : { kind: "native-marketplace" },
+          expectedListingRevision: input.expectedListingVersion,
+          expectedTargetRevision: null,
+          expectedVisibilityRevision: initial.state.nativeVisibilityRevision,
+          expectedPublicationRevision: initial.state.nativePublicationRevision,
+          participants,
+        },
+        context,
+      ));
     return execute({
       accountId: input.accountId,
       idempotencyKey: input.idempotencyKey,
-      command: { ...input, type },
+      command,
       context,
+      authority: { fence, operation },
       prepare: async () => {
         const { state, version } = await owned(input.listingId, input.accountId);
         assert(version === input.expectedListingVersion, "Listing revision changed.");
-        const prepared = await prepare(state);
+        const capabilityReservations = await authorize(input, context, operation);
+        const prepared = await prepare(state, operation);
         const events = decideMarketplaceListing(state, prepared.command);
-        const capacity = prepared.capacity ? await deps.capacityAppends(state, events, context) : [];
+        const capacity = prepared.capacity
+          ? await deps.capacityAppends(state, events, context, operation)
+          : { appends: [], reservations: [] };
         return {
           result: { listingId: input.listingId, version: version + events.length },
+          reservations: [
+            ...new Map(
+              [...capabilityReservations, ...prepared.reservations, ...capacity.reservations].map((reservation) => [
+                reservation.reservationId,
+                reservation,
+              ]),
+            ).values(),
+          ],
           appends: [
-            ...guardAppends([...capabilityGuards, ...prepared.guards], context),
-            ...capacity,
+            ...(prepared.localGuards ?? []),
+            ...capacity.appends,
             {
               streamId: `marketplace.listing-${input.listingId}`,
               expectedVersion: version,
@@ -413,18 +526,21 @@ export function createListingTargetRuntime(
     },
     activateListingForChannel: (raw, context) => {
       const input = activateListingForChannelSchema.parse(raw);
-      return mutate(input, context, "ActivateListingForChannel", async (state) => {
-        const resolved = await connection(input.accountId, input.connectionId);
-        const allocation = await deps.authority!.resolveAllocation({
-          accountId: input.accountId,
-          inventoryItemId: state.inventoryItemId!,
-          productId: state.productId!,
-          connectionId: input.connectionId,
-          allocationRevision: input.allocationRevision,
-        });
+      return mutate(input, context, "ActivateListingForChannel", async (state, operation) => {
+        const resolved = await connection(input.accountId, input.connectionId, operation);
+        const allocation = await deps.authority!.resolveAllocation(
+          {
+            accountId: input.accountId,
+            inventoryItemId: state.inventoryItemId!,
+            productId: state.productId!,
+            connectionId: input.connectionId,
+            allocationRevision: input.allocationRevision,
+          },
+          operation,
+        );
         assert(
           allocation.value &&
-            allocation.guards.length > 0 &&
+            allocation.reservations.length > 0 &&
             allocation.value.accountId === input.accountId &&
             allocation.value.inventoryItemId === state.inventoryItemId &&
             allocation.value.productId === state.productId &&
@@ -442,16 +558,16 @@ export function createListingTargetRuntime(
         );
         return {
           command: { type: "ActivateListingForChannel", ...input },
-          guards: [...resolved.guards, ...allocation.guards],
+          reservations: [...resolved.reservations, ...allocation.reservations],
           capacity: true,
         };
       });
     },
     setNativeListingVisibility: (raw, context) => {
       const input = setNativeListingVisibilitySchema.parse(raw);
-      return mutate(input, context, "SetNativeListingVisibility", async (state) => {
+      return mutate(input, context, "SetNativeListingVisibility", async (state, operation) => {
         if (input.nativeVisibility === "enabled") {
-          return { ...(await deps.prepareNativeEnable(state, input)), capacity: true };
+          return { ...(await deps.prepareNativeEnable(state, input, operation)), capacity: true };
         }
         return {
           command: {
@@ -461,19 +577,19 @@ export function createListingTargetRuntime(
             evidenceRequirements: state.evidenceRequirements,
             readiness: null,
           },
-          guards: [],
+          reservations: [],
           capacity: false,
         };
       });
     },
     resumeListing: (raw, context) => {
       const input = resumeListingSchema.parse(raw);
-      return mutate(input, context, "ResumeListing", async () => {
-        const authorization = await deps.authority!.authorizeResume(input, context);
-        assert(authorization.value && authorization.guards.length > 0, "Current pause-owner authority is required.");
+      return mutate(input, context, "ResumeListing", async (_state, operation) => {
+        const authorization = await deps.authority!.authorizeResume(input, context, operation);
+        assert(authorization.value, "Current pause-owner authority is required.");
         return {
           command: { type: "ResumeListing", expectedPauseReason: input.expectedPauseReason },
-          guards: authorization.guards,
+          reservations: authorization.reservations,
           capacity: true,
         };
       });

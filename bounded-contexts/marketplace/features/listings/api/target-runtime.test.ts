@@ -11,6 +11,7 @@ import {
 } from "../domain/domain";
 import { createListingTargetRuntime } from "./target-runtime";
 import type { AcceptListingTargetPriceInput, ListingTargetAuthority } from "./target-contracts";
+import { createSyntheticListingAuthority } from "./authority-test-support";
 
 const context: EventStoreContext = {
   tenantId: "tnt_test" as never,
@@ -61,24 +62,8 @@ async function fixture(overrides: Partial<ListingTargetAuthority> = {}) {
       evidenceRequirements: null,
     },
   });
-  const guards = [{ streamId: "synthetic-authority", expectedVersion: 0 }];
-  const authority: ListingTargetAuthority = {
-    authorizeManage: vi.fn(async () => ({ value: true, guards })),
-    resolveConnection: vi.fn<ListingTargetAuthority["resolveConnection"]>(async ({ accountId, connectionId }) => ({
-      value: {
-        accountId,
-        connectionId,
-        providerKey: "synthetic-provider",
-        environment: "sandbox",
-        identityRevision: 1,
-      },
-      guards,
-    })),
-    verifyDecision: vi.fn(async () => ({ value: true, guards })),
-    authorizeResume: vi.fn(async () => ({ value: true, guards })),
-    resolveAllocation: vi.fn(async (input) => ({ value: { ...input, eligibleQuantity: 2 }, guards })),
-    ...overrides,
-  };
+  const participantFixture = createSyntheticListingAuthority(eventStore);
+  const authority: ListingTargetAuthority = { ...participantFixture.authority, ...overrides };
   const services = createListingTargetRuntime({
     eventStore,
     authority,
@@ -86,7 +71,7 @@ async function fixture(overrides: Partial<ListingTargetAuthority> = {}) {
     prepareNativeEnable: async () => {
       throw new Error("Synthetic fixture has no native readiness.");
     },
-    capacityAppends: async () => [],
+    capacityAppends: async () => ({ appends: [], reservations: [] }),
   });
   const input: AcceptListingTargetPriceInput = {
     accountId: "acc_seller",
@@ -113,53 +98,51 @@ async function fixture(overrides: Partial<ListingTargetAuthority> = {}) {
       standingAuthorizationRevision: "1",
     },
   };
-  return { services, eventStore, repository, commandHandler, authority, input };
+  return { services, eventStore, repository, commandHandler, authority, input, participantFixture };
 }
 
 describe("Listing target owner authority", () => {
   it("accepts unchanged authority from its distinct owning event store", async () => {
-    const { eventStore: identityStore } = createInMemoryEventStore();
-    const streamId = "identity.synthetic-listing-authority";
-    await identityStore.appendToStream({
-      streamId,
-      expectedVersion: 0,
-      context,
-      events: [{ eventType: "identity.synthetic-authority-granted", payload: {} }],
-    });
-    const { services, input } = await fixture({
-      authorizeManage: async () => ({ value: true, guards: [{ streamId, expectedVersion: 1 }] }),
-    });
+    const { services, input, eventStore, participantFixture } = await fixture();
+    const identityStore = participantFixture.stores.get("identity")!;
+    const streamId = "identity.synthetic-manage-listing";
+    await participantFixture.change("manage-listing", context);
 
     await expect(services.acceptListingTargetPrice(input, context)).resolves.toMatchObject({
       listingId: input.listingId,
       version: 2,
     });
     expect(await identityStore.readStream({ streamId })).toHaveLength(1);
+    expect(await eventStore.readStream({ streamId })).toHaveLength(0);
   });
 
   it("rejects a changed source authority even when a local mirror still matches its prior revision", async () => {
-    const { eventStore: identityStore } = createInMemoryEventStore();
-    const streamId = "identity.synthetic-listing-authority";
+    const { services, input, eventStore, participantFixture } = await fixture();
+    const streamId = "identity.synthetic-manage-listing";
     const grant = {
       streamId,
       expectedVersion: 0,
       context,
-      events: [{ eventType: "identity.synthetic-authority-granted", payload: {} }],
+      events: [{ eventType: "identity.synthetic-authority-changed", payload: { enabled: true } }],
     };
-    await identityStore.appendToStream(grant);
-    const { services, input, eventStore } = await fixture({
-      authorizeManage: async () => ({ value: true, guards: [{ streamId, expectedVersion: 1 }] }),
-    });
+    await participantFixture.change("manage-listing", context);
     // A caught-up local mirror is not a lock on the separately owned source.
     await eventStore.appendToStream(grant);
     const append = eventStore.appendToStreams!;
     vi.spyOn(eventStore, "appendToStreams").mockImplementationOnce(async (appends) => {
-      await identityStore.appendToStream({
-        streamId,
-        expectedVersion: 1,
-        context,
-        events: [{ eventType: "identity.synthetic-authority-revoked", payload: {} }],
+      await participantFixture.change("manage-listing", context, false);
+      const source = participantFixture.sources.find((candidate) => candidate.participant.owner === "identity")!;
+      const operation = (await participantFixture.stores.get("identity")!.readAll()).find((event) =>
+        event.eventType.endsWith(".reserved"),
+      )!.payload
+        .reservation as unknown as import("@chase-sets/event-core/listing-authority").ListingAuthorityReservation;
+      expect((await source.inspect(operation.operation))?.status).toBe("reserved");
+      const fence = (await import("@chase-sets/platform-runtime/listing-authority-fence")).createListingAuthorityFence({
+        eventStore,
+        owner: "marketplace",
+        participants: [],
       });
+      expect((await fence.inspect(operation.operation)).status).toBe("aborted");
       return append(appends);
     });
 
@@ -188,15 +171,10 @@ describe("Listing target owner authority", () => {
   });
 
   it("rolls back native no-op request results if capability changes before commit", async () => {
-    const { services, input, eventStore, authority } = await fixture();
+    const { services, input, eventStore, participantFixture } = await fixture();
     const append = eventStore.appendToStreams!;
     vi.spyOn(eventStore, "appendToStreams").mockImplementationOnce(async (appends) => {
-      await eventStore.appendToStream({
-        streamId: "synthetic-authority",
-        expectedVersion: 0,
-        context,
-        events: [{ eventType: "synthetic.authority-revoked", payload: {} }],
-      });
+      await participantFixture.change("manage-listing", context);
       return append(appends);
     });
     const updates = [
@@ -208,13 +186,15 @@ describe("Listing target owner authority", () => {
     expect(
       (await eventStore.readAll()).filter((event) => event.eventType === "marketplace.listing-request.completed"),
     ).toHaveLength(0);
-    vi.mocked(authority.authorizeManage).mockResolvedValue({
-      value: true,
-      guards: [{ streamId: "synthetic-authority", expectedVersion: 1 }],
-    });
-    expect(await services.applyNativePrices({ accountId: input.accountId, updates }, context)).toEqual([
-      { listingId: input.listingId, version: 1, outcome: "no_op" },
+    expect(await services.applyNativePrices({ accountId: input.accountId, updates }, context)).toMatchObject([
+      { outcome: "error" },
     ]);
+    expect(
+      await services.applyNativePrices(
+        { accountId: input.accountId, updates: updates.map((update) => ({ ...update, idempotencyKey: "new-noop" })) },
+        context,
+      ),
+    ).toEqual([{ listingId: input.listingId, version: 1, outcome: "no_op" }]);
   });
 
   it("routes native reference edits through canonical acceptance without native fee prerequisites", async () => {
@@ -342,7 +322,12 @@ describe("Listing target owner authority", () => {
     expect(outcomes[1]?.result).toEqual(outcomes[0]?.result);
     expect(outcomes[2]?.error).toContain("different command");
     expect(append).toHaveBeenCalledTimes(3);
-    expect(await eventStore.readAll()).toHaveLength(3);
+    expect(await eventStore.readAll()).toHaveLength(5);
+    expect(
+      (await eventStore.readAll()).filter(
+        (event) => event.eventType === "marketplace.listing-authority-operation.committed",
+      ),
+    ).toHaveLength(1);
   });
 
   it("retains independent exact target pairs without changing the hidden native reference or fees", async () => {
@@ -403,16 +388,19 @@ describe("Listing target owner authority", () => {
   });
 
   it.each(["capability", "connection", "decision"])("fails closed for missing %s authority", async (kind) => {
-    const missing = async () => ({ value: null, guards: [] });
+    const missing = async () => ({ value: null, reservations: [] });
     const { services, input, eventStore } = await fixture(
       kind === "capability"
-        ? { authorizeManage: async () => ({ value: false, guards: [] }) }
+        ? { authorizeManage: async () => ({ value: false, reservations: [] }) }
         : kind === "connection"
           ? { resolveConnection: missing }
-          : { verifyDecision: async () => ({ value: false, guards: [] }) },
+          : { verifyDecision: async () => ({ value: false, reservations: [] }) },
     );
     await expect(services.acceptListingTargetPrice(input, context)).rejects.toThrow();
-    expect(await eventStore.readAll()).toHaveLength(1);
+    const history = await eventStore.readAll();
+    expect(history).toHaveLength(3);
+    expect(history.at(-1)?.eventType).toBe("marketplace.listing-authority-operation.aborted");
+    expect(await eventStore.readStream({ streamId: `marketplace.listing-${input.listingId}` })).toHaveLength(1);
   });
 
   it("rejects foreign accounts and fabricated external hard-price intent", async () => {
@@ -450,7 +438,7 @@ describe("Listing target owner authority", () => {
 
   it("rejects missing Inventory allocation and leaves the listing draft", async () => {
     const { services, input, repository } = await fixture({
-      resolveAllocation: async () => ({ value: null, guards: [] }),
+      resolveAllocation: async () => ({ value: null, reservations: [] }),
     });
     await services.acceptListingTargetPrice(input, context);
     await expect(

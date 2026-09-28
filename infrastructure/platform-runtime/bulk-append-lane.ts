@@ -92,6 +92,8 @@ export type BulkAppendTransaction<Result> = Readonly<{
   appends: readonly AppendToStreamInput[];
   /** Resolve an identical concurrent request or an unknown append outcome from durable storage. */
   recover(error: unknown): Promise<Result>;
+  /** Idempotent owner acknowledgement after the transaction, never authorization for it. */
+  complete?(): Promise<void>;
 }>;
 
 export type BulkAppendTransactionOutcome<Result> = Readonly<{
@@ -205,6 +207,7 @@ function transactionLane<Item, Result>(config: BulkAppendTransactionLaneConfig<I
         const results = merged.size > 0 ? await append!([...merged.values()]) : [];
         const byStream = new Map(results.map((result) => [result.streamId, result.storedEvents]));
         for (const { index, transaction } of entries) {
+          await transaction.complete?.();
           outcomes[index] = {
             result: transaction.result,
             error: null,

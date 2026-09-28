@@ -249,6 +249,8 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
   return {
     readStreamInTransaction: readStream,
     appendToStreamInTransaction: async (client, input) => {
+      if (input.authorizationDeadline !== undefined)
+        throw new Error("Authority deadlines require atomic appendToStreams.");
       if (input.events.length === 0) return [];
       assertEventPayloadSizes([input]);
       return observeEventStoreOperation(
@@ -287,6 +289,8 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
       );
     },
     appendToStream: async (input) => {
+      if (input.authorizationDeadline !== undefined)
+        throw new Error("Authority deadlines require atomic appendToStreams.");
       if (input.events.length === 0) {
         return [];
       }
@@ -394,6 +398,8 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
       );
     },
     appendToStreamsIndependently: async (inputs, options) => {
+      if (inputs.some((input) => input.authorizationDeadline !== undefined))
+        throw new Error("Authority deadlines require atomic appendToStreams.");
       const appendInputs = inputs.filter((input) => input.events.length > 0);
       if (appendInputs.length === 0) {
         return inputs.map((input) => ({
@@ -791,6 +797,7 @@ async function appendEventsToStreams(args: AppendStreamsInTransactionArgs): Prom
     eventCount * EVENT_INSERT_COLUMN_COUNT <= POSTGRES_PARAMETER_LIMIT
   ) {
     const results = await appendEventsToStreamsBatch({ ...args, atomic: true, onAdvisoryLockAcquired: () => {} });
+    await assertAuthorizationDeadlines(args.client, args.inputs);
     return results.map(({ streamId, storedEvents }) => ({ streamId, storedEvents }));
   }
   // Preserve sequential expected versions and avoid increasing the caller's SQL parameter footprint.
@@ -815,7 +822,25 @@ async function appendEventsToStreams(args: AppendStreamsInTransactionArgs): Prom
     });
   }
 
+  await assertAuthorizationDeadlines(args.client, args.inputs);
   return results;
+}
+
+async function assertAuthorizationDeadlines(client: PgQueryable, inputs: readonly AppendToStreamInput[]) {
+  const deadlines = inputs.flatMap((input) =>
+    input.authorizationDeadline === undefined ? [] : [input.authorizationDeadline],
+  );
+  if (deadlines.length === 0) return;
+  if (deadlines.some((deadline) => !Number.isFinite(Date.parse(deadline)))) {
+    throw createEventStoreError("concurrency_conflict", "Invalid authority decision boundary.");
+  }
+  const deadline = new Date(Math.min(...deadlines.map(Date.parse))).toISOString();
+  const result = await client.query<{ valid: boolean }>("SELECT clock_timestamp() < $1::timestamptz AS valid", [
+    deadline,
+  ]);
+  if (result.rows[0]?.valid !== true) {
+    throw createEventStoreError("concurrency_conflict", "Authority decision boundary expired.");
+  }
 }
 
 /**

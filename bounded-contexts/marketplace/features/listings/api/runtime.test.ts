@@ -12,6 +12,7 @@ import type {
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createMarketplaceListingRuntime as createRuntime } from "./runtime";
+import { createSyntheticListingAuthority } from "./authority-test-support";
 import type { MarketplaceListingFeeLock, MarketplaceListingFeeTermsSnapshot } from "../domain/fee-lock";
 import {
   openMarketplaceListingTermsSession,
@@ -19,15 +20,8 @@ import {
 } from "../../../support/runtime-support/fee-quotes";
 
 function createMarketplaceListingRuntime(deps: Parameters<typeof createRuntime>[0]) {
-  const guards = [{ streamId: "synthetic-listing-capability", expectedVersion: 0 }];
   return createRuntime({
-    listingTargetAuthority: {
-      authorizeManage: async () => ({ value: true, guards }),
-      resolveConnection: async () => ({ value: null, guards: [] }),
-      verifyDecision: async () => ({ value: false, guards: [] }),
-      resolveAllocation: async () => ({ value: null, guards: [] }),
-      authorizeResume: async () => ({ value: false, guards: [] }),
-    },
+    listingTargetAuthority: createSyntheticListingAuthority(deps.eventStore).authority,
     ...deps,
   });
 }

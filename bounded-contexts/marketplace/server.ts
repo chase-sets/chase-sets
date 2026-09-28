@@ -19,7 +19,6 @@ export type {
   ResumeListingInput,
   ListingMutationResult,
   ListingTargetPriceAcceptanceResult,
-  ListingAuthorityGuard,
   ListingAuthorityResult,
   ListingTargetAuthority,
   ListingInventoryAuthority,

@@ -238,13 +238,20 @@ export function createInMemoryEventStore(): InMemoryEventStore {
   }
 
   const eventStore: EventStore = {
-    appendToStream: async (input) => appendToStream(input),
+    appendToStream: async (input) => {
+      if (input.authorizationDeadline !== undefined)
+        throw new Error("Authority deadlines require atomic appendToStreams.");
+      return appendToStream(input);
+    },
     appendToStreams: async (inputs) => {
       // Every input's expected version is enforced, including a zero-event
       // one: that input is a pure version guard on a stream this append does
       // not write to, and skipping it would silently drop the guard.
       for (const input of inputs) {
         assertExpectedVersion(input.streamId, input.expectedVersion, currentVersion(input));
+        if (input.authorizationDeadline !== undefined && !(Date.now() < Date.parse(input.authorizationDeadline))) {
+          throw createEventStoreError("concurrency_conflict", "Authority decision boundary expired.");
+        }
       }
 
       // The version pre-check above cannot see a failure raised while writing --
@@ -273,6 +280,8 @@ export function createInMemoryEventStore(): InMemoryEventStore {
       }
     },
     appendToStreamsIndependently: async (inputs) => {
+      if (inputs.some((input) => input.authorizationDeadline !== undefined))
+        throw new Error("Authority deadlines require atomic appendToStreams.");
       const results: AppendToStreamsIndependentResult[] = [];
       for (const input of inputs) {
         if (input.events.length === 0) {
