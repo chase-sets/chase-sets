@@ -6,6 +6,7 @@ import { resolveRegistrationConsentSigningKeys } from "../support/runtime-suppor
 import { decideAccount, initialAccountState } from "../features/accounts/domain/domain";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { createInMemoryEventStore, type InMemoryEventStore } from "./in-memory-event-store";
+import { createIdentityListingAuthority } from "../features/access-hub/api/listing-authority";
 
 // Registration reaches the aggregate writes only with a server-minted
 // resolution, so these route tests resolve one the same way a caller does.
@@ -44,6 +45,40 @@ function createServices() {
 }
 
 describe("identity internal auth routes", () => {
+  it("retains the display-name reservation while an actual guarded registration write is pending", async () => {
+    const base = createServices();
+    const raw = base.eventStore!;
+    const append = raw.appendToStreams!.bind(raw);
+    let unavailable = true;
+    vi.spyOn(raw, "appendToStreams").mockImplementation(async (inputs) => {
+      if (unavailable && inputs.some((input) => input.streamId.startsWith("identity.account-")))
+        throw new Error("Synthetic unavailable registration append");
+      return append(inputs);
+    });
+    const authority = createIdentityListingAuthority({ eventStore: raw });
+    const services = { ...base, eventStore: authority.eventStore, listingAuthority: authority };
+    vi.mocked(services.db.query)
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ display_name_key: "synthetic pending" }] });
+    const response = await buildIdentityApi(services).request("/internal/auth/personal-identities", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: "synthetic-pending@example.test",
+        displayName: "Synthetic Pending",
+        registrationConsent: registrationConsent(),
+      }),
+    });
+    expect(response.status).toBe(503);
+    const result = await response.json();
+    expect(result.error.code).toBe("identity_authority_mutation_pending");
+    expect(result.error.mutationId).toMatch(/^identity-write-/);
+    expect(vi.mocked(services.db.query).mock.calls.some(([sql]) => String(sql).includes("DELETE FROM"))).toBe(false);
+    unavailable = false;
+    await authority.resumeWrite(result.error.mutationId);
+    expect((raw as InMemoryEventStore).streamIdsWithPrefix("identity.account-")).toHaveLength(1);
+  });
+
   it("normalizes account display names for uniqueness checks", () => {
     expect(normalizeAccountDisplayNameKey("  PokeBash   TCG  ")).toBe("pokebash tcg");
   });

@@ -73,7 +73,10 @@ import {
   type RegistrationOperationConsent,
 } from "./support/runtime-support/registration-operation";
 import { apiKeyRoutes } from "./features/api-keys/api/route";
-import { identityAuthorityMutationErrorHandler } from "./features/access-hub/api/listing-authority";
+import {
+  IdentityAuthorityMutationPendingError,
+  identityAuthorityMutationErrorHandler,
+} from "./features/access-hub/api/listing-authority";
 import { consentRoutes } from "./features/consents/api/route";
 import { termsOfServiceConsentRoutes } from "./features/consents/api/terms-route";
 import {
@@ -645,11 +648,9 @@ async function createPersonalIdentityForAuth(
         plan,
       });
     } catch (error) {
-      // Whichever way this attempt ends, it committed nothing, so the
-      // reservation it took has to go before anything else happens. The loser
-      // of a claim race may have reserved a different display name than the
-      // winner settled on, and that row would otherwise hold a name forever on
-      // behalf of an account that never existed.
+      // A retained write may still commit during recovery; keep its display name reserved.
+      if (error instanceof IdentityAuthorityMutationPendingError) throw error;
+      // A failed claim race may reserve a different name than its winner used.
       await releaseUnclaimedDisplayNameReservation(services, eventStore, {
         accountId: identity.accountId,
         displayName: identity.displayName,
