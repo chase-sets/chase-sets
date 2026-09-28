@@ -1,4 +1,5 @@
 import { expect, test, type APIResponse, type Page } from "@playwright/test";
+import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
 import {
   authenticatePlatformAdmin,
   expectAdminWebHydrated,
@@ -8,6 +9,34 @@ import {
 } from "./support/admin-e2e";
 
 test.describe("support admin platform feedback", () => {
+  test("records seeded feedback furniture mobile @admin-support @browser-e2e-seed", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openSeededFeedback(page);
+    const light = await feedbackFurniture(page, "light");
+    await captureResponsiveEvidence({ page, testInfo, claimId: "card-feedback-mobile-light" });
+    const dark = await feedbackFurniture(page, "dark");
+    await captureResponsiveEvidence({ page, testInfo, claimId: "card-feedback-mobile-dark" });
+    expect(dark, "theme must preserve accessible roles, names and order").toBe(light);
+    await testInfo.attach("feedback-mobile-accessibility", {
+      body: JSON.stringify({ light, dark }),
+      contentType: "application/json",
+    });
+  });
+
+  test("records seeded feedback furniture desktop @admin-support @browser-e2e-seed", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await openSeededFeedback(page);
+    const light = await feedbackFurniture(page, "light");
+    await captureResponsiveEvidence({ page, testInfo, claimId: "card-feedback-desktop-light" });
+    const dark = await feedbackFurniture(page, "dark");
+    await captureResponsiveEvidence({ page, testInfo, claimId: "card-feedback-desktop-dark" });
+    expect(dark, "theme must preserve accessible roles, names and order").toBe(light);
+    await testInfo.attach("feedback-desktop-accessibility", {
+      body: JSON.stringify({ light, dark }),
+      contentType: "application/json",
+    });
+  });
+
   test("operator reviews platform feedback @admin-support", async ({ page }) => {
     test.setTimeout(240_000);
     test.skip(
@@ -38,6 +67,35 @@ test.describe("support admin platform feedback", () => {
     await expectReviewedFeedback(page, feedbackId);
   });
 });
+
+async function openSeededFeedback(page: Page) {
+  const route = "/support/platform-feedback/pfb_seed_checkout";
+  await authenticatePlatformAdmin(page, route, "/access/sign-in");
+  await expectPageOk(page, route);
+  await expectAdminWebHydrated(page);
+  await expect(page.getByRole("heading", { name: "Feedback pfb_seed_checkout", exact: true })).toBeVisible();
+}
+
+async function feedbackFurniture(page: Page, mode: "light" | "dark") {
+  await page.emulateMedia({ colorScheme: mode });
+  const theme = page.locator("[data-chase-theme]").first();
+  await expect(theme).toBeVisible();
+  await theme.evaluate((element, value) => element.setAttribute("data-color-mode", value), mode);
+  await expect(theme).toHaveAttribute("data-color-mode", mode);
+  const target = page.locator('[data-card-emitter="detail-panel"]:has(> div > div:text-is("Feedback"))');
+  await expect(target).toHaveCount(1);
+  await expect(target).toBeVisible();
+  await expect(target).toContainText("Checkout totals were clear before payment.");
+  await expect(target.locator("dl dt")).not.toHaveCount(0);
+  await expect(target).toHaveClass("rounded-tokenLg overflow-hidden bg-surface-2 p-4");
+  const chrome = await target.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { shadow: style.boxShadow, border: style.borderTopWidth, fill: style.backgroundColor };
+  });
+  expect(chrome).toMatchObject({ shadow: "none", border: "0px" });
+  expect(chrome.fill).not.toBe("rgba(0, 0, 0, 0)");
+  return target.ariaSnapshot();
+}
 
 async function submitFreshPlatformFeedback(page: Page) {
   const origin = new URL(page.url()).origin;

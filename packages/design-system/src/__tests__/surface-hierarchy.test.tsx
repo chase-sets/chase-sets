@@ -1,4 +1,6 @@
 import fs from "node:fs";
+import { execFileSync } from "node:child_process";
+import os from "node:os";
 import path from "node:path";
 import { createRef, forwardRef, type AnchorHTMLAttributes, type ReactElement, type Ref } from "react";
 import ts from "@chase-sets/typescript-compiler-api";
@@ -8,9 +10,13 @@ import { describe, expect, it } from "vitest";
 import {
   Card,
   DetailPanel,
+  DetailConfidenceModule,
+  FormPanel,
   Inset,
   KeyValueList,
   MarketplaceDashboardPanel,
+  OfferCard,
+  OrderProtectionModule,
   SpecificationList,
   Stat,
   Surface,
@@ -31,9 +37,6 @@ interface SurfaceViolation {
   reason: string;
 }
 
-const cardLikeExports = new Set(["Card", "Surface", "DetailPanel"]);
-const insetExports = new Set(["Inset"]);
-const rowListExports = new Set(["KeyValueList"]);
 const scanRoots = ["bounded-contexts", "packages/design-system/src"];
 
 function repositoryRoot() {
@@ -64,14 +67,134 @@ function scanFiles(directory: string): string[] {
   });
 }
 
-function isDesignSystemSurfaceSource(source: string) {
-  return (
-    source === "@chase-sets/design-system" ||
-    source.endsWith("/card") ||
-    source.endsWith("/layout") ||
-    source.endsWith("/data-display") ||
-    source.endsWith("/commerce")
+function discoverCardEmitters(root: string) {
+  const directory = path.join(root, "packages/design-system/src");
+  const tracked = execFileSync("git", ["ls-files", "-z", "--", "packages/design-system/src"], { cwd: root })
+    .toString()
+    .split("\0")
+    .filter(
+      (file) => /\.tsx?$/.test(file) && !/(?:^|\/)(?:__tests__|dist|build|node_modules)\/|\.test\.|\.d\.ts$/.test(file),
+    )
+    .map((file) => path.resolve(root, file));
+  const sources = new Map(
+    tracked.map((file) => [
+      file,
+      ts.createSourceFile(file, fs.readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true),
+    ]),
   );
+  const config = ts.readConfigFile(path.join(root, "tsconfig.json"), ts.sys.readFile);
+  const options = ts.parseJsonConfigFileContent(config.config, ts.sys, root).options;
+  const resolutionCache = ts.createModuleResolutionCache(root, (file) => file, options);
+  const declarations = new Map<string, ts.FunctionDeclaration | ts.VariableDeclaration>();
+  const exported = new Set<string>();
+  const identity = (file: string, name: string) => `${path.resolve(file)}#${name}`;
+  const hasExport = (node: ts.Node) =>
+    ts.canHaveModifiers(node) &&
+    ts.getModifiers(node)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword);
+  for (const [file, source] of sources) {
+    for (const statement of source.statements) {
+      if (ts.isFunctionDeclaration(statement) && statement.name) {
+        const id = identity(file, statement.name.text);
+        declarations.set(id, statement);
+        if (hasExport(statement)) exported.add(id);
+      } else if (ts.isVariableStatement(statement)) {
+        for (const declaration of statement.declarationList.declarations) {
+          if (!ts.isIdentifier(declaration.name)) continue;
+          const id = identity(file, declaration.name.text);
+          declarations.set(id, declaration);
+          if (hasExport(statement)) exported.add(id);
+        }
+      }
+    }
+  }
+  function resolveModule(file: string, specifier: string) {
+    const resolved = ts.resolveModuleName(specifier, file, options, ts.sys, resolutionCache).resolvedModule;
+    const target = resolved && path.resolve(resolved.resolvedFileName);
+    return target && sources.has(target) ? target : undefined;
+  }
+  function resolveExport(file: string, name: string, seen = new Set<string>()): string | undefined {
+    const id = identity(file, name);
+    if (seen.has(id)) return undefined;
+    seen.add(id);
+    if (exported.has(id)) return id;
+    for (const statement of sources.get(file)?.statements ?? []) {
+      if (!ts.isExportDeclaration(statement) || statement.isTypeOnly) continue;
+      const target =
+        statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier)
+          ? resolveModule(file, statement.moduleSpecifier.text)
+          : file;
+      if (!target) continue;
+      if (!statement.exportClause) {
+        const match = resolveExport(target, name, seen);
+        if (match) return match;
+      } else if (ts.isNamedExports(statement.exportClause)) {
+        const entry = statement.exportClause.elements.find((entry) => !entry.isTypeOnly && entry.name.text === name);
+        if (entry)
+          return target === file
+            ? resolveLocal(sources.get(file)!, (entry.propertyName ?? entry.name).text, seen)
+            : resolveExport(target, (entry.propertyName ?? entry.name).text, seen);
+      }
+    }
+    return undefined;
+  }
+  function resolveLocal(source: ts.SourceFile, name: string, seen = new Set<string>()): string | undefined {
+    const id = identity(source.fileName, name);
+    if (declarations.has(id)) return id;
+    for (const statement of source.statements) {
+      if (
+        !ts.isImportDeclaration(statement) ||
+        !ts.isStringLiteral(statement.moduleSpecifier) ||
+        statement.importClause?.isTypeOnly
+      )
+        continue;
+      const bindings = statement.importClause?.namedBindings;
+      if (!bindings || !ts.isNamedImports(bindings)) continue;
+      const entry = bindings.elements.find((entry) => !entry.isTypeOnly && entry.name.text === name);
+      const target = entry && resolveModule(source.fileName, statement.moduleSpecifier.text);
+      if (entry && target) return resolveExport(target, (entry.propertyName ?? entry.name).text, seen);
+    }
+    return undefined;
+  }
+  const seed = identity(path.join(directory, "components/data-display/card.tsx"), "Card");
+  const surface = identity(path.join(directory, "primitives/layout.tsx"), "Surface");
+  const inset = identity(path.join(directory, "primitives/layout.tsx"), "Inset");
+  const rowList = identity(path.join(directory, "components/data-display/key-value-list.tsx"), "KeyValueList");
+  const edges = new Map<string, Set<string>>();
+  const roots: Array<{ owner: string; node: ts.JsxOpeningElement | ts.JsxSelfClosingElement }> = [];
+  for (const [id, declaration] of declarations) {
+    const dependencies = new Set<string>();
+    function visit(node: ts.Node) {
+      if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && ts.isIdentifier(node.tagName)) {
+        const target = resolveLocal(declaration.getSourceFile(), node.tagName.text);
+        if (target) dependencies.add(target);
+        if (target === seed) roots.push({ owner: id, node });
+      }
+      ts.forEachChild(node, visit);
+    }
+    visit(declaration);
+    edges.set(id, dependencies);
+  }
+  const card = new Set([seed]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [id, dependencies] of edges) {
+      if (!card.has(id) && [...dependencies].some((dependency) => card.has(dependency))) {
+        card.add(id);
+        changed = true;
+      }
+    }
+  }
+  const direct = [...exported].filter((id) => edges.get(id)?.has(seed)).sort();
+  const transitive = [...exported].filter((id) => id !== seed && card.has(id) && !direct.includes(id)).sort();
+  const nonCard = [...exported].filter((id) => !card.has(id)).sort();
+  return { sources, exported, seed, card, surface, inset, rowList, direct, transitive, nonCard, roots, resolveLocal };
+}
+
+type CardDiscovery = ReturnType<typeof discoverCardEmitters>;
+let productionDiscovery: CardDiscovery | undefined;
+function productionCardEmitters() {
+  return (productionDiscovery ??= discoverCardEmitters(repositoryRoot()));
 }
 
 function nearestSurface(stack: readonly SurfaceFrame[]) {
@@ -115,45 +238,48 @@ function hasSurfaceVariant(node: ts.JsxElement | ts.JsxSelfClosingElement) {
   });
 }
 
-function collectSurfaceNames(sourceFile: ts.SourceFile, filePath: string) {
+function collectSurfaceNames(sourceFile: ts.SourceFile, discovery: CardDiscovery) {
   const cardLikeNames = new Set<string>();
   const insetNames = new Set<string>();
   const rowListNames = new Set<string>();
 
   function visit(node: ts.Node) {
     if (ts.isImportDeclaration(node) && node.importClause?.namedBindings) {
-      const source = ts.isStringLiteral(node.moduleSpecifier) ? node.moduleSpecifier.text : "";
-
-      if (ts.isNamedImports(node.importClause.namedBindings) && isDesignSystemSurfaceSource(source)) {
+      if (ts.isNamedImports(node.importClause.namedBindings)) {
         for (const specifier of node.importClause.namedBindings.elements) {
-          const exportedName = (specifier.propertyName ?? specifier.name).text;
+          const id = discovery.resolveLocal(sourceFile, specifier.name.text);
 
-          if (cardLikeExports.has(exportedName)) {
+          if (id && (discovery.card.has(id) || id === discovery.surface)) {
             cardLikeNames.add(specifier.name.text);
           }
 
-          if (insetExports.has(exportedName)) {
+          if (id === discovery.inset) {
             insetNames.add(specifier.name.text);
           }
 
-          if (rowListExports.has(exportedName)) {
+          if (id === discovery.rowList) {
             rowListNames.add(specifier.name.text);
           }
         }
       }
     }
 
-    if (filePath.includes(path.join("packages", "design-system", "src"))) {
-      if (ts.isFunctionDeclaration(node) && node.name) {
-        if (cardLikeExports.has(node.name.text)) {
+    if (discovery.sources.has(path.resolve(sourceFile.fileName))) {
+      if (
+        (ts.isFunctionDeclaration(node) || ts.isVariableDeclaration(node)) &&
+        node.name &&
+        ts.isIdentifier(node.name)
+      ) {
+        const id = discovery.resolveLocal(sourceFile, node.name.text);
+        if (id && (discovery.card.has(id) || id === discovery.surface)) {
           cardLikeNames.add(node.name.text);
         }
 
-        if (insetExports.has(node.name.text)) {
+        if (id === discovery.inset) {
           insetNames.add(node.name.text);
         }
 
-        if (rowListExports.has(node.name.text)) {
+        if (id === discovery.rowList) {
           rowListNames.add(node.name.text);
         }
       }
@@ -167,7 +293,7 @@ function collectSurfaceNames(sourceFile: ts.SourceFile, filePath: string) {
   return { cardLikeNames, insetNames, rowListNames };
 }
 
-function surfaceHierarchyViolations(root: string): SurfaceViolation[] {
+function surfaceHierarchyViolations(root: string, discovery = discoverCardEmitters(root)): SurfaceViolation[] {
   return scanRoots.flatMap((scanRoot) => {
     const absoluteRoot = path.join(root, scanRoot);
 
@@ -178,7 +304,7 @@ function surfaceHierarchyViolations(root: string): SurfaceViolation[] {
     return scanFiles(absoluteRoot).flatMap((filePath) => {
       const sourceText = fs.readFileSync(filePath, "utf8");
       const sourceFile = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-      const { cardLikeNames, insetNames, rowListNames } = collectSurfaceNames(sourceFile, filePath);
+      const { cardLikeNames, insetNames, rowListNames } = collectSurfaceNames(sourceFile, discovery);
       const violations: SurfaceViolation[] = [];
 
       function visit(node: ts.Node, stack: SurfaceFrame[]) {
@@ -239,10 +365,106 @@ function surfaceHierarchyViolations(root: string): SurfaceViolation[] {
 
 describe("surface hierarchy", () => {
   it("uses Inset as the only nested surface level", () => {
-    const violations = surfaceHierarchyViolations(repositoryRoot());
+    const violations = surfaceHierarchyViolations(repositoryRoot(), productionCardEmitters());
 
     expect(violations).toEqual([]);
   }, 15_000);
+
+  it("partitions tracked production exports into Card, direct, transitive and non-Card identities", () => {
+    const discovery = productionCardEmitters();
+    const partition = [discovery.seed, ...discovery.direct, ...discovery.transitive, ...discovery.nonCard];
+    expect(new Set(partition).size).toBe(partition.length);
+    expect(partition.sort()).toEqual([...discovery.exported].sort());
+    expect(discovery.direct).toEqual([...new Set(discovery.roots.map(({ owner }) => owner))].sort());
+    expect(discovery.transitive.map((id) => id.split("#")[1])).toEqual([
+      "CheckoutTrustPanel",
+      "MarketplaceProductCard",
+    ]);
+    expect(discovery.nonCard).toContain(discovery.surface);
+    expect(discovery.card.has(discovery.surface)).toBe(false);
+  });
+
+  it("discovers fixture-root Card closure through unconventional resolved aliases without Surface leakage or build output", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "card-closure-"));
+    const write = (file: string, source: string) => {
+      const target = path.join(root, file);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, source);
+    };
+    try {
+      write(
+        "tsconfig.json",
+        JSON.stringify({
+          compilerOptions: {
+            moduleResolution: "Bundler",
+            paths: { "@unusual/*": ["./packages/design-system/src/unconventional/*"] },
+          },
+        }),
+      );
+      write(
+        "packages/design-system/src/components/data-display/card.tsx",
+        "export function Card() { return <div />; }",
+      );
+      write(
+        "packages/design-system/src/primitives/layout.tsx",
+        "export function Surface() { return <div />; } export function Inset() { return <div />; }",
+      );
+      write(
+        "packages/design-system/src/unconventional/direct.tsx",
+        'import { Card as Entity } from "../components/data-display/card"; export function FixtureEntity() { return <Entity />; }',
+      );
+      write(
+        "packages/design-system/src/unconventional/second.tsx",
+        'import { FixtureEntity as Child } from "./direct"; export function FixtureSecondOrder() { return <Child />; }',
+      );
+      write(
+        "packages/design-system/src/unconventional/furniture.tsx",
+        'import { Surface as Frame } from "../primitives/layout"; export function FixtureSurfaceOnly() { return <Frame />; }',
+      );
+      write(
+        "packages/design-system/src/unconventional/bridge.ts",
+        'export { FixtureEntity as RenamedEntity } from "./direct"; export * from "./second"; export * from "./furniture";',
+      );
+      write(
+        "bounded-contexts/example/ui.tsx",
+        'import { Surface, Inset } from "../../packages/design-system/src/primitives/layout"; import { RenamedEntity as Direct, FixtureSecondOrder as Second, FixtureSurfaceOnly as Furniture } from "@unusual/bridge"; export function Example() { return <><Surface><Direct /><Second /><Furniture /><Inset><Second /></Inset></Surface></>; }',
+      );
+      write("bounded-contexts/example/not-design-system.tsx", "export function RenamedEntity() { return <div />; }");
+      write(
+        "bounded-contexts/example/unrelated.tsx",
+        'import { RenamedEntity as Direct } from "./not-design-system"; import { Surface } from "../../packages/design-system/src/primitives/layout"; export function Unrelated() { return <Surface><Direct /></Surface>; }',
+      );
+      execFileSync("git", ["init", "--quiet"], { cwd: root });
+      execFileSync("git", ["add", "."], { cwd: root });
+      const clean = discoverCardEmitters(root);
+      expect(clean.direct.map((id) => id.split("#")[1])).toEqual(["FixtureEntity"]);
+      expect(clean.transitive.map((id) => id.split("#")[1])).toEqual(["FixtureSecondOrder"]);
+      expect(clean.nonCard.map((id) => id.split("#")[1])).toContain("FixtureSurfaceOnly");
+      const violations = surfaceHierarchyViolations(root, clean);
+      expect(violations.map(({ tag, parent }) => ({ tag, parent }))).toEqual([
+        { tag: "Direct", parent: "Surface" },
+        { tag: "Second", parent: "Surface" },
+        { tag: "Second", parent: "Inset" },
+      ]);
+      write("packages/design-system/src/unconventional/direct.js", "export function GeneratedEntity() {}");
+      write(
+        "packages/design-system/src/unconventional/direct.d.ts",
+        "export declare function GeneratedEntity(): void;",
+      );
+      write(
+        "packages/design-system/src/dist/generated.tsx",
+        'import { Card } from "../components/data-display/card"; export function GeneratedEntity() { return <Card />; }',
+      );
+      const built = discoverCardEmitters(root);
+      expect([...built.exported]).toEqual([...clean.exported]);
+      expect(built.direct).toEqual(clean.direct);
+      expect(built.transitive).toEqual(clean.transitive);
+      expect(built.nonCard).toEqual(clean.nonCard);
+      expect(surfaceHierarchyViolations(root, built)).toEqual(violations);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
 
   it("renders insets and metric wells with the recessed cutout treatment", () => {
     expect(renderToString(<Inset>One nested child level</Inset>)).toContain("inset-surface");
@@ -434,6 +656,111 @@ const surfaceGlowChrome: Record<"legacy" | ElevationName, string> = {
   outlined: "min-w-0 max-w-full rounded-tokenLg border border-muted bg-elevated p-4",
   elevated: "surface-border min-w-0 max-w-full rounded-tokenLg ds-glass bg-elevated p-4 shadow-tokenLg ds-glow",
 };
+
+describe("composed Card intent", () => {
+  it("classifies every Card root exactly once with ruled intent after every spread", () => {
+    const intent: Record<string, "tinted" | "elevated"> = {
+      PriceBreakdown: "tinted",
+      ListingPurchasePanel: "elevated",
+      OrderIntentSummary: "tinted",
+      OrderProtectionModule: "tinted",
+      PaymentRecoveryPanel: "tinted",
+      MessageThreadPreview: "tinted",
+      DetailConfidenceModule: "tinted",
+      SpecificationList: "tinted",
+      ComparisonModule: "tinted",
+      OfferCard: "elevated",
+      MarketplaceDashboardPanel: "tinted",
+      SearchFilterPanel: "tinted",
+      AccountTrustCard: "elevated",
+      RatingDistribution: "tinted",
+      ActorIdentityCue: "tinted",
+      DetailPanel: "tinted",
+      AdminResourceDetailPage: "tinted",
+      ProductCard: "elevated",
+      CategoryTile: "elevated",
+      FeatureCard: "elevated",
+      TokenSwatch: "tinted",
+      FormPanel: "tinted",
+    };
+    const roots = productionCardEmitters().roots;
+    expect(roots.map(({ owner }) => owner.split("#")[1]).sort()).toEqual(Object.keys(intent).sort());
+    for (const { owner, node } of roots) {
+      const name = owner.split("#")[1]!;
+      const attributes = [...node.attributes.properties];
+      const elevations = attributes.filter(
+        (attribute): attribute is ts.JsxAttribute =>
+          ts.isJsxAttribute(attribute) && attribute.name.getText() === "elevation",
+      );
+      expect(elevations, owner).toHaveLength(1);
+      const elevation = elevations[0]!;
+      expect(attributes.slice(attributes.indexOf(elevation) + 1).some(ts.isJsxSpreadAttribute), owner).toBe(false);
+      if (name === "DetailPanel") {
+        expect(elevation.initializer?.getText()).toBe("{elevation}");
+        let declaration: ts.Node = node;
+        while (declaration.parent && !ts.isFunctionDeclaration(declaration)) declaration = declaration.parent;
+        expect(ts.isFunctionDeclaration(declaration)).toBe(true);
+        if (!ts.isFunctionDeclaration(declaration)) throw new Error("DetailPanel must own its default");
+        const parameter = declaration.parameters[0]?.name;
+        expect(parameter && ts.isObjectBindingPattern(parameter)).toBe(true);
+        if (!parameter || !ts.isObjectBindingPattern(parameter)) throw new Error("DetailPanel must bind elevation");
+        expect(
+          parameter.elements.find((element) => element.name.getText() === "elevation")?.initializer?.getText(),
+        ).toBe('"tinted"');
+      } else {
+        expect(
+          elevation.initializer && ts.isStringLiteral(elevation.initializer) ? elevation.initializer.text : null,
+          owner,
+        ).toBe(intent[name]);
+      }
+    }
+  });
+
+  it("renders DetailConfidenceModule in its own tinted furniture cell", () => {
+    expect(
+      rootElement(<DetailConfidenceModule title="Confidence" items={[{ label: "Status", value: "Ready" }]} />)
+        .className,
+    ).toBe(cardElevationMatrix.tinted.default);
+  });
+
+  it("renders OrderProtectionModule in its own tinted furniture cell", () => {
+    expect(
+      rootElement(
+        <OrderProtectionModule title="Protection" items={[{ title: "Protected", description: "Tracked shipment" }]} />,
+      ).className,
+    ).toBe(cardElevationMatrix.tinted.default);
+  });
+
+  it("renders MarketplaceDashboardPanel in its own tinted furniture cell", () => {
+    expect(
+      rootElement(<MarketplaceDashboardPanel title="Operations" metrics={[{ label: "Ready", value: "1" }]} />)
+        .className,
+    ).toBe(cardElevationMatrix.tinted.default);
+  });
+
+  it("renders FormPanel in its own tinted furniture cell without glow", () => {
+    expect(rootElement(<FormPanel glow>Form content</FormPanel>).className).toBe(cardElevationMatrix.tinted.default);
+  });
+
+  it("renders OfferCard in its own elevated entity cell", () => {
+    expect(rootElement(<OfferCard title="Offer" amount="$25" details="One card" />).className).toBe(
+      cardElevationMatrix.elevated.default,
+    );
+  });
+
+  it("defaults DetailPanel to tinted while preserving the explicit elevated override", () => {
+    expect(rootElement(<DetailPanel title="Feedback">Populated feedback</DetailPanel>).className).toBe(
+      cardElevationMatrix.tinted.default,
+    );
+    expect(
+      rootElement(
+        <DetailPanel title="Feedback" elevation="elevated">
+          Populated feedback
+        </DetailPanel>,
+      ).className,
+    ).toBe(cardElevationMatrix.elevated.default);
+  });
+});
 
 describe("Card elevation oracle", () => {
   const cells = elevations.flatMap((elevation) => cardVariants.map((variant) => ({ elevation, variant })));

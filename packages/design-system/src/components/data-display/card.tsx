@@ -174,9 +174,9 @@ export interface DetailPanelProps extends Omit<CardProps, "title"> {
   actions?: ReactNode;
 }
 
-export function DetailPanel({ title, actions, children, ...rest }: DetailPanelProps) {
+export function DetailPanel({ title, actions, children, elevation = "tinted", ...rest }: DetailPanelProps) {
   return (
-    <Card {...rest}>
+    <Card {...rest} elevation={elevation} data-card-emitter="detail-panel">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="font-heading text-lg font-semibold text-foreground">{title}</div>
         {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}

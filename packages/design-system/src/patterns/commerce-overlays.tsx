@@ -41,7 +41,7 @@ export function FormPanel({ children, variant = "card", glow = false, ...rest }:
   }
 
   return (
-    <Card {...rest} glow={glow}>
+    <Card {...rest} glow={glow} elevation="tinted">
       {children}
     </Card>
   );

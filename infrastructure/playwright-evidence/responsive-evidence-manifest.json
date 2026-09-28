@@ -2356,6 +2356,494 @@
         }
       ],
       "artifact": "repricing-policy-editor-mobile"
+    },
+    {
+      "kind": "claim",
+      "id": "card-shipment-mobile-light",
+      "file": "deployables/marketplace/e2e/account-elevation-intent.spec.ts",
+      "testTitle": "records seeded shipment furniture mobile @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Seeded seller shipment detail",
+        "path": "/account/sales/shipments/shp_seed_label_attached"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:shp_seed_label_attached:light"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "shipment-order-protection",
+        "selector": "[data-card-emitter=\"order-protection\"]",
+        "populatedSelector": ":scope :text-is(\"1ZSEEDLABELATTACHED\")"
+      },
+      "measurements": [
+        {
+          "identity": "component-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "component-horizontal-overflow",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        },
+        {
+          "identity": "back-action-height",
+          "scope": "page",
+          "selector": "main a[href=\"/account/sales/shipments\"]",
+          "property": "height",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "card-shipment-mobile-light"
+    },
+    {
+      "kind": "claim",
+      "id": "card-shipment-mobile-dark",
+      "file": "deployables/marketplace/e2e/account-elevation-intent.spec.ts",
+      "testTitle": "records seeded shipment furniture mobile @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Seeded seller shipment detail",
+        "path": "/account/sales/shipments/shp_seed_label_attached"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:shp_seed_label_attached:dark"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "shipment-order-protection",
+        "selector": "[data-card-emitter=\"order-protection\"]",
+        "populatedSelector": ":scope :text-is(\"1ZSEEDLABELATTACHED\")"
+      },
+      "measurements": [
+        {
+          "identity": "component-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "component-horizontal-overflow",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        },
+        {
+          "identity": "back-action-height",
+          "scope": "page",
+          "selector": "main a[href=\"/account/sales/shipments\"]",
+          "property": "height",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "card-shipment-mobile-dark"
+    },
+    {
+      "kind": "claim",
+      "id": "card-shipment-desktop-light",
+      "file": "deployables/marketplace/e2e/account-elevation-intent.spec.ts",
+      "testTitle": "records seeded shipment furniture desktop @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Seeded seller shipment detail",
+        "path": "/account/sales/shipments/shp_seed_label_attached"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:shp_seed_label_attached:light"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "shipment-order-protection",
+        "selector": "[data-card-emitter=\"order-protection\"]",
+        "populatedSelector": ":scope :text-is(\"1ZSEEDLABELATTACHED\")"
+      },
+      "measurements": [
+        {
+          "identity": "component-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
+        },
+        {
+          "identity": "component-horizontal-overflow",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        },
+        {
+          "identity": "back-action-height",
+          "scope": "page",
+          "selector": "main a[href=\"/account/sales/shipments\"]",
+          "property": "height",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "card-shipment-desktop-light"
+    },
+    {
+      "kind": "claim",
+      "id": "card-shipment-desktop-dark",
+      "file": "deployables/marketplace/e2e/account-elevation-intent.spec.ts",
+      "testTitle": "records seeded shipment furniture desktop @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Seeded seller shipment detail",
+        "path": "/account/sales/shipments/shp_seed_label_attached"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:shp_seed_label_attached:dark"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "shipment-order-protection",
+        "selector": "[data-card-emitter=\"order-protection\"]",
+        "populatedSelector": ":scope :text-is(\"1ZSEEDLABELATTACHED\")"
+      },
+      "measurements": [
+        {
+          "identity": "component-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
+        },
+        {
+          "identity": "component-horizontal-overflow",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        },
+        {
+          "identity": "back-action-height",
+          "scope": "page",
+          "selector": "main a[href=\"/account/sales/shipments\"]",
+          "property": "height",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "card-shipment-desktop-dark"
+    },
+    {
+      "kind": "claim",
+      "id": "card-feedback-mobile-light",
+      "file": "deployables/admin-web/e2e/support-platform-feedback.spec.ts",
+      "testTitle": "records seeded feedback furniture mobile @admin-support @browser-e2e-seed",
+      "route": {
+        "name": "Seeded platform feedback detail",
+        "path": "/support/platform-feedback/pfb_seed_checkout"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:pfb_seed_checkout:light"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "platform-feedback-detail-panel",
+        "selector": "[data-card-emitter=\"detail-panel\"]:has(> div > div:text-is(\"Feedback\"))",
+        "populatedSelector": ":scope :text-is(\"Checkout totals were clear before payment.\")"
+      },
+      "measurements": [
+        {
+          "identity": "component-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "component-horizontal-overflow",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        },
+        {
+          "identity": "back-action-height",
+          "scope": "page",
+          "selector": "main a[href=\"/support/platform-feedback\"]",
+          "property": "height",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "card-feedback-mobile-light"
+    },
+    {
+      "kind": "claim",
+      "id": "card-feedback-mobile-dark",
+      "file": "deployables/admin-web/e2e/support-platform-feedback.spec.ts",
+      "testTitle": "records seeded feedback furniture mobile @admin-support @browser-e2e-seed",
+      "route": {
+        "name": "Seeded platform feedback detail",
+        "path": "/support/platform-feedback/pfb_seed_checkout"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:pfb_seed_checkout:dark"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "platform-feedback-detail-panel",
+        "selector": "[data-card-emitter=\"detail-panel\"]:has(> div > div:text-is(\"Feedback\"))",
+        "populatedSelector": ":scope :text-is(\"Checkout totals were clear before payment.\")"
+      },
+      "measurements": [
+        {
+          "identity": "component-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "component-horizontal-overflow",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        },
+        {
+          "identity": "back-action-height",
+          "scope": "page",
+          "selector": "main a[href=\"/support/platform-feedback\"]",
+          "property": "height",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "card-feedback-mobile-dark"
+    },
+    {
+      "kind": "claim",
+      "id": "card-feedback-desktop-light",
+      "file": "deployables/admin-web/e2e/support-platform-feedback.spec.ts",
+      "testTitle": "records seeded feedback furniture desktop @admin-support @browser-e2e-seed",
+      "route": {
+        "name": "Seeded platform feedback detail",
+        "path": "/support/platform-feedback/pfb_seed_checkout"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:pfb_seed_checkout:light"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "platform-feedback-detail-panel",
+        "selector": "[data-card-emitter=\"detail-panel\"]:has(> div > div:text-is(\"Feedback\"))",
+        "populatedSelector": ":scope :text-is(\"Checkout totals were clear before payment.\")"
+      },
+      "measurements": [
+        {
+          "identity": "component-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
+        },
+        {
+          "identity": "component-horizontal-overflow",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        },
+        {
+          "identity": "back-action-height",
+          "scope": "page",
+          "selector": "main a[href=\"/support/platform-feedback\"]",
+          "property": "height",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "card-feedback-desktop-light"
+    },
+    {
+      "kind": "claim",
+      "id": "card-feedback-desktop-dark",
+      "file": "deployables/admin-web/e2e/support-platform-feedback.spec.ts",
+      "testTitle": "records seeded feedback furniture desktop @admin-support @browser-e2e-seed",
+      "route": {
+        "name": "Seeded platform feedback detail",
+        "path": "/support/platform-feedback/pfb_seed_checkout"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:pfb_seed_checkout:dark"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "platform-feedback-detail-panel",
+        "selector": "[data-card-emitter=\"detail-panel\"]:has(> div > div:text-is(\"Feedback\"))",
+        "populatedSelector": ":scope :text-is(\"Checkout totals were clear before payment.\")"
+      },
+      "measurements": [
+        {
+          "identity": "component-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
+        },
+        {
+          "identity": "component-horizontal-overflow",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        },
+        {
+          "identity": "back-action-height",
+          "scope": "page",
+          "selector": "main a[href=\"/support/platform-feedback\"]",
+          "property": "height",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "card-feedback-desktop-dark"
     }
   ]
 }
