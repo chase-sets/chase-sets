@@ -172,3 +172,61 @@ it("never reuses a lost consumer terminal identity for a delayed pre-revocation 
     await readCompleteStream(f.consumerStore, { streamId: "marketplace.synthetic-delayed-pricing-effect" }),
   ).toHaveLength(0);
 });
+
+it("never completes revocation over a lost resource and integrity pair while a prepared commit survives", async () => {
+  const f = await fixture();
+  const operation = await f.fence.open(f.input, f.context);
+  const reservation = await f.source.prepare(operation, f.context);
+  const delayedCommit = await f.fence.prepareCommit(operation, [reservation], { accepted: true });
+  const resourceStreams = [...f.sourceMemory.streams.keys()].filter((id) =>
+    id.startsWith("pricing.listing-authority-resource-"),
+  );
+  expect(resourceStreams).toHaveLength(1);
+  const resourceStream = resourceStreams[0]!;
+  const integrityStream = resourceStream.replace("-resource-", "-integrity-");
+  expect(f.sourceMemory.streams.has(integrityStream)).toBe(true);
+
+  // Synthetic authoritative loss of both paired streams and their heads, not
+  // projection lag. The reservation and original consumer opening are retained.
+  f.sourceMemory.streams.delete(resourceStream);
+  f.sourceMemory.streams.delete(integrityStream);
+  const restarted = f.restart();
+  await expect(restarted.source.inspect(operation)).rejects.toThrow();
+  expect((await restarted.fence.inspect(operation)).status).toBe("pending");
+
+  try {
+    await restarted.invalidate();
+  } catch {
+    // Rejecting the corrupt source before any authority change is safe. A repair
+    // may instead reconcile retained promises and abort the original consumer.
+    expect(await readCompleteStream(f.sourceStore, { streamId: f.policyStream })).toHaveLength(0);
+    expect(
+      (await restarted.source.inspectInvalidation(f.context.tenantId, "synthetic-policy-revoke"))?.status,
+    ).not.toBe("completed");
+    return;
+  }
+  expect((await restarted.source.inspectInvalidation(f.context.tenantId, "synthetic-policy-revoke"))?.status).toBe(
+    "completed",
+  );
+  expect(await readCompleteStream(f.sourceStore, { streamId: f.policyStream })).toHaveLength(1);
+
+  // Re-inspecting the orphaned grant is not a fence for an append already held
+  // by a delayed executor. Only the original consumer terminal can order it.
+  await expect(
+    (async () => {
+      await f.consumerStore.appendToStreams!([
+        delayedCommit,
+        {
+          streamId: "marketplace.synthetic-paired-loss-pricing-effect",
+          expectedVersion: 0,
+          context: f.context,
+          events: [{ eventType: "marketplace.synthetic-price-accepted", payload: { amount: "12.00" } }],
+        },
+      ]);
+      return "committed-after-paired-history-loss-and-effective-revocation";
+    })(),
+  ).rejects.toThrow();
+  expect(
+    await readCompleteStream(f.consumerStore, { streamId: "marketplace.synthetic-paired-loss-pricing-effect" }),
+  ).toHaveLength(0);
+});
