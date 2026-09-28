@@ -472,7 +472,9 @@ describe("external-channel-sale-collision-path", () => {
   it("fails closed if an internal bypass tries to change the fixed mode or actor", async () => {
     const harness = createHarness();
     await harness.seedItem();
+    const appendAdmitted = vi.fn(async () => []);
     const companion = {
+      appendAdmitted,
       saleStreamId: externalChannelSaleStreamId(baseCommand("mode-bypass").saleKey),
       storageLocationId: "loc_main",
       inventoryAdjustmentEventId: "evt_synthetic_adjustment" as never,
@@ -492,6 +494,7 @@ describe("external-channel-sale-collision-path", () => {
     await expect(
       harness.holdCollisions.reduceItem({ ...fixed, mode: "protect-orders", actorRole: "owner" }, harness.context),
     ).rejects.toThrow("require protect-orders");
+    expect(appendAdmitted).not.toHaveBeenCalled();
     expect(harness.readAllEvents().filter((event) => event.eventType === "inventory.item.adjusted")).toHaveLength(0);
   });
 
