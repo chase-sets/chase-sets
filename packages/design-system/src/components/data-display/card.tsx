@@ -50,10 +50,7 @@ function CardSurface({
         }
       : undefined;
   const nativeProps = toMotionDomProps(rest);
-  // Omitted `elevation` must stay byte-identical to the pre-elevation recipe,
-  // so the legacy default resolves to the `elevated` treatment and the class
-  // pieces below join back into the exact legacy class order.
-  const resolvedElevation = elevation ?? "elevated";
+  const resolvedElevation = elevation ?? "outlined";
   const bordered = resolvedElevation === "outlined" || resolvedElevation === "elevated";
   const raised = resolvedElevation === "elevated";
 
@@ -153,7 +150,7 @@ function CardFooter({ children, ...rest }: CardFooterProps) {
  * The `elevation` prop is orthogonal to the semantic `variant` enum: `variant`
  * names the background family wherever a fill exists, while `elevation` owns
  * fill presence and the surface chrome (glass, border, shadow). Omitting
- * `elevation` renders the legacy raised recipe unchanged.
+ * `elevation` renders the quiet `outlined` treatment.
  *
  * Use the `media`/`children` props for the closed media-over-body layout, or
  * compose `Card.Header`, `Card.Title`, `Card.Description`, `Card.Body`, and

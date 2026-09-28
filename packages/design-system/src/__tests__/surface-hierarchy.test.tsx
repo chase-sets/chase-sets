@@ -1,10 +1,11 @@
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { createRef, forwardRef, type AnchorHTMLAttributes, type ReactElement, type Ref } from "react";
 import ts from "@chase-sets/typescript-compiler-api";
-import { render } from "@testing-library/react";
+import { fireEvent, render } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
@@ -205,13 +206,97 @@ function discoverCardEmitters(root: string) {
   const direct = [...exported].filter((id) => edges.get(id)?.has(seed)).sort();
   const transitive = [...exported].filter((id) => id !== seed && card.has(id) && !direct.includes(id)).sort();
   const nonCard = [...exported].filter((id) => !card.has(id)).sort();
-  return { sources, exported, seed, card, surface, inset, rowList, direct, transitive, nonCard, roots, resolveLocal };
+  return {
+    sources,
+    exported,
+    seed,
+    card,
+    surface,
+    inset,
+    rowList,
+    direct,
+    transitive,
+    nonCard,
+    roots,
+    resolveLocal,
+    resolveModule,
+    resolveExport,
+  };
 }
 
 type CardDiscovery = ReturnType<typeof discoverCardEmitters>;
 let productionDiscovery: CardDiscovery | undefined;
 function productionCardEmitters() {
   return (productionDiscovery ??= discoverCardEmitters(repositoryRoot()));
+}
+
+const directCardScanRoots = ["bounded-contexts", "deployables", "packages/design-system/src"];
+
+function directCardCandidates(root: string) {
+  const tracked = execFileSync("git", ["ls-files", "-z", "--", ...directCardScanRoots], { cwd: root })
+    .toString()
+    .split("\0")
+    .filter((file) => file.endsWith(".tsx"));
+  // Test/fixture conventions are non-production; generated directories follow
+  // .gitignore and tsconfig.json. No feature-name or Card-consumer exceptions.
+  const excluded = tracked.filter((file) =>
+    /(?:^|\/)(?:__tests__|__fixtures__|node_modules|dist|build|coverage|\.react-router)\/|\.(?:test|spec)\.tsx$/.test(
+      file,
+    ),
+  );
+  const candidates = tracked.filter((file) => !excluded.includes(file));
+  const digest = createHash("sha256").update(JSON.stringify({ tracked, excluded, candidates })).digest("hex");
+  return { tracked, excluded, candidates, digest };
+}
+
+function directCardRoots(source: ts.SourceFile, discovery: CardDiscovery) {
+  const roots: Array<{ file: string; line: number; tag: string; explicit: boolean }> = [];
+  function isCard(tag: ts.JsxTagNameExpression) {
+    if (ts.isIdentifier(tag)) return discovery.resolveLocal(source, tag.text) === discovery.seed;
+    if (!ts.isPropertyAccessExpression(tag) || !ts.isIdentifier(tag.expression)) return false;
+    const namespace = tag.expression.text;
+    for (const statement of source.statements) {
+      if (
+        !ts.isImportDeclaration(statement) ||
+        !ts.isStringLiteral(statement.moduleSpecifier) ||
+        statement.importClause?.isTypeOnly
+      )
+        continue;
+      const bindings = statement.importClause?.namedBindings;
+      if (!bindings || !ts.isNamespaceImport(bindings) || bindings.name.text !== namespace) continue;
+      const target = discovery.resolveModule(source.fileName, statement.moduleSpecifier.text);
+      return !!target && discovery.resolveExport(target, tag.name.text) === discovery.seed;
+    }
+    return false;
+  }
+  function visit(node: ts.Node) {
+    if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && isCard(node.tagName)) {
+      roots.push({
+        file: path.relative(repositoryRoot(), source.fileName).replaceAll("\\", "/"),
+        line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1,
+        tag: node.tagName.getText(source),
+        explicit: node.attributes.properties.some(
+          (attribute) =>
+            ts.isJsxAttribute(attribute) && attribute.name.getText(source) === "elevation" && !!attribute.initializer,
+        ),
+      });
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+  return roots;
+}
+
+function scanDirectCards(root: string, discovery = productionCardEmitters()) {
+  const partition = directCardCandidates(root);
+  const roots = partition.candidates.flatMap((file) => {
+    const absolute = path.resolve(root, file);
+    return directCardRoots(
+      ts.createSourceFile(absolute, fs.readFileSync(absolute, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX),
+      discovery,
+    );
+  });
+  return { ...partition, roots, violations: roots.filter((root) => !root.explicit) };
 }
 
 function nearestSurface(stack: readonly SurfaceFrame[]) {
@@ -390,6 +475,155 @@ function surfaceHierarchyViolations(root: string, discovery = discoverCardEmitte
     });
   });
 }
+
+describe("direct Card elevation guard", () => {
+  it("scans every tracked production candidate with zero bare roots and no allowlist", () => {
+    const result = scanDirectCards(repositoryRoot());
+    console.info(
+      "Direct Card census",
+      JSON.stringify({
+        scanned: result.candidates.length,
+        total: result.tracked.length,
+        excluded: result.excluded.length,
+        digest: result.digest,
+        roots: result.roots.length,
+        groups: Object.fromEntries(
+          directCardScanRoots.map((prefix) => [
+            prefix,
+            result.roots.filter(({ file }) => file.startsWith(prefix + "/")).length,
+          ]),
+        ),
+        violations: result.violations,
+      }),
+    );
+    expect(result.candidates.length + result.excluded.length).toBe(result.tracked.length);
+    expect(result.roots.length).toBeGreaterThan(0);
+    expect(result.violations).toEqual([]);
+  });
+
+  const controls = [
+    {
+      name: "restored checkout #6858",
+      file: "bounded-contexts/checkout/features/cart/ui/add-to-cart-section.tsx",
+      source:
+        'import { Card, PageSection, Form, Stack } from "@chase-sets/design-system"; export function CheckoutAddToCartSection() { return <PageSection><Card><Form spacing="none" method="post"><Stack /></Form></Card></PageSection>; }',
+      tag: "Card",
+    },
+    {
+      name: "admin hub #7219",
+      file: "deployables/admin-web/app/routes/index.tsx",
+      source:
+        'import { Card, Grid } from "@chase-sets/design-system"; export default function AdminIndexRoute() { return <Grid>{sections.map(section => <Card key={section.key} interactive>{section.label}</Card>)}</Grid>; }',
+      tag: "Card",
+    },
+    {
+      name: "arbitrary sibling subpath alias",
+      file: "bounded-contexts/example/features/unconventional/ui/odd.tsx",
+      source:
+        'import { Card as Tile } from "@chase-sets/design-system/card"; export const Odd = () => ready ? <Tile {...props} /> : null;',
+      tag: "Tile",
+    },
+    {
+      name: "root import alias",
+      file: "bounded-contexts/example/another.tsx",
+      source: 'import { Card as Entity } from "@chase-sets/design-system"; export const Another = <Entity />;',
+      tag: "Entity",
+    },
+    {
+      name: "namespace root import",
+      file: "bounded-contexts/example/namespace.tsx",
+      source: 'import * as DS from "@chase-sets/design-system"; export const Example = <DS.Card />;',
+      tag: "DS.Card",
+    },
+    {
+      name: "design-system local Card #6877",
+      file: "packages/design-system/src/components/data-display/card.tsx",
+      source:
+        "export const Card = Object.assign(CardSurface, {}); export function DetailPanel() { return <Card {...rest}><div>{children}</div></Card>; }",
+      tag: "Card",
+    },
+    {
+      name: "design-system relative alias",
+      file: "packages/design-system/src/components/data-display/arbitrary.tsx",
+      source: 'import { Card as Entity } from "./card"; export function Arbitrary() { return <Entity />; }',
+      tag: "Entity",
+    },
+  ];
+
+  it.each(controls)("rejects bare $name and accepts the identical explicit candidate", ({ file, source, tag }) => {
+    const parse = (text: string) =>
+      ts.createSourceFile(path.join(repositoryRoot(), file), text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const discovery = productionCardEmitters();
+    expect(directCardRoots(parse(source), discovery)).toEqual([{ file, line: 1, tag, explicit: false }]);
+    expect(directCardRoots(parse(source.replace(`<${tag}`, `<${tag} elevation="outlined"`)), discovery)).toEqual([
+      { file, line: 1, tag, explicit: true },
+    ]);
+  });
+
+  it("does not mistake any compound slot, unrelated Card or composed emitter for a direct root", () => {
+    const source = ts.createSourceFile(
+      path.join(repositoryRoot(), "bounded-contexts/example/slots.tsx"),
+      'import { Card as Tile, Surface, OfferCard } from "@chase-sets/design-system"; import * as DS from "@chase-sets/design-system"; function Card() { return null; } export const Slots = () => <><Tile.Header /><Tile.Title /><Tile.Description /><Tile.Body /><Tile.Footer /><DS.Card.Header /><Card /><Surface /><OfferCard /></>;',
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX,
+    );
+    expect(directCardRoots(source, productionCardEmitters())).toEqual([]);
+  });
+
+  it("keeps the indexed partition identical with generated output and rejects a newly tracked arbitrary sibling", () => {
+    const scratch = path.join(repositoryRoot(), "artifacts");
+    fs.mkdirSync(scratch, { recursive: true });
+    const root = fs.mkdtempSync(path.join(scratch, "card-partition-"));
+    const write = (file: string) => {
+      fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+      fs.writeFileSync(
+        path.join(root, file),
+        'import { Card as Tile } from "@chase-sets/design-system/card"; export const Odd = () => <Tile />;',
+      );
+    };
+    try {
+      const candidate = "bounded-contexts/example/unconventional.tsx";
+      const exclusions = [
+        "bounded-contexts/example/ui.test.tsx",
+        "deployables/example/ui.spec.tsx",
+        "packages/design-system/src/__tests__/example.tsx",
+        "bounded-contexts/example/__fixtures__/example.tsx",
+        "deployables/example/build/example.tsx",
+        "deployables/example/.react-router/types/example.tsx",
+      ];
+      write(candidate);
+      exclusions.forEach(write);
+      execFileSync("git", ["init", "--quiet"], { cwd: root });
+      execFileSync("git", ["add", "."], { cwd: root });
+      const clean = directCardCandidates(root);
+      expect(clean.candidates).toEqual([candidate]);
+      expect(clean.excluded).toEqual([...exclusions].sort());
+      const bare = scanDirectCards(root);
+      expect(bare.roots).toHaveLength(1);
+      expect(bare.violations).toEqual(bare.roots);
+      expect(bare.violations[0]?.tag).toBe("Tile");
+      const candidatePath = path.join(root, candidate);
+      fs.writeFileSync(
+        candidatePath,
+        fs.readFileSync(candidatePath, "utf8").replace("<Tile", '<Tile elevation="outlined"'),
+      );
+      expect(scanDirectCards(root).violations).toEqual([]);
+      write("deployables/example/.react-router/types/generated.tsx");
+      write("packages/design-system/src/dist/generated.tsx");
+      write("bounded-contexts/example/untracked.tsx");
+      expect(directCardCandidates(root)).toEqual(clean);
+      execFileSync("git", ["add", "bounded-contexts/example/untracked.tsx"], { cwd: root });
+      const added = directCardCandidates(root);
+      expect(added.candidates).toEqual([candidate, "bounded-contexts/example/untracked.tsx"]);
+      expect(added.digest).not.toBe(clean.digest);
+      expect(scanDirectCards(root).violations).toHaveLength(1);
+    } finally {
+      expect(path.resolve(root).startsWith(path.resolve(scratch) + path.sep)).toBe(true);
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("surface hierarchy", () => {
   it("uses Inset as the only nested surface level", () => {
@@ -585,12 +819,10 @@ const cardElevationMatrix: Record<ElevationName, Record<CardVariantName, string>
 
 /**
  * State chrome follows the elevation's chrome budget: full hover affordance
- * under legacy/`elevated`/`outlined`, bare `cursor-pointer transition` under
+ * under `elevated`/`outlined`, bare `cursor-pointer transition` under
  * `flush`/`tinted`, and `ds-glow` only where the elevation carries a shadow.
  */
-const cardInteractiveChrome: Record<"legacy" | ElevationName, string> = {
-  legacy:
-    "ds-glass rounded-tokenLg border border-muted shadow-tokenSm overflow-hidden cursor-pointer transition hover:border-accent hover:shadow-tokenMd p-4",
+const cardInteractiveChrome: Record<ElevationName, string> = {
   flush: "rounded-tokenLg overflow-hidden cursor-pointer transition p-4",
   tinted: "rounded-tokenLg overflow-hidden bg-surface-2 cursor-pointer transition p-4",
   outlined:
@@ -599,8 +831,7 @@ const cardInteractiveChrome: Record<"legacy" | ElevationName, string> = {
     "ds-glass rounded-tokenLg border border-muted shadow-tokenSm overflow-hidden cursor-pointer transition hover:border-accent hover:shadow-tokenMd p-4",
 };
 
-const cardGlowChrome: Record<"legacy" | ElevationName, string> = {
-  legacy: "ds-glass rounded-tokenLg border border-muted shadow-tokenSm overflow-hidden ds-glow p-4",
+const cardGlowChrome: Record<ElevationName, string> = {
   flush: "rounded-tokenLg overflow-hidden p-4",
   tinted: "rounded-tokenLg overflow-hidden bg-surface-2 p-4",
   outlined: "rounded-tokenLg border border-muted overflow-hidden bg-surface p-4",
@@ -803,24 +1034,52 @@ describe("Card elevation oracle", () => {
     ).toBe(cardElevationMatrix[elevation][variant]);
   });
 
-  it.each(["legacy", ...elevations] as const)("pins the Card interactive state chrome for %s", (cell) => {
+  it.each(elevations)("pins the Card interactive state chrome for %s", (cell) => {
     expect(
       rootElement(
-        <Card interactive elevation={cell === "legacy" ? undefined : cell}>
+        <Card interactive elevation={cell}>
           cell content
         </Card>,
       ).className,
     ).toBe(cardInteractiveChrome[cell]);
   });
 
-  it.each(["legacy", ...elevations] as const)("pins the Card glow state chrome for %s", (cell) => {
+  it.each(elevations)("pins the Card glow state chrome for %s", (cell) => {
     expect(
       rootElement(
-        <Card glow elevation={cell === "legacy" ? undefined : cell}>
+        <Card glow elevation={cell}>
           cell content
         </Card>,
       ).className,
     ).toBe(cardGlowChrome[cell]);
+  });
+
+  it.each(elevations)("preserves native and ARIA props and interaction for explicit %s", (elevation) => {
+    let clicks = 0;
+    const root = rootElement(
+      <Card
+        elevation={elevation}
+        id="entity"
+        role="group"
+        aria-label="Entity"
+        tabIndex={0}
+        data-entity="123"
+        onClick={() => {
+          clicks += 1;
+        }}
+      >
+        cell content
+      </Card>,
+    );
+    expect(root.tagName).toBe("DIV");
+    expect(root.id).toBe("entity");
+    expect(root.getAttribute("role")).toBe("group");
+    expect(root.getAttribute("aria-label")).toBe("Entity");
+    expect(root.getAttribute("tabindex")).toBe("0");
+    expect(root.getAttribute("data-entity")).toBe("123");
+    expect(root.textContent).toBe("cell content");
+    fireEvent.click(root);
+    expect(clicks).toBe(1);
   });
 });
 
@@ -888,11 +1147,10 @@ describe("Surface elevation oracle", () => {
 });
 
 /**
- * Legacy default byte-identity: every `variant` × `media` × `interactive` ×
- * `glow` permutation with NO `elevation` prop renders today's exact class
- * string, committed as literals.
+ * Explicit elevated byte-identity: every `variant` × `media` × `interactive` ×
+ * `glow` permutation retains the original class string, committed as literals.
  */
-const legacyCardDefaults: ReadonlyArray<{
+const elevatedCardRecipes: ReadonlyArray<{
   variant: CardVariantName;
   media: boolean;
   interactive: boolean;
@@ -1141,13 +1399,14 @@ const legacyCardDefaults: ReadonlyArray<{
   },
 ];
 
-describe("Card legacy defaults stay byte-identical without an elevation prop", () => {
-  it.each(legacyCardDefaults)(
-    "keeps the $variant variant default (media=$media interactive=$interactive glow=$glow)",
+describe("Card explicit-elevated preservation", () => {
+  it.each(elevatedCardRecipes)(
+    "keeps the $variant elevated recipe (media=$media interactive=$interactive glow=$glow)",
     ({ variant, media, interactive, glow, expected }) => {
       expect(
         rootElement(
           <Card
+            elevation="elevated"
             variant={variant}
             interactive={interactive}
             glow={glow}
@@ -1161,7 +1420,7 @@ describe("Card legacy defaults stay byte-identical without an elevation prop", (
   );
 });
 
-describe("Card explicit-elevated preservation", () => {
+describe("Card omitted-default oracle", () => {
   const preservationCells = cardVariants.flatMap((variant) =>
     [false, true].flatMap((media) =>
       [false, true].flatMap((interactive) =>
@@ -1173,7 +1432,7 @@ describe("Card explicit-elevated preservation", () => {
   );
 
   it.each(preservationCells)(
-    "renders explicit elevated byte-identical to omitted for $variant media=$media interactive=$interactive glow=$glow overflow=$overflow",
+    "renders omitted byte-identical to outlined for $variant media=$media interactive=$interactive glow=$glow overflow=$overflow",
     ({ variant, media, interactive, glow, overflow }) => {
       const shared = {
         variant,
@@ -1184,7 +1443,7 @@ describe("Card explicit-elevated preservation", () => {
       };
       expect(
         renderToString(
-          <Card {...shared} elevation="elevated">
+          <Card {...shared} elevation="outlined">
             cell content
           </Card>,
         ),
