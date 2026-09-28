@@ -126,10 +126,7 @@ describe("issue-6299-acceptance-control", () => {
     expect(runtime.text).not.toContain("findReplayedListingMutation");
     const file = "bounded-contexts/marketplace/features/listings/api/listing-request.ts";
     const readers = callsInFile(file, "readStream");
-    expect(readers.map(({ owner }) => owner)).toEqual([
-      "readListingRequestOperation",
-      "replay",
-    ]);
+    expect(readers.map(({ owner }) => owner)).toEqual(["readListingRequestOperation", "replay"]);
     for (const { ownerNode } of readers) {
       const calls = callsInside(ownerNode, "readStream");
       expect(calls).toHaveLength(1);
