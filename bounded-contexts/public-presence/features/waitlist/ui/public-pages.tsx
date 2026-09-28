@@ -819,28 +819,30 @@ function OpenOffersSection() {
             />
           </Stack>
         </Surface>
-        <Surface tone="subtle" elevation="tinted">
-          <Stack gap={3}>
-            <BadgeRow>
-              <Badge tone="success">{t("publicPresence.home.openOffers.after.badge")}</Badge>
-            </BadgeRow>
-            <Heading level={3}>{t("publicPresence.home.openOffers.after.title")}</Heading>
-            <Text tone="secondary">{t("publicPresence.home.openOffers.after.description")}</Text>
-            <OfferCard
-              title={t("publicPresence.home.openOffers.after.offerCard.title")}
-              amount={t("publicPresence.home.openOffers.after.offerCard.amount")}
-              status={t("publicPresence.home.openOffers.after.offerCard.status")}
-              details={t("publicPresence.home.openOffers.after.offerCard.details")}
-            />
-            <List
-              items={[
-                t("publicPresence.home.openOffers.after.point.accept"),
-                t("publicPresence.home.openOffers.after.point.checkout"),
-                t("publicPresence.home.openOffers.after.point.record"),
-              ]}
-            />
-          </Stack>
-        </Surface>
+        <Stack gap={3}>
+          <Surface tone="subtle" elevation="tinted">
+            <Stack gap={3}>
+              <BadgeRow>
+                <Badge tone="success">{t("publicPresence.home.openOffers.after.badge")}</Badge>
+              </BadgeRow>
+              <Heading level={3}>{t("publicPresence.home.openOffers.after.title")}</Heading>
+              <Text tone="secondary">{t("publicPresence.home.openOffers.after.description")}</Text>
+            </Stack>
+          </Surface>
+          <OfferCard
+            title={t("publicPresence.home.openOffers.after.offerCard.title")}
+            amount={t("publicPresence.home.openOffers.after.offerCard.amount")}
+            status={t("publicPresence.home.openOffers.after.offerCard.status")}
+            details={t("publicPresence.home.openOffers.after.offerCard.details")}
+          />
+          <List
+            items={[
+              t("publicPresence.home.openOffers.after.point.accept"),
+              t("publicPresence.home.openOffers.after.point.checkout"),
+              t("publicPresence.home.openOffers.after.point.record"),
+            ]}
+          />
+        </Stack>
       </Grid>
       <Grid columns={{ base: 1, md: 3 }} gap={3}>
         {[

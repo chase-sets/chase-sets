@@ -204,6 +204,7 @@ const adminContextRouteSuiteOwnership = new Map([
 ]);
 
 const e2eSpecSuiteOwnership = [
+  { pattern: /^deployables\/marketplace\/e2e\/account-elevation-intent\.spec\.ts$/, suites: ["marketplace_account"] },
   { pattern: /^deployables\/marketplace\/e2e\/item-detail\.spec\.ts$/, suites: ["marketplace_browse"] },
   { pattern: /^deployables\/marketplace\/e2e\/critical-flows\.spec\.ts$/, suites: allMarketplaceSuiteIds },
   {

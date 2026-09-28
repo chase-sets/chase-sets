@@ -135,7 +135,7 @@ export function AdminResourceDetailPage({
         ) : notFound ? (
           <EmptyState title={notFoundTitle} description={notFoundDescription} icon="search" />
         ) : (
-          <Card>
+          <Card elevation="tinted">
             <Stack gap={3}>
               {sections.map((section, index) => (
                 <Stack key={typeof section.label === "string" ? section.label : index} gap={1}>

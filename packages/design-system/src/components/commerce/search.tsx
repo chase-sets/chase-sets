@@ -31,7 +31,7 @@ export function SearchFilterPanel({
   actions,
 }: SearchFilterPanelProps) {
   return (
-    <Card>
+    <Card elevation="tinted">
       <Card.Body>
         <Grid templateColumns="1fr auto" stackUntil="lg" gap={3}>
           <SearchInput label={searchLabel} hideLabel placeholder={placeholder} />
