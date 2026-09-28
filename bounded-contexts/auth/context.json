@@ -720,12 +720,12 @@
     "api-support": {
       "classification": "support",
       "purpose": "Provide reusable api-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["Deployable composition for auth", "sessions"]
+      "expectedConsumers": ["sessions"]
     },
     "auth-support": {
       "classification": "support",
       "purpose": "Provide reusable auth-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["Multiple auth slices"]
+      "expectedConsumers": ["sessions"]
     },
     "request-support": {
       "classification": "support",
