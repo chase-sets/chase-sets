@@ -15,7 +15,7 @@ import { createActorEventStoreContext } from "@chase-sets/platform-runtime/auth"
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import { buildAuthApi, type AuthApiEnv } from "../../../api";
-import contextManifest from "../../../context.json" with { type: "json" };
+import { contextManifest } from "../../../index";
 import { createAuthBootstrapContext, resolveActorFromRequest } from "../../../support/runtime-support/runtime";
 import type { AuthServices } from "../../../support/runtime-support/services";
 
