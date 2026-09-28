@@ -58,6 +58,11 @@ export function runInProjectionDbContext<T>(db: PgQueryable, work: () => T): T {
   return projectionDbContext.run(db, work);
 }
 
+/** Owner commands commit independently of disposable projection work, including inherited enlistment. */
+export function runOutsideProjectionDbContext<T>(work: () => T): T {
+  return projectionDbContext.exit(work);
+}
+
 export async function withProjectionTransaction<T>(
   pool: PgTransactionalPool,
   context: ProjectionRunContext | undefined,

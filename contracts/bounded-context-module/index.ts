@@ -357,6 +357,7 @@ export const BC_SOURCE_CONTEXT_MOUNTS = ["required", "when-mounted", "when-all-s
 export type BcSourceContextMount = (typeof BC_SOURCE_CONTEXT_MOUNTS)[number];
 
 export type BcSubscriptionHandlerKind = "projection" | "reaction";
+/** Dispatch runs outside projection transactions; retries retain the original event/command identity. */
 export type BcReactionIdempotencyPolicy = "idempotent-command-dispatch";
 export type BcReactionRetryPolicy = "retry-from-last-checkpoint";
 export type BcReactionFailurePolicy = "surface-as-reaction-failure";

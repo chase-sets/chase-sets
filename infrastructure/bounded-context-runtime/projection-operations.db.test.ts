@@ -36,7 +36,11 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "./test-support";
-import { withProjectionTransaction } from "./projection-transactions";
+import {
+  createProjectionAwarePool,
+  runInProjectionDbContext,
+  withProjectionTransaction,
+} from "./projection-transactions";
 import {
   createCheckpointKey,
   saveSubscriptionCheckpoint as savePersistedSubscriptionCheckpoint,
@@ -1667,7 +1671,158 @@ describeDb("projection operations Postgres integration", () => {
     ]).projectionGroups[0];
   }
 
-  it("keeps reaction command dispatch atomic with the subscription application transaction", async () => {
+  for (const path of ["batched", "individual", "retry"] as const) {
+    it(`${path} owner-command reaction commits closure before remote invalidation without an enlisted transaction`, async () => {
+      await pools.target.query("CREATE TABLE synthetic_owner_closures (event_id text PRIMARY KEY)");
+      const ownerPool = createProjectionAwarePool(pools.target);
+      const source = createPostgresEventStore({ pool: pools.source });
+      const count = path === "individual" ? 2 : 1;
+      for (let index = 0; index < count; index += 1) {
+        await source.appendToStream({
+          streamId: `source.item-${index}`,
+          expectedVersion: "no_stream",
+          context: createEventStoreContext(),
+          events: [{ eventType: "source.item-recorded", payload: { itemId: String(index) } }],
+        });
+      }
+      let unavailable = path === "retry";
+      const delivered: string[] = [];
+      const boundaries: string[] = [];
+      const runner = createSubscriptionRunner("target", pools.target, pools.source, {
+        ...createItemsSubscription(),
+        handlerKind: "reaction",
+        handlers: {
+          "source.item-recorded": async (event, handlerContext) => {
+            delivered.push(String(event.id));
+            if (unavailable) throw new Error("synthetic owner unavailable");
+            const client = await ownerPool.connect();
+            try {
+              await client.query("BEGIN");
+              await client.query("INSERT INTO synthetic_owner_closures VALUES ($1) ON CONFLICT DO NOTHING", [event.id]);
+              await client.query("COMMIT");
+            } finally {
+              client.release();
+            }
+            // Independent connection at the remote invalidation boundary.
+            const closure = await pools.target.query(
+              "SELECT event_id FROM synthetic_owner_closures WHERE event_id = $1",
+              [event.id],
+            );
+            expect(closure.rows, "Owner closure must be durable before remote invalidation").toHaveLength(1);
+            expect(handlerContext?.db).toBeUndefined();
+            const claim = await pools.target.query<{ status: string }>(
+              "SELECT status FROM event_subscription_applications WHERE projection_key = $1 AND event_id = $2",
+              [runner.checkpointKey, event.id],
+            );
+            expect(claim.rows[0]?.status).toBe("started");
+            const held = await pools.target.query(
+              "SELECT pid FROM pg_stat_activity WHERE datname = current_database() AND state = 'idle in transaction'",
+            );
+            expect(held.rows).toHaveLength(0);
+            boundaries.push(String(event.id));
+          },
+        },
+      });
+      const inheritedDb: PgQueryable = {
+        query: async () => {
+          throw new Error("inherited projection enlistment");
+        },
+      };
+      await runInProjectionDbContext(inheritedDb, () => runner.runOnce(createProjectionRunContext()));
+      if (path === "retry") {
+        expect(boundaries).toEqual([]);
+        unavailable = false;
+        await expect(runner.retryBlockedStream("source.item-0", createProjectionRunContext())).resolves.toMatchObject({
+          state: "resolved",
+        });
+        expect(new Set(delivered).size).toBe(1);
+      }
+      expect(boundaries).toHaveLength(count);
+      await expect(readSubscriptionApplicationRows(runner.checkpointKey)).resolves.toEqual(
+        boundaries.map((event_id) => ({ event_id, status: "applied" })),
+      );
+    });
+
+    it(`${path} ordinary projection retains transactional rollback and enlistment`, async () => {
+      await pools.target.query("CREATE TABLE synthetic_projection_writes (event_id text PRIMARY KEY)");
+      const servicePool = createProjectionAwarePool(pools.target);
+      const source = createPostgresEventStore({ pool: pools.source });
+      const count = path === "individual" ? 2 : 1;
+      for (let index = 0; index < count; index += 1) {
+        await source.appendToStream({
+          streamId: `source.item-${index}`,
+          expectedVersion: "no_stream",
+          context: createEventStoreContext(),
+          events: [{ eventType: "source.item-recorded", payload: { itemId: String(index) } }],
+        });
+      }
+      let fail = true;
+      const runner = createSubscriptionRunner("target", pools.target, pools.source, {
+        ...createItemsSubscription(),
+        handlers: {
+          "source.item-recorded": async (event, handlerContext) => {
+            expect(handlerContext?.db).toBeDefined();
+            await servicePool.query("INSERT INTO synthetic_projection_writes VALUES ($1)", [event.id]);
+            expect((await pools.target.query("SELECT * FROM synthetic_projection_writes")).rows).toEqual([]);
+            if (fail) throw new Error("synthetic projection rollback");
+          },
+        },
+      });
+      await runner.runOnce(createProjectionRunContext());
+      expect((await pools.target.query("SELECT * FROM synthetic_projection_writes")).rows).toEqual([]);
+      if (path === "retry") {
+        fail = false;
+        await expect(runner.retryBlockedStream("source.item-0", createProjectionRunContext())).resolves.toMatchObject({
+          state: "resolved",
+        });
+        expect((await pools.target.query("SELECT * FROM synthetic_projection_writes")).rows).toHaveLength(1);
+      }
+    });
+  }
+
+  it("fences a superseded reaction completion and recovers the same durable owner command", async () => {
+    await pools.target.query("CREATE TABLE synthetic_owner_closures (event_id text PRIMARY KEY)");
+    const ownerPool = createProjectionAwarePool(pools.target);
+    const source = createPostgresEventStore({ pool: pools.source });
+    await source.appendToStream({
+      streamId: "source.item-fenced",
+      expectedVersion: "no_stream",
+      context: createEventStoreContext(),
+      events: [{ eventType: "source.item-recorded", payload: { itemId: "fenced" } }],
+    });
+    let takeover = true;
+    const delivered: string[] = [];
+    const runner = createSubscriptionRunner("target", pools.target, pools.source, {
+      ...createItemsSubscription(),
+      handlerKind: "reaction",
+      handlers: {
+        "source.item-recorded": async (event) => {
+          delivered.push(String(event.id));
+          await ownerPool.query("INSERT INTO synthetic_owner_closures VALUES ($1) ON CONFLICT DO NOTHING", [event.id]);
+          if (takeover) {
+            takeover = false;
+            await pools.target.query(
+              "UPDATE event_subscription_applications SET lease_owner_id = 'successor', lease_fencing_token = 2 WHERE projection_key = $1",
+              [runner.checkpointKey],
+            );
+          }
+        },
+      },
+    });
+    await expect(runner.runOnce(createProjectionRunContext())).rejects.toThrow("stale lease fencing token");
+    expect(await loadSubscriptionCheckpoint(runner.checkpointKey)).toBeNull();
+    await expect(readSubscriptionApplicationRows(runner.checkpointKey)).resolves.toEqual([
+      { event_id: delivered[0], status: "started" },
+    ]);
+    await runner.runOnce(createProjectionRunContext({ ownerId: "successor", fencingToken: "2" }));
+    expect(delivered).toEqual([delivered[0], delivered[0]]);
+    expect((await pools.target.query("SELECT * FROM synthetic_owner_closures")).rows).toHaveLength(1);
+    await expect(readSubscriptionApplicationRows(runner.checkpointKey)).resolves.toEqual([
+      { event_id: delivered[0], status: "applied" },
+    ]);
+  });
+
+  it("retains a committed owner command after reaction failure and replays its original identity", async () => {
     let nextOrderId = 1;
     let shouldFailAfterDispatch = true;
     targetPorts.createOrderId = () => `ord_${nextOrderId++}`;
@@ -1696,20 +1851,17 @@ describeDb("projection operations Postgres integration", () => {
       ],
     });
 
-    // The first (batch) attempt dispatches ord_1 and fails after dispatch; its
-    // transaction rolls back and the pass re-executes the event individually
-    // with a fresh transaction (issue #4751), dispatching ord_2. Atomicity is
-    // proven by what is durably visible: ONLY ord_2 exists — the rolled-back
-    // ord_1 dispatch never leaked a row or an event.
+    // Delivery failure cannot roll back a completed owner command. The retry
+    // finds the original order instead of dispatching a replacement identity.
     await expect(runner.runOnce(createProjectionRunContext())).resolves.toMatchObject({
       processed: 1,
       lastGlobalPosition: "1",
       blockedStreams: 0,
       poisonEvents: 0,
     });
-    await expect(readReactionOrders()).resolves.toEqual([{ source_id: "offer-acceptance:off_1", order_id: "ord_2" }]);
+    await expect(readReactionOrders()).resolves.toEqual([{ source_id: "offer-acceptance:off_1", order_id: "ord_1" }]);
     await expect(readReactionOrderEvents()).resolves.toEqual([
-      { event_type: "target.order-created", order_id: "ord_2", source_id: "offer-acceptance:off_1" },
+      { event_type: "target.order-created", order_id: "ord_1", source_id: "offer-acceptance:off_1" },
     ]);
     await expect(readSubscriptionApplicationRows(runner.checkpointKey)).resolves.toEqual([
       { event_id: expect.any(String), status: "applied" },
@@ -1728,9 +1880,9 @@ describeDb("projection operations Postgres integration", () => {
       blockedStreams: 0,
       poisonEvents: 0,
     });
-    await expect(readReactionOrders()).resolves.toEqual([{ source_id: "offer-acceptance:off_1", order_id: "ord_2" }]);
+    await expect(readReactionOrders()).resolves.toEqual([{ source_id: "offer-acceptance:off_1", order_id: "ord_1" }]);
     await expect(readReactionOrderEvents()).resolves.toEqual([
-      { event_type: "target.order-created", order_id: "ord_2", source_id: "offer-acceptance:off_1" },
+      { event_type: "target.order-created", order_id: "ord_1", source_id: "offer-acceptance:off_1" },
     ]);
   });
 
