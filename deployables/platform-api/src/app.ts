@@ -1,9 +1,11 @@
 import { Hono, type Context, type Next } from "hono";
+import { createListingSourceHostPorts } from "./listing-authority-host-ports";
 import { createCheckoutClosedMiddleware } from "./middleware/checkout-closed";
 import { module as authModule } from "@chase-sets/auth";
 import {
   createUcpOAuthMetadataRoutes,
   createUcpOAuthRoutes,
+  resolveListingRequestAuthentication,
   UCP_OAUTH_SUPPORTED_SCOPES,
 } from "@chase-sets/auth/server";
 import {
@@ -42,7 +44,11 @@ import {
 } from "@chase-sets/pricing/server";
 import { isChannelsServices, type ChannelsServices } from "@chase-sets/channels/server";
 import { module as identityModule } from "@chase-sets/identity";
-import { createIdentityTermsAcceptanceResolver, identityTermsOfServicePolicy } from "@chase-sets/identity/server";
+import {
+  createIdentityTermsAcceptanceResolver,
+  createListingRequestPrincipalResolver,
+  identityTermsOfServicePolicy,
+} from "@chase-sets/identity/server";
 import {
   createInventoryExternalChannelSaleRecorderForPool,
   createImportResolutionAttentionSourceFromReadModel,
@@ -638,6 +644,10 @@ export function createPlatformApiHost(
     runtimeProfile,
     hostPorts: {
       ...options.hostPorts,
+      ...createListingSourceHostPorts(() => runtime?.services, {
+        marketplace: marketplacePool,
+        ordering: orderingPool,
+      }),
       listingCurrentOwnerFacts: {
         seller: (accountId) => {
           const identity = runtime?.services.identity as ReturnType<typeof identityModule.createServices> | undefined;
@@ -911,6 +921,10 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     auth: runtime.services.auth as ReturnType<typeof authModule.createServices>,
     identity: runtime.services.identity as ReturnType<typeof identityModule.createServices>,
   } satisfies PlatformIdentityServices;
+  const resolveListingPrincipal = createListingRequestPrincipalResolver(
+    identityServices.identity.listingAuthority,
+    (request) => resolveListingRequestAuthentication(identityServices.auth, request),
+  );
   const discoveryServices = runtime.services.discovery as
     | { items?: Parameters<typeof createDiscoveryUcpHandlers>[0] }
     | undefined;
@@ -1031,6 +1045,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
 
   const platformActorMiddleware = createPlatformActorMiddleware(resolveActor, {
     anonymousRoutes: platformActorAnonymousRoutes,
+    resolveListingPrincipal,
   });
   app.use("/api/platform/projections", platformActorMiddleware);
   app.use("/api/platform/projections/*", platformActorMiddleware);
@@ -1114,6 +1129,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
       internalAuthSecret: options.internalAuthSecret,
       anonymousRoutes,
       resolveActor,
+      resolveListingPrincipal,
     }),
   );
 

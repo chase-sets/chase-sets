@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./listing-authority-host": "./listing-authority-host.ts",
     ".": "./index.ts",
     "./api": "./api.ts",
     "./agent-guardrails": "./agent-guardrails.ts",
@@ -27,6 +28,7 @@
     "./listing-authority-participant": "./listing-authority-participant.ts",
     "./listing-authority-writer": "./listing-authority-writer.ts",
     "./listing-authority-recovery": "./listing-authority-recovery.ts",
+    "./listing-authority-recovery-cursor": "./listing-authority-recovery-cursor.ts",
     "./mcp": "./mcp.ts",
     "./mcp-audit-log": "./mcp-audit-log.ts",
     "./mcp-contracts": "./mcp-contracts.ts",

@@ -1,6 +1,8 @@
 import { createAccountUserTestActor } from "@chase-sets/bounded-context-runtime/test-support";
 import { PLATFORM_INTERNAL_AUTH_HEADER } from "@chase-sets/platform-runtime/http";
 import { Hono, type Context } from "hono";
+import { withSyntheticListingPrincipal } from "@chase-sets/event-core/test-support";
+import { createActorEventStoreContext } from "@chase-sets/platform-runtime/auth";
 import { describe, expect, it, vi } from "vitest";
 import type { PlatformIdentityServices } from "../src/app";
 import {
@@ -80,6 +82,27 @@ describe("platform Auth capability middleware", () => {
 });
 
 const PROVIDER_MODE_ROUTE_PATH = "/api/marketplace/payment-provider-mode";
+
+it("propagates only the owner-resolved original Listing carrier into HTTP and MCP command context", async () => {
+  const actor = createAccountUserTestActor({ accountId: "acc_synthetic", permissions: ["listings.manage"] });
+  const principal = withSyntheticListingPrincipal(createActorEventStoreContext(actor)).listingAuthorityPrincipal!;
+  const resolveListingPrincipal = vi.fn(async () => principal);
+  const app = new Hono<TenantContextEnv>();
+  app.use(
+    "*",
+    createPlatformActorMiddleware(async () => actor, { resolveListingPrincipal }),
+  );
+  app.post("*", (c) => c.json(c.var.context));
+  for (const path of ["/api/marketplace/listings", "/mcp"]) {
+    const response = await app.request(path, {
+      method: "POST",
+      body: JSON.stringify({ listingAuthorityPrincipal: "forged" }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ listingAuthorityPrincipal: principal });
+  }
+  expect(resolveListingPrincipal).toHaveBeenCalledTimes(2);
+});
 
 const platformActorProbePaths = [
   PROVIDER_MODE_ROUTE_PATH,

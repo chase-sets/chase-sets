@@ -301,6 +301,7 @@ describe("Channels connection owner proofs", () => {
     expect((await f.source.inspect(operation))?.status).toBe("reserved");
     expect(await f.restart().services.recoverAuthorityPage({ tenantId: testContext.tenantId })).toEqual({
       nextCursor: null,
+      processed: 3,
     });
     expect((await f.source.inspect(operation))?.status).toBe("consumed");
   });
@@ -319,6 +320,25 @@ describe("Channels connection owner proofs", () => {
     await f.restart().services.recoverAuthorityPage({ tenantId: testContext.tenantId });
     expect((await f.fence.inspect(operation)).status).toBe("aborted");
     await f.restart().services.recoverAuthorityPage({ tenantId: testContext.tenantId });
+    expect((await f.source.inspect(operation))?.status).toBe("released");
+    expect(f.memory.streams.get("channels.connection-connection_1")).toHaveLength(2);
+  });
+
+  it("recovers owner-wide history using its recorded tenant rather than a fabricated worker tenant", async () => {
+    const f = await fixture();
+    const operation = await f.fence.open(f.input, testContext);
+    await f.source.prepare(operation, testContext);
+    const unmounted = createChannelConnectionRuntime({
+      eventStore: f.sourceStore,
+      db: { query: async () => ({ rows: [] }) },
+    });
+    await expect(
+      unmounted.disconnectChannelConnection({ accountId: "acc_owner", connectionId: "connection_1" }, testContext),
+    ).rejects.toBeInstanceOf(ChannelConnectionMutationPendingError);
+    const restarted = f.restart();
+    await restarted.services.recoverAuthorityPage({});
+    await restarted.services.recoverAuthorityPage({});
+    expect((await f.fence.inspect(operation)).status).toBe("aborted");
     expect((await f.source.inspect(operation))?.status).toBe("released");
     expect(f.memory.streams.get("channels.connection-connection_1")).toHaveLength(2);
   });

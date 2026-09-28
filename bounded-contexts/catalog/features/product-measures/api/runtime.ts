@@ -69,7 +69,7 @@ type ProductSchema = Readonly<{
 type ProductDimension = NonNullable<ProductSchema["dimensions"]>[number];
 
 export type ProductMeasureServices = Readonly<{
-  reconcileProfileAuthority: (context: EventStoreContext) => Promise<number>;
+  reconcileProfileAuthority: (context?: EventStoreContext) => Promise<number>;
   upsertProfile: (profile: ProductMeasureProfileInput, context: EventStoreContext) => Promise<void>;
   resolveCatalogItemMeasures: (catalogItemId: string, context?: EventStoreContext) => Promise<void>;
   resolveAllCatalogItemMeasures: (context?: EventStoreContext) => Promise<void>;
@@ -80,7 +80,12 @@ export type ProductMeasureServices = Readonly<{
 
 export function createProductMeasureRuntime(deps: CatalogRuntimeDeps): ProductMeasureServices {
   return {
-    reconcileProfileAuthority: async (context) => {
+    reconcileProfileAuthority: async (
+      context = {
+        tenantId: "tnt_catalog",
+        audit: { performedByUserId: "usr_catalog_system", forAccountId: "acc_catalog_system" },
+      },
+    ) => {
       const legacy = await deps.db
         .query<CatalogProductMeasureProfileRow>(`SELECT * FROM catalog_product_measure_profiles
         WHERE source_revision = 0 ORDER BY profile_id LIMIT 100`);

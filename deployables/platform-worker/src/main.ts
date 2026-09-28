@@ -1,4 +1,5 @@
 import "./observability-prelude";
+import { createListingSourceHostPorts } from "./listing-authority-host-ports";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import {
@@ -145,6 +146,7 @@ import { createGoogleMerchantServiceAccountAccessTokenProvider } from "./google-
 import { createGoogleMerchantApiClient } from "./google-merchant-client";
 import { workerContextRegistry } from "./generated/worker-context-registry";
 import { createRegisteredScheduledRunners } from "./scheduled-runners";
+import { createListingAuthorityRecoveryRunners } from "./listing-authority-recovery-runners";
 import { runStartupRetry } from "./startup-retry";
 import { processRepricingEvaluationJob } from "./repricing-evaluation-lane";
 import {
@@ -305,6 +307,7 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
     runtimeProfile: config.runtimeProfile,
     runtimeLifecycle,
     hostPorts: {
+      ...createListingSourceHostPorts(() => runtime?.services, pools),
       listingCurrentOwnerFacts: {
         seller: (accountId) => {
           const identity = runtime?.services.identity as ReturnType<typeof identityModule.createServices> | undefined;
@@ -474,6 +477,7 @@ const agentWebhookDispatchRunners = platformWorkerGroupsEnabled
   : [];
 const scheduledJobRunners = platformWorkerGroupsEnabled
   ? [
+      ...createListingAuthorityRecoveryRunners(runtime.services, controlPlane),
       ...createRegisteredScheduledRunners({
         services: runtime.services,
         config,

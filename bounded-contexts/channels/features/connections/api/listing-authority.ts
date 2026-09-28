@@ -214,7 +214,7 @@ export function createChannelConnectionAuthority(
   }
 
   async function recoverPage(
-    input: Readonly<{ tenantId: EventStoreContext["tenantId"]; afterGlobalPosition?: GlobalPosition }>,
+    input: Readonly<{ tenantId?: EventStoreContext["tenantId"]; afterGlobalPosition?: GlobalPosition }>,
   ) {
     const events = await eventStore.readAll({
       tenantId: input.tenantId,
@@ -224,7 +224,8 @@ export function createChannelConnectionAuthority(
       eventTypes: ["channels.listing-authority.invalidation-started", "channels.listing-authority.reserved"],
     });
     for (const event of events) {
-      if (event.tenantId !== input.tenantId) throw new Error("Foreign connection authority recovery history.");
+      if (input.tenantId !== undefined && event.tenantId !== input.tenantId)
+        throw new Error("Foreign connection authority recovery history.");
       if (event.eventType === "channels.listing-authority.invalidation-started") {
         const intent = event.payload.intent;
         if (!isRecord(intent) || typeof intent.mutationId !== "string") {
@@ -240,19 +241,21 @@ export function createChannelConnectionAuthority(
           throw new Error("Corrupt connection reservation recovery history.");
         const operation = retained.operation as unknown as ListingAuthorityOperation;
         const grant = await source.inspect(operation);
-        if (!grant || grant.operation.tenantId !== input.tenantId)
+        if (!grant || grant.operation.tenantId !== event.tenantId)
           throw new Error("Missing connection authority recovery reservation.");
         if (grant.status === "reserved") {
           if (!consumer) throw new Error("Channel connection authority consumer is not mounted.");
-          const outcome = await consumer(operation).inspect(operation);
+          let outcome = await consumer(operation).inspect(operation);
           if (outcome.status === "unknown")
             throw new Error("Unknown connection consumer outcome; retain recovery cursor.");
+          if (outcome.status === "pending" && Date.now() >= Date.parse(grant.validBefore))
+            outcome = await consumer(operation).invalidate(operation, "connection-authority-validity-ended");
           if (outcome.status !== "pending") await source.settle(operation);
         }
       }
     }
     // Scan again from the beginning on the next sweep; pending promises are never reclaimed by age.
-    return { nextCursor: events.length === 16 ? events.at(-1)!.globalPosition : null };
+    return { nextCursor: events.length === 16 ? events.at(-1)!.globalPosition : null, processed: events.length };
   }
 
   return { source, append, recoverMutation, recoverPage };

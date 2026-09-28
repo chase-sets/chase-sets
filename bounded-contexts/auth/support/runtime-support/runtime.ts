@@ -56,6 +56,14 @@ export async function resolveListingSessionAuthentication(
   return services.sessions.listingAuthority.authenticate(services.auth.hashSecret(sessionToken));
 }
 
+export async function resolveListingRequestAuthentication(
+  services: AuthServices,
+  request: Request,
+): Promise<ListingAuthoritySessionEvidence | null> {
+  const token = readAuthSessionToken(request);
+  return token ? resolveListingSessionAuthentication(services, token) : null;
+}
+
 export function isGuestCheckoutActor(actor: ResolvedActor | null | undefined): actor is ResolvedActor {
   return actor?.roleKey === AUTH_GUEST_CHECKOUT_ROLE_KEY;
 }

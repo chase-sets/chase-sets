@@ -93,6 +93,15 @@ CREATE TABLE IF NOT EXISTS event_store_aggregate_snapshots (
     ON DELETE CASCADE
 );
 
+-- Disposable Listing authority recovery discovery positions, never terminal evidence.
+CREATE TABLE IF NOT EXISTS listing_authority_recovery_cursors (
+  owner text PRIMARY KEY,
+  revision bigint NOT NULL CHECK (revision > 0),
+  event_after text NOT NULL,
+  sql_after text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS event_projection_checkpoints (
   projector_name text PRIMARY KEY,
   last_global_position bigint NOT NULL CHECK (last_global_position >= 0),

@@ -68,7 +68,8 @@ describe("Product Measure Profile authority", () => {
     const inserts: unknown[][] = [];
     const db: PgQueryable = {
       async query<Row>(sql: string, values?: readonly unknown[]) {
-        if (sql.includes("WHERE source_revision = 0"))
+        if (sql.includes("WHERE source_revision = 0")) {
+          expect(sql).toContain("ORDER BY profile_id LIMIT 100");
           return {
             rows: (sourceRevision
               ? []
@@ -86,6 +87,7 @@ describe("Product Measure Profile authority", () => {
                   },
                 ]) as Row[],
           };
+        }
         if (sql.includes("INSERT INTO catalog_product_measure_profiles")) {
           expect(sql).toContain("WHERE catalog_product_measure_profiles.source_revision <= EXCLUDED.source_revision");
           if (crash) {

@@ -5,7 +5,10 @@ export {
   type AuthListingSessionAuthorityHostPorts,
   type AuthListingSessionAuthorityServices,
 } from "./features/sessions/api/listing-authority";
-export { resolveListingSessionAuthentication } from "./support/runtime-support/runtime";
+export {
+  resolveListingSessionAuthentication,
+  resolveListingRequestAuthentication,
+} from "./support/runtime-support/runtime";
 export {
   bootstrapPlatformAdminPassword,
   type PlatformAdminPasswordBootstrapConfig,

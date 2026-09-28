@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { withSyntheticListingPrincipal } from "@chase-sets/event-core/test-support";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
-import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
+import { createActorEventStoreContext, type ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { McpRequestProtocolContext } from "@chase-sets/platform-runtime/mcp";
 import { createMarketplaceListingMcpHandlers } from "./mcp";
 import type { MarketplaceListingServices } from "./runtime";
@@ -239,9 +240,11 @@ describe("marketplace listing MCP handlers", () => {
   it("updates listing prices with actor-scoped command context", async () => {
     const fakeServices = services();
     const handlers = createMarketplaceListingMcpHandlers(fakeServices);
+    const context = withSyntheticListingPrincipal(createActorEventStoreContext(actor));
 
     const result = await handlers.toolHandlers["marketplace.update-listing-price"]?.({
       actor,
+      context,
       tool: null as never,
       arguments: {
         accountId: "acc_1",
@@ -272,6 +275,7 @@ describe("marketplace listing MCP handlers", () => {
         decision: { kind: "seller-reference" },
       },
       expect.objectContaining({
+        listingAuthorityPrincipal: context.listingAuthorityPrincipal,
         audit: expect.objectContaining({ performedByUserId: "usr_1", forAccountId: "acc_1" }),
       }),
     );

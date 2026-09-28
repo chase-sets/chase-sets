@@ -206,8 +206,8 @@ export interface ChannelConnectionAuthorityServices extends ChannelConnectionSer
   readonly listingAuthority: ListingAuthorityParticipantPort;
   recoverAuthorityMutation(mutationId: string, context: EventStoreContext): Promise<readonly StoredEvent[]>;
   recoverAuthorityPage(
-    input: Readonly<{ tenantId: EventStoreContext["tenantId"]; afterGlobalPosition?: GlobalPosition }>,
-  ): Promise<Readonly<{ nextCursor: GlobalPosition | null }>>;
+    input: Readonly<{ tenantId?: EventStoreContext["tenantId"]; afterGlobalPosition?: GlobalPosition }>,
+  ): Promise<Readonly<{ nextCursor: GlobalPosition | null; processed: number }>>;
 }
 
 export interface ChannelConnectionServices {

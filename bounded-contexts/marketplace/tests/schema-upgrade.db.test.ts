@@ -1,4 +1,5 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { createListingSqlFixture } from "./test-support/listing-authority-sql";
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
@@ -56,6 +57,52 @@ describeDb("marketplace schema upgrades", () => {
 
   beforeEach(async () => resetMultiContextTestSchemas(pools));
   afterAll(async () => closeMultiContextTestPools(pools));
+
+  it("persists channel-only creation and native enable with original-carrier SQL retry and no partial stale enable", async () => {
+    const pool = pools.marketplace;
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    const f = createListingSqlFixture(pool);
+    const created = await f.services.createListing(f.input, f.context);
+    expect(created).toMatchObject({ version: 1, nativeFeeState: "not-enrolled" });
+    expect(await f.services.createListing(f.input, f.context)).toEqual(created);
+    await expect(f.services.createListing({ ...f.input, quantityCap: 1 }, f.context)).rejects.toThrow();
+    const enabled = await f.services.setNativeListingVisibility(f.enable, f.context);
+    expect(await f.services.setNativeListingVisibility(f.enable, f.context)).toEqual(enabled);
+    expect(await f.services.loadListingState(f.input.listingIdOverride)).toMatchObject({
+      nativeVisibility: "enabled",
+      nativeFeeState: "enrolled",
+      productMeasureSnapshot: f.productMeasureSnapshot,
+    });
+    const all = await f.eventStore.readAll();
+    expect(all.filter((event) => event.eventType === "marketplace.listing.created")).toHaveLength(1);
+    expect(all.filter((event) => event.eventType === "marketplace.listing-authority-operation.committed")).toHaveLength(
+      2,
+    );
+    const other = "lst_stale_enable" as never;
+    await f.services.createListing({ ...f.input, listingIdOverride: other }, f.context);
+    const prepare = f.authority.verifyNativeFeeQuote!;
+    vi.spyOn(f.authority, "verifyNativeFeeQuote").mockImplementation(async (input, operation) => {
+      const grant = await prepare(input, operation);
+      await f.participants.change("native-fee", f.context, false);
+      return grant;
+    });
+    await expect(
+      f.services.setNativeListingVisibility(
+        { ...f.enable, listingId: other, idempotencyKey: "synthetic-stale-enable" },
+        f.context,
+      ),
+    ).rejects.toThrow();
+    expect(await f.services.loadListingState(other)).toMatchObject({
+      nativeVisibility: "disabled",
+      nativeFeeState: "not-enrolled",
+      feeLocks: [],
+    });
+    const history = await f.eventStore.readStream({ streamId: `marketplace.listing-${other}` });
+    expect(history).toHaveLength(1);
+    expect(
+      (await pool.query("SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid() AND granted")).rows,
+    ).toEqual([]);
+  });
 
   it("upgrades pre-target Listing storage and replays disabled target authority without native publication", async () => {
     const pool = pools.marketplace;
@@ -347,6 +394,70 @@ describeDb("marketplace schema upgrades", () => {
         )
       ).rows,
     ).toEqual([{ product_measure_snapshot: null, product_measure_source_revision: 11 }]);
+  });
+
+  it("measures a real SQL 100-stream append and releases every transaction advisory lock", async () => {
+    const pool = pools.marketplace;
+    await bootstrapContextDatabase(marketplaceModule, pool);
+    const holders: number[] = [];
+    const lockDurations: number[] = [];
+    let transactions = 0;
+    const measuredPool: PgTransactionalPool = {
+      query: <Row>(sql: string, values?: readonly unknown[]) => pool.query<Row>(sql, values),
+      connect: async () => {
+        const client = await pool.connect();
+        holders.push((await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]!.pid);
+        let acquired: number | null = null;
+        return {
+          release: (error) => client.release(error),
+          query: async <Row>(sql: string, values?: readonly unknown[]) => {
+            const result = await client.query<Row>(sql, values);
+            if (sql.includes("pg_advisory_xact_lock") && acquired === null) acquired = performance.now();
+            if (sql.trim() === "COMMIT" || sql.trim() === "ROLLBACK") {
+              transactions += 1;
+              if (acquired !== null) lockDurations.push(performance.now() - acquired);
+              acquired = null;
+            }
+            return result;
+          },
+        };
+      },
+    };
+    const store = createPostgresEventStore({ pool: measuredPool });
+    const started = performance.now();
+    const result = await store.appendToStreams!(
+      Array.from({ length: 100 }, (_, index) => ({
+        streamId: `marketplace.synthetic-p21-${index}`,
+        expectedVersion: 0,
+        context,
+        events: [{ eventType: "marketplace.synthetic-storage-proof", payload: { index } }],
+      })),
+    );
+    const elapsedMs = performance.now() - started;
+    expect(result).toHaveLength(100);
+    expect(result.reduce((count, entry) => count + entry.storedEvents.length, 0)).toBe(100);
+    expect(transactions).toBe(1);
+    expect(lockDurations).toHaveLength(1);
+    expect(
+      (
+        await pool.query(
+          "SELECT count(*)::int AS held FROM pg_locks WHERE locktype='advisory' AND pid=ANY($1::int[])",
+          [holders],
+        )
+      ).rows,
+    ).toEqual([{ held: 0 }]);
+    process.stdout.write(
+      "P21_STORAGE_MEASURED " +
+        JSON.stringify({
+          streams: 100,
+          events: 100,
+          transactions,
+          elapsedMs,
+          eventsPerSecond: 100_000 / elapsedMs,
+          advisoryLockHeldMs: lockDurations[0],
+        }) +
+        "\n",
+    );
   });
 
   it("atomically rolls back Listing request results with owner writes and resolves concurrent complete-command retries", async () => {

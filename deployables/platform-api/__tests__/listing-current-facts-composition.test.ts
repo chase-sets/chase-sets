@@ -37,6 +37,15 @@ it("binds current readiness to the mounted Identity and Catalog owner APIs", asy
     expect(await ports!.products([])).toBe(productFacts);
     expect(seller).toHaveBeenCalledExactlyOnceWith("acc_synthetic", { maxAgeMs: 1000 });
     expect(products).toHaveBeenCalledExactlyOnceWith([], { maxAgeMs: 1000 });
+    const native = observed.ports?.listingAuthority;
+    expect(native?.identity?.participant.participant).toEqual({ owner: "identity", purpose: "manage-listing" });
+    expect(native?.catalog?.participant.participant).toEqual({ owner: "catalog", purpose: "product-measures" });
+    const retained = {} as Parameters<typeof identity.listingAuthority.sellerFacts>[0];
+    const decode = vi
+      .spyOn(identity.listingAuthority, "sellerFacts")
+      .mockReturnValue({ badgeKeys: ["trusted-seller"] });
+    expect(native!.identity!.sellerFacts(retained)).toEqual({ badgeKeys: ["trusted-seller"] });
+    expect(decode).toHaveBeenCalledExactlyOnceWith(retained);
     Reflect.deleteProperty(runtime.services, "identity");
     expect(() => ports!.seller("acc_synthetic")).toThrow("not mounted");
   } finally {

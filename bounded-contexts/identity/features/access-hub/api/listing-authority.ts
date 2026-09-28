@@ -20,6 +20,7 @@ import {
 } from "@chase-sets/platform-runtime/listing-authority-fence";
 import { randomUUID } from "node:crypto";
 import { createIdentityListingCurrentFacts } from "./listing-current-facts";
+import { decodeListingAccountFacts, decodeListingSellerFacts } from "./listing-authority-facts";
 import { HTTPException } from "hono/http-exception";
 import type { Context } from "hono";
 import { errorHandler } from "@chase-sets/platform-runtime/error-handler";
@@ -194,6 +195,8 @@ export function createIdentityListingAuthority(
     }
   }
   const services = {
+    accountFacts: decodeListingAccountFacts,
+    sellerFacts: decodeListingSellerFacts,
     readCurrentSeller: createIdentityListingCurrentFacts(raw),
     source,
     port: source,
