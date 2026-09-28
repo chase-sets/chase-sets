@@ -5,6 +5,7 @@ import {
   type CommercialTermsResolver,
 } from "@chase-sets/commercial-terms/server";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { createListingAuthorityFence } from "@chase-sets/platform-runtime/listing-authority-fence";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { MoneyAmount } from "@chase-sets/primitives/money";
 import { contextManifest, module as pricingModule } from "../../../index";
@@ -29,6 +30,12 @@ const request = {
 const syntheticChannelConnectionIdentityReader: ChannelConnectionIdentityReader = {
   resolve: async () => null,
 };
+const syntheticConsumer = createListingAuthorityFence({
+  owner: "marketplace",
+  participants: [],
+  eventStore: createInMemoryEventStore().eventStore,
+}).forParticipant("pricing");
+const pricingListingAuthorityConsumer = () => syntheticConsumer;
 
 const failingCommercialTermsResolver: CommercialTermsResolver = {
   ...createNoopCommercialTermsResolver(),
@@ -73,6 +80,7 @@ function compilePricingHostPortBoundary(pool: Parameters<typeof pricingModule.cr
     commercialTermsResolver: failingCommercialTermsResolver,
   });
   const completePorts: Parameters<typeof pricingModule.createServices>[1] = {
+    pricingListingAuthorityConsumer,
     tcgplayerMarketTransport: { kind: "not-mounted" },
     tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
     commercialTermsResolver: failingCommercialTermsResolver,
@@ -104,6 +112,7 @@ describe("Pricing Economics bounded-context integration", () => {
       ).toThrow("Pricing Economics requires Commercial Terms and Channel Connection host ports.");
       expect(() =>
         createPricingServices({} as never, {
+          pricingListingAuthorityConsumer,
           tcgplayerMarketTransport: { kind: "not-mounted" },
           tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
           commercialTermsResolver: commercialTermsResolver as never,
@@ -127,6 +136,7 @@ describe("Pricing Economics bounded-context integration", () => {
       ).toThrow("Pricing Economics requires Commercial Terms and Channel Connection host ports.");
       expect(() =>
         createPricingServices({} as never, {
+          pricingListingAuthorityConsumer,
           tcgplayerMarketTransport: { kind: "not-mounted" },
           tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
           commercialTermsResolver: failingCommercialTermsResolver,
@@ -263,6 +273,7 @@ describe("Pricing Economics bounded-context integration", () => {
       shippingAllowancePercentageBps: 1_000,
     });
     const services = createPricingServices(pricingPool, {
+      pricingListingAuthorityConsumer,
       tcgplayerMarketTransport: { kind: "not-mounted" },
       tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
       commercialTermsResolver,

@@ -12,7 +12,8 @@ import type { RepricingRuleDirective } from "../../repricing-policies/domain/dom
 import type { RepricingListingEvaluation } from "../domain/evaluate";
 import type { RepricingPolicyListingTrace } from "../domain/fact";
 import * as roundPlanner from "../domain/round";
-import { createRepricingEngineRuntime, type RepricingMarketplaceGateway } from "../api/runtime";
+import type { RepricingMarketplaceGateway } from "../api/runtime";
+import { createRepricingEngineRuntime } from "./round-runtime-fixture";
 import { dryRunBody, dryRunContext, seedDryRunListings } from "./dry-run-fixture";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;

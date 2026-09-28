@@ -2,6 +2,7 @@ import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { createPricingAuthorityObservations } from "../api/listing-authority-observations";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createListingAuthorityFence } from "@chase-sets/platform-runtime/listing-authority-fence";
 import { createRepricingPolicyRuntime } from "../../repricing-policies/api/runtime";
@@ -31,11 +32,18 @@ const rules: readonly RepricingRule[] = [
 
 // SQL transport is a deterministic owner-data fixture. Policy commands, evaluator,
 // decision persistence, invalidation, retained journals and consumer appends are real.
-export async function fixture() {
+export async function fixture(
+  options: {
+    sourceStore?: EventStore;
+    consumerStore?: EventStore;
+    db?: PgQueryable;
+    budget?: PricingEvaluationBudget;
+  } = {},
+) {
   const sourceMemory = createInMemoryEventStore();
   const consumerMemory = createInMemoryEventStore();
-  const sourceStore = sourceMemory.eventStore;
-  const consumerStore = consumerMemory.eventStore;
+  const sourceStore = options.sourceStore ?? sourceMemory.eventStore;
+  const consumerStore = options.consumerStore ?? consumerMemory.eventStore;
   const at = new Date();
   at.setUTCSeconds(0, 0);
   const capturedAt = at.toISOString();
@@ -57,7 +65,7 @@ export async function fixture() {
   };
   let blockInvalidation = false;
   const budgetRows = new Map<string, { accountId: string; day: string; status: "reserved" | "released" }>();
-  const budget: PricingEvaluationBudget = {
+  const budget: PricingEvaluationBudget = options.budget ?? {
     reserve: async (input) => {
       if (!budgetRows.has(input.evaluationId))
         budgetRows.set(input.evaluationId, { accountId: input.accountId, day: input.day, status: "reserved" });
@@ -69,7 +77,7 @@ export async function fixture() {
       if (row) row.status = "released";
     },
   };
-  const db: PgQueryable = {
+  const db: PgQueryable = options.db ?? {
     query: async <Row>(sql: string) => {
       let rows: unknown[];
       if (sql.includes("SELECT DISTINCT stream_id FROM event_store_events"))
@@ -157,6 +165,12 @@ export async function fixture() {
           currencyCode: "USD",
           estimatedAt: capturedAt,
           freshUntil: new Date(at.getTime() + 3_600_000).toISOString(),
+          estimateVersion: 1,
+          window: { startedAt: new Date(at.getTime() - 86_400_000).toISOString(), endedAt: capturedAt },
+          confidence: "medium",
+          inputs: { platformVerifiedTradeCount: 3, platformTradeCount: 5, externalCompCount: 0 },
+          previousAmount: "11.00",
+          disclosure: "account",
         },
       },
     ],

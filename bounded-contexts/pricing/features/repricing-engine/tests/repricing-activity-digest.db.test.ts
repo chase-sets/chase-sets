@@ -239,6 +239,7 @@ describeDb("repricing activity digest PostgreSQL timelines", () => {
 
   it("activation baseline, ledgered schema and actual producer subscription v1 despite revision 2", async () => {
     const services = pricingModule.createServices(db, {
+      pricingListingAuthorityConsumer: syntheticPricingConsumer,
       tcgplayerMarketTransport: { kind: "not-mounted" },
       tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
       commercialTermsResolver: createNoopCommercialTermsResolver(),
@@ -818,3 +819,4 @@ describeDb("repricing activity digest PostgreSQL timelines", () => {
     },
   );
 });
+import { syntheticPricingConsumer } from "../../../tests/listing-authority-consumer-fixture";

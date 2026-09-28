@@ -20,7 +20,7 @@ import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { module as pricingModule } from "../../../index";
 import { createRepricingPolicyActivationServices, DryRunRequiredError } from "../api/activation";
 import { createRepricingPolicyRuntime } from "../api/runtime";
-import { createRepricingEngineRuntime } from "../../repricing-engine/api/runtime";
+import { createRepricingEngineRuntime } from "../../repricing-engine/tests/round-runtime-fixture";
 import { hashRepricingDryRunBody } from "../../repricing-engine/api/dry-run";
 import { dryRunBody, dryRunContext } from "../../repricing-engine/tests/dry-run-fixture";
 import { buildRepricingPolicyProjectionHandlers } from "../read-model/projection";
@@ -279,8 +279,18 @@ describeDb("policy first activation", () => {
 
   it("foreign and absent dry runs are indistinguishable and do not consume", async () => {
     const dryRunId = await completedRun();
+    await expect(
+      services().activateRepricingPolicy({ ...activateInput(dryRunId), accountId: "acc_foreign" }, dryRunContext),
+    ).rejects.toThrow("Pricing activation account mismatch.");
+    const foreignContext: typeof dryRunContext = {
+      ...dryRunContext,
+      audit: { ...dryRunContext.audit, forAccountId: "acc_foreign" },
+    };
     expect(
-      await services().activateRepricingPolicy({ ...activateInput(dryRunId), accountId: "acc_foreign" }, dryRunContext),
+      await services().activateRepricingPolicy(
+        { ...activateInput(dryRunId), accountId: "acc_foreign" },
+        foreignContext,
+      ),
     ).toBeNull();
     expect(await services().activateRepricingPolicy(activateInput("synthetic_missing"), dryRunContext)).toBeNull();
     expect(await createdEvents()).toHaveLength(0);
