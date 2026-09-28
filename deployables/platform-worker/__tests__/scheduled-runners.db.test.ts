@@ -309,6 +309,12 @@ describeDatabase("registered platform-worker scheduled runners", () => {
     );
     await job.runOnce();
     expect(await store.readStream({ streamId: `marketplace.offer-${offerId}` })).toHaveLength(2);
+    const backlogId = await services.managedOfferWork.enqueue(
+      { catalogItemId: "cat_recovery_backlog", productId: "cat_recovery_backlog::" },
+      "synthetic_recovery_backlog",
+      context,
+      "recovery",
+    );
     const reaction = marketplaceModule.buildSubscriptions!(services).find(
       (s) => s.reactionName === "marketplace-managed-offer-reaction",
     )!;
@@ -339,6 +345,47 @@ describeDatabase("registered platform-worker scheduled runners", () => {
         },
       },
     });
+    expect((await store.readStream({ streamId: `marketplace.offer-work-${backlogId}` })).at(-1)!.payload.status).toBe(
+      "pending",
+    );
+    await project();
+    await services.managedOfferWork.run(context);
+    await project();
+
+    // The registered recovery runner must stop at its durable completion barrier,
+    // then finish new generations without rewriting an unchanged held Offer.
+    await pools.pricing.query(
+      "UPDATE pricing_market_price_estimates SET fresh_until = now() - interval '1 hour' WHERE catalog_catalog_item_id = 'cat_managed_worker'",
+    );
+    const recovery = registeredRunners.find((runner) => runner.name === "marketplace.managed-offer-recovery")!;
+    async function runRegistered(runner: WorkerRunner) {
+      await pools.control.query("DELETE FROM platform_scheduled_runners WHERE runner_name = $1", [runner.name]);
+      await runner.runOnce();
+    }
+    let firstHold: Awaited<ReturnType<typeof store.readStream>> | undefined;
+    for (let generation = 0; generation < 4; generation++) {
+      await runRegistered(recovery);
+      const requested = (await store.readAll()).filter(
+        (event) => event.eventType === "marketplace.offer.work-requested",
+      );
+      await runRegistered(recovery); // Deliberately before projection catches up.
+      expect((await store.readAll()).filter((event) => event.eventType === "marketplace.offer.work-requested")).toEqual(
+        requested,
+      );
+      await project();
+      await runRegistered(job);
+      await project();
+      await runRegistered(recovery);
+      const heldEvents = await store.readStream({ streamId: `marketplace.offer-${offerId}` });
+      firstHold ??= heldEvents;
+      expect(heldEvents).toEqual(firstHold);
+      expect(heldEvents).toHaveLength(events.length + 1);
+      expect(heldEvents.at(-1)!.payload.status).toBe("held");
+      const cursor = await pools.marketplace.query(
+        "SELECT generation::text, pending_work_ids FROM marketplace_managed_offer_recovery",
+      );
+      expect(cursor.rows).toEqual([{ generation: String(generation + 1), pending_work_ids: [] }]);
+    }
     expect(externalFetch).not.toHaveBeenCalled();
   });
 

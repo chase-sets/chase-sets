@@ -13,8 +13,14 @@ CREATE TABLE IF NOT EXISTS marketplace_managed_offer_recovery (
   singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton), after_offer_id text NOT NULL DEFAULT '',
   generation bigint NOT NULL DEFAULT 0
 );`;
+const scheduling = `
+ALTER TABLE marketplace_managed_offer_work ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'reaction';
+ALTER TABLE marketplace_managed_offer_recovery ADD COLUMN IF NOT EXISTS pending_work_ids text[] NOT NULL DEFAULT '{}';`;
 export const marketplaceManagedOfferSchemaSql = `${tables}
+${scheduling}
 CREATE INDEX IF NOT EXISTS marketplace_managed_offer_work_runnable_idx ON marketplace_managed_offer_work (available_at, work_id) WHERE status <> 'completed';
+CREATE INDEX IF NOT EXISTS marketplace_managed_offer_work_priority_idx ON marketplace_managed_offer_work (kind, available_at, work_id) WHERE status <> 'completed';
+CREATE INDEX IF NOT EXISTS marketplace_managed_offer_work_product_idx ON marketplace_managed_offer_work (catalog_item_id, product_id) WHERE status <> 'completed';
 CREATE INDEX IF NOT EXISTS marketplace_offer_managed_product_idx ON marketplace_offer_pages (catalog_catalog_item_id, product_id, offer_id) WHERE status = 'submitted';
 `;
 export const marketplaceManagedOfferSchemaMigrations: readonly BcSchemaMigration[] = [
@@ -25,6 +31,15 @@ export const marketplaceManagedOfferSchemaMigrations: readonly BcSchemaMigration
       tables,
       "CREATE INDEX CONCURRENTLY IF NOT EXISTS marketplace_managed_offer_work_runnable_idx ON marketplace_managed_offer_work (available_at, work_id) WHERE status <> 'completed';",
       "CREATE INDEX CONCURRENTLY IF NOT EXISTS marketplace_offer_managed_product_idx ON marketplace_offer_pages (catalog_catalog_item_id, product_id, offer_id) WHERE status = 'submitted';",
+    ],
+  },
+  {
+    migrationId: "20260927_marketplace_managed_offer_scheduling",
+    description: "Bound recovery generations by durable work completion and prioritize Market Price reactions.",
+    statements: [
+      scheduling,
+      "CREATE INDEX CONCURRENTLY IF NOT EXISTS marketplace_managed_offer_work_priority_idx ON marketplace_managed_offer_work (kind, available_at, work_id) WHERE status <> 'completed';",
+      "CREATE INDEX CONCURRENTLY IF NOT EXISTS marketplace_managed_offer_work_product_idx ON marketplace_managed_offer_work (catalog_item_id, product_id) WHERE status <> 'completed';",
     ],
   },
 ];

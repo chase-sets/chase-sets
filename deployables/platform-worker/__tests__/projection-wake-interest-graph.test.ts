@@ -146,7 +146,7 @@ describe("platform worker projection wake interest graph", () => {
           sourceContextName: "marketplace",
           targetContextName: "marketplace",
           projectionName: "marketplace-managed-offer-projection",
-          checkpointKey: "marketplace-managed-offer-projection:marketplace:v1",
+          checkpointKey: "marketplace-managed-offer-projection:marketplace:v2",
         }),
         expect.objectContaining({
           sourceContextName: "pricing",

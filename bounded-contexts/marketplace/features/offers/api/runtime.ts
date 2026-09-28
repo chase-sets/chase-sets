@@ -414,6 +414,16 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
     const target = prepared?.target ?? (await managed.evaluate(current.state, current.version, policy));
     if (target.status === "target" && target.unitItemAmount === current.state.priceAmount)
       return { status: "unchanged", version: current.version };
+    const last = current.events.at(-1);
+    if (
+      target.status === "held" &&
+      last?.type === "marketplace.offer.managed-evaluated" &&
+      last.data.status === "held" &&
+      last.data.policyId === policy.state.policyId &&
+      last.data.reason === target.reason &&
+      managed.hasSameConsentRevision(policy, last.data.policyVersion)
+    )
+      return { status: "held", version: current.version };
     const events: MarketplaceOfferEvent[] =
       target.status === "target"
         ? [

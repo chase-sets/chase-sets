@@ -89,6 +89,18 @@ export function createManagedOfferAuthority(eventStore: EventStore, pricing?: Ma
       context,
     };
   }
+  function hasSameConsentRevision(policy: Awaited<ReturnType<typeof load>>, recordedVersion: number) {
+    if (!Number.isInteger(recordedVersion) || recordedVersion < 1 || recordedVersion > policy.version) return false;
+    // Complete aggregate events are ordered from stream version 1. Preview and
+    // consumption move the stream fence, but do not grant a new consent revision.
+    const authorized = policy.events
+      .slice(0, recordedVersion)
+      .reverse()
+      .find((event) => event.type === "marketplace.offer-policy.authorized");
+    return (
+      authorized?.type === "marketplace.offer-policy.authorized" && authorized.data.revision === policy.state.revision
+    );
+  }
   async function acceptance(offer: MarketplaceOfferState, version: number, context: EventStoreContext) {
     try {
       const policy = await load(offer);
@@ -120,5 +132,5 @@ export function createManagedOfferAuthority(eventStore: EventStore, pricing?: Ma
       throw error;
     }
   }
-  return { load, evaluate, evaluatePage, request, guard, acceptance };
+  return { load, evaluate, evaluatePage, request, guard, acceptance, hasSameConsentRevision };
 }

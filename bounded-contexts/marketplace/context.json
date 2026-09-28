@@ -342,7 +342,7 @@
     },
     {
       "projectionName": "marketplace-managed-offer-projection",
-      "projectionRevision": 1,
+      "projectionRevision": 2,
       "sourceContextNames": ["marketplace"],
       "ownedTables": ["marketplace_managed_offer_work", "marketplace_managed_offer_audit"],
       "requiredDuringBootstrap": false,

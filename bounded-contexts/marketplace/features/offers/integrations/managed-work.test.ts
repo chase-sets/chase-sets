@@ -48,7 +48,7 @@ describe("managed Offer durable Product work", () => {
     const db = {
       query: vi.fn(async (sql: string, values?: readonly unknown[]) => {
         if (sql.startsWith("SELECT after_offer_id"))
-          return { rows: [{ after_offer_id: after, generation: String(generation) }] };
+          return { rows: [{ after_offer_id: after, generation: String(generation), pending_work_ids: [] }] };
         if (sql.includes("SELECT offer.offer_id"))
           return {
             rows: ids
@@ -71,6 +71,8 @@ describe("managed Offer durable Product work", () => {
     expect(await worker.recover(context)).toBe(100);
     expect(after).toBe("off_099");
     expect(await worker.recover(context)).toBe(1);
+    expect(after).toBe("off_100");
+    expect(await worker.recover(context)).toBe(0);
     expect(after).toBe("");
     expect((await eventStore.readAll()).map((e) => e.payload.productId)).toEqual(["head", "tail"]);
   });

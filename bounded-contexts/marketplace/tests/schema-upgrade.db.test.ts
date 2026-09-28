@@ -20,7 +20,6 @@ import { activate, context, fixture, seedOffer, terms } from "../features/offer-
 import { createBuyerOfferPolicyRuntime } from "../features/offer-policy/api/runtime";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { managedFixture } from "../features/offers/tests/managed-fixture";
-import { marketplaceManagedOfferSchemaMigrations } from "../features/offers/read-model/managed-schema";
 import { buildManagedOfferProjectionHandlers } from "../features/offers/read-model/managed-projection";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
@@ -125,9 +124,8 @@ describeDb("marketplace schema upgrades", () => {
       "DROP TABLE marketplace_managed_offer_work, marketplace_managed_offer_audit, marketplace_managed_offer_recovery",
     );
     await pool.query(
-      "DELETE FROM bounded_context_schema_migrations WHERE migration_id = '20260927_marketplace_managed_offer_work'",
+      "DELETE FROM bounded_context_schema_migrations WHERE migration_id IN ('20260927_marketplace_managed_offer_work', '20260927_marketplace_managed_offer_scheduling')",
     );
-    for (const statement of marketplaceManagedOfferSchemaMigrations[0]!.statements) await pool.query(statement);
     await bootstrapContextDatabase(marketplaceModule, pool);
     const f = await managedFixture(createPostgresEventStore({ pool }));
     f.setTarget({ status: "target", unitItemAmount: "12.00", evidence: { estimateVersion: "2" } });
@@ -143,14 +141,18 @@ describeDb("marketplace schema upgrades", () => {
     expect(
       (
         await pool.query(
-          "SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id = '20260927_marketplace_managed_offer_work'",
+          "SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id IN ('20260927_marketplace_managed_offer_work', '20260927_marketplace_managed_offer_scheduling')",
         )
       ).rows,
-    ).toHaveLength(1);
+    ).toHaveLength(2);
     const indexes = await pool.query<{ indexname: string }>(
-      "SELECT indexname FROM pg_indexes WHERE indexname IN ('marketplace_managed_offer_work_runnable_idx','marketplace_offer_managed_product_idx')",
+      "SELECT indexname FROM pg_indexes WHERE indexname IN ('marketplace_managed_offer_work_runnable_idx','marketplace_offer_managed_product_idx','marketplace_managed_offer_work_priority_idx','marketplace_managed_offer_work_product_idx')",
     );
-    expect(indexes.rows).toHaveLength(2);
+    expect(indexes.rows).toHaveLength(4);
+    await pool.query("INSERT INTO marketplace_managed_offer_recovery (singleton) VALUES (true)");
+    expect((await pool.query("SELECT pending_work_ids FROM marketplace_managed_offer_recovery")).rows).toEqual([
+      { pending_work_ids: [] },
+    ]);
   });
 
   it("serializes competing PostgreSQL consent bundles without partial policy or membership writes", async () => {

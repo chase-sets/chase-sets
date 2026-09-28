@@ -14,6 +14,7 @@ type Work = {
   afterOfferId: string;
   status: "pending" | "claimed" | "completed";
   availableAt: string;
+  kind?: "reaction" | "recovery";
 };
 function conflict(error: unknown) {
   return typeof error === "object" && error !== null && "code" in error && error.code === "concurrency_conflict";
@@ -30,6 +31,7 @@ export function createManagedOfferWork(deps: {
     product: { catalogItemId: string; productId: string },
     identity: string,
     context: EventStoreContext,
+    kind: "reaction" | "recovery" = "reaction",
   ) {
     const workId = createHash("sha256")
       .update(JSON.stringify([product, identity]))
@@ -44,6 +46,7 @@ export function createManagedOfferWork(deps: {
             eventType: "marketplace.offer.work-requested",
             payload: {
               ...product,
+              kind,
               workId,
               afterOfferId: "",
               status: "pending",
@@ -60,7 +63,7 @@ export function createManagedOfferWork(deps: {
   async function run(context: EventStoreContext) {
     const candidates = await deps.db.query<{ work_id: string; last_stream_version: number }>(
       `SELECT work_id, last_stream_version FROM marketplace_managed_offer_work
-      WHERE status <> 'completed' AND available_at <= $1 ORDER BY available_at, work_id LIMIT 1`,
+      WHERE status <> 'completed' AND available_at <= $1 ORDER BY kind, available_at, work_id LIMIT 1`,
       [now().toISOString()],
     );
     const workId = candidates.rows[0]?.work_id;
@@ -124,10 +127,18 @@ export function createManagedOfferWork(deps: {
     await deps.db.query(
       "INSERT INTO marketplace_managed_offer_recovery (singleton) VALUES (true) ON CONFLICT DO NOTHING",
     );
-    const cursor = await deps.db.query<{ after_offer_id: string; generation: string }>(
-      "SELECT after_offer_id, generation::text FROM marketplace_managed_offer_recovery WHERE singleton = true",
+    const cursor = await deps.db.query<{ after_offer_id: string; generation: string; pending_work_ids: string[] }>(
+      "SELECT after_offer_id, generation::text, pending_work_ids FROM marketplace_managed_offer_recovery WHERE singleton = true",
     );
     const current = cursor.rows[0]!;
+    // The cursor's bounded barrier is authoritative even before work projections
+    // catch up or after they are rebuilt. Never outrun the previous page's work.
+    for (const workId of current.pending_work_ids) {
+      const latest = (await readCompleteStream(deps.eventStore, { streamId: `marketplace.offer-work-${workId}` })).at(
+        -1,
+      );
+      if (latest?.payload.status !== "completed") return 0;
+    }
     const page = await deps.db.query<{ offer_id: string; catalog_catalog_item_id: string; product_id: string }>(
       `
       SELECT offer.offer_id, offer.catalog_catalog_item_id, offer.product_id FROM marketplace_offer_pages AS offer
@@ -140,16 +151,34 @@ export function createManagedOfferWork(deps: {
     const products = new Map(
       page.rows.map((row) => [JSON.stringify([row.catalog_catalog_item_id, row.product_id]), row]),
     );
-    for (const row of products.values())
-      await enqueue(
-        { catalogItemId: row.catalog_catalog_item_id, productId: row.product_id },
-        `recovery_${current.generation}_${current.after_offer_id}`,
-        context,
+    const pendingWorkIds: string[] = [];
+    for (const row of products.values()) {
+      const pending = await deps.db.query<{ work_id: string }>(
+        `SELECT work_id FROM marketplace_managed_offer_work
+        WHERE catalog_item_id = $1 AND product_id = $2 AND status <> 'completed' LIMIT 1`,
+        [row.catalog_catalog_item_id, row.product_id],
       );
+      pendingWorkIds.push(
+        pending.rows[0]?.work_id ??
+          (await enqueue(
+            { catalogItemId: row.catalog_catalog_item_id, productId: row.product_id },
+            `recovery_${current.generation}`,
+            context,
+            "recovery",
+          )),
+      );
+    }
     await deps.db.query(
-      `UPDATE marketplace_managed_offer_recovery SET after_offer_id = $1, generation = generation + 1
+      `UPDATE marketplace_managed_offer_recovery SET after_offer_id = $1,
+        generation = generation + $4, pending_work_ids = $5
       WHERE singleton = true AND after_offer_id = $2 AND generation = $3`,
-      [page.rows.length === 100 ? page.rows.at(-1)!.offer_id : "", current.after_offer_id, current.generation],
+      [
+        page.rows.at(-1)?.offer_id ?? "",
+        current.after_offer_id,
+        current.generation,
+        page.rows.length === 0 ? 1 : 0,
+        pendingWorkIds,
+      ],
     );
     return page.rows.length;
   }

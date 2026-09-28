@@ -5,9 +5,10 @@ export function buildManagedOfferProjectionHandlers(db: PgQueryable): ProjectorH
   const work: ProjectorHandlerMap[string] = async (event) => {
     await db.query(
       `INSERT INTO marketplace_managed_offer_work
-      (work_id, catalog_item_id, product_id, status, available_at, last_stream_version)
-      VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (work_id) DO UPDATE SET
-      status = EXCLUDED.status, available_at = EXCLUDED.available_at, last_stream_version = EXCLUDED.last_stream_version
+      (work_id, catalog_item_id, product_id, status, available_at, last_stream_version, kind)
+      VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (work_id) DO UPDATE SET
+      status = EXCLUDED.status, available_at = EXCLUDED.available_at, last_stream_version = EXCLUDED.last_stream_version,
+      kind = EXCLUDED.kind
       WHERE marketplace_managed_offer_work.last_stream_version < EXCLUDED.last_stream_version`,
       [
         event.data.workId,
@@ -16,6 +17,7 @@ export function buildManagedOfferProjectionHandlers(db: PgQueryable): ProjectorH
         event.data.status,
         event.data.availableAt,
         event.streamVersion,
+        event.data.kind ?? "reaction",
       ],
     );
   };
