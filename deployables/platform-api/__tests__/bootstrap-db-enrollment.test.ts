@@ -474,10 +474,11 @@ describe("Platform API bootstrap DB enrollment", () => {
     const old = await import(oracleUrl.href);
     const normalize = (value: unknown) => JSON.parse(JSON.stringify(value));
     // The pinned oracle lives under __tests__/fixtures, so its import.meta.url-derived
-    // default root is __tests__; bind both guards to the one production platform-api root.
+    // default root is __tests__; bind both algorithms to the same current root and manifest.
     const platformApiRoot = join(testDirectory, "..");
-    expect(normalize(checkBootstrapDbEnrollment({ platformApiRoot }))).toEqual(
-      normalize(old.checkBootstrapDbEnrollment({ platformApiRoot })),
+    const repositoryOptions = { platformApiRoot, manifest: bootstrapDbEnrollmentManifest };
+    expect(normalize(checkBootstrapDbEnrollment(repositoryOptions))).toEqual(
+      normalize(old.checkBootstrapDbEnrollment(repositoryOptions)),
     );
     for (const count of [10, 11, 12, 13]) {
       const files = Array.from({ length: count }, (_, index) => unitFileFor(`oracle-${index}`, "test:db:1", 1_000));
