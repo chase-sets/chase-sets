@@ -1,6 +1,5 @@
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { AggregateSnapshotStore } from "@chase-sets/event-core/aggregate-snapshot-store";
-import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   LISTING_AUTHORITY_RESOURCE_LIMIT,
@@ -13,6 +12,7 @@ import {
   type ListingAuthorityReservation,
 } from "@chase-sets/event-core/listing-authority";
 import type { JsonObject } from "@chase-sets/primitives/json";
+import { createListingAuthorityResources } from "./listing-authority-resource";
 import {
   assertSameAuthority,
   authorityContext,
@@ -31,8 +31,6 @@ export type ListingAuthoritySourceValidation = Readonly<{
   /** Source-local guards and, for real commitments, existing Inventory hold appends. Never sent to the consumer. */
   localAppends?: readonly AppendToStreamInput[];
 }>;
-
-type InvalidationIntent = Readonly<{ mutationId: string; command: JsonObject }>;
 
 /** Technical persistence only. Owners supply authoritative predicates and route every conflicting writer here. */
 export type ListingAuthorityParticipantConfig = Readonly<{
@@ -56,6 +54,7 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
   const store = deps.eventStore;
   const key = listingAuthorityParticipantKey(deps.participant);
   const prefix = `${deps.participant.owner}.listing-authority`;
+  const resourceStore = createListingAuthorityResources({ store, prefix, snapshots: deps.snapshots });
   const reservationStream = (operation: ListingAuthorityOperation) =>
     `${prefix}-reservation-${authorityHash([key, operation.operationId, operation.generation])}`;
   const resourceStream = (tenantId: string, resource: string) =>
@@ -74,57 +73,7 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
   }
 
   async function resource(tenantId: string, id: string) {
-    const streamId = resourceStream(tenantId, id);
-    let pending: InvalidationIntent | null = null;
-    const grants = new Map<string, ListingAuthorityReservation>();
-    let version = 0;
-    try {
-      const snapshot = await deps.snapshots?.loadLatest(streamId);
-      const state = snapshot?.state as
-        | { pending?: InvalidationIntent | null; grants?: ListingAuthorityReservation[] }
-        | undefined;
-      if (
-        snapshot?.schemaVersion === 1 &&
-        snapshot.streamId === streamId &&
-        Number.isSafeInteger(snapshot.streamVersion) &&
-        snapshot.streamVersion > 0 &&
-        state?.pending !== undefined &&
-        Array.isArray(state.grants)
-      ) {
-        pending = state.pending;
-        for (const grant of state.grants) grants.set(grant.reservationId, grant);
-        version = snapshot.streamVersion;
-      }
-    } catch {
-      // Snapshots are a disposable owner-local fold cache, never release evidence.
-    }
-    const events = await readCompleteStream(store, { streamId, fromVersion: version + 1 });
-    for (const event of events) {
-      if (event.eventType === `${prefix}.reserved`) {
-        const grant = authorityValue<ListingAuthorityReservation>(event.payload.reservation);
-        grants.set(grant.reservationId, grant);
-      } else if (event.eventType === `${prefix}.settled`) {
-        grants.delete(String(event.payload.reservationId));
-      } else if (event.eventType === `${prefix}.invalidation-started`) {
-        pending = authorityValue<InvalidationIntent | null>(event.payload.invalidation);
-      } else if (event.eventType === `${prefix}.invalidation-completed`) {
-        pending = null;
-      } else throw new Error("Corrupt authority resource history.");
-    }
-    version = events.at(-1)?.streamVersion ?? version;
-    if (version && events.length && deps.snapshots) {
-      try {
-        await deps.snapshots.save({
-          streamId,
-          streamVersion: version,
-          schemaVersion: 1,
-          state: { pending, grants: [...grants.values()] },
-        });
-      } catch {
-        // A failed cache write cannot change source or consumer authority.
-      }
-    }
-    return { version, streamId, pending, grants };
+    return resourceStore.read(resourceStream(tenantId, id));
   }
 
   async function inspect(operation: ListingAuthorityOperation): Promise<ListingAuthorityReservation | null> {
@@ -147,6 +96,17 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
           typeof last.payload.terminalEventId !== "string"))
     ) {
       throw new Error("Corrupt source reservation history; retain source promise.");
+    }
+    if (history.events.length === 1) {
+      assertSameAuthority(grant.resources, resources(grant.resources));
+      const scopes = await Promise.all(grant.resources.map((id) => resource(operation.tenantId, id)));
+      for (const scope of scopes) {
+        const member = scope.grants.get(grant.reservationId);
+        if (!member) throw new Error("Missing authority resource membership; retain source promise.");
+        assertSameAuthority(member, grant);
+      }
+      // A concurrent terminal settlement may remove membership. Never turn that
+      // race into permission: callers retry/reconcile the retained operation.
     }
     return {
       ...grant,
@@ -195,7 +155,7 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
     if (resumedPreparation || checked.localAppends?.some((input) => input.events.length)) {
       if (!store.appendToStreams) throw new Error("Atomic authority persistence unavailable.");
       if (!resumedPreparation) {
-        await store.appendToStreams([
+        await resourceStore.append([
           ...scopes.map((scope) => ({
             streamId: scope.streamId,
             expectedVersion: scope.version,
@@ -240,7 +200,7 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
     async function completeRejectedPreparation() {
       if (!store.appendToStreams) throw new Error("Atomic authority persistence unavailable.");
       for (const scope of scopes) assertSameAuthority(scope.pending, preparationIntent);
-      await store.appendToStreams([
+      await resourceStore.append([
         ...scopes.map((scope) => ({
           streamId: scope.streamId,
           expectedVersion: scope.version,
@@ -279,7 +239,7 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
     const event = { eventType: `${prefix}.reserved`, payload: authorityPayload({ reservation: grant }) };
     const closesPreparation = scopes.some((scope) => scope.pending?.mutationId === preparationId);
     try {
-      await store.appendToStreams([
+      await resourceStore.append([
         ...(checked.localAppends ?? []),
         ...scopes.map((scope) => ({
           streamId: scope.streamId,
@@ -326,7 +286,7 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
     const sourceAppends = (await deps.settlementAppends?.(operation, status, context)) ?? [];
     if (!store.appendToStreams) throw new Error("Atomic authority persistence unavailable.");
     try {
-      await store.appendToStreams([
+      await resourceStore.append([
         ...sourceAppends,
         ...scopes.map((scope) => ({
           streamId: scope.streamId,
@@ -394,7 +354,7 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
       const initial = await Promise.all(ids.map((id) => resource(input.context.tenantId, id)));
       if (initial.some((scope) => scope.pending))
         throw new Error("Conflicting authority invalidation remains pending.");
-      await store.appendToStreams([
+      await resourceStore.append([
         ...initial.map((scope) => ({
           streamId: scope.streamId,
           expectedVersion: scope.version,
@@ -465,7 +425,7 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
     }
     const guarded = await Promise.all(ids.map((id) => resource(input.context.tenantId, id)));
     for (const scope of guarded) assertSameAuthority(scope.pending, intent);
-    await store.appendToStreams([
+    await resourceStore.append([
       ...appends,
       ...guarded.map((scope) => ({
         streamId: scope.streamId,

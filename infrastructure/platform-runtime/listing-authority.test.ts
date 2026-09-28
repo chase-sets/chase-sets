@@ -106,6 +106,82 @@ async function fixture(
 describe("durable Listing authority protocol conformance", () => listingAuthorityConformance(it, fixture));
 
 describe("Listing authority unknown outcomes and predicate serialization", () => {
+  it.each(["resource", "integrity"])(
+    "retains promises when the %s history disappears, including with a cached fold",
+    async (lost) => {
+      const snapshots = new Map<string, StoredAggregateSnapshot<unknown>>();
+      const f = await fixture({
+        loadLatest: async (id) => snapshots.get(id) ?? null,
+        save: async (snapshot) => {
+          snapshots.set(snapshot.streamId, { ...snapshot, updatedAt: "2026-09-27T00:00:00.000Z" as never });
+        },
+      });
+      const operation = await f.fence.open(f.input, f.context);
+      const grant = await f.source.prepare(operation, f.context);
+      const delayed = await f.fence.prepareCommit(operation, [grant], {});
+      const read = f.sourceStore.readStream;
+      const fault = vi
+        .spyOn(f.sourceStore, "readStream")
+        .mockImplementation((input) =>
+          input.streamId.includes(`listing-authority-${lost}-`) ? Promise.resolve([]) : read(input),
+        );
+      await expect(f.restart().source.inspect(operation)).rejects.toThrow("retain source promise");
+      await expect(f.restart().invalidate()).rejects.toThrow("retain source promise");
+      await expect(f.fence.prepareCommit(operation, [grant], {})).rejects.toThrow();
+      expect((await f.fence.inspect(operation)).status).toBe("pending");
+      expect(await read({ streamId: "catalog.synthetic-product" })).toHaveLength(0);
+      fault.mockRestore();
+      expect((await f.source.inspect(operation))?.status).toBe("reserved");
+      await f.restart().invalidate();
+      await expect(f.consumerStore.appendToStreams!([delayed])).rejects.toThrow();
+      expect((await f.source.inspect(operation))?.status).toBe("released");
+    },
+  );
+
+  it("rejects a contradictory resource member without invalidating or releasing the retained reservation", async () => {
+    const f = await fixture();
+    const operation = await f.fence.open(f.input, f.context);
+    const grant = await f.source.prepare(operation, f.context);
+    const read = f.sourceStore.readStream;
+    const fault = vi.spyOn(f.sourceStore, "readStream").mockImplementation(async (input) => {
+      const events = await read(input);
+      return input.streamId.includes("listing-authority-resource-")
+        ? events.map((event) => ({
+            ...event,
+            payload: {
+              ...event.payload,
+              reservation: { ...(event.payload.reservation as object), value: { forged: true } },
+            },
+          }))
+        : events;
+    });
+    await expect(f.source.inspect(operation)).rejects.toThrow("integrity");
+    await expect(f.invalidate()).rejects.toThrow("integrity");
+    await expect(f.fence.prepareCommit(operation, [grant], {})).rejects.toThrow("integrity");
+    fault.mockRestore();
+    expect((await f.source.inspect(operation))?.status).toBe("reserved");
+  });
+
+  it("rejects a truncated resource tail rather than forgetting the newest operation", async () => {
+    const f = await fixture();
+    const first = await f.fence.open(f.input, f.context);
+    await f.source.prepare(first, f.context);
+    const second = await f.fence.open({ ...f.input, requestId: "synthetic-newer" }, f.context);
+    await f.source.prepare(second, f.context);
+    const read = f.sourceStore.readStream;
+    const fault = vi.spyOn(f.sourceStore, "readStream").mockImplementation(async (input) => {
+      const events = await read(input);
+      return input.streamId.includes("listing-authority-resource-")
+        ? events.filter((event) => event.streamVersion < 2)
+        : events;
+    });
+    await expect(f.invalidate()).rejects.toThrow("Lost authority resource history");
+    await expect(f.source.inspect(second)).rejects.toThrow("Lost authority resource history");
+    fault.mockRestore();
+    expect((await f.fence.inspect(first)).status).toBe("pending");
+    expect((await f.fence.inspect(second)).status).toBe("pending");
+  });
+
   it("fences globally owned source predicates even when the writer has a different audit tenant", async () => {
     const f = await fixture(undefined, false, "owner");
     const operation = await f.fence.open(f.input, f.context);
