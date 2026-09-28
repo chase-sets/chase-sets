@@ -275,6 +275,18 @@
   ],
   "eventReactions": [
     {
+      "sourceContextName": "pricing",
+      "reactionName": "marketplace-managed-offer-reaction",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["pricing.market-price.estimated"],
+      "order": 94,
+      "reactionHandlerSetNames": ["marketplace-managed-offer-reaction"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
       "sourceContextName": "platform-operations",
       "reactionName": "marketplace-review-hold-reaction",
       "subscriptionVersion": 1,
@@ -321,8 +333,24 @@
   ],
   "projectionGroups": [
     {
+      "projectionName": "marketplace-managed-offer-reaction",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["pricing"],
+      "ownedTables": [],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "marketplace-managed-offer-projection",
+      "projectionRevision": 2,
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": ["marketplace_managed_offer_work", "marketplace_managed_offer_audit"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
       "projectionName": "marketplace-offer-policy-projection",
-      "projectionRevision": 1,
+      "projectionRevision": 2,
       "sourceContextNames": ["marketplace"],
       "ownedTables": ["marketplace_buyer_offer_policy_pages", "marketplace_buyer_offer_policy_memberships"],
       "requiredDuringBootstrap": false,
@@ -369,7 +397,7 @@
     },
     {
       "projectionName": "marketplace-offer-projection",
-      "projectionRevision": 3,
+      "projectionRevision": 4,
       "sourceContextNames": ["marketplace"],
       "ownedTables": [
         "marketplace_offer_pages",
@@ -496,6 +524,11 @@
     }
   ],
   "hostPorts": [
+    {
+      "portName": "managedOfferPricing",
+      "providedBy": "pricing",
+      "purpose": "Evaluate current buyer Offer targets through Pricing's public boundary without Marketplace querying Pricing storage."
+    },
     {
       "portName": "sellerAttentionSources",
       "providedBy": "platform-api",
