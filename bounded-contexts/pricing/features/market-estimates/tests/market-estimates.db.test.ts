@@ -21,7 +21,7 @@ import { MARKET_ESTIMATE_LAUNCH_POLICY_VALUE, type MarketEstimatePolicyValue } f
 import { evaluateBuyerOfferTarget } from "../../offer-targets/domain/evaluate";
 import { loadBuyerOfferMarketPrices } from "../../offer-targets/read-model/queries";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
-import { seedSyntheticOfferMarketPrice } from "../../../support/runtime-support/seed";
+import { seedSyntheticOfferMarketPrice } from "@chase-sets/pricing/server";
 
 // phantom-SQL rule: exercised against a real Postgres sandbox
 // (TEST_DATABASE_URL, see .env.sandbox.local / dev:bootstrap), never mocked.
