@@ -140,7 +140,7 @@ describe("Listing authority unknown outcomes and predicate serialization", () =>
     expect((await f.fence.inspect(replacement)).status).toBe("pending");
   });
 
-  it("rejects retained history whose opening identity is missing or contradicted", async () => {
+  it("rejects retained history whose opening identity is contradicted", async () => {
     const f = await fixture();
     const operation = await f.fence.open(f.input, f.context);
     const streamId = `marketplace.listing-authority-operation-${operation.operationId}`;
@@ -148,6 +148,18 @@ describe("Listing authority unknown outcomes and predicate serialization", () =>
     f.consumerMemory.streams.set(streamId, [{ ...events[0]!, eventId: "evt_synthetic-replacement" }]);
     await expect(f.fence.inspect(operation)).rejects.toThrow("Corrupt authority terminal history");
     await expect(f.fence.open(f.input, f.context)).rejects.toThrow("Corrupt authority terminal history");
+  });
+
+  it("does not manufacture an opening identity for an older retained operation", async () => {
+    const f = await fixture();
+    const operation = await f.fence.open(f.input, f.context);
+    const streamId = `marketplace.listing-authority-operation-${operation.operationId}`;
+    const events = f.consumerMemory.streams.get(streamId)!;
+    const { openingEventId, ...olderOperation } = operation;
+    expect(openingEventId).toBe(events[0]!.eventId);
+    f.consumerMemory.streams.set(streamId, [{ ...events[0]!, payload: { operation: olderOperation } }]);
+    await expect(f.restart().fence.open(f.input, f.context)).rejects.toThrow("Corrupt authority terminal history");
+    expect(f.consumerMemory.streams.get(streamId)).toHaveLength(1);
   });
 
   it("rejects a contradictory final integrity digest instead of trusting the resource fold", async () => {
