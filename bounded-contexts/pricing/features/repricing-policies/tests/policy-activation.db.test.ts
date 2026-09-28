@@ -89,7 +89,10 @@ describeDb("policy workflow deletion discriminator", () => {
         expect(
           await engine.processNextDryRunJob({ claimOwnerId: "synthetic-policy-workflow", claimTtlMs: 30_000 }),
         ).toBe(1);
-        expect((await engine.getDryRun(f.accountId, run!.dryRunId))?.status).toBe("completed");
+        expect(await engine.getDryRun(f.accountId, run!.dryRunId)).toMatchObject({
+          status: "completed",
+          summary: { listingsEvaluated: listingPresent ? 1 : 0 },
+        });
         const policy = await controls.activateRepricingPolicy(
           { accountId: f.accountId, dryRunId: run!.dryRunId, name },
           f.context,
@@ -187,6 +190,22 @@ describeDb("policy workflow deletion discriminator", () => {
             })
           )?.maxChangesPerDay,
         ).toBe(249);
+        const advancedRules = [
+          { ...body.rules[0]!, conditions: [{ type: "listing-age-at-least" as const, days: 45 }] },
+          ...body.rules,
+        ];
+        expect(
+          (
+            await command(policyId, {
+              ...body,
+              scope,
+              rules: advancedRules,
+              type: "ReviseRepricingPolicy",
+              name: "Synthetic advanced",
+              revisedAt: new Date().toISOString(),
+            })
+          )?.rules,
+        ).toHaveLength(2);
         expect(
           (await command(policyId, { type: "PauseRepricingPolicy", pausedAt: new Date().toISOString() }))?.status,
         ).toBe("paused");
