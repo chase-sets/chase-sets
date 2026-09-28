@@ -5,6 +5,7 @@ import type { ListingAuthorityOwner, ListingAuthorityOperation } from "@chase-se
 import { LISTING_AUTHORITY_RESOURCE_LIMIT } from "@chase-sets/event-core/listing-authority";
 import type { ListingAuthoritySource } from "./listing-authority-participant";
 import { assertSameAuthority, authorityHash, authorityPayload } from "./listing-authority-state";
+import { appendAuthorityAppends, readAuthorityJournal } from "./listing-authority-journal";
 
 /** Owner policy supplies the affected predicate scopes, including insertions, not just existing streams. */
 export function createListingAuthorityWriter(
@@ -30,7 +31,7 @@ export function createListingAuthorityWriter(
     createEventStoreError("concurrency_conflict", "Authority source changed before its mutation acquired closure.");
 
   async function readAttempt(writeId: string) {
-    const history = await readCompleteStream(raw, { streamId: writeStream(writeId) });
+    const { events: history } = await readAuthorityJournal(raw, writeStream(writeId));
     let attempt: Attempt | undefined;
     let status: "pending" | "appended" | "source-conflict" | "resources-conflict" | undefined;
     for (const event of history) {
@@ -80,12 +81,14 @@ export function createListingAuthorityWriter(
         resources,
         inputs,
       };
-      await raw.appendToStream({
-        streamId: writeStream(writeId),
-        expectedVersion: journal.version,
-        context,
-        events: [{ eventType: `${deps.owner}.listing-authority-write.started`, payload: authorityPayload(attempt) }],
-      });
+      await appendAuthorityAppends(raw, [
+        {
+          streamId: writeStream(writeId),
+          expectedVersion: journal.version,
+          context,
+          events: [{ eventType: `${deps.owner}.listing-authority-write.started`, payload: authorityPayload(attempt) }],
+        },
+      ]);
       journal = await readAttempt(writeId);
     }
     return execute(journal);
@@ -107,7 +110,7 @@ export function createListingAuthorityWriter(
     const localCommits: ListingAuthorityOperation[] = [];
     for (const input of inputs) {
       if (input.events.some((event) => event.eventType === `${deps.owner}.listing-authority-operation.committed`)) {
-        const history = await readCompleteStream(raw, { streamId: input.streamId });
+        const { events: history } = await readAuthorityJournal(raw, input.streamId);
         const operation = history[0]?.payload.operation as unknown as ListingAuthorityOperation | undefined;
         if (!operation || input.streamId !== `${deps.owner}.listing-authority-operation-${operation.operationId}`)
           throw new Error("Source-local commit lost its operation history.");
@@ -185,9 +188,15 @@ export function createListingAuthorityWriter(
   const eventStore: EventStore = {
     readAll: raw.readAll,
     readStream: raw.readStream,
-    appendToStream: async (input) => (await append([input]))[0]!.storedEvents,
+    appendToStream: async (input) => {
+      if (input.expectedFirstEventId !== undefined)
+        throw new Error("Stream opening guards require atomic appendToStreams.");
+      return (await append([input]))[0]!.storedEvents;
+    },
     appendToStreams: append,
     appendToStreamsIndependently: async (inputs) => {
+      if (inputs.some((input) => input.expectedFirstEventId !== undefined))
+        throw new Error("Stream opening guards require atomic appendToStreams.");
       const results = [];
       for (const input of inputs) {
         try {

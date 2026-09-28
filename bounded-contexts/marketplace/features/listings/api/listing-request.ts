@@ -117,6 +117,16 @@ export async function prepareListingRequest<Result extends JsonObject>(
     if (!event.payload.result || typeof event.payload.result !== "object" || Array.isArray(event.payload.result)) {
       throw new Error("Listing request result is invalid.");
     }
+    if (input.authority) {
+      const terminal = await input.authority.fence.inspect(input.authority.operation);
+      if (
+        terminal.status !== "committed" ||
+        canonical(terminal.result) !== canonical(event.payload.result) ||
+        canonical(event.payload.authorityOperation ?? null) !==
+          canonical(input.authority.operation as unknown as JsonObject)
+      )
+        throw new Error("Listing request result has no matching committed authority terminal.");
+    }
     recordCommittedEvents([event]);
     if (input.authority) await input.authority.fence.settle(input.authority.operation);
     return event.payload.result as Result;
@@ -157,7 +167,7 @@ export async function prepareListingRequest<Result extends JsonObject>(
       },
       appends: [
         ...prepared.appends,
-        ...(terminal ? [terminal] : []),
+        ...(terminal ?? []),
         {
           streamId,
           expectedVersion: "no_stream",

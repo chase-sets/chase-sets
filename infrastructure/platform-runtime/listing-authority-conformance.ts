@@ -4,6 +4,10 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ListingAuthorityOperation, ListingAuthorityReservation } from "@chase-sets/event-core/listing-authority";
 import type { ListingAuthorityFence, ListingAuthorityOperationInput } from "./listing-authority-fence";
 import type { ListingAuthoritySource } from "./listing-authority-participant";
+export {
+  listingAuthorityHistoryConformance,
+  type ListingAuthorityHistoryFixture,
+} from "./listing-authority-history-conformance";
 
 /** Each owner supplies its actual prepare/invalidate writer and reconstructs services on the same stores. */
 export type ListingAuthorityConformanceFixture = Readonly<{
@@ -121,7 +125,7 @@ export function listingAuthoritySessionConformance(
     const business = effects(f, operation);
     await f.invalidate();
     assert.equal((await f.restart().fence.inspect(operation)).status, "aborted");
-    await assert.rejects(f.consumerStore.appendToStreams!([terminal, ...business]));
+    await assert.rejects(f.consumerStore.appendToStreams!([...terminal, ...business]));
     for (const append of business)
       assert.equal((await f.consumerStore.readStream({ streamId: append.streamId })).length, 0);
     assert.equal((await f.fence.inspect(operation)).status, "aborted");
@@ -130,12 +134,12 @@ export function listingAuthoritySessionConformance(
     const { f, operation, grants } = await prepared();
     const terminal = await f.fence.prepareCommit(operation, grants, { accepted: true });
     const business = effects(f, operation);
-    await f.consumerStore.appendToStreams!([terminal, ...business]);
+    await f.consumerStore.appendToStreams!([...terminal, ...business]);
     await f.invalidate();
     assert.equal((await f.restart().fence.inspect(operation)).status, "committed");
     for (const append of business)
       assert.equal((await f.consumerStore.readStream({ streamId: append.streamId })).length, 1);
-    await assert.rejects(f.consumerStore.appendToStreams!([terminal, ...business]));
+    await assert.rejects(f.consumerStore.appendToStreams!([...terminal, ...business]));
     await f.fence.settle(operation);
     assert.equal((await f.source.inspect(operation))?.status, "consumed");
     const later = await f.fence.open({ ...f.input, requestId: "synthetic-session-after-revoke" }, f.context);
@@ -183,7 +187,7 @@ export function listingAuthorityConformance(
   ) {
     const terminal = await fixture.fence.prepareCommit(operation, reservations, { accepted: true });
     await fixture.consumerStore.appendToStreams!([
-      terminal,
+      ...terminal,
       {
         streamId: `${operation.committingOwner}.synthetic-commitment-${operation.operationId}`,
         expectedVersion: 0,
@@ -208,7 +212,7 @@ export function listingAuthorityConformance(
     const terminal = await f.fence.prepareCommit(operation, [reservation], { accepted: true });
     await f.invalidate();
     assert.equal((await f.fence.inspect(operation)).status, "aborted");
-    await assert.rejects(f.consumerStore.appendToStreams!([terminal]));
+    await assert.rejects(f.consumerStore.appendToStreams!([...terminal]));
     const restart = f.restart();
     await assert.rejects(commit(restart, operation, [reservation]));
     await restart.fence.settle(operation);
@@ -259,6 +263,7 @@ export function listingAuthorityConformance(
     }),
     revision: (operation) => ({ ...operation, expectedListingRevision: operation.expectedListingRevision + 1 }),
     generation: (operation) => ({ ...operation, generation: operation.generation + 1 }),
+    "opening identity": (operation) => ({ ...operation, openingEventId: "evt_synthetic-other-opening" }),
   };
   for (const [name, alter] of Object.entries(alterations)) {
     test(`a reservation cannot authorize another ${name}`, async () => {
@@ -302,11 +307,13 @@ export function listingAuthorityConformance(
     const { operation, reservation } = await prepared(f);
     const append = await f.fence.prepareCommit(operation, [reservation], { accepted: true });
     await assert.rejects(
-      f.consumerStore.appendToStreams!([{ ...append, authorizationDeadline: "2000-01-01T00:00:00.000Z" }]),
+      f.consumerStore.appendToStreams!(
+        append.map((input) => ({ ...input, authorizationDeadline: "2000-01-01T00:00:00.000Z" })),
+      ),
     );
     assert.equal((await f.source.inspect(operation))?.status, "reserved");
     await f.fence.abort(operation, "expired");
     await f.fence.settle(operation);
-    await assert.rejects(f.consumerStore.appendToStreams!([append]));
+    await assert.rejects(f.consumerStore.appendToStreams!([...append]));
   });
 }

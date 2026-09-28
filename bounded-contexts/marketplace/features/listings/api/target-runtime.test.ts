@@ -14,6 +14,24 @@ import type { AcceptListingTargetPriceInput, ListingTargetAuthority } from "./ta
 import { createSyntheticListingAuthority } from "./authority-test-support";
 import { createListingCurrentReads } from "../read-model/target-queries";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { EventStore } from "@chase-sets/event-core/event-store";
+
+function interceptTerminal(eventStore: EventStore, intercept: NonNullable<EventStore["appendToStreams"]>) {
+  const append = eventStore.appendToStreams!;
+  let intercepted = false;
+  return vi.spyOn(eventStore, "appendToStreams").mockImplementation((appends) => {
+    if (
+      !intercepted &&
+      appends.some((input) =>
+        input.events.some((event) => event.eventType === "marketplace.listing-authority-operation.committed"),
+      )
+    ) {
+      intercepted = true;
+      return intercept(appends);
+    }
+    return append(appends);
+  });
+}
 
 const context = withSyntheticListingPrincipal(
   {
@@ -154,7 +172,7 @@ describe("Listing target owner authority", () => {
   it("retains Auth on the actual Listing terminal and cannot commit its prebuilt append after session invalidation", async () => {
     const { services, input, eventStore, participantFixture } = await fixture();
     const append = eventStore.appendToStreams!;
-    vi.spyOn(eventStore, "appendToStreams").mockImplementationOnce(async (appends) => {
+    interceptTerminal(eventStore, async (appends) => {
       expect(
         appends.some((entry) =>
           entry.events.some((event) => event.eventType === "marketplace.listing-authority-operation.committed"),
@@ -263,7 +281,7 @@ describe("Listing target owner authority", () => {
     // A caught-up local mirror is not a lock on the separately owned source.
     await eventStore.appendToStream(grant);
     const append = eventStore.appendToStreams!;
-    vi.spyOn(eventStore, "appendToStreams").mockImplementationOnce(async (appends) => {
+    interceptTerminal(eventStore, async (appends) => {
       await participantFixture.change("manage-listing", context, false);
       const source = participantFixture.sources.find((candidate) => candidate.participant.owner === "identity")!;
       const operation = (await participantFixture.stores.get("identity")!.readAll()).find((event) =>
@@ -290,7 +308,7 @@ describe("Listing target owner authority", () => {
   it("recovers a whole native batch from an unknown post-commit outcome without resending", async () => {
     const { services, input, eventStore } = await fixture();
     const append = eventStore.appendToStreams!;
-    const spy = vi.spyOn(eventStore, "appendToStreams").mockImplementationOnce(async (appends) => {
+    const spy = interceptTerminal(eventStore, async (appends) => {
       await append(appends);
       throw new Error("Synthetic connection loss after commit");
     });
@@ -300,14 +318,14 @@ describe("Listing target owner authority", () => {
     const first = await services.applyNativePrices({ accountId: input.accountId, updates }, context);
     expect(first).toEqual([{ listingId: input.listingId, version: 2, outcome: "applied" }]);
     expect(await services.applyNativePrices({ accountId: input.accountId, updates }, context)).toEqual(first);
-    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledTimes(2);
     expect(await eventStore.readStream({ streamId: "marketplace.listing-lst_test" })).toHaveLength(2);
   });
 
   it("rolls back native no-op request results if capability changes before commit", async () => {
     const { services, input, eventStore, participantFixture } = await fixture();
     const append = eventStore.appendToStreams!;
-    vi.spyOn(eventStore, "appendToStreams").mockImplementationOnce(async (appends) => {
+    interceptTerminal(eventStore, async (appends) => {
       await participantFixture.change("manage-listing", context);
       return append(appends);
     });
@@ -455,8 +473,14 @@ describe("Listing target owner authority", () => {
     expect(outcomes[0]?.result?.acceptedTargetPrice.priceCurrencyCode).toBe("CAD");
     expect(outcomes[1]?.result).toEqual(outcomes[0]?.result);
     expect(outcomes[2]?.error).toContain("different command");
-    expect(append).toHaveBeenCalledTimes(2);
-    expect(await eventStore.readAll()).toHaveLength(5);
+    expect(
+      append.mock.calls.filter(([inputs]) =>
+        inputs.some((input) =>
+          input.events.some((event) => event.eventType === "marketplace.listing-authority-operation.committed"),
+        ),
+      ),
+    ).toHaveLength(2);
+    expect(await eventStore.readAll()).toHaveLength(9);
     expect(
       (await eventStore.readAll()).filter(
         (event) => event.eventType === "marketplace.listing-authority-operation.committed",
@@ -532,8 +556,12 @@ describe("Listing target owner authority", () => {
     );
     await expect(services.acceptListingTargetPrice(input, context)).rejects.toThrow();
     const history = await eventStore.readAll();
-    expect(history).toHaveLength(3);
-    expect(history.at(-1)?.eventType).toBe("marketplace.listing-authority-operation.aborted");
+    expect(history).toHaveLength(7);
+    expect(history.slice(-3).map((event) => event.eventType)).toEqual([
+      "marketplace.listing-authority-operation.aborted",
+      "marketplace.listing-authority.history-witness",
+      "marketplace.listing-authority.history-witness",
+    ]);
     expect(await eventStore.readStream({ streamId: `marketplace.listing-${input.listingId}` })).toHaveLength(1);
   });
 

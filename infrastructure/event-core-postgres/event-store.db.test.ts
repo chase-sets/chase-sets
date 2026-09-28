@@ -93,6 +93,56 @@ describeDb("postgres event store real database integration", () => {
     });
   });
 
+  it.each([false, true])(
+    "rejects an old opening after authoritative stream/head loss and recreation (sequential=%s)",
+    async (sequential) => {
+      const store = createPostgresEventStore({ pool: schema.pool, createEventId });
+      const context = eventContext("tnt_synthetic");
+      const streamId = "marketplace.synthetic-consumer-operation";
+      const [opening] = await store.appendToStream({
+        streamId,
+        expectedVersion: 0,
+        context,
+        events: [eventToStore("marketplace.synthetic-opened", {})],
+      });
+      const terminal = {
+        streamId,
+        expectedVersion: 1,
+        expectedFirstEventId: opening!.eventId,
+        context,
+        authorizationDeadline: "2999-01-01T00:00:00.000Z",
+        events: [eventToStore("marketplace.synthetic-committed", {})],
+      };
+      await store.appendToStreams!([{ ...terminal, events: [eventToStore("marketplace.synthetic-aborted", {})] }]);
+      // Synthetic authoritative loss, not a projection miss: the FK also deletes the complete event history.
+      await schema.pool.query("DELETE FROM event_store_streams WHERE stream_id = $1", [streamId]);
+      await expect(store.appendToStreams!([terminal])).rejects.toMatchObject({ code: "concurrency_conflict" });
+      const [replacement] = await store.appendToStream({
+        streamId,
+        expectedVersion: 0,
+        context,
+        events: [eventToStore("marketplace.synthetic-opened", {})],
+      });
+      const business = {
+        streamId: "marketplace.synthetic-effect",
+        expectedVersion: 0,
+        context,
+        events: [eventToStore("marketplace.synthetic-accepted", {})],
+      };
+      const appends = [business, terminal, ...(sequential ? [{ ...business, expectedVersion: 1 }] : [])];
+      await expect(store.appendToStreams!(appends)).rejects.toMatchObject({ code: "concurrency_conflict" });
+      expect(await store.readStream({ streamId: business.streamId })).toHaveLength(0);
+      expect(await store.readStream({ streamId })).toHaveLength(1);
+      await expect(
+        store.appendToStreams!(
+          appends.map((input) =>
+            input === terminal ? { ...terminal, expectedFirstEventId: replacement!.eventId } : input,
+          ),
+        ),
+      ).resolves.toHaveLength(appends.length);
+    },
+  );
+
   it("treats a duplicate caller-supplied event id retry as an idempotent no-op", async () => {
     const store = createPostgresEventStore({
       pool: schema.pool,

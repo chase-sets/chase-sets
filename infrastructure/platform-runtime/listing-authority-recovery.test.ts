@@ -18,6 +18,7 @@ function fixture(mutatingPreparation = false) {
   let unknown = false;
   let failValidation = mutatingPreparation;
   let validations = 0;
+  let indexFault: "none" | "loss" | "truncation" | "recreation" = "none";
   const consumer = () => ({
     inspect: (operation: Parameters<typeof fence.inspect>[0]) =>
       unknown ? Promise.resolve({ status: "unknown" as const }) : fence.inspect(operation),
@@ -76,8 +77,9 @@ function fixture(mutatingPreparation = false) {
             .filter(
               (event) =>
                 ((event.streamVersion === 1 &&
-                  (stream_id.includes("-reservation-") || stream_id.includes("-mutation-"))) ||
-                  (stream_id.includes("-write-") && event.eventType === values![6])) &&
+                  (stream_id.startsWith(String(values![1]).slice(0, -1)) ||
+                    stream_id.startsWith(String(values![2]).slice(0, -1)))) ||
+                  (stream_id.startsWith(String(values![5]).slice(0, -1)) && event.eventType === values![6])) &&
                 BigInt(event.globalPosition) > BigInt(String(values![0])) &&
                 !history.some(
                   (later) => later.streamVersion > event.streamVersion && terminalTypes.includes(later.eventType),
@@ -92,7 +94,21 @@ function fixture(mutatingPreparation = false) {
         )
         .sort((a, b) => Number(BigInt(a.global_position) - BigInt(b.global_position)))
         .slice(0, Number(values![4]));
-      return { rows: rows as Row[] };
+      const indexed =
+        indexFault === "loss"
+          ? []
+          : indexFault === "truncation"
+            ? rows.slice(0, 1)
+            : indexFault === "recreation"
+              ? rows.map((row) => ({
+                  ...row,
+                  payload: {
+                    ...row.payload,
+                    reservation: { ...(row.payload.reservation as object), operation: { syntheticCorrupt: true } },
+                  },
+                }))
+              : rows;
+      return { rows: indexed as Row[] };
     },
   };
   const restart = () =>
@@ -140,6 +156,9 @@ function fixture(mutatingPreparation = false) {
     writer,
     input,
     restart,
+    setIndexFault(value: typeof indexFault) {
+      indexFault = value;
+    },
     setUnknown: (value: boolean) => {
       unknown = value;
     },
@@ -150,12 +169,37 @@ function fixture(mutatingPreparation = false) {
 }
 
 describe("owner Listing authority recovery", () => {
+  for (const fault of ["loss", "truncation", "recreation"] as const)
+    for (const after of [undefined, "0", "999999999999"])
+      it(`recovery index ${fault} with cursor ${after ?? "lost"} cannot release unknown promises`, async () => {
+        const f = fixture();
+        const operations = [];
+        for (const requestId of ["synthetic-index-first", "synthetic-index-second"]) {
+          const operation = await f.fence.open({ ...f.input, requestId }, f.context);
+          await f.source.prepare(operation, f.context);
+          operations.push(operation);
+        }
+        f.expire();
+        f.setUnknown(true);
+        f.setIndexFault(fault);
+        const page = await f.restart()({ after, limit: 2 });
+        expect(page.outcomes.length).toBeLessThanOrEqual(2);
+        for (const outcome of page.outcomes) expect(outcome.status).toBe("blocked");
+        for (const operation of operations) {
+          expect((await f.source.inspect(operation))?.status).toBe("reserved");
+          expect((await f.fence.inspect(operation)).status).toBe("pending");
+        }
+        f.setIndexFault("none");
+        f.setUnknown(false);
+        await f.restart()({ after: "0", limit: 2 });
+        for (const operation of operations) expect((await f.source.inspect(operation))?.status).toBe("released");
+      });
   it("settles a committed promise after the consumer lost its acknowledgement", async () => {
     const f = fixture();
     const operation = await f.fence.open(f.input, f.context);
     const grant = await f.source.prepare(operation, f.context);
     await f.consumerMemory.eventStore.appendToStreams!([
-      await f.fence.prepareCommit(operation, [grant], { committed: true }),
+      ...(await f.fence.prepareCommit(operation, [grant], { committed: true })),
     ]);
     expect((await f.restart()()).outcomes).toMatchObject([{ status: "settled" }]);
     expect((await f.source.inspect(operation))?.status).toBe("consumed");

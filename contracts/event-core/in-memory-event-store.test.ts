@@ -20,6 +20,69 @@ function event(eventType: string, eventId?: string) {
 }
 
 describe("shared in-memory event store", () => {
+  it.each([false, true])(
+    "binds atomic appends to the original opening even after recreation (guard=%s)",
+    async (guard) => {
+      const { eventStore, streams } = createInMemoryEventStore();
+      const streamId = "test.synthetic-opening";
+      const opening = await eventStore.appendToStream({
+        streamId,
+        expectedVersion: 0,
+        context,
+        events: [event("test.opened")],
+      });
+      const terminal = {
+        streamId,
+        expectedVersion: 1,
+        expectedFirstEventId: opening[0]!.eventId,
+        context,
+        events: guard ? [] : [event("test.committed", "evt_synthetic-terminal")],
+      };
+      const business = {
+        streamId: "test.synthetic-effect",
+        expectedVersion: 0,
+        context,
+        events: [event("test.effect")],
+      };
+      streams.delete(streamId);
+      await expect(eventStore.appendToStreams!([business, terminal])).rejects.toMatchObject({
+        code: "concurrency_conflict",
+      });
+      const replacement = await eventStore.appendToStream({
+        streamId,
+        expectedVersion: 0,
+        context,
+        events: [event("test.opened")],
+      });
+      await expect(eventStore.appendToStreams!([business, terminal])).rejects.toMatchObject({
+        code: "concurrency_conflict",
+      });
+      expect(await eventStore.readStream({ streamId: business.streamId })).toHaveLength(0);
+      expect(await eventStore.readStream({ streamId })).toHaveLength(1);
+      await expect(
+        eventStore.appendToStreams!([business, { ...terminal, expectedFirstEventId: replacement[0]!.eventId }]),
+      ).resolves.toHaveLength(2);
+    },
+  );
+
+  it("never drops an opening guard on non-atomic methods or malformed atomic inputs", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const input = {
+      streamId: "test.synthetic-opening",
+      expectedVersion: 1,
+      expectedFirstEventId: "evt_original" as const,
+      context,
+      events: [],
+    };
+    await expect(eventStore.appendToStream(input)).rejects.toThrow("atomic appendToStreams");
+    await expect(eventStore.appendToStreamsIndependently!([input])).rejects.toThrow("atomic appendToStreams");
+    for (const expectedVersion of ["any", "no_stream", 0, -1, 1.5, Number.NaN] as const) {
+      await expect(eventStore.appendToStreams!([{ ...input, expectedVersion }])).rejects.toMatchObject({
+        code: "concurrency_conflict",
+      });
+    }
+  });
+
   it("validates bounded-prefix request evidence without reading the stream", () => {
     expect(() =>
       assertBoundedStreamReadContract({

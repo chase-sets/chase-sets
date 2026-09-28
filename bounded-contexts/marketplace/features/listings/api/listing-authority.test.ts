@@ -258,7 +258,7 @@ describe("Marketplace native owner participation", () => {
     });
     await expect(
       f.consumer.eventStore.appendToStreams!([
-        terminal,
+        ...terminal,
         {
           streamId: "ordering.synthetic-business",
           expectedVersion: 0,
@@ -288,7 +288,9 @@ describe("Marketplace native owner participation", () => {
     const f = await fixture();
     const { operation, grants } = await f.prepare();
     expect(grants.every((grant) => grant.operation.operationId === operation.operationId)).toBe(true);
-    await f.consumer.eventStore.appendToStreams!([await f.fence.prepareCommit(operation, grants, { ordered: true })]);
+    await f.consumer.eventStore.appendToStreams!([
+      ...(await f.fence.prepareCommit(operation, grants, { ordered: true })),
+    ]);
     await f.commandHandler({
       streamId: "marketplace.listing-lst_synthetic",
       context: f.context,

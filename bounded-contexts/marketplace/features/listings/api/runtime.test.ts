@@ -489,10 +489,17 @@ describe("marketplace listing runtime", () => {
       listingId: "lst_seed_1",
       version: 3,
     });
+    const terminalIds = new Set<string>(
+      allEvents
+        .filter((event) => event.eventType === "marketplace.listing-authority-operation.committed")
+        .map((event) => event.eventId),
+    );
     const committedEvents = allEvents.filter(
       (event) =>
         !event.eventType.startsWith("marketplace.listing-authority") ||
-        event.eventType === "marketplace.listing-authority-operation.committed",
+        event.eventType === "marketplace.listing-authority-operation.committed" ||
+        (event.eventType === "marketplace.listing-authority.history-witness" &&
+          terminalIds.has(String(event.payload.eventId))),
     );
     expect(metadata).toEqual({
       eventIds: committedEvents.map((event) => event.eventId),
@@ -2384,10 +2391,17 @@ describe("marketplace listing runtime", () => {
       );
 
       expect(outcomes.every((outcome) => outcome.outcome === "applied")).toBe(true);
-      // Each row atomically commits its Listing, request result, and terminal operation fence.
-      expect(appendSpy).toHaveBeenCalledTimes(2);
-      expect(appendSpy.mock.calls[0]?.[0]).toHaveLength(6);
-      expect(appendSpy.mock.calls[1]?.[0]).toHaveLength(3);
+      // Three opening transactions precede the two unchanged business chunks.
+      // Each row commits its Listing, request result and all three terminal histories.
+      expect(appendSpy).toHaveBeenCalledTimes(5);
+      const commits = appendSpy.mock.calls.filter(([inputs]) =>
+        inputs.some((input) =>
+          input.events.some((event) => event.eventType === "marketplace.listing-authority-operation.committed"),
+        ),
+      );
+      expect(commits).toHaveLength(2);
+      expect(commits[0]?.[0]).toHaveLength(10);
+      expect(commits[1]?.[0]).toHaveLength(5);
       expect(resolvePolicy).toHaveBeenCalledWith(
         expect.objectContaining({ policyKey: "marketplace.listing-bulk-price-update" }),
       );

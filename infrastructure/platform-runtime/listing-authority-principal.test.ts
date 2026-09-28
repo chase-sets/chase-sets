@@ -165,7 +165,8 @@ describe("trusted Listing principal binding", () => {
     const context = { ...f.context, listingAuthorityPrincipal: { ...principal, validBefore } };
     const operation = await f.fence.open(f.input, context);
     const grant = await f.source.prepare(operation, context);
-    expect((await f.fence.prepareCommit(operation, [grant], {})).authorizationDeadline).toBe(validBefore);
+    for (const append of await f.fence.prepareCommit(operation, [grant], {}))
+      expect(append.authorizationDeadline).toBe(validBefore);
   });
 
   it("retains an exact standing owner reservation on the final operation and rejects substitution", async () => {

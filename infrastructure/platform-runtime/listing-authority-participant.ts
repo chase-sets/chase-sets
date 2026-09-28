@@ -382,6 +382,7 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
       ]);
     }
     const closed = await Promise.all(ids.map((id) => resource(input.context.tenantId, id)));
+    for (const scope of closed) assertSameAuthority(scope.pending, intent);
     const outstanding = new Map(closed.flatMap((scope) => [...scope.grants]));
     const localGrants: ListingAuthorityReservation[] = [];
     for (const grant of outstanding.values()) {
@@ -413,6 +414,8 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
       if (terminal) {
         if (
           terminal.expectedVersion !== 1 ||
+          !operation.openingEventId ||
+          terminal.expectedFirstEventId !== operation.openingEventId ||
           !terminal.authorizationDeadline ||
           terminal.events.length !== 1 ||
           terminal.events[0]!.eventType !== `${operation.committingOwner}.listing-authority-operation.committed`
