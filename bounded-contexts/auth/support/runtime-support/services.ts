@@ -1,4 +1,6 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { randomUUID } from "node:crypto";
+import type { AuthListingSessionAuthorityHostPorts } from "../../features/sessions/api/listing-authority";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
@@ -128,6 +130,7 @@ export type AdminGoogleWorkspaceSsoConfig = Readonly<{
 }>;
 
 export type AuthHostPorts = Readonly<{
+  listingAuthorityConsumer?: AuthListingSessionAuthorityHostPorts["listingAuthorityConsumer"];
   notificationOutbox?: NotificationOutbox;
   agentWebhookOrderResolvers?: AgentWebhookOrderResolvers;
   socialLoginProviders?: readonly SocialLoginProvider[];
@@ -185,6 +188,7 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
   const agentWebhookOutbox = createPostgresAgentWebhookOutbox({ db });
   const sessions = createSessionRuntime({
     eventStore,
+    listingAuthorityConsumer: ports.listingAuthorityConsumer,
     checkpointStore,
     db,
     notificationOutbox,
@@ -197,7 +201,7 @@ export function createAuthServices(pool: PgTransactionalPool, ports: AuthHostPor
   return {
     pool,
     db,
-    eventStore,
+    eventStore: sessions.listingAuthority.eventStore,
     auth: createAuthSecretAdapters(),
     identity: {
       bootstrapTenantId: AUTH_BOOTSTRAP_TENANT_ID,
@@ -490,10 +494,13 @@ async function issueSessionToken(
   params: Readonly<{
     sessionId: string;
     expiresAt: string;
+    context: EventStoreContext;
   }>,
 ) {
   const sessionToken = services.auth.issueOpaqueToken("session");
-  await upsertSessionToken(services.db, {
+  await upsertSessionToken(services.sessions.listingAuthority, {
+    mutationId: randomUUID(),
+    context: params.context,
     sessionId: params.sessionId,
     tokenHash: services.auth.hashSecret(sessionToken),
     expiresAt: params.expiresAt,
@@ -558,6 +565,7 @@ export async function startInteractiveAuth(
   const sessionToken = await issueSessionToken(services, {
     sessionId: sessionResult.sessionId,
     expiresAt: sessionResult.session.expires_at,
+    context: params.context,
   });
 
   if (params.publishAuthenticationOutcome) {

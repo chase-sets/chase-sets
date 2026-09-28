@@ -1,5 +1,6 @@
 import { normalizeAgentOAuthScopes, type ResolvedActor } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { ListingAuthoritySessionEvidence } from "@chase-sets/event-core/listing-authority";
 import { readAuthSessionToken, readCookie } from "../auth-support/http";
 import { AUTH_GUEST_CHECKOUT_COOKIE_NAME } from "../request-support/cookies";
 import type { AuthServices } from "./services";
@@ -45,6 +46,14 @@ export async function resolveActorFromSessionToken(
   }
 
   return resolveActorFromSessionId(services, tokenRecord.session_id);
+}
+
+export async function resolveListingSessionAuthentication(
+  services: AuthServices,
+  sessionToken: string,
+): Promise<ListingAuthoritySessionEvidence | null> {
+  if (!sessionToken || sessionToken.startsWith(UCP_ACCESS_TOKEN_PREFIX)) return null;
+  return services.sessions.listingAuthority.authenticate(services.auth.hashSecret(sessionToken));
 }
 
 export function isGuestCheckoutActor(actor: ResolvedActor | null | undefined): actor is ResolvedActor {
