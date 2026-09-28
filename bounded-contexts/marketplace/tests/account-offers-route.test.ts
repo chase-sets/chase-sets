@@ -4,6 +4,7 @@ import { createElement } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { Hono } from "hono";
+import { resolveActorFromSessionId } from "../../auth/server";
 import SubmittedOffersRoute, { action as submittedOffersAction } from "../routes/account-offers-submitted";
 import { fixture, context as policyContext, terms, privatePolicyFields } from "../features/offer-policy/tests/fixtures";
 import { createBuyerOfferPolicyRoutes } from "../features/offer-policy/api/route";
@@ -49,6 +50,89 @@ afterEach(() => {
 });
 
 describe("market-following Submitted Offer real router", () => {
+  it.each([false, true])(
+    "enforces verified email through the real Preview permission guard (verified=%s)",
+    async (verified) => {
+      const services = {
+        sessions: {
+          readAuthenticatedSession: async () => ({
+            state: {
+              id: "ses_test",
+              userId: "usr_buyer",
+              accountId: "acc_buyer",
+              availableAccountIds: ["acc_buyer"],
+              authenticationMethod: "password",
+              status: "active",
+              expiresAt: "2099-01-01T00:00:00.000Z",
+            },
+            authenticatedAt: "2026-09-28T00:00:00.000Z",
+          }),
+          getSession: async () => null,
+        },
+        identity: {
+          getActiveMembershipForUserAccount: async () => ({
+            membership_id: "mbr_test",
+            role_key: "owner",
+            role_permissions: [],
+          }),
+          getUser: async () => ({
+            primary_email: "collector@chasesets.test",
+            contact_methods: [
+              {
+                type: "email",
+                value: "collector@chasesets.test",
+                verifiedAt: verified ? "2026-09-28T00:00:00.000Z" : null,
+              },
+            ],
+          }),
+        },
+      } as unknown as Parameters<typeof resolveActorFromSessionId>[0];
+      const actor = await resolveActorFromSessionId(services, "ses_test");
+      const f = await fixture();
+      const app = new Hono<MarketplaceApiEnv>();
+      app.use("*", async (c, next) => {
+        c.set("actor", actor!);
+        c.set("context", policyContext);
+        await next();
+      });
+      app.route("/api/marketplace/account/offer-policies", createBuyerOfferPolicyRoutes(f.runtime));
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+          const url = String(input);
+          if (url.includes("/api/auth/session")) return jsonResponse({ actor });
+          return app.request(new Request(url, init));
+        }),
+      );
+      expect(actor?.permissions).toContain("offers.view");
+      expect(actor?.permissions.includes("offers.manage")).toBe(verified);
+      const action = submittedOffersAction({
+        request: new Request("http://localhost/account/offers/submitted.data", {
+          method: "POST",
+          body: new URLSearchParams({
+            policyId: "bop_verified_buyer",
+            command: JSON.stringify({
+              type: "PreviewBuyerOfferPolicy",
+              expectedVersion: 0,
+              operationId: "preview_buyer",
+              terms,
+            }),
+          }),
+        }),
+        params: {},
+        context: undefined,
+      } as never);
+      if (!verified) {
+        await expect(action).rejects.toMatchObject({ status: 403 });
+        await expect(f.runtime.get("bop_verified_buyer", "acc_buyer")).rejects.toMatchObject({ code: "not_found" });
+        return;
+      }
+      const result = await action;
+      expect(result.error).toBeNull();
+      expect(result.policy?.preview?.outcomes).toHaveLength(1);
+    },
+  );
+
   it("keeps fixed Offer item-detail intent, Submitted detail and seller Match free of required policy limits", async () => {
     const fixed = {
       offer_id: "off_fixed",

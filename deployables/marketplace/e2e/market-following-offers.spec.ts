@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 import { createPgPool, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { seedSyntheticOfferMarketPrice } from "@chase-sets/pricing/server";
+import { createPlatformInternalAuthHeaders } from "@chase-sets/platform-runtime/http";
+import { identitySeedIds } from "@chase-sets/identity-seed";
 import { signInWithPassword } from "./support/auth";
 import {
   marketplaceBrowserE2eBuyerCredentials,
@@ -42,6 +44,37 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
     removeEstimate = await seedSyntheticOfferMarketPrice(pool, fixture);
     const credentials = marketplaceBrowserE2eBuyerCredentials();
     await signInWithPassword(page, String(testInfo.project.use.baseURL), credentials);
+    const session = await page.request.get("/api/auth/session");
+    expect(session.ok()).toBe(true);
+    expect((await session.json()).actor).toMatchObject({
+      userId: identitySeedIds.collector.userId,
+      accountId: identitySeedIds.collector.accountId,
+    });
+    const apiOrigin = new URL(sandbox.PLATFORM_API_URL!);
+    if (!["localhost", "127.0.0.1"].includes(apiOrigin.hostname))
+      throw new Error("Buyer fixture verification requires the owned local E2E API.");
+    // The scenario collector starts with an unverified email. Seed verification
+    // through Identity's existing command, never by granting permissions directly.
+    const verified = await fetch(
+      new URL(`/api/identity/internal/auth/users/${identitySeedIds.collector.userId}/email-verification`, apiOrigin),
+      {
+        method: "POST",
+        redirect: "error",
+        headers: createPlatformInternalAuthHeaders(
+          { "Content-Type": "application/json" },
+          sandbox.PLATFORM_INTERNAL_AUTH_SECRET,
+        ),
+        body: JSON.stringify({ email: marketplaceBrowserE2eSeedContract.buyer.email }),
+      },
+    );
+    expect(verified.ok, "owned buyer fixture email verification").toBe(true);
+    await expect
+      .poll(async () => {
+        const current = await page.request.get("/api/auth/session");
+        expect(current.ok()).toBe(true);
+        return (await current.json()).actor.permissions;
+      })
+      .toContain("offers.manage");
     page.on("request", (request) => {
       if (request.method() === "POST" && request.url().includes("/account/offers/submitted")) {
         const fields = new URLSearchParams(request.postData() ?? "");
@@ -71,7 +104,12 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
     await expect(advanced).toHaveAttribute("aria-expanded", "true");
     await expect(page.getByLabel("Market Price adjustment (%)", { exact: true })).toHaveValue("0");
     await advanced.click();
+    const previewResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" && new URL(response.url()).pathname === "/account/offers/submitted.data",
+    );
     await page.getByRole("button", { name: "Preview selected Offers" }).click();
+    expect((await previewResponse).status(), "Preview selected Offers action response").toBe(200);
     await expect(page.getByText("Review exact Offer authority")).toBeVisible();
     await expect(page.getByText(/Market Price:.*130.00.*Estimate version: 8346001/)).toBeVisible();
     await expect(page.getByText("Proposed unit item amount: $130.00")).toBeVisible();
@@ -156,12 +194,22 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
   } finally {
     try {
       if (policyId) {
-        const current = await (await page.request.get(`/api/marketplace/account/offer-policies/${policyId}`)).json();
-        if (current.status !== "stopped") {
-          const stopped = await page.request.post(`/api/marketplace/account/offer-policies/${policyId}/commands`, {
-            data: { type: "StopBuyerOfferPolicy", expectedVersion: current.version, operationId: crypto.randomUUID() },
-          });
-          expect(stopped.ok()).toBe(true);
+        const response = await page.request.get(`/api/marketplace/account/offer-policies/${policyId}`);
+        if (response.status() === 404) {
+          expect(await response.json()).toMatchObject({ error: { code: "not_found" } });
+        } else {
+          expect(response.ok(), "read existing policy before teardown").toBe(true);
+          const current = await response.json();
+          if (current.status !== "stopped") {
+            const stopped = await page.request.post(`/api/marketplace/account/offer-policies/${policyId}/commands`, {
+              data: {
+                type: "StopBuyerOfferPolicy",
+                expectedVersion: current.version,
+                operationId: crypto.randomUUID(),
+              },
+            });
+            expect(stopped.ok()).toBe(true);
+          }
         }
       }
     } finally {
