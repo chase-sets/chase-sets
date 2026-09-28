@@ -146,7 +146,7 @@ describe("platform worker projection wake interest graph", () => {
           sourceContextName: "marketplace",
           targetContextName: "marketplace",
           projectionName: "marketplace-managed-offer-projection",
-          checkpointKey: "marketplace-managed-offer-projection:marketplace:v2",
+          checkpointKey: "marketplace-managed-offer-projection:marketplace:v1",
         }),
         expect.objectContaining({
           sourceContextName: "pricing",
@@ -154,6 +154,15 @@ describe("platform worker projection wake interest graph", () => {
           projectionName: "marketplace-managed-offer-reaction",
           checkpointKey: "marketplace-managed-offer-reaction:pricing:v1",
           eventTypes: ["pricing.market-price.estimated"],
+        }),
+      ]),
+    );
+    expect(runtime.projectionGroups).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          targetContextName: "marketplace",
+          projectionName: "marketplace-managed-offer-projection",
+          projectionRevision: 2,
         }),
       ]),
     );
