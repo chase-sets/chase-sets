@@ -262,7 +262,10 @@ const commercialTermsResolver = pools["commercial-terms"]
       ),
     })
   : undefined;
-const listingSourceHostPorts = createListingSourceHostPorts(() => runtime?.services, pools);
+const listingSourceHostPorts = createListingSourceHostPorts(() => runtime?.services, {
+  marketplace: pools.marketplace,
+  ordering: pools.ordering,
+});
 const pricingHostPorts: PricingHostPorts | undefined = pools.pricing
   ? {
       pricingListingAuthorityConsumer: listingSourceHostPorts.pricingListingAuthorityConsumer,
