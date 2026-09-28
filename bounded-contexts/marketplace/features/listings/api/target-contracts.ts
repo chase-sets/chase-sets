@@ -64,6 +64,9 @@ export type ListingMutationResult = Readonly<{ listingId: string; version: numbe
 export type ListingTargetPriceAcceptanceResult = ListingMutationResult &
   Readonly<{ acceptedTargetPrice: AcceptedListingTargetPriceV1 }>;
 
+/** Every grant binds the final operation, not intermediate composite success.
+ * Repeated preparation may return the same grant; consumers combine only exact duplicates.
+ */
 export type ListingAuthorityResult<T> = Readonly<{ value: T; reservations: readonly ListingAuthorityReservation[] }>;
 
 export type ListingInventoryAuthority = Readonly<{
@@ -98,6 +101,7 @@ export type ListingTargetAuthority = Readonly<{
     operation: ListingAuthorityOperation,
     context: EventStoreContext,
   ): Promise<ListingAuthorityResult<CatalogListingAuthorityFacts>>;
+  /** Includes the real Auth port for session operations; a missing mount fails final authorization. */
   participants: readonly ListingAuthorityParticipantPort[];
   /** Identity resolves the verified selected principal, never an audit-user role lookup. */
   resolveActor(
@@ -117,6 +121,10 @@ export type ListingTargetAuthority = Readonly<{
     input: Readonly<{ accountId: string; listings: readonly ListingNativeReadinessInput[]; evaluatedAt: string }>,
     operation: ListingAuthorityOperation,
   ): Promise<readonly ListingAuthorityResult<ListingNativeReadinessAuthority | null>[]>;
+  /** Identity returns its own grant AND the Auth grant for session authentication,
+   * or the actual admitting owner's grant for standing authority. Never settle
+   * either on this intermediate call; only the final consumer terminal releases it.
+   */
   authorizeManage(
     input: Readonly<{ accountId: string }>,
     context: EventStoreContext,

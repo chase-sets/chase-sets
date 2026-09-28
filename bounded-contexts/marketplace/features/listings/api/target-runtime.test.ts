@@ -186,8 +186,28 @@ describe("Listing target owner authority", () => {
       }),
     ).rejects.toThrow("different command");
     const unmounted = await fixture({}, false);
-    await expect(unmounted.services.acceptListingTargetPrice(unmounted.input, context)).rejects.toThrow("not mounted");
-    expect((await unmounted.eventStore.readAll()).some((event) => event.eventType.endsWith(".committed"))).toBe(false);
+    await expect(unmounted.services.acceptListingTargetPrice(unmounted.input, context)).rejects.toThrow(
+      "Authority settlement participant unavailable.",
+    );
+    const events = await unmounted.eventStore.readAll();
+    expect(events.some((event) => event.eventType.endsWith(".committed"))).toBe(false);
+    expect(events.some((event) => event.eventType === "marketplace.listing-request.completed")).toBe(false);
+    expect(events.some((event) => event.eventType === "marketplace.listing-authority-operation.aborted")).toBe(true);
+    expect(
+      await unmounted.eventStore.readStream({ streamId: `marketplace.listing-${unmounted.input.listingId}` }),
+    ).toHaveLength(1);
+    const grantEvent = (await unmounted.participantFixture.stores.get("auth")!.readAll()).find(
+      (event) => event.eventType === "auth.listing-authority.reserved",
+    )!;
+    const reservation = grantEvent.payload
+      .reservation as unknown as import("@chase-sets/event-core/listing-authority").ListingAuthorityReservation;
+    expect(
+      (
+        await unmounted.participantFixture.sources
+          .find((source) => source.participant.owner === "auth")!
+          .inspect(reservation.operation)
+      )?.status,
+    ).toBe("reserved");
   });
 
   it("requires the trusted carrier and rejects principal assertions in the command body", async () => {

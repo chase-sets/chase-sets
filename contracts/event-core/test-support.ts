@@ -27,7 +27,10 @@ import type { TransportEvent } from "./transport";
 import type { EventStoreContext } from "./storage";
 import type { ListingAuthorityPrincipal } from "./listing-authority";
 
-/** Synthetic verified input only; production authentication must never use this helper. */
+/** Synthetic verified input only; production authentication must never use this helper.
+ * Single-owner fixtures default to an API key, not an unimplemented Auth session.
+ * Session protocol fixtures explicitly supply both persisted revision selectors.
+ */
 export function withSyntheticListingPrincipal(
   context: EventStoreContext,
   authentication: Extract<ListingAuthorityPrincipal, { kind: "user" }>["authentication"] = {

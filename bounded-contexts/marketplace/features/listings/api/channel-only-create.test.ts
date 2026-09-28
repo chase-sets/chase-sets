@@ -158,10 +158,13 @@ function fixture(
     priceCurrencyCode: "CAD",
     quantityCap: 2,
   };
-  const context = withSyntheticListingPrincipal({
-    tenantId: "tnt_test" as never,
-    audit: { forAccountId: "acc_seller" as never, performedByUserId: "usr_test" as never },
-  });
+  const context = withSyntheticListingPrincipal(
+    {
+      tenantId: "tnt_test" as never,
+      audit: { forAccountId: "acc_seller" as never, performedByUserId: "usr_test" as never },
+    },
+    { kind: "session", sessionId: "ses_synthetic", revision: "1", tokenRevision: "synthetic-token-version-1" },
+  );
   return { services, resolveListingTerms, eventStore, input, context, authority, db, participants };
 }
 
@@ -180,6 +183,24 @@ async function nativeFixture() {
 }
 
 describe("current native enable authority", () => {
+  it("completes Auth exactly once for creation and the largest native-enable participant set", async () => {
+    const f = await nativeFixture();
+    await f.services.setNativeListingVisibility(f.enable, f.context);
+    const operations = (await f.eventStore.readAll())
+      .filter((event) => event.eventType === "marketplace.listing-authority-operation.opened")
+      .map(
+        (event) =>
+          event.payload
+            .operation as unknown as import("@chase-sets/event-core/listing-authority").ListingAuthorityOperation,
+      );
+    expect(operations.map((operation) => operation.participants.length)).toEqual([4, 6]);
+    for (const operation of operations) {
+      expect(operation.participants.filter((participant) => participant.owner === "auth")).toEqual([
+        { owner: "auth", purpose: "authenticated-session" },
+      ]);
+    }
+  });
+
   it("creates from equivalent Catalog selection objects with different JSON key order", async () => {
     const f = fixture(true, 2, [{ dimensionId: "dim_synthetic", optionId: "opt_synthetic" }]);
     await f.services.createListing(f.input, f.context);

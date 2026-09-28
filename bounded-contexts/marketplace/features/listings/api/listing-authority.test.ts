@@ -368,7 +368,10 @@ describe("Marketplace native owner participation", () => {
 
   it("rejects upstream omission rather than inventing an intermediate readiness authority", async () => {
     const f = await fixture();
-    const operation = await f.fence.open({ ...f.input, participants: [f.authority.commitment.participant] }, f.context);
+    const operation = await f.fence.open(
+      { ...f.input, participants: [f.upstream[3]!.participant, f.authority.commitment.participant] },
+      f.context,
+    );
     await expect(f.authority.commitment.prepare(operation, f.context)).rejects.toThrow();
   });
 

@@ -113,13 +113,16 @@ function createCheckpointStore(): ProjectionCheckpointStore {
   };
 }
 
-const context = withSyntheticListingPrincipal({
-  tenantId: "tnt_marketplace" as never,
-  audit: {
-    performedByUserId: "usr_seller" as never,
-    forAccountId: "acc_seller" as never,
+const context = withSyntheticListingPrincipal(
+  {
+    tenantId: "tnt_marketplace" as never,
+    audit: {
+      performedByUserId: "usr_seller" as never,
+      forAccountId: "acc_seller" as never,
+    },
   },
-});
+  { kind: "session", sessionId: "ses_synthetic", revision: "1", tokenRevision: "synthetic-token-version-1" },
+);
 
 const shipFromAddress = {
   name: "Seller Shipping",
