@@ -548,6 +548,29 @@ describeDb("external-channel-sale real event-store authority", () => {
     expect(await countEvents("inventory.external-channel-sale.recorded", streamId)).toBe(1);
   });
 
+  it("reconciles a retained sale terminal after both fresh callers settle", async () => {
+    const saleCommand = command("concurrent-terminal-reconciliation");
+    const results = await Promise.allSettled([
+      services.channelSales.record(saleCommand, context),
+      services.channelSales.record(saleCommand, context),
+    ]);
+    const fulfilled = results.filter((result) => result.status === "fulfilled");
+    expect(fulfilled.length).toBeGreaterThanOrEqual(1);
+    for (const result of results) {
+      if (result.status === "rejected") expect(result.reason).toMatchObject({ code: "concurrency_conflict" });
+    }
+    const terminal = fulfilled[0]!.value;
+    expect(terminal).toMatchObject({ status: "committed", sale: { appliedQuantity: 1 } });
+    expect(await services.channelSales.record(saleCommand, context)).toEqual(terminal);
+    expect(await services.channelSales.record({ ...saleCommand, requestedQuantity: 2 }, context)).toMatchObject({
+      code: "external-channel-sale-conflict",
+    });
+    expect(
+      await countEvents("inventory.external-channel-sale.recorded", externalChannelSaleStreamId(saleCommand.saleKey)),
+    ).toBe(1);
+    expect(await countEvents("inventory.item.adjusted")).toBe(1);
+  });
+
   it("serializes concurrent fresh calls to one fact and one decrement", async () => {
     const saleCommand = command("concurrent");
     const [left, right] = await Promise.all([

@@ -206,9 +206,21 @@ export function createInventoryListingAuthority(
           itemId = input.streamId.slice("inventory.channel-stock-allocation-".length);
         } else if (input.streamId.startsWith("inventory.hold-")) {
           const created =
-            input.events.find((event) => event.eventType === "inventory.hold.placed") ??
-            (await readCompleteStream(deps.eventStore, { streamId: input.streamId }))[0];
-          if (!created || typeof created.payload.itemId !== "string" || typeof created.payload.accountId !== "string") {
+            (await readCompleteStream(deps.eventStore, { streamId: input.streamId }))[0] ?? input.events[0];
+          const isHold =
+            created?.eventType === "inventory.hold.placed" &&
+            typeof created.payload.holdId === "string" &&
+            input.streamId === `inventory.hold-${created.payload.holdId}`;
+          const isCollision =
+            created?.eventType === "inventory.hold-collision-recorded" &&
+            typeof created.payload.collisionId === "string" &&
+            input.streamId === `inventory.hold-collision-${created.payload.collisionId}`;
+          if (
+            (!isHold && !isCollision) ||
+            !created ||
+            typeof created.payload.itemId !== "string" ||
+            typeof created.payload.accountId !== "string"
+          ) {
             throw new InventoryDomainError("Hold mutation has no authoritative Inventory owner.");
           }
           itemId = created.payload.itemId;

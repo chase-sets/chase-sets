@@ -27,7 +27,8 @@ async function fixture(
       const rows = [];
       for (const [streamId, events] of memory.streams) {
         if (!streamId.startsWith("inventory.hold-")) continue;
-        const placed = events.find((event) => event.eventType === "inventory.hold.placed")!;
+        const placed = events.find((event) => event.eventType === "inventory.hold.placed");
+        if (!placed) continue;
         rows.push({
           hold_id: placed.payload.holdId,
           account_id: placed.payload.accountId,
@@ -116,6 +117,43 @@ async function fixture(
 }
 
 describe("Inventory Listing participation", () => {
+  it.each([
+    ["inventory.hold-collision-ihc_synthetic", "inventory.hold-collision-recorded", { collisionId: "ihc_synthetic" }],
+    ["inventory.hold-collision-legal-hold", "inventory.hold.placed", { holdId: "collision-legal-hold" }],
+  ])(
+    "classifies %s by its opening identity and invalidates the original owner",
+    async (streamId, eventType, identity) => {
+      const f = await fixture();
+      const operation = await f.fence.open({ ...f.input, kind: "activate-channel" }, f.context);
+      await f.authority.source.prepare(operation, f.context);
+      const input = {
+        streamId,
+        expectedVersion: 0,
+        context: { ...f.context, audit: { ...f.context.audit, forAccountId: "acc_system" } },
+        events: [{ eventType, payload: { ...identity, itemId: "inv_synthetic", accountId: "acc_synthetic" } }],
+      };
+      await expect(f.authority.eventStore.appendToStream(input)).resolves.toHaveLength(1);
+      expect((await f.fence.inspect(operation)).status).toBe("aborted");
+      await expect(f.authority.eventStore.appendToStream(input)).resolves.toHaveLength(1);
+    },
+  );
+
+  it.each([
+    ["inventory.hold-plain", "inventory.hold-collision-recorded", { collisionId: "plain" }],
+    ["inventory.hold-collision-ihc_wrong", "inventory.hold.placed", { holdId: "ihc_wrong" }],
+    ["inventory.hold-collision-ihc_wrong", "inventory.hold-collision-recorded", { collisionId: "ihc_other" }],
+  ])("rejects a mismatched Hold or Collision opening at %s", async (streamId, eventType, identity) => {
+    const f = await fixture();
+    await expect(
+      f.authority.eventStore.appendToStream({
+        streamId,
+        expectedVersion: 0,
+        context: f.context,
+        events: [{ eventType, payload: { ...identity, itemId: "inv_synthetic", accountId: "acc_synthetic" } }],
+      }),
+    ).rejects.toThrow("Hold mutation has no authoritative Inventory owner.");
+    expect(await f.eventStore.readStream({ streamId })).toEqual([]);
+  });
   it("accepts equivalent selection objects after durable writer key canonicalization", async () => {
     const f = await fixture(2, "ordering", [{ optionId: "opt_synthetic", dimensionId: "dim_synthetic" }]);
     const operation = await f.fence.open(f.input, f.context);
