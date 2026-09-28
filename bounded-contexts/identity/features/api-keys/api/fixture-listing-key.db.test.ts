@@ -17,6 +17,7 @@ import { createIdentityListingPolicy } from "../../access-hub/api/listing-author
 import { createIdentityCredentialStore } from "../../access-hub/api/listing-credentials";
 import { IdentityAuthorityMutationPendingError } from "../../access-hub/api/listing-authority";
 import { withFixtureListingApiKey } from "./fixture-listing-key";
+import { createFixtureListingSeedContext } from "./fixture-listing-context";
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseUrl) throw new Error("TEST_DATABASE_URL is required for fixture API key DB proof.");
@@ -32,6 +33,30 @@ describe("Identity fixture Listing API key", () => {
       forAccountId: fixture.accountId,
     },
   };
+  it("resolves the fixture through ordinary request authentication and revokes its canonical key", async () => {
+    let keyId: string | undefined;
+    await createFixtureListingSeedContext(services)(
+      {
+        accountId: fixture.accountId,
+        seedRunStartedAt: new Date().toISOString(),
+        options: { environmentName: "test", enabledDataProfiles: ["scenario-seed"] },
+      },
+      async (resolved) => {
+        const principal = resolved.listingAuthorityPrincipal;
+        expect(principal).toMatchObject({
+          accountId: fixture.accountId,
+          membershipId: fixture.membershipId,
+          authentication: { kind: "api-key" },
+        });
+        expect(resolved.audit).toEqual({ forAccountId: fixture.accountId, performedByUserId: fixture.userId });
+        if (principal?.kind !== "user" || principal.authentication.kind !== "api-key")
+          throw new Error("Expected real API-key principal.");
+        keyId = principal.authentication.keyId;
+      },
+    );
+    const history = await readCompleteStream(services.eventStore!, { streamId: `identity.api-key-${keyId}` });
+    expect(history.map((event) => event.eventType)).toEqual(["identity.api-key.created", "identity.api-key.revoked"]);
+  });
   beforeAll(async () => {
     const urls = createMultiContextTestDatabaseUrls(databaseUrl, ["identity"], "identity_fixture_listing_key");
     await ensureMultiContextTestDatabases(databaseUrl, urls);

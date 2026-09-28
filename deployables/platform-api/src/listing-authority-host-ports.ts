@@ -1,11 +1,12 @@
 import type { module as authModule } from "@chase-sets/auth";
 import type { module as identityModule } from "@chase-sets/identity";
-import type { IdentityListingAuthorityHostPorts } from "@chase-sets/identity/server";
+import { createFixtureListingSeedContext, type IdentityListingAuthorityHostPorts } from "@chase-sets/identity/server";
+import type { module as commercialTermsModule } from "@chase-sets/commercial-terms";
 import type { PricingServices } from "@chase-sets/pricing/server";
 import type { module as inventoryModule } from "@chase-sets/inventory";
 import type { CatalogServices } from "@chase-sets/catalog/server";
 import type { CommercialTermsListingAuthorityPorts } from "@chase-sets/commercial-terms/server";
-import type { MarketplaceListingAuthorityPorts } from "@chase-sets/marketplace/server";
+import type { MarketplaceListingAuthorityPorts, MarketplaceListingSeedPorts } from "@chase-sets/marketplace/server";
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
   bindListingAuthorityParticipant,
@@ -45,6 +46,29 @@ export function createListingSourceHostPorts(
     () => identity().port,
   );
   return {
+    "marketplace.listingSeed": {
+      withContext: (input, use) =>
+        createFixtureListingSeedContext(service<ReturnType<typeof identityModule.createServices>>("identity"))(
+          input,
+          use,
+        ),
+      identity: manage,
+      inventory: bindListingAuthorityParticipant(
+        { owner: "inventory", purpose: "stock-allocation" },
+        () => inventory().source,
+      ),
+      catalog: bindListingAuthorityParticipant(
+        { owner: "catalog", purpose: "product-measures" },
+        () => catalog().source,
+      ),
+      fee: bindListingAuthorityParticipant(
+        { owner: "commercial-terms", purpose: "native-fee" },
+        () =>
+          service<ReturnType<typeof commercialTermsModule.createServices>>("commercial-terms").listingAuthority.source,
+      ),
+      prepareIdentity: (operation, context) => identity().prepareAuthorities(operation, context),
+      catalogFacts: (operation) => catalog().readFacts(operation),
+    } satisfies MarketplaceListingSeedPorts,
     "auth.listingAuthorityConsumer": consumer("auth"),
     "identity.listingAuthorityConsumer": consumer("identity"),
     "identity.sessionAuthority": session,

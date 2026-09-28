@@ -16,6 +16,35 @@ describeWithMarketplaceSeedDatabase("marketplace development seed", () => {
   it("creates deterministic cross-context lifecycle coverage idempotently", async () => {
     const { pools } = seedRuntime;
     await seedRuntime.seed();
+    const createdListings = await pools.marketplace.query<{
+      principal_kind: string;
+      authentication_kind: string;
+      key_id: string;
+      principal_account_id: string;
+      account_id: string;
+    }>(
+      `SELECT metadata #>> '{authorityOperation,principal,kind}' AS principal_kind,
+              metadata #>> '{authorityOperation,principal,authentication,kind}' AS authentication_kind,
+              metadata #>> '{authorityOperation,principal,authentication,keyId}' AS key_id,
+              metadata #>> '{authorityOperation,principal,accountId}' AS principal_account_id,
+              payload ->> 'accountId' AS account_id
+       FROM event_store_events WHERE event_type = 'marketplace.listing.created'`,
+    );
+    expect(createdListings.rows.length).toBeGreaterThan(0);
+    for (const listing of createdListings.rows) {
+      expect(listing.principal_kind).toBe("user");
+      expect(listing.authentication_kind).toBe("api-key");
+      expect(listing.principal_account_id).toBe(listing.account_id);
+      expect(listing.key_id).toBeTruthy();
+      const keyHistory = await pools.identity.query<{ event_type: string }>(
+        "SELECT event_type FROM event_store_events WHERE stream_id = $1 ORDER BY stream_version",
+        [`identity.api-key-${listing.key_id}`],
+      );
+      expect(keyHistory.rows.map((event) => event.event_type)).toEqual([
+        "identity.api-key.created",
+        "identity.api-key.revoked",
+      ]);
+    }
     await seedRuntime.seed();
 
     const paymentStatuses = await pools.payments.query<{ status: string }>(

@@ -61,12 +61,13 @@ describeDb("marketplace schema upgrades", () => {
   beforeEach(async () => resetMultiContextTestSchemas(pools));
   afterAll(async () => closeMultiContextTestPools(pools));
 
-  it("scenario seed completes non-Listing policies without attempting unavailable Listing or dependent writes", async () => {
+  it("production-like scenario seed completes non-Listing policies without attempting unavailable Listing or dependent writes", async () => {
     const pool = pools.marketplace;
     await bootstrapContextDatabase(marketplaceModule, pool);
     const output = vi.spyOn(console, "log").mockImplementation(() => undefined);
     try {
-      await seedMarketplaceContextDatabase(pool);
+      const options = { enabledDataProfiles: ["scenario-seed"], environmentName: "production" } as const;
+      await seedMarketplaceContextDatabase(pool, undefined, options);
       expect(
         output.mock.calls.filter(([line]) => String(line).includes("Marketplace Listing seed unavailable")),
       ).toHaveLength(1);
@@ -76,7 +77,7 @@ describeDb("marketplace schema upgrades", () => {
       expect(events.filter((event) => event.eventType.startsWith("marketplace.listing."))).toEqual([]);
       expect(events.filter((event) => /^marketplace\.(offer|review)-/.test(event.streamId))).toEqual([]);
       expect(events.some((event) => event.eventType === "platform-policy.document.created")).toBe(true);
-      const listingReports = (await inspectMarketplaceSeedState(pool)).filter(
+      const listingReports = (await inspectMarketplaceSeedState(pool, options)).filter(
         (report) => report.aggregateName === "Listing",
       );
       expect(listingReports.length).toBeGreaterThan(0);

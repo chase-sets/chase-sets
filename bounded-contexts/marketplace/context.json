@@ -536,6 +536,11 @@
   ],
   "hostPorts": [
     {
+      "portName": "listingSeed",
+      "providedBy": "platform-api, marketplace-seed-testing",
+      "purpose": "Bind fenced fixture-key authentication and real owner authority to the scenario Listing seed without enabling ordinary granting consumers."
+    },
+    {
       "portName": "listingCurrentOwnerFacts",
       "providedBy": "platform-api, platform-worker",
       "purpose": "Bind canonical Identity seller and Catalog Product current reads to Marketplace-owned native readiness without granting commit authority."

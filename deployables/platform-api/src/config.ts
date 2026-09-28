@@ -411,6 +411,9 @@ function assertDataProfilesAllowed(
   environmentName: string,
   profiles: readonly EnvironmentDataProfile[],
 ): readonly EnvironmentDataProfile[] {
+  if ((environmentName === "production" || environmentName === "staging") && profiles.includes("scenario-seed")) {
+    throw new Error(`scenario-seed is not allowed when DEPLOYMENT_ENVIRONMENT=${environmentName}.`);
+  }
   if (
     (environmentName === "production" || environmentName === "staging") &&
     profiles.includes("representative-catalog")

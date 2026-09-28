@@ -81,4 +81,28 @@ describe("authenticated Listing request principal", () => {
     ).toBeNull();
     expect(f.authenticated).not.toHaveBeenCalled();
   });
+
+  it("authenticates API-key requests through canonical Identity and never falls back after invalid credentials", async () => {
+    const f = await fixture();
+    const request = new Request("https://synthetic.test/listings", {
+      headers: { authorization: "ApiKey synthetic-secret" },
+    });
+    const selection = { membershipId: f.membershipId, validBefore: "2099-01-01T00:00:00.000Z" };
+    const principal = await f.resolve(request, selection);
+    expect(principal).toMatchObject({
+      accountId: f.accountId,
+      membershipId: f.membershipId,
+      authentication: { kind: "api-key" },
+    });
+    expect(await f.resolve(request, f.actor)).toMatchObject({
+      accountId: f.accountId,
+      authentication: { kind: "api-key" },
+    });
+    expect(await f.resolve(request, { ...f.actor, accountId: "acc_other" })).toBeNull();
+    expect(
+      await f.resolve(new Request("https://synthetic.test", { headers: { authorization: "ApiKey invalid" } }), f.actor),
+    ).toBeNull();
+    expect(await f.resolve(new Request("https://synthetic.test"), selection)).toBeNull();
+    expect(f.authenticated).not.toHaveBeenCalled();
+  });
 });

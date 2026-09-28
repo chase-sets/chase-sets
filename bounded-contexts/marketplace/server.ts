@@ -42,6 +42,7 @@ export {
   type MarketplaceChannelInboundClampResult,
 } from "./features/channel-inbound-clamp/domain/contracts";
 export type { MarketplaceServices } from "./support/runtime-support/services";
+export type { MarketplaceListingSeedPorts } from "./support/runtime-support/listing-seed-authority";
 export { evidenceCoverageCodeLocaleKey } from "./features/listings/domain/evidence-coverage";
 export type {
   MarketplaceListingInventoryItemOption,

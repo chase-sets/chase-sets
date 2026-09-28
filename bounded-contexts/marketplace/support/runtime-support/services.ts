@@ -36,8 +36,10 @@ import type { ManagedOfferPricing } from "../../features/offers/api/managed-auth
 import { createManagedOfferWork } from "../../features/offers/integrations/managed-work";
 import { buildManagedOfferProjectionHandlers } from "../../features/offers/read-model/managed-projection";
 import { createProjectionHandlerSet } from "@chase-sets/event-core/projector";
+import { createMarketplaceListingSeedAuthority, type MarketplaceListingSeedPorts } from "./listing-seed-authority";
 
 export type MarketplaceServiceOptions = Readonly<{
+  listingSeed?: MarketplaceListingSeedPorts;
   listingTargetAuthority?: import("../../features/listings/api/target-contracts").ListingTargetAuthority;
   listingCurrentReadiness?: import("../../features/listings/read-model/target-queries").ListingCurrentReadinessReader;
   listingCurrentOwnerFacts?: MarketplaceListingCurrentReadinessPorts;
@@ -52,6 +54,10 @@ export type MarketplaceServiceOptions = Readonly<{
 }>;
 
 export type MarketplaceServices = Readonly<{
+  listingSeed?: Readonly<{
+    withContext: MarketplaceListingSeedPorts["withContext"];
+    listings: ReturnType<typeof createMarketplaceListingRuntime>;
+  }>;
   listingAuthority: ReturnType<typeof createMarketplaceListingAuthority>;
   managedOfferWork: ReturnType<typeof createManagedOfferWork>;
   listings: ReturnType<typeof createMarketplaceListingRuntime>;
@@ -152,6 +158,17 @@ export function createMarketplaceServices(
   ]);
   const channelInboundClamp = createMarketplaceChannelInboundClampRuntime(pool, listings, eventStore);
   return {
+    ...(options.listingSeed
+      ? {
+          listingSeed: {
+            withContext: options.listingSeed.withContext,
+            listings: createMarketplaceListingRuntime({
+              ...deps,
+              listingTargetAuthority: createMarketplaceListingSeedAuthority(options.listingSeed, listingAuthority),
+            }),
+          },
+        }
+      : {}),
     listingAuthority,
     managedOfferWork,
     listings,
