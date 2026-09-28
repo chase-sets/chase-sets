@@ -39,6 +39,11 @@
   "seedRequirements": ["inventory"],
   "hostPorts": [
     {
+      "portName": "listingAuthorityConsumer",
+      "providedBy": "marketplace, ordering",
+      "purpose": "Bind each consuming Listing operation to its authenticated Channels participant fence for connection authority reservation, invalidation, and terminal recovery."
+    },
+    {
       "portName": "marketplaceChannelInboundClamp",
       "providedBy": "platform-api, platform-worker",
       "purpose": "Ask Marketplace to pause every active account Listing represented by a genuine Channel Sync Run while inbound coverage is dark."
