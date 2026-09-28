@@ -65,6 +65,7 @@ export function createSyntheticListingAuthority(consumerStore: EventStore) {
         operation,
         context ?? {
           tenantId: operation.tenantId as EventStoreContext["tenantId"],
+          ...(operation.principal ? { listingAuthorityPrincipal: operation.principal } : {}),
           audit: {
             forAccountId: operation.accountId as EventStoreContext["audit"]["forAccountId"],
             performedByUserId: operation.actor.userId as EventStoreContext["audit"]["performedByUserId"],
@@ -95,7 +96,7 @@ export function createSyntheticListingAuthority(consumerStore: EventStore) {
   }
   const authority: ListingTargetAuthority = {
     participants: sources,
-    resolveActor: async (context) => ({ kind: "user", userId: context.audit.performedByUserId }),
+    resolveActor: async ({ principal }) => ({ kind: "user", userId: principal.userId }),
     authorizeManage: async (_input, context, operation) => ({
       value: true,
       reservations: await reserve("manage-listing", operation, context),

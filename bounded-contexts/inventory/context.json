@@ -202,6 +202,11 @@
   ],
   "hostPorts": [
     {
+      "portName": "listingAuthorityConsumer",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Binds authenticated committing-owner fences for Inventory stock/allocation reservations and purchase holds."
+    },
+    {
       "portName": "draftListingCreator",
       "providedBy": "platform-api, platform-worker",
       "purpose": "Creates Marketplace draft listings from committed import batch rows without Inventory depending on Marketplace implementation."

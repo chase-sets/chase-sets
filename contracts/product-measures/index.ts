@@ -31,6 +31,17 @@ export type ProductMeasureSnapshot = Readonly<{
   confidence: ProductMeasureConfidence;
 }>;
 
+/** Catalog-owned Product identity and shipping facts retained by Listing authority. */
+export type CatalogListingAuthorityFacts = Readonly<{
+  catalogItemId: string;
+  productId: string;
+  blueprintId: string;
+  categoryIds: readonly string[];
+  selectedOptions: readonly Readonly<{ dimensionId: string; optionId: string }>[];
+  productMeasureSnapshot: ProductMeasureSnapshot | null;
+  productMeasureRevision: number;
+}>;
+
 export type PackagePlanPackage = Readonly<{
   packageId: string;
   mailpieceClass: "letter" | "parcel";

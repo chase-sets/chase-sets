@@ -1,8 +1,8 @@
+import { withSyntheticListingPrincipal } from "@chase-sets/event-core/test-support";
 import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   decideMarketplaceListing,
   evolveMarketplaceListing,
@@ -12,11 +12,13 @@ import {
 import { createListingTargetRuntime } from "./target-runtime";
 import type { AcceptListingTargetPriceInput, ListingTargetAuthority } from "./target-contracts";
 import { createSyntheticListingAuthority } from "./authority-test-support";
+import { createListingCurrentReads } from "../read-model/target-queries";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
-const context: EventStoreContext = {
+const context = withSyntheticListingPrincipal({
   tenantId: "tnt_test" as never,
   audit: { performedByUserId: "usr_seller" as never, forAccountId: "acc_seller" as never },
-};
+});
 async function fixture(overrides: Partial<ListingTargetAuthority> = {}) {
   const { eventStore } = createInMemoryEventStore();
   const { repository, commandHandler } = createAggregateCommandHandler({
@@ -67,6 +69,44 @@ async function fixture(overrides: Partial<ListingTargetAuthority> = {}) {
   const services = createListingTargetRuntime({
     eventStore,
     authority,
+    // Synthetic read-model storage follows actual owner writes; SQL semantics have separate tests.
+    currentReads: createListingCurrentReads({
+      query: async (_sql: string, values: readonly unknown[]) => {
+        const requests = JSON.parse(String(values[1])) as { ordinal: number; listingId: string; targetKey: string }[];
+        return {
+          rows: await Promise.all(
+            requests.map(async (request) => {
+              const { state, version } = await repository.load(`marketplace.listing-${request.listingId}`);
+              const latest = (
+                await eventStore.readStream({
+                  streamId: `marketplace.listing-${request.listingId}`,
+                  fromVersion: version,
+                })
+              )[0]!;
+              return {
+                ordinal: request.ordinal,
+                listing_id: request.listingId,
+                account_id: state.accountId,
+                target_key: request.targetKey,
+                accepted_price: state.acceptedTargetPrices[request.targetKey] ?? null,
+                activation_revision:
+                  state.channelActivations[request.targetKey.replace("channel-connection:", "")]?.revision ?? null,
+                listing_revision: version,
+                native_visibility: state.nativeVisibility,
+                visibility_revision: state.nativeVisibilityRevision,
+                publication_revision: state.nativePublicationRevision,
+                status: state.status,
+                source_event_id: latest.eventId,
+                source_global_position: latest.globalPosition,
+                active_generation: "1",
+                generated_at: new Date().toISOString(),
+                source_current: true,
+              };
+            }),
+          ),
+        };
+      },
+    } as unknown as PgQueryable),
     load: (id) => repository.load(`marketplace.listing-${id}`),
     prepareNativeEnable: async () => {
       throw new Error("Synthetic fixture has no native readiness.");
@@ -102,6 +142,32 @@ async function fixture(overrides: Partial<ListingTargetAuthority> = {}) {
 }
 
 describe("Listing target owner authority", () => {
+  it("requires the trusted carrier and rejects principal assertions in the command body", async () => {
+    const { services, input, eventStore } = await fixture();
+    const { listingAuthorityPrincipal, ...auditOnly } = context;
+    await expect(services.acceptListingTargetPrice(input, auditOnly)).rejects.toThrow("principal");
+    const callerAsserted = { ...input, listingAuthorityPrincipal };
+    await expect(services.acceptListingTargetPrice(callerAsserted, auditOnly)).rejects.toThrow();
+    expect((await eventStore.readAll()).some((event) => event.eventType.endsWith(".committed"))).toBe(false);
+  });
+
+  it("does not replay a committed request for a different authenticated delegation", async () => {
+    const { services, input } = await fixture();
+    const first = await services.acceptListingTargetPrice(input, context);
+    expect(await services.acceptListingTargetPrice(input, context)).toEqual(first);
+    const principal = context.listingAuthorityPrincipal!;
+    if (principal.kind !== "user") throw new Error("Synthetic user required");
+    await expect(
+      services.acceptListingTargetPrice(input, {
+        ...context,
+        listingAuthorityPrincipal: {
+          ...principal,
+          delegation: { delegationId: "grant_synthetic_restricted", revision: "1", scopeCeiling: ["listings:read"] },
+        },
+      }),
+    ).rejects.toThrow("different command");
+  });
+
   it("accepts unchanged authority from its distinct owning event store", async () => {
     const { services, input, eventStore, participantFixture } = await fixture();
     const identityStore = participantFixture.stores.get("identity")!;

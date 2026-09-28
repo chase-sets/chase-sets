@@ -72,4 +72,5 @@ export const setNativeListingVisibilitySchema = mutation.extend({
 });
 export const resumeListingSchema = mutation.extend({
   expectedPauseReason: z.enum(["seller", "policy-input-missing", "channel-inbound-dark"]),
+  inboundClamp: z.strictObject({ connectionId: identity, runId: identity, generation: revision.positive() }).optional(),
 });

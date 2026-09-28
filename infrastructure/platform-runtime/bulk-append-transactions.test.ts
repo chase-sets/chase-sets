@@ -15,6 +15,7 @@ function fixture() {
     eventStore,
     chunkSize: 2,
     yieldIntervalMs: 0,
+    telemetry: { holderKind: "bulk_listing_price_update", sourceContextName: "marketplace" },
     sleep,
     prepare: async (id: string) => ({
       result: { id },
@@ -36,6 +37,14 @@ function fixture() {
 }
 
 describe("bulk guarded transactions", () => {
+  it("attributes the complete atomic chunk without changing business metadata", async () => {
+    const f = fixture();
+    await f.lane(["a", "b"]);
+    expect(
+      f.append.mock.calls[0]![0].every((input) => input.appendTelemetry?.holderKind === "bulk_listing_price_update"),
+    ).toBe(true);
+    expect((await f.eventStore.readStream({ streamId: "a" }))[0]?.metadata).toEqual({});
+  });
   it("retains the earliest authorization deadline when merging a common pure guard", async () => {
     const { eventStore } = createInMemoryEventStore();
     const lane = createBulkAppendLane({

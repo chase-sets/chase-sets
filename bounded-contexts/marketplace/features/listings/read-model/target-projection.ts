@@ -134,7 +134,11 @@ export function buildMarketplaceListingTargetProjectionHandlers(db: PgQueryable)
             "marketplace.listing.resumed",
           ].includes(event.type)
         ? "active"
-        : ["marketplace.listing.paused", "marketplace.listing.auto-unlisted"].includes(event.type)
+        : [
+              "marketplace.listing.paused",
+              "marketplace.listing.auto-unlisted",
+              "marketplace.listing.inbound-clamp-engaged",
+            ].includes(event.type)
           ? "paused"
           : event.type === "marketplace.listing.withdrawn"
             ? "withdrawn"
@@ -176,6 +180,9 @@ export function buildMarketplaceListingTargetProjectionHandlers(db: PgQueryable)
       "channel-activated",
       "native-visibility-changed",
       "resumed",
+      "inbound-clamp-engaged",
+      "inbound-clamp-released",
+      "inbound-clamp-ownership-adopted",
       "published",
       "paused",
       "auto-unlisted",

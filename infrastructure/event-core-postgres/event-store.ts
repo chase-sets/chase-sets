@@ -348,6 +348,17 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
 
       assertEventPayloadSizes(appendInputs);
 
+      const telemetry = inputs.find((input) => input.appendTelemetry)?.appendTelemetry;
+      if (
+        inputs.some(
+          (input) =>
+            input.appendTelemetry &&
+            (input.appendTelemetry.holderKind !== telemetry?.holderKind ||
+              input.appendTelemetry.sourceContextName !== telemetry?.sourceContextName),
+        )
+      )
+        throw new Error("Atomic append telemetry must identify one source operation.");
+
       return observeEventStoreOperation(
         "append_to_streams",
         {
@@ -355,8 +366,10 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
           event_type: "multiple",
         },
         async () => {
+          const lockTiming: { acquiredAtMs: number | null } = { acquiredAtMs: null };
+          let transactionOutcome: "committed" | "rolled_back" = "rolled_back";
           try {
-            return await withPgTransaction(
+            const result = await withPgTransaction(
               pool,
               async (client) =>
                 appendEventsToStreams({
@@ -369,6 +382,9 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
                   eventsTable,
                   readEventsByIdsSql,
                   updateStreamVersionSql,
+                  onAdvisoryLockAcquired: () => {
+                    lockTiming.acquiredAtMs ??= Date.now();
+                  },
                 }),
               {
                 afterCommit: wakeNotifications
@@ -391,8 +407,18 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
                   : undefined,
               },
             );
+            transactionOutcome = "committed";
+            return result;
           } catch (error) {
             throw normalizeEventStoreError(error, "Failed to append events to Postgres event store.");
+          } finally {
+            if (lockTiming.acquiredAtMs !== null)
+              recordEventStoreAppendAdvisoryLockHold({
+                durationMs: Date.now() - lockTiming.acquiredAtMs,
+                outcome: transactionOutcome,
+                holderKind: telemetry?.holderKind ?? "atomic_streams_append",
+                sourceContextName: telemetry?.sourceContextName,
+              });
           }
         },
       );
@@ -585,6 +611,7 @@ type AppendInTransactionArgs = Readonly<{
   eventsTable: string;
   readEventsByIdsSql: string;
   updateStreamVersionSql: string;
+  onAdvisoryLockAcquired?: () => void;
 }>;
 
 type AppendStreamsInTransactionArgs = Omit<AppendInTransactionArgs, "input"> &
@@ -737,6 +764,7 @@ async function appendEventsToStream(args: AppendInTransactionArgs): Promise<read
     await args.client.query("SELECT pg_advisory_xact_lock_shared($1::bigint)", [
       EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY,
     ]);
+    args.onAdvisoryLockAcquired?.();
     const insertResult = await args.client.query<DbEventRow>(
       buildInsertEventsSql(args.eventsTable, eventsToInsert.length),
       buildInsertEventsParams(eventsToInsert),
@@ -796,7 +824,11 @@ async function appendEventsToStreams(args: AppendStreamsInTransactionArgs): Prom
     new Set(args.inputs.map((input) => input.streamId)).size === args.inputs.length &&
     eventCount * EVENT_INSERT_COLUMN_COUNT <= POSTGRES_PARAMETER_LIMIT
   ) {
-    const results = await appendEventsToStreamsBatch({ ...args, atomic: true, onAdvisoryLockAcquired: () => {} });
+    const results = await appendEventsToStreamsBatch({
+      ...args,
+      atomic: true,
+      onAdvisoryLockAcquired: args.onAdvisoryLockAcquired ?? (() => {}),
+    });
     await assertAuthorizationDeadlines(args.client, args.inputs);
     return results.map(({ streamId, storedEvents }) => ({ streamId, storedEvents }));
   }

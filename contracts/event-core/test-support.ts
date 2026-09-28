@@ -24,6 +24,24 @@ import type {
   StoredEvent,
 } from "./storage";
 import type { TransportEvent } from "./transport";
+import type { EventStoreContext } from "./storage";
+
+/** Synthetic verified input only; production authentication must never use this helper. */
+export function withSyntheticListingPrincipal(context: EventStoreContext): EventStoreContext {
+  return {
+    ...context,
+    listingAuthorityPrincipal: {
+      kind: "user",
+      tenantId: context.tenantId,
+      accountId: context.audit.forAccountId,
+      userId: context.audit.performedByUserId,
+      membershipId: "mbr_synthetic",
+      authentication: { kind: "session", sessionId: "ses_synthetic", revision: "1" },
+      delegation: null,
+      validBefore: "2099-01-01T00:00:00.000Z",
+    },
+  };
+}
 
 export type TransportEventFixtureOverrides = Readonly<
   Partial<{

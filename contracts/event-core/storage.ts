@@ -66,6 +66,11 @@ export type EventStoreContext = Readonly<{
   tenantId: TenantId;
   audit: EventAuditContext;
   trace?: EventTraceContext;
+  /** Trusted authentication adapter only; not persisted as event audit metadata.
+   * Recovery reconstructs this from the authoritative retained operation, never
+   * from a new request or a projected principal. Missing authentication fails closed.
+   */
+  listingAuthorityPrincipal?: import("./listing-authority").ListingAuthorityPrincipal;
 }>;
 
 export type EventRecordToStore = Readonly<{
@@ -103,6 +108,8 @@ export type AppendToStreamInput = Readonly<{
   streamId: StreamId;
   /** appendToStreams only: checked with the store clock after acquiring all write locks. Other append methods reject it. */
   authorizationDeadline?: string;
+  /** Technical append attribution, retained by durable owner writer intents, not stored as business metadata. */
+  appendTelemetry?: Readonly<{ holderKind?: string; sourceContextName?: string }>;
   wakeSourceContextName?: string;
   expectedVersion: ExpectedStreamVersion;
   events: readonly EventRecordToStore[];

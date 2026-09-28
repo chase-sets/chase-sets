@@ -2,6 +2,7 @@ import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   assertListingAuthorityParticipants,
+  requireListingAuthorityPrincipal,
   listingAuthorityParticipantKey,
   type ListingAuthorityConsumerPort,
   type ListingAuthorityOperation,
@@ -10,6 +11,7 @@ import {
   type ListingAuthorityParticipantPort,
   type ListingAuthorityReservation,
   type ListingAuthorityTerminal,
+  type ListingAuthorityStandingAuthorityPort,
 } from "@chase-sets/event-core/listing-authority";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import {
@@ -23,8 +25,40 @@ import {
 
 export type ListingAuthorityOperationInput = Omit<
   ListingAuthorityOperation,
-  "schemaVersion" | "operationId" | "commandFingerprint" | "prepareBefore" | "generation"
+  "schemaVersion" | "operationId" | "commandFingerprint" | "prepareBefore" | "generation" | "principal"
 >;
+
+/** Called by Identity with the host-bound admitting owner, not a caller-selected port. */
+export async function prepareListingStandingAuthority(
+  operation: ListingAuthorityOperation,
+  context: EventStoreContext,
+  port: ListingAuthorityStandingAuthorityPort,
+): Promise<ListingAuthorityReservation> {
+  const principal = requireListingAuthorityPrincipal(context);
+  assertSameAuthority(principal, operation.principal);
+  if (
+    principal.kind !== "standing-system" ||
+    port.participant.owner !== principal.admittingOwner ||
+    port.participant.owner === "identity" ||
+    !operation.participants.some(
+      (participant) => listingAuthorityParticipantKey(participant) === listingAuthorityParticipantKey(port.participant),
+    )
+  ) {
+    throw new Error("Standing authority admitting owner is not bound to this operation.");
+  }
+  const grant = await port.prepare(operation, context);
+  assertSameAuthority(grant.operation, operation);
+  assertSameAuthority(grant.participant, port.participant);
+  assertSameAuthority(await port.inspect(operation), grant);
+  if (
+    grant.status !== "reserved" ||
+    !Number.isFinite(Date.parse(grant.validBefore)) ||
+    Date.parse(grant.validBefore) > Date.parse(principal.validBefore)
+  ) {
+    throw new Error("Standing authority promise or validity is invalid.");
+  }
+  return grant;
+}
 
 export function createListingAuthorityFence(
   deps: Readonly<{
@@ -77,6 +111,20 @@ export function createListingAuthorityFence(
 
   async function open(input: ListingAuthorityOperationInput, context: EventStoreContext) {
     assertListingAuthorityParticipants(input.participants);
+    const principal =
+      context.listingAuthorityPrincipal || input.participants.some((p) => p.owner === "identity")
+        ? requireListingAuthorityPrincipal(context)
+        : null;
+    if (
+      principal &&
+      (principal.kind !== input.actor.kind ||
+        (principal.kind === "standing-system" &&
+          (input.actor.kind !== "standing-system" ||
+            principal.authorityId !== input.actor.authorityId ||
+            principal.authorityRevision !== input.actor.authorityRevision)))
+    ) {
+      throw new Error("Listing actor does not match authenticated principal.");
+    }
     const actorValid =
       input.actor.kind === "user" ||
       (input.actor.kind === "standing-system" && !!input.actor.authorityId && !!input.actor.authorityRevision);
@@ -110,9 +158,10 @@ export function createListingAuthorityFence(
       throw new Error("Invalid Listing authority operation identity.");
     const operation: ListingAuthorityOperation = {
       ...input,
+      principal,
       schemaVersion: 1,
       operationId: authorityHash([input.tenantId, input.accountId, deps.owner, input.requestId]),
-      commandFingerprint: authorityHash(input),
+      commandFingerprint: authorityHash({ ...input, principal }),
       generation: 1,
       prepareBefore: new Date(now().getTime() + 60_000).toISOString(),
     };
@@ -123,6 +172,8 @@ export function createListingAuthorityFence(
         throw new Error("Listing request key was already used for a different command.");
       return prior;
     }
+    if (principal && !(now().getTime() < Date.parse(principal.validBefore)))
+      throw new Error("Listing authenticated principal expired.");
     try {
       await store.appendToStream({
         streamId: stream(operation),
@@ -181,7 +232,7 @@ export function createListingAuthorityFence(
       reservations.map((grant) => listingAuthorityParticipantKey(grant.participant)).sort(),
       required,
     );
-    const deadlines = [operation.prepareBefore];
+    const deadlines = [operation.prepareBefore, ...(operation.principal ? [operation.principal.validBefore] : [])];
     for (const grant of reservations) {
       assertSameAuthority(grant.operation, operation);
       const port = ports.get(listingAuthorityParticipantKey(grant.participant));

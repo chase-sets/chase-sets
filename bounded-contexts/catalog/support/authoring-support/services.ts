@@ -26,14 +26,20 @@ import type { CatalogAssetStorage } from "../../features/source-observations/api
 import type { SourceObservationTelemetry } from "../../features/source-observations/api/catalog-integration-observability";
 import type { TcgplayerAutomationCatalogClient } from "../../features/source-observations/api/tcgplayer-automation-catalog-client";
 import { createCatalogAuthoringBulkJobServices } from "./bulk-authoring-jobs";
+import {
+  createCatalogListingAuthority,
+  type CatalogListingAuthorityConsumer,
+} from "../../features/product-measures/api/listing-authority";
 
 export type CatalogHostPorts = Readonly<{
+  listingAuthorityConsumer?: CatalogListingAuthorityConsumer;
   catalogAssetStorage?: CatalogAssetStorage;
   tcgplayerAutomationCatalogClient?: TcgplayerAutomationCatalogClient;
   sourceObservationTelemetry?: SourceObservationTelemetry;
 }>;
 
 export type CatalogServices = Readonly<{
+  listingAuthority: ReturnType<typeof createCatalogListingAuthority>;
   dimensions: ReturnType<typeof createDimensionRuntime>;
   displayTemplates: ReturnType<typeof createDisplayTemplateRuntime>;
   fields: ReturnType<typeof createFieldRuntime>;
@@ -63,12 +69,20 @@ export function createCatalogServices(
   ports: CatalogHostPorts = {},
   options: BcCreateServicesOptions<PgTransactionalPool> = {},
 ): CatalogServices {
-  const eventStore = createPostgresEventStore({
+  const rawEventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "catalog" }),
   });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
+  const listingAuthority = createCatalogListingAuthority(
+    { eventStore: rawEventStore, checkpointStore, db },
+    ports.listingAuthorityConsumer ??
+      (() => {
+        throw new Error("Catalog Listing authority consumer is not mounted; retain outstanding reservations.");
+      }),
+  );
+  const eventStore = listingAuthority.eventStore;
   const deps = {
     eventStore,
     checkpointStore,
@@ -135,6 +149,7 @@ export function createCatalogServices(
   });
 
   return {
+    listingAuthority,
     dimensions,
     displayTemplates,
     fields,

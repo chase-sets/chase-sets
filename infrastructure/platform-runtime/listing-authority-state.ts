@@ -28,6 +28,7 @@ export function assertSameAuthority(left: unknown, right: unknown): void {
 
 export function authorityContext(operation: ListingAuthorityOperation): EventStoreContext {
   return {
+    ...(operation.principal ? { listingAuthorityPrincipal: operation.principal } : {}),
     tenantId: operation.tenantId as EventStoreContext["tenantId"],
     audit: {
       forAccountId: operation.accountId as EventStoreContext["audit"]["forAccountId"],

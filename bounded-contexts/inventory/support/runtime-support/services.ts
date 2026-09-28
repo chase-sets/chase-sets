@@ -30,8 +30,13 @@ import { createInventoryReservationRuntime } from "../../features/reservations/a
 import { createRestockDecisionRuntime } from "../../features/restock-decisions/api/runtime";
 import { createRecoveredItemRuntime } from "../../features/recovered-items/api/runtime";
 import { createStorageLocationRuntime } from "../../features/storage-locations/api/runtime";
+import {
+  createInventoryListingAuthority,
+  type InventoryListingAuthorityConsumer,
+} from "../../features/channel-allocations/api/listing-authority";
 
 export type InventoryServices = Readonly<{
+  listingAuthority: ReturnType<typeof createInventoryListingAuthority>;
   catalogItems: ReturnType<typeof createInventoryCatalogItemRuntime>;
   storageLocations: ReturnType<typeof createStorageLocationRuntime>;
   items: ReturnType<typeof createInventoryItemRuntime>;
@@ -57,7 +62,12 @@ export type InventoryServices = Readonly<{
 
 export type InventoryHostPorts = Readonly<{
   draftListingCreator?: InventoryDraftListingCreator;
+  listingAuthorityConsumer?: InventoryListingAuthorityConsumer;
 }>;
+
+const unavailableListingConsumer: InventoryListingAuthorityConsumer = () => {
+  throw new Error("Inventory Listing authority consumer is not mounted; retain outstanding reservations.");
+};
 
 /**
  * Builds the Inventory cleanup authority against a bare Inventory pool.
@@ -79,18 +89,21 @@ export function createInventoryHoldCleanupAuthorityForPool(
 export function createInventoryExternalChannelSaleRecorderForPool(
   pool: PgTransactionalPool,
   context: EventStoreContext,
+  listingAuthorityConsumer: InventoryListingAuthorityConsumer = unavailableListingConsumer,
 ): RecordExternalChannelSale {
-  const eventStore = createPostgresEventStore({
+  const rawEventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "inventory" }),
   });
   const deps = {
-    eventStore,
+    eventStore: rawEventStore,
     checkpointStore: createPostgresProjectionStore({ db: pool }),
     db: pool,
   } as const;
-  const holdCollisions = createInventoryHoldCollisionRuntime(deps);
-  return createInventoryExternalChannelSaleRuntime(deps, holdCollisions).bind(context);
+  const authority = createInventoryListingAuthority(deps, listingAuthorityConsumer);
+  const guardedDeps = { ...deps, eventStore: authority.eventStore };
+  const holdCollisions = createInventoryHoldCollisionRuntime(guardedDeps);
+  return createInventoryExternalChannelSaleRuntime(guardedDeps, holdCollisions).bind(context);
 }
 
 export function createInventoryServices(
@@ -98,16 +111,21 @@ export function createInventoryServices(
   ports: InventoryHostPorts = {},
   options: BcCreateServicesOptions<PgTransactionalPool> = {},
 ): InventoryServices {
-  const eventStore = createPostgresEventStore({
+  const rawEventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "inventory" }),
   });
+  const checkpointStore = createPostgresProjectionStore({ db: pool });
+  const db = pool as PgQueryable;
+  const listingAuthority = createInventoryListingAuthority(
+    { eventStore: rawEventStore, checkpointStore, db },
+    ports.listingAuthorityConsumer ?? unavailableListingConsumer,
+  );
+  const eventStore = listingAuthority.eventStore;
   const appendToStreams = eventStore.appendToStreams;
   if (!appendToStreams) {
     throw new Error("Inventory order reservation workflow requires atomic multi-stream event appends.");
   }
-  const checkpointStore = createPostgresProjectionStore({ db: pool });
-  const db = pool as PgQueryable;
   const deps = { eventStore, checkpointStore, db } as const;
 
   const catalogItems = createInventoryCatalogItemRuntime(deps);
@@ -130,6 +148,7 @@ export function createInventoryServices(
   const recoveredItems = createRecoveredItemRuntime(deps);
 
   return {
+    listingAuthority,
     catalogItems,
     storageLocations,
     items,

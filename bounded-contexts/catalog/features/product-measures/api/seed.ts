@@ -1,6 +1,7 @@
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { CatalogServices } from "../../../support/authoring-support/services";
 import { seedContext } from "../../../support/seed-support/context";
+import type { ProductMeasureProfileInput } from "./runtime";
 
 export async function seedProductMeasures(
   services: CatalogServices,
@@ -8,7 +9,9 @@ export async function seedProductMeasures(
     resolveExistingCatalogItems?: boolean;
   }> = {},
 ) {
-  await services.productMeasures.upsertProfile({
+  const upsertProfile = (profile: ProductMeasureProfileInput) =>
+    services.productMeasures.upsertProfile(profile, seedContext);
+  await upsertProfile({
     profileId: "pmp_seed_pokemon_raw_single",
     key: "pokemon-raw-single",
     name: "Pokemon raw single",
@@ -29,7 +32,7 @@ export async function seedProductMeasures(
     confidence: "conservative-estimate",
   });
 
-  await services.productMeasures.upsertProfile({
+  await upsertProfile({
     profileId: "pmp_seed_pokemon_psa_slab",
     key: "pokemon-psa-slab",
     name: "Pokemon PSA slab",
@@ -54,7 +57,7 @@ export async function seedProductMeasures(
     confidence: "conservative-estimate",
   });
 
-  await services.productMeasures.upsertProfile({
+  await upsertProfile({
     profileId: "pmp_seed_pokemon_graded_slab",
     key: "pokemon-graded-slab",
     name: "Pokemon graded slab",
@@ -75,7 +78,7 @@ export async function seedProductMeasures(
     confidence: "conservative-estimate",
   });
 
-  await services.productMeasures.upsertProfile({
+  await upsertProfile({
     profileId: "pmp_seed_pokemon_booster_pack",
     key: "pokemon-booster-pack",
     name: "Pokemon booster pack",
@@ -91,7 +94,7 @@ export async function seedProductMeasures(
     confidence: "conservative-estimate",
   });
 
-  await services.productMeasures.upsertProfile({
+  await upsertProfile({
     profileId: "pmp_seed_pokemon_booster_box",
     key: "pokemon-booster-box",
     name: "Pokemon booster box",
@@ -107,7 +110,7 @@ export async function seedProductMeasures(
     confidence: "conservative-estimate",
   });
 
-  await services.productMeasures.upsertProfile({
+  await upsertProfile({
     profileId: "pmp_seed_pokemon_elite_trainer_box",
     key: "pokemon-elite-trainer-box",
     name: "Pokemon Elite Trainer Box",
@@ -123,7 +126,7 @@ export async function seedProductMeasures(
     confidence: "conservative-estimate",
   });
 
-  await services.productMeasures.upsertProfile({
+  await upsertProfile({
     profileId: "pmp_seed_magic_raw_single",
     key: "magic-raw-single",
     name: "Magic raw single",
@@ -144,7 +147,7 @@ export async function seedProductMeasures(
     confidence: "conservative-estimate",
   });
 
-  await services.productMeasures.upsertProfile({
+  await upsertProfile({
     profileId: "pmp_seed_magic_psa_slab",
     key: "magic-psa-slab",
     name: "Magic PSA slab",
@@ -169,7 +172,7 @@ export async function seedProductMeasures(
     confidence: "conservative-estimate",
   });
 
-  await services.productMeasures.upsertProfile({
+  await upsertProfile({
     profileId: "pmp_seed_magic_graded_slab",
     key: "magic-graded-slab",
     name: "Magic graded slab",
@@ -190,7 +193,7 @@ export async function seedProductMeasures(
     confidence: "conservative-estimate",
   });
 
-  await services.productMeasures.upsertProfile({
+  await upsertProfile({
     profileId: "pmp_seed_magic_booster_pack",
     key: "magic-booster-pack",
     name: "Magic booster pack",
@@ -206,7 +209,7 @@ export async function seedProductMeasures(
     confidence: "conservative-estimate",
   });
 
-  await services.productMeasures.upsertProfile({
+  await upsertProfile({
     profileId: "pmp_seed_magic_booster_box",
     key: "magic-booster-box",
     name: "Magic booster box",

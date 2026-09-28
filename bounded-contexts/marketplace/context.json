@@ -38,6 +38,7 @@
   ],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
   "allowedContextDependencies": [
+    "@chase-sets/catalog",
     "@chase-sets/commercial-terms",
     "@chase-sets/customer-feedback",
     "@chase-sets/inventory"
@@ -96,7 +97,7 @@
     {
       "sourceContextName": "catalog",
       "projectionName": "marketplace-listing-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "filterToEventTypes": true,
       "eventTypes": ["catalog.catalog-item.product-measures-resolved"],
       "order": 21,
@@ -121,6 +122,9 @@
         "marketplace.listing.channel-activated",
         "marketplace.listing.native-visibility-changed",
         "marketplace.listing.resumed",
+        "marketplace.listing.inbound-clamp-engaged",
+        "marketplace.listing.inbound-clamp-released",
+        "marketplace.listing.inbound-clamp-ownership-adopted",
         "marketplace.listing.quantity-cap-updated",
         "marketplace.listing.purchase-limits-updated",
         "marketplace.listing.published",
@@ -503,6 +507,16 @@
     }
   ],
   "hostPorts": [
+    {
+      "portName": "listingTargetAuthority",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Binds current owner reservations for Listing creation, target acceptance, native publication, capacity and scoped resume commands."
+    },
+    {
+      "portName": "listingAuthority",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Binds final committing-owner fences and Identity, Catalog, and Inventory source participants for native Listing readiness and purchase commitments."
+    },
     {
       "portName": "sellerAttentionSources",
       "providedBy": "platform-api",

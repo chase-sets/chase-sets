@@ -1,5 +1,12 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 
+const resumeAuthorityIndexSql = `CREATE INDEX IF NOT EXISTS marketplace_inbound_clamp_resume_authority_idx
+  ON event_store_events (tenant_id, (payload->'operation'->>'accountId'), (payload->'operation'->>'listingId'),
+    (payload->'operation'->'command'->'inboundClamp'->>'connectionId'),
+    (payload->'operation'->'command'->'inboundClamp'->>'runId'),
+    (payload->'operation'->'command'->'inboundClamp'->>'generation'), global_position DESC)
+  WHERE event_type='marketplace.listing-authority-operation.opened' AND payload->'operation'->>'kind'='resume'`;
+
 const createMarketplaceChannelInboundClampsSql = `CREATE TABLE IF NOT EXISTS marketplace_channel_inbound_clamps (
   account_id text NOT NULL,
   connection_id text NOT NULL,
@@ -17,6 +24,7 @@ const createMarketplaceChannelInboundClampsSql = `CREATE TABLE IF NOT EXISTS mar
 )`;
 
 export const marketplaceChannelInboundClampSchemaSql = `
+${resumeAuthorityIndexSql};
 ${createMarketplaceChannelInboundClampsSql};
 
 CREATE INDEX IF NOT EXISTS marketplace_channel_inbound_clamps_listing_active_idx
@@ -24,6 +32,18 @@ CREATE INDEX IF NOT EXISTS marketplace_channel_inbound_clamps_listing_active_idx
 `;
 
 export const marketplaceChannelInboundClampSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260927_marketplace_inbound_clamp_resume_authority",
+    description: "Index bounded discovery of exact source-owned inbound clamp resume attempts.",
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS marketplace_inbound_clamp_resume_authority_idx
+        ON event_store_events (tenant_id, (payload->'operation'->>'accountId'), (payload->'operation'->>'listingId'),
+          (payload->'operation'->'command'->'inboundClamp'->>'connectionId'),
+          (payload->'operation'->'command'->'inboundClamp'->>'runId'),
+          (payload->'operation'->'command'->'inboundClamp'->>'generation'), global_position DESC)
+        WHERE event_type='marketplace.listing-authority-operation.opened' AND payload->'operation'->>'kind'='resume'`,
+    ],
+  },
   {
     migrationId: "20260910_marketplace_channel_inbound_clamps",
     description: "Record revision-fenced Marketplace Listing pauses owned by a dark Channel inbound-coverage run.",

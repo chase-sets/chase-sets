@@ -5,8 +5,13 @@ import { createAgreementRuntime } from "../../features/agreements/api/runtime";
 import { createResolutionRuntime } from "../../features/resolutions/api/runtime";
 import { createScheduleRuntime } from "../../features/schedules/api/runtime";
 import { createCommercialTermsPolicyRuntime, type CommercialTermsPolicyRuntime } from "./policy-runtime";
+import {
+  createCommercialTermsListingAuthority,
+  type CommercialTermsListingAuthorityPorts,
+} from "../../features/resolutions/api/listing-authority";
 
 export type CommercialTermsServices = Readonly<{
+  listingAuthority: ReturnType<typeof createCommercialTermsListingAuthority>;
   schedules: ReturnType<typeof createScheduleRuntime>;
   agreements: ReturnType<typeof createAgreementRuntime>;
   resolutions: ReturnType<typeof createResolutionRuntime>;
@@ -22,14 +27,28 @@ export type CommercialTermsServices = Readonly<{
   db: PgQueryable;
 }>;
 
-export function createCommercialTermsServices(pool: PgTransactionalPool): CommercialTermsServices {
-  const eventStore = createPostgresEventStore({
+export type CommercialTermsHostPorts = Readonly<{ listingAuthority?: CommercialTermsListingAuthorityPorts }>;
+
+export function createCommercialTermsServices(
+  pool: PgTransactionalPool,
+  ports: CommercialTermsHostPorts = {},
+): CommercialTermsServices {
+  const rawEventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({
       sourceContextName: "commercial-terms",
     }),
   });
   const db = pool as PgQueryable;
+  const listingAuthority = createCommercialTermsListingAuthority(
+    { eventStore: rawEventStore, db },
+    ports.listingAuthority ?? {
+      consumer: () => {
+        throw new Error("Commercial Terms Listing authority consumer is not mounted; retain outstanding reservations.");
+      },
+    },
+  );
+  const eventStore = listingAuthority.eventStore;
   const policies = createCommercialTermsPolicyRuntime({
     eventStore,
     db,
@@ -47,6 +66,7 @@ export function createCommercialTermsServices(pool: PgTransactionalPool): Commer
   });
 
   return {
+    listingAuthority,
     schedules,
     agreements,
     resolutions,

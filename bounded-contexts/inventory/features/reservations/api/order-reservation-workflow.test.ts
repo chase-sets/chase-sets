@@ -76,6 +76,9 @@ function createServices(
     ),
   }));
   const holds = {
+    planConvertOfferHold: vi.fn<InventoryHoldServices["planConvertOfferHold"]>(async () => {
+      throw new Error("Unexpected Offer conversion in checkout/order reservation fixture.");
+    }),
     commandHandler: vi.fn(),
     planCreateHold,
     planConvertCheckoutHold:

@@ -1,10 +1,12 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type {
   ListingAuthorityOperation,
+  ListingAuthorityPrincipal,
   ListingAuthorityParticipantPort,
   ListingAuthorityReservation,
 } from "@chase-sets/event-core/listing-authority";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
+import type { CatalogListingAuthorityFacts } from "@chase-sets/product-measures";
 import type { ListingEvidenceRequirementSnapshot } from "../domain/evidence-requirement-snapshot";
 import type { ListingEvidenceSellerFacts } from "../domain/listing-evidence-readiness";
 import type { MarketplaceListingTermsPreview } from "../ui/contracts";
@@ -55,6 +57,7 @@ export type SetNativeListingVisibilityInput = ListingMutationInput &
 export type ResumeListingInput = ListingMutationInput &
   Readonly<{
     expectedPauseReason: "seller" | "policy-input-missing" | "channel-inbound-dark";
+    inboundClamp?: import("../domain/domain").ListingInboundClampOwner;
   }>;
 
 export type ListingMutationResult = Readonly<{ listingId: string; version: number }>;
@@ -91,8 +94,15 @@ export type ListingNativeReadinessAuthority = Readonly<{
 }>;
 
 export type ListingTargetAuthority = Readonly<{
+  readCatalogProduct?(
+    operation: ListingAuthorityOperation,
+    context: EventStoreContext,
+  ): Promise<ListingAuthorityResult<CatalogListingAuthorityFacts>>;
   participants: readonly ListingAuthorityParticipantPort[];
-  resolveActor(context: EventStoreContext): Promise<ListingAuthorityOperation["actor"]>;
+  /** Identity resolves the verified selected principal, never an audit-user role lookup. */
+  resolveActor(
+    input: Readonly<{ principal: ListingAuthorityPrincipal; context: EventStoreContext }>,
+  ): Promise<ListingAuthorityOperation["actor"]>;
   verifyNativeFeeQuote?(
     input: Readonly<{ accountId: string; quote: MarketplaceListingTermsPreview }>,
     operation: ListingAuthorityOperation,
@@ -160,6 +170,7 @@ export type AcceptedListingTargetPriceRead = Readonly<{
   generatedAt: string;
   sourceEventId: string;
   sourceGlobalPosition: string;
+  projectionGeneration: string;
 }>;
 
 export type ListingTargetServices = Readonly<{

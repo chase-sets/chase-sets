@@ -186,7 +186,7 @@ describe("public event payload runtime value exports", () => {
   });
 
   it("exports the inventory hold purposes unchanged through the aggregate", () => {
-    expect(inventoryHoldPurposes).toEqual(["order", "manual", "checkout", "pos", "channel", "transfer"]);
+    expect(inventoryHoldPurposes).toEqual(["order", "offer", "manual", "checkout", "pos", "channel", "transfer"]);
   });
 
   it("exports the inventory hold release reasons unchanged through the aggregate", () => {

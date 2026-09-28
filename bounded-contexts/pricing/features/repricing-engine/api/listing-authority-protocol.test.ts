@@ -110,12 +110,14 @@ it("fails closed when resource history is missing but its durable reservation st
   f.sourceMemory.streams.delete(resourceStreams[0]!);
 
   const restarted = f.restart();
-  await restarted.invalidate();
-  expect(await readCompleteStream(f.sourceStore, { streamId: f.policyStream })).toHaveLength(1);
+  // The repaired protocol detects corruption before claiming effective invalidation.
+  await expect(restarted.invalidate()).rejects.toThrow("Lost authority resource history");
+  expect(await readCompleteStream(f.sourceStore, { streamId: f.policyStream })).toHaveLength(0);
   const mutation = await restarted.source.inspectInvalidation(f.context.tenantId, "synthetic-policy-revoke");
-  expect(mutation?.status).toBe("completed");
+  expect(mutation).toBeNull();
+  expect((await restarted.fence.inspect(operation)).status).toBe("pending");
 
-  // Source invalidation has reported effective. An orphaned reservation cannot authorize acceptance.
+  // The retained promise cannot authorize acceptance or be released on corrupt membership.
   await expect(
     (async () => {
       const terminal = await restarted.fence.prepareCommit(operation, [reservation], { accepted: true });

@@ -206,9 +206,12 @@ export type NativeListingEligibilityV1 = Readonly<{
     | "native-unpublished"
     | "listing-not-active"
     | "price-incomplete"
+    | "native-not-ready"
     | "source-stale"
     | null;
   sourceEventId: string;
+  sourceGlobalPosition: string;
+  projectionGeneration: string | null;
   generatedAt: string;
 }>;
 
@@ -381,6 +384,11 @@ export type MarketplaceEventPayloads = Readonly<{
   "marketplace.listing.channel-activated": MarketplaceListingChannelActivatedPayload;
   "marketplace.listing.native-visibility-changed": MarketplaceListingNativeVisibilityChangedPayload;
   "marketplace.listing.resumed": MarketplaceListingResumedPayload;
+  "marketplace.listing.inbound-clamp-engaged": Readonly<{ connectionId: string; runId: string; generation: number }>;
+  "marketplace.listing.inbound-clamp-released": Readonly<{ connectionId: string; runId: string; generation: number }>;
+  "marketplace.listing.inbound-clamp-ownership-adopted": Readonly<{
+    owners: readonly Readonly<{ connectionId: string; runId: string; generation: number }>[];
+  }>;
   "marketplace.listing.quantity-cap-updated": MarketplaceListingQuantityCapUpdatedPayload;
   "marketplace.listing.purchase-limits-updated": MarketplaceListingPurchaseLimitsUpdatedPayload;
   "marketplace.listing.published": EmptyEventPayload;

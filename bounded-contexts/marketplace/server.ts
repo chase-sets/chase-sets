@@ -1,4 +1,8 @@
 export { createMarketplaceRequestApiClient, MarketplaceApiError } from "./support/request-support/api-client";
+export {
+  createMarketplaceListingAuthority,
+  type MarketplaceListingAuthorityPorts,
+} from "./features/listings/api/listing-authority";
 export { createMarketplaceChannelInboundClampCapability } from "./features/channel-inbound-clamp/api/capability";
 export type { MarketplaceListingServices } from "./features/listings/api/runtime";
 export type {
@@ -131,6 +135,16 @@ export type { MarketplaceSellerBehavioralMetricsPolicyValue } from "./features/s
  * listing volume without querying `marketplace_listing_pages` directly.
  */
 export { getLockedFeeListingCohortSummary } from "./features/listings/read-model/queries";
+export { assertListingReadFreshness } from "./features/listings/read-model/target-queries";
+export type {
+  ListingCurrentReadiness,
+  ListingCurrentReadinessReader,
+} from "./features/listings/read-model/target-queries";
+export { createMarketplaceListingCurrentReadiness } from "./features/listings/read-model/native-current-readiness";
+export type {
+  ListingCurrentOwnerFacts,
+  MarketplaceListingCurrentReadinessPorts,
+} from "./features/listings/read-model/native-current-readiness";
 export type {
   MarketplaceLockedFeeListingCohortSummary,
   MarketplaceLockedFeeListingCohortWeeklyPoint,

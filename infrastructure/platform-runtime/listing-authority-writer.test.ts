@@ -1,0 +1,206 @@
+import { describe, expect, it, vi } from "vitest";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { createListingAuthorityParticipant } from "./listing-authority-participant";
+import { createListingAuthorityFence } from "./listing-authority-fence";
+import { createListingAuthorityWriter } from "./listing-authority-writer";
+
+function fixture() {
+  const { eventStore } = createInMemoryEventStore();
+  const context: EventStoreContext = {
+    tenantId: "tnt_synthetic",
+    audit: { forAccountId: "acc_synthetic", performedByUserId: "usr_synthetic" },
+  };
+  const source = createListingAuthorityParticipant({
+    eventStore,
+    participant: { owner: "inventory", purpose: "stock-allocation" },
+    consumer: () => fence.forParticipant("inventory"),
+    resources: () => ["synthetic-item"],
+    validate: async (operation) => ({
+      value: {},
+      sourceRevisions: [{ resourceId: "synthetic-item", revision: "0" }],
+      validBefore: operation.prepareBefore,
+    }),
+  });
+  const { eventStore: consumerStore } = createInMemoryEventStore();
+  const fence = createListingAuthorityFence({
+    eventStore: consumerStore,
+    owner: "marketplace",
+    participants: [source],
+  });
+  const restart = () =>
+    createListingAuthorityWriter({ eventStore, source, owner: "inventory", resources: async () => ["synthetic-item"] });
+  const input = {
+    streamId: "inventory.synthetic-item",
+    expectedVersion: 0,
+    context,
+    events: [{ eventType: "inventory.synthetic.changed", payload: { quantity: 1 } }],
+  } as const;
+  return { source, eventStore, context, restart, input };
+}
+
+describe("source authority writer", () => {
+  it("preserves append attribution through the durable source mutation", async () => {
+    const f = fixture();
+    const append = vi.spyOn(f.eventStore, "appendToStreams");
+    await f.restart().eventStore.appendToStreams!([
+      { ...f.input, appendTelemetry: { holderKind: "bulk_listing_price_update", sourceContextName: "marketplace" } },
+    ]);
+    expect(
+      append.mock.calls.some(([inputs]) =>
+        inputs.some(
+          (input) =>
+            input.streamId === f.input.streamId && input.appendTelemetry?.holderKind === "bulk_listing_price_update",
+        ),
+      ),
+    ).toBe(true);
+    expect((await f.eventStore.readStream({ streamId: f.input.streamId }))[0]?.metadata).toEqual({});
+  });
+  it("can retry the same append intent after a confirmed resource-selection conflict", async () => {
+    const f = fixture();
+    let reads = 0;
+    const writer = createListingAuthorityWriter({
+      eventStore: f.eventStore,
+      source: f.source,
+      owner: "inventory",
+      resources: async () => (++reads === 1 ? ["synthetic-item"] : ["synthetic-item", "new-related-item"]),
+    });
+    await expect(writer.eventStore.appendToStream(f.input)).rejects.toMatchObject({ code: "concurrency_conflict" });
+    await expect(writer.eventStore.appendToStream(f.input)).resolves.toHaveLength(1);
+    expect(await f.eventStore.readStream({ streamId: f.input.streamId })).toHaveLength(1);
+  });
+  it("replays a successful write even if its affected resources later change", async () => {
+    const f = fixture();
+    let reads = 0;
+    const writer = createListingAuthorityWriter({
+      eventStore: f.eventStore,
+      source: f.source,
+      owner: "inventory",
+      resources: async () => (++reads <= 2 ? ["synthetic-item"] : []),
+    });
+    const first = await writer.eventStore.appendToStream(f.input);
+    await expect(writer.eventStore.appendToStream(f.input)).resolves.toEqual(first);
+    expect(await f.eventStore.readStream({ streamId: f.input.streamId })).toHaveLength(1);
+  });
+  it("recovers the same intent after a crash before invalidation starts", async () => {
+    const f = fixture();
+    const writer = createListingAuthorityWriter({
+      eventStore: f.eventStore,
+      owner: "inventory",
+      source: {
+        ...f.source,
+        mutate: async () => {
+          throw new Error("synthetic pre-invalidation crash");
+        },
+      },
+      resources: async () => ["synthetic-item"],
+    });
+    await expect(writer.eventStore.appendToStream(f.input)).rejects.toThrow("synthetic pre-invalidation crash");
+    const started = (await f.eventStore.readAll()).find(
+      (event) => event.eventType === "inventory.listing-authority-write.started",
+    )!;
+    expect(await f.source.inspectInvalidation(f.context.tenantId, String(started.payload.mutationId))).toBeNull();
+    await f.restart().resumeWrite(String(started.payload.writeId));
+    expect(await f.eventStore.readStream({ streamId: f.input.streamId })).toHaveLength(1);
+    await f.restart().resumeWrite(String(started.payload.writeId));
+    expect(await f.eventStore.readStream({ streamId: f.input.streamId })).toHaveLength(1);
+  });
+  it("co-commits a same-store consumer terminal instead of revoking its own native commitment", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const context: EventStoreContext = {
+      tenantId: "tnt_synthetic",
+      audit: { forAccountId: "acc_synthetic", performedByUserId: "usr_synthetic" },
+    };
+    const source = createListingAuthorityParticipant({
+      eventStore,
+      participant: { owner: "marketplace", purpose: "native-commitment" },
+      consumer: () => fence.forParticipant("marketplace"),
+      resources: () => ["synthetic-listing"],
+      validate: async (operation) => ({
+        value: { eligible: true },
+        sourceRevisions: [{ resourceId: "synthetic-listing", revision: "0" }],
+        validBefore: operation.prepareBefore,
+      }),
+    });
+    const writer = createListingAuthorityWriter({
+      eventStore,
+      source,
+      owner: "marketplace",
+      resources: async (inputs) =>
+        inputs.some((input) => input.streamId === "marketplace.synthetic-listing") ? ["synthetic-listing"] : [],
+    });
+    const fence = createListingAuthorityFence({
+      eventStore: writer.eventStore,
+      owner: "marketplace",
+      participants: [source],
+    });
+    const operation = await fence.open(
+      {
+        tenantId: context.tenantId,
+        accountId: context.audit.forAccountId,
+        actor: { kind: "user", userId: context.audit.performedByUserId },
+        committingOwner: "marketplace",
+        kind: "native-commitment",
+        requestId: "synthetic-local-commit",
+        command: {},
+        listingId: "lst_synthetic",
+        subject: {
+          inventoryItemId: "inv_synthetic",
+          catalogItemId: "cat_synthetic",
+          productId: "cat_synthetic::",
+          selectedOptions: [],
+          quantity: 1,
+          pair: { amount: "1.00", currencyCode: "USD" },
+          allocationRevision: null,
+          commitmentSourceId: "off_synthetic",
+        },
+        target: { kind: "native-marketplace" },
+        expectedListingRevision: 0,
+        expectedTargetRevision: null,
+        expectedVisibilityRevision: null,
+        expectedPublicationRevision: null,
+        participants: [source.participant],
+      },
+      context,
+    );
+    const grant = await source.prepare(operation, context);
+    await writer.eventStore.appendToStreams!([
+      {
+        streamId: "marketplace.synthetic-listing",
+        expectedVersion: 0,
+        context,
+        events: [{ eventType: "marketplace.synthetic-listing.committed", payload: {} }],
+      },
+      await fence.prepareCommit(operation, [grant], { accepted: true }),
+    ]);
+    expect((await fence.inspect(operation)).status).toBe("committed");
+    await fence.settle(operation);
+    expect((await source.inspect(operation))?.status).toBe("consumed");
+  });
+
+  it("replays an exact committed mutation across restart without another business event", async () => {
+    const f = fixture();
+    const first = await f.restart().eventStore.appendToStream(f.input);
+    expect(await f.restart().eventStore.appendToStream(f.input)).toEqual(first);
+    expect(await f.eventStore.readStream({ streamId: f.input.streamId })).toHaveLength(1);
+  });
+
+  it("durably rejects a stale write without stranding closure or accepting its retry", async () => {
+    const f = fixture();
+    const writer = f.restart();
+    await writer.eventStore.appendToStream(f.input);
+    const stale = { ...f.input, events: [{ eventType: "inventory.synthetic.changed", payload: { quantity: 2 } }] };
+    await expect(writer.eventStore.appendToStream(stale)).rejects.toMatchObject({ code: "concurrency_conflict" });
+    await expect(f.restart().eventStore.appendToStream(stale)).rejects.toMatchObject({ code: "concurrency_conflict" });
+    await writer.eventStore.appendToStream({ ...stale, expectedVersion: 1 });
+    expect(await f.eventStore.readStream({ streamId: f.input.streamId })).toHaveLength(2);
+  });
+
+  it("does not allow an unversioned mutation to bypass current source checks", async () => {
+    const f = fixture();
+    await expect(f.restart().eventStore.appendToStream({ ...f.input, expectedVersion: "any" })).rejects.toThrow(
+      "exact source versions",
+    );
+    expect(await f.eventStore.readAll()).toEqual([]);
+  });
+});

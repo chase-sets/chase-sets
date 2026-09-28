@@ -37,12 +37,43 @@ export type ListingAuthoritySubject = Readonly<{
   commitmentSourceId: string | null;
 }>;
 
+/** Verified server input, never decoded from command bodies, audit IDs, or owner headers.
+ * IDs/revisions are non-secret selectors. Identity revalidates them and reserves
+ * the effective membership/credential/scope ceiling, not the account's full role.
+ */
+export type ListingAuthorityPrincipal = Readonly<{
+  tenantId: string;
+  accountId: string;
+  userId: string;
+  validBefore: string;
+}> &
+  (
+    | Readonly<{
+        kind: "user";
+        membershipId: string;
+        authentication:
+          | Readonly<{ kind: "session"; sessionId: string; revision: string }>
+          | Readonly<{ kind: "api-key"; keyId: string; revision: string }>
+          | Readonly<{ kind: "delegation"; delegationId: string; revision: string; scopeCeiling: readonly string[] }>;
+        delegation: Readonly<{ delegationId: string; revision: string; scopeCeiling: readonly string[] }> | null;
+      }>
+    | Readonly<{
+        kind: "standing-system";
+        admittingOwner: ListingAuthorityOwner;
+        authorityId: string;
+        authorityRevision: string;
+        scopeCeiling: readonly string[];
+      }>
+  );
+
 /** Constructed by the committing owner, never accepted from a browser body. */
 export type ListingAuthorityOperation = Readonly<{
   schemaVersion: 1;
   operationId: string;
   tenantId: string;
   accountId: string;
+  /** Required whenever Identity participates; null only for operations without Identity authority. */
+  principal: ListingAuthorityPrincipal | null;
   actor:
     | Readonly<{ kind: "user"; userId: string }>
     | Readonly<{ kind: "standing-system"; userId: string; authorityId: string; authorityRevision: string }>;
@@ -109,6 +140,53 @@ export type ListingAuthorityParticipantPort = Readonly<{
   /** Re-reads the consumer's authoritative terminal; the caller cannot manufacture a receipt. */
   settle(operation: ListingAuthorityOperation): Promise<ListingAuthorityReservation>;
 }>;
+
+/** Identity consumes a host-authenticated admitting owner's real participant.
+ * Its owner must equal principal.admittingOwner and its participant must be in
+ * the exact final operation. The owner verifies authorityId/revision, scopes and
+ * validity and protects all invalidating writers until that operation's terminal.
+ * prepare/inspect must return the identical operation, not an intermediate grant.
+ * No lookup by system user ID or caller-supplied owner is an implementation.
+ */
+export type ListingAuthorityStandingAuthorityPort = ListingAuthorityParticipantPort;
+
+export function requireListingAuthorityPrincipal(context: EventStoreContext): ListingAuthorityPrincipal {
+  const principal = context.listingAuthorityPrincipal;
+  const nonempty = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0;
+  const scopes = (value: unknown): boolean => Array.isArray(value) && value.every(nonempty);
+  if (
+    !principal ||
+    principal.tenantId !== context.tenantId ||
+    principal.accountId !== context.audit.forAccountId ||
+    principal.userId !== context.audit.performedByUserId ||
+    !Number.isFinite(Date.parse(principal.validBefore)) ||
+    (principal.kind === "user"
+      ? !nonempty(principal.membershipId) ||
+        !principal.authentication ||
+        !nonempty(principal.authentication.revision) ||
+        (principal.authentication.kind === "session"
+          ? !nonempty(principal.authentication.sessionId)
+          : principal.authentication.kind === "api-key"
+            ? !nonempty(principal.authentication.keyId)
+            : principal.authentication.kind !== "delegation" ||
+              !nonempty(principal.authentication.delegationId) ||
+              !scopes(principal.authentication.scopeCeiling)) ||
+        (principal.delegation !== null &&
+          (!principal.delegation ||
+            !nonempty(principal.delegation.delegationId) ||
+            !nonempty(principal.delegation.revision) ||
+            !scopes(principal.delegation.scopeCeiling)))
+      : principal.kind !== "standing-system" ||
+        !["marketplace", "identity", "channels", "pricing", "inventory", "catalog", "commercial-terms"].includes(
+          principal.admittingOwner,
+        ) ||
+        !nonempty(principal.authorityId) ||
+        !nonempty(principal.authorityRevision) ||
+        !scopes(principal.scopeCeiling))
+  )
+    throw new Error("Trusted Listing authenticated principal is missing or mismatched.");
+  return principal;
+}
 
 export const LISTING_AUTHORITY_PARTICIPANT_LIMIT = 8;
 export const LISTING_AUTHORITY_RESOURCE_LIMIT = 32;
