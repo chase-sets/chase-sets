@@ -64,6 +64,16 @@ pass reconciles a crash between completion and closure.
 bundle. The scheduled rollup closer also runs bounded owner recovery with independent event, Product SQL
 and activation SQL cursors. Input-observation reactions replay through the same canonical event writer.
 
+The required `pricing-authority-observation-reaction` group is a side-effect-only reaction, not a
+disposable projection. Its replay-only reset clears the independent Catalog, Inventory and Marketplace
+subscription cursors, never canonical observation history, authority journals or admission receipts.
+Replay uses the original source event evidence and the same guarded writer: identical revisions are
+idempotent, conflicting revisions reject, and new observations close affected grants before becoming
+effective. Evaluation-budget and Product-round admissions, including terminal receipts, are explicitly
+retention-exempt so delayed retries cannot recreate authority or repeat completed work.
+The reaction execution boundary must let owner closure transactions commit durably before consumer
+invalidation; enclosing those commits in a disposable projection transaction or savepoint is not valid.
+
 Writer-closure rollout is schema/readers, whole writer bundle and durable admission, then recovery, before
 granting consumers enable. Old repricing executors must stop completely before new executors admit work;
 session locks and durable admission do not exclude each other. Existing expired job claims resume under

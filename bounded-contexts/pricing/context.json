@@ -410,6 +410,15 @@
       "resetStrategy": "replay-only"
     },
     {
+      "projectionName": "pricing-authority-observation-reaction",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["catalog", "inventory", "marketplace"],
+      "ownedTables": [],
+      "sideEffectOnly": true,
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
       "projectionName": "pricing-repricing-evaluation-reaction",
       "handlerKind": "reaction",
       "sourceContextNames": ["marketplace", "pricing"],
@@ -957,7 +966,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by pricing-owned features and composition seams.",
-      "expectedConsumers": ["economics", "recommendations"]
+      "expectedConsumers": ["economics", "recommendations", "repricing-engine"]
     },
     "realtime-support": {
       "classification": "support",

@@ -12,6 +12,15 @@ import {
   closeMultiContextTestPools,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
+import {
+  composeModuleSchemaSql,
+  createProjectionAwarePool,
+  createSubscriptionRunner,
+  rebuildProjectionGroup,
+  resetProjectionGroup,
+  resolveModuleProjectionGroups,
+  syncProjectionGroup,
+} from "@chase-sets/bounded-context-runtime";
 import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import { module as pricingModule } from "../../../index";
 import { createPricingServices, type PricingHostPorts } from "../../../support/runtime-support/services";
@@ -24,10 +33,11 @@ import { repricingEnginePolicy, decodeRepricingEnginePolicyValue } from "../doma
 import { buildPricingMarketplaceInputProjectionHandlers } from "../../recommendations/integrations/source/source-projection";
 import { buildRepricingPolicyProjectionHandlers } from "../../repricing-policies/read-model/projection";
 import { buildPricingMarketEstimateProjectionHandlers } from "../../market-estimates/read-model/projection";
+import { readPricingObservations } from "../api/listing-authority-observations";
 
 const baseUrl = process.env.TEST_DATABASE_URL;
 if (!baseUrl) throw new Error("Writer closure SQL proof requires TEST_DATABASE_URL; it cannot be skipped.");
-const contexts = ["pricing", "marketplace"] as const;
+const contexts = ["pricing", "marketplace", "catalog", "inventory"] as const;
 
 describe("Pricing writer closure through production composition", () => {
   let pools: Readonly<Record<(typeof contexts)[number], PgTransactionalPool>>;
@@ -40,6 +50,8 @@ describe("Pricing writer closure through production composition", () => {
     await resetMultiContextTestSchemas(pools);
     await pools.pricing.query(pricingModule.schemaSql);
     await pools.marketplace.query(eventCorePostgresSchemaSql);
+    await pools.catalog.query(eventCorePostgresSchemaSql);
+    await pools.inventory.query(eventCorePostgresSchemaSql);
   });
   afterAll(async () => closeMultiContextTestPools(pools));
 
@@ -80,6 +92,160 @@ describe("Pricing writer closure through production composition", () => {
       } as unknown as PricingHostPorts),
     ).toThrow("consumer resolver host port");
   });
+
+  for (const projectionAware of [false, true]) {
+    it(`${projectionAware ? "production projection-aware pool" : "direct pool control"} resets only independent observation cursors and replays through the guarded canonical writer`, async () => {
+      await pools.pricing.query(composeModuleSchemaSql(pricingModule));
+      const f = await setup();
+      let priorClosureCount = 0;
+      const invalidationBoundaries: number[] = [];
+      const services = createPricingServices(
+        projectionAware ? createProjectionAwarePool(pools.pricing) : pools.pricing,
+        {
+          ...f.ports,
+          pricingListingAuthorityConsumer: (operation) => {
+            const consumer = f.ports.pricingListingAuthorityConsumer(operation);
+            return {
+              ...consumer,
+              invalidate: async (...args) => {
+                const durableClosures = (await f.sourceStore.readAll()).filter(
+                  (event) => event.eventType === "pricing.listing-authority.invalidation-started",
+                );
+                invalidationBoundaries.push(durableClosures.length - priorClosureCount);
+                expect(
+                  durableClosures.length,
+                  "Observation closure must be durable before remote consumer invalidation",
+                ).toBeGreaterThan(priorClosureCount);
+                return consumer.invalidate(...args);
+              },
+            };
+          },
+        },
+      );
+      const name = "pricing-authority-observation-reaction";
+      const declaration = pricingModule.projectionGroups!.find((group) => group.projectionName === name)!;
+      expect(declaration).toMatchObject({
+        handlerKind: "reaction",
+        sourceContextNames: ["catalog", "inventory", "marketplace"],
+        ownedTables: [],
+        sideEffectOnly: true,
+        requiredDuringBootstrap: true,
+        resetStrategy: "replay-only",
+      });
+      const runners = pricingModule.buildSubscriptions!(services)
+        .filter((subscription) => subscription.projectionName === name)
+        .map((subscription) =>
+          createSubscriptionRunner(
+            "pricing",
+            pools.pricing,
+            pools[subscription.sourceContextName as "catalog" | "inventory" | "marketplace"],
+            subscription,
+          ),
+        );
+      expect(new Set(runners.map((runner) => runner.checkpointKey)).size).toBe(3);
+      const [group] = resolveModuleProjectionGroups(
+        [
+          {
+            contextName: "pricing",
+            pool: pools.pricing,
+              services,
+              projectionHandlerSets: [],
+            module: { ...pricingModule, projectionGroups: [declaration] },
+          },
+        ],
+        runners,
+      );
+      const operation = await f.fence.open(f.input, f.context);
+      const grant = await services.listingAuthority.source.prepare(operation, f.context);
+      const terminal = await f.fence.prepareCommit(operation, [grant], {});
+      const observations = [];
+      for (const [owner, streamId, eventType, payload] of [
+        [
+          "catalog",
+          "catalog.item-cat_synthetic_replay",
+          "catalog.catalog-item.created",
+          { catalogItemId: "cat_synthetic_replay" },
+        ],
+        [
+          "inventory",
+          "inventory.item-inv_synthetic_replay",
+          "inventory.item.created",
+          { inventoryItemId: "inv_synthetic_replay" },
+        ],
+        [
+          "marketplace",
+          "marketplace.listing-lst_synthetic_replay",
+          "marketplace.listing.created",
+          {
+            listingId: "lst_synthetic_replay",
+            accountId: "acc_synthetic_other",
+            catalogItemId: f.request.catalogItemId,
+            productId: f.request.productId,
+            inventoryItemId: "inv_synthetic_replay",
+            priceAmount: "8.00",
+            priceCurrencyCode: "USD",
+            quantityCap: 1,
+          },
+        ],
+      ] as const) {
+        const [event] = await createPostgresEventStore({ pool: pools[owner] }).appendToStream({
+          streamId,
+          expectedVersion: 0,
+          context: f.context,
+          events: [{ eventType, payload }],
+        });
+        observations.push(toTransportEvent(event!));
+      }
+      await runners.find((runner) => runner.sourceContextName === "catalog")!.runOnce();
+      for (const runner of runners) {
+        expect((await runner.refreshStatus()).lastGlobalPosition === "0").toBe(runner.sourceContextName !== "catalog");
+      }
+      await runners.find((runner) => runner.sourceContextName === "inventory")!.runOnce();
+      priorClosureCount = (await f.sourceStore.readAll()).filter(
+        (event) => event.eventType === "pricing.listing-authority.invalidation-started",
+      ).length;
+      await syncProjectionGroup(group!);
+      console.info(
+        "Pricing production observation replay",
+        JSON.stringify({
+          invalidationBoundaries,
+          subscriptions: runners.map((runner) => ({
+            source: runner.sourceContextName,
+            state: runner.getStatus().state,
+            error: runner.getStatus().lastError,
+          })),
+        }),
+      );
+      expect(invalidationBoundaries.length, "The guarded reaction must reach consumer invalidation").toBeGreaterThan(0);
+      for (const closures of invalidationBoundaries) {
+        expect(closures, "Observation closure must be durable before remote consumer invalidation").toBeGreaterThan(0);
+      }
+      expect((await f.fence.inspect(operation)).status).toBe("aborted");
+      await expect(f.consumerStore.appendToStreams!(terminal)).rejects.toThrow();
+      for (const observed of observations) {
+        expect((await readPricingObservations(f.sourceStore, observed.streamId)).events).toEqual([observed]);
+      }
+      const retained = await f.sourceStore.readAll();
+      const admissions = (await pools.pricing.query("SELECT * FROM pricing_evaluation_budget_admissions")).rows;
+      await resetProjectionGroup(group!);
+      for (const runner of runners) expect((await runner.refreshStatus()).lastGlobalPosition).toBe("0");
+      expect(await f.sourceStore.readAll()).toEqual(retained);
+      expect((await pools.pricing.query("SELECT * FROM pricing_evaluation_budget_admissions")).rows).toEqual(
+        admissions,
+      );
+      await rebuildProjectionGroup(group!);
+      expect(await f.sourceStore.readAll()).toEqual(retained);
+      expect(group!.getStatus().caughtUp).toBe(true);
+      const observed = observations[2]!;
+      await expect(
+        services.listingAuthority.observations.observe({
+          ...observed,
+          data: { ...observed.data, priceAmount: "999.00" },
+        }),
+      ).rejects.toThrow("reused with different evidence");
+      expect(await f.sourceStore.readAll()).toEqual(retained);
+    });
+  }
 
   it("records the controller discriminator's threshold conflict without changing launch semantics", () => {
     expect(() =>
