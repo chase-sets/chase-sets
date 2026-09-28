@@ -211,8 +211,12 @@ export function createAuthListingSessionAuthority(
       const status = await source.inspectInvalidation(retained.context.tenantId, mutationId).catch(() => null);
       if (status?.status !== "completed") throw new AuthSessionMutationPendingError(mutationId, { cause });
     }
-    if (!(await deps.tokens.readMutation(mutationId))?.applied) throw new Error("Session token receipt missing.");
-    await deps.tokens.complete(mutationId);
+    try {
+      if (!(await deps.tokens.readMutation(mutationId))?.applied) throw new Error("Session token receipt missing.");
+      await deps.tokens.complete(mutationId);
+    } catch (cause) {
+      throw new AuthSessionMutationPendingError(mutationId, { cause });
+    }
   }
   const port: ListingAuthoritySessionAuthorityPort = { ...source, participant };
   return {
@@ -233,7 +237,7 @@ export function createAuthListingSessionAuthority(
     resumeWrite: writer.resumeWrite,
     /** Host persists the event cursor and wraps to zero after each bounded scan.
      * Pending SQL mutations are also scanned: a crash may precede event closure. */
-    async recoverPage(input: Readonly<{ after?: string; limit?: number }> = {}) {
+    async recoverPage(input: Readonly<{ after?: string; tokenAfter?: string; limit?: number }> = {}) {
       const limit = input.limit ?? 25;
       const after = input.after ?? "0";
       if (!/^\d+$/.test(after) || !Number.isSafeInteger(limit) || limit < 1 || limit > 100)
@@ -251,7 +255,8 @@ export function createAuthListingSessionAuthority(
           });
         }
       }
-      for (const id of await deps.tokens.pending(limit)) await recover(id, () => resumeToken(id));
+      const tokenIds = await deps.tokens.pending(limit, input.tokenAfter);
+      for (const id of tokenIds) await recover(id, () => resumeToken(id));
       const events = await deps.eventStore.readAll({
         afterGlobalPosition: after as GlobalPosition,
         eventTypes: ["auth.session-write-intent.recorded", "auth.listing-authority.reserved"],
@@ -276,7 +281,11 @@ export function createAuthListingSessionAuthority(
           });
         }
       }
-      return { after: events.length === limit ? events.at(-1)!.globalPosition : "0", outcomes };
+      return {
+        after: events.length === limit ? events.at(-1)!.globalPosition : "0",
+        tokenAfter: tokenIds.length === limit ? tokenIds.at(-1)! : "",
+        outcomes,
+      };
     },
     resumeMutation: async (mutationId: string, context: EventStoreContext) => {
       if (mutationId.startsWith("session-write-")) return resumeSessionWrite(mutationId);

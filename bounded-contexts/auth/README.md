@@ -91,17 +91,18 @@ Canonical session runtime writers and token upserts share an owner-scoped
 `session/<id>` resource. Unknown writes throw `AuthSessionMutationPendingError`
 with a stable identity; callers resume that identity rather than advertise a
 successful revoke or issue a replacement request. Hosts bind the consumer's Auth
-port and schedule `sessions.listingAuthority.recoverPage`, retaining its cursor
-and wrapping to zero after a scan. Missing consumer mounting fails closed when
+port and schedule `sessions.listingAuthority.recoverPage`, retaining both its
+event `after` and SQL `tokenAfter` cursors and wrapping each after a scan.
+Missing consumer mounting fails closed when
 outstanding promises require resolution. Seed runtimes use the same guarded writer.
 
 Install the registered session-authority migration and these writers before
 enabling grants. Existing token rows retain NULL revisions and cannot authorize
 Listing operations until explicit token issuance replaces the exact row; there
 is no timestamp-derived revision or trusted historical backfill. Token mutation
-receipts and authority histories are not TTL-deleted. Existing expiry retention
-only removes already-expired token rows; store deadlines already prevent those
-credentials from committing, and retained reservations still require terminals.
+receipts and authority histories are not TTL-deleted. Selected token rows are
+exempt from direct retention deletion; natural expiry fences authorization but
+does not release a reservation. Recovery resolves its final consumer terminal.
 Rollback disables new grants, retains recovery and never restores bypass writers.
 
 Auth is the canonical home for interactive authentication behavior, session persistence, session-token persistence, and the `/api/auth` surface.

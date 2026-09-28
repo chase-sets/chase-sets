@@ -44,10 +44,11 @@ export function createSessionTokenStore(db: PgQueryable) {
     };
   }
   return {
-    async pending(limit: number) {
+    async pending(limit: number, after = "") {
       const result = await db.query<{ mutation_id: string }>(
-        `SELECT mutation_id FROM auth_session_token_mutations WHERE completed = false ORDER BY mutation_id LIMIT $1`,
-        [limit],
+        `SELECT mutation_id FROM auth_session_token_mutations
+         WHERE completed = false AND mutation_id > $2 ORDER BY mutation_id LIMIT $1`,
+        [limit, after],
       );
       return result.rows.map((row) => row.mutation_id);
     },
@@ -86,7 +87,12 @@ export function createSessionTokenStore(db: PgQueryable) {
         !retained ||
         !isDeepStrictEqual(
           { ...retained, applied: undefined },
-          { ...input, expiresAt: new Date(input.expiresAt).toISOString(), applied: undefined },
+          {
+            ...input,
+            context: JSON.parse(JSON.stringify(input.context)),
+            expiresAt: new Date(input.expiresAt).toISOString(),
+            applied: undefined,
+          },
         )
       )
         throw new Error("Session token mutation identity conflict.");

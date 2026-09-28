@@ -8,6 +8,7 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { authSchemaSql } from "../runtime-support/schema";
+import { createSessionTokenStore } from "../../features/sessions/api/session-token-store";
 import { createPostgresAgentWebhookOutbox } from "../ucp-support/agent-webhooks/agent-webhook-outbox";
 import {
   bindGuestCheckoutContact,
@@ -56,6 +57,63 @@ describeDb("auth token store persistence boundary", () => {
     if (pools) {
       await closeMultiContextTestPools(pools);
     }
+  });
+
+  describe("session token authority persistence", () => {
+    it("roundtrips the exact mutation, claims once concurrently, and cannot overwrite a later token on delayed retry", async () => {
+      const tokens = createSessionTokenStore(pool);
+      const input = {
+        mutationId: "synthetic-token-mutation-1",
+        sessionId: "ses_synthetic_sql",
+        tokenHash: "synthetic-hash-1",
+        expiresAt: futureIso(),
+        context: {
+          tenantId: "tnt_synthetic_sql",
+          audit: { performedByUserId: "usr_synthetic_sql", forAccountId: "acc_synthetic_sql" },
+          correlationId: undefined,
+        },
+      };
+      await tokens.stage(input);
+      await tokens.stage(input);
+      await expect(tokens.stage({ ...input, tokenHash: "synthetic-changed-hash" })).rejects.toThrow(
+        /identity conflict/,
+      );
+      await Promise.all([tokens.apply(input.mutationId), tokens.apply(input.mutationId)]);
+      expect((await tokens.read(input.sessionId))?.token_revision).toBe(input.mutationId);
+      const next = { ...input, mutationId: "synthetic-token-mutation-2", tokenHash: "synthetic-hash-2" };
+      await tokens.stage(next);
+      await tokens.apply(next.mutationId);
+      await createSessionTokenStore(pool).apply(input.mutationId);
+      expect((await tokens.read(input.sessionId))?.token_revision).toBe(next.mutationId);
+      expect(await tokens.authenticate(input.tokenHash)).toBeNull();
+      await tokens.complete(input.mutationId);
+      expect(await tokens.pending(1)).toEqual([next.mutationId]);
+      expect(await tokens.pending(1, next.mutationId)).toEqual([]);
+    });
+
+    it("does not claim a failed SQL replacement and never invents revisions for preexisting rows", async () => {
+      await pool.query("INSERT INTO identity_session_tokens(session_id, token_hash, expires_at) VALUES ($1, $2, $3)", [
+        "ses_synthetic_legacy",
+        "synthetic-collision",
+        futureIso(),
+      ]);
+      const tokens = createSessionTokenStore(pool);
+      expect((await tokens.read("ses_synthetic_legacy"))?.token_revision).toBeNull();
+      const input = {
+        mutationId: "synthetic-constraint-failure",
+        sessionId: "ses_synthetic_other",
+        tokenHash: "synthetic-collision",
+        expiresAt: futureIso(),
+        context: {
+          tenantId: "tnt_synthetic_sql",
+          audit: { performedByUserId: "usr_synthetic_sql", forAccountId: "acc_synthetic_sql" },
+        },
+      };
+      await tokens.stage(input);
+      await expect(tokens.apply(input.mutationId)).rejects.toThrow();
+      expect((await tokens.readMutation(input.mutationId))?.applied).toBe(false);
+      expect(await tokens.read(input.sessionId)).toBeNull();
+    });
   });
 
   describe("agent webhook outbox", () => {

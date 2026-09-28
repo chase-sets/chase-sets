@@ -18,7 +18,11 @@ export function memoryTokens(): SessionTokenStore {
   const mutations = new Map<string, SessionTokenMutation & { applied: boolean }>();
   const completed = new Set<string>();
   return {
-    pending: async (limit) => [...mutations.keys()].filter((id) => !completed.has(id)).slice(0, limit),
+    pending: async (limit, after = "") =>
+      [...mutations.keys()]
+        .filter((id) => !completed.has(id) && id > after)
+        .sort()
+        .slice(0, limit),
     complete: async (id) => {
       completed.add(id);
     },
