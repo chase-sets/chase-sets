@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -59,8 +60,7 @@ export async function recordProductMeasureProfile(
   const current = await readAuthoritativeProductMeasureProfiles(eventStore);
   const encoded = toJsonValue(profile);
   const prior = current.records.get(profile.profileId);
-  if (prior && (mode === "initialize" || JSON.stringify(prior.profile) === JSON.stringify(encoded)))
-    return prior.revision;
+  if (prior && (mode === "initialize" || isDeepStrictEqual(prior.profile, encoded))) return prior.revision;
   await eventStore.appendToStream({
     streamId: productMeasureProfilesStream,
     expectedVersion: current.revision,

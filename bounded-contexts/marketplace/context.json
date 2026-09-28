@@ -97,7 +97,7 @@
     {
       "sourceContextName": "catalog",
       "projectionName": "marketplace-listing-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "filterToEventTypes": true,
       "eventTypes": ["catalog.catalog-item.product-measures-resolved"],
       "order": 21,

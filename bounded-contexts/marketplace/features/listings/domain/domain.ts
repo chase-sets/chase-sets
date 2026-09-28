@@ -70,26 +70,6 @@ function normalizePercentageBps(value: number, fieldName: string): number {
   return value;
 }
 
-/**
- * Money amounts are decimal strings that are not guaranteed to be in canonical form (e.g. "145.0"
- * vs "145.00" represent the same value). Compare by cents, not raw string equality, so equivalent
- * amounts are treated as unchanged regardless of how the caller formatted them.
- */
-function isMoneyAmountUnchanged(current: string | null, next: string): boolean {
-  return current !== null && moneyToCents(current) === moneyToCents(next);
-}
-
-function areFeeLockQuotesUnchanged(
-  current: readonly MarketplaceListingFeeLock[],
-  next: readonly MarketplaceListingFeeLock[],
-): boolean {
-  return current.every(
-    (lock, index) =>
-      isMoneyAmountUnchanged(lock.marketplaceSalesFeeUnitAmount, next[index]!.marketplaceSalesFeeUnitAmount) &&
-      isMoneyAmountUnchanged(lock.sellerNetUnitAmount, next[index]!.sellerNetUnitAmount),
-  );
-}
-
 function isPurchaseLimitsUnchanged(
   current: MarketplaceListingPurchaseLimits,
   next: MarketplaceListingPurchaseLimits,
@@ -440,16 +420,6 @@ export type CreateListingCommand = Readonly<{
   evidence?: readonly MarketplaceListingPhotoDraft[] | null;
 }>;
 
-export type UpdateListingPriceCommand = Readonly<{
-  type: "UpdateListingPrice";
-  priceAmount: string;
-  priceCurrencyCode: string;
-  feeLocks: readonly MarketplaceListingFeeLock[];
-  changeSource?: "repricing-engine";
-  acceptedTargetPrice?: AcceptedListingTargetPriceV1;
-  requestFingerprint?: string;
-}>;
-
 export type AcceptListingTargetPriceCommand = Readonly<{
   type: "AcceptListingTargetPrice";
   acceptedTargetPrice: AcceptedListingTargetPriceV1;
@@ -574,7 +544,6 @@ export type MarketplaceListingCommand =
   | EngageListingInboundClampCommand
   | ReleaseListingInboundClampCommand
   | AdoptListingInboundClampOwnersCommand
-  | UpdateListingPriceCommand
   | UpdateListingQuantityCapCommand
   | UpdateListingPurchaseLimitsCommand
   | AddListingPhotosCommand
@@ -632,9 +601,6 @@ export type ListingCreatedEvent = DomainEvent<
 export type ListingPriceUpdatedEvent = DomainEvent<
   "marketplace.listing.price-updated",
   Readonly<{
-    schemaVersion?: 2;
-    acceptedTargetPrice?: AcceptedListingTargetPriceV1;
-    requestFingerprint?: string;
     priceAmount: string;
     /** Missing only on historical amount-only events. */
     priceCurrencyCode?: string | null;
@@ -646,7 +612,23 @@ export type ListingPriceUpdatedEvent = DomainEvent<
     termsResolvedAt: string | null;
     feeQuoteFingerprint: string | null;
     feeLocks: MarketplaceListingFeeLock[];
-  }>
+  }> &
+    (
+      | Readonly<{
+          schemaVersion?: never;
+          acceptedTargetPrice?: never;
+          requestFingerprint?: never;
+          marketplaceSalesFeeUnitAmount: string;
+          sellerNetUnitAmount: string;
+          termsResolvedAt: string;
+        }>
+      | Readonly<{
+          schemaVersion: 2;
+          acceptedTargetPrice: AcceptedListingTargetPriceV1;
+          priceCurrencyCode: string;
+          requestFingerprint?: string;
+        }>
+    )
 >;
 export type ListingQuantityCapUpdatedEvent = DomainEvent<
   "marketplace.listing.quantity-cap-updated",
@@ -867,13 +849,25 @@ export const decideMarketplaceListing: AggregateDecider<
       );
       if (accepted.target.kind === "native-marketplace") {
         assert(accepted.connectionAuthority === null, "Native prices cannot carry connection authority.");
-        return decideMarketplaceListing(state, {
-          type: "UpdateListingPrice",
-          ...pair,
-          feeLocks: command.feeLocks,
-          acceptedTargetPrice: accepted,
-          changeSource: command.changeSource,
-        });
+        assert(accepted.decision.kind !== "legacy-native-anchor", "New acceptance cannot claim historical authority.");
+        const feeLocks = command.feeLocks.map(normalizeMarketplaceListingFeeLock);
+        assertFeeLockTranchesPreserved(state.feeLocks, feeLocks);
+        assert(
+          state.nativeVisibility === "disabled" || totalFeeLockedUnits(feeLocks) === state.quantityCap,
+          "Price edit fee locks must cover listed quantity.",
+        );
+        return [
+          {
+            type: "marketplace.listing.price-updated",
+            data: {
+              schemaVersion: 2,
+              acceptedTargetPrice: accepted,
+              ...pair,
+              ...feeLockProjectionFields(feeLocks),
+              ...(command.changeSource ? { changeSource: command.changeSource } : {}),
+            },
+          },
+        ];
       }
       assert(
         accepted.connectionAuthority?.connectionId === accepted.target.connectionId,
@@ -1038,37 +1032,6 @@ export const decideMarketplaceListing: AggregateDecider<
           : []),
         { type: "marketplace.listing.resumed", data: { pauseReason: command.expectedPauseReason } },
       ];
-    }
-    case "UpdateListingPrice": {
-      assert(state.listingId !== null, "Listing must be created first.");
-      assert(state.status !== "withdrawn", "Withdrawn listings cannot be updated.");
-      const feeLocks = command.feeLocks.map(normalizeMarketplaceListingFeeLock);
-      assertFeeLockTranchesPreserved(state.feeLocks, feeLocks);
-      assert(
-        state.nativeVisibility === "disabled" || totalFeeLockedUnits(feeLocks) === state.quantityCap,
-        "Price edit fee locks must cover listed quantity.",
-      );
-      const data = {
-        schemaVersion: 2 as const,
-        ...(command.acceptedTargetPrice ? { acceptedTargetPrice: command.acceptedTargetPrice } : {}),
-        ...(command.requestFingerprint ? { requestFingerprint: command.requestFingerprint } : {}),
-        priceAmount: normalizeMoneyAmount(command.priceAmount),
-        priceCurrencyCode: normalizeListingPriceCurrencyCode(command.priceCurrencyCode),
-        ...feeLockProjectionFields(feeLocks),
-        ...(command.changeSource ? { changeSource: command.changeSource } : {}),
-      };
-
-      const currencyUnchanged = state.priceCurrencyCode === data.priceCurrencyCode;
-      if (
-        !command.acceptedTargetPrice &&
-        isMoneyAmountUnchanged(state.priceAmount, data.priceAmount) &&
-        currencyUnchanged &&
-        areFeeLockQuotesUnchanged(state.feeLocks, feeLocks)
-      ) {
-        return [];
-      }
-
-      return [{ type: "marketplace.listing.price-updated", data }];
     }
     case "UpdateListingQuantityCap": {
       assert(state.listingId !== null, "Listing must be created first.");

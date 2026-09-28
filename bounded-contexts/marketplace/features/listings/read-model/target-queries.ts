@@ -101,6 +101,12 @@ export function createListingCurrentReads(
               AND price_event.event_type IN ('marketplace.listing.created','marketplace.listing.price-updated')
               AND price_event.payload->>'priceAmount'=target.accepted_price->>'priceAmount'
               AND price_event.payload->>'priceCurrencyCode'=target.accepted_price->>'priceCurrencyCode'
+              AND target.accepted_price->>'acceptedByUserId'=price_event.performed_by_user_id
+              AND (target.accepted_price->>'acceptedAt')::timestamptz=price_event.occurred_at
+              AND target.accepted_price->'connectionAuthority'='null'::jsonb
+              AND target.accepted_price->'decision'=jsonb_build_object('kind', CASE
+                WHEN price_event.event_type='marketplace.listing.created' AND price_event.payload->>'schemaVersion'='2'
+                  THEN 'seller-reference' ELSE 'legacy-native-anchor' END)
             ))
           ))
           AND NOT EXISTS (SELECT 1 FROM event_projection_blocked_streams blocked
@@ -141,6 +147,7 @@ export function createListingCurrentReads(
         accepted.listingId !== row.listing_id ||
         listingPriceTargetKey(accepted.target) !== row.target_key ||
         accepted.targetPriceRevision > row.listing_revision ||
+        accepted.listingRevision !== accepted.targetPriceRevision ||
         !Number.isSafeInteger(accepted.targetPriceRevision) ||
         accepted.targetPriceRevision <= 0 ||
         normalized.priceAmount !== accepted.priceAmount ||

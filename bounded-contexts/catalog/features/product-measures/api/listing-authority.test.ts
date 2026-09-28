@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { ZERO_GLOBAL_POSITION, type EventStoreContext } from "@chase-sets/event-core/storage";
 import {
@@ -33,9 +33,16 @@ async function fixture(withProfile = true) {
     tenantId: "tnt_synthetic",
     audit: { forAccountId: "acc_synthetic", performedByUserId: "usr_synthetic" },
   };
+  const currentRead = { current: true };
   const deps = {
     eventStore: sourceStore,
-    db: { query: async <Row>() => ({ rows: [] as Row[] }) },
+    db: {
+      query: async <Row>(sql: string) => ({
+        rows: sql.includes("WITH expected AS")
+          ? ([{ generated_at: new Date(), current: currentRead.current }] as Row[])
+          : ([] as Row[]),
+      }),
+    },
     checkpointStore: { loadCheckpoint: async () => ZERO_GLOBAL_POSITION, saveCheckpoint: async () => {} },
   };
   function restart() {
@@ -76,6 +83,7 @@ async function fixture(withProfile = true) {
     };
     return {
       context,
+      currentRead,
       input,
       sourceStore,
       consumerStore,
@@ -135,6 +143,38 @@ describe("Catalog owner protocol conformance", () => {
 });
 
 describe("Catalog Product and measures participation", () => {
+  it("does not re-record structurally identical profiles after durable writer canonicalization", async () => {
+    const f = await fixture();
+    const before = await f.sourceStore.readStream({ streamId: "catalog.product-measure-profiles" });
+    await f.measures.upsertProfile({ ...profile }, f.context);
+    expect(await f.sourceStore.readStream({ streamId: "catalog.product-measure-profiles" })).toEqual(before);
+  });
+  it("reads bounded current Products without creating reservations and deduplicates source histories", async () => {
+    const f = await fixture();
+    const operation = await f.fence.open(f.input, f.context);
+    await f.source.prepare(operation, f.context);
+    const before = await f.sourceStore.readAll();
+    const reads = vi.spyOn(f.sourceStore, "readStream");
+    const result = await f.authority.readCurrentProducts(
+      Array.from({ length: 100 }, () => f.input.subject),
+      { maxAgeMs: 60_000 },
+    );
+    expect(result.value).toHaveLength(100);
+    expect(result.value[0]?.productMeasureSnapshot?.productId).toBe(f.input.subject.productId);
+    expect(reads.mock.calls.filter(([input]) => input.streamId === "catalog.product-measure-profiles")).toHaveLength(1);
+    expect(reads.mock.calls.filter(([input]) => input.streamId === "catalog.item-cat_synthetic")).toHaveLength(1);
+    expect(await f.sourceStore.readAll()).toEqual(before);
+    f.currentRead.current = false;
+    await expect(f.authority.readCurrentProducts([f.input.subject], { maxAgeMs: 60_000 })).rejects.toThrow(
+      "stale or unreconciled",
+    );
+    await expect(
+      f.authority.readCurrentProducts(
+        Array.from({ length: 101 }, () => f.input.subject),
+        { maxAgeMs: 60_000 },
+      ),
+    ).rejects.toThrow("100");
+  });
   it("reserves actual Product and current measures with no consumer mirror or Catalog projection", async () => {
     const f = await fixture();
     const operation = await f.fence.open(f.input, f.context);

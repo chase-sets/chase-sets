@@ -5,10 +5,39 @@ import {
   evolveMarketplaceListing,
   initialMarketplaceListingState,
   type CreateListingCommand,
+  type AcceptListingTargetPriceCommand,
   type MarketplaceListingFeeLock,
   type PublishListingCommand,
   type MarketplaceListingState,
 } from "./domain";
+
+function nativeAcceptance(
+  state: MarketplaceListingState,
+  priceAmount: string,
+  priceCurrencyCode: string,
+  feeLocks = state.feeLocks,
+): AcceptListingTargetPriceCommand {
+  return {
+    type: "AcceptListingTargetPrice",
+    expectedTargetPriceRevision: state.nativePriceRevision,
+    feeLocks,
+    acceptedTargetPrice: {
+      schemaVersion: 1,
+      listingId: state.listingId!,
+      accountId: state.accountId!,
+      target: { kind: "native-marketplace" },
+      priceAmount,
+      priceCurrencyCode,
+      listingRevision: state.streamRevision + 1,
+      targetPriceRevision: state.streamRevision + 1,
+      acceptedByUserId: "synthetic-seller",
+      acceptedAt: "2026-09-27T00:00:00.000Z",
+      sourceEventId: "synthetic-price-event",
+      decision: { kind: "seller-reference" },
+      connectionAuthority: null,
+    },
+  };
+}
 
 const shipFromAddress = {
   name: "Seller Shipping",
@@ -351,12 +380,10 @@ describe("channel-only activation and native visibility/fee locks", () => {
 
   it("updates disabled reference and quantity without native fee locks", () => {
     let state = channelOnly();
-    state = decideMarketplaceListing(state, {
-      type: "UpdateListingPrice",
-      priceAmount: "11.00",
-      priceCurrencyCode: "EUR",
-      feeLocks: [],
-    }).reduce(evolveMarketplaceListing, state);
+    state = decideMarketplaceListing(state, nativeAcceptance(state, "11.00", "EUR", [])).reduce(
+      evolveMarketplaceListing,
+      state,
+    );
     state = decideMarketplaceListing(state, {
       type: "UpdateListingQuantityCap",
       quantityCap: 4,
@@ -549,28 +576,19 @@ describe("marketplace listing no-op suppression", () => {
     }).reduce(evolveMarketplaceListing, initialMarketplaceListingState);
   }
 
-  it("treats a normalized currency change as material while preserving pair no-op semantics", () => {
+  it("requires normalized acceptance and retains a new decision even for an unchanged pair", () => {
     const listing = createdListing();
-    const currencyChange = decideMarketplaceListing(listing, {
-      type: "UpdateListingPrice",
-      priceAmount: "10.0",
-      priceCurrencyCode: " eur ",
-      feeLocks: listing.feeLocks,
-    });
+    expect(() => decideMarketplaceListing(listing, nativeAcceptance(listing, "10.0", " eur "))).toThrow(
+      "Price pair must be normalized",
+    );
+    const currencyChange = decideMarketplaceListing(listing, nativeAcceptance(listing, "10.00", "EUR"));
 
     expect(currencyChange).toHaveLength(1);
     expect(currencyChange[0]).toMatchObject({
       type: "marketplace.listing.price-updated",
       data: { priceAmount: "10.00", priceCurrencyCode: "EUR" },
     });
-    expect(
-      decideMarketplaceListing(listing, {
-        type: "UpdateListingPrice",
-        priceAmount: "10.0",
-        priceCurrencyCode: " usd ",
-        feeLocks: listing.feeLocks,
-      }),
-    ).toEqual([]);
+    expect(decideMarketplaceListing(listing, nativeAcceptance(listing, "10.00", "USD"))).toHaveLength(1);
   });
 
   describe("fee-lock mutation semantics", () => {
@@ -608,13 +626,7 @@ describe("marketplace listing no-op suppression", () => {
       },
     ])("$name", ({ requoted, accepted }) => {
       const listing = createdListing();
-      const decide = () =>
-        decideMarketplaceListing(listing, {
-          type: "UpdateListingPrice",
-          priceAmount: "25.00",
-          priceCurrencyCode: "USD",
-          feeLocks: [requoted],
-        });
+      const decide = () => decideMarketplaceListing(listing, nativeAcceptance(listing, "25.00", "USD", [requoted]));
 
       if (!accepted) {
         expect(decide).toThrow("Price edits cannot replace fee-lock tranche terms.");
@@ -629,17 +641,23 @@ describe("marketplace listing no-op suppression", () => {
       ]);
     });
 
-    it("suppresses an equivalent price and locked quote", () => {
+    it("retains acceptance with an equivalent price and locked quote", () => {
       const listing = createdListing();
 
       expect(
-        decideMarketplaceListing(listing, {
-          type: "UpdateListingPrice",
-          priceAmount: "10.0",
-          priceCurrencyCode: "USD",
-          feeLocks: [feeLock({ marketplaceSalesFeeUnitAmount: "1.0" })],
+        decideMarketplaceListing(
+          listing,
+          nativeAcceptance(listing, "10.00", "USD", [feeLock({ marketplaceSalesFeeUnitAmount: "1.0" })]),
+        ),
+      ).toEqual([
+        expect.objectContaining({
+          data: expect.objectContaining({
+            schemaVersion: 2,
+            acceptedTargetPrice: nativeAcceptance(listing, "10.00", "USD").acceptedTargetPrice,
+            marketplaceSalesFeeUnitAmount: "1.00",
+          }),
         }),
-      ).toEqual([]);
+      ]);
     });
 
     it("locks only restocked units to the current rate", () => {
@@ -744,14 +762,9 @@ describe("marketplace listing no-op suppression", () => {
       expect(() => decideMarketplaceListing(withdrawn, publishListingCommand)).toThrow(
         "Withdrawn listings cannot be published",
       );
-      expect(() =>
-        decideMarketplaceListing(withdrawn, {
-          type: "UpdateListingPrice",
-          priceAmount: "11.00",
-          priceCurrencyCode: "USD",
-          feeLocks: withdrawn.feeLocks,
-        }),
-      ).toThrow("Withdrawn listings cannot be updated");
+      expect(() => decideMarketplaceListing(withdrawn, nativeAcceptance(withdrawn, "11.00", "USD"))).toThrow(
+        "Listing cannot accept prices",
+      );
       expect(() => decideMarketplaceListing(withdrawn, createListingCommand)).toThrow(
         "Listing has already been created",
       );
@@ -774,18 +787,16 @@ describe("marketplace listing no-op suppression", () => {
         productId: "cat_test::dim_condition:near_mint" as never,
         selectedOptions: [{ dimensionId: "dim_condition", optionId: "near_mint" }],
       });
-      const repriced = decideMarketplaceListing(listing, {
-        type: "UpdateListingPrice",
-        priceAmount: "12.00",
-        priceCurrencyCode: "USD",
-        feeLocks: [
+      const repriced = decideMarketplaceListing(
+        listing,
+        nativeAcceptance(listing, "12.00", "USD", [
           feeLock({
             marketplaceSalesFeeUnitAmount: "1.20",
             sellerNetUnitAmount: "10.80",
             feeQuoteFingerprint: "fee_repriced",
           }),
-        ],
-      }).reduce(evolveMarketplaceListing, listing);
+        ]),
+      ).reduce(evolveMarketplaceListing, listing);
 
       expect(repriced).toMatchObject({
         inventoryItemId: "itm_original",

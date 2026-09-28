@@ -90,6 +90,17 @@ describe("bounded Listing current reads", () => {
     ).readAcceptedListingTargetPrices(input);
     expect(read[0]?.acceptedTargetPrice).toBeNull();
   });
+  it.each([{ listingRevision: 2 }, { targetPriceRevision: 0 }, { priceAmount: "10.0" }])(
+    "rejects corrupt accepted lineage %j",
+    async (mutation) => {
+      const source = row();
+      await expect(
+        createListingCurrentReads(
+          database([{ ...source, accepted_price: { ...source.accepted_price, ...mutation } }]).db,
+        ).readAcceptedListingTargetPrices(input),
+      ).rejects.toThrow("lineage");
+    },
+  );
   it("does not promote a current active Listing to native eligibility without current readiness", async () => {
     const read = await createListingCurrentReads(database([row()]).db).readNativeListingEligibility({
       accountId: input.accountId,

@@ -1,7 +1,9 @@
+import { isDeepStrictEqual } from "node:util";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { ListingAuthorityConsumerPort, ListingAuthorityOperation } from "@chase-sets/event-core/listing-authority";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { toJsonValue } from "@chase-sets/primitives/json";
 import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import { createListingAuthorityParticipant } from "@chase-sets/platform-runtime/listing-authority-participant";
@@ -46,6 +48,10 @@ export type CatalogListingAuthorityFacts = Readonly<{
   productMeasureSnapshot: ProductMeasureSnapshot | null;
   productMeasureRevision: number;
 }>;
+export type CatalogListingProductSubject = Pick<
+  CatalogListingAuthorityFacts,
+  "catalogItemId" | "productId" | "selectedOptions"
+>;
 
 export function createCatalogListingAuthority(deps: CatalogRuntimeDeps, consumer: CatalogListingAuthorityConsumer) {
   const { repository: items } = createAggregateCommandHandler({
@@ -69,12 +75,124 @@ export function createCatalogListingAuthority(deps: CatalogRuntimeDeps, consumer
     evolve: evolveDimension,
     decide: decideDimension,
   });
-  const resourceIds = (itemId: string, blueprintId: string | null, operation: ListingAuthorityOperation) => [
+  const resourceIds = (itemId: string, blueprintId: string | null, subject: CatalogListingProductSubject) => [
     `item/${itemId}`,
     "measure-profiles/global",
     ...(blueprintId ? [`blueprint/${blueprintId}`, `measure-profiles/blueprint/${blueprintId}`] : []),
-    ...operation.subject.selectedOptions.map((option) => `dimension/${option.dimensionId}`),
+    ...subject.selectedOptions.map((option) => `dimension/${option.dimensionId}`),
   ];
+  async function validate(
+    subject: CatalogListingProductSubject,
+    validBefore: string,
+    context?: EventStoreContext,
+    cache?: Map<string, Promise<unknown>>,
+  ) {
+    const read = <T>(key: string, load: () => Promise<T>): Promise<T> => {
+      const existing = cache?.get(key) as Promise<T> | undefined;
+      if (existing) return existing;
+      const value = load();
+      cache?.set(key, value);
+      return value;
+    };
+    const itemStream = `catalog.item-${subject.catalogItemId}`;
+    const item = await read(itemStream, () => items.load(itemStream));
+    if (item.state.id !== subject.catalogItemId || item.state.status !== "active" || !item.state.blueprintId) {
+      throw new Error("Catalog Product is not currently published.");
+    }
+    const blueprintStream = `catalog.blueprint-${item.state.blueprintId}`;
+    const blueprint = await read(blueprintStream, () => blueprints.load(blueprintStream));
+    if (blueprint.state.id !== item.state.blueprintId || blueprint.state.status !== "active") {
+      throw new Error("Catalog Product Blueprint is not active.");
+    }
+    const product = resolveProduct({
+      catalogItemId: subject.catalogItemId as CatalogItemId,
+      blueprint: blueprint.state,
+      selectedOptions: subject.selectedOptions as readonly SelectedOptionEntry[],
+    });
+    if (
+      product.productId !== subject.productId ||
+      !isDeepStrictEqual(product.selectedOptions, subject.selectedOptions)
+    ) {
+      throw new Error("Listing Product selection is not Catalog's canonical selection.");
+    }
+    const selectedDimensions = await Promise.all(
+      subject.selectedOptions.map(async (selection) => {
+        const streamId = `catalog.dimension-${selection.dimensionId}`;
+        const dimension = await read(streamId, () => dimensions.load(streamId));
+        if (
+          dimension.state.id !== selection.dimensionId ||
+          dimension.state.status !== "active" ||
+          !dimension.state.options.some((option) => option.id === selection.optionId && option.status === "active")
+        ) {
+          throw new Error("Catalog Product selects an unavailable Dimension Option.");
+        }
+        return { streamId, version: dimension.version };
+      }),
+    );
+    const profiles = await read(productMeasureProfilesStream, () =>
+      readAuthoritativeProductMeasureProfiles(deps.eventStore),
+    );
+    const measures = resolveProductMeasures(
+      {
+        catalog_item_id: subject.catalogItemId,
+        blueprint_id: item.state.blueprintId,
+        category_ids: item.state.categoryIds,
+        dimension_rules: blueprint.state.dimensionRules,
+        canonical_dimension_order: blueprint.state.canonicalDimensionOrder,
+      },
+      [product],
+      profiles.profiles,
+    );
+    const measureStream = `catalog.product-measures-${subject.catalogItemId}`;
+    const measureHistory = await read(measureStream, () =>
+      readCompleteStream(deps.eventStore, { streamId: measureStream }),
+    );
+    const resolved = measureHistory.at(-1);
+    const recordedProducts = resolved?.payload.products;
+    if (
+      !Array.isArray(recordedProducts) ||
+      !recordedProducts.some((entry) => isDeepStrictEqual(entry, toJsonValue(measures[0] ?? null)))
+    ) {
+      if (measures.length) throw new Error("Catalog measure publication is not current with its authoritative inputs.");
+    }
+    return {
+      value: {
+        catalogItemId: subject.catalogItemId,
+        productId: product.productId,
+        blueprintId: item.state.blueprintId,
+        categoryIds: [...item.state.categoryIds],
+        selectedOptions: toJsonValue(product.selectedOptions),
+        productMeasureSnapshot: toJsonValue(measures[0] ?? null),
+        productMeasureRevision: resolved?.streamVersion ?? 0,
+      },
+      resources: resourceIds(subject.catalogItemId, item.state.blueprintId, subject),
+      sourceRevisions: [
+        { resourceId: itemStream, revision: String(item.version) },
+        { resourceId: blueprintStream, revision: String(blueprint.version) },
+        { resourceId: productMeasureProfilesStream, revision: String(profiles.revision) },
+        { resourceId: measureStream, revision: String(resolved?.streamVersion ?? 0) },
+        ...selectedDimensions.map((dimension) => ({
+          resourceId: dimension.streamId,
+          revision: String(dimension.version),
+        })),
+      ],
+      validBefore,
+      localAppends: context
+        ? [
+            { streamId: itemStream, expectedVersion: item.version, context, events: [] },
+            { streamId: blueprintStream, expectedVersion: blueprint.version, context, events: [] },
+            { streamId: productMeasureProfilesStream, expectedVersion: profiles.revision, context, events: [] },
+            { streamId: measureStream, expectedVersion: resolved?.streamVersion ?? 0, context, events: [] },
+            ...selectedDimensions.map((dimension) => ({
+              streamId: dimension.streamId,
+              expectedVersion: dimension.version,
+              context,
+              events: [],
+            })),
+          ]
+        : [],
+    };
+  }
   const source = createListingAuthorityParticipant({
     eventStore: deps.eventStore,
     participant: { owner: "catalog", purpose: "product-measures" },
@@ -82,104 +200,9 @@ export function createCatalogListingAuthority(deps: CatalogRuntimeDeps, consumer
     consumer,
     resources: async (operation) => {
       const item = await items.load(`catalog.item-${operation.subject.catalogItemId}`);
-      return resourceIds(operation.subject.catalogItemId, item.state.blueprintId, operation);
+      return resourceIds(operation.subject.catalogItemId, item.state.blueprintId, operation.subject);
     },
-    validate: async (operation, context) => {
-      const subject = operation.subject;
-      const itemStream = `catalog.item-${subject.catalogItemId}`;
-      const item = await items.load(itemStream);
-      if (item.state.id !== subject.catalogItemId || item.state.status !== "active" || !item.state.blueprintId) {
-        throw new Error("Catalog Product is not currently published.");
-      }
-      const blueprintStream = `catalog.blueprint-${item.state.blueprintId}`;
-      const blueprint = await blueprints.load(blueprintStream);
-      if (blueprint.state.id !== item.state.blueprintId || blueprint.state.status !== "active") {
-        throw new Error("Catalog Product Blueprint is not active.");
-      }
-      const product = resolveProduct({
-        catalogItemId: subject.catalogItemId as CatalogItemId,
-        blueprint: blueprint.state,
-        selectedOptions: subject.selectedOptions as readonly SelectedOptionEntry[],
-      });
-      if (
-        product.productId !== subject.productId ||
-        JSON.stringify(product.selectedOptions) !== JSON.stringify(subject.selectedOptions)
-      ) {
-        throw new Error("Listing Product selection is not Catalog's canonical selection.");
-      }
-      const selectedDimensions = await Promise.all(
-        subject.selectedOptions.map(async (selection) => {
-          const streamId = `catalog.dimension-${selection.dimensionId}`;
-          const dimension = await dimensions.load(streamId);
-          if (
-            dimension.state.id !== selection.dimensionId ||
-            dimension.state.status !== "active" ||
-            !dimension.state.options.some((option) => option.id === selection.optionId && option.status === "active")
-          ) {
-            throw new Error("Catalog Product selects an unavailable Dimension Option.");
-          }
-          return { streamId, version: dimension.version };
-        }),
-      );
-      const profiles = await readAuthoritativeProductMeasureProfiles(deps.eventStore);
-      const measures = resolveProductMeasures(
-        {
-          catalog_item_id: subject.catalogItemId,
-          blueprint_id: item.state.blueprintId,
-          category_ids: item.state.categoryIds,
-          dimension_rules: blueprint.state.dimensionRules,
-          canonical_dimension_order: blueprint.state.canonicalDimensionOrder,
-        },
-        [product],
-        profiles.profiles,
-      );
-      const measureStream = `catalog.product-measures-${subject.catalogItemId}`;
-      const measureHistory = await readCompleteStream(deps.eventStore, { streamId: measureStream });
-      const resolved = measureHistory.at(-1);
-      const recordedProducts = resolved?.payload.products;
-      if (
-        !Array.isArray(recordedProducts) ||
-        !recordedProducts.some((entry) => JSON.stringify(entry) === JSON.stringify(toJsonValue(measures[0] ?? null)))
-      ) {
-        if (measures.length)
-          throw new Error("Catalog measure publication is not current with its authoritative inputs.");
-      }
-      return {
-        value: {
-          catalogItemId: subject.catalogItemId,
-          productId: product.productId,
-          blueprintId: item.state.blueprintId,
-          categoryIds: [...item.state.categoryIds],
-          selectedOptions: toJsonValue(product.selectedOptions),
-          productMeasureSnapshot: toJsonValue(measures[0] ?? null),
-          productMeasureRevision: resolved?.streamVersion ?? 0,
-        },
-        resources: resourceIds(subject.catalogItemId, item.state.blueprintId, operation),
-        sourceRevisions: [
-          { resourceId: itemStream, revision: String(item.version) },
-          { resourceId: blueprintStream, revision: String(blueprint.version) },
-          { resourceId: productMeasureProfilesStream, revision: String(profiles.revision) },
-          { resourceId: measureStream, revision: String(resolved?.streamVersion ?? 0) },
-          ...selectedDimensions.map((dimension) => ({
-            resourceId: dimension.streamId,
-            revision: String(dimension.version),
-          })),
-        ],
-        validBefore: operation.prepareBefore,
-        localAppends: [
-          { streamId: itemStream, expectedVersion: item.version, context, events: [] },
-          { streamId: blueprintStream, expectedVersion: blueprint.version, context, events: [] },
-          { streamId: productMeasureProfilesStream, expectedVersion: profiles.revision, context, events: [] },
-          { streamId: measureStream, expectedVersion: resolved?.streamVersion ?? 0, context, events: [] },
-          ...selectedDimensions.map((dimension) => ({
-            streamId: dimension.streamId,
-            expectedVersion: dimension.version,
-            context,
-            events: [],
-          })),
-        ],
-      };
-    },
+    validate: (operation, context) => validate(operation.subject, operation.prepareBefore, context),
   });
   const writer = createListingAuthorityWriter({
     eventStore: deps.eventStore,
@@ -214,6 +237,49 @@ export function createCatalogListingAuthority(deps: CatalogRuntimeDeps, consumer
       ).flat(),
   });
   return {
+    async readCurrentProducts(
+      subjects: readonly CatalogListingProductSubject[],
+      input: Readonly<{ maxAgeMs: number }>,
+    ) {
+      if (subjects.length > 100 || !Number.isSafeInteger(input.maxAgeMs) || input.maxAgeMs <= 0)
+        throw new Error("Catalog current facts require at most 100 Products and a positive read-age budget.");
+      if (
+        subjects.some(
+          (subject) =>
+            !subject.catalogItemId.trim() || !subject.productId.trim() || subject.selectedOptions.length > 28,
+        )
+      )
+        throw new Error("Catalog current facts require bounded Product identities and selections.");
+      const validBefore = new Date(Date.now() + input.maxAgeMs).toISOString();
+      const cache = new Map<string, Promise<unknown>>();
+      const resolved = await Promise.all(subjects.map((subject) => validate(subject, validBefore, undefined, cache)));
+      const revisions = new Map<string, string>();
+      for (const fact of resolved)
+        for (const revision of fact.sourceRevisions) {
+          const prior = revisions.get(revision.resourceId);
+          if (prior !== undefined && prior !== revision.revision)
+            throw new Error("Catalog inputs changed during current read.");
+          revisions.set(revision.resourceId, revision.revision);
+        }
+      const check = await deps.db.query<{ generated_at: Date | string; current: boolean }>(
+        `
+        WITH expected AS (SELECT * FROM jsonb_to_recordset($1::jsonb) AS r(stream_id text, revision bigint))
+        SELECT clock_timestamp() AS generated_at,
+          (NOT EXISTS (SELECT 1 FROM expected LEFT JOIN event_store_streams source USING (stream_id)
+            WHERE COALESCE(source.current_version,0) <> expected.revision)
+           AND NOT EXISTS (SELECT 1 FROM catalog_product_measure_profiles WHERE source_revision=0)) AS current`,
+        [JSON.stringify([...revisions].map(([stream_id, revision]) => ({ stream_id, revision })))],
+      );
+      const checked = check.rows[0];
+      const generatedAt = checked ? new Date(checked.generated_at).toISOString() : null;
+      if (!checked?.current || !generatedAt || Date.parse(generatedAt) >= Date.parse(validBefore))
+        throw new Error("Catalog current facts are stale or unreconciled.");
+      return {
+        value: resolved.map((fact) => fact.value as unknown as CatalogListingAuthorityFacts),
+        generatedAt,
+        validBefore,
+      };
+    },
     recover: createListingAuthorityRecovery({
       db: deps.db,
       owner: "catalog",
@@ -255,7 +321,7 @@ export function createCatalogListingAuthority(deps: CatalogRuntimeDeps, consumer
         const streamId = `catalog.product-measures-${operation.subject.catalogItemId}`;
         const history = await readCompleteStream(deps.eventStore, { streamId });
         const payload = { catalogItemId: operation.subject.catalogItemId, products: toJsonValue(products) };
-        if (JSON.stringify(history.at(-1)?.payload) !== JSON.stringify(payload)) {
+        if (!isDeepStrictEqual(history.at(-1)?.payload, payload)) {
           await writer.eventStore.appendToStreams!([
             { streamId: itemStream, expectedVersion: item.version, context, events: [] },
             { streamId: blueprintStream, expectedVersion: blueprint.version, context, events: [] },

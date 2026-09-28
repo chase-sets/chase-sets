@@ -10,6 +10,7 @@ import {
 import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { buildMarketplaceListingProjectionHandlers } from "../features/listings/read-model/projection";
+import { createListingCurrentReads, assertListingReadFreshness } from "../features/listings/read-model/target-queries";
 import { marketplaceListingSchemaMigrations } from "../features/listings/read-model/schema";
 import { module as marketplaceModule } from "../index";
 import { marketplaceBuyerOfferPolicySchemaMigrations } from "../features/offer-policy/read-model/schema";
@@ -81,7 +82,7 @@ describeDb("marketplace schema upgrades", () => {
         id: `event_synthetic_${revision}`,
         streamId: "marketplace.listing-lst_synthetic",
         streamVersion: revision,
-        audit: { forAccountId: "account_synthetic", performedByUserId: "user_synthetic" },
+        audit: { forAccountId: "acc_synthetic", performedByUserId: "usr_synthetic" },
         timing: { occurredAt: "2026-09-27T12:00:00.000Z", recordedAt: "2026-09-27T12:00:00.000Z" },
       });
     const noFees = {
@@ -103,7 +104,7 @@ describeDb("marketplace schema upgrades", () => {
         nativeVisibility: "disabled",
         nativeFeeState: "not-enrolled",
         listingId: "lst_synthetic",
-        accountId: "account_synthetic",
+        accountId: "acc_synthetic",
         inventoryItemId: "inventory_synthetic",
         catalogItemId: "catalog_synthetic",
         productId: "catalog_synthetic::",
@@ -130,14 +131,14 @@ describeDb("marketplace schema upgrades", () => {
           schemaVersion: 1,
           acceptedTargetPrice: {
             schemaVersion: 1,
-            accountId: "account_synthetic",
+            accountId: "acc_synthetic",
             listingId: "lst_synthetic",
             target: { kind: "channel-connection", connectionId },
             priceAmount: "15.00",
             priceCurrencyCode,
             targetPriceRevision: revision,
             listingRevision: revision,
-            acceptedByUserId: "user_synthetic",
+            acceptedByUserId: "usr_synthetic",
             acceptedAt: "2026-09-27T12:00:00.000Z",
             sourceEventId: `event_synthetic_${revision}`,
             decision: {
@@ -207,6 +208,85 @@ describeDb("marketplace schema upgrades", () => {
       { target_key: "channel-connection:connection_two", price_revision: 3, activation_revision: 0, currency: "EUR" },
       { target_key: "native-marketplace", price_revision: 1, activation_revision: 0, currency: "CAD" },
     ]);
+    const eventStore = createPostgresEventStore({ pool });
+    const stored = await eventStore.appendToStream({
+      streamId: created.streamId,
+      expectedVersion: 0,
+      context: {
+        ...context,
+        audit: { ...context.audit, forAccountId: "acc_synthetic", performedByUserId: "usr_synthetic" },
+      },
+      events: [created, ...events]
+        .sort((left, right) => left.streamVersion - right.streamVersion)
+        .map((event) => ({
+          eventId: event.id,
+          eventType: event.type,
+          payload: event.data,
+        })),
+    });
+    await pool.query("TRUNCATE marketplace_listing_target_prices, marketplace_listing_native_authority");
+    for (const event of stored) await project[event.eventType]!(toTransportEvent(event));
+    const position = stored.at(-1)!.globalPosition;
+    await pool.query(
+      `INSERT INTO event_subscription_checkpoints
+      (checkpoint_key,projection_name,source_context_name,subscription_version,last_global_position,updated_at)
+      VALUES ('synthetic-listing-current','marketplace-listing-projection','marketplace',3,$1,now())`,
+      [position],
+    );
+    await pool.query(`INSERT INTO event_projection_group_revisions
+      (target_context_name,projection_name,projection_revision,updated_at)
+      VALUES ('marketplace','marketplace-listing-projection',2,now())
+      ON CONFLICT (target_context_name,projection_name) DO UPDATE SET projection_revision=2`);
+    await pool.query(`INSERT INTO event_projection_group_generations
+      (target_context_name,projection_name,active_generation,state,updated_at)
+      VALUES ('marketplace','marketplace-listing-projection',1,'active',now())
+      ON CONFLICT (target_context_name,projection_name) DO UPDATE SET active_generation=1,state='active'`);
+    const reads = createListingCurrentReads(pool);
+    const request = {
+      accountId: "acc_synthetic",
+      targets: [
+        { listingId: "lst_synthetic", target: { kind: "channel-connection" as const, connectionId: "connection_one" } },
+      ],
+    };
+    const [current] = await reads.readAcceptedListingTargetPrices(request);
+    expect(
+      (await reads.readNativeListingEligibility({ accountId: "acc_synthetic", listingIds: ["lst_synthetic"] }))[0],
+    ).toMatchObject({ eligible: false, blockingReason: "native-disabled" });
+    expect(current).toMatchObject({
+      listingRevision: 6,
+      projectionGeneration: "1",
+      acceptedTargetPrice: { priceCurrencyCode: "CAD" },
+    });
+    assertListingReadFreshness(current!, { now: new Date(), maxAgeMs: 10_000, minimumSourceGlobalPosition: position });
+    await pool.query(
+      "UPDATE event_subscription_checkpoints SET last_global_position=0 WHERE checkpoint_key='synthetic-listing-current'",
+    );
+    await expect(reads.readAcceptedListingTargetPrices(request)).rejects.toThrow("stale");
+    await pool.query(
+      "UPDATE event_subscription_checkpoints SET last_global_position=$1 WHERE checkpoint_key='synthetic-listing-current'",
+      [position],
+    );
+    await pool.query(
+      "UPDATE event_projection_group_generations SET state='rebuilding',rebuilding_generation=2 WHERE projection_name='marketplace-listing-projection'",
+    );
+    await expect(reads.readAcceptedListingTargetPrices(request)).rejects.toThrow("stale");
+    await pool.query(
+      "UPDATE event_projection_group_generations SET state='active',active_generation=2,rebuilding_generation=NULL WHERE projection_name='marketplace-listing-projection'",
+    );
+    const [rebuilt] = await reads.readAcceptedListingTargetPrices(request);
+    expect(() =>
+      assertListingReadFreshness(rebuilt!, { now: new Date(), maxAgeMs: 10_000, expectedProjectionGeneration: "1" }),
+    ).toThrow("stale");
+    await eventStore.appendToStream({
+      streamId: created.streamId,
+      expectedVersion: 6,
+      context: {
+        ...context,
+        audit: { ...context.audit, forAccountId: "acc_synthetic", performedByUserId: "usr_synthetic" },
+      },
+      events: [{ eventType: "marketplace.listing.withdrawn", payload: {} }],
+    });
+    await expect(reads.readAcceptedListingTargetPrices(request)).rejects.toThrow("stale");
     await expect(
       project["marketplace.listing.target-price-accepted"]!(
         fact("marketplace.listing.target-price-accepted", { schemaVersion: 99 }, 7),

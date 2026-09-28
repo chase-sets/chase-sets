@@ -140,6 +140,11 @@ export type {
   ListingCurrentReadiness,
   ListingCurrentReadinessReader,
 } from "./features/listings/read-model/target-queries";
+export { createMarketplaceListingCurrentReadiness } from "./features/listings/read-model/native-current-readiness";
+export type {
+  ListingCurrentOwnerFacts,
+  MarketplaceListingCurrentReadinessPorts,
+} from "./features/listings/read-model/native-current-readiness";
 export type {
   MarketplaceLockedFeeListingCohortSummary,
   MarketplaceLockedFeeListingCohortWeeklyPoint,
