@@ -106,6 +106,40 @@ async function fixture(
 describe("durable Listing authority protocol conformance", () => listingAuthorityConformance(it, fixture));
 
 describe("Listing authority unknown outcomes and predicate serialization", () => {
+  it("rejects a contradictory final integrity digest instead of trusting the resource fold", async () => {
+    const f = await fixture();
+    const operation = await f.fence.open(f.input, f.context);
+    const grant = await f.source.prepare(operation, f.context);
+    const read = f.sourceStore.readStream;
+    const fault = vi.spyOn(f.sourceStore, "readStream").mockImplementation(async (input) => {
+      const events = await read(input);
+      return input.streamId.includes("listing-authority-integrity-")
+        ? events.map((event) => ({ ...event, payload: { ...event.payload, stateHash: "synthetic-corrupt-digest" } }))
+        : events;
+    });
+    await expect(f.invalidate()).rejects.toThrow("binding conflict");
+    await expect(f.fence.prepareCommit(operation, [grant], {})).rejects.toThrow("binding conflict");
+    fault.mockRestore();
+    expect((await f.source.inspect(operation))?.status).toBe("reserved");
+  });
+
+  it("rebuilds a fabricated snapshot from retained history rather than dropping its grants", async () => {
+    const snapshots = new Map<string, StoredAggregateSnapshot<unknown>>();
+    const f = await fixture({
+      loadLatest: async (id) => snapshots.get(id) ?? null,
+      save: async (snapshot) => {
+        snapshots.set(snapshot.streamId, { ...snapshot, updatedAt: "2026-09-27T00:00:00.000Z" as never });
+      },
+    });
+    const operation = await f.fence.open(f.input, f.context);
+    await f.source.prepare(operation, f.context);
+    await f.source.inspect(operation);
+    for (const [id, snapshot] of snapshots) snapshots.set(id, { ...snapshot, state: { pending: null, grants: [] } });
+    expect((await f.restart().source.inspect(operation))?.status).toBe("reserved");
+    await f.restart().invalidate();
+    expect((await f.fence.inspect(operation)).status).toBe("aborted");
+  });
+
   it.each(["resource", "integrity"])(
     "retains promises when the %s history disappears, including with a cached fold",
     async (lost) => {

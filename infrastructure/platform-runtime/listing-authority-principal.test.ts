@@ -59,6 +59,31 @@ function fixture() {
 }
 
 describe("trusted Listing principal binding", () => {
+  it("carries a delegated bearer without inventing a session or key and binds its exact scope ceiling", async () => {
+    const f = fixture();
+    const user = requireListingAuthorityPrincipal(f.context);
+    if (user.kind !== "user") throw new Error("Synthetic user required");
+    const principal = {
+      ...user,
+      authentication: {
+        kind: "delegation" as const,
+        delegationId: "grant_synthetic_bearer",
+        revision: "7",
+        scopeCeiling: ["listings:read"],
+      },
+    };
+    const context = { ...f.context, listingAuthorityPrincipal: principal };
+    const operation = await f.fence.open(f.input, context);
+    expect(operation.principal).toEqual(principal);
+    for (const authentication of [
+      { ...principal.authentication, revision: "8" },
+      { ...principal.authentication, scopeCeiling: ["listings:write"] },
+    ])
+      await expect(
+        f.fence.open(f.input, { ...context, listingAuthorityPrincipal: { ...principal, authentication } }),
+      ).rejects.toThrow("different command");
+  });
+
   it("rejects audit-only identity without guessing a membership or credential", async () => {
     const f = fixture();
     const { listingAuthorityPrincipal: _, ...auditOnly } = f.context;

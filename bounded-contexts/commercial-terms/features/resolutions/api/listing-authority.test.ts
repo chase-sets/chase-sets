@@ -1,7 +1,6 @@
 import { withSyntheticListingPrincipal } from "@chase-sets/event-core/test-support";
 import { describe, expect, it } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   createListingAuthorityFence,

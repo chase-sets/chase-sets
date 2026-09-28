@@ -96,9 +96,12 @@ export function createListingAuthorityResources(
         throw new Error("Contradictory authority resource integrity; retain source promise.");
       }
       state = fold(state, event);
-      assertSameAuthority(proof.payload.stateHash, stateHash(state));
       version = event.streamVersion;
     }
+    // Every tail event matches its retained digest; only the resulting fold (or the
+    // exact snapshot anchor) is consumed. Rehashing every historical grant set
+    // would add quadratic payload serialization to each reconciliation read.
+    if (proofs.length) assertSameAuthority(proofs.at(-1)!.payload.stateHash, stateHash(state));
     if (version && events.length && deps.snapshots) {
       try {
         await deps.snapshots.save({ streamId, streamVersion: version, schemaVersion: 1, state });

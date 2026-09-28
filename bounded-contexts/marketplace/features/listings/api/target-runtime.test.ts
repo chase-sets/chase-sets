@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   decideMarketplaceListing,
   evolveMarketplaceListing,
@@ -143,6 +142,15 @@ async function fixture(overrides: Partial<ListingTargetAuthority> = {}) {
 }
 
 describe("Listing target owner authority", () => {
+  it("requires the trusted carrier and rejects principal assertions in the command body", async () => {
+    const { services, input, eventStore } = await fixture();
+    const { listingAuthorityPrincipal, ...auditOnly } = context;
+    await expect(services.acceptListingTargetPrice(input, auditOnly)).rejects.toThrow("principal");
+    const callerAsserted = { ...input, listingAuthorityPrincipal };
+    await expect(services.acceptListingTargetPrice(callerAsserted, auditOnly)).rejects.toThrow();
+    expect((await eventStore.readAll()).some((event) => event.eventType.endsWith(".committed"))).toBe(false);
+  });
+
   it("does not replay a committed request for a different authenticated delegation", async () => {
     const { services, input } = await fixture();
     const first = await services.acceptListingTargetPrice(input, context);

@@ -53,7 +53,8 @@ export type ListingAuthorityPrincipal = Readonly<{
         membershipId: string;
         authentication:
           | Readonly<{ kind: "session"; sessionId: string; revision: string }>
-          | Readonly<{ kind: "api-key"; keyId: string; revision: string }>;
+          | Readonly<{ kind: "api-key"; keyId: string; revision: string }>
+          | Readonly<{ kind: "delegation"; delegationId: string; revision: string; scopeCeiling: readonly string[] }>;
         delegation: Readonly<{ delegationId: string; revision: string; scopeCeiling: readonly string[] }> | null;
       }>
     | Readonly<{
@@ -165,7 +166,11 @@ export function requireListingAuthorityPrincipal(context: EventStoreContext): Li
         !nonempty(principal.authentication.revision) ||
         (principal.authentication.kind === "session"
           ? !nonempty(principal.authentication.sessionId)
-          : principal.authentication.kind !== "api-key" || !nonempty(principal.authentication.keyId)) ||
+          : principal.authentication.kind === "api-key"
+            ? !nonempty(principal.authentication.keyId)
+            : principal.authentication.kind !== "delegation" ||
+              !nonempty(principal.authentication.delegationId) ||
+              !scopes(principal.authentication.scopeCeiling)) ||
         (principal.delegation !== null &&
           (!principal.delegation ||
             !nonempty(principal.delegation.delegationId) ||

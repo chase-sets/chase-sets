@@ -2,7 +2,6 @@ import { withSyntheticListingPrincipal } from "@chase-sets/event-core/test-suppo
 import { describe, expect, it } from "vitest";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createListingAuthorityParticipant } from "@chase-sets/platform-runtime/listing-authority-participant";
 import {
