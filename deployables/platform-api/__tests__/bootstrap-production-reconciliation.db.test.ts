@@ -157,20 +157,26 @@ async function ensureRepresentativeProductContentsTestMeasureProfile(
   runtime: ReturnType<typeof createPlatformApiHost>,
 ): Promise<void> {
   const catalogServices = runtime.services.catalog as ReturnType<typeof catalogModule.createServices>;
-  await catalogServices.productMeasures.upsertProfile({
-    profileId: "pmp_representative_commerce_resume_test_card",
-    key: "representative-commerce-resume-test-card",
-    name: "Representative commerce resume test card",
-    matchBlueprintId: catalogSeedIds.blueprints.pokemonCardSingle,
-    precedence: 5,
-    unitLengthInches: 3.5,
-    unitWidthInches: 2.5,
-    unitHeightInches: 0.012,
-    unitWeightOunces: 0.064,
-    physicalFlags: ["raw-card", "bendable"],
-    stackBehavior: "stackable-thickness",
-    confidence: "conservative-estimate",
-  });
+  await catalogServices.productMeasures.upsertProfile(
+    {
+      profileId: "pmp_representative_commerce_resume_test_card",
+      key: "representative-commerce-resume-test-card",
+      name: "Representative commerce resume test card",
+      matchBlueprintId: catalogSeedIds.blueprints.pokemonCardSingle,
+      precedence: 5,
+      unitLengthInches: 3.5,
+      unitWidthInches: 2.5,
+      unitHeightInches: 0.012,
+      unitWeightOunces: 0.064,
+      physicalFlags: ["raw-card", "bendable"],
+      stackBehavior: "stackable-thickness",
+      confidence: "conservative-estimate",
+    },
+    {
+      tenantId: "tnt_synthetic_catalog_author",
+      audit: { performedByUserId: "usr_synthetic_catalog_author", forAccountId: "acc_synthetic_catalog_author" },
+    },
+  );
 }
 
 async function appendRepresentativeAccountCreatedEvent(

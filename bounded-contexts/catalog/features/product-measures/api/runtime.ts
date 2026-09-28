@@ -15,9 +15,14 @@ import type {
   ProductMeasureConfidence,
 } from "@chase-sets/product-measures";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
-import { listProductMeasureProfiles, listResolvedProductMeasures } from "../read-model/queries";
+import {
+  listProductMeasureProfiles,
+  listResolvedProductMeasures,
+  type CatalogProductMeasureProfileRow,
+} from "../read-model/queries";
+import { recordProductMeasureProfile, productMeasureProfileRecorded } from "./profiles";
 
-type ProductMeasureProfileInput = Readonly<{
+export type ProductMeasureProfileInput = Readonly<{
   profileId: string;
   key: string;
   name: string;
@@ -59,7 +64,7 @@ type ProductSchema = Readonly<{
 type ProductDimension = NonNullable<ProductSchema["dimensions"]>[number];
 
 export type ProductMeasureServices = Readonly<{
-  upsertProfile: (profile: ProductMeasureProfileInput) => Promise<void>;
+  upsertProfile: (profile: ProductMeasureProfileInput, context: EventStoreContext) => Promise<void>;
   resolveCatalogItemMeasures: (catalogItemId: string, context?: EventStoreContext) => Promise<void>;
   resolveAllCatalogItemMeasures: (context?: EventStoreContext) => Promise<void>;
   listProductMeasureProfiles: () => ReturnType<typeof listProductMeasureProfiles>;
@@ -69,7 +74,10 @@ export type ProductMeasureServices = Readonly<{
 
 export function createProductMeasureRuntime(deps: CatalogRuntimeDeps): ProductMeasureServices {
   return {
-    upsertProfile: (profile) => upsertProfile(deps.db, profile),
+    upsertProfile: async (profile, context) => {
+      await recordProductMeasureProfile(deps.eventStore, profile, context);
+      await upsertProfile(deps.db, profile);
+    },
     resolveCatalogItemMeasures: (catalogItemId, context) => resolveCatalogItemMeasures(deps, catalogItemId, context),
     resolveAllCatalogItemMeasures: (context) => resolveAllCatalogItemMeasures(deps, context),
     listProductMeasureProfiles: () => listProductMeasureProfiles(deps.db),
@@ -78,6 +86,10 @@ export function createProductMeasureRuntime(deps: CatalogRuntimeDeps): ProductMe
       createProjectionHandlerSet({
         projectionName: "catalog-product-measures-projection",
         handlers: {
+          [productMeasureProfileRecorded]: async (event, context) => {
+            const data = event.data as { profile: ProductMeasureProfileInput };
+            await upsertProfile(resolveProjectionDb(context, deps.db), data.profile);
+          },
           "catalog.catalog-item.product-measures-resolved": async (event, context) => {
             const data = event.data as { catalogItemId: string; products: ProductMeasureSnapshot[] };
             await replaceResolvedProductMeasures(
@@ -213,13 +225,13 @@ function isPgTransactionalPool(db: PgQueryable): db is PgTransactionalPool {
   return typeof (db as { connect?: unknown }).connect === "function";
 }
 
-function resolveProductMeasures(
+export function resolveProductMeasures(
   item: CatalogProductRow,
   products: readonly Readonly<{
     productId: string;
     selectedOptions: readonly { dimensionId: string; optionId: string }[];
   }>[],
-  profiles: Awaited<ReturnType<typeof listProductMeasureProfiles>>,
+  profiles: readonly CatalogProductMeasureProfileRow[],
 ): ProductMeasureSnapshot[] {
   return products.flatMap((product) => {
     const profile = profiles.find((candidate) => profileMatches(candidate, item, product.selectedOptions));
@@ -279,7 +291,7 @@ async function loadCatalogProductRow(db: PgQueryable, catalogItemId: string): Pr
   return result.rows[0] ?? null;
 }
 
-function enumerateProducts(item: CatalogProductRow) {
+export function enumerateProducts(item: CatalogProductRow) {
   const schema = productSchemaFromCatalogProduct(item);
   if (!schema?.dimensions || schema.dimensions.length === 0) {
     return [
@@ -375,7 +387,7 @@ function dimensionActive(
 }
 
 function profileMatches(
-  profile: Awaited<ReturnType<typeof listProductMeasureProfiles>>[number],
+  profile: CatalogProductMeasureProfileRow,
   item: CatalogProductRow,
   selectedOptions: readonly { dimensionId: string; optionId: string }[],
 ) {

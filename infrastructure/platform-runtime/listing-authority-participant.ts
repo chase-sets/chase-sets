@@ -25,6 +25,8 @@ export type ListingAuthoritySourceValidation = Readonly<{
   value: JsonObject;
   sourceRevisions: ListingAuthorityReservation["sourceRevisions"];
   validBefore: string;
+  /** Dynamic dependency selection must still match the resources acquired before validation. */
+  resources?: readonly string[];
   /** Source-local guards and, for real commitments, existing Inventory hold appends. Never sent to the consumer. */
   localAppends?: readonly AppendToStreamInput[];
 }>;
@@ -39,7 +41,7 @@ export type ListingAuthorityParticipantConfig = Readonly<{
   /** Global Catalog/policy predicates are shared across tenants, unlike account-owned stock. */
   resourceScope?: "tenant" | "owner";
   consumer(operation: ListingAuthorityOperation): ListingAuthorityConsumerPort;
-  resources(operation: ListingAuthorityOperation): readonly string[];
+  resources(operation: ListingAuthorityOperation): readonly string[] | Promise<readonly string[]>;
   validate(operation: ListingAuthorityOperation, context: EventStoreContext): Promise<ListingAuthoritySourceValidation>;
   /** Inventory can atomically release an actual hold on abort; a committed purchase hold remains owned by its workflow. */
   settlementAppends?(
@@ -166,7 +168,7 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
     }
     const prior = await inspect(operation);
     if (prior) return prior;
-    const ids = resources(deps.resources(operation));
+    const ids = resources(await deps.resources(operation));
     let scopes = await Promise.all(ids.map((id) => resource(operation.tenantId, id)));
     const preparationId = `prepare-${authorityHash([key, operation.operationId, operation.generation])}`;
     const preparationIntent = { mutationId: preparationId, command: authorityPayload({ operation }) };
@@ -248,13 +250,13 @@ export function createListingAuthorityParticipant(deps: ListingAuthorityParticip
       ]);
     }
     if (!Number.isFinite(Date.parse(checked.validBefore))) throw new Error("Invalid source validity boundary.");
+    if (checked.resources) assertSameAuthority(ids, resources(checked.resources));
     if (
       !checked.sourceRevisions.length ||
       new Set(checked.sourceRevisions.map((revision) => revision.resourceId)).size !== checked.sourceRevisions.length ||
       checked.sourceRevisions.some((revision) => !revision.resourceId || !revision.revision) ||
       checked.localAppends?.some(
-        (guard) =>
-          !guard.streamId.startsWith(`${deps.participant.owner}.`) || guard.context.tenantId !== operation.tenantId,
+        (guard) => guard.context.tenantId !== operation.tenantId,
       )
     ) {
       throw new Error("Invalid source-owned authority revision vector or local appends.");
