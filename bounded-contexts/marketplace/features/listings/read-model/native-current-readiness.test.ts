@@ -23,7 +23,7 @@ const listing: NativeListingEligibilityV1 = {
   projectionGeneration: "1",
   generatedAt: at,
 };
-function fixture() {
+function fixture(selectedOptions: { dimensionId: string; optionId: string }[] = []) {
   const { eventStore } = createInMemoryEventStore();
   const rows = [
     {
@@ -31,7 +31,7 @@ function fixture() {
       listing_revision: 2,
       catalog_catalog_item_id: "catalog-synthetic",
       product_id: "catalog-synthetic::",
-      selected_options: [],
+      selected_options: selectedOptions.map(({ dimensionId, optionId }) => ({ optionId, dimensionId })),
       graded_card: null,
       evidence: [],
     },
@@ -46,14 +46,14 @@ function fixture() {
   const product = {
     catalogItemId: "catalog-synthetic",
     productId: "catalog-synthetic::",
-    selectedOptions: [],
+    selectedOptions,
     blueprintId: "blueprint-synthetic",
     categoryIds: [],
     productMeasureRevision: 1,
     productMeasureSnapshot: {
       catalogItemId: "catalog-synthetic",
       productId: "catalog-synthetic::",
-      selectedOptions: [],
+      selectedOptions: selectedOptions.map(({ dimensionId, optionId }) => ({ optionId, dimensionId })),
       measureVersion: "synthetic",
       unitLengthInches: 3,
       unitWidthInches: 2,
@@ -82,6 +82,11 @@ function fixture() {
   return { read, rows, seller, products, product, query, eventStore };
 }
 describe("Marketplace-owned current native readiness", () => {
+  it("compares Product selections structurally across JSON storage key order", async () => {
+    const f = fixture([{ dimensionId: "dim_synthetic", optionId: "opt_synthetic" }]);
+    expect((await f.read({ accountId: listing.accountId, listings: [listing] }))[0]?.ready).toBe(true);
+  });
+
   it("applies Marketplace evidence policy and authoritative seller availability", async () => {
     const f = fixture();
     expect(

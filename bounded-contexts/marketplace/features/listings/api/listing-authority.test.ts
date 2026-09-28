@@ -45,7 +45,7 @@ const requirements = createListingEvidenceRequirementSnapshot(
   new Date().toISOString(),
 );
 
-async function fixture() {
+async function fixture(selectedOptions: readonly { dimensionId: string; optionId: string }[] = []) {
   const memory = createInMemoryEventStore();
   const consumer = createInMemoryEventStore();
   const context: EventStoreContext = {
@@ -108,8 +108,8 @@ async function fixture() {
             productId: measure.productId,
             blueprintId: "blue_synthetic",
             categoryIds: [],
-            selectedOptions: [],
-            productMeasureSnapshot: measure,
+            selectedOptions,
+            productMeasureSnapshot: { ...measure, selectedOptions },
             productMeasureRevision: 1,
           }),
         },
@@ -141,9 +141,9 @@ async function fixture() {
       productId: "cat_synthetic::" as never,
       itemTitle: null,
       itemSubtitle: null,
-      selectedOptions: [],
+      selectedOptions: [...selectedOptions],
       productSummary: null,
-      productMeasureSnapshot: measure,
+      productMeasureSnapshot: { ...measure, selectedOptions },
       storageLocationName: null,
       shipFromCode: null,
       shipFromAddress: {
@@ -201,7 +201,7 @@ async function fixture() {
       inventoryItemId: "inv_synthetic",
       catalogItemId: "cat_synthetic",
       productId: "cat_synthetic::",
-      selectedOptions: [],
+      selectedOptions,
       quantity: 1,
       pair: { amount: "10.00", currencyCode: "USD" },
       allocationRevision: null,
@@ -230,6 +230,11 @@ async function fixture() {
 }
 
 describe("Marketplace native owner participation", () => {
+  it("accepts equivalent selection objects after durable writer key canonicalization", async () => {
+    const f = await fixture([{ optionId: "opt_synthetic", dimensionId: "dim_synthetic" }]);
+    await expect(f.prepare()).resolves.toMatchObject({ grants: expect.any(Array) });
+  });
+
   it("retains every upstream reservation through the final Ordering commit and preserves commit-wins", async () => {
     const f = await fixture();
     const { operation, grants } = await f.prepare();

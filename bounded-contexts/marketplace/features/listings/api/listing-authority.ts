@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type {
@@ -78,7 +79,7 @@ export function createMarketplaceListingAuthority(
       listing.inventoryItemId !== operation.subject.inventoryItemId ||
       listing.catalogItemId !== operation.subject.catalogItemId ||
       listing.productId !== operation.subject.productId ||
-      JSON.stringify(listing.selectedOptions) !== JSON.stringify(operation.subject.selectedOptions) ||
+      !isDeepStrictEqual(listing.selectedOptions, operation.subject.selectedOptions) ||
       listingRevision !== operation.expectedListingRevision ||
       (operation.expectedVisibilityRevision !== null &&
         listing.nativeVisibilityRevision !== operation.expectedVisibilityRevision) ||
@@ -129,7 +130,7 @@ export function createMarketplaceListingAuthority(
     if (
       product.catalogItemId !== listing.catalogItemId ||
       product.productId !== listing.productId ||
-      JSON.stringify(product.selectedOptions) !== JSON.stringify(listing.selectedOptions) ||
+      !isDeepStrictEqual(product.selectedOptions, listing.selectedOptions) ||
       !product.productMeasureSnapshot ||
       product.productMeasureRevision < 1
     )

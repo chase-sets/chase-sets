@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { toJsonValue } from "@chase-sets/primitives/json";
 import sharp from "sharp";
 import { createListingTargetRuntime } from "./target-runtime";
@@ -1461,7 +1462,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           product.reservations.length > 0 &&
             product.value.catalogItemId === operation.subject.catalogItemId &&
             product.value.productId === operation.subject.productId &&
-            JSON.stringify(product.value.selectedOptions) === JSON.stringify(operation.subject.selectedOptions),
+            isDeepStrictEqual(product.value.selectedOptions, operation.subject.selectedOptions),
           "Current Catalog Product identity is required.",
         );
         const reservations = [...capability.reservations, ...owned.reservations, ...product.reservations];

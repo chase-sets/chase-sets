@@ -10,7 +10,11 @@ import { createInventoryListingAuthority } from "./listing-authority";
 import { createInventoryChannelStockAllocationRuntime } from "./runtime";
 import { createInventoryHoldRuntime } from "../../holds/api/runtime";
 
-async function fixture(quantity = 2, owner: "ordering" | "marketplace" = "ordering") {
+async function fixture(
+  quantity = 2,
+  owner: "ordering" | "marketplace" = "ordering",
+  selectedOptions: readonly { dimensionId: string; optionId: string }[] = [],
+) {
   const memory = createInMemoryEventStore();
   const { eventStore: consumerStore } = createInMemoryEventStore();
   const context: EventStoreContext = {
@@ -61,7 +65,7 @@ async function fixture(quantity = 2, owner: "ordering" | "marketplace" = "orderi
           accountId: "acc_synthetic",
           catalogItemId: "cat_synthetic",
           productId: "cat_synthetic::",
-          selectedOptions: [],
+          selectedOptions,
           gradedCard: null,
           storageLocationId: "loc_synthetic",
           totalQuantity: quantity,
@@ -83,7 +87,7 @@ async function fixture(quantity = 2, owner: "ordering" | "marketplace" = "orderi
       inventoryItemId: "inv_synthetic",
       catalogItemId: "cat_synthetic",
       productId: "cat_synthetic::",
-      selectedOptions: [],
+      selectedOptions,
       quantity: 1,
       pair: { amount: "12.00", currencyCode: "USD" },
       allocationRevision: 0,
@@ -112,6 +116,12 @@ async function fixture(quantity = 2, owner: "ordering" | "marketplace" = "orderi
 }
 
 describe("Inventory Listing participation", () => {
+  it("accepts equivalent selection objects after durable writer key canonicalization", async () => {
+    const f = await fixture(2, "ordering", [{ optionId: "opt_synthetic", dimensionId: "dim_synthetic" }]);
+    const operation = await f.fence.open(f.input, f.context);
+    await expect(f.authority.source.prepare(operation, f.context)).resolves.toMatchObject({ status: "reserved" });
+  });
+
   it("retains an accepted Offer hold and converts that exact hold to its Order without claiming stock twice", async () => {
     const f = await fixture(1, "marketplace");
     const operation = await f.fence.open(

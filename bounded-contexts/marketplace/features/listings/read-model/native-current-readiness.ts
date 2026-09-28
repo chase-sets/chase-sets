@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
@@ -116,7 +117,7 @@ export function createMarketplaceListingCurrentReadiness(
         (product) =>
           product.catalogItemId === row.catalog_catalog_item_id &&
           product.productId === row.product_id &&
-          JSON.stringify(product.selectedOptions) === JSON.stringify(row.selected_options),
+          isDeepStrictEqual(product.selectedOptions, row.selected_options),
       );
       if (matches.length !== 1) throw new Error("Native current Catalog membership changed.");
       const product = matches[0]!;
@@ -172,7 +173,7 @@ export function createMarketplaceListingCurrentReadiness(
           product.productMeasureSnapshot !== null &&
           product.productMeasureSnapshot.productId === product.productId &&
           product.productMeasureSnapshot.catalogItemId === product.catalogItemId &&
-          JSON.stringify(product.productMeasureSnapshot.selectedOptions) === JSON.stringify(product.selectedOptions) &&
+          isDeepStrictEqual(product.productMeasureSnapshot.selectedOptions, product.selectedOptions) &&
           product.productMeasureRevision > 0 &&
           Date.parse(validBefore) > Date.parse(at),
       };

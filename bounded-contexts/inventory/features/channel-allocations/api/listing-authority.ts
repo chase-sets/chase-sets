@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
@@ -71,7 +72,7 @@ export function createInventoryListingAuthority(
         item.state.accountId !== operation.accountId ||
         item.state.catalogItemId !== subject.catalogItemId ||
         item.state.productId !== subject.productId ||
-        JSON.stringify(item.state.selectedOptions) !== JSON.stringify(subject.selectedOptions) ||
+        !isDeepStrictEqual(item.state.selectedOptions, subject.selectedOptions) ||
         !Number.isSafeInteger(subject.quantity) ||
         subject.quantity < 1
       ) {

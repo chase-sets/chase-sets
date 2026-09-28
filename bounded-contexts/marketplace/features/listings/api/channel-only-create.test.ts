@@ -33,7 +33,11 @@ const requirements = createListingEvidenceRequirementSnapshot(
   "2026-09-27T12:00:00.000Z",
 );
 
-function fixture(capability = true, availableQuantity = 2) {
+function fixture(
+  capability = true,
+  availableQuantity = 2,
+  selectedOptions: readonly { dimensionId: string; optionId: string }[] = [],
+) {
   const { eventStore } = createInMemoryEventStore();
   const resolveListingTerms = vi.fn(async () => ({
     accountType: "personal",
@@ -55,7 +59,7 @@ function fixture(capability = true, availableQuantity = 2) {
       value: {
         catalogItemId: "cat_test",
         productId: "cat_test::",
-        selectedOptions: [],
+        selectedOptions,
         blueprintId: "bpt_synthetic",
         categoryIds: [],
         productMeasureSnapshot: null,
@@ -109,7 +113,7 @@ function fixture(capability = true, availableQuantity = 2) {
               account_id: "acc_seller",
               catalog_catalog_item_id: "cat_test",
               product_id: "cat_test::",
-              selected_options: [],
+              selected_options: selectedOptions.map(({ dimensionId, optionId }) => ({ optionId, dimensionId })),
               item_title: "Synthetic product",
               item_subtitle: null,
               item_language_code: null,
@@ -175,6 +179,14 @@ async function nativeFixture() {
 }
 
 describe("current native enable authority", () => {
+  it("creates from equivalent Catalog selection objects with different JSON key order", async () => {
+    const f = fixture(true, 2, [{ dimensionId: "dim_synthetic", optionId: "opt_synthetic" }]);
+    await f.services.createListing(f.input, f.context);
+    expect((await f.services.loadListingState("lst_test")).selectedOptions).toEqual([
+      { dimensionId: "dim_synthetic", optionId: "opt_synthetic" },
+    ]);
+  });
+
   it("keeps native-off quantity edits free of fee enrollment and replays the exact capacity request", async () => {
     const { services, context, authority } = await nativeFixture();
     const input = {
