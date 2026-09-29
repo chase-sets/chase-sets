@@ -118,12 +118,30 @@ function fixture({
   return { api, query };
 }
 
-function route() {
+async function route(pending = false) {
+  let loaded!: (data: Awaited<ReturnType<typeof loader>>) => void;
+  const loaderCompleted = new Promise<Awaited<ReturnType<typeof loader>>>((resolve) => {
+    loaded = resolve;
+  });
   const router = createMemoryRouter(
-    [{ path: "/platform/provider-connections", loader, Component: ProviderConnectionsRoute }],
+    [
+      {
+        path: "/platform/provider-connections",
+        loader: async (args) => {
+          const data = await loader(args);
+          loaded(data);
+          return data;
+        },
+        Component: ProviderConnectionsRoute,
+      },
+    ],
     { initialEntries: ["/platform/provider-connections"] },
   );
-  render(<RouterProvider router={router} />);
+  await act(async () => {
+    render(<RouterProvider router={router} />);
+    const data = await loaderCompleted;
+    if (!pending) await data.snapshot;
+  });
   return router;
 }
 
@@ -141,7 +159,7 @@ describe("provider connections real loader and owner exports", () => {
       "fetch",
       vi.fn((input: RequestInfo | URL, init?: RequestInit) => api.request(String(input), init)),
     );
-    route();
+    await route();
     await screen.findAllByText("synthetic-provider");
     expect(screen.getAllByText("Seller account synthetic-seller-0").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Platform").length).toBeGreaterThan(0);
@@ -173,7 +191,7 @@ describe("provider connections real loader and owner exports", () => {
         "fetch",
         vi.fn((input: RequestInfo | URL, init?: RequestInit) => api.request(String(input), init)),
       );
-      route();
+      await route();
       if ("emptyChannels" in options) {
         await screen.findAllByText("No channel connections");
         expect(screen.getAllByText("synthetic-provider").length).toBeGreaterThan(0);
@@ -196,7 +214,7 @@ describe("provider connections real loader and owner exports", () => {
           }),
       ),
     );
-    route();
+    await route(true);
     await screen.findAllByText("Loading connections...");
     await act(async () => {
       release(await api.request("/api/platform/provider-connections"));

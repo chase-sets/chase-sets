@@ -1,4 +1,4 @@
-import manifest from "../../../../context.json";
+import manifest from "../../../../context.json" with { type: "json" };
 import type { CatalogServices } from "../../../../support/authoring-support/services";
 import { buildProviderReadiness } from "./admin-control-plane-overview";
 import { catalogAdminControlPlaneReadModelSlos } from "./admin-control-plane-read-model-slos";
