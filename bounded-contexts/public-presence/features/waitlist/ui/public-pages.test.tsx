@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { act, cleanup, fireEvent, render as renderWithoutRouter, type RenderOptions } from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import { MemoryRouter } from "react-router";
+import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ts from "@chase-sets/typescript-compiler-api";
 import type { PublicMarketplaceFeeSchedule } from "./fee-comparison-calculator";
@@ -63,6 +64,121 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   titleOverrides.clear();
+});
+
+const disclosureTargets = [
+  ["fee_comparison", "fee_comparison_source_note"],
+  ["fee_calculator", "fee_calculator_source_note"],
+  ["launch_timeline", "launch_timeline_wave_qualification"],
+  ["product_preview", "product_preview_trust"],
+] as const;
+
+describe("landing fine-print disclosures", () => {
+  it.each([
+    ["seller_first_v1", "/", null, 3],
+    ["seller_first_v2", "/?intent=buy", null, 3],
+    ["seller_first_v1", "/", { percentageBps: 500, fixedAmount: "0.00", capAmount: "25.00", effectiveFrom: null }, 4],
+    [
+      "seller_first_v2",
+      "/?intent=buy",
+      { percentageBps: 500, fixedAmount: "0.00", capAmount: "25.00", effectiveFrom: null },
+      4,
+    ],
+  ] as const)("renders %s at %s with collapsed mounted disclosures", (variant, pagePath, feeSchedule, count) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ items: [] }))),
+    );
+    const { container } = render(
+      <PublicPresenceHomePage actionData={null} source={{ ...source, pagePath }} feeSchedule={feeSchedule} />,
+    );
+    const disclosures = container.querySelectorAll("[data-landing-disclosure]");
+    expect(disclosures).toHaveLength(count);
+    expect([...disclosures].map((item) => item.querySelector("button")?.getAttribute("aria-expanded"))).toEqual(
+      Array(count).fill("false"),
+    );
+    for (const [section, target] of disclosureTargets) {
+      expect(
+        container.querySelector(`[data-public-presence-section="${section}"] [data-landing-disclosure="${target}"]`) !==
+          null,
+      ).toBe(section !== "fee_calculator" || feeSchedule !== null);
+    }
+    expect(container.textContent).toContain(t("publicPresence.home.launchTimeline.step.waves.gates"));
+    expect(container.textContent).toContain(t("publicPresence.home.sellerEconomics.comparison.sourceNote"));
+    expect(container.textContent).toContain(t("publicPresence.home.launchTimeline.step.waves.qualification"));
+    expect(container.textContent).toContain(t("publicPresence.preview.trust.payment.title"));
+    expect(container.textContent).toContain(variant === "seller_first_v2" ? "The cards you need" : "marketplace");
+  });
+
+  it("keeps all four moved values in SSR with closed triggers", () => {
+    const html = renderToString(
+      <MemoryRouter>
+        <PublicPresenceHomePage
+          actionData={null}
+          source={source}
+          feeSchedule={{ percentageBps: 500, fixedAmount: "0.00", capAmount: "25.00", effectiveFrom: null }}
+        />
+      </MemoryRouter>,
+    );
+    expect(html.match(/aria-expanded="false"/g) ?? []).toHaveLength(4);
+    for (const key of [
+      "publicPresence.home.feeCalculator.sourceNote",
+      "publicPresence.home.sellerEconomics.comparison.sourceNote",
+      "publicPresence.home.launchTimeline.step.waves.qualification",
+      "publicPresence.preview.trust.payment.title",
+      "publicPresence.preview.trust.payment.description",
+      "publicPresence.preview.trust.shipping.title",
+      "publicPresence.preview.trust.shipping.description",
+      "publicPresence.preview.trust.support.title",
+      "publicPresence.preview.trust.support.description",
+    ]) {
+      expect(html.replaceAll("&#x27;", "'").replaceAll("&amp;", "&")).toContain(t(key));
+    }
+  });
+
+  it.each(["/", "/?intent=buy"])(
+    "emits one bounded event per target across a disclosure subtree remount (%s)",
+    (pagePath) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(JSON.stringify({ items: [] }))),
+      );
+      window.dataLayer = [];
+      const feeSchedule = { percentageBps: 500, fixedAmount: "0.00", capAmount: "25.00", effectiveFrom: null };
+      const pageSource = { ...source, pagePath };
+      const { container, rerender } = render(
+        <PublicPresenceHomePage actionData={null} source={pageSource} feeSchedule={feeSchedule} />,
+      );
+      const buttons = () => [...container.querySelectorAll<HTMLButtonElement>("[data-landing-disclosure] button")];
+      expect(window.dataLayer.filter((event) => event.event === "disclosure_opened")).toHaveLength(0);
+      buttons().forEach((button) => fireEvent.click(button));
+      const expected = disclosureTargets.map(([section, target]) => ({
+        event: "disclosure_opened",
+        section,
+        target,
+        variant: pagePath.includes("buy") ? "seller_first_v2" : "seller_first_v1",
+      }));
+      expect(window.dataLayer.filter((event) => event.event === "disclosure_opened")).toEqual(expected);
+      buttons().forEach((button) => {
+        fireEvent.click(button);
+        fireEvent.click(button);
+      });
+      rerender(<PublicPresenceHomePage actionData={null} source={pageSource} feeSchedule={null} />);
+      rerender(<PublicPresenceHomePage actionData={null} source={pageSource} feeSchedule={feeSchedule} />);
+      const calculator = container.querySelector<HTMLButtonElement>(
+        '[data-landing-disclosure="fee_calculator_source_note"] button',
+      );
+      fireEvent.click(calculator!);
+      expect(window.dataLayer.filter((event) => event.event === "disclosure_opened")).toEqual(expected);
+      fireEvent.click(calculator!);
+      rerender(<PublicPresenceHomePage actionData={null} source={{ ...pageSource }} feeSchedule={feeSchedule} />);
+      fireEvent.click(calculator!);
+      expect(window.dataLayer.filter((event) => event.event === "disclosure_opened")).toEqual([
+        ...expected,
+        expected[1],
+      ]);
+    },
+  );
 });
 
 describe("public waitlist form migration smoke", () => {
