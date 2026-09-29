@@ -85,6 +85,7 @@
     "bounded-contexts/channels/features/connection-health/api/policy.ts",
     "bounded-contexts/channels/features/connection-health/api/runtime.ts",
     "bounded-contexts/channels/features/connection-health/read-model/store.ts",
+    "bounded-contexts/channels/features/connections/read-model/operator-read-source.ts",
     "bounded-contexts/channels/features/connections/read-model/projection.ts",
     "bounded-contexts/channels/features/connections/read-model/queries.ts",
     "bounded-contexts/channels/features/credentials/api/runtime.ts",
