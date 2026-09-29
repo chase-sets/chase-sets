@@ -35,6 +35,27 @@ const post = (body: unknown): RequestInit => ({
 });
 
 describe("Buyer Offer Policy real account routes", () => {
+  it("returns per-selection held Preview evidence on the actual command response", async () => {
+    const { runtime } = await fixture();
+    const response = await app(runtime).request(
+      "/policies/bop_one/commands",
+      post({ type: "PreviewBuyerOfferPolicy", expectedVersion: 1, operationId: "preview_evidence", terms }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      status: "draft",
+      preview: {
+        terms,
+        outcomes: [
+          {
+            offerId: "off_one",
+            currentUnitItemAmount: "10.00",
+            result: { status: "held", reason: "market-price-unavailable", evidence: { marketPrice: null } },
+          },
+        ],
+      },
+    });
+  });
   it("retains private-limit sentinels only in owner reads throughout the lifecycle", async () => {
     const { runtime } = await fixture();
     const p = await preview(runtime, privateLimitTerms);

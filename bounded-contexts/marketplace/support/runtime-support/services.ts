@@ -92,6 +92,7 @@ export function createMarketplaceServices(
     db,
     ...(options.managedOfferPricing
       ? {
+          managedOfferPricing: options.managedOfferPricing,
           enforcement: {
             assertInstalled() {
               if (!eventStore.appendToStreams) throw new Error("Managed Offer atomic enforcement is unavailable.");

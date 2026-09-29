@@ -1,4 +1,12 @@
 export const marketplaceBrowserE2eSeedContract = {
+  marketFollowing: {
+    offerId: "off_seed_surging_sparks_restock",
+    heldOfferId: "off_seed_pikachu_jungle_collector_lot",
+    catalogItemId: "cat_seed_surging_sparks_booster_box",
+    productId: "cat_seed_surging_sparks_booster_box::",
+    estimateVersion: "8346001",
+    amount: "130.00",
+  },
   buyer: {
     email: "collector@chasesets.test",
     password: "collector1234",

@@ -3,8 +3,110 @@ import type { BuyerOfferPolicyRequest } from "../domain/contracts";
 import { activate, context, fixture, preview, seedOffer, terms } from "../tests/fixtures";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import { managedFixture } from "../../offers/tests/managed-fixture";
+import { createBuyerOfferPolicyRuntime } from "./runtime";
+import { vi } from "vitest";
+import type { ManagedOfferTarget } from "../../offers/api/managed-authority";
 
 describe("Buyer Offer Policy authoritative runtime", () => {
+  it("accepts identical nested evidence after JSONB changes object key order", async () => {
+    const { store, db } = await fixture();
+    let reordered = false;
+    const runtime = createBuyerOfferPolicyRuntime({
+      eventStore: store,
+      db,
+      enforcement: { assertInstalled() {} },
+      managedOfferPricing: {
+        evaluateTargets: async (requests) =>
+          requests.map(() => ({
+            status: "target" as const,
+            unitItemAmount: "10.00",
+            evidence: {
+              marketPrice: reordered
+                ? { freshUntil: "2026-09-29T00:00:00.000Z", estimateVersion: "1", amount: "10.00" }
+                : { amount: "10.00", estimateVersion: "1", freshUntil: "2026-09-29T00:00:00.000Z" },
+            },
+          })),
+      },
+    });
+    const p = await preview(runtime);
+    reordered = true;
+    expect(
+      (
+        await runtime.execute(
+          "bop_one",
+          {
+            type: "AuthorizeBuyerOfferPolicy",
+            operationId: "reordered",
+            expectedVersion: p.version,
+            previewId: p.preview!.previewId,
+            consent: true,
+          },
+          context,
+        )
+      ).status,
+    ).toBe("active");
+  });
+  it("previews target and held evidence at draft revision 1 and binds every price-only/evidence change", async () => {
+    const { store, db } = await fixture();
+    await seedOffer(store, "off_two");
+    let amount = "12.00";
+    let estimateVersion = "1";
+    const evaluateTargets = vi.fn(
+      async (requests: readonly { policyRevision: number; evaluatedAt: string }[]): Promise<ManagedOfferTarget[]> => {
+        expect(requests.every((request) => request.policyRevision === 1)).toBe(true);
+        return requests.map((request, index) =>
+          index === 0
+            ? {
+                status: "target",
+                unitItemAmount: amount,
+                evidence: {
+                  marketPrice: { amount, estimateVersion, freshUntil: "2026-09-29T00:00:00.000Z" },
+                  evaluatedAt: request.evaluatedAt,
+                },
+              }
+            : {
+                status: "held",
+                reason: "market-price-unavailable",
+                evidence: { marketPrice: null, evaluatedAt: request.evaluatedAt },
+              },
+        );
+      },
+    );
+    const runtime = createBuyerOfferPolicyRuntime({
+      eventStore: store,
+      db,
+      managedOfferPricing: { evaluateTargets },
+      enforcement: { assertInstalled() {} },
+    });
+    const selected = { ...terms, offers: [...terms.offers, { ...terms.offers[0]!, offerId: "off_two" }] };
+    const p = await preview(runtime, selected);
+    expect(p.preview!.outcomes).toMatchObject([
+      {
+        offerId: "off_one",
+        currentUnitItemAmount: "10.00",
+        result: { status: "target", unitItemAmount: "12.00", evidence: { marketPrice: { estimateVersion: "1" } } },
+      },
+      {
+        offerId: "off_two",
+        result: { status: "held", reason: "market-price-unavailable", evidence: { marketPrice: null } },
+      },
+    ]);
+    expect(evaluateTargets).toHaveBeenCalledTimes(1);
+    const command = {
+      type: "AuthorizeBuyerOfferPolicy",
+      expectedVersion: p.version,
+      previewId: p.preview!.previewId,
+      operationId: "evidence_authorize",
+      consent: true,
+    } as const;
+    amount = "13.00";
+    await expect(runtime.execute("bop_one", command, context)).rejects.toMatchObject({ code: "stale_preview" });
+    amount = "12.00";
+    estimateVersion = "2";
+    await expect(runtime.execute("bop_one", command, context)).rejects.toMatchObject({ code: "stale_preview" });
+    estimateVersion = "1";
+    expect((await runtime.execute("bop_one", command, context)).status).toBe("active");
+  });
   it("preserves lifetime consumption across pause, fresh consent, resume and terminal stop", async () => {
     const f = await managedFixture(createInMemoryEventStore().eventStore);
     const accepted = await f.acceptance();
@@ -362,7 +464,7 @@ describe("Buyer Offer Policy authoritative runtime", () => {
     await runtime.list("acc_buyer", "bop_before", 10);
     expect(db.query).toHaveBeenCalledExactlyOnceWith(
       expect.stringContaining("buyer_account_id = $1 AND policy_id > $2"),
-      ["acc_buyer", "bop_before", 10],
+      ["acc_buyer", "bop_before", 10, []],
     );
     await expect(runtime.list("acc_buyer", "", 101)).rejects.toThrow();
   });
