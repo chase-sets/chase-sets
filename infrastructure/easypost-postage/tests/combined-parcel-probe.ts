@@ -9,9 +9,8 @@ import { easyPostTestMemberParcel, easyPostTestRecipient, easyPostTestSender } f
 
 export const confirmation = "execute combined-parcel probe 6461";
 export const workflowPath = ".github/workflows/platform-staging-representative-commerce-state.yml";
-export const bodyHash = "3b0a95ff6988d9e8c6f6267f9290fe40a08b242ec37befc3bc64de51b8f767d3";
-export const focusedCommand =
-  "pnpm --filter @chase-sets/easypost-postage run test -- tests/combined-parcel-probe.test.ts";
+export const bodyHash = "d6c86363ddd6fbed8016ab954481799b1fd48edaa5a6dcdb4ed2e48a36540a86";
+export const focusedCommand = "pnpm --filter @chase-sets/easypost-postage run test tests/combined-parcel-probe.test.ts";
 export const phases = ["pre-a", "case-a-pre-b", "case-b"] as const;
 export const checkpoints = ["pre-a", "post-a", "pre-b", "final"] as const;
 export const caseIds = ["combined-parcel-uninsured", "combined-parcel-insured"] as const;
@@ -926,6 +925,10 @@ export async function executePhase(input: {
   const resume = resumeInput(input.env);
   let state: PrivateState;
   if (phase === "pre-a") {
+    requireProbe(
+      identity.runAttempt === "1",
+      resume ? "resume-requires-first-attempt" : "fresh-state-requires-first-attempt",
+    );
     if (resume) {
       requireProbe(input.resume, "resume-artifact-required");
       state = validateUploadedRecord(

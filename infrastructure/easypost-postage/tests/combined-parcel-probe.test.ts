@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse, stringify } from "yaml";
 import { createEasyPostPostageLabelProvider } from "../index";
@@ -204,6 +205,34 @@ function forbidNetwork() {
 }
 
 describe("provider-free combined-parcel probe", () => {
+  it("collects only the combined-parcel test file under the focused command", () => {
+    const packageRoot = resolve(root, "infrastructure/easypost-postage");
+    const scriptArgs = focusedCommand.split(" run test")[1]!.trim().split(/\s+/);
+    const result = spawnSync(
+      process.execPath,
+      [
+        join(dirname(createRequire(import.meta.url).resolve("vitest/package.json")), "vitest.mjs"),
+        "list",
+        "--filesOnly",
+        "--json",
+        "--config",
+        "./vitest.config.ts",
+        ...scriptArgs,
+      ],
+      {
+        cwd: packageRoot,
+        encoding: "utf8",
+        env: { ...process.env, EASYPOST_API_KEY: "", COMBINED_PARCEL_PROBE_PHASE: "" },
+      },
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stderr).toBe(0);
+    const files = (JSON.parse(result.stdout) as { file: string }[]).map(({ file }) =>
+      relative(packageRoot, resolve(packageRoot, file)).replaceAll("\\", "/"),
+    );
+    expect(files).toEqual(["tests/combined-parcel-probe.test.ts"]);
+  });
+
   it("preserves the existing EasyPost smoke request", async () => {
     const sentinel = forbidNetwork(),
       provider = syntheticProvider();
@@ -487,7 +516,7 @@ describe("provider-free combined-parcel probe", () => {
     });
     const resumeEnv = {
       ...environment,
-      GITHUB_RUN_ATTEMPT: "2",
+      GITHUB_RUN_ID: "900000002",
       COMBINED_PARCEL_PROBE_RESUME_RUN_ID: identity.runId,
       COMBINED_PARCEL_PROBE_RESUME_RUN_ATTEMPT: "1",
       COMBINED_PARCEL_PROBE_RESUME_CHECKPOINT: "pre-a",
@@ -672,118 +701,125 @@ describe("provider-free combined-parcel probe", () => {
       },
     ])
       expect(() => resumeInput(env)).toThrow();
-    await mkdir(join(root, "artifacts/7160"), { recursive: true });
-    const directory = await mkdtemp(join(root, "artifacts/7160/synthetic-download-"));
-    const payload = h.local["pre-a"]!;
-    await writeFile(join(directory, privateFilename), payload);
-    const archiveBytes = new TextEncoder().encode("SYNTHETIC-ARCHIVE-NOT-LIVE-EVIDENCE");
-    const archiveDigest = `sha256:${digest(archiveBytes)}`;
-    const run = {
-      id: Number(identity.runId),
-      run_attempt: 1,
-      path: workflowPath,
-      head_sha: identity.sourceSha,
-      repository: { full_name: identity.repository },
-      event: "workflow_dispatch",
-      head_branch: "main",
-      status: "completed",
-    };
-    const artifact = {
-      id: 900000010,
-      name: privateArtifactName(identity.runId, "1", "pre-a"),
-      expired: false,
-      expires_at: "2026-10-29T18:00:00Z",
-      workflow_run: { id: Number(identity.runId) },
-      digest: archiveDigest,
-    };
-    const github = (mutate: (value: Record<string, unknown>, path: string) => void = () => {}) =>
-      vi.fn<typeof fetch>(async (input) => {
-        const url = new URL(String(input));
-        expect(url.origin).toBe("https://api.github.com");
-        if (url.pathname.endsWith("/zip")) return new Response(archiveBytes);
-        const body: Record<string, unknown> = structuredClone(
-          url.pathname.includes("/attempts/") || url.pathname.endsWith(`/runs/${identity.runId}`)
-            ? run
-            : url.pathname.endsWith("/artifacts")
-              ? url.searchParams.get("name") === artifact.name
-                ? { total_count: 1, artifacts: [artifact] }
-                : { total_count: 0, artifacts: [] }
-              : artifact,
-        );
-        mutate(body, url.pathname);
-        return Response.json(body);
-      });
-    const input = {
-      identity,
-      checkpoint: "pre-a" as const,
-      directory,
-      now,
-      token: "SYNTHETIC-GITHUB-TOKEN",
-      fetch: github(),
-      archivePayload: async () => payload,
-      localPayload: payload,
-      artifactId: "900000010",
-      artifactDigest: digest(archiveBytes),
-    };
-    const verified = await validateArtifact(input);
-    expect(verified.receipt.artifactDigest).toBe(archiveDigest);
-    const resume = await validateArtifact({ ...input, artifactId: undefined, artifactDigest: undefined });
-    expect(resume.payload).toBe(payload);
-    const wrong: ((body: Record<string, unknown>, path: string) => void)[] = [
-      (b, p) => {
-        if (p.includes("/attempts/")) b.path = "wrong-workflow";
-      },
-      (b, p) => {
-        if (p.includes("/attempts/")) b.repository = { full_name: "synthetic/other" };
-      },
-      (b, p) => {
-        if (p.endsWith("/900000010")) b.expired = true;
-      },
-      (b, p) => {
-        if (p.endsWith("/900000010")) b.digest = `sha256:${"0".repeat(64)}`;
-      },
-      (b, p) => {
-        if (p.endsWith("/900000010")) b.name = privateArtifactName(identity.runId, "2", "pre-a");
-      },
-    ];
-    for (const mutate of wrong) await expect(validateArtifact({ ...input, fetch: github(mutate) })).rejects.toThrow();
-    await expect(
-      validateArtifact({
-        ...input,
-        artifactId: undefined,
-        fetch: github((b, p) => {
-          if (p.endsWith("/artifacts") && b.total_count === 1) {
-            b.total_count = 2;
-            b.artifacts = [artifact, artifact];
-          }
+    const directory = await mkdtemp(join(tmpdir(), "combined-parcel-download-"));
+    try {
+      const payload = h.local["pre-a"]!;
+      await writeFile(join(directory, privateFilename), payload);
+      const archiveBytes = new TextEncoder().encode("SYNTHETIC-ARCHIVE-NOT-LIVE-EVIDENCE");
+      const archiveDigest = `sha256:${digest(archiveBytes)}`;
+      const run = {
+        id: Number(identity.runId),
+        run_attempt: 1,
+        path: workflowPath,
+        head_sha: identity.sourceSha,
+        repository: { full_name: identity.repository },
+        event: "workflow_dispatch",
+        head_branch: "main",
+        status: "completed",
+      };
+      const artifact = {
+        id: 900000010,
+        name: privateArtifactName(identity.runId, "1", "pre-a"),
+        expired: false,
+        expires_at: "2026-10-29T18:00:00Z",
+        workflow_run: { id: Number(identity.runId) },
+        digest: archiveDigest,
+      };
+      const github = (mutate: (value: Record<string, unknown>, path: string) => void = () => {}) =>
+        vi.fn<typeof fetch>(async (input) => {
+          const url = new URL(String(input));
+          expect(url.origin).toBe("https://api.github.com");
+          if (url.pathname.endsWith("/zip")) return new Response(archiveBytes);
+          const body: Record<string, unknown> = structuredClone(
+            url.pathname.includes("/attempts/") || url.pathname.endsWith(`/runs/${identity.runId}`)
+              ? run
+              : url.pathname.endsWith("/artifacts")
+                ? url.searchParams.get("name") === artifact.name
+                  ? { total_count: 1, artifacts: [artifact] }
+                  : { total_count: 0, artifacts: [] }
+                : artifact,
+          );
+          mutate(body, url.pathname);
+          return Response.json(body);
+        });
+      const input = {
+        identity,
+        checkpoint: "pre-a" as const,
+        directory,
+        now,
+        token: "SYNTHETIC-GITHUB-TOKEN",
+        fetch: github(),
+        archivePayload: async () => payload,
+        localPayload: payload,
+        artifactId: "900000010",
+        artifactDigest: digest(archiveBytes),
+      };
+      const verified = await validateArtifact(input);
+      expect(verified.receipt.artifactDigest).toBe(archiveDigest);
+      const resume = await validateArtifact({ ...input, artifactId: undefined, artifactDigest: undefined });
+      expect(resume.payload).toBe(payload);
+      const wrong: ((body: Record<string, unknown>, path: string) => void)[] = [
+        (b, p) => {
+          if (p.includes("/attempts/")) b.path = "wrong-workflow";
+        },
+        (b, p) => {
+          if (p.includes("/attempts/")) b.repository = { full_name: "synthetic/other" };
+        },
+        (b, p) => {
+          if (p.endsWith("/900000010")) b.expired = true;
+        },
+        (b, p) => {
+          if (p.endsWith("/900000010")) b.digest = `sha256:${"0".repeat(64)}`;
+        },
+        (b, p) => {
+          if (p.endsWith("/900000010")) b.name = privateArtifactName(identity.runId, "2", "pre-a");
+        },
+      ];
+      for (const mutate of wrong) await expect(validateArtifact({ ...input, fetch: github(mutate) })).rejects.toThrow();
+      await expect(
+        validateArtifact({
+          ...input,
+          artifactId: undefined,
+          fetch: github((b, p) => {
+            if (p.endsWith("/artifacts") && b.total_count === 1) {
+              b.total_count = 2;
+              b.artifacts = [artifact, artifact];
+            }
+          }),
         }),
-      }),
-    ).rejects.toThrow("one-exact-artifact-required");
-    await expect(
-      validateArtifact({
-        ...input,
-        artifactId: undefined,
-        fetch: github((b, p) => {
-          if (p.endsWith("/artifacts") && b.total_count === 0) {
-            b.total_count = 1;
-            b.artifacts = [artifact];
-          }
+      ).rejects.toThrow("one-exact-artifact-required");
+      await expect(
+        validateArtifact({
+          ...input,
+          artifactId: undefined,
+          fetch: github((b, p) => {
+            if (p.endsWith("/artifacts") && b.total_count === 0) {
+              b.total_count = 1;
+              b.artifacts = [artifact];
+            }
+          }),
         }),
-      }),
-    ).rejects.toThrow("resume-checkpoint-rollback");
-    await expect(
-      validateArtifact({
-        ...input,
-        artifactId: undefined,
-        fetch: github((b, p) => {
-          if (p.endsWith(`/runs/${identity.runId}`)) b.run_attempt = 2;
+      ).rejects.toThrow("resume-checkpoint-rollback");
+      await expect(
+        validateArtifact({
+          ...input,
+          artifactId: undefined,
+          fetch: github((b, p) => {
+            if (p.endsWith(`/runs/${identity.runId}`)) b.run_attempt = 2;
+          }),
         }),
-      }),
-    ).rejects.toThrow("resume-attempt-not-quiescent");
-    await expect(validateArtifact({ ...input, archivePayload: async () => "{}" })).rejects.toThrow(
-      "archive-payload-mismatch",
-    );
-    expect(sentinel).not.toHaveBeenCalled();
+      ).rejects.toThrow("resume-attempt-not-quiescent");
+      await expect(validateArtifact({ ...input, archivePayload: async () => "{}" })).rejects.toThrow(
+        "archive-payload-mismatch",
+      );
+      expect(sentinel).not.toHaveBeenCalled();
+    } finally {
+      requireProbe(
+        resolve(directory).startsWith(resolve(tmpdir(), "combined-parcel-download-")),
+        "fixture-cleanup-path",
+      );
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("carries each resume checkpoint through the three phases without a second purchase", async () => {
@@ -793,7 +829,7 @@ describe("provider-free combined-parcel probe", () => {
     for (const checkpoint of checkpoints) {
       const env = {
         ...environment,
-        GITHUB_RUN_ATTEMPT: "2",
+        GITHUB_RUN_ID: "900000002",
         COMBINED_PARCEL_PROBE_RESUME_RUN_ID: identity.runId,
         COMBINED_PARCEL_PROBE_RESUME_RUN_ATTEMPT: "1",
         COMBINED_PARCEL_PROBE_RESUME_CHECKPOINT: checkpoint,
@@ -811,6 +847,38 @@ describe("provider-free combined-parcel probe", () => {
       }
       expect(h.calls.filter((c) => c.path.endsWith("/buy"))).toHaveLength(checkpoint === "post-a" ? 1 : 0);
     }
+  });
+
+  it("refuses fresh state on a rerun attempt so a GitHub re-run cannot rebuy Case A", async () => {
+    const sentinel = forbidNetwork();
+    const rerun = harness("success", { ...environment, GITHUB_RUN_ATTEMPT: "2" });
+    await expect(rerun.phase("pre-a")).rejects.toThrow("fresh-state-requires-first-attempt");
+    expect(rerun.local).toEqual({});
+    expect(rerun.calls).toEqual([]);
+    expect(sentinel).not.toHaveBeenCalled();
+  });
+
+  it("refuses explicit resume on a rerun attempt so a GitHub re-run cannot rebuy Case B", async () => {
+    const sentinel = forbidNetwork();
+    const original = harness();
+    await original.phase("pre-a");
+    original.upload("pre-a");
+    await original.phase("case-a-pre-b");
+    const source = receipt(original.local["post-a"]!, "post-a");
+    expect(validateUploadedRecord(source, identity, "post-a", now).cases[caseIds[1]].phase).toBe("unattempted");
+    const resumeEnv = {
+      ...environment,
+      GITHUB_RUN_ID: "900000002",
+      GITHUB_RUN_ATTEMPT: "2",
+      COMBINED_PARCEL_PROBE_RESUME_RUN_ID: identity.runId,
+      COMBINED_PARCEL_PROBE_RESUME_RUN_ATTEMPT: "1",
+      COMBINED_PARCEL_PROBE_RESUME_CHECKPOINT: "post-a",
+    };
+    const rerun = harness("success", resumeEnv);
+    await expect(rerun.phase("pre-a", source)).rejects.toThrow("resume-requires-first-attempt");
+    expect(rerun.local).toEqual({});
+    expect(rerun.calls).toEqual([]);
+    expect(sentinel).not.toHaveBeenCalled();
   });
 
   it("commits the complete provider-free operator handoff without live values", () => {
@@ -1203,6 +1271,7 @@ describe("parsed combined-parcel workflow authority", () => {
         focusedCommand.replace("combined-parcel-probe.test.ts", "*.test.ts"),
         `${focusedCommand} easypost-smoke.test.ts`,
         `${focusedCommand} && echo bypass`,
+        "pnpm --filter @chase-sets/easypost-postage run test -- tests/combined-parcel-probe.test.ts",
       ].map((command): [string, (w: Workflow, j: Job) => void] => [
         command,
         (_, j) => {

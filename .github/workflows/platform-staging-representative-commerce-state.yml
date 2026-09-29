@@ -391,7 +391,7 @@ jobs:
         id: pre-a
         env:
           COMBINED_PARCEL_PROBE_PHASE: pre-a
-        run: pnpm --filter @chase-sets/easypost-postage run test -- tests/combined-parcel-probe.test.ts
+        run: pnpm --filter @chase-sets/easypost-postage run test tests/combined-parcel-probe.test.ts
 
       - name: Upload pre-a private checkpoint
         id: upload-pre-a
@@ -425,7 +425,7 @@ jobs:
         id: case-a-pre-b
         env:
           COMBINED_PARCEL_PROBE_PHASE: case-a-pre-b
-        run: pnpm --filter @chase-sets/easypost-postage run test -- tests/combined-parcel-probe.test.ts
+        run: pnpm --filter @chase-sets/easypost-postage run test tests/combined-parcel-probe.test.ts
 
       - name: Upload post-a private checkpoint
         id: upload-post-a
@@ -488,7 +488,7 @@ jobs:
         id: case-b
         env:
           COMBINED_PARCEL_PROBE_PHASE: case-b
-        run: pnpm --filter @chase-sets/easypost-postage run test -- tests/combined-parcel-probe.test.ts
+        run: pnpm --filter @chase-sets/easypost-postage run test tests/combined-parcel-probe.test.ts
 
       - name: Upload final private checkpoint
         id: upload-final
