@@ -145,6 +145,7 @@ const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/primitives",
   "@chase-sets/product-measures",
   "@chase-sets/product-selection",
+  "@chase-sets/provider-credentials",
   "@chase-sets/provider-webhook-inbox",
   "@chase-sets/public-docs",
   "@chase-sets/public-presence",
@@ -966,6 +967,21 @@ describe("change-scope", () => {
     expect(scope.affectedWorkspaces).toEqual(["@test/inventory", "@test/app-platform-api"]);
     expect(scope.directlyTestOnlyAffectedWorkspaces).toEqual([]);
     expect(scope.affectedWorkspaces).not.toContain("@test/platform-runtime");
+  });
+
+  it("includes provider credential vocabulary and its real Catalog dependents", () => {
+    const scope = classifyChanges({ changedFiles: ["contracts/provider-credentials/index.ts"] });
+
+    expect(scope.directlyAffectedWorkspaces).toEqual(["@chase-sets/provider-credentials"]);
+    expect(scope.affectedWorkspaces).toEqual(
+      expect.arrayContaining([
+        "@chase-sets/provider-credentials",
+        "@chase-sets/catalog",
+        "@chase-sets/app-platform-api",
+      ]),
+    );
+    expect(scope.unitTestsRequired).toBe(true);
+    expect(scope.buildRequired).toBe(true);
   });
 
   it("expands affected workspaces through workspace dependents", () => {
