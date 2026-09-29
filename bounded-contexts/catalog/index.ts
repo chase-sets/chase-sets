@@ -38,15 +38,17 @@ const baseModule = defineBoundedContextModule<CatalogServices, PgTransactionalPo
 
 export const module = {
   ...baseModule,
-  buildProjectionGroups: (): readonly BcProjectionGroup[] =>
-    (baseModule.projectionGroups ?? []).map((group) =>
-      group.projectionName === "catalog-product-measures-projection"
-        ? {
-            ...group,
-            reset: defineBcProjectionGroupReset(async (db: PgQueryable) => {
-              await resetProductMeasurePublicationParts(db, createCheckpointKey(catalogProductMeasureSubscription));
-            }),
-          }
-        : group,
-    ),
+  buildProjectionGroups: (): readonly BcProjectionGroup[] => [
+    ...(baseModule.projectionGroups ?? []),
+    {
+      projectionName: catalogProductMeasureSubscription.projectionName,
+      projectionRevision: 1,
+      sourceContextNames: ["catalog"],
+      ownedTables: [],
+      requiredDuringBootstrap: false,
+      reset: defineBcProjectionGroupReset(async (db: PgQueryable) => {
+        await resetProductMeasurePublicationParts(db, createCheckpointKey(catalogProductMeasureSubscription));
+      }),
+    },
+  ],
 };
