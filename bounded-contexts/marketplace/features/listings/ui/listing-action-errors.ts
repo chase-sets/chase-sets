@@ -10,8 +10,8 @@ export function listingActionFeedback(error: unknown): string | null {
 }
 
 export function throwListingActionFailure(error: unknown): never {
-  if (error instanceof Response) throw error;
-  const status = marketplaceApiErrorAdapter.getStatus(error);
+  if (error instanceof Response && error.status < 400) throw error;
+  const status = error instanceof Response ? error.status : marketplaceApiErrorAdapter.getStatus(error);
   throw Response.json(internalErrorResponse(), {
     status: status !== null && status >= 400 && status <= 599 ? status : 500,
   });

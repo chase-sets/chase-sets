@@ -1,4 +1,4 @@
-import { withListingErrors } from "./listing-errors";
+import { listingErrorResponse } from "./listing-errors";
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
@@ -86,9 +86,8 @@ function documentCommandBody(body: Record<string, unknown>) {
 export function createListingGatePolicyRoutes(policies: PolicyRuntime) {
   const app = new Hono<MarketplaceApiEnv>();
 
-  app.get(
-    "/",
-    withListingErrors([], async (c) => {
+  app.get("/", async (c) => {
+    try {
       const access = requireAccess(c, "listings.view");
       if (access.response) {
         return access.response;
@@ -107,12 +106,13 @@ export function createListingGatePolicyRoutes(policies: PolicyRuntime) {
         value: resolved.value,
         history: document?.history ?? [],
       });
-    }),
-  );
+    } catch (error) {
+      return listingErrorResponse(error, []);
+    }
+  });
 
-  app.get(
-    "/:id",
-    withListingErrors([], async (c) => {
+  app.get("/:id", async (c) => {
+    try {
       const access = requireAccess(c, "listings.view");
       if (access.response) {
         return access.response;
@@ -132,12 +132,13 @@ export function createListingGatePolicyRoutes(policies: PolicyRuntime) {
       }
 
       return c.json(document);
-    }),
-  );
+    } catch (error) {
+      return listingErrorResponse(error, []);
+    }
+  });
 
-  app.post(
-    "/",
-    withListingErrors(["listing-gate-policy-invalid"], async (c) => {
+  app.post("/", async (c) => {
+    try {
       const access = requireAccess(c, "listings.manage");
       if (access.response) {
         return access.response;
@@ -163,12 +164,13 @@ export function createListingGatePolicyRoutes(policies: PolicyRuntime) {
         context,
       );
       return c.json({ id: result.documentId, version: result.version }, 201);
-    }),
-  );
+    } catch (error) {
+      return listingErrorResponse(error, ["listing-gate-policy-invalid"]);
+    }
+  });
 
-  app.put(
-    "/:id",
-    withListingErrors(["listing-gate-policy-invalid"], async (c) => {
+  app.put("/:id", async (c) => {
+    try {
       const access = requireAccess(c, "listings.manage");
       if (access.response) {
         return access.response;
@@ -195,8 +197,10 @@ export function createListingGatePolicyRoutes(policies: PolicyRuntime) {
         context,
       );
       return c.json({ id: result.documentId, version: result.version });
-    }),
-  );
+    } catch (error) {
+      return listingErrorResponse(error, ["listing-gate-policy-invalid"]);
+    }
+  });
 
   return app;
 }

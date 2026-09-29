@@ -41,6 +41,28 @@ afterEach(() => {
 
 describe("presents only allowlisted Listing feedback", () => {
   it.each([
+    new Error("postgres password=secret"),
+    { body: { nested: "nested-secret-body" } },
+    json({ secret: "nested-secret-body" }, 500),
+  ])("redacts unknown action rejections before the root boundary: %s", async (failure) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        if (String(input).includes("/api/auth/session")) return json({ actor });
+        throw failure;
+      }),
+    );
+    let result: unknown;
+    try {
+      await listingsAction(actionArgs("set-order-capacity"));
+    } catch (error) {
+      result = error;
+    }
+    expect(result).toBeInstanceOf(Response);
+    expect((result as Response).status).toBe(500);
+    expect(await (result as Response).text()).not.toMatch(/password=secret|nested-secret-body/);
+  });
+  it.each([
     [listingsAction, "set-order-capacity", "order_capacity_invalid", "orderCapacityInvalid"],
     [listingsNewAction, "create-listing", "listing_command_rejected", "commandRejected"],
   ] as const)("presents only allowlisted Listing feedback for %s %s", async (action, intent, code, copy) => {

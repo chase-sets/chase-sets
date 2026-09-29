@@ -46,7 +46,10 @@ function buildApp(
   app.onError(errorHandler);
   app.use("*", async (c, next) => {
     c.set("actor", options.actor === undefined ? actor : options.actor);
-    c.set("context", { tenantId: "tnt_test" as never, audit: { performedByUserId: "usr_seller" as never } });
+    c.set("context", {
+      tenantId: "tnt_test" as never,
+      audit: { performedByUserId: "usr_seller" as never, forAccountId: "acc_seller" as never },
+    });
     await next();
   });
   app.route("/account", createAccountListingRoutes(services as MarketplaceListingServices, options.resolver));
@@ -207,7 +210,7 @@ function jsonRequest(body: unknown = createBody): RequestInit {
 describe("safe Listing errors", () => {
   it("redacts bulk price outcome messages without changing row outcomes or successful writes", async () => {
     const response = await buildApp({
-      applyBulkListingPriceUpdates: vi.fn(async () => [
+      applyBulkListingPriceUpdates: vi.fn<MarketplaceListingServices["applyBulkListingPriceUpdates"]>(async () => [
         { listingId: "lst_1", outcome: "applied", version: 2 },
         { listingId: "lst_2", outcome: "error", version: 0, message: "postgres password=secret" },
         { listingId: "lst_3", outcome: "conflict", version: 1, message: "nested-secret-body" },
@@ -297,7 +300,10 @@ describe("safe Listing errors", () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     for (const plain of [false, true]) {
       const { eventStore } = createInMemoryEventStore();
-      const context = { tenantId: "tnt_test" as never, audit: { performedByUserId: "usr_seller" as never } };
+      const context = {
+        tenantId: "tnt_test" as never,
+        audit: { performedByUserId: "usr_seller" as never, forAccountId: "acc_seller" as never },
+      };
       await eventStore.appendToStream({
         streamId: "marketplace.listing-lst_1",
         expectedVersion: "no_stream",
@@ -312,7 +318,12 @@ describe("safe Listing errors", () => {
       });
       const append = vi.spyOn(eventStore, "appendToStream");
       if (plain) append.mockRejectedValue(new Error("Only active listings can be paused."));
-      const db = { query: vi.fn(async () => ({ rows: [], rowCount: 0 })) };
+      const db = {
+        query: vi.fn(async () => ({ rows: [], rowCount: 0 })),
+        connect: async () => {
+          throw new Error("Unexpected transaction");
+        },
+      };
       const services = createMarketplaceServices(db);
       const listings = createMarketplaceListingRuntime({
         db,

@@ -1,7 +1,5 @@
 import { t } from "@chase-sets/localization";
 import { TypedIdBoundaryDomainError } from "@chase-sets/http/typed-id";
-import type { Handler } from "hono";
-import type { MarketplaceApiEnv } from "../../../api";
 import { MarketplaceListingDomainError } from "../domain/listing-error";
 import { MarketplaceListingBulkPriceUpdatePolicyError } from "../domain/bulk-price-update-policy";
 import { MarketplaceEvidenceGovernanceError } from "../domain/evidence-governance";
@@ -74,17 +72,4 @@ export function listingErrorResponse(error: unknown, allowed: readonly ListingEr
     status: entry.status,
     headers: { "Content-Type": "application/json" },
   });
-}
-
-export function withListingErrors(
-  allowed: readonly ListingErrorCode[],
-  handler: Handler<MarketplaceApiEnv>,
-): Handler<MarketplaceApiEnv> {
-  return async (c, next) => {
-    try {
-      return await handler(c, next);
-    } catch (error) {
-      return listingErrorResponse(error, allowed);
-    }
-  };
 }
