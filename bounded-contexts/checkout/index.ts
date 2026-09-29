@@ -1,6 +1,4 @@
-import { defineBcProjectionGroupReset, type BcProjectionGroup } from "@chase-sets/bounded-context-module";
-import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
-import { resetProductMeasurePublicationParts, type PgQueryable } from "@chase-sets/event-core-postgres";
+import type { BcProjectionGroup } from "@chase-sets/bounded-context-module";
 export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
@@ -12,7 +10,10 @@ import { createCheckoutCartMcpHandlers } from "./features/cart/api/mcp";
 import { buildCheckoutCatalogProjectionHandlers } from "./features/cart/integrations/catalog/catalog-projection";
 import { buildCheckoutIdentitySellerAccountsProjectionHandlers } from "./features/cart/integrations/identity/identity-projection";
 import { buildCheckoutInventorySupplyProjectionHandlers } from "./features/cart/integrations/inventory/inventory-projection";
-import { buildCheckoutMarketplaceSellerOptionsProjectionHandlers } from "./features/cart/integrations/marketplace/marketplace-projection";
+import {
+  buildCheckoutMarketplaceSellerOptionsProjectionHandlers,
+  withCheckoutProductMeasurePublicationReset,
+} from "./features/cart/integrations/marketplace/marketplace-projection";
 import { buildCheckoutReputationSellerReviewsProjectionHandlers } from "./features/cart/integrations/reputation/reputation-projection";
 import { buildCheckoutSellListProjectionHandlers } from "./features/sell-list/read-model/projection";
 import { buildCheckoutPaymentAffordanceProjectionHandlers } from "./features/sessions/integrations/payments/payment-affordance-projection";
@@ -87,36 +88,6 @@ const baseModule = defineBoundedContextModule<CheckoutServices, PgTransactionalP
 
 export const module = {
   ...baseModule,
-  buildProjectionGroups(this: Pick<typeof baseModule, "projectionGroups">): readonly BcProjectionGroup[] {
-    return (this.projectionGroups ?? []).map((group) =>
-      group.projectionName === "checkout-marketplace-listing-options-projection"
-        ? {
-            ...group,
-            reset: defineBcProjectionGroupReset(async (db: PgQueryable) => {
-              if (group.resetStrategy === "truncate-owned-tables") {
-                const ownedTables = group.ownedTables.map((table) => {
-                  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(table)) {
-                    throw new Error(`Invalid checkout projection table name '${table}'.`);
-                  }
-                  return table;
-                });
-                if (ownedTables.length > 0) await db.query(`TRUNCATE TABLE ${ownedTables.join(", ")}`);
-              } else if (group.resetStrategy !== "replay-only") {
-                throw new Error(`Unsupported listing-options reset strategy '${group.resetStrategy}'.`);
-              }
-              await resetProductMeasurePublicationParts(
-                db,
-                createCheckpointKey(
-                  contextManifest.eventSubscriptions.find(
-                    (subscription) =>
-                      subscription.sourceContextName === "catalog" &&
-                      subscription.projectionName === group.projectionName,
-                  )!,
-                ),
-              );
-            }),
-          }
-        : group,
-    );
-  },
+  buildProjectionGroups: (): readonly BcProjectionGroup[] =>
+    (baseModule.projectionGroups ?? []).map(withCheckoutProductMeasurePublicationReset),
 };

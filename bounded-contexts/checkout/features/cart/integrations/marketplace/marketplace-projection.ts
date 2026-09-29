@@ -1,6 +1,11 @@
 import { resolveProjectionDb } from "@chase-sets/event-core/projector";
+import { defineBcProjectionGroupReset, type BcProjectionGroup } from "@chase-sets/bounded-context-module";
 import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
-import { buildProductMeasurePublicationHandlers } from "@chase-sets/event-core-postgres";
+import {
+  buildProductMeasurePublicationHandlers,
+  resetProductMeasurePublicationParts,
+} from "@chase-sets/event-core-postgres";
+import { assertSqlIdentifier } from "@chase-sets/event-core-postgres/sql-identifier";
 import contextManifest from "../../../../context.json" with { type: "json" };
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
@@ -14,6 +19,28 @@ const measurePublicationCheckpointKey = createCheckpointKey(
       subscription.projectionName === "checkout-marketplace-listing-options-projection",
   )!,
 );
+
+export function withCheckoutProductMeasurePublicationReset(group: BcProjectionGroup): BcProjectionGroup {
+  return group.projectionName === "checkout-marketplace-listing-options-projection"
+    ? {
+        ...group,
+        reset: defineBcProjectionGroupReset(async (db: PgQueryable) => {
+          await resetProductMeasurePublicationParts(
+            db,
+            createCheckpointKey(
+              contextManifest.eventSubscriptions.find(
+                (subscription) =>
+                  subscription.sourceContextName === "catalog" && subscription.projectionName === group.projectionName,
+              )!,
+            ),
+          );
+          if (group.resetStrategy === "truncate-owned-tables" && group.ownedTables.length > 0) {
+            await db.query(`TRUNCATE TABLE ${group.ownedTables.map(assertSqlIdentifier).join(", ")}`);
+          }
+        }),
+      }
+    : group;
+}
 
 function productMeasureSnapshotFromUnknown(value: unknown) {
   return value && typeof value === "object" ? JSON.stringify(value) : null;

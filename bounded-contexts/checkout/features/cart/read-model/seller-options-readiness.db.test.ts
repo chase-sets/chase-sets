@@ -49,7 +49,10 @@ import {
 import { buildCheckoutCartProjectionHandlers } from "./projection";
 import { listCartLines, listOwnCartLines, type CheckoutCartLineRow } from "./queries";
 import { checkoutCartSchemaMigrations, checkoutCartSchemaSql } from "./schema";
-import { buildCheckoutMarketplaceSellerOptionsProjectionHandlers } from "../integrations/marketplace/marketplace-projection";
+import {
+  buildCheckoutMarketplaceSellerOptionsProjectionHandlers,
+  withCheckoutProductMeasurePublicationReset,
+} from "../integrations/marketplace/marketplace-projection";
 
 /**
  * DB-tier replacement for the former seller-options readiness interpreter test.
@@ -2255,6 +2258,7 @@ describeDb("seller-options revision rebuild from source history", () => {
             (entry) => entry.projectionName === projectionName,
           ),
           projectionGroups: [definition],
+          buildProjectionGroups: () => [withCheckoutProductMeasurePublicationReset(definition)],
           projectionHandlerSets: () => [],
           buildSubscriptions: (services: Parameters<NonNullable<typeof checkoutModule.buildSubscriptions>>[0]) =>
             checkoutModule.buildSubscriptions!(services).filter((entry) => entry.projectionName === projectionName),
