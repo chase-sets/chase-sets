@@ -463,7 +463,7 @@ describe("payments atomic webhook inbox (real Postgres)", () => {
     expect(instruments.rows[0].readiness).toBe("removed");
   });
 
-  it.each(["recorded-only", "mismatched", "repeated-create", "out-of-order"])(
+  it.each(["recorded-only", "mismatched", "missing-identity", "repeated-create", "out-of-order"])(
     "poison history remains retryable: %s",
     async (kind) => {
       await seed();
@@ -480,6 +480,11 @@ describe("payments atomic webhook inbox (real Postgres)", () => {
           "UPDATE event_store_events SET payload = jsonb_set(payload, '{paymentId}', '\"pay_other\"') WHERE stream_id = $1",
           [streamId],
         );
+      }
+      if (kind === "missing-identity") {
+        await pool.query("UPDATE event_store_events SET payload = payload - 'paymentId' WHERE stream_id = $1", [
+          streamId,
+        ]);
       }
       if (kind === "repeated-create" || kind === "out-of-order") {
         await store.appendToStream({

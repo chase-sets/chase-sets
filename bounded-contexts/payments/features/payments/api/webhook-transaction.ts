@@ -51,7 +51,7 @@ export function createPaymentWebhookRunner(pool: PgTransactionalPool, store: Pos
                 if (
                   (event.streamVersion === 1 && event.eventType !== createdType) ||
                   (event.streamVersion !== 1 && event.eventType === createdType) ||
-                  (event.payload[idField] !== undefined &&
+                  ((event.eventType === createdType || event.payload[idField] !== undefined) &&
                     event.payload[idField] !== input.streamId.slice(prefix.length))
                 ) {
                   throw new Error("Payment webhook aggregate history is inconsistent.");
