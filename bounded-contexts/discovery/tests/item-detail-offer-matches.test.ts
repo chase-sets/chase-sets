@@ -203,6 +203,7 @@ describe("item detail offer matches", () => {
       streamId: "inventory.item-itm_charizard",
     });
 
+    expect(calls.shift()?.sql).toContain("DELETE FROM event_projection_measure_publication_parts");
     expect(calls[0].sql).toContain("DELETE FROM discovery_market_product_measures");
     expect(calls[1].sql).toContain("INSERT INTO discovery_market_product_measures");
     expect(calls[2].sql).toContain("UPDATE discovery_market_listings AS listing");

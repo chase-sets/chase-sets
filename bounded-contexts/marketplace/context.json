@@ -56,6 +56,8 @@
         "catalog.catalog-item.retired",
         "catalog.catalog-item.archived",
         "catalog.catalog-item.product-measures-resolved",
+        "catalog.catalog-item.product-measures-publication-part-recorded",
+        "catalog.catalog-item.product-measures-publication-completed",
         "catalog.catalog-item.category-assigned",
         "catalog.catalog-item.category-removed",
         "catalog.blueprint.created",
@@ -98,7 +100,11 @@
       "projectionName": "marketplace-listing-projection",
       "subscriptionVersion": 1,
       "filterToEventTypes": true,
-      "eventTypes": ["catalog.catalog-item.product-measures-resolved"],
+      "eventTypes": [
+        "catalog.catalog-item.product-measures-resolved",
+        "catalog.catalog-item.product-measures-publication-part-recorded",
+        "catalog.catalog-item.product-measures-publication-completed"
+      ],
       "order": 21,
       "projectionHandlerSetNames": ["marketplace-listing-projection"]
     },
