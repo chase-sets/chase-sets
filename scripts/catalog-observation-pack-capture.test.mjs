@@ -3,6 +3,47 @@ import { describe, expect, it } from "vitest";
 import { captureObservationPack, observationPackCapturePresets } from "./catalog-observation-pack-capture.ts";
 import { getActiveCatalogProviderIntegrationProfileVersion } from "../bounded-contexts/catalog/features/source-observations/api/provider-integration-profiles.ts";
 import { sha256 } from "../bounded-contexts/catalog/features/source-observations/api/observation-pack.ts";
+import {
+  createPackBackedProviderAdapter,
+  integrationScopeFromManifest,
+} from "../bounded-contexts/catalog/features/source-observations/api/seeding/representative-catalog-replay.ts";
+import { createSourceObservationProviderImportRuntime } from "../bounded-contexts/catalog/features/source-observations/api/source-observation-provider-import-runtime.ts";
+
+it.each(Object.values(observationPackCapturePresets))(
+  "replays the profile-derived target for capture preset $key",
+  async (preset) => {
+    const profileVersion = getActiveCatalogProviderIntegrationProfileVersion(preset.providerKey, {
+      profileKey: preset.profileKey,
+    });
+    const manifest = {
+      captureContentHash: "sha256:synthetic-preset-control",
+      identity: {
+        provider: {
+          key: preset.providerKey,
+          ingestionUnit: preset.unitKey,
+          integrationProfileVersion: profileVersion.version,
+        },
+        productLine: { key: preset.identity.productLineKey },
+        set: { displayName: preset.identity.setDisplayName },
+        language: preset.identity.language,
+        scope: {
+          scopeKey: preset.identity.scopeKey,
+          coordinates: Object.entries(preset.identity.scopeCoordinates).map(([key, value]) => ({ key, value })),
+        },
+      },
+    };
+    const runtime = createSourceObservationProviderImportRuntime({ mergeCandidates: {} });
+    const targets = await runtime.resolveProviderAdapterImportTargets(
+      integrationScopeFromManifest(manifest),
+      profileVersion,
+    );
+    expect(targets).toHaveLength(1);
+    const adapter = createPackBackedProviderAdapter(manifest, []);
+    await expect(
+      adapter.planImport({ unitKey: preset.unitKey, scopeKey: targets[0].scopeKey, values: targets[0].values }),
+    ).resolves.toMatchObject({ scope: { scopeKey: preset.identity.scopeKey } });
+  },
+);
 
 describe("Observation Pack provider image requests", () => {
   it("uses the provider's Romance Dawn identifier throughout capture identity and scope", () => {
