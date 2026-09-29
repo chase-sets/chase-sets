@@ -7,6 +7,7 @@ import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ts from "@chase-sets/typescript-compiler-api";
 import type { PublicMarketplaceFeeSchedule } from "./fee-comparison-calculator";
+import { checkoutFeeTranslationValues, fallbackCheckoutFeePreview } from "./checkout-fee-preview";
 import { PublicInfoPage, PublicPresenceHomePage } from "./public-pages";
 import { publicPresenceT as t } from "./public-presence-translator";
 
@@ -132,7 +133,9 @@ describe("landing fine-print disclosures", () => {
       "publicPresence.preview.trust.support.title",
       "publicPresence.preview.trust.support.description",
     ]) {
-      expect(html.replaceAll("&#x27;", "'").replaceAll("&amp;", "&")).toContain(t(key));
+      expect(html.replaceAll("&#x27;", "'").replaceAll("&amp;", "&")).toContain(
+        t(key, checkoutFeeTranslationValues(fallbackCheckoutFeePreview)),
+      );
     }
   });
 
@@ -151,7 +154,10 @@ describe("landing fine-print disclosures", () => {
       );
       const buttons = () => [...container.querySelectorAll<HTMLButtonElement>("[data-landing-disclosure] button")];
       expect(window.dataLayer.filter((event) => event.event === "disclosure_opened")).toHaveLength(0);
-      buttons().forEach((button) => fireEvent.click(button));
+      buttons().forEach((button) => {
+        fireEvent.click(button);
+        expect(button.getAttribute("aria-expanded")).toBe("true");
+      });
       const expected = disclosureTargets.map(([section, target]) => ({
         event: "disclosure_opened",
         section,
@@ -161,7 +167,9 @@ describe("landing fine-print disclosures", () => {
       expect(window.dataLayer.filter((event) => event.event === "disclosure_opened")).toEqual(expected);
       buttons().forEach((button) => {
         fireEvent.click(button);
+        expect(button.getAttribute("aria-expanded")).toBe("false");
         fireEvent.click(button);
+        expect(button.getAttribute("aria-expanded")).toBe("true");
       });
       rerender(<PublicPresenceHomePage actionData={null} source={pageSource} feeSchedule={null} />);
       rerender(<PublicPresenceHomePage actionData={null} source={pageSource} feeSchedule={feeSchedule} />);
@@ -604,6 +612,7 @@ describe("public waitlist form migration smoke", () => {
     expect([...timelineSection.querySelectorAll("h3")].map((heading) => heading.textContent)).toEqual([
       "Join the waitlist",
       "Numbered beta invite waves",
+      "How later waves qualify",
       "Public launch: open signup",
     ]);
     expect(timelineSection.textContent).toContain("Wave 1: 100 invites");
@@ -1055,7 +1064,7 @@ describe("public waitlist form migration smoke", () => {
       seller_tools: ["tinted", "tinted", "tinted", "tinted"],
       founders_offer: ["tinted"],
       launch_timeline: ["tinted", "tinted", "tinted"],
-      product_preview: ["tinted"],
+      product_preview: [],
       founder_story: ["tinted"],
       final_cta: ["elevated"],
       faq: ["tinted", "tinted"],
@@ -1740,21 +1749,21 @@ describe("landing surface-diet census (AC5)", () => {
 
   it("gives every Surface root in public-pages.tsx an explicit elevation intent with no bare or legacy elevated roots (#8270 AC3)", () => {
     const surfaces = surfaceElements(publicPagesSource);
-    // 2 shell roots (nav/footer, flush) + 11 landing roots (1 elevated panel,
-    // 10 tinted) + 1 PublicInfoPage section root (tinted) = 14, matching the
+    // 2 shell roots (nav/footer, flush) + 10 landing roots (1 elevated panel,
+    // 9 tinted) + 1 PublicInfoPage section root (tinted) = 13, matching the
     // source-derived census.
-    expect(surfaces).toHaveLength(14);
+    expect(surfaces).toHaveLength(13);
 
     const explicitElevation = surfaces.filter((surface) => surface.elevation !== null);
     const legacyElevated = surfaces.filter((surface) => surface.elevatedBoolean);
     const bareRoots = surfaces.filter((surface) => surface.elevation === null && !surface.elevatedBoolean);
 
-    expect(explicitElevation).toHaveLength(14);
+    expect(explicitElevation).toHaveLength(13);
     expect(legacyElevated).toHaveLength(0);
     expect(bareRoots).toHaveLength(0);
 
     expect(explicitElevation.filter((surface) => surface.elevation === "flush")).toHaveLength(2);
-    expect(explicitElevation.filter((surface) => surface.elevation === "tinted")).toHaveLength(11);
+    expect(explicitElevation.filter((surface) => surface.elevation === "tinted")).toHaveLength(10);
     expect(explicitElevation.filter((surface) => surface.elevation === "elevated")).toHaveLength(1);
     expect(explicitElevation.filter((surface) => surface.elevation === "outlined")).toHaveLength(0);
     // Source-level guard: a bare `elevated` attribute (boolean or expression)
