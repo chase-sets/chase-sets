@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { format } from "prettier";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import * as generator from "./generate-guard-import-candidate-emission.mjs";
 import { importerSpecifierFixture as fixture } from "./fixtures/guard-import-candidate-emission/importer-specifier-fixture.mjs";
 import { deriveGuardCandidateProvenance } from "./guard-candidate-provenance.mjs";
@@ -828,42 +828,149 @@ function compareTrees(base, candidate) {
 }
 const tree = (...names) => Buffer.from(`${names.join("\0")}\0`);
 
-describe("candidate-specific inventory neutrality", () => {
-  it("H1 actual non-injected provenance resolution or exact refusal", () => {
+const neutralityForkPoint = "406d9bf5d82cbee79fcc5b295c67aa7cc9f35bb9";
+const neutralityLanding = "c08e1e4ec547dcbd70959874b48afd70931026cc";
+function pinnedProvenance(readGit = git) {
+  return deriveGuardCandidateProvenance({
+    env: { GITHUB_EVENT_NAME: "merge_group" },
+    execGit: (args) =>
+      args.length === 2 && args[0] === "rev-parse" && args[1] === "HEAD" ? neutralityLanding : readGit(args),
+    readEventPayload: () => ({ merge_group: { head_sha: neutralityLanding, base_sha: neutralityForkPoint } }),
+  });
+}
+function assertPinnedProvenance(readGit = git) {
+  const record = pinnedProvenance(readGit);
+  const { landingCandidate, baseTipAtAnalysis, forkPoint } = record.roles;
+  expect({ landingCandidate, baseTipAtAnalysis, forkPoint }).toEqual({
+    landingCandidate: { sha: neutralityLanding, source: "merge-group-event-head" },
+    baseTipAtAnalysis: { sha: neutralityForkPoint, source: "merge-group-event-base" },
+    forkPoint: { sha: neutralityForkPoint, source: "git-merge-base" },
+  });
+  expect(record.environment).toBe("merge-group");
+  emit("H1_PINNED_PROVENANCE", { environment: record.environment, roles: record.roles });
+}
+function assertPinnedNeutrality(readGit = git) {
+  for (const sha of [neutralityForkPoint, neutralityLanding]) {
     try {
-      const record = deriveGuardCandidateProvenance();
-      for (const name of ["landingCandidate", "baseTipAtAnalysis", "forkPoint"]) {
-        expect(record.roles[name].sha).toMatch(/^[a-f0-9]{40}$/);
-        expect(record.roles[name].source).toEqual(expect.any(String));
-      }
-      emit("H1_HOSTED_PROVENANCE", { status: "resolved", environment: record.environment, roles: record.roles });
-    } catch (error) {
-      emit("H1_HOSTED_PROVENANCE", {
-        status: "refused",
-        environment: process.env.GITHUB_EVENT_NAME ?? "plain",
-        code: error.code,
-        reachedClause: error.reachedClause,
-      });
-      throw error;
+      readGit(["cat-file", "-e", `${sha}^{commit}`]);
+    } catch {
+      neutralityError("NEUTRALITY_PINNED_OBJECT_MISSING", "pinned-object-existence");
+    }
+  }
+  let parentage;
+  try {
+    parentage = readGit(["rev-list", "--parents", "-n", "1", neutralityLanding]).toString("utf8").trim().split(/\s+/);
+  } catch {
+    neutralityError("NEUTRALITY_PINNED_PARENTAGE_MISMATCH", "pinned-parentage");
+  }
+  if (JSON.stringify(parentage) !== JSON.stringify([neutralityLanding, neutralityForkPoint]))
+    neutralityError("NEUTRALITY_PINNED_PARENTAGE_MISMATCH", "pinned-parentage");
+  const read = (sha) => () => readGit(["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha]);
+  const members = compareTrees(read(neutralityForkPoint), read(neutralityLanding));
+  expect(members.length).toBeGreaterThan(0);
+  emit("N1_NEUTRALITY", { candidate: neutralityLanding, forkPoint: neutralityForkPoint, members: members.length });
+  const added = readGit(["diff", "--name-only", "--diff-filter=A", neutralityForkPoint, neutralityLanding])
+    .toString("utf8")
+    .trim()
+    .split("\n")
+    .filter(Boolean);
+  expect(added.sort()).toEqual([
+    "scripts/check-structure/fixtures/guard-import-candidate-emission/emission-oracle.json",
+    "scripts/check-structure/fixtures/guard-import-candidate-emission/importer-specifier-fixture.mjs",
+    "scripts/check-structure/generate-guard-import-candidate-emission.mjs",
+    "scripts/check-structure/generate-guard-import-candidate-emission.test.mjs",
+  ]);
+  const production = new Set(enumerateTrackedRoots(repoRoot));
+  for (const file of added) {
+    expect(file).toMatch(/^scripts\/.*\.(?:mjs|json)$/);
+    expect(production.has(file)).toBe(false);
+  }
+}
+
+describe("candidate-specific inventory neutrality", () => {
+  it("H1 pinned #8409 merge-group landing replays the AC10 roles exactly", () => {
+    assertPinnedProvenance();
+  });
+
+  it("N1 pinned #8409 landing is inventory-neutral against its fork point", () => {
+    const calls = [];
+    assertPinnedNeutrality((args) => {
+      calls.push(args);
+      return git(args);
+    });
+    expect(calls).toEqual([
+      ["cat-file", "-e", `${neutralityForkPoint}^{commit}`],
+      ["cat-file", "-e", `${neutralityLanding}^{commit}`],
+      ["rev-list", "--parents", "-n", "1", neutralityLanding],
+      ["ls-tree", "-r", "-z", "--name-only", "--full-tree", neutralityForkPoint],
+      ["ls-tree", "-r", "-z", "--name-only", "--full-tree", neutralityLanding],
+      ["diff", "--name-only", "--diff-filter=A", neutralityForkPoint, neutralityLanding],
+    ]);
+  });
+
+  it("N9 pinned H1/N1 ignore the ambient checkout; ambient mutant refuses", () => {
+    vi.stubEnv("GITHUB_EVENT_NAME", "push");
+    try {
+      assertPinnedProvenance();
+      assertPinnedNeutrality();
+      refusal(deriveGuardCandidateProvenance, "guard-provenance-environment-ambiguous", "environment-classification");
+    } finally {
+      vi.unstubAllEnvs();
     }
   });
 
-  it("N1 complete landingCandidate member set equals its exact forkPoint", () => {
-    const { roles } = deriveGuardCandidateProvenance();
-    const read = (sha) => () => git(["ls-tree", "-r", "-z", "--name-only", "--full-tree", sha]);
-    const members = compareTrees(read(roles.forkPoint.sha), read(roles.landingCandidate.sha));
-    expect(members.length).toBeGreaterThan(0);
-    emit("N1_NEUTRALITY", { candidate: roles.landingCandidate, forkPoint: roles.forkPoint, members: members.length });
-    const added = git(["diff", "--name-only", "--diff-filter=A", roles.forkPoint.sha, roles.landingCandidate.sha])
-      .toString("utf8")
-      .trim()
-      .split("\n")
-      .filter(Boolean);
-    const production = new Set(enumerateTrackedRoots(repoRoot));
-    for (const file of added) {
-      expect(file).toMatch(/^scripts\/.*\.(?:mjs|json)$/);
-      expect(production.has(file)).toBe(false);
+  it("N10 pinned objects absent refuse by name", () => {
+    const empty = temporaryRoot();
+    git(["init", "--quiet"], empty);
+    const failingReader = (args) => {
+      if (args[0] === "rev-parse") return "true";
+      throw new Error("pinned object unavailable");
+    };
+    for (const readGit of [failingReader, (args) => git(args, empty)]) {
+      refusal(() => assertPinnedNeutrality(readGit), "NEUTRALITY_PINNED_OBJECT_MISSING", "pinned-object-existence");
+      refusal(() => assertPinnedProvenance(readGit), "guard-provenance-unavailable", "git-parentage");
     }
+    for (const missing of [neutralityForkPoint, neutralityLanding]) {
+      const calls = [];
+      refusal(
+        () =>
+          assertPinnedNeutrality((args) => {
+            calls.push(args);
+            if (args[0] === "cat-file" && args[2] === `${missing}^{commit}`) throw new Error("missing pin");
+            return git(args);
+          }),
+        "NEUTRALITY_PINNED_OBJECT_MISSING",
+        "pinned-object-existence",
+      );
+      expect(calls.every((args) => args[0] === "cat-file")).toBe(true);
+    }
+    for (const parentage of [
+      "",
+      neutralityLanding,
+      `${neutralityLanding} ${neutralityForkPoint} ${neutralityForkPoint}`,
+      `${neutralityForkPoint} ${neutralityLanding}`,
+    ]) {
+      refusal(
+        () =>
+          assertPinnedNeutrality((args) => {
+            if (args[0] === "rev-list") return Buffer.from(parentage);
+            expect(args[0]).toBe("cat-file");
+            return git(args);
+          }),
+        "NEUTRALITY_PINNED_PARENTAGE_MISMATCH",
+        "pinned-parentage",
+      );
+    }
+    refusal(
+      () =>
+        assertPinnedNeutrality((args) => {
+          if (args[0] === "rev-list") throw new Error("parentage unavailable");
+          expect(args[0]).toBe("cat-file");
+          return git(args);
+        }),
+      "NEUTRALITY_PINNED_PARENTAGE_MISMATCH",
+      "pinned-parentage",
+    );
   });
 
   it.each([
