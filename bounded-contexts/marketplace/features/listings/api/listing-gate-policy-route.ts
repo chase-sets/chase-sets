@@ -1,3 +1,4 @@
+import { withListingErrors } from "./listing-errors";
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
@@ -54,12 +55,6 @@ function requireAccess(
   return { actor, response: null };
 }
 
-function errorMessage(error: unknown) {
-  return error instanceof Error
-    ? error.message
-    : t("marketplace.features.listings.api.listingGatePolicyRoute.request.failed");
-}
-
 function policyValueFromBody(body: Record<string, unknown>): MarketplaceListingGatePolicyValue {
   return {
     maxActiveAnonymousListingDrafts: Number(body.maxActiveAnonymousListingDrafts ?? 0),
@@ -91,102 +86,108 @@ function documentCommandBody(body: Record<string, unknown>) {
 export function createListingGatePolicyRoutes(policies: PolicyRuntime) {
   const app = new Hono<MarketplaceApiEnv>();
 
-  app.get("/", async (c) => {
-    const access = requireAccess(c, "listings.view");
-    if (access.response) {
-      return access.response;
-    }
+  app.get(
+    "/",
+    withListingErrors([], async (c) => {
+      const access = requireAccess(c, "listings.view");
+      if (access.response) {
+        return access.response;
+      }
 
-    const resolved = await policies.resolvePolicy(marketplaceListingGatePolicy);
-    const document = resolved.documentId ? await policies.getPolicyDocument(resolved.documentId) : null;
+      const resolved = await policies.resolvePolicy(marketplaceListingGatePolicy);
+      const document = resolved.documentId ? await policies.getPolicyDocument(resolved.documentId) : null;
 
-    return c.json({
-      policy_key: marketplaceListingGatePolicy.policyKey,
-      source: resolved.source,
-      document_id: resolved.documentId,
-      effective_from: resolved.effectiveFrom,
-      effective_until: document?.effective_until ?? null,
-      resolved_at: resolved.resolvedAt,
-      value: resolved.value,
-      history: document?.history ?? [],
-    });
-  });
+      return c.json({
+        policy_key: marketplaceListingGatePolicy.policyKey,
+        source: resolved.source,
+        document_id: resolved.documentId,
+        effective_from: resolved.effectiveFrom,
+        effective_until: document?.effective_until ?? null,
+        resolved_at: resolved.resolvedAt,
+        value: resolved.value,
+        history: document?.history ?? [],
+      });
+    }),
+  );
 
-  app.get("/:id", async (c) => {
-    const access = requireAccess(c, "listings.view");
-    if (access.response) {
-      return access.response;
-    }
+  app.get(
+    "/:id",
+    withListingErrors([], async (c) => {
+      const access = requireAccess(c, "listings.view");
+      if (access.response) {
+        return access.response;
+      }
 
-    const document = await policies.getPolicyDocument(c.req.param("id"));
-    if (!document || document.policy_key !== marketplaceListingGatePolicy.policyKey) {
-      return c.json(
-        {
-          error: {
-            code: "not_found",
-            message: t("marketplace.features.listings.api.listingGatePolicyRoute.document.not.found"),
+      const document = await policies.getPolicyDocument(c.req.param("id"));
+      if (!document || document.policy_key !== marketplaceListingGatePolicy.policyKey) {
+        return c.json(
+          {
+            error: {
+              code: "not_found",
+              message: t("marketplace.features.listings.api.listingGatePolicyRoute.document.not.found"),
+            },
           },
-        },
-        404,
-      );
-    }
+          404,
+        );
+      }
 
-    return c.json(document);
-  });
+      return c.json(document);
+    }),
+  );
 
-  app.post("/", async (c) => {
-    const access = requireAccess(c, "listings.manage");
-    if (access.response) {
-      return access.response;
-    }
-    const context = c.get("context");
-    if (!context) {
-      return c.json(
-        {
-          error: {
-            code: "authentication_required",
-            message: t("marketplace.features.listings.api.listingGatePolicyRoute.authentication.context.missing"),
+  app.post(
+    "/",
+    withListingErrors(["listing-gate-policy-invalid"], async (c) => {
+      const access = requireAccess(c, "listings.manage");
+      if (access.response) {
+        return access.response;
+      }
+      const context = c.get("context");
+      if (!context) {
+        return c.json(
+          {
+            error: {
+              code: "authentication_required",
+              message: t("marketplace.features.listings.api.listingGatePolicyRoute.authentication.context.missing"),
+            },
           },
-        },
-        401,
-      );
-    }
+          401,
+        );
+      }
 
-    const body = await c.req.json();
+      const body = await c.req.json();
 
-    try {
       const result = await policies.createPolicyDocument(
         marketplaceListingGatePolicy,
         { ...documentCommandBody(body), actorUserId: access.actor.userId },
         context,
       );
       return c.json({ id: result.documentId, version: result.version }, 201);
-    } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
-    }
-  });
+    }),
+  );
 
-  app.put("/:id", async (c) => {
-    const access = requireAccess(c, "listings.manage");
-    if (access.response) {
-      return access.response;
-    }
-    const context = c.get("context");
-    if (!context) {
-      return c.json(
-        {
-          error: {
-            code: "authentication_required",
-            message: t("marketplace.features.listings.api.listingGatePolicyRoute.authentication.context.missing.2"),
+  app.put(
+    "/:id",
+    withListingErrors(["listing-gate-policy-invalid"], async (c) => {
+      const access = requireAccess(c, "listings.manage");
+      if (access.response) {
+        return access.response;
+      }
+      const context = c.get("context");
+      if (!context) {
+        return c.json(
+          {
+            error: {
+              code: "authentication_required",
+              message: t("marketplace.features.listings.api.listingGatePolicyRoute.authentication.context.missing.2"),
+            },
           },
-        },
-        401,
-      );
-    }
+          401,
+        );
+      }
 
-    const body = await c.req.json();
+      const body = await c.req.json();
 
-    try {
       const result = await policies.revisePolicyDocument(
         marketplaceListingGatePolicy,
         c.req.param("id"),
@@ -194,10 +195,8 @@ export function createListingGatePolicyRoutes(policies: PolicyRuntime) {
         context,
       );
       return c.json({ id: result.documentId, version: result.version });
-    } catch (error) {
-      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
-    }
-  });
+    }),
+  );
 
   return app;
 }

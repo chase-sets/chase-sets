@@ -1,4 +1,6 @@
 import { t } from "@chase-sets/localization";
+import { listingActionFeedback, throwListingActionFailure } from "../features/listings/ui/listing-action-errors";
+import { marketplaceApiErrorAdapter } from "../support/request-support/route-api-error";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useRouteLoaderData } from "react-router";
 import { requireActorFromAuthApi, resolveRequiredActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
@@ -237,9 +239,7 @@ function bulkActionOutcomeLabel(listingId: string) {
 }
 
 function bulkActionOutcomeErrorMessage(error: unknown) {
-  return error instanceof MarketplaceApiError || error instanceof Error
-    ? error.message
-    : t("marketplace.routes.accountListings.bulk.action.request.failed");
+  return listingActionFeedback(error) ?? t("marketplace.routes.accountListings.bulk.action.request.failed");
 }
 
 async function navigateToAccountListingsAfterWrite(commandResult: unknown, destinationRoute: string) {
@@ -451,6 +451,8 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
               message: null,
             };
           } catch (error) {
+            const status = marketplaceApiErrorAdapter.getStatus(error);
+            if (status === null || status < 400 || status >= 500) throwListingActionFailure(error);
             return {
               listingId,
               label: bulkActionOutcomeLabel(listingId),
@@ -466,13 +468,14 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
 
     return redirect("/account/listings");
   } catch (error) {
-    if (error instanceof MarketplaceApiError || error instanceof Error) {
+    const feedback = listingActionFeedback(error);
+    if (feedback !== null) {
       return {
-        error: error.message,
+        error: feedback,
       };
     }
 
-    throw error;
+    throwListingActionFailure(error);
   }
 }
 

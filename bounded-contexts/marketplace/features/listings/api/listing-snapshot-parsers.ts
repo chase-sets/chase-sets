@@ -1,3 +1,4 @@
+import { MarketplaceListingRequestError } from "./listing-request-error";
 import { parseGradedCardSnapshot } from "@chase-sets/primitives/graded-card-snapshot";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import { z } from "zod";
@@ -25,7 +26,7 @@ export function parseShipFromAddressSnapshot(value: unknown): AddressSnapshot | 
 
   const parsed = shipFromAddressSnapshotSchema.safeParse(value);
   if (!parsed.success) {
-    throw new Error("Ship-from address snapshot is invalid.");
+    throw new MarketplaceListingRequestError("inventory-snapshot-invalid", "Ship-from address snapshot is invalid.");
   }
 
   return parsed.data;
