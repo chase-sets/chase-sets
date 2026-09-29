@@ -2238,7 +2238,7 @@ describeDb("seller-options revision rebuild from source history", () => {
   });
   afterAll(async () => closeMultiContextTestPools(databases));
 
-  function createGroup(): ContextProjectionGroup {
+  function createGroup(definition = declared): ContextProjectionGroup {
     const runtime = createMountedContextTestRuntime([
       ...sourceModules.map((module) => ({
         contextName: module.contextName,
@@ -2254,7 +2254,7 @@ describeDb("seller-options revision rebuild from source history", () => {
           eventSubscriptions: checkoutModule.eventSubscriptions!.filter(
             (entry) => entry.projectionName === projectionName,
           ),
-          projectionGroups: [declared],
+          projectionGroups: [definition],
           projectionHandlerSets: () => [],
           buildSubscriptions: (services: Parameters<NonNullable<typeof checkoutModule.buildSubscriptions>>[0]) =>
             checkoutModule.buildSubscriptions!(services).filter((entry) => entry.projectionName === projectionName),
@@ -2384,6 +2384,71 @@ describeDb("seller-options revision rebuild from source history", () => {
       expect(await unrelatedRows()).toEqual(sentinels);
     },
   );
+
+  it("detects the prior replay-only policy mutant through a normalized full-row mismatch", async () => {
+    await run("bootstrap");
+    const clean = await ownedRows();
+    await retainOldRevision();
+    await run("bootstrap", createGroup({ ...declared, resetStrategy: "replay-only" }));
+    const retained = await ownedRows();
+    expect(retained).not.toEqual(clean);
+    expect(retained.options).toContainEqual({
+      row: expect.objectContaining({
+        listing_id: "lst_created",
+        product_summary: "obsolete creation value",
+        listing_stream_version: 1,
+      }),
+    });
+    expect(retained.options).toContainEqual({ row: expect.objectContaining({ listing_id: "lst_obsolete" }) });
+    expect((await persistedState()).revisions).toEqual([{ projection_revision: 3 }]);
+    await run("operator");
+    expect(await ownedRows()).toEqual(clean);
+  });
+
+  it("detects a foreign-table reset mutant through the unrelated sentinels", async () => {
+    await run("bootstrap");
+    const sentinels = await unrelatedRows();
+    await run(
+      "operator",
+      createGroup({
+        ...declared,
+        ownedTables: [...declared.ownedTables, "checkout_cart_line_pages"],
+      }),
+    );
+    expect(await unrelatedRows()).not.toEqual(sentinels);
+    expect((await databases.checkout.query("SELECT * FROM checkout_cart_line_pages")).rows).toEqual([]);
+  });
+
+  it("detects an inner-commit reset mutant that changes serving rows before reporting failure", async () => {
+    await run("bootstrap");
+    await retainOldRevision();
+    const before = await persistedState();
+    const group = createGroup();
+    const lastRunner = group.subscriptionRunners.at(-1)!;
+    await expect(
+      run("bootstrap", {
+        ...group,
+        reset: (context) => group.reset(context),
+        subscriptionRunners: group.subscriptionRunners.map((runner) =>
+          runner !== lastRunner
+            ? runner
+            : {
+                ...runner,
+                reset: async (context, options) => {
+                  await runner.reset(context, options);
+                  throw new Error("injected failure after inner commit");
+                },
+              },
+        ),
+      }),
+    ).rejects.toThrow("injected failure after inner commit");
+    const after = await persistedState();
+    expect(after.rows).toEqual({ options: [], availability: [] });
+    expect(after.rows).not.toEqual(before.rows);
+    expect(after.checkpoints).toEqual(before.checkpoints);
+    expect(after.revisions).toEqual(before.revisions);
+    expect(after.generation).toEqual(before.generation);
+  });
 
   it.each(callers)("%s rolls back a failure after table and checkpoint reset, then retries", async (caller) => {
     await run("bootstrap");
@@ -2551,7 +2616,7 @@ describeDb("seller-options revision rebuild from source history", () => {
       WHERE contype = 'f' AND confrelid IN ('checkout_marketplace_seller_options'::regclass,
       'checkout_marketplace_seller_availability'::regclass)`);
     expect(incoming.rows).toEqual([]);
-    await databases.checkout.query(`CREATE TABLE foreign_owned_reference (
+    await databases.checkout.query(`CREATE UNLOGGED TABLE foreign_owned_reference (
       listing_id text PRIMARY KEY REFERENCES checkout_marketplace_seller_options(listing_id))`);
     await databases.checkout.query("INSERT INTO foreign_owned_reference VALUES ('lst_created')");
     const before = await persistedState();
