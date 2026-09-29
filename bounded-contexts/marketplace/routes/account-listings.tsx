@@ -1,4 +1,6 @@
 import { t } from "@chase-sets/localization";
+import { listingActionFeedback, throwListingActionFailure } from "../features/listings/ui/listing-action-errors";
+import { marketplaceApiErrorAdapter } from "../support/request-support/route-api-error";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useRouteLoaderData } from "react-router";
 import { requireActorFromAuthApi, resolveRequiredActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
@@ -24,7 +26,7 @@ import {
 } from "../support/request-support/api-client";
 import { createSellerMetricsRequestApiClient } from "../support/request-support/seller-metrics-api-client";
 import { createOrderingOpenOrdersRequestApiClient } from "../support/request-support/ordering-open-orders-api-client";
-import type { SellerBehavioralMetricsSummary } from "../support/request-support/seller-metrics-client";
+import type { SellerBehavioralMetricsAvailability } from "../support/request-support/seller-metrics-client";
 import type { MarketplaceListingBulkActionOutcome } from "../features/listings/ui/contracts";
 import {
   resolveMarketplacePostWriteRequest,
@@ -82,7 +84,7 @@ function accountAccessRequired(returnTo: string) {
     orderCapacity: emptyOrderCapacity(""),
     openOrderCount: null,
     filters: { status: "all", search: "" },
-    sellerBehavioralMetrics: null,
+    sellerBehavioralMetrics: { status: "unavailable" } satisfies SellerBehavioralMetricsAvailability,
   };
 }
 
@@ -237,9 +239,7 @@ function bulkActionOutcomeLabel(listingId: string) {
 }
 
 function bulkActionOutcomeErrorMessage(error: unknown) {
-  return error instanceof MarketplaceApiError || error instanceof Error
-    ? error.message
-    : t("marketplace.routes.accountListings.bulk.action.request.failed");
+  return listingActionFeedback(error) ?? t("marketplace.routes.accountListings.bulk.action.request.failed");
 }
 
 async function navigateToAccountListingsAfterWrite(commandResult: unknown, destinationRoute: string) {
@@ -311,8 +311,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   // Best-effort, outside the write-freshness machinery above --
   // behavioral metrics have no write path on this page, so there is nothing
-  // to stay fresh against; a transient failure degrades the KPI panel to
-  // "not enough orders yet" rather than failing the whole listings page.
+  // to stay fresh against; a failed or malformed read degrades the KPI panel
+  // to "unavailable" (never to "not enough orders yet", which only a
+  // successful summary may say) rather than failing the whole listings page.
   const sellerBehavioralMetrics = await fetchSellerBehavioralMetrics(resolvedRequest);
 
   // Ordering-sourced live Open Order count (the "N" in the card's "N of M"),
@@ -334,11 +335,14 @@ export async function loader({ request }: LoaderFunctionArgs) {
   };
 }
 
-async function fetchSellerBehavioralMetrics(request: Request): Promise<SellerBehavioralMetricsSummary | null> {
+async function fetchSellerBehavioralMetrics(request: Request): Promise<SellerBehavioralMetricsAvailability> {
   try {
-    return await createSellerMetricsRequestApiClient(request).getOwnBehavioralMetrics();
+    return {
+      status: "available",
+      summary: await createSellerMetricsRequestApiClient(request).getOwnBehavioralMetrics(),
+    };
   } catch {
-    return null;
+    return { status: "unavailable" };
   }
 }
 
@@ -451,6 +455,8 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
               message: null,
             };
           } catch (error) {
+            const status = marketplaceApiErrorAdapter.getStatus(error);
+            if (status === null || status < 400 || status >= 500) throwListingActionFailure(error);
             return {
               listingId,
               label: bulkActionOutcomeLabel(listingId),
@@ -466,13 +472,14 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
 
     return redirect("/account/listings");
   } catch (error) {
-    if (error instanceof MarketplaceApiError || error instanceof Error) {
+    const feedback = listingActionFeedback(error);
+    if (feedback !== null) {
       return {
-        error: error.message,
+        error: feedback,
       };
     }
 
-    throw error;
+    throwListingActionFailure(error);
   }
 }
 

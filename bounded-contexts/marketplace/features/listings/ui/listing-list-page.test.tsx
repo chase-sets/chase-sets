@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
+import { t } from "@chase-sets/localization";
+import type { SellerBehavioralMetricsSummary } from "../../../support/request-support/seller-metrics-client";
 import { MarketplaceListingListPage } from "./listing-list-page";
 import type {
   MarketplaceListingListItem,
@@ -91,6 +93,39 @@ function buildListingRow(overrides: Partial<MarketplaceListingListItem> = {}): M
   };
 }
 
+const populatedSellerReliability = {
+  seller_account_id: "acc_seller",
+  window_days: 90,
+  orders_created_count: 20,
+  seller_cancelled_count: 1,
+  cancellation_rate: "0.0500",
+  shipments_dispatched_count: 18,
+  shipments_on_time_count: 17,
+  on_time_shipment_rate: "0.9444",
+  disputes_resolved_count: 3,
+  disputes_against_seller_count: 2,
+  dispute_rate: "0.1000",
+  missing_responsibility_count: 0,
+  computed_at: "2026-07-01T00:00:00.000Z",
+  updated_at: "2026-07-01T00:00:00.000Z",
+} satisfies SellerBehavioralMetricsSummary;
+
+const insufficientHistorySellerReliability = {
+  ...populatedSellerReliability,
+  window_days: 30,
+  orders_created_count: 3,
+  seller_cancelled_count: 0,
+  cancellation_rate: null,
+  shipments_dispatched_count: 2,
+  shipments_on_time_count: 2,
+  on_time_shipment_rate: null,
+  disputes_resolved_count: 0,
+  disputes_against_seller_count: 0,
+  dispute_rate: null,
+} satisfies SellerBehavioralMetricsSummary;
+
+const sellerReliabilityUnavailableCopy = t("marketplace.features.sellerDesk.degraded.title");
+
 afterEach(() => {
   cleanup();
 });
@@ -130,37 +165,100 @@ describe("marketplace listings workbench", () => {
     expect(screen.getByText("4")).toBeTruthy();
   });
 
-  it("renders seller-reliability metrics from the own-account behavioral-metrics read, gating null rates to 'not enough orders yet'", () => {
+  it("preserves populated Seller Reliability after availability typing", () => {
     render(
       <MarketplaceListingListPage
         data={{ items: [] }}
         listingAvailability={availableListings}
         orderCapacity={defaultOrderCapacity}
-        sellerBehavioralMetrics={{
-          seller_account_id: "acc_seller",
-          window_days: 90,
-          orders_created_count: 20,
-          seller_cancelled_count: 1,
-          cancellation_rate: "0.0500",
-          shipments_dispatched_count: 18,
-          shipments_on_time_count: 17,
-          on_time_shipment_rate: "0.9444",
-          disputes_resolved_count: 0,
-          disputes_against_seller_count: 0,
-          dispute_rate: null,
-          computed_at: "2026-07-01T00:00:00.000Z",
-          updated_at: "2026-07-01T00:00:00.000Z",
-        }}
+        sellerBehavioralMetrics={{ status: "available", summary: populatedSellerReliability }}
       />,
     );
 
     expect(screen.getByText("Seller reliability")).toBeTruthy();
+    expect(screen.getByText(/from the last 90 days/)).toBeTruthy();
     expect(screen.getByText("On-time shipment rate")).toBeTruthy();
     expect(screen.getByText("94.4%")).toBeTruthy();
+    expect(screen.getByText("18 shipments dispatched")).toBeTruthy();
     expect(screen.getByText("Cancellation rate")).toBeTruthy();
     expect(screen.getByText("5%")).toBeTruthy();
+    expect(screen.getByText("20 orders, seller-caused only")).toBeTruthy();
     expect(screen.getByText("Dispute rate")).toBeTruthy();
-    expect(screen.getByText("Not enough orders yet")).toBeTruthy();
+    expect(screen.getByText("10%")).toBeTruthy();
+    expect(screen.getByText("20 orders, resolved against you")).toBeTruthy();
+    expect(screen.queryByText("Not enough orders yet")).toBeNull();
+    expect(screen.queryByText(sellerReliabilityUnavailableCopy)).toBeNull();
+  });
+
+  it("keeps successful null-rate Seller Reliability as insufficient history", () => {
+    render(
+      <MarketplaceListingListPage
+        data={{ items: [] }}
+        listingAvailability={availableListings}
+        orderCapacity={defaultOrderCapacity}
+        sellerBehavioralMetrics={{ status: "available", summary: insufficientHistorySellerReliability }}
+      />,
+    );
+
+    const panel = screen.getByText("Seller reliability").closest(".rounded-tokenLg") as HTMLElement;
+    expect(panel).not.toBeNull();
+    expect(within(panel).getByText(/from the last 30 days/)).toBeTruthy();
+    expect(within(panel).getAllByText("Not enough orders yet")).toHaveLength(3);
+    expect(within(panel).getByText("2 shipments dispatched")).toBeTruthy();
+    expect(within(panel).getByText("3 orders, seller-caused only")).toBeTruthy();
+    expect(within(panel).getByText("3 orders, resolved against you")).toBeTruthy();
+    expect(screen.queryByText(sellerReliabilityUnavailableCopy)).toBeNull();
+  });
+
+  it("shows Seller Reliability unavailable without blanking account Listings", () => {
+    render(
+      <MarketplaceListingListPage
+        data={{ items: [buildListingRow()] }}
+        statusCounts={{ active: 1, draft: 0, paused: 0, withdrawn: 0 }}
+        listingAvailability={availableListings}
+        orderCapacity={defaultOrderCapacity}
+        sellerBehavioralMetrics={{ status: "unavailable" }}
+      />,
+    );
+
+    // Localized warning presented through the existing MarketplaceNotice.
+    const notice = screen.getByText(sellerReliabilityUnavailableCopy).closest(".rounded-tokenMd") as HTMLElement;
+    expect(notice).not.toBeNull();
+    expect(notice.className).toContain("bg-warning-soft");
+    expect(within(notice).getByText("Seller reliability")).toBeTruthy();
+
+    // No invented insufficient-history copy, default window, or zero denominators.
+    expect(screen.queryByText("Not enough orders yet")).toBeNull();
+    expect(screen.queryByText(/from the last \d+ days/)).toBeNull();
+    expect(screen.queryByText(/shipments dispatched/)).toBeNull();
+    expect(screen.queryByText(/orders, seller-caused only/)).toBeNull();
+    expect(screen.queryByText(/orders, resolved against you/)).toBeNull();
+    expect(screen.queryByText("On-time shipment rate")).toBeNull();
+
+    // The rest of account Listings stays usable.
+    expect(screen.getByText("Listing health")).toBeTruthy();
+    expect(screen.getAllByText("Charizard").length).toBeGreaterThan(0);
+    expect(
+      screen
+        .getByRole("link", { name: t("marketplace.features.listings.ui.listingListPage.create.listing") })
+        .getAttribute("href"),
+    ).toBe("/account/listings/new");
+  });
+
+  it("presents available Seller Reliability through the existing MarketplaceDashboardPanel", () => {
+    render(
+      <MarketplaceListingListPage
+        data={{ items: [] }}
+        listingAvailability={availableListings}
+        orderCapacity={defaultOrderCapacity}
+        sellerBehavioralMetrics={{ status: "available", summary: populatedSellerReliability }}
+      />,
+    );
+
+    const panel = screen.getByText("Seller reliability").closest(".rounded-tokenLg") as HTMLElement;
+    expect(panel).not.toBeNull();
+    expect(panel.className).toContain("bg-surface-2");
+    expect(within(panel).getByText("94.4%")).toBeTruthy();
   });
 
   it("renders a URL-persisted status filter and title search", () => {

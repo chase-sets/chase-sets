@@ -13,6 +13,7 @@ export const waitlistAnalyticsEventNames = [
   "referral_link_copied",
   "referral_share_clicked",
   "section_viewed",
+  "disclosure_opened",
   "policy_link_clicked",
 ] as const;
 

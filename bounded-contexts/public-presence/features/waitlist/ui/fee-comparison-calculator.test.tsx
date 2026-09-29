@@ -176,6 +176,25 @@ describe("schedule mapping from the public policy read", () => {
 });
 
 describe("FeeCalculatorSection", () => {
+  it("keeps the compare default note visible but opts the landing into a mounted closed disclosure", () => {
+    const defaultView = render(<FeeCalculatorSection schedule={ratifiedSchedule} />);
+    expect(defaultView.container.querySelector("[data-landing-disclosure]")).toBeNull();
+    expect(
+      defaultView.container.querySelector('[data-public-presence-section="fee_calculator"]')?.textContent,
+    ).toContain("TCGplayer figures:");
+    defaultView.unmount();
+
+    const onDisclosureOpen = vi.fn();
+    const landing = render(<FeeCalculatorSection schedule={ratifiedSchedule} onDisclosureOpen={onDisclosureOpen} />);
+    const disclosure = landing.container.querySelector('[data-landing-disclosure="fee_calculator_source_note"]');
+    expect(disclosure?.querySelector("button")?.getAttribute("aria-expanded")).toBe("false");
+    expect(disclosure?.textContent).toContain("TCGplayer figures:");
+    fireEvent.click(disclosure!.querySelector("button")!);
+    expect(onDisclosureOpen).toHaveBeenCalledWith("fee_calculator", "fee_calculator_source_note");
+    fireEvent.click(disclosure!.querySelector("button")!);
+    expect(onDisclosureOpen).toHaveBeenCalledTimes(1);
+  });
+
   it("renders nothing without a live schedule — truth-gated, never hardcoded", () => {
     const { container } = render(<FeeCalculatorSection schedule={null} />);
     expect(container.querySelector('[data-public-presence-section="fee_calculator"]')).toBeNull();

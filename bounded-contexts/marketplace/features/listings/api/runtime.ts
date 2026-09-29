@@ -1,3 +1,4 @@
+import { MarketplaceListingDomainError } from "../domain/listing-error";
 import { createHash } from "node:crypto";
 import sharp from "sharp";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
@@ -126,7 +127,6 @@ const LISTING_PHOTO_JPEG_BACKGROUND = { r: 255, g: 255, b: 255 };
 const LISTING_PHOTO_JPEG_QUALITY = 90;
 const LISTING_PHOTO_JPEG_MAX_BYTES = 15_000_000;
 
-class MarketplaceListingNotFoundError extends Error {}
 /**
  * Bump whenever `evolveMarketplaceListing`'s fold shape changes in a way
  * that would make an old snapshot's stored state incompatible. A stored
@@ -819,7 +819,9 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const listing = await repository.load(listingStreamId);
-      assert(listing.state.listingId !== null && listing.state.accountId === accountId, "Listing not found.");
+      if (listing.state.listingId === null || listing.state.accountId !== accountId) {
+        throw new MarketplaceListingDomainError("listing-not-found", "Listing not found.");
+      }
       assert(listing.state.inventoryItemId, "Listing inventory item is missing.");
       const inventoryItemId = listing.state.inventoryItemId;
       const capacityStreamId = inventoryListingCapacityStreamId(inventoryItemId);
@@ -840,7 +842,9 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
           .map((registeredListingId) => repository.load(`marketplace.listing-${registeredListingId}`)),
       );
       const supply = await getInventoryItemSupply(deps.db, inventoryItemId);
-      assert(supply, "Inventory item not found.");
+      if (!supply) {
+        throw new MarketplaceListingDomainError("inventory-item-not-found", "Inventory item not found.");
+      }
       assertActiveListingCapacity(
         [nextListing, ...otherListings.map((aggregate) => aggregate.state)].map((state) => ({
           status: state.status,
@@ -926,7 +930,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     const listing = aggregate.state;
 
     if (listing.listingId === null || listing.accountId !== accountId) {
-      throw new MarketplaceListingNotFoundError("Listing not found.");
+      throw new MarketplaceListingDomainError("listing-not-found", "Listing not found.");
     }
 
     return listing;
@@ -1412,7 +1416,9 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     const streamId = `marketplace.listing-${listingId}`;
     const existing = await repository.load(streamId);
     if (existing.state.listingId !== null) {
-      assert(existing.state.accountId === params.accountId, "Listing not found.");
+      if (existing.state.accountId !== params.accountId) {
+        throw new MarketplaceListingDomainError("listing-not-found", "Listing not found.");
+      }
       const feeQuoteFingerprint = existing.state.feeQuoteFingerprint;
       assert(feeQuoteFingerprint, "Listing fee quote fingerprint is missing.");
       if (params.listingPhotoUploads?.length) {
@@ -1437,7 +1443,9 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       };
     }
     const supply = await getInventoryItemSupply(deps.db, params.inventoryItemId, params.accountId);
-    assert(supply, "Inventory item not found.");
+    if (!supply) {
+      throw new MarketplaceListingDomainError("inventory-item-not-found", "Inventory item not found.");
+    }
     const quote = await quoteListingTerms(params.accountId, params.priceAmount);
     const evidence = await normalizePhotoUploads({
       accountId: params.accountId,
@@ -1573,7 +1581,7 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       try {
         listing = await loadOwnedListingState(params.listingId, params.accountId);
       } catch (error) {
-        if (error instanceof MarketplaceListingNotFoundError) return null;
+        if (error instanceof MarketplaceListingDomainError && error.code === "listing-not-found") return null;
         throw error;
       }
       const photo = listing.evidence.find((entry) => entry.photoId === params.photoId && entry.status === "active");
@@ -1690,7 +1698,9 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     },
     previewListingEvidenceReadiness: async (params) => {
       const supply = await getInventoryItemSupply(deps.db, params.inventoryItemId, params.accountId);
-      assert(supply, "Inventory item not found.");
+      if (!supply) {
+        throw new MarketplaceListingDomainError("inventory-item-not-found", "Inventory item not found.");
+      }
       const evaluatedAt = params.now ?? new Date().toISOString();
       const snapshot = await resolveListingEvidenceRequirements(deps, {
         accountId: params.accountId,

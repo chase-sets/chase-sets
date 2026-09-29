@@ -35,14 +35,17 @@ class ProjectionDb implements PgQueryable {
   public readonly options = new Map<string, SellerOptionRow>();
   public readonly availabilities = new Map<string, { available: boolean; version: number }>();
   public readonly recomputedInventoryItemIds: string[] = [];
+  public readonly statements: string[] = [];
 
   async query<Row = Record<string, unknown>>(
     sql: string,
     values: readonly unknown[] = [],
   ): Promise<PgQueryResult<Row>> {
+    this.statements.push(sql);
     if (sql.includes("INSERT INTO checkout_marketplace_seller_options")) {
       const listingId = String(values[0]);
       const existing = this.options.get(listingId);
+      if (existing && existing.listing_stream_version >= Number(values[6])) return { rows: [], rowCount: 0 };
       this.options.set(listingId, {
         listing_id: listingId,
         seller_account_id: String(values[1]),
@@ -66,6 +69,7 @@ class ProjectionDb implements PgQueryable {
 
     if (sql.includes("SET price_amount = $2")) {
       const row = this.options.get(String(values[0]));
+      if (row && row.listing_stream_version >= Number(values[3])) return { rows: [], rowCount: 0 };
       if (row) {
         row.price_amount = String(values[1]);
         row.price_currency_code = values[2] === null ? null : String(values[2]);
@@ -263,6 +267,70 @@ function createdEvent(overrides: Partial<Record<string, unknown>> = {}) {
 }
 
 describe("checkout marketplace seller-options projection", () => {
+  it("keeps equal and older created/price redelivery distinct from a rebuild", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db);
+    await handlers["marketplace.listing.created"]!(createdEvent({ priceCurrencyCode: "USD" }));
+    const created = structuredClone(db.options.get("lst_1"));
+    await handlers["marketplace.listing.created"]!(createdEvent({ productSummary: "must not replace" }));
+    expect(db.options.get("lst_1")).toEqual(created);
+    await handlers["marketplace.listing.price-updated"]!(
+      event(
+        "marketplace.listing.price-updated",
+        "marketplace.listing-lst_1",
+        { priceAmount: "135.00", priceCurrencyCode: "USD" },
+        3,
+      ),
+    );
+    const current = structuredClone(db.options.get("lst_1"));
+    for (const version of [2, 3]) {
+      await handlers["marketplace.listing.price-updated"]!(
+        event(
+          "marketplace.listing.price-updated",
+          "marketplace.listing-lst_1",
+          { priceAmount: "1.00", priceCurrencyCode: "CAD" },
+          version,
+        ),
+      );
+    }
+    await handlers["marketplace.listing.created"]!(createdEvent());
+    expect(db.options.get("lst_1")).toEqual(current);
+    expect(db.statements.find((sql) => sql.includes("INSERT INTO checkout_marketplace_seller_options"))).toContain(
+      "WHERE checkout_marketplace_seller_options.listing_stream_version < EXCLUDED.listing_stream_version",
+    );
+    expect(db.statements.find((sql) => sql.includes("SET price_amount"))).toContain("AND listing_stream_version < $4");
+  });
+
+  it.each(["disabled", "enabled"] as const)(
+    "ignores equal-version availability %s without flipping listings",
+    async (action) => {
+      const db = new ProjectionDb();
+      const handlers = buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db);
+      await handlers["marketplace.listing.created"]!(createdEvent());
+      await handlers["marketplace.listing.published"]!(
+        event("marketplace.listing.published", "marketplace.listing-lst_1", {}),
+      );
+      const streamId = "marketplace.seller-listing-availability-acc_seller";
+      const opposite = action === "disabled" ? "enabled" : "disabled";
+      await handlers[`marketplace.seller-listing-availability.${opposite}`]!(
+        event(`marketplace.seller-listing-availability.${opposite}`, streamId, { accountId: "acc_seller" }, 2),
+      );
+      const before = structuredClone(db.options.get("lst_1"));
+      await handlers[`marketplace.seller-listing-availability.${action}`]!(
+        event(`marketplace.seller-listing-availability.${action}`, streamId, { accountId: "acc_seller" }, 2),
+      );
+      expect(db.options.get("lst_1")).toEqual(before);
+      expect(db.availabilities.get("acc_seller")).toEqual({ available: action === "disabled", version: 2 });
+      for (const sql of db.statements.filter((statement) =>
+        statement.includes("INSERT INTO checkout_marketplace_seller_availability"),
+      )) {
+        expect(sql).toContain(
+          "WHERE checkout_marketplace_seller_availability.last_stream_version < EXCLUDED.last_stream_version",
+        );
+      }
+    },
+  );
+
   it("inserts a draft seller option on listing created", async () => {
     const db = new ProjectionDb();
     const handlers = buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db);
@@ -351,7 +419,7 @@ describe("checkout marketplace seller-options projection", () => {
 
     await handlers["marketplace.listing.created"]!(createdEvent());
     await handlers["marketplace.listing.price-updated"]!(
-      event("marketplace.listing.price-updated", "marketplace.listing-lst_1", { priceAmount: "99.50" }),
+      event("marketplace.listing.price-updated", "marketplace.listing-lst_1", { priceAmount: "99.50" }, 2),
     );
 
     expect(db.options.get("lst_1")?.price_amount).toBe("99.50");

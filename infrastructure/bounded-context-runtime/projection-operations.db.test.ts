@@ -37,6 +37,7 @@ import {
   resetMultiContextTestSchemas,
 } from "./test-support";
 import { withProjectionTransaction } from "./projection-transactions";
+import { createProjectionGroupWorkerRunner } from "../platform-runtime/worker";
 import {
   createCheckpointKey,
   saveSubscriptionCheckpoint as savePersistedSubscriptionCheckpoint,
@@ -112,7 +113,10 @@ function createTargetModule(): BcApiModule<TestServices, PgTransactionalPool, Te
   });
 }
 
-function createCutoverTargetModule(onReset: (db: PgQueryable) => Promise<void> = async () => undefined) {
+function createCutoverTargetModule(
+  onReset: (db: PgQueryable) => Promise<void> = async () => undefined,
+  projectionRevision = 1,
+) {
   const module = createTargetModule();
   return {
     ...module,
@@ -120,6 +124,7 @@ function createCutoverTargetModule(onReset: (db: PgQueryable) => Promise<void> =
       (module.projectionGroups ?? []).map(
         (group): BcProjectionGroup => ({
           ...group,
+          projectionRevision,
           resetStrategy: "generation-cutover",
           reset: defineBcProjectionGroupReset(onReset),
         }),
@@ -1319,7 +1324,7 @@ describeDb("projection operations Postgres integration", () => {
     releaseFirst.resolve();
     const tokens = await Promise.all([first, second]);
     expect(tokens.map((token) => token?.generation)).toEqual(["2", "3"]);
-    await group.markRevisionSynced(tokens[0]);
+    await expect(group.markRevisionSynced(tokens[0])).rejects.toThrow("stale rebuild token");
     await expect(readGeneration()).resolves.toEqual({
       activeGeneration: "1",
       rebuildingGeneration: "3",
@@ -1360,7 +1365,7 @@ describeDb("projection operations Postgres integration", () => {
       await sharedGroup.refreshStatus({ captureRevisionSyncToken: true });
     } finally {
       releaseDrain.resolve();
-      await staleSync;
+      await expect(staleSync).rejects.toThrow("stale rebuild token");
     }
     await expect(readGeneration()).resolves.toEqual({
       activeGeneration: "1",
@@ -1406,7 +1411,12 @@ describeDb("projection operations Postgres integration", () => {
           resetStrategy: 'truncate-owned-tables',
         }] },
       }], [runner]);
-      try { await syncProjectionGroup(group); }
+      try {
+        await syncProjectionGroup(group);
+        throw new Error('stale completion unexpectedly succeeded');
+      } catch (error) {
+        if (!error.message.includes('stale rebuild token')) throw error;
+      }
       finally { process.stdin.destroy(); await source.end(); await target.end(); }
     `,
       ],
@@ -1546,7 +1556,7 @@ describeDb("projection operations Postgres integration", () => {
       await expect(readGeneration()).resolves.toBeNull();
       const capture = await group.refreshStatus({ captureRevisionSyncToken: true });
       expect(capture.revisionSyncToken).toBeUndefined();
-      await syncProjectionGroup(group);
+      await expect(syncProjectionGroup(group)).rejects.toThrow("stale rebuild token");
       const retained = await pools.target.query(
         "SELECT state, rebuilding_generation FROM event_projection_group_generations",
       );
@@ -1581,7 +1591,7 @@ describeDb("projection operations Postgres integration", () => {
     expect(second.generation).toBe("3");
     await expect(resetProjectionGroup(group, undefined, first)).rejects.toThrow("stale rebuild token");
     expect(resets).toBe(1);
-    await group.completeGenerationRebuild!(first);
+    await expect(group.completeGenerationRebuild!(first)).rejects.toThrow("stale rebuild token");
     await group.failGenerationRebuild!(first);
     await expect(readGeneration()).resolves.toEqual({
       activeGeneration: "1",
@@ -1617,7 +1627,7 @@ describeDb("projection operations Postgres integration", () => {
       "SELECT operation_id, previous_generation FROM event_projection_group_generations",
     );
     expect(failure.rows).toEqual([{ operation_id: "op_atomic_reset_failure", previous_generation: "3" }]);
-    await syncProjectionGroup(group);
+    await expect(syncProjectionGroup(group)).rejects.toThrow("stale rebuild token");
     await expect(readGeneration()).resolves.toMatchObject({ state: "failed" });
     await rebuildProjectionGroup(group);
     await expect(readGeneration()).resolves.toEqual({
@@ -1641,8 +1651,8 @@ describeDb("projection operations Postgres integration", () => {
     expect(current.startedAt).not.toBe(failed.startedAt);
     await expect(resetProjectionGroup(group, undefined, failed)).rejects.toThrow("stale rebuild token");
     expect(resets).toBe(0);
-    await group.markRevisionSynced(failed);
-    await group.completeGenerationRebuild!(failed);
+    await expect(group.markRevisionSynced(failed)).rejects.toThrow("stale rebuild token");
+    await expect(group.completeGenerationRebuild!(failed)).rejects.toThrow("stale rebuild token");
     await group.failGenerationRebuild!(failed);
     await expect(readGeneration()).resolves.toEqual({
       activeGeneration: "1",
@@ -1655,6 +1665,181 @@ describeDb("projection operations Postgres integration", () => {
     await group.completeGenerationRebuild!(current);
     await expect(readGeneration()).resolves.toMatchObject({ activeGeneration: "2", state: "active" });
   });
+
+  it.each(["markRevisionSynced", "completeGenerationRebuild"] as const)(
+    "completion fence rolls back activation when revision persistence fails through %s",
+    async (method) => {
+      await syncProjectionGroup(createGroup(createCutoverTargetModule()));
+      const group = createGroup(createCutoverTargetModule(undefined, 2));
+      await group.refreshStatus();
+      const before = await readCompletionState();
+      const token = await group.startGenerationRebuild!();
+      const rebuilding = await readCompletionState();
+      await pools.target.query(`CREATE FUNCTION reject_completion_revision() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          IF (SELECT state FROM event_projection_group_generations
+              WHERE target_context_name = 'target' AND projection_name = 'items') <> 'active' THEN
+            RAISE EXCEPTION 'generation not yet activated';
+          END IF;
+          RAISE EXCEPTION 'injected revision failure';
+        END; $$`);
+      await pools.target.query(`CREATE TRIGGER reject_completion_revision BEFORE INSERT OR UPDATE
+        ON event_projection_group_revisions FOR EACH ROW EXECUTE FUNCTION reject_completion_revision()`);
+      try {
+        await expect(group[method]!(token)).rejects.toThrow("injected revision failure");
+        expect(await readCompletionState()).toEqual(rebuilding);
+        expect(group.getStatus().storedProjectionRevision).toBe(before.projection_revision);
+      } finally {
+        await pools.target.query("DROP TRIGGER reject_completion_revision ON event_projection_group_revisions");
+        await pools.target.query("DROP FUNCTION reject_completion_revision()");
+      }
+      await group[method]!(token);
+      const completed = await readCompletionState();
+      expect(completed).toMatchObject({
+        active_generation: token.generation,
+        rebuilding_generation: null,
+        previous_generation: "1",
+        state: "active",
+        projection_revision: 2,
+      });
+      await group[method]!(token);
+      expect(await readCompletionState()).toEqual(completed);
+    },
+  );
+
+  it("completion fence two owners refuse the stale completion and preserve the winning revision", async () => {
+    const oldOwner = createGroup(createCutoverTargetModule());
+    const newOwner = createGroup(createCutoverTargetModule(undefined, 2));
+    const stale = await oldOwner.startGenerationRebuild!();
+    const current = await newOwner.startGenerationRebuild!();
+    const outcomes = await Promise.allSettled([
+      oldOwner.completeGenerationRebuild!(stale),
+      newOwner.completeGenerationRebuild!(current),
+    ]);
+    expect(outcomes.map((outcome) => outcome.status)).toEqual(["rejected", "fulfilled"]);
+    expect(oldOwner.getStatus().storedProjectionRevision).toBeNull();
+    expect(newOwner.getStatus().storedProjectionRevision).toBe(2);
+    expect(await readCompletionState()).toMatchObject({
+      active_generation: current.generation,
+      previous_generation: "1",
+      rebuilding_generation: null,
+      state: "active",
+      projection_revision: 2,
+    });
+    await expect(oldOwner.markRevisionSynced(stale)).rejects.toThrow("stale rebuild token");
+    await expect(oldOwner.completeGenerationRebuild!(current)).rejects.toThrow("stale rebuild token");
+  });
+
+  it.each(["sync", "rebuild", "worker", "markRevisionSynced", "completeGenerationRebuild"] as const)(
+    "completion fence rolls back a lost lease during %s completion",
+    async (entry) => {
+      let lost = false;
+      let completing = false;
+      const pool = createQueryCapturePool(pools.target, [], (sql) => {
+        if (completing && sql.includes("INSERT INTO event_projection_group_revisions")) lost = true;
+      });
+      const group = createGroup(createCutoverTargetModule(), pool);
+      await syncProjectionGroup(group);
+      const token = await group.startGenerationRebuild!();
+      const before = await readCompletionState();
+      completing = true;
+      const context = createProjectionRunContext({
+        throwIfLeaseLost: () => {
+          if (lost) throw new Error("completion lease lost");
+        },
+      });
+      const completion =
+        entry === "sync"
+          ? syncProjectionGroup(group, context)
+          : entry === "rebuild"
+            ? rebuildProjectionGroup(group, context)
+            : entry === "worker"
+              ? createProjectionGroupWorkerRunner(group).runOnce(context)
+              : group[entry]!(token, context);
+      await expect(completion).rejects.toThrow("completion lease lost");
+      const after = await readCompletionState();
+      expect(after).toMatchObject({
+        active_generation: before.active_generation,
+        previous_generation: before.previous_generation,
+        projection_revision: before.projection_revision,
+        state: entry === "rebuild" ? "failed" : "rebuilding",
+      });
+      expect(group.getStatus().storedProjectionRevision).toBe(before.projection_revision);
+      completing = false;
+      await rebuildProjectionGroup(group);
+      expect(await readCompletionState()).toMatchObject({ state: "active", rebuilding_generation: null });
+    },
+  );
+
+  it.each(["sync", "worker"] as const)(
+    "completion fence refuses a stale %s drainer after a second owner resets",
+    async (entry) => {
+      const group = createGroup();
+      await resetProjectionGroup(group);
+      const subscription = group.subscriptionRunners[0];
+      let reset = false;
+      const stale = {
+        ...group,
+        subscriptionRunners: [
+          {
+            ...subscription,
+            runOnce: async () => {
+              if (!reset) {
+                reset = true;
+                await resetProjectionGroup(createGroup());
+              }
+              return { processed: 0, lastGlobalPosition: parseGlobalPosition("0") };
+            },
+          },
+        ],
+      };
+      await expect(
+        entry === "sync" ? syncProjectionGroup(stale) : createProjectionGroupWorkerRunner(stale).runOnce(),
+      ).rejects.toThrow("stale rebuild token");
+      expect(group.getStatus().storedProjectionRevision).toBeNull();
+      expect(await readCompletionState()).toMatchObject({
+        active_generation: "1",
+        rebuilding_generation: "3",
+        state: "rebuilding",
+        projection_revision: null,
+      });
+      await syncProjectionGroup(createGroup());
+      expect(await readCompletionState()).toMatchObject({
+        active_generation: "3",
+        state: "active",
+        projection_revision: 1,
+      });
+    },
+  );
+
+  it("completion fence preserves large tokens and rejects stale absent and active captures", async () => {
+    const group = createGroup(createCutoverTargetModule());
+    const absent = (await group.refreshStatus({ captureRevisionSyncToken: true })).revisionSyncToken;
+    await pools.target.query(`INSERT INTO event_projection_group_generations
+      (target_context_name, projection_name, active_generation, state, updated_at)
+      VALUES ('target', 'items', 9007199254740993, 'active', now())`);
+    await expect(group.markRevisionSynced(absent)).rejects.toThrow("stale rebuild token");
+    const active = (await group.refreshStatus({ captureRevisionSyncToken: true })).revisionSyncToken;
+    const token = await group.startGenerationRebuild!();
+    expect(token.generation).toBe("9007199254740994");
+    await group.completeGenerationRebuild!(token);
+    await expect(group.markRevisionSynced(active)).rejects.toThrow("stale rebuild token");
+    expect(await readCompletionState()).toMatchObject({
+      active_generation: token.generation,
+      previous_generation: "9007199254740993",
+      state: "active",
+      projection_revision: 1,
+    });
+  });
+
+  async function readCompletionState() {
+    const result = await pools.target.query(`SELECT generation.active_generation, generation.previous_generation,
+      generation.rebuilding_generation, generation.state, generation.cutover_at, revision.projection_revision
+      FROM event_projection_group_generations AS generation
+      LEFT JOIN event_projection_group_revisions AS revision USING (target_context_name, projection_name)
+      WHERE generation.target_context_name = 'target' AND generation.projection_name = 'items'`);
+    return result.rows[0];
+  }
 
   const generationKey = { targetContextName: "target", projectionName: "items" };
   function readGeneration() {

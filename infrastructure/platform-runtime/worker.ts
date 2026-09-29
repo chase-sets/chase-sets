@@ -1377,7 +1377,7 @@ export function createProjectionGroupWorkerRunner(
 
         if (processed === 0 && blockedStreams === 0) {
           runContext.throwIfLeaseLost?.();
-          await group.markRevisionSynced(revisionSyncToken);
+          await group.markRevisionSynced(revisionSyncToken, runContext);
           rebuildingRevision = null;
           revisionSyncToken = undefined;
           hasRevisionSyncToken = false;
