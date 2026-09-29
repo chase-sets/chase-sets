@@ -224,6 +224,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.feeCalculator.sourceNote":
     "TCGplayer figures: 10.75% marketplace commission (capped at $75 per item) plus 2.5% + $0.30 payment processing, from TCGplayer's published fee schedule as of July 12, 2026. eBay figures: 13.25% trading-cards final value fee on the portion up to $7,500 and 2.35% above it (payment processing included), plus a $0.30 per-order fee ($0.40 on orders over $10), non-store rate, from eBay's published fee schedule as of July 12, 2026. Competitor fees are rounded down in their favor and exclude shipping, tax, store subscriptions, and promotions. All three columns compare the item price before shipping or tax. Chase Sets values load live from the published fee schedule.",
   "publicPresence.home.feeCalculator.title": "What you actually keep",
+  "publicPresence.home.disclosure.howCalculated": "How we calculated this",
   "publicPresence.home.finalCta.action": "Request early access",
   "publicPresence.home.finalCta.badge": "Takes under a minute",
   "publicPresence.home.finalCta.description":
@@ -305,6 +306,7 @@ export const publicPresenceEnglishTranslations = {
     "Later waves open once checkout, shipping, and support are running smoothly for the accounts already in.",
   "publicPresence.home.launchTimeline.step.waves.qualification":
     "A qualified Wave 1 seller chooses Sell or Buy and sell, names at least one supported game, and selects an inventory-size range. Signup alone does not qualify.",
+  "publicPresence.home.launchTimeline.step.waves.qualificationDisclosure": "How later waves qualify",
   "publicPresence.home.launchTimeline.title": "When can I use Chase Sets?",
   "publicPresence.home.openOffers.after.badge": "On Chase Sets",
   "publicPresence.home.openOffers.after.description":

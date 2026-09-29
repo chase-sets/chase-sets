@@ -53,6 +53,7 @@ describe("public web deployable", () => {
 
   it("installs a bounded waitlist analytics bridge script", () => {
     expect(waitlistAnalyticsBridgeScript).toContain("chase-sets:waitlist-analytics");
+    expect(waitlistAnalyticsBridgeScript).toContain("disclosure_opened");
     expect(waitlistAnalyticsBridgeScript).toContain("/api/public-presence/analytics/waitlist");
     expect(waitlistAnalyticsBridgeScript).toContain("page_path");
     expect(waitlistAnalyticsBridgeScript).toContain("utm_source");

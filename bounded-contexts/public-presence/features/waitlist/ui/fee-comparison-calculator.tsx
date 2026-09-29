@@ -6,6 +6,7 @@ import {
   Inline,
   LinkButton,
   PageSection,
+  ProgressiveDisclosure,
   Stack,
   Surface,
   Table,
@@ -262,23 +263,28 @@ function buildShareLink(priceCents: bigint, cardCount: number): string {
 export function FeeCalculatorSection({
   schedule,
   compareLinks = ["tcgplayer", "ebay"],
+  onDisclosureOpen,
 }: {
   schedule?: PublicMarketplaceFeeSchedule | null;
   /** Which /compare pages to link; a compare page passes only the other competitor. */
   compareLinks?: readonly FeeComparisonCompetitor[];
+  /** Landing-only opt-in; compare pages retain the visible source note. */
+  onDisclosureOpen?: (section: string, target: string) => void;
 }) {
   if (!schedule) {
     return null;
   }
-  return <FeeCalculatorWorkbench schedule={schedule} compareLinks={compareLinks} />;
+  return <FeeCalculatorWorkbench schedule={schedule} compareLinks={compareLinks} onDisclosureOpen={onDisclosureOpen} />;
 }
 
 function FeeCalculatorWorkbench({
   schedule,
   compareLinks,
+  onDisclosureOpen,
 }: {
   schedule: PublicMarketplaceFeeSchedule;
   compareLinks: readonly FeeComparisonCompetitor[];
+  onDisclosureOpen?: (section: string, target: string) => void;
 }) {
   const [priceInput, setPriceInput] = useState("50.00");
   const [cardCountInput, setCardCountInput] = useState("1");
@@ -448,9 +454,21 @@ function FeeCalculatorWorkbench({
             </Text>
           </Stack>
         </Surface>
-        <Text size="sm" tone="tertiary">
-          {t("publicPresence.home.feeCalculator.sourceNote")}
-        </Text>
+        {onDisclosureOpen ? (
+          <ProgressiveDisclosure
+            data-landing-disclosure="fee_calculator_source_note"
+            title={t("publicPresence.home.disclosure.howCalculated")}
+            onOpenChange={(open) => open && onDisclosureOpen("fee_calculator", "fee_calculator_source_note")}
+          >
+            <Text size="sm" tone="tertiary">
+              {t("publicPresence.home.feeCalculator.sourceNote")}
+            </Text>
+          </ProgressiveDisclosure>
+        ) : (
+          <Text size="sm" tone="tertiary">
+            {t("publicPresence.home.feeCalculator.sourceNote")}
+          </Text>
+        )}
         {compareLinks.length > 0 ? (
           <Inline gap={2}>
             {compareLinks.map((competitor) => (

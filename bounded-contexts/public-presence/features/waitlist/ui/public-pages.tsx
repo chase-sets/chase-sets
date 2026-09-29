@@ -37,6 +37,7 @@ import {
   StickyBar,
   Surface,
   PriceBreakdown,
+  ProgressiveDisclosure,
   Table,
   Text,
   TextInput,
@@ -290,6 +291,8 @@ function useLandingSectionViewTracking(variant: LandingExperimentVariant) {
     return () => observer.disconnect();
   }, [variant]);
 }
+
+type TrackDisclosureOpen = (section: string, target: string) => void;
 
 function DiscordInviteLink({
   href,
@@ -611,8 +614,15 @@ export function PublicPresenceHomePage({
   const landingExperimentVariant = landingExperimentVariantForIntent(heroIntentValue(intent));
   const waitlistCounterDisplay = useWaitlistCounterDisplay();
   const selectedGame = normalizeSelectedGame(selectedGameInput);
+  const openedDisclosures = useRef(new Set<string>());
+  const trackDisclosureOpen: TrackDisclosureOpen = (section, target) => {
+    if (openedDisclosures.current.has(target)) return;
+    openedDisclosures.current.add(target);
+    trackWaitlistEvent("disclosure_opened", { section, target, variant: landingExperimentVariant });
+  };
 
   useEffect(() => {
+    openedDisclosures.current.clear();
     trackWaitlistEvent("landing_page_view", {
       page_path: source.pagePath,
       utm_source: source.utmSource,
@@ -729,15 +739,15 @@ export function PublicPresenceHomePage({
 
         <SellerToolsSection />
 
-        <FeeComparisonSection />
+        <FeeComparisonSection onDisclosureOpen={trackDisclosureOpen} />
 
-        <FeeCalculatorSection schedule={feeSchedule} />
+        <FeeCalculatorSection schedule={feeSchedule} onDisclosureOpen={trackDisclosureOpen} />
 
         <FoundersOfferSection />
 
-        <LaunchTimelineSection />
+        <LaunchTimelineSection onDisclosureOpen={trackDisclosureOpen} />
 
-        <ProductSignalPreview checkoutFeePreview={checkoutFeePreview} />
+        <ProductSignalPreview checkoutFeePreview={checkoutFeePreview} onDisclosureOpen={trackDisclosureOpen} />
 
         <FounderStorySection discordInviteUrl={discordInviteUrl} />
 
@@ -975,7 +985,7 @@ function SellerToolsSection() {
 // Competitors are named explicitly per the ratified competitor-naming
 // decision (Todd, 2026-07-12): TCGplayer and eBay, here and on all
 // downstream fee-comparison surfaces.
-function FeeComparisonSection() {
+function FeeComparisonSection({ onDisclosureOpen }: { onDisclosureOpen: TrackDisclosureOpen }) {
   return (
     <PageSection
       data-public-presence-section="fee_comparison"
@@ -1016,9 +1026,15 @@ function FeeComparisonSection() {
             ],
           ]}
         />
-        <Text size="sm" tone="tertiary">
-          {t("publicPresence.home.sellerEconomics.comparison.sourceNote")}
-        </Text>
+        <ProgressiveDisclosure
+          data-landing-disclosure="fee_comparison_source_note"
+          title={t("publicPresence.home.disclosure.howCalculated")}
+          onOpenChange={(open) => open && onDisclosureOpen("fee_comparison", "fee_comparison_source_note")}
+        >
+          <Text size="sm" tone="tertiary">
+            {t("publicPresence.home.sellerEconomics.comparison.sourceNote")}
+          </Text>
+        </ProgressiveDisclosure>
         <Grid columns={{ base: 1, md: 2 }} gap={4}>
           <PriceBreakdown
             title={t("publicPresence.home.sellerEconomics.math.title")}
@@ -1117,7 +1133,7 @@ function FoundersOfferSection() {
 
 // Access follows waitlist -> numbered beta invite waves -> open signup.
 // Wave progression depends on operational readiness, not promised dates.
-function LaunchTimelineSection() {
+function LaunchTimelineSection({ onDisclosureOpen }: { onDisclosureOpen: TrackDisclosureOpen }) {
   const landingExperimentVariant = useLandingExperimentVariant();
 
   const steps = [
@@ -1146,11 +1162,21 @@ function LaunchTimelineSection() {
               {step.key === "waves" ? (
                 <List
                   items={[
-                    t("publicPresence.home.launchTimeline.step.waves.qualification"),
                     t("publicPresence.home.launchTimeline.step.waves.gates"),
                     t("publicPresence.home.launchTimeline.step.waves.founders"),
                   ]}
                 />
+              ) : null}
+              {step.key === "waves" ? (
+                <ProgressiveDisclosure
+                  data-landing-disclosure="launch_timeline_wave_qualification"
+                  title={t("publicPresence.home.launchTimeline.step.waves.qualificationDisclosure")}
+                  onOpenChange={(open) =>
+                    open && onDisclosureOpen("launch_timeline", "launch_timeline_wave_qualification")
+                  }
+                >
+                  <Text>{t("publicPresence.home.launchTimeline.step.waves.qualification")}</Text>
+                </ProgressiveDisclosure>
               ) : null}
             </Stack>
           </Surface>
@@ -1171,7 +1197,13 @@ function LaunchTimelineSection() {
   );
 }
 
-function ProductSignalPreview({ checkoutFeePreview }: { checkoutFeePreview: CheckoutFeePreview }) {
+function ProductSignalPreview({
+  checkoutFeePreview,
+  onDisclosureOpen,
+}: {
+  checkoutFeePreview: CheckoutFeePreview;
+  onDisclosureOpen: TrackDisclosureOpen;
+}) {
   const landingExperimentVariant = useLandingExperimentVariant();
 
   // The concrete buyer-side checkout-fee presentation: the card processing
@@ -1266,9 +1298,12 @@ function ProductSignalPreview({ checkoutFeePreview }: { checkoutFeePreview: Chec
               {t("publicPresence.preview.total.protectionLink")}
             </LinkText>
           </Text>
-          <Surface tone="subtle" elevation="tinted">
+          <ProgressiveDisclosure
+            data-landing-disclosure="product_preview_trust"
+            title={t("publicPresence.preview.trust.title")}
+            onOpenChange={(open) => open && onDisclosureOpen("product_preview", "product_preview_trust")}
+          >
             <Stack gap={4}>
-              <Heading level={3}>{t("publicPresence.preview.trust.title")}</Heading>
               {[
                 ["publicPresence.preview.trust.payment.title", "publicPresence.preview.trust.payment.description"],
                 ["publicPresence.preview.trust.shipping.title", "publicPresence.preview.trust.shipping.description"],
@@ -1283,7 +1318,7 @@ function ProductSignalPreview({ checkoutFeePreview }: { checkoutFeePreview: Chec
                 </Stack>
               ))}
             </Stack>
-          </Surface>
+          </ProgressiveDisclosure>
         </Stack>
       </Grid>
     </PageSection>
