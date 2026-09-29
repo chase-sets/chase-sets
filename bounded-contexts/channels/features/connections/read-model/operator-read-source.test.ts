@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { createChannelConnectionsOperatorReadSourceFromReadModel } from "../../../server";
+import { createChannelConnectionsOperatorReadSourceFromReadModel } from "./operator-read-source";
 
 function database(count: number) {
   const connections = Array.from({ length: count }, (_, index) => ({

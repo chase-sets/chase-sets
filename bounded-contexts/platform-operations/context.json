@@ -1087,6 +1087,7 @@
       "deployable": "admin-web",
       "slot": "primary-nav",
       "key": "provider-connections",
+      "icon": "package",
       "label": "Provider connections",
       "labelKey": "platformOperations.providerConnections.title",
       "href": "/provider-connections",
@@ -1253,7 +1254,7 @@
   "directoryIntent": {
     "provider-connections": {
       "classification": "slice",
-      "purpose": "Own the read-only Provider Connection operator composition, authorization, and section-local availability presentation.",
+      "purpose": "Own the platform-operations provider-connections operator composition, authorization, and section-local availability presentation.",
       "expectedConsumers": ["Internal platform-operations module composition", "Admin web route contribution"]
     },
     "commercial-terms-attention": {

@@ -172,10 +172,11 @@ describe("provider connections real loader and owner exports", () => {
     const records = resolveWebHostRouteConfigRecords(webContextRegistry, "admin-web");
     const catalogRoute = records.find((record) => record.routeId === "provider-detail");
     expect(catalogRoute).toBeDefined();
+    expect(catalogRoute?.contextName).toBe("catalog");
     const links = screen.getAllByRole("link");
     for (const link of links)
       expect(link.getAttribute("href")).toBe(
-        `/${catalogRoute?.section}/${catalogRoute?.routePath.replace(":providerKey", "synthetic-provider")}`,
+        `/${catalogRoute?.routePath.replace(":providerKey", "synthetic-provider")}`,
       );
     expect(document.body.textContent).not.toMatch(/Pricing|MUST-NOT-CROSS/);
     expect(document.querySelector('a[href*="account/"]')).toBeNull();

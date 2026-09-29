@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createCatalogProviderConnectionsReadSource } from "../../../../server";
+import { createCatalogProviderConnectionsReadSource } from "./provider-connections-read-source";
 import { ProviderAdapterRegistry } from "../provider-adapters/registry";
 import { createScrydexOnePieceProviderAdapter } from "../provider-adapters/scrydex-one-piece";
 import { buildCatalogIntegrationControlPlaneReadiness } from "../governance/catalog-integration-control-plane-readiness";
