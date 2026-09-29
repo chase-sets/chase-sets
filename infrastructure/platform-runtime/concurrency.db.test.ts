@@ -1593,8 +1593,18 @@ describe("projection-group-recovery-marker Postgres", () => {
     failProjection = false;
     await expect(resetProjectionGroup(group)).resolves.toMatchObject({ generation: "3" });
     await expect(worker.runOnce()).resolves.toMatchObject({ processed: 2, blockedStreams: 0 });
-    await expect(worker.runOnce()).resolves.toMatchObject({ processed: 0, blockedStreams: 0 });
-    await expect(read()).resolves.toMatchObject({ rebuildingGeneration: "3", state: "rebuilding" });
+    const readRevision = async () => {
+      const result = await pools.marker.query(
+        `SELECT projection_revision FROM event_projection_group_revisions
+         WHERE target_context_name = $1 AND projection_name = $2`,
+        [key.targetContextName, key.projectionName],
+      );
+      return result.rows;
+    };
+    const revisionBeforeRefusal = await readRevision();
+    await expect(worker.runOnce()).rejects.toThrow("rejected stale rebuild token");
+    await expect(read()).resolves.toEqual({ activeGeneration: "1", rebuildingGeneration: "3", state: "rebuilding" });
+    expect(await readRevision()).toEqual(revisionBeforeRefusal);
     const restarted = createProjectionGroupWorkerRunner(makeGroup());
     await expect(restarted.runOnce()).resolves.toMatchObject({ processed: 0, blockedStreams: 0 });
     await expect(read()).resolves.toEqual({ activeGeneration: "3", rebuildingGeneration: null, state: "active" });

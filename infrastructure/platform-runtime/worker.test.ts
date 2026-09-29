@@ -1558,6 +1558,7 @@ describe("worker runner loop", () => {
       Object.freeze({ generation, startedAt: "2026-01-01T00:00:00.000Z" }),
     );
     const firstToken = capturedTokens[0];
+    const completionContexts: Array<Parameters<ContextProjectionGroup["markRevisionSynced"]>[1]> = [];
     const markedTokens: Array<Parameters<ContextProjectionGroup["markRevisionSynced"]>[0]> = [];
     const subscriptionRunner = {
       targetContextName: "inventory",
@@ -1573,8 +1574,9 @@ describe("worker runner loop", () => {
         revisionStale: false,
         revisionSyncToken: capturedTokens.shift(),
       }),
-      markRevisionSynced: async (expectedToken) => {
+      markRevisionSynced: async (expectedToken, context) => {
         markedTokens.push(expectedToken);
+        completionContexts.push(context);
       },
     });
     const [runner] = collectWorkerRunners({
@@ -1588,9 +1590,11 @@ describe("worker runner loop", () => {
     await expect(runner.runOnce()).resolves.toMatchObject({ processed: 1, blockedStreams: 0 });
     await expect(runner.runOnce()).resolves.toMatchObject({ processed: 0, blockedStreams: 1 });
     expect(markedTokens).toEqual([]);
-    await expect(runner.runOnce()).resolves.toMatchObject({ processed: 0, blockedStreams: 0 });
+    const throwIfLeaseLost = () => undefined;
+    await expect(runner.runOnce({ throwIfLeaseLost })).resolves.toMatchObject({ processed: 0, blockedStreams: 0 });
 
     expect(markedTokens).toEqual([firstToken]);
+    expect(completionContexts).toEqual([expect.objectContaining({ throwIfLeaseLost })]);
     expect(markedTokens[0]).toBe(firstToken); // call-local identity survives later captures
     expect(markedTokens).not.toEqual([null]); // settle-without-token mutant
   });

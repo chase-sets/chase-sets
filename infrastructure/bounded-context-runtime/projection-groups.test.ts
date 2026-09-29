@@ -286,6 +286,43 @@ describe("bounded context projection groups", () => {
     });
   });
 
+  it.each(["markRevisionSynced", "completeGenerationRebuild"] as const)(
+    "completion fence rejects a stale token through %s without claiming the revision",
+    async (method) => {
+      const pool = createMockPool();
+      const runner = createSubscriptionRunner("discovery", pool as never, pool as never, {
+        subscriptionName: "discovery.items",
+        sourceContextName: "discovery",
+        projectionName: "items",
+        subscriptionVersion: 1,
+        handlers: {},
+      });
+      const [group] = createProjectionGroupRuntime(
+        "discovery",
+        pool,
+        [
+          {
+            projectionName: "items",
+            sourceContextNames: ["discovery"],
+            ownedTables: [],
+            projectionRevision: 2,
+          },
+        ],
+        [runner],
+      );
+      const stale = await group.startGenerationRebuild!();
+      const current = await group.startGenerationRebuild!();
+      await expect(group[method]!(stale)).rejects.toThrow("stale rebuild token");
+      expect(getProjectionRevisionStore(pool).get("discovery:items")).toBeUndefined();
+      expect(group.getStatus().storedProjectionRevision).toBeNull();
+      expect(getProjectionGroupGenerationStore(pool).get("discovery:items")).toMatchObject({
+        active_generation: "1",
+        rebuilding_generation: current.generation,
+        state: "rebuilding",
+      });
+    },
+  );
+
   it("load-projection-group-generation preserves decimal identity and fails closed for partial or invalid rows", async () => {
     const load = (row: Record<string, unknown>) =>
       loadProjectionGroupGeneration(
