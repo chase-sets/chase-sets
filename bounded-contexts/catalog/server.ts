@@ -54,6 +54,7 @@ export type { CatalogProviderPromotionResolvedCatalogMapping } from "./features/
 // Synthetic, test-only display identity data for database-free planner
 // evidence (browser e2e support); never production identity validation.
 export { createSyntheticDisplayIdentityQueryable } from "./features/source-observations/api/seeding/synthetic-display-identity-queryable";
+export { default as scrydexOnePieceCardFixture } from "./features/source-observations/api/__fixtures__/scrydex-one-piece-card-print/normal.json" with { type: "json" };
 export type { CatalogIntegrationUnitKey } from "./features/source-observations/api/governance/integration-unit";
 export { sourceObservationLinkExternalKey } from "./features/source-observations/domain/domain";
 export type { SourceObservationNormalized } from "./features/source-observations/domain/domain";

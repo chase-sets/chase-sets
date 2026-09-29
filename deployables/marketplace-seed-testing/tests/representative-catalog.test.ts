@@ -10,6 +10,7 @@ import {
   recordObservationPackAcceptance,
   replayRepresentativeCatalogPacks,
   representativeCatalogExternalReferenceDigest,
+  scrydexOnePieceCardFixture as scrydexCardFixture,
   serializeObservationPackManifest,
   type ObservationPackBundle,
 } from "@chase-sets/catalog/server";
@@ -34,7 +35,6 @@ import {
 import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import scrydexCardFixture from "../../../bounded-contexts/catalog/features/source-observations/api/__fixtures__/scrydex-one-piece-card-print/normal.json";
 
 const sourceImage = new Uint8Array(
   Buffer.from(
