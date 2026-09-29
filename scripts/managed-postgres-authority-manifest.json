@@ -2,6 +2,13 @@
   "schemaVersion": 1,
   "grants": [
     {
+      "file": ".github/workflows/platform-staging-representative-commerce-state.yml",
+      "jobId": "combined-parcel-probe",
+      "stepAnchor": "job",
+      "secretName": "EASYPOST_API_KEY",
+      "purpose": "test-credentials"
+    },
+    {
       "file": ".github/workflows/catalog-integration-staging-reset.yml",
       "jobId": "catalog-integration-reset",
       "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
