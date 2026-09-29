@@ -36,12 +36,14 @@ import {
   buildMarketPriceRepricingReactionHandlers,
 } from "./features/repricing-engine/integrations/signal-reactions";
 import { composePricingInventoryEconomicsProjectionHandlers } from "./features/economics/integrations/inventory/projection";
+import { pricingAuthorityRetentionExemptions } from "./features/repricing-engine/read-model/retention-policy";
 
 const pricingContextManifest = contextManifest as BcContextManifest;
 
 export const module = defineBoundedContextModule<PricingServices, PgTransactionalPool, PricingHostPorts>({
   manifest: pricingContextManifest,
   schemaSql: pricingSchemaSql,
+  retentionExemptions: pricingAuthorityRetentionExemptions,
   // Evolve feature tables before applying their physical replay posture. This
   // ordering matters on an upgrade where a newly introduced projection table
   // does not exist yet for its later SET UNLOGGED migration.
@@ -92,6 +94,12 @@ export const module = defineBoundedContextModule<PricingServices, PgTransactiona
         contextName: "pricing",
         manifest: pricingContextManifest,
         handlers: {
+          "catalog.pricing-authority-observation-reaction": () =>
+            services.listingAuthority.observations.handlers("catalog"),
+          "inventory.pricing-authority-observation-reaction": () =>
+            services.listingAuthority.observations.handlers("inventory"),
+          "marketplace.pricing-authority-observation-reaction": () =>
+            services.listingAuthority.observations.handlers("marketplace"),
           "marketplace.pricing-repricing-evaluation-reaction": () =>
             buildCompetingAskRepricingReactionHandlers(services.repricingEngine),
           "pricing.pricing-repricing-evaluation-reaction": () =>

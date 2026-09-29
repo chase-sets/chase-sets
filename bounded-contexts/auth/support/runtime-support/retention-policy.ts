@@ -11,7 +11,6 @@ export const authRetentionSweeps: readonly BcRetentionSweep[] = [
   // The same row-death rule removes unconsumed delivery_code plaintext.
   expired("phone-code-tokens", "identity_phone_code_tokens"),
   expired("auth-challenges", "identity_auth_challenges"),
-  expired("session-tokens", "identity_session_tokens"),
   expired("account-selection-tokens", "identity_account_selection_tokens"),
   expired("social-login-states", "identity_social_login_states"),
   expired("guest-checkout-tokens", "identity_guest_checkout_tokens"),
@@ -20,6 +19,17 @@ export const authRetentionSweeps: readonly BcRetentionSweep[] = [
 ];
 
 export const authRetentionExemptions: readonly BcRetentionExemption[] = [
+  {
+    tableName: "identity_session_tokens",
+    owner: "auth",
+    reason:
+      "Selected credentials participate in durable session authority; expiry cannot bypass the canonical token writer.",
+  },
+  {
+    tableName: "auth_session_token_mutations",
+    owner: "auth",
+    reason: "Retained token mutation receipts prevent delayed retries from replacing a newer credential.",
+  },
   {
     tableName: "auth_identity_invitations",
     owner: "auth",

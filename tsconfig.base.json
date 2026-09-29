@@ -417,6 +417,9 @@
       "@chase-sets/event-core/event-store": [
         "./contracts/event-core/event-store.ts"
       ],
+      "@chase-sets/event-core/listing-authority": [
+        "./contracts/event-core/listing-authority.ts"
+      ],
       "@chase-sets/event-core/platform-coverage-facts": [
         "./contracts/event-core/platform-coverage-facts.ts"
       ],
@@ -716,6 +719,27 @@
       ],
       "@chase-sets/platform-runtime/internal-auth": [
         "./infrastructure/platform-runtime/internal-auth.ts"
+      ],
+      "@chase-sets/platform-runtime/listing-authority-conformance": [
+        "./infrastructure/platform-runtime/listing-authority-conformance.ts"
+      ],
+      "@chase-sets/platform-runtime/listing-authority-fence": [
+        "./infrastructure/platform-runtime/listing-authority-fence.ts"
+      ],
+      "@chase-sets/platform-runtime/listing-authority-host": [
+        "./infrastructure/platform-runtime/listing-authority-host.ts"
+      ],
+      "@chase-sets/platform-runtime/listing-authority-participant": [
+        "./infrastructure/platform-runtime/listing-authority-participant.ts"
+      ],
+      "@chase-sets/platform-runtime/listing-authority-recovery": [
+        "./infrastructure/platform-runtime/listing-authority-recovery.ts"
+      ],
+      "@chase-sets/platform-runtime/listing-authority-recovery-cursor": [
+        "./infrastructure/platform-runtime/listing-authority-recovery-cursor.ts"
+      ],
+      "@chase-sets/platform-runtime/listing-authority-writer": [
+        "./infrastructure/platform-runtime/listing-authority-writer.ts"
       ],
       "@chase-sets/platform-runtime/live-connection-status": [
         "./infrastructure/platform-runtime/live-connection-status.ts"

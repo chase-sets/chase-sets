@@ -17,8 +17,15 @@ import { createUserPreferencesRuntime } from "../../features/preferences/api/run
 import { createShippingAddressRuntime } from "../../features/shipping-addresses/api/runtime";
 import { createUserRuntime } from "../../features/users/api/runtime";
 import { createLinkedPlatformAuthorizationStore } from "../ucp-support/linked-platform-authorizations";
+import {
+  createIdentityListingAuthority,
+  type IdentityListingAuthorityHostPorts,
+  type IdentityListingAuthorityServices,
+} from "../../features/access-hub/api/listing-authority";
+import { createIdentityCredentialStore } from "../../features/access-hub/api/listing-credentials";
 
 export type IdentityServices = Readonly<{
+  listingAuthority: IdentityListingAuthorityServices;
   eventStore?: EventStore;
   accessHub: ReturnType<typeof createAccessHubRuntime>;
   accounts: ReturnType<typeof createAccountRuntime>;
@@ -39,18 +46,25 @@ export type IdentityServices = Readonly<{
   auth: ReturnType<typeof createIdentitySecretAdapters>;
 }>;
 
-export type IdentityHostPorts = Readonly<{
-  addressVerificationProvider?: PostageLabelProvider | null;
-}>;
+export type IdentityHostPorts = Partial<IdentityListingAuthorityHostPorts> &
+  Readonly<{
+    addressVerificationProvider?: PostageLabelProvider | null;
+  }>;
 
 export function createIdentityServices(pool: PgTransactionalPool, ports: IdentityHostPorts = {}): IdentityServices {
-  const eventStore = createPostgresEventStore({
+  const rawEventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "identity" }),
   });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const auth = createIdentitySecretAdapters();
+  const listingAuthority = createIdentityListingAuthority({
+    eventStore: rawEventStore,
+    credentials: createIdentityCredentialStore(pool),
+    ...ports,
+  });
+  const eventStore = listingAuthority.eventStore;
   const policies = createPolicyRuntime({ eventStore, db });
   const deps = {
     eventStore,
@@ -68,10 +82,11 @@ export function createIdentityServices(pool: PgTransactionalPool, ports: Identit
   const apiKeys = createApiKeyRuntime(deps);
   const consents = createConsentRuntime(deps);
   const preferences = createUserPreferencesRuntime(deps);
-  const linkedPlatformAuthorizations = createLinkedPlatformAuthorizationStore(db);
+  const linkedPlatformAuthorizations = createLinkedPlatformAuthorizationStore(db, listingAuthority);
   const shippingAddresses = createShippingAddressRuntime(deps);
 
   return {
+    listingAuthority,
     eventStore,
     accessHub,
     accounts,

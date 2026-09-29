@@ -1,4 +1,6 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+import { identityListingCredentialSchemaStatements } from "../../features/access-hub/api/listing-credentials";
 import { platformPolicySchemaSql } from "@chase-sets/platform-policy/schema";
 import { identityAccountSchemaSql } from "../../features/accounts/read-model/schema";
 import { identityApiKeySchemaSql } from "../../features/api-keys/read-model/schema";
@@ -34,8 +36,17 @@ export const identitySchemaSql = [
   identityLinkedPlatformAuthorizationSchemaSql,
   identityShippingAddressSchemaSql,
   identityApiKeySecretSchemaSql,
+  ...identityListingCredentialSchemaStatements,
   // Adopts the shared platform-policy machinery (see infrastructure/platform-policy)
   // for the Terms of Service active-version registry -- see
   // ../../features/consents/domain/terms-of-service-policy.ts.
   platformPolicySchemaSql,
 ].join("\n\n");
+
+export const identityListingAuthorityMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260928_identity_listing_authority",
+    description: "Persist Identity credential revisions and owner-local idempotent mutation receipts.",
+    statements: identityListingCredentialSchemaStatements,
+  },
+];

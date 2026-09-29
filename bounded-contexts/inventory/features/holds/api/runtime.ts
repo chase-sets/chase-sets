@@ -2,6 +2,7 @@ import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { AppendToStreamInput, EventStoreContext } from "@chase-sets/event-core/storage";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -99,6 +100,15 @@ export class InventoryHoldPlacementError extends InventoryDomainError {
   }
 }
 
+export type InventoryHoldConversionParams = Readonly<{
+  holdId: InventoryHoldId;
+  accountId: AccountId;
+  itemId: string;
+  quantity: number;
+  orderId: string;
+  reservationRequestId: string;
+}>;
+
 export type InventoryHoldServices = Readonly<{
   commandHandler: CommandHandler<InventoryHoldCommand, InventoryHoldState, InventoryHoldEvent>;
   planCreateHold: (
@@ -118,14 +128,11 @@ export type InventoryHoldServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<{ holdId: string; version: number }>;
   planConvertCheckoutHold: (
-    params: Readonly<{
-      holdId: InventoryHoldId;
-      accountId: AccountId;
-      itemId: string;
-      quantity: number;
-      orderId: string;
-      reservationRequestId: string;
-    }>,
+    params: InventoryHoldConversionParams,
+    context: EventStoreContext,
+  ) => Promise<InventoryHoldConversionPlan>;
+  planConvertOfferHold: (
+    params: InventoryHoldConversionParams & Readonly<{ offerId: string }>,
     context: EventStoreContext,
   ) => Promise<InventoryHoldConversionPlan>;
   expireDueCheckoutHolds: (
@@ -249,7 +256,11 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
     };
   };
 
-  const planConvertCheckoutHold: InventoryHoldServices["planConvertCheckoutHold"] = async (params, context) => {
+  const planConvertHold = async (
+    params: InventoryHoldConversionParams,
+    context: EventStoreContext,
+    source: Readonly<{ kind: "checkout" }> | Readonly<{ kind: "offer"; offerId: string }>,
+  ): Promise<InventoryHoldConversionPlan> => {
     const streamId = `inventory.hold-${params.holdId}`;
     const existing = await repository.load(streamId);
     const orderSourceRef: InventoryHoldOrderSourceRef = {
@@ -259,6 +270,13 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
 
     if (existing.state.id === null) {
       throw new InventoryDomainError("Checkout inventory hold not found.");
+    }
+    if (source.kind === "offer") {
+      const placed = (await readCompleteStream(deps.eventStore, { streamId }))[0];
+      const origin = placed?.payload.sourceRef as { offerId?: string } | undefined;
+      if (placed?.payload.purpose !== "offer" || origin?.offerId !== source.offerId) {
+        throw new InventoryDomainError("Inventory hold does not belong to the accepted Offer.");
+      }
     }
 
     if (
@@ -282,7 +300,7 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
       existing.state.accountId !== params.accountId ||
       existing.state.itemId !== params.itemId ||
       existing.state.quantity !== params.quantity ||
-      existing.state.purpose !== "checkout"
+      existing.state.purpose !== source.kind
     ) {
       throw new InventoryDomainError("Checkout inventory hold cannot be converted for this order.");
     }
@@ -309,7 +327,9 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
   return {
     commandHandler,
     planCreateHold,
-    planConvertCheckoutHold,
+    planConvertCheckoutHold: (params, context) => planConvertHold(params, context, { kind: "checkout" }),
+    planConvertOfferHold: (params, context) =>
+      planConvertHold(params, context, { kind: "offer", offerId: params.offerId }),
     createHold: async (params, context) => {
       const appendToStreams = deps.eventStore.appendToStreams;
       if (!appendToStreams) {

@@ -6,6 +6,7 @@ import type { StoredEvent } from "@chase-sets/event-core/storage";
 import { CHASE_SETS_COMMIT_RECEIPT_HEADER, decodeCommitReceipt } from "@chase-sets/http/responses";
 import {
   createPostgresEventStore,
+  eventCorePostgresSchemaSql,
   type PgTransactionalPool,
   type PostgresEventStore,
 } from "@chase-sets/event-core-postgres";
@@ -20,15 +21,235 @@ import { toTransportEvent } from "@chase-sets/event-core/transport";
 import { module as pricingModule } from "../../../index";
 import { createRepricingPolicyActivationServices, DryRunRequiredError } from "../api/activation";
 import { createRepricingPolicyRuntime } from "../api/runtime";
-import { createRepricingEngineRuntime } from "../../repricing-engine/api/runtime";
+import { createRepricingEngineRuntime } from "../../repricing-engine/tests/round-runtime-fixture";
 import { hashRepricingDryRunBody } from "../../repricing-engine/api/dry-run";
 import { dryRunBody, dryRunContext } from "../../repricing-engine/tests/dry-run-fixture";
 import { buildRepricingPolicyProjectionHandlers } from "../read-model/projection";
+import { buildPricingMarketplaceInputProjectionHandlers } from "../../recommendations/integrations/source/source-projection";
+import { policyWorkflowFixture } from "./policy-workflow-fixture";
+import type { RepricingPolicyCommand } from "../domain/domain";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required.");
 const describeDb = databaseBaseUrl ? describe : describe.skip;
 const accountId = "acc_7910";
+
+describeDb("policy workflow deletion discriminator", () => {
+  let pools: Readonly<Record<"pricing" | "marketplace", PgTransactionalPool>>;
+  beforeAll(async () => {
+    const urls = createMultiContextTestDatabaseUrls(
+      databaseBaseUrl!,
+      ["pricing", "marketplace"],
+      "policy_workflow_deletion",
+    );
+    await ensureMultiContextTestDatabases(databaseBaseUrl!, urls);
+    pools = createMultiContextTestPools(urls);
+  });
+  beforeEach(async () => {
+    await resetMultiContextTestSchemas(pools);
+    await pools.pricing.query(pricingModule.schemaSql);
+    await pools.marketplace.query(eventCorePostgresSchemaSql);
+  });
+  afterAll(async () => closeMultiContextTestPools(pools));
+
+  it.each([true, false])(
+    "retains pre-cleanup evidence and deletes through the writer bundle, Listing present=%s",
+    async (listingPresent) => {
+      const f = await policyWorkflowFixture(pools.pricing, pools.marketplace);
+      const controls = f.services.repricingPolicies;
+      const engine = f.services.repricingEngine;
+      const policyIds: string[] = [];
+      const projected = new Set<string>();
+      const project = async () => {
+        const handlers = buildRepricingPolicyProjectionHandlers(pools.pricing);
+        for (const event of await f.sourceStore.readAll()) {
+          if (projected.has(String(event.eventId))) continue;
+          await handlers[event.eventType]?.(toTransportEvent(event));
+          projected.add(String(event.eventId));
+        }
+      };
+      const body = {
+        ...dryRunBody,
+        maxChangesPerDay: 25,
+        rules: [
+          {
+            conditions: [],
+            directive: {
+              ...dryRunBody.rules[0]!.directive,
+              tolerance: { mode: "absolute" as const, amount: "100000.00" },
+              maxMovePercent: 10,
+              terminal: { kind: "hold" as const },
+            },
+          },
+        ],
+      };
+      const create = async (name: string, scope = body.scope) => {
+        const run = await engine.enqueueDryRun({ sellerAccountId: f.accountId, body: { ...body, scope } }, f.context);
+        expect(run).not.toBeNull();
+        expect(
+          await engine.processNextDryRunJob({ claimOwnerId: "synthetic-policy-workflow", claimTtlMs: 30_000 }),
+        ).toBe(1);
+        expect(await engine.getDryRun(f.accountId, run!.dryRunId)).toMatchObject({
+          status: "completed",
+          summary: { listingsEvaluated: listingPresent ? 1 : 0 },
+        });
+        const policy = await controls.activateRepricingPolicy(
+          { accountId: f.accountId, dryRunId: run!.dryRunId, name },
+          f.context,
+        );
+        expect(policy?.status).toBe("active");
+        policyIds.push(policy!.policyId!);
+        await project();
+        return policy!.policyId!;
+      };
+      const command = (policyId: string, command: Exclude<RepricingPolicyCommand, { type: "CreateRepricingPolicy" }>) =>
+        controls.executeOwnedRepricingPolicy({ policyId, accountId: f.accountId, command, context: f.context });
+      const pending = async () => {
+        const source = await f.sourceStore.readAll();
+        const consumer = await f.consumerStore.readAll();
+        const starts = source.filter((event) => event.eventType === "pricing.listing-authority-write.started");
+        return {
+          mutations: source
+            .filter(
+              (event) =>
+                event.streamId.startsWith("pricing.listing-authority-mutation-") &&
+                event.eventType === "pricing.listing-authority.invalidation-started",
+            )
+            .map((event) => ({
+              streamId: event.streamId,
+              intent: event.payload.intent,
+              pending: !source.some(
+                (next) =>
+                  next.streamId === event.streamId &&
+                  next.eventType === "pricing.listing-authority.invalidation-completed",
+              ),
+            }))
+            .map(({ intent, ...entry }) => ({ ...entry, mutationId: (intent as { mutationId: string }).mutationId })),
+          sources: starts.map((event) => ({
+            writeId: event.payload.writeId,
+            mutationId: event.payload.mutationId,
+            pending: !source.some(
+              (next) =>
+                next.streamId === event.streamId && next.eventType === "pricing.listing-authority-write.completed",
+            ),
+          })),
+          consumers: consumer
+            .filter((event) => event.eventType === "marketplace.listing-authority-operation.opened")
+            .map((event) => ({
+              streamId: event.streamId,
+              openingEventId: String(event.eventId),
+              pending: !consumer.some(
+                (next) => next.streamId === event.streamId && /\.(committed|aborted)$/.test(next.eventType),
+              ),
+            })),
+        };
+      };
+      let preCleanupFailure: string | null = null;
+      let phase = "create-listing";
+      try {
+        if (listingPresent) {
+          await f.listings.createListing(f.listingInput, f.context);
+          const quote = await f.listings.previewListingTerms({
+            accountId: f.accountId,
+            priceAmount: f.listingInput.priceAmount,
+          });
+          await f.listings.publishListing(
+            {
+              listingId: f.listingInput.listingIdOverride,
+              accountId: f.accountId,
+              feeQuoteFingerprint: quote.fee_quote_fingerprint,
+            },
+            f.context,
+          );
+          const market = buildPricingMarketplaceInputProjectionHandlers(pools.pricing);
+          for (const event of await f.consumerStore.readAll()) await market[event.eventType]?.(toTransportEvent(event));
+        }
+        phase = "baseline-policy";
+        const baselineId = await create("Synthetic workflow baseline");
+        phase = "editor-prerequisites";
+        const facts = await controls.getAuthoringPrerequisites(f.accountId);
+        // The browser fills the floor, not currency; opening the preset requires both.
+        expect(facts.listingCurrencyCodes, "editor cannot open preset without the Listing currency").toEqual(["USD"]);
+        const scope = { kind: "listing-set" as const, listingIds: [f.listingInput.listingIdOverride] };
+        const preview = await controls.previewScope({ accountId: f.accountId, scope });
+        expect(preview).toMatchObject({ matching: 1, governed: 1, takenFrom: [{ policyId: baselineId, count: 1 }] });
+        phase = "policy-lifecycle";
+        const policyId = await create("Synthetic workflow selected Listing", scope);
+        expect(
+          (await command(baselineId, { type: "DeleteRepricingPolicy", deletedAt: new Date().toISOString() }))?.status,
+        ).toBe("deleted");
+        expect(
+          (
+            await command(policyId, {
+              ...body,
+              scope,
+              type: "ReviseRepricingPolicy",
+              name: "Synthetic revised",
+              maxChangesPerDay: 249,
+              revisedAt: new Date().toISOString(),
+            })
+          )?.maxChangesPerDay,
+        ).toBe(249);
+        const advancedRules = [
+          { ...body.rules[0]!, conditions: [{ type: "listing-age-at-least" as const, days: 45 }] },
+          ...body.rules,
+        ];
+        expect(
+          (
+            await command(policyId, {
+              ...body,
+              scope,
+              rules: advancedRules,
+              type: "ReviseRepricingPolicy",
+              name: "Synthetic advanced",
+              revisedAt: new Date().toISOString(),
+            })
+          )?.rules,
+        ).toHaveLength(2);
+        expect(
+          (await command(policyId, { type: "PauseRepricingPolicy", pausedAt: new Date().toISOString() }))?.status,
+        ).toBe("paused");
+        expect(
+          (await command(policyId, { type: "ResumeRepricingPolicy", resumedAt: new Date().toISOString() }))?.status,
+        ).toBe("active");
+        expect((await controls.setHalt(f.accountId, true, f.context)).engaged).toBe(true);
+        expect((await controls.setHalt(f.accountId, false, f.context)).engaged).toBe(false);
+      } catch (error) {
+        preCleanupFailure = error instanceof Error ? error.message : String(error);
+        if (listingPresent || phase !== "editor-prerequisites") throw error;
+        expect(preCleanupFailure).toContain("editor cannot open preset");
+        // Separately test deletion of a policy explicitly naming the absent Listing.
+        await create("Synthetic missing Listing policy", {
+          kind: "listing-set",
+          listingIds: [f.listingInput.listingIdOverride],
+        });
+      } finally {
+        process.stdout.write(
+          `${JSON.stringify({ evidence: "policy-workflow-before-cleanup", listingPresent, phase, preCleanupFailure, ...(await pending()) })}\n`,
+        );
+        for (const policyId of policyIds) {
+          const started = performance.now();
+          expect(
+            (await command(policyId, { type: "DeleteRepricingPolicy", deletedAt: new Date().toISOString() }))?.status,
+          ).toBe("deleted");
+          process.stdout.write(
+            `${JSON.stringify({ evidence: "policy-workflow-delete", listingPresent, policyId, elapsedMs: performance.now() - started })}\n`,
+          );
+        }
+        await project();
+      }
+      expect(preCleanupFailure === null).toBe(listingPresent);
+      expect(await controls.listAccountRepricingPolicies({ accountId: f.accountId })).toEqual([]);
+      const identities = await pending();
+      expect(identities.sources.filter((source) => source.pending)).toEqual([]);
+      expect(identities.mutations.filter((mutation) => mutation.pending)).toEqual([]);
+      expect(identities.consumers.filter((consumer) => consumer.pending)).toEqual([]);
+      process.stdout.write(
+        `${JSON.stringify({ evidence: "policy-workflow-after-cleanup", listingPresent, ...identities })}\n`,
+      );
+    },
+  );
+});
 
 describeDb("policy first activation", () => {
   let pools: Readonly<Record<"pricing", PgTransactionalPool>>;
@@ -279,8 +500,18 @@ describeDb("policy first activation", () => {
 
   it("foreign and absent dry runs are indistinguishable and do not consume", async () => {
     const dryRunId = await completedRun();
+    await expect(
+      services().activateRepricingPolicy({ ...activateInput(dryRunId), accountId: "acc_foreign" }, dryRunContext),
+    ).rejects.toThrow("Pricing activation account mismatch.");
+    const foreignContext: typeof dryRunContext = {
+      ...dryRunContext,
+      audit: { ...dryRunContext.audit, forAccountId: "acc_foreign" },
+    };
     expect(
-      await services().activateRepricingPolicy({ ...activateInput(dryRunId), accountId: "acc_foreign" }, dryRunContext),
+      await services().activateRepricingPolicy(
+        { ...activateInput(dryRunId), accountId: "acc_foreign" },
+        foreignContext,
+      ),
     ).toBeNull();
     expect(await services().activateRepricingPolicy(activateInput("synthetic_missing"), dryRunContext)).toBeNull();
     expect(await createdEvents()).toHaveLength(0);

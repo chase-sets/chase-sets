@@ -61,10 +61,51 @@ const boundedSites = [
     pointer: "bounded-contexts/identity/support/request-support/csat-outcome-facts.test.ts",
     consumption: "first-event",
   },
+  ...[1, 2].map((ordinal) => ({
+    id: `bounded-contexts/marketplace/features/listings/api/listing-request.ts#readStream#${ordinal}`,
+    pointer: "bounded-contexts/marketplace/features/listings/api/listing-request.test.ts",
+    consumption: "singleton",
+    limit: "2",
+  })),
+  {
+    id: "bounded-contexts/identity/features/access-hub/api/listing-current-facts.ts#readStream#1",
+    pointer: "bounded-contexts/identity/features/access-hub/api/listing-current-facts.test.ts",
+    consumption: "singleton",
+    limit: "2",
+  },
+  {
+    id: "bounded-contexts/marketplace/features/listings/api/runtime.ts#readStream#1",
+    pointer: "bounded-contexts/marketplace/features/listings/api/channel-only-create.test.ts",
+    consumption: "creation",
+  },
+  ...[1, 2].map((ordinal) => ({
+    id: `infrastructure/platform-runtime/listing-authority-conformance.ts#readStream#${ordinal}`,
+    pointer: "infrastructure/platform-runtime/listing-authority-session.test.ts",
+    consumption: `synthetic-count-${ordinal - 1}`,
+    limit: null,
+  })),
+  {
+    id: "infrastructure/platform-runtime/listing-authority-history-conformance.ts#readStream#1",
+    pointer: "infrastructure/platform-runtime/listing-authority-history.test.ts",
+    consumption: "synthetic-count-0",
+    limit: null,
+  },
+  {
+    id: "infrastructure/platform-runtime/listing-authority-history-test-support.ts#readStream#1",
+    pointer: "infrastructure/platform-runtime/listing-authority-history.test.ts",
+    consumption: "synthetic-baseline",
+    limit: null,
+  },
+  {
+    id: "infrastructure/platform-runtime/listing-authority-writer.ts#readStream#1",
+    pointer: "infrastructure/platform-runtime/listing-authority-writer.test.ts",
+    consumption: "forward-input",
+    limit: null,
+  },
 ];
 
 const expectedInventory = [
-  ...boundedSites.map(({ id }) => [id, "1"]),
+  ...boundedSites.map((site) => [site.id, expectedLimit(site)]),
   ["contracts/event-core/complete-stream.ts#readStream#1", "EVENT_STORE_READ_PAGE_SIZE_MAX"],
   ["infrastructure/bounded-context-runtime/subscriptions.ts#readStream#1", "batchSize"],
 ].sort(([left], [right]) => left.localeCompare(right));
@@ -82,9 +123,101 @@ const program = ts.createProgram({
 const candidateInventory = deriveProgramInventory(program);
 
 describe("bounded-stream-contracts-acceptance-control", () => {
-  it("derives the exact ten-call production census and eight pointer/test bindings from one TypeScript Program", () => {
+  it("derives the exact registered census and owning test bindings from one TypeScript Program", () => {
     expect(acceptanceErrors(candidateInventory)).toEqual([]);
     expect(candidateInventory.map((site) => [site.id, site.limit])).toEqual(expectedInventory);
+  });
+
+  it.each(boundedSites.slice(8))("enforces $id and its owning consumption contract", (expected) => {
+    const site = candidateInventory.find((candidate) => candidate.id === expected.id);
+    expect(site).toBeDefined();
+    expect(site.limit).toBe(expectedLimit(expected));
+    const errors = [];
+    validateConsumption(site, expected.consumption, errors);
+    validatePointer(site, new Map(), errors);
+    expect(errors).toEqual([]);
+  });
+
+  it("rejects singleton overflow, later-event and bound mutations independently at both request sites", () => {
+    const file = "bounded-contexts/marketplace/features/listings/api/listing-request.ts";
+    const source = readSource(file);
+    for (const mutated of [
+      source.replaceAll("events.length !== 1", "events.length > 2"),
+      source.replaceAll("events[0]", "events[1]"),
+    ]) {
+      const errors = acceptanceErrors(mutatedInventory(file, mutated));
+      for (const ordinal of [1, 2])
+        expect(errors).toContainEqual({
+          code: "singleton-consumption-changed",
+          siteId: `${file}#readStream#${ordinal}`,
+        });
+    }
+    expect(errorCodes(mutatedInventory(file, source.replaceAll("limit: 2", "limit: 1")))).toContain(
+      "bounded-limit-changed",
+    );
+  });
+
+  it("rejects Identity current-facts overflow, later-event and bound mutations", () => {
+    const file = "bounded-contexts/identity/features/access-hub/api/listing-current-facts.ts";
+    const source = readSource(file);
+    for (const mutated of [
+      source.replace("tail.length !== 1", "tail.length > 2"),
+      source.replace("tail[0]", "tail[1]"),
+    ]) {
+      expect(acceptanceErrors(mutatedInventory(file, mutated))).toContainEqual({
+        code: "singleton-consumption-changed",
+        siteId: `${file}#readStream#1`,
+      });
+    }
+    expect(errorCodes(mutatedInventory(file, source.replace("limit: 2", "limit: 1")))).toContain(
+      "bounded-limit-changed",
+    );
+  });
+
+  it("rejects creation tail selection and synthetic count/baseline and forwarding mutations", () => {
+    const mutants = [
+      [
+        "bounded-contexts/marketplace/features/listings/api/runtime.ts",
+        "const [created]",
+        "const [, created]",
+        "creation-consumption-changed",
+      ],
+      [
+        "infrastructure/platform-runtime/listing-authority-conformance.ts",
+        ")).length, 0",
+        ")).length, 1",
+        "synthetic-consumption-changed",
+      ],
+      [
+        "infrastructure/platform-runtime/listing-authority-conformance.ts",
+        ")).length, 1",
+        ")).length, 0",
+        "synthetic-consumption-changed",
+      ],
+      [
+        "infrastructure/platform-runtime/listing-authority-history-conformance.ts",
+        ")).length, 0",
+        ")).length, 1",
+        "synthetic-consumption-changed",
+      ],
+      [
+        "infrastructure/platform-runtime/listing-authority-history-test-support.ts",
+        ")).length > baseline",
+        ")).length >= baseline",
+        "synthetic-consumption-changed",
+      ],
+      [
+        "infrastructure/platform-runtime/listing-authority-writer.ts",
+        "raw.readStream(input)",
+        "raw.readStream({ streamId: input.streamId })",
+        "forward-input-changed",
+      ],
+    ];
+    for (const [file, before, after, code] of mutants) {
+      const source = readSource(file);
+      expect(source).toContain(before);
+      expect(errorCodes(mutatedInventory(file, source.replace(before, after)))).toContain(code);
+    }
   });
 
   it("keeps test support free of a ninth direct readStream call", () => {
@@ -235,7 +368,11 @@ function acceptanceErrors(inventory, targetOverrides = new Map()) {
       errors.push({ code: "bounded-site-missing", siteId: expected.id });
       continue;
     }
-    if (site.limit !== "1") errors.push({ code: "bounded-limit-not-one", siteId: expected.id });
+    if (site.limit !== expectedLimit(expected))
+      errors.push({
+        code: expectedLimit(expected) === "1" ? "bounded-limit-not-one" : "bounded-limit-changed",
+        siteId: expected.id,
+      });
     validateConsumption(site, expected.consumption, errors);
     validatePointer(site, targetOverrides, errors);
   }
@@ -243,7 +380,54 @@ function acceptanceErrors(inventory, targetOverrides = new Map()) {
 }
 
 function validateConsumption(site, expectedConsumption, errors) {
+  const reject = (code) => errors.push({ code, siteId: site.id });
+  if (expectedConsumption === "forward-input") {
+    const arrow = site.call.parent;
+    if (
+      !ts.isArrowFunction(arrow) ||
+      arrow.body !== site.call ||
+      arrow.parameters.length !== 1 ||
+      site.call.arguments.length !== 1 ||
+      !ts.isIdentifier(site.call.arguments[0]) ||
+      site.call.arguments[0].text !== arrow.parameters[0].name.getText(site.source)
+    )
+      reject("forward-input-changed");
+    return;
+  }
+  if (expectedConsumption.startsWith("synthetic-")) {
+    let node = site.call.parent;
+    while (node && (ts.isAwaitExpression(node) || ts.isParenthesizedExpression(node))) node = node.parent;
+    if (!node || !ts.isPropertyAccessExpression(node) || node.name.text !== "length") {
+      reject("synthetic-consumption-changed");
+      return;
+    }
+    const parent = node.parent;
+    const valid =
+      expectedConsumption === "synthetic-baseline"
+        ? ts.isBinaryExpression(parent) &&
+          parent.left === node &&
+          parent.operatorToken.kind === ts.SyntaxKind.GreaterThanToken &&
+          parent.right.getText(site.source) === "baseline"
+        : ts.isCallExpression(parent) &&
+          parent.expression.getText(site.source) === "assert.equal" &&
+          parent.arguments[0] === node &&
+          parent.arguments[1]?.getText(site.source) === expectedConsumption.at(-1);
+    if (!valid) reject("synthetic-consumption-changed");
+    return;
+  }
   const declaration = enclosingVariableDeclaration(site.call);
+  if (expectedConsumption === "creation") {
+    if (
+      !declaration ||
+      !ts.isArrayBindingPattern(declaration.name) ||
+      declaration.name.elements.length !== 1 ||
+      !ts.isBindingElement(declaration.name.elements[0]) ||
+      declaration.name.elements[0].dotDotDotToken ||
+      declaration.name.elements[0].name.getText(site.source) !== "created"
+    )
+      reject("creation-consumption-changed");
+    return;
+  }
   const variableName = declaration && ts.isIdentifier(declaration.name) ? declaration.name.text : null;
   const scope = site.statement?.parent;
   if (!variableName || !scope) {
@@ -253,6 +437,7 @@ function validateConsumption(site, expectedConsumption, errors) {
 
   const indices = [];
   const lengthComparisons = [];
+  let singletonGuard = false;
   visit(scope, (node) => {
     if (
       ts.isElementAccessExpression(node) &&
@@ -268,6 +453,13 @@ function validateConsumption(site, expectedConsumption, errors) {
       node.name.text === "length"
     ) {
       const parent = node.parent;
+      if (
+        ts.isBinaryExpression(parent) &&
+        parent.left === node &&
+        parent.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken &&
+        parent.right.getText(site.source) === "1"
+      )
+        singletonGuard = true;
       lengthComparisons.push(
         ts.isBinaryExpression(parent) &&
           parent.left === node &&
@@ -276,6 +468,10 @@ function validateConsumption(site, expectedConsumption, errors) {
       );
     }
   });
+
+  if (expectedConsumption === "singleton" && (!singletonGuard || indices.length !== 1 || indices[0] !== "0")) {
+    reject("singleton-consumption-changed");
+  }
 
   if (expectedConsumption === "first-event" && (indices.length !== 2 || indices.some((index) => index !== "0"))) {
     errors.push({ code: "first-event-consumption-changed", siteId: site.id });
@@ -303,8 +499,8 @@ function validatePointer(site, targetOverrides, errors) {
     errors.push({ code: "pointer-scripts-only", siteId: site.id });
     return;
   }
-  const owningWorkspace = /^bounded-contexts\/([^/]+)\//.exec(site.file)?.[1];
-  const pointedWorkspace = /^bounded-contexts\/([^/]+)\//.exec(pointer)?.[1];
+  const owningWorkspace = /^(bounded-contexts|infrastructure)\/([^/]+)\//.exec(site.file)?.[0];
+  const pointedWorkspace = /^(bounded-contexts|infrastructure)\/([^/]+)\//.exec(pointer)?.[0];
   if (!owningWorkspace || pointedWorkspace !== owningWorkspace) {
     errors.push({ code: "pointer-cross-workspace", siteId: site.id });
     return;
@@ -340,6 +536,10 @@ function readLimit(call, source) {
     }
   }
   return null;
+}
+
+function expectedLimit(site) {
+  return Object.hasOwn(site, "limit") ? site.limit : "1";
 }
 
 function structuredPointers(statement, source) {

@@ -13,6 +13,14 @@ import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-po
 import type { ListingPhotoStorage } from ".";
 import { createMarketplaceCommercialTermsResolver, type CommercialTermsResolver } from "../../api";
 import { createMarketplaceListingRuntime } from "../../features/listings/api/runtime";
+import {
+  createMarketplaceListingCurrentReadiness,
+  type MarketplaceListingCurrentReadinessPorts,
+} from "../../features/listings/read-model/native-current-readiness";
+import {
+  createMarketplaceListingAuthority,
+  type MarketplaceListingAuthorityPorts,
+} from "../../features/listings/api/listing-authority";
 import { createMarketplaceOfferRuntime } from "../../features/offers/api/runtime";
 import { createMarketplaceReportRuntime } from "../../features/reports/api/runtime";
 import { createReviewRuntime } from "../../features/reviews/api/runtime";
@@ -28,8 +36,14 @@ import type { ManagedOfferPricing } from "../../features/offers/api/managed-auth
 import { createManagedOfferWork } from "../../features/offers/integrations/managed-work";
 import { buildManagedOfferProjectionHandlers } from "../../features/offers/read-model/managed-projection";
 import { createProjectionHandlerSet } from "@chase-sets/event-core/projector";
+import { createMarketplaceListingSeedAuthority, type MarketplaceListingSeedPorts } from "./listing-seed-authority";
 
 export type MarketplaceServiceOptions = Readonly<{
+  listingSeed?: MarketplaceListingSeedPorts;
+  listingTargetAuthority?: import("../../features/listings/api/target-contracts").ListingTargetAuthority;
+  listingCurrentReadiness?: import("../../features/listings/read-model/target-queries").ListingCurrentReadinessReader;
+  listingCurrentOwnerFacts?: MarketplaceListingCurrentReadinessPorts;
+  listingAuthority?: MarketplaceListingAuthorityPorts;
   managedOfferPricing?: ManagedOfferPricing;
   commercialTermsResolver?: CommercialTermsResolver;
   listingPhotoStorage?: ListingPhotoStorage;
@@ -40,6 +54,11 @@ export type MarketplaceServiceOptions = Readonly<{
 }>;
 
 export type MarketplaceServices = Readonly<{
+  listingSeed?: Readonly<{
+    withContext: MarketplaceListingSeedPorts["withContext"];
+    listings: ReturnType<typeof createMarketplaceListingRuntime>;
+  }>;
+  listingAuthority: ReturnType<typeof createMarketplaceListingAuthority>;
   managedOfferWork: ReturnType<typeof createManagedOfferWork>;
   listings: ReturnType<typeof createMarketplaceListingRuntime>;
   offers: ReturnType<typeof createMarketplaceOfferRuntime>;
@@ -64,16 +83,28 @@ export function createMarketplaceServices(
   pool: PgTransactionalPool,
   options: MarketplaceServiceOptions = {},
 ): MarketplaceServices {
-  const eventStore = createPostgresEventStore({
+  const rawEventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "marketplace" }),
   });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
+  const listingAuthority = createMarketplaceListingAuthority(
+    { eventStore: rawEventStore, db },
+    options.listingAuthority ?? {
+      consumer: () => {
+        throw new Error("Marketplace Listing authority consumer is not mounted.");
+      },
+    },
+  );
+  const eventStore = listingAuthority.eventStore;
   const commercialTermsResolver = options.commercialTermsResolver ?? createMarketplaceCommercialTermsResolver(db);
   const notificationOutbox = options.notificationOutbox ?? createPostgresNotificationOutbox({ db });
   const policies = createPolicyRuntime({ eventStore, db });
   const listingEvidencePolicies = createListingEvidencePolicyRuntime({ db, policies });
+  const listingCurrentReadiness = options.listingCurrentOwnerFacts
+    ? createMarketplaceListingCurrentReadiness({ db, eventStore: rawEventStore }, options.listingCurrentOwnerFacts)
+    : options.listingCurrentReadiness;
   const deps = {
     eventStore,
     checkpointStore,
@@ -81,6 +112,15 @@ export function createMarketplaceServices(
     commercialTermsResolver,
     policies,
     listingEvidencePolicyEvaluator: listingEvidencePolicies,
+    ...(options.listingTargetAuthority
+      ? {
+          listingTargetAuthority: {
+            ...options.listingTargetAuthority,
+            authorizeResume: listingAuthority.authorizeResume,
+          },
+        }
+      : {}),
+    ...(listingCurrentReadiness ? { listingCurrentReadiness } : {}),
     ...(options.managedOfferPricing ? { managedOfferPricing: options.managedOfferPricing } : {}),
     ...(options.listingPhotoStorage ? { listingPhotoStorage: options.listingPhotoStorage } : {}),
   } as const;
@@ -116,8 +156,20 @@ export function createMarketplaceServices(
     createOfferResponseAttentionSourceFromReadModel(db),
     createListingActionAttentionSourceFromReadModel(db),
   ]);
-  const channelInboundClamp = createMarketplaceChannelInboundClampRuntime(pool, listings);
+  const channelInboundClamp = createMarketplaceChannelInboundClampRuntime(pool, listings, eventStore);
   return {
+    ...(options.listingSeed
+      ? {
+          listingSeed: {
+            withContext: options.listingSeed.withContext,
+            listings: createMarketplaceListingRuntime({
+              ...deps,
+              listingTargetAuthority: createMarketplaceListingSeedAuthority(options.listingSeed, listingAuthority),
+            }),
+          },
+        }
+      : {}),
+    listingAuthority,
     managedOfferWork,
     listings,
     offers,

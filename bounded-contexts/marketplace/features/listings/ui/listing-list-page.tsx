@@ -67,7 +67,7 @@ function statusTone(status: string) {
 }
 
 function renderFeeSummary(listing: MarketplaceListingListItem) {
-  if (!listing.marketplace_sales_fee_unit_amount && !listing.seller_net_unit_amount) {
+  if (listing.marketplace_sales_fee_unit_amount === null || listing.seller_net_unit_amount === null) {
     return t("marketplace.features.listings.ui.listingListPage.fee.quote.unavailable");
   }
 

@@ -666,6 +666,213 @@ describe("postgres event store", () => {
 });
 
 describe("postgres event store independent multi-stream appends", () => {
+  for (const sequential of [false, true])
+    for (const fault of ["loss", "truncation", "recreation"] as const)
+      for (const affected of [[0], [1], [2], [0, 1], [0, 2], [1, 2]])
+        it(`retained terminal head/index ${fault} at ${affected.join("+")} rejects all effects (sequential=${sequential})`, async () => {
+          const streams = ["synthetic.operation", "synthetic.integrity", "synthetic.registration"];
+          const versions = Object.fromEntries(
+            streams.map((id, index) => [id, affected.includes(index) ? (fault === "loss" ? 0 : 1) : 2]),
+          );
+          const firstEventIds = Object.fromEntries(
+            streams.flatMap((id, index) =>
+              affected.includes(index) && fault === "loss"
+                ? []
+                : [
+                    [
+                      id,
+                      affected.includes(index) && fault === "recreation" ? "evt_recreated" : `evt_original-${index}`,
+                    ],
+                  ],
+            ),
+          );
+          const { pool, calls } = createIndependentAppendPool({ versions, firstEventIds });
+          const store = createPostgresEventStore({ pool, now: () => NOW as never });
+          const inputs = [
+            independentInput({ streamId: "synthetic.business", expectedVersion: 0 }),
+            independentInput({ streamId: "synthetic.request", expectedVersion: 0 }),
+            ...streams.map((streamId, index) =>
+              independentInput({ streamId, expectedVersion: 1, expectedFirstEventId: `evt_original-${index}` }),
+            ),
+            ...(sequential ? [independentInput({ streamId: "synthetic.business", expectedVersion: "any" })] : []),
+          ];
+          await expect(store.appendToStreams!(inputs)).rejects.toMatchObject({ code: "concurrency_conflict" });
+          expect(calls.filter(isEventInsertCall)).toHaveLength(0);
+          expect(calls.at(-1)?.sql).toBe("ROLLBACK");
+        });
+
+  it.each([false, true])(
+    "checks original opening under the row lock before all writes (sequential=%s)",
+    async (sequential) => {
+      for (const firstEventId of [undefined, "evt_recreated", "evt_original"] as const) {
+        const { pool, calls } = createIndependentAppendPool({
+          versions: { "synthetic.operation": 1 },
+          firstEventIds: firstEventId ? { "synthetic.operation": firstEventId } : {},
+        });
+        const store = createPostgresEventStore({
+          pool,
+          now: () => NOW as never,
+          createEventId: createSequentialEventId(),
+        });
+        const inputs = [
+          independentInput({ streamId: "synthetic.business", expectedVersion: 0 }),
+          independentInput({
+            streamId: "synthetic.operation",
+            expectedVersion: 1,
+            expectedFirstEventId: "evt_original",
+          }),
+          ...(sequential ? [independentInput({ streamId: "synthetic.business", expectedVersion: "any" })] : []),
+        ];
+        if (firstEventId === "evt_original") {
+          await expect(store.appendToStreams!(inputs)).resolves.toHaveLength(inputs.length);
+          const openingIndex = calls.findIndex((call) => call.sql.includes("AND stream_version = 1"));
+          expect(openingIndex).toBeGreaterThan(calls.findIndex((call) => call.sql.includes("FOR UPDATE")));
+          expect(calls.findIndex(isEventInsertCall)).toBeGreaterThan(openingIndex);
+          expect(calls.at(-1)?.sql).toBe("COMMIT");
+        } else {
+          await expect(store.appendToStreams!(inputs)).rejects.toMatchObject({ code: "concurrency_conflict" });
+          expect(calls.filter(isEventInsertCall)).toHaveLength(0);
+          expect(calls.at(-1)?.sql).toBe("ROLLBACK");
+        }
+      }
+    },
+  );
+
+  it("retains opening guards for zero-event inputs and deterministic-ID replays", async () => {
+    for (const events of [[], [{ eventId: "evt_replayed" as const, eventType: "synthetic.changed", payload: {} }]]) {
+      const { pool, calls } = createIndependentAppendPool({
+        versions: { "synthetic.operation": 1 },
+        firstEventIds: { "synthetic.operation": "evt_recreated" },
+      });
+      const store = createPostgresEventStore({ pool });
+      await expect(
+        store.appendToStreams!([
+          independentInput({
+            streamId: "synthetic.operation",
+            expectedVersion: 1,
+            expectedFirstEventId: "evt_original",
+            events,
+          }),
+        ]),
+      ).rejects.toMatchObject({ code: "concurrency_conflict" });
+      expect(calls.some((call) => call.sql.includes("WHERE event_id = ANY"))).toBe(false);
+      expect(calls.filter(isEventInsertCall)).toHaveLength(0);
+      expect(calls.at(-1)?.sql).toBe("ROLLBACK");
+    }
+  });
+
+  it("refuses malformed opening guards and every non-atomic append method", async () => {
+    const { pool, calls } = createIndependentAppendPool();
+    const store = createPostgresEventStore({ pool });
+    const input = independentInput({ expectedVersion: 1, expectedFirstEventId: "evt_original", events: [] });
+    await expect(store.appendToStream(input)).rejects.toThrow("atomic appendToStreams");
+    await expect(store.appendToStreamsIndependently!([input])).rejects.toThrow("atomic appendToStreams");
+    await expect(store.appendToStreamInTransaction(pool, input)).rejects.toThrow("atomic appendToStreams");
+    expect(calls).toHaveLength(0);
+    for (const expectedVersion of ["any", "no_stream", 0, -1, 1.5, Number.NaN] as const) {
+      await expect(store.appendToStreams!([{ ...input, expectedVersion }])).rejects.toMatchObject({
+        code: "concurrency_conflict",
+      });
+    }
+    expect(calls.filter(isEventInsertCall)).toHaveLength(0);
+  });
+
+  it("keeps large atomic callers below the multi-stream SQL parameter limit", async () => {
+    const { pool, calls } = createIndependentAppendPool();
+    const store = createPostgresEventStore({ pool, now: () => NOW as never, createEventId: createSequentialEventId() });
+    const inputs = Array.from({ length: 4 }, (_, index) =>
+      independentInput({
+        streamId: `synthetic.large-${index}`,
+        expectedVersion: 0,
+        events: Array.from({ length: 1000 }, () => ({ eventType: "synthetic.changed", payload: {} })),
+      }),
+    );
+    const result = await store.appendToStreams!(inputs);
+    expect(result.map((entry) => entry.storedEvents.length)).toEqual([1000, 1000, 1000, 1000]);
+    expect(calls.filter(isEventInsertCall)).toHaveLength(4);
+    expect(calls.filter(isEventInsertCall).every((call) => call.params!.length <= 65_535)).toBe(true);
+  });
+
+  it.each([true, false])(
+    "checks authority validity with the database clock after write locks (valid=%s)",
+    async (valid) => {
+      const { pool, calls } = createIndependentAppendPool({ authorityValid: valid });
+      const store = createPostgresEventStore({
+        pool,
+        now: () => NOW as never,
+        createEventId: createSequentialEventId(),
+      });
+      const append = store.appendToStreams!([
+        independentInput({
+          streamId: "marketplace.listing-authority-operation-test",
+          authorizationDeadline: "2026-06-10T12:01:00.000Z",
+        }),
+        independentInput({ streamId: "marketplace.listing-test" }),
+      ]);
+      if (valid) await expect(append).resolves.toHaveLength(2);
+      else await expect(append).rejects.toMatchObject({ code: "concurrency_conflict" });
+      const boundaryIndex = calls.findIndex(
+        (call) => call.sql === "SELECT clock_timestamp() < $1::timestamptz AS valid",
+      );
+      expect(boundaryIndex).toBeGreaterThan(calls.findIndex(isEventInsertCall));
+      expect(calls[boundaryIndex]!.params).toEqual(["2026-06-10T12:01:00.000Z"]);
+      expect(calls.at(-1)?.sql).toBe(valid ? "COMMIT" : "ROLLBACK");
+      expect(calls.some((call) => call.sql === (valid ? "ROLLBACK" : "COMMIT"))).toBe(false);
+    },
+  );
+
+  it("refuses an authority deadline on append methods without the complete atomic authorization boundary", async () => {
+    const { pool, calls } = createIndependentAppendPool();
+    const store = createPostgresEventStore({ pool });
+    const input = independentInput({ authorizationDeadline: "2026-06-10T12:01:00.000Z" });
+    await expect(store.appendToStream(input)).rejects.toThrow("atomic appendToStreams");
+    await expect(store.appendToStreamsIndependently!([input])).rejects.toThrow("atomic appendToStreams");
+    await expect(store.appendToStreamInTransaction(pool, input)).rejects.toThrow("atomic appendToStreams");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("batches atomic owner and request writes behind one append fence while retaining pure guards", async () => {
+    const { pool, calls } = createIndependentAppendPool();
+    const store = createPostgresEventStore({ pool, now: () => NOW as never, createEventId: createSequentialEventId() });
+    const results = await store.appendToStreams!([
+      independentInput({ streamId: "synthetic.authority", expectedVersion: 0, events: [] }),
+      independentInput({ streamId: "marketplace.listing-a", expectedVersion: 0 }),
+      independentInput({ streamId: "marketplace.listing-request-a", expectedVersion: 0 }),
+      independentInput({ streamId: "marketplace.listing-b", expectedVersion: 0 }),
+      independentInput({ streamId: "marketplace.listing-request-b", expectedVersion: 0 }),
+    ]);
+    expect(calls.filter(isEventInsertCall)).toHaveLength(1);
+    expect(calls.filter(isEventInsertCall)[0]!.params).toHaveLength(17 * 4);
+    expect(calls.filter((call) => call.sql.includes("pg_advisory_xact_lock_shared"))).toHaveLength(1);
+    expect(
+      calls.some((call) => call.sql.includes("SELECT current_version") && call.params?.[0] === "synthetic.authority"),
+    ).toBe(true);
+    expect(results.map((result) => result.storedEvents.length)).toEqual([0, 1, 1, 1, 1]);
+    expect(results[0]).not.toHaveProperty("outcome");
+    expect(calls.map((call) => call.sql)).toContain("COMMIT");
+  });
+
+  it.each([false, true])(
+    "rolls back every atomic write before INSERT on a stale participant (guard=%s)",
+    async (guard) => {
+      const { pool, calls } = createIndependentAppendPool({ versions: { "synthetic.stale": 2 } });
+      const store = createPostgresEventStore({
+        pool,
+        now: () => NOW as never,
+        createEventId: createSequentialEventId(),
+      });
+      await expect(
+        store.appendToStreams!([
+          independentInput({ streamId: "marketplace.listing-request-a", expectedVersion: 0 }),
+          independentInput({ streamId: "synthetic.stale", expectedVersion: 1, ...(guard ? { events: [] } : {}) }),
+        ]),
+      ).rejects.toMatchObject({ code: "concurrency_conflict" });
+      expect(calls.filter(isEventInsertCall)).toHaveLength(0);
+      expect(calls.map((call) => call.sql)).toContain("ROLLBACK");
+      expect(calls.map((call) => call.sql)).not.toContain("COMMIT");
+    },
+  );
+
   it("isolates a per-stream version conflict without rolling back sibling streams", async () => {
     const { pool, calls } = createIndependentAppendPool({ versions: { "marketplace.listing-conflict": 3 } });
     const store = createPostgresEventStore({
@@ -793,6 +1000,27 @@ describe("postgres event store independent multi-stream appends", () => {
     );
 
     recordSpy.mockRestore();
+  });
+
+  it("retains caller attribution on atomic multi-stream append samples", async () => {
+    const record = vi.spyOn(observability, "recordEventStoreAppendAdvisoryLockHold");
+    record.mockClear();
+    const { pool } = createIndependentAppendPool();
+    const store = createPostgresEventStore({ pool, createEventId: createSequentialEventId() });
+    await store.appendToStreams!([
+      {
+        ...independentInput({ streamId: "marketplace.listing-atomic-telemetry", expectedVersion: "no_stream" }),
+        appendTelemetry: { holderKind: "bulk_listing_price_update", sourceContextName: "marketplace" },
+      },
+    ]);
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "committed",
+        holderKind: "bulk_listing_price_update",
+        sourceContextName: "marketplace",
+      }),
+    );
+    record.mockRestore();
   });
 
   it("rejects a batch that repeats the same stream id more than once", async () => {
@@ -1144,7 +1372,11 @@ function createAppendPool(
 }
 
 function createIndependentAppendPool(
-  options: Readonly<{ versions?: Readonly<Record<string, number>> }> = {},
+  options: Readonly<{
+    versions?: Readonly<Record<string, number>>;
+    authorityValid?: boolean;
+    firstEventIds?: Readonly<Record<string, string>>;
+  }> = {},
 ): Readonly<{ pool: PgTransactionalPool; calls: QueryCall[] }> {
   const calls: QueryCall[] = [];
   let insertCount = 0;
@@ -1162,9 +1394,18 @@ function createIndependentAppendPool(
         return { rows: [], rowCount: 1 };
       }
 
+      if (normalizedSql === "SELECT clock_timestamp() < $1::timestamptz AS valid") {
+        return { rows: [{ valid: options.authorityValid === true }], rowCount: 1 };
+      }
+
       if (normalizedSql.includes("SELECT current_version")) {
         const streamId = String(params?.[0]);
         return { rows: [{ current_version: options.versions?.[streamId] ?? 0 }], rowCount: 1 };
+      }
+
+      if (normalizedSql.includes("AND stream_version = 1")) {
+        const eventId = options.firstEventIds?.[String(params?.[0])];
+        return { rows: eventId ? [{ event_id: eventId }] : [], rowCount: eventId ? 1 : 0 };
       }
 
       if (normalizedSql.includes("WHERE event_id = ANY")) {

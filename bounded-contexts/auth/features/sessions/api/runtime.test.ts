@@ -87,6 +87,7 @@ function createSyntheticStreamStore(storedEvents: readonly StoredEvent[]) {
     readStream,
     eventStore: {
       appendToStream: vi.fn(async () => []),
+      appendToStreams: vi.fn(async () => []),
       readStream,
       readAll: vi.fn(async () => []),
     },

@@ -1,4 +1,11 @@
 export { createCatalogRequestApiClient } from "./support/request-support/api-client";
+export type { CatalogServices } from "./support/authoring-support/services";
+export {
+  createCatalogListingAuthority,
+  type CatalogListingAuthorityFacts,
+  type CatalogListingProductSubject,
+  type CatalogListingAuthorityConsumer,
+} from "./features/product-measures/api/listing-authority";
 export {
   resolveCatalogProductSelection,
   type CatalogProductSelection,

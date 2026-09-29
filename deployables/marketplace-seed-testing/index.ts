@@ -7,7 +7,13 @@ import {
   resetMultiContextTestSchemas,
   seedMountedContextTestRuntimeIfEmpty,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  createListingAuthorityConsumerResolver,
+  bindListingAuthorityParticipant,
+} from "@chase-sets/platform-runtime/listing-authority-host";
+import { createFixtureListingSeedContext } from "@chase-sets/identity/server";
+import { defaultSeedOptions } from "@chase-sets/bounded-context-runtime";
 import { afterAll, beforeAll, beforeEach, describe } from "vitest";
 import { module as catalogModule } from "@chase-sets/catalog";
 import { module as checkoutModule } from "@chase-sets/checkout";
@@ -19,7 +25,11 @@ import { module as fulfillmentModule } from "@chase-sets/fulfillment";
 import { module as identityModule } from "@chase-sets/identity";
 import { module as inventoryModule } from "@chase-sets/inventory";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
-import type { ListingPhotoStorage } from "@chase-sets/marketplace/server";
+import type {
+  ListingPhotoStorage,
+  MarketplaceListingSeedPorts,
+  MarketplaceListingAuthorityPorts,
+} from "@chase-sets/marketplace/server";
 import { module as orderingModule } from "@chase-sets/ordering";
 import { module as paymentsModule } from "@chase-sets/payments";
 import { module as pricingModule } from "@chase-sets/pricing";
@@ -135,7 +145,11 @@ export function useMarketplaceSeedRuntime(
     },
     seed: async () => {
       const runtime = createMarketplaceSeedRuntime(requirePools(), { catalogPorts: options.catalogPorts });
-      await seedMountedContextTestRuntimeIfEmpty(runtime, marketplaceSeedLifecycleContextOrder, options.seedOptions);
+      await seedMountedContextTestRuntimeIfEmpty(
+        runtime,
+        marketplaceSeedLifecycleContextOrder,
+        options.seedOptions ?? { ...defaultSeedOptions, environmentName: "test" },
+      );
 
       return runtime;
     },
@@ -150,7 +164,55 @@ export function createMarketplaceSeedRuntime(
     db: pools["commercial-terms"],
   });
   const listingPhotoStorage = createMarketplaceSeedListingPhotoStorage();
+  let services: Readonly<Record<string, unknown>> = {};
+  const identity = () => services.identity as ReturnType<typeof identityModule.createServices>;
+  const catalog = () => services.catalog as ReturnType<typeof catalogModule.createServices>;
+  const inventory = () => services.inventory as ReturnType<typeof inventoryModule.createServices>;
+  const fees = () => services["commercial-terms"] as ReturnType<typeof commercialTermsModule.createServices>;
+  const stores = {
+    marketplace: createPostgresEventStore({ pool: pools.marketplace }),
+    ordering: createPostgresEventStore({ pool: pools.ordering }),
+  };
+  const consumer = (owner: Parameters<typeof createListingAuthorityConsumerResolver>[1]) =>
+    createListingAuthorityConsumerResolver(stores, owner);
+  const manage = bindListingAuthorityParticipant(
+    { owner: "identity", purpose: "manage-listing" },
+    () => identity().listingAuthority.port,
+  );
+  const stock = bindListingAuthorityParticipant(
+    { owner: "inventory", purpose: "stock-allocation" },
+    () => inventory().listingAuthority.source,
+  );
+  const product = bindListingAuthorityParticipant(
+    { owner: "catalog", purpose: "product-measures" },
+    () => catalog().listingAuthority.source,
+  );
+  const identityFacts = {
+    participant: manage,
+    accountFacts: (
+      reservation: Parameters<ReturnType<typeof identityModule.createServices>["listingAuthority"]["accountFacts"]>[0],
+    ) => identity().listingAuthority.accountFacts(reservation),
+  };
+  const listingSeed: MarketplaceListingSeedPorts = {
+    withContext: (input, use) => createFixtureListingSeedContext(identity())(input, use),
+    identity: manage,
+    inventory: stock,
+    catalog: product,
+    fee: bindListingAuthorityParticipant(
+      { owner: "commercial-terms", purpose: "native-fee" },
+      () => fees().listingAuthority.source,
+    ),
+    prepareIdentity: (operation, context) => identity().listingAuthority.prepareAuthorities(operation, context),
+    catalogFacts: (operation) => catalog().listingAuthority.readFacts(operation),
+  };
   const pricingHostPorts: PricingHostPorts = {
+    pricingListingAuthorityConsumer: createListingAuthorityConsumerResolver(
+      {
+        marketplace: createPostgresEventStore({ pool: pools.marketplace }),
+        ordering: createPostgresEventStore({ pool: pools.ordering }),
+      },
+      "pricing",
+    ),
     tcgplayerMarketTransport: { kind: "not-mounted" },
     tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
     commercialTermsResolver,
@@ -161,8 +223,13 @@ export function createMarketplaceSeedRuntime(
     },
   };
 
-  return createMountedContextTestRuntime([
-    { contextName: "catalog", module: catalogModule, pool: pools.catalog, ports: options.catalogPorts },
+  const runtime = createMountedContextTestRuntime([
+    {
+      contextName: "catalog",
+      module: catalogModule,
+      pool: pools.catalog,
+      ports: { ...options.catalogPorts, listingAuthorityConsumer: consumer("catalog") },
+    },
     {
       contextName: "checkout",
       module: checkoutModule,
@@ -180,7 +247,7 @@ export function createMarketplaceSeedRuntime(
       contextName: "commercial-terms",
       module: commercialTermsModule,
       pool: pools["commercial-terms"],
-      ports: undefined,
+      ports: { listingAuthority: { consumer: consumer("commercial-terms"), identity: identityFacts } },
     },
     { contextName: "discovery", module: discoveryModule, pool: pools.discovery, ports: undefined },
     {
@@ -189,13 +256,36 @@ export function createMarketplaceSeedRuntime(
       pool: pools.fulfillment,
       ports: undefined,
     },
-    { contextName: "identity", module: identityModule, pool: pools.identity, ports: undefined },
-    { contextName: "inventory", module: inventoryModule, pool: pools.inventory, ports: undefined },
+    {
+      contextName: "identity",
+      module: identityModule,
+      pool: pools.identity,
+      ports: { listingAuthorityConsumer: consumer("identity") },
+    },
+    {
+      contextName: "inventory",
+      module: inventoryModule,
+      pool: pools.inventory,
+      ports: { listingAuthorityConsumer: consumer("inventory") },
+    },
     {
       contextName: "marketplace",
       module: marketplaceModule,
       pool: pools.marketplace,
-      ports: { commercialTermsResolver, listingPhotoStorage },
+      ports: {
+        commercialTermsResolver,
+        listingPhotoStorage,
+        listingSeed,
+        listingAuthority: {
+          consumer: consumer("marketplace"),
+          inventory: stock,
+          identity: {
+            participant: manage,
+            sellerFacts: (reservation) => identity().listingAuthority.sellerFacts(reservation),
+          },
+          catalog: { participant: product, readFacts: (operation) => catalog().listingAuthority.readFacts(operation) },
+        } satisfies MarketplaceListingAuthorityPorts,
+      },
     },
     {
       contextName: "ordering",
@@ -227,6 +317,8 @@ export function createMarketplaceSeedRuntime(
       ports: undefined,
     },
   ] as const);
+  services = runtime.services;
+  return runtime;
 }
 
 function createMarketplaceSeedListingPhotoStorage(): ListingPhotoStorage {

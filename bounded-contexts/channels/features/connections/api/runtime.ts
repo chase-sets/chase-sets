@@ -8,9 +8,9 @@ import { channelConnectionEventCodec } from "../domain/codec";
 import {
   ChannelConnectionError,
   type ChannelConnectionBinding,
+  type ChannelConnectionAuthorityServices,
   type ChannelConnectionClock,
   type ChannelConnectionHostPorts,
-  type ChannelConnectionServices,
   type ChannelConnectionSetupDeclaration,
   type ChannelConnectionSetupResolver,
   type ChannelCredentialAuthorityResolver,
@@ -32,6 +32,7 @@ import {
 } from "../domain/validation";
 import { buildChannelConnectionProjectionHandlers } from "../read-model/projection";
 import { getPublicChannelConnection, listPublicChannelConnections } from "../read-model/queries";
+import { createChannelConnectionAuthority } from "./listing-authority";
 
 export type ChannelConnectionRuntimeDeps = Readonly<{
   eventStore: EventStore;
@@ -61,14 +62,15 @@ export function mapDeploymentEnvironment(environment: DeploymentEnvironment): Ch
 export function createChannelConnectionRuntime(
   deps: ChannelConnectionRuntimeDeps,
   ports: ChannelConnectionHostPorts = {},
-): ChannelConnectionServices {
+): ChannelConnectionAuthorityServices {
   const setupResolver = ports.setupResolver ?? absentSetupResolver;
   const credentialAuthority = ports.credentialAuthority ?? absentCredentialAuthority;
   const storageLocationAuthority = ports.storageLocationAuthority ?? absentStorageLocationAuthority;
   const policyAuthority = ports.policyAuthority ?? absentPolicyAuthority;
   const clock = ports.clock ?? serverClock;
+  const authority = createChannelConnectionAuthority(deps.eventStore, ports.listingAuthorityConsumer);
   const { commandHandler, repository } = createAggregateCommandHandler({
-    eventStore: deps.eventStore,
+    eventStore: { ...deps.eventStore, appendToStream: authority.append },
     codec: channelConnectionEventCodec,
     initialState: () => initialChannelConnectionState,
     evolve: evolveChannelConnection,
@@ -77,11 +79,16 @@ export function createChannelConnectionRuntime(
   });
   const streamId = (connectionId: string) => `channels.connection-${connectionId}`;
 
-  async function loadOwned(accountId: string, connectionId: string) {
+  async function loadOwned(accountId: string, connectionId: string, context: EventStoreContext) {
     assertOpaqueId(accountId, "accountId");
     assertOpaqueId(connectionId, "connectionId");
     const loaded = await repository.load(streamId(connectionId));
-    if (loaded.state.connectionId === null || loaded.state.accountId !== accountId) {
+    if (
+      loaded.state.connectionId === null ||
+      loaded.state.accountId !== accountId ||
+      context.audit.forAccountId !== accountId ||
+      loaded.storedEvents.some((event) => event.tenantId !== context.tenantId)
+    ) {
       throw new ChannelConnectionError("connection-not-found");
     }
     return loaded;
@@ -145,12 +152,24 @@ export function createChannelConnectionRuntime(
     }),
   ];
 
-  const services: ChannelConnectionServices = {
+  const services: ChannelConnectionAuthorityServices = {
+    listingAuthority: {
+      participant: authority.source.participant,
+      prepare: async (operation, context) => {
+        if (!ports.listingAuthorityConsumer) throw new Error("Channel connection authority consumer is not mounted.");
+        return authority.source.prepare(operation, context);
+      },
+      inspect: authority.source.inspect,
+      settle: authority.source.settle,
+    },
+    recoverAuthorityMutation: authority.recoverMutation,
+    recoverAuthorityPage: authority.recoverPage,
     connectChannel: async (input, options, context) => {
       assertClosedRecord(input, ["connectionId", "accountId", "providerKey"], "connect input");
       assertClosedRecord(options, ["deploymentEnvironment"], "connect options");
       assertOpaqueId(input.connectionId, "connectionId");
       assertOpaqueId(input.accountId, "accountId");
+      if (input.accountId !== context.audit.forAccountId) throw new ChannelConnectionError("connection-not-found");
       assertProviderKey(input.providerKey);
       assertDeploymentEnvironment(options.deploymentEnvironment);
       const loaded = await repository.load(streamId(input.connectionId));
@@ -169,7 +188,7 @@ export function createChannelConnectionRuntime(
     },
     activateChannelConnection: async (input, context) => {
       assertClosedRecord(input, ["accountId", "connectionId", "credentialReference", "bindings"], "activate input");
-      const loaded = await loadOwned(input.accountId, input.connectionId);
+      const loaded = await loadOwned(input.accountId, input.connectionId, context);
       if (loaded.state.status === "disconnected") throw new ChannelConnectionError("connection-disconnected");
       if (loaded.state.status !== "pending-setup") throw new ChannelConnectionError("invalid-transition");
       const declaration = await resolveSetup(loaded.state.providerKey!, loaded.state.environment!);
@@ -191,7 +210,7 @@ export function createChannelConnectionRuntime(
     },
     pauseChannelConnection: async (input, context) => {
       assertClosedRecord(input, ["accountId", "connectionId"], "pause input");
-      const loaded = await loadOwned(input.accountId, input.connectionId);
+      const loaded = await loadOwned(input.accountId, input.connectionId, context);
       return commandHandler({
         streamId: streamId(input.connectionId),
         expectedVersion: loaded.version,
@@ -201,7 +220,7 @@ export function createChannelConnectionRuntime(
     },
     resumeChannelConnection: async (input, context) => {
       assertClosedRecord(input, ["accountId", "connectionId"], "resume input");
-      const loaded = await loadOwned(input.accountId, input.connectionId);
+      const loaded = await loadOwned(input.accountId, input.connectionId, context);
       if (loaded.state.status === "disconnected") throw new ChannelConnectionError("connection-disconnected");
       if (loaded.state.status !== "paused") throw new ChannelConnectionError("invalid-transition");
       const declaration = await resolveSetup(loaded.state.providerKey!, loaded.state.environment!);
@@ -222,7 +241,7 @@ export function createChannelConnectionRuntime(
     },
     disconnectChannelConnection: async (input, context) => {
       assertClosedRecord(input, ["accountId", "connectionId"], "disconnect input");
-      const loaded = await loadOwned(input.accountId, input.connectionId);
+      const loaded = await loadOwned(input.accountId, input.connectionId, context);
       return commandHandler({
         streamId: streamId(input.connectionId),
         expectedVersion: loaded.version,

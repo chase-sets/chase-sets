@@ -3296,6 +3296,371 @@ export const mcpToolCatalog = [
     expectedUsage: ["Use before creating or updating listings, pricing recommendations, or stock holds."],
   },
   {
+    name: "marketplace.accept-listing-target-price",
+    title: "Accept Listing Target Price",
+    description: "Retain the exact authorized price pair for one target without provider execution.",
+    availability: "available",
+    serviceId: "marketplace",
+    risk: "sensitive",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "accountId",
+        "listingId",
+        "expectedListingVersion",
+        "idempotencyKey",
+        "confirmationText",
+        "target",
+        "priceAmount",
+        "priceCurrencyCode",
+        "expectedTargetPriceRevision",
+        "decision",
+      ],
+      properties: {
+        accountId: {
+          type: "string",
+          description: "Authenticated seller account.",
+        },
+        listingId: {
+          type: "string",
+          description: "Listing identity.",
+        },
+        expectedListingVersion: {
+          type: "integer",
+          description: "Exact current Listing stream revision.",
+        },
+        idempotencyKey: {
+          type: "string",
+          description:
+            "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
+        },
+        confirmationText: {
+          type: "string",
+          description: "Exact user or policy confirmation text.",
+        },
+        target: {
+          type: "object",
+          description: "Exact native or channel-connection Listing price target.",
+          additionalProperties: false,
+          required: ["kind"],
+          properties: {
+            kind: {
+              type: "string",
+              description: "Target kind.",
+              enum: ["native-marketplace", "channel-connection"],
+            },
+            connectionId: {
+              type: "string",
+              description: "Required only for a channel-connection target.",
+            },
+          },
+          oneOf: [
+            {
+              type: "object",
+              description: "Native Marketplace target.",
+              additionalProperties: false,
+              required: ["kind"],
+              properties: {
+                kind: {
+                  type: "string",
+                  description: "Native target.",
+                  enum: ["native-marketplace"],
+                },
+              },
+            },
+            {
+              type: "object",
+              description: "Channel connection target.",
+              additionalProperties: false,
+              required: ["kind", "connectionId"],
+              properties: {
+                kind: {
+                  type: "string",
+                  description: "Channel target.",
+                  enum: ["channel-connection"],
+                },
+                connectionId: {
+                  type: "string",
+                  description: "Exact connection.",
+                },
+              },
+            },
+          ],
+        },
+        priceAmount: {
+          type: "string",
+          description: "Complete price amount.",
+        },
+        priceCurrencyCode: {
+          type: "string",
+          description: "Three-letter price currency.",
+        },
+        expectedTargetPriceRevision: {
+          type: "integer",
+          description: "Exact accepted target-price revision; zero when absent.",
+        },
+        decision: {
+          type: "object",
+          description:
+            "Seller reference or complete owner-verified Pricing evaluation. Pricing fields are required for pricing-evaluation and forbidden for seller-reference.",
+          additionalProperties: false,
+          required: ["kind"],
+          properties: {
+            kind: {
+              type: "string",
+              description: "Decision kind.",
+              enum: ["seller-reference", "pricing-evaluation"],
+            },
+            evaluationId: {
+              type: "string",
+              description: "Pricing evaluation identity.",
+            },
+            evaluationRevision: {
+              type: "string",
+              description: "Pricing evaluation revision.",
+            },
+            policyId: {
+              type: "string",
+              description: "Pricing policy identity.",
+            },
+            policyRevision: {
+              type: "string",
+              description: "Pricing policy revision.",
+            },
+            goal: {
+              type: ["object", "null"],
+              description: "Pricing goal binding, or null.",
+              additionalProperties: false,
+              required: ["goalId", "version"],
+              properties: {
+                goalId: {
+                  type: "string",
+                  description: "Goal identity.",
+                },
+                version: {
+                  type: "string",
+                  description: "Goal version.",
+                },
+              },
+            },
+            inputEvidenceRefs: {
+              type: "array",
+              description: "Verified input evidence references.",
+              items: {
+                type: "string",
+                description: "Evidence reference.",
+              },
+            },
+            curveEvidenceRefs: {
+              type: "array",
+              description: "Verified curve evidence references.",
+              items: {
+                type: "string",
+                description: "Evidence reference.",
+              },
+            },
+            economicsSourceRevision: {
+              type: ["string", "null"],
+              description: "Economics source revision, or null.",
+            },
+            economicsOverrideRevision: {
+              type: ["string", "null"],
+              description: "Economics override revision, or null.",
+            },
+            basePriceRevision: {
+              type: "integer",
+              description: "Evaluation base-price revision.",
+            },
+            standingAuthorizationId: {
+              type: "string",
+              description: "Standing authorization identity.",
+            },
+            standingAuthorizationRevision: {
+              type: "string",
+              description: "Standing authorization revision.",
+            },
+          },
+          oneOf: [
+            {
+              type: "object",
+              description: "Seller-authored native reference.",
+              additionalProperties: false,
+              required: ["kind"],
+              properties: {
+                kind: {
+                  type: "string",
+                  description: "Seller decision.",
+                  enum: ["seller-reference"],
+                },
+              },
+            },
+            {
+              type: "object",
+              description: "Complete verified Pricing decision.",
+              additionalProperties: false,
+              required: [
+                "kind",
+                "evaluationId",
+                "evaluationRevision",
+                "policyId",
+                "policyRevision",
+                "goal",
+                "inputEvidenceRefs",
+                "curveEvidenceRefs",
+                "economicsSourceRevision",
+                "economicsOverrideRevision",
+                "basePriceRevision",
+                "standingAuthorizationId",
+                "standingAuthorizationRevision",
+              ],
+              properties: {
+                kind: {
+                  type: "string",
+                  description: "Pricing decision.",
+                  enum: ["pricing-evaluation"],
+                },
+                evaluationId: {
+                  type: "string",
+                  description: "Pricing evaluation identity.",
+                },
+                evaluationRevision: {
+                  type: "string",
+                  description: "Pricing evaluation revision.",
+                },
+                policyId: {
+                  type: "string",
+                  description: "Pricing policy identity.",
+                },
+                policyRevision: {
+                  type: "string",
+                  description: "Pricing policy revision.",
+                },
+                goal: {
+                  type: ["object", "null"],
+                  description: "Pricing goal binding, or null.",
+                  additionalProperties: false,
+                  required: ["goalId", "version"],
+                  properties: {
+                    goalId: {
+                      type: "string",
+                      description: "Goal identity.",
+                    },
+                    version: {
+                      type: "string",
+                      description: "Goal version.",
+                    },
+                  },
+                },
+                inputEvidenceRefs: {
+                  type: "array",
+                  description: "Verified input evidence references.",
+                  items: {
+                    type: "string",
+                    description: "Evidence reference.",
+                  },
+                },
+                curveEvidenceRefs: {
+                  type: "array",
+                  description: "Verified curve evidence references.",
+                  items: {
+                    type: "string",
+                    description: "Evidence reference.",
+                  },
+                },
+                economicsSourceRevision: {
+                  type: ["string", "null"],
+                  description: "Economics source revision, or null.",
+                },
+                economicsOverrideRevision: {
+                  type: ["string", "null"],
+                  description: "Economics override revision, or null.",
+                },
+                basePriceRevision: {
+                  type: "integer",
+                  description: "Evaluation base-price revision.",
+                },
+                standingAuthorizationId: {
+                  type: "string",
+                  description: "Standing authorization identity.",
+                },
+                standingAuthorizationRevision: {
+                  type: "string",
+                  description: "Standing authorization revision.",
+                },
+              },
+            },
+          ],
+        },
+        changeSource: {
+          type: "string",
+          description: "Pricing-originated acceptance only.",
+          enum: ["repricing-engine"],
+        },
+      },
+    },
+    outputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["accountId", "id", "listingId", "version", "status", "resourceUri"],
+      properties: {
+        accountId: {
+          type: "string",
+          description: "Authenticated account scope.",
+        },
+        id: {
+          type: "string",
+          description: "Listing identifier.",
+        },
+        listingId: {
+          type: "string",
+          description: "Listing identifier.",
+        },
+        version: {
+          type: "integer",
+          description: "Committed listing stream version.",
+        },
+        status: {
+          type: "string",
+          description: "Lifecycle write result.",
+        },
+        resourceUri: {
+          type: "string",
+          description: "MCP resource URI for the listing.",
+        },
+        inventoryItemId: {
+          type: "string",
+          description: "Inventory item used to create the listing.",
+        },
+        feeQuoteFingerprint: {
+          type: ["string", "null"],
+          description: "Marketplace sales-fee quote fingerprint; null before native enrollment.",
+        },
+      },
+    },
+    permissionBoundary: {
+      scope: "account",
+      requiredPermissions: ["listings.manage"],
+      requiredScopes: ["listings:write"],
+      accountScoped: true,
+      auditPrincipal: "actor",
+    },
+    guardrails: {
+      confirmation: {
+        required: true,
+        prompt: "Confirm the exact business action before invoking this tool.",
+        matchInputField: "confirmationText",
+      },
+      idempotencyKey: "required",
+      idempotencyAuthority: "platform",
+      dryRunSupported: true,
+      notes: ["Write through the owning bounded context and emit normal domain events."],
+    },
+    expectedUsage: [
+      "Read current Listing authority first; reuse the same idempotency key only for an identical request.",
+    ],
+  },
+  {
     name: "marketplace.accept-offer",
     title: "Accept Offer",
     description: "Accept a buyer offer and begin order creation.",
@@ -3408,6 +3773,123 @@ export const mcpToolCatalog = [
       notes: ["Write through the owning bounded context and emit normal domain events."],
     },
     expectedUsage: ["Use only after confirming price, quantity, seller supply, and commercial terms."],
+  },
+  {
+    name: "marketplace.activate-listing-for-channel",
+    title: "Activate Listing For Channel",
+    description: "Activate a retained channel price using current connection and stock allocation authority.",
+    availability: "available",
+    serviceId: "marketplace",
+    risk: "sensitive",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "accountId",
+        "listingId",
+        "expectedListingVersion",
+        "idempotencyKey",
+        "confirmationText",
+        "connectionId",
+        "expectedTargetPriceRevision",
+        "allocationRevision",
+      ],
+      properties: {
+        accountId: {
+          type: "string",
+          description: "Authenticated seller account.",
+        },
+        listingId: {
+          type: "string",
+          description: "Listing identity.",
+        },
+        expectedListingVersion: {
+          type: "integer",
+          description: "Exact current Listing stream revision.",
+        },
+        idempotencyKey: {
+          type: "string",
+          description:
+            "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
+        },
+        confirmationText: {
+          type: "string",
+          description: "Exact user or policy confirmation text.",
+        },
+        connectionId: {
+          type: "string",
+          description: "Exact channel connection.",
+        },
+        expectedTargetPriceRevision: {
+          type: "integer",
+          description: "Accepted target-price revision.",
+        },
+        allocationRevision: {
+          type: "integer",
+          description: "Current Inventory allocation revision.",
+        },
+      },
+    },
+    outputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["accountId", "id", "listingId", "version", "status", "resourceUri"],
+      properties: {
+        accountId: {
+          type: "string",
+          description: "Authenticated account scope.",
+        },
+        id: {
+          type: "string",
+          description: "Listing identifier.",
+        },
+        listingId: {
+          type: "string",
+          description: "Listing identifier.",
+        },
+        version: {
+          type: "integer",
+          description: "Committed listing stream version.",
+        },
+        status: {
+          type: "string",
+          description: "Lifecycle write result.",
+        },
+        resourceUri: {
+          type: "string",
+          description: "MCP resource URI for the listing.",
+        },
+        inventoryItemId: {
+          type: "string",
+          description: "Inventory item used to create the listing.",
+        },
+        feeQuoteFingerprint: {
+          type: ["string", "null"],
+          description: "Marketplace sales-fee quote fingerprint; null before native enrollment.",
+        },
+      },
+    },
+    permissionBoundary: {
+      scope: "account",
+      requiredPermissions: ["listings.manage"],
+      requiredScopes: ["listings:write"],
+      accountScoped: true,
+      auditPrincipal: "actor",
+    },
+    guardrails: {
+      confirmation: {
+        required: true,
+        prompt: "Confirm the exact business action before invoking this tool.",
+        matchInputField: "confirmationText",
+      },
+      idempotencyKey: "required",
+      idempotencyAuthority: "platform",
+      dryRunSupported: true,
+      notes: ["Write through the owning bounded context and emit normal domain events."],
+    },
+    expectedUsage: [
+      "Read current Listing authority first; reuse the same idempotency key only for an identical request.",
+    ],
   },
   {
     name: "marketplace.counter-offer",
@@ -3663,6 +4145,11 @@ export const mcpToolCatalog = [
           type: "integer",
           description: "Maximum listed quantity.",
         },
+        publicationScope: {
+          type: "string",
+          description: "Creation scope; channel-only retains a reference without native fees or visibility.",
+          enum: ["native", "channel-only"],
+        },
         purchaseLimits: {
           type: "object",
           description: "Optional per-listing purchase limits.",
@@ -3735,8 +4222,8 @@ export const mcpToolCatalog = [
           description: "Inventory item used to create the listing.",
         },
         feeQuoteFingerprint: {
-          type: "string",
-          description: "Marketplace sales-fee quote fingerprint.",
+          type: ["string", "null"],
+          description: "Marketplace sales-fee quote fingerprint; null before native enrollment.",
         },
       },
     },
@@ -4417,8 +4904,8 @@ export const mcpToolCatalog = [
           description: "Inventory item used to create the listing.",
         },
         feeQuoteFingerprint: {
-          type: "string",
-          description: "Marketplace sales-fee quote fingerprint.",
+          type: ["string", "null"],
+          description: "Marketplace sales-fee quote fingerprint; null before native enrollment.",
         },
       },
     },
@@ -4441,6 +4928,247 @@ export const mcpToolCatalog = [
       notes: ["Write through the owning bounded context and emit normal domain events."],
     },
     expectedUsage: ["Use after confirming inventory, pricing, photos when required, and commercial terms."],
+  },
+  {
+    name: "marketplace.resume-listing",
+    title: "Resume Listing",
+    description: "Resume only the observed pause without changing native visibility.",
+    availability: "available",
+    serviceId: "marketplace",
+    risk: "sensitive",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "accountId",
+        "listingId",
+        "expectedListingVersion",
+        "idempotencyKey",
+        "confirmationText",
+        "expectedPauseReason",
+      ],
+      properties: {
+        accountId: {
+          type: "string",
+          description: "Authenticated seller account.",
+        },
+        listingId: {
+          type: "string",
+          description: "Listing identity.",
+        },
+        expectedListingVersion: {
+          type: "integer",
+          description: "Exact current Listing stream revision.",
+        },
+        idempotencyKey: {
+          type: "string",
+          description:
+            "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
+        },
+        confirmationText: {
+          type: "string",
+          description: "Exact user or policy confirmation text.",
+        },
+        expectedPauseReason: {
+          type: "string",
+          description: "Exact current pause reason.",
+          enum: ["seller", "policy-input-missing", "channel-inbound-dark"],
+        },
+        inboundClamp: {
+          type: "object",
+          description: "Exact final inbound-clamp owner, required only for its guarded release.",
+          additionalProperties: false,
+          required: ["connectionId", "runId", "generation"],
+          properties: {
+            connectionId: {
+              type: "string",
+              description: "Clamp connection.",
+            },
+            runId: {
+              type: "string",
+              description: "Clamp run.",
+            },
+            generation: {
+              type: "integer",
+              description: "Clamp generation.",
+            },
+          },
+        },
+      },
+    },
+    outputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["accountId", "id", "listingId", "version", "status", "resourceUri"],
+      properties: {
+        accountId: {
+          type: "string",
+          description: "Authenticated account scope.",
+        },
+        id: {
+          type: "string",
+          description: "Listing identifier.",
+        },
+        listingId: {
+          type: "string",
+          description: "Listing identifier.",
+        },
+        version: {
+          type: "integer",
+          description: "Committed listing stream version.",
+        },
+        status: {
+          type: "string",
+          description: "Lifecycle write result.",
+        },
+        resourceUri: {
+          type: "string",
+          description: "MCP resource URI for the listing.",
+        },
+        inventoryItemId: {
+          type: "string",
+          description: "Inventory item used to create the listing.",
+        },
+        feeQuoteFingerprint: {
+          type: ["string", "null"],
+          description: "Marketplace sales-fee quote fingerprint; null before native enrollment.",
+        },
+      },
+    },
+    permissionBoundary: {
+      scope: "account",
+      requiredPermissions: ["listings.manage"],
+      requiredScopes: ["listings:write"],
+      accountScoped: true,
+      auditPrincipal: "actor",
+    },
+    guardrails: {
+      confirmation: {
+        required: true,
+        prompt: "Confirm the exact business action before invoking this tool.",
+        matchInputField: "confirmationText",
+      },
+      idempotencyKey: "required",
+      idempotencyAuthority: "platform",
+      dryRunSupported: true,
+      notes: ["Write through the owning bounded context and emit normal domain events."],
+    },
+    expectedUsage: [
+      "Read current Listing authority first; reuse the same idempotency key only for an identical request.",
+    ],
+  },
+  {
+    name: "marketplace.set-native-listing-visibility",
+    title: "Set Native Listing Visibility",
+    description:
+      "Explicitly enable or disable native Marketplace visibility; enablement requires current readiness and fee consent.",
+    availability: "available",
+    serviceId: "marketplace",
+    risk: "sensitive",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "accountId",
+        "listingId",
+        "expectedListingVersion",
+        "idempotencyKey",
+        "confirmationText",
+        "nativeVisibility",
+      ],
+      properties: {
+        accountId: {
+          type: "string",
+          description: "Authenticated seller account.",
+        },
+        listingId: {
+          type: "string",
+          description: "Listing identity.",
+        },
+        expectedListingVersion: {
+          type: "integer",
+          description: "Exact current Listing stream revision.",
+        },
+        idempotencyKey: {
+          type: "string",
+          description:
+            "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
+        },
+        confirmationText: {
+          type: "string",
+          description: "Exact user or policy confirmation text.",
+        },
+        nativeVisibility: {
+          type: "string",
+          description: "Native visibility consent.",
+          enum: ["enabled", "disabled"],
+        },
+        feeQuoteFingerprint: {
+          type: "string",
+          description: "Confirmed current quote when enrolling uncovered native units.",
+        },
+      },
+    },
+    outputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["accountId", "id", "listingId", "version", "status", "resourceUri"],
+      properties: {
+        accountId: {
+          type: "string",
+          description: "Authenticated account scope.",
+        },
+        id: {
+          type: "string",
+          description: "Listing identifier.",
+        },
+        listingId: {
+          type: "string",
+          description: "Listing identifier.",
+        },
+        version: {
+          type: "integer",
+          description: "Committed listing stream version.",
+        },
+        status: {
+          type: "string",
+          description: "Lifecycle write result.",
+        },
+        resourceUri: {
+          type: "string",
+          description: "MCP resource URI for the listing.",
+        },
+        inventoryItemId: {
+          type: "string",
+          description: "Inventory item used to create the listing.",
+        },
+        feeQuoteFingerprint: {
+          type: ["string", "null"],
+          description: "Marketplace sales-fee quote fingerprint; null before native enrollment.",
+        },
+      },
+    },
+    permissionBoundary: {
+      scope: "account",
+      requiredPermissions: ["listings.manage"],
+      requiredScopes: ["listings:write"],
+      accountScoped: true,
+      auditPrincipal: "actor",
+    },
+    guardrails: {
+      confirmation: {
+        required: true,
+        prompt: "Confirm the exact business action before invoking this tool.",
+        matchInputField: "confirmationText",
+      },
+      idempotencyKey: "required",
+      idempotencyAuthority: "platform",
+      dryRunSupported: true,
+      notes: ["Write through the owning bounded context and emit normal domain events."],
+    },
+    expectedUsage: [
+      "Read current Listing authority first; reuse the same idempotency key only for an identical request.",
+    ],
   },
   {
     name: "marketplace.submit-offer",
@@ -4724,8 +5452,8 @@ export const mcpToolCatalog = [
           description: "Inventory item used to create the listing.",
         },
         feeQuoteFingerprint: {
-          type: "string",
-          description: "Marketplace sales-fee quote fingerprint.",
+          type: ["string", "null"],
+          description: "Marketplace sales-fee quote fingerprint; null before native enrollment.",
         },
       },
     },
@@ -4781,6 +5509,232 @@ export const mcpToolCatalog = [
           type: "string",
           description: "Current marketplace sales-fee quote fingerprint.",
         },
+        expectedVersion: {
+          type: "integer",
+          description: "Expected current Listing revision.",
+        },
+        expectedTargetPriceRevision: {
+          type: "integer",
+          description: "Expected native price revision.",
+        },
+        decision: {
+          type: "object",
+          description:
+            "Seller reference or complete owner-verified Pricing evaluation. Pricing fields are required for pricing-evaluation and forbidden for seller-reference.",
+          additionalProperties: false,
+          required: ["kind"],
+          properties: {
+            kind: {
+              type: "string",
+              description: "Decision kind.",
+              enum: ["seller-reference", "pricing-evaluation"],
+            },
+            evaluationId: {
+              type: "string",
+              description: "Pricing evaluation identity.",
+            },
+            evaluationRevision: {
+              type: "string",
+              description: "Pricing evaluation revision.",
+            },
+            policyId: {
+              type: "string",
+              description: "Pricing policy identity.",
+            },
+            policyRevision: {
+              type: "string",
+              description: "Pricing policy revision.",
+            },
+            goal: {
+              type: ["object", "null"],
+              description: "Pricing goal binding, or null.",
+              additionalProperties: false,
+              required: ["goalId", "version"],
+              properties: {
+                goalId: {
+                  type: "string",
+                  description: "Goal identity.",
+                },
+                version: {
+                  type: "string",
+                  description: "Goal version.",
+                },
+              },
+            },
+            inputEvidenceRefs: {
+              type: "array",
+              description: "Verified input evidence references.",
+              items: {
+                type: "string",
+                description: "Evidence reference.",
+              },
+            },
+            curveEvidenceRefs: {
+              type: "array",
+              description: "Verified curve evidence references.",
+              items: {
+                type: "string",
+                description: "Evidence reference.",
+              },
+            },
+            economicsSourceRevision: {
+              type: ["string", "null"],
+              description: "Economics source revision, or null.",
+            },
+            economicsOverrideRevision: {
+              type: ["string", "null"],
+              description: "Economics override revision, or null.",
+            },
+            basePriceRevision: {
+              type: "integer",
+              description: "Evaluation base-price revision.",
+            },
+            standingAuthorizationId: {
+              type: "string",
+              description: "Standing authorization identity.",
+            },
+            standingAuthorizationRevision: {
+              type: "string",
+              description: "Standing authorization revision.",
+            },
+          },
+          oneOf: [
+            {
+              type: "object",
+              description: "Seller-authored native reference.",
+              additionalProperties: false,
+              required: ["kind"],
+              properties: {
+                kind: {
+                  type: "string",
+                  description: "Seller decision.",
+                  enum: ["seller-reference"],
+                },
+              },
+            },
+            {
+              type: "object",
+              description: "Complete verified Pricing decision.",
+              additionalProperties: false,
+              required: [
+                "kind",
+                "evaluationId",
+                "evaluationRevision",
+                "policyId",
+                "policyRevision",
+                "goal",
+                "inputEvidenceRefs",
+                "curveEvidenceRefs",
+                "economicsSourceRevision",
+                "economicsOverrideRevision",
+                "basePriceRevision",
+                "standingAuthorizationId",
+                "standingAuthorizationRevision",
+              ],
+              properties: {
+                kind: {
+                  type: "string",
+                  description: "Pricing decision.",
+                  enum: ["pricing-evaluation"],
+                },
+                evaluationId: {
+                  type: "string",
+                  description: "Pricing evaluation identity.",
+                },
+                evaluationRevision: {
+                  type: "string",
+                  description: "Pricing evaluation revision.",
+                },
+                policyId: {
+                  type: "string",
+                  description: "Pricing policy identity.",
+                },
+                policyRevision: {
+                  type: "string",
+                  description: "Pricing policy revision.",
+                },
+                goal: {
+                  type: ["object", "null"],
+                  description: "Pricing goal binding, or null.",
+                  additionalProperties: false,
+                  required: ["goalId", "version"],
+                  properties: {
+                    goalId: {
+                      type: "string",
+                      description: "Goal identity.",
+                    },
+                    version: {
+                      type: "string",
+                      description: "Goal version.",
+                    },
+                  },
+                },
+                inputEvidenceRefs: {
+                  type: "array",
+                  description: "Verified input evidence references.",
+                  items: {
+                    type: "string",
+                    description: "Evidence reference.",
+                  },
+                },
+                curveEvidenceRefs: {
+                  type: "array",
+                  description: "Verified curve evidence references.",
+                  items: {
+                    type: "string",
+                    description: "Evidence reference.",
+                  },
+                },
+                economicsSourceRevision: {
+                  type: ["string", "null"],
+                  description: "Economics source revision, or null.",
+                },
+                economicsOverrideRevision: {
+                  type: ["string", "null"],
+                  description: "Economics override revision, or null.",
+                },
+                basePriceRevision: {
+                  type: "integer",
+                  description: "Evaluation base-price revision.",
+                },
+                standingAuthorizationId: {
+                  type: "string",
+                  description: "Standing authorization identity.",
+                },
+                standingAuthorizationRevision: {
+                  type: "string",
+                  description: "Standing authorization revision.",
+                },
+              },
+            },
+          ],
+        },
+        changeSource: {
+          type: "string",
+          description: "Pricing-originated acceptance only.",
+          enum: ["repricing-engine"],
+        },
+        minimumChange: {
+          type: "object",
+          description: "Seller request suppression policy; never applied to Pricing decisions.",
+          additionalProperties: false,
+          required: ["mode"],
+          properties: {
+            mode: {
+              type: "string",
+              description: "Suppression mode.",
+              enum: ["absolute", "percent"],
+            },
+            amount: {
+              type: "string",
+              description: "Required absolute amount for absolute mode.",
+            },
+            percent: {
+              type: "number",
+              description: "Required nonnegative percentage for percent mode.",
+            },
+          },
+        },
         idempotencyKey: {
           type: "string",
           description:
@@ -4830,8 +5784,8 @@ export const mcpToolCatalog = [
           description: "Inventory item used to create the listing.",
         },
         feeQuoteFingerprint: {
-          type: "string",
-          description: "Marketplace sales-fee quote fingerprint.",
+          type: ["string", "null"],
+          description: "Marketplace sales-fee quote fingerprint; null before native enrollment.",
         },
       },
     },

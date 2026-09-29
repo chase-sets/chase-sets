@@ -1,5 +1,15 @@
 export * from "./support/route-support/auth-host";
 export {
+  createAuthListingSessionAuthority,
+  AuthSessionMutationPendingError,
+  type AuthListingSessionAuthorityHostPorts,
+  type AuthListingSessionAuthorityServices,
+} from "./features/sessions/api/listing-authority";
+export {
+  resolveListingSessionAuthentication,
+  resolveListingRequestAuthentication,
+} from "./support/runtime-support/runtime";
+export {
   bootstrapPlatformAdminPassword,
   type PlatformAdminPasswordBootstrapConfig,
 } from "./support/runtime-support/production-bootstrap";

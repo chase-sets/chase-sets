@@ -1,6 +1,6 @@
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
-import type { ChannelConnectionServices } from "../../features/connections/domain/contracts";
+import type { ChannelConnectionAuthorityServices } from "../../features/connections/domain/contracts";
 import type { ConnectionHealthServices } from "../../features/connection-health/domain/contracts";
 import type { ChannelListingCompositionServices } from "../../features/listing-composition/api/runtime";
 import type { OutboundSyncServices } from "../../features/outbound-sync/domain/contracts";
@@ -12,7 +12,7 @@ import type { ChannelCredentialServices } from "../../features/credentials/api/r
 
 export type ChannelsServices = Readonly<{
   credentials: ChannelCredentialServices;
-  connections: ChannelConnectionServices;
+  connections: ChannelConnectionAuthorityServices;
   connectionHealth: ConnectionHealthServices;
   connectionAttention: ConnectionAttentionServices;
   listingComposition: ChannelListingCompositionServices;

@@ -38,6 +38,7 @@
   ],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
   "allowedContextDependencies": [
+    "@chase-sets/catalog",
     "@chase-sets/commercial-terms",
     "@chase-sets/customer-feedback",
     "@chase-sets/inventory"
@@ -96,7 +97,7 @@
     {
       "sourceContextName": "catalog",
       "projectionName": "marketplace-listing-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "filterToEventTypes": true,
       "eventTypes": ["catalog.catalog-item.product-measures-resolved"],
       "order": 21,
@@ -105,7 +106,7 @@
     {
       "sourceContextName": "marketplace",
       "projectionName": "marketplace-listing-projection",
-      "subscriptionVersion": 2,
+      "subscriptionVersion": 3,
       "subscriptionName": "marketplace.self-listing-projection",
       "filterToEventTypes": true,
       "eventTypes": [
@@ -117,6 +118,13 @@
         "marketplace.listing.photos-reordered",
         "marketplace.listing.evidence-requirements-refreshed",
         "marketplace.listing.price-updated",
+        "marketplace.listing.target-price-accepted",
+        "marketplace.listing.channel-activated",
+        "marketplace.listing.native-visibility-changed",
+        "marketplace.listing.resumed",
+        "marketplace.listing.inbound-clamp-engaged",
+        "marketplace.listing.inbound-clamp-released",
+        "marketplace.listing.inbound-clamp-ownership-adopted",
         "marketplace.listing.quantity-cap-updated",
         "marketplace.listing.purchase-limits-updated",
         "marketplace.listing.published",
@@ -386,9 +394,12 @@
     },
     {
       "projectionName": "marketplace-listing-projection",
+      "projectionRevision": 2,
       "sourceContextNames": ["catalog", "marketplace"],
       "ownedTables": [
         "marketplace_listing_pages",
+        "marketplace_listing_target_prices",
+        "marketplace_listing_native_authority",
         "marketplace_seller_listing_availability_pages",
         "marketplace_seller_order_capacity_pages"
       ],
@@ -524,6 +535,26 @@
     }
   ],
   "hostPorts": [
+    {
+      "portName": "listingSeed",
+      "providedBy": "platform-api, marketplace-seed-testing",
+      "purpose": "Bind fenced fixture-key authentication and real owner authority to the scenario Listing seed without enabling ordinary granting consumers."
+    },
+    {
+      "portName": "listingCurrentOwnerFacts",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Bind canonical Identity seller and Catalog Product current reads to Marketplace-owned native readiness without granting commit authority."
+    },
+    {
+      "portName": "listingTargetAuthority",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Binds current owner reservations for Listing creation, target acceptance, native publication, capacity and scoped resume commands."
+    },
+    {
+      "portName": "listingAuthority",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Binds final committing-owner fences and Identity, Catalog, and Inventory source participants for native Listing readiness and purchase commitments."
+    },
     {
       "portName": "managedOfferPricing",
       "providedBy": "pricing",
@@ -715,6 +746,22 @@
       },
       {
         "name": "marketplace.update-listing-price",
+        "ownerSlice": "listings"
+      },
+      {
+        "name": "marketplace.accept-listing-target-price",
+        "ownerSlice": "listings"
+      },
+      {
+        "name": "marketplace.activate-listing-for-channel",
+        "ownerSlice": "listings"
+      },
+      {
+        "name": "marketplace.set-native-listing-visibility",
+        "ownerSlice": "listings"
+      },
+      {
+        "name": "marketplace.resume-listing",
         "ownerSlice": "listings"
       },
       {
@@ -1204,7 +1251,11 @@
         "api-client:bounded-contexts/marketplace/client.ts:POST H59449737c72f#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST Ha89eae8adbd2#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST H89eae60aa986#1",
-        "api-client:bounded-contexts/marketplace/client.ts:POST H9128ca46a67f#1",
+        "api-client:bounded-contexts/marketplace/client.ts:POST H378b58c096ed#1",
+        "api-client:bounded-contexts/marketplace/client.ts:POST Hf420ee4a2944#1",
+        "api-client:bounded-contexts/marketplace/client.ts:POST H6bf057fff288#1",
+        "api-client:bounded-contexts/marketplace/client.ts:POST H779a725b3343#1",
+        "api-client:bounded-contexts/marketplace/client.ts:POST H9e25ba19c32a#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST Hd04fea5e8409#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST H98464d79b40c#1",
         "api-client:bounded-contexts/marketplace/client.ts:POST H9b81d7eb5cbd#1",

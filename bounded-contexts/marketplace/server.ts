@@ -1,6 +1,36 @@
 export { createMarketplaceRequestApiClient, MarketplaceApiError } from "./support/request-support/api-client";
+export {
+  createMarketplaceListingAuthority,
+  type MarketplaceListingAuthorityPorts,
+} from "./features/listings/api/listing-authority";
 export { createMarketplaceChannelInboundClampCapability } from "./features/channel-inbound-clamp/api/capability";
 export type { MarketplaceListingServices } from "./features/listings/api/runtime";
+export type {
+  MarketplaceListingCreationInput,
+  MarketplaceCreateListing,
+  MarketplaceNativeListingCreationResult,
+  MarketplaceChannelOnlyListingCreationResult,
+} from "./features/listings/api/runtime";
+export type {
+  AcceptedListingTargetPriceV1,
+  MarketplaceListingPriceDecision,
+  MarketplaceListingPriceTarget,
+  NativeListingEligibilityV1,
+  ListingMutationInput,
+  AcceptListingTargetPriceInput,
+  ActivateListingForChannelInput,
+  SetNativeListingVisibilityInput,
+  ResumeListingInput,
+  ListingMutationResult,
+  ListingTargetPriceAcceptanceResult,
+  ListingAuthorityResult,
+  ListingTargetAuthority,
+  ListingInventoryAuthority,
+  ListingNativeReadinessInput,
+  ListingNativeReadinessAuthority,
+  AcceptedListingTargetPriceRead,
+  ListingTargetServices,
+} from "./features/listings/api/target-contracts";
 export {
   MARKETPLACE_CHANNEL_INBOUND_CLAMP_MAX_LISTINGS,
   MARKETPLACE_CHANNEL_INBOUND_CLAMP_PAGE_SIZE,
@@ -12,6 +42,7 @@ export {
   type MarketplaceChannelInboundClampResult,
 } from "./features/channel-inbound-clamp/domain/contracts";
 export type { MarketplaceServices } from "./support/runtime-support/services";
+export type { MarketplaceListingSeedPorts } from "./support/runtime-support/listing-seed-authority";
 export { evidenceCoverageCodeLocaleKey } from "./features/listings/domain/evidence-coverage";
 export type {
   MarketplaceListingInventoryItemOption,
@@ -105,6 +136,16 @@ export type { MarketplaceSellerBehavioralMetricsPolicyValue } from "./features/s
  * listing volume without querying `marketplace_listing_pages` directly.
  */
 export { getLockedFeeListingCohortSummary } from "./features/listings/read-model/queries";
+export { assertListingReadFreshness } from "./features/listings/read-model/target-queries";
+export type {
+  ListingCurrentReadiness,
+  ListingCurrentReadinessReader,
+} from "./features/listings/read-model/target-queries";
+export { createMarketplaceListingCurrentReadiness } from "./features/listings/read-model/native-current-readiness";
+export type {
+  ListingCurrentOwnerFacts,
+  MarketplaceListingCurrentReadinessPorts,
+} from "./features/listings/read-model/native-current-readiness";
 export type {
   MarketplaceLockedFeeListingCohortSummary,
   MarketplaceLockedFeeListingCohortWeeklyPoint,

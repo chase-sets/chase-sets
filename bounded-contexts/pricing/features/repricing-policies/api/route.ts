@@ -10,7 +10,9 @@ import {
 } from "../domain/domain";
 import type { RepricingScopePreviewInput } from "../read-model/controls";
 
-export function createRepricingPolicyRoutes(services: RepricingPolicyServices & RepricingPolicyActivationServices) {
+export function createRepricingPolicyRoutes(
+  services: RepricingPolicyServices & Pick<RepricingPolicyActivationServices, "activateRepricingPolicy">,
+) {
   const app = new Hono<PricingApiEnv>();
   app.onError((error, c) => {
     if (error instanceof PolicyControlValidationError && error.cause instanceof RepricingPolicyValidationError)

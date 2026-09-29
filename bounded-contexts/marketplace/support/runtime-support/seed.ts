@@ -6,15 +6,7 @@ import { inventorySeedIds } from "@chase-sets/inventory/seed-support/ids";
 import { marketplaceReservedSeedIds, reputationReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
-import type {
-  AccountId,
-  CatalogItemId,
-  ListingId,
-  OfferId,
-  UserId,
-  OrderId,
-  TenantId,
-} from "@chase-sets/primitives/typed-ids";
+import type { AccountId, CatalogItemId, ListingId, OfferId, UserId, OrderId } from "@chase-sets/primitives/typed-ids";
 import {
   createMarketplaceProductDescriptor,
   type MarketplaceVersionSchema,
@@ -24,7 +16,9 @@ import { buildListingEvidenceSnapshot } from "../../features/listings/domain/evi
 import type { MarketplaceListingPhotoUpload } from "../../features/listings/api/runtime";
 import { quoteMarketplaceTerms } from "./fee-quotes";
 import { createMarketplaceServices, type MarketplaceServices } from "./services";
-import type { BcSeedAggregateStateReport } from "@chase-sets/bounded-context-module";
+import type { BcSeedAggregateStateReport, BcSeedOptions } from "@chase-sets/bounded-context-module";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import { toJsonValue } from "@chase-sets/primitives/json";
 import { loadSeedStreamEvents } from "@chase-sets/bounded-context-runtime";
 import {
   activeListingPhotos,
@@ -695,7 +689,7 @@ async function acceptReservedSeedOffer(
   offer: OfferSeed,
   sellerAccountId: AccountId,
   listing: ListingSeed,
-  context: ReturnType<typeof createSeedContextFor>,
+  context: EventStoreContext,
 ) {
   const quote = await quoteMarketplaceTerms(services.commercialTermsResolver, {
     accountId: sellerAccountId,
@@ -740,20 +734,6 @@ async function acceptReservedSeedOffer(
     },
     context,
   });
-}
-
-function createSeedContext() {
-  return createSeedContextFor(identitySeedIds.demo.accountId, identitySeedIds.demo.userId);
-}
-
-function createSeedContextFor(accountId: string, userId: string) {
-  return {
-    tenantId: "tnt_identity" as TenantId,
-    audit: {
-      performedByUserId: userId as UserId,
-      forAccountId: accountId as AccountId,
-    },
-  };
 }
 
 const MARKETPLACE_BOOTSTRAP_LABEL = "Marketplace seed bootstrap";
@@ -814,6 +794,7 @@ const seededReviewInventory = [
  */
 export async function inspectMarketplaceSeedState(
   pool: PgTransactionalPool,
+  options?: BcSeedOptions,
 ): Promise<readonly BcSeedAggregateStateReport[]> {
   const reports: BcSeedAggregateStateReport[] = [];
 
@@ -826,7 +807,7 @@ export async function inspectMarketplaceSeedState(
       key: listing.inventoryItemId,
       streamId: marketplaceListingStreamId(listing.listingId),
       kind: state.listingId === null ? "absent" : state.status === listing.finalStatus ? "active" : "draft",
-      status: state.listingId === null ? null : String(state.status),
+      status: productionLike(options) ? "unavailable" : state.listingId === null ? null : String(state.status),
       eventCount: committed.length,
     });
   }
@@ -865,15 +846,16 @@ export async function inspectMarketplaceSeedState(
   return reports;
 }
 
-export async function seedMarketplaceDatabase(
+async function seedMarketplaceDatabase(
   pool: PgTransactionalPool,
-  services: MarketplaceServices = createMarketplaceServices(pool),
+  services: MarketplaceServices,
+  contexts: ReadonlyMap<string, EventStoreContext>,
 ) {
-  const context = createSeedContext();
+  const context = contexts.get(identitySeedIds.demo.accountId)!;
 
   for (const listing of listings) {
     const accountId = listing.accountId ?? identitySeedIds.demo.accountId;
-    const listingContext = createSeedContextFor(accountId, listing.userId ?? identitySeedIds.demo.userId);
+    const listingContext = contexts.get(accountId)!;
     const seededListingId = listing.listingId;
     const persisted = await loadSeedListingState(services.db, seededListingId);
     if (persisted.state.listingId !== null && persisted.state.status === listing.finalStatus) {
@@ -991,7 +973,7 @@ export async function seedMarketplaceDatabase(
         priceCurrencyCode: "USD",
         quantityRequested: offer.quantityRequested,
       },
-      context: createSeedContextFor(buyerAccountId, offer.buyerUserId ?? identitySeedIds.collector.userId),
+      context: contexts.get(buyerAccountId)!,
     });
   }
 
@@ -1031,7 +1013,7 @@ export async function seedMarketplaceDatabase(
     context,
   );
 
-  await withdrawStrayRepresentativeListings(services, context);
+  await withdrawStrayRepresentativeListings(services, contexts);
 }
 
 // Pinned identity anchors the browser E2E seed contract depends on for an exact
@@ -1052,7 +1034,7 @@ const identityAnchorCatalogItemIds = [
 
 async function withdrawStrayRepresentativeListings(
   services: MarketplaceServices,
-  context: EventStoreContext,
+  contexts: ReadonlyMap<string, EventStoreContext>,
 ): Promise<void> {
   const result = await services.db.query<{ listing_id: string; account_id: string }>(
     `SELECT listing_id, account_id
@@ -1064,23 +1046,16 @@ async function withdrawStrayRepresentativeListings(
   );
 
   for (const row of result.rows) {
+    const context = contexts.get(row.account_id);
+    if (!context) throw new Error("Representative Listing has no authenticated fixture account context.");
     await services.listings.withdrawListing({ accountId: row.account_id, listingId: row.listing_id }, context);
   }
 }
 
-function createReputationSeedContext(accountId: string, userId: string): EventStoreContext {
-  return {
-    tenantId: "tnt_seed_development" as TenantId,
-    audit: {
-      performedByUserId: userId as UserId,
-      forAccountId: accountId as AccountId,
-    },
-  };
-}
-
-export async function seedReputationData(
+async function seedReputationData(
   pool: PgTransactionalPool,
-  services: MarketplaceServices = createMarketplaceServices(pool),
+  services: MarketplaceServices,
+  contexts: ReadonlyMap<string, EventStoreContext>,
 ) {
   const buyerToSellerReview = await loadSeedReviewState(
     services.db,
@@ -1137,10 +1112,7 @@ export async function seedReputationData(
 
   // Each review resumes from its own committed stream, so a review submitted
   // but not yet revealed (or withdrawn) is repaired rather than re-submitted.
-  const buyerReviewContext = createReputationSeedContext(
-    identitySeedIds.collector.accountId,
-    identitySeedIds.collector.userId,
-  );
+  const buyerReviewContext = contexts.get(identitySeedIds.collector.accountId)!;
   const buyerReviewStreamId = marketplaceReviewStreamId(reputationReservedSeedIds.reviews.buyerToSellerActive);
   if (buyerToSellerReview.state.reviewId === null) {
     await services.reviews.commandHandler({
@@ -1190,7 +1162,7 @@ export async function seedReputationData(
     });
   }
 
-  const sellerReviewContext = createReputationSeedContext(identitySeedIds.demo.accountId, identitySeedIds.demo.userId);
+  const sellerReviewContext = contexts.get(identitySeedIds.demo.accountId)!;
   const sellerReviewStreamId = marketplaceReviewStreamId(reputationReservedSeedIds.reviews.sellerToBuyerWithdrawn);
   if (sellerToBuyerReview.state.reviewId === null) {
     await services.reviews.commandHandler({
@@ -1225,8 +1197,79 @@ export async function seedReputationData(
 export async function seedMarketplaceContextDatabase(
   pool: PgTransactionalPool,
   services: MarketplaceServices = createMarketplaceServices(pool),
+  options?: BcSeedOptions,
 ) {
+  const seedRunStartedAt = new Date().toISOString();
   await seedListingEvidencePolicy(services);
-  await seedMarketplaceDatabase(pool, services);
-  await seedReputationData(pool, services);
+  // opus-8349-original-authority-decision-r1, OA-amend-r20 (opus-8349-r20-routing-decision-r1).
+  if (productionLike(options)) {
+    console.log(
+      "Marketplace Listing seed unavailable in production-like profiles: create, publish/native-enable, pause, withdraw, offers and reviews (opus-8349-original-authority-decision-r1; opus-8349-r20-routing-decision-r1).",
+    );
+    return;
+  }
+  if (!options?.environmentName?.trim() || !options.enabledDataProfiles.includes("scenario-seed"))
+    throw new Error("Marketplace Listing seed requires an explicit non-production scenario-seed profile.");
+  const seed = services.listingSeed;
+  if (!seed) throw new Error("Marketplace Listing seed authority is not mounted.");
+  const store = services.listingAuthority.eventStore;
+  const streamId = "marketplace.listing-seed-scenario";
+  const history = await readCompleteStream(store, { streamId });
+  if (
+    history.some(
+      (event, index) =>
+        event.eventType !==
+        (index % 2 === 0 ? "marketplace.listing-seed.started" : "marketplace.listing-seed.completed"),
+    ) ||
+    history.length % 2 !== 0
+  )
+    throw new Error(
+      "Marketplace Listing seed retains an unresolved original-key attempt; a newer key cannot re-drive it.",
+    );
+  const contexts = new Map<string, EventStoreContext>();
+  const accounts = [
+    ...new Set([
+      ...listings.map((listing) => listing.accountId ?? identitySeedIds.demo.accountId),
+      ...offers.map((offer) => offer.buyerAccountId ?? identitySeedIds.collector.accountId),
+    ]),
+  ];
+  async function withAccounts(index: number): Promise<void> {
+    const accountId = accounts[index];
+    if (accountId) {
+      await seed!.withContext({ accountId, seedRunStartedAt, options: options! }, async (context) => {
+        if (!context.listingAuthorityPrincipal || context.listingAuthorityPrincipal.accountId !== accountId)
+          throw new Error("Marketplace Listing seed requires authenticated account authority.");
+        contexts.set(accountId, context);
+        await withAccounts(index + 1);
+      });
+      return;
+    }
+    await store.appendToStream({
+      streamId,
+      expectedVersion: history.length,
+      context: contexts.get(identitySeedIds.demo.accountId)!,
+      events: [
+        {
+          eventType: "marketplace.listing-seed.started",
+          payload: { seedRunStartedAt, contexts: toJsonValue([...contexts]) },
+        },
+      ],
+    });
+    const seedServices = { ...services, listings: seed!.listings };
+    await seedMarketplaceDatabase(pool, seedServices, contexts);
+    await seedReputationData(pool, seedServices, contexts);
+  }
+  await withAccounts(0);
+  await store.appendToStream({
+    streamId,
+    expectedVersion: history.length + 1,
+    context: contexts.get(identitySeedIds.demo.accountId)!,
+    events: [{ eventType: "marketplace.listing-seed.completed", payload: { seedRunStartedAt } }],
+  });
+}
+
+function productionLike(options?: BcSeedOptions) {
+  return [options?.environmentName, process.env.DEPLOYMENT_ENVIRONMENT].some((value) =>
+    ["production", "staging"].includes(value?.trim().toLowerCase() ?? ""),
+  );
 }

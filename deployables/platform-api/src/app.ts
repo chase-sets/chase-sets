@@ -1,9 +1,11 @@
 import { Hono, type Context, type Next } from "hono";
+import { createListingSourceHostPorts } from "./listing-authority-host-ports";
 import { createCheckoutClosedMiddleware } from "./middleware/checkout-closed";
 import { module as authModule } from "@chase-sets/auth";
 import {
   createUcpOAuthMetadataRoutes,
   createUcpOAuthRoutes,
+  resolveListingRequestAuthentication,
   UCP_OAUTH_SUPPORTED_SCOPES,
 } from "@chase-sets/auth/server";
 import {
@@ -32,6 +34,7 @@ import {
   catalogRealtimeManifest,
   catalogRealtimeTopicPolicyManifest,
   resolveCatalogProductSelection,
+  type CatalogServices,
 } from "@chase-sets/catalog/server";
 import type { SavedListProductCatalog } from "@chase-sets/collections/server";
 import {
@@ -42,7 +45,11 @@ import {
 } from "@chase-sets/pricing/server";
 import { isChannelsServices, type ChannelsServices } from "@chase-sets/channels/server";
 import { module as identityModule } from "@chase-sets/identity";
-import { createIdentityTermsAcceptanceResolver, identityTermsOfServicePolicy } from "@chase-sets/identity/server";
+import {
+  createIdentityTermsAcceptanceResolver,
+  createListingRequestPrincipalResolver,
+  identityTermsOfServicePolicy,
+} from "@chase-sets/identity/server";
 import {
   createInventoryExternalChannelSaleRecorderForPool,
   createImportResolutionAttentionSourceFromReadModel,
@@ -76,6 +83,7 @@ import {
   marketplaceRealtimeManifest,
   marketplaceRealtimeTopicPolicyManifest,
   marketplaceSellerBehavioralMetricsPolicy,
+  type MarketplaceListingCurrentReadinessPorts,
 } from "@chase-sets/marketplace/server";
 import {
   createRateLimitPolicyResolver,
@@ -604,7 +612,13 @@ export function createPlatformApiHost(
   const inventoryCleanupAuthority: OrderingInventoryCleanupAuthorityCapability = inventoryPool
     ? { kind: "available", port: createInventoryHoldCleanupAuthorityForPool(inventoryPool) }
     : { kind: "not-mounted" };
-  const channelSaleRecorder = inventoryPool ? createPlatformApiChannelSaleRecorder(inventoryPool) : undefined;
+  const listingSourceHostPorts = createListingSourceHostPorts(() => runtime?.services, {
+    marketplace: marketplacePool,
+    ordering: orderingPool,
+  });
+  const channelSaleRecorder = inventoryPool
+    ? createPlatformApiChannelSaleRecorder(inventoryPool, listingSourceHostPorts["inventory.listingAuthorityConsumer"])
+    : undefined;
   const inventorySavedListImportBatchCreator: SavedListInventoryImportBatchCreator = async (params, context) => {
     const inventoryServices = runtime?.services.inventory as
       | {
@@ -622,6 +636,7 @@ export function createPlatformApiHost(
   };
   const pricingHostPorts: PricingHostPorts | undefined = pricingPool
     ? {
+        pricingListingAuthorityConsumer: listingSourceHostPorts.pricingListingAuthorityConsumer,
         tcgplayerMarketTransport: { kind: "not-mounted" },
         tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
         commercialTermsResolver: requirePricingCommercialTermsResolver(commercialTermsResolver),
@@ -637,6 +652,19 @@ export function createPlatformApiHost(
     runtimeProfile,
     hostPorts: {
       ...options.hostPorts,
+      ...listingSourceHostPorts,
+      listingCurrentOwnerFacts: {
+        seller: (accountId) => {
+          const identity = runtime?.services.identity as ReturnType<typeof identityModule.createServices> | undefined;
+          if (!identity) throw new Error("Identity current seller facts are not mounted.");
+          return identity.listingAuthority.readCurrentSeller(accountId, { maxAgeMs: 1000 });
+        },
+        products: (subjects) => {
+          const catalog = runtime?.services.catalog as CatalogServices | undefined;
+          if (!catalog) throw new Error("Catalog current Product facts are not mounted.");
+          return catalog.listingAuthority.readCurrentProducts(subjects, { maxAgeMs: 1000 });
+        },
+      } satisfies MarketplaceListingCurrentReadinessPorts,
       ...(pricingPool ? { managedOfferPricing: createBuyerOfferPricing(pricingPool) } : {}),
       ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
       ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
@@ -692,7 +720,10 @@ function getPlatformApiPool(value: unknown): PgTransactionalPool | undefined {
   return value && typeof value === "object" && "query" in value ? (value as PgTransactionalPool) : undefined;
 }
 
-function createPlatformApiChannelSaleRecorder(pool: PgTransactionalPool): RecordExternalChannelSale {
+function createPlatformApiChannelSaleRecorder(
+  pool: PgTransactionalPool,
+  consumer: NonNullable<Parameters<typeof createInventoryExternalChannelSaleRecorderForPool>[2]>,
+): RecordExternalChannelSale {
   return async (command) => {
     const context: EventStoreContext = {
       tenantId: "tnt_channels_api" as never,
@@ -701,7 +732,7 @@ function createPlatformApiChannelSaleRecorder(pool: PgTransactionalPool): Record
         forAccountId: command.accountId as never,
       },
     };
-    return createInventoryExternalChannelSaleRecorderForPool(pool, context)(command);
+    return createInventoryExternalChannelSaleRecorderForPool(pool, context, consumer)(command);
   };
 }
 
@@ -899,6 +930,10 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     auth: runtime.services.auth as ReturnType<typeof authModule.createServices>,
     identity: runtime.services.identity as ReturnType<typeof identityModule.createServices>,
   } satisfies PlatformIdentityServices;
+  const resolveListingPrincipal = createListingRequestPrincipalResolver(
+    identityServices.identity.listingAuthority,
+    (request) => resolveListingRequestAuthentication(identityServices.auth, request),
+  );
   const discoveryServices = runtime.services.discovery as
     | { items?: Parameters<typeof createDiscoveryUcpHandlers>[0] }
     | undefined;
@@ -1019,6 +1054,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
 
   const platformActorMiddleware = createPlatformActorMiddleware(resolveActor, {
     anonymousRoutes: platformActorAnonymousRoutes,
+    resolveListingPrincipal,
   });
   app.use("/api/platform/projections", platformActorMiddleware);
   app.use("/api/platform/projections/*", platformActorMiddleware);
@@ -1102,6 +1138,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
       internalAuthSecret: options.internalAuthSecret,
       anonymousRoutes,
       resolveActor,
+      resolveListingPrincipal,
     }),
   );
 

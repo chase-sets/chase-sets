@@ -3,6 +3,9 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { recordRealtimeProjectionPatch } from "@chase-sets/platform-runtime/realtime";
 import { createMarketplaceListingPatch } from "../../../support/realtime-support/projection-patches";
 import { marketplaceRealtimeTopics } from "../../../support/realtime-support/topics";
+import { buildMarketplaceListingTargetProjectionHandlers } from "./target-projection";
+import { marketplaceListingCodec } from "../domain/codec";
+import type { MarketplaceListingFeeLockPayload } from "@chase-sets/event-core/public-event-payloads";
 
 async function loadRealtimeListing(db: PgQueryable, listingId: string) {
   const result = await db.query<{
@@ -24,13 +27,13 @@ async function loadRealtimeListing(db: PgQueryable, listingId: string) {
     price_amount: string;
     price_currency_code: string | null;
     listing_stream_version: number | null;
-    marketplace_sales_fee_unit_amount: string;
-    seller_net_unit_amount: string;
+    marketplace_sales_fee_unit_amount: string | null;
+    seller_net_unit_amount: string | null;
     shipping_allowance_percentage_bps: number;
     terms_schedule_id: string | null;
     terms_agreement_id: string | null;
     terms_resolved_at: string | null;
-    fee_quote_fingerprint: string;
+    fee_quote_fingerprint: string | null;
     fee_locks: unknown;
     quantity_cap: number;
     max_units_per_order: number | null;
@@ -122,7 +125,120 @@ async function transformListingPhotos(
 }
 
 export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  const listing = buildListingProjectionHandlers(db);
+  const targets = buildMarketplaceListingTargetProjectionHandlers(db);
+  return Object.fromEntries(
+    [...new Set([...Object.keys(listing), ...Object.keys(targets)])].map((type) => {
+      const handler: ProjectorHandlerMap[string] = async (event) => {
+        if (event.type.startsWith("marketplace.listing.")) {
+          marketplaceListingCodec.decode({ eventType: event.type, payload: event.data });
+        }
+        await targets[type]?.(event);
+        await listing[type]?.(event);
+      };
+      return [type, handler];
+    }),
+  );
+}
+
+function buildListingProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
+  async function assertPresent(
+    result: Awaited<ReturnType<PgQueryable["query"]>>,
+    event: Parameters<ProjectorHandlerMap[string]>[0],
+  ) {
+    const listingId = event.streamId.slice("marketplace.listing-".length);
+    if ((result.rowCount ?? 0) === 0 && !(await loadRealtimeListing(db, listingId))) {
+      throw new Error(`Cannot project ${event.type} for missing marketplace listing ${listingId}.`);
+    }
+  }
+  async function projectRequirements(event: Parameters<ProjectorHandlerMap[string]>[0]) {
+    const listingId = event.streamId.slice("marketplace.listing-".length);
+    const result = await db.query(
+      `UPDATE marketplace_listing_pages SET evidence_requirements = $2,
+       evidence_requirements_stream_version = $4, updated_at = GREATEST(updated_at, $3::timestamptz)
+       WHERE listing_id = $1 AND evidence_requirements_stream_version < $4`,
+      [listingId, JSON.stringify(event.data.evidenceRequirements), event.timing.recordedAt, event.streamVersion],
+    );
+    await assertPresent(result, event);
+  }
+  async function projectFees(event: Parameters<ProjectorHandlerMap[string]>[0]) {
+    const listingId = event.streamId.slice("marketplace.listing-".length);
+    const locks = event.data.feeLocks as readonly MarketplaceListingFeeLockPayload[];
+    const last = locks.at(-1);
+    const data =
+      event.type === "marketplace.listing.native-visibility-changed"
+        ? {
+            marketplaceSalesFeeUnitAmount: last?.marketplaceSalesFeeUnitAmount ?? null,
+            sellerNetUnitAmount: last?.sellerNetUnitAmount ?? null,
+            shippingAllowancePercentageBps: last?.terms.shippingAllowancePercentageBps ?? 0,
+            termsScheduleId: last?.terms.termsScheduleId ?? null,
+            termsAgreementId: last?.terms.termsAgreementId ?? null,
+            termsResolvedAt: last?.terms.termsResolvedAt ?? null,
+            feeQuoteFingerprint: last?.feeQuoteFingerprint ?? null,
+          }
+        : event.data;
+    const result = await db.query(
+      `UPDATE marketplace_listing_pages
+       SET fee_stream_version = $2, fee_locks = $3,
+           marketplace_sales_fee_unit_amount = $4, seller_net_unit_amount = $5,
+           shipping_allowance_percentage_bps = $6, terms_schedule_id = $7,
+           terms_agreement_id = $8, terms_resolved_at = $9, fee_quote_fingerprint = $10,
+           updated_at = GREATEST(updated_at, $11::timestamptz)
+       WHERE listing_id = $1 AND fee_stream_version < $2`,
+      [
+        listingId,
+        event.streamVersion,
+        JSON.stringify(locks),
+        data.marketplaceSalesFeeUnitAmount,
+        data.sellerNetUnitAmount,
+        data.shippingAllowancePercentageBps ?? 500,
+        data.termsScheduleId,
+        data.termsAgreementId,
+        data.termsResolvedAt,
+        data.feeQuoteFingerprint,
+        event.timing.recordedAt,
+      ],
+    );
+    await assertPresent(result, event);
+  }
+  const projectLifecycle: ProjectorHandlerMap[string] = async (event) => {
+    const listingId = event.streamId.slice("marketplace.listing-".length);
+    const result = await db.query(
+      `UPDATE marketplace_listing_pages AS listing
+       SET status = authority.status, updated_at = GREATEST(listing.updated_at, $2::timestamptz)
+       FROM marketplace_listing_native_authority AS authority
+       WHERE listing.listing_id = $1 AND authority.listing_id = listing.listing_id`,
+      [listingId, event.timing.recordedAt],
+    );
+    assertUpdatedListingRow(result, event.type, listingId);
+    await emitListingPatch(db, event, listingId);
+  };
   return {
+    "marketplace.listing.channel-activated": projectLifecycle,
+    "marketplace.listing.resumed": projectLifecycle,
+    "marketplace.listing.inbound-clamp-engaged": projectLifecycle,
+    "marketplace.listing.inbound-clamp-released": projectLifecycle,
+    "marketplace.listing.inbound-clamp-ownership-adopted": projectLifecycle,
+    "marketplace.listing.native-visibility-changed": async (event) => {
+      const listingId = event.streamId.slice("marketplace.listing-".length);
+      await projectFees(event);
+      await projectRequirements(event);
+      if (event.data.productMeasureSnapshot !== undefined && event.data.productMeasureRevision !== undefined) {
+        const result = await db.query(
+          `UPDATE marketplace_listing_pages SET product_measure_snapshot = $2,
+             product_measure_source_revision = $3, updated_at = GREATEST(updated_at, $4::timestamptz)
+           WHERE listing_id = $1 AND product_measure_source_revision < $3`,
+          [
+            listingId,
+            JSON.stringify(event.data.productMeasureSnapshot),
+            event.data.productMeasureRevision,
+            event.timing.recordedAt,
+          ],
+        );
+        await assertPresent(result, event);
+      }
+      await emitListingPatch(db, event, listingId);
+    },
     "marketplace.listing.created": async (event) => {
       const data = event.data as {
         listingId: string;
@@ -173,6 +289,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
           selected_options,
           product_summary,
           product_measure_snapshot,
+          product_measure_source_revision,
           graded_card,
           storage_location_name,
           ship_from_code,
@@ -180,6 +297,10 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
           price_amount,
           price_currency_code,
           listing_stream_version,
+          fee_stream_version,
+          quantity_stream_version,
+          purchase_limits_stream_version,
+          evidence_requirements_stream_version,
           marketplace_sales_fee_unit_amount,
           seller_net_unit_amount,
           shipping_allowance_percentage_bps,
@@ -198,43 +319,9 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
           created_at,
           updated_at
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, 'draft', $33, $33
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $34, $12, $13, $14, $15, $16, $17, $18, $18, $18, $18, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, 'draft', $33, $33
         )
-        ON CONFLICT (listing_id) DO UPDATE SET
-          account_id = EXCLUDED.account_id,
-          inventory_item_id = EXCLUDED.inventory_item_id,
-          catalog_catalog_item_id = EXCLUDED.catalog_catalog_item_id,
-          product_id = EXCLUDED.product_id,
-          item_language_code = EXCLUDED.item_language_code,
-          item_title = EXCLUDED.item_title,
-          item_subtitle = EXCLUDED.item_subtitle,
-          selected_options = EXCLUDED.selected_options,
-          product_summary = EXCLUDED.product_summary,
-          product_measure_snapshot = EXCLUDED.product_measure_snapshot,
-          graded_card = EXCLUDED.graded_card,
-          storage_location_name = EXCLUDED.storage_location_name,
-          ship_from_code = EXCLUDED.ship_from_code,
-          ship_from_address = EXCLUDED.ship_from_address,
-          price_amount = EXCLUDED.price_amount,
-          price_currency_code = EXCLUDED.price_currency_code,
-          listing_stream_version = EXCLUDED.listing_stream_version,
-          marketplace_sales_fee_unit_amount = EXCLUDED.marketplace_sales_fee_unit_amount,
-          seller_net_unit_amount = EXCLUDED.seller_net_unit_amount,
-          shipping_allowance_percentage_bps = EXCLUDED.shipping_allowance_percentage_bps,
-          terms_schedule_id = EXCLUDED.terms_schedule_id,
-          terms_agreement_id = EXCLUDED.terms_agreement_id,
-          terms_resolved_at = EXCLUDED.terms_resolved_at,
-          fee_quote_fingerprint = EXCLUDED.fee_quote_fingerprint,
-          fee_locks = EXCLUDED.fee_locks,
-          quantity_cap = EXCLUDED.quantity_cap,
-          max_units_per_order = EXCLUDED.max_units_per_order,
-          max_units_per_day = EXCLUDED.max_units_per_day,
-          max_units_per_customer_account = EXCLUDED.max_units_per_customer_account,
-          evidence_requirements = EXCLUDED.evidence_requirements,
-          evidence = EXCLUDED.evidence,
-          updated_at = EXCLUDED.updated_at
-        WHERE marketplace_listing_pages.listing_stream_version IS NULL
-           OR marketplace_listing_pages.listing_stream_version < EXCLUDED.listing_stream_version`,
+        ON CONFLICT (listing_id) DO NOTHING`,
         [
           data.listingId,
           data.accountId,
@@ -273,6 +360,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
             : null,
           JSON.stringify(Array.isArray(data.evidence) ? data.evidence : []),
           event.timing.recordedAt,
+          0,
         ],
       );
       await emitListingPatch(db, event, data.listingId);
@@ -282,6 +370,9 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
         catalogItemId: string;
         products?: unknown;
       };
+      if (event.streamId !== `catalog.product-measures-${data.catalogItemId}`) {
+        throw new Error("Catalog measure source identity does not match the Listing product.");
+      }
 
       const updated = await db.query<{ listing_id: string }>(
         `WITH resolved_products AS (
@@ -295,13 +386,15 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
                WHERE measure->>'productId' = listing.product_id
                LIMIT 1
              ),
-             updated_at = $3
-         WHERE listing.catalog_catalog_item_id = $1
+             product_measure_source_revision = $4,
+             updated_at = GREATEST(updated_at, $3::timestamptz)
+         WHERE listing.catalog_catalog_item_id = $1 AND listing.product_measure_source_revision < $4
          RETURNING listing.listing_id`,
         [
           data.catalogItemId,
           JSON.stringify(Array.isArray(data.products) ? data.products : []),
           event.timing.recordedAt,
+          event.streamVersion,
         ],
       );
 
@@ -378,41 +471,15 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
     },
     "marketplace.listing.evidence-requirements-refreshed": async (event) => {
       const listingId = event.streamId.replace("marketplace.listing-", "");
-      const { evidenceRequirements } = event.data as { evidenceRequirements: unknown };
-      const result = await db.query(
-        `UPDATE marketplace_listing_pages
-         SET evidence_requirements = $2,
-             updated_at = $3
-         WHERE listing_id = $1`,
-        [listingId, JSON.stringify(evidenceRequirements), event.timing.recordedAt],
-      );
-      assertUpdatedListingRow(result, event.type, listingId);
+      await projectRequirements(event);
       await emitListingPatch(db, event, listingId);
     },
     "marketplace.listing.price-updated": async (event) => {
       const listingId = event.streamId.replace("marketplace.listing-", "");
-      const {
-        priceAmount,
-        priceCurrencyCode,
-        marketplaceSalesFeeUnitAmount,
-        sellerNetUnitAmount,
-        shippingAllowancePercentageBps,
-        termsScheduleId,
-        termsAgreementId,
-        termsResolvedAt,
-        feeQuoteFingerprint,
-        feeLocks,
-      } = event.data as {
+      await projectFees(event);
+      const { priceAmount, priceCurrencyCode } = event.data as {
         priceAmount: string;
         priceCurrencyCode?: string | null;
-        marketplaceSalesFeeUnitAmount: string;
-        sellerNetUnitAmount: string;
-        shippingAllowancePercentageBps?: number;
-        termsScheduleId: string | null;
-        termsAgreementId: string | null;
-        termsResolvedAt: string | null;
-        feeQuoteFingerprint: string;
-        feeLocks: unknown;
       };
 
       const result = await db.query(
@@ -420,15 +487,7 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
          SET price_amount = $2,
              price_currency_code = $3,
              listing_stream_version = $4,
-             marketplace_sales_fee_unit_amount = $5,
-             seller_net_unit_amount = $6,
-             shipping_allowance_percentage_bps = $7,
-             terms_schedule_id = $8,
-             terms_agreement_id = $9,
-             terms_resolved_at = $10,
-             fee_quote_fingerprint = $11,
-             fee_locks = $12,
-             updated_at = $13
+             updated_at = GREATEST(updated_at, $5::timestamptz)
          WHERE listing_id = $1
            AND (listing_stream_version IS NULL OR listing_stream_version < $4)`,
         [
@@ -436,14 +495,6 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
           priceAmount,
           typeof priceCurrencyCode === "string" ? priceCurrencyCode : null,
           event.streamVersion,
-          marketplaceSalesFeeUnitAmount,
-          sellerNetUnitAmount,
-          shippingAllowancePercentageBps ?? 500,
-          termsScheduleId,
-          termsAgreementId,
-          termsResolvedAt,
-          feeQuoteFingerprint,
-          JSON.stringify(Array.isArray(feeLocks) ? feeLocks : []),
           event.timing.recordedAt,
         ],
       );
@@ -458,67 +509,36 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
     },
     "marketplace.listing.quantity-cap-updated": async (event) => {
       const listingId = event.streamId.replace("marketplace.listing-", "");
-      const {
-        quantityCap,
-        purchaseLimits,
-        marketplaceSalesFeeUnitAmount,
-        sellerNetUnitAmount,
-        shippingAllowancePercentageBps,
-        termsScheduleId,
-        termsAgreementId,
-        termsResolvedAt,
-        feeQuoteFingerprint,
-        feeLocks,
-      } = event.data as {
+      await projectFees(event);
+      const { quantityCap, purchaseLimits } = event.data as {
         quantityCap: number;
         purchaseLimits?: {
           maxUnitsPerOrder: number | null;
           maxUnitsPerDay: number | null;
           maxUnitsPerCustomerAccount: number | null;
         };
-        marketplaceSalesFeeUnitAmount: string;
-        sellerNetUnitAmount: string;
-        shippingAllowancePercentageBps?: number;
-        termsScheduleId: string | null;
-        termsAgreementId: string | null;
-        termsResolvedAt: string | null;
-        feeQuoteFingerprint: string;
-        feeLocks: unknown;
       };
       const hasPurchaseLimits = purchaseLimits !== undefined;
 
       const result = await db.query(
         `UPDATE marketplace_listing_pages
-         SET quantity_cap = $2,
-             marketplace_sales_fee_unit_amount = $3,
-             seller_net_unit_amount = $4,
-             shipping_allowance_percentage_bps = $5,
-             terms_schedule_id = $6,
-             terms_agreement_id = $7,
-             terms_resolved_at = $8,
-             fee_quote_fingerprint = $9,
-              fee_locks = $10,
-              max_units_per_order = CASE WHEN $11 THEN $12 ELSE max_units_per_order END,
-              max_units_per_day = CASE WHEN $11 THEN $13 ELSE max_units_per_day END,
-              max_units_per_customer_account = CASE WHEN $11 THEN $14 ELSE max_units_per_customer_account END,
-              updated_at = $15
+         SET quantity_cap = CASE WHEN quantity_stream_version < $8 THEN $2 ELSE quantity_cap END,
+              quantity_stream_version = GREATEST(quantity_stream_version, $8),
+              max_units_per_order = CASE WHEN $3 AND purchase_limits_stream_version < $8 THEN $4 ELSE max_units_per_order END,
+              max_units_per_day = CASE WHEN $3 AND purchase_limits_stream_version < $8 THEN $5 ELSE max_units_per_day END,
+              max_units_per_customer_account = CASE WHEN $3 AND purchase_limits_stream_version < $8 THEN $6 ELSE max_units_per_customer_account END,
+              purchase_limits_stream_version = CASE WHEN $3 THEN GREATEST(purchase_limits_stream_version, $8) ELSE purchase_limits_stream_version END,
+              updated_at = GREATEST(updated_at, $7::timestamptz)
          WHERE listing_id = $1`,
         [
           listingId,
           quantityCap,
-          marketplaceSalesFeeUnitAmount,
-          sellerNetUnitAmount,
-          shippingAllowancePercentageBps ?? 500,
-          termsScheduleId,
-          termsAgreementId,
-          termsResolvedAt,
-          feeQuoteFingerprint,
-          JSON.stringify(Array.isArray(feeLocks) ? feeLocks : []),
           hasPurchaseLimits,
           purchaseLimits?.maxUnitsPerOrder ?? null,
           purchaseLimits?.maxUnitsPerDay ?? null,
           purchaseLimits?.maxUnitsPerCustomerAccount ?? null,
           event.timing.recordedAt,
+          event.streamVersion,
         ],
       );
       assertUpdatedListingRow(result, event.type, listingId);
@@ -539,71 +559,25 @@ export function buildMarketplaceListingProjectionHandlers(db: PgQueryable): Proj
          SET max_units_per_order = $2,
              max_units_per_day = $3,
              max_units_per_customer_account = $4,
-             updated_at = $5
-         WHERE listing_id = $1`,
+             purchase_limits_stream_version = $6,
+             updated_at = GREATEST(updated_at, $5::timestamptz)
+         WHERE listing_id = $1 AND purchase_limits_stream_version < $6`,
         [
           listingId,
           purchaseLimits.maxUnitsPerOrder,
           purchaseLimits.maxUnitsPerDay,
           purchaseLimits.maxUnitsPerCustomerAccount,
           event.timing.recordedAt,
+          event.streamVersion,
         ],
       );
-      assertUpdatedListingRow(result, event.type, listingId);
+      await assertPresent(result, event);
       await emitListingPatch(db, event, listingId);
     },
-    "marketplace.listing.published": async (event) => {
-      const listingId = event.streamId.replace("marketplace.listing-", "");
-
-      const result = await db.query(
-        `UPDATE marketplace_listing_pages
-         SET status = 'active',
-              updated_at = $2
-         WHERE listing_id = $1`,
-        [listingId, event.timing.recordedAt],
-      );
-      assertUpdatedListingRow(result, event.type, listingId);
-      await emitListingPatch(db, event, listingId);
-    },
-    "marketplace.listing.paused": async (event) => {
-      const listingId = event.streamId.replace("marketplace.listing-", "");
-
-      const result = await db.query(
-        `UPDATE marketplace_listing_pages
-         SET status = 'paused',
-             updated_at = $2
-         WHERE listing_id = $1`,
-        [listingId, event.timing.recordedAt],
-      );
-      assertUpdatedListingRow(result, event.type, listingId);
-      await emitListingPatch(db, event, listingId);
-    },
-    "marketplace.listing.auto-unlisted": async (event) => {
-      const listingId = event.streamId.replace("marketplace.listing-", "");
-
-      const result = await db.query(
-        `UPDATE marketplace_listing_pages
-         SET status = 'paused',
-             updated_at = $2
-         WHERE listing_id = $1`,
-        [listingId, event.timing.recordedAt],
-      );
-      assertUpdatedListingRow(result, event.type, listingId);
-      await emitListingPatch(db, event, listingId);
-    },
-    "marketplace.listing.withdrawn": async (event) => {
-      const listingId = event.streamId.replace("marketplace.listing-", "");
-
-      const result = await db.query(
-        `UPDATE marketplace_listing_pages
-         SET status = 'withdrawn',
-             updated_at = $2
-         WHERE listing_id = $1`,
-        [listingId, event.timing.recordedAt],
-      );
-      assertUpdatedListingRow(result, event.type, listingId);
-      await emitListingPatch(db, event, listingId);
-    },
+    "marketplace.listing.published": projectLifecycle,
+    "marketplace.listing.paused": projectLifecycle,
+    "marketplace.listing.auto-unlisted": projectLifecycle,
+    "marketplace.listing.withdrawn": projectLifecycle,
     "marketplace.seller-listing-availability.disabled": async (event) => {
       const data = event.data as {
         accountId: string;

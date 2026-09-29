@@ -111,6 +111,28 @@ const cardChromeExcluded = [
 ] as const;
 
 describe("MarketplaceListingDetailPage", () => {
+  it("shows absent native fees without fabricating a zero fee or shipping benefit", () => {
+    const { container } = render(
+      <MarketplaceListingDetailPage
+        listing={{
+          ...listing,
+          status: "draft",
+          marketplace_sales_fee_unit_amount: null,
+          seller_net_unit_amount: null,
+          fee_quote_fingerprint: null,
+          terms_schedule_id: null,
+          terms_resolved_at: null,
+          shipping_allowance_percentage_bps: 0,
+        }}
+      />,
+    );
+    expect(screen.getAllByText("Fee quote unavailable").length).toBeGreaterThan(0);
+    expect(container.textContent).not.toContain("$0.00");
+    expect(container.textContent).not.toContain("Incomplete price");
+    expect(container.textContent).not.toContain("0%");
+    expect(container.querySelector<HTMLInputElement>('input[name="feeQuoteFingerprint"]')?.value).toBe("");
+  });
+
   it("pins all six listing-detail roots to their ratified chrome", () => {
     const { container } = render(
       <MarketplaceListingDetailPage

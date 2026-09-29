@@ -98,6 +98,43 @@ Run `pnpm --filter @chase-sets/identity run test:watch` for the sub-second watch
 
 ## Boundary Notes
 
+### Listing Authority
+
+`createIdentityListingAuthority` owns `identity/manage-listing`. It reads canonical
+Account, User, selected Membership and API Key histories, the immutable role
+catalog, and Identity-owned credential SQL. Its grant includes Account badges,
+Founder Number and Founders Window facts; Commercial Terms still owns fee selection.
+It never trusts Auth's Identity projections or audit IDs as authentication.
+
+`principalFromSession` accepts server-internal Auth evidence and a selected
+Membership. `authenticateApiKey` and `authenticateDelegation` verify the actual
+secret through Identity's adapter. These selectors are not grants. Preparation
+revalidates every owned predicate and combines the real Auth session grant or
+admitting owner's standing grant with Identity's grant for the final operation.
+An additional delegation narrows, never expands, the selected membership role.
+
+Every canonical aggregate runtime and the exposed service EventStore use the
+same owner-scoped guarded writer, including bulk registration, founders workers,
+seed and bootstrap. Credential writers stage their exact command in Identity
+SQL, close the affected resource, resolve consumer terminals, and atomically
+claim/apply the SQL mutation. Hashes never enter the shared event journals.
+Unknown outcomes return `IdentityAuthorityMutationPendingError` with the same
+mutation identity. Resume it rather than issuing a new command.
+
+Hosts bind `listingAuthorityConsumer`, `sessionAuthority` and `standingAuthority`
+as applicable and schedule `listingAuthority.recoverPage`, persisting both `after`
+and `credentialAfter` cursors. Each cursor wraps independently after its bounded
+scan. Missing mounts fail closed, not open. Expiry may abort a final operation;
+it never releases a promise by TTL. Terminal history and SQL receipts are retained.
+
+Roll out the registered credential migration and canonical writers before new
+grants. Existing SQL rows retain NULL revisions until explicit canonical
+credential issuance/rotation; there is no inferred legacy revision. Drain old
+writers before grants and before changing the immutable role catalog. Rollback
+disables new grants while preserving guarded writers, recovery and old promises.
+Host mounting, repaired shared-history certification, hosted storage/consumer
+proof and independent review remain required before enablement.
+
 - Identity owns identity-management behavior and admin surfaces.
 - Identity owns viewer presentation preferences that belong to a signed-in User across accounts and devices.
 - Auth owns interactive authentication journeys and the `/api/auth` surface.

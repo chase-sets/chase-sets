@@ -16,6 +16,7 @@ import {
   type MarketPriceEstimateState,
 } from "../domain/domain";
 import { marketEstimatePolicy, type MarketEstimatePolicyValue } from "../domain/estimate-policy";
+import { invalidatePricingEstimate } from "./listing-authority-validity";
 import { buildPricingMarketEstimateProjectionHandlers } from "../read-model/projection";
 import {
   expireMarketPriceEstimate,
@@ -141,7 +142,15 @@ export function createMarketEstimatesRuntime(deps: MarketEstimatesRuntimeDeps): 
         // replacement event for a below-gate calculation.
         const readUpdatedAt = await getMarketPriceEstimateUpdatedAt(deps.db, tuple);
         if (readUpdatedAt !== null) {
-          await expireMarketPriceEstimate(deps.db, tuple, new Date(now.getTime() - 1).toISOString(), readUpdatedAt);
+          const expiredAt = new Date(now.getTime() - 1).toISOString();
+          if (
+            await invalidatePricingEstimate(
+              deps.eventStore,
+              { ...tuple, expiredAt, observedUpdatedAt: readUpdatedAt },
+              MARKET_ESTIMATE_SYSTEM_CONTEXT,
+            )
+          )
+            await expireMarketPriceEstimate(deps.db, tuple, expiredAt, readUpdatedAt);
         }
         belowGate += 1;
         continue;

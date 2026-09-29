@@ -27,7 +27,11 @@ import {
   type PgTransactionalPool,
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
-import { runInProjectionDbContext, withProjectionTransaction } from "./projection-transactions";
+import {
+  runInProjectionDbContext,
+  runOutsideProjectionDbContext,
+  withProjectionTransaction,
+} from "./projection-transactions";
 import {
   applyLagMetrics,
   areSubscribedReceiptEventsApplied,
@@ -555,6 +559,36 @@ export function createSubscriptionRunner(
     projectionName: subscription.projectionName,
     subscriptionName: subscription.subscriptionName,
   };
+
+  // A reaction dispatches idempotent owner commands, not disposable projection writes.
+  // Commit its delivery claim before dispatch; a crash retains the same event identity.
+  // A newer executor can reclaim delivery, but the old token cannot complete it.
+  const applyOwnerCommandReaction = (
+    event: SubscriptionTransportEvent,
+    handler: ProjectorHandler,
+    context: ProjectionRunContext | undefined,
+  ): Promise<"already-applied" | "applied"> =>
+    runOutsideProjectionDbContext(async () => {
+      const transactionContext = projectionRunContextForSubscription(subscription, context);
+      const claim = await withProjectionTransaction(
+        targetPool,
+        transactionContext,
+        (client) => claimSubscriptionApplication(client, checkpointKey, event, context),
+        transactionTelemetry,
+      );
+      if (claim === "already-applied") return "already-applied";
+      context?.throwIfLeaseLost?.();
+      await handler(event, { throwIfLeaseLost: context?.throwIfLeaseLost });
+      context?.throwIfLeaseLost?.();
+      await withProjectionTransaction(
+        targetPool,
+        transactionContext,
+        (client) =>
+          recordSubscriptionApplicationCompleted(client, checkpointKey, String(event.id), "applied", null, context),
+        transactionTelemetry,
+      );
+      return "applied";
+    });
   let lastIdleCheckpointFastForwardAtMs = 0;
 
   const readSourceHeadForRun = (context: ProjectionRunContext | undefined): Promise<GlobalPosition> => {
@@ -723,31 +757,34 @@ export function createSubscriptionRunner(
           }
 
           try {
-            const applicationResult = await withProjectionTransaction(
-              targetPool,
-              projectionRunContext,
-              async (client) => {
-                const claimResult = await claimSubscriptionApplication(client, checkpointKey, event, context);
-                if (claimResult === "already-applied") {
-                  return "already-applied" as const;
-                }
+            const applicationResult =
+              handlerKind === "reaction"
+                ? await applyOwnerCommandReaction(event, handler, context)
+                : await withProjectionTransaction(
+                    targetPool,
+                    projectionRunContext,
+                    async (client) => {
+                      const claimResult = await claimSubscriptionApplication(client, checkpointKey, event, context);
+                      if (claimResult === "already-applied") {
+                        return "already-applied" as const;
+                      }
 
-                await runInProjectionDbContext(client, () =>
-                  handler(event, { db: client, throwIfLeaseLost: context?.throwIfLeaseLost }),
-                );
-                context?.throwIfLeaseLost?.();
-                await recordSubscriptionApplicationCompleted(
-                  client,
-                  checkpointKey,
-                  String(event.id),
-                  "applied",
-                  null,
-                  context,
-                );
-                return "applied" as const;
-              },
-              transactionTelemetry,
-            );
+                      await runInProjectionDbContext(client, () =>
+                        handler(event, { db: client, throwIfLeaseLost: context?.throwIfLeaseLost }),
+                      );
+                      context?.throwIfLeaseLost?.();
+                      await recordSubscriptionApplicationCompleted(
+                        client,
+                        checkpointKey,
+                        String(event.id),
+                        "applied",
+                        null,
+                        context,
+                      );
+                      return "applied" as const;
+                    },
+                    transactionTelemetry,
+                  );
             if (applicationResult === "already-applied") {
               appliedEvents += 1;
               continue;
@@ -987,50 +1024,53 @@ export function createSubscriptionRunner(
                   throw knownFailure.error;
                 }
 
-                const applicationResult = await withProjectionTransaction(
-                  targetPool,
-                  projectionRunContext,
-                  async (client) => {
-                    const claimResult = await claimSubscriptionApplication(client, checkpointKey, event, context);
-                    if (claimResult === "already-applied") {
-                      return "already-applied" as const;
-                    }
+                const applicationResult =
+                  handlerKind === "reaction"
+                    ? await applyOwnerCommandReaction(event, handler, context)
+                    : await withProjectionTransaction(
+                        targetPool,
+                        projectionRunContext,
+                        async (client) => {
+                          const claimResult = await claimSubscriptionApplication(client, checkpointKey, event, context);
+                          if (claimResult === "already-applied") {
+                            return "already-applied" as const;
+                          }
 
-                    // Bound the event's cascade fan-out: the handler refreshes at most
-                    // `cascadeChunkSize` dependent rows per pass, recording a durable
-                    // per-site cursor. A fan-out that fits leaves the controller
-                    // unexhausted and the event is marked applied; a larger fan-out
-                    // commits this chunk, leaves the event `started`, and resumes next
-                    // pass so the checkpoint never advances over a partial cascade.
-                    const cascadeController = createDbProjectionCascadeController(client, {
-                      projectionKey: checkpointKey,
-                      eventId: String(event.id),
-                      budget: cascadeChunkSize,
-                    });
-                    await runInProjectionCascadeContext(cascadeController, () =>
-                      runInProjectionDbContext(client, () =>
-                        handler(event, { db: client, throwIfLeaseLost: context?.throwIfLeaseLost }),
-                      ),
-                    );
-                    context?.throwIfLeaseLost?.();
-                    if (cascadeController.isExhausted()) {
-                      cascadeRefreshedThisEvent = cascadeController.refreshedCount();
-                      return "cascade-incomplete" as const;
-                    }
+                          // Bound the event's cascade fan-out: the handler refreshes at most
+                          // `cascadeChunkSize` dependent rows per pass, recording a durable
+                          // per-site cursor. A fan-out that fits leaves the controller
+                          // unexhausted and the event is marked applied; a larger fan-out
+                          // commits this chunk, leaves the event `started`, and resumes next
+                          // pass so the checkpoint never advances over a partial cascade.
+                          const cascadeController = createDbProjectionCascadeController(client, {
+                            projectionKey: checkpointKey,
+                            eventId: String(event.id),
+                            budget: cascadeChunkSize,
+                          });
+                          await runInProjectionCascadeContext(cascadeController, () =>
+                            runInProjectionDbContext(client, () =>
+                              handler(event, { db: client, throwIfLeaseLost: context?.throwIfLeaseLost }),
+                            ),
+                          );
+                          context?.throwIfLeaseLost?.();
+                          if (cascadeController.isExhausted()) {
+                            cascadeRefreshedThisEvent = cascadeController.refreshedCount();
+                            return "cascade-incomplete" as const;
+                          }
 
-                    await clearCascadeProgress(client, checkpointKey, String(event.id));
-                    await recordSubscriptionApplicationCompleted(
-                      client,
-                      checkpointKey,
-                      String(event.id),
-                      "applied",
-                      null,
-                      context,
-                    );
-                    return "applied" as const;
-                  },
-                  transactionTelemetry,
-                );
+                          await clearCascadeProgress(client, checkpointKey, String(event.id));
+                          await recordSubscriptionApplicationCompleted(
+                            client,
+                            checkpointKey,
+                            String(event.id),
+                            "applied",
+                            null,
+                            context,
+                          );
+                          return "applied" as const;
+                        },
+                        transactionTelemetry,
+                      );
                 if (applicationResult === "cascade-incomplete") {
                   // The chunk committed but the event is not fully applied. Report the
                   // chunk as progress so the runner reschedules, keep the source
@@ -1122,12 +1162,42 @@ export function createSubscriptionRunner(
           events: readonly SubscriptionTransportEvent[],
         ): Promise<SubscriptionBatchProgress> => {
           const progress = initialProgress();
+          if (handlerKind === "reaction") {
+            for (const event of events) {
+              context?.throwIfLeaseLost?.();
+              const handler = (subscription.handlers as Readonly<Record<string, ProjectorHandler | undefined>>)[
+                event.type
+              ];
+              if (matchesSubscriptionEvent(event, { ...subscription, eventTypes: subscriptionEventTypes }) && handler) {
+                const blocked =
+                  errorPolicy === "strict-per-stream"
+                    ? await loadProjectionBlockedStream(targetPool, checkpointKey, event.streamId)
+                    : null;
+                if (blocked) {
+                  await recordProjectionDeferredBlockedStreamEvent(targetPool, {
+                    projectionKey: checkpointKey,
+                    streamId: event.streamId,
+                    streamVersion: event.streamVersion,
+                    globalPosition: event.globalPosition,
+                  });
+                } else {
+                  try {
+                    await applyOwnerCommandReaction(event, handler, context);
+                  } catch (error) {
+                    throw new BatchEventApplyError(String(event.id), error);
+                  }
+                }
+              }
+              await advanceProgress(progress, event);
+            }
+            return progress;
+          }
           // A single-event projection batch (the shape a `checkpointBatchSize`-1
           // cascade projection produces once only one event is pending) supports the
           // bounded/resumable cascade too, so a fan-out does not blow the budget just
           // because it happened to be the last event in the stream. Multi-event
           // batches never carry cascades (those projections commit per event).
-          const cascadeEvent = handlerKind !== "reaction" && events.length === 1 ? events[0] : undefined;
+          const cascadeEvent = events.length === 1 ? events[0] : undefined;
           let cascadeIncomplete = false;
           let cascadeRefreshed = 0;
           await withProjectionTransaction(

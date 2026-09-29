@@ -1,5 +1,6 @@
 import type { Context, Next } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { ListingAuthorityPrincipal } from "@chase-sets/event-core/listing-authority";
 import { createAuthBootstrapContext } from "@chase-sets/auth-context";
 import { createActorEventStoreContext, type ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { PLATFORM_INTERNAL_AUTH_HEADER, resolvePlatformInternalAuthSecret } from "@chase-sets/platform-runtime/http";
@@ -56,6 +57,7 @@ export function createIdentityAuthMiddleware(
     internalAuthSecret?: string;
     anonymousRoutes?: readonly AnonymousRouteDeclaration[];
     resolveActor: PlatformActorResolver;
+    resolveListingPrincipal?: PlatformListingPrincipalResolver;
   }>,
 ) {
   const internalAuthSecret = options.internalAuthSecret ?? resolvePlatformInternalAuthSecret();
@@ -79,7 +81,7 @@ export function createIdentityAuthMiddleware(
     const actor = await options.resolveActor(c.req.raw);
     if (actor) {
       c.set("actor", actor);
-      c.set("context", attachActiveTraceContext(createActorEventStoreContext(actor)));
+      c.set("context", await authenticatedContext(c.req.raw, actor, options.resolveListingPrincipal));
       await next();
       return;
     }
@@ -96,6 +98,20 @@ export function createIdentityAuthMiddleware(
 }
 
 export type PlatformActorResolver = (request: Request) => Promise<ResolvedActor | null>;
+export type PlatformListingPrincipalResolver = (
+  request: Request,
+  actor: ResolvedActor,
+) => Promise<ListingAuthorityPrincipal | null>;
+
+async function authenticatedContext(
+  request: Request,
+  actor: ResolvedActor,
+  resolvePrincipal?: PlatformListingPrincipalResolver,
+) {
+  const context = createActorEventStoreContext(actor);
+  const principal = await resolvePrincipal?.(request, actor);
+  return attachActiveTraceContext({ ...context, ...(principal ? { listingAuthorityPrincipal: principal } : {}) });
+}
 
 /**
  * Declared anonymous routes are matched before the actor is resolved, so an exempt request performs
@@ -104,7 +120,10 @@ export type PlatformActorResolver = (request: Request) => Promise<ResolvedActor 
  */
 export function createPlatformActorMiddleware(
   resolveActor: PlatformActorResolver,
-  options: Readonly<{ anonymousRoutes?: readonly AnonymousRouteDeclaration[] }> = {},
+  options: Readonly<{
+    anonymousRoutes?: readonly AnonymousRouteDeclaration[];
+    resolveListingPrincipal?: PlatformListingPrincipalResolver;
+  }> = {},
 ) {
   const anonymousRoutes = options.anonymousRoutes ?? [];
   return async function platformActorMiddleware(c: Context<TenantContextEnv>, next: Next): Promise<void> {
@@ -119,7 +138,7 @@ export function createPlatformActorMiddleware(
     const actor = await resolveActor(c.req.raw);
 
     c.set("actor", actor);
-    c.set("context", actor ? attachActiveTraceContext(createActorEventStoreContext(actor)) : null);
+    c.set("context", actor ? await authenticatedContext(c.req.raw, actor, options.resolveListingPrincipal) : null);
 
     await next();
   };

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { withSyntheticListingPrincipal } from "@chase-sets/event-core/test-support";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { McpRequestProtocolContext } from "@chase-sets/platform-runtime/mcp";
@@ -122,9 +123,14 @@ describe("inventory import batch MCP handlers", () => {
   it("creates batches from parsed provider rows and preserves actor context", async () => {
     const fakeServices = services();
     const handlers = createInventoryImportBatchMcpHandlers(fakeServices, storageLocations());
+    const context = withSyntheticListingPrincipal({
+      tenantId: actor.tenantId as never,
+      audit: { performedByUserId: actor.userId as never, forAccountId: actor.accountId as never },
+    });
 
     const result = await handlers.toolHandlers["inventory.create-import-batch"]?.({
       actor,
+      context,
       tool: null as never,
       arguments: {
         accountId: "acc_1",
@@ -145,6 +151,7 @@ describe("inventory import batch MCP handlers", () => {
         parsedRows: [{ rowNumber: 1, values: { "Variant ID": "987", "Variant Inventory Qty": "2" } }],
       }),
       expect.objectContaining({
+        listingAuthorityPrincipal: context.listingAuthorityPrincipal,
         audit: {
           performedByUserId: "usr_1",
           forAccountId: "acc_1",
@@ -222,6 +229,28 @@ describe("inventory import batch MCP handlers", () => {
       }),
     ).rejects.toThrow("accountId must match the authenticated actor account.");
     expect(fakeServices.commitBatch).not.toHaveBeenCalled();
+  });
+
+  it("preserves the original verified carrier when committing an import batch", async () => {
+    const fakeServices = services();
+    const handlers = createInventoryImportBatchMcpHandlers(fakeServices, storageLocations());
+    const context = withSyntheticListingPrincipal({
+      tenantId: actor.tenantId as never,
+      audit: { performedByUserId: actor.userId as never, forAccountId: actor.accountId as never },
+    });
+    await handlers.toolHandlers["inventory.commit-import-batch"]!({
+      actor,
+      context,
+      tool: null as never,
+      arguments: { accountId: actor.accountId, batchId: "imb_1" },
+      request: new Request("https://api.test/mcp"),
+      protocol: legacyMcpProtocol,
+    });
+    expect(fakeServices.commitBatch).toHaveBeenCalledWith(
+      expect.objectContaining({ batchId: "imb_1", accountId: actor.accountId }),
+      context,
+    );
+    expect(vi.mocked(fakeServices.commitBatch).mock.calls[0]![1]).toBe(context);
   });
 
   it("rejects dry-run writes before mutating import state", async () => {

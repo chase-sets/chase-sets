@@ -6,13 +6,16 @@ import {
 } from "@chase-sets/event-core-postgres";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
-import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import { type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import {
+  createPricingListingAuthorityWriters,
+  type PricingListingAuthorityWriters,
+} from "../../features/repricing-engine/api/listing-authority-writers";
+import type { PricingListingAuthorityPorts } from "../../features/repricing-engine/api/listing-authority";
+import { createPricingWriterRecovery } from "../../features/repricing-engine/api/writer-recovery";
 import { createPriceSignalRuntime } from "../../features/price-signals/api/runtime";
 import { createPricingRecommendationRuntime } from "../../features/recommendations/api/runtime";
 import { createMarketRollupsRuntime } from "../../features/market-rollups/api/runtime";
-import { createMarketEstimatesRuntime } from "../../features/market-estimates/api/runtime";
-import { createRepricingPolicyRuntime } from "../../features/repricing-policies/api/runtime";
-import { createRepricingPolicyActivationServices } from "../../features/repricing-policies/api/activation";
 import { createPublicMarketPagesRuntime } from "../../features/public-market-pages/api/runtime";
 import { createBulkRepriceIngestionRuntime } from "../../features/bulk-reprice-ingestion/api/runtime";
 import { createRepricingEngineRuntime } from "../../features/repricing-engine/api/runtime";
@@ -28,15 +31,17 @@ export type PricingHostPorts = Readonly<{
   tcgplayerMarketCaptureReceiptSink: TcgplayerMarketCaptureReceiptSinkCapability;
   commercialTermsResolver: CommercialTermsResolver;
   channelConnectionIdentityReader: ChannelConnectionIdentityReader;
+  pricingListingAuthorityConsumer: PricingListingAuthorityPorts["consumer"];
 }>;
 
 export type PricingServices = Readonly<{
   priceSignals: ReturnType<typeof createPriceSignalRuntime>;
   recommendations: ReturnType<typeof createPricingRecommendationRuntime>;
   marketRollups: ReturnType<typeof createMarketRollupsRuntime>;
-  marketEstimates: ReturnType<typeof createMarketEstimatesRuntime>;
-  repricingPolicies: ReturnType<typeof createRepricingPolicyRuntime> &
-    ReturnType<typeof createRepricingPolicyActivationServices>;
+  marketEstimates: PricingListingAuthorityWriters["marketEstimates"];
+  repricingPolicies: PricingListingAuthorityWriters["repricingPolicies"];
+  listingAuthority: PricingListingAuthorityWriters["authority"];
+  recoverListingAuthority: ReturnType<typeof createPricingWriterRecovery>;
   repricingEngine: ReturnType<typeof createRepricingEngineRuntime>;
   publicMarketPages: ReturnType<typeof createPublicMarketPagesRuntime>;
   /**
@@ -62,13 +67,24 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
   ) {
     throw new Error("Pricing requires Commercial Terms and Channel Connection Economics host ports.");
   }
-  const eventStore = createPostgresEventStore({
+  if (typeof ports.pricingListingAuthorityConsumer !== "function") {
+    throw new Error("Pricing requires the Listing authority consumer resolver host port.");
+  }
+  const rawEventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "pricing" }),
   });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
-  const policies = createPolicyRuntime({ eventStore, db });
+  const writers = createPricingListingAuthorityWriters(
+    { eventStore: rawEventStore, pool },
+    {
+      consumer: ports.pricingListingAuthorityConsumer,
+    },
+  );
+  const { policies, marketEstimates, repricingPolicies } = writers;
+  const eventStore = writers.authority.eventStore;
+  const recoverListingAuthority = createPricingWriterRecovery(db, writers);
   const economics = createEconomicsServices({
     eventStore,
     db,
@@ -88,8 +104,7 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
     db,
   });
   const marketRollupsBase = createMarketRollupsRuntime({ db, policies });
-  const marketEstimates = createMarketEstimatesRuntime({ eventStore, db, policies });
-  const repricingEngine = createRepricingEngineRuntime({ eventStore, db: pool });
+  const repricingEngine = createRepricingEngineRuntime({ eventStore, db: pool, productRounds: writers.productRounds });
   const runRepricingActivityDigest = createRepricingActivityDigestRunner({ pool, eventStore, policies });
   /**
    * The Market-Value Estimate recompute RIDES the market-rollups closer job
@@ -105,16 +120,13 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
   const marketRollups: typeof marketRollupsBase = {
     ...marketRollupsBase,
     runDailyRollupCloser: async (params) => {
+      await recoverListingAuthority();
       const result = await marketRollupsBase.runDailyRollupCloser(params);
       await marketEstimates.runMarketPriceEstimateCloser({ now: params?.now, limit: params?.limit });
       await repricingEngine.enqueueDailyDriftSweep({ now: params?.now, limit: params?.limit });
       await runRepricingActivityDigest({ now: params?.now });
       return result;
     },
-  };
-  const repricingPolicies = {
-    ...createRepricingPolicyRuntime({ eventStore, db }),
-    ...createRepricingPolicyActivationServices({ eventStore, pool }),
   };
   const publicMarketPages = createPublicMarketPagesRuntime({ db, policies });
   const bulkRepriceIngestion = createBulkRepriceIngestionRuntime({ db });
@@ -125,6 +137,8 @@ export function createPricingServices(pool: PgTransactionalPool, ports: PricingH
     marketRollups,
     marketEstimates,
     repricingPolicies,
+    listingAuthority: writers.authority,
+    recoverListingAuthority,
     repricingEngine,
     publicMarketPages,
     policies,

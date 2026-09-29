@@ -1781,6 +1781,9 @@ importers:
       '@chase-sets/platform-operations':
         specifier: workspace:*
         version: link:../../bounded-contexts/platform-operations
+      '@chase-sets/platform-runtime':
+        specifier: workspace:*
+        version: link:../../infrastructure/platform-runtime
       '@chase-sets/pricing':
         specifier: workspace:*
         version: link:../../bounded-contexts/pricing

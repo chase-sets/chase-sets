@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
 import {
   bootstrapContextDatabase,
   refreshProjectionReplaySummary,
@@ -6,7 +7,7 @@ import {
 } from "@chase-sets/bounded-context-runtime";
 import { module as identityModule } from "@chase-sets/identity";
 import { module as paymentsModule } from "@chase-sets/payments";
-import { getApiHostSeedOrder, seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
+import { getApiHostSeedOrder, seedApiHostIfEmpty, nonProductionDataProfiles } from "@chase-sets/platform-runtime/api";
 import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { buildPlatformApiApp, createPlatformApiHost } from "../src/app";
@@ -39,7 +40,10 @@ describe("platform api bootstrap scenario", () => {
 
     expect(pools.auth).not.toBe(pools.identity);
 
-    await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime);
+    await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
+      enabledDataProfiles: nonProductionDataProfiles,
+      environmentName: "test",
+    });
 
     const seedOrder = getApiHostSeedOrder(apiContextRegistry, "platform-api");
     expect(seedOrder.indexOf("identity")).toBeLessThan(seedOrder.indexOf("auth"));
@@ -144,15 +148,35 @@ describe("platform api bootstrap scenario", () => {
     expect(requiredContexts.map((context) => context.contextName).sort()).toEqual(["identity", "payments"]);
     await Promise.all(requiredContexts.map((context) => bootstrapContextDatabase(context.module, context.pool)));
 
-    const accountId = "acc_oauth_revoke";
+    const accountId = "acc_oauth_revoke" as AccountId;
     const agentGrantId = "lpa_oauth_revoke";
     const identityServices = runtime.services.identity as ReturnType<typeof identityModule.createServices>;
     const paymentsServices = runtime.services.payments as ReturnType<typeof paymentsModule.createServices>;
+    const userId = "usr_oauth_revoke" as UserId;
+    const credentialOwnerContext = {
+      tenantId: "tnt_customer",
+      audit: { performedByUserId: userId, forAccountId: accountId },
+    } as const;
+    await identityServices.accounts.commandHandler({
+      streamId: `identity.account-${accountId}`,
+      context: credentialOwnerContext,
+      command: { type: "CreateAccount", accountId, name: "OAuth revoke fixture", accountType: "personal" },
+    });
+    await identityServices.users.commandHandler({
+      streamId: `identity.user-${userId}`,
+      context: credentialOwnerContext,
+      command: {
+        type: "CreateUser",
+        userId,
+        displayName: "OAuth revoke fixture",
+        primaryEmail: "oauth-revoke@example.test",
+      },
+    });
     await identityServices.linkedPlatformAuthorizations.grant({
       authorizationId: agentGrantId,
       platformProfileUrl: "https://agent.example/.well-known/ucp",
       clientId: "oauth-revoke-client",
-      userId: "usr_oauth_revoke",
+      userId,
       accountId,
       scopes: ["checkout:write"],
       accessTokenHash: "hash:oauth-revoke-access",

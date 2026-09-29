@@ -132,7 +132,10 @@ function getHostPortsForContext(manifest: ApiContextManifest, hostPorts: Readonl
 
   const resolvedPorts: Record<string, unknown> = {};
   for (const hostPort of entries) {
-    resolvedPorts[hostPort.portName] = hostPorts[hostPort.portName];
+    const qualifiedName = `${manifest.contextName}.${hostPort.portName}`;
+    resolvedPorts[hostPort.portName] = Object.hasOwn(hostPorts, qualifiedName)
+      ? hostPorts[qualifiedName]
+      : hostPorts[hostPort.portName];
   }
 
   return resolvedPorts;

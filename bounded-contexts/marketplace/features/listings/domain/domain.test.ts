@@ -1,12 +1,43 @@
 import { describe, expect, it } from "vitest";
+import type { AcceptedListingTargetPriceV1 } from "./target-price";
 import {
   decideMarketplaceListing,
   evolveMarketplaceListing,
   initialMarketplaceListingState,
   type CreateListingCommand,
+  type AcceptListingTargetPriceCommand,
   type MarketplaceListingFeeLock,
   type PublishListingCommand,
+  type MarketplaceListingState,
 } from "./domain";
+
+function nativeAcceptance(
+  state: MarketplaceListingState,
+  priceAmount: string,
+  priceCurrencyCode: string,
+  feeLocks = state.feeLocks,
+): AcceptListingTargetPriceCommand {
+  return {
+    type: "AcceptListingTargetPrice",
+    expectedTargetPriceRevision: state.nativePriceRevision,
+    feeLocks,
+    acceptedTargetPrice: {
+      schemaVersion: 1,
+      listingId: state.listingId!,
+      accountId: state.accountId!,
+      target: { kind: "native-marketplace" },
+      priceAmount,
+      priceCurrencyCode,
+      listingRevision: state.streamRevision + 1,
+      targetPriceRevision: state.streamRevision + 1,
+      acceptedByUserId: "synthetic-seller",
+      acceptedAt: "2026-09-27T00:00:00.000Z",
+      sourceEventId: "synthetic-price-event",
+      decision: { kind: "seller-reference" },
+      connectionAuthority: null,
+    },
+  };
+}
 
 const shipFromAddress = {
   name: "Seller Shipping",
@@ -107,6 +138,338 @@ const createListingCommand = {
   quantityCap: 3,
   evidenceRequirements,
 } satisfies CreateListingCommand;
+
+describe("channel-only activation and native visibility/fee locks", () => {
+  it("retains every inbound clamp owner and resumes without changing native visibility or publication", () => {
+    let state: MarketplaceListingState = { ...channelOnly(), status: "active" };
+    state = decideMarketplaceListing(state, {
+      type: "EngageListingInboundClamp",
+      connectionId: "con_one",
+      runId: "run_one",
+    }).reduce(evolveMarketplaceListing, state);
+    const first = state.inboundClampOwners[0]!;
+    state = decideMarketplaceListing(state, {
+      type: "EngageListingInboundClamp",
+      connectionId: "con_two",
+      runId: "run_two",
+    }).reduce(evolveMarketplaceListing, state);
+    expect(() =>
+      decideMarketplaceListing(state, {
+        type: "ResumeListing",
+        expectedPauseReason: "channel-inbound-dark",
+        inboundClamp: first,
+      }),
+    ).toThrow("Another inbound clamp");
+    state = decideMarketplaceListing(state, { type: "ReleaseListingInboundClamp", owner: first }).reduce(
+      evolveMarketplaceListing,
+      state,
+    );
+    expect(state.status).toBe("paused");
+    const remaining = state.inboundClampOwners[0]!;
+    expect(() =>
+      decideMarketplaceListing(state, {
+        type: "ResumeListing",
+        expectedPauseReason: "channel-inbound-dark",
+        inboundClamp: { ...remaining, generation: remaining.generation + 1 },
+      }),
+    ).toThrow("ownership");
+    state = decideMarketplaceListing(state, {
+      type: "ResumeListing",
+      expectedPauseReason: "channel-inbound-dark",
+      inboundClamp: remaining,
+    }).reduce(evolveMarketplaceListing, state);
+    expect(state).toMatchObject({
+      status: "active",
+      nativeVisibility: "disabled",
+      nativePublicationRevision: null,
+      feeLocks: [],
+      inboundClampOwners: [],
+    });
+  });
+  it("does not release a source-owned clamp after a newer seller edit or a legacy unowned pause", () => {
+    let state: MarketplaceListingState = { ...channelOnly(), status: "active" };
+    state = decideMarketplaceListing(state, {
+      type: "EngageListingInboundClamp",
+      connectionId: "con_one",
+      runId: "run_one",
+    }).reduce(evolveMarketplaceListing, state);
+    const owner = state.inboundClampOwners[0]!;
+    state = decideMarketplaceListing(state, { type: "PauseListing", reason: "seller" }).reduce(
+      evolveMarketplaceListing,
+      state,
+    );
+    expect(() =>
+      decideMarketplaceListing(state, {
+        type: "ResumeListing",
+        expectedPauseReason: "channel-inbound-dark",
+        inboundClamp: owner,
+      }),
+    ).toThrow("pause authority changed");
+    const legacy = {
+      ...state,
+      pauseReason: "channel-inbound-dark" as const,
+      inboundClampOwners: [],
+      inboundClampRevision: null,
+    };
+    expect(() =>
+      decideMarketplaceListing(legacy, {
+        type: "ResumeListing",
+        expectedPauseReason: "channel-inbound-dark",
+        inboundClamp: owner,
+      }),
+    ).toThrow("ownership");
+  });
+  function channelOnly() {
+    const [created] = decideMarketplaceListing(initialMarketplaceListingState, {
+      ...createListingCommand,
+      publicationScope: "channel-only",
+      feeLock: null,
+      evidenceRequirements: null,
+      productMeasureSnapshot: null,
+    });
+    return evolveMarketplaceListing(initialMarketplaceListingState, created!);
+  }
+
+  function accepted(connectionId: string, revision: number): AcceptedListingTargetPriceV1 {
+    return {
+      schemaVersion: 1,
+      accountId: "acc_seller",
+      listingId: "lst_test",
+      target: { kind: "channel-connection", connectionId },
+      priceAmount: "12.00",
+      priceCurrencyCode: "USD",
+      listingRevision: revision,
+      targetPriceRevision: revision,
+      acceptedByUserId: "usr_seller",
+      acceptedAt: "2026-09-27T18:00:00.000Z",
+      sourceEventId: `synthetic-accept-${connectionId}-${revision}`,
+      decision: { kind: "seller-reference" },
+      connectionAuthority: {
+        connectionId,
+        providerKey: "synthetic-provider",
+        environment: "sandbox",
+        identityRevision: 1,
+      },
+    };
+  }
+
+  it("creates a hidden reference without native shipping, evidence or fee enrollment", () => {
+    const state = channelOnly();
+    expect(state).toMatchObject({
+      status: "draft",
+      publicationScope: "channel-only",
+      nativeVisibility: "disabled",
+      nativeFeeState: "not-enrolled",
+      nativePublicationRevision: null,
+      priceAmount: "10.00",
+      priceCurrencyCode: "USD",
+      feeLocks: [],
+      feeQuoteFingerprint: null,
+      marketplaceSalesFeeUnitAmount: null,
+      sellerNetUnitAmount: null,
+    });
+    expect(() =>
+      decideMarketplaceListing(initialMarketplaceListingState, {
+        ...createListingCommand,
+        publicationScope: "channel-only",
+      }),
+    ).toThrow("cannot enroll native fee terms");
+  });
+
+  it("accepts independent target pairs without replacing the native reference or fee history", () => {
+    let state = channelOnly();
+    for (const connectionId of ["synthetic-tcgplayer", "synthetic-ebay"]) {
+      const price = accepted(connectionId, state.streamRevision + 1);
+      const events = decideMarketplaceListing(state, {
+        type: "AcceptListingTargetPrice",
+        acceptedTargetPrice: price,
+        expectedTargetPriceRevision: 0,
+        feeLocks: [],
+      });
+      expect(events.map((event) => event.type)).toEqual(["marketplace.listing.target-price-accepted"]);
+      state = events.reduce(evolveMarketplaceListing, state);
+    }
+    expect(Object.values(state.acceptedTargetPrices).map((price) => price.targetPriceRevision)).toEqual([2, 3]);
+    expect(state.priceAmount).toBe("10.00");
+    expect(state.nativePriceRevision).toBe(1);
+    expect(state.feeLocks).toEqual([]);
+  });
+
+  it("activates only a currently accepted target and never clears a pause or publishes natively", () => {
+    let state = channelOnly();
+    const command = {
+      type: "ActivateListingForChannel",
+      connectionId: "synthetic-tcgplayer",
+      expectedTargetPriceRevision: 2,
+      allocationRevision: 1,
+    } as const;
+    expect(() => decideMarketplaceListing(state, command)).toThrow("Current accepted target");
+    state = decideMarketplaceListing(state, {
+      type: "AcceptListingTargetPrice",
+      acceptedTargetPrice: accepted(command.connectionId, 2),
+      expectedTargetPriceRevision: 0,
+      feeLocks: [],
+    }).reduce(evolveMarketplaceListing, state);
+    expect(() => decideMarketplaceListing(state, { ...command, allocationRevision: 0 })).toThrow(
+      "Inventory allocation",
+    );
+    const events = decideMarketplaceListing(state, command);
+    expect(events.map((event) => event.type)).toEqual(["marketplace.listing.channel-activated"]);
+    state = events.reduce(evolveMarketplaceListing, state);
+    expect(state).toMatchObject({ status: "active", nativeVisibility: "disabled", nativePublicationRevision: null });
+    state = decideMarketplaceListing(state, { type: "PauseListing", reason: "policy-input-missing" }).reduce(
+      evolveMarketplaceListing,
+      state,
+    );
+    expect(() => decideMarketplaceListing(state, command)).toThrow("cannot clear a listing pause");
+    expect(() => decideMarketplaceListing(state, { type: "ResumeListing", expectedPauseReason: "seller" })).toThrow(
+      "pause authority changed",
+    );
+    state = decideMarketplaceListing(state, {
+      type: "ResumeListing",
+      expectedPauseReason: "policy-input-missing",
+    }).reduce(evolveMarketplaceListing, state);
+    expect(state).toMatchObject({
+      status: "active",
+      nativeVisibility: "disabled",
+      nativePublicationRevision: null,
+      feeLocks: [],
+    });
+  });
+
+  it("keeps a native-enabled draft unpublished after channel activation", () => {
+    let state = decideMarketplaceListing(initialMarketplaceListingState, createListingCommand).reduce(
+      evolveMarketplaceListing,
+      initialMarketplaceListingState,
+    );
+    state = decideMarketplaceListing(state, {
+      type: "AcceptListingTargetPrice",
+      acceptedTargetPrice: accepted("synthetic-tcgplayer", 2),
+      expectedTargetPriceRevision: 0,
+      feeLocks: [],
+    }).reduce(evolveMarketplaceListing, state);
+    state = decideMarketplaceListing(state, {
+      type: "ActivateListingForChannel",
+      connectionId: "synthetic-tcgplayer",
+      expectedTargetPriceRevision: 2,
+      allocationRevision: 1,
+    }).reduce(evolveMarketplaceListing, state);
+    expect(state.nativePublicationRevision).toBeNull();
+    expect(state.feeLocks).toHaveLength(1);
+    expect(decideMarketplaceListing(state, publishListingCommand).map((event) => event.type)).toEqual([
+      "marketplace.listing.published",
+    ]);
+  });
+
+  it("rejects stale target revisions and cross-account acceptance", () => {
+    const state = channelOnly();
+    const command = {
+      type: "AcceptListingTargetPrice",
+      acceptedTargetPrice: accepted("synthetic-tcgplayer", 2),
+      expectedTargetPriceRevision: 1,
+      feeLocks: [],
+    } as const;
+    expect(() => decideMarketplaceListing(state, command)).toThrow("target price revision changed");
+    expect(() =>
+      decideMarketplaceListing(state, {
+        ...command,
+        acceptedTargetPrice: { ...command.acceptedTargetPrice, accountId: "acc_foreign" },
+      }),
+    ).toThrow("owner mismatch");
+  });
+
+  it("updates disabled reference and quantity without native fee locks", () => {
+    let state = channelOnly();
+    state = decideMarketplaceListing(state, nativeAcceptance(state, "11.00", "EUR", [])).reduce(
+      evolveMarketplaceListing,
+      state,
+    );
+    state = decideMarketplaceListing(state, {
+      type: "UpdateListingQuantityCap",
+      quantityCap: 4,
+      addedUnitsFeeLock: null,
+    }).reduce(evolveMarketplaceListing, state);
+    expect(state).toMatchObject({
+      priceAmount: "11.00",
+      priceCurrencyCode: "EUR",
+      quantityCap: 4,
+      feeLocks: [],
+      feeQuoteFingerprint: null,
+    });
+    expect(() => decideMarketplaceListing(state, publishListingCommand)).toThrow("explicit visibility consent");
+  });
+
+  it("enables native visibility only with complete native readiness and covering fee tranches", () => {
+    const state = { ...channelOnly(), productMeasureSnapshot: createListingCommand.productMeasureSnapshot };
+    const command = {
+      type: "SetNativeListingVisibility",
+      nativeVisibility: "enabled",
+      feeLocks: [feeLock()],
+      evidenceRequirements,
+      readiness: publishListingCommand.readiness,
+    } as const;
+    expect(() => decideMarketplaceListing(channelOnly(), command)).toThrow("shipping measure");
+    expect(() => decideMarketplaceListing(state, { ...command, readiness: null })).toThrow("evidence readiness");
+    expect(() => decideMarketplaceListing(state, { ...command, feeLocks: [] })).toThrow("cover listed quantity");
+    const events = decideMarketplaceListing(state, command);
+    expect(events.map((event) => event.type)).toEqual([
+      "marketplace.listing.native-visibility-changed",
+      "marketplace.listing.published",
+    ]);
+    const published = events.reduce(evolveMarketplaceListing, state);
+    expect(published).toMatchObject({
+      nativeVisibility: "enabled",
+      nativeFeeState: "enrolled",
+      nativePublicationRevision: 3,
+      nativeVisibilityRevision: 2,
+    });
+    expect(published.feeLocks).toEqual([feeLock()]);
+  });
+
+  it("preserves old fee formulas while disabled and requires confirmation only for uncovered units on reenable", () => {
+    let state = decideMarketplaceListing(initialMarketplaceListingState, createListingCommand).reduce(
+      evolveMarketplaceListing,
+      initialMarketplaceListingState,
+    );
+    state = decideMarketplaceListing(state, publishListingCommand).reduce(evolveMarketplaceListing, state);
+    state = decideMarketplaceListing(state, {
+      type: "SetNativeListingVisibility",
+      nativeVisibility: "disabled",
+      feeLocks: state.feeLocks,
+      evidenceRequirements: null,
+      readiness: null,
+    }).reduce(evolveMarketplaceListing, state);
+    state = decideMarketplaceListing(state, {
+      type: "UpdateListingQuantityCap",
+      quantityCap: 2,
+      addedUnitsFeeLock: null,
+    }).reduce(evolveMarketplaceListing, state);
+    expect(state.feeLocks).toEqual([feeLock({ unitCount: 2 })]);
+    state = decideMarketplaceListing(state, {
+      type: "UpdateListingQuantityCap",
+      quantityCap: 4,
+      addedUnitsFeeLock: null,
+    }).reduce(evolveMarketplaceListing, state);
+    expect(state.feeLocks).toEqual([feeLock({ unitCount: 2 })]);
+    const command = {
+      type: "SetNativeListingVisibility",
+      nativeVisibility: "enabled",
+      feeLocks: state.feeLocks,
+      evidenceRequirements,
+      readiness: publishListingCommand.readiness,
+    } as const;
+    expect(() => decideMarketplaceListing(state, command)).toThrow("cover listed quantity");
+    const restock = feeLock({ unitCount: 2, terms: { ...feeLock().terms, termsScheduleId: "cts_new" } });
+    state = decideMarketplaceListing(state, { ...command, feeLocks: [...state.feeLocks, restock] }).reduce(
+      evolveMarketplaceListing,
+      state,
+    );
+    expect(state.feeLocks.map((lock) => [lock.unitCount, lock.terms.termsScheduleId])).toEqual([
+      [2, "cts_standard"],
+      [2, "cts_new"],
+    ]);
+  });
+});
 
 const listingPhoto = {
   photoId: "lpho_1",
@@ -213,28 +576,19 @@ describe("marketplace listing no-op suppression", () => {
     }).reduce(evolveMarketplaceListing, initialMarketplaceListingState);
   }
 
-  it("treats a normalized currency change as material while preserving pair no-op semantics", () => {
+  it("requires normalized acceptance and retains a new decision even for an unchanged pair", () => {
     const listing = createdListing();
-    const currencyChange = decideMarketplaceListing(listing, {
-      type: "UpdateListingPrice",
-      priceAmount: "10.0",
-      priceCurrencyCode: " eur ",
-      feeLocks: listing.feeLocks,
-    });
+    expect(() => decideMarketplaceListing(listing, nativeAcceptance(listing, "10.0", " eur "))).toThrow(
+      "Price pair must be normalized",
+    );
+    const currencyChange = decideMarketplaceListing(listing, nativeAcceptance(listing, "10.00", "EUR"));
 
     expect(currencyChange).toHaveLength(1);
     expect(currencyChange[0]).toMatchObject({
       type: "marketplace.listing.price-updated",
       data: { priceAmount: "10.00", priceCurrencyCode: "EUR" },
     });
-    expect(
-      decideMarketplaceListing(listing, {
-        type: "UpdateListingPrice",
-        priceAmount: "10.0",
-        priceCurrencyCode: " usd ",
-        feeLocks: listing.feeLocks,
-      }),
-    ).toEqual([]);
+    expect(decideMarketplaceListing(listing, nativeAcceptance(listing, "10.00", "USD"))).toHaveLength(1);
   });
 
   describe("fee-lock mutation semantics", () => {
@@ -272,13 +626,7 @@ describe("marketplace listing no-op suppression", () => {
       },
     ])("$name", ({ requoted, accepted }) => {
       const listing = createdListing();
-      const decide = () =>
-        decideMarketplaceListing(listing, {
-          type: "UpdateListingPrice",
-          priceAmount: "25.00",
-          priceCurrencyCode: "USD",
-          feeLocks: [requoted],
-        });
+      const decide = () => decideMarketplaceListing(listing, nativeAcceptance(listing, "25.00", "USD", [requoted]));
 
       if (!accepted) {
         expect(decide).toThrow("Price edits cannot replace fee-lock tranche terms.");
@@ -293,17 +641,23 @@ describe("marketplace listing no-op suppression", () => {
       ]);
     });
 
-    it("suppresses an equivalent price and locked quote", () => {
+    it("retains acceptance with an equivalent price and locked quote", () => {
       const listing = createdListing();
 
       expect(
-        decideMarketplaceListing(listing, {
-          type: "UpdateListingPrice",
-          priceAmount: "10.0",
-          priceCurrencyCode: "USD",
-          feeLocks: [feeLock({ marketplaceSalesFeeUnitAmount: "1.0" })],
+        decideMarketplaceListing(
+          listing,
+          nativeAcceptance(listing, "10.00", "USD", [feeLock({ marketplaceSalesFeeUnitAmount: "1.0" })]),
+        ),
+      ).toEqual([
+        expect.objectContaining({
+          data: expect.objectContaining({
+            schemaVersion: 2,
+            acceptedTargetPrice: nativeAcceptance(listing, "10.00", "USD").acceptedTargetPrice,
+            marketplaceSalesFeeUnitAmount: "1.00",
+          }),
         }),
-      ).toEqual([]);
+      ]);
     });
 
     it("locks only restocked units to the current rate", () => {
@@ -384,7 +738,13 @@ describe("marketplace listing no-op suppression", () => {
         evolveMarketplaceListing,
         active,
       );
-      const resumed = decideMarketplaceListing(paused, publishListingCommand).reduce(evolveMarketplaceListing, paused);
+      expect(() => decideMarketplaceListing(paused, publishListingCommand)).toThrow(
+        "Publishing cannot clear a listing pause; use ResumeListing.",
+      );
+      const resumed = decideMarketplaceListing(paused, {
+        type: "ResumeListing",
+        expectedPauseReason: "seller",
+      }).reduce(evolveMarketplaceListing, paused);
       const autoUnlisted = decideMarketplaceListing(resumed, {
         type: "AutoUnlistListing",
         reportId: "rpt_1",
@@ -408,14 +768,9 @@ describe("marketplace listing no-op suppression", () => {
       expect(() => decideMarketplaceListing(withdrawn, publishListingCommand)).toThrow(
         "Withdrawn listings cannot be published",
       );
-      expect(() =>
-        decideMarketplaceListing(withdrawn, {
-          type: "UpdateListingPrice",
-          priceAmount: "11.00",
-          priceCurrencyCode: "USD",
-          feeLocks: withdrawn.feeLocks,
-        }),
-      ).toThrow("Withdrawn listings cannot be updated");
+      expect(() => decideMarketplaceListing(withdrawn, nativeAcceptance(withdrawn, "11.00", "USD"))).toThrow(
+        "Listing cannot accept prices",
+      );
       expect(() => decideMarketplaceListing(withdrawn, createListingCommand)).toThrow(
         "Listing has already been created",
       );
@@ -438,18 +793,16 @@ describe("marketplace listing no-op suppression", () => {
         productId: "cat_test::dim_condition:near_mint" as never,
         selectedOptions: [{ dimensionId: "dim_condition", optionId: "near_mint" }],
       });
-      const repriced = decideMarketplaceListing(listing, {
-        type: "UpdateListingPrice",
-        priceAmount: "12.00",
-        priceCurrencyCode: "USD",
-        feeLocks: [
+      const repriced = decideMarketplaceListing(
+        listing,
+        nativeAcceptance(listing, "12.00", "USD", [
           feeLock({
             marketplaceSalesFeeUnitAmount: "1.20",
             sellerNetUnitAmount: "10.80",
             feeQuoteFingerprint: "fee_repriced",
           }),
-        ],
-      }).reduce(evolveMarketplaceListing, listing);
+        ]),
+      ).reduce(evolveMarketplaceListing, listing);
 
       expect(repriced).toMatchObject({
         inventoryItemId: "itm_original",

@@ -27,7 +27,20 @@ const registeredCallers = new Map([
   ],
   [
     "bounded-contexts/marketplace/features/listings/api/runtime.ts",
-    ["priceCurrencyCode: params.priceCurrencyCode", "priceCurrencyCode: update.priceCurrencyCode"],
+    [
+      "priceCurrencyCode: params.priceCurrencyCode",
+      "updateListingPrice: targetServices.updateNativePrice",
+      "applyBulkListingPriceUpdates: targetServices.applyNativePrices",
+    ],
+  ],
+  [
+    "bounded-contexts/marketplace/features/listings/api/target-runtime.ts",
+    [
+      "normalizeAcceptedListingPrice(update.priceAmount, update.priceCurrencyCode)",
+      'const command = { type: "AcceptNativeListingPrice", accountId, ...update, ...pair }',
+      "prepareListingRequest(deps.eventStore, await nativeRequest(input.accountId, update, context, confirm))",
+      "await nativeRequest(accountId, update, context, async (amount, fingerprint)",
+    ],
   ],
   ["bounded-contexts/marketplace/routes/account-listing.tsx", ["priceCurrencyCode: priceDraftCurrencyCode"]],
   ["bounded-contexts/marketplace/routes/account-listings-new.tsx", ["priceCurrencyCode: createForm.priceCurrencyCode"]],
@@ -171,6 +184,19 @@ function sourceDerivedVersionedPairConsumers() {
   });
 }
 
+const transportedFixtureConsumer =
+  "bounded-contexts/pricing/features/repricing-engine/tests/listing-authority-fixture.ts";
+
+function retainsCanonicalFixtureVersion(fixture, transport) {
+  return (
+    fixture.includes('import { toTransportEvent } from "@chase-sets/event-core/transport";') &&
+    fixture.includes("const events = await external.appendToStream({ ...input, expectedVersion: 0, context });") &&
+    fixture.includes("for (const event of events) await observations.observe(toTransportEvent(event));") &&
+    transport.includes("streamVersion: event.streamVersion,") &&
+    transport.includes("data: event.payload,")
+  );
+}
+
 function sourceDerivedBuyNowPriceProducers() {
   return productionTypescriptFiles().filter((file) => {
     const text = source(file);
@@ -225,10 +251,26 @@ describe("marketplace-listing-price-pair-caller-closure", () => {
     for (const file of consumers) {
       const text = source(file);
       expect(text, `${file} must retain currency beside the amount`).toMatch(/priceCurrencyCode|price_currency_code/);
-      expect(text, `${file} must retain the source version beside the pair`).toMatch(
+      const versionEvidence = file === transportedFixtureConsumer ? source("contracts/event-core/transport.ts") : text;
+      if (file === transportedFixtureConsumer) {
+        expect(retainsCanonicalFixtureVersion(text, versionEvidence), `${file} canonical event transport`).toBe(true);
+      }
+      expect(versionEvidence, `${file} must retain the source version beside the pair`).toMatch(
         /streamVersion|stream_version|sourceVersion|source_version|last_stream_version/,
       );
     }
+  });
+
+  it("rejects a fixture transport that drops the source version, payload, or canonical conversion", () => {
+    const fixture = source(transportedFixtureConsumer);
+    const transport = source("contracts/event-core/transport.ts");
+    expect(sourceDerivedVersionedPairConsumers()).toContain(transportedFixtureConsumer);
+    expect(retainsCanonicalFixtureVersion(fixture, transport)).toBe(true);
+    expect(retainsCanonicalFixtureVersion(fixture, transport.replace("streamVersion: event.streamVersion,", ""))).toBe(
+      false,
+    );
+    expect(retainsCanonicalFixtureVersion(fixture, transport.replace("data: event.payload,", ""))).toBe(false);
+    expect(retainsCanonicalFixtureVersion(fixture.replace("toTransportEvent(event)", "event"), transport)).toBe(false);
   });
 
   it("registers every source-derived buy-now price handoff producer", () => {

@@ -121,13 +121,15 @@ export type CommercialTermsResolver = Readonly<{
   ) => Promise<ResolvedListingTermsSession>;
 }>;
 
-type ProjectedAccount = Readonly<{
+export type CommercialTermsAccountFacts = Readonly<{
   account_id: string;
   account_type: CommercialAccountType;
   status: string;
   founders_window_started_at?: string | null;
   founders_window_ends_at?: string | null;
 }>;
+
+type ProjectedAccount = CommercialTermsAccountFacts;
 
 export type CommercialTermsAccountSource = Readonly<{
   getAccount: (accountId: string) => Promise<ProjectedAccount | null>;
@@ -146,7 +148,7 @@ const accountSourceFallbackTelemetry = {
   strategy: "projection-fallback",
 } as const;
 
-type ActiveSchedule = Readonly<{
+export type ActiveSchedule = Readonly<{
   schedule_id: string;
   label: string;
   marketplace_sales_fee_percentage_bps: number;
@@ -156,7 +158,7 @@ type ActiveSchedule = Readonly<{
   updated_at: string;
 }>;
 
-type ActiveAgreement = Readonly<{
+export type ActiveAgreement = Readonly<{
   agreement_id: string;
   marketplace_sales_fee_percentage_bps: number;
   marketplace_sales_fee_fixed_amount: string;
@@ -289,7 +291,7 @@ async function getActiveAgreement(db: PgQueryable, accountId: string, effectiveA
  * through the exact same `quoteFromListingTermsBasis` code path -- the
  * guarantee that session quotes are byte-identical to individual ones.
  */
-type ListingTermsBasis = Readonly<{
+export type ListingTermsBasis = Readonly<{
   accountId: string;
   accountType: CommercialAccountType;
   scheduleId: string | null;
@@ -320,23 +322,42 @@ async function resolveListingTermsBasis(
     getActiveAgreement(db, params.accountId, effectiveAt),
   ]);
 
-  assert(schedule || agreement, `No active commercial terms were found for account ${params.accountId}.`);
+  return selectListingTermsBasis(account, schedule, agreement, params.accountId, effectiveAt);
+}
+
+export function selectListingTermsBasis(
+  account: CommercialTermsAccountFacts,
+  schedule: ActiveSchedule | null,
+  agreement: ActiveAgreement | null,
+  accountId: string,
+  effectiveAt: string,
+): ListingTermsBasis {
+  assert(account.account_id === accountId && account.status === "active", `Account ${accountId} is not active.`);
+  assert(isCommercialAccountType(account.account_type), `Account ${accountId} is missing account type.`);
+
+  assert(schedule || agreement, `No active commercial terms were found for account ${accountId}.`);
+  for (const instant of [effectiveAt, account.founders_window_started_at, account.founders_window_ends_at]) {
+    assert(
+      instant == null || Number.isFinite(Date.parse(instant)),
+      "Commercial terms validity requires valid timestamps.",
+    );
+  }
   const foundersWindowActive =
     account.founders_window_started_at !== null &&
     account.founders_window_started_at !== undefined &&
     account.founders_window_ends_at !== null &&
     account.founders_window_ends_at !== undefined &&
-    account.founders_window_started_at <= effectiveAt &&
-    account.founders_window_ends_at > effectiveAt;
+    Date.parse(account.founders_window_started_at) <= Date.parse(effectiveAt) &&
+    Date.parse(account.founders_window_ends_at) > Date.parse(effectiveAt);
   assert(
     !foundersWindowActive ||
       (agreement?.marketplace_sales_fee_percentage_bps === 0 &&
         agreement.marketplace_sales_fee_fixed_amount === "0.00"),
-    `Founders window agreement is not ready for account ${params.accountId}.`,
+    `Founders window agreement is not ready for account ${accountId}.`,
   );
 
   return {
-    accountId: params.accountId,
+    accountId,
     accountType: account.account_type,
     scheduleId: schedule?.schedule_id ?? null,
     agreementId: agreement?.agreement_id ?? null,
@@ -353,7 +374,7 @@ async function resolveListingTermsBasis(
   };
 }
 
-function quoteFromListingTermsBasis(basis: ListingTermsBasis, rawAmount: string): ResolvedCommercialTerms {
+export function quoteFromListingTermsBasis(basis: ListingTermsBasis, rawAmount: string): ResolvedCommercialTerms {
   const amount = normalizeMoneyAmount(rawAmount, {
     fieldName: "Commercial terms amount",
     allowZero: true,

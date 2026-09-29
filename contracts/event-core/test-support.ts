@@ -24,6 +24,35 @@ import type {
   StoredEvent,
 } from "./storage";
 import type { TransportEvent } from "./transport";
+import type { EventStoreContext } from "./storage";
+import type { ListingAuthorityPrincipal } from "./listing-authority";
+
+/** Synthetic verified input only; production authentication must never use this helper.
+ * Single-owner fixtures default to an API key, not an unimplemented Auth session.
+ * Session protocol fixtures explicitly supply both persisted revision selectors.
+ */
+export function withSyntheticListingPrincipal(
+  context: EventStoreContext,
+  authentication: Extract<ListingAuthorityPrincipal, { kind: "user" }>["authentication"] = {
+    kind: "api-key",
+    keyId: "key_synthetic",
+    revision: "1",
+  },
+): EventStoreContext {
+  return {
+    ...context,
+    listingAuthorityPrincipal: {
+      kind: "user",
+      tenantId: context.tenantId,
+      accountId: context.audit.forAccountId,
+      userId: context.audit.performedByUserId,
+      membershipId: "mbr_synthetic",
+      authentication,
+      delegation: null,
+      validBefore: "2099-01-01T00:00:00.000Z",
+    },
+  };
+}
 
 export type TransportEventFixtureOverrides = Readonly<
   Partial<{
@@ -238,13 +267,33 @@ export function createInMemoryEventStore(): InMemoryEventStore {
   }
 
   const eventStore: EventStore = {
-    appendToStream: async (input) => appendToStream(input),
+    appendToStream: async (input) => {
+      if (input.expectedFirstEventId !== undefined)
+        throw new Error("Stream opening guards require atomic appendToStreams.");
+      if (input.authorizationDeadline !== undefined)
+        throw new Error("Authority deadlines require atomic appendToStreams.");
+      return appendToStream(input);
+    },
     appendToStreams: async (inputs) => {
       // Every input's expected version is enforced, including a zero-event
       // one: that input is a pure version guard on a stream this append does
       // not write to, and skipping it would silently drop the guard.
       for (const input of inputs) {
         assertExpectedVersion(input.streamId, input.expectedVersion, currentVersion(input));
+        if (
+          input.expectedFirstEventId !== undefined &&
+          (typeof input.expectedFirstEventId !== "string" ||
+            !input.expectedFirstEventId.trim() ||
+            typeof input.expectedVersion !== "number" ||
+            !Number.isSafeInteger(input.expectedVersion) ||
+            input.expectedVersion < 1 ||
+            streams.get(input.streamId)?.[0]?.eventId !== input.expectedFirstEventId)
+        ) {
+          throw createEventStoreError("concurrency_conflict", "Stream opening identity conflict.");
+        }
+        if (input.authorizationDeadline !== undefined && !(Date.now() < Date.parse(input.authorizationDeadline))) {
+          throw createEventStoreError("concurrency_conflict", "Authority decision boundary expired.");
+        }
       }
 
       // The version pre-check above cannot see a failure raised while writing --
@@ -273,6 +322,10 @@ export function createInMemoryEventStore(): InMemoryEventStore {
       }
     },
     appendToStreamsIndependently: async (inputs) => {
+      if (inputs.some((input) => input.expectedFirstEventId !== undefined))
+        throw new Error("Stream opening guards require atomic appendToStreams.");
+      if (inputs.some((input) => input.authorizationDeadline !== undefined))
+        throw new Error("Authority deadlines require atomic appendToStreams.");
       const results: AppendToStreamsIndependentResult[] = [];
       for (const input of inputs) {
         if (input.events.length === 0) {

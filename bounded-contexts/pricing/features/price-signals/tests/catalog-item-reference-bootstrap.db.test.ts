@@ -27,6 +27,7 @@ const context: EventStoreContext = {
   audit: { performedByUserId: "usr_synthetic" as never, forAccountId: "acc_synthetic" as never },
 };
 const syntheticPricingHostPorts = {
+  pricingListingAuthorityConsumer: syntheticPricingConsumer,
   tcgplayerMarketTransport: { kind: "not-mounted" },
   tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
   commercialTermsResolver: createNoopCommercialTermsResolver(),
@@ -205,3 +206,4 @@ async function command<Command>(
 function localized(value: string) {
   return { defaultLocale: "en" as const, values: { en: value } };
 }
+import { syntheticPricingConsumer } from "../../../tests/listing-authority-consumer-fixture";

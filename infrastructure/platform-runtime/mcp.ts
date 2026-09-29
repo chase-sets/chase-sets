@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { Hono } from "hono";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { AGENT_OAUTH_SUPPORTED_SCOPES, type AgentOAuthScope } from "@chase-sets/auth-context";
 import type { BcApiModule, BcMcpCapabilities, BcMcpHandlers } from "@chase-sets/bounded-context-module";
 import { parseTypedIdBoundary } from "@chase-sets/http/typed-id";
@@ -23,7 +24,7 @@ import {
   type McpToolDescriptor,
 } from "./mcp-contracts";
 import type { McpToolCallLease, McpToolCallLimitKind, McpToolCallLimiter } from "./mcp-tool-call-limiter";
-import type { ResolvedActor } from "./auth";
+import { createActorEventStoreContext, type ResolvedActor } from "./auth";
 import {
   MCP_CLIENT_CAPABILITIES_HEADER,
   MCP_CLIENT_NAME_HEADER,
@@ -53,6 +54,7 @@ import { createMcpHttpOriginPolicyMiddleware, type McpHttpOriginPolicyOptions } 
 export type McpRuntimeEnv = {
   Variables: {
     actor: ResolvedActor | null;
+    context: EventStoreContext | null;
   };
 };
 
@@ -73,6 +75,7 @@ export type McpRequestProtocolContext = Readonly<{
 
 export type McpToolHandlerInput = Readonly<{
   actor: ResolvedActor | null;
+  context?: EventStoreContext;
   tool: McpToolDescriptor;
   arguments: Readonly<Record<string, unknown>>;
   request: Request;
@@ -210,6 +213,17 @@ export function readOptionalMcpTypedIdArgument<Prefix extends string>(
   }
 
   return readMcpTypedIdArgument(args, key, prefix);
+}
+
+export function createMcpActorEventStoreContext(actor: ResolvedActor, context?: EventStoreContext): EventStoreContext {
+  if (!context) return createActorEventStoreContext(actor);
+  if (
+    context.tenantId !== actor.tenantId ||
+    context.audit.forAccountId !== actor.accountId ||
+    context.audit.performedByUserId !== actor.userId
+  )
+    throw new Error("MCP command context does not match its authenticated actor.");
+  return context;
 }
 
 export function ensureMcpActorAccount(
@@ -681,8 +695,11 @@ function typeName(value: unknown) {
   return typeof value;
 }
 
-function validatePrimitiveType(value: unknown, expected: McpJsonSchemaProperty["type"]) {
+function validatePrimitiveType(value: unknown, expected: McpJsonSchemaProperty["type"]): boolean {
+  if (typeof expected !== "string") return expected.some((type) => validatePrimitiveType(value, type));
   switch (expected) {
+    case "null":
+      return value === null;
     case "array":
       return Array.isArray(value);
     case "integer":
@@ -707,13 +724,25 @@ function validateSchemaProperty(
       {
         path,
         message: `Expected ${schema.type}.`,
-        expected: schema.type,
+        expected: typeof schema.type === "string" ? schema.type : schema.type.join(" | "),
         actual: typeName(value),
       },
     ];
   }
 
   const issues: McpInputValidationIssue[] = [];
+
+  if (
+    schema.oneOf &&
+    schema.oneOf.filter((variant) => validateSchemaProperty(value, variant, path).length === 0).length !== 1
+  ) {
+    issues.push({
+      path,
+      message: "Expected exactly one complete schema variant.",
+      expected: "oneOf",
+      actual: typeName(value),
+    });
+  }
 
   if (schema.enum && typeof value === "string" && !schema.enum.includes(value)) {
     issues.push({
@@ -724,13 +753,13 @@ function validateSchemaProperty(
     });
   }
 
-  if (schema.type === "array" && schema.items) {
+  if (Array.isArray(value) && schema.items) {
     (value as readonly unknown[]).forEach((item, index) => {
       issues.push(...validateSchemaProperty(item, schema.items as McpJsonSchemaProperty, `${path}[${index}]`));
     });
   }
 
-  if (schema.type === "object" && schema.properties) {
+  if (isRecord(value) && schema.properties) {
     issues.push(
       ...validateObjectProperties(
         value as Readonly<Record<string, unknown>>,
@@ -1324,7 +1353,7 @@ async function callTool(
   params: McpToolCallParams,
   options: Required<Pick<CreateMcpRoutesOptions, "services" | "toolHandlers" | "idempotencyStore">> &
     Pick<CreateMcpRoutesOptions, "audit" | "toolCallLimiter" | "agentGrantRateLimiter"> &
-    Readonly<{ onScopeChallenge?: (scopes: readonly AgentOAuthScope[]) => void }>,
+    Readonly<{ onScopeChallenge?: (scopes: readonly AgentOAuthScope[]) => void; context?: EventStoreContext }>,
 ) {
   if (typeof params.name !== "string") {
     return jsonRpcError(null, -32602, "Tool name is required.");
@@ -1452,7 +1481,7 @@ async function callTool(
   let handler = options.toolHandlers[tool.name];
   if (handler?.admit) {
     try {
-      handler = await handler.admit({ actor, tool, arguments: args, request, protocol });
+      handler = await handler.admit({ actor, tool, arguments: args, request, protocol, context: options.context });
     } catch (error) {
       const reason = error instanceof Error ? error.message : "Tool admission refused.";
       await audit(options.audit, {
@@ -1570,6 +1599,7 @@ async function callTool(
     const result = await handler({
       actor,
       tool,
+      context: options.context,
       arguments: args,
       request,
       protocol,
@@ -1906,6 +1936,7 @@ export function createMcpRoutes(options: CreateMcpRoutesOptions = {}) {
 
         let scopeChallenge: readonly AgentOAuthScope[] = [];
         const result = await callTool(c.req.raw, actor, protocol, params, {
+          context: c.get("context") ?? undefined,
           services,
           toolHandlers,
           audit: options.audit,

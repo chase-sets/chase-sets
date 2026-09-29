@@ -1,6 +1,6 @@
-import { createActorEventStoreContext } from "@chase-sets/platform-runtime/auth";
 import {
   ensureMcpActorAccount,
+  createMcpActorEventStoreContext,
   readMcpStringArgument,
   readMcpTypedIdArgument,
   readOptionalMcpTypedIdArgument,
@@ -10,6 +10,13 @@ import {
 import type { AccountId, ListingId } from "@chase-sets/primitives/typed-ids";
 import type { MarketplaceListingPurchaseLimits } from "../domain/domain";
 import type { MarketplaceListingServices } from "./runtime";
+import {
+  acceptListingTargetPriceSchema,
+  activateListingForChannelSchema,
+  setNativeListingVisibilitySchema,
+  resumeListingSchema,
+  nativeListingPriceUpdateSchema,
+} from "./target-validation";
 
 export type MarketplaceListingMcpHandlers = Readonly<{
   toolHandlers: Readonly<Record<string, McpToolHandler>>;
@@ -204,10 +211,11 @@ export function createMarketplaceListingMcpHandlers(
     };
   };
 
-  const createListing: McpToolHandler = async ({ actor, arguments: args }) => {
+  const createListing: McpToolHandler = async ({ actor, arguments: args, context }) => {
     rejectUnknownArguments(args, [
       "accountId",
       "inventoryItemId",
+      "publicationScope",
       "priceAmount",
       "priceCurrencyCode",
       "quantityCap",
@@ -220,18 +228,40 @@ export function createMarketplaceListingMcpHandlers(
     rejectDryRun(args);
     const accountId = readRequiredString(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
-    const result = await services.createListing(
-      {
-        accountId: scopedActor.accountId as AccountId,
-        inventoryItemId: readMcpTypedIdArgument(args, "inventoryItemId", "inv"),
-        priceAmount: readRequiredString(args, "priceAmount"),
-        priceCurrencyCode: readRequiredPriceCurrencyCode(args),
-        quantityCap: readPositiveInteger(args, "quantityCap"),
-        purchaseLimits: readPurchaseLimits(args),
-        listingIdOverride: readOptionalMcpTypedIdArgument(args, "listingIdOverride", "lst") ?? undefined,
-      },
-      createActorEventStoreContext(scopedActor),
-    );
+    if (!scopedActor.permissions.includes("listings.manage")) throw new Error("listings.manage is required.");
+    if (
+      args.publicationScope !== undefined &&
+      args.publicationScope !== "native" &&
+      args.publicationScope !== "channel-only"
+    )
+      throw new Error("Invalid publication scope.");
+    const creation = {
+      accountId: scopedActor.accountId as AccountId,
+      inventoryItemId: readMcpTypedIdArgument(args, "inventoryItemId", "inv"),
+      priceAmount: readRequiredString(args, "priceAmount"),
+      priceCurrencyCode: readRequiredPriceCurrencyCode(args),
+      quantityCap: readPositiveInteger(args, "quantityCap"),
+      purchaseLimits: readPurchaseLimits(args),
+      listingIdOverride: readOptionalMcpTypedIdArgument(args, "listingIdOverride", "lst") ?? undefined,
+    };
+    const result =
+      args.publicationScope === "channel-only"
+        ? await services.createListing(
+            { ...creation, publicationScope: "channel-only" },
+            createMcpActorEventStoreContext(scopedActor, context),
+          )
+        : await services.createListing(
+            {
+              accountId: scopedActor.accountId as AccountId,
+              inventoryItemId: readMcpTypedIdArgument(args, "inventoryItemId", "inv"),
+              priceAmount: readRequiredString(args, "priceAmount"),
+              priceCurrencyCode: readRequiredPriceCurrencyCode(args),
+              quantityCap: readPositiveInteger(args, "quantityCap"),
+              purchaseLimits: readPurchaseLimits(args),
+              listingIdOverride: readOptionalMcpTypedIdArgument(args, "listingIdOverride", "lst") ?? undefined,
+            },
+            createMcpActorEventStoreContext(scopedActor, context),
+          );
 
     return listingReceipt(scopedActor.accountId, result, "draft", {
       inventoryItemId: readMcpTypedIdArgument(args, "inventoryItemId", "inv"),
@@ -239,7 +269,7 @@ export function createMarketplaceListingMcpHandlers(
     });
   };
 
-  const updateListingPrice: McpToolHandler = async ({ actor, arguments: args }) => {
+  const updateListingPrice: McpToolHandler = async ({ actor, arguments: args, context }) => {
     rejectUnknownArguments(args, [
       "accountId",
       "listingId",
@@ -247,27 +277,56 @@ export function createMarketplaceListingMcpHandlers(
       "priceCurrencyCode",
       "feeQuoteFingerprint",
       "idempotencyKey",
+      "expectedVersion",
+      "expectedTargetPriceRevision",
+      "decision",
+      "changeSource",
+      "minimumChange",
       "confirmationText",
       "dryRun",
     ]);
     rejectDryRun(args);
     const accountId = readRequiredString(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
+    if (!scopedActor.permissions.includes("listings.manage")) throw new Error("listings.manage is required.");
+    const { accountId: _accountId, dryRun: _dryRun, confirmationText: _confirmationText, ...update } = args;
     const result = await services.updateListingPrice(
       {
+        ...nativeListingPriceUpdateSchema.parse({
+          ...update,
+          listingId: readMcpTypedIdArgument(args, "listingId", "lst"),
+          priceAmount: readRequiredString(args, "priceAmount"),
+          priceCurrencyCode: readRequiredPriceCurrencyCode(args),
+          feeQuoteFingerprint: readMcpStringArgument(args, "feeQuoteFingerprint"),
+        }),
         accountId: scopedActor.accountId,
-        listingId: readMcpTypedIdArgument(args, "listingId", "lst"),
-        priceAmount: readRequiredString(args, "priceAmount"),
-        priceCurrencyCode: readRequiredPriceCurrencyCode(args),
-        feeQuoteFingerprint: readMcpStringArgument(args, "feeQuoteFingerprint"),
       },
-      createActorEventStoreContext(scopedActor),
+      createMcpActorEventStoreContext(scopedActor, context),
     );
 
     return listingReceipt(scopedActor.accountId, result, "price-updated");
   };
 
-  const publishListing: McpToolHandler = async ({ actor, arguments: args }) => {
+  function targetCommand(operation: "accept" | "activate" | "visibility" | "resume"): McpToolHandler {
+    return async ({ actor, arguments: args, context: authenticatedContext }) => {
+      rejectDryRun(args);
+      const scoped = ensureMcpActorAccount(actor, readRequiredString(args, "accountId"));
+      if (!scoped.permissions.includes("listings.manage")) throw new Error("listings.manage is required.");
+      const { dryRun: _dryRun, confirmationText: _confirmationText, ...body } = args;
+      const context = createMcpActorEventStoreContext(scoped, authenticatedContext);
+      const result =
+        operation === "accept"
+          ? await services.acceptListingTargetPrice(acceptListingTargetPriceSchema.parse(body), context)
+          : operation === "activate"
+            ? await services.activateListingForChannel(activateListingForChannelSchema.parse(body), context)
+            : operation === "visibility"
+              ? await services.setNativeListingVisibility(setNativeListingVisibilitySchema.parse(body), context)
+              : await services.resumeListing(resumeListingSchema.parse(body), context);
+      return listingReceipt(scoped.accountId, result, operation);
+    };
+  }
+
+  const publishListing: McpToolHandler = async ({ actor, arguments: args, context }) => {
     rejectDryRun(args);
     const accountId = readRequiredString(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
@@ -277,13 +336,13 @@ export function createMarketplaceListingMcpHandlers(
         listingId: readMcpTypedIdArgument(args, "listingId", "lst"),
         feeQuoteFingerprint: readMcpStringArgument(args, "feeQuoteFingerprint"),
       },
-      createActorEventStoreContext(scopedActor),
+      createMcpActorEventStoreContext(scopedActor, context),
     );
 
     return listingReceipt(scopedActor.accountId, result, "published");
   };
 
-  const unpublishListing: McpToolHandler = async ({ actor, arguments: args }) => {
+  const unpublishListing: McpToolHandler = async ({ actor, arguments: args, context }) => {
     rejectDryRun(args);
     const accountId = readRequiredString(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
@@ -292,7 +351,7 @@ export function createMarketplaceListingMcpHandlers(
         accountId: scopedActor.accountId,
         listingId: readMcpTypedIdArgument(args, "listingId", "lst"),
       },
-      createActorEventStoreContext(scopedActor),
+      createMcpActorEventStoreContext(scopedActor, context),
     );
 
     return listingReceipt(scopedActor.accountId, result, "unpublished");
@@ -319,6 +378,10 @@ export function createMarketplaceListingMcpHandlers(
       "marketplace.get-seller-insights": getSellerInsights,
       "marketplace.create-listing": createListing,
       "marketplace.update-listing-price": updateListingPrice,
+      "marketplace.accept-listing-target-price": targetCommand("accept"),
+      "marketplace.activate-listing-for-channel": targetCommand("activate"),
+      "marketplace.set-native-listing-visibility": targetCommand("visibility"),
+      "marketplace.resume-listing": targetCommand("resume"),
       "marketplace.publish-listing": publishListing,
       "marketplace.unpublish-listing": unpublishListing,
     },

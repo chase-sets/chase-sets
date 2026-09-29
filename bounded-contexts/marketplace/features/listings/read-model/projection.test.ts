@@ -16,6 +16,7 @@ type ListingPageRow = {
   selected_options: unknown;
   product_summary: string | null;
   product_measure_snapshot: unknown;
+  product_measure_source_revision: number;
   graded_card: unknown;
   storage_location_name: string | null;
   ship_from_code: string | null;
@@ -23,6 +24,10 @@ type ListingPageRow = {
   price_amount: string;
   price_currency_code: string | null;
   listing_stream_version: number | null;
+  fee_stream_version: number;
+  quantity_stream_version: number;
+  purchase_limits_stream_version: number;
+  evidence_requirements_stream_version: number;
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
   shipping_allowance_percentage_bps: number;
@@ -63,6 +68,21 @@ type SellerOrderCapacityPageRow = {
 };
 
 class ProjectionDb implements PgQueryable {
+  public readonly targetPrices = new Map<
+    string,
+    { priceRevision: number; activationRevision: number; accepted: unknown }
+  >();
+  public readonly nativeAuthority = new Map<
+    string,
+    {
+      visibility: string;
+      visibilityRevision: number;
+      publicationRevision: number | null;
+      status: string;
+      statusRevision: number;
+      listingRevision: number;
+    }
+  >();
   public readonly listings = new Map<string, ListingPageRow>();
   public readonly sellerListingAvailability = new Map<string, SellerListingAvailabilityPageRow>();
   public readonly sellerOrderCapacity = new Map<string, SellerOrderCapacityPageRow>();
@@ -72,6 +92,46 @@ class ProjectionDb implements PgQueryable {
     sql: string,
     values: readonly unknown[] = [],
   ): Promise<PgQueryResult<Row>> {
+    if (sql.includes("INSERT INTO marketplace_listing_target_prices")) {
+      const key = `${values[0]}:${values[1]}:${values[2]}`;
+      const prior = this.targetPrices.get(key) ?? { priceRevision: 0, activationRevision: 0, accepted: null };
+      if (sql.includes("accepted_price, price_revision")) {
+        const revision = Number(values[4]);
+        if (revision > prior.priceRevision)
+          this.targetPrices.set(key, {
+            ...prior,
+            priceRevision: revision,
+            accepted: values[3] ? JSON.parse(String(values[3])) : null,
+          });
+      } else {
+        const revision = Number(values[3]);
+        if (revision > prior.activationRevision) this.targetPrices.set(key, { ...prior, activationRevision: revision });
+      }
+      return { rows: [], rowCount: 1 };
+    }
+    if (sql.includes("INSERT INTO marketplace_listing_native_authority")) {
+      const key = String(values[0]);
+      const prior = this.nativeAuthority.get(key) ?? {
+        visibility: "disabled",
+        visibilityRevision: 0,
+        publicationRevision: null,
+        status: "draft",
+        statusRevision: 0,
+        listingRevision: 0,
+      };
+      const revision = Number(values[4]);
+      this.nativeAuthority.set(key, {
+        visibility: values[2] !== null && revision > prior.visibilityRevision ? String(values[2]) : prior.visibility,
+        visibilityRevision:
+          values[2] !== null ? Math.max(revision, prior.visibilityRevision) : prior.visibilityRevision,
+        publicationRevision:
+          values[3] !== null ? Math.max(Number(values[3]), prior.publicationRevision ?? 0) : prior.publicationRevision,
+        status: values[5] !== null && revision > prior.statusRevision ? String(values[5]) : prior.status,
+        statusRevision: values[5] !== null ? Math.max(revision, prior.statusRevision) : prior.statusRevision,
+        listingRevision: Math.max(revision, prior.listingRevision),
+      });
+      return { rows: [], rowCount: 1 };
+    }
     if (sql.includes("INSERT INTO marketplace_listing_pages (")) {
       const row = listingPage({
         listing_id: String(values[0]),
@@ -85,6 +145,7 @@ class ProjectionDb implements PgQueryable {
         selected_options: JSON.parse(String(values[8])),
         product_summary: values[9] === null ? null : String(values[9]),
         product_measure_snapshot: values[10] === null ? null : JSON.parse(String(values[10])),
+        product_measure_source_revision: Number(values[33]),
         graded_card: values[11] === null ? null : JSON.parse(String(values[11])),
         storage_location_name: values[12] === null ? null : String(values[12]),
         ship_from_code: values[13] === null ? null : String(values[13]),
@@ -92,6 +153,10 @@ class ProjectionDb implements PgQueryable {
         price_amount: String(values[15]),
         price_currency_code: values[16] === null ? null : String(values[16]),
         listing_stream_version: Number(values[17]),
+        fee_stream_version: Number(values[17]),
+        quantity_stream_version: Number(values[17]),
+        purchase_limits_stream_version: Number(values[17]),
+        evidence_requirements_stream_version: Number(values[17]),
         marketplace_sales_fee_unit_amount: String(values[18]),
         seller_net_unit_amount: String(values[19]),
         shipping_allowance_percentage_bps: Number(values[20]),
@@ -112,27 +177,31 @@ class ProjectionDb implements PgQueryable {
       });
 
       const existing = this.listings.get(row.listing_id);
-      if (
-        existing?.listing_stream_version !== null &&
-        existing?.listing_stream_version !== undefined &&
-        existing.listing_stream_version >= (row.listing_stream_version ?? 0)
-      ) {
+      if (existing) {
         return { rows: [], rowCount: 0 };
       }
       this.listings.set(row.listing_id, row);
       return { rows: [], rowCount: 1 };
     }
 
-    if (sql.includes("UPDATE marketplace_listing_pages AS listing")) {
+    if (sql.includes("SET product_measure_snapshot = $2")) {
+      const row = this.listings.get(String(values[0]));
+      if (!row || row.product_measure_source_revision >= Number(values[2])) return { rows: [], rowCount: 0 };
+      row.product_measure_snapshot = JSON.parse(String(values[1]));
+      row.product_measure_source_revision = Number(values[2]);
+      return { rows: [], rowCount: 1 };
+    }
+    if (sql.includes("UPDATE marketplace_listing_pages AS listing") && sql.includes("product_measure_snapshot")) {
       const catalogItemId = String(values[0]);
       const products = JSON.parse(String(values[1])) as { productId?: unknown }[];
       const updated: { listing_id: string }[] = [];
 
       for (const row of this.listings.values()) {
-        if (row.catalog_catalog_item_id !== catalogItemId) {
+        if (row.catalog_catalog_item_id !== catalogItemId || row.product_measure_source_revision >= Number(values[3])) {
           continue;
         }
         row.product_measure_snapshot = products.find((product) => product?.productId === row.product_id) ?? null;
+        row.product_measure_source_revision = Number(values[3]);
         row.updated_at = String(values[2]);
         updated.push({ listing_id: row.listing_id });
       }
@@ -140,14 +209,15 @@ class ProjectionDb implements PgQueryable {
       return { rows: updated as Row[], rowCount: updated.length };
     }
 
-    if (sql.includes("UPDATE marketplace_listing_pages") && sql.includes("SET status = 'active'")) {
+    if (sql.includes("UPDATE marketplace_listing_pages") && sql.includes("SET status = authority.status")) {
       const row = this.listings.get(String(values[0]));
-      if (!row) {
+      const authority = this.nativeAuthority.get(String(values[0]));
+      if (!row || !authority) {
         return { rows: [], rowCount: 0 };
       }
 
-      row.status = "active";
-      row.updated_at = String(values[1]);
+      row.status = authority.status;
+      row.updated_at = [row.updated_at, String(values[1])].sort().at(-1)!;
       return { rows: [], rowCount: 1 };
     }
 
@@ -157,6 +227,48 @@ class ProjectionDb implements PgQueryable {
         rows: (row ? [{ evidence: row.evidence }] : []) as Row[],
         rowCount: row ? 1 : 0,
       };
+    }
+
+    if (sql.includes("SET fee_stream_version = $2")) {
+      const row = this.listings.get(String(values[0]));
+      if (!row || row.fee_stream_version >= Number(values[1])) return { rows: [], rowCount: 0 };
+      row.fee_stream_version = Number(values[1]);
+      row.fee_locks = JSON.parse(String(values[2]));
+      row.marketplace_sales_fee_unit_amount = values[3] as string;
+      row.seller_net_unit_amount = values[4] as string;
+      row.shipping_allowance_percentage_bps = Number(values[5]);
+      row.terms_schedule_id = values[6] as string | null;
+      row.terms_agreement_id = values[7] as string | null;
+      row.terms_resolved_at = values[8] as string | null;
+      row.fee_quote_fingerprint = values[9] as string;
+      row.updated_at = [row.updated_at, String(values[10])].sort().at(-1)!;
+      return { rows: [], rowCount: 1 };
+    }
+
+    if (sql.includes("SET quantity_cap = CASE WHEN quantity_stream_version")) {
+      const row = this.listings.get(String(values[0]));
+      if (!row) return { rows: [], rowCount: 0 };
+      const version = Number(values[7]);
+      if (row.quantity_stream_version < version) row.quantity_cap = Number(values[1]);
+      row.quantity_stream_version = Math.max(row.quantity_stream_version, version);
+      if (values[2] && row.purchase_limits_stream_version < version) {
+        row.max_units_per_order = values[3] as number | null;
+        row.max_units_per_day = values[4] as number | null;
+        row.max_units_per_customer_account = values[5] as number | null;
+        row.purchase_limits_stream_version = version;
+      }
+      row.updated_at = [row.updated_at, String(values[6])].sort().at(-1)!;
+      return { rows: [], rowCount: 1 };
+    }
+
+    if (sql.includes("SET max_units_per_order = $2")) {
+      const row = this.listings.get(String(values[0]));
+      if (!row || row.purchase_limits_stream_version >= Number(values[5])) return { rows: [], rowCount: 0 };
+      row.purchase_limits_stream_version = Number(values[5]);
+      row.max_units_per_order = values[1] as number | null;
+      row.max_units_per_day = values[2] as number | null;
+      row.max_units_per_customer_account = values[3] as number | null;
+      return { rows: [], rowCount: 1 };
     }
 
     if (
@@ -176,14 +288,15 @@ class ProjectionDb implements PgQueryable {
     if (
       sql.includes("UPDATE marketplace_listing_pages") &&
       sql.includes("SET evidence_requirements = $2") &&
-      sql.includes("updated_at = $3")
+      sql.includes("$3")
     ) {
       const row = this.listings.get(String(values[0]));
-      if (!row) {
+      if (!row || row.evidence_requirements_stream_version >= Number(values[3])) {
         return { rows: [], rowCount: 0 };
       }
       row.evidence_requirements = JSON.parse(String(values[1]));
-      row.updated_at = String(values[2]);
+      row.evidence_requirements_stream_version = Number(values[3]);
+      row.updated_at = [row.updated_at, String(values[2])].sort().at(-1)!;
       return { rows: [], rowCount: 1 };
     }
 
@@ -201,9 +314,7 @@ class ProjectionDb implements PgQueryable {
       row.price_amount = String(values[1]);
       row.price_currency_code = values[2] === null ? null : String(values[2]);
       row.listing_stream_version = streamVersion;
-      row.marketplace_sales_fee_unit_amount = String(values[4]);
-      row.seller_net_unit_amount = String(values[5]);
-      row.updated_at = String(values[12]);
+      row.updated_at = [row.updated_at, String(values[4])].sort().at(-1)!;
       return { rows: [], rowCount: 1 };
     }
 
@@ -327,6 +438,7 @@ function listingPage(overrides: Partial<ListingPageRow> = {}): ListingPageRow {
     selected_options: [],
     product_summary: "Raw",
     product_measure_snapshot: null,
+    product_measure_source_revision: 0,
     graded_card: null,
     storage_location_name: "Vault",
     ship_from_code: "VAULT",
@@ -341,6 +453,10 @@ function listingPage(overrides: Partial<ListingPageRow> = {}): ListingPageRow {
     price_amount: "120.00",
     price_currency_code: "USD",
     listing_stream_version: 1,
+    fee_stream_version: 1,
+    quantity_stream_version: 1,
+    purchase_limits_stream_version: 1,
+    evidence_requirements_stream_version: 1,
     marketplace_sales_fee_unit_amount: "6.00",
     seller_net_unit_amount: "114.00",
     shipping_allowance_percentage_bps: 500,
@@ -458,6 +574,303 @@ function event(
 }
 
 describe("marketplace listing projection", () => {
+  it("retains the refreshed native measure independently of delayed native and Catalog events", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+    const stream = "marketplace.listing-lst_1";
+    await handlers["marketplace.listing.created"]!(event("marketplace.listing.created", listingCreatedData(), stream));
+    const visibility = {
+      ...event(
+        "marketplace.listing.native-visibility-changed",
+        {
+          nativeVisibility: "enabled",
+          nativeFeeState: "enrolled",
+          feeLocks: [],
+          evidenceRequirements: null,
+          productMeasureSnapshot: productMeasureSnapshot,
+          productMeasureRevision: 10,
+        },
+        stream,
+        2,
+      ),
+      globalPosition: "10" as never,
+    };
+    await handlers[visibility.type]!(visibility);
+    expect(db.listings.get("lst_1")!.product_measure_snapshot).toEqual(productMeasureSnapshot);
+    const newer = { ...productMeasureSnapshot, measureVersion: "synthetic-newer-measure" };
+    await handlers["catalog.catalog-item.product-measures-resolved"]!({
+      ...event("catalog.catalog-item.product-measures-resolved", { catalogItemId: "cat_1", products: [newer] }),
+      globalPosition: "2" as never,
+      streamVersion: 20,
+    });
+    await handlers[visibility.type]!(visibility);
+    await handlers["catalog.catalog-item.product-measures-resolved"]!({
+      ...event("catalog.catalog-item.product-measures-resolved", { catalogItemId: "cat_1", products: [] }),
+      globalPosition: "999" as never,
+      streamVersion: 15,
+    });
+    expect(db.listings.get("lst_1")!.product_measure_snapshot).toEqual(newer);
+    expect(db.listings.get("lst_1")!.product_measure_source_revision).toBe(20);
+  });
+  it("retains newer enrollment fees while independently replaying older price and quantity snapshots", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+    const stream = "marketplace.listing-lst_1";
+    const initial = listingCreatedData();
+    await handlers["marketplace.listing.created"]!(event("marketplace.listing.created", initial, stream));
+    const lock = {
+      unitCount: 3,
+      terms: {
+        marketplaceSalesFeePercentageBps: 700,
+        marketplaceSalesFeeFixedAmount: "0.00",
+        marketplaceSalesFeeCapAmount: null,
+        shippingAllowancePercentageBps: 600,
+        termsScheduleId: "schedule_new",
+        termsAgreementId: null,
+        termsResolvedAt: "2026-05-09T00:01:00.000Z",
+      },
+      marketplaceSalesFeeUnitAmount: "7.00",
+      sellerNetUnitAmount: "93.00",
+      feeQuoteFingerprint: "fee_new",
+    };
+    await handlers["marketplace.listing.native-visibility-changed"]!(
+      event(
+        "marketplace.listing.native-visibility-changed",
+        {
+          nativeVisibility: "enabled",
+          nativeFeeState: "enrolled",
+          feeLocks: [lock],
+          evidenceRequirements: null,
+        },
+        stream,
+        5,
+      ),
+    );
+    const earlierFees = {
+      marketplaceSalesFeeUnitAmount: "6.00",
+      sellerNetUnitAmount: "114.00",
+      shippingAllowancePercentageBps: 500,
+      termsScheduleId: "cts_default",
+      termsAgreementId: null,
+      termsResolvedAt: "2026-05-09T00:00:00.000Z",
+      feeQuoteFingerprint: "fee_old",
+      feeLocks: [],
+    };
+    await handlers["marketplace.listing.price-updated"]!(
+      event(
+        "marketplace.listing.price-updated",
+        {
+          ...earlierFees,
+          priceAmount: "100.00",
+          priceCurrencyCode: "CAD",
+        },
+        stream,
+        2,
+      ),
+    );
+    await handlers["marketplace.listing.quantity-cap-updated"]!(
+      event(
+        "marketplace.listing.quantity-cap-updated",
+        {
+          ...earlierFees,
+          quantityCap: 3,
+        },
+        stream,
+        3,
+      ),
+    );
+    await handlers["marketplace.listing.purchase-limits-updated"]!(
+      event(
+        "marketplace.listing.purchase-limits-updated",
+        {
+          purchaseLimits: { maxUnitsPerOrder: 1, maxUnitsPerDay: null, maxUnitsPerCustomerAccount: null },
+        },
+        stream,
+        7,
+      ),
+    );
+    await handlers["marketplace.listing.quantity-cap-updated"]!(
+      event(
+        "marketplace.listing.quantity-cap-updated",
+        {
+          ...earlierFees,
+          quantityCap: 2,
+          purchaseLimits: { maxUnitsPerOrder: 2, maxUnitsPerDay: null, maxUnitsPerCustomerAccount: null },
+        },
+        stream,
+        2,
+      ),
+    );
+    await handlers["marketplace.listing.evidence-requirements-refreshed"]!(
+      event(
+        "marketplace.listing.evidence-requirements-refreshed",
+        {
+          evidenceRequirements: { requirementHash: "newer-requirement" },
+        },
+        stream,
+        8,
+      ),
+    );
+    await handlers["marketplace.listing.native-visibility-changed"]!(
+      event(
+        "marketplace.listing.native-visibility-changed",
+        {
+          nativeVisibility: "enabled",
+          nativeFeeState: "enrolled",
+          feeLocks: [lock],
+          evidenceRequirements: null,
+        },
+        stream,
+        5,
+      ),
+    );
+    await handlers["marketplace.listing.created"]!(event("marketplace.listing.created", initial, stream));
+    expect(db.listings.get("lst_1")).toMatchObject({
+      price_amount: "100.00",
+      price_currency_code: "CAD",
+      quantity_cap: 3,
+      fee_stream_version: 5,
+      marketplace_sales_fee_unit_amount: "7.00",
+      seller_net_unit_amount: "93.00",
+      fee_quote_fingerprint: "fee_new",
+      shipping_allowance_percentage_bps: 600,
+      terms_schedule_id: "schedule_new",
+      fee_locks: [lock],
+      max_units_per_order: 1,
+      purchase_limits_stream_version: 7,
+      evidence_requirements: { requirementHash: "newer-requirement" },
+      evidence_requirements_stream_version: 8,
+    });
+  });
+
+  it("keeps independent target and activation revisions under reordered lifecycle replay", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+    await handlers["marketplace.listing.created"]!(
+      event("marketplace.listing.created", listingCreatedData(), "marketplace.listing-lst_1"),
+    );
+    const accepted = (connectionId: string, revision: number, amount: string, currency: string) => ({
+      schemaVersion: 1,
+      accountId: "acc_1",
+      listingId: "lst_1",
+      target: { kind: "channel-connection", connectionId },
+      priceAmount: amount,
+      priceCurrencyCode: currency,
+      targetPriceRevision: revision,
+      listingRevision: revision,
+      acceptedByUserId: "usr_1",
+      acceptedAt: "2026-05-09T00:01:00.000Z",
+      sourceEventId: "evt_1",
+      decision: {
+        kind: "pricing-evaluation",
+        evaluationId: "evaluation_synthetic",
+        evaluationRevision: "1",
+        policyId: "policy_synthetic",
+        policyRevision: "1",
+        goal: null,
+        inputEvidenceRefs: [],
+        curveEvidenceRefs: [],
+        economicsSourceRevision: null,
+        economicsOverrideRevision: null,
+        basePriceRevision: 1,
+        standingAuthorizationId: "authorization_synthetic",
+        standingAuthorizationRevision: "1",
+      },
+      connectionAuthority: { connectionId, providerKey: "synthetic", environment: "sandbox", identityRevision: 1 },
+    });
+    for (const fact of [accepted("con_two", 4, "15.00", "EUR"), accepted("con_one", 2, "12.00", "CAD")]) {
+      await handlers["marketplace.listing.target-price-accepted"]!(
+        event(
+          "marketplace.listing.target-price-accepted",
+          { schemaVersion: 1, acceptedTargetPrice: fact },
+          "marketplace.listing-lst_1",
+          fact.targetPriceRevision,
+        ),
+      );
+    }
+    await handlers["marketplace.listing.channel-activated"]!(
+      event(
+        "marketplace.listing.channel-activated",
+        { connectionId: "con_one", targetPriceRevision: 2, allocationRevision: 1 },
+        "marketplace.listing-lst_1",
+        3,
+      ),
+    );
+    await handlers["marketplace.listing.paused"]!(
+      event("marketplace.listing.paused", {}, "marketplace.listing-lst_1", 6),
+    );
+    await handlers["marketplace.listing.resumed"]!(
+      event("marketplace.listing.resumed", { pauseReason: "seller" }, "marketplace.listing-lst_1", 5),
+    );
+    expect(db.targetPrices.get("acc_1:lst_1:channel-connection:con_one")).toMatchObject({
+      priceRevision: 2,
+      activationRevision: 3,
+      accepted: { priceAmount: "12.00", priceCurrencyCode: "CAD" },
+    });
+    expect(db.targetPrices.get("acc_1:lst_1:channel-connection:con_two")).toMatchObject({
+      priceRevision: 4,
+      activationRevision: 0,
+      accepted: { priceAmount: "15.00", priceCurrencyCode: "EUR" },
+    });
+    expect(db.nativeAuthority.get("lst_1")).toMatchObject({
+      visibility: "enabled",
+      publicationRevision: null,
+      status: "paused",
+      statusRevision: 6,
+    });
+    expect(db.listings.get("lst_1")?.status).toBe("paused");
+  });
+
+  it.each([undefined, 2])(
+    "distinguishes historical and explicit seller-reference creation (%s)",
+    async (schemaVersion) => {
+      const db = new ProjectionDb();
+      const handlers = buildMarketplaceListingProjectionHandlers(db);
+      await handlers["marketplace.listing.created"]!(
+        event(
+          "marketplace.listing.created",
+          listingCreatedData(
+            schemaVersion === 2
+              ? {
+                  schemaVersion,
+                  publicationScope: "channel-only",
+                  nativeVisibility: "disabled",
+                  nativeFeeState: "not-enrolled",
+                  marketplaceSalesFeeUnitAmount: null,
+                  sellerNetUnitAmount: null,
+                  termsScheduleId: null,
+                  termsAgreementId: null,
+                  termsResolvedAt: null,
+                  feeQuoteFingerprint: null,
+                  feeLocks: [],
+                }
+              : {},
+          ),
+          "marketplace.listing-lst_1",
+        ),
+      );
+      expect(db.targetPrices.get("acc_1:lst_1:native-marketplace")).toMatchObject({
+        accepted: {
+          decision: { kind: schemaVersion === 2 ? "seller-reference" : "legacy-native-anchor" },
+        },
+      });
+      expect(db.nativeAuthority.get("lst_1")).toMatchObject({ publicationRevision: null, status: "draft" });
+    },
+  );
+
+  it("does not invent a complete native pair or publication from legacy creation", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildMarketplaceListingProjectionHandlers(db);
+    await handlers["marketplace.listing.created"]!(
+      event(
+        "marketplace.listing.created",
+        listingCreatedData({ priceCurrencyCode: null }),
+        "marketplace.listing-lst_1",
+      ),
+    );
+    expect(db.targetPrices.get("acc_1:lst_1:native-marketplace")).toMatchObject({ priceRevision: 1, accepted: null });
+    expect(db.nativeAuthority.get("lst_1")).toMatchObject({ publicationRevision: null, status: "draft" });
+  });
   it("creates seller listing pages from listing created events", async () => {
     const db = new ProjectionDb();
     const handlers = buildMarketplaceListingProjectionHandlers(db);
@@ -592,6 +1005,7 @@ describe("marketplace listing projection", () => {
         "marketplace.listing.evidence-requirements-refreshed",
         { evidenceRequirements: revised },
         "marketplace.listing-lst_1",
+        2,
       ),
     );
 
@@ -606,7 +1020,7 @@ describe("marketplace listing projection", () => {
       event("marketplace.listing.created", listingCreatedData(), "marketplace.listing-lst_1"),
     );
     await handlers["marketplace.listing.published"]!(
-      event("marketplace.listing.published", listingPublishedData(), "marketplace.listing-lst_1"),
+      event("marketplace.listing.published", listingPublishedData(), "marketplace.listing-lst_1", 2),
     );
 
     expect(db.listings.get("lst_1")).toMatchObject({

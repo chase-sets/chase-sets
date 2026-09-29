@@ -2,6 +2,12 @@ import type { CommandExecutionResult } from "@chase-sets/event-core/command-hand
 import type { DomainEvent } from "@chase-sets/event-core";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { GlobalPosition, StoredEvent } from "@chase-sets/event-core/storage";
+import type {
+  ListingAuthorityConsumerPort,
+  ListingAuthorityOperation,
+  ListingAuthorityParticipantPort,
+} from "@chase-sets/event-core/listing-authority";
 import type { DeploymentEnvironment } from "@chase-sets/platform-runtime/config-schema";
 
 export const channelEnvironments = ["sandbox", "production"] as const;
@@ -173,6 +179,7 @@ export interface ChannelConnectionClock {
 }
 
 export type ChannelConnectionHostPorts = Readonly<{
+  listingAuthorityConsumer?: (operation: ListingAuthorityOperation) => ListingAuthorityConsumerPort;
   setupResolver?: ChannelConnectionSetupResolver;
   credentialAuthority?: ChannelCredentialAuthorityResolver;
   storageLocationAuthority?: ChannelStorageLocationAuthorityResolver;
@@ -194,6 +201,14 @@ export type ChannelConnectionPage = Readonly<{
 }>;
 
 export type ChannelConnectionCommandResult = CommandExecutionResult<ChannelConnectionState, ChannelConnectionEvent>;
+
+export interface ChannelConnectionAuthorityServices extends ChannelConnectionServices {
+  readonly listingAuthority: ListingAuthorityParticipantPort;
+  recoverAuthorityMutation(mutationId: string, context: EventStoreContext): Promise<readonly StoredEvent[]>;
+  recoverAuthorityPage(
+    input: Readonly<{ tenantId?: EventStoreContext["tenantId"]; afterGlobalPosition?: GlobalPosition }>,
+  ): Promise<Readonly<{ nextCursor: GlobalPosition | null; processed: number }>>;
+}
 
 export interface ChannelConnectionServices {
   connectChannel(

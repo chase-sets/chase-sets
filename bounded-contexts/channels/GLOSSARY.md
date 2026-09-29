@@ -12,6 +12,12 @@ A **Sales Channel** is an external or native commerce surface connected to an Ac
 
 A **Channel Connection** is the linked relationship between a Chase Sets Account and a Sales Channel.
 
+Its Listing authority reservation protects current ownership, immutable provider
+and environment, and connection identity/status revision through one consuming
+operation's terminal fence. This is not provider publication permission. Pending
+setup or seller pause does not prevent retaining an accepted recommendation;
+disconnect invalidates outstanding operations before becoming effective.
+
 ## BYO Channel
 
 A **BYO Channel** is an account-supplied Sales Channel connection that Chase Sets supports without owning the external storefront.

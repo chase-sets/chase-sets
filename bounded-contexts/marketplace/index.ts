@@ -174,5 +174,5 @@ export const module = defineBoundedContextModule<MarketplaceServices, PgTransact
     ];
   },
   seed: seedMarketplaceContextDatabase,
-  inspectSeedState: (pool) => inspectMarketplaceSeedState(pool),
+  inspectSeedState: (pool, options) => inspectMarketplaceSeedState(pool, options),
 });

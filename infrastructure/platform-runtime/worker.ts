@@ -2164,7 +2164,10 @@ function getHostPortsForContext(manifest: WorkerContextManifest, hostPorts: Read
 
   const resolvedPorts: Record<string, unknown> = {};
   for (const hostPort of entries) {
-    resolvedPorts[hostPort.portName] = hostPorts[hostPort.portName];
+    const qualifiedName = `${manifest.contextName}.${hostPort.portName}`;
+    resolvedPorts[hostPort.portName] = Object.hasOwn(hostPorts, qualifiedName)
+      ? hostPorts[qualifiedName]
+      : hostPorts[hostPort.portName];
   }
 
   return resolvedPorts;

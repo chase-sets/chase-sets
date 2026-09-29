@@ -372,28 +372,10 @@ export async function consumeChallenge(
 }
 
 export async function upsertSessionToken(
-  db: PgQueryable,
-  params: Readonly<{
-    sessionId: string;
-    tokenHash: string;
-    expiresAt: string;
-  }>,
+  authority: import("../../features/sessions/api/listing-authority").AuthListingSessionAuthorityServices,
+  params: import("../../features/sessions/api/session-token-store").SessionTokenMutation,
 ) {
-  await db.query(
-    `INSERT INTO identity_session_tokens (
-       session_id,
-       token_hash,
-       expires_at,
-       created_at,
-       updated_at
-     )
-     VALUES ($1, $2, $3, now(), now())
-     ON CONFLICT (session_id) DO UPDATE
-     SET token_hash = $2,
-         expires_at = $3,
-         updated_at = now()`,
-    [params.sessionId, params.tokenHash, params.expiresAt],
-  );
+  await authority.mutateToken(params);
 }
 
 export async function getSessionByTokenHash(db: PgQueryable, tokenHash: string) {

@@ -1,3 +1,4 @@
+import { withSyntheticListingPrincipal } from "@chase-sets/event-core/test-support";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   closeMultiContextTestPools,
@@ -6,20 +7,53 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import type { ListingAuthorityPrincipal } from "@chase-sets/event-core/listing-authority";
 import { module as marketplaceModule } from "../../../index";
-import { createMarketplaceServices } from "../../../support/runtime-support/services";
+import { createMarketplaceServices as createServices } from "../../../support/runtime-support/services";
+import { createSyntheticListingAuthority } from "../../listings/api/authority-test-support";
 import type { CreateListingCommand, PublishListingCommand } from "../../listings/domain/domain";
 import { createMarketplaceChannelInboundClampRuntime } from "../api/runtime";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 const describeDb = databaseBaseUrl ? describe : describe.skip;
 const contextNames = ["marketplace"] as const;
-const context: EventStoreContext = {
+const context = withSyntheticListingPrincipal({
   tenantId: "tnt_test" as never,
   audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_seller" as never },
-};
+});
+
+// Real Marketplace storage, explicitly synthetic foreign authority; integrated owner DB proof is separate.
+function createMarketplaceServices(pool: PgTransactionalPool) {
+  const synthetic = createSyntheticListingAuthority(createPostgresEventStore({ pool }));
+  return createServices(pool, {
+    listingTargetAuthority: {
+      ...synthetic.authority,
+      resolveActor: async ({ principal }) =>
+        principal.kind === "standing-system"
+          ? {
+              kind: principal.kind,
+              userId: principal.userId,
+              authorityId: principal.authorityId,
+              authorityRevision: principal.authorityRevision,
+            }
+          : { kind: "user", userId: principal.userId },
+      readInventory: async (_input, operation) => [
+        {
+          value: {
+            accountId: operation.accountId,
+            inventoryItemId: operation.subject.inventoryItemId,
+            catalogItemId: operation.subject.catalogItemId,
+            productId: operation.subject.productId,
+            availableQuantity: 100,
+          },
+          reservations: await synthetic.reserve("stock-allocation", operation),
+        },
+      ],
+    },
+  });
+}
 
 describeDb("manual-sync-dark-inbound-clamp and recovery", () => {
   let pools: Readonly<Record<"marketplace", PgTransactionalPool>>;
@@ -39,25 +73,147 @@ describeDb("manual-sync-dark-inbound-clamp and recovery", () => {
   });
   afterAll(async () => closeMultiContextTestPools(pools));
 
+  const pauseReasons = ["seller", "policy-input-missing", "channel-inbound-dark"] as const;
+  const authenticationKinds = ["session", "api-key", "delegation"] as const;
+  for (const reason of pauseReasons) {
+    for (const authentication of authenticationKinds) {
+      it(`production pause authority admits ${authentication} user for ${reason}`, async () => {
+        const services = createMarketplaceServices(pools.marketplace);
+        const { input, before } = await pausedListing(services, reason);
+        const result = await services.listings.resumeListing(input, resumeContext(authentication));
+        expect(result.version).toBe(before + (reason === "channel-inbound-dark" ? 2 : 1));
+        expect((await services.listings.loadListingState(input.listingId)).status).toBe("active");
+        const events = await listingEventTypes(pools.marketplace, input.listingId);
+        expect(events.slice(before)).toEqual(
+          reason === "channel-inbound-dark"
+            ? ["marketplace.listing.inbound-clamp-released", "marketplace.listing.resumed"]
+            : ["marketplace.listing.resumed"],
+        );
+      });
+    }
+    it(`production pause authority aborts standing-system ${reason} without business events`, async () => {
+      const services = createMarketplaceServices(pools.marketplace);
+      const { input, before } = await pausedListing(services, reason);
+      await expect(services.listings.resumeListing(input, resumeContext("standing-system"))).rejects.toThrow(
+        "Current pause-owner authority is required.",
+      );
+      await expect(streamVersion(pools.marketplace, input.listingId)).resolves.toBe(before);
+      await expectAborted(input.idempotencyKey);
+    });
+    it(`neither publish nor SYSTEM_CONTEXT clears ${reason}`, async () => {
+      const services = createMarketplaceServices(pools.marketplace);
+      const { input, before } = await pausedListing(services, reason);
+      const publish = { accountId: input.accountId, listingId: input.listingId };
+      await expect(services.listings.publishListing(publish, context)).rejects.toThrow();
+      await expect(
+        services.listings.publishListing(publish, { tenantId: context.tenantId, audit: context.audit }),
+      ).rejects.toThrow("principal");
+      await expect(
+        services.listings.commandHandler({
+          streamId: `marketplace.listing-${input.listingId}`,
+          expectedVersion: before,
+          command: publishListingCommand,
+          context,
+        }),
+      ).rejects.toThrow("Publishing cannot clear a listing pause");
+      await expect(streamVersion(pools.marketplace, input.listingId)).resolves.toBe(before);
+    });
+  }
+
+  it.each(["missing", "mismatched", "non-sole"] as const)(
+    "production pause authority refuses a %s clamp owner without events",
+    async (variant) => {
+      const services = createMarketplaceServices(pools.marketplace);
+      const { input } = await pausedListing(services, "channel-inbound-dark");
+      if (variant === "non-sole")
+        await services.listings.commandHandler({
+          streamId: `marketplace.listing-${input.listingId}`,
+          context,
+          command: { type: "EngageListingInboundClamp", connectionId: "synthetic-other", runId: "synthetic-other" },
+        });
+      const before = await streamVersion(pools.marketplace, input.listingId);
+      await expect(
+        services.listings.resumeListing(
+          {
+            ...input,
+            expectedListingVersion: before,
+            inboundClamp:
+              variant === "missing"
+                ? undefined
+                : variant === "mismatched"
+                  ? { ...input.inboundClamp!, runId: "synthetic-wrong" }
+                  : input.inboundClamp,
+          },
+          context,
+        ),
+      ).rejects.toThrow();
+      await expect(streamVersion(pools.marketplace, input.listingId)).resolves.toBe(before);
+      await expectAborted(input.idempotencyKey);
+    },
+  );
+
+  async function pausedListing(
+    services: ReturnType<typeof createMarketplaceServices>,
+    reason: (typeof pauseReasons)[number],
+  ) {
+    const listingId = "lst_synthetic_resume";
+    await seedActiveListing(pools.marketplace, services, listingId, "itm_synthetic_resume");
+    await services.listings.commandHandler({
+      streamId: `marketplace.listing-${listingId}`,
+      context,
+      command:
+        reason === "channel-inbound-dark"
+          ? { type: "EngageListingInboundClamp", connectionId: "synthetic-connection", runId: "synthetic-run" }
+          : { type: "PauseListing", reason },
+    });
+    const state = await services.listings.loadListingState(listingId);
+    return {
+      before: state.streamRevision,
+      input: {
+        accountId: "acc_seller",
+        listingId,
+        expectedListingVersion: state.streamRevision,
+        expectedPauseReason: reason,
+        idempotencyKey: "synthetic-resume",
+        ...(reason === "channel-inbound-dark" ? { inboundClamp: state.inboundClampOwners[0]! } : {}),
+      },
+    };
+  }
+
+  async function expectAborted(requestId: string) {
+    const rows = await pools.marketplace.query<{ event_type: string }>(
+      `SELECT event_type FROM event_store_events WHERE stream_id IN (
+        SELECT stream_id FROM event_store_events WHERE event_type='marketplace.listing-authority-operation.opened'
+          AND payload->'operation'->>'requestId'=$1)
+        AND event_type IN ('marketplace.listing-authority-operation.aborted','marketplace.listing-authority-operation.committed')`,
+      [requestId],
+    );
+    expect(rows.rows).toEqual([{ event_type: "marketplace.listing-authority-operation.aborted" }]);
+  }
+
   it("expands one genuine requested Listing Item to every active account Listing and restores only unchanged ownership", async () => {
     const services = createMarketplaceServices(pools.marketplace);
     await seedActiveListing(pools.marketplace, services, "lst_requested", "itm_shared");
     await seedActiveListing(pools.marketplace, services, "lst_sibling", "itm_shared");
-    const clamp = createMarketplaceChannelInboundClampRuntime(pools.marketplace, {
-      commandHandler: services.listings.commandHandler,
-      loadListingState: services.listings.loadListingState,
-      publishListing: async ({ accountId, listingId }, eventContext) => {
-        const current = await streamVersion(pools.marketplace, listingId);
-        const result = await services.listings.commandHandler({
-          streamId: `marketplace.listing-${listingId}`,
-          expectedVersion: current,
-          command: publishListingCommand,
-          context: eventContext,
-        });
-        expect(result.state.accountId).toBe(accountId);
-        return { listingId, version: result.version };
+    const clamp = createMarketplaceChannelInboundClampRuntime(
+      pools.marketplace,
+      {
+        commandHandler: services.listings.commandHandler,
+        loadListingState: services.listings.loadListingState,
+        resumeListing: async ({ accountId, listingId, expectedPauseReason, inboundClamp }, eventContext) => {
+          const current = await streamVersion(pools.marketplace, listingId);
+          const result = await services.listings.commandHandler({
+            streamId: `marketplace.listing-${listingId}`,
+            expectedVersion: current,
+            command: { type: "ResumeListing", expectedPauseReason, inboundClamp },
+            context: eventContext,
+          });
+          expect(result.state.accountId).toBe(accountId);
+          return { listingId, version: result.version };
+        },
       },
-    });
+      services.listingAuthority.eventStore,
+    );
     const input = {
       accountId: "acc_seller",
       connectionId: "connection-tcg",
@@ -123,12 +279,13 @@ describeDb("manual-sync-dark-inbound-clamp and recovery", () => {
       pauseReason: "seller",
     });
     await expect(clamp.recover(input, context)).resolves.toMatchObject({
-      examinedListingCount: 0,
+      examinedListingCount: 1,
+      recoveryListingCount: 1,
       releasedListingCount: 0,
     });
   });
 
-  it("records every dark-inbound owner at one paused version and releases only after the final owner", async () => {
+  it("records each dark-inbound owner in Listing history and resumes only after the final owner", async () => {
     const services = createMarketplaceServices(pools.marketplace);
     await seedActiveListing(pools.marketplace, services, "lst_shared_owner", "itm_shared_owner");
     const clamp = services.channelInboundClamp;
@@ -163,21 +320,21 @@ describeDb("manual-sync-dark-inbound-clamp and recovery", () => {
       clampedListingCount: 1,
       recoveryListingCount: 0,
     });
-    expect(await streamVersion(pools.marketplace, "lst_shared_owner")).toBe(pausedVersion);
+    expect(await streamVersion(pools.marketplace, "lst_shared_owner")).toBe(pausedVersion + 1);
     await expect(readOwners(pools.marketplace, "lst_shared_owner")).resolves.toEqual([
       {
         connection_id: ownerA.connectionId,
         run_id: ownerA.runId,
         state: "engaged",
         observed_stream_version: beforePauseVersion,
-        paused_stream_version: pausedVersion,
+        paused_stream_version: pausedVersion + 1,
       },
       {
         connection_id: ownerB.connectionId,
         run_id: ownerB.runId,
         state: "engaged",
-        observed_stream_version: beforePauseVersion,
-        paused_stream_version: pausedVersion,
+        observed_stream_version: pausedVersion,
+        paused_stream_version: pausedVersion + 1,
       },
     ]);
 
@@ -188,7 +345,7 @@ describeDb("manual-sync-dark-inbound-clamp and recovery", () => {
       retainedListingCount: 1,
       recoveryListingCount: 0,
     });
-    expect(await streamVersion(pools.marketplace, "lst_shared_owner")).toBe(pausedVersion);
+    expect(await streamVersion(pools.marketplace, "lst_shared_owner")).toBe(pausedVersion + 2);
     expect(await services.listings.loadListingState("lst_shared_owner")).toMatchObject({
       status: "paused",
       pauseReason: "channel-inbound-dark",
@@ -201,28 +358,66 @@ describeDb("manual-sync-dark-inbound-clamp and recovery", () => {
       retainedListingCount: 0,
       recoveryListingCount: 0,
     });
-    expect(await streamVersion(pools.marketplace, "lst_shared_owner")).toBe(pausedVersion + 2);
+    expect(await streamVersion(pools.marketplace, "lst_shared_owner")).toBe(pausedVersion + 4);
     expect((await services.listings.loadListingState("lst_shared_owner")).status).toBe("active");
     await expect(listingEventTypes(pools.marketplace, "lst_shared_owner")).resolves.toEqual([
       "marketplace.listing.created",
       "marketplace.listing.published",
-      "marketplace.listing.paused",
-      "marketplace.listing.evidence-requirements-refreshed",
-      "marketplace.listing.published",
+      "marketplace.listing.inbound-clamp-engaged",
+      "marketplace.listing.inbound-clamp-engaged",
+      "marketplace.listing.inbound-clamp-released",
+      "marketplace.listing.inbound-clamp-released",
+      "marketplace.listing.resumed",
     ]);
   });
 
-  it("keeps the final owner in recovery when the production publication adapter fails", async () => {
+  it.each(["engaged", "pending", "recovery"])(
+    "discovers source-owned pauses despite a stale %s discovery row",
+    async (state) => {
+      const services = createMarketplaceServices(pools.marketplace);
+      await seedActiveListing(pools.marketplace, services, "lst_stale_clamp", "itm_stale_clamp");
+      const first = {
+        accountId: "acc_seller",
+        connectionId: "connection-stale",
+        runId: "run-stale",
+        listingIds: ["lst_stale_clamp"],
+      } as const;
+      await services.channelInboundClamp.engage(first, context);
+      // Projection has caught up, but the crash interrupted the discovery-row acknowledgement.
+      await pools.marketplace.query("UPDATE marketplace_listing_pages SET status='paused' WHERE listing_id=$1", [
+        first.listingIds[0],
+      ]);
+      await pools.marketplace.query(
+        "UPDATE marketplace_channel_inbound_clamps SET state=$2,observed_stream_version=1,paused_stream_version=$3 WHERE listing_id=$1",
+        [first.listingIds[0], state, state === "engaged" ? 2 : null],
+      );
+      await expect(
+        services.channelInboundClamp.engage({ ...first, connectionId: "connection-next", runId: "run-next" }, context),
+      ).resolves.toMatchObject({
+        kind: "engaged",
+        affectedListingCount: 1,
+        clampedListingCount: 1,
+        recoveryListingCount: 0,
+      });
+      expect((await services.listings.loadListingState(first.listingIds[0])).inboundClampOwners).toHaveLength(2);
+    },
+  );
+
+  it("keeps the final owner in recovery when the production resume adapter fails", async () => {
     const services = createMarketplaceServices(pools.marketplace);
     await seedActiveListing(pools.marketplace, services, "lst_publication_failure", "itm_publication_failure");
     const publishListing = vi.fn(async () => {
       throw new Error("synthetic publication failure");
     });
-    const clamp = createMarketplaceChannelInboundClampRuntime(pools.marketplace, {
-      commandHandler: services.listings.commandHandler,
-      loadListingState: services.listings.loadListingState,
-      publishListing,
-    });
+    const clamp = createMarketplaceChannelInboundClampRuntime(
+      pools.marketplace,
+      {
+        commandHandler: services.listings.commandHandler,
+        loadListingState: services.listings.loadListingState,
+        resumeListing: publishListing,
+      },
+      services.listingAuthority.eventStore,
+    );
     const input = {
       accountId: "acc_seller",
       connectionId: "connection-publication-failure",
@@ -249,7 +444,7 @@ describeDb("manual-sync-dark-inbound-clamp and recovery", () => {
           WHERE connection_id=$1 AND run_id=$2 AND listing_id=$3`,
         [input.connectionId, input.runId, input.listingIds[0]],
       ),
-    ).resolves.toMatchObject({ rows: [{ state: "recovery", paused_stream_version: null }] });
+    ).resolves.toMatchObject({ rows: [{ state: "engaged", paused_stream_version: "3" }] });
   });
 
   it("refuses duplicate and foreign requested membership without pausing either account", async () => {
@@ -289,41 +484,21 @@ describeDb("manual-sync-dark-inbound-clamp and recovery", () => {
   });
 
   it("pages 251 already-clamped shared-Item Listings and acquires complete current ownership without repausing", async () => {
-    await pools.marketplace.query(
-      `INSERT INTO event_store_streams (stream_id,current_version,updated_at)
-       SELECT 'marketplace.listing-listing-' || lpad(value::text,4,'0'),2,now()
-         FROM generate_series(0,250) AS value`,
-    );
-    await pools.marketplace.query(
-      `INSERT INTO marketplace_listing_pages
-       (listing_id,account_id,inventory_item_id,catalog_catalog_item_id,product_id,price_amount,
-        price_currency_code,listing_stream_version,marketplace_sales_fee_unit_amount,seller_net_unit_amount,
-        fee_quote_fingerprint,quantity_cap,evidence_requirements,status,updated_at)
-       SELECT 'listing-' || lpad(value::text,4,'0'),'acc_seller','itm_paged','cat_test','cat_test::',
-              '10.00','USD',2,'1.00','9.00','fee_test',1,$1,'paused',now()
-         FROM generate_series(0,250) AS value`,
-      [JSON.stringify(evidenceRequirements)],
-    );
-    await pools.marketplace.query(
-      `INSERT INTO marketplace_channel_inbound_clamps
-       (account_id,connection_id,run_id,listing_id,inventory_item_id,state,observed_stream_version,
-        paused_stream_version,observed_updated_at,created_at,updated_at)
-       SELECT 'acc_seller','connection-synthetic-a','run-synthetic-a',
-              'listing-' || lpad(value::text,4,'0'),'itm_paged','engaged',1,2,now(),now(),now()
-         FROM generate_series(0,250) AS value`,
-    );
-    const commandHandler = vi.fn();
-    const clamp = createMarketplaceChannelInboundClampRuntime(pools.marketplace, {
-      commandHandler: commandHandler as never,
-      loadListingState: async (listingId) =>
-        ({
-          listingId,
+    const services = createMarketplaceServices(pools.marketplace);
+    for (let index = 0; index < 251; index++)
+      await seedActiveListing(pools.marketplace, services, `listing-${String(index).padStart(4, "0")}`, "itm_paged");
+    const clamp = services.channelInboundClamp;
+    await expect(
+      clamp.engage(
+        {
           accountId: "acc_seller",
-          status: "paused",
-          pauseReason: "channel-inbound-dark",
-        }) as never,
-      publishListing: vi.fn(),
-    });
+          connectionId: "connection-synthetic-a",
+          runId: "run-synthetic-a",
+          listingIds: ["listing-0000"],
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({ kind: "engaged", clampedListingCount: 251 });
     const input = {
       accountId: "acc_seller",
       connectionId: "connection-synthetic-b",
@@ -338,11 +513,11 @@ describeDb("manual-sync-dark-inbound-clamp and recovery", () => {
       clampedListingCount: 251,
       recoveryListingCount: 0,
     });
-    expect(commandHandler).not.toHaveBeenCalled();
+    expect((await services.listings.loadListingState("listing-0250")).inboundClampOwners).toHaveLength(2);
     await expect(
       pools.marketplace.query<{ total: string }>(
         `SELECT count(*)::text AS total FROM marketplace_channel_inbound_clamps
-          WHERE connection_id=$1 AND run_id=$2 AND state='engaged' AND paused_stream_version=2`,
+          WHERE connection_id=$1 AND run_id=$2 AND state='engaged' AND paused_stream_version=4`,
         [input.connectionId, input.runId],
       ),
     ).resolves.toMatchObject({ rows: [{ total: "251" }] });
@@ -356,11 +531,15 @@ describeDb("manual-sync-dark-inbound-clamp and recovery", () => {
       if (command.streamId.endsWith("lst_partial_b")) throw new Error("synthetic concurrent seller write");
       return services.listings.commandHandler(command);
     });
-    const clamp = createMarketplaceChannelInboundClampRuntime(pools.marketplace, {
-      commandHandler,
-      loadListingState: services.listings.loadListingState,
-      publishListing: services.listings.publishListing,
-    });
+    const clamp = createMarketplaceChannelInboundClampRuntime(
+      pools.marketplace,
+      {
+        commandHandler,
+        loadListingState: services.listings.loadListingState,
+        resumeListing: services.listings.resumeListing,
+      },
+      services.listingAuthority.eventStore,
+    );
     const input = {
       accountId: "acc_seller",
       connectionId: "connection-partial",
@@ -565,8 +744,35 @@ function createListingCommand(
 }
 
 function contextFor(accountId: string): EventStoreContext {
-  return {
+  return withSyntheticListingPrincipal({
     tenantId: context.tenantId,
     audit: { performedByUserId: context.audit.performedByUserId, forAccountId: accountId as never },
-  };
+  });
+}
+
+function resumeContext(kind: "session" | "api-key" | "delegation" | "standing-system"): EventStoreContext {
+  const base = context.listingAuthorityPrincipal!;
+  const principal: ListingAuthorityPrincipal =
+    kind === "standing-system"
+      ? {
+          ...base,
+          kind,
+          admittingOwner: "pricing",
+          authorityId: "synthetic-pricing",
+          authorityRevision: "1",
+          scopeCeiling: ["listings.manage"],
+        }
+      : {
+          ...base,
+          kind: "user",
+          membershipId: "synthetic-membership",
+          delegation: null,
+          authentication:
+            kind === "session"
+              ? { kind, sessionId: "synthetic-session", revision: "1", tokenRevision: "1" }
+              : kind === "api-key"
+                ? { kind, keyId: "synthetic-key", revision: "1" }
+                : { kind, delegationId: "synthetic-delegation", revision: "1", scopeCeiling: ["listings.manage"] },
+        };
+  return { ...context, listingAuthorityPrincipal: principal };
 }

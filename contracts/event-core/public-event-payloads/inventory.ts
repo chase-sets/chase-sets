@@ -22,7 +22,7 @@ export type InventoryReservationReleasedPayload = Readonly<{
   releaseReason: InventoryHoldReleaseReason;
 }>;
 
-export const inventoryHoldPurposes = ["order", "manual", "checkout", "pos", "channel", "transfer"] as const;
+export const inventoryHoldPurposes = ["order", "offer", "manual", "checkout", "pos", "channel", "transfer"] as const;
 
 export type InventoryHoldPurpose = (typeof inventoryHoldPurposes)[number];
 
@@ -48,7 +48,16 @@ export type InventoryHoldCheckoutSourceRef = Readonly<{
   lineKey: string;
 }>;
 
-export type InventoryHoldSourceRef = InventoryHoldOrderSourceRef | InventoryHoldCheckoutSourceRef | null;
+export type InventoryHoldOfferSourceRef = Readonly<{
+  offerId: string;
+  reservationRequestId: string;
+}>;
+
+export type InventoryHoldSourceRef =
+  | InventoryHoldOrderSourceRef
+  | InventoryHoldCheckoutSourceRef
+  | InventoryHoldOfferSourceRef
+  | null;
 
 export type InventoryHoldPlacedPayload = Readonly<{
   holdId: string;

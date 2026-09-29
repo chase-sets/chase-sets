@@ -2,6 +2,8 @@ import { parseGlobalPosition } from "@chase-sets/event-core/storage";
 import { parseIsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
 import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import type { PricingHostPorts } from "@chase-sets/pricing/server";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { createListingAuthorityConsumerResolver } from "@chase-sets/platform-runtime/listing-authority-host";
 import { createHash } from "node:crypto";
 import {
   buildProjectionInterestIndex,
@@ -24,6 +26,10 @@ import {
 } from "../src/test-support/provider-gateways";
 
 const syntheticPricingHostPorts = {
+  pricingListingAuthorityConsumer: createListingAuthorityConsumerResolver(
+    { marketplace: createInMemoryEventStore().eventStore, ordering: createInMemoryEventStore().eventStore },
+    "pricing",
+  ),
   tcgplayerMarketTransport: { kind: "not-mounted" },
   tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
   commercialTermsResolver: createNoopCommercialTermsResolver(),
@@ -135,6 +141,47 @@ describe("platform worker projection wake interest graph", () => {
       )
       .sort();
 
+    const observationName = "pricing-authority-observation-reaction";
+    const existingRunners = runtime.subscriptionRunners.filter((runner) => runner.projectionName !== observationName);
+    // A's integrated manifests already bumped these two Marketplace versions.
+    // Normalize only that explicit delta to retain the previous checkpoint oracle;
+    // the full fingerprints below still enforce the current versions verbatim.
+    const previousCheckpoint = (key: string) =>
+      key === "marketplace-listing-projection:catalog:v2"
+        ? "marketplace-listing-projection:catalog:v1"
+        : key === "marketplace-listing-projection:marketplace:v3"
+          ? "marketplace-listing-projection:marketplace:v2"
+          : key;
+    expect(fingerprint(existingRunners.map((runner) => previousCheckpoint(runner.checkpointKey)))).toEqual({
+      count: 249,
+      sha256: "9daf8c47b4d9e121eb06dd41843f6127a88fb9ae570b1448073050ad1b79b6a3",
+    });
+    const existingCheckpoints = rawCheckpointIdentities
+      .filter((key) => !key.startsWith(`${observationName}:`))
+      .map(previousCheckpoint)
+      .sort();
+    expect({ count: existingCheckpoints.length, sha256: sha256(JSON.stringify(existingCheckpoints)) }).toEqual({
+      count: 154,
+      sha256: "815c6ac53f7e5c515bb6da32351f4dde5f2f51506db6e2a83f21272fece8652f",
+    });
+    expect(
+      runtime.subscriptionRunners
+        .filter((runner) => runner.projectionName === observationName)
+        .map((runner) => ({
+          source: runner.sourceContextName,
+          target: runner.targetContextName,
+          kind: runner.handlerKind,
+          checkpoint: runner.checkpointKey,
+        })),
+    ).toEqual(
+      ["catalog", "inventory", "marketplace"].map((source) => ({
+        source,
+        target: "pricing",
+        kind: "reaction",
+        checkpoint: `${observationName}:${source}:v1`,
+      })),
+    );
+
     expect(runtime.subscriptionRunners).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -167,8 +214,8 @@ describe("platform worker projection wake interest graph", () => {
       ]),
     );
     expect(fingerprint(runtime.subscriptionRunners.map((runner) => fingerprintObject(runner)))).toEqual({
-      count: 249,
-      sha256: "c0aa89039732e1147a1c3d236daaa081cb835480a0e1db7723de2749d15a1bc1",
+      count: 252,
+      sha256: "ceec5b8075739800cac6c04c547aac3f14b13f59f66db2a0ffd277f00eea622f",
     });
     expect(
       fingerprint(
@@ -178,25 +225,26 @@ describe("platform worker projection wake interest graph", () => {
         })),
       ),
     ).toEqual({
-      count: 154,
-      sha256: "d6ec7341344bdb05432638fe73b0234b37bc65330b77715289a957ba6c991c70",
+      count: 157,
+      sha256: "f8a70da5a0cb4d1494b95154dce830e0d8d3504c0e2bbe3209b08ea9f99d0767",
     });
     expect({
       count: rawCheckpointIdentities.length,
       sha256: sha256(JSON.stringify(rawCheckpointIdentities)),
     }).toEqual({
-      count: 154,
-      sha256: "815c6ac53f7e5c515bb6da32351f4dde5f2f51506db6e2a83f21272fece8652f",
+      count: 157,
+      sha256: "5634188381baf80821a15c73b170e92a02893db4d4ba9a21bef03dbacc98f3c9",
     });
     expect(fingerprint(runtime.subscriptionRunners.map((runner) => runner.checkpointKey))).toEqual({
-      count: 249,
-      sha256: "9daf8c47b4d9e121eb06dd41843f6127a88fb9ae570b1448073050ad1b79b6a3",
+      count: 252,
+      sha256: "76ed97b48e809d129f8559fe09a046933436c629c1cbaad5058b2902f7cc75c0",
     });
     expect(sharedNames).toMatchObject({
-      distinctNames: 119,
-      distinctSharedNames: 20,
-      runnersUsingSharedNames: 55,
+      distinctNames: 120,
+      distinctSharedNames: 21,
+      runnersUsingSharedNames: 58,
     });
+    expect(sharedNames.values["pricing.authority-observation-reaction"]).toBe(3);
     expect(sharedNames.values["checkout.checkout.sell-list-projection"]).toBe(3);
     expect(sharedNames.values["support.affected-line-amount-projection"]).toBe(2);
     // One projection, two source declarations: Ordering and Payments share the name.

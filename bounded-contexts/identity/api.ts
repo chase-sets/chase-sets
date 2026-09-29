@@ -73,6 +73,10 @@ import {
   type RegistrationOperationConsent,
 } from "./support/runtime-support/registration-operation";
 import { apiKeyRoutes } from "./features/api-keys/api/route";
+import {
+  IdentityAuthorityMutationPendingError,
+  identityAuthorityMutationErrorHandler,
+} from "./features/access-hub/api/listing-authority";
 import { consentRoutes } from "./features/consents/api/route";
 import { termsOfServiceConsentRoutes } from "./features/consents/api/terms-route";
 import {
@@ -644,11 +648,9 @@ async function createPersonalIdentityForAuth(
         plan,
       });
     } catch (error) {
-      // Whichever way this attempt ends, it committed nothing, so the
-      // reservation it took has to go before anything else happens. The loser
-      // of a claim race may have reserved a different display name than the
-      // winner settled on, and that row would otherwise hold a name forever on
-      // behalf of an account that never existed.
+      // A retained write may still commit during recovery; keep its display name reserved.
+      if (error instanceof IdentityAuthorityMutationPendingError) throw error;
+      // A failed claim race may reserve a different name than its winner used.
       await releaseUnclaimedDisplayNameReservation(services, eventStore, {
         accountId: identity.accountId,
         displayName: identity.displayName,
@@ -1537,7 +1539,7 @@ export function buildIdentityApi(
   services: IdentityServices,
   consentActivationOptions: ConsentActivationRouteOptions = {},
 ) {
-  const app = new Hono<IdentityApiEnv>();
+  const app = new Hono<IdentityApiEnv>().onError(identityAuthorityMutationErrorHandler);
 
   app.post("/internal/auth/guest-accounts", async (c) => {
     const body = await c.req.json();
@@ -1878,7 +1880,13 @@ export function buildIdentityApi(
   app.route("/invitations", invitationRoutes(services.invitations, services.accounts));
   app.route(
     "/api-keys",
-    apiKeyRoutes({ ...services.apiKeys, db: services.db, auth: services.auth, getUser: services.users.getUser }),
+    apiKeyRoutes({
+      ...services.apiKeys,
+      db: services.db,
+      listingAuthority: services.listingAuthority,
+      auth: services.auth,
+      getUser: services.users.getUser,
+    }),
   );
   app.route("/consents", consentRoutes(services.consents));
   app.route("/admin/consents", consentActivationRoutes(services.policies, consentActivationOptions));
@@ -1943,7 +1951,7 @@ export function buildIdentityApi(
 }
 
 export function buildIdentityPublicApi(services: IdentityServices) {
-  const app = new Hono<IdentityApiEnv>();
+  const app = new Hono<IdentityApiEnv>().onError(identityAuthorityMutationErrorHandler);
   app.get("/founders-cohort", async (c) => c.json(await services.foundersCohort.getCount()));
   return app;
 }

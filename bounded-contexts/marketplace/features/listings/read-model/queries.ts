@@ -30,13 +30,13 @@ export type MarketplaceListingListRow = Readonly<{
   price_amount: string;
   price_currency_code: string | null;
   listing_stream_version: number | null;
-  marketplace_sales_fee_unit_amount: string;
-  seller_net_unit_amount: string;
+  marketplace_sales_fee_unit_amount: string | null;
+  seller_net_unit_amount: string | null;
   shipping_allowance_percentage_bps: number;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
   terms_resolved_at: string | null;
-  fee_quote_fingerprint: string;
+  fee_quote_fingerprint: string | null;
   fee_locks: readonly MarketplaceListingFeeLock[];
   quantity_cap: number;
   max_units_per_order: number | null;
@@ -75,13 +75,13 @@ export type MarketplaceListingFeeLockReportRow = Readonly<{
   max_units_per_order: number | null;
   max_units_per_day: number | null;
   max_units_per_customer_account: number | null;
-  marketplace_sales_fee_unit_amount: string;
-  seller_net_unit_amount: string;
+  marketplace_sales_fee_unit_amount: string | null;
+  seller_net_unit_amount: string | null;
   shipping_allowance_percentage_bps: number;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
   terms_resolved_at: string | null;
-  fee_quote_fingerprint: string;
+  fee_quote_fingerprint: string | null;
   fee_locks: readonly MarketplaceListingFeeLock[];
   created_at: string;
   updated_at: string;
@@ -141,13 +141,13 @@ type MarketplaceListingPageRow = Readonly<{
   price_amount: string;
   price_currency_code: string | null;
   listing_stream_version: number | null;
-  marketplace_sales_fee_unit_amount: string;
-  seller_net_unit_amount: string;
+  marketplace_sales_fee_unit_amount: string | null;
+  seller_net_unit_amount: string | null;
   shipping_allowance_percentage_bps: number;
   terms_schedule_id: string | null;
   terms_agreement_id: string | null;
   terms_resolved_at: string | null;
-  fee_quote_fingerprint: string;
+  fee_quote_fingerprint: string | null;
   fee_locks: unknown;
   quantity_cap: number;
   max_units_per_order: number | null;
@@ -1015,6 +1015,9 @@ export async function getMarketSummaryForItem(
        ON availability.account_id = listing.account_id
      WHERE listing.product_id = $1
        AND listing.status = 'active'
+       AND EXISTS (SELECT 1 FROM marketplace_listing_native_authority AS authority
+         WHERE authority.listing_id = listing.listing_id AND authority.native_visibility = 'enabled'
+           AND authority.publication_revision IS NOT NULL AND authority.status = 'active')
        AND listing.price_currency_code IS NOT NULL
        AND listing.listing_stream_version > 0
        AND COALESCE(availability.status, 'available') = 'available'`,
@@ -1062,6 +1065,9 @@ ${listingPageColumnSelectSql},
        ON availability.account_id = listing.account_id
      WHERE listing.product_id = $1
        AND listing.status = 'active'
+       AND EXISTS (SELECT 1 FROM marketplace_listing_native_authority AS authority
+         WHERE authority.listing_id = listing.listing_id AND authority.native_visibility = 'enabled'
+           AND authority.publication_revision IS NOT NULL AND authority.status = 'active')
        AND listing.price_currency_code IS NOT NULL
        AND listing.listing_stream_version > 0
        AND COALESCE(availability.status, 'available') = 'available'

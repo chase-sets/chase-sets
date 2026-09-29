@@ -249,6 +249,10 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
   return {
     readStreamInTransaction: readStream,
     appendToStreamInTransaction: async (client, input) => {
+      if (input.expectedFirstEventId !== undefined)
+        throw new Error("Stream opening guards require atomic appendToStreams.");
+      if (input.authorizationDeadline !== undefined)
+        throw new Error("Authority deadlines require atomic appendToStreams.");
       if (input.events.length === 0) return [];
       assertEventPayloadSizes([input]);
       return observeEventStoreOperation(
@@ -287,6 +291,10 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
       );
     },
     appendToStream: async (input) => {
+      if (input.expectedFirstEventId !== undefined)
+        throw new Error("Stream opening guards require atomic appendToStreams.");
+      if (input.authorizationDeadline !== undefined)
+        throw new Error("Authority deadlines require atomic appendToStreams.");
       if (input.events.length === 0) {
         return [];
       }
@@ -344,6 +352,17 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
 
       assertEventPayloadSizes(appendInputs);
 
+      const telemetry = inputs.find((input) => input.appendTelemetry)?.appendTelemetry;
+      if (
+        inputs.some(
+          (input) =>
+            input.appendTelemetry &&
+            (input.appendTelemetry.holderKind !== telemetry?.holderKind ||
+              input.appendTelemetry.sourceContextName !== telemetry?.sourceContextName),
+        )
+      )
+        throw new Error("Atomic append telemetry must identify one source operation.");
+
       return observeEventStoreOperation(
         "append_to_streams",
         {
@@ -351,8 +370,10 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
           event_type: "multiple",
         },
         async () => {
+          const lockTiming: { acquiredAtMs: number | null } = { acquiredAtMs: null };
+          let transactionOutcome: "committed" | "rolled_back" = "rolled_back";
           try {
-            return await withPgTransaction(
+            const result = await withPgTransaction(
               pool,
               async (client) =>
                 appendEventsToStreams({
@@ -365,6 +386,9 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
                   eventsTable,
                   readEventsByIdsSql,
                   updateStreamVersionSql,
+                  onAdvisoryLockAcquired: () => {
+                    lockTiming.acquiredAtMs ??= Date.now();
+                  },
                 }),
               {
                 afterCommit: wakeNotifications
@@ -387,13 +411,27 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
                   : undefined,
               },
             );
+            transactionOutcome = "committed";
+            return result;
           } catch (error) {
             throw normalizeEventStoreError(error, "Failed to append events to Postgres event store.");
+          } finally {
+            if (lockTiming.acquiredAtMs !== null)
+              recordEventStoreAppendAdvisoryLockHold({
+                durationMs: Date.now() - lockTiming.acquiredAtMs,
+                outcome: transactionOutcome,
+                holderKind: telemetry?.holderKind ?? "atomic_streams_append",
+                sourceContextName: telemetry?.sourceContextName,
+              });
           }
         },
       );
     },
     appendToStreamsIndependently: async (inputs, options) => {
+      if (inputs.some((input) => input.expectedFirstEventId !== undefined))
+        throw new Error("Stream opening guards require atomic appendToStreams.");
+      if (inputs.some((input) => input.authorizationDeadline !== undefined))
+        throw new Error("Authority deadlines require atomic appendToStreams.");
       const appendInputs = inputs.filter((input) => input.events.length > 0);
       if (appendInputs.length === 0) {
         return inputs.map((input) => ({
@@ -425,7 +463,7 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Post
             const results = await withPgTransaction(
               pool,
               async (client) =>
-                appendEventsToStreamsIndependently({
+                appendEventsToStreamsBatch({
                   client,
                   inputs,
                   now,
@@ -579,6 +617,7 @@ type AppendInTransactionArgs = Readonly<{
   eventsTable: string;
   readEventsByIdsSql: string;
   updateStreamVersionSql: string;
+  onAdvisoryLockAcquired?: () => void;
 }>;
 
 type AppendStreamsInTransactionArgs = Omit<AppendInTransactionArgs, "input"> &
@@ -586,9 +625,10 @@ type AppendStreamsInTransactionArgs = Omit<AppendInTransactionArgs, "input"> &
     inputs: readonly AppendToStreamInput[];
   }>;
 
-type AppendStreamsIndependentlyInTransactionArgs = AppendStreamsInTransactionArgs &
+type AppendStreamsBatchInTransactionArgs = AppendStreamsInTransactionArgs &
   Readonly<{
     onAdvisoryLockAcquired: () => void;
+    atomic?: boolean;
   }>;
 
 type ReadAllQueryInput = Readonly<{
@@ -730,6 +770,7 @@ async function appendEventsToStream(args: AppendInTransactionArgs): Promise<read
     await args.client.query("SELECT pg_advisory_xact_lock_shared($1::bigint)", [
       EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY,
     ]);
+    args.onAdvisoryLockAcquired?.();
     const insertResult = await args.client.query<DbEventRow>(
       buildInsertEventsSql(args.eventsTable, eventsToInsert.length),
       buildInsertEventsParams(eventsToInsert),
@@ -780,7 +821,46 @@ async function appendEventsToStream(args: AppendInTransactionArgs): Promise<read
   return storedEvents;
 }
 
+const EVENT_INSERT_COLUMN_COUNT = 17;
+const POSTGRES_PARAMETER_LIMIT = 65_535;
+
 async function appendEventsToStreams(args: AppendStreamsInTransactionArgs): Promise<readonly AppendToStreamsResult[]> {
+  // Check before either the batched or sequential path, including deterministic-ID replays.
+  // The stream row locks remain held through every business/request write and COMMIT.
+  for (const input of args.inputs) {
+    if (input.expectedFirstEventId === undefined) continue;
+    if (
+      typeof input.expectedFirstEventId !== "string" ||
+      !input.expectedFirstEventId.trim() ||
+      typeof input.expectedVersion !== "number" ||
+      !Number.isSafeInteger(input.expectedVersion) ||
+      input.expectedVersion < 1
+    ) {
+      throw createEventStoreError("concurrency_conflict", "Invalid stream opening guard.");
+    }
+    await assertStreamExpectedVersionInTransaction({ ...args, input });
+    const opening = await args.client.query<{ event_id: string }>(
+      `SELECT event_id FROM ${args.eventsTable} WHERE stream_id = $1 AND stream_version = 1`,
+      [input.streamId],
+    );
+    if (opening.rows.length !== 1 || opening.rows[0]!.event_id !== input.expectedFirstEventId) {
+      throw createEventStoreError("concurrency_conflict", "Stream opening identity conflict.");
+    }
+  }
+  const eventCount = args.inputs.reduce((count, input) => count + input.events.length, 0);
+  if (
+    new Set(args.inputs.map((input) => input.streamId)).size === args.inputs.length &&
+    eventCount * EVENT_INSERT_COLUMN_COUNT <= POSTGRES_PARAMETER_LIMIT
+  ) {
+    const results = await appendEventsToStreamsBatch({
+      ...args,
+      atomic: true,
+      onAdvisoryLockAcquired: args.onAdvisoryLockAcquired ?? (() => {}),
+    });
+    await assertAuthorizationDeadlines(args.client, args.inputs);
+    return results.map(({ streamId, storedEvents }) => ({ streamId, storedEvents }));
+  }
+  // Preserve sequential expected versions and avoid increasing the caller's SQL parameter footprint.
   const results: AppendToStreamsResult[] = [];
 
   for (const input of args.inputs) {
@@ -802,7 +882,25 @@ async function appendEventsToStreams(args: AppendStreamsInTransactionArgs): Prom
     });
   }
 
+  await assertAuthorizationDeadlines(args.client, args.inputs);
   return results;
+}
+
+async function assertAuthorizationDeadlines(client: PgQueryable, inputs: readonly AppendToStreamInput[]) {
+  const deadlines = inputs.flatMap((input) =>
+    input.authorizationDeadline === undefined ? [] : [input.authorizationDeadline],
+  );
+  if (deadlines.length === 0) return;
+  if (deadlines.some((deadline) => !Number.isFinite(Date.parse(deadline)))) {
+    throw createEventStoreError("concurrency_conflict", "Invalid authority decision boundary.");
+  }
+  const deadline = new Date(Math.min(...deadlines.map(Date.parse))).toISOString();
+  const result = await client.query<{ valid: boolean }>("SELECT clock_timestamp() < $1::timestamptz AS valid", [
+    deadline,
+  ]);
+  if (result.rows[0]?.valid !== true) {
+    throw createEventStoreError("concurrency_conflict", "Authority decision boundary expired.");
+  }
 }
 
 /**
@@ -865,8 +963,8 @@ type PendingIndependentStreamAppend = Readonly<{
  * acquired at most once per call, right before that single INSERT, so a chunk
  * of K streams holds it for one bounded window instead of K separate windows.
  */
-async function appendEventsToStreamsIndependently(
-  args: AppendStreamsIndependentlyInTransactionArgs,
+async function appendEventsToStreamsBatch(
+  args: AppendStreamsBatchInTransactionArgs,
 ): Promise<readonly AppendToStreamsIndependentResult[]> {
   const now = args.now();
   const results: AppendToStreamsIndependentResult[] = [];
@@ -875,6 +973,7 @@ async function appendEventsToStreamsIndependently(
 
   for (const input of args.inputs) {
     if (input.events.length === 0) {
+      if (args.atomic) await assertStreamExpectedVersionInTransaction({ ...args, input });
       results.push({ streamId: input.streamId, outcome: "no_op", storedEvents: [] });
       continue;
     }
@@ -904,6 +1003,8 @@ async function appendEventsToStreamsIndependently(
     ]);
 
     if (streamVersionResult.rows.length !== 1) {
+      if (args.atomic)
+        throw createEventStoreError("infrastructure_failure", "Stream row not found", { streamId: input.streamId });
       results.push({
         streamId: input.streamId,
         outcome: "conflict",
@@ -920,6 +1021,7 @@ async function appendEventsToStreamsIndependently(
     try {
       assertExpectedVersion(input.streamId, input.expectedVersion, currentVersion);
     } catch (error) {
+      if (args.atomic) throw error;
       results.push({
         streamId: input.streamId,
         outcome: "conflict",
@@ -963,10 +1065,8 @@ async function appendEventsToStreamsIndependently(
 
   const insertedEventsById = new Map<string, StoredEvent>();
   if (combinedEventsToInsert.length > 0) {
-    // One advisory-lock acquisition, one multi-row INSERT, for every stream
-    // in this chunk that passed its expected-version check above -- streams
-    // excluded above never reach this INSERT, so their conflict never rolls
-    // back a sibling stream's events.
+    // All atomic guards have passed; independent mode excluded only conflicting streams.
+    // Both modes use one append-fence lock and one multi-row INSERT per chunk.
     args.onAdvisoryLockAcquired();
     await args.client.query("SELECT pg_advisory_xact_lock_shared($1::bigint)", [
       EVENT_STORE_GLOBAL_APPEND_ADVISORY_LOCK_KEY,
@@ -1045,7 +1145,7 @@ type AppendEventCandidate = Readonly<{
 type AppendEventToInsert = AppendEventCandidate & Readonly<{ streamVersion: number }>;
 
 function buildInsertEventsSql(eventsTable: string, eventCount: number): string {
-  const columnCount = 17;
+  const columnCount = EVENT_INSERT_COLUMN_COUNT;
   const values = Array.from({ length: eventCount }, (_, rowIndex) => {
     const firstParam = rowIndex * columnCount + 1;
     const params = Array.from({ length: columnCount }, (__, columnIndex) => `$${firstParam + columnIndex}`);

@@ -2431,8 +2431,8 @@ describe("platform API payment provider mode observation", () => {
       .filter((entry) => !entry.file.includes("/__tests__/"))
       .map((entry) => entry.file);
 
-    // Includes the shared-seed bootstrap host, whose owned pools close in finally.
-    expect(hostCallCount).toBe(26);
+    // Includes shared-seed bootstrap and the Listing current-owner composition fixture.
+    expect(hostCallCount).toBe(27);
     expect(productionHostFiles.sort()).toEqual([
       "deployables/platform-api/src/admin-qa-actor-fixtures.ts",
       "deployables/platform-api/src/bootstrap.ts",
@@ -2442,7 +2442,15 @@ describe("platform API payment provider mode observation", () => {
     ]);
     expect(
       hostCallSites.filter((entry) => entry.file.includes("/__tests__/")).reduce((total, e) => total + e.count, 0),
-    ).toBe(21);
+    ).toBe(22);
+    expect(
+      hostCallSites.find(
+        (entry) => entry.file === "deployables/platform-api/__tests__/listing-current-facts-composition.test.ts",
+      ),
+    ).toEqual({
+      file: "deployables/platform-api/__tests__/listing-current-facts-composition.test.ts",
+      count: 1,
+    });
 
     // Only the serving composition root supplies the port, and the manifest declares it once.
     const mainSource = readFileSync(join(repositoryRoot, "deployables/platform-api/src/main.ts"), "utf8");

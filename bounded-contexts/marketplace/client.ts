@@ -3,6 +3,20 @@ import { honoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata, type ListResponse } from "@chase-sets/http/responses";
 import type { buildMarketplaceApi } from "./api";
 export type { BuyerOfferPolicyRequest, BuyerOfferPolicyTerms } from "./features/offer-policy/domain/contracts";
+import type {
+  AcceptListingTargetPriceInput,
+  ActivateListingForChannelInput,
+  SetNativeListingVisibilityInput,
+  ResumeListingInput,
+} from "./features/listings/api/target-contracts";
+export type {
+  AcceptListingTargetPriceInput,
+  ActivateListingForChannelInput,
+  SetNativeListingVisibilityInput,
+  ResumeListingInput,
+  AcceptedListingTargetPriceV1,
+  NativeListingEligibilityV1,
+} from "./features/listings/api/target-contracts";
 
 export { evidenceCoverageCodeLocaleKey } from "./features/listings/domain/evidence-coverage";
 export type {
@@ -409,6 +423,45 @@ export function createMarketplaceApiClient({
           },
           body: JSON.stringify(body),
           signal: options.signal,
+        }),
+      );
+    },
+    async acceptListingTargetPrice(id: string, body: Omit<AcceptListingTargetPriceInput, "accountId" | "listingId">) {
+      return parseJsonResponse(
+        await configuredFetch(joinApiPath(baseUrl, `/account/listings/${encodeURIComponent(id)}/accept-target-price`), {
+          method: "POST",
+          headers: { "content-type": "application/json", ...headersToRecord(headers) },
+          body: JSON.stringify(body),
+        }),
+      );
+    },
+    async activateListingForChannel(id: string, body: Omit<ActivateListingForChannelInput, "accountId" | "listingId">) {
+      return parseJsonResponse(
+        await configuredFetch(joinApiPath(baseUrl, `/account/listings/${encodeURIComponent(id)}/activate-channel`), {
+          method: "POST",
+          headers: { "content-type": "application/json", ...headersToRecord(headers) },
+          body: JSON.stringify(body),
+        }),
+      );
+    },
+    async setNativeListingVisibility(
+      id: string,
+      body: Omit<SetNativeListingVisibilityInput, "accountId" | "listingId">,
+    ) {
+      return parseJsonResponse(
+        await configuredFetch(joinApiPath(baseUrl, `/account/listings/${encodeURIComponent(id)}/native-visibility`), {
+          method: "POST",
+          headers: { "content-type": "application/json", ...headersToRecord(headers) },
+          body: JSON.stringify(body),
+        }),
+      );
+    },
+    async resumeListing(id: string, body: Omit<ResumeListingInput, "accountId" | "listingId">) {
+      return parseJsonResponse(
+        await configuredFetch(joinApiPath(baseUrl, `/account/listings/${encodeURIComponent(id)}/resume`), {
+          method: "POST",
+          headers: { "content-type": "application/json", ...headersToRecord(headers) },
+          body: JSON.stringify(body),
         }),
       );
     },

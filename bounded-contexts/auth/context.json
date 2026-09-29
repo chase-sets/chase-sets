@@ -160,6 +160,11 @@
   ],
   "hostPorts": [
     {
+      "portName": "listingAuthorityConsumer",
+      "providedBy": "platform-api",
+      "purpose": "Binds Auth session invalidation and recovery to the final consuming owner's authenticated Auth port."
+    },
+    {
       "portName": "notificationOutbox",
       "providedBy": "platform-worker",
       "purpose": "Durable outbound notification outbox used for magic-link email, SMS sign-in codes, and future Auth notification channels."
@@ -718,12 +723,12 @@
     "api-support": {
       "classification": "support",
       "purpose": "Provide reusable api-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["Deployable composition for auth", "sessions"]
+      "expectedConsumers": ["sessions"]
     },
     "auth-support": {
       "classification": "support",
       "purpose": "Provide reusable auth-support assets shared by auth-owned features and composition seams.",
-      "expectedConsumers": ["Multiple auth slices"]
+      "expectedConsumers": ["sessions"]
     },
     "request-support": {
       "classification": "support",

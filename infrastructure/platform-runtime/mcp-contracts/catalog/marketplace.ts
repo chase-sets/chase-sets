@@ -4,6 +4,7 @@ import {
   type McpJsonSchema,
   type McpJsonSchemaProperty,
   type McpServiceDescriptor,
+  type McpToolDescriptor,
   arrayProperty,
   booleanProperty,
   idempotencyKeyProperty,
@@ -105,7 +106,10 @@ const marketplaceListingReceiptOutputSchema = objectSchema(
     status: stringProperty("Lifecycle write result."),
     resourceUri: stringProperty("MCP resource URI for the listing."),
     inventoryItemId: stringProperty("Inventory item used to create the listing."),
-    feeQuoteFingerprint: stringProperty("Marketplace sales-fee quote fingerprint."),
+    feeQuoteFingerprint: {
+      type: ["string", "null"],
+      description: "Marketplace sales-fee quote fingerprint; null before native enrollment.",
+    },
   },
   ["accountId", "id", "listingId", "version", "status", "resourceUri"],
 );
@@ -120,6 +124,178 @@ const marketplaceSelectedOptionInputProperty: McpJsonSchemaProperty = {
     optionId: stringProperty("Selected option identifier."),
   },
 };
+
+const listingPriceTargetProperty: McpJsonSchemaProperty = {
+  type: "object",
+  description: "Exact native or channel-connection Listing price target.",
+  additionalProperties: false,
+  required: ["kind"],
+  properties: {
+    kind: stringProperty("Target kind.", ["native-marketplace", "channel-connection"]),
+    connectionId: stringProperty("Required only for a channel-connection target."),
+  },
+  oneOf: [
+    {
+      type: "object",
+      description: "Native Marketplace target.",
+      additionalProperties: false,
+      required: ["kind"],
+      properties: { kind: stringProperty("Native target.", ["native-marketplace"]) },
+    },
+    {
+      type: "object",
+      description: "Channel connection target.",
+      additionalProperties: false,
+      required: ["kind", "connectionId"],
+      properties: {
+        kind: stringProperty("Channel target.", ["channel-connection"]),
+        connectionId: stringProperty("Exact connection."),
+      },
+    },
+  ],
+};
+const listingPriceDecisionFields: McpJsonSchemaProperty = {
+  type: "object",
+  description:
+    "Seller reference or complete owner-verified Pricing evaluation. Pricing fields are required for pricing-evaluation and forbidden for seller-reference.",
+  additionalProperties: false,
+  required: ["kind"],
+  properties: {
+    kind: stringProperty("Decision kind.", ["seller-reference", "pricing-evaluation"]),
+    evaluationId: stringProperty("Pricing evaluation identity."),
+    evaluationRevision: stringProperty("Pricing evaluation revision."),
+    policyId: stringProperty("Pricing policy identity."),
+    policyRevision: stringProperty("Pricing policy revision."),
+    goal: {
+      type: ["object", "null"],
+      description: "Pricing goal binding, or null.",
+      additionalProperties: false,
+      required: ["goalId", "version"],
+      properties: { goalId: stringProperty("Goal identity."), version: stringProperty("Goal version.") },
+    },
+    inputEvidenceRefs: arrayProperty("Verified input evidence references.", stringProperty("Evidence reference.")),
+    curveEvidenceRefs: arrayProperty("Verified curve evidence references.", stringProperty("Evidence reference.")),
+    economicsSourceRevision: { type: ["string", "null"], description: "Economics source revision, or null." },
+    economicsOverrideRevision: { type: ["string", "null"], description: "Economics override revision, or null." },
+    basePriceRevision: integerProperty("Evaluation base-price revision."),
+    standingAuthorizationId: stringProperty("Standing authorization identity."),
+    standingAuthorizationRevision: stringProperty("Standing authorization revision."),
+  },
+};
+const listingPriceDecisionProperty: McpJsonSchemaProperty = {
+  ...listingPriceDecisionFields,
+  oneOf: [
+    {
+      type: "object",
+      description: "Seller-authored native reference.",
+      additionalProperties: false,
+      required: ["kind"],
+      properties: { kind: stringProperty("Seller decision.", ["seller-reference"]) },
+    },
+    {
+      ...listingPriceDecisionFields,
+      description: "Complete verified Pricing decision.",
+      required: Object.keys(listingPriceDecisionFields.properties!),
+      properties: {
+        ...listingPriceDecisionFields.properties!,
+        kind: stringProperty("Pricing decision.", ["pricing-evaluation"]),
+      },
+    },
+  ],
+};
+function listingAuthorityTool(
+  name: string,
+  title: string,
+  description: string,
+  properties: Readonly<Record<string, McpJsonSchemaProperty>>,
+  required: readonly string[],
+): McpToolDescriptor {
+  return {
+    ...writeTool(
+      "marketplace",
+      name,
+      title,
+      description,
+      "listings.manage",
+      objectSchema(
+        {
+          accountId: stringProperty("Authenticated seller account."),
+          listingId: stringProperty("Listing identity."),
+          expectedListingVersion: integerProperty("Exact current Listing stream revision."),
+          idempotencyKey: idempotencyKeyProperty(),
+          confirmationText: stringProperty("Exact user or policy confirmation text."),
+          ...properties,
+        },
+        ["accountId", "listingId", "expectedListingVersion", "idempotencyKey", "confirmationText", ...required],
+      ),
+      "listing",
+      ["Read current Listing authority first; reuse the same idempotency key only for an identical request."],
+    ),
+    availability: "available",
+    outputSchema: marketplaceListingReceiptOutputSchema,
+  };
+}
+const listingAuthorityTools = [
+  listingAuthorityTool(
+    "accept-listing-target-price",
+    "Accept Listing Target Price",
+    "Retain the exact authorized price pair for one target without provider execution.",
+    {
+      target: listingPriceTargetProperty,
+      priceAmount: stringProperty("Complete price amount."),
+      priceCurrencyCode: stringProperty("Three-letter price currency."),
+      expectedTargetPriceRevision: integerProperty("Exact accepted target-price revision; zero when absent."),
+      decision: listingPriceDecisionProperty,
+      changeSource: stringProperty("Pricing-originated acceptance only.", ["repricing-engine"]),
+    },
+    ["target", "priceAmount", "priceCurrencyCode", "expectedTargetPriceRevision", "decision"],
+  ),
+  listingAuthorityTool(
+    "activate-listing-for-channel",
+    "Activate Listing For Channel",
+    "Activate a retained channel price using current connection and stock allocation authority.",
+    {
+      connectionId: stringProperty("Exact channel connection."),
+      expectedTargetPriceRevision: integerProperty("Accepted target-price revision."),
+      allocationRevision: integerProperty("Current Inventory allocation revision."),
+    },
+    ["connectionId", "expectedTargetPriceRevision", "allocationRevision"],
+  ),
+  listingAuthorityTool(
+    "set-native-listing-visibility",
+    "Set Native Listing Visibility",
+    "Explicitly enable or disable native Marketplace visibility; enablement requires current readiness and fee consent.",
+    {
+      nativeVisibility: stringProperty("Native visibility consent.", ["enabled", "disabled"]),
+      feeQuoteFingerprint: stringProperty("Confirmed current quote when enrolling uncovered native units."),
+    },
+    ["nativeVisibility"],
+  ),
+  listingAuthorityTool(
+    "resume-listing",
+    "Resume Listing",
+    "Resume only the observed pause without changing native visibility.",
+    {
+      expectedPauseReason: stringProperty("Exact current pause reason.", [
+        "seller",
+        "policy-input-missing",
+        "channel-inbound-dark",
+      ]),
+      inboundClamp: {
+        type: "object",
+        description: "Exact final inbound-clamp owner, required only for its guarded release.",
+        additionalProperties: false,
+        required: ["connectionId", "runId", "generation"],
+        properties: {
+          connectionId: stringProperty("Clamp connection."),
+          runId: stringProperty("Clamp run."),
+          generation: integerProperty("Clamp generation."),
+        },
+      },
+    },
+    ["expectedPauseReason"],
+  ),
+];
 
 const marketplaceShippingDestinationInputProperty: McpJsonSchemaProperty = {
   type: "object",
@@ -442,6 +618,10 @@ export const marketplaceService = {
             priceAmount: stringProperty("Listing unit price in decimal currency format."),
             priceCurrencyCode: stringProperty("Seller-authored three-letter ISO-4217 listing price currency code."),
             quantityCap: integerProperty("Maximum listed quantity."),
+            publicationScope: stringProperty(
+              "Creation scope; channel-only retains a reference without native fees or visibility.",
+              ["native", "channel-only"],
+            ),
             purchaseLimits: listingPurchaseLimitsInputProperty,
             listingIdOverride: stringProperty("Optional deterministic listing id for idempotent handoffs."),
             idempotencyKey: idempotencyKeyProperty(),
@@ -478,6 +658,21 @@ export const marketplaceService = {
             priceAmount: stringProperty("New listing unit price in decimal currency format."),
             priceCurrencyCode: stringProperty("Seller-authored three-letter ISO-4217 listing price currency code."),
             feeQuoteFingerprint: stringProperty("Current marketplace sales-fee quote fingerprint."),
+            expectedVersion: integerProperty("Expected current Listing revision."),
+            expectedTargetPriceRevision: integerProperty("Expected native price revision."),
+            decision: listingPriceDecisionProperty,
+            changeSource: stringProperty("Pricing-originated acceptance only.", ["repricing-engine"]),
+            minimumChange: {
+              type: "object",
+              description: "Seller request suppression policy; never applied to Pricing decisions.",
+              additionalProperties: false,
+              required: ["mode"],
+              properties: {
+                mode: stringProperty("Suppression mode.", ["absolute", "percent"]),
+                amount: stringProperty("Required absolute amount for absolute mode."),
+                percent: { type: "number", description: "Required nonnegative percentage for percent mode." },
+              },
+            },
             idempotencyKey: idempotencyKeyProperty(),
             confirmationText: stringProperty("Exact user or policy confirmation text."),
             dryRun: booleanProperty("Validate the action without committing it."),
@@ -490,6 +685,7 @@ export const marketplaceService = {
       availability: "available",
       outputSchema: marketplaceListingReceiptOutputSchema,
     },
+    ...listingAuthorityTools,
     {
       ...writeTool(
         "marketplace",

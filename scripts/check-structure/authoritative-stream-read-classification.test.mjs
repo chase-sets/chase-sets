@@ -62,8 +62,8 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 10,
-      authoritativeSites: 10,
+      discoveredCallCandidates: 19,
+      authoritativeSites: 19,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
@@ -72,6 +72,13 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
       optionalSyntaxOutcomes: 0,
       dynamicKeyOutcomes: 0,
     });
+    const forwardingFile = "infrastructure/platform-runtime/listing-authority-writer.ts";
+    expect(production.candidates.filter((candidate) => candidate.file !== forwardingFile)).toHaveLength(18);
+    expect(
+      production.candidates
+        .filter((candidate) => candidate.file === forwardingFile)
+        .map((candidate) => candidate.callNode.getText()),
+    ).toEqual(["raw.readStream(input)"]);
     expect(production.totals.extensionCounts).toEqual(
       Object.fromEntries(
         [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"].map((extension) => [
@@ -97,11 +104,20 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
       ["bounded-contexts/channels/features/manual-sync/api/seed.ts", "CANONICAL"],
       ["bounded-contexts/discovery/support/request-support/csat-outcome-facts.ts", "CANONICAL"],
       ["bounded-contexts/identity/api.ts", "CANONICAL"],
+      ["bounded-contexts/identity/features/access-hub/api/listing-current-facts.ts", "CANONICAL"],
       ["bounded-contexts/identity/support/request-support/csat-outcome-facts.ts", "CANONICAL"],
+      ["bounded-contexts/marketplace/features/listings/api/listing-request.ts", "CANONICAL"],
+      ["bounded-contexts/marketplace/features/listings/api/listing-request.ts", "CANONICAL"],
+      ["bounded-contexts/marketplace/features/listings/api/runtime.ts", "CANONICAL"],
       ["contracts/event-core/complete-stream.ts", "HELPER"],
       ["infrastructure/bounded-context-runtime/subscriptions.ts", "CANONICAL"],
+      ["infrastructure/platform-runtime/listing-authority-conformance.ts", "CANONICAL"],
+      ["infrastructure/platform-runtime/listing-authority-conformance.ts", "CANONICAL"],
+      ["infrastructure/platform-runtime/listing-authority-history-conformance.ts", "CANONICAL"],
+      ["infrastructure/platform-runtime/listing-authority-history-test-support.ts", "CANONICAL"],
+      ["infrastructure/platform-runtime/listing-authority-writer.ts", "CANONICAL"],
     ]);
-    expect(production.anchors.canonicalDeclarations).toEqual(["contracts/event-core/event-store.ts:73"]);
+    expect(production.anchors.canonicalDeclarations).toEqual(["contracts/event-core/event-store.ts:77"]);
     expect(production.anchors.helperDeclarations).toEqual(["contracts/event-core/complete-stream.ts:5"]);
     expect(production.program.getCompilerOptions()).toMatchObject({
       allowJs: true,

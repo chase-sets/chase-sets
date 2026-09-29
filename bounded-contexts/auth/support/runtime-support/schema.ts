@@ -1,9 +1,24 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
+import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 import { notificationOutboxSchemaSql } from "@chase-sets/notification-outbox";
 import { authIdentityProjectionSchemaSql } from "../auth-support/identity-projection";
 import { authUcpOAuthSchemaSql } from "../ucp-support/oauth";
 import { agentWebhookOutboxSchemaSql } from "../ucp-support/agent-webhooks/agent-webhook-outbox";
 import { agentWebhookRegistrationSchemaSql } from "../ucp-support/agent-webhooks/agent-webhook-registration";
+
+export const authSessionAuthoritySchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20260928_auth_session_authority",
+    description: "Persist non-secret token revisions and idempotent Auth token mutation receipts.",
+    statements: [
+      "ALTER TABLE identity_session_tokens ADD COLUMN IF NOT EXISTS token_revision text NULL",
+      `CREATE TABLE IF NOT EXISTS auth_session_token_mutations (
+      mutation_id text PRIMARY KEY, session_id text NOT NULL, token_hash text NOT NULL,
+      expires_at timestamptz NOT NULL, context jsonb NOT NULL,
+      applied boolean NOT NULL DEFAULT false, completed boolean NOT NULL DEFAULT false)`,
+    ],
+  },
+];
 
 const authSessionSchemaSql = `
 CREATE TABLE IF NOT EXISTS identity_sessions (
@@ -124,9 +139,22 @@ CREATE TABLE IF NOT EXISTS identity_auth_challenges (
 CREATE TABLE IF NOT EXISTS identity_session_tokens (
   session_id text PRIMARY KEY,
   token_hash text NOT NULL UNIQUE,
+  token_revision text NULL,
   expires_at timestamptz NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE identity_session_tokens ADD COLUMN IF NOT EXISTS token_revision text NULL;
+
+CREATE TABLE IF NOT EXISTS auth_session_token_mutations (
+  mutation_id text PRIMARY KEY,
+  session_id text NOT NULL,
+  token_hash text NOT NULL,
+  expires_at timestamptz NOT NULL,
+  context jsonb NOT NULL,
+  applied boolean NOT NULL DEFAULT false,
+  completed boolean NOT NULL DEFAULT false
 );
 
 CREATE TABLE IF NOT EXISTS identity_account_selection_tokens (

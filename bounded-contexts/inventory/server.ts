@@ -1,4 +1,8 @@
 export { createInventoryRequestApiClient } from "./support/request-support/api-client";
+export {
+  createInventoryListingAuthority,
+  type InventoryListingAuthorityConsumer,
+} from "./features/channel-allocations/api/listing-authority";
 export type {
   InventoryAccountSellerSkuItemResolution,
   InventoryCatalogItemSnapshot,

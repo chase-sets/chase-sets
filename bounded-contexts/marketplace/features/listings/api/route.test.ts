@@ -8,6 +8,7 @@ function buildApp(
   options: Readonly<{
     actor: MarketplaceApiEnv["Variables"]["actor"];
     services: MarketplaceListingServices;
+    omitContext?: boolean;
   }>,
 ) {
   const app = new Hono<MarketplaceApiEnv>();
@@ -16,7 +17,7 @@ function buildApp(
     c.set("actor", options.actor);
     c.set(
       "context",
-      options.actor
+      options.actor && !options.omitContext
         ? {
             tenantId: "tnt_identity" as never,
             audit: {
@@ -300,6 +301,114 @@ const sellerActor: MarketplaceApiEnv["Variables"]["actor"] = {
   roleKey: "owner",
   permissions: ["listings.view", "listings.manage"],
 };
+
+describe("Listing target command HTTP boundary", () => {
+  const commands = [
+    {
+      path: "accept-target-price",
+      service: "acceptListingTargetPrice",
+      body: {
+        target: { kind: "native-marketplace" },
+        priceAmount: "12.00",
+        priceCurrencyCode: "CAD",
+        expectedTargetPriceRevision: 1,
+        decision: { kind: "seller-reference" },
+      },
+    },
+    {
+      path: "activate-channel",
+      service: "activateListingForChannel",
+      body: {
+        connectionId: "connection_synthetic",
+        expectedTargetPriceRevision: 2,
+        allocationRevision: 1,
+      },
+    },
+    { path: "native-visibility", service: "setNativeListingVisibility", body: { nativeVisibility: "disabled" } },
+    { path: "resume", service: "resumeListing", body: { expectedPauseReason: "seller" } },
+  ] as const;
+  const request = (path: string, body: unknown) =>
+    new Request(`https://api.test/account/listings/lst_synthetic/${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  it.each(commands)(
+    "binds $path to authenticated ownership and rejects submitted authority fields",
+    async ({ path, service, body }) => {
+      const services = createServices();
+      const call = vi.fn(async () => ({ listingId: "lst_synthetic", version: 3 }));
+      const app = buildApp({ actor: sellerActor, services: { ...services, [service]: call } });
+      const input = { ...body, expectedListingVersion: 2, idempotencyKey: "request_synthetic" };
+      for (const extra of [
+        { accountId: "foreign" },
+        { listingId: "foreign" },
+        { connectionAuthority: {} },
+        { nativePublicationRevision: 1 },
+      ]) {
+        expect((await app.request(request(path, { ...input, ...extra }))).status).toBe(400);
+      }
+      expect(call).not.toHaveBeenCalled();
+      expect((await app.request(request(path, input))).status).toBe(200);
+      expect(call).toHaveBeenCalledWith(
+        { ...input, accountId: "acc_seller", listingId: "lst_synthetic" },
+        expect.objectContaining({
+          audit: { forAccountId: "acc_seller", performedByUserId: "usr_seller" },
+        }),
+      );
+    },
+  );
+
+  it.each(commands)(
+    "refuses $path without listings.manage before invoking the owner",
+    async ({ path, service, body }) => {
+      const call = vi.fn();
+      const app = buildApp({
+        actor: { ...sellerActor, permissions: ["listings.view"] },
+        services: { ...createServices(), [service]: call },
+      });
+      expect(
+        (await app.request(request(path, { ...body, expectedListingVersion: 2, idempotencyKey: "request_synthetic" })))
+          .status,
+      ).toBe(403);
+      expect(call).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not turn an owner allocation failure into a successful channel activation", async () => {
+    const activateListingForChannel = vi.fn(async () => {
+      throw new Error("Current owned Inventory allocation and stock are required.");
+    });
+    const app = buildApp({ actor: sellerActor, services: { ...createServices(), activateListingForChannel } });
+    const response = await app.request(
+      request("activate-channel", {
+        ...commands[1].body,
+        expectedListingVersion: 2,
+        idempotencyKey: "request_synthetic",
+      }),
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: { message: "Current owned Inventory allocation and stock are required." },
+    });
+  });
+
+  it.each(commands)("refuses $path without authenticated context", async ({ path, service, body }) => {
+    const call = vi.fn();
+    const app = buildApp({
+      actor: sellerActor,
+      services: { ...createServices(), [service]: call },
+      omitContext: true,
+    });
+    const response = await app.request(
+      request(path, { ...body, expectedListingVersion: 2, idempotencyKey: "request_synthetic" }),
+    );
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({ error: { code: "authentication_required" } });
+    expect(call).not.toHaveBeenCalled();
+  });
+});
 
 const validShipFromAddress = {
   name: "Seller shelf",
@@ -1086,6 +1195,41 @@ describe("marketplace listing routes", () => {
       expect.any(Object),
     );
   });
+
+  it.each(["single", "bulk"])(
+    "preserves native retry and revision fields through the %s HTTP adapter",
+    async (mode) => {
+      const services = createServices();
+      const app = buildApp({ actor: sellerActor, services });
+      const update = {
+        priceAmount: "12.00",
+        priceCurrencyCode: "EUR",
+        expectedVersion: 3,
+        expectedTargetPriceRevision: 2,
+        idempotencyKey: "native-http-retry",
+        decision: { kind: "seller-reference" },
+        minimumChange: { mode: "absolute", amount: "0.25" },
+      };
+      const response = await app.fetch(
+        new Request(`http://marketplace.test/account/listings/${mode === "single" ? "lst_1/price" : "prices/bulk"}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(mode === "single" ? update : { updates: [{ ...update, listingId: "lst_1" }] }),
+        }),
+      );
+      expect(response.status).toBe(200);
+      if (mode === "single")
+        expect(services.updateListingPrice).toHaveBeenCalledWith(
+          { ...update, accountId: "acc_seller", listingId: "lst_1", feeQuoteFingerprint: null },
+          expect.any(Object),
+        );
+      else
+        expect(services.applyBulkListingPriceUpdates).toHaveBeenCalledWith(
+          { accountId: "acc_seller", updates: [{ ...update, listingId: "lst_1", feeQuoteFingerprint: null }] },
+          expect.any(Object),
+        );
+    },
+  );
 
   it("applies a batch of listing price updates through the bulk price-update route (m113 #4327)", async () => {
     const services = createServices();

@@ -141,10 +141,11 @@ function resolvedStoredEvent(streamVersion: number, payload: StoredEvent["payloa
 function createEventStore(existingEvents: readonly StoredEvent[] = []) {
   const events = [...existingEvents];
   const appended: AppendToStreamInput[] = [];
+  const profileAppended: AppendToStreamInput[] = [];
   const reads: ReadStreamInput[] = [];
   const eventStore: EventStore = {
     appendToStream: vi.fn(async (input: AppendToStreamInput) => {
-      appended.push(input);
+      (input.streamId === "catalog.product-measure-profiles" ? profileAppended : appended).push(input);
       if (typeof input.expectedVersion !== "number") {
         throw new Error("Product Measures fixture requires a numeric expected stream version.");
       }
@@ -162,11 +163,13 @@ function createEventStore(existingEvents: readonly StoredEvent[] = []) {
     readStream: async (input: ReadStreamInput): Promise<StoredEvent[]> => {
       reads.push(input);
       const fromIndex = (input.fromVersion ?? 1) - 1;
-      return events.slice(fromIndex, fromIndex + (input.limit ?? 500));
+      return events
+        .filter((event) => event.streamId === input.streamId)
+        .slice(fromIndex, fromIndex + (input.limit ?? 500));
     },
     readAll: async (_input?: ReadAllInput): Promise<StoredEvent[]> => [],
   };
-  return { eventStore, events, appended, reads };
+  return { eventStore, events, appended, profileAppended, reads };
 }
 
 function createCheckpointStore(): ProjectionCheckpointStore {
@@ -197,20 +200,23 @@ async function createProfiledMeasureFixture(existingEvents: readonly StoredEvent
     checkpointStore: createCheckpointStore(),
   });
 
-  await services.upsertProfile({
-    profileId: "p_card",
-    key: "pokemon-card",
-    name: "Pokemon card",
-    matchCategoryIds: ["cat_pokemon"],
-    precedence: 100,
-    unitLengthInches: 3.5,
-    unitWidthInches: 2.5,
-    unitHeightInches: 0.012,
-    unitWeightOunces: 0.064,
-    physicalFlags: ["raw-card"],
-    stackBehavior: "stackable-thickness",
-    confidence: "measured",
-  });
+  await services.upsertProfile(
+    {
+      profileId: "p_card",
+      key: "pokemon-card",
+      name: "Pokemon card",
+      matchCategoryIds: ["cat_pokemon"],
+      precedence: 100,
+      unitLengthInches: 3.5,
+      unitWidthInches: 2.5,
+      unitHeightInches: 0.012,
+      unitWeightOunces: 0.064,
+      physicalFlags: ["raw-card"],
+      stackBehavior: "stackable-thickness",
+      confidence: "measured",
+    },
+    eventStoreContext,
+  );
 
   return { db, services, ...store };
 }
@@ -258,43 +264,49 @@ describe("product measure runtime", () => {
         },
       ],
     });
-    const { eventStore, appended } = createEventStore();
+    const { eventStore, appended, profileAppended } = createEventStore();
     const services = createProductMeasureRuntime({
       db,
       eventStore,
       checkpointStore: createCheckpointStore(),
     });
 
-    await services.upsertProfile({
-      profileId: "p_raw",
-      key: "pokemon-raw",
-      name: "Pokemon raw single",
-      matchCategoryIds: ["cat_pokemon"],
-      matchSelectedOptions: [{ dimensionId: "form", optionId: "raw" }],
-      precedence: 100,
-      unitLengthInches: 3.5,
-      unitWidthInches: 2.5,
-      unitHeightInches: 0.012,
-      unitWeightOunces: 0.064,
-      physicalFlags: ["raw-card"],
-      stackBehavior: "stackable-thickness",
-      confidence: "measured",
-    });
-    await services.upsertProfile({
-      profileId: "p_psa",
-      key: "pokemon-psa",
-      name: "Pokemon PSA slab",
-      matchCategoryIds: ["cat_pokemon"],
-      matchSelectedOptions: [{ dimensionId: "form", optionId: "graded-psa" }],
-      precedence: 90,
-      unitLengthInches: 5.375,
-      unitWidthInches: 3.25,
-      unitHeightInches: 0.3,
-      unitWeightOunces: 2.1,
-      physicalFlags: ["slab", "rigid"],
-      stackBehavior: "stackable-height",
-      confidence: "measured",
-    });
+    await services.upsertProfile(
+      {
+        profileId: "p_raw",
+        key: "pokemon-raw",
+        name: "Pokemon raw single",
+        matchCategoryIds: ["cat_pokemon"],
+        matchSelectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+        precedence: 100,
+        unitLengthInches: 3.5,
+        unitWidthInches: 2.5,
+        unitHeightInches: 0.012,
+        unitWeightOunces: 0.064,
+        physicalFlags: ["raw-card"],
+        stackBehavior: "stackable-thickness",
+        confidence: "measured",
+      },
+      eventStoreContext,
+    );
+    await services.upsertProfile(
+      {
+        profileId: "p_psa",
+        key: "pokemon-psa",
+        name: "Pokemon PSA slab",
+        matchCategoryIds: ["cat_pokemon"],
+        matchSelectedOptions: [{ dimensionId: "form", optionId: "graded-psa" }],
+        precedence: 90,
+        unitLengthInches: 5.375,
+        unitWidthInches: 3.25,
+        unitHeightInches: 0.3,
+        unitWeightOunces: 2.1,
+        physicalFlags: ["slab", "rigid"],
+        stackBehavior: "stackable-height",
+        confidence: "measured",
+      },
+      eventStoreContext,
+    );
 
     await services.resolveCatalogItemMeasures("cat_1", {
       tenantId: "tnt_test" as never,
@@ -302,7 +314,11 @@ describe("product measure runtime", () => {
     });
 
     expect(resolved.size).toBe(0);
-    expect(eventStore.appendToStream).toHaveBeenCalledTimes(1);
+    expect(eventStore.appendToStream).toHaveBeenCalledTimes(3);
+    expect(profileAppended.map((input) => input.events[0]?.eventType)).toEqual([
+      "catalog.product-measure-profile.recorded",
+      "catalog.product-measure-profile.recorded",
+    ]);
     expect(appended[0]?.events[0]?.eventType).toBe("catalog.catalog-item.product-measures-resolved");
     expect(appended[0]?.events[0]?.payload).toMatchObject({
       catalogItemId: "cat_1",
@@ -371,21 +387,24 @@ describe("product measure runtime", () => {
       checkpointStore: createCheckpointStore(),
     });
 
-    await services.upsertProfile({
-      profileId: "p_raw",
-      key: "pokemon-raw",
-      name: "Pokemon raw single",
-      matchCategoryIds: ["cat_pokemon"],
-      matchSelectedOptions: [{ dimensionId: "form", optionId: "raw" }],
-      precedence: 100,
-      unitLengthInches: 3.5,
-      unitWidthInches: 2.5,
-      unitHeightInches: 0.012,
-      unitWeightOunces: 0.064,
-      physicalFlags: ["raw-card"],
-      stackBehavior: "stackable-thickness",
-      confidence: "measured",
-    });
+    await services.upsertProfile(
+      {
+        profileId: "p_raw",
+        key: "pokemon-raw",
+        name: "Pokemon raw single",
+        matchCategoryIds: ["cat_pokemon"],
+        matchSelectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+        precedence: 100,
+        unitLengthInches: 3.5,
+        unitWidthInches: 2.5,
+        unitHeightInches: 0.012,
+        unitWeightOunces: 0.064,
+        physicalFlags: ["raw-card"],
+        stackBehavior: "stackable-thickness",
+        confidence: "measured",
+      },
+      eventStoreContext,
+    );
 
     await services.resolveCatalogItemMeasures("cat_1");
 

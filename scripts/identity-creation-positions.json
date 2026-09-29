@@ -2,6 +2,62 @@
   "schemaVersion": 1,
   "positions": [
     {
+      "path": "bounded-contexts/identity/features/access-hub/api/linked-platform-authorization-owner.test.ts",
+      "command": "CreateAccount",
+      "occurrences": 1,
+      "disposition": "test-fixture",
+      "reason": "Canonical OAuth credential owner reconciliation control."
+    },
+    {
+      "path": "bounded-contexts/identity/features/access-hub/api/linked-platform-authorization-owner.test.ts",
+      "command": "CreateUser",
+      "occurrences": 2,
+      "disposition": "test-fixture",
+      "reason": "Missing-user repair and cross-tenant negative control."
+    },
+    {
+      "path": "bounded-contexts/identity/features/access-hub/api/listing-scoped-key.test.ts",
+      "command": "GrantMembership",
+      "occurrences": 1,
+      "disposition": "test-fixture",
+      "reason": "Authentic same-account membership substitution negative control."
+    },
+    {
+      "path": "bounded-contexts/identity/features/api-keys/api/fixture-listing-key.db.test.ts",
+      "command": "CreateAccount",
+      "occurrences": 2,
+      "disposition": "test-fixture",
+      "reason": "Actual fixture account and foreign-account ceiling control."
+    },
+    {
+      "path": "bounded-contexts/identity/features/api-keys/api/fixture-listing-key.db.test.ts",
+      "command": "CreateUser",
+      "occurrences": 1,
+      "disposition": "test-fixture",
+      "reason": "Canonical fixture credential user."
+    },
+    {
+      "path": "bounded-contexts/identity/features/api-keys/api/fixture-listing-key.db.test.ts",
+      "command": "GrantMembership",
+      "occurrences": 2,
+      "disposition": "test-fixture",
+      "reason": "Real fixture membership and foreign-account membership control."
+    },
+    {
+      "path": "deployables/platform-api/__tests__/bootstrap-scenario.db.test.ts",
+      "command": "CreateAccount",
+      "occurrences": 1,
+      "disposition": "test-fixture",
+      "reason": "Canonical Account owner for the composed OAuth saved-instrument revocation fixture."
+    },
+    {
+      "path": "deployables/platform-api/__tests__/bootstrap-scenario.db.test.ts",
+      "command": "CreateUser",
+      "occurrences": 1,
+      "disposition": "test-fixture",
+      "reason": "Canonical same-tenant User owner for the composed OAuth saved-instrument revocation fixture."
+    },
+    {
       "path": "bounded-contexts/identity/api.ts",
       "command": "CreateAccount",
       "occurrences": 1,
@@ -59,6 +115,34 @@
       "disposition": "exempt-permanent",
       "reason": "Invitation acceptance grants an existing user membership in an existing account and does not create a new identity.",
       "composition": "invitation-acceptance"
+    },
+    {
+      "path": "bounded-contexts/identity/features/access-hub/api/listing-authority-test-support.ts",
+      "command": "CreateAccount",
+      "occurrences": 1,
+      "disposition": "test-fixture",
+      "reason": "The in-memory authority fixture creates a canonical Account for real-owner conformance and writer tests, not a registration surface."
+    },
+    {
+      "path": "bounded-contexts/identity/features/access-hub/api/listing-authority-test-support.ts",
+      "command": "CreateUser",
+      "occurrences": 1,
+      "disposition": "test-fixture",
+      "reason": "The in-memory authority fixture creates a canonical User for real-owner conformance and writer tests, not a registration surface."
+    },
+    {
+      "path": "bounded-contexts/identity/features/access-hub/api/listing-authority-test-support.ts",
+      "command": "GrantMembership",
+      "occurrences": 1,
+      "disposition": "test-fixture",
+      "reason": "The in-memory authority fixture grants its synthetic user's membership for real-owner conformance and writer tests."
+    },
+    {
+      "path": "bounded-contexts/identity/features/access-hub/api/listing-authority-writers.test.ts",
+      "command": "CreateAccount",
+      "occurrences": 1,
+      "disposition": "test-fixture",
+      "reason": "This writer isolation test creates an unrelated synthetic Account while a selected membership's invalidation is blocked."
     },
     {
       "path": "bounded-contexts/identity/features/accounts/api/route.ts",

@@ -92,6 +92,9 @@ describe("Catalog authoring API", () => {
 
 function createServices(overrides: Partial<CatalogAuthoringBulkJobServices> = {}): CatalogServices {
   return {
+    get listingAuthority(): CatalogServices["listingAuthority"] {
+      throw new Error("Listing authority is not used by this authoring route fixture.");
+    },
     dimensions: {} as never,
     displayTemplates: {} as never,
     fields: {} as never,

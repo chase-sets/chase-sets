@@ -146,7 +146,76 @@ export type MarketplaceListingFeeLockPayload = Readonly<{
   feeQuoteFingerprint: string;
 }>;
 
-export type MarketplaceListingCreatedPayload = Readonly<{
+export type MarketplaceListingPriceTarget =
+  | Readonly<{ kind: "native-marketplace" }>
+  | Readonly<{ kind: "channel-connection"; connectionId: string }>;
+
+export type MarketplaceListingPriceDecision =
+  | Readonly<{ kind: "seller-reference" }>
+  | Readonly<{ kind: "legacy-native-anchor" }>
+  | Readonly<{
+      kind: "pricing-evaluation";
+      evaluationId: string;
+      evaluationRevision: string;
+      policyId: string;
+      policyRevision: string;
+      goal: Readonly<{ goalId: string; version: string }> | null;
+      inputEvidenceRefs: readonly string[];
+      curveEvidenceRefs: readonly string[];
+      economicsSourceRevision: string | null;
+      economicsOverrideRevision: string | null;
+      basePriceRevision: number;
+      standingAuthorizationId: string;
+      standingAuthorizationRevision: string;
+    }>;
+
+export type AcceptedListingTargetPriceV1 = Readonly<{
+  schemaVersion: 1;
+  accountId: string;
+  listingId: string;
+  target: MarketplaceListingPriceTarget;
+  priceAmount: string;
+  priceCurrencyCode: string;
+  targetPriceRevision: number;
+  listingRevision: number;
+  acceptedByUserId: string;
+  acceptedAt: string;
+  sourceEventId: string;
+  decision: MarketplaceListingPriceDecision;
+  connectionAuthority: Readonly<{
+    connectionId: string;
+    providerKey: string;
+    environment: "sandbox" | "production";
+    identityRevision: number;
+  }> | null;
+}>;
+
+export type NativeListingEligibilityV1 = Readonly<{
+  schemaVersion: 1;
+  accountId: string;
+  listingId: string;
+  priceAmount: string | null;
+  priceCurrencyCode: string | null;
+  targetPriceRevision: number;
+  listingRevision: number;
+  visibilityRevision: number;
+  nativePublicationRevision: number | null;
+  eligible: boolean;
+  blockingReason:
+    | "native-disabled"
+    | "native-unpublished"
+    | "listing-not-active"
+    | "price-incomplete"
+    | "native-not-ready"
+    | "source-stale"
+    | null;
+  sourceEventId: string;
+  sourceGlobalPosition: string;
+  projectionGeneration: string | null;
+  generatedAt: string;
+}>;
+
+type MarketplaceListingCreatedFields = Readonly<{
   listingId: string;
   accountId: AccountId;
   inventoryItemId: string;
@@ -164,38 +233,122 @@ export type MarketplaceListingCreatedPayload = Readonly<{
   priceAmount: string;
   /** Absent only when decoding historical amount-only listing events. */
   priceCurrencyCode?: string | null;
-  marketplaceSalesFeeUnitAmount: string;
-  sellerNetUnitAmount: string;
+  marketplaceSalesFeeUnitAmount: string | null;
+  sellerNetUnitAmount: string | null;
   shippingAllowancePercentageBps?: number;
   termsScheduleId: string | null;
   termsAgreementId: string | null;
-  termsResolvedAt: string;
+  termsResolvedAt: string | null;
   feeLocks: readonly MarketplaceListingFeeLockPayload[];
   quantityCap: number;
   purchaseLimits?: MarketplacePurchaseLimitsPayload;
 }>;
 
-export type MarketplaceListingPriceUpdatedPayload = Readonly<{
+export type MarketplaceListingCreatedPayload = MarketplaceListingCreatedFields &
+  (
+    | Readonly<{
+        schemaVersion?: never;
+        publicationScope?: never;
+        nativeVisibility?: never;
+        nativeFeeState?: never;
+        marketplaceSalesFeeUnitAmount: string;
+        sellerNetUnitAmount: string;
+        termsResolvedAt: string;
+      }>
+    | Readonly<{
+        schemaVersion: 2;
+        publicationScope: "native";
+        nativeVisibility: "enabled";
+        nativeFeeState: "enrolled";
+        priceCurrencyCode: string;
+        marketplaceSalesFeeUnitAmount: string;
+        sellerNetUnitAmount: string;
+        termsResolvedAt: string;
+      }>
+    | Readonly<{
+        schemaVersion: 2;
+        publicationScope: "channel-only";
+        nativeVisibility: "disabled";
+        nativeFeeState: "not-enrolled";
+        priceCurrencyCode: string;
+        marketplaceSalesFeeUnitAmount: null;
+        sellerNetUnitAmount: null;
+        termsScheduleId: null;
+        termsAgreementId: null;
+        termsResolvedAt: null;
+        feeLocks: readonly [];
+      }>
+  );
+
+type MarketplaceListingPriceUpdatedFields = Readonly<{
   priceAmount: string;
   /** Absent only when decoding historical amount-only listing events. */
   priceCurrencyCode?: string | null;
-  marketplaceSalesFeeUnitAmount: string;
-  sellerNetUnitAmount: string;
+  marketplaceSalesFeeUnitAmount: string | null;
+  sellerNetUnitAmount: string | null;
   shippingAllowancePercentageBps?: number;
   termsScheduleId: string | null;
   termsAgreementId: string | null;
-  termsResolvedAt: string;
+  termsResolvedAt: string | null;
   feeLocks: readonly MarketplaceListingFeeLockPayload[];
 }>;
 
-export type MarketplaceListingQuantityCapUpdatedPayload = MarketplaceListingPriceUpdatedPayload &
+export type MarketplaceListingPriceUpdatedPayload = MarketplaceListingPriceUpdatedFields &
+  (
+    | Readonly<{
+        schemaVersion?: never;
+        acceptedTargetPrice?: never;
+        marketplaceSalesFeeUnitAmount: string;
+        sellerNetUnitAmount: string;
+        termsResolvedAt: string;
+      }>
+    | Readonly<{ schemaVersion: 2; priceCurrencyCode: string; acceptedTargetPrice: AcceptedListingTargetPriceV1 }>
+  );
+
+export type MarketplaceListingQuantityCapUpdatedPayload = Omit<
+  MarketplaceListingPriceUpdatedFields,
+  "priceAmount" | "priceCurrencyCode"
+> &
   Readonly<{
     quantityCap: number;
     purchaseLimits?: MarketplacePurchaseLimitsPayload;
-  }>;
+  }> &
+  (
+    | Readonly<{
+        schemaVersion?: never;
+        marketplaceSalesFeeUnitAmount: string;
+        sellerNetUnitAmount: string;
+        termsResolvedAt: string;
+      }>
+    | Readonly<{ schemaVersion: 2 }>
+  );
 
 export type MarketplaceListingPurchaseLimitsUpdatedPayload = Readonly<{
   purchaseLimits: MarketplacePurchaseLimitsPayload;
+}>;
+
+export type MarketplaceListingTargetPriceAcceptedPayload = Readonly<{
+  schemaVersion: 1;
+  acceptedTargetPrice: AcceptedListingTargetPriceV1;
+}>;
+
+export type MarketplaceListingChannelActivatedPayload = Readonly<{
+  connectionId: string;
+  targetPriceRevision: number;
+  allocationRevision: number;
+}>;
+
+export type MarketplaceListingNativeVisibilityChangedPayload = Readonly<{
+  nativeVisibility: "enabled" | "disabled";
+  nativeFeeState: "enrolled" | "not-enrolled";
+  feeLocks: readonly MarketplaceListingFeeLockPayload[];
+  evidenceRequirements: JsonValue;
+  productMeasureSnapshot?: JsonValue;
+  productMeasureRevision?: number;
+}>;
+
+export type MarketplaceListingResumedPayload = Readonly<{
+  pauseReason: "seller" | "policy-input-missing" | "channel-inbound-dark";
 }>;
 
 export type MarketplaceSellerListingAvailabilityPayload = Readonly<{
@@ -227,6 +380,15 @@ export type MarketplaceReportSubmittedPayload = Readonly<{
 export type MarketplaceEventPayloads = Readonly<{
   "marketplace.listing.created": MarketplaceListingCreatedPayload;
   "marketplace.listing.price-updated": MarketplaceListingPriceUpdatedPayload;
+  "marketplace.listing.target-price-accepted": MarketplaceListingTargetPriceAcceptedPayload;
+  "marketplace.listing.channel-activated": MarketplaceListingChannelActivatedPayload;
+  "marketplace.listing.native-visibility-changed": MarketplaceListingNativeVisibilityChangedPayload;
+  "marketplace.listing.resumed": MarketplaceListingResumedPayload;
+  "marketplace.listing.inbound-clamp-engaged": Readonly<{ connectionId: string; runId: string; generation: number }>;
+  "marketplace.listing.inbound-clamp-released": Readonly<{ connectionId: string; runId: string; generation: number }>;
+  "marketplace.listing.inbound-clamp-ownership-adopted": Readonly<{
+    owners: readonly Readonly<{ connectionId: string; runId: string; generation: number }>[];
+  }>;
   "marketplace.listing.quantity-cap-updated": MarketplaceListingQuantityCapUpdatedPayload;
   "marketplace.listing.purchase-limits-updated": MarketplaceListingPurchaseLimitsUpdatedPayload;
   "marketplace.listing.published": EmptyEventPayload;

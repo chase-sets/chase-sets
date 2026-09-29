@@ -8,7 +8,7 @@ Aggregate language and projection language may differ. The Marketplace aggregate
 
 ## Listing
 
-A **Listing** is a seller-published offer to sell a specific product at a defined price and quantity.
+A **Listing** is a seller-owned identity for offering a specific product and quantity on the native marketplace, selected external connections, or both. Native publication is optional.
 
 Notes:
 
@@ -19,6 +19,34 @@ Notes:
 ## Listing Price
 
 A **Listing Price** is the seller-authored pair of a normalized decimal amount and an uppercase three-letter ISO-4217 currency code. Marketplace records both members together at one Listing stream version. A historical amount without currency is an incomplete Listing Price and is never assigned a default or inferred denomination.
+
+## Native Visibility
+
+**Native Visibility** is the Listing owner's permission to expose native supply. Enabled visibility alone is not publication: native eligibility also requires an active lifecycle, an actual Listing Published fact, a complete native price, and existing buyer commitment gates. Disabling visibility preserves selected external targets and historical fee locks and commitments.
+
+## Channel Activation
+
+**Channel Activation** selects one owned connection for an existing Listing with a current accepted target price and eligible Inventory allocation. It creates neither native publication nor native fee enrollment and cannot clear an existing pause.
+
+## Marketplace Listing Price Target
+
+A **Marketplace Listing Price Target** (`MarketplaceListingPriceTarget`) identifies either the native marketplace or one Channel Connection. Connection identity includes its Channels-owned provider and environment, not a provider-name-only price key.
+
+## Accepted Listing Target Price
+
+An **Accepted Listing Target Price** (`AcceptedListingTargetPriceV1`) is the exact revisioned amount/currency and verified decision lineage retained by Marketplace for one account, Listing, and target. It is neither provider readback nor independently editable channel pricing intent. The native pair also supplies the Listing's hidden own-evaluation reference; that reference is not a public competing ask.
+
+## Native Listing Eligibility
+
+**Native Listing Eligibility** (`NativeListingEligibilityV1`) is the owner verdict with native price, Listing, visibility and publication revisions and source freshness identity. A previously read verdict is not authority for a new commitment after the Listing changes.
+
+## Listing Authority Reservation
+
+A **Listing Authority Reservation** is a source owner's durable promise for one exact consuming operation, actor, account, Listing, target, price, quantity, source identity, and generation. It is not a stock allocation, accepted price, projected revision, or reusable bearer permission. Source invalidation must first win the consuming owner's terminal operation fence, or observe that the operation already committed. Expiry alone never releases the promise.
+
+## Listing Authority Operation
+
+A **Listing Authority Operation** binds the complete command and its closed participant set. The committing owner records either committed business effects and the exact request result in one local transaction, or a permanent abort with no successful business effects. Source owners settle reservations only from that owner's authoritative terminal receipt. An unknown outcome retains reservations; it does not permit a fresh-key retry or source reclamation.
 
 ## Listing Evidence
 

@@ -500,6 +500,25 @@ describe("platform api config", () => {
     }
   });
 
+  it("allows the fixture-key scenario profile only outside production and staging", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.PLATFORM_DATA_PROFILES = "scenario-seed";
+    for (const environmentName of ["dev", "local", "remote-dev", "test", "preview"] as const) {
+      process.env.DEPLOYMENT_ENVIRONMENT = environmentName;
+      expect(loadBootstrapConfig().dataProfiles).toEqual(["scenario-seed"]);
+    }
+    for (const environmentName of ["staging", "production"] as const) {
+      process.env.DEPLOYMENT_ENVIRONMENT = environmentName;
+      if (environmentName === "production") {
+        process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+        process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV] = "internal-test-secret";
+      }
+      expect(() => loadBootstrapConfig()).toThrow(
+        `scenario-seed is not allowed when DEPLOYMENT_ENVIRONMENT=${environmentName}.`,
+      );
+    }
+  });
+
   it("allows representative commerce state only outside production", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.DEPLOYMENT_ENVIRONMENT = "staging";

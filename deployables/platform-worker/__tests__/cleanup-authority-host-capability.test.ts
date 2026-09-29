@@ -5,6 +5,8 @@ import { createNoopCommercialTermsResolver } from "@chase-sets/commercial-terms/
 import { createWorkerHost } from "@chase-sets/platform-runtime/worker";
 import { module as orderingModule } from "@chase-sets/ordering";
 import type { PricingHostPorts } from "@chase-sets/pricing/server";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
+import { createListingAuthorityConsumerResolver } from "@chase-sets/platform-runtime/listing-authority-host";
 import { workerContextRegistry } from "../src/generated/worker-context-registry";
 import { createPlatformChannelSaleRecorder } from "../src/channels-reconciliation-runners";
 import {
@@ -22,6 +24,10 @@ import {
 
 type OrderingServices = ReturnType<typeof orderingModule.createServices>;
 const syntheticPricingHostPorts = {
+  pricingListingAuthorityConsumer: createListingAuthorityConsumerResolver(
+    { marketplace: createInMemoryEventStore().eventStore, ordering: createInMemoryEventStore().eventStore },
+    "pricing",
+  ),
   tcgplayerMarketTransport: { kind: "not-mounted" },
   tcgplayerMarketCaptureReceiptSink: { kind: "not-mounted" },
   commercialTermsResolver: createNoopCommercialTermsResolver(),

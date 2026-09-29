@@ -8,6 +8,9 @@ import { InventoryDomainError } from "../../../support/runtime-support/common";
 import { externalChannelSaleStreamId } from "../domain/validation";
 import type { RecordExternalChannelSaleCommand } from "./contracts";
 import { createInventoryExternalChannelSaleRuntime, externalChannelSaleCommandFingerprint } from "./runtime";
+import { createInventoryListingAuthority } from "../../channel-allocations/api/listing-authority";
+import { createListingAuthorityFence } from "@chase-sets/platform-runtime/listing-authority-fence";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 type JournalRow = {
   inserted: boolean;
@@ -134,7 +137,12 @@ function createHarness(options: Readonly<{ total?: number; activeHolds?: readonl
     tenantId: "tnt_inventory" as never,
     audit: { performedByUserId: "usr_inventory" as never, forAccountId: "acc_seller" as never },
   };
-  const deps = { eventStore: memory.eventStore, checkpointStore: checkpointStore(), db: db as never };
+  const deps = {
+    eventStore: memory.eventStore,
+    checkpointStore: checkpointStore(),
+    db: db as never,
+    appendRetained: memory.eventStore.appendToStreams!,
+  };
   const holdCollisions = createInventoryHoldCollisionRuntime(deps);
   const sales = createInventoryExternalChannelSaleRuntime(deps, holdCollisions);
 
@@ -163,6 +171,7 @@ function createHarness(options: Readonly<{ total?: number; activeHolds?: readonl
 
   return {
     ...memory,
+    deps,
     context,
     holdCollisions,
     db,
@@ -186,6 +195,106 @@ const orderHold = (orderId: string, quantity: number) => ({
 });
 
 describe("external-channel-sale-idempotency", () => {
+  it("admits an inbound sale during an unavailable reservation abort and reconciles the retained mutation after recovery", async () => {
+    const harness = createHarness();
+    await harness.seedItem();
+    const { eventStore: consumerStore } = createInMemoryEventStore();
+    let blocked = true;
+    const db: PgQueryable = {
+      async query<Row>(sql: string, values?: readonly unknown[]) {
+        if (sql.includes("WITH placed_holds")) return { rows: [] as Row[] };
+        const result = await harness.db.query(sql, values);
+        return { ...result, rows: result.rows as Row[] };
+      },
+    };
+    const authority = createInventoryListingAuthority({ ...harness.deps, db }, () => ({
+      inspect: (operation) => fence.forParticipant("inventory").inspect(operation),
+      invalidate: (operation, reason) => {
+        if (blocked) throw new Error("synthetic consumer partition");
+        return fence.forParticipant("inventory").invalidate(operation, reason);
+      },
+    }));
+    const fence = createListingAuthorityFence({
+      eventStore: consumerStore,
+      owner: "marketplace",
+      participants: [authority.source],
+    });
+    const operation = await fence.open(
+      {
+        tenantId: harness.context.tenantId,
+        accountId: "acc_seller",
+        actor: { kind: "user", userId: harness.context.audit.performedByUserId },
+        committingOwner: "marketplace",
+        kind: "activate-channel",
+        requestId: "synthetic-activation",
+        command: {},
+        listingId: "lst_synthetic",
+        subject: {
+          inventoryItemId: "inv_item",
+          catalogItemId: "cat_item",
+          productId: "cat_item::raw",
+          selectedOptions: [],
+          quantity: 1,
+          pair: null,
+          allocationRevision: 0,
+          commitmentSourceId: null,
+        },
+        target: { kind: "channel-connection", connectionId: "con_synthetic" },
+        expectedListingRevision: 1,
+        expectedTargetRevision: null,
+        expectedVisibilityRevision: null,
+        expectedPublicationRevision: null,
+        participants: [authority.source.participant],
+      },
+      harness.context,
+    );
+    await authority.source.prepare(operation, harness.context);
+    const deps = { ...harness.deps, eventStore: authority.eventStore, appendRetained: authority.appendRetained };
+    const sales = createInventoryExternalChannelSaleRuntime(deps, createInventoryHoldCollisionRuntime(deps));
+    const command = baseCommand("synthetic-pending-reservation");
+    await expect(sales.record(command, harness.context)).rejects.toThrow("synthetic consumer partition");
+    expect(
+      harness.readAllEvents().filter((event) => event.eventType === "inventory.channel-sale.admitted"),
+    ).toHaveLength(1);
+    expect((await fence.inspect(operation)).status).toBe("pending");
+    const mutation = harness
+      .readAllEvents()
+      .find(
+        (event) =>
+          event.streamId.includes("listing-authority-mutation-") &&
+          event.eventType === "inventory.listing-authority.invalidation-started",
+      );
+    const mutationId = (mutation?.payload.intent as { mutationId: string }).mutationId;
+    blocked = false;
+    await authority.resume(mutationId, harness.context);
+    expect((await fence.inspect(operation)).status).toBe("aborted");
+    expect(await sales.resumeAdmitted(command.saleKey, harness.context)).toMatchObject({ status: "committed" });
+    expect(
+      harness.readAllEvents().filter((event) => event.eventType === "inventory.channel-sale.admitted"),
+    ).toHaveLength(1);
+  });
+
+  it("retains independently admitted sale evidence when stock reconciliation is unavailable and resumes that command", async () => {
+    const harness = createHarness();
+    await harness.seedItem();
+    const command = baseCommand("synthetic-admission-recovery");
+    harness.crashAfterClaim();
+    await expect(harness.record(command)).rejects.toThrow();
+    expect(
+      harness.readAllEvents().filter((event) => event.eventType === "inventory.channel-sale.admitted"),
+    ).toHaveLength(1);
+    expect(
+      harness.readAllEvents().filter((event) => event.eventType === "inventory.external-channel-sale.recorded"),
+    ).toHaveLength(0);
+    expect(await harness.sales.resumeAdmitted(command.saleKey, harness.context)).toMatchObject({ status: "committed" });
+    expect(
+      harness.readAllEvents().filter((event) => event.eventType === "inventory.channel-sale.admitted"),
+    ).toHaveLength(1);
+    expect(
+      harness.readAllEvents().filter((event) => event.eventType === "inventory.external-channel-sale.recorded"),
+    ).toHaveLength(1);
+  });
+
   it("returns the immutable first result across delivery paths and conflicts without another decrement", async () => {
     const harness = createHarness();
     await harness.seedItem();
@@ -363,7 +472,9 @@ describe("external-channel-sale-collision-path", () => {
   it("fails closed if an internal bypass tries to change the fixed mode or actor", async () => {
     const harness = createHarness();
     await harness.seedItem();
+    const appendAdmitted = vi.fn(async () => []);
     const companion = {
+      appendAdmitted,
       saleStreamId: externalChannelSaleStreamId(baseCommand("mode-bypass").saleKey),
       storageLocationId: "loc_main",
       inventoryAdjustmentEventId: "evt_synthetic_adjustment" as never,
@@ -383,6 +494,7 @@ describe("external-channel-sale-collision-path", () => {
     await expect(
       harness.holdCollisions.reduceItem({ ...fixed, mode: "protect-orders", actorRole: "owner" }, harness.context),
     ).rejects.toThrow("require protect-orders");
+    expect(appendAdmitted).not.toHaveBeenCalled();
     expect(harness.readAllEvents().filter((event) => event.eventType === "inventory.item.adjusted")).toHaveLength(0);
   });
 

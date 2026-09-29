@@ -2363,7 +2363,7 @@ describe("bounded context subscription runner", () => {
     expect(getCheckpointWriteCountStore(targetPool).get("discovery-search-item-projection:catalog:v5")).toBe(2);
   });
 
-  it("applies reaction handlers one event per transaction even when configured for larger checkpoints", async () => {
+  it("claims and completes owner-command reactions separately with one checkpoint per event", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();
     const targetQuery = vi.spyOn(targetPool, "query");
@@ -2394,8 +2394,8 @@ describe("bounded context subscription runner", () => {
 
     const targetSql = targetQuery.mock.calls.map(([sql]) => String(sql));
     expect(handler).toHaveBeenCalledTimes(3);
-    expect(targetSql.filter((sql) => sql === "BEGIN")).toHaveLength(6);
-    expect(targetSql.filter((sql) => sql === "COMMIT")).toHaveLength(6);
+    expect(targetSql.filter((sql) => sql === "BEGIN")).toHaveLength(9);
+    expect(targetSql.filter((sql) => sql === "COMMIT")).toHaveLength(9);
     expect(targetSql.filter((sql) => sql.includes("INSERT INTO event_subscription_applications"))).toHaveLength(3);
     expect(targetSql.filter((sql) => sql.includes("INSERT INTO event_subscription_checkpoints"))).toHaveLength(3);
     expect(targetSql.filter((sql) => sql.includes("event_subscription_checkpoints:'"))).toHaveLength(3);
@@ -2758,7 +2758,7 @@ const SUBSCRIPTIONS_PATH = "infrastructure/bounded-context-runtime/subscriptions
 const PAGER_CONTRACT_TEST_PATH = "infrastructure/bounded-context-runtime/subscription-runner.test.ts";
 const PAGER_SITE_ID = "infrastructure/bounded-context-runtime/subscriptions.ts#readStream#1";
 const PAGER_CONTRACT_POINTER = `@stream-read-contract ${PAGER_CONTRACT_TEST_PATH}`;
-const PAGER_BASELINE_SHA256 = "86e7166fb4a5d656a54deed0b03f70eebe475a45cbd6695c2cd7aeba1521fb9a";
+const PAGER_BASELINE_SHA256 = "e5174c7626161dd9d1a9e5a86e1cedd8b503e5c4b25db1fbff93dde61c0dc4a4";
 const BLOCKED_STREAM_ID = "catalog.item-cat_pager_acceptance";
 const BLOCKED_STREAM_PROJECTION_NAME = "pager-acceptance-projection";
 const BLOCKED_STREAM_PROJECTION_KEY = `${BLOCKED_STREAM_PROJECTION_NAME}:catalog:v1`;

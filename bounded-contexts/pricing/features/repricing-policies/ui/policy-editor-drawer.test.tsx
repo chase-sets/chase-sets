@@ -79,6 +79,9 @@ describe("policy editor prerequisites and gates", () => {
       fill("Minimum price", "4.00");
       const preview = screen.getByRole("button", { name: "Preview policy" }) as HTMLButtonElement;
       expect(preview.disabled).toBe(listingCurrencyCodes.length !== 1);
+      expect((screen.getByRole("button", { name: "Open up this preset" }) as HTMLButtonElement).disabled).toBe(
+        listingCurrencyCodes.length !== 1,
+      );
       if (!listingCurrencyCodes.length) fill("Listing currency", "EUR");
       else if (listingCurrencyCodes.length > 1) await choose("Listing currency", "USD");
       fireEvent.click(preview);

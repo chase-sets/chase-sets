@@ -15,7 +15,7 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as pricingModule } from "../../../index";
-import { createRepricingEngineRuntime } from "../api/runtime";
+import { createRepricingEngineRuntime } from "./round-runtime-fixture";
 import { pricingRepricingDryRunSchemaMigrations } from "../read-model/migrations";
 import { loadRepricingRoundInputsPage } from "../read-model/queries";
 import { dryRunBody, dryRunContext, seedDryRunListings } from "./dry-run-fixture";

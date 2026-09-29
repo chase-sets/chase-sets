@@ -1,3 +1,4 @@
+import { withSyntheticListingPrincipal } from "@chase-sets/event-core/test-support";
 import { describe, expect, it, vi } from "vitest";
 import { getEventCommitMetadata, runWithEventCommitMetadata } from "@chase-sets/event-core/consistency";
 import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
@@ -11,12 +12,95 @@ import type {
   StoredEvent,
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
-import { createMarketplaceListingRuntime } from "./runtime";
+import { createMarketplaceListingRuntime as createRuntime } from "./runtime";
+import { createSyntheticListingAuthority } from "./authority-test-support";
+import { getInventoryItemSupply, getMarketplaceAccountRisk } from "../read-model/queries";
+import { resolveListingEvidenceRequirements } from "./evidence-requirement-resolver";
 import type { MarketplaceListingFeeLock, MarketplaceListingFeeTermsSnapshot } from "../domain/fee-lock";
 import {
   openMarketplaceListingTermsSession,
   requoteMarketplaceListingFeeLock,
 } from "../../../support/runtime-support/fee-quotes";
+
+function createMarketplaceListingRuntime(deps: Parameters<typeof createRuntime>[0]) {
+  const synthetic = createSyntheticListingAuthority(deps.eventStore);
+  return createRuntime({
+    listingTargetAuthority: {
+      ...synthetic.authority,
+      readCatalogProduct: async (operation) => {
+        const supply = await getInventoryItemSupply(deps.db, operation.subject.inventoryItemId, operation.accountId);
+        if (!supply) throw new Error("Synthetic Catalog Product is absent.");
+        return {
+          value: {
+            catalogItemId: supply.catalog_catalog_item_id,
+            productId: supply.product_id,
+            selectedOptions: supply.selected_options,
+            blueprintId: "bpt_synthetic",
+            categoryIds: [],
+            productMeasureSnapshot: supply.product_measure_snapshot,
+            productMeasureRevision: supply.product_measure_snapshot ? 1 : 0,
+          },
+          reservations: await synthetic.reserve("product-measures", operation),
+        };
+      },
+      readInventory: async (input, operation) =>
+        Promise.all(
+          input.inventoryItemIds.map(async (inventoryItemId) => {
+            const supply = await getInventoryItemSupply(deps.db, inventoryItemId, input.accountId);
+            return {
+              value: supply
+                ? {
+                    accountId: supply.account_id,
+                    inventoryItemId,
+                    catalogItemId: supply.catalog_catalog_item_id,
+                    productId: supply.product_id,
+                    availableQuantity: supply.available_quantity,
+                  }
+                : null,
+              reservations: await synthetic.reserve("stock-allocation", operation),
+            };
+          }),
+        ),
+      readNativeReadiness: async (input, operation) =>
+        Promise.all(
+          input.listings.map(async (listing) => {
+            // These legacy unit fixtures supply synthetic owner facts through their existing fixture rows.
+            // Production owner participation is exercised separately against authoritative source writers.
+            const supply = await getInventoryItemSupply(deps.db, operation.subject.inventoryItemId, input.accountId);
+            const evidenceRequirements = await resolveListingEvidenceRequirements(deps, {
+              ...listing,
+              accountId: input.accountId,
+              evaluatedAt: input.evaluatedAt,
+            });
+            const seller = evidenceRequirements.requirements.sellerTrustRequirements.length
+              ? await getMarketplaceAccountRisk(deps.db, input.accountId)
+              : { review_count: 0, badges: [] };
+            if (!supply?.product_measure_snapshot)
+              throw new Error("Listings require a resolved shipping measure before publication.");
+            return {
+              value: {
+                listingId: listing.listingId,
+                accountId: input.accountId,
+                productMeasureSnapshot: supply.product_measure_snapshot,
+                productMeasureRevision: 1,
+                evidenceRequirements,
+                seller: { reviewCount: seller.review_count, badgeKeys: seller.badges },
+              },
+              reservations: [
+                ...(await synthetic.reserve("product-measures", operation)),
+                ...(await synthetic.reserve("native-readiness", operation)),
+              ],
+            };
+          }),
+        ),
+      verifyNativeFeeQuote: async (_input, operation) => ({
+        value: true,
+        reservations: await synthetic.reserve("native-fee", operation),
+      }),
+    },
+    ...deps,
+  });
+}
 
 function createCheckpointStore(): ProjectionCheckpointStore {
   const checkpoints = new Map<string, GlobalPosition>();
@@ -29,13 +113,16 @@ function createCheckpointStore(): ProjectionCheckpointStore {
   };
 }
 
-const context = {
-  tenantId: "tnt_marketplace" as never,
-  audit: {
-    performedByUserId: "usr_seller" as never,
-    forAccountId: "acc_seller" as never,
+const context = withSyntheticListingPrincipal(
+  {
+    tenantId: "tnt_marketplace" as never,
+    audit: {
+      performedByUserId: "usr_seller" as never,
+      forAccountId: "acc_seller" as never,
+    },
   },
-};
+  { kind: "session", sessionId: "ses_synthetic", revision: "1", tokenRevision: "synthetic-token-version-1" },
+);
 
 const shipFromAddress = {
   name: "Seller Shipping",
@@ -402,15 +489,27 @@ describe("marketplace listing runtime", () => {
       listingId: "lst_seed_1",
       version: 3,
     });
+    const terminalIds = new Set<string>(
+      allEvents
+        .filter((event) => event.eventType === "marketplace.listing-authority-operation.committed")
+        .map((event) => event.eventId),
+    );
+    const committedEvents = allEvents.filter(
+      (event) =>
+        !event.eventType.startsWith("marketplace.listing-authority") ||
+        event.eventType === "marketplace.listing-authority-operation.committed" ||
+        (event.eventType === "marketplace.listing-authority.history-witness" &&
+          terminalIds.has(String(event.payload.eventId))),
+    );
     expect(metadata).toEqual({
-      eventIds: allEvents.map((event) => event.eventId),
-      maxGlobalPosition: allEvents.at(-1)?.globalPosition,
-      committedEvents: allEvents,
+      eventIds: committedEvents.map((event) => event.eventId),
+      maxGlobalPosition: committedEvents.at(-1)?.globalPosition,
+      committedEvents,
       sources: [
         {
           sourceContextName: "marketplace",
-          eventIds: allEvents.map((event) => event.eventId),
-          maxGlobalPosition: allEvents.at(-1)?.globalPosition,
+          eventIds: committedEvents.map((event) => event.eventId),
+          maxGlobalPosition: committedEvents.at(-1)?.globalPosition,
         },
       ],
     });
@@ -487,9 +586,7 @@ describe("marketplace listing runtime", () => {
 
     expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     const rejected = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
-    expect((rejected?.reason as Error).message).toBe(
-      "Active listing quantity caps cannot exceed current sellable inventory.",
-    );
+    expect(rejected?.reason).toMatchObject({ code: "concurrency_conflict" });
     const published = await Promise.all(
       ["lst_concurrent_1", "lst_concurrent_2"].map(
         async (listingId) =>
@@ -789,6 +886,12 @@ describe("marketplace listing runtime", () => {
     });
 
     expect(history).toMatchObject([
+      {
+        event_type: "marketplace.listing.native-visibility-changed",
+        stream_version: 2,
+        marketplace_sales_fee_unit_amount: "1.00",
+        seller_net_unit_amount: "19.00",
+      },
       {
         event_type: "marketplace.listing.created",
         stream_version: 1,
@@ -1147,7 +1250,7 @@ describe("marketplace listing runtime", () => {
             storageLocationName: "Batch shelf",
             shipFromCode: "CHI",
             shipFromAddress: shipFromAddress,
-            totalQuantity: Number(values[6]),
+            totalQuantity: Number(values[7]),
           });
           return { rows: [] };
         }
@@ -1919,7 +2022,7 @@ describe("marketplace listing runtime", () => {
           listingId: "lst_bulk_3",
           outcome: "error",
           version: 0,
-          message: "Withdrawn listings cannot be updated.",
+          message: "Listing cannot accept prices.",
         },
       ]);
 
@@ -2064,6 +2167,24 @@ describe("marketplace listing runtime", () => {
       ]);
       await expect(eventStore.readStream({ streamId: "marketplace.listing-lst_retry_once" })).resolves.toHaveLength(2);
       await expect(services.loadListingState("lst_retry_once")).resolves.toMatchObject({ priceAmount: "90.00" });
+      for (const changed of [
+        { priceCurrencyCode: "CAD" },
+        { expectedVersion: 2 },
+        { minimumChange: { mode: "absolute" as const, amount: "1.00" } },
+      ]) {
+        await expect(
+          services.applyBulkListingPriceUpdates(
+            {
+              ...mutation,
+              updates: [{ ...mutation.updates[0]!, ...changed }],
+            },
+            context,
+          ),
+        ).resolves.toMatchObject([
+          { outcome: "error", message: "Listing request key was already used for a different command." },
+        ]);
+      }
+      await expect(eventStore.readStream({ streamId: "marketplace.listing-lst_retry_once" })).resolves.toHaveLength(2);
     });
 
     it("issue-6299-acceptance-control replays and lists fee history through event 501", async () => {
@@ -2104,11 +2225,10 @@ describe("marketplace listing runtime", () => {
         streamId: `marketplace.listing-${listingId}`,
         expectedVersion: 1,
         context,
-        events: Array.from({ length: 500 }, (_, index) => ({
-          ...(index === 499 ? { eventId: `${idempotencyKey}:0` as never } : {}),
+        events: Array.from({ length: 499 }, () => ({
           eventType: "marketplace.listing.price-updated",
           payload: {
-            priceAmount: "90.00",
+            priceAmount: "91.00",
             priceCurrencyCode: "USD",
             marketplaceSalesFeeUnitAmount: createdPayload.marketplaceSalesFeeUnitAmount,
             sellerNetUnitAmount: createdPayload.sellerNetUnitAmount,
@@ -2127,11 +2247,23 @@ describe("marketplace listing runtime", () => {
           {
             accountId: "acc_seller",
             updates: [
+              { listingId, priceAmount: "90.00", priceCurrencyCode: "USD", expectedVersion: 500, idempotencyKey },
+            ],
+          },
+          context,
+        ),
+      ).resolves.toEqual([{ listingId, outcome: "applied", version: 501 }]);
+
+      await expect(
+        services.applyBulkListingPriceUpdates(
+          {
+            accountId: "acc_seller",
+            updates: [
               {
                 listingId,
                 priceAmount: "90.00",
                 priceCurrencyCode: "USD",
-                expectedVersion: 501,
+                expectedVersion: 500,
                 idempotencyKey,
               },
             ],
@@ -2198,8 +2330,8 @@ describe("marketplace listing runtime", () => {
 
     it("chunks the append according to the resolved marketplace.listing-bulk-price-update policy", async () => {
       const { eventStore } = createInMemoryEventStore();
-      const appendSpy = vi.fn(eventStore.appendToStreamsIndependently!);
-      const spyEventStore: EventStore = { ...eventStore, appendToStreamsIndependently: appendSpy };
+      const appendSpy = vi.fn(eventStore.appendToStreams!);
+      const spyEventStore: EventStore = { ...eventStore, appendToStreams: appendSpy };
       const resolvePolicy = vi.fn(async (policy: { policyKey: string }) => {
         if (policy.policyKey === "marketplace.listing-bulk-price-update") {
           return {
@@ -2243,6 +2375,7 @@ describe("marketplace listing runtime", () => {
           services.previewListingTerms({ accountId: "acc_seller", priceAmount: `${21 + index}.00` }),
         ),
       );
+      appendSpy.mockClear();
 
       const outcomes = await services.applyBulkListingPriceUpdates(
         {
@@ -2258,16 +2391,23 @@ describe("marketplace listing runtime", () => {
       );
 
       expect(outcomes.every((outcome) => outcome.outcome === "applied")).toBe(true);
-      // 3 listings at chunkSize 2 -> two appendToStreamsIndependently calls (2 + 1).
-      expect(appendSpy).toHaveBeenCalledTimes(2);
-      expect(appendSpy.mock.calls[0]?.[0]).toHaveLength(2);
-      expect(appendSpy.mock.calls[1]?.[0]).toHaveLength(1);
+      // Three opening transactions precede the two unchanged business chunks.
+      // Each row commits its Listing, request result and all three terminal histories.
+      expect(appendSpy).toHaveBeenCalledTimes(5);
+      const commits = appendSpy.mock.calls.filter(([inputs]) =>
+        inputs.some((input) =>
+          input.events.some((event) => event.eventType === "marketplace.listing-authority-operation.committed"),
+        ),
+      );
+      expect(commits).toHaveLength(2);
+      expect(commits[0]?.[0]).toHaveLength(10);
+      expect(commits[1]?.[0]).toHaveLength(5);
       expect(resolvePolicy).toHaveBeenCalledWith(
         expect.objectContaining({ policyKey: "marketplace.listing-bulk-price-update" }),
       );
     });
 
-    it("opens one current-terms session for the whole bulk run", async () => {
+    it("opens one current-terms session for the whole explicitly confirmed bulk run", async () => {
       const { eventStore } = createInMemoryEventStore();
       const termsResolver = bulkTermsResolver();
       const services = createMarketplaceListingRuntime({
@@ -2292,6 +2432,12 @@ describe("marketplace listing runtime", () => {
         );
       }
 
+      const confirmations = await Promise.all(
+        listingIds.map((_, index) =>
+          services.previewListingTerms({ accountId: "acc_seller", priceAmount: `${21 + index}.00` }),
+        ),
+      );
+
       const outcomes = await services.applyBulkListingPriceUpdates(
         {
           accountId: "acc_seller",
@@ -2299,6 +2445,7 @@ describe("marketplace listing runtime", () => {
             listingId,
             priceAmount: `${21 + index}.00`,
             priceCurrencyCode: "USD",
+            feeQuoteFingerprint: confirmations[index]!.fee_quote_fingerprint,
           })),
         },
         context,
@@ -2309,7 +2456,7 @@ describe("marketplace listing runtime", () => {
       expect(termsResolver.openListingTermsSession).toHaveBeenCalledWith({ accountId: "acc_seller" });
     });
 
-    it("preserves stored terms across every chunk while opening one current-terms session for the run", async () => {
+    it("preserves stored terms across every chunk without requiring current terms when none are being confirmed", async () => {
       const { eventStore } = createInMemoryEventStore();
       const resolvePolicy = vi.fn(async (policy: { policyKey: string }) => {
         if (policy.policyKey === "marketplace.listing-bulk-price-update") {
@@ -2401,7 +2548,7 @@ describe("marketplace listing runtime", () => {
       );
 
       expect(outcomes.every((outcome) => outcome.outcome === "applied")).toBe(true);
-      expect(revisableTermsResolver.openListingTermsSession).toHaveBeenCalledTimes(1);
+      expect(revisableTermsResolver.openListingTermsSession).not.toHaveBeenCalled();
 
       const firstListingEvents = await eventStore.readStream({ streamId: "marketplace.listing-lst_revision_1" });
       const secondListingEvents = await eventStore.readStream({ streamId: "marketplace.listing-lst_revision_2" });

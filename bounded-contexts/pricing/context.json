@@ -221,6 +221,69 @@
   ],
   "eventReactions": [
     {
+      "sourceContextName": "catalog",
+      "reactionName": "pricing-authority-observation-reaction",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "catalog.catalog-item.created",
+        "catalog.catalog-item.category-assigned",
+        "catalog.catalog-item.category-removed"
+      ],
+      "order": 9,
+      "reactionHandlerSetNames": ["pricing-authority-observation-reaction"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
+      "sourceContextName": "inventory",
+      "reactionName": "pricing-authority-observation-reaction",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["inventory.item.created"],
+      "order": 19,
+      "reactionHandlerSetNames": ["pricing-authority-observation-reaction"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
+      "sourceContextName": "marketplace",
+      "reactionName": "pricing-authority-observation-reaction",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "marketplace.listing.created",
+        "marketplace.listing.price-updated",
+        "marketplace.listing.quantity-cap-updated",
+        "marketplace.listing.purchase-limits-updated",
+        "marketplace.listing.photos-added",
+        "marketplace.listing.photo-classified",
+        "marketplace.listing.photo-replaced",
+        "marketplace.listing.photo-removed",
+        "marketplace.listing.photos-reordered",
+        "marketplace.listing.evidence-requirements-refreshed",
+        "marketplace.listing.published",
+        "marketplace.listing.paused",
+        "marketplace.listing.auto-unlisted",
+        "marketplace.listing.withdrawn",
+        "marketplace.listing.offer-commitment-recorded",
+        "marketplace.listing.inbound-clamp-engaged",
+        "marketplace.listing.inbound-clamp-released",
+        "marketplace.listing.inbound-clamp-ownership-adopted",
+        "marketplace.listing.target-price-accepted",
+        "marketplace.listing.channel-activated",
+        "marketplace.listing.native-visibility-changed",
+        "marketplace.listing.resumed"
+      ],
+      "order": 29,
+      "reactionHandlerSetNames": ["pricing-authority-observation-reaction"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
       "sourceContextName": "marketplace",
       "reactionName": "pricing-repricing-evaluation-reaction",
       "subscriptionVersion": 1,
@@ -347,6 +410,15 @@
       "resetStrategy": "replay-only"
     },
     {
+      "projectionName": "pricing-authority-observation-reaction",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["catalog", "inventory", "marketplace"],
+      "ownedTables": [],
+      "sideEffectOnly": true,
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
       "projectionName": "pricing-repricing-evaluation-reaction",
       "handlerKind": "reaction",
       "sourceContextNames": ["marketplace", "pricing"],
@@ -357,6 +429,11 @@
     }
   ],
   "hostPorts": [
+    {
+      "portName": "pricingListingAuthorityConsumer",
+      "providedBy": "platform-api, platform-worker",
+      "purpose": "Resolve the real Pricing-namespaced Marketplace or Ordering terminal for source invalidation and recovery; required before any Pricing writer is mounted."
+    },
     {
       "portName": "commercialTermsResolver",
       "providedBy": "commercial-terms",
@@ -889,7 +966,7 @@
     "runtime-support": {
       "classification": "support",
       "purpose": "Provide reusable runtime-support assets shared by pricing-owned features and composition seams.",
-      "expectedConsumers": ["economics", "recommendations"]
+      "expectedConsumers": ["economics", "recommendations", "repricing-engine", "repricing-policies"]
     },
     "realtime-support": {
       "classification": "support",

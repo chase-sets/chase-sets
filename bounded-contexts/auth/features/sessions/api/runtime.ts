@@ -5,6 +5,8 @@ import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/outbound-messaging";
 import type { AuthRuntimeDeps } from "./runtime-deps";
+import { createAuthListingSessionAuthority, type AuthListingSessionAuthorityServices } from "./listing-authority";
+import { createSessionTokenStore } from "./session-token-store";
 import {
   decideSession,
   evolveSession,
@@ -39,6 +41,7 @@ export type AuthenticatedSessionRead = Readonly<{
 }>;
 
 export type SessionServices = Readonly<{
+  listingAuthority: AuthListingSessionAuthorityServices;
   commandHandler: CommandHandler<SessionCommand, SessionState, SessionEvent>;
   listSessions: (params?: Parameters<typeof listSessions>[1]) => ReturnType<typeof listSessions>;
   getSession: (sessionId: string) => ReturnType<typeof getSession>;
@@ -112,13 +115,18 @@ export function createSessionRuntime(
       magicLinkDeliveryTokens?: MagicLinkDeliveryTokenStore;
     }>,
 ): SessionServices {
+  const listingAuthority = createAuthListingSessionAuthority({
+    eventStore: deps.eventStore,
+    tokens: deps.sessionTokens ?? createSessionTokenStore(deps.db),
+    listingAuthorityConsumer: deps.listingAuthorityConsumer,
+  });
   const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
   const magicLinkDeliveryTokens = deps.magicLinkDeliveryTokens ?? {
     getMagicLinkDeliveryToken: async () => null,
     clearMagicLinkDeliveryToken: async () => undefined,
   };
   const { commandHandler, repository } = createAggregateCommandHandler({
-    eventStore: deps.eventStore,
+    eventStore: listingAuthority.eventStore,
     codec: createPassthroughDomainEventCodec<SessionEvent>(),
     initialState: () => initialSessionState,
     evolve: evolveSession,
@@ -126,6 +134,7 @@ export function createSessionRuntime(
   });
 
   return {
+    listingAuthority,
     commandHandler,
     listSessions: (params) => listSessions(deps.db, params),
     getSession: (sessionId) => getSession(deps.db, sessionId),

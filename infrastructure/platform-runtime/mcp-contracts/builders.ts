@@ -23,14 +23,16 @@ export type McpJsonSchema = Readonly<{
   properties: Readonly<Record<string, McpJsonSchemaProperty>>;
 }>;
 
+type McpJsonSchemaType = "string" | "number" | "integer" | "boolean" | "array" | "object" | "null";
 export type McpJsonSchemaProperty = Readonly<{
-  type: "string" | "number" | "integer" | "boolean" | "array" | "object";
+  type: McpJsonSchemaType | readonly McpJsonSchemaType[];
   description: string;
   enum?: readonly string[];
   items?: McpJsonSchemaProperty;
   additionalProperties?: boolean;
   properties?: Readonly<Record<string, McpJsonSchemaProperty>>;
   required?: readonly string[];
+  oneOf?: readonly McpJsonSchemaProperty[];
 }>;
 
 export type McpPermissionBoundary = Readonly<{

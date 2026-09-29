@@ -38,7 +38,21 @@ function formatOptionalMoney(amount: string | null, currencyCode: string | null)
     : t("marketplace.features.listings.ui.listingDetailPage.price.incomplete");
 }
 
-function renderPreviewSummary(preview: MarketplaceListingTermsPreview, currencyCode: string | null) {
+function formatNativeFee(amount: string | null, currencyCode: string | null) {
+  return amount === null
+    ? t("marketplace.features.listings.ui.listingListPage.fee.quote.unavailable")
+    : formatOptionalMoney(amount, currencyCode);
+}
+
+function renderPreviewSummary(
+  preview: Pick<
+    MarketplaceListingDetail,
+    "marketplace_sales_fee_unit_amount" | "seller_net_unit_amount" | "shipping_allowance_percentage_bps"
+  >,
+  currencyCode: string | null,
+) {
+  if (preview.marketplace_sales_fee_unit_amount === null || preview.seller_net_unit_amount === null)
+    return t("marketplace.features.listings.ui.listingListPage.fee.quote.unavailable");
   const formatPreviewMoney = (amount: string) => formatOptionalMoney(amount, currencyCode);
   return [
     t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee.summary", {
@@ -136,7 +150,10 @@ export function MarketplaceListingDetailPage({
   pricePreview?: MarketplaceListingTermsPreview | null;
   errorMessage?: string | null;
 }) {
-  const currentFeeLock = listing.fee_locks.at(-1);
+  const hasNativeFees = listing.marketplace_sales_fee_unit_amount !== null && listing.seller_net_unit_amount !== null;
+  const shippingCredit = hasNativeFees
+    ? formatBpsPercent(listing.shipping_allowance_percentage_bps)
+    : t("marketplace.features.listings.ui.listingListPage.fee.quote.unavailable");
   const publishDisabled =
     listing.status === "active" ||
     listing.status === "withdrawn" ||
@@ -216,24 +233,7 @@ export function MarketplaceListingDetailPage({
                   {formatOptionalMoney(listing.price_amount, listing.price_currency_code)}
                 </Text>
                 <Text size="sm" tone="secondary">
-                  {renderPreviewSummary(
-                    {
-                      account_type: "personal",
-                      basis_amount: listing.price_amount,
-                      fee_quote_fingerprint: listing.fee_quote_fingerprint,
-                      marketplace_sales_fee_unit_amount: listing.marketplace_sales_fee_unit_amount ?? "0.00",
-                      seller_net_unit_amount: listing.seller_net_unit_amount ?? "0.00",
-                      marketplace_sales_fee_percentage_bps: currentFeeLock?.terms.marketplaceSalesFeePercentageBps ?? 0,
-                      marketplace_sales_fee_fixed_amount:
-                        currentFeeLock?.terms.marketplaceSalesFeeFixedAmount ?? "0.00",
-                      marketplace_sales_fee_cap_amount: currentFeeLock?.terms.marketplaceSalesFeeCapAmount ?? null,
-                      shipping_allowance_percentage_bps: listing.shipping_allowance_percentage_bps,
-                      schedule_id: listing.terms_schedule_id,
-                      agreement_id: listing.terms_agreement_id,
-                      resolved_at: listing.terms_resolved_at ?? new Date().toISOString(),
-                    },
-                    listing.price_currency_code,
-                  )}
+                  {renderPreviewSummary(listing, listing.price_currency_code)}
                 </Text>
               </Stack>
               <KeyValueList
@@ -251,7 +251,7 @@ export function MarketplaceListingDetailPage({
                   },
                   {
                     key: t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit.rate"),
-                    value: formatBpsPercent(listing.shipping_allowance_percentage_bps),
+                    value: shippingCredit,
                   },
                 ]}
               />
@@ -269,45 +269,47 @@ export function MarketplaceListingDetailPage({
               },
               {
                 label: t("marketplace.features.listings.ui.listingDetailPage.marketplace.fee"),
-                value: formatOptionalMoney(listing.marketplace_sales_fee_unit_amount, listing.price_currency_code),
+                value: formatNativeFee(listing.marketplace_sales_fee_unit_amount, listing.price_currency_code),
               },
               {
                 label: t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit.rate"),
-                value: formatBpsPercent(listing.shipping_allowance_percentage_bps),
+                value: shippingCredit,
               },
               {
                 label: t("marketplace.features.listings.ui.listingDetailPage.quantity.cap"),
                 value: listing.quantity_cap,
               },
             ]}
-            total={formatOptionalMoney(listing.seller_net_unit_amount, listing.price_currency_code)}
+            total={formatNativeFee(listing.seller_net_unit_amount, listing.price_currency_code)}
             totalLabel={t("marketplace.features.listings.ui.listingDetailPage.seller.net")}
           />
 
-          <OrderProtectionModule
-            title={t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit")}
-            items={[
-              {
-                title: t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit"),
-                description: t(
-                  "marketplace.features.listings.ui.listingDetailPage.buyers.earn.percentage.toward.shipping.when.grouping",
-                  {
-                    percentage: formatBpsPercent(listing.shipping_allowance_percentage_bps),
-                  },
-                ),
-              },
-              {
-                title: t("marketplace.features.listings.ui.listingDetailPage.inventory"),
-                description:
-                  listing.storage_location_name ??
-                  t("marketplace.features.listings.ui.listingDetailPage.unknown.location"),
-              },
-              {
-                title: t("marketplace.features.listings.ui.listingDetailPage.terms.resolved.at"),
-                description: formatTimestamp(listing.terms_resolved_at),
-              },
-            ]}
-          />
+          {hasNativeFees ? (
+            <OrderProtectionModule
+              title={t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit")}
+              items={[
+                {
+                  title: t("marketplace.features.listings.ui.listingDetailPage.buyer.shipping.credit"),
+                  description: t(
+                    "marketplace.features.listings.ui.listingDetailPage.buyers.earn.percentage.toward.shipping.when.grouping",
+                    {
+                      percentage: formatBpsPercent(listing.shipping_allowance_percentage_bps),
+                    },
+                  ),
+                },
+                {
+                  title: t("marketplace.features.listings.ui.listingDetailPage.inventory"),
+                  description:
+                    listing.storage_location_name ??
+                    t("marketplace.features.listings.ui.listingDetailPage.unknown.location"),
+                },
+                {
+                  title: t("marketplace.features.listings.ui.listingDetailPage.terms.resolved.at"),
+                  description: formatTimestamp(listing.terms_resolved_at),
+                },
+              ]}
+            />
+          ) : null}
 
           <SpecificationList
             title={t("marketplace.features.listings.ui.listingDetailPage.listing.overview")}
@@ -452,7 +454,7 @@ export function MarketplaceListingDetailPage({
                 <HiddenInput
                   type="hidden"
                   name="feeQuoteFingerprint"
-                  value={pricePreview?.fee_quote_fingerprint ?? listing.fee_quote_fingerprint}
+                  value={pricePreview?.fee_quote_fingerprint ?? listing.fee_quote_fingerprint ?? ""}
                 />
                 <Stack gap={2}>
                   <Button type="submit" name="intent" value="update-price" tone="secondary">
@@ -495,7 +497,7 @@ export function MarketplaceListingDetailPage({
             <Form spacing="none" method="post">
               <Stack gap={3}>
                 <HiddenInput type="hidden" name="intent" value="update-quantity-cap" />
-                <HiddenInput type="hidden" name="feeQuoteFingerprint" value={listing.fee_quote_fingerprint} />
+                <HiddenInput type="hidden" name="feeQuoteFingerprint" value={listing.fee_quote_fingerprint ?? ""} />
                 <NumberField
                   label={t("marketplace.features.listings.ui.listingDetailPage.quantity.cap.2")}
                   name="quantityCap"
@@ -557,7 +559,7 @@ export function MarketplaceListingDetailPage({
             <Stack gap={3}>
               <Form spacing="none" method="post">
                 <HiddenInput type="hidden" name="intent" value="publish" />
-                <HiddenInput type="hidden" name="feeQuoteFingerprint" value={listing.fee_quote_fingerprint} />
+                <HiddenInput type="hidden" name="feeQuoteFingerprint" value={listing.fee_quote_fingerprint ?? ""} />
                 <Button type="submit" disabled={publishDisabled}>
                   {t("marketplace.features.listings.ui.listingDetailPage.publish.listing")}
                 </Button>

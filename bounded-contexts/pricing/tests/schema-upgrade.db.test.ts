@@ -28,6 +28,8 @@ import { buildEconomicsOverrideProjectionHandlers } from "../features/economics/
 import { readCurrentEconomicsOverrides } from "../features/economics/read-model/override-queries";
 import { module as pricingModule } from "../index";
 import { runDailyRollupCloser } from "../features/market-rollups/read-model/rollup-maintenance";
+import { pricingListingAuthoritySchemaMigrations } from "../features/repricing-engine/read-model/listing-authority-schema";
+import { pricingRoundAdmissionSchemaMigrations } from "../features/repricing-engine/read-model/round-admission-schema";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI) {
@@ -64,6 +66,60 @@ describeDb("pricing schema upgrades", () => {
 
   beforeEach(async () => resetMultiContextTestSchemas(pools));
   afterAll(async () => closeMultiContextTestPools(pools));
+
+  for (const populated of [false, true]) {
+    it(`preserves canonical admissions and creates valid indexes on ${populated ? "populated" : "fresh"} upgrade`, async () => {
+      const pool = pools.pricing;
+      const migrations = [...pricingListingAuthoritySchemaMigrations, ...pricingRoundAdmissionSchemaMigrations];
+      for (const migration of migrations) await pool.query(migration.statements[0]!);
+      if (populated) {
+        await pool.query(`INSERT INTO pricing_evaluation_budget_admissions
+          VALUES ('synthetic-reserved', 'account', '2026-09-28', 'original-binding', 'reserved'),
+                 ('synthetic-released', 'account', '2026-09-28', 'original-binding', 'released')`);
+        await pool.query(`INSERT INTO pricing_repricing_round_admissions
+          (round_id, catalog_catalog_item_id, product_id, executor_id, status, checkpoints, admitted_at, closure_reason)
+          VALUES ('synthetic-active', 'catalog', 'product', 'executor', 'active', '{"original": true}',
+                  now() - interval '10 years', NULL),
+                 ('synthetic-completed', 'catalog', 'product', 'executor', 'completed', '{"original": true}',
+                  now() - interval '10 years', 'recorded recovery')`);
+      }
+      const tables = ["pricing_evaluation_budget_admissions", "pricing_repricing_round_admissions"];
+      const before = await Promise.all(tables.map(async (table) => (await pool.query(`SELECT * FROM ${table}`)).rows));
+      for (let pass = 0; pass < 2; pass++) {
+        for (const migration of migrations) {
+          for (const statement of migration.statements) await pool.query(statement);
+        }
+      }
+      const indexes = await pool.query<{
+        name: string;
+        valid: boolean;
+      }>(`SELECT c.relname AS name, i.indisvalid AS valid
+        FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+        WHERE c.relname IN ('pricing_evaluation_budget_account_day_idx', 'pricing_repricing_round_active_product_idx')
+        ORDER BY c.relname`);
+      expect(indexes.rows).toEqual([
+        { name: "pricing_evaluation_budget_account_day_idx", valid: true },
+        { name: "pricing_repricing_round_active_product_idx", valid: true },
+      ]);
+      for (const [index, table] of tables.entries()) {
+        expect((await pool.query(`SELECT * FROM ${table}`)).rows).toEqual(before[index]);
+        expect(pricingModule.retentionExemptions).toContainEqual({
+          tableName: table,
+          owner: "pricing",
+          reason: expect.stringContaining("Never age-swept"),
+        });
+        expect(pricingModule.retentionSweeps?.some((sweep) => sweep.tableName === table) ?? false).toBe(false);
+        expect(pricingModule.projectionGroups?.some((group) => group.ownedTables.includes(table))).toBe(false);
+      }
+      if (populated) {
+        await expect(
+          pool.query(`INSERT INTO pricing_repricing_round_admissions
+          (round_id, catalog_catalog_item_id, product_id, executor_id, status)
+          VALUES ('synthetic-contender', 'catalog', 'product', 'executor', 'active')`),
+        ).rejects.toThrow("duplicate key");
+      }
+    });
+  }
 
   it("guards an old-boot currency migration, preserves USD rows, and re-derives mixed days in bounded passes", async () => {
     const pool = pools.pricing;

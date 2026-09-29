@@ -31,6 +31,7 @@
     "@chase-sets/payment-processing": "workspace:*",
     "@chase-sets/payments": "workspace:*",
     "@chase-sets/pricing": "workspace:*",
+    "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/settlement": "workspace:*",
     "@chase-sets/platform-operations": "workspace:*"
   },

@@ -16,6 +16,13 @@ import {
   type MarketplaceListingServices,
 } from "./runtime";
 import { parseGradedCardSnapshot, parseShipFromAddressSnapshot } from "./listing-snapshot-parsers";
+import {
+  acceptListingTargetPriceSchema,
+  activateListingForChannelSchema,
+  setNativeListingVisibilitySchema,
+  resumeListingSchema,
+  nativeListingPriceUpdateSchema,
+} from "./target-validation";
 
 const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_MAX = 30;
@@ -348,6 +355,12 @@ function parseBulkListingPriceUpdates(body: Record<string, unknown>): Marketplac
         "price_currency_code",
         "feeQuoteFingerprint",
         "fee_quote_fingerprint",
+        "expectedVersion",
+        "expectedTargetPriceRevision",
+        "idempotencyKey",
+        "decision",
+        "changeSource",
+        "minimumChange",
       ],
       "Bulk listing price update",
     );
@@ -362,12 +375,24 @@ function parseBulkListingPriceUpdates(body: Record<string, unknown>): Marketplac
     assertPriceCurrencyInput(priceCurrencyCode);
 
     return [
-      {
+      nativeListingPriceUpdateSchema.parse({
         listingId,
         priceAmount,
         priceCurrencyCode,
         feeQuoteFingerprint: typeof rawFingerprint === "string" ? rawFingerprint : null,
-      },
+        ...Object.fromEntries(
+          [
+            "expectedVersion",
+            "expectedTargetPriceRevision",
+            "idempotencyKey",
+            "decision",
+            "changeSource",
+            "minimumChange",
+          ]
+            .filter((key) => record[key] !== undefined)
+            .map((key) => [key, record[key]]),
+        ),
+      }),
     ];
   });
 }
@@ -490,6 +515,42 @@ export function createAccountListingRoutes(
   resolveRateLimitRule?: RateLimitRuleResolver,
 ) {
   const app = new Hono<MarketplaceApiEnv>();
+
+  for (const operation of ["accept-target-price", "activate-channel", "native-visibility", "resume"] as const) {
+    app.post(`/listings/:id/${operation}`, async (c) => {
+      const access = requireListingAccess(c, "listings.manage");
+      if (access.response) return access.response;
+      const context = c.get("context");
+      if (!context)
+        return c.json(
+          {
+            error: {
+              code: "authentication_required",
+              message: t("marketplace.features.listings.api.route.authentication.required"),
+            },
+          },
+          401,
+        );
+      try {
+        const body = await c.req.json();
+        if (!body || typeof body !== "object" || Array.isArray(body) || "accountId" in body || "listingId" in body) {
+          throw new Error("Listing identity comes from the authenticated route.");
+        }
+        const input = { ...body, accountId: access.actor.accountId, listingId: c.req.param("id") };
+        const result =
+          operation === "accept-target-price"
+            ? await services.acceptListingTargetPrice(acceptListingTargetPriceSchema.parse(input), context)
+            : operation === "activate-channel"
+              ? await services.activateListingForChannel(activateListingForChannelSchema.parse(input), context)
+              : operation === "native-visibility"
+                ? await services.setNativeListingVisibility(setNativeListingVisibilitySchema.parse(input), context)
+                : await services.resumeListing(resumeListingSchema.parse(input), context);
+        return c.json(result);
+      } catch (error) {
+        return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+      }
+    });
+  }
   const jpegRateLimiter = createPolicyBackedRateLimiter(
     LISTING_PHOTO_JPEG_RATE_LIMIT_SURFACE,
     { max: 30, windowMs: 600_000 },
@@ -1014,6 +1075,7 @@ export function createAccountListingRoutes(
           "maxUnitsPerCustomerAccount",
           "inventorySnapshot",
           "listingIdOverride",
+          "publicationScope",
           "evidence",
           "listingPhotoAltText",
         ]);
@@ -1031,6 +1093,7 @@ export function createAccountListingRoutes(
             maxUnitsPerCustomerAccount: formValue(formData, "maxUnitsPerCustomerAccount"),
             inventorySnapshot: formValue(formData, "inventorySnapshot"),
             listingIdOverride: formValue(formData, "listingIdOverride"),
+            publicationScope: formValue(formData, "publicationScope") || undefined,
           }
         : await c.req.json();
       const listingPhotoUploads = formData ? await parseListingPhotoUploads(formData) : [];
@@ -1048,12 +1111,22 @@ export function createAccountListingRoutes(
           "purchaseLimits",
           "inventorySnapshot",
           "listingIdOverride",
+          "publicationScope",
         ],
         "Listing create",
       );
       assertClosedPurchaseLimits(body);
       assertPriceCurrencyInput(body.priceCurrencyCode);
       const inventorySnapshot = parseInventorySnapshot(body);
+      if (
+        body.publicationScope !== undefined &&
+        body.publicationScope !== "native" &&
+        body.publicationScope !== "channel-only"
+      ) {
+        throw new Error("Invalid listing publication scope.");
+      }
+      if (body.publicationScope === "channel-only" && inventorySnapshot)
+        throw new Error("Channel-only creation requires current owned Inventory identity.");
       const result = inventorySnapshot
         ? await services.createListingFromInventorySnapshot(
             {
@@ -1068,19 +1141,34 @@ export function createAccountListingRoutes(
             },
             context,
           )
-        : await services.createListing(
-            {
-              accountId: access.actor.accountId as AccountId,
-              inventoryItemId: parseTypedIdBoundary(body.inventoryItemId, "inv", "inventoryItemId"),
-              priceAmount: String(body.priceAmount ?? ""),
-              priceCurrencyCode: String(body.priceCurrencyCode ?? ""),
-              quantityCap: Number(body.quantityCap ?? 0),
-              purchaseLimits: parsePurchaseLimits(body),
-              listingPhotoUploads,
-              listingIdOverride: parseOptionalTypedIdBoundary(body.listingIdOverride, "lst", "listingIdOverride"),
-            },
-            context,
-          );
+        : body.publicationScope === "channel-only"
+          ? await services.createListing(
+              {
+                publicationScope: "channel-only",
+                accountId: access.actor.accountId as AccountId,
+                inventoryItemId: parseTypedIdBoundary(body.inventoryItemId, "inv", "inventoryItemId"),
+                priceAmount: String(body.priceAmount ?? ""),
+                priceCurrencyCode: String(body.priceCurrencyCode ?? ""),
+                quantityCap: Number(body.quantityCap ?? 0),
+                purchaseLimits: parsePurchaseLimits(body),
+                listingPhotoUploads,
+                listingIdOverride: parseOptionalTypedIdBoundary(body.listingIdOverride, "lst", "listingIdOverride"),
+              },
+              context,
+            )
+          : await services.createListing(
+              {
+                accountId: access.actor.accountId as AccountId,
+                inventoryItemId: parseTypedIdBoundary(body.inventoryItemId, "inv", "inventoryItemId"),
+                priceAmount: String(body.priceAmount ?? ""),
+                priceCurrencyCode: String(body.priceCurrencyCode ?? ""),
+                quantityCap: Number(body.quantityCap ?? 0),
+                purchaseLimits: parsePurchaseLimits(body),
+                listingPhotoUploads,
+                listingIdOverride: parseOptionalTypedIdBoundary(body.listingIdOverride, "lst", "listingIdOverride"),
+              },
+              context,
+            );
 
       return c.json(
         {
@@ -1311,15 +1399,30 @@ export function createAccountListingRoutes(
     const body = await c.req.json();
 
     try {
-      assertClosedObject(body, ["priceAmount", "priceCurrencyCode", "feeQuoteFingerprint"], "Listing price update");
+      assertClosedObject(
+        body,
+        [
+          "priceAmount",
+          "priceCurrencyCode",
+          "feeQuoteFingerprint",
+          "expectedVersion",
+          "expectedTargetPriceRevision",
+          "idempotencyKey",
+          "decision",
+          "changeSource",
+          "minimumChange",
+        ],
+        "Listing price update",
+      );
       assertPriceCurrencyInput(body.priceCurrencyCode);
       const result = await services.updateListingPrice(
         {
+          ...nativeListingPriceUpdateSchema.parse({
+            ...body,
+            listingId: c.req.param("id"),
+            feeQuoteFingerprint: body.feeQuoteFingerprint ?? null,
+          }),
           accountId: access.actor.accountId,
-          listingId: c.req.param("id"),
-          priceAmount: String(body.priceAmount ?? ""),
-          priceCurrencyCode: String(body.priceCurrencyCode ?? ""),
-          feeQuoteFingerprint: typeof body.feeQuoteFingerprint === "string" ? body.feeQuoteFingerprint : null,
         },
         context,
       );

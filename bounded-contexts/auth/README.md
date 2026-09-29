@@ -78,6 +78,33 @@ Run `pnpm --filter @chase-sets/auth run test:watch` for the sub-second watch-mod
 
 ## Current Boundary
 
+### Listing Session Authority
+
+`createAuthListingSessionAuthority` owns the `auth/authenticated-session` participant.
+`resolveListingSessionAuthentication` verifies the selected token through Auth's
+secret adapter and returns only session/token revisions and bounded validity.
+Identity adds its own authoritative membership and permission evidence. Every
+session grant binds the final consuming operation; an intermediate eligibility
+result does not settle it.
+
+Canonical session runtime writers and token upserts share an owner-scoped
+`session/<id>` resource. Unknown writes throw `AuthSessionMutationPendingError`
+with a stable identity; callers resume that identity rather than advertise a
+successful revoke or issue a replacement request. Hosts bind the consumer's Auth
+port and schedule `sessions.listingAuthority.recoverPage`, retaining both its
+event `after` and SQL `tokenAfter` cursors and wrapping each after a scan.
+Missing consumer mounting fails closed when
+outstanding promises require resolution. Seed runtimes use the same guarded writer.
+
+Install the registered session-authority migration and these writers before
+enabling grants. Existing token rows retain NULL revisions and cannot authorize
+Listing operations until explicit token issuance replaces the exact row; there
+is no timestamp-derived revision or trusted historical backfill. Token mutation
+receipts and authority histories are not TTL-deleted. Selected token rows are
+exempt from direct retention deletion; natural expiry fences authorization but
+does not release a reservation. Recovery resolves its final consumer terminal.
+Rollback disables new grants, retains recovery and never restores bypass writers.
+
 Auth is the canonical home for interactive authentication behavior, session persistence, session-token persistence, and the `/api/auth` surface.
 
 Identity remains upstream for:

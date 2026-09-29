@@ -1,6 +1,6 @@
-import { createActorEventStoreContext } from "@chase-sets/platform-runtime/auth";
 import {
   ensureMcpActorAccount,
+  createMcpActorEventStoreContext,
   readMcpStringArgument,
   readMcpTypedIdArgument,
   readOptionalMcpTypedIdArgument,
@@ -135,7 +135,7 @@ export function createInventoryImportBatchMcpHandlers(
     };
   };
 
-  const createImportBatch: McpToolHandler = async ({ actor, arguments: args }) => {
+  const createImportBatch: McpToolHandler = async ({ actor, arguments: args, context }) => {
     rejectDryRun(args);
     const accountId = readMcpStringArgument(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
@@ -149,7 +149,7 @@ export function createInventoryImportBatchMcpHandlers(
         defaultStorageLocationId: await resolveDefaultStorageLocationId(storageLocations, scopedActor.accountId, args),
         sourceFilename: readMcpStringArgument(args, "sourceFilename"),
       },
-      createActorEventStoreContext(scopedActor),
+      createMcpActorEventStoreContext(scopedActor, context),
     );
 
     return detail;
@@ -168,7 +168,7 @@ export function createInventoryImportBatchMcpHandlers(
     return detail;
   };
 
-  const commitImportBatch: McpToolHandler = async ({ actor, arguments: args }) => {
+  const commitImportBatch: McpToolHandler = async ({ actor, arguments: args, context }) => {
     rejectDryRun(args);
     const accountId = readMcpStringArgument(args, "accountId");
     const scopedActor = ensureMcpActorAccount(actor, accountId);
@@ -179,7 +179,7 @@ export function createInventoryImportBatchMcpHandlers(
         accountId: scopedActor.accountId as AccountId,
         batchId,
       },
-      createActorEventStoreContext(scopedActor),
+      createMcpActorEventStoreContext(scopedActor, context),
     );
   };
 

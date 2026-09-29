@@ -9,6 +9,13 @@ import {
   type EmptyEventData,
 } from "../../../support/runtime-support/common";
 
+export type ApiKeyListingScope = Readonly<{
+  accountId: string;
+  membershipId: string;
+  permissions: readonly ["listings.manage"];
+  expiresAt: string;
+}>;
+
 export type ApiKeyState = Readonly<{
   id: ApiKeyId | null;
   userId: UserId | null;
@@ -16,6 +23,7 @@ export type ApiKeyState = Readonly<{
   keyPrefix: string | null;
   status: ApiKeyStatus;
   lastUsedAt: string | null;
+  listingScope: ApiKeyListingScope | null;
 }>;
 
 export const initialApiKeyState: ApiKeyState = {
@@ -25,6 +33,7 @@ export const initialApiKeyState: ApiKeyState = {
   keyPrefix: null,
   status: "active",
   lastUsedAt: null,
+  listingScope: null,
 };
 
 export type CreateApiKeyCommand = Readonly<{
@@ -33,6 +42,7 @@ export type CreateApiKeyCommand = Readonly<{
   userId: UserId;
   name: string;
   keyPrefix: string;
+  listingScope?: ApiKeyListingScope;
 }>;
 
 export type RotateApiKeyCommand = Readonly<{
@@ -55,6 +65,7 @@ export type ApiKeyCreatedEvent = DomainEvent<
     userId: UserId;
     name: string;
     keyPrefix: string;
+    listingScope?: ApiKeyListingScope;
   }>
 >;
 
@@ -70,6 +81,17 @@ export const decideApiKey: AggregateDecider<ApiKeyState, ApiKeyCommand, ApiKeyEv
   switch (command.type) {
     case "CreateApiKey":
       assert(state.id === null, "API key has already been created.");
+      if (command.listingScope) {
+        const scope = command.listingScope;
+        assert(
+          !!scope.accountId.trim() &&
+            !!scope.membershipId.trim() &&
+            scope.permissions.length === 1 &&
+            scope.permissions[0] === "listings.manage" &&
+            Number.isFinite(Date.parse(scope.expiresAt)),
+          "Listing API key scope requires one account, membership, permission and expiry.",
+        );
+      }
       return [
         {
           type: "identity.api-key.created",
@@ -78,6 +100,7 @@ export const decideApiKey: AggregateDecider<ApiKeyState, ApiKeyCommand, ApiKeyEv
             userId: command.userId,
             name: normalizeLabel(command.name),
             keyPrefix: command.keyPrefix,
+            ...(command.listingScope ? { listingScope: command.listingScope } : {}),
           },
         },
       ];
@@ -94,6 +117,7 @@ export const decideApiKey: AggregateDecider<ApiKeyState, ApiKeyCommand, ApiKeyEv
       return [{ type: "identity.api-key.revoked", data: EMPTY_EVENT_DATA }];
     case "RecordApiKeyUse":
       requireActiveApiKey(state);
+      assert(!state.listingScope, "Listing-scoped API keys require scoped principal resolution.");
       return [
         {
           type: "identity.api-key.used",
@@ -115,6 +139,7 @@ export const evolveApiKey: AggregateEvolver<ApiKeyState, ApiKeyEvent> = (state, 
         keyPrefix: event.data.keyPrefix,
         status: "active",
         lastUsedAt: null,
+        listingScope: event.data.listingScope ?? null,
       };
     case "identity.api-key.rotated":
       return { ...state, keyPrefix: event.data.keyPrefix };

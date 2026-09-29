@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { ChannelsServices } from "./support/runtime-support/services";
+import type { ChannelConnectionServices } from "./features/connections/domain/contracts";
 import { channelConnectionRoutes } from "./features/connections/api/route";
 import { createOutboundOperationRoutes } from "./features/outbound-sync/api/route";
 import { channelListingCompositionRoutes } from "./features/listing-composition/api/route";
@@ -22,8 +23,9 @@ export type ChannelsApiEnv = {
 };
 
 export function buildChannelsApi(
-  services: Omit<ChannelsServices, "manualSync"> &
+  services: Omit<ChannelsServices, "manualSync" | "connections"> &
     Readonly<{
+      connections: ChannelConnectionServices;
       manualSync?: ManualSyncServices;
     }>,
 ) {

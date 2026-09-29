@@ -1,4 +1,5 @@
 import "./observability-prelude";
+import { createListingSourceHostPorts } from "./listing-authority-host-ports";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import {
@@ -10,6 +11,7 @@ import {
   createPostgresTcgplayerAutomationHttpConfigStore,
   createTcgplayerAutomationCatalogClient,
   createTcgplayerAutomationHttpClients,
+  type CatalogServices,
 } from "@chase-sets/catalog/server";
 import { isChannelsServices, type ChannelsServices } from "@chase-sets/channels/server";
 import {
@@ -31,7 +33,12 @@ import type {
   InventoryAccountSellerSkuItemResolution,
   InventoryDraftListingCreator,
 } from "@chase-sets/inventory/server";
-import { type MarketplaceListingServices, type MarketplaceServices } from "@chase-sets/marketplace/server";
+import {
+  type MarketplaceListingServices,
+  type MarketplaceServices,
+  type MarketplaceListingCurrentReadinessPorts,
+} from "@chase-sets/marketplace/server";
+import type { module as identityModule } from "@chase-sets/identity";
 import type {
   BulkRepriceIngestionServices,
   PricingRecommendationServices,
@@ -140,6 +147,7 @@ import { createGoogleMerchantServiceAccountAccessTokenProvider } from "./google-
 import { createGoogleMerchantApiClient } from "./google-merchant-client";
 import { workerContextRegistry } from "./generated/worker-context-registry";
 import { createRegisteredScheduledRunners } from "./scheduled-runners";
+import { createListingAuthorityRecoveryRunners } from "./listing-authority-recovery-runners";
 import { runStartupRetry } from "./startup-retry";
 import { processRepricingEvaluationJob } from "./repricing-evaluation-lane";
 import {
@@ -254,8 +262,13 @@ const commercialTermsResolver = pools["commercial-terms"]
       ),
     })
   : undefined;
+const listingSourceHostPorts = createListingSourceHostPorts(() => runtime?.services, {
+  marketplace: pools.marketplace,
+  ordering: pools.ordering,
+});
 const pricingHostPorts: PricingHostPorts | undefined = pools.pricing
   ? {
+      pricingListingAuthorityConsumer: listingSourceHostPorts.pricingListingAuthorityConsumer,
       tcgplayerMarketTransport: tcgplayerAutomationHttpClients ?? { kind: "not-mounted" },
       tcgplayerMarketCaptureReceiptSink: createObjectStorageTcgplayerMarketCaptureReceiptSink(catalogAssetStorage),
       commercialTermsResolver: requirePricingCommercialTermsResolver(commercialTermsResolver),
@@ -300,6 +313,19 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
     runtimeProfile: config.runtimeProfile,
     runtimeLifecycle,
     hostPorts: {
+      ...listingSourceHostPorts,
+      listingCurrentOwnerFacts: {
+        seller: (accountId) => {
+          const identity = runtime?.services.identity as ReturnType<typeof identityModule.createServices> | undefined;
+          if (!identity) throw new Error("Identity current seller facts are not mounted.");
+          return identity.listingAuthority.readCurrentSeller(accountId, { maxAgeMs: 1000 });
+        },
+        products: (subjects) => {
+          const catalog = runtime?.services.catalog as CatalogServices | undefined;
+          if (!catalog) throw new Error("Catalog current Product facts are not mounted.");
+          return catalog.listingAuthority.readCurrentProducts(subjects, { maxAgeMs: 1000 });
+        },
+      } satisfies MarketplaceListingCurrentReadinessPorts,
       ...(pools.pricing ? { managedOfferPricing: createBuyerOfferPricing(pools.pricing) } : {}),
       processorGateway: paymentProcessorGateway,
       moneyMovementGateway,
@@ -328,7 +354,14 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
       inventoryCleanupAuthority: { kind: "not-mounted" },
       marketplaceChannelInboundClamp,
       channelCredentialKeyring: config.channelCredentialKeyring,
-      ...(pools.inventory ? { channelSaleRecorder: createPlatformChannelSaleRecorder(pools.inventory) } : {}),
+      ...(pools.inventory
+        ? {
+            channelSaleRecorder: createPlatformChannelSaleRecorder(
+              pools.inventory,
+              listingSourceHostPorts["inventory.listingAuthorityConsumer"],
+            ),
+          }
+        : {}),
       searchEmbeddingConfig: config.discoverySearchEmbeddings,
       ...(marketplaceLabelPostageActivation ? { marketplaceLabelPostageActivation } : {}),
     },
@@ -458,6 +491,7 @@ const agentWebhookDispatchRunners = platformWorkerGroupsEnabled
   : [];
 const scheduledJobRunners = platformWorkerGroupsEnabled
   ? [
+      ...createListingAuthorityRecoveryRunners(runtime.services, controlPlane),
       ...createRegisteredScheduledRunners({
         services: runtime.services,
         config,

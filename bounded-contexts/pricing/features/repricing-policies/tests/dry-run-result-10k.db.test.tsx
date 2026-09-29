@@ -12,7 +12,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as pricingModule } from "../../../index";
 import type { PricingApiEnv } from "../../../api";
-import { createRepricingEngineRuntime } from "../../repricing-engine/api/runtime";
+import { createRepricingEngineRuntime } from "../../repricing-engine/tests/round-runtime-fixture";
 import { createRepricingDryRunRoutes } from "../../repricing-engine/api/dry-run-route";
 import type { RepricingDryRun } from "../../repricing-engine/api/dry-run";
 import type { RepricingPolicyListingTrace } from "../../repricing-engine/domain/fact";

@@ -19,6 +19,7 @@
     "./consistency": "./consistency.ts",
     "./domain": "./domain.ts",
     "./event-store": "./event-store.ts",
+    "./listing-authority": "./listing-authority.ts",
     "./platform-coverage-facts": "./platform-coverage-facts.ts",
     "./projector": "./projector.ts",
     "./review-scoring-facts": "./review-scoring-facts.ts",
