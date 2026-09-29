@@ -113,14 +113,47 @@ function normalizeRepoPath(value) {
   return path.posix.normalize(value.replaceAll("\\", "/")).replace(/^\.\//, "");
 }
 
-function fileCandidates(target) {
-  if (supportedSourceExtensions.some((extension) => target.endsWith(extension))) return [target];
-  return [`${target}.ts`, `${target}.mts`, `${target}/index.ts`, `${target}/index.mts`];
-}
+const canonicalBranches = Object.freeze({
+  INDETERMINATE: Object.freeze({ rules: Object.freeze([]) }),
+  "relative-inside-repository": Object.freeze({
+    rules: Object.freeze(["relative-target"]),
+    matches: ({ relative, escaped }) => relative && !escaped,
+  }),
+  "workspace-export-resolved": Object.freeze({
+    rules: Object.freeze(["workspace-export-exact", "workspace-export-wildcard"]),
+    matches: ({ relative, exported, escaped }) => !relative && Boolean(exported?.target) && !escaped,
+  }),
+  "workspace-export-not-found": Object.freeze({
+    rules: Object.freeze([]),
+    matches: ({ workspaceSpecifier, exported }) => Boolean(workspaceSpecifier) && !exported?.target,
+  }),
+  "path-escapes-repository": Object.freeze({
+    rules: Object.freeze([]),
+    matches: ({ escaped }) => escaped,
+  }),
+  external: Object.freeze({
+    rules: Object.freeze([]),
+    matches: ({ relative, workspaceSpecifier }) => !relative && !workspaceSpecifier,
+  }),
+});
 
-function firstExistingCandidate(target, existingPaths) {
-  return fileCandidates(target).find((candidate) => existingPaths.has(candidate));
-}
+export const MODULE_RESOLUTION_CANONICAL_STATES = Object.freeze(Object.keys(canonicalBranches));
+export const MODULE_RESOLUTION_DERIVATION_RULES = Object.freeze([
+  ...new Set(Object.values(canonicalBranches).flatMap(({ rules }) => rules)),
+]);
+export const MODULE_RESOLUTION_CANDIDATE_ELIGIBILITY = Object.freeze(
+  [
+    { targetForm: "supported-explicit-extension", suffix: "", canonicalSelection: true },
+    { targetForm: "other", suffix: "", canonicalSelection: false },
+    { targetForm: "other", suffix: ".ts", canonicalSelection: true },
+    { targetForm: "other", suffix: ".mts", canonicalSelection: true },
+    { targetForm: "other", suffix: "/index.ts", canonicalSelection: true },
+    { targetForm: "other", suffix: "/index.mts", canonicalSelection: true },
+  ].map(Object.freeze),
+);
+export const MODULE_RESOLUTION_CANDIDATE_SUFFIXES = Object.freeze([
+  ...new Set(MODULE_RESOLUTION_CANDIDATE_ELIGIBILITY.map(({ suffix }) => suffix)),
+]);
 
 function parseWorkspaceSpecifier(specifierText, workspacePackages) {
   for (const packageName of workspacePackages.keys()) {
@@ -137,42 +170,95 @@ function resolveWorkspaceExport(packageRecord, subpath) {
   if (!exportsMap || typeof exportsMap !== "object" || Array.isArray(exportsMap)) return null;
   const key = subpath === null ? "." : `./${subpath}`;
   const exactTarget = exportsMap[key];
-  if (typeof exactTarget === "string") return exactTarget;
+  const [exactRule, wildcardRule] = canonicalBranches["workspace-export-resolved"].rules;
+  if (typeof exactTarget === "string") return { target: exactTarget, rule: exactRule };
   if (subpath === null) return null;
   const wildcardKeys = Object.keys(exportsMap).filter((candidate) => candidate === "./*");
   if (wildcardKeys.length !== 1 || typeof exportsMap["./*"] !== "string") return null;
-  return exportsMap["./*"].replaceAll("*", subpath);
+  return { target: exportsMap["./*"].replaceAll("*", subpath), rule: wildcardRule };
 }
 
 /**
- * Resolve a specifier from immutable repository metadata. The function performs
- * no I/O and returns the same result for the same inputs.
+ * Normalize only at the shipped importer/target boundaries. Suffix-expanded
+ * paths are exact lookup strings, including root and trailing-slash targets.
  */
-export function resolveModule({ importerPath, specifierText, workspacePackages, existingPaths }) {
+export function enumerateCanonicalModuleCandidates({ importerPath, specifierText, workspacePackages }) {
   const normalizedImporter = normalizeRepoPath(importerPath);
-  if (specifierText.startsWith("./") || specifierText.startsWith("../")) {
-    const target = normalizeRepoPath(path.posix.join(path.posix.dirname(normalizedImporter), specifierText));
-    if (target === ".." || target.startsWith("../")) {
-      return { kind: "unresolved", reason: "path-escapes-repository" };
-    }
-    const candidate = firstExistingCandidate(target, existingPaths);
-    return candidate ? { kind: "repo", path: candidate } : { kind: "unresolved", reason: "missing-file" };
-  }
-
-  const workspaceSpecifier = parseWorkspaceSpecifier(specifierText, workspacePackages);
-  if (workspaceSpecifier) {
+  const relative = specifierText.startsWith("./") || specifierText.startsWith("../");
+  const workspaceSpecifier = relative ? null : parseWorkspaceSpecifier(specifierText, workspacePackages);
+  let exported = null;
+  let target = null;
+  let rule = null;
+  if (relative) {
+    target = normalizeRepoPath(path.posix.join(path.posix.dirname(normalizedImporter), specifierText));
+    [rule] = canonicalBranches["relative-inside-repository"].rules;
+  } else if (workspaceSpecifier) {
     const packageRecord = workspacePackages.get(workspaceSpecifier.packageName);
-    const exportedTarget = resolveWorkspaceExport(packageRecord, workspaceSpecifier.subpath);
-    if (!exportedTarget) return { kind: "unresolved", reason: "workspace-export-not-found" };
-    const target = normalizeRepoPath(path.posix.join(packageRecord.root, exportedTarget));
-    if (target === ".." || target.startsWith("../")) {
-      return { kind: "unresolved", reason: "path-escapes-repository" };
+    exported = resolveWorkspaceExport(packageRecord, workspaceSpecifier.subpath);
+    if (exported?.target) {
+      target = normalizeRepoPath(path.posix.join(packageRecord.root, exported.target));
+      rule = exported.rule;
     }
-    const candidate = firstExistingCandidate(target, existingPaths);
-    return candidate ? { kind: "repo", path: candidate } : { kind: "unresolved", reason: "missing-file" };
   }
+  const escaped = target === ".." || target?.startsWith("../") === true;
+  let canonicalState = "INDETERMINATE";
+  let canonicalTarget = null;
+  for (const [state, branch] of Object.entries(canonicalBranches)) {
+    if (branch.matches?.({ relative, workspaceSpecifier, exported, escaped })) {
+      canonicalState = state;
+      canonicalTarget = branch.rules.length ? target : null;
+      break;
+    }
+  }
+  if (!MODULE_RESOLUTION_CANONICAL_STATES.includes(canonicalState)) throw new TypeError("Unknown canonical state");
+  const candidates = [];
+  if (canonicalTarget !== null) {
+    const targetForm = supportedSourceExtensions.some((extension) => canonicalTarget.endsWith(extension))
+      ? "supported-explicit-extension"
+      : "other";
+    for (const entry of MODULE_RESOLUTION_CANDIDATE_ELIGIBILITY) {
+      if (entry.targetForm !== targetForm) continue;
+      const candidate = {
+        path: canonicalTarget + entry.suffix,
+        rule,
+        suffix: entry.suffix,
+        canonicalSelection: entry.canonicalSelection,
+      };
+      if (
+        !MODULE_RESOLUTION_DERIVATION_RULES.includes(candidate.rule) ||
+        !MODULE_RESOLUTION_CANDIDATE_SUFFIXES.includes(candidate.suffix)
+      )
+        throw new TypeError("Unknown canonical candidate value");
+      candidates.push(Object.freeze(candidate));
+    }
+  }
+  Object.freeze(candidates);
+  return Object.freeze({ canonicalState, canonicalTarget, candidates });
+}
 
-  return { kind: "external" };
+/** Select the first eligible exact-string hit without probing the filesystem. */
+export function resolveModule({ importerPath, specifierText, workspacePackages, existingPaths }) {
+  const record = enumerateCanonicalModuleCandidates({ importerPath, specifierText, workspacePackages });
+  if (record.canonicalTarget !== null) {
+    const selected = record.candidates.find(
+      (candidate) => candidate.canonicalSelection && existingPaths.has(candidate.path),
+    );
+    return selected ? { kind: "repo", path: selected.path } : { kind: "unresolved", reason: "missing-file" };
+  }
+  if (record.canonicalState === "external") return { kind: "external" };
+  return { kind: "unresolved", reason: record.canonicalState };
+}
+
+export function buildModuleResolutionContextFixture({ files, packages }) {
+  return {
+    workspacePackages: new Map(
+      packages.map(([name, record]) => [
+        name,
+        Object.freeze({ root: normalizeRepoPath(record.root), exports: record.exports }),
+      ]),
+    ),
+    existingPaths: new Set(files.map(normalizeRepoPath)),
+  };
 }
 
 function workspacePatterns(repoRoot) {
