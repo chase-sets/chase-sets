@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { Hono } from "hono";
+import { mountApiRouters, resolveModuleApiMounts } from "@chase-sets/bounded-context-runtime";
+import { createTestApp } from "@chase-sets/bounded-context-runtime/test-support";
 import type { AuthenticatedApiEnv, ResolvedActor } from "@chase-sets/auth-context";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createCatalogProviderConnectionsReadSource } from "@chase-sets/catalog/server";
@@ -105,16 +106,18 @@ function fixture({
       channels: createChannelConnectionsOperatorReadSourceFromReadModel({ query }),
     },
   });
-  const api = new Hono<AuthenticatedApiEnv>();
-  api.use("*", async (c, next) => {
-    const actor = await auth.resolve();
-    if (actor) c.set("actor", actor);
-    await next();
+  const api = createTestApp<AuthenticatedApiEnv>({
+    actor: null,
+    context: null,
+    routes(app) {
+      app.use("*", async (c, next) => {
+        const actor = await auth.resolve();
+        if (actor) c.set("actor", actor);
+        await next();
+      });
+      mountApiRouters(app, resolveModuleApiMounts(platformOperations, services));
+    },
   });
-  for (const mount of platformOperations.buildApis(services)) {
-    if (!(mount.router instanceof Hono)) throw new Error("Expected a Hono API mount");
-    api.route(mount.mountPath, mount.router);
-  }
   return { api, query };
 }
 
