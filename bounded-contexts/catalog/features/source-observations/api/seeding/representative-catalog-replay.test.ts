@@ -47,9 +47,7 @@ describe("pack-backed replay target", () => {
     ],
   ])("refuses %s before fetch", async (_reason, target) => {
     const adapter = createPackBackedProviderAdapter(manifest, []);
-    await expect(adapter.planImport(target as never)).rejects.toThrow(
-      "representative-catalog-pack-contract-invalid",
-    );
+    await expect(adapter.planImport(target as never)).rejects.toThrow("representative-catalog-pack-contract-invalid");
   });
 
   it.each([
