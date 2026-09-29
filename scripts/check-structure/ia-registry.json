@@ -278,6 +278,13 @@
     {
       "deployable": "admin-web",
       "section": "platform",
+      "family": "provider-connections",
+      "owningContext": "platform-operations",
+      "purpose": "Read-only Catalog provider and Channels connection operator overview."
+    },
+    {
+      "deployable": "admin-web",
+      "section": "platform",
       "family": "operations-attention",
       "owningContext": "platform-operations",
       "purpose": "Operator operations attention queue (platform-operations): the 'what needs you, most important first' landing surface composing projection, support, and feedback signals into one severity-ordered queue."

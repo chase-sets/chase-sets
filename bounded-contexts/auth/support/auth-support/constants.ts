@@ -10,6 +10,7 @@ export const AUTH_PERMISSION_PRESETS = {
 
 export const AUTH_ROLE_PERMISSIONS = {
   "platform-admin": [
+    "provider-connections.view",
     "accounts.manage",
     "accounts.view",
     "catalog.manage",
