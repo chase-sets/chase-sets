@@ -2428,7 +2428,7 @@ describeDb("seller-options revision rebuild from source history", () => {
     await expect(
       run("bootstrap", {
         ...group,
-        reset: (context) => group.reset(context),
+        reset: (context) => withPgTransaction(databases.checkout, (db) => group.reset(context, { db })),
         subscriptionRunners: group.subscriptionRunners.map((runner) =>
           runner !== lastRunner
             ? runner

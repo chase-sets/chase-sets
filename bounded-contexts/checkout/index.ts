@@ -87,12 +87,23 @@ const baseModule = defineBoundedContextModule<CheckoutServices, PgTransactionalP
 
 export const module = {
   ...baseModule,
-  buildProjectionGroups: (): readonly BcProjectionGroup[] =>
-    (baseModule.projectionGroups ?? []).map((group) =>
+  buildProjectionGroups(this: Pick<typeof baseModule, "projectionGroups">): readonly BcProjectionGroup[] {
+    return (this.projectionGroups ?? []).map((group) =>
       group.projectionName === "checkout-marketplace-listing-options-projection"
         ? {
             ...group,
             reset: defineBcProjectionGroupReset(async (db: PgQueryable) => {
+              if (group.resetStrategy === "truncate-owned-tables") {
+                const ownedTables = group.ownedTables.map((table) => {
+                  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(table)) {
+                    throw new Error(`Invalid checkout projection table name '${table}'.`);
+                  }
+                  return table;
+                });
+                if (ownedTables.length > 0) await db.query(`TRUNCATE TABLE ${ownedTables.join(", ")}`);
+              } else if (group.resetStrategy !== "replay-only") {
+                throw new Error(`Unsupported listing-options reset strategy '${group.resetStrategy}'.`);
+              }
               await resetProductMeasurePublicationParts(
                 db,
                 createCheckpointKey(
@@ -106,5 +117,6 @@ export const module = {
             }),
           }
         : group,
-    ),
+    );
+  },
 };
