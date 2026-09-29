@@ -37,7 +37,8 @@ const selected = selectDeclaration(source.bytes);
 const temporaryRoots = [];
 function temporaryRoot() {
   const root = mkdtempSync(path.join(tmpdir(), "emission-oracle-"));
-  expect(path.relative(repoRoot, root).startsWith("..")).toBe(true);
+  const relative = path.relative(repoRoot, root);
+  expect(relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)).toBe(true);
   temporaryRoots.push(root);
   return root;
 }
