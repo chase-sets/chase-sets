@@ -328,6 +328,17 @@ export function createMockPool(): MockPool {
         const key = `${params[0]}:${params[1]}`;
         const value = getProjectionRevisionStore(pool).get(key);
         const generation = getProjectionGroupGenerationStore(pool).get(key);
+        if (sql.includes("FOR UPDATE OF generation, revision")) {
+          const matches =
+            generation?.state === "active" &&
+            generation.active_generation === params[2] &&
+            generation.started_at === params[3] &&
+            value === params[4];
+          return {
+            rows: matches ? [{ active_generation: generation.active_generation }] : [],
+            rowCount: matches ? 1 : 0,
+          };
+        }
         if (sql.includes("generation_active_generation")) {
           return {
             rows: [
@@ -350,6 +361,16 @@ export function createMockPool(): MockPool {
         const key = `${params[0]}:${params[1]}`;
         const generation = getProjectionGroupGenerationStore(pool).get(key);
         if (sql.includes("FOR UPDATE")) {
+          if (sql.includes("generation.state = 'active'")) {
+            const matches =
+              generation?.state === "active" &&
+              generation.rebuilding_generation === null &&
+              generation.active_generation === params[2];
+            return {
+              rows: matches ? [{ active_generation: generation.active_generation }] : [],
+              rowCount: matches ? 1 : 0,
+            };
+          }
           const expectedToken = String(params[2]);
           return {
             rows:

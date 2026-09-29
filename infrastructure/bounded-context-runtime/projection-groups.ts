@@ -56,6 +56,12 @@ export type ProjectionGroupGeneration = Readonly<{
 // Preserve PostgreSQL microseconds as text to distinguish those attempts.
 export type ProjectionGroupRevisionSyncToken = Readonly<{ generation: string; startedAt: string }>;
 
+type ProjectionGroupRevisionSyncCapture =
+  | ProjectionGroupRevisionSyncToken
+  | Readonly<{ activeGeneration: string }>
+  | null
+  | undefined;
+
 export type ProjectionGroupStatusRefreshOptions = Readonly<{
   captureRevisionSyncToken?: boolean;
 }>;
@@ -86,7 +92,7 @@ export type ContextProjectionGroupStatus = Readonly<{
 
 export type RefreshedContextProjectionGroupStatus = ContextProjectionGroupStatus &
   Readonly<{
-    revisionSyncToken?: ProjectionGroupRevisionSyncToken | null;
+    revisionSyncToken?: ProjectionGroupRevisionSyncCapture;
   }>;
 
 export type ProjectionReplayContextSummary = Readonly<{
@@ -137,8 +143,11 @@ export type ContextProjectionGroup = Readonly<{
   reset: (context?: ProjectionRunContext, options?: ProjectionResetOptions) => Promise<void>;
   getStatus: () => ContextProjectionGroupStatus;
   refreshStatus: (options?: ProjectionGroupStatusRefreshOptions) => Promise<RefreshedContextProjectionGroupStatus>;
-  // null captures an absent row; undefined captures a row that must not be settled.
-  markRevisionSynced: (expectedToken: ProjectionGroupRevisionSyncToken | null | undefined) => Promise<void>;
+  // null captures absence; undefined cannot authorize completion.
+  markRevisionSynced: (
+    expectedToken: ProjectionGroupRevisionSyncCapture,
+    context?: ProjectionRunContext,
+  ) => Promise<void>;
   startGenerationRebuild?: (context?: ProjectionRunContext) => Promise<ProjectionGroupRevisionSyncToken>;
   completeGenerationRebuild?: (
     expectedToken: ProjectionGroupRevisionSyncToken,
@@ -180,7 +189,7 @@ async function loadProjectionGroupRevision(
 ): Promise<
   Readonly<{
     revision: number | null;
-    revisionSyncToken: ProjectionGroupRevisionSyncToken | null | undefined;
+    revisionSyncToken: ProjectionGroupRevisionSyncCapture;
   }>
 > {
   const result = captureRevisionSyncToken
@@ -232,7 +241,9 @@ async function loadProjectionGroupRevision(
               generation: generation.rebuildingGeneration,
               startedAt: generationRow.generation_started_at,
             }) ?? undefined)
-          : undefined,
+          : generation?.state === "active"
+            ? { activeGeneration: generation.activeGeneration }
+            : undefined,
   };
 }
 
@@ -319,7 +330,7 @@ function assertProjectionGroupRevisionSyncToken(value: unknown): ProjectionGroup
 }
 
 async function saveProjectionGroupRevision(
-  db: PgTransactionalPool,
+  db: PgQueryable,
   targetContextName: string,
   projectionName: string,
   projectionRevision: number,
@@ -380,13 +391,13 @@ async function startProjectionGroupGenerationRebuild(
 }
 
 async function completeProjectionGroupGenerationRebuild(
-  db: PgTransactionalPool,
+  db: PgQueryable,
   group: Pick<ContextProjectionGroup, "targetContextName" | "projectionName">,
   expectedToken: ProjectionGroupRevisionSyncToken,
   context?: ProjectionRunContext,
-): Promise<void> {
+): Promise<boolean> {
   context?.throwIfLeaseLost?.();
-  await db.query(
+  const result = await db.query(
     `UPDATE ${PROJECTION_GROUP_GENERATIONS_TABLE} AS generation
      SET previous_generation = generation.active_generation,
        previous_generation_retain_until = now() + interval '7 days',
@@ -409,6 +420,7 @@ async function completeProjectionGroupGenerationRebuild(
       context?.operationId ?? null,
     ],
   );
+  return result.rowCount === 1;
 }
 
 async function failProjectionGroupGenerationRebuild(
@@ -470,15 +482,26 @@ async function markProjectionGroupRebuilding(
 }
 
 async function settleProjectionGroupGeneration(
-  db: PgTransactionalPool,
+  db: PgQueryable,
   group: Pick<ContextProjectionGroup, "targetContextName" | "projectionName">,
-  expectedToken: ProjectionGroupRevisionSyncToken | null | undefined,
-): Promise<void> {
+  expectedToken: ProjectionGroupRevisionSyncCapture,
+): Promise<boolean> {
   if (expectedToken === undefined) {
-    return;
+    return false;
+  }
+  if (expectedToken !== null && "activeGeneration" in expectedToken) {
+    const result = await db.query(
+      `SELECT generation.active_generation FROM ${PROJECTION_GROUP_GENERATIONS_TABLE} AS generation
+       WHERE generation.target_context_name = $1 AND generation.projection_name = $2
+         AND generation.state = 'active' AND generation.rebuilding_generation IS NULL
+         AND generation.active_generation = $3::bigint
+       FOR UPDATE`,
+      [group.targetContextName, group.projectionName, expectedToken.activeGeneration],
+    );
+    return result.rowCount === 1;
   }
   if (expectedToken === null) {
-    await db.query(
+    const result = await db.query(
       `INSERT INTO ${PROJECTION_GROUP_GENERATIONS_TABLE} (
          target_context_name,
          projection_name,
@@ -495,10 +518,10 @@ async function settleProjectionGroupGeneration(
        ON CONFLICT (target_context_name, projection_name) DO NOTHING`,
       [group.targetContextName, group.projectionName],
     );
-    return;
+    return result.rowCount === 1;
   }
 
-  await db.query(
+  const result = await db.query(
     `UPDATE ${PROJECTION_GROUP_GENERATIONS_TABLE} AS generation
      SET active_generation = generation.rebuilding_generation,
          rebuilding_generation = NULL,
@@ -517,6 +540,50 @@ async function settleProjectionGroupGeneration(
       expectedToken.startedAt,
     ],
   );
+  return result.rowCount === 1;
+}
+
+async function completeProjectionGroupRevision(
+  pool: PgTransactionalPool,
+  group: Pick<ContextProjectionGroup, "targetContextName" | "projectionName" | "projectionRevision">,
+  expectedToken: ProjectionGroupRevisionSyncCapture,
+  generationCutover: boolean,
+  context?: ProjectionRunContext,
+): Promise<void> {
+  await withProjectionTransaction(pool, context, async (db) => {
+    const rebuildingToken = expectedToken != null && "generation" in expectedToken ? expectedToken : null;
+    const changed =
+      generationCutover && rebuildingToken
+        ? await completeProjectionGroupGenerationRebuild(db, group, rebuildingToken, context)
+        : await settleProjectionGroupGeneration(db, group, expectedToken);
+    if (!changed) {
+      if (rebuildingToken) {
+        const completed = await db.query(
+          `SELECT generation.active_generation
+           FROM ${PROJECTION_GROUP_GENERATIONS_TABLE} AS generation
+           JOIN ${PROJECTION_GROUP_REVISIONS_TABLE} AS revision
+             USING (target_context_name, projection_name)
+           WHERE generation.target_context_name = $1 AND generation.projection_name = $2
+             AND generation.state = 'active' AND generation.rebuilding_generation IS NULL
+             AND generation.active_generation = $3::bigint AND generation.started_at = $4::timestamptz
+             AND revision.projection_revision = $5
+           FOR UPDATE OF generation, revision`,
+          [
+            group.targetContextName,
+            group.projectionName,
+            rebuildingToken.generation,
+            rebuildingToken.startedAt,
+            group.projectionRevision,
+          ],
+        );
+        if (completed.rowCount === 1) return;
+      }
+      throw new Error(
+        `Projection group '${group.targetContextName}.${group.projectionName}' rejected stale rebuild token or revision sync capture.`,
+      );
+    }
+    await saveProjectionGroupRevision(db, group.targetContextName, group.projectionName, group.projectionRevision);
+  });
 }
 
 async function cleanupExpiredProjectionGroupGenerationRetention(db: PgTransactionalPool): Promise<number> {
@@ -743,13 +810,17 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
           { targetContextName: entry.contextName, projectionName: group.projectionName },
           context,
         ),
-      completeGenerationRebuild: (expectedToken, context) =>
-        completeProjectionGroupGenerationRebuild(
+      completeGenerationRebuild: async (expectedToken, context) => {
+        await completeProjectionGroupRevision(
           entry.pool,
-          { targetContextName: entry.contextName, projectionName: group.projectionName },
+          { targetContextName: entry.contextName, projectionName: group.projectionName, projectionRevision },
           expectedToken,
+          true,
           context,
-        ),
+        );
+        revisionState.storedProjectionRevision = projectionRevision;
+        revisionState.updatedAt = new Date().toISOString();
+      },
       failGenerationRebuild: (expectedToken, context) =>
         failProjectionGroupGenerationRebuild(
           entry.pool,
@@ -757,12 +828,13 @@ function resolveContextProjectionGroups(entry: MountedContextRuntimeEntry): read
           expectedToken,
           context,
         ),
-      markRevisionSynced: async (expectedToken) => {
-        await saveProjectionGroupRevision(entry.pool, entry.contextName, group.projectionName, projectionRevision);
-        await settleProjectionGroupGeneration(
+      markRevisionSynced: async (expectedToken, context) => {
+        await completeProjectionGroupRevision(
           entry.pool,
-          { targetContextName: entry.contextName, projectionName: group.projectionName },
+          { targetContextName: entry.contextName, projectionName: group.projectionName, projectionRevision },
           expectedToken,
+          group.resetStrategy === "generation-cutover",
+          context,
         );
         revisionState.storedProjectionRevision = projectionRevision;
         revisionState.updatedAt = new Date().toISOString();
@@ -1017,7 +1089,7 @@ export async function syncProjectionGroup(
 
   await drainContextProcesses({ subscriptionRunners: group.subscriptionRunners }, context);
   context?.throwIfLeaseLost?.();
-  await group.markRevisionSynced(refreshedStatus.revisionSyncToken);
+  await group.markRevisionSynced(refreshedStatus.revisionSyncToken, context);
 }
 
 export async function resetProjectionGroup(
@@ -1067,10 +1139,15 @@ export async function rebuildProjectionGroup(
     context?.throwIfLeaseLost?.();
 
     if (useGenerationRebuild) {
-      await group.completeGenerationRebuild?.(revisionSyncToken!, context);
+      if (!group.completeGenerationRebuild) {
+        throw new Error(
+          `Projection group '${group.targetContextName}.${group.projectionName}' is missing generation completion support.`,
+        );
+      }
+      await group.completeGenerationRebuild(revisionSyncToken!, context);
+    } else {
+      await group.markRevisionSynced(revisionSyncToken, context);
     }
-
-    await group.markRevisionSynced(revisionSyncToken);
   } catch (error) {
     if (useGenerationRebuild && revisionSyncToken !== null) {
       await group.failGenerationRebuild?.(revisionSyncToken, context);
