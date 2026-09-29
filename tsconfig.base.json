@@ -855,6 +855,9 @@
       "@chase-sets/product-selection": [
         "./contracts/product-selection/index.ts"
       ],
+      "@chase-sets/provider-credentials": [
+        "./contracts/provider-credentials/index.ts"
+      ],
       "@chase-sets/provider-webhook-inbox": [
         "./infrastructure/provider-webhook-inbox/index.ts"
       ],
