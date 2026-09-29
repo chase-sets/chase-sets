@@ -29,6 +29,7 @@
     { "workspace": "@chase-sets/primitives", "script": "test", "estimatedDurationSeconds": 7 },
     { "workspace": "@chase-sets/product-measures", "script": "test", "estimatedDurationSeconds": 5 },
     { "workspace": "@chase-sets/product-selection", "script": "test", "estimatedDurationSeconds": 5 },
+    { "workspace": "@chase-sets/provider-credentials", "script": "test", "estimatedDurationSeconds": 2 },
     { "workspace": "@chase-sets/provider-webhook-inbox", "script": "test", "estimatedDurationSeconds": 5 },
     { "workspace": "@chase-sets/public-presence", "script": "test", "estimatedDurationSeconds": 52 },
     { "workspace": "@chase-sets/realtime", "script": "test", "estimatedDurationSeconds": 4 },
