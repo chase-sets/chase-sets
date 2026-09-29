@@ -24,10 +24,12 @@ export type ProductMeasurePublicationEvent = Readonly<{
 
 export class ProductMeasurePublicationError extends Error {
   readonly code = "invalid_product_measure_publication";
+  readonly reason: string;
 
-  constructor(readonly reason: string) {
+  constructor(reason: string) {
     super(`Invalid Product Measure Publication: ${reason}`);
     this.name = "ProductMeasurePublicationError";
+    this.reason = reason;
   }
 }
 
