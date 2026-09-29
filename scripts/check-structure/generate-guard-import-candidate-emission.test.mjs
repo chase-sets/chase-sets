@@ -407,22 +407,33 @@ describe("immutable Git-object emission authority", () => {
       ].sort(),
     );
     const ownPath = path.join(import.meta.dirname, "generate-guard-import-candidate-emission.test.mjs");
-    const noReads = spawnSync("rg", ["-n", "readFileSync", generatorPath], { encoding: "utf8", windowsHide: true });
+    const grep = (pattern, files, fixed = true) => {
+      const result = spawnSync(
+        "git",
+        [
+          "grep",
+          "--no-index",
+          "-n",
+          ...(fixed ? ["-F"] : ["-E"]),
+          pattern,
+          "--",
+          ...files.map((file) => path.relative(repoRoot, file).split(path.sep).join("/")),
+        ],
+        { cwd: repoRoot, encoding: "utf8", windowsHide: true },
+      );
+      expect(result.error, "git grep must execute").toBeUndefined();
+      return result;
+    };
+    const noReads = grep("readFileSync", [generatorPath]);
     expect(noReads.status).toBe(1);
-    const noSecondList = spawnSync("rg", ["-n", "-F", fixture[18].specifierText, generatorPath, ownPath], {
-      encoding: "utf8",
-      windowsHide: true,
-    });
+    const noSecondList = grep(fixture[18].specifierText, [generatorPath, ownPath]);
     expect(noSecondList.status).toBe(1);
-    const imports = spawnSync("rg", ["-n", "importer-specifier-fixture", generatorPath, ownPath], {
-      encoding: "utf8",
-      windowsHide: true,
-    });
+    const imports = grep("importer-specifier-fixture", [generatorPath, ownPath]);
     expect(imports.status).toBe(0);
-    const workingTreeReads = spawnSync(
-      "rg",
-      ["-n", ["readFileSync", ".*", PINNED_SOURCE.path.split("/").at(-1)].join(""), ownPath],
-      { encoding: "utf8", windowsHide: true },
+    const workingTreeReads = grep(
+      ["readFileSync", ".*", PINNED_SOURCE.path.split("/").at(-1)].join(""),
+      [ownPath],
+      false,
     );
     expect(workingTreeReads.status).toBe(1);
     expect(
