@@ -3,6 +3,7 @@
   "packageName": "@chase-sets/platform-operations",
   "localeCatalogs": ["contracts/localization/locales/en/platform-operations.ts"],
   "ownedNouns": [
+    "provider-connection",
     "projection-operation",
     "platform-operation-attention",
     "sales-performance-kpi",
@@ -35,6 +36,7 @@
   ],
   "apiBasePath": "/api/platform",
   "slices": [
+    "provider-connections",
     "operations-attention-queue",
     "projection-operations",
     "commercial-terms-attention",
@@ -451,6 +453,11 @@
     }
   ],
   "hostPorts": [
+    {
+      "portName": "providerConnectionsCrossContext",
+      "providedBy": "platform-api",
+      "purpose": "Catalog and Channels owner-authored read-only Provider Connection sources, composed without transferring credential custody."
+    },
     {
       "portName": "notificationOutbox",
       "providedBy": "platform-worker",
@@ -1009,6 +1016,14 @@
           "section": "support"
         },
         {
+          "routeId": "provider-connections",
+          "routePath": "provider-connections",
+          "fileExport": "./routes/admin/provider-connections",
+          "routeType": "route",
+          "sourceContext": "platform-operations",
+          "section": "platform"
+        },
+        {
           "routeId": "operations-attention",
           "routePath": "operations-attention",
           "fileExport": "./routes/admin/operations-attention",
@@ -1068,6 +1083,18 @@
     }
   ],
   "shellContributions": [
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "provider-connections",
+      "label": "Provider connections",
+      "labelKey": "platformOperations.providerConnections.title",
+      "href": "/provider-connections",
+      "section": "platform",
+      "order": 6,
+      "visibility": "signed-in",
+      "requiredPermissions": ["provider-connections.view"]
+    },
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
@@ -1224,6 +1251,11 @@
     }
   ],
   "directoryIntent": {
+    "provider-connections": {
+      "classification": "slice",
+      "purpose": "Own the read-only Provider Connection operator composition, authorization, and section-local availability presentation.",
+      "expectedConsumers": ["Internal platform-operations module composition", "Admin web route contribution"]
+    },
     "commercial-terms-attention": {
       "classification": "slice",
       "purpose": "Own the commercial-terms-attention read model for upcoming schedules and expiring account overrides.",

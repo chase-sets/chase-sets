@@ -30,6 +30,7 @@ export type RoleAssignmentAuthority =
   | Readonly<{ type: "system" }>
   | Readonly<{ type: "platform-bootstrap" }>;
 export type PermissionKey =
+  | "provider-connections.view"
   | "accounts.manage"
   | "accounts.view"
   | "catalog.manage"

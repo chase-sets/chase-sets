@@ -66,3 +66,5 @@ export type {
 } from "./features/source-observations/ui/contracts";
 export type { CatalogBulkReviewJob } from "./support/shell-support/api/client";
 export type { CatalogItemDetail } from "./features/catalog-items/ui/contracts";
+export { createCatalogProviderConnectionsReadSource } from "./features/source-observations/api/admin/provider-connections-read-source";
+export type { CatalogServices } from "./support/authoring-support/services";

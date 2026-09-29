@@ -236,7 +236,7 @@ function jobMatchesUnit(
   return providerUnits.length === 1;
 }
 
-function buildProviderReadiness(
+export function buildProviderReadiness(
   units: readonly CatalogIntegrationControlPlaneUnitReadiness[],
 ): readonly CatalogIntegrationProviderReadiness[] {
   const providers = new Map<string, CatalogIntegrationControlPlaneUnitReadiness[]>();

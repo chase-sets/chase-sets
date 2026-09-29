@@ -13,6 +13,7 @@ import { resolveAdminWebNavItems, resolveAdminWebSectionNavItems } from "./host"
  */
 const ROLE_PERMISSIONS = {
   "platform-admin": [
+    "provider-connections.view",
     "accounts.manage",
     "accounts.view",
     "catalog.manage",

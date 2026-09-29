@@ -30,6 +30,8 @@ import {
 } from "@chase-sets/discovery/server";
 import {
   catalogRealtimeManifest,
+  createCatalogProviderConnectionsReadSource,
+  type CatalogServices,
   catalogRealtimeTopicPolicyManifest,
   resolveCatalogProductSelection,
 } from "@chase-sets/catalog/server";
@@ -203,7 +205,11 @@ import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
 import { listActivePolicyDocuments } from "@chase-sets/platform-policy/queries";
 import type { JsonValue } from "@chase-sets/primitives/json";
 import { apiContextRegistry } from "./generated/api-context-registry";
-import { createChannelActionAttentionSourceFromReadModel } from "@chase-sets/channels/server";
+import {
+  createChannelActionAttentionSourceFromReadModel,
+  createChannelConnectionsOperatorReadSourceFromReadModel,
+} from "@chase-sets/channels/server";
+import type { ProviderConnectionsCrossContextPort } from "@chase-sets/platform-operations/server";
 import {
   createMarketplaceChannelInboundClampCapability,
   type MarketplaceChannelInboundClampCapability,
@@ -632,6 +638,13 @@ export function createPlatformApiHost(
       }
     : undefined;
 
+  const providerConnectionsCrossContext: ProviderConnectionsCrossContextPort = {
+    catalog: createCatalogProviderConnectionsReadSource(
+      () => (runtime?.services.catalog as CatalogServices | undefined)?.sourceObservations,
+    ),
+    ...(channelsPool ? { channels: createChannelConnectionsOperatorReadSourceFromReadModel(channelsPool) } : {}),
+  };
+
   runtime = createApiHost(apiContextRegistry, "platform-api", {
     ...options,
     runtimeProfile,
@@ -649,6 +662,7 @@ export function createPlatformApiHost(
       ...(policyConsoleCrossContext ? { policyConsoleCrossContext } : {}),
       ...(supportReferenceLookupCrossContext ? { supportReferenceLookupCrossContext } : {}),
       ...(opsMarketAnalyticsCrossContext ? { opsMarketAnalyticsCrossContext } : {}),
+      providerConnectionsCrossContext,
       ...(offerEconomicsCrossContext ? { offerEconomicsCrossContext } : {}),
       sellerAttentionSources,
       publicPolicySources,
