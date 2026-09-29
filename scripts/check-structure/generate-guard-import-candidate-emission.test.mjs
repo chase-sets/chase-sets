@@ -565,34 +565,51 @@ describe("immutable Git-object emission authority", () => {
   it("AC9 candidate-string and same-blob provenance mutants redden independent controls", async () => {
     const root = temporaryRoot();
     const target = path.join(root, "emission-oracle.json");
+    // Serialize every copy with the generator's own formatter so only the mutation can move the bytes.
+    const serialize = async (value) =>
+      Buffer.from(await format(JSON.stringify(value), { parser: "json", tabWidth: 2, printWidth: 120 }));
+    const regenerated = await serialize(buildArtifact(coordinate));
+    expect(regenerated.equals(artifactBytes)).toBe(true);
+    const expected = JSON.parse(regenerated.toString("utf8"));
     const mutations = [
+      ["identity", () => {}, []],
       [
         "candidate row 1 index 0",
         (value) => {
           value.rows[0].candidates[0] += "-mutant";
         },
+        [{ row: 1, index: 0 }],
       ],
       [
         "same-blob provenance",
         (value) => {
           value.sourceCommit = sameBlobCommit;
         },
+        undefined,
       ],
     ];
-    for (const [name, mutate] of mutations) {
+    for (const [name, mutate, expectedMoved] of mutations) {
       writeFileSync(target, artifactBytes);
       try {
         const value = JSON.parse(readFileSync(target, "utf8"));
         mutate(value);
-        writeFileSync(target, `${JSON.stringify(value, null, 2)}\n`);
-        if (name.startsWith("candidate")) {
-          const regenerated = Buffer.from(
-            await format(JSON.stringify(buildArtifact(coordinate)), { parser: "json", tabWidth: 2, printWidth: 120 }),
-          );
-          expect(regenerated.equals(artifactBytes)).toBe(true);
-          expect(() => expect(readFileSync(target).equals(regenerated)).toBe(true)).toThrow();
-        } else refusal(() => assertArtifactProvenance(value), "SOURCE_COMMIT_NOT_PINNED", "artifact-source-commit");
-        emit("ARTIFACT_MUTANT_RED", name);
+        writeFileSync(target, await serialize(value));
+        if (expectedMoved) {
+          const mutated = JSON.parse(readFileSync(target, "utf8"));
+          expect({ ...mutated, rows: mutated.rows.length }).toEqual({ ...expected, rows: expected.rows.length });
+          const moved = mutated.rows.flatMap((row, r) => {
+            expect(row.candidates.length).toBe(expected.rows[r].candidates.length);
+            return row.candidates.flatMap((candidate, index) =>
+              candidate === expected.rows[r].candidates[index] ? [] : [{ row: row.index, index }],
+            );
+          });
+          expect(moved).toEqual(expectedMoved);
+          expect(readFileSync(target).equals(regenerated)).toBe(moved.length === 0);
+          emit(moved.length === 0 ? "ARTIFACT_IDENTITY_GREEN" : "ARTIFACT_MUTANT_RED", { name, moved });
+        } else {
+          refusal(() => assertArtifactProvenance(value), "SOURCE_COMMIT_NOT_PINNED", "artifact-source-commit");
+          emit("ARTIFACT_MUTANT_RED", { name });
+        }
       } finally {
         writeFileSync(target, artifactBytes);
       }
