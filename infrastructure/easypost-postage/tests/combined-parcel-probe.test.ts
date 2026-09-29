@@ -1096,7 +1096,16 @@ describe("parsed combined-parcel workflow authority", () => {
       const result = spawnSync(
         process.execPath,
         [join(root, "scripts/managed-postgres-authority-guard.mjs"), "--repository-root", directory],
-        { encoding: "utf8", windowsHide: true },
+        {
+          encoding: "utf8",
+          windowsHide: true,
+          env: {
+            ...process.env,
+            EASYPOST_API_KEY: "",
+            COMBINED_PARCEL_PROBE_CONFIRM: "",
+            COMBINED_PARCEL_PROBE_PHASE: "",
+          },
+        },
       );
       const report = JSON.parse(result.stdout) as {
         violations: { code: string; file: string; jobId: string; secretName: string }[];
