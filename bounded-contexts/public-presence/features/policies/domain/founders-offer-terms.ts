@@ -93,7 +93,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
         productTruthRefs: [
           "docs/campaigns/offer-economics-claims-substantiation.md:30-46",
           "bounded-contexts/identity/api.ts:815-827",
-          `${listingRuntime}:2096-2141`,
+          `${listingRuntime}:2097-2142`,
           `${feeLock}:105-179`,
         ],
         openQuestions: [
@@ -114,7 +114,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Single and bulk price edits preserve all seven stored term fields, tranche count and unit counts.",
-            evidenceRef: `${listingRuntime}:2111-2112; ${targetRuntime}:266-301; ${targetRuntime}:309-401; ${targetRuntime}:702-717; ${feeQuotes}:154-176; ${listingDomain}:833-877; ${feeLock}:105-134`,
+            evidenceRef: `${listingRuntime}:2112-2113; ${targetRuntime}:266-301; ${targetRuntime}:309-401; ${targetRuntime}:702-717; ${feeQuotes}:154-176; ${listingDomain}:833-877; ${feeLock}:105-134`,
           },
           {
             assertion: "Photos, pause and resume preserve existing fee locks.",
@@ -128,7 +128,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Added units use a fresh current quote; reductions retire newest units and re-added units need current terms.",
-            evidenceRef: `${listingDomain}:1036-1064; ${feeLock}:142-179; ${listingRuntime}:2128-2150; ${currentQuoteEvidence}`,
+            evidenceRef: `${listingDomain}:1036-1064; ${feeLock}:142-179; ${listingRuntime}:2129-2151; ${currentQuoteEvidence}`,
           },
           {
             assertion: "Withdrawal is terminal; relisting creates a new identity with current quoted terms.",

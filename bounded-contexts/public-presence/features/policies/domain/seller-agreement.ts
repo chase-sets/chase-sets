@@ -97,8 +97,8 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
         productTruthRefs: [
           "bounded-contexts/marketplace/features/listing-evidence-policy/domain/policy.ts:478-588 (photo requirements for top raw conditions and graded listings; seller-trust price gating)",
           "bounded-contexts/marketplace/features/listings/domain/listing-evidence-readiness.test.ts (publication blocked until evidence/seller-trust requirements are satisfied)",
-          'bounded-contexts/marketplace/features/listings/api/runtime.ts:817,1414,1644 (assert(supply, "Inventory item not found.") — a listing requires an existing catalog-linked inventory row)',
-          "bounded-contexts/marketplace/features/listings/api/runtime.ts:1296-1310 (catalog_catalog_item_id persisted per listing)",
+          'bounded-contexts/marketplace/features/listings/api/runtime.ts:1394,1392,2002 (assert(supply, "Inventory item not found.") — a listing requires an existing catalog-linked inventory row)',
+          "bounded-contexts/marketplace/features/listings/api/runtime.ts:1258-1272 (catalog_catalog_item_id persisted per listing)",
           "bounded-contexts/public-presence/features/help/domain/articles/condition-and-photo-standards.en.md",
         ],
         openQuestions: [],
@@ -106,7 +106,7 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
           {
             assertion:
               "Listings can only be created against an existing catalog entry; there is no free-text or off-catalog listing path.",
-            evidenceRef: "bounded-contexts/marketplace/features/listings/api/runtime.ts:817,1414,1644,1296-1310",
+            evidenceRef: "bounded-contexts/marketplace/features/listings/api/runtime.ts:1394,1392,2002,1258-1272",
           },
           {
             assertion:

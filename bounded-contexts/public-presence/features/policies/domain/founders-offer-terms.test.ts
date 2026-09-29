@@ -382,7 +382,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
     "Single and bulk",
     [
       [
-        `${listingRuntime}:2111-2112`,
+        `${listingRuntime}:2112-2113`,
         /updateListingPrice: targetServices.updateNativePrice/,
         /applyBulkListingPriceUpdates: targetServices.applyNativePrices/,
       ],
@@ -468,7 +468,7 @@ const citationRules: readonly (readonly [assertionStart: string, citations: read
         /const latest = resized.pop\(\)/,
       ],
       [
-        `${listingRuntime}:2128-2150`,
+        `${listingRuntime}:2129-2151`,
         /addedUnitCount = Math.max\(0, params.quantityCap - listing.quantityCap\)/,
         /addedUnitCount > 0 && listing.nativeVisibility === "enabled"\s*\? await quoteListingTerms\(params.accountId, listing.priceAmount\)\s*: null/,
         /assertConfirmedFeeQuote\(params.feeQuoteFingerprint, quote\)/,
