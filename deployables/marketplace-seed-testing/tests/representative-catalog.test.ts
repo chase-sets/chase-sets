@@ -10,6 +10,7 @@ import {
   recordObservationPackAcceptance,
   replayRepresentativeCatalogPacks,
   representativeCatalogExternalReferenceDigest,
+  scrydexOnePieceCardFixture as scrydexCardFixture,
   serializeObservationPackManifest,
   type ObservationPackBundle,
 } from "@chase-sets/catalog/server";
@@ -262,6 +263,33 @@ describe("representative catalog Observation Pack replay", () => {
     await expectNoPackState(seedRuntime.pools.catalog);
   });
 
+  it("replays a synthetic Scrydex expansion-labelled One Piece pack through the seed entrypoint", async () => {
+    process.env.REPRESENTATIVE_CATALOG_PACK_SOURCE = await writeSyntheticScrydexPack();
+    vi.stubGlobal("fetch", async () => {
+      throw new Error("test transport must never be called");
+    });
+
+    await seedRuntime.seed();
+    const result = await seedRuntime.pools.catalog.query<{ status: string; promoted_catalog_item_id: string }>(
+      "SELECT status, promoted_catalog_item_id FROM catalog_source_observations WHERE provider_key = 'scrydex'",
+    );
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({ status: "promoted", promoted_catalog_item_id: expect.any(String) });
+    const items = await replayEvidence(seedRuntime.pools.catalog, [result.rows[0]!.promoted_catalog_item_id]);
+    expect(items).toMatchObject([{ status: "active" }]);
+  }, 240_000);
+
+  it("refuses a conflicting synthetic Scrydex manifest before recording pack state", async () => {
+    process.env.REPRESENTATIVE_CATALOG_PACK_SOURCE = await writeSyntheticScrydexPack(true);
+
+    await expect(seedRuntime.seed()).rejects.toThrow("representative-catalog-import-failed");
+    const observations = await seedRuntime.pools.catalog.query<{ count: string }>(
+      "SELECT COUNT(*) AS count FROM catalog_source_observations WHERE provider_key = 'scrydex'",
+    );
+    expect(Number(observations.rows[0]?.count ?? 0)).toBe(0);
+    expect(storedAssets.size).toBe(0);
+  }, 240_000);
+
   it("keeps representative Catalog replay off through the real no-options seed entrypoint", async () => {
     process.env.REPRESENTATIVE_CATALOG_PACK_SOURCE = path.join(tmpdir(), "must-not-be-read-by-default-profile");
 
@@ -476,6 +504,66 @@ async function writeSyntheticPack(options: {
       })
     : bundle.manifest;
 
+  for (const file of bundle.files) {
+    const target = path.join(root, ...file.path.split("/"));
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, file.path === "manifest.json" ? serializeObservationPackManifest(manifest) : file.body);
+  }
+  return root;
+}
+
+async function writeSyntheticScrydexPack(conflictingCoordinate = false): Promise<string> {
+  const root = await mkdtemp(path.join(tmpdir(), "representative-catalog-synthetic-scrydex-"));
+  temporaryRoots.push(root);
+  const imageUrl = "https://images.example.invalid/synthetic/one-piece-card.png";
+  const payload = {
+    ...scrydexCardFixture,
+    card: { ...scrydexCardFixture.card, imageUrls: [imageUrl] },
+  };
+  const envelope = {
+    unitKey: "scrydex:one-piece:single-card:source-observation-import",
+    providerKey: "scrydex",
+    externalKey: "card:op01-001",
+    payload,
+    provenance: { sourceUrl: payload.sourceUrl, sourceUpdatedAt: "2022-12-02", fetchedAt: "2026-06-23T00:00:00.000Z" },
+  };
+  const bundle = buildObservationPack({
+    packId: "synthetic-scrydex-one-piece-romance-dawn-en",
+    packVersion: "v1-synthetic",
+    capturedAt: "2026-07-22T18:00:00-05:00",
+    identity: {
+      productLineKey: "one-piece-card-game",
+      productLineDisplayName: "One Piece Card Game",
+      setKind: "set",
+      setExternalId: "OP01",
+      setDisplayName: "Romance Dawn",
+      providerKey: "scrydex",
+      integrationProfileKey: "one-piece-card-print-source-observation",
+      integrationProfileVersion: "2026.06.22",
+      ingestionUnit: envelope.unitKey,
+      language: "en",
+      scopeKey: "expansion",
+      scopeCoordinates: {
+        languageCode: "en",
+        expansionId: "OP01",
+        ...(conflictingCoordinate ? { setId: "OP02" } : {}),
+      },
+    },
+    envelopes: [envelope],
+    assets: [
+      {
+        bytes: sourceImage,
+        mediaType: "image/png",
+        sourceReference: imageUrl,
+        envelopeContentHashes: [observationPackEnvelopeContentHash(envelope)],
+      },
+    ],
+  });
+  const manifest = recordObservationPackAcceptance(bundle.manifest, {
+    acceptedBy: "Todd",
+    acceptedAt: "2026-07-22T18:30:00-05:00",
+    decisionLink: OBSERVATION_PACK_DECISION_LINK,
+  });
   for (const file of bundle.files) {
     const target = path.join(root, ...file.path.split("/"));
     await mkdir(path.dirname(target), { recursive: true });
