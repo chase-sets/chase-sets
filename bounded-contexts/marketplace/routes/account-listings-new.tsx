@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { listingActionFeedback, throwListingActionFailure } from "../features/listings/ui/listing-action-errors";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
 import { requireActorFromAuthApi, resolveRequiredActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
@@ -42,7 +43,12 @@ function currentAccountPath(request: Request) {
 }
 
 function marketplaceApiErrorCode(error: unknown) {
-  if (!(error instanceof MarketplaceApiError) || typeof error.body !== "object" || error.body === null) {
+  if (
+    !(error instanceof MarketplaceApiError) ||
+    listingActionFeedback(error) === null ||
+    typeof error.body !== "object" ||
+    error.body === null
+  ) {
     return null;
   }
 
@@ -210,7 +216,7 @@ async function createListingFromMarketplaceSupplySnapshot(
   const quantityCap = Number(createForm.quantityCap ?? 0);
   const inventoryItem = await loadSelectedMarketplaceSupplyItem(api, createForm.inventoryItemId);
   if (!inventoryItem) {
-    throw new Error(t("marketplace.routes.accountListingsNew.inventory.item.preparing"));
+    return null;
   }
 
   const listingBody = {
@@ -451,7 +457,7 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
           throw error;
         }
 
-        result = await createListingFromMarketplaceSupplySnapshot(
+        const recovered = await createListingFromMarketplaceSupplySnapshot(
           api,
           {
             inventoryItemId: createForm.inventoryItemId,
@@ -462,6 +468,10 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
           purchaseLimits,
           listingPhotoFiles,
         );
+        if (recovered === null) {
+          return { createForm, error: t("marketplace.routes.accountListingsNew.inventory.item.preparing") };
+        }
+        result = recovered;
       }
 
       const redirectReceipts: unknown[] = [result];
@@ -501,14 +511,15 @@ async function handleAction(intent: string, { request, formData }: FormActionCon
 
     return redirect("/account/listings/new");
   } catch (error) {
-    if (error instanceof MarketplaceApiError || error instanceof Error) {
+    const feedback = listingActionFeedback(error);
+    if (feedback !== null) {
       return {
         createForm,
-        error: error.message,
+        error: feedback,
       };
     }
 
-    throw error;
+    throwListingActionFailure(error);
   }
 }
 

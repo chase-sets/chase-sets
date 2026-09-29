@@ -1,8 +1,9 @@
+import { MarketplaceListingDomainError } from "./listing-error";
 import { centsToMoneyAmount, moneyToCents, tryMoneyToCents } from "@chase-sets/primitives/money";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
-    throw new Error(message);
+    throw new MarketplaceListingDomainError("command-rejected", message);
   }
 }
 

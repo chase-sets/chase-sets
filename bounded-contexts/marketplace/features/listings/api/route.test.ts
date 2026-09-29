@@ -1,3 +1,4 @@
+import { MarketplaceListingDomainError } from "../domain/listing-error";
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { MarketplaceApiEnv } from "../../../api";
@@ -730,7 +731,9 @@ describe("marketplace listing routes", () => {
 
   it("returns not found without a fee fingerprint when a deterministic listing is not owned", async () => {
     const services = createServices();
-    vi.mocked(services.createListing).mockRejectedValueOnce(new Error("Listing not found."));
+    vi.mocked(services.createListing).mockRejectedValueOnce(
+      new MarketplaceListingDomainError("listing-not-found", "Listing not found."),
+    );
     const app = buildApp({ actor: sellerActor, services });
 
     const response = await app.fetch(
@@ -787,7 +790,9 @@ describe("marketplace listing routes", () => {
 
   it("returns a stable code when listing creation cannot find Marketplace inventory supply", async () => {
     const services = createServices();
-    vi.mocked(services.createListing).mockRejectedValueOnce(new Error("Inventory item not found."));
+    vi.mocked(services.createListing).mockRejectedValueOnce(
+      new MarketplaceListingDomainError("inventory-item-not-found", "Inventory item not found."),
+    );
     const app = buildApp({
       actor: sellerActor,
       services,
