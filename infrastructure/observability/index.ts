@@ -1081,6 +1081,7 @@ export type ProviderWebhookIngestionSignal = Readonly<{
   retryable: boolean;
   providerEventId?: string | null;
   eventKind?: string | null;
+  invariantCode?: string;
 }>;
 
 export function recordProviderWebhookIngestion(event: ProviderWebhookIngestionSignal): void {
@@ -1091,6 +1092,12 @@ export function recordProviderWebhookIngestion(event: ProviderWebhookIngestionSi
     status_code: event.statusCode,
     retryable: event.retryable ? "true" : "false",
     event_kind: boundedMetricLabel(event.eventKind ?? "none"),
+    invariant_code:
+      /^(RecordPayment(Authorization|Capture|Failure|EarlyFraudWarning|FraudReviewOpened|FraudReviewClosed|LiabilityShiftOutcome)|CancelPayment):validation_failed$/.test(
+        event.invariantCode ?? "",
+      )
+        ? event.invariantCode!
+        : "none",
   });
 }
 
