@@ -143,6 +143,7 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     primitives: "runtime-library",
     "product-measures": "runtime-library",
     "product-selection": "runtime-library",
+    "provider-credentials": "runtime-library",
     "public-docs": "runtime-library",
     realtime: "runtime-library",
     "review-eligibility": "runtime-library",
