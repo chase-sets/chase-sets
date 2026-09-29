@@ -1,0 +1,510 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "f78143573af96c636d97696b987a82990df23904",
+  "sourcePath": "scripts/release-qualification-scope.mjs",
+  "sourceBlobObjectId": "0c0e536f46d3f597947e4e2b1b08ce97345460df",
+  "sourceByteLength": 51413,
+  "sourceSha256": "43f554b410922f491b4aa0c755f73188f5e32cb3ea2d35a7417b99c697f1524c",
+  "declarationSha256": "0baa51a3f502e92ad62ecdcd4d1d225e04592d708d5a3cabec34c557a812a312",
+  "declarationByteLength": 1253,
+  "recordedChannel": "candidate-construction",
+  "fixture": [
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": "./inferred" },
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": "./inferred.ts" },
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": "./dual" },
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": "./di" },
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": "./fi" },
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": "./target" },
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": "./t.tsx" },
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": "./onlytsx.tsx" },
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": "./onlymjs.mjs" },
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": "./absent" },
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": "../sibling/mod" },
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": "../../../escape/mod" },
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": ".\\inferred" },
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": ".hidden" },
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": "." },
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": ".." },
+    { "importerPath": "bounded-contexts\\example\\source.ts", "specifierText": "./inferred" },
+    { "importerPath": "packages/example-2/nested/source.ts", "specifierText": "./inferred" },
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": "@chase-sets/example/exact" },
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": "@chase-sets/example/refused" },
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": "@chase-sets/example/a/../b" },
+    {
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "@chase-sets/example/../../packages/example/x"
+    },
+    {
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "@chase-sets/bounded-context-runtime/../../infrastructure/bounded-context-runtime/seeding.ts"
+    },
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": "@chase-sets/collider/hit" },
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": "@chase-sets/example-2/deep/sub/path" },
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": "@chase-sets/example" },
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": "@chase-sets/Example/bad" },
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": "@chase-sets/example/" },
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": "node:fs" },
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": "typescript" },
+    { "importerPath": "bounded-contexts/example/source.ts", "specifierText": "@vendor/example/looksalike" }
+  ],
+  "rows": [
+    {
+      "index": 1,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "./inferred",
+      "candidates": [
+        "bounded-contexts/example/inferred",
+        "bounded-contexts/example/inferred.ts",
+        "bounded-contexts/example/inferred.tsx",
+        "bounded-contexts/example/inferred.mjs",
+        "bounded-contexts/example/inferred/index.ts"
+      ]
+    },
+    {
+      "index": 2,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "./inferred.ts",
+      "candidates": [
+        "bounded-contexts/example/inferred.ts",
+        "bounded-contexts/example/inferred.ts.ts",
+        "bounded-contexts/example/inferred.ts.tsx",
+        "bounded-contexts/example/inferred.ts.mjs",
+        "bounded-contexts/example/inferred.ts/index.ts"
+      ]
+    },
+    {
+      "index": 3,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "./dual",
+      "candidates": [
+        "bounded-contexts/example/dual",
+        "bounded-contexts/example/dual.ts",
+        "bounded-contexts/example/dual.tsx",
+        "bounded-contexts/example/dual.mjs",
+        "bounded-contexts/example/dual/index.ts"
+      ]
+    },
+    {
+      "index": 4,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "./di",
+      "candidates": [
+        "bounded-contexts/example/di",
+        "bounded-contexts/example/di.ts",
+        "bounded-contexts/example/di.tsx",
+        "bounded-contexts/example/di.mjs",
+        "bounded-contexts/example/di/index.ts"
+      ]
+    },
+    {
+      "index": 5,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "./fi",
+      "candidates": [
+        "bounded-contexts/example/fi",
+        "bounded-contexts/example/fi.ts",
+        "bounded-contexts/example/fi.tsx",
+        "bounded-contexts/example/fi.mjs",
+        "bounded-contexts/example/fi/index.ts"
+      ]
+    },
+    {
+      "index": 6,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "./target",
+      "candidates": [
+        "bounded-contexts/example/target",
+        "bounded-contexts/example/target.ts",
+        "bounded-contexts/example/target.tsx",
+        "bounded-contexts/example/target.mjs",
+        "bounded-contexts/example/target/index.ts"
+      ]
+    },
+    {
+      "index": 7,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "./t.tsx",
+      "candidates": [
+        "bounded-contexts/example/t.tsx",
+        "bounded-contexts/example/t.tsx.ts",
+        "bounded-contexts/example/t.tsx.tsx",
+        "bounded-contexts/example/t.tsx.mjs",
+        "bounded-contexts/example/t.tsx/index.ts"
+      ]
+    },
+    {
+      "index": 8,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "./onlytsx.tsx",
+      "candidates": [
+        "bounded-contexts/example/onlytsx.tsx",
+        "bounded-contexts/example/onlytsx.tsx.ts",
+        "bounded-contexts/example/onlytsx.tsx.tsx",
+        "bounded-contexts/example/onlytsx.tsx.mjs",
+        "bounded-contexts/example/onlytsx.tsx/index.ts"
+      ]
+    },
+    {
+      "index": 9,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "./onlymjs.mjs",
+      "candidates": [
+        "bounded-contexts/example/onlymjs.mjs",
+        "bounded-contexts/example/onlymjs.mjs.ts",
+        "bounded-contexts/example/onlymjs.mjs.tsx",
+        "bounded-contexts/example/onlymjs.mjs.mjs",
+        "bounded-contexts/example/onlymjs.mjs/index.ts"
+      ]
+    },
+    {
+      "index": 10,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "./absent",
+      "candidates": [
+        "bounded-contexts/example/absent",
+        "bounded-contexts/example/absent.ts",
+        "bounded-contexts/example/absent.tsx",
+        "bounded-contexts/example/absent.mjs",
+        "bounded-contexts/example/absent/index.ts"
+      ]
+    },
+    {
+      "index": 11,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "../sibling/mod",
+      "candidates": [
+        "bounded-contexts/sibling/mod",
+        "bounded-contexts/sibling/mod.ts",
+        "bounded-contexts/sibling/mod.tsx",
+        "bounded-contexts/sibling/mod.mjs",
+        "bounded-contexts/sibling/mod/index.ts"
+      ]
+    },
+    {
+      "index": 12,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "../../../escape/mod",
+      "candidates": [
+        "../escape/mod",
+        "../escape/mod.ts",
+        "../escape/mod.tsx",
+        "../escape/mod.mjs",
+        "../escape/mod/index.ts"
+      ]
+    },
+    {
+      "index": 13,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": ".\\inferred",
+      "candidates": [
+        "bounded-contexts/example/.\\inferred",
+        "bounded-contexts/example/.\\inferred.ts",
+        "bounded-contexts/example/.\\inferred.tsx",
+        "bounded-contexts/example/.\\inferred.mjs",
+        "bounded-contexts/example/.\\inferred/index.ts"
+      ]
+    },
+    {
+      "index": 14,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": ".hidden",
+      "candidates": [
+        "bounded-contexts/example/.hidden",
+        "bounded-contexts/example/.hidden.ts",
+        "bounded-contexts/example/.hidden.tsx",
+        "bounded-contexts/example/.hidden.mjs",
+        "bounded-contexts/example/.hidden/index.ts"
+      ]
+    },
+    {
+      "index": 15,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": ".",
+      "candidates": [
+        "bounded-contexts/example",
+        "bounded-contexts/example.ts",
+        "bounded-contexts/example.tsx",
+        "bounded-contexts/example.mjs",
+        "bounded-contexts/example/index.ts"
+      ]
+    },
+    {
+      "index": 16,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "..",
+      "candidates": [
+        "bounded-contexts",
+        "bounded-contexts.ts",
+        "bounded-contexts.tsx",
+        "bounded-contexts.mjs",
+        "bounded-contexts/index.ts"
+      ]
+    },
+    {
+      "index": 17,
+      "importerPath": "bounded-contexts\\example\\source.ts",
+      "specifierText": "./inferred",
+      "candidates": ["inferred", "inferred.ts", "inferred.tsx", "inferred.mjs", "inferred/index.ts"]
+    },
+    {
+      "index": 18,
+      "importerPath": "packages/example-2/nested/source.ts",
+      "specifierText": "./inferred",
+      "candidates": [
+        "packages/example-2/nested/inferred",
+        "packages/example-2/nested/inferred.ts",
+        "packages/example-2/nested/inferred.tsx",
+        "packages/example-2/nested/inferred.mjs",
+        "packages/example-2/nested/inferred/index.ts"
+      ]
+    },
+    {
+      "index": 19,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "@chase-sets/example/exact",
+      "candidates": [
+        "bounded-contexts/example/exact",
+        "bounded-contexts/example/exact.ts",
+        "bounded-contexts/example/exact/index.ts",
+        "bounded-contexts/example/support/exact",
+        "bounded-contexts/example/support/exact.ts",
+        "bounded-contexts/example/support/exact/index.ts",
+        "contracts/example/exact",
+        "contracts/example/exact.ts",
+        "contracts/example/exact/index.ts",
+        "contracts/example/support/exact",
+        "contracts/example/support/exact.ts",
+        "contracts/example/support/exact/index.ts",
+        "infrastructure/example/exact",
+        "infrastructure/example/exact.ts",
+        "infrastructure/example/exact/index.ts",
+        "infrastructure/example/support/exact",
+        "infrastructure/example/support/exact.ts",
+        "infrastructure/example/support/exact/index.ts",
+        "packages/example/exact",
+        "packages/example/exact.ts",
+        "packages/example/exact/index.ts",
+        "packages/example/support/exact",
+        "packages/example/support/exact.ts",
+        "packages/example/support/exact/index.ts"
+      ]
+    },
+    {
+      "index": 20,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "@chase-sets/example/refused",
+      "candidates": [
+        "bounded-contexts/example/refused",
+        "bounded-contexts/example/refused.ts",
+        "bounded-contexts/example/refused/index.ts",
+        "bounded-contexts/example/support/refused",
+        "bounded-contexts/example/support/refused.ts",
+        "bounded-contexts/example/support/refused/index.ts",
+        "contracts/example/refused",
+        "contracts/example/refused.ts",
+        "contracts/example/refused/index.ts",
+        "contracts/example/support/refused",
+        "contracts/example/support/refused.ts",
+        "contracts/example/support/refused/index.ts",
+        "infrastructure/example/refused",
+        "infrastructure/example/refused.ts",
+        "infrastructure/example/refused/index.ts",
+        "infrastructure/example/support/refused",
+        "infrastructure/example/support/refused.ts",
+        "infrastructure/example/support/refused/index.ts",
+        "packages/example/refused",
+        "packages/example/refused.ts",
+        "packages/example/refused/index.ts",
+        "packages/example/support/refused",
+        "packages/example/support/refused.ts",
+        "packages/example/support/refused/index.ts"
+      ]
+    },
+    {
+      "index": 21,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "@chase-sets/example/a/../b",
+      "candidates": [
+        "bounded-contexts/example/a/../b",
+        "bounded-contexts/example/a/../b.ts",
+        "bounded-contexts/example/a/../b/index.ts",
+        "bounded-contexts/example/support/a/../b",
+        "bounded-contexts/example/support/a/../b.ts",
+        "bounded-contexts/example/support/a/../b/index.ts",
+        "contracts/example/a/../b",
+        "contracts/example/a/../b.ts",
+        "contracts/example/a/../b/index.ts",
+        "contracts/example/support/a/../b",
+        "contracts/example/support/a/../b.ts",
+        "contracts/example/support/a/../b/index.ts",
+        "infrastructure/example/a/../b",
+        "infrastructure/example/a/../b.ts",
+        "infrastructure/example/a/../b/index.ts",
+        "infrastructure/example/support/a/../b",
+        "infrastructure/example/support/a/../b.ts",
+        "infrastructure/example/support/a/../b/index.ts",
+        "packages/example/a/../b",
+        "packages/example/a/../b.ts",
+        "packages/example/a/../b/index.ts",
+        "packages/example/support/a/../b",
+        "packages/example/support/a/../b.ts",
+        "packages/example/support/a/../b/index.ts"
+      ]
+    },
+    {
+      "index": 22,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "@chase-sets/example/../../packages/example/x",
+      "candidates": [
+        "bounded-contexts/example/../../packages/example/x",
+        "bounded-contexts/example/../../packages/example/x.ts",
+        "bounded-contexts/example/../../packages/example/x/index.ts",
+        "bounded-contexts/example/support/../../packages/example/x",
+        "bounded-contexts/example/support/../../packages/example/x.ts",
+        "bounded-contexts/example/support/../../packages/example/x/index.ts",
+        "contracts/example/../../packages/example/x",
+        "contracts/example/../../packages/example/x.ts",
+        "contracts/example/../../packages/example/x/index.ts",
+        "contracts/example/support/../../packages/example/x",
+        "contracts/example/support/../../packages/example/x.ts",
+        "contracts/example/support/../../packages/example/x/index.ts",
+        "infrastructure/example/../../packages/example/x",
+        "infrastructure/example/../../packages/example/x.ts",
+        "infrastructure/example/../../packages/example/x/index.ts",
+        "infrastructure/example/support/../../packages/example/x",
+        "infrastructure/example/support/../../packages/example/x.ts",
+        "infrastructure/example/support/../../packages/example/x/index.ts",
+        "packages/example/../../packages/example/x",
+        "packages/example/../../packages/example/x.ts",
+        "packages/example/../../packages/example/x/index.ts",
+        "packages/example/support/../../packages/example/x",
+        "packages/example/support/../../packages/example/x.ts",
+        "packages/example/support/../../packages/example/x/index.ts"
+      ]
+    },
+    {
+      "index": 23,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "@chase-sets/bounded-context-runtime/../../infrastructure/bounded-context-runtime/seeding.ts",
+      "candidates": [
+        "bounded-contexts/bounded-context-runtime/../../infrastructure/bounded-context-runtime/seeding.ts",
+        "bounded-contexts/bounded-context-runtime/../../infrastructure/bounded-context-runtime/seeding.ts.ts",
+        "bounded-contexts/bounded-context-runtime/../../infrastructure/bounded-context-runtime/seeding.ts/index.ts",
+        "bounded-contexts/bounded-context-runtime/support/../../infrastructure/bounded-context-runtime/seeding.ts",
+        "bounded-contexts/bounded-context-runtime/support/../../infrastructure/bounded-context-runtime/seeding.ts.ts",
+        "bounded-contexts/bounded-context-runtime/support/../../infrastructure/bounded-context-runtime/seeding.ts/index.ts",
+        "contracts/bounded-context-runtime/../../infrastructure/bounded-context-runtime/seeding.ts",
+        "contracts/bounded-context-runtime/../../infrastructure/bounded-context-runtime/seeding.ts.ts",
+        "contracts/bounded-context-runtime/../../infrastructure/bounded-context-runtime/seeding.ts/index.ts",
+        "contracts/bounded-context-runtime/support/../../infrastructure/bounded-context-runtime/seeding.ts",
+        "contracts/bounded-context-runtime/support/../../infrastructure/bounded-context-runtime/seeding.ts.ts",
+        "contracts/bounded-context-runtime/support/../../infrastructure/bounded-context-runtime/seeding.ts/index.ts",
+        "infrastructure/bounded-context-runtime/../../infrastructure/bounded-context-runtime/seeding.ts",
+        "infrastructure/bounded-context-runtime/../../infrastructure/bounded-context-runtime/seeding.ts.ts",
+        "infrastructure/bounded-context-runtime/../../infrastructure/bounded-context-runtime/seeding.ts/index.ts",
+        "infrastructure/bounded-context-runtime/support/../../infrastructure/bounded-context-runtime/seeding.ts",
+        "infrastructure/bounded-context-runtime/support/../../infrastructure/bounded-context-runtime/seeding.ts.ts",
+        "infrastructure/bounded-context-runtime/support/../../infrastructure/bounded-context-runtime/seeding.ts/index.ts",
+        "packages/bounded-context-runtime/../../infrastructure/bounded-context-runtime/seeding.ts",
+        "packages/bounded-context-runtime/../../infrastructure/bounded-context-runtime/seeding.ts.ts",
+        "packages/bounded-context-runtime/../../infrastructure/bounded-context-runtime/seeding.ts/index.ts",
+        "packages/bounded-context-runtime/support/../../infrastructure/bounded-context-runtime/seeding.ts",
+        "packages/bounded-context-runtime/support/../../infrastructure/bounded-context-runtime/seeding.ts.ts",
+        "packages/bounded-context-runtime/support/../../infrastructure/bounded-context-runtime/seeding.ts/index.ts"
+      ]
+    },
+    {
+      "index": 24,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "@chase-sets/collider/hit",
+      "candidates": [
+        "bounded-contexts/collider/hit",
+        "bounded-contexts/collider/hit.ts",
+        "bounded-contexts/collider/hit/index.ts",
+        "bounded-contexts/collider/support/hit",
+        "bounded-contexts/collider/support/hit.ts",
+        "bounded-contexts/collider/support/hit/index.ts",
+        "contracts/collider/hit",
+        "contracts/collider/hit.ts",
+        "contracts/collider/hit/index.ts",
+        "contracts/collider/support/hit",
+        "contracts/collider/support/hit.ts",
+        "contracts/collider/support/hit/index.ts",
+        "infrastructure/collider/hit",
+        "infrastructure/collider/hit.ts",
+        "infrastructure/collider/hit/index.ts",
+        "infrastructure/collider/support/hit",
+        "infrastructure/collider/support/hit.ts",
+        "infrastructure/collider/support/hit/index.ts",
+        "packages/collider/hit",
+        "packages/collider/hit.ts",
+        "packages/collider/hit/index.ts",
+        "packages/collider/support/hit",
+        "packages/collider/support/hit.ts",
+        "packages/collider/support/hit/index.ts"
+      ]
+    },
+    {
+      "index": 25,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "@chase-sets/example-2/deep/sub/path",
+      "candidates": [
+        "bounded-contexts/example-2/deep/sub/path",
+        "bounded-contexts/example-2/deep/sub/path.ts",
+        "bounded-contexts/example-2/deep/sub/path/index.ts",
+        "bounded-contexts/example-2/support/deep/sub/path",
+        "bounded-contexts/example-2/support/deep/sub/path.ts",
+        "bounded-contexts/example-2/support/deep/sub/path/index.ts",
+        "contracts/example-2/deep/sub/path",
+        "contracts/example-2/deep/sub/path.ts",
+        "contracts/example-2/deep/sub/path/index.ts",
+        "contracts/example-2/support/deep/sub/path",
+        "contracts/example-2/support/deep/sub/path.ts",
+        "contracts/example-2/support/deep/sub/path/index.ts",
+        "infrastructure/example-2/deep/sub/path",
+        "infrastructure/example-2/deep/sub/path.ts",
+        "infrastructure/example-2/deep/sub/path/index.ts",
+        "infrastructure/example-2/support/deep/sub/path",
+        "infrastructure/example-2/support/deep/sub/path.ts",
+        "infrastructure/example-2/support/deep/sub/path/index.ts",
+        "packages/example-2/deep/sub/path",
+        "packages/example-2/deep/sub/path.ts",
+        "packages/example-2/deep/sub/path/index.ts",
+        "packages/example-2/support/deep/sub/path",
+        "packages/example-2/support/deep/sub/path.ts",
+        "packages/example-2/support/deep/sub/path/index.ts"
+      ]
+    },
+    {
+      "index": 26,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "@chase-sets/example",
+      "candidates": []
+    },
+    {
+      "index": 27,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "@chase-sets/Example/bad",
+      "candidates": []
+    },
+    {
+      "index": 28,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "@chase-sets/example/",
+      "candidates": []
+    },
+    { "index": 29, "importerPath": "bounded-contexts/example/source.ts", "specifierText": "node:fs", "candidates": [] },
+    {
+      "index": 30,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "typescript",
+      "candidates": []
+    },
+    {
+      "index": 31,
+      "importerPath": "bounded-contexts/example/source.ts",
+      "specifierText": "@vendor/example/looksalike",
+      "candidates": []
+    }
+  ]
+}
