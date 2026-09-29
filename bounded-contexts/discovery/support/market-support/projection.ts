@@ -1,3 +1,7 @@
+import { resolveProjectionDb } from "@chase-sets/event-core/projector";
+import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
+import { buildProductMeasurePublicationHandlers } from "@chase-sets/event-core-postgres";
+import contextManifest from "../../context.json" with { type: "json" };
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import {
@@ -25,6 +29,13 @@ import {
 } from "../../features/google-shopping-operations/api/feed-row-projection";
 import { createMarketplaceSlug, rememberSlugRedirect } from "../runtime-support/slugs";
 import { refreshSearchIndexMarketSignals } from "../../features/search/read-model/market-signals";
+
+const measurePublicationCheckpointKey = createCheckpointKey(
+  contextManifest.eventSubscriptions.find(
+    (subscription) =>
+      subscription.sourceContextName === "catalog" && subscription.projectionName === "discovery-market-projection",
+  )!,
+);
 
 const ACCOUNT_STREAM_PREFIX = "identity.account-";
 const MARKETPLACE_LISTING_STREAM_PREFIX = "marketplace.listing-";
@@ -831,14 +842,15 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       await refreshGoogleShoppingListing(db, event, data.listingId, "listing-created");
       await emitListingPatch(db, event, data.listingId);
     },
-    "catalog.catalog-item.product-measures-resolved": async (event) => {
+    ...buildProductMeasurePublicationHandlers(db, measurePublicationCheckpointKey, async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         catalogItemId: string;
         products?: unknown;
       };
       const products = JSON.stringify(Array.isArray(data.products) ? data.products : []);
 
-      await db.query(
+      await projectionDb.query(
         `DELETE FROM discovery_market_product_measures
          WHERE catalog_item_id = $1
            AND product_id NOT IN (
@@ -848,7 +860,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
            )`,
         [data.catalogItemId, products],
       );
-      await db.query(
+      await projectionDb.query(
         `INSERT INTO discovery_market_product_measures (
            catalog_item_id,
            product_id,
@@ -864,7 +876,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
         [data.catalogItemId, products, event.timing.recordedAt],
       );
 
-      const updated = await db.query<{ listing_id: string }>(
+      const updated = await projectionDb.query<{ listing_id: string }>(
         `WITH resolved_products AS (
            SELECT measure
            FROM jsonb_array_elements($2::jsonb) AS product(measure)
@@ -883,10 +895,10 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
       );
 
       for (const row of updated.rows) {
-        await refreshGoogleShoppingListing(db, event, row.listing_id, "catalog");
-        await emitListingPatch(db, event, row.listing_id);
+        await refreshGoogleShoppingListing(projectionDb, event, row.listing_id, "catalog");
+        await emitListingPatch(projectionDb, event, row.listing_id);
       }
-    },
+    }),
     "inventory.storage-location.created": async (event) => {
       const data = event.data as {
         storageLocationId: string;

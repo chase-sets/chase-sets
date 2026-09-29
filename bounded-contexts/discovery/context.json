@@ -241,7 +241,11 @@
       "subscriptionVersion": 2,
       "subscriptionName": "discovery.catalog-market-projection",
       "filterToEventTypes": true,
-      "eventTypes": ["catalog.catalog-item.product-measures-resolved"],
+      "eventTypes": [
+        "catalog.catalog-item.product-measures-resolved",
+        "catalog.catalog-item.product-measures-publication-part-recorded",
+        "catalog.catalog-item.product-measures-publication-completed"
+      ],
       "order": 21,
       "projectionHandlerSetNames": ["discovery-market-projection"]
     },

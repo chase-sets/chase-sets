@@ -279,6 +279,9 @@ importers:
 
   bounded-contexts/checkout:
     dependencies:
+      '@chase-sets/product-measures':
+        specifier: workspace:*
+        version: link:../../contracts/product-measures
       '@chase-sets/auth':
         specifier: workspace:*
         version: link:../auth
@@ -498,6 +501,9 @@ importers:
 
   bounded-contexts/discovery:
     dependencies:
+      '@chase-sets/product-measures':
+        specifier: workspace:*
+        version: link:../../contracts/product-measures
       '@chase-sets/auth-context':
         specifier: workspace:*
         version: link:../../contracts/auth-context
@@ -2175,6 +2181,9 @@ importers:
 
   infrastructure/event-core-postgres:
     dependencies:
+      '@chase-sets/product-measures':
+        specifier: workspace:*
+        version: link:../../contracts/product-measures
       '@chase-sets/event-core':
         specifier: workspace:*
         version: link:../../contracts/event-core

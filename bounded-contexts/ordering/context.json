@@ -52,7 +52,11 @@
       "projectionName": "ordering-marketplace-supply-input-projection",
       "subscriptionVersion": 1,
       "filterToEventTypes": true,
-      "eventTypes": ["catalog.catalog-item.product-measures-resolved"],
+      "eventTypes": [
+        "catalog.catalog-item.product-measures-resolved",
+        "catalog.catalog-item.product-measures-publication-part-recorded",
+        "catalog.catalog-item.product-measures-publication-completed"
+      ],
       "order": 31,
       "projectionHandlerSetNames": ["ordering-marketplace-supply-input-projection"]
     },

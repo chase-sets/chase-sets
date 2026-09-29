@@ -1,3 +1,7 @@
+import { catalogProductMeasureSubscription } from "./features/product-measures/api/runtime";
+import { defineBcProjectionGroupReset, type BcProjectionGroup } from "@chase-sets/bounded-context-module";
+import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
+import { resetProductMeasurePublicationParts, type PgQueryable } from "@chase-sets/event-core-postgres";
 export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import { defineBoundedContextModule } from "@chase-sets/bounded-context-module";
@@ -12,7 +16,7 @@ import { catalogUnloggedProjectionSchemaMigrations } from "./support/runtime-sup
 import { seedCatalogDatabase } from "./support/authoring-support";
 import { inspectCatalogSeedState } from "./support/seed-support/catalog-integration-state";
 
-export const module = defineBoundedContextModule<CatalogServices, PgTransactionalPool, CatalogHostPorts>({
+const baseModule = defineBoundedContextModule<CatalogServices, PgTransactionalPool, CatalogHostPorts>({
   manifest: contextManifest,
   schemaSql: catalogAuthoringSchemaSql,
   retentionSweeps: catalogRetentionSweeps,
@@ -31,3 +35,18 @@ export const module = defineBoundedContextModule<CatalogServices, PgTransactiona
   seed: seedCatalogDatabase,
   inspectSeedState: (pool) => inspectCatalogSeedState(pool),
 });
+
+export const module = {
+  ...baseModule,
+  buildProjectionGroups: (): readonly BcProjectionGroup[] =>
+    (baseModule.projectionGroups ?? []).map((group) =>
+      group.projectionName === "catalog-product-measures-projection"
+        ? {
+            ...group,
+            reset: defineBcProjectionGroupReset(async (db: PgQueryable) => {
+              await resetProductMeasurePublicationParts(db, createCheckpointKey(catalogProductMeasureSubscription));
+            }),
+          }
+        : group,
+    ),
+};

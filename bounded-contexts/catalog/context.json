@@ -85,6 +85,13 @@
   ],
   "projectionGroups": [
     {
+      "projectionName": "catalog-product-measures-projection",
+      "projectionRevision": 1,
+      "sourceContextNames": ["catalog"],
+      "ownedTables": [],
+      "requiredDuringBootstrap": false
+    },
+    {
       "projectionName": "catalog-item-projection",
       "sourceContextNames": ["catalog"],
       "ownedTables": [

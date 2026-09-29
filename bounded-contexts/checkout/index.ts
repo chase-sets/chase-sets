@@ -1,3 +1,6 @@
+import { defineBcProjectionGroupReset, type BcProjectionGroup } from "@chase-sets/bounded-context-module";
+import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
+import { resetProductMeasurePublicationParts, type PgQueryable } from "@chase-sets/event-core-postgres";
 export { default as contextManifest } from "./context.json" with { type: "json" };
 
 import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
@@ -23,7 +26,7 @@ import { checkoutSchemaMigrations, checkoutSchemaSql } from "./support/runtime-s
 import { checkoutUnloggedProjectionSchemaMigrations } from "./support/runtime-support/unlogged-projection-migrations";
 import { inspectCheckoutSeedState, seedCheckoutDatabase } from "./support/runtime-support/seed";
 
-export const module = defineBoundedContextModule<CheckoutServices, PgTransactionalPool, CheckoutHostPorts>({
+const baseModule = defineBoundedContextModule<CheckoutServices, PgTransactionalPool, CheckoutHostPorts>({
   manifest: contextManifest,
   schemaSql: checkoutSchemaSql,
   schemaMigrations: [
@@ -81,3 +84,27 @@ export const module = defineBoundedContextModule<CheckoutServices, PgTransaction
       },
     }),
 });
+
+export const module = {
+  ...baseModule,
+  buildProjectionGroups: (): readonly BcProjectionGroup[] =>
+    (baseModule.projectionGroups ?? []).map((group) =>
+      group.projectionName === "checkout-marketplace-listing-options-projection"
+        ? {
+            ...group,
+            reset: defineBcProjectionGroupReset(async (db: PgQueryable) => {
+              await resetProductMeasurePublicationParts(
+                db,
+                createCheckpointKey(
+                  contextManifest.eventSubscriptions.find(
+                    (subscription) =>
+                      subscription.sourceContextName === "catalog" &&
+                      subscription.projectionName === group.projectionName,
+                  )!,
+                ),
+              );
+            }),
+          }
+        : group,
+    ),
+};

@@ -1,7 +1,19 @@
+import { resolveProjectionDb } from "@chase-sets/event-core/projector";
+import { createCheckpointKey } from "@chase-sets/bounded-context-runtime";
+import { buildProductMeasurePublicationHandlers } from "@chase-sets/event-core-postgres";
+import contextManifest from "../../../../context.json" with { type: "json" };
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { recomputeCheckoutSellerOptionSupply } from "../inventory/inventory-projection";
+
+const measurePublicationCheckpointKey = createCheckpointKey(
+  contextManifest.eventSubscriptions.find(
+    (subscription) =>
+      subscription.sourceContextName === "catalog" &&
+      subscription.projectionName === "checkout-marketplace-listing-options-projection",
+  )!,
+);
 
 function productMeasureSnapshotFromUnknown(value: unknown) {
   return value && typeof value === "object" ? JSON.stringify(value) : null;
@@ -229,13 +241,14 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
         ],
       );
     },
-    "catalog.catalog-item.product-measures-resolved": async (event) => {
+    ...buildProductMeasurePublicationHandlers(db, measurePublicationCheckpointKey, async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         catalogItemId: string;
         products?: unknown;
       };
 
-      await db.query(
+      await projectionDb.query(
         `WITH resolved_products AS (
            SELECT measure
            FROM jsonb_array_elements($2::jsonb) AS product(measure)
@@ -255,7 +268,7 @@ export function buildCheckoutMarketplaceSellerOptionsProjectionHandlers(db: PgQu
           event.timing.recordedAt,
         ],
       );
-    },
+    }),
     "marketplace.listing.price-updated": async (event) => {
       const data = event.data as { priceAmount: string; priceCurrencyCode?: string | null };
 
