@@ -1137,6 +1137,11 @@ export async function rebuildProjectionGroup(
     revisionSyncToken = await resetProjectionGroup(group, context, revisionSyncToken ?? undefined);
     await drainContextProcesses({ subscriptionRunners: group.subscriptionRunners }, context);
     context?.throwIfLeaseLost?.();
+    if (group.getStatus().blockedStreamCount > 0) {
+      throw new Error(
+        `Projection group '${group.targetContextName}.${group.projectionName}' cannot complete rebuild with blocked streams.`,
+      );
+    }
 
     if (useGenerationRebuild) {
       if (!group.completeGenerationRebuild) {

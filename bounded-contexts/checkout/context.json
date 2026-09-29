@@ -252,11 +252,11 @@
     },
     {
       "projectionName": "checkout-marketplace-listing-options-projection",
-      "projectionRevision": 2,
+      "projectionRevision": 3,
       "sourceContextNames": ["marketplace", "catalog", "ordering"],
       "ownedTables": ["checkout_marketplace_seller_options", "checkout_marketplace_seller_availability"],
       "requiredDuringBootstrap": true,
-      "resetStrategy": "replay-only"
+      "resetStrategy": "truncate-owned-tables"
     },
     {
       "projectionName": "checkout-inventory-supply-projection",
