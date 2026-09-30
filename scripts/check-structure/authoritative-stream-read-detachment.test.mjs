@@ -223,13 +223,15 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     const green = deriveGreenGrammarInstances(production);
     expect(green).toHaveLength(14);
     expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(13);
-    expect(green).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        category: "member-declaration",
-        file: "bounded-contexts/pricing/features/market-estimates/read-model/demand-curve-writes.ts",
-        line: 69,
-      }),
-    ]));
+    expect(green).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          category: "member-declaration",
+          file: "bounded-contexts/pricing/features/market-estimates/read-model/demand-curve-writes.ts",
+          line: 69,
+        }),
+      ]),
+    );
     const shared = green.filter(
       (entry) => entry.file === "contracts/event-core/complete-stream.ts" && entry.line === 5,
     );
