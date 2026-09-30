@@ -155,6 +155,13 @@ export type InventoryImportBatchServices = Readonly<{
     signal?: AbortSignal;
     throwIfLeaseLost?: () => void;
   }) => Promise<number>;
+  enqueueProductResolutionMaintenanceJob: (input?: { validatorVersion?: number }) => Promise<InventoryImportBatchJob>;
+  processNextImportProductResolutionMaintenanceJob: (input: {
+    claimOwnerId: string;
+    claimTtlMs: number;
+    signal?: AbortSignal;
+    throwIfLeaseLost?: () => void;
+  }) => Promise<number>;
   getImportBatchWorkUnitSummary: (input?: { jobId?: string | null }) => Promise<DurableJobWorkUnitSummary>;
   /**
    * Batch seller-SKU -> inventory-item resolution for cross-context callers
@@ -210,6 +217,21 @@ type ExistingImportTargetItem = Readonly<{
 const MONEY_PATTERN = /^\d+(\.\d{1,2})?$/;
 const IMPORT_BATCH_JOB_KIND_CREATE = "create";
 const IMPORT_BATCH_JOB_KIND_COMMIT = "commit";
+export const INVENTORY_IMPORT_PRODUCT_RESOLUTION_MAINTENANCE_JOB_KIND =
+  "inventory-import-product-resolution-maintenance";
+export const INVENTORY_IMPORT_PRODUCT_RESOLUTION_MAINTENANCE_UNIT_KIND = "normalize-legacy-rejected-products-v1";
+const INVENTORY_IMPORT_PRODUCT_RESOLUTION_VALIDATOR_VERSION = 1;
+const INVENTORY_IMPORT_PRODUCT_RESOLUTION_PAGE_SIZE = 250;
+
+export type InventoryImportProductResolutionMaintenanceReceipt = Readonly<{
+  receiptId: string;
+  validatorVersion: number;
+  highWaterCreatedAt: string;
+  highWaterRowId: string;
+  normalizedProviderCount: number;
+  normalizedRowCount: number;
+  poisonRowIds: readonly string[];
+}>;
 
 export type InventoryImportBatchJobPayload = Readonly<{
   batchId?: string;
@@ -219,6 +241,7 @@ export type InventoryImportBatchJobPayload = Readonly<{
     inputId: string;
     batchId?: string;
   }>;
+  maintenance?: Readonly<{ validatorVersion: number }>;
 }>;
 
 export type InventoryImportBatchJobProgress = Readonly<{
@@ -230,8 +253,9 @@ export type InventoryImportBatchJobProgress = Readonly<{
 }>;
 
 export type InventoryImportBatchJobResult = Readonly<{
-  batch: InventoryImportBatchDetail;
+  batch?: InventoryImportBatchDetail;
   commandReceipt?: CommandReceiptMetadata | null;
+  maintenanceReceipt?: InventoryImportProductResolutionMaintenanceReceipt;
 }>;
 
 export type InventoryImportBatchJob = DurableJobRecord<
@@ -736,6 +760,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     {
       jobsTable: "inventory_import_batch_jobs",
       eventsTable: "inventory_import_batch_job_events",
+      retentionExemptJobKinds: [INVENTORY_IMPORT_PRODUCT_RESOLUTION_MAINTENANCE_JOB_KIND],
     },
     { notificationWaiterPool: deps.notificationWaiterPool },
   );
@@ -857,6 +882,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     let productId: string | null = null;
     let resolutionStatus: InventoryImportResolutionStatus = catalogItemId ? "native" : "unresolved";
     let resolutionError: string | null = null;
+    let productValidationFailed = false;
 
     if (!catalogItemId && externalReferences.length > 0) {
       // GTIN candidates resolve first: a scanned/imported barcode is a global,
@@ -956,8 +982,10 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       const catalogItem = await deps.catalogItems.getCatalogItem(catalogItemId);
       if (!catalogItem) {
         errors.push("Catalog item was not found.");
+        productValidationFailed = true;
       } else if (catalogItem.status !== "active") {
         errors.push("Catalog item must be active.");
+        productValidationFailed = true;
       } else {
         try {
           selectedOptions = normalizeSelectedOptionsForSchema(catalogItem.product_schema, selectedOptions, row);
@@ -970,11 +998,21 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
           const sourceProductId = clean(values.productId);
           if (sourceProductId && sourceProductId !== productId) {
             errors.push("The source Product no longer matches the current Catalog selection.");
+            productValidationFailed = true;
           }
         } catch (error) {
           errors.push(error instanceof Error ? error.message : "Selected options are invalid.");
+          productValidationFailed = true;
         }
       }
+    }
+
+    // Product identity is only authoritative when the final Catalog selection
+    // validates. A rejected row remains reviewable, but must never carry a
+    // stale/partial Product that downstream commit code could treat as valid.
+    if (productValidationFailed) {
+      productId = null;
+      resolutionStatus = "unresolved";
     }
 
     const storageLocationLabel = storageLocationLabelForRow(row);
@@ -1065,6 +1103,203 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       rowNote: clean(values.rowNote),
       validationErrors: errors,
     };
+  }
+
+  type LegacyProductMaintenanceRow = Readonly<{
+    row_id: string;
+    row_number: number;
+    raw_row: unknown;
+    quantity_mode: InventoryImportQuantityMode;
+    validation_errors: unknown;
+    product_id: string | null;
+    resolution_status: InventoryImportResolutionStatus;
+    created_at: Date | string;
+    updated_at: Date | string;
+    source_key: InventoryImportSourceKey;
+    default_storage_location_id: string | null;
+    account_id: string;
+  }>;
+
+  const isProductValidationError = (message: string): boolean =>
+    message === "Catalog item was not found." ||
+    message === "Catalog item must be active." ||
+    message === "Catalog item id is required." ||
+    message === "The source Product no longer matches the current Catalog selection." ||
+    message.startsWith("Selected options ") ||
+    message === "External product reference is not mapped to a Chase Sets catalog item." ||
+    message.startsWith("External product references are not mapped to Chase Sets catalog items:") ||
+    message.startsWith("Seller SKU '");
+
+  function mergeProductValidationErrors(previous: readonly string[], next: readonly string[]): readonly string[] {
+    const firstProductIndex = previous.findIndex(isProductValidationError);
+    const retained = previous.filter((message) => !isProductValidationError(message));
+    const productErrors = next.filter(isProductValidationError);
+    if (firstProductIndex < 0) {
+      return [...retained, ...productErrors];
+    }
+    const before = previous.slice(0, firstProductIndex).filter((message) => !isProductValidationError(message));
+    const after = previous.slice(firstProductIndex).filter((message) => !isProductValidationError(message));
+    return [...before, ...productErrors, ...after];
+  }
+
+  async function runProductResolutionMaintenance(
+    validatorVersion: number,
+  ): Promise<InventoryImportProductResolutionMaintenanceReceipt> {
+    const existing = await deps.db.query<{
+      receipt_id: string;
+      validator_version: number | string;
+      high_water_created_at: Date | string;
+      high_water_row_id: string;
+      normalized_provider_count: number | string;
+      normalized_row_count: number | string;
+      poison_row_ids: unknown;
+    }>(
+      `SELECT receipt_id, validator_version, high_water_created_at, high_water_row_id,
+              normalized_provider_count, normalized_row_count, poison_row_ids
+         FROM inventory_import_product_resolution_receipts
+        WHERE validator_version = $1`,
+      [validatorVersion],
+    );
+    const prior = existing.rows[0];
+    if (prior) {
+      return {
+        receiptId: prior.receipt_id,
+        validatorVersion: Number(prior.validator_version),
+        highWaterCreatedAt: formatTimestamp(prior.high_water_created_at),
+        highWaterRowId: prior.high_water_row_id,
+        normalizedProviderCount: Number(prior.normalized_provider_count),
+        normalizedRowCount: Number(prior.normalized_row_count),
+        poisonRowIds: Array.isArray(prior.poison_row_ids) ? prior.poison_row_ids.map(String) : [],
+      };
+    }
+
+    const highWaterResult = await deps.db.query<{ created_at: Date | string; row_id: string }>(
+      `SELECT created_at, row_id
+         FROM inventory_import_batch_rows
+        WHERE status = 'rejected' AND committed_at IS NULL
+        ORDER BY created_at DESC, row_id DESC
+        LIMIT 1`,
+    );
+    const highWater = highWaterResult.rows[0];
+    const highWaterCreatedAt = highWater ? formatTimestamp(highWater.created_at) : new Date(0).toISOString();
+    const highWaterRowId = highWater?.row_id ?? "";
+    let cursorCreatedAt = new Date(0).toISOString();
+    let cursorRowId = "";
+    let normalizedProviderCount = 0;
+    let normalizedRowCount = 0;
+    const poisonRowIds: string[] = [];
+
+    if (highWater) {
+      for (;;) {
+        const page = await deps.db.query<LegacyProductMaintenanceRow>(
+          `SELECT row.row_id, row.row_number, row.raw_row, row.quantity_mode,
+                  row.validation_errors, row.product_id, row.resolution_status,
+                  row.created_at, row.updated_at,
+                  batch.source_key, batch.default_storage_location_id, batch.account_id
+             FROM inventory_import_batch_rows AS row
+             INNER JOIN inventory_import_batches AS batch ON batch.batch_id = row.batch_id
+            WHERE row.status = 'rejected'
+              AND row.committed_at IS NULL
+              AND (row.created_at, row.row_id) <= ($1::timestamptz, $2::text)
+              AND (row.created_at, row.row_id) > ($3::timestamptz, $4::text)
+            ORDER BY row.created_at ASC, row.row_id ASC
+            LIMIT $5`,
+          [
+            highWaterCreatedAt,
+            highWaterRowId,
+            cursorCreatedAt,
+            cursorRowId,
+            INVENTORY_IMPORT_PRODUCT_RESOLUTION_PAGE_SIZE,
+          ],
+        );
+        if (page.rows.length === 0) break;
+
+        for (const legacyRow of page.rows) {
+          cursorCreatedAt = formatTimestamp(legacyRow.created_at);
+          cursorRowId = legacyRow.row_id;
+          let normalizedSuccessfully = false;
+          for (let attempt = 0; attempt < 3 && !normalizedSuccessfully; attempt += 1) {
+            try {
+              const parsedRawRow =
+                legacyRow.raw_row && typeof legacyRow.raw_row === "object" && !Array.isArray(legacyRow.raw_row)
+                  ? (legacyRow.raw_row as Readonly<Record<string, string>>)
+                  : {};
+              const [normalized] = getInventoryImportSourceAdapter(legacyRow.source_key).normalize({
+                parsedRows: [{ rowNumber: legacyRow.row_number, values: parsedRawRow }],
+                quantityMode: legacyRow.quantity_mode,
+                defaultStorageLocationId: legacyRow.default_storage_location_id,
+              });
+              if (!normalized) throw new InventoryDomainError("Import row could not be normalized for maintenance.");
+              const validated = await validateRow(
+                legacyRow.account_id as AccountId,
+                normalized,
+                legacyRow.quantity_mode,
+              );
+              const previousErrors = Array.isArray(legacyRow.validation_errors)
+                ? legacyRow.validation_errors.map(String)
+                : [];
+              const validationErrors = mergeProductValidationErrors(previousErrors, validated.validationErrors);
+              await deps.db.query(
+                `UPDATE inventory_import_batch_rows
+                  SET product_id = $1,
+                      resolution_status = $2,
+                      validation_errors = $3::jsonb,
+                      updated_at = now()
+                WHERE row_id = $4
+                  AND status = 'rejected'
+                  AND committed_at IS NULL
+                  AND updated_at = $5::timestamptz`,
+                [
+                  validated.productId,
+                  validated.productId ? validated.resolutionStatus : "unresolved",
+                  JSON.stringify(validationErrors),
+                  legacyRow.row_id,
+                  formatTimestamp(legacyRow.updated_at),
+                ],
+              );
+              normalizedRowCount += 1;
+              if (legacyRow.source_key !== "native-csv") normalizedProviderCount += 1;
+              normalizedSuccessfully = true;
+            } catch {
+              if (attempt === 2) {
+                poisonRowIds.push(legacyRow.row_id);
+              }
+            }
+          }
+          if (!normalizedSuccessfully && !poisonRowIds.includes(legacyRow.row_id)) {
+            poisonRowIds.push(legacyRow.row_id);
+          }
+        }
+        if (page.rows.length < INVENTORY_IMPORT_PRODUCT_RESOLUTION_PAGE_SIZE) break;
+      }
+    }
+
+    const receipt: InventoryImportProductResolutionMaintenanceReceipt = {
+      receiptId: `inventory-import-product-resolution-v${validatorVersion}`,
+      validatorVersion,
+      highWaterCreatedAt,
+      highWaterRowId,
+      normalizedProviderCount,
+      normalizedRowCount,
+      poisonRowIds,
+    };
+    await deps.db.query(
+      `INSERT INTO inventory_import_product_resolution_receipts
+         (receipt_id, validator_version, high_water_created_at, high_water_row_id,
+          normalized_provider_count, normalized_row_count, poison_row_ids, created_at)
+       VALUES ($1, $2, $3::timestamptz, $4, $5, $6, $7::jsonb, now())
+       ON CONFLICT (validator_version) DO NOTHING`,
+      [
+        receipt.receiptId,
+        receipt.validatorVersion,
+        receipt.highWaterCreatedAt,
+        receipt.highWaterRowId,
+        receipt.normalizedProviderCount,
+        receipt.normalizedRowCount,
+        JSON.stringify(receipt.poisonRowIds),
+      ],
+    );
+    return receipt;
   }
 
   async function persistAccountSkuMapping(
@@ -1919,6 +2154,99 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     return job;
   }
 
+  async function enqueueProductResolutionMaintenanceJob(
+    input: {
+      validatorVersion?: number;
+    } = {},
+  ): Promise<InventoryImportBatchJob> {
+    const validatorVersion = input.validatorVersion ?? INVENTORY_IMPORT_PRODUCT_RESOLUTION_VALIDATOR_VERSION;
+    const jobId = `inventory-import-product-resolution-maintenance-v${validatorVersion}`;
+    const existing = await jobStore.get(jobId);
+    if (existing) return existing;
+    const job = await jobStore.enqueue({
+      jobId,
+      jobKind: INVENTORY_IMPORT_PRODUCT_RESOLUTION_MAINTENANCE_JOB_KIND,
+      payload: { accountId: "system", maintenance: { validatorVersion } },
+      progress: importBatchJobProgress("queued", 0, 0, null, "Product resolution maintenance queued."),
+      eventContext: null,
+    });
+    await workUnitStore.enqueue({
+      jobId,
+      units: [
+        {
+          unitId: INVENTORY_IMPORT_PRODUCT_RESOLUTION_MAINTENANCE_UNIT_KIND,
+          unitKind: INVENTORY_IMPORT_PRODUCT_RESOLUTION_MAINTENANCE_UNIT_KIND,
+          payload: { rowNumber: 0 },
+        },
+      ],
+    });
+    return job;
+  }
+
+  async function processNextImportProductResolutionMaintenanceJob(input: {
+    claimOwnerId: string;
+    claimTtlMs: number;
+    signal?: AbortSignal;
+    throwIfLeaseLost?: () => void;
+  }): Promise<number> {
+    const claimResult = await workUnitStore.claimNext({
+      claimOwnerId: input.claimOwnerId,
+      claimTtlMs: input.claimTtlMs,
+      workflowMaxActiveClaims: 1,
+      jobMaxActiveClaims: 1,
+      jobKinds: [INVENTORY_IMPORT_PRODUCT_RESOLUTION_MAINTENANCE_JOB_KIND],
+      laneName: "maintenance",
+    });
+    const claim = claimResult.claim;
+    if (!claim) return 0;
+    try {
+      input.throwIfLeaseLost?.();
+      if (input.signal?.aborted) throw new InventoryDomainError("Product resolution maintenance was cancelled.");
+      const validatorVersion =
+        claim.job.payload.maintenance?.validatorVersion ?? INVENTORY_IMPORT_PRODUCT_RESOLUTION_VALIDATOR_VERSION;
+      const receipt = await runProductResolutionMaintenance(validatorVersion);
+      const outcome = await workUnitStore.recordTerminal({
+        jobId: claim.job.jobId,
+        unitId: claim.unit.unitId,
+        claimOwnerId: claim.claimOwnerId,
+        claimToken: claim.claimToken,
+        state: "completed",
+        unitResult: { rowId: receipt.receiptId, status: "rejected" },
+        parentProgress: importBatchJobProgress(
+          "completed",
+          receipt.normalizedRowCount,
+          receipt.normalizedRowCount,
+          null,
+          "Product resolution maintenance completed.",
+        ),
+        parentResult: { maintenanceReceipt: receipt },
+        completeJob: true,
+      });
+      if (!isDurableJobWorkUnitTerminalAccepted(outcome)) {
+        throw new InventoryDomainError("Product resolution maintenance claim was lost before completion.");
+      }
+      return 1;
+    } catch (error) {
+      await workUnitStore.recordTerminal({
+        jobId: claim.job.jobId,
+        unitId: claim.unit.unitId,
+        claimOwnerId: claim.claimOwnerId,
+        claimToken: claim.claimToken,
+        state: "failed",
+        unitResult: { rowId: claim.unit.unitId, status: "rejected" },
+        errorMessage: error instanceof Error ? error.message : "Product resolution maintenance failed.",
+        parentProgress: {
+          ...claim.job.progress,
+          phase: "failed",
+          message: error instanceof Error ? error.message : "Product resolution maintenance failed.",
+        },
+        parentResult: claim.job.result,
+        completeJob: true,
+      });
+      return 1;
+    }
+  }
+
   return {
     createBatch: (params) => createBatchRows(params),
     getBatch: (batchId, accountId) => getImportBatch(deps.db, batchId, accountId),
@@ -2140,6 +2468,8 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         return 1;
       }
     },
+    enqueueProductResolutionMaintenanceJob,
+    processNextImportProductResolutionMaintenanceJob,
     getImportBatchWorkUnitSummary: (input = {}) => workUnitStore.summarize(input),
   };
 

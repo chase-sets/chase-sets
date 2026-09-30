@@ -1582,8 +1582,9 @@ describe("inventory import batch runtime", () => {
     });
     expect(batch.rows[1]).toMatchObject({
       status: "rejected",
-      resolution_status: "resolved",
+      resolution_status: "unresolved",
       catalog_item_id: "cat_active",
+      product_id: null,
     });
     expect(batch.rows[1]?.validation_errors).toContain("Selected options must include Condition.");
   });
