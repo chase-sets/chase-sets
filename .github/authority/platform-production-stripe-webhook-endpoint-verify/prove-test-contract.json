@@ -1,0 +1,11 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-production-stripe-webhook-endpoint-verify.yml",
+      "jobId": "prove-test-contract",
+      "stepAnchor": "name:Create, update, and delete test-mode Payments endpoint#3",
+      "secretName": "STRIPE_SECRET_KEY",
+      "purpose": "terraform-infra"
+    }
+  ]
+}
