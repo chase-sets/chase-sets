@@ -95,6 +95,49 @@ describe("observability config", () => {
 });
 
 describe("provider webhook ingestion observability", () => {
+  it("records invariant ignores on the existing counter with finite invariant_code labels", () => {
+    const samples: unknown[] = [];
+    const meter = vi.spyOn(metrics, "getMeter").mockReturnValue({
+      createCounter: (name: string) => ({
+        add: (value: number, attributes: unknown) => samples.push({ name, value, attributes }),
+      }),
+      createHistogram: vi.fn(),
+      createUpDownCounter: vi.fn(),
+    } as never);
+    try {
+      for (const invariantCode of ["RecordPaymentFailure:validation_failed", "SECRET_SYNTHETIC"]) {
+        recordProviderWebhookIngestion({
+          endpoint: "payments",
+          failureClass: "handler-failure",
+          outcome: "ignored",
+          statusCode: 200,
+          retryable: false,
+          eventKind: "payment-failed",
+          invariantCode,
+        });
+      }
+    } finally {
+      meter.mockRestore();
+    }
+    expect(samples).toEqual([
+      {
+        name: "chase_sets_stripe_webhook_ingestion_total",
+        value: 1,
+        attributes: expect.objectContaining({
+          failure_class: "handler-failure",
+          outcome: "ignored",
+          invariant_code: "RecordPaymentFailure:validation_failed",
+        }),
+      },
+      {
+        name: "chase_sets_stripe_webhook_ingestion_total",
+        value: 1,
+        attributes: expect.objectContaining({ invariant_code: "none" }),
+      },
+    ]);
+    expect(JSON.stringify(samples)).not.toContain("SECRET_SYNTHETIC");
+  });
+
   it("records bounded failure classes without putting provider ids in metric labels", () => {
     const counterAdds: unknown[] = [];
     const createCounter = vi.fn((name: string) => ({
@@ -131,6 +174,7 @@ describe("provider webhook ingestion observability", () => {
           status_code: 400,
           retryable: "true",
           event_kind: "payment-captured",
+          invariant_code: "none",
         },
       },
     ]);

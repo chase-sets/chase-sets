@@ -93,7 +93,10 @@ describe("risk-policy/v1", () => {
     const filename = "infrastructure/provider-webhook-inbox/index.ts";
     const [inbox, paymentConsumer, payoutConsumer] = await Promise.all([
       readFile(new URL(`../../${filename}`, import.meta.url), "utf8"),
-      readFile(new URL("../../bounded-contexts/payments/features/payments/api/runtime.ts", import.meta.url), "utf8"),
+      readFile(
+        new URL("../../bounded-contexts/payments/features/payments/api/webhook-transaction.ts", import.meta.url),
+        "utf8",
+      ),
       readFile(new URL("../../bounded-contexts/settlement/features/payouts/api/runtime.ts", import.meta.url), "utf8"),
     ]);
     expect(inbox).toContain("recordProviderWebhookEvent");
