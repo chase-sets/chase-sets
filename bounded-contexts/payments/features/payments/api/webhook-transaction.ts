@@ -33,7 +33,8 @@ export type PaymentWebhookRunner = (
 
 export function createPaymentWebhookRunner(pool: PgTransactionalPool, store: PostgresEventStore): PaymentWebhookRunner {
   return async (entry, process) => {
-    const committed = await withPgTransaction(pool, async (client) => {
+    const committed = await withPgTransaction(pool, async (transactionClient) => {
+      const client: PgQueryable = transactionClient;
       if (!(await recordProviderWebhookEvent(client, entry))) {
         return { result: { received: true, ignored: true, failure_class: "inbox-conflict" } as const, events: [] };
       }
