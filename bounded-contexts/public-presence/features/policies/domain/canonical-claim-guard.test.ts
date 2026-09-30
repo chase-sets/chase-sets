@@ -16,7 +16,7 @@ const repoRoot = resolve(domainDirectory, "../../../../..");
 const chargeSourceRoles = [
   {
     role: "request",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1980-2000",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1965-1985",
     markers: ["createPaymentSession", "amount: processorAmount"],
   },
   {
@@ -41,7 +41,7 @@ const chargeSourceRoles = [
   },
   {
     role: "nonzero pending",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2108-2115",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2093-2100",
     markers: ['compareMoney(processorAmount, "0.00")', '"pending-confirmation"', "captured_at:"],
   },
   {
@@ -69,7 +69,7 @@ const chargeSourceRoles = [
   },
   {
     role: "webhook capture recording",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2549-2569",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2537-2578",
     markers: [
       'case "payment-authorized"',
       'type: "RecordPaymentAuthorization"',
