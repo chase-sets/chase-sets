@@ -1,0 +1,102 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-staging-advisory-evidence.yml",
+      "jobId": "staging-advisory-evidence",
+      "stepAnchor": "name:Configure staging Kubernetes context#8",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-advisory-evidence.yml",
+      "jobId": "staging-advisory-evidence",
+      "stepAnchor": "name:Configure staging Kubernetes context#8",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-advisory-evidence.yml",
+      "jobId": "staging-advisory-evidence",
+      "stepAnchor": "name:Configure staging Kubernetes context#8",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-advisory-evidence.yml",
+      "jobId": "staging-advisory-evidence",
+      "stepAnchor": "name:Seed staging Kubernetes scenario data#9",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-advisory-evidence.yml",
+      "jobId": "staging-advisory-evidence",
+      "stepAnchor": "name:Seed staging Kubernetes scenario data#9",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-advisory-evidence.yml",
+      "jobId": "staging-advisory-evidence",
+      "stepAnchor": "name:Staging marketplace critical flows#14",
+      "secretName": "CATALOG_ADMIN_E2E_PASSWORD",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-advisory-evidence.yml",
+      "jobId": "staging-advisory-evidence",
+      "stepAnchor": "name:Staging marketplace critical flows#14",
+      "secretName": "MARKETPLACE_E2E_PASSWORD",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-advisory-evidence.yml",
+      "jobId": "staging-advisory-evidence",
+      "stepAnchor": "name:Staging marketplace critical flows#14",
+      "secretName": "PLATFORM_ADMIN_EMAIL",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-advisory-evidence.yml",
+      "jobId": "staging-advisory-evidence",
+      "stepAnchor": "name:Staging marketplace critical flows#14",
+      "secretName": "PLATFORM_ADMIN_PASSWORD",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-advisory-evidence.yml",
+      "jobId": "staging-advisory-evidence",
+      "stepAnchor": "name:Staging marketplace critical flows#14",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-advisory-evidence.yml",
+      "jobId": "staging-advisory-evidence",
+      "stepAnchor": "name:Staging marketplace critical flows#14",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-advisory-evidence.yml",
+      "jobId": "staging-advisory-evidence",
+      "stepAnchor": "name:Terraform init staging platform#7",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-advisory-evidence.yml",
+      "jobId": "staging-advisory-evidence",
+      "stepAnchor": "name:Terraform init staging platform#7",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-staging-advisory-evidence.yml",
+      "jobId": "staging-advisory-evidence",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "spaces-evidence"
+    }
+  ]
+}

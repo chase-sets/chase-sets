@@ -1,0 +1,18 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-digitalocean-drift-digest.yml",
+      "jobId": "digest",
+      "stepAnchor": "job",
+      "secretName": "DIGITALOCEAN_READONLY_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-digitalocean-drift-digest.yml",
+      "jobId": "digest",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "DIGITALOCEAN_READONLY_TOKEN",
+      "purpose": "digitalocean-ops"
+    }
+  ]
+}

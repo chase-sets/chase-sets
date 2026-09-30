@@ -1,0 +1,18 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/representative-catalog-snapshot.yml",
+      "jobId": "publish",
+      "stepAnchor": "name:Publish representative snapshot set#4",
+      "secretName": "SEED_PACKS_SPACES_ACCESS_ID",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/representative-catalog-snapshot.yml",
+      "jobId": "publish",
+      "stepAnchor": "name:Publish representative snapshot set#4",
+      "secretName": "SEED_PACKS_SPACES_SECRET_KEY",
+      "purpose": "application-runtime"
+    }
+  ]
+}
