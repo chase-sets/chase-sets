@@ -1107,6 +1107,12 @@ describe("parsed combined-parcel workflow authority", () => {
     await mkdir(join(directory, ".github/actions/setup-pnpm-workspace"), { recursive: true });
     await mkdir(join(directory, ".github/actions/export-managed-postgres-authority"), { recursive: true });
     await mkdir(join(directory, "scripts"), { recursive: true });
+    const gitInit = spawnSync("git", ["init", "--initial-branch=main"], {
+      cwd: directory,
+      encoding: "utf8",
+      windowsHide: true,
+    });
+    expect(gitInit.status).toBe(0);
     const w = workflow();
     await writeFile(
       join(directory, workflowPath),
@@ -1156,10 +1162,26 @@ describe("parsed combined-parcel workflow authority", () => {
         purpose: "test-credentials",
       },
     ]);
+    const authorityDirectory = join(directory, ".github/authority/platform-staging-representative-commerce-state");
     for (const present of [false, true]) {
+      await mkdir(authorityDirectory, { recursive: true });
+      await writeFile(
+        join(authorityDirectory, "synthetic-boundary-control.json"),
+        JSON.stringify({ grants: [baselineGrant] }),
+      );
+      await writeFile(
+        join(authorityDirectory, "combined-parcel-probe.json"),
+        JSON.stringify({ grants: present ? grants : [] }),
+      );
+      const gitAdd = spawnSync("git", ["add", "-A", "--", ".github/authority"], {
+        cwd: directory,
+        encoding: "utf8",
+        windowsHide: true,
+      });
+      expect(gitAdd.status).toBe(0);
       await writeFile(
         join(directory, manifestFile),
-        JSON.stringify({ schemaVersion: 1, grants: [baselineGrant, ...(present ? grants : [])], dockerConsumers: [] }),
+        JSON.stringify({ schemaVersion: 1, grants: [...(present ? grants : []), baselineGrant] }),
       );
       const result = spawnSync(
         process.execPath,
