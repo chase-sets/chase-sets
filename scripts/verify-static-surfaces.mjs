@@ -48,10 +48,7 @@ export const VERIFY_STATIC_SURFACES = {
   "check:managed-postgres-authority": {
     classification: ALWAYS_RUN,
     rule: "workflow steps transitively resolve arbitrary executables and package scripts",
-    evidence: [
-      "scripts/managed-postgres-authority-sources.mjs:1",
-      "scripts/managed-postgres-authority-guard.mjs:429-508",
-    ],
+    evidence: ["scripts/managed-postgres-authority-guard.mjs:429-508"],
   },
   "check:managed-registry-authority": {
     classification: ALWAYS_RUN,

@@ -141,7 +141,7 @@
     "test:typecheck:watch": "tsc -p ./tsconfig.tests.json --noEmit --watch --preserveWatchOutput",
     "check:github-actions-runtime": "node ./scripts/check-github-actions-runtime.mjs",
     "check:identity-creation-positions": "node ./scripts/identity-creation-position-guard.mjs",
-    "check:managed-postgres-authority": "node ./scripts/managed-postgres-authority-sources.mjs --check && node ./scripts/managed-postgres-authority-guard.mjs",
+    "check:managed-postgres-authority": "node ./scripts/managed-postgres-authority-guard.mjs",
     "check:managed-registry-authority": "node ./scripts/managed-registry-authority-guard.mjs",
     "check:environment-topology": "node ./scripts/environment-topology-guard.mjs",
     "check:workflow-canonical-artifacts": "node ./scripts/workflow-canonical-artifacts.mjs",

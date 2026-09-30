@@ -1,13 +1,16 @@
 #!/usr/bin/env node
-import { readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { lstat, readFile, readdir, writeFile } from "node:fs/promises";
 import { basename, extname, join, relative, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { parseDocument } from "yaml";
 
 export const AUTHORITY_ROOT = ".github/authority";
 export const MANIFEST_PATH = "scripts/managed-postgres-authority-manifest.json";
 const WORKFLOW_ROOT = ".github/workflows";
+const execFileAsync = promisify(execFile);
 const GRANT_KEYS = ["file", "jobId", "stepAnchor", "secretName", "purpose"];
 const DOCKER_KEYS = ["file", "jobId", "stepAnchor", "pathMapping"];
 const PURPOSES = new Set([
@@ -27,15 +30,12 @@ const PURPOSES = new Set([
 export async function generateManagedPostgresAuthority(repositoryRoot) {
   const { fragments, errors } = await readAuthoritySources(repositoryRoot);
   if (errors.length > 0) throw sourceValidationError(errors);
-  const grants = fragments.flatMap(({ grants }) => grants).sort(compareGrants);
-  const dockerConsumers = fragments.flatMap(({ dockerConsumers }) => dockerConsumers).sort(compareDockerConsumers);
-  return dockerConsumers.length > 0 ? { schemaVersion: 1, grants, dockerConsumers } : { schemaVersion: 1, grants };
+  return buildManifest(fragments);
 }
 
 export async function validateManagedPostgresAuthoritySources(repositoryRoot, options = {}) {
   const root = resolve(repositoryRoot);
-  const { fragments, errors, absent } = await readAuthoritySources(root);
-  if (absent) return { valid: true, errors: [], fragments, skipped: true };
+  const { fragments, errors } = await readAuthoritySources(root);
   if (errors.length > 0) return { valid: false, errors, fragments };
   const generated = buildManifest(fragments);
   if (options.checkManifest !== false) {
@@ -80,13 +80,26 @@ async function readAuthoritySources(repositoryRoot) {
   const root = resolve(repositoryRoot);
   const workflowInfo = await loadWorkflowInfo(root);
   const errors = [...workflowInfo.errors];
-  const authorityRoot = resolve(root, AUTHORITY_ROOT);
-  if (!(await statIfPresent(authorityRoot))) return { fragments: [], errors: [], absent: true };
-  const files = await listFiles(authorityRoot);
+  let files;
+  try {
+    const { stdout } = await execFileAsync("git", ["-C", root, "ls-files", "-z", "--", `${AUTHORITY_ROOT}/`], {
+      encoding: "utf8",
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    files = [...new Set(stdout.split("\0").filter((file) => file.endsWith(".json")))].sort();
+  } catch {
+    return { fragments: [], errors: ["tracked authority sources cannot be enumerated"] };
+  }
   const fragments = [];
   const owners = new Map();
-  for (const absolute of files) {
-    const rel = toRepoPath(root, absolute);
+  for (const rel of files) {
+    const absolute = resolve(root, rel);
+    const info = await statIfPresent(absolute);
+    if (!info) continue;
+    if (!info.isFile()) {
+      errors.push(`authority source must be a regular file: ${rel}`);
+      continue;
+    }
     const parts = rel.slice(`${AUTHORITY_ROOT}/`.length).split("/");
     if (parts.length !== 2 || extname(parts[1]) !== ".json") {
       errors.push(`authority source must be <workflow-basename>/<jobId>.json: ${rel}`);
@@ -226,7 +239,7 @@ async function readdirIfPresent(directory) {
 }
 async function statIfPresent(path) {
   try {
-    return await stat(path);
+    return await lstat(path);
   } catch (error) {
     if (error?.code === "ENOENT") return null;
     throw error;

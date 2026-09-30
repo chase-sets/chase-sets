@@ -46,6 +46,10 @@ async function readJson(root, path) {
   return JSON.parse(await readFile(join(root, path), "utf8"));
 }
 
+async function trackSources(root) {
+  await execFileAsync("git", ["add", "-A", "--", AUTHORITY_ROOT], { cwd: root });
+}
+
 function grant(overrides = {}) {
   return {
     file: workflowPath,
@@ -70,8 +74,10 @@ function dockerConsumer(overrides = {}) {
 async function fixture(fragment = { grants: [grant()] }) {
   const root = await mkdtemp(join(tmpdir(), "managed-postgres-authority-sources-"));
   roots.push(root);
+  await execFileAsync("git", ["init", "--initial-branch=main"], { cwd: root });
   await writeJson(root, workflowPath, { jobs: { deploy: { "runs-on": "ubuntu-latest", steps: [] } } });
   await writeJson(root, fragmentPath, fragment);
+  await trackSources(root);
   await mkdir(join(root, "scripts"), { recursive: true });
   await copyFile(join(repositoryRoot, schemaPath), join(root, schemaPath));
   return root;
@@ -116,6 +122,7 @@ async function addWorkflow(root) {
     },
   });
   await writeJson(root, source, { grants: [record] });
+  await trackSources(root);
   return { file, source, record };
 }
 
@@ -141,6 +148,7 @@ async function runGuard(root, args = []) {
 async function snapshot(root, prefix = "") {
   const files = {};
   for (const entry of await readdir(join(root, prefix), { withFileTypes: true })) {
+    if (entry.name === ".git") continue;
     const path = prefix ? `${prefix}/${entry.name}` : entry.name;
     if (entry.isDirectory()) Object.assign(files, await snapshot(root, path));
     else files[path] = await readFile(join(root, path), "utf8");
@@ -248,6 +256,28 @@ describe("managed Postgres authority source generator", () => {
         stepAnchor: "step:1",
       },
     ]);
+  });
+
+  it("discovers tracked JSON only and refuses freshness bypass by removing all sources", async () => {
+    const root = await boundaryFixture();
+    await writeManagedPostgresAuthorityManifest(root);
+    const before = await readJson(root, MANIFEST_PATH);
+    await write(root, `${AUTHORITY_ROOT}/untracked/job.json`, "{invalid");
+    await write(root, `${AUTHORITY_ROOT}/README.md`, "Not authorization data.\n");
+    await execFileAsync("git", ["add", "--", `${AUTHORITY_ROOT}/README.md`], { cwd: root });
+    expect(await generateManagedPostgresAuthority(root)).toEqual(before);
+    expect((await runGuard(root)).exitCode).toBe(0);
+    await rm(join(root, AUTHORITY_ROOT), { recursive: true });
+    expect(await writeManagedPostgresAuthorityManifest(root, { check: true })).toBe(false);
+    const stale = await runGuard(root);
+    expect(stale.exitCode).toBe(1);
+    expect(stale.report.violations.map(({ code }) => code)).toContain("authority-source-invalid");
+    expect(await readJson(root, MANIFEST_PATH)).toEqual(before);
+    await writeManagedPostgresAuthorityManifest(root);
+    expect(await readJson(root, MANIFEST_PATH)).toEqual({ schemaVersion: 1, grants: [] });
+    const empty = await runGuard(root);
+    expect(empty.exitCode).toBe(1);
+    expect(empty.report.violations.map(({ code }) => code)).toContain("unmanifested-secret-ingress");
   });
 
   describe("authority source validation and scoped selection fail closed", () => {
@@ -388,6 +418,7 @@ describe("managed Postgres authority source generator", () => {
     ])("rejects %s", async (_label, mutate, message) => {
       const root = await fixture();
       await mutate(root);
+      await trackSources(root);
       const result = await validateManagedPostgresAuthoritySources(root, { checkManifest: false });
       expect(result.valid).toBe(false);
       expect(result.errors.join("; ")).toContain(message);
@@ -421,6 +452,7 @@ describe("managed Postgres authority source generator", () => {
             dockerConsumers: consumers.filter((r) => r.file === file && r.jobId === jobId),
           });
         }
+        await trackSources(root);
         results.push(await generateManagedPostgresAuthority(root));
       }
       const grantTuples = grants
@@ -479,7 +511,7 @@ describe("managed Postgres authority source generator", () => {
       expect(VERIFY_STATIC_SURFACES["check:managed-postgres-authority"].classification).toBe(ALWAYS_RUN);
       expect(chain.map(({ name }) => name)).toContain("check:managed-postgres-authority");
       expect(selected.selected.map(({ name }) => name)).toContain("check:managed-postgres-authority");
-      expect(pkg.scripts["check:managed-postgres-authority"]).toBe(`node ./${sourceCli} --check && node ./${guardCli}`);
+      expect(pkg.scripts["check:managed-postgres-authority"]).toBe(`node ./${guardCli}`);
 
       const root = await boundaryFixture();
       await writeManagedPostgresAuthorityManifest(root);
@@ -495,8 +527,7 @@ describe("managed Postgres authority source generator", () => {
           visited.push(name);
           // Exercise the selected authority command; unrelated static guards are outside this fixture.
           if (name !== "check:managed-postgres-authority") return 0;
-          const check = await runCli(sourceCli, root, ["--check"]);
-          return check.exitCode || (await runCli(guardCli, root)).exitCode;
+          return (await runCli(guardCli, root)).exitCode;
         },
       });
       expect(visited).toContain("check:managed-postgres-authority");
