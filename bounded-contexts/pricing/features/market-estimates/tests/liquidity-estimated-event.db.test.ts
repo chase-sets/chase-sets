@@ -66,6 +66,25 @@ describeDb("Demand Curve immutable versions and LiquidityEstimated", () => {
   });
   afterAll(async () => closeMultiContextTestPools({ pricing: pool }));
 
+  async function syntheticBinding(condition: string) {
+    await pool.query(
+      `INSERT INTO pricing_external_market_captures
+       (capture_id,provider_key,catalog_item_id,external_key,signal_pass_started_at,signal_policy_revision_id,
+        products_per_pass,capture_started_at,capture_completed_at,authenticated_request,recorded_signal_count,
+        unresolved_signal_count,outcome_kind,rejected_row_count,currency,sales_coverage)
+       VALUES ('synthetic-capture','tcgplayer',$1,'product:synthetic',$2,'synthetic-revision',1,$2,$2,
+               false,0,0,'recorded',0,'usd','complete')`,
+      [catalogItemId, at],
+    );
+    await pool.query(
+      `INSERT INTO pricing_external_weekly_sale_buckets
+       (provider_key,external_key,catalog_item_id,catalog_product_key,week_start,provider_condition,provider_variant,
+        provider_language,transaction_count,quantity_sold,last_capture_id,last_observed_at,updated_at)
+       VALUES ('tcgplayer','sku:synthetic',$1,$2,'2026-08-31',$3,'Normal','English',1,1,'synthetic-capture',$4,$4)`,
+      [catalogItemId, productId, condition, at],
+    );
+  }
+
   function version(fingerprint = "fingerprint-one", builtAt = at) {
     return {
       catalogItemId,
@@ -205,6 +224,107 @@ describeDb("Demand Curve immutable versions and LiquidityEstimated", () => {
     expect((await pool.query(`SELECT product_id FROM pricing_demand_curve_versions`)).rows).toEqual([
       { product_id: productId },
     ]);
+  });
+
+  it("skips an unknown bound condition and advances the cursor without persisting a curve", async () => {
+    await syntheticBinding("Unopened");
+    const result = await createDemandCurveCloser({
+      pool,
+      eventStore: createPostgresEventStore({ pool }),
+      policies: stubDemandCurvePolicies(),
+    }).runDemandCurveCloser({ now: at, limit: 1 });
+    expect(result).toMatchObject({ built: 0, unknownCondition: 1 });
+    expect((await pool.query(`SELECT version FROM pricing_demand_curve_versions`)).rows).toHaveLength(0);
+    expect(await getDemandCurveCursor(pool)).toMatchObject({ catalogItemId, productId, generation: 1 });
+  });
+
+  it("supersedes a served condition omitted by a revised policy and completes the pass", async () => {
+    await syntheticBinding("Damaged");
+    const store = createPostgresEventStore({ pool });
+    await writeDemandCurve(pool, store, {
+      ...version("synthetic-served", "2026-09-01T14:00:00.000Z"),
+      providerCondition: "Damaged",
+    });
+    const revised = {
+      resolvePolicy: async (definition: { policyKey: string }) => {
+        const resolved = await stubDemandCurvePolicies().resolvePolicy(definition as never);
+        return definition.policyKey === "pricing.demand-curve"
+          ? {
+              ...resolved,
+              value: {
+                ...DEMAND_CURVE_LAUNCH_POLICY_VALUE,
+                conditionOrder: DEMAND_CURVE_LAUNCH_POLICY_VALUE.conditionOrder.filter(
+                  (condition) => condition !== "Damaged",
+                ),
+              },
+            }
+          : resolved;
+      },
+    } as unknown as PolicyRuntime;
+    const result = await createDemandCurveCloser({ pool, eventStore: store, policies: revised }).runDemandCurveCloser({
+      now: at,
+      limit: 1,
+    });
+    expect(result).toMatchObject({ built: 0, superseded: 1, unknownCondition: 1 });
+    expect(await getDemandCurve(pool, { catalogItemId, productId, asOf: at })).toBeNull();
+    expect(await getDemandCurveCursor(pool)).toMatchObject({ catalogItemId, productId, generation: 1 });
+  });
+
+  it("serves the latest capped provider sales with sales-cap exposure", async () => {
+    await syntheticBinding("Near Mint");
+    await pool.query(
+      `INSERT INTO pricing_external_sale_observations
+       (capture_id,sale_fingerprint,observed_occurrence_count,provider_condition,provider_variant,
+        provider_language,listing_type,sold_at,quantity,unit_price,order_shipping)
+       SELECT 'synthetic-capture','synthetic-sale-' || n,1,'Near Mint','Normal','English',
+              'ListingWithPhotos',$1::timestamptz - n * interval '1 hour',1,
+              CASE WHEN n = $2 THEN 1000 ELSE 10 END,0
+       FROM generate_series(1,$2) AS n`,
+      [at, DEMAND_CURVE_LAUNCH_POLICY_VALUE.salesLimit + 1],
+    );
+    const result = await createDemandCurveCloser({
+      pool,
+      eventStore: createPostgresEventStore({ pool }),
+      policies: stubDemandCurvePolicies(),
+    }).runDemandCurveCloser({ now: at });
+    expect(result.built).toBe(1);
+    const served = await getDemandCurve(pool, { catalogItemId, productId, asOf: at });
+    expect(served?.exposureStartReason).toBe("sales-cap");
+    const points = await listDemandCurvePoints(pool, { catalogItemId, productId, version: served!.version });
+    expect(points.every((point) => point.historyCapped && Number(point.priceAmount) < 100)).toBe(true);
+  });
+
+  it("dedupes platform pairs before retaining the latest capped trades", async () => {
+    await syntheticBinding("Near Mint");
+    await pool.query(
+      `INSERT INTO pricing_market_trades
+       (order_id,line_id,seller_account_id,buyer_account_id,catalog_catalog_item_id,product_id,
+        unit_price_amount,currency_code,quantity,sale_channel,sold_at,updated_at)
+       SELECT 'synthetic-order-' || n,'synthetic-line-' || n,'synthetic-seller-' || n,
+              'synthetic-buyer-' || n,$1,$2,CASE WHEN n = $3 THEN 1000 ELSE 10 END,'USD',1,
+              'listing',$4::timestamptz - n * interval '1 hour',$4::timestamptz - n * interval '1 hour'
+       FROM generate_series(1,$3) AS n`,
+      [catalogItemId, productId, DEMAND_CURVE_LAUNCH_POLICY_VALUE.salesLimit + 1, at],
+    );
+    await pool.query(
+      `INSERT INTO pricing_market_trades
+       (order_id,line_id,seller_account_id,buyer_account_id,catalog_catalog_item_id,product_id,
+        unit_price_amount,currency_code,quantity,sale_channel,sold_at,updated_at)
+       VALUES ('synthetic-duplicate','synthetic-duplicate','synthetic-seller-1','synthetic-buyer-1',
+               $1,$2,1000,'USD',1,'listing',$3::timestamptz - interval '6 days',
+               $3::timestamptz - interval '6 days')`,
+      [catalogItemId, productId, at],
+    );
+    const result = await createDemandCurveCloser({
+      pool,
+      eventStore: createPostgresEventStore({ pool }),
+      policies: stubDemandCurvePolicies(),
+    }).runDemandCurveCloser({ now: at });
+    expect(result.built).toBe(1);
+    const served = await getDemandCurve(pool, { catalogItemId, productId, asOf: at });
+    expect(served?.exposureStartReason).toBe("sales-cap");
+    const points = await listDemandCurvePoints(pool, { catalogItemId, productId, version: served!.version });
+    expect(points.every((point) => point.historyCapped && Number(point.priceAmount) < 100)).toBe(true);
   });
 
   it("single-printing joint remains observed; Normal+Foil never pools a seller count", async () => {

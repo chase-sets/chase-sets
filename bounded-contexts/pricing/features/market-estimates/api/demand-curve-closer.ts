@@ -27,8 +27,6 @@ import {
 const DAY = 86_400_000;
 const PROVIDER = "tcgplayer";
 
-class IncompleteCurveEvidenceError extends Error {}
-
 export function createDemandCurveCloser(
   deps: Readonly<{
     pool: PgTransactionalPool;
@@ -56,25 +54,28 @@ export function createDemandCurveCloser(
               sale.providerLanguage === identity.language &&
               sale.listingType !== null,
           )
-          .sort((left, right) => left.saleFingerprint.localeCompare(right.saleFingerprint));
-        if (relevant.reduce((count, sale) => count + sale.maxObservedTupleMultiplicity, 0) > window.salesLimit) {
-          throw new IncompleteCurveEvidenceError("Provider sale evidence exceeds the curve sales cap.");
-        }
-        return relevant.flatMap((sale): CurveSale[] => {
-          const amount = effectiveSaleAmountExact(
-            { quantity: sale.quantity, unitPrice: Number(sale.unitPrice), orderShipping: Number(sale.orderShipping) },
-            window.freeShippingThreshold,
+          .sort(
+            (left, right) =>
+              Date.parse(right.soldAt) - Date.parse(left.soldAt) ||
+              left.saleFingerprint.localeCompare(right.saleFingerprint),
           );
-          return Array.from({ length: sale.maxObservedTupleMultiplicity }, () => ({
-            price: amount,
-            soldAt: sale.soldAt,
-            condition: sale.providerCondition,
-            variant: sale.providerVariant,
-            language: sale.providerLanguage,
-            source: "external-comp",
-            coverage: sale.coverage === "complete-capture" ? "complete" : "truncated",
-          }));
-        });
+        return relevant
+          .flatMap((sale): CurveSale[] => {
+            const amount = effectiveSaleAmountExact(
+              { quantity: sale.quantity, unitPrice: Number(sale.unitPrice), orderShipping: Number(sale.orderShipping) },
+              window.freeShippingThreshold,
+            );
+            return Array.from({ length: sale.maxObservedTupleMultiplicity }, () => ({
+              price: amount,
+              soldAt: sale.soldAt,
+              condition: sale.providerCondition,
+              variant: sale.providerVariant,
+              language: sale.providerLanguage,
+              source: "external-comp",
+              coverage: sale.coverage === "complete-capture" ? "complete" : "truncated",
+            }));
+          })
+          .slice(0, window.salesLimit);
       },
     },
     {
@@ -88,17 +89,19 @@ export function createDemandCurveCloser(
           verified: boolean;
           buyer_account_id: string;
         }>(
-          `SELECT DISTINCT ON (trade.buyer_account_id,trade.seller_account_id)
-                  trade.unit_price_amount::text,trade.sold_at,trade.verified,trade.buyer_account_id
-           FROM pricing_market_trades AS trade
-         WHERE trade.catalog_catalog_item_id=$1 AND trade.product_id=$2 AND trade.excluded=false
-           AND trade.sold_at >= $3 AND trade.sold_at <= $4 AND trade.currency_code = 'USD'
-           ORDER BY trade.buyer_account_id,trade.seller_account_id,trade.sold_at DESC,trade.order_id DESC,trade.line_id DESC
-           LIMIT $5`,
-          [identity.catalogItemId, identity.productId, window.since, window.asOf, window.salesLimit + 1],
+          `SELECT chosen.unit_price_amount,chosen.sold_at,chosen.verified,chosen.buyer_account_id
+           FROM (
+             SELECT DISTINCT ON (trade.buyer_account_id,trade.seller_account_id)
+                    trade.unit_price_amount::text,trade.sold_at,trade.verified,trade.buyer_account_id,
+                    trade.order_id,trade.line_id
+             FROM pricing_market_trades AS trade
+             WHERE trade.catalog_catalog_item_id=$1 AND trade.product_id=$2 AND trade.excluded=false
+               AND trade.sold_at >= $3 AND trade.sold_at <= $4 AND trade.currency_code = 'USD'
+             ORDER BY trade.buyer_account_id,trade.seller_account_id,trade.sold_at DESC,trade.order_id DESC,trade.line_id DESC
+           ) AS chosen
+           ORDER BY sold_at DESC, order_id DESC, line_id DESC LIMIT $5`,
+          [identity.catalogItemId, identity.productId, window.since, window.asOf, window.salesLimit],
         );
-        if (result.rows.length > window.salesLimit)
-          throw new IncompleteCurveEvidenceError("Platform trade evidence exceeds the curve sales cap.");
         return result.rows.map(
           (row): CurveSale => ({
             price: Number(row.unit_price_amount),
@@ -132,7 +135,8 @@ export function createDemandCurveCloser(
     let built = 0,
       unchanged = 0,
       superseded = 0,
-      supplyUnscoped = 0;
+      supplyUnscoped = 0,
+      unknownCondition = 0;
     for (const candidate of page.candidates) {
       const identity = {
         catalogItemId: candidate.catalogItemId,
@@ -141,6 +145,11 @@ export function createDemandCurveCloser(
         variant: candidate.variant,
         language: candidate.language,
       };
+      if (!policy.conditionOrder.includes(candidate.condition)) {
+        if (await supersedeDemandCurve(db, identity, now)) superseded++;
+        unknownCondition++;
+        continue;
+      }
       const [weekly, capture] = await Promise.all([
         listProviderWeeklySaleBuckets(db, {
           providerKey: PROVIDER,
@@ -174,23 +183,12 @@ export function createDemandCurveCloser(
           )
           .map((row): [string, number] => [row.providerCondition, Number(row.providerMarketAmount)]),
       );
-      let sales: readonly CurveSale[];
-      try {
-        sales = await registry.load(identity, {
-          since,
-          asOf: now,
-          freeShippingThreshold: Number(observation.value.freeShippingThreshold),
-          salesLimit: policy.salesLimit,
-        });
-      } catch (error) {
-        if (!(error instanceof IncompleteCurveEvidenceError)) throw error;
-        if (await supersedeDemandCurve(db, identity, now)) superseded++;
-        continue;
-      }
-      if (sales.length > policy.salesLimit) {
-        if (await supersedeDemandCurve(db, identity, now)) superseded++;
-        continue;
-      }
+      const sales = await registry.load(identity, {
+        since,
+        asOf: now,
+        freeShippingThreshold: Number(observation.value.freeShippingThreshold),
+        salesLimit: policy.salesLimit,
+      });
       const snapshots = await listProviderListingSnapshots(db, {
         providerKey: PROVIDER,
         catalogItemId: candidate.catalogItemId,
@@ -292,6 +290,7 @@ export function createDemandCurveCloser(
       superseded,
       unmapped: page.unmapped,
       supplyUnscoped,
+      unknownCondition,
     };
   };
   return { runDemandCurveCloser, registerCurveBuilder: registry.registerCurveBuilder };
