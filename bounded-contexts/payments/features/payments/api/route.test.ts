@@ -923,11 +923,26 @@ describe("payments routes", () => {
     expect(services.processWebhook).toHaveBeenCalled();
   });
 
-  it("returns a retryable error when provider webhook processing fails after verification", async () => {
+  it("signature failures stay retryable", async () => {
     const services = {
       ...createServices(),
       processWebhook: vi.fn(async () => {
-        throw new Error("simulated payment webhook commit conflict");
+        throw new ProviderWebhookError("signature-invalid", "Invalid signature.", null, null, true);
+      }),
+    };
+    const app = new Hono().route("/provider", createPaymentProcessorWebhookRoutes(services));
+    const response = await app.request("/provider/webhooks", { method: "POST", body: "{}" });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: { code: "provider_webhook_signature_invalid", retryable: true },
+    });
+  });
+
+  it("classification ignores message text", async () => {
+    const services = {
+      ...createServices(),
+      processWebhook: vi.fn(async () => {
+        throw new Error("signature webhook secret SYNTHETIC_SECRET_MARKER");
       }),
     };
     const app = new Hono().route("/provider", createPaymentProcessorWebhookRoutes(services));

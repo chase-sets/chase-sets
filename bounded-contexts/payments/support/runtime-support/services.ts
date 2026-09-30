@@ -9,6 +9,7 @@ import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createPaymentRuntime } from "../../features/payments/api/runtime";
+import { createPaymentWebhookRunner } from "../../features/payments/api/webhook-transaction";
 import { createRefundRuntime } from "../../features/refunds/api/runtime";
 import type { PaymentProcessorGateway, PaymentProcessorPublicConfig } from "@chase-sets/payment-processing";
 import type { BalanceCreditResolver } from "../../features/payments/api/balance-credit-resolver";
@@ -96,13 +97,13 @@ export function createPaymentsServices(
     notificationOutbox,
   });
   const payments = createPaymentRuntime({
+    runWebhookTransaction: createPaymentWebhookRunner(pool, eventStore),
     evidenceWindowCorrelation: options.evidenceWindowCorrelation,
     evidenceWindowProviderWrite: options.evidenceWindowProviderWrite,
     eventStore,
     checkpointStore,
     db,
     processorGateway,
-    refunds,
     balanceCreditResolver: options.balanceCreditResolver,
     checkoutProcessingFeePolicyResolver: options.checkoutProcessingFeePolicyResolver,
     notificationOutbox,
