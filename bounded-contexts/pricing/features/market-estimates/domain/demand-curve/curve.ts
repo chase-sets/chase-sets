@@ -67,7 +67,13 @@ export function calculateDemandCurve(
     asOf: input.asOf,
     policy: input.policy,
   });
-  const scaled = known.map((sale) => ({ ...sale, price: sale.price * ladder.multipliers.get(sale.condition)! }));
+  const latestKnown = known
+    .map((sale, index) => ({ sale, index }))
+    .sort((a, b) => Date.parse(b.sale.soldAt) - Date.parse(a.sale.soldAt))
+    .slice(0, input.policy.salesLimit)
+    .sort((a, b) => a.index - b.index)
+    .map(({ sale }) => sale);
+  const scaled = latestKnown.map((sale) => ({ ...sale, price: sale.price * ladder.multipliers.get(sale.condition)! }));
   // The stat-hygiene gate applies before interpolation and arrival alike.
   const sortedPrices = scaled.map((sale) => sale.price).sort((a, b) => a - b);
   const trim = (sortedPrices.length * input.trimPercentile) / 100 >= 1 ? input.trimPercentile / 100 : 0;
@@ -118,9 +124,9 @@ export function calculateDemandCurve(
     cumulative[index] = sum + sale.weight;
     return sum + sale.weight;
   }, 0);
-  const historyCapped = sales.length === input.policy.salesLimit;
+  const historyCapped = latestKnown.length === input.policy.salesLimit;
   const observedStart = historyCapped
-    ? Math.min(...sales.map((sale) => Date.parse(sale.soldAt)))
+    ? Math.min(...latestKnown.map((sale) => Date.parse(sale.soldAt)))
     : asOf - input.policy.historyDays * DAY;
   const availability = input.availableSince
     ? Math.min(asOf, Date.parse(input.availableSince), ...sales.map((sale) => Date.parse(sale.soldAt)))

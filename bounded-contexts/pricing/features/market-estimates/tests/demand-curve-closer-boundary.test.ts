@@ -8,13 +8,14 @@ import { MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE as hygienePolicy } from "../../
 import { PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE as observationPolicy } from "../../price-signals/domain/provider-observation-policy";
 import { effectiveSaleAmountExact } from "../../price-signals/domain/effective-sale-price";
 import { generateSyntheticProviderObservationFixture } from "../../price-signals/tests/fixtures/provider-observations/generate-fixture";
+import type { CurveSale } from "../domain/demand-curve/curve-builder-registry";
 
-const sink = vi.hoisted(() => ({ written: [] as any[] }));
+const sink = vi.hoisted(() => ({ written: [] as WrittenCurve[] }));
 vi.mock("../read-model/demand-curve-writes", () => ({
   getDemandCurveCursor: async () => null,
   saveDemandCurveCursor: async () => true,
   supersedeDemandCurve: async () => true,
-  writeDemandCurve: async (_pool: unknown, _store: unknown, input: unknown) => {
+  writeDemandCurve: async (_pool: unknown, _store: unknown, input: WrittenCurve) => {
     sink.written.push(input);
     return "built";
   },
@@ -41,6 +42,20 @@ type OraclePoint = {
 };
 
 type RawSale = ReturnType<typeof fixtureRows>[number];
+type WrittenCurve = {
+  fingerprint: string;
+  supplyStatus: string;
+  exposureStartReason: string;
+  salesCoverage: string;
+  points: readonly {
+    priceAmount: string;
+    buyerArrivalIntervalDays: number | null;
+    medianSellDays: number | null;
+    competingSellerCount: number | null;
+    qualifyingSaleCount: number;
+    historyCapped: boolean;
+  }[];
+};
 
 function fixtureRows() {
   return capture.sales.map((sale) => ({
@@ -92,7 +107,17 @@ function policies(): PolicyRuntime {
   } as unknown as PolicyRuntime;
 }
 
-async function run(rows: RawSale[], observedSupply = false) {
+async function run(
+  rows: RawSale[],
+  observedSupply = false,
+  options: {
+    platform?: RawSale[];
+    emptySupply?: boolean;
+    configure?: (closer: ReturnType<typeof createDemandCurveCloser>) => void;
+    passes?: number;
+    policyRuntime?: PolicyRuntime;
+  } = {},
+) {
   const pool = {
     query: async (statement: string, parameters?: readonly unknown[]) => {
       const result = (values: unknown[]) => ({ rows: values, rowCount: values.length });
@@ -130,7 +155,18 @@ async function run(rows: RawSale[], observedSupply = false) {
               left.sale_fingerprint.localeCompare(right.sale_fingerprint),
           ),
         );
-      if (statement.includes("FROM pricing_market_trades")) return result([]);
+      if (statement.includes("FROM pricing_market_trades"))
+        return result(
+          [...(options.platform ?? [])]
+            .sort((left, right) => Date.parse(right.sold_at) - Date.parse(left.sold_at))
+            .slice(0, Number(parameters?.[4]))
+            .map((row) => ({
+              unit_price_amount: row.unit_price,
+              sold_at: new Date(row.sold_at),
+              verified: false,
+              buyer_account_id: row.sale_fingerprint,
+            })),
+        );
       if (statement.includes("FROM pricing_external_listing_snapshots"))
         return result(
           observedSupply
@@ -151,7 +187,7 @@ async function run(rows: RawSale[], observedSupply = false) {
         return result([{ own_seller_exclusion_applied: false }]);
       if (statement.includes("FROM pricing_external_listing_ask_depth"))
         return result(
-          capture.askDepth.map((ask) => ({
+          (options.emptySupply ? [] : capture.askDepth).map((ask) => ({
             capture_id: capture.header.captureId,
             anonymous_capture_seller_ordinal: ask.anonymousCaptureSellerOrdinal,
             provider_condition: ask.providerCondition,
@@ -177,13 +213,17 @@ async function run(rows: RawSale[], observedSupply = false) {
       throw new Error(`Unrouted SQL: ${statement.slice(0, 100)}`);
     },
   };
-  const outcome = await createDemandCurveCloser({
+  const closer = createDemandCurveCloser({
     pool: pool as never,
     eventStore: {} as never,
-    policies: policies(),
-  }).runDemandCurveCloser({ now, limit: 10 });
-  const written = sink.written.at(-1);
-  return { outcome, written, selected: written ? JSON.parse(written.fingerprint).sales : [] };
+    policies: options.policyRuntime ?? policies(),
+  });
+  options.configure?.(closer);
+  let outcome = await closer.runDemandCurveCloser({ now, limit: 10 });
+  for (let pass = 1; pass < (options.passes ?? 1); pass++)
+    outcome = await closer.runDemandCurveCloser({ now, limit: 10 });
+  const written = sink.written.at(-1)!;
+  return { outcome, written, selected: (JSON.parse(written.fingerprint) as { sales: CurveSale[] }).sales };
 }
 
 function expectedSelection(rows: RawSale[]) {
@@ -249,16 +289,19 @@ describe("demand-curve closer production boundary", () => {
   });
 
   it.each([
-    ["below-cap", 99, 1],
-    ["exact-cap", 100, 1],
-    ["overflow", 101, 1],
-    ["multiplicity-exact-cap", 50, 2],
-    ["multiplicity-crossing-cap", 51, 2],
-  ])("keeps the conditional expanded sequence for %s", async (_name, count, multiplicity) => {
+    ["below-cap", 99, 1, [0, 1, 2, 3], [95, 96, 97, 98]],
+    ["exact-cap", 100, 1, [0, 1, 2, 3], [96, 97, 98, 99]],
+    ["overflow", 101, 1, [99, 100, 97, 98], [3, 4, 1, 2]],
+    ["multiplicity-exact-cap", 50, 2, [0, 0, 1, 1], [48, 48, 49, 49]],
+    ["multiplicity-crossing-cap", 51, 2, [49, 49, 50, 50], [1, 1, 2, 2]],
+  ] as const)("keeps the conditional expanded sequence for %s", async (_name, count, multiplicity, first, last) => {
     const rows = syntheticRows(count, multiplicity);
     const output = await run(rows);
     expect(output.outcome.built).toBe(1);
     expect(output.selected).toEqual(expectedSelection(rows));
+    const identity = (index: number) => ({ condition: rows[index]!.provider_condition, soldAt: rows[index]!.sold_at });
+    expect(output.selected.slice(0, 4)).toMatchObject(first.map(identity));
+    expect(output.selected.slice(-4)).toMatchObject(last.map(identity));
     expect(output.written.exposureStartReason).toBe(
       count * multiplicity >= curvePolicy.salesLimit ? "sales-cap" : "history-window",
     );
@@ -289,7 +332,150 @@ describe("demand-curve closer production boundary", () => {
     expect(output.selected).toHaveLength(100);
     expect(output.written.salesCoverage).not.toBe("complete");
   });
+
+  it.each([
+    ["provider", 101],
+    ["provider", 150],
+    ["platform", 101],
+    ["platform", 150],
+  ] as const)("retains pre-trim cap exposure for %s price-spread overflow %i", async (source, count) => {
+    const rows = spreadRows(count);
+    const output = await run(source === "provider" ? rows : [], true, {
+      platform: source === "platform" ? rows : [],
+      emptySupply: true,
+    });
+    expect(output.outcome.built).toBe(1);
+    expect(output.selected).toHaveLength(100);
+    expect(output.selected.map((sale) => sale.price).sort((a, b) => a - b)).toEqual(
+      rows.slice(count - 100).map((row) => Number(row.unit_price)),
+    );
+    // Independently fixed recency ties; equal timestamps retain fingerprint order.
+    expect(output.selected.slice(0, 3).map((sale) => sale.price)).toEqual(
+      count === 101 ? [14.9, 15, 14.7] : [19.8, 19.9, 19.6],
+    );
+    assertCapped(output.written);
+  });
+
+  it("excludes unknown and zero-price slot theft before the N20 overflow cap", async () => {
+    const valid = spreadRows(101);
+    const control = await run(valid, true, { emptySupply: true });
+    const output = await run([...valid, ...unusableRows()], true, { emptySupply: true });
+    expect(output.selected).toEqual(control.selected);
+    expect(output.selected).toHaveLength(100);
+    expect(output.selected.every((sale) => sale.condition === "Near Mint" && sale.price > 0)).toBe(true);
+    expect(output.written.points).toEqual(control.written.points);
+    assertCapped(output.written);
+  });
+
+  it.each([99, 100])("preserves fingerprint order with unusable evidence at %i usable sales", async (count) => {
+    const valid = spreadRows(count);
+    const output = await run([...valid, ...unusableRows()]);
+    expect(output.selected.map((sale) => sale.price)).toEqual(valid.map((row) => Number(row.unit_price)));
+    expect(output.selected.slice(0, 3).map((sale) => sale.price)).toEqual([5, 5.1, 5.2]);
+    expect(output.selected.at(-1)?.price).toBe(count === 99 ? 14.8 : 14.9);
+  });
+
+  it("retains extra registrations across passes and rejects duplicate and reserved IDs", async () => {
+    const load = vi.fn(
+      async (): Promise<readonly CurveSale[]> => [
+        {
+          price: 12.34,
+          soldAt: now,
+          condition: "Near Mint",
+          variant: "Normal",
+          language: "English",
+          source: "external-comp",
+          coverage: "complete",
+        },
+      ],
+    );
+    await run(spreadRows(90), false, {
+      passes: 2,
+      configure: (closer) => {
+        const definition = { id: "synthetic-extra", version: "1", weightSource: "external-comp" as const, load };
+        closer.registerCurveBuilder(definition);
+        for (const id of ["synthetic-extra", "provider-sales", "platform-trades"])
+          expect(() => closer.registerCurveBuilder({ ...definition, id })).toThrow(/unique/);
+      },
+    });
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(sink.written).toHaveLength(2);
+    for (const written of sink.written) {
+      const selected = (JSON.parse(written.fingerprint) as { sales: CurveSale[] }).sales;
+      expect(selected).toHaveLength(91);
+      expect(selected.at(-1)).toMatchObject({ price: 12.34 });
+    }
+  });
+
+  it("uses the single resolved condition policy of each pass before counting", async () => {
+    let curveReads = 0;
+    const policyRuntime = {
+      resolvePolicy: async (definition: { policyKey: string }) => {
+        const resolved = await policies().resolvePolicy(definition as never);
+        if (definition.policyKey !== "pricing.demand-curve") return resolved;
+        curveReads++;
+        return {
+          ...resolved,
+          value: {
+            ...curvePolicy,
+            conditionOrder: curveReads === 1 ? ["Near Mint", "Lightly Played"] : curvePolicy.conditionOrder,
+          },
+        };
+      },
+    } as unknown as PolicyRuntime;
+    await run(
+      [
+        ...spreadRows(99),
+        ...spreadRows(2).map((row, index) => ({
+          ...row,
+          sale_fingerprint: `synthetic-policy-${index}`,
+          provider_condition: "Damaged",
+          sold_at: now,
+        })),
+      ],
+      false,
+      { passes: 2, policyRuntime },
+    );
+    expect(curveReads).toBe(2);
+    const selections = sink.written.map((written) => (JSON.parse(written.fingerprint) as { sales: CurveSale[] }).sales);
+    expect(selections[0]).toHaveLength(99);
+    expect(selections[0]!.every((sale) => sale.condition === "Near Mint")).toBe(true);
+    expect(selections[1]).toHaveLength(100);
+    expect(selections[1]!.filter((sale) => sale.condition === "Damaged")).toHaveLength(2);
+  });
 });
+
+function spreadRows(count: number): RawSale[] {
+  return syntheticRows(count).map((row, index) => ({
+    ...row,
+    provider_condition: "Near Mint",
+    unit_price: (5 + index / 10).toFixed(2),
+  }));
+}
+
+function unusableRows(): RawSale[] {
+  return syntheticRows(2, 20).map((row, index) => ({
+    ...row,
+    sale_fingerprint: `synthetic-unusable-${index}`,
+    sold_at: now,
+    provider_condition: index === 0 ? "Unopened" : "Near Mint",
+    unit_price: index === 0 ? "10.00" : "0.00",
+  }));
+}
+
+function assertCapped(written: WrittenCurve): void {
+  expect(written.exposureStartReason).toBe("sales-cap");
+  expect(written.points).toHaveLength(19);
+  for (const point of written.points) {
+    expect(point.historyCapped).toBe(true);
+    expect(point.buyerArrivalIntervalDays).not.toBeNull();
+    expect(Number.isFinite(point.buyerArrivalIntervalDays)).toBe(true);
+    expect(point.buyerArrivalIntervalDays).toBeGreaterThan(0);
+    expect(point.medianSellDays).not.toBeNull();
+    expect(Number.isFinite(point.medianSellDays)).toBe(true);
+    expect(point.medianSellDays).toBeGreaterThan(0);
+  }
+}
 
 function relativeError(actual: number | null, expected: number): number {
   return actual === null ? Infinity : Math.abs(actual - expected) / Math.max(expected, 1e-9);

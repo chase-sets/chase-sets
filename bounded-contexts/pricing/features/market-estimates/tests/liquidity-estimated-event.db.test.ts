@@ -327,6 +327,93 @@ describeDb("Demand Curve immutable versions and LiquidityEstimated", () => {
     expect(points.every((point) => point.historyCapped && Number(point.priceAmount) < 100)).toBe(true);
   });
 
+  it.each([
+    ["provider", 101],
+    ["provider", 150],
+    ["platform", 101],
+    ["platform", 150],
+  ] as const)("persists capped exposure after trimming %s price-spread overflow %i", async (source, count) => {
+    await syntheticBinding("Near Mint");
+    await pool.query(
+      `UPDATE pricing_external_market_captures
+       SET listings_status='observed',listings_coverage='complete'
+       WHERE capture_id='synthetic-capture'`,
+    );
+    if (source === "provider") {
+      await pool.query(
+        `INSERT INTO pricing_external_sale_observations
+         (capture_id,sale_fingerprint,observed_occurrence_count,provider_condition,provider_variant,
+          provider_language,listing_type,sold_at,quantity,unit_price,order_shipping)
+         SELECT 'synthetic-capture','synthetic-spread-' || n,1,'Near Mint','Normal','English',
+                'ListingWithPhotos',$1::timestamptz - n * interval '1 hour',1,5 + n * 0.10,0
+         FROM generate_series(1,$2) AS n`,
+        [at, count],
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO pricing_market_trades
+         (order_id,line_id,seller_account_id,buyer_account_id,catalog_catalog_item_id,product_id,
+          unit_price_amount,currency_code,quantity,sale_channel,sold_at,updated_at)
+         SELECT 'synthetic-spread-order-' || n,'synthetic-spread-line-' || n,'synthetic-spread-seller-' || n,
+                'synthetic-spread-buyer-' || n,$1,$2,5 + n * 0.10,'USD',1,
+                'listing',$3::timestamptz - n * interval '1 hour',$3::timestamptz - n * interval '1 hour'
+         FROM generate_series(1,$4) AS n`,
+        [catalogItemId, productId, at, count],
+      );
+    }
+    const closer = createDemandCurveCloser({
+      pool,
+      eventStore: createPostgresEventStore({ pool }),
+      policies: stubDemandCurvePolicies(),
+    });
+    expect((await closer.runDemandCurveCloser({ now: at })).built).toBe(1);
+    const served = await getDemandCurve(pool, { catalogItemId, productId, asOf: at });
+    expect(served).toMatchObject({ exposureStartReason: "sales-cap", supplyStatus: "observed", version: 1 });
+    const points = await listDemandCurvePoints(pool, { catalogItemId, productId, version: served!.version });
+    expect(points).toHaveLength(19);
+    for (const point of points) {
+      expect(point.historyCapped).toBe(true);
+      expect(Number(point.priceAmount)).toBeGreaterThanOrEqual(5.6);
+      expect(Number(point.priceAmount)).toBeLessThanOrEqual(14.5);
+      expect(point.buyerArrivalIntervalDays).not.toBeNull();
+      expect(Number.isFinite(point.buyerArrivalIntervalDays)).toBe(true);
+      expect(point.buyerArrivalIntervalDays).toBeGreaterThan(0);
+      expect(point.medianSellDays).not.toBeNull();
+      expect(Number.isFinite(point.medianSellDays)).toBe(true);
+      expect(point.medianSellDays).toBeGreaterThan(0);
+    }
+    if (source === "provider") {
+      await pool.query(
+        `INSERT INTO pricing_external_sale_observations
+         (capture_id,sale_fingerprint,observed_occurrence_count,provider_condition,provider_variant,
+          provider_language,listing_type,sold_at,quantity,unit_price,order_shipping)
+         VALUES ('synthetic-capture','synthetic-unusable-condition',20,'Unopened','Normal','English',
+                 'ListingWithPhotos',$1,1,10,0),
+                ('synthetic-capture','synthetic-unusable-price',20,'Near Mint','Normal','English',
+                 'ListingWithPhotos',$1,1,0,0)`,
+        [at],
+      );
+      expect(await closer.runDemandCurveCloser({ now: at })).toMatchObject({ built: 0, unchanged: 1 });
+      expect(await getDemandCurve(pool, { catalogItemId, productId, asOf: at })).toEqual(served);
+    }
+    // Removing only evidence older than the latest 100 must not change the version.
+    if (source === "provider")
+      await pool.query(
+        `DELETE FROM pricing_external_sale_observations
+         WHERE capture_id='synthetic-capture' AND sold_at < $1::timestamptz - interval '100 hours'`,
+        [at],
+      );
+    else
+      await pool.query(
+        `DELETE FROM pricing_market_trades
+         WHERE catalog_catalog_item_id=$1 AND sold_at < $2::timestamptz - interval '100 hours'`,
+        [catalogItemId, at],
+      );
+    expect(await closer.runDemandCurveCloser({ now: at })).toMatchObject({ built: 0, unchanged: 1 });
+    expect(await getDemandCurve(pool, { catalogItemId, productId, asOf: at })).toEqual(served);
+    expect(await listDemandCurvePoints(pool, { catalogItemId, productId, version: served!.version })).toEqual(points);
+  });
+
   it("single-printing joint remains observed; Normal+Foil never pools a seller count", async () => {
     const { capture } = generateSyntheticProviderObservationFixture();
     const fixtureItem = capture.header.catalogItemId;

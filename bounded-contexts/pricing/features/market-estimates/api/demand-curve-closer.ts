@@ -11,9 +11,13 @@ import {
 } from "../../price-signals/read-model/provider-observation-queries";
 import { marketEstimatePolicy } from "../domain/estimate-policy";
 import { marketStatHygienePolicy } from "../../market-trades/domain/stat-hygiene-policy";
-import { demandCurvePolicy } from "../domain/demand-curve-policy";
+import { demandCurvePolicy, type DemandCurvePolicyValue } from "../domain/demand-curve-policy";
 import { calculateDemandCurve, type CurveSupply } from "../domain/demand-curve/curve";
-import { createCurveBuilderRegistry, type CurveSale } from "../domain/demand-curve/curve-builder-registry";
+import {
+  createCurveBuilderRegistry,
+  type CurveBuilderDefinition,
+  type CurveSale,
+} from "../domain/demand-curve/curve-builder-registry";
 import { listDemandCurveCandidates } from "../read-model/demand-curve-candidates";
 import {
   curveFingerprint,
@@ -35,61 +39,81 @@ export function createDemandCurveCloser(
   }>,
 ) {
   const db = deps.pool;
-  const registry = createCurveBuilderRegistry([
-    {
-      id: "provider-sales",
-      version: "1",
-      weightSource: "external-comp",
-      load: async (identity, window) => {
-        const evidence = await listProviderSaleEvidence(db, {
-          providerKey: PROVIDER,
-          catalogItemId: identity.catalogItemId,
-          soldSince: window.since,
-          soldUntil: new Date(Date.parse(window.asOf) + 1).toISOString(),
-        });
-        const relevant = evidence.filter(
-          (sale) =>
-            sale.providerVariant === identity.variant &&
-            sale.providerLanguage === identity.language &&
-            sale.listingType !== null,
-        );
-        const expandedCount = relevant.reduce((count, sale) => count + sale.maxObservedTupleMultiplicity, 0);
-        relevant.sort(
-          (left, right) =>
-            (expandedCount > window.salesLimit ? Date.parse(right.soldAt) - Date.parse(left.soldAt) : 0) ||
-            left.saleFingerprint.localeCompare(right.saleFingerprint),
-        );
-        return relevant
-          .flatMap((sale): CurveSale[] => {
-            const amount = effectiveSaleAmountExact(
-              { quantity: sale.quantity, unitPrice: Number(sale.unitPrice), orderShipping: Number(sale.orderShipping) },
-              window.freeShippingThreshold,
-            );
-            return Array.from({ length: sale.maxObservedTupleMultiplicity }, () => ({
-              price: amount,
-              soldAt: sale.soldAt,
-              condition: sale.providerCondition,
-              variant: sale.providerVariant,
-              language: sale.providerLanguage,
-              source: "external-comp",
-              coverage: sale.coverage === "complete-capture" ? "complete" : "truncated",
-            }));
-          })
-          .slice(0, window.salesLimit);
+  const additionalBuilders = createCurveBuilderRegistry();
+  const registerCurveBuilder = (builder: CurveBuilderDefinition): void => {
+    if (builder.id === "provider-sales" || builder.id === "platform-trades")
+      throw new Error("Curve builder id/version must be unique and nonempty.");
+    additionalBuilders.registerCurveBuilder(builder);
+  };
+  const createPassRegistry = (policy: DemandCurvePolicyValue) =>
+    createCurveBuilderRegistry([
+      {
+        id: "provider-sales",
+        version: "1",
+        weightSource: "external-comp",
+        load: async (identity, window) => {
+          const evidence = await listProviderSaleEvidence(db, {
+            providerKey: PROVIDER,
+            catalogItemId: identity.catalogItemId,
+            soldSince: window.since,
+            soldUntil: new Date(Date.parse(window.asOf) + 1).toISOString(),
+          });
+          const relevant = evidence.filter(
+            (sale) =>
+              sale.providerVariant === identity.variant &&
+              sale.providerLanguage === identity.language &&
+              sale.listingType !== null &&
+              policy.conditionOrder.includes(sale.providerCondition) &&
+              effectiveSaleAmountExact(
+                {
+                  quantity: sale.quantity,
+                  unitPrice: Number(sale.unitPrice),
+                  orderShipping: Number(sale.orderShipping),
+                },
+                window.freeShippingThreshold,
+              ) > 0,
+          );
+          const expandedCount = relevant.reduce((count, sale) => count + sale.maxObservedTupleMultiplicity, 0);
+          relevant.sort(
+            (left, right) =>
+              (expandedCount > window.salesLimit ? Date.parse(right.soldAt) - Date.parse(left.soldAt) : 0) ||
+              left.saleFingerprint.localeCompare(right.saleFingerprint),
+          );
+          return relevant
+            .flatMap((sale): CurveSale[] => {
+              const amount = effectiveSaleAmountExact(
+                {
+                  quantity: sale.quantity,
+                  unitPrice: Number(sale.unitPrice),
+                  orderShipping: Number(sale.orderShipping),
+                },
+                window.freeShippingThreshold,
+              );
+              return Array.from({ length: sale.maxObservedTupleMultiplicity }, () => ({
+                price: amount,
+                soldAt: sale.soldAt,
+                condition: sale.providerCondition,
+                variant: sale.providerVariant,
+                language: sale.providerLanguage,
+                source: "external-comp",
+                coverage: sale.coverage === "complete-capture" ? "complete" : "truncated",
+              }));
+            })
+            .slice(0, window.salesLimit);
+        },
       },
-    },
-    {
-      id: "platform-trades",
-      version: "1",
-      weightSource: "platform-trade",
-      load: async (identity, window) => {
-        const result = await db.query<{
-          unit_price_amount: string;
-          sold_at: Date;
-          verified: boolean;
-          buyer_account_id: string;
-        }>(
-          `SELECT chosen.unit_price_amount,chosen.sold_at,chosen.verified,chosen.buyer_account_id
+      {
+        id: "platform-trades",
+        version: "1",
+        weightSource: "platform-trade",
+        load: async (identity, window) => {
+          const result = await db.query<{
+            unit_price_amount: string;
+            sold_at: Date;
+            verified: boolean;
+            buyer_account_id: string;
+          }>(
+            `SELECT chosen.unit_price_amount,chosen.sold_at,chosen.verified,chosen.buyer_account_id
            FROM (
              SELECT DISTINCT ON (trade.buyer_account_id,trade.seller_account_id)
                     trade.unit_price_amount::text,trade.sold_at,trade.verified,trade.buyer_account_id,
@@ -100,23 +124,24 @@ export function createDemandCurveCloser(
              ORDER BY trade.buyer_account_id,trade.seller_account_id,trade.sold_at DESC,trade.order_id DESC,trade.line_id DESC
            ) AS chosen
            ORDER BY sold_at DESC, order_id DESC, line_id DESC LIMIT $5`,
-          [identity.catalogItemId, identity.productId, window.since, window.asOf, window.salesLimit],
-        );
-        return result.rows.map(
-          (row): CurveSale => ({
-            price: Number(row.unit_price_amount),
-            soldAt: new Date(row.sold_at).toISOString(),
-            condition: identity.condition,
-            variant: identity.variant,
-            language: identity.language,
-            source: row.verified ? "platform-verified-trade" : "platform-trade",
-            coverage: "complete",
-            participantId: row.buyer_account_id,
-          }),
-        );
+            [identity.catalogItemId, identity.productId, window.since, window.asOf, window.salesLimit],
+          );
+          return result.rows.map(
+            (row): CurveSale => ({
+              price: Number(row.unit_price_amount),
+              soldAt: new Date(row.sold_at).toISOString(),
+              condition: identity.condition,
+              variant: identity.variant,
+              language: identity.language,
+              source: row.verified ? "platform-verified-trade" : "platform-trade",
+              coverage: "complete",
+              participantId: row.buyer_account_id,
+            }),
+          );
+        },
       },
-    },
-  ]);
+      ...additionalBuilders.definitions(),
+    ]);
 
   const runDemandCurveCloser = async (params: Readonly<{ now?: string; limit?: number }> = {}) => {
     const now = params.now ?? new Date().toISOString();
@@ -129,6 +154,7 @@ export function createDemandCurveCloser(
       deps.policies.resolvePolicy(providerObservationPolicy),
     ]);
     const policy = curveResolution.value;
+    const registry = createPassRegistry(policy);
     const since = new Date(Date.parse(now) - policy.historyDays * DAY).toISOString();
     const after = await getDemandCurveCursor(db);
     const page = await listDemandCurveCandidates(db, { since, asOf: now, limit, after });
@@ -293,7 +319,7 @@ export function createDemandCurveCloser(
       unknownCondition,
     };
   };
-  return { runDemandCurveCloser, registerCurveBuilder: registry.registerCurveBuilder };
+  return { runDemandCurveCloser, registerCurveBuilder };
 }
 
 async function ownSellerExclusion(db: PgTransactionalPool, captureId: string): Promise<boolean | null> {
