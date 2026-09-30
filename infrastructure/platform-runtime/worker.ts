@@ -1220,6 +1220,9 @@ async function runLeasedRunner(
   const passSeq = ++heldLease.nextPassSeq;
   let passSucceeded = false;
   let result: ProjectorRunResult | undefined;
+  // Cancellation wins over lease loss, which wins over the run result: a stop
+  // or renewal loss during final status publication remains observable even
+  // when the runner already returned successfully.
   const observedOutcome = (succeeded: boolean): WorkerHolderLifecycleOutcome =>
     stoppedCooperatively() ? "cancelled" : heldLeaseLost() ? "lease-lost" : succeeded ? "success" : "error";
 
