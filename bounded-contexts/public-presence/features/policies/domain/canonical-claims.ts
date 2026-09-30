@@ -75,8 +75,8 @@ export const canonicalClaimRegistry: Readonly<Record<CanonicalClaimId, Canonical
       "infrastructure/stripe-payments/index.ts:1047-1073",
       "bounded-contexts/payments/features/payments/api/runtime.ts:2537-2578",
       "infrastructure/stripe-payments/index.ts:401-476",
-      "bounded-contexts/payments/features/payments/api/runtime.ts:280-310",
-      "bounded-contexts/payments/features/payments/api/runtime.ts:1253-1295",
+      "bounded-contexts/payments/features/payments/api/runtime.ts:276-306",
+      "bounded-contexts/payments/features/payments/api/runtime.ts:1238-1280",
       "bounded-contexts/payments/features/payments/domain/domain.ts:968-1005",
     ],
     requiredEvidenceKeywords: [

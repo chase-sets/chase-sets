@@ -91,12 +91,12 @@ const chargeSourceRoles = [
   },
   {
     role: "reconciliation capture command",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:280-310",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:276-306",
     markers: ['case "captured"', 'type: "RecordPaymentCapture"', "capturedAt: result.occurredAt", 'case "authorized"'],
   },
   {
     role: "reconciliation recording",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1253-1295",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1238-1280",
     markers: [
       "providerResultMismatch(payment, result)",
       "paymentCommandFromProviderResult(result)",
@@ -876,7 +876,7 @@ describe("canonical claim consistency guard", () => {
         "reconciliation recording",
         "capture fact",
       ],
-      extra: ["bounded-contexts/payments/features/payments/api/runtime.ts:2064-2075"],
+      extra: ["bounded-contexts/payments/features/payments/api/runtime.ts:2049-2060"],
     },
     ...chargeSourceRoles.slice(3).map(({ role }) => ({ name: `missing ${role}`, omitted: [role], extra: [] })),
   ])(
