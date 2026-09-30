@@ -1,0 +1,194 @@
+name: Disposable 8258 Condition 8 Holder Capture
+
+on:
+  push:
+    branches:
+      - diag/8258-cond8-capture-r1
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-tests:
+    name: E2E Tests (marketplace_browse,marketplace_account)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Capture run and checkout identity
+        env:
+          CAPTURE_REPOSITORY: ${{ github.repository }}
+          CAPTURE_RUN_ID: ${{ github.run_id }}
+          CAPTURE_RUN_ATTEMPT: ${{ github.run_attempt }}
+          CAPTURE_JOB: ${{ github.job }}
+          CAPTURE_EVENT: ${{ github.event_name }}
+          CAPTURE_REF: ${{ github.ref }}
+          CAPTURE_SOURCE_SHA: ${{ github.sha }}
+          CAPTURE_WORKFLOW_REF: ${{ github.workflow_ref }}
+          CAPTURE_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/8258-cond8-capture/metadata"
+          executed_base_sha="$(git rev-parse 'HEAD^')"
+          {
+            printf 'repository=%s\nrun-id=%s\nrun-attempt=%s\njob=%s\nevent=%s\nref=%s\n' \
+              "$CAPTURE_REPOSITORY" "$CAPTURE_RUN_ID" "$CAPTURE_RUN_ATTEMPT" \
+              "$CAPTURE_JOB" "$CAPTURE_EVENT" "$CAPTURE_REF"
+            printf 'source-head-sha=%s\nworkflow-ref=%s\nworkflow-sha=%s\n' \
+              "$CAPTURE_SOURCE_SHA" "$CAPTURE_WORKFLOW_REF" "$CAPTURE_WORKFLOW_SHA"
+            printf 'checkout-commit=%s\ncheckout-tree=%s\ncheckout-parents=%s\n' \
+              "$(git rev-parse 'HEAD^{commit}')" "$(git rev-parse 'HEAD^{tree}')" \
+              "$(git show -s --diff-merges=off --format=%P HEAD)"
+            printf 'source-head-tree=%s\nexecuted-base-sha=%s\nexecuted-base-tree=%s\n' \
+              "$(git rev-parse "${CAPTURE_SOURCE_SHA}^{tree}")" \
+              "$executed_base_sha" "$(git rev-parse "${executed_base_sha}^{tree}")"
+            printf 'started-at=%s\nsuite-batch=marketplace_browse,marketplace_account\nsystem=production\n' "$(date -u +%FT%TZ)"
+            printf 'node=%s\npnpm=%s\nrunner-os=%s\nrunner-arch=%s\n' \
+              "$(node --version)" "$(pnpm --version)" "$RUNNER_OS" "$RUNNER_ARCH"
+            sha256sum .github/workflows/8258-cond8-holder-capture.yml \
+              .github/workflows/platform-pr.yml .github/actions/setup-pnpm-workspace/action.yml \
+              pnpm-lock.yaml playwright.config.ts scripts/run-e2e-suite.mjs \
+              scripts/e2e-suites.mjs scripts/dev-system.mjs scripts/dev-system-config.mjs \
+              scripts/browser-e2e-evidence.mjs
+          } > "${RUNNER_TEMP}/8258-cond8-capture/metadata/run-checkout-config.txt"
+          test "$CAPTURE_RUN_ATTEMPT" = 1
+          test "$executed_base_sha" = c906c038f414080cb9ef53272c78c6f57b8df0c0
+
+      - name: Cache Playwright Chromium
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-chromium-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run marketplace e2e suites
+        id: e2e-producer
+        env:
+          CHASE_SETS_BROWSER_E2E_SYSTEM: production
+          PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
+        run: |
+          set -o pipefail
+          pnpm run test:e2e:suite "marketplace_browse,marketplace_account" 2>&1 | tee "${RUNNER_TEMP}/responsive-evidence-producer.log"
+
+      - name: Collect complete harness logs and holder records
+        if: always()
+        env:
+          CAPTURE_PRODUCER_OUTCOME: ${{ steps.e2e-producer.outcome }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const crypto = require('node:crypto');
+          const output = path.join(process.env.RUNNER_TEMP, '8258-cond8-capture');
+          fs.mkdirSync(path.join(output, 'metadata'), { recursive: true });
+          const sensitive = /^(?:authorization|proxy-authorization|cookie|set-cookie|credentials?|access[-_]?token|refresh[-_]?token|token|secret|password|api[-_]?key|query|queryText|queryString|sql|payload|body)$/i;
+          function redact(value) {
+            if (typeof value === 'string') return redactText(value);
+            if (Array.isArray(value)) return value.map(redact);
+            if (value && typeof value === 'object') {
+              return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, sensitive.test(key) ? '[redacted]' : redact(item)]));
+            }
+            return value;
+          }
+          function redactText(text) {
+            return text.split('\n').map((line) => {
+              const start = line.indexOf('{');
+              if (start >= 0) {
+                try { return line.slice(0, start) + JSON.stringify(redact(JSON.parse(line.slice(start)))); } catch {}
+              }
+              return line;
+            }).join('\n');
+          }
+          const sources = [];
+          function visit(directory) {
+            if (!fs.existsSync(directory)) return;
+            for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+              const file = path.join(directory, entry.name);
+              if (entry.isDirectory()) visit(file);
+              else if (entry.isFile() && /\.(?:jsonl?|log)$/.test(entry.name)) sources.push(file);
+            }
+          }
+          visit('artifacts/browser-e2e');
+          visit('artifacts/observability');
+          const producer = path.join(process.env.RUNNER_TEMP, 'responsive-evidence-producer.log');
+          if (fs.existsSync(producer)) sources.push(producer);
+          const inventory = [];
+          const records = [];
+          for (const source of sources) {
+            const relative = source === producer ? 'producer/responsive-evidence-producer.log' : path.join('harness', source);
+            const destination = path.join(output, relative);
+            const raw = fs.readFileSync(source, 'utf8');
+            const text = source.endsWith('.json')
+              ? JSON.stringify(redact(JSON.parse(raw)), null, 2) + '\n'
+              : redactText(raw);
+            fs.mkdirSync(path.dirname(destination), { recursive: true });
+            fs.writeFileSync(destination, text);
+            inventory.push({ source, artifact: relative, bytes: Buffer.byteLength(text), sha256: crypto.createHash('sha256').update(text).digest('hex') });
+            text.split('\n').forEach((line, index) => {
+              if (/worker\.runner\.holder_lifecycle|projection-group-lease-busy/.test(line)) {
+                records.push(JSON.stringify({ source: relative, line: index + 1, record: line }));
+              }
+            });
+          }
+          fs.writeFileSync(path.join(output, 'holder-lifecycle-and-deferrals.jsonl'), records.map((line) => line + '\n').join(''));
+          fs.writeFileSync(path.join(output, 'metadata', 'capture-inventory.json'), JSON.stringify({
+            collectedAt: new Date().toISOString(), producerOutcome: process.env.CAPTURE_PRODUCER_OUTCOME,
+            producerPresent: sources.includes(producer),
+            workerLogCount: sources.filter((file) => path.basename(file) === 'platform-worker.jsonl').length,
+            filteredRecordCount: records.length, files: inventory,
+            completeness: 'Not adjudicated: missing/truncated telemetry is incomplete; no rerun authorized.',
+            hostedJobLog: 'Host must retain the complete GitHub job log after completion; this artifact is not that log.',
+            redaction: 'Only credential, token, query-text and payload fields; all lines and correlation identifiers retained. No raw Playwright trace/report upload.',
+          }, null, 2) + '\n');
+          NODE
+
+      - name: Upload complete producer log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: 8258-cond8-producer-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/8258-cond8-capture/producer/responsive-evidence-producer.log
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload all harness worker and platform logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: 8258-cond8-harness-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/8258-cond8-capture/harness
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload holder lifecycle and busy deferrals
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: 8258-cond8-holder-records-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/8258-cond8-capture/holder-lifecycle-and-deferrals.jsonl
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload run checkout and collection metadata
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: 8258-cond8-metadata-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/8258-cond8-capture/metadata
+          if-no-files-found: error
+          retention-days: 14
