@@ -49,12 +49,14 @@ export function createDemandCurveCloser(
           soldSince: window.since,
           soldUntil: new Date(Date.parse(window.asOf) + 1).toISOString(),
         });
-        const relevant = evidence.filter(
-          (sale) =>
-            sale.providerVariant === identity.variant &&
-            sale.providerLanguage === identity.language &&
-            sale.listingType !== null,
-        );
+        const relevant = evidence
+          .filter(
+            (sale) =>
+              sale.providerVariant === identity.variant &&
+              sale.providerLanguage === identity.language &&
+              sale.listingType !== null,
+          )
+          .sort((left, right) => left.saleFingerprint.localeCompare(right.saleFingerprint));
         if (relevant.reduce((count, sale) => count + sale.maxObservedTupleMultiplicity, 0) > window.salesLimit) {
           throw new IncompleteCurveEvidenceError("Provider sale evidence exceeds the curve sales cap.");
         }

@@ -28,6 +28,7 @@ import { MARKET_ESTIMATE_LAUNCH_POLICY_VALUE } from "../domain/estimate-policy";
 import { MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE } from "../../market-trades/domain/stat-hygiene-policy";
 import { PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE } from "../../price-signals/domain/provider-observation-policy";
 import type { PolicyRuntime } from "@chase-sets/platform-policy/runtime";
+import { readFileSync } from "node:fs";
 
 const baseUrl = process.env.TEST_DATABASE_URL;
 if (!baseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for database-backed tests in CI.");
@@ -260,6 +261,22 @@ describeDb("Demand Curve immutable versions and LiquidityEstimated", () => {
       productId: nearMintKey,
       version: 1,
     });
+    const oracle = JSON.parse(
+      readFileSync(new URL("./fixtures/app-recorded-ninety-day-oracle.json", import.meta.url), "utf8"),
+    ) as {
+      points: readonly { price: number; buyerIntervalDays: number; medianSellDays: number; sellers: number }[];
+    };
+    for (const [index, point] of points.entries()) {
+      const expected = oracle.points[index]!;
+      expect(Math.abs(Number(point.priceAmount) - expected.price)).toBeLessThanOrEqual(0.01);
+      expect(
+        Math.abs(point.buyerArrivalIntervalDays! - expected.buyerIntervalDays) / expected.buyerIntervalDays,
+      ).toBeLessThanOrEqual(0.01);
+      expect(Math.abs(point.medianSellDays! - expected.medianSellDays) / expected.medianSellDays).toBeLessThanOrEqual(
+        0.01,
+      );
+      expect(point.competingSellerCount).toBe(expected.sellers);
+    }
     const sales = capture.sales.map((sale) => ({
       condition: sale.providerCondition,
       price: effectiveSaleAmountExact(
