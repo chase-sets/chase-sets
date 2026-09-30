@@ -18,7 +18,8 @@ A **Shipment Group** is the planned Fulfillment-owned physical execution of the 
 - Its `ShipmentGroupId` uses `shg_`, distinct from Ordering's `ogr_` linkage and each `shp_` member Shipment. The admission contract's `groupId` is the Order Group ID, not the Shipment Group ID.
 - Admission is `available`, `reserved`, `committed`, or `released`; physical grouping requires committed admission. Durable facts, not a projection or expiring lease, drive recovery.
 - Combined dispatch uses one actual label and ledger lineage with tracking visible on both members. Seller-elected separate dispatch retains the two-Order linkage and committed admission, with one lineage per actual label and the extra cost borne by the seller.
-- This is a planned contract, not shipped grouping or a multi-location split-shipment capability. [ADR 0032](../../docs/adr/0032-order-groups-and-shipment-groups.md) records the decisions and unresolved shortfall/correction questions.
+- Combined execution requires both members' current destinations to match; otherwise it is held (`destination-mismatch`) until they match, the seller elects separate dispatch, or a member is cancelled.
+- This is a planned contract, not shipped grouping or a multi-location split-shipment capability. [ADR 0032](../../docs/adr/0032-order-groups-and-shipment-groups.md) records the decisions.
 
 ## Package
 

@@ -3,8 +3,7 @@
 ## Status
 
 Proposed for #6462, under #6461's authorship handoff. Independent exact-head review
-ratifies these decisions. The host questions below prevent unconditional acceptance
-and implementation of the affected paths. This ADR does not ship grouping.
+ratifies these decisions. Host decision 6462-hq-decision-r1 settles destination correction, catalog completeness and evidence-window reachability. Survivor Shipping-shortfall funding is Todd's decision (https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5904695428); this ADR is ratifiable only once that rule is recorded below. This ADR does not ship grouping.
 
 V1 contains exactly an existing anchor Order and one follow-on Order. It preserves
 the [#6460 ruling](https://github.com/chase-sets/chase-sets/issues/6460#issuecomment-5170328894)
@@ -77,9 +76,17 @@ anchor then follow-on, two distinct Orders matching `I`.
 `anchorOrderVersion`. Removal does not rewrite the original pair to a singleton.
 
 Abort reasons are exactly `quote-stale | reservation-rejected | capacity-rejected |
-stage-failed | cancelled | compensating`. Removal/dissolution reasons are exactly
-`buyer-cancelled | seller-cancelled | support-cancel-order | payment-deadline |
-inventory-unavailable | fraud | compensating`.
+stage-failed | cancelled | compensating`.
+
+Removal/dissolution reasons are exactly `buyer-cancelled | seller-cancelled | support-cancel-order | seller-cannot-fulfill | payment-deadline | inventory-unavailable | fraud | compensating`.
+
+A removal reason is always the target's own `ordering.order.cancelled` reason. The catalog is the closed set of cancellation reasons that can reach a current group member. The current producers are:
+- `buyer-cancelled` and `seller-cancelled`: the buyer and seller cancel paths in Ordering runtime.
+- `payment-deadline`: the deadline sweep.
+- `inventory-unavailable`: reservation rejection.
+- `support-cancel-order` and `seller-cannot-fulfill`: `support-cancellation-reaction.ts`.
+
+`fraud` and `compensating` are planned. `seller-cannot-fulfill` extends the #7197 brief's list by host decision, and #7197 reproduces it. A new producer that can reach a group member must extend this catalog by contract change before it ships.
 
 All nine facts require `contractVersion: "order-group-admission/v1"`. These are
 the exact names, without `.v1` aliases, `member-added`, or another group namespace.
@@ -211,8 +218,8 @@ are cents in the nine-field order above; allowance is 100 bps unless noted.
 | Nonzero shipping allowance and protection | 800 / 500 | 10000 / 200 bps | (300, 100, 100, 200, 200, 100, 100, 0, 200) | Existing protection-first allowance allocation retained |
 | Nonzero protection overage | 800 / 500 | 10000 / 0 bps | (300, 0, 0, 300, 300, 100, 0, 100, 400) | Buyer sees combined Shipping, not another protection fee |
 | Worse than standalone | 1100 / 500 | 1000 / 100 bps | candidate (600, 0, 0, 600, 600, 10, 10, 0, 600) | Standalone base/charge 500: refuse offer before reserve/Payment |
-| Follow-on cancelled pre-packing | First base 500 stays 500 | Only cancelled member refunds/releases | First's entire committed vector unchanged | Group dissolves; original anchor ships alone; any genuine shortfall follows HQ1, not buyer repricing |
-| Anchor cancelled pre-packing | Combined 800; survivor incremental base 300 | Survivor standalone quote 500 | Survivor vector unchanged, not raised to 500 | Quote-level deficit 200 is illustrative only; actual funding/posting basis is HQ1 |
+| Follow-on cancelled pre-packing | First base 500 stays 500 | Only cancelled member refunds/releases | First's entire committed vector unchanged | Group dissolves; the original anchor ships alone on its own standalone frozen vector; no shortfall arises and no buyer repricing |
+| Anchor cancelled pre-packing | Combined 800; survivor incremental base 300 | Survivor standalone quote 500 | Survivor vector unchanged, not raised to 500 | Survivor ships under its own Shipment with its vector unchanged; the standalone-versus-incremental gap follows 'Survivor Shipping shortfall' |
 
 Payments, refund caps, fees, Settlement sale accounting, seller capacity, inventory
 and purchase-limit usage stay per Order. No consolidation credit, money pooling,
@@ -255,7 +262,7 @@ deduplicating only by provider ID downstream is not the current contract.
 | Refund terminal `refunded` | Original provider label and debit, even after re-buy | One credit reversing that debit; `rejected` produces no credit |
 | Re-buy after authoritative void | New label generation, same actual-label subject | New debit; late old refund still belongs only to the old debit |
 | Seller-elected separate dispatch | Each actual member Shipment owns its own actual label | One debit/refund lineage per label; both Order vectors frozen; extra label cost stays seller-funded |
-| Anchor cancelled before packing | No new shared label; surviving member ships under its own Shipment | Never attribute new survivor postage to a cancelled anchor; full survivor-label debit exposes HQ1 |
+| Anchor cancelled before packing | No new shared label; surviving member ships under its own Shipment | Never attribute survivor postage to the cancelled anchor; the survivor's own label keeps the existing single full debit; gap funding follows 'Survivor Shipping shortfall' |
 
 ### Durable operation identity
 
@@ -381,6 +388,7 @@ including permanent source Order IDs; no old identity touches a later group.
 | Buyer / `buyer-cancelled` | Ordering buyer cancellation -> OrderCancelled | P(buyer-cancelled) | F(buyer-cancelled) | C(buyer-cancelled) | S(buyer-cancelled) | D |
 | Seller / `seller-cancelled` | Ordering seller cancellation -> OrderCancelled | P(seller-cancelled) | F(seller-cancelled) | C(seller-cancelled) | S(seller-cancelled) | D |
 | Support / `support-cancel-order` | Support decision, Ordering cancellation -> OrderCancelled | P(support-cancel-order) | F(support-cancel-order) | C(support-cancel-order) | S(support-cancel-order) | D |
+| Support seller-cannot-fulfill / `seller-cannot-fulfill` | Support `cancel-order` resolution on a `seller-cannot-fulfill` flow, Ordering cancellation -> OrderCancelled | P(seller-cannot-fulfill) | F(seller-cannot-fulfill) | C(seller-cannot-fulfill) | S(seller-cannot-fulfill) | D |
 | Payment deadline / `payment-deadline` | Ordering deadline reaction -> OrderCancelled | P(payment-deadline) | F(payment-deadline) | C(payment-deadline) | S(payment-deadline) | D |
 | Inventory / `inventory-unavailable` | Inventory rejection, Ordering cancellation -> OrderCancelled | P(inventory-unavailable) | F(inventory-unavailable) | C(inventory-unavailable) | S(inventory-unavailable) | D |
 | Fraud cancellation / `fraud` | Fraud decision, Ordering cancellation -> OrderCancelled | P(fraud) | F(fraud) | C(fraud) | S(fraud) | D |
@@ -389,8 +397,6 @@ including permanent source Order IDs; no old identity touches a later group.
 Producer eligibility is not expanded by this matrix. A deadline after payment or
 an inventory rejection unrelated to the target version is not newly authorized to
 cancel. Seeds and lifecycle helpers must use the same decider and causal checks.
-An existing producer with an unlisted reason cannot cast it into R; its grouped
-reachability/mapping must be resolved by the host before enabling that path (HQ3).
 
 ### Non-cancellation triggers crossed with every phase
 
@@ -401,10 +407,10 @@ recorded effect, not whatever state a current projection suggests.
 
 | Trigger / owner and fact | Pre-Form | Formed-before-activation | Committed/pre-packing | Packing-started | Dissolved/day-after |
 | --- | --- | --- | --- | --- | --- |
-| Destination correction / Ordering; planned `ordering.order.shipping-destination-corrected.v1` | Correct only an eligible paid Order; stale combined preview aborts `quote-stale` and needs review | Single-Order correction cannot rewrite the staged peer; suspend physical progress, HQ2 | Inconsistent destinations require dissolution, HQ2; never apply to both silently | Fulfillment records late conflict; Support, no label-address overwrite | Apply only to eligible surviving individual Shipment with monotonic sequence; duplicates/old sequence inert; old group cannot revive |
+| Destination correction / Ordering; planned `ordering.order.shipping-destination-corrected.v1` (#6458, single-Order) | Only the paid anchor is correctable; if Form or Commit revalidation sees its changed destination, Abort `quote-stale` and return a replacement preview | Abort is illegal; Activate and take Payment with frozen money; the committed group then follows the destination-mismatch hold | Correct only the target Order; if member destinations now differ, Fulfillment holds combined execution (`destination-mismatch`); no dissolution, R reason or money change | #6458 refuses with `fulfillment-started`; a late fact is #6459's packing conflict for Support; never overwrite a purchased label's address | Apply only to the eligible individual Shipment with a monotonic sequence; duplicate or older sequences are inert; the old group cannot revive |
 | Label void / Fulfillment postage path; label-voided then terminal label-refund-status-recorded | No group label exists; stale individual operation cannot establish admission | No group buy before activation/packing; reconcile any prior operation, do not create a label | No group label should exist; refuse ineligible new void, replay an old valid receipt only | Void actual shared label once; physical group awaits replacement; admission stays committed; no Order cancellation; refund only on terminal authority | Original label lineage stays addressable; old refund cannot credit a replacement or new group |
 | Fraud warning / Payments warning fact -> Fulfillment conflict | Block physical eligibility and let actual Ordering fraud cancellation use P if authorized; warning alone is not R | Preserve warning/conflict and stop physical progress; actual cancellation follows F | Keep warning distinct from cancellation; no invented removal; authorized cancellation follows C | Existing fraud conflict remains Support-owned; no automatic dispatch/void/cancel-both | Replay source stream/version; cancelled lineage stays terminal; late warning cannot mutate a new admission |
-| Incompatible package/policy plan / Ordering preview or Fulfillment physical validation | No offer, or Abort `quote-stale` before Form; replace preview | If formation failed, activate then compensating-cancel actual failed member, dissolve; no Payment | Stop combined packing; separately execute only if each committed policy is satisfiable and seller elects; otherwise Support, not fake cancellation | Stop invalid label purchase/dispatch; Support or permitted void/repack; no policy weakening | No revival; a survivor must satisfy its own committed policy without repricing; unresolved economics are HQ1 |
+| Incompatible package/policy plan / Ordering preview or Fulfillment physical validation | No offer, or Abort `quote-stale` before Form; replace preview | If formation failed, activate then compensating-cancel actual failed member, dissolve; no Payment | Stop combined packing; separately execute only if each committed policy is satisfiable and seller elects; otherwise Support, not fake cancellation | Stop invalid label purchase/dispatch; Support or permitted void/repack; no policy weakening | No revival; a survivor must satisfy its own committed policy without repricing; an anchor-cancel survivor follows 'Survivor Shipping shortfall' |
 | Seller-elected separate dispatch / Fulfillment authorized physical decision | No group to split; individual behavior or wait for formation | Record/defer physical election until commitment and activation; no cancellation | Keep Order Group formed and admission committed; physical Shipment Group records irreversible separate disposition before packing; execute two individual member packages/labels | No silent second label for a shared parcel: reconcile/void shared label before separate repacking; ambiguous provider state blocks; Support when dispatch already occurred | Election replay returns original outcome; dissolved group cannot be re-created by election; surviving individual remains individual |
 
 Separate dispatch is NOT dissolution or member removal: both Orders remain linked,
@@ -423,59 +429,30 @@ availability. Its public fact contains `orderId`, corrected snapshot, `corrected
 sequence 0 through 3; same/older deliveries are inert; request replay precedes
 current lifecycle gating. This fact is not shipped at the baseline of this ADR.
 
-It authorizes ONE Order, not group-wide consent. A normalized no-op need not break
-consistency; a real one-member destination change cannot silently correct the
-other member. Ratify dissolution rather than waiting indefinitely for a second
-independent correction or propagating PII across Orders. However R requires an
-actual removed member and a closed cancellation reason, and #6458 supplies no
-correction-dissolution authority. HQ2 is therefore blocking for that transition.
-Until resolved, stop inconsistent physical grouping; do not fabricate `compensating`
-or cancel an otherwise valid Order just to get a legal-looking reason. Preserve
-#6458/#6459's late packing conflict and Support path; a projected pre-packing read
-is not a cross-context atomic correction lock.
+It authorizes ONE Order, not group-wide consent. Grouping changes none of #6458's availability, precedence, idempotency, sequence or ceiling rules. A correction on a grouped member corrects only that Order. It never dissolves the Order Group, removes a member, uses an R reason, or changes money.
 
-## Host questions
+Combined packing, label purchase and dispatch require both members' current destinations to be equal over the normalized physical-recipient fields of `normalizeAddressSnapshot`: name, company, line1, line2, city, state, postalCode, country and phone. Email and verification are excluded. Fulfillment evaluates this on the anchor Shipment's physical authority, using each member Shipment's latest applied correction (#6459 consumption), never a projection. While the destinations differ, the Shipment Group is in the Fulfillment-local physical state `destination-mismatch`. That state is not a public group fact. No combined label is bought, and the linkage and committed admission stay intact.
 
-### HQ1: Who posts the platform-funded survivor shortfall, and on what basis?
+The hold ends only through existing authorities, with no timer or sweep:
+- The buyer independently corrects the other Order to an equal destination under its own #6458 request, and combined execution resumes.
+- The seller records the irreversible separate disposition, which is seller-funded under #6460.
+- An authorized producer cancels a member (C(reason)).
 
-#7196 A requires the platform to absorb Shipping shortfall while retaining the
-survivor's money and seller economics. #6460 prohibits new Settlement entries.
-Current Settlement debits the seller the full actual label amount; reducing a
-survivor's buyer quote alone does NOT make that cost platform-funded.
+The grouped purchase detail discloses the mismatch and links each Order's own correction form. It never pre-submits or copies a correction to the peer. A correction that loses the packing race, or arrives after a combined label exists, is the #6458/#6459 late conflict for Support. The label address is never silently overwritten.
 
-The 500 standalone-base versus 300 incremental-base example identifies a 200-cent
-quote deficit, not an authorized ledger amount. A posting needs a ratified basis
-(quote deficit versus actual incremental label burden, including treatment of the
-survivor's unchanged allowance/payout), immutable source fact/identity, payer,
-poster and reversal semantics. None of the cited decisions supplies that posting.
-Settlement is the existing financial-truth owner, but this ADR cannot assign a
-new credit or protection-reserve draw in defiance of #6460. ADR 0022's support
-coverage is not evidence of an authorized Shipping subsidy.
+## Post-review decisions
 
-Return to host: recommend a separately owned, explicitly authorized Settlement
-shortfall contract that preserves both Orders, rather than changing prices or
-silently charging the seller. No funding source, amount formula or posting fact is
-invented here; the affected formation/cancellation chain remains unratified.
+### Survivor Shipping shortfall
 
-### HQ2: How can a single-Order correction dissolve linkage without cancellation?
+When the anchor is cancelled before packing, the surviving follow-on ships under its own Shipment with its frozen incremental vector unchanged, and the buyer is never repriced. #7196 A assigns the gap between standalone and incremental seller Shipping payout to the platform. #6460 forbids new Settlement entries, and current Settlement credits only the frozen payout and debits the seller the full survivor label (`fulfillment-source-projection.ts`). The two rulings cannot both hold without a new posting, so funding is Todd's decision at https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5904695428. Until it is recorded here, this ADR is not ratifiable and #7200 must not enable formation. Follow-on cancellation creates no shortfall: the anchor ships on its own standalone frozen vector.
 
-R has no correction reason and requires `removedOrderId`; #6458 corrects an Order
-without cancelling it. The required physical outcome is no shared parcel with
-different destinations, both Orders/money preserved, and no inherited correction
-of another Order. Recommend an explicit correction-to-dissolution contract owned
-by Ordering/Fulfillment, with versions and packing-race disposition, through the
-host's contract repair. Do not extend #7197's fact/reason catalog in this ADR.
+### Evidence-window release cannot reach a group member
 
-### HQ3: How does evidence-window cancellation reach a grouped Order?
+`sourceReleaseActions.cancelOrder` in `bounded-contexts/ordering/features/orders/api/runtime.ts` cancels with `reason: "evidence-window-release"`. It exists only for release-verification checkouts: `infrastructure/platform-runtime/evidence-window-source-recovery.ts` admits a governed source only when the effective and observed modes are `test`. Release cancels only Orders that read `live`. A captured Order reads `captured-remedy-required`, which becomes `unknown`, so an eligible paid, awaiting-package anchor is never cancelled by this producer.
 
-Current `sourceReleaseActions.cancelOrder` in
-`bounded-contexts/ordering/features/orders/api/runtime.ts` emits CancelOrder with
-`reason: "evidence-window-release"` after validating the Order's source identity.
-That reason is absent from R. This is an additional current-code producer, not a
-reason this ADR may silently append to #7197 or rename to `compensating`.
-Recommend that the host resolve grouped-source reachability and authorize an
-explicit semantic mapping or contract repair before #7200 enables this path.
-No change to this producer or to the closed catalog is included here.
+Decision: a checkout carrying an evidence-window source is formation-ineligible, like the guest, claimed-account handoff, UCP and accepted-offer entrypoints (#7200 owns the check). Grouped Orders are therefore unreachable by this producer. `evidence-window-release` is neither added to R nor mapped to another reason.
+
+As a guard, Ordering refuses any CancelOrder on a current group member (formed or committed, not dissolved; membership read from the aggregate stream) whose reason is outside R. An unlisted producer therefore fails closed instead of cancelling without removal or being cast into R.
 
 ## Alternatives and consequences
 
@@ -488,13 +465,13 @@ No change to this producer or to the closed catalog is included here.
 | Emit the same monetary label fact on both Shipments | Reject: current Settlement keys by Shipment AND provider label; two debits. Track both, publish money once. |
 | Anchor-only or max-member insurance | Reject: undercovers aggregate merchandise value. Sum both members while respecting every committed minimum; fail closed without envelope evidence. |
 | Provider reference guarantees retry safety | Reject: captured records explicitly prove one attempt only; local durable invocation/ambiguity authority is necessary. |
-| Cancel both or charge survivor after cancellation | Reject: #7196 A preserves survivor; HQ1 cannot be hidden by changing the agreed policy. |
+| Cancel both or charge survivor after cancellation | Reject: #7196 A preserves survivor; the survivor gap follows 'Survivor Shipping shortfall', never survivor repricing. |
 | Separate dispatch dissolves the Order Group | Reject: no genuine member cancellation and no R reason; retain linkage/admission, record physical disposition, seller funds extra labels. |
-| Propagate correction to both, or call it compensation | Reject: #6458 grants single-Order authority only; HQ2 remains explicit instead of fabricated consent/cancellation. |
+| Dissolve on destination correction, or propagate it to both | Reject. No member is removed, and R has no correction reason. Dissolution splits a parcel the buyer can make consistent and recreates the survivor-shortfall money question. Propagation exceeds #6458's single-Order authority. Hold combined execution until the destinations match instead. |
 
 Only the ADR/index, two ID declarations/tests and planned glossary entries ship in
 this slice. Runtime aggregates, codecs/registry, migrations, UI, provider adapters,
 money postings and physical group execution remain with their named sibling owners.
 Cross-buyer/cross-origin/post-packing joins and multi-location split shipments are
 not part of V1. The next implementation must not treat proposed language or a
-green documentation/ID check as permission to bypass either host question.
+green documentation/ID check as permission to bypass the survivor-shortfall rule or the destination-mismatch hold.

@@ -19,7 +19,7 @@ An **Order Group** is the planned Ordering-owned linkage of exactly one existing
 
 - Its `OrderGroupId` uses `ogr_`; the anchor Order stream owns formation and dissolution.
 - Money, payment, refunds, fees, inventory, and capacity remain per Order. Neither member's committed money is redistributed.
-- Pre-packing cancellation removes only the cancelled member and dissolves the group; the survivor keeps its frozen money. The shortfall posting and destination-correction conflict remain open in [ADR 0032](../../docs/adr/0032-order-groups-and-shipment-groups.md).
+- Pre-packing cancellation removes only the cancelled member and dissolves the group; the survivor keeps its frozen money. A destination correction changes only its own Order and never dissolves the group. Survivor Shipping-shortfall funding follows [ADR 0032](../../docs/adr/0032-order-groups-and-shipment-groups.md).
 - This is a planned contract, not shipped grouping behavior, an N-member cart, or an Order Split. Fulfillment owns Shipment Group admission and physical execution.
 
 ## Purchase
