@@ -1,0 +1,25 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/marketplace-provider-proof-status.yml",
+      "jobId": "provider-proof-status",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/marketplace-provider-proof-status.yml",
+      "jobId": "provider-proof-status",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "managed-postgres-boundary"
+    },
+    {
+      "file": ".github/workflows/marketplace-provider-proof-status.yml",
+      "jobId": "provider-proof-status",
+      "stepAnchor": "uses:./.github/actions/export-managed-postgres-authority",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "managed-postgres-boundary"
+    }
+  ]
+}
