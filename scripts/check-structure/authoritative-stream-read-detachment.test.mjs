@@ -219,12 +219,17 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(detachment.totals.detachmentEscapeSites).toBe(detachment.diagnostics.length);
   });
 
-  it("derives the fourteen green grammar instances across thirteen live locations without a registry", () => {
+  it("derives the fifteen green grammar instances across fourteen live locations without a registry", () => {
     const green = deriveGreenGrammarInstances(production);
-    expect(green).toHaveLength(14);
-    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(13);
+    expect(green).toHaveLength(15);
+    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(14);
     expect(green).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({
+          category: "member-declaration",
+          file: "bounded-contexts/payments/features/payments/api/webhook-transaction.ts",
+          line: 45,
+        }),
         expect.objectContaining({
           category: "member-declaration",
           file: "bounded-contexts/pricing/features/market-estimates/read-model/demand-curve-writes.ts",
