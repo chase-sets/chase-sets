@@ -60,10 +60,10 @@ import {
   createWorkerHost,
   createWorkerRunnerLoop,
   type WorkerHostRuntime,
-  type WorkerRuntimeObserver,
   type WorkerRunner,
   type WorkerRunnerLoop,
 } from "@chase-sets/platform-runtime/worker";
+import { createWorkerObserver } from "@chase-sets/platform-runtime/worker-observer";
 import {
   createProjectionWakeSchedulerRunners,
   startPostgresProjectionWakePushDispatcher,
@@ -433,7 +433,7 @@ const projectionOperationRunners = collectProjectionOperationRunners(runtime, {
   retryBackoffMaxMs: config.projectionOperations.retryBackoffMaxMs,
   leaseAcquireTimeoutMs: config.projectionOperations.leaseAcquireTimeoutMs,
   workSignalStore,
-  observer: createWorkerObserver(workerKind),
+  observer: createWorkerObserver(logger, workerKind),
 });
 const inventoryImportJobRunners = platformWorkerGroupsEnabled
   ? createInventoryJobRunners(runtime.services, config)
@@ -573,7 +573,7 @@ const runnerLoops = runnerGroups.map((group) => ({
     leaseTtlMs: config.leaseTtlMs,
     leaseRenewIntervalMs: config.leaseRenewIntervalMs,
     pollIntervalMs: group.pollIntervalMs ?? config.pollIntervalMs,
-    observer: createWorkerObserver(workerKind, group.name),
+    observer: createWorkerObserver(logger, workerKind, group.name),
     onError: (error, runner) => {
       logger.error("Platform worker runner failed.", {
         type: "platform-worker.runner.failed",
@@ -1345,62 +1345,6 @@ function createProjectionWakeSchedulerLogObserver(): ProjectionWakeSchedulerObse
       logger.info("Work signal cleanup completed.", {
         type: "work-signals.cleanup.completed",
         ...event.result,
-      }),
-  };
-}
-
-function createWorkerObserver(workerKind: string, runnerGroup?: string): WorkerRuntimeObserver {
-  return {
-    leaseMissed: (event) =>
-      logger.debug("Worker runner lease missed.", {
-        type: "worker.runner.lease_missed",
-        workerKind,
-        runnerGroup,
-        ...event,
-      }),
-    leaseRenewFailed: (event) =>
-      logger.warn("Worker runner lease renewal failed.", {
-        type: "worker.runner.lease_renew_failed",
-        workerKind,
-        runnerGroup,
-        ...event,
-      }),
-    runnerCompleted: (event) => {
-      const log = event.processed > 0 || event.state === "degraded" ? logger.info : logger.debug;
-      log("Worker runner completed.", {
-        type: "worker.runner.completed",
-        workerKind,
-        runnerGroup,
-        ...event,
-      });
-    },
-    runnerFailed: (event) =>
-      logger.error("Worker runner failed.", {
-        type: "worker.runner.failed",
-        workerKind,
-        runnerGroup,
-        ...event,
-      }),
-    projectionOperationStarted: (event) =>
-      logger.info("Projection operation started.", {
-        type: "projection.operation.started",
-        workerKind,
-        runnerGroup,
-        ...event,
-      }),
-    projectionOperationCompleted: (event) =>
-      logger.info("Projection operation completed.", {
-        type: "projection.operation.completed",
-        workerKind,
-        runnerGroup,
-        ...event,
-      }),
-    projectionOperationFailed: (event) =>
-      logger.error("Projection operation failed.", {
-        type: "projection.operation.failed",
-        workerKind,
-        runnerGroup,
-        ...event,
       }),
   };
 }
