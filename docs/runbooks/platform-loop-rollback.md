@@ -5,6 +5,11 @@ host loop to the orchestration platform loop. One writer per milestone: the
 ownership register lives in the container at `.orchestrator/platform-handoff.md`
 and is changed only by a Todd comment on #4388.
 
+Evidence from the 2026-09-29 and 2026-09-30 drills is recorded in
+[platform-loop-rollback-evidence.md](platform-loop-rollback-evidence.md). The
+record is explicitly **NOT EXERCISED** because neither drill stopped a live
+worker group.
+
 ## Authorization
 
 This document is a procedure, not a standing authorization. Only Todd
