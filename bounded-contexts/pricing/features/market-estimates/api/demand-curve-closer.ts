@@ -47,18 +47,18 @@ export function createDemandCurveCloser(
           soldSince: window.since,
           soldUntil: new Date(Date.parse(window.asOf) + 1).toISOString(),
         });
-        const relevant = evidence
-          .filter(
-            (sale) =>
-              sale.providerVariant === identity.variant &&
-              sale.providerLanguage === identity.language &&
-              sale.listingType !== null,
-          )
-          .sort(
-            (left, right) =>
-              Date.parse(right.soldAt) - Date.parse(left.soldAt) ||
-              left.saleFingerprint.localeCompare(right.saleFingerprint),
-          );
+        const relevant = evidence.filter(
+          (sale) =>
+            sale.providerVariant === identity.variant &&
+            sale.providerLanguage === identity.language &&
+            sale.listingType !== null,
+        );
+        const expandedCount = relevant.reduce((count, sale) => count + sale.maxObservedTupleMultiplicity, 0);
+        relevant.sort(
+          (left, right) =>
+            (expandedCount > window.salesLimit ? Date.parse(right.soldAt) - Date.parse(left.soldAt) : 0) ||
+            left.saleFingerprint.localeCompare(right.saleFingerprint),
+        );
         return relevant
           .flatMap((sale): CurveSale[] => {
             const amount = effectiveSaleAmountExact(
