@@ -48,9 +48,11 @@ not close the issue.
   `b439d6ecc9d56fd860f1a3baca6e1e0e2fa0ff355cc34e2b645bf54004f73c89`) and
   FINAL `drill-r2-gateB-abort-decision-r1.report.md` (SHA-256
   `aecae690f3c34f8e3e88966e69ff4bc856869f4ffdfbd0641a039d8cbc650730`).
-- Pause was requested at `2026-09-30T06:52:15.264Z` and acknowledged at
-  `2026-09-30T07:01:48.752Z`. The loop then stopped #8393 as `author-failed`;
-  this was not a worker-group signal. `status-after-stop.json` (SHA-256
+- Pause was requested at `2026-09-30T06:52:15.264Z`. The native loop stopped
+  #8393 as `author-failed` before acknowledging the pause: loop-stop comment
+  5905951615 was posted at `2026-09-30T07:01:47Z`, and the pause was
+  acknowledged at `2026-09-30T07:01:48.752Z`. This was not a worker-group
+  signal. `status-after-stop.json` (SHA-256
   `8d2a3aca90aa57b5ebe599eb0904a6136a67bf9da4377cb77a0765291191dc18`)
   records paused status and an exited supervisor.
 - The dead-after census at `2026-09-30T07:16:26.812Z` was PASS with no bound
