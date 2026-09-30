@@ -1,0 +1,11 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/project-status-sync.yml",
+      "jobId": "sync",
+      "stepAnchor": "name:Sync status#3",
+      "secretName": "PROJECTS_TOKEN",
+      "purpose": "application-runtime"
+    }
+  ]
+}

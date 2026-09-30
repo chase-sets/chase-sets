@@ -1,0 +1,11 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-production-stripe-webhook-endpoint-verify.yml",
+      "jobId": "verify",
+      "stepAnchor": "name:Verify production Stripe webhook endpoint#3",
+      "secretName": "STRIPE_SECRET_KEY",
+      "purpose": "terraform-infra"
+    }
+  ]
+}

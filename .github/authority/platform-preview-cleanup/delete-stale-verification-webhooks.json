@@ -1,0 +1,18 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-preview-cleanup.yml",
+      "jobId": "delete-stale-verification-webhooks",
+      "stepAnchor": "job",
+      "secretName": "EASYPOST_API_KEY",
+      "purpose": "marketplace-ops"
+    },
+    {
+      "file": ".github/workflows/platform-preview-cleanup.yml",
+      "jobId": "delete-stale-verification-webhooks",
+      "stepAnchor": "job",
+      "secretName": "STRIPE_SECRET_KEY",
+      "purpose": "marketplace-ops"
+    }
+  ]
+}
