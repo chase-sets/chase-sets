@@ -39,6 +39,161 @@ describe("durable job lane runners", () => {
 });
 
 describe("worker runner loop", () => {
+  it("observes projection-group holder intervals", async () => {
+    const events: Array<Record<string, unknown>> = [];
+    let resolveRun!: () => void;
+    const runReady = new Promise<void>((resolve) => {
+      resolveRun = resolve;
+    });
+    let runCount = 0;
+    const controlPlane = createAlwaysLeasedControlPlane();
+    const runner: WorkerRunner = {
+      name: "catalog.listing",
+      kind: "projection-group",
+      runOnce: async (context) => {
+        runCount += 1;
+        if (runCount === 1) {
+          await runReady;
+        } else {
+          await new Promise<void>((resolve) =>
+            context?.signal?.addEventListener("abort", () => resolve(), { once: true }),
+          );
+        }
+        return { processed: 1, lastGlobalPosition: "1" as never };
+      },
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [runner],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+      observer: {
+        holderLifecycle: (event) => events.push(event as unknown as Record<string, unknown>),
+      },
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(events.map((event) => event.phase)).toEqual(["acquired", "pass-start", "run-start"]);
+      });
+      resolveRun();
+      await vi.waitFor(() => {
+        expect(events.slice(0, 5).map((event) => event.phase)).toEqual([
+          "acquired",
+          "pass-start",
+          "run-start",
+          "run-end",
+          "pass-end",
+        ]);
+      });
+      const intervalIds = new Set(events.map((event) => event.leaseIntervalId));
+      expect(intervalIds).toHaveLength(1);
+      expect(events[3]).toMatchObject({ phase: "run-end", passSeq: 1, outcome: "success" });
+      expect(events[4]).toMatchObject({ phase: "pass-end", passSeq: 1, outcome: "success", disposition: "retained" });
+    } finally {
+      await loop.stop();
+    }
+
+    expect(events.at(-1)).toMatchObject({ phase: "released", reason: "stop" });
+    expect(events.every((event) => typeof event.timestamp === "string" && typeof event.elapsedMs === "number")).toBe(
+      true,
+    );
+  });
+
+  it("retains a thrown projection-group pass through failure backoff", async () => {
+    const events: Array<Record<string, unknown>> = [];
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane: createAlwaysLeasedControlPlane(),
+      runners: [
+        {
+          name: "catalog.listing",
+          kind: "projection-group",
+          runOnce: async (context) => {
+            if (events.filter((event) => event.phase === "pass-end").length >= 2) {
+              await new Promise<void>((resolve) =>
+                context?.signal?.addEventListener("abort", () => resolve(), { once: true }),
+              );
+            }
+            throw new Error("synthetic failure");
+          },
+        },
+      ],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+      failureBackoffBaseMs: 20,
+      failureBackoffMaxMs: 20,
+      observer: {
+        holderLifecycle: (event) => events.push(event as unknown as Record<string, unknown>),
+      },
+      onError: () => undefined,
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(events.filter((event) => event.phase === "pass-end").length).toBeGreaterThanOrEqual(1);
+      });
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ phase: "run-end", outcome: "error" }),
+          expect.objectContaining({ phase: "pass-end", outcome: "error", disposition: "retained" }),
+        ]),
+      );
+      expect(events.some((event) => event.phase === "released")).toBe(false);
+      await vi.waitFor(() => {
+        expect(events.filter((event) => event.phase === "pass-end").length).toBeGreaterThanOrEqual(2);
+      });
+      const acquired = events.find((event) => event.phase === "acquired");
+      expect(
+        events
+          .filter((event) => event.phase === "pass-start")
+          .every((event) => event.leaseIntervalId === acquired?.leaseIntervalId),
+      ).toBe(true);
+    } finally {
+      await loop.stop();
+    }
+  });
+
+  it("isolates a throwing holder callback and reports it once", async () => {
+    const onError = vi.fn();
+    const callback = vi.fn(() => {
+      throw new Error("observer failure");
+    });
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane: createAlwaysLeasedControlPlane(),
+      runners: [
+        {
+          name: "catalog.listing",
+          kind: "projection-group",
+          runOnce: async () => ({ processed: 0, lastGlobalPosition: "0" as never }),
+        },
+      ],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+      observer: { holderLifecycle: callback },
+      onError,
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => expect(callback).toHaveBeenCalled());
+    } finally {
+      await loop.stop();
+    }
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(loop.status().stopped).toBe(true);
+  });
+
   it("rotates through runners when concurrency is lower than the runner count", async () => {
     const calls: string[] = [];
     const controlPlane = createAlwaysLeasedControlPlane();

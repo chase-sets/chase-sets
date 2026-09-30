@@ -56,6 +56,7 @@
     "./web-route-config": "./web-route-config.ts",
     "./work-signal-store": "./work-signal-store.ts",
     "./worker": "./worker.ts",
+    "./worker-observer": "./worker-observer.ts",
     "./worker-capacity": "./worker-capacity.ts"
   },
   "scripts": {
