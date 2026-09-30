@@ -494,7 +494,7 @@ function submitSourceScopeFilter(
     setScopeLabelFieldValue(form, field, "");
   }
 
-  forceRefreshAllSourceOptions(form);
+  clearSourceOptionRefreshIntent(form);
 
   // Client GET navigation (not form.requestSubmit()): a parent scope change
   // refreshes the streamed source-options slice in place without reloading the
@@ -561,29 +561,6 @@ function findSourceScopeOption(
   }
   const comparableValue = value.trim().toLowerCase();
   return options.find((option) => option.value.trim().toLowerCase() === comparableValue);
-}
-
-// Stamp the GET form with the refresh-all source-option intent so the workbench
-// loader force-refreshes every option group. Any stale per-group query-kind hint
-// (left from a prior reload/force-refresh link the operator followed) is dropped,
-// since refresh-all fans across every group and carries no single query kind.
-function forceRefreshAllSourceOptions(form: HTMLFormElement): void {
-  const staleQueryKind = form.elements.namedItem(CATALOG_SOURCE_OPTION_QUERY_KIND_PARAM);
-  if (staleQueryKind instanceof HTMLInputElement) {
-    staleQueryKind.remove();
-  }
-
-  const existingAction = form.elements.namedItem(CATALOG_SOURCE_OPTION_ACTION_PARAM);
-  if (existingAction instanceof HTMLInputElement) {
-    existingAction.value = "force-refresh-all";
-    return;
-  }
-
-  const action = document.createElement("input");
-  action.type = "hidden";
-  action.name = CATALOG_SOURCE_OPTION_ACTION_PARAM;
-  action.value = "force-refresh-all";
-  form.appendChild(action);
 }
 
 // Stream the source-options status panel. The option fan-out only feeds
