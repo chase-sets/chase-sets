@@ -149,7 +149,7 @@ describe("Catalog primary workbench source options", () => {
 
     expect(readModel.sourceOptions.pages.map((page) => page.queryKind)).toEqual(["sets", "cards"]);
     expect(readModel.sourceOptions.summary).toMatchObject({
-      declaredKinds: 1,
+      declaredKinds: 2,
       loadedPages: 1,
       availableOptions: 1,
       unavailablePages: 0,

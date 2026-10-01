@@ -115,7 +115,12 @@ export function buildCatalogPrimaryWorkbenchSourceOptions(input: {
     requests,
     pages,
   );
-  const status = sourceOptionsStatus(sourceOptionProfile, summary, input.readinessBlockers);
+  const status = sourceOptionsStatus(
+    sourceOptionProfile,
+    summary,
+    input.readinessBlockers,
+    pages.some((page) => page.scope !== "product/card"),
+  );
 
   return {
     status,
@@ -1118,7 +1123,9 @@ function sourceOptionSummary(
 ): CatalogPrimaryWorkbenchReadModel["sourceOptions"]["summary"] {
   const rollupPages = pages.filter((page) => page.scope !== "product/card");
   return {
-    declaredKinds: rollupPages.length,
+    // Keep the structural declaration count aligned with optionKinds/pages; Card
+    // is excluded from the operational aggregates below, not from the contract.
+    declaredKinds: pages.length,
     loadedPages: rollupPages.filter(
       (page) => page.state === "live" || page.state === "cached" || page.state === "stale",
     ).length,
@@ -1169,8 +1176,9 @@ function sourceOptionsStatus(
   activeProfile: CatalogProviderProfileVersionReview | null,
   summary: CatalogPrimaryWorkbenchReadModel["sourceOptions"]["summary"],
   readinessBlockers: readonly CatalogPrimaryWorkbenchBlockerCategory[],
+  hasNonCardPages: boolean,
 ): CatalogPrimaryWorkbenchReadModel["sourceOptions"]["status"] {
-  if (!activeProfile || summary.declaredKinds === 0) {
+  if (!activeProfile || summary.declaredKinds === 0 || !hasNonCardPages) {
     return "unavailable";
   }
   if (
