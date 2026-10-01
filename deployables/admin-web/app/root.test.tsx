@@ -269,6 +269,11 @@ describe("admin root layout", () => {
     mockUseRouteError.mockImplementation(actual.useRouteError);
     mockUseLocation.mockImplementation(actual.useLocation);
 
+    const preview = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error("Unexpected Server Error")), 0);
+    });
+    preview.catch(() => undefined);
+
     const router = createMemoryRouter(
       [
         {
@@ -283,9 +288,7 @@ describe("admin root layout", () => {
               loader: () => ({
                 // React Router 7.15.0 sanitizes a timed-out single-fetch rejection to this
                 // client error (dist/development/index.js:546-553,1200-1207).
-                deferredImportPreview: new Promise((_, reject) => {
-                  setTimeout(() => reject(new Error("Unexpected Server Error")), 0);
-                }),
+                deferredImportPreview: preview,
               }),
               Component: DeferredImportPreviewFixture,
             },
