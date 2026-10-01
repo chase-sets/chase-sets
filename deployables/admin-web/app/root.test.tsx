@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { renderToString } from "react-dom/server";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -26,8 +27,20 @@ vi.mock("react-router", async () => {
   };
 });
 
-import { createMemoryRouter, MemoryRouter, RouterProvider } from "react-router";
+import { Await, createMemoryRouter, MemoryRouter, RouterProvider, useLoaderData } from "react-router";
 import { ErrorBoundary, Layout } from "./root";
+
+function DeferredImportPreviewFixture() {
+  const { deferredImportPreview } = useLoaderData() as {
+    deferredImportPreview: Promise<unknown>;
+  };
+
+  return (
+    <Suspense fallback={<p>Loading preview</p>}>
+      <Await resolve={deferredImportPreview}>{() => <p>Preview loaded</p>}</Await>
+    </Suspense>
+  );
+}
 
 describe("admin root layout", () => {
   beforeEach(() => {
@@ -246,4 +259,53 @@ describe("admin root layout", () => {
       }
     },
   );
+
+  it("routes a rejected deferred import preview to the Admin Error boundary", async () => {
+    vi.useRealTimers();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const actual = await vi.importActual<typeof import("react-router")>("react-router");
+    mockUseLoaderData.mockImplementation(actual.useLoaderData);
+    mockUseMatches.mockImplementation(actual.useMatches);
+    mockUseRouteError.mockImplementation(actual.useRouteError);
+    mockUseLocation.mockImplementation(actual.useLocation);
+
+    const router = createMemoryRouter(
+      [
+        {
+          id: "root",
+          path: "/",
+          element: <actual.Outlet />,
+          errorElement: <ErrorBoundary />,
+          children: [
+            {
+              id: "catalog/catalog/integrations",
+              path: "catalog/integrations",
+              loader: () => ({
+                // React Router 7.15.0 sanitizes a timed-out single-fetch rejection to this
+                // client error (dist/development/index.js:546-553,1200-1207).
+                deferredImportPreview: new Promise((_, reject) => {
+                  setTimeout(() => reject(new Error("Unexpected Server Error")), 0);
+                }),
+              }),
+              Component: DeferredImportPreviewFixture,
+            },
+          ],
+        },
+      ],
+      { initialEntries: ["/catalog/integrations"] },
+    );
+
+    try {
+      render(<RouterProvider router={router} />);
+      await screen.findByRole("heading", { name: "Admin Error" });
+      const detail = document.querySelector("details")?.textContent;
+
+      expect(detail).toContain('"route":"catalog/catalog/integrations"');
+      expect(detail).toContain('"category":"runtime-error"');
+      expect(detail).toContain("Unexpected Server Error");
+      expect(detail).toMatch(/"observedAt":"\d{4}-\d{2}-\d{2}T[^\"]+Z"/);
+    } finally {
+      router.dispose();
+    }
+  });
 });

@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import "@chase-sets/design-system/styles.css";
-import { useEffect, useMemo, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { EmptyState, LinkButton, Page, Text } from "@chase-sets/design-system";
 import { buildCanonicalUrl } from "@chase-sets/platform-runtime/seo";
 import type { LoaderFunctionArgs } from "react-router";
@@ -71,7 +71,11 @@ export function ErrorBoundary() {
   const error = useRouteError();
   const location = useLocation();
   const matches = useMatches();
-  const observedAt = useMemo(() => new Date().toISOString(), [error]);
+  const observedAtRef = useRef<{ error: unknown; value: string } | null>(null);
+  if (observedAtRef.current?.error !== error) {
+    observedAtRef.current = { error, value: new Date().toISOString() };
+  }
+  const observedAt = observedAtRef.current!.value;
   const status = isRouteErrorResponse(error) ? error.status : null;
   const rawMessage = isRouteErrorResponse(error)
     ? [error.status, error.statusText].filter(Boolean).join(" ")
@@ -83,7 +87,8 @@ export function ErrorBoundary() {
   // shared error surface.
   const message = redactAdminErrorDetail(rawMessage);
   const diagnostic = {
-    // Route ids come from the static router configuration, never URL parameters or payloads.
+    // Route ids come from static router configuration, never URL parameters or payloads. This is
+    // the deepest matched route, not necessarily the route whose loader or element threw.
     route: matches.at(-1)?.id ?? "unmatched",
     observedAt,
     category: isRouteErrorResponse(error)
@@ -124,7 +129,9 @@ export function ErrorBoundary() {
         <details>
           <summary>{t("adminWeb.app.root.technical.detail")}</summary>
           <p>{message}</p>
-          <Text suppressHydrationWarning>{JSON.stringify(diagnostic)}</Text>
+          <Text suppressHydrationWarning wrap="anywhere">
+            {JSON.stringify(diagnostic)}
+          </Text>
         </details>
       </Page>
     </AdminRootShell>
