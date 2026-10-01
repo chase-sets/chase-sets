@@ -1395,6 +1395,56 @@ function groupProviderSyncJourneysByCanonicalScope(
 }
 
 test.describe("catalog staging provider sync UAT helpers", () => {
+  test("import preflight state control", async ({ page }) => {
+    const unitKey = "tcgplayer:pokemon:sealed-product:source-observation-import";
+    const selectedScope: SelectedProviderScope = {
+      providerKey: "tcgplayer",
+      importScope: "en:TFC",
+      displayLabel: "The First Chapter",
+      fields: [
+        { name: "languageCode", value: "en" },
+        { name: "expansionId", value: "TFC" },
+      ],
+    };
+    const fixture = (body: string) => `
+      <button data-catalog-import-workflow-stage="run-sync" aria-controls="run-sync-panel" aria-expanded="true">Run sync</button>
+      <div data-catalog-import-context-bar="true"><button type="button" onclick="document.documentElement.dataset.selectClicks = (Number(document.documentElement.dataset.selectClicks || 0) + 1).toString()">Select source scope</button></div>
+      <div id="run-sync-panel">${body}</div>`;
+    const commandForm = (provider = "tcgplayer") => `
+      <section><form data-catalog-primary-workbench-command="scope.import" data-catalog-source-scope-unit="${unitKey}">
+        <input name="providerKey" value="${provider}"><input name="importScope" value="en:TFC"><input name="languageCode" value="en"><input name="expansionId" value="TFC">
+        <button type="button">Sync scope</button><button type="button" onclick="document.documentElement.dataset.retryClicks = (Number(document.documentElement.dataset.retryClicks || 0) + 1).toString()">Retry</button>
+      </form></section>`;
+    const degraded = `<div data-catalog-import-slot="true"><div role="status" data-catalog-deferred-panel="unavailable" tone="warning">Preview unavailable</div></div>`;
+    const ready = `<div data-catalog-import-preview="ready" data-catalog-import-preview-provider="tcgplayer" data-catalog-import-preview-unit="${unitKey}" data-catalog-import-preview-scope="en:TFC" data-catalog-import-preview-strategy="bulk-first"><span>ready evidence</span></div>`;
+
+    await page.setContent(fixture(`${commandForm()}${ready}`));
+    await expectImportPreflight(page, unitKey, selectedScope, {
+      requestStrategy: "bulk-first",
+      visibleText: ["ready evidence"],
+    }).then((state) => expect(state).toBe("ready"));
+
+    await page.setContent(fixture(`${commandForm()}${degraded}`));
+    await expectImportPreflight(page, unitKey, selectedScope, { visibleText: [] }).then((state) =>
+      expect(state).toBe("degraded"),
+    );
+    expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+    expect(await page.locator("html").getAttribute("data-select-clicks")).toBeNull();
+
+    const negatives = [
+      `${commandForm()}<section><form data-catalog-primary-workbench-command="scope.sync"></form><div role="status" data-catalog-deferred-panel="unavailable">Sibling unavailable</div></section>`,
+      `${commandForm()}${degraded}${degraded}`,
+      `${commandForm("other-provider")}${degraded}`,
+      `${commandForm()}<div role="status"></div>`,
+      `${commandForm()}<div data-catalog-deferred-panel="unavailable"></div>`,
+      commandForm(),
+    ];
+    for (const body of negatives) {
+      await page.setContent(fixture(body));
+      await expect(expectImportPreflight(page, unitKey, selectedScope, { visibleText: [] }, 150)).rejects.toThrow();
+    }
+  });
+
   test("derives all 46 representative members from the real selector and independently refuses every omitted member", () => {
     const selected = providerJourneysForScope("staging-representative-catalog");
     expect(selected).toHaveLength(46);
@@ -3855,11 +3905,18 @@ async function expectImportPreflight(
   unitKey: string,
   selectedScope: SelectedProviderScope,
   expectation: ImportPreflightExpectation,
-): Promise<void> {
-  const panel = await waitForSelectedImportPreflightPanel(page, unitKey, selectedScope);
+  timeoutMs = sourceOptionTimeoutMs,
+): Promise<"ready" | "degraded"> {
+  const { panel, previewState } = await waitForSelectedImportPreflightPanel(page, unitKey, selectedScope, timeoutMs);
+  if (previewState === "degraded") {
+    console.log(
+      `[catalog-staging-provider-uat] import preflight state: unit=${unitKey}, scope=${selectedScope.displayLabel}, state=degraded`,
+    );
+    return previewState;
+  }
   if (expectation.requestStrategy) {
     await expect(panel).toHaveAttribute("data-catalog-import-preview-strategy", expectation.requestStrategy, {
-      timeout: sourceOptionTimeoutMs,
+      timeout: timeoutMs,
     });
   }
   const usageState = (await panel.getAttribute("data-catalog-import-preview-usage-state")) ?? "none";
@@ -3870,9 +3927,10 @@ async function expectImportPreflight(
   }
   for (const text of expectation.visibleText) {
     await expect(panel.getByText(text).filter({ visible: true }).first()).toBeVisible({
-      timeout: sourceOptionTimeoutMs,
+      timeout: timeoutMs,
     });
   }
+  return previewState;
 }
 
 function cssAttrValue(value: string): string {
@@ -3883,10 +3941,11 @@ async function waitForSelectedImportPreflightPanel(
   page: Page,
   unitKey: string,
   selectedScope: SelectedProviderScope,
-): Promise<Locator> {
+  timeoutMs = sourceOptionTimeoutMs,
+): Promise<{ panel: Locator; previewState: "ready" | "degraded" }> {
   const panels = importPreflightPanelsForSelectedScope(page, unitKey, selectedScope.providerKey);
   const scopeCandidates = selectedScope.importScope ? importPreflightScopeCandidates(selectedScope.importScope) : [];
-  const deadline = Date.now() + sourceOptionTimeoutMs;
+  const deadline = Date.now() + timeoutMs;
   let nextRecoveryAttemptAt = Date.now() + 10_000;
   let observedScopes: readonly string[] = [];
 
@@ -3896,7 +3955,11 @@ async function waitForSelectedImportPreflightPanel(
     await expandWorkflowStage(page, "run-sync");
     const panel = await firstVisibleImportPreflightPanelMatchingScope(panels, scopeCandidates);
     if (panel) {
-      return panel;
+      return { panel, previewState: "ready" };
+    }
+    const degradedPanel = await visibleDegradedImportPreflightPanel(page, unitKey, selectedScope, deadline);
+    if (degradedPanel) {
+      return { panel: degradedPanel, previewState: "degraded" };
     }
     observedScopes = await visibleImportPreflightPanelScopes(panels);
     if (observedScopes.length > 0 && Date.now() >= nextRecoveryAttemptAt) {
@@ -3911,6 +3974,37 @@ async function waitForSelectedImportPreflightPanel(
       scopeCandidates.join(", ") || "any selected scope"
     }. Observed visible preview scopes: ${observedScopes.join(", ") || "none"}.`,
   );
+}
+
+async function visibleDegradedImportPreflightPanel(
+  page: Page,
+  unitKey: string,
+  selectedScope: SelectedProviderScope,
+  deadline: number,
+): Promise<Locator | null> {
+  const trigger = page.locator('[data-catalog-import-workflow-stage="run-sync"]').first();
+  const panelId = await trigger.getAttribute("aria-controls").catch(() => null);
+  if (!panelId) {
+    return null;
+  }
+  const stagePanel = page.locator(`#${cssAttrValue(panelId)}`).first();
+  const candidates = stagePanel
+    .locator('[role="status"][data-catalog-deferred-panel="unavailable"]')
+    .filter({ visible: true });
+  const count = await candidates.count().catch(() => 0);
+  if (count !== 1) {
+    return null;
+  }
+  const candidate = candidates.first();
+  const syncSectionCandidates = candidate.locator(
+    'xpath=ancestor::section[.//form[@data-catalog-primary-workbench-command="scope.sync"]]',
+  );
+  if ((await syncSectionCandidates.count().catch(() => 0)) > 0) {
+    return null;
+  }
+  const remainingMs = Math.max(1, deadline - Date.now());
+  await selectedSourceScopeSyncForm(page, unitKey, selectedScope, Math.min(remainingMs, 1_000));
+  return candidate;
 }
 
 async function recoverSelectedImportPreflightScope(
