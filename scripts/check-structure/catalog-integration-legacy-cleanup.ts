@@ -191,6 +191,18 @@ export const catalogIntegrationLegacyCleanupSurfaces: readonly CatalogIntegratio
     releaseExpectation: "Provider option rate limit rows are zero after pre-launch reset.",
   },
   {
+    key: "active-provider-option-rate-limit-leases",
+    kind: "data-surface",
+    action: "retain-with-explicit-exception",
+    owner: "catalog-source-observations",
+    implementationReference:
+      "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.ts",
+    resetSurfaceKey: "provider-option-rate-limit-lease",
+    reason:
+      "Live admission leases are coordination state; reset must preserve them and let admission reclaim only expired rows.",
+    releaseExpectation: "Live provider option rate-limit leases are never deleted by pre-launch reset.",
+  },
+  {
     key: "fixture-contract-metadata-and-payloads",
     kind: "data-surface",
     action: "retain-with-explicit-exception",
