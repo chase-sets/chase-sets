@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../../primary-workbench-read-model";
 import {
@@ -19,6 +19,36 @@ vi.mock("react-router", async () => {
 });
 
 describe("CatalogIntegrationImportJobsModule", () => {
+  it("contains a rejected import preview and keeps import operations mounted", async () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=scrydex&unitKey=scrydex:one-piece:single-card:source-observation-import&importScope=en:one-piece:op-01",
+      scopes: { items: [sourceObservationScope({ provider_key: "scrydex" })], total: 1, count: 1 },
+      profileReviews: {
+        items: [profileReview({ active: true, lifecycle: "active", providerKey: "scrydex" })],
+        total: 1,
+        count: 1,
+      },
+      controlPlaneOverview: controlPlaneOverview(),
+      canManageCatalog: true,
+    });
+    const deferredImportPreview = Promise.reject(new Error("preview failed"));
+    void deferredImportPreview.catch(() => undefined);
+
+    await act(async () => {
+      render(
+        <CatalogIntegrationImportJobsModule readModel={readModel} deferredImportPreview={deferredImportPreview} />,
+      );
+    });
+
+    await waitFor(() => {
+      const banner = document.querySelector('[data-catalog-deferred-panel="unavailable"]');
+      expect(banner).not.toBeNull();
+      expect(banner?.textContent).toContain("Import preflight");
+      expect(screen.getByText("Provider import operations")).toBeTruthy();
+    });
+  });
+
   it("keeps secondary job timestamps out of the mobile card presentation", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
       requestUrl:

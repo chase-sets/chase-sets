@@ -656,6 +656,49 @@ describe("Catalog integrations route", () => {
     expect(rejectButtons.map((button) => button.disabled)).toEqual(rejectButtons.map(() => true));
   });
 
+  it("contains rejected supplementary slots without unmounting the workbench", async () => {
+    const rejected = <T,>(reason: Error): Promise<T> => {
+      const promise = Promise.reject(reason);
+      void promise.catch(() => undefined);
+      return promise;
+    };
+    const readModel = dailyReadModel();
+    mockUseLoaderData.mockReturnValue(
+      loaderData({
+        requestUrl: DAILY_REQUEST_URL,
+        readModel,
+        commandFeedback: null,
+        deferredImportPreview: rejected(new Error("preview failed")),
+        deferredCatalogSyncRun: rejected(new Error("sync run failed")),
+        deferredScopeSyncState: rejected(new Error("scope state failed")),
+        deferredAliasReview: rejected(new Error("alias review failed")),
+        deferredAttentionQueue: rejected(new Error("attention queue failed")),
+      }),
+    );
+    mockUseRouteLoaderData.mockReturnValue({ actor: { permissions: ["catalog.view", "catalog.manage"] } });
+
+    await act(async () => {
+      render(<IntegrationsRoute />);
+    });
+
+    await waitFor(() => {
+      const unavailablePanels = Array.from(
+        document.querySelectorAll<HTMLElement>('[data-catalog-deferred-panel="unavailable"]'),
+      );
+      expect(unavailablePanels).toHaveLength(4);
+      expect(unavailablePanels.map((panel) => panel.textContent)).toEqual(
+        expect.arrayContaining([
+          "Import preflightUnavailable",
+          "StatusUnavailable",
+          "Scope sync stateUnavailable",
+          "Alias reviewUnavailable",
+        ]),
+      );
+      expect(document.querySelector('[data-catalog-attention-queue="unavailable"]')).not.toBeNull();
+    });
+    expect(screen.getByRole("heading", { name: WORKBENCH_HEADING })).toBeTruthy();
+  });
+
   // Four-state matrix: each attention state is identified by one signal that
   // the other three states do not render, so presence of any one state is never
   // read as completeness of the slot (ledger: presence-evidence-treated-as-
