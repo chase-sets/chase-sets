@@ -136,6 +136,113 @@ describe("tcgplayer-market-capture-v1 response-receipt shape", () => {
     },
   );
 
+  it.each([600, 403] as const)("retains paged Catalog status %i after a successful page", async (pageTwoStatus) => {
+    const domain = {
+      requestDelayMs: 0,
+      rateLimitCooldownMs: 10000,
+      maxConcurrentRequests: 1,
+      adaptiveEnabled: false,
+      minRequestDelayMs: 0,
+      maxRequestDelayMs: 10000,
+      learnedMinDelayMs: 0,
+    };
+    const config: TcgplayerAutomationHttpConfig = {
+      auth: { tcgAuthCookie: null, userAgent: "synthetic" },
+      domainConfigs: { mpApi: domain, mpSearchApi: domain, infiniteApi: domain, mpGateway: domain },
+      adaptiveConfig: { increaseMultiplier: 2, floorStepMs: 100, decreaseAmountMs: 100, successThreshold: 10 },
+      maxRetries: 0,
+    };
+    const store = {
+      loadConfig: async () => config,
+      loadDomainConfig: async () => domain,
+      persistDomainDelays: async () => undefined,
+    };
+    const salesCalls = { count: 0 };
+    const clients = createTcgplayerAutomationHttpClients(store, {
+      fetch: async (url) => {
+        const path = new URL(String(url)).pathname;
+        if (path.includes("latestsales")) {
+          salesCalls.count += 1;
+          if (salesCalls.count === 1) return new Response(JSON.stringify(salesPage(2, "Yes")), { status: 200 });
+          return pageTwoStatus === 600 ? outOfRangeResponse(pageTwoStatus) : new Response(HOSTILE_DETAILS, { status: 403 });
+        }
+        if (path.includes("listings")) return new Response(JSON.stringify(listingsPage()), { status: 200 });
+        if (path.includes("history")) return new Response(JSON.stringify(emptyResponse("history")), { status: 200 });
+        return new Response(JSON.stringify({}), { status: 200 });
+      },
+    });
+    const receipt = await captureProbe(
+      { ...clients, mpGateway: syntheticTransport().mpGateway },
+      { ...PAGE_POLICY, secondaryTimeoutMs: 20 },
+    ).run();
+    const diagnostic = receipt.responseSummary.endpointDiagnostics!.sales;
+    expect(diagnostic.lastHttpStatus).toBe(pageTwoStatus === 600 ? null : 403);
+    expect(diagnostic.failureClass).toBe(pageTwoStatus === 600 ? "no-response" : "forbidden");
+    expect(readTcgplayerEndpointFailureClass(diagnostic)).toBe(pageTwoStatus === 600 ? "no-response" : "forbidden");
+    expect(diagnostic.stageTrace!.entries.filter((entry) => entry.stage === "headers-received").at(-1)).toMatchObject({
+      page: 2,
+      statusClass: pageTwoStatus === 600 ? "other" : "4xx",
+    });
+    if (pageTwoStatus === 600)
+      expect(diagnostic.stageTrace!.entries.filter((entry) => entry.stage === "headers-received").at(-1)).not.toHaveProperty(
+        "httpStatus",
+      );
+    else expect(diagnostic.stageTrace!.entries.filter((entry) => entry.stage === "headers-received").at(-1)).toMatchObject({ httpStatus: 403 });
+    expect(diagnostic.stageTrace!.entries.filter((entry) => entry.stage === "terminal").at(-1)).toMatchObject({
+      page: 2,
+      outcome: "failure",
+    });
+  });
+
+  it("retains a single out-of-range Catalog failure", async () => {
+    const domain = {
+      requestDelayMs: 0,
+      rateLimitCooldownMs: 10000,
+      maxConcurrentRequests: 1,
+      adaptiveEnabled: false,
+      minRequestDelayMs: 0,
+      maxRequestDelayMs: 10000,
+      learnedMinDelayMs: 0,
+    };
+    const config: TcgplayerAutomationHttpConfig = {
+      auth: { tcgAuthCookie: null, userAgent: "synthetic" },
+      domainConfigs: { mpApi: domain, mpSearchApi: domain, infiniteApi: domain, mpGateway: domain },
+      adaptiveConfig: { increaseMultiplier: 2, floorStepMs: 100, decreaseAmountMs: 100, successThreshold: 10 },
+      maxRetries: 0,
+    };
+    const store = {
+      loadConfig: async () => config,
+      loadDomainConfig: async () => domain,
+      persistDomainDelays: async () => undefined,
+    };
+    const clients = createTcgplayerAutomationHttpClients(store, {
+      fetch: async (url) => {
+        const path = new URL(String(url)).pathname;
+        if (path.includes("latestsales")) return outOfRangeResponse(600);
+        if (path.includes("listings")) return new Response(JSON.stringify(listingsPage()), { status: 200 });
+        if (path.includes("history")) return new Response(JSON.stringify(emptyResponse("history")), { status: 200 });
+        return new Response(JSON.stringify({}), { status: 200 });
+      },
+    });
+    const receipt = await captureProbe(
+      { ...clients, mpGateway: syntheticTransport().mpGateway },
+      { ...PAGE_POLICY, secondaryTimeoutMs: 20 },
+    ).run();
+    const diagnostic = receipt.responseSummary.endpointDiagnostics!.sales;
+    expect(diagnostic.failureClass).not.toBeNull();
+    expect(readTcgplayerEndpointFailureClass(diagnostic)).not.toBeNull();
+    expect(diagnostic.stageTrace!.entries.filter((entry) => entry.stage === "headers-received")).toEqual([
+      expect.objectContaining({ page: 1, statusClass: "other" }),
+    ]);
+    expect(diagnostic.stageTrace!.entries.filter((entry) => entry.stage === "headers-received")[0]).not.toHaveProperty(
+      "httpStatus",
+    );
+    expect(diagnostic.stageTrace!.entries.filter((entry) => entry.stage === "terminal").at(-1)).toMatchObject({
+      page: 1,
+      outcome: "failure",
+    });
+  });
+
   it("reads an old receipt diagnostic as unknown and rejects invalid new fields", async () => {
     const receipt = await captureProbe(syntheticTransport()).run();
     const oldReceipt: TcgplayerMarketCaptureReceiptV1 = {
@@ -917,6 +1024,10 @@ function emptyResponse(endpoint: Endpoint) {
       results: [{ totalResults: 0, resultId: "synthetic-empty", aggregations: {}, results: [] }],
     };
   return { count: 0, result: [] };
+}
+
+function outOfRangeResponse(status: number) {
+  return { status, ok: false, text: async () => HOSTILE_DETAILS } as Response;
 }
 
 function syntheticTransport(): TcgplayerMarketTransport {

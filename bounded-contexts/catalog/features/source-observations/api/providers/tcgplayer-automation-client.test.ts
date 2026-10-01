@@ -189,6 +189,21 @@ describe("TCGplayer automation HTTP client", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("retains a terminal for an out-of-range response status without emitting httpStatus", async () => {
+    const facts: TcgplayerAutomationStageFact[] = [];
+    const response = { status: 600, ok: false, text: async () => "synthetic" } as Response;
+    const client = clientWithConfig({ maxRetries: 0 }, { fetch: vi.fn().mockResolvedValue(response) });
+    await expect(client.get("/out-of-range", {}, { onStage: (fact) => facts.push(fact) })).rejects.toThrow();
+    expect(facts.find((fact) => fact.stage === "headers-received")).toMatchObject({ statusClass: "other" });
+    expect(facts.find((fact) => fact.stage === "headers-received")).not.toHaveProperty("httpStatus");
+    expect(facts.at(-1)).toMatchObject({
+      stage: "terminal",
+      outcome: "failure",
+      lastHttpStatus: null,
+      lastHttpStatusAttempt: null,
+    });
+  });
+
   it("records status before backoff and abort within a rate-limit cooldown", async () => {
     const backoff: TcgplayerAutomationStageFact[] = [];
     const fetchMock = vi

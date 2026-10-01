@@ -280,9 +280,16 @@ export class TcgplayerAutomationDomainHttpClient {
             headers,
             signal: input.options.signal,
           });
-          lastHttpStatus = response.status;
-          lastHttpStatusAttempt = attempt;
-          emit("headers-received", { statusClass: httpStatusClass(response.status), httpStatus: response.status });
+          const status = response.status;
+          const hasValidHttpStatus = Number.isInteger(status) && status >= 100 && status <= 599;
+          if (hasValidHttpStatus) {
+            lastHttpStatus = status;
+            lastHttpStatusAttempt = attempt;
+          }
+          emit("headers-received", {
+            statusClass: httpStatusClass(status),
+            ...(hasValidHttpStatus ? { httpStatus: status } : {}),
+          });
 
           if (!response.ok) {
             emit("error-body-read-start");
