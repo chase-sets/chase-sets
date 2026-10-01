@@ -7,6 +7,7 @@ export type CatalogIntegrationLegacyCleanupSurfaceKind = "data-surface" | "boots
 
 export type CatalogIntegrationLegacyCleanupAction =
   | "wipe"
+  | "reset-to-floor"
   | "wipe-and-rebuild"
   | "rebuild-from-profile-version"
   | "retain-with-explicit-exception";
@@ -182,13 +183,14 @@ export const catalogIntegrationLegacyCleanupSurfaces: readonly CatalogIntegratio
   {
     key: "learned-provider-option-rate-limits",
     kind: "data-surface",
-    action: "wipe",
+    action: "reset-to-floor",
     owner: "catalog-source-observations",
     implementationReference:
-      "bounded-contexts/catalog/features/source-observations/integrations/tcgplayer-automation-client",
+      "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.ts",
     resetSurfaceKey: "provider-option-rate-limit",
-    reason: "Learned throttling state is operational cache and must not carry launch semantics.",
-    releaseExpectation: "Provider option rate limit rows are zero after pre-launch reset.",
+    reason: "Learned throttling state is operational cache and is reset to configured floors before launch.",
+    releaseExpectation:
+      "Provider option rate-limit rows remain seeded and every effective/learned delay is at its configured floor with zero shared success streak after pre-launch reset.",
   },
   {
     key: "active-provider-option-rate-limit-leases",
@@ -266,11 +268,12 @@ export function evaluateCatalogIntegrationLegacyCleanupReadiness(
     });
   }
 
-  if (report.providerOptionRateLimits > 0) {
+  if (report.providerOptionRateLimitsAboveFloor > 0) {
     findings.push({
       code: "provider-option-rate-limits-not-reset",
       severity: "p2",
-      releaseCheck: "Learned provider option rate-limit cache must not be carried into launch.",
+      releaseCheck:
+        "Provider option rate-limit rows must be at their configured floors with zero shared success streak before launch.",
     });
   }
 
@@ -317,7 +320,7 @@ export function evaluateCatalogIntegrationLegacyCleanupReadiness(
 export function catalogIntegrationLegacyCleanupReleaseChecklist(): readonly string[] {
   return [
     "Run the pre-launch wipe/rebuild reset and keep the before/after verification report with release evidence.",
-    "Verify Source Observations, integration jobs, bulk review jobs, work units, and learned provider rate limits are empty.",
+    "Verify Source Observations, integration jobs, bulk review jobs, and work units are empty; provider rate-limit rows are at configured floors with zero shared success streak.",
     "Verify legacy Source Observation profile references are zero.",
     "Verify seeded active TCGdex, TCGplayer, and Scrydex profile versions are present after bootstrap.",
     "Verify profile section projections and diagnostics rebuilt from retained or seeded profile versions.",
@@ -337,5 +340,6 @@ export function catalogIntegrationLegacyCleanupVerificationQueries(): readonly s
     "SELECT provider_key, profile_version, lifecycle FROM catalog_provider_integration_profile_versions WHERE active = true AND lifecycle = 'active';",
     "SELECT COUNT(*) AS profile_sections FROM catalog_provider_profile_version_sections;",
     "SELECT COUNT(*) AS profile_section_diagnostics FROM catalog_provider_profile_version_section_diagnostics;",
+    "SELECT COUNT(*) AS provider_rate_limits_above_floor FROM catalog_tcgplayer_automation_domain_rate_limits WHERE effective_request_delay_ms <> min_request_delay_ms OR effective_learned_min_delay_ms <> min_request_delay_ms OR shared_success_streak <> 0;",
   ];
 }

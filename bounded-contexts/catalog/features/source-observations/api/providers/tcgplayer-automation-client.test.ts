@@ -7,6 +7,7 @@ import {
   DEFAULT_TCGPLAYER_AUTOMATION_ADAPTIVE_CONFIG,
   DEFAULT_TCGPLAYER_AUTOMATION_DOMAIN_CONFIG,
   TCGPLAYER_AUTOMATION_DOMAIN_KEYS,
+  TcgplayerAutomationAuthorityError,
   TcgplayerAutomationDomainHttpClient,
   TcgplayerAutomationHttpError,
   redactTcgplayerAutomationProviderDiagnostic,
@@ -629,6 +630,33 @@ describe("TCGplayer automation HTTP client", () => {
     expect(queries.at(-1)).toMatchObject({
       values: [TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MPAPI, 300, 100],
     });
+  });
+
+  it("fails closed when durable config loading is unmigrated and never calls the provider", async () => {
+    const fetchMock = vi.fn();
+    const failure = Object.assign(new Error("column effective_request_delay_ms does not exist; secret driver detail"), {
+      code: "42703",
+    });
+    const db = {
+      query: vi.fn(async () => {
+        throw failure;
+      }),
+    } as unknown as PgQueryable;
+    const store = createPostgresTcgplayerAutomationHttpConfigStore(db);
+    const client = new TcgplayerAutomationDomainHttpClient(
+      TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MP_SEARCH_API,
+      "https://synthetic-provider.invalid",
+      store,
+      { fetch: fetchMock },
+    );
+
+    await expect(client.get("/blocked")).rejects.toBeInstanceOf(TcgplayerAutomationAuthorityError);
+    await expect(client.get("/blocked-again")).rejects.toMatchObject({
+      name: "TcgplayerAutomationAuthorityError",
+      message: expect.stringMatching(/42703/),
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toContain("secret driver detail");
   });
 
   it("redacts provider diagnostics and caps retained body length", () => {

@@ -694,14 +694,17 @@ export function createPostgresTcgplayerAutomationHttpConfigStore(
   const baseConfig = mergeTcgplayerAutomationHttpConfig(initial, true);
 
   return {
-    loadConfig: async () => applyPersistedDomainDelays(baseConfig, await loadPersistedDomainDelays(db)),
-    loadDomainConfig: async (domainKey) => {
-      const config = applyPersistedDomainDelays(baseConfig, await loadPersistedDomainDelays(db));
-      return config.domainConfigs[domainKey];
-    },
-    persistDomainDelays: async (domainKey, delays) => {
-      await db.query(
-        `INSERT INTO catalog_tcgplayer_automation_domain_rate_limits (
+    loadConfig: () =>
+      durableQuery(db, async () => applyPersistedDomainDelays(baseConfig, await loadPersistedDomainDelays(db))),
+    loadDomainConfig: (domainKey) =>
+      durableQuery(db, async () => {
+        const config = applyPersistedDomainDelays(baseConfig, await loadPersistedDomainDelays(db));
+        return config.domainConfigs[domainKey];
+      }),
+    persistDomainDelays: (domainKey, delays) =>
+      durableQuery(db, async () => {
+        await db.query(
+          `INSERT INTO catalog_tcgplayer_automation_domain_rate_limits (
            domain_key,
            effective_request_delay_ms,
            effective_learned_min_delay_ms,
@@ -711,9 +714,9 @@ export function createPostgresTcgplayerAutomationHttpConfigStore(
            effective_request_delay_ms = EXCLUDED.effective_request_delay_ms,
            effective_learned_min_delay_ms = EXCLUDED.effective_learned_min_delay_ms,
            updated_at = EXCLUDED.updated_at`,
-        [domainKey, delays.requestDelayMs, delays.learnedMinDelayMs],
-      );
-    },
+          [domainKey, delays.requestDelayMs, delays.learnedMinDelayMs],
+        );
+      }),
     admitDomainRequest: (domainKey, ownerId, leaseTtlMs) =>
       durableQuery(db, async () => {
         const config = baseConfig.domainConfigs[domainKey];
