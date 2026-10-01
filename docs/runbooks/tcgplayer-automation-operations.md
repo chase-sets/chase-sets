@@ -73,22 +73,35 @@ calls.
 
 ## Rate Limits And Recovery
 
-The client retries `403`, `429`, `502`, `503`, and `504`. A `403` can mean either
-rate limiting or an expired/missing cookie, so operators should use the sequence
-below before increasing traffic.
+The client retries `403`, `429`, `502`, `503`, and `504`. Admission, spacing,
+cooldown, concurrency, and adaptive learning are shared through the Catalog
+Postgres authority. API and worker callers on one database must not be enabled
+against split authorities; unknown topology is fail-closed.
 
-1. Check the durable job status for provider, domain, scope, HTTP status, and
+The bounded read-only state projection is available through the Catalog server
+authority. It returns only domain key, effective/persisted delay, learned
+minimum, configured floor, cooldown deadline, live lease count, epoch, and the
+database snapshot instant. It never returns cookies, accounts, URLs, bodies, or
+driver exception text. Treat the snapshot instant as separate from the time of
+the provider pass being investigated.
+
+1. Confirm API and worker callers for the same egress use one Catalog database
+   authority and that no predecessor deployment can send.
+2. Read the projection and compare the effective `mpApi` delay with its
+   `10000ms` floor before speculating about session expiry. Preserve the current
+   pass/image and do not reset learned state.
+3. Check the durable job status for provider, domain, scope, HTTP status, and
    retry-exhaustion reason.
-2. Check the persisted learned delay for the domain. Rate limits should increase
-   request delay and learned minimum delay before the retry.
-3. Pause new imports for the affected provider scope if the same domain is still
+4. Pause new imports for the affected provider scope if the same domain is still
    cooling down.
-4. Run a small product-line or set-name option query after the cooldown.
-5. If `403` continues with no successful option query, rotate
-   `TCGAuthTicket_Production` and redeploy/restart the worker that owns the job.
-6. Resume one provider scope at a time. Do not reset learned delays unless the
-   replacement cookie has been verified and the domain has a stable success
-   streak.
+5. Resume one provider scope at a time after the shared cooldown. A `403` alone
+   is ambiguous; a `429` is throttling evidence, not credential-expiry proof.
+6. If a separately approved custody procedure requires a cookie replacement,
+   preserve the shared rate state and compare only a later ordinary pass.
+
+The integration-data reset may clear learned delay values back to conservative
+floors, but it must not delete live leases or an unexpired cooldown. Never use a
+manual row delete as a recovery step.
 
 Retry exhaustion should leave the durable job failed or partially failed with a
 sanitized reason. Operators may requeue from the last durable checkpoint after
