@@ -1406,16 +1406,19 @@ test.describe("catalog staging provider sync UAT helpers", () => {
         { name: "expansionId", value: "TFC" },
       ],
     };
-    const fixture = (body: string) => `
-      <button data-catalog-import-workflow-stage="run-sync" aria-controls="run-sync-panel" aria-expanded="true">Run sync</button>
-      <div data-catalog-import-context-bar="true"><button type="button" onclick="document.documentElement.dataset.selectClicks = (Number(document.documentElement.dataset.selectClicks || 0) + 1).toString()">Select source scope</button></div>
-      <div id="run-sync-panel">${body}</div>`;
+    const fixture = (body: string, outsidePanel = "") => `
+      <section data-catalog-primary-workbench="true">
+        <button data-catalog-import-workflow-stage="run-sync" aria-controls="run-sync-panel" aria-expanded="true">Run sync</button>
+        <div data-catalog-import-context-bar="true"><button type="button" onclick="document.documentElement.dataset.selectClicks = (Number(document.documentElement.dataset.selectClicks || 0) + 1).toString()">Select source scope</button></div>
+        <div id="run-sync-panel">${body}</div>
+        ${outsidePanel}
+      </section>`;
     const commandForm = (provider = "tcgplayer") => `
       <section><form data-catalog-primary-workbench-command="scope.import" data-catalog-source-scope-unit="${unitKey}">
         <input name="providerKey" value="${provider}"><input name="importScope" value="en:TFC"><input name="languageCode" value="en"><input name="expansionId" value="TFC">
         <button type="button">Sync scope</button><button type="button" onclick="document.documentElement.dataset.retryClicks = (Number(document.documentElement.dataset.retryClicks || 0) + 1).toString()">Retry</button>
       </form></section>`;
-    const degraded = `<div data-catalog-import-slot="true"><div role="status" data-catalog-deferred-panel="unavailable" tone="warning">Preview unavailable</div></div>`;
+    const degraded = `<section><div role="status" data-catalog-deferred-panel="unavailable" tone="warning">Preview unavailable</div></section>`;
     const ready = `<div data-catalog-import-preview="ready" data-catalog-import-preview-provider="tcgplayer" data-catalog-import-preview-unit="${unitKey}" data-catalog-import-preview-scope="en:TFC" data-catalog-import-preview-strategy="bulk-first"><span>ready evidence</span></div>`;
 
     await page.setContent(fixture(`${commandForm()}${ready}`));
@@ -1425,9 +1428,32 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     }).then((state) => expect(state).toBe("ready"));
 
     await page.setContent(fixture(`${commandForm()}${degraded}`));
-    await expectImportPreflight(page, unitKey, selectedScope, { visibleText: [] }).then((state) =>
-      expect(state).toBe("degraded"),
-    );
+    let frameNavigatedCount = 0;
+    page.on("framenavigated", () => {
+      frameNavigatedCount += 1;
+    });
+    const capturedLogs: string[] = [];
+    const originalConsoleLog = console.log;
+    console.log = (...args: unknown[]) => {
+      capturedLogs.push(args.map((arg) => String(arg)).join(" "));
+      originalConsoleLog(...args);
+    };
+    try {
+      await expectImportPreflight(page, unitKey, selectedScope, { visibleText: [] }).then((state) =>
+        expect(state).toBe("degraded"),
+      );
+    } finally {
+      console.log = originalConsoleLog;
+    }
+    expect(frameNavigatedCount).toBe(0);
+    expect(
+      capturedLogs.filter(
+        (line) =>
+          line.includes("state=degraded") &&
+          line.includes(`unit=${unitKey}`) &&
+          line.includes("scope=The First Chapter"),
+      ),
+    ).toHaveLength(1);
     expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
     expect(await page.locator("html").getAttribute("data-select-clicks")).toBeNull();
 
@@ -1435,14 +1461,21 @@ test.describe("catalog staging provider sync UAT helpers", () => {
       `${commandForm()}<section><form data-catalog-primary-workbench-command="scope.sync"></form><div role="status" data-catalog-deferred-panel="unavailable">Sibling unavailable</div></section>`,
       `${commandForm()}${degraded}${degraded}`,
       `${commandForm("other-provider")}${degraded}`,
-      `${commandForm()}<div role="status"></div>`,
-      `${commandForm()}<div data-catalog-deferred-panel="unavailable"></div>`,
+      `${commandForm()}<div role="status">Preview unavailable</div>`,
+      `${commandForm()}<div data-catalog-deferred-panel="unavailable">Preview unavailable</div>`,
       commandForm(),
     ];
     for (const body of negatives) {
       await page.setContent(fixture(body));
       await expect(expectImportPreflight(page, unitKey, selectedScope, { visibleText: [] }, 150)).rejects.toThrow();
     }
+    await page.setContent(
+      fixture(
+        commandForm(),
+        '<section><div role="status" data-catalog-deferred-panel="unavailable">Outside panel</div></section>',
+      ),
+    );
+    await expect(expectImportPreflight(page, unitKey, selectedScope, { visibleText: [] }, 150)).rejects.toThrow();
   });
 
   test("derives all 46 representative members from the real selector and independently refuses every omitted member", () => {
@@ -3987,7 +4020,7 @@ async function visibleDegradedImportPreflightPanel(
   if (!panelId) {
     return null;
   }
-  const stagePanel = page.locator(`#${cssAttrValue(panelId)}`).first();
+  const stagePanel = page.locator(`[id="${cssAttrValue(panelId)}"]`).first();
   const candidates = stagePanel
     .locator('[role="status"][data-catalog-deferred-panel="unavailable"]')
     .filter({ visible: true });
@@ -3997,7 +4030,7 @@ async function visibleDegradedImportPreflightPanel(
   }
   const candidate = candidates.first();
   const syncSectionCandidates = candidate.locator(
-    'xpath=ancestor::section[.//form[@data-catalog-primary-workbench-command="scope.sync"]]',
+    'xpath=ancestor::section[1][.//form[@data-catalog-primary-workbench-command="scope.sync"]]',
   );
   if ((await syncSectionCandidates.count().catch(() => 0)) > 0) {
     return null;
