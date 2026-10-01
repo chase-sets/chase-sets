@@ -66,6 +66,9 @@ export type CatalogProviderOptionQueryCacheRecord = Readonly<{
   staleUntil: string;
   diagnosticCode: string | null;
   diagnosticText: string | null;
+  itemCount?: number;
+  totalCount?: number | null;
+  pageSize?: number | null;
 }>;
 
 export type CatalogProviderOptionQueryCacheStore = Readonly<{
@@ -82,7 +85,7 @@ export class CatalogProviderOptionQueryUnavailableError extends Error {
   }
 }
 
-const DEFAULT_FRESH_TTL_SECONDS = 15 * 60;
+export const DEFAULT_FRESH_TTL_SECONDS = 15 * 60;
 const DEFAULT_STALE_TTL_SECONDS = 24 * 60 * 60;
 const DEFAULT_PAGE_LIMIT = 50;
 const MAX_PAGE_LIMIT = 200;
@@ -107,6 +110,9 @@ export function createPgCatalogProviderOptionQueryCacheStore(
         language_code: string;
         parent_value: string;
         items_json: unknown;
+        item_count: number;
+        total_count: number | null;
+        page_size: number | null;
         fetched_at: string | Date;
         expires_at: string | Date;
         stale_until: string | Date;
@@ -123,6 +129,9 @@ export function createPgCatalogProviderOptionQueryCacheStore(
            language_code,
            parent_value,
            items_json,
+           item_count,
+           total_count,
+           page_size,
            fetched_at,
            expires_at,
            stale_until,
@@ -147,6 +156,9 @@ export function createPgCatalogProviderOptionQueryCacheStore(
         languageCode: row.language_code,
         parentValue: row.parent_value,
         items: row.items_json,
+        itemCount: row.item_count,
+        totalCount: row.total_count,
+        pageSize: row.page_size,
         fetchedAt: isoDate(row.fetched_at),
         expiresAt: isoDate(row.expires_at),
         staleUntil: isoDate(row.stale_until),
@@ -167,6 +179,8 @@ export function createPgCatalogProviderOptionQueryCacheStore(
            parent_value,
            items_json,
            item_count,
+           total_count,
+           page_size,
            fetched_at,
            expires_at,
            stale_until,
@@ -174,10 +188,12 @@ export function createPgCatalogProviderOptionQueryCacheStore(
            diagnostic_text,
            updated_at
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11::timestamptz, $12::timestamptz, $13::timestamptz, $14, $15, now())
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $16, $17, $11::timestamptz, $12::timestamptz, $13::timestamptz, $14, $15, now())
          ON CONFLICT (cache_key) DO UPDATE SET
            items_json = EXCLUDED.items_json,
            item_count = EXCLUDED.item_count,
+           total_count = EXCLUDED.total_count,
+           page_size = EXCLUDED.page_size,
            fetched_at = EXCLUDED.fetched_at,
            expires_at = EXCLUDED.expires_at,
            stale_until = EXCLUDED.stale_until,
@@ -200,6 +216,8 @@ export function createPgCatalogProviderOptionQueryCacheStore(
           record.staleUntil,
           record.diagnosticCode,
           record.diagnosticText,
+          record.totalCount ?? null,
+          record.pageSize ?? null,
         ],
       );
     },
@@ -210,6 +228,7 @@ export async function queryCatalogProviderIntegrationOptionsWithCache(input: {
   request: CatalogProviderOptionQueryRequest;
   cacheStore: CatalogProviderOptionQueryCacheStore | null;
   loadLive: () => Promise<readonly CatalogProviderIntegrationOption[]>;
+  validatedPagination?: () => Readonly<{ totalCount: number; pageSize: number }> | null;
   now?: Date;
   freshTtlSeconds?: number;
   staleTtlSeconds?: number;
@@ -245,33 +264,23 @@ export async function queryCatalogProviderIntegrationOptionsWithCache(input: {
 
   try {
     const liveItems = await input.loadLive();
-    const fetchedAt = now.toISOString();
-    const expiresAt = addSeconds(now, input.freshTtlSeconds ?? DEFAULT_FRESH_TTL_SECONDS).toISOString();
-    const staleUntil = addSeconds(now, input.staleTtlSeconds ?? DEFAULT_STALE_TTL_SECONDS).toISOString();
-    await input.cacheStore?.write({
-      cacheKey,
-      providerKey: request.providerKey,
-      profileKey: request.profileKey ?? "",
-      profileVersion: request.profileVersion,
-      ingestionUnitKey: request.ingestionUnitKey ?? "",
-      queryKind: request.queryKind,
-      languageCode: normalizedLanguageCode(request.languageCode),
-      parentValue: normalizedParentValue(request.parentValue),
+    const observation = createCatalogProviderOptionQueryCacheRecord({
+      request,
       items: liveItems,
-      fetchedAt,
-      expiresAt,
-      staleUntil,
-      diagnosticCode: null,
-      diagnosticText: null,
+      now: input.now ?? new Date(),
+      pagination: input.validatedPagination?.(),
+      freshTtlSeconds: input.freshTtlSeconds,
+      staleTtlSeconds: input.staleTtlSeconds,
     });
+    await input.cacheStore?.write(observation);
 
     return pageFromItems(liveItems, request, {
       status: forceRefresh ? "bypass" : "miss",
       source: "live",
       cacheKey,
-      fetchedAt,
-      expiresAt,
-      staleUntil,
+      fetchedAt: observation.fetchedAt,
+      expiresAt: observation.expiresAt,
+      staleUntil: observation.staleUntil,
       cacheOnly,
       forceRefresh,
       degraded: false,
@@ -283,6 +292,36 @@ export async function queryCatalogProviderIntegrationOptionsWithCache(input: {
     }
     throw error;
   }
+}
+
+export function createCatalogProviderOptionQueryCacheRecord(input: {
+  request: CatalogProviderOptionQueryRequest;
+  items: readonly CatalogProviderIntegrationOption[];
+  now: Date;
+  pagination?: Readonly<{ totalCount: number; pageSize: number }> | null;
+  freshTtlSeconds?: number;
+  staleTtlSeconds?: number;
+}): CatalogProviderOptionQueryCacheRecord {
+  const request = normalizeRequest(input.request);
+  return {
+    cacheKey: cacheKeyForProviderOptionQuery(request),
+    providerKey: request.providerKey,
+    profileKey: request.profileKey ?? "",
+    profileVersion: request.profileVersion,
+    ingestionUnitKey: request.ingestionUnitKey ?? "",
+    queryKind: request.queryKind,
+    languageCode: normalizedLanguageCode(request.languageCode),
+    parentValue: normalizedParentValue(request.parentValue),
+    items: input.items,
+    itemCount: input.items.length,
+    totalCount: input.pagination?.totalCount ?? null,
+    pageSize: input.pagination?.pageSize ?? null,
+    fetchedAt: input.now.toISOString(),
+    expiresAt: addSeconds(input.now, input.freshTtlSeconds ?? DEFAULT_FRESH_TTL_SECONDS).toISOString(),
+    staleUntil: addSeconds(input.now, input.staleTtlSeconds ?? DEFAULT_STALE_TTL_SECONDS).toISOString(),
+    diagnosticCode: null,
+    diagnosticText: null,
+  };
 }
 
 export function cacheKeyForProviderOptionQuery(request: CatalogProviderOptionQueryRequest): string {

@@ -9,6 +9,11 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { module as catalogModule } from "../index";
+import {
+  cacheKeyForProviderOptionQuery,
+  createPgCatalogProviderOptionQueryCacheStore,
+  queryCatalogProviderIntegrationOptionsWithCache,
+} from "../features/source-observations/api/providers/provider-option-query-cache";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI) {
@@ -38,6 +43,57 @@ describeDb("catalog schema upgrades", () => {
 
   beforeEach(async () => resetMultiContextTestSchemas(pools));
   afterAll(async () => closeMultiContextTestPools(pools));
+
+  it("upgrades the option cache in place and round-trips completed count metadata without changing display", async () => {
+    const pool = pools.catalog;
+    await bootstrapContextDatabase(catalogModule, pool);
+    const request = {
+      providerKey: "scrydex",
+      profileKey: "synthetic-card-profile",
+      profileVersion: "synthetic-v1",
+      ingestionUnitKey: "synthetic-card-unit",
+      queryKind: "cards",
+      languageCode: "en",
+      parentValue: "TFC",
+    };
+    const store = createPgCatalogProviderOptionQueryCacheStore(pool)!;
+    const items = [
+      {
+        providerKey: "scrydex",
+        queryKind: "cards",
+        value: "synthetic-tfc-card",
+        label: "Synthetic TFC card",
+        description: null,
+        parentValue: "TFC",
+        imageUrl: null,
+        aliases: [],
+        metadata: {},
+      },
+    ];
+    await queryCatalogProviderIntegrationOptionsWithCache({ request, cacheStore: store, loadLive: async () => items });
+    await pool.query("ALTER TABLE catalog_provider_option_query_cache DROP COLUMN total_count, DROP COLUMN page_size");
+    await bootstrapContextDatabase(catalogModule, pool);
+    expect(await store.read(request)).toMatchObject({
+      cacheKey: cacheKeyForProviderOptionQuery(request),
+      items,
+      itemCount: 1,
+      totalCount: null,
+      pageSize: null,
+    });
+    await queryCatalogProviderIntegrationOptionsWithCache({
+      request: { ...request, forceRefresh: true },
+      cacheStore: store,
+      loadLive: async () => items,
+      validatedPagination: () => ({ totalCount: 1, pageSize: 100 }),
+    });
+    expect(await store.read(request)).toMatchObject({ items, itemCount: 1, totalCount: 1, pageSize: 100 });
+    await queryCatalogProviderIntegrationOptionsWithCache({
+      request: { ...request, forceRefresh: true },
+      cacheStore: store,
+      loadLive: async () => items,
+    });
+    expect(await store.read(request)).toMatchObject({ items, itemCount: 1, totalCount: null, pageSize: null });
+  });
 
   it("converges a deployed scope-sync table to the complete fresh schema", async () => {
     const pool = pools.catalog;

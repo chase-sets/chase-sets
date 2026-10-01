@@ -498,6 +498,8 @@ CREATE TABLE IF NOT EXISTS catalog_provider_option_query_cache (
   parent_value text NOT NULL,
   items_json jsonb NOT NULL,
   item_count integer NOT NULL,
+  total_count integer NULL,
+  page_size integer NULL,
   fetched_at timestamptz NOT NULL,
   expires_at timestamptz NOT NULL,
   stale_until timestamptz NOT NULL,
@@ -509,6 +511,10 @@ CREATE TABLE IF NOT EXISTS catalog_provider_option_query_cache (
 ALTER TABLE catalog_provider_option_query_cache
   ADD COLUMN IF NOT EXISTS profile_key text DEFAULT '',
   ADD COLUMN IF NOT EXISTS ingestion_unit_key text DEFAULT '';
+
+ALTER TABLE catalog_provider_option_query_cache
+  ADD COLUMN IF NOT EXISTS total_count integer NULL,
+  ADD COLUMN IF NOT EXISTS page_size integer NULL;
 
 ALTER TABLE catalog_provider_option_query_cache
   ALTER COLUMN profile_key SET DEFAULT '',
