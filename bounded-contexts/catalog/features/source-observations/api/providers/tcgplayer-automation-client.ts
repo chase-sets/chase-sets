@@ -767,18 +767,26 @@ export function createPostgresTcgplayerAutomationHttpConfigStore(
           adaptiveConfig.successThreshold,
           admissionEpoch,
         ]);
-        return durableRateLimitConfig(baseConfig, domainKey, result.rows[0]);
+        if (result.rows[0]) return durableRateLimitConfig(baseConfig, domainKey, result.rows[0]);
+        const current = applyPersistedDomainDelays(baseConfig, await loadPersistedDomainDelays(db));
+        return current.domainConfigs[domainKey];
       }),
     readDomainRateLimitState: () =>
       durableQuery(db, async () => {
         const result = await db.query<DurableStateRow>(DURABLE_STATE_SQL);
         return result.rows
-          .filter((row) => isTcgplayerAutomationDomainKey(row.domain_key))
+          .filter(
+            (row): row is DurableStateRow & { domain_key: TcgplayerAutomationDomainKey } =>
+              isTcgplayerAutomationDomainKey(row.domain_key),
+          )
           .map((row) => ({
             domainKey: row.domain_key,
             requestDelayMs: Number(row.request_delay_ms),
             learnedMinDelayMs: Number(row.learned_min_delay_ms),
-            floorRequestDelayMs: Number(row.floor_request_delay_ms),
+            floorRequestDelayMs: Math.max(
+              Number(row.floor_request_delay_ms),
+              baseConfig.domainConfigs[row.domain_key].minRequestDelayMs,
+            ),
             cooldownUntil: row.cooldown_until,
             liveLeaseCount: Number(row.live_lease_count),
             epoch: Number(row.epoch),
