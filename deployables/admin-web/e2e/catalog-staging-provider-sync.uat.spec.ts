@@ -1395,6 +1395,75 @@ function groupProviderSyncJourneysByCanonicalScope(
 }
 
 test.describe("catalog staging provider sync UAT helpers", () => {
+  test("Admin Error fail closed control", async ({ page }) => {
+    let frameNavigatedCount = 0;
+    const frameNavigatedHandler = () => {
+      frameNavigatedCount += 1;
+    };
+    page.on("framenavigated", frameNavigatedHandler);
+    let reloadCount = 0;
+    const originalReload = page["reload"].bind(page);
+    const pageWithReload = page as Page & { reload: Page["reload"] };
+    pageWithReload.reload = (async (...args: Parameters<Page["reload"]>) => {
+      reloadCount += 1;
+      return originalReload(...args);
+    }) as Page["reload"];
+
+    const counters = `
+      <a href="/catalog/integrations" onclick="document.documentElement.dataset.retryClicks = (Number(document.documentElement.dataset.retryClicks || 0) + 1).toString(); event.preventDefault()">Retry</a>
+      <button type="button" onclick="document.documentElement.dataset.refreshClicks = (Number(document.documentElement.dataset.refreshClicks || 0) + 1).toString()">Force refresh</button>
+      <button type="button" onclick="document.documentElement.dataset.refreshClicks = (Number(document.documentElement.dataset.refreshClicks || 0) + 1).toString()">Reload</button>
+      <button type="button" onclick="document.documentElement.dataset.refreshClicks = (Number(document.documentElement.dataset.refreshClicks || 0) + 1).toString()">Refresh all</button>`;
+    const adminError = (includeRetry: boolean, includeOptions = false) => `
+      <main><h1>Admin Error</h1><details open><summary>Technical detail</summary>boom-8442</details>
+      ${includeRetry ? counters.split("<button")[0] : ""}
+      ${includeOptions ? `<section data-catalog-source-options-status="true"><div data-source-option-page><span>Set</span>${counters.slice(counters.indexOf("<button"))}</div></section><label>Set<select aria-label="Set"><option value="existing-8442">Existing</option></select></label>` : ""}
+      </main>`;
+
+    try {
+      await page.setContent(adminError(true));
+      await expect(recoverImporterFromAdminError(page)).rejects.toThrow(
+        /Catalog importer rendered Admin Error while loading.*boom-8442/,
+      );
+      expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+      expect(reloadCount).toBe(0);
+      expect(frameNavigatedCount).toBe(0);
+
+      reloadCount = 0;
+      frameNavigatedCount = 0;
+      await page.setContent(adminError(false));
+      await expect(recoverImporterFromAdminError(page)).rejects.toThrow(/boom-8442/);
+      expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+      expect(reloadCount).toBe(0);
+      expect(frameNavigatedCount).toBe(0);
+
+      reloadCount = 0;
+      frameNavigatedCount = 0;
+      await page.setContent(adminError(true, true));
+      await expect(
+        waitForOption(page.getByRole("combobox", { name: "Set" }), { values: ["missing-8442"] }, () =>
+          recoverSourceOptionSelection(page, "Set"),
+        ),
+      ).rejects.toThrow(/Catalog importer rendered Admin Error while loading.*boom-8442/);
+      expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+      expect(await page.locator("html").getAttribute("data-refresh-clicks")).toBeNull();
+      expect(reloadCount).toBe(0);
+      expect(frameNavigatedCount).toBe(0);
+
+      reloadCount = 0;
+      frameNavigatedCount = 0;
+      await page.setContent("<main><p>Healthy importer</p></main>");
+      await expect(recoverImporterFromAdminError(page)).resolves.toBe(false);
+      expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+      expect(await page.locator("html").getAttribute("data-refresh-clicks")).toBeNull();
+      expect(reloadCount).toBe(0);
+      expect(frameNavigatedCount).toBe(0);
+    } finally {
+      pageWithReload.reload = originalReload as Page["reload"];
+      page.off("framenavigated", frameNavigatedHandler);
+    }
+  });
+
   test("import preflight state control", async ({ page }) => {
     const unitKey = "tcgplayer:pokemon:sealed-product:source-observation-import";
     const selectedScope: SelectedProviderScope = {
@@ -3219,9 +3288,7 @@ async function openCatalogImporter(page: Page): Promise<void> {
       return;
     }
 
-    if (await recoverImporterFromAdminError(page)) {
-      continue;
-    }
+    await recoverImporterFromAdminError(page);
 
     if (Date.now() >= nextNavigationAt) {
       await page.goto("/catalog/integrations", { waitUntil: "domcontentloaded", timeout: pageReadyTimeoutMs });
@@ -3232,9 +3299,7 @@ async function openCatalogImporter(page: Page): Promise<void> {
     await page.waitForTimeout(1_000);
   }
 
-  if (await recoverImporterFromAdminError(page)) {
-    return;
-  }
+  await recoverImporterFromAdminError(page);
   if (!(await isImporterVisible(page, 1_000))) {
     await page.goto("/catalog/integrations", { waitUntil: "domcontentloaded", timeout: pageReadyTimeoutMs });
   }
@@ -5555,32 +5620,18 @@ async function recoverSourceOptionSelection(page: Page, label: string | RegExp):
   return (await recoverImporterFromAdminError(page)) || refreshSourceOptionGroup(page, label);
 }
 
-async function recoverImporterFromAdminError(page: Page): Promise<boolean> {
+async function recoverImporterFromAdminError(page: Page): Promise<false> {
   const adminError = page.getByRole("heading", { name: "Admin Error" });
   if (!(await adminError.isVisible({ timeout: 1_000 }).catch(() => false))) {
     return false;
   }
 
   const initialDetail = await adminErrorTechnicalDetail(page);
-  const retry = page.getByRole("link", { name: "Retry" }).first();
-  if (await retry.isVisible({ timeout: 1_000 }).catch(() => false)) {
-    await retry.click();
-  } else {
-    await page.reload({ waitUntil: "domcontentloaded", timeout: pageReadyTimeoutMs }).catch(() => undefined);
-  }
-
-  await page.waitForLoadState("domcontentloaded", { timeout: pageReadyTimeoutMs }).catch(() => undefined);
-  if (!(await isImporterVisible(page, 10_000))) {
-    const retryDetail = await adminErrorTechnicalDetail(page);
-    throw new Error(
-      `Catalog importer rendered Admin Error while loading ${supportSafeCurrentPath(page)}. Technical detail: ${
-        retryDetail ?? initialDetail ?? "not visible"
-      }`,
-    );
-  }
-
-  await expect(page.locator("html")).toHaveAttribute("data-admin-web-hydrated", "true", { timeout: 30_000 });
-  return true;
+  throw new Error(
+    `Catalog importer rendered Admin Error while loading ${supportSafeCurrentPath(page)}. Technical detail: ${
+      initialDetail ?? "not visible"
+    }`,
+  );
 }
 
 async function adminErrorTechnicalDetail(page: Page): Promise<string | null> {
