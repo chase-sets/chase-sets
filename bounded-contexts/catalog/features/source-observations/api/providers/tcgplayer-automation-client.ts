@@ -88,6 +88,10 @@ export type TcgplayerAutomationStageFact = Readonly<{
   at: string;
   attempt: number;
   statusClass?: "2xx" | "3xx" | "4xx" | "5xx" | "other";
+  httpStatus?: number;
+  lastHttpStatus?: number | null;
+  lastHttpStatusAttempt?: number | null;
+  failureCode?: "credential-unavailable" | null;
   activeStage?: TcgplayerAutomationStage;
   outcome?: "success" | "failure" | "aborted";
 }>;
@@ -207,9 +211,22 @@ export class TcgplayerAutomationDomainHttpClient {
     let attempt = 1;
     let activeStage: TcgplayerAutomationStage = "config-wait";
     let terminal = false;
+    let lastHttpStatus: number | null = null;
+    let lastHttpStatusAttempt: number | null = null;
     const emit = (
       stage: TcgplayerAutomationStage,
-      detail: Partial<Pick<TcgplayerAutomationStageFact, "statusClass" | "activeStage" | "outcome">> = {},
+      detail: Partial<
+        Pick<
+          TcgplayerAutomationStageFact,
+          | "statusClass"
+          | "activeStage"
+          | "outcome"
+          | "httpStatus"
+          | "lastHttpStatus"
+          | "lastHttpStatusAttempt"
+          | "failureCode"
+        >
+      > = {},
     ) => {
       if (!onStage || (terminal && stage !== "terminal")) return;
       if (stage !== "abort" && stage !== "terminal") activeStage = stage;
@@ -219,10 +236,15 @@ export class TcgplayerAutomationDomainHttpClient {
         // Telemetry must not affect requests, including abort and limiter release.
       }
     };
-    const finish = (outcome: "success" | "failure" | "aborted") => {
+    const finish = (outcome: "success" | "failure" | "aborted", error?: unknown) => {
       if (terminal) return;
       terminal = true;
-      emit("terminal", { outcome });
+      emit("terminal", {
+        outcome,
+        lastHttpStatus,
+        lastHttpStatusAttempt,
+        failureCode: hasCredentialUnavailableCode(error) ? "credential-unavailable" : null,
+      });
       signal?.removeEventListener("abort", onAbort);
     };
     const onAbort = () => {
@@ -258,7 +280,16 @@ export class TcgplayerAutomationDomainHttpClient {
             headers,
             signal: input.options.signal,
           });
-          emit("headers-received", { statusClass: httpStatusClass(response.status) });
+          const status = response.status;
+          const hasValidHttpStatus = Number.isInteger(status) && status >= 100 && status <= 599;
+          if (hasValidHttpStatus) {
+            lastHttpStatus = status;
+            lastHttpStatusAttempt = attempt;
+          }
+          emit("headers-received", {
+            statusClass: httpStatusClass(status),
+            ...(hasValidHttpStatus ? { httpStatus: status } : {}),
+          });
 
           if (!response.ok) {
             emit("error-body-read-start");
@@ -308,7 +339,7 @@ export class TcgplayerAutomationDomainHttpClient {
 
       throw new Error(`Request to ${this.domainKey} failed after ${initialConfig.maxRetries} retries.`);
     } catch (error) {
-      finish(signal?.aborted ? "aborted" : "failure");
+      finish(signal?.aborted ? "aborted" : "failure", error);
       throw error;
     }
   }
@@ -349,6 +380,18 @@ export class TcgplayerAutomationDomainHttpClient {
       response.status,
       redactTcgplayerAutomationProviderDiagnostic(responseBody),
     );
+  }
+}
+
+function hasCredentialUnavailableCode(error: unknown): boolean {
+  try {
+    return (
+      typeof error === "object" &&
+      error !== null &&
+      Object.getOwnPropertyDescriptor(error, "code")?.value === "credential-unavailable"
+    );
+  } catch {
+    return false;
   }
 }
 

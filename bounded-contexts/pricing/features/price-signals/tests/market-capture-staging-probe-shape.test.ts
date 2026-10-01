@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createTcgplayerAutomationHttpClients, type TcgplayerAutomationHttpConfig } from "@chase-sets/catalog/server";
 import type { PgPoolClient, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { MARKET_STAT_HYGIENE_LAUNCH_POLICY_VALUE } from "../../market-trades/domain/stat-hygiene-policy";
 import { createPriceSignalRuntime } from "../api/runtime";
@@ -8,6 +9,7 @@ import {
 } from "../domain/provider-observation-policy";
 import {
   createObjectStorageTcgplayerMarketCaptureReceiptSink,
+  readTcgplayerEndpointFailureClass,
   type TcgplayerMarketCaptureReceiptV1,
 } from "../integrations/tcgplayer/capture-sanitizer";
 import type { TcgplayerMarketTransport } from "../integrations/tcgplayer/transport-port";
@@ -22,6 +24,7 @@ const ENDPOINTS = ["sales", "listings", "history"] as const;
 type Endpoint = (typeof ENDPOINTS)[number];
 const HOSTILE = "synthetic-secret-cookie-error-value-name";
 const HOSTILE_URL = "https://synthetic-provider.invalid/private-identity";
+const HOSTILE_DETAILS = `${HOSTILE} ${HOSTILE_URL} synthetic-account-secret synthetic-external-seller-secret 192.0.2.42`;
 const PAGE_POLICY: ProviderObservationPolicyValue = {
   ...PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE,
   sales: { ...PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.sales, pageSize: 1, pageBudget: 2, limit: 2 },
@@ -29,6 +32,246 @@ const PAGE_POLICY: ProviderObservationPolicyValue = {
 };
 
 describe("tcgplayer-market-capture-v1 response-receipt shape", () => {
+  it.each([
+    ["401", 401, "auth-rejected", 1],
+    ["403", 403, "forbidden", 1],
+    ["429", 429, "rate-limited", 1],
+    ["400", 400, "client-error", 1],
+    ["500", 500, "server-error", 1],
+    ["302", 302, "other", 1],
+    ["body-read-failure", 400, "client-error", 1],
+    ["no-headers", null, "no-response", null],
+    ["later-abort", 403, "forbidden", 1],
+    ["credential-unavailable", null, "credential-unavailable", null],
+    ["recovery", 200, null, 2],
+  ] as const)(
+    "preserves %s through the real Catalog client and private sink",
+    async (scenario, status, failureClass, statusAttempt) => {
+      vi.useFakeTimers();
+      try {
+        const domain = {
+          requestDelayMs: 0,
+          rateLimitCooldownMs: 10000,
+          maxConcurrentRequests: 1,
+          adaptiveEnabled: false,
+          minRequestDelayMs: 0,
+          maxRequestDelayMs: 10000,
+          learnedMinDelayMs: 0,
+        };
+        const config: TcgplayerAutomationHttpConfig = {
+          auth: { tcgAuthCookie: null, userAgent: "synthetic" },
+          domainConfigs: { mpApi: domain, mpSearchApi: domain, infiniteApi: domain, mpGateway: domain },
+          adaptiveConfig: { increaseMultiplier: 2, floorStepMs: 100, decreaseAmountMs: 100, successThreshold: 10 },
+          maxRetries: ["403", "429", "later-abort", "recovery"].includes(scenario) ? 1 : 0,
+        };
+        const store = {
+          loadConfig: async () => config,
+          loadDomainConfig: async () => domain,
+          persistDomainDelays: async () => undefined,
+        };
+        if (scenario === "credential-unavailable")
+          vi.spyOn(store, "loadConfig").mockRejectedValue(
+            Object.assign(new Error(HOSTILE_DETAILS), { code: "credential-unavailable" }),
+          );
+        const calls = { sales: 0, listings: 0, history: 0 };
+        const waitForAbort = (signal?: AbortSignal) =>
+          new Promise<never>((_resolve, reject) => {
+            signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+          });
+        const clients = createTcgplayerAutomationHttpClients(store, {
+          now: () => Date.parse("2026-09-01T15:00:00.000Z"),
+          fetch: async (_url, options) => {
+            const path = new URL(String(_url)).pathname;
+            const endpoint = path.includes("latestsales")
+              ? "sales"
+              : path.includes("listings")
+                ? "listings"
+                : "history";
+            const call = ++calls[endpoint];
+            if (scenario === "no-headers" || (scenario === "later-abort" && call === 2))
+              return waitForAbort(options?.signal ?? undefined);
+            if (scenario === "recovery" && call === 2)
+              return new Response(JSON.stringify(emptyResponse(endpoint)), { status: 200 });
+            const response = new Response(HOSTILE_DETAILS, {
+              status: scenario === "recovery" ? 403 : (status ?? 400),
+              headers: { "x-synthetic-private": HOSTILE_DETAILS, "set-cookie": HOSTILE_DETAILS },
+            });
+            if (scenario === "body-read-failure")
+              vi.spyOn(response, "text").mockRejectedValue(new Error(HOSTILE_DETAILS));
+            return response;
+          },
+          sleep: async (_ms, signal) => {
+            if (["403", "429"].includes(scenario)) return waitForAbort(signal);
+          },
+        });
+        const probe = captureProbe(
+          { ...clients, mpGateway: syntheticTransport().mpGateway },
+          { ...PAGE_POLICY, secondaryTimeoutMs: 20 },
+        );
+        const pending = probe.run();
+        await vi.advanceTimersByTimeAsync(20);
+        const receipt = await pending;
+        for (const endpoint of ENDPOINTS) {
+          const diagnostic = receipt.responseSummary.endpointDiagnostics![endpoint];
+          expect(diagnostic).toMatchObject({ lastHttpStatus: status, failureClass });
+          expect(readTcgplayerEndpointFailureClass(diagnostic)).toBe(failureClass);
+          const terminal = diagnostic.stageTrace!.entries.filter((entry) => entry.stage === "terminal").at(-1)!;
+          expect(terminal).toMatchObject({ page: 1, lastHttpStatus: status, lastHttpStatusAttempt: statusAttempt });
+          const headers = diagnostic.stageTrace!.entries.filter((entry) => entry.stage === "headers-received");
+          expect(headers.map((entry) => entry.attempt)).toEqual(
+            status === null ? [] : scenario === "recovery" ? [1, 2] : [1],
+          );
+          for (const header of headers) {
+            expect(header).toMatchObject({
+              page: 1,
+              httpStatus:
+                scenario === "recovery" && header.attempt === 2 ? 200 : scenario === "recovery" ? 403 : status,
+            });
+          }
+        }
+        expectPrivate(probe, receipt);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it.each([600, 403] as const)("retains paged Catalog status %i after a successful page", async (pageTwoStatus) => {
+    const domain = {
+      requestDelayMs: 0,
+      rateLimitCooldownMs: 10000,
+      maxConcurrentRequests: 1,
+      adaptiveEnabled: false,
+      minRequestDelayMs: 0,
+      maxRequestDelayMs: 10000,
+      learnedMinDelayMs: 0,
+    };
+    const config: TcgplayerAutomationHttpConfig = {
+      auth: { tcgAuthCookie: null, userAgent: "synthetic" },
+      domainConfigs: { mpApi: domain, mpSearchApi: domain, infiniteApi: domain, mpGateway: domain },
+      adaptiveConfig: { increaseMultiplier: 2, floorStepMs: 100, decreaseAmountMs: 100, successThreshold: 10 },
+      maxRetries: 0,
+    };
+    const store = {
+      loadConfig: async () => config,
+      loadDomainConfig: async () => domain,
+      persistDomainDelays: async () => undefined,
+    };
+    const salesCalls = { count: 0 };
+    const clients = createTcgplayerAutomationHttpClients(store, {
+      fetch: async (url) => {
+        const path = new URL(String(url)).pathname;
+        if (path.includes("latestsales")) {
+          salesCalls.count += 1;
+          if (salesCalls.count === 1) return new Response(JSON.stringify(salesPage(2, "Yes")), { status: 200 });
+          return pageTwoStatus === 600
+            ? outOfRangeResponse(pageTwoStatus)
+            : new Response(HOSTILE_DETAILS, { status: 403 });
+        }
+        if (path.includes("listings")) return new Response(JSON.stringify(listingsPage()), { status: 200 });
+        if (path.includes("history")) return new Response(JSON.stringify(emptyResponse("history")), { status: 200 });
+        return new Response(JSON.stringify({}), { status: 200 });
+      },
+    });
+    const receipt = await captureProbe(
+      { ...clients, mpGateway: syntheticTransport().mpGateway },
+      { ...PAGE_POLICY, secondaryTimeoutMs: 20 },
+    ).run();
+    const diagnostic = receipt.responseSummary.endpointDiagnostics!.sales;
+    expect(diagnostic.lastHttpStatus).toBe(pageTwoStatus === 600 ? null : 403);
+    expect(diagnostic.failureClass).toBe(pageTwoStatus === 600 ? "no-response" : "forbidden");
+    expect(readTcgplayerEndpointFailureClass(diagnostic)).toBe(pageTwoStatus === 600 ? "no-response" : "forbidden");
+    expect(diagnostic.stageTrace!.entries.filter((entry) => entry.stage === "headers-received").at(-1)).toMatchObject({
+      page: 2,
+      statusClass: pageTwoStatus === 600 ? "other" : "4xx",
+    });
+    if (pageTwoStatus === 600)
+      expect(
+        diagnostic.stageTrace!.entries.filter((entry) => entry.stage === "headers-received").at(-1),
+      ).not.toHaveProperty("httpStatus");
+    else
+      expect(diagnostic.stageTrace!.entries.filter((entry) => entry.stage === "headers-received").at(-1)).toMatchObject(
+        { httpStatus: 403 },
+      );
+    expect(diagnostic.stageTrace!.entries.filter((entry) => entry.stage === "terminal").at(-1)).toMatchObject({
+      page: 2,
+      outcome: "failure",
+    });
+  });
+
+  it("retains a single out-of-range Catalog failure", async () => {
+    const domain = {
+      requestDelayMs: 0,
+      rateLimitCooldownMs: 10000,
+      maxConcurrentRequests: 1,
+      adaptiveEnabled: false,
+      minRequestDelayMs: 0,
+      maxRequestDelayMs: 10000,
+      learnedMinDelayMs: 0,
+    };
+    const config: TcgplayerAutomationHttpConfig = {
+      auth: { tcgAuthCookie: null, userAgent: "synthetic" },
+      domainConfigs: { mpApi: domain, mpSearchApi: domain, infiniteApi: domain, mpGateway: domain },
+      adaptiveConfig: { increaseMultiplier: 2, floorStepMs: 100, decreaseAmountMs: 100, successThreshold: 10 },
+      maxRetries: 0,
+    };
+    const store = {
+      loadConfig: async () => config,
+      loadDomainConfig: async () => domain,
+      persistDomainDelays: async () => undefined,
+    };
+    const clients = createTcgplayerAutomationHttpClients(store, {
+      fetch: async (url) => {
+        const path = new URL(String(url)).pathname;
+        if (path.includes("latestsales")) return outOfRangeResponse(600);
+        if (path.includes("listings")) return new Response(JSON.stringify(listingsPage()), { status: 200 });
+        if (path.includes("history")) return new Response(JSON.stringify(emptyResponse("history")), { status: 200 });
+        return new Response(JSON.stringify({}), { status: 200 });
+      },
+    });
+    const receipt = await captureProbe(
+      { ...clients, mpGateway: syntheticTransport().mpGateway },
+      { ...PAGE_POLICY, secondaryTimeoutMs: 20 },
+    ).run();
+    const diagnostic = receipt.responseSummary.endpointDiagnostics!.sales;
+    expect(diagnostic.failureClass).not.toBeNull();
+    expect(readTcgplayerEndpointFailureClass(diagnostic)).not.toBeNull();
+    expect(diagnostic.stageTrace!.entries.filter((entry) => entry.stage === "headers-received")).toEqual([
+      expect.objectContaining({ page: 1, statusClass: "other" }),
+    ]);
+    expect(diagnostic.stageTrace!.entries.filter((entry) => entry.stage === "headers-received")[0]).not.toHaveProperty(
+      "httpStatus",
+    );
+    expect(diagnostic.stageTrace!.entries.filter((entry) => entry.stage === "terminal").at(-1)).toMatchObject({
+      page: 1,
+      outcome: "failure",
+    });
+  });
+
+  it("reads an old receipt diagnostic as unknown and rejects invalid new fields", async () => {
+    const receipt = await captureProbe(syntheticTransport()).run();
+    const oldReceipt: TcgplayerMarketCaptureReceiptV1 = {
+      ...receipt,
+      responseSummary: {
+        ...receipt.responseSummary,
+        endpointDiagnostics: {
+          sales: { failurePhase: "transport", httpStatusClass: "other" },
+          listings: { failurePhase: null, httpStatusClass: "none" },
+          history: { failurePhase: null, httpStatusClass: "none" },
+        },
+      },
+    };
+    expect(readTcgplayerEndpointFailureClass(null)).toBe("unknown");
+    expect(readTcgplayerEndpointFailureClass(undefined)).toBe("unknown");
+    expect(readTcgplayerEndpointFailureClass(oldReceipt.responseSummary.endpointDiagnostics!.sales)).toBe("unknown");
+    for (const diagnostic of [
+      { lastHttpStatus: 429.5, failureClass: "rate-limited" },
+      { lastHttpStatus: 600, failureClass: "other" },
+      { lastHttpStatus: 429, failureClass: "expired" },
+    ])
+      expect(readTcgplayerEndpointFailureClass(diagnostic)).toBe("unknown");
+  });
+
   it("retains only closed per-endpoint stage facts in the existing post-commit private object", async () => {
     const baseline = syntheticTransport();
     const at = "2026-09-01T15:00:00.000Z";
@@ -48,16 +291,30 @@ describe("tcgplayer-market-capture-v1 response-receipt shape", () => {
         ) => {
           for (let index = 0; index < 90; index += 1) emit(options?.onStage, "config-wait");
           emit(options?.onStage, "fetch-start");
-          emit(options?.onStage, "headers-received", { statusClass: failing ? "4xx" : "2xx" });
+          emit(options?.onStage, "headers-received", {
+            statusClass: failing ? "4xx" : "2xx",
+            httpStatus: failing ? 403 : 200,
+          });
           if (failing) {
+            emit(options?.onStage, "headers-received", { statusClass: "4xx", httpStatus: 429 });
             emit(options?.onStage, "cooldown-start");
             emit(options?.onStage, "abort", { activeStage: "cooldown-start" });
-            emit(options?.onStage, "terminal", { outcome: "aborted" });
+            emit(options?.onStage, "terminal", {
+              outcome: "aborted",
+              lastHttpStatus: 429,
+              lastHttpStatusAttempt: 1,
+              failureCode: null,
+            });
             throw hostileError(403);
           }
           emit(options?.onStage, "parse-start");
           emit(options?.onStage, "parse-end");
-          emit(options?.onStage, "terminal", { outcome: "success" });
+          emit(options?.onStage, "terminal", {
+            outcome: "success",
+            lastHttpStatus: 200,
+            lastHttpStatusAttempt: 1,
+            failureCode: null,
+          });
           return baseline.mpApi.post<T>(path, data, options);
         },
       },
@@ -70,18 +327,33 @@ describe("tcgplayer-market-capture-v1 response-receipt shape", () => {
     expect(trace.entries).toHaveLength(64);
     expect(trace.entries[0]).toMatchObject({ page: 1, attempt: 1, stage: "config-wait", at });
     expect(trace.entries.slice(-3)).toEqual([
-      { page: 1, attempt: 1, stage: "headers-received", at, statusClass: "4xx" },
+      { page: 1, attempt: 1, stage: "headers-received", at, statusClass: "4xx", httpStatus: 403 },
       { page: 1, attempt: 1, stage: "abort", at, activeStage: "cooldown-start" },
-      { page: 1, attempt: 1, stage: "terminal", at, outcome: "aborted" },
+      {
+        page: 1,
+        attempt: 1,
+        stage: "terminal",
+        at,
+        outcome: "aborted",
+        lastHttpStatus: 429,
+        lastHttpStatusAttempt: 1,
+        failureCode: null,
+      },
     ]);
-    expect(trace).toMatchObject({ overflow: 31, retryCount: 0, cooldownCount: 1 });
+    expect(trace).toMatchObject({ overflow: 32, retryCount: 0, cooldownCount: 1 });
+    expect(failed.responseSummary.endpointDiagnostics!.sales).toMatchObject({
+      lastHttpStatus: 429,
+      failureClass: "rate-limited",
+    });
     expect(failed.responseSummary.salesStatus).toBe("unavailable");
     expect(failed.responseSummary.salesCoverage).toBe("unknown");
     expectPrivate(probe, failed);
     failing = false;
     const healthy = await probe.run();
     expect(healthy.responseSummary.endpointDiagnostics!.sales.stageTrace).toMatchObject({
-      entries: expect.arrayContaining([{ page: 1, attempt: 1, stage: "headers-received", at, statusClass: "2xx" }]),
+      entries: expect.arrayContaining([
+        { page: 1, attempt: 1, stage: "headers-received", at, statusClass: "2xx", httpStatus: 200 },
+      ]),
     });
     expect(
       healthy.responseSummary.endpointDiagnostics!.sales.stageTrace!.entries.some((entry) => entry.stage === "abort"),
@@ -502,7 +774,12 @@ describe("tcgplayer-market-capture-v1 response-receipt shape", () => {
     const probe = captureProbe(control.transport);
     const failed = await probe.run();
     for (const diagnostic of Object.values(failed.responseSummary.endpointDiagnostics!)) {
-      expect(diagnostic).toEqual({ failurePhase: "transport", httpStatusClass: "5xx" });
+      expect(diagnostic).toEqual({
+        failurePhase: "transport",
+        httpStatusClass: "5xx",
+        lastHttpStatus: null,
+        failureClass: "unknown",
+      });
     }
     failing = false;
     const recovered = await probe.run();
@@ -684,6 +961,8 @@ function expectDiagnostics(
         {
           failurePhase: name === failedEndpoint ? failurePhase : null,
           httpStatusClass: name === failedEndpoint ? httpStatusClass : "none",
+          lastHttpStatus: null,
+          failureClass: "unknown",
         },
       ]),
     ),
@@ -699,7 +978,14 @@ function expectPrivate(probe: ReturnType<typeof captureProbe>, receipt: Tcgplaye
   expect(Object.keys(parsed)).toEqual(["kind", "captureId", "lifecycle", "requestPosture", "responseSummary"]);
   expect(parsed).toEqual(receipt);
   expect(parsed.kind).toBe("tcgplayer-market-capture-v1");
-  for (const marker of [HOSTILE, HOSTILE_URL, "synthetic-external-seller-secret", "synthetic-transient-sale"]) {
+  for (const marker of [
+    HOSTILE,
+    HOSTILE_URL,
+    "synthetic-external-seller-secret",
+    "synthetic-transient-sale",
+    "synthetic-account-secret",
+    "192.0.2.42",
+  ]) {
     expect(retainedArtifact).not.toContain(marker);
   }
   expect(retainedArtifact).not.toMatch(/responseBody|exceptionMessage|cookie|authorization/);
@@ -743,6 +1029,10 @@ function emptyResponse(endpoint: Endpoint) {
       results: [{ totalResults: 0, resultId: "synthetic-empty", aggregations: {}, results: [] }],
     };
   return { count: 0, result: [] };
+}
+
+function outOfRangeResponse(status: number) {
+  return { status, ok: false, text: async () => HOSTILE_DETAILS } as Response;
 }
 
 function syntheticTransport(): TcgplayerMarketTransport {
