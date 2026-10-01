@@ -427,8 +427,10 @@ function mergeScopeContexts(
   base: CatalogPrimaryWorkbenchScopeContext | undefined,
   ...overrides: readonly (CatalogPrimaryWorkbenchScopeContext | undefined)[]
 ): CatalogPrimaryWorkbenchScopeContext {
-  return overrides.reduce<CatalogPrimaryWorkbenchScopeContext>(
-    (merged, override) => ({
+  return overrides.reduce<CatalogPrimaryWorkbenchScopeContext>((merged, override) => {
+    const expansionId = override?.expansionId ?? merged.expansionId;
+    const idChanged = override?.expansionId != null && override.expansionId !== merged.expansionId;
+    return {
       providerKey: override?.providerKey ?? merged.providerKey,
       productId: override?.productId ?? merged.productId,
       languageCode: override?.languageCode ?? merged.languageCode,
@@ -436,12 +438,11 @@ function mergeScopeContexts(
       productLineName: override?.productLineName ?? merged.productLineName,
       seriesId: override?.seriesId ?? merged.seriesId,
       seriesName: override?.seriesName ?? merged.seriesName,
-      expansionId: override?.expansionId ?? merged.expansionId,
-      expansionName: override?.expansionName ?? merged.expansionName,
+      expansionId,
+      expansionName: idChanged ? (override?.expansionName ?? null) : (override?.expansionName ?? merged.expansionName),
       status: override?.status ?? merged.status,
-    }),
-    base ?? emptyScope,
-  );
+    };
+  }, base ?? emptyScope);
 }
 
 function importScopeSegments(importScope: string | null): readonly string[] {
