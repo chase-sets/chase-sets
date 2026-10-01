@@ -109,27 +109,34 @@ describeDb("TCGplayer shared domain budget", () => {
   });
 
   it.each([403, 429])("records a durable shared cooldown after %i without provider retry traffic", async (status) => {
-    const first = createPostgresTcgplayerAutomationHttpConfigStore(pools.catalog, { maxRetries: 0 });
-    const second = createPostgresTcgplayerAutomationHttpConfigStore(pools.catalog, { maxRetries: 0 });
+    const first = createPostgresTcgplayerAutomationHttpConfigStore(pools.catalog, { maxRetries: 1 });
+    const second = createPostgresTcgplayerAutomationHttpConfigStore(pools.catalog);
+    const controller = new AbortController();
     const fetchMock = vi.fn(async () => textResponse("synthetic failure", { status }));
     const client = new TcgplayerAutomationDomainHttpClient(
       TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MP_GATEWAY,
       "https://synthetic-provider.invalid",
       first,
-      { fetch: fetchMock, sleep: async () => undefined },
+      {
+        fetch: fetchMock,
+        sleep: async (_ms, signal) => {
+          if (signal === controller.signal) controller.abort();
+        },
+      },
     );
 
-    await expect(client.get("/durable-failure")).rejects.toMatchObject({ status });
+    await expect(client.get("/durable-failure", {}, { signal: controller.signal })).rejects.toMatchObject({
+      name: "AbortError",
+    });
     expect(fetchMock).toHaveBeenCalledOnce();
-    await first.recordDomainRateLimit!(
-      TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MP_GATEWAY,
-      { increaseMultiplier: 2, floorStepMs: 100, decreaseAmountMs: 100, successThreshold: 10 },
-      10_000,
-    );
     const state = await second.readDomainRateLimitState!();
     expect(state.find((row) => row.domainKey === TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MP_GATEWAY)).toMatchObject({
       cooldownUntil: expect.any(String),
+      liveLeaseCount: 0,
+      epoch: 1,
     });
+    const blocked = await second.admitDomainRequest!(TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MP_GATEWAY, "peer", 30_000);
+    expect(blocked.granted).toBe(false);
   });
 
   it("enforces durable spacing and concurrency across two production clients", async () => {
@@ -237,7 +244,28 @@ describeDb("TCGplayer shared domain budget", () => {
     });
   });
 
-  it("fences lost authority commits and accepts only the current epoch success", async () => {
+  it("rejects a lost authority success commit and releases the production client lease", async () => {
+    const store = createPostgresTcgplayerAutomationHttpConfigStore(pools.catalog);
+    const peer = createPostgresTcgplayerAutomationHttpConfigStore(pools.catalog);
+    vi.spyOn(store, "recordDomainSuccess").mockRejectedValue(new TcgplayerAutomationAuthorityError("08006"));
+    const fetchMock = vi.fn(async () => jsonResponse({ ok: true }));
+    const client = new TcgplayerAutomationDomainHttpClient(
+      TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MP_GATEWAY,
+      "https://synthetic-provider.invalid",
+      store,
+      { fetch: fetchMock },
+    );
+
+    await expect(client.get("/lost-success-commit")).rejects.toBeInstanceOf(TcgplayerAutomationAuthorityError);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(
+      (await peer.readDomainRateLimitState!()).find(
+        (row) => row.domainKey === TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MP_GATEWAY,
+      ),
+    ).toMatchObject({ liveLeaseCount: 0 });
+  });
+
+  it("fences stale success mutations and accepts only the current epoch success", async () => {
     const first = createPostgresTcgplayerAutomationHttpConfigStore(pools.catalog);
     const second = createPostgresTcgplayerAutomationHttpConfigStore(pools.catalog);
     const domainKey = TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MP_GATEWAY;
