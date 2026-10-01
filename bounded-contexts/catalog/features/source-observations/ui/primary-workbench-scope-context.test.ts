@@ -34,6 +34,13 @@ describe("Catalog primary workbench scope context", () => {
       expansionId: "2",
       expansionName: "Rise of the Floodborn",
     });
+
+    const nameOnlyForm = new FormData();
+    nameOnlyForm.set("expansionName", "The First Chapter");
+    expect(scopeContextFromFormData(nameOnlyForm, fallback)).toMatchObject({
+      expansionId: "2",
+      expansionName: "The First Chapter",
+    });
   });
 
   it("round trips distinct provider products without reinterpreting compact sets and clears FormData deselection", () => {

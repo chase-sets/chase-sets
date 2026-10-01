@@ -142,9 +142,7 @@ function enrichedSetNameSelectedScope(
     return scope;
   }
   const page = sourceOptions.pages.find(
-    (candidatePage) =>
-      candidatePage.request.providerKey === providerKey &&
-      (candidatePage.scope === "set-name" || candidatePage.scope === "sets"),
+    (candidatePage) => candidatePage.request.providerKey === providerKey && candidatePage.scope === "set-name",
   );
   const option = page?.items.find((item) =>
     scope.expansionId
@@ -173,8 +171,8 @@ function enrichedSetNameSelectedScope(
           ...scope,
           productLineName:
             scope.productLineName ??
-            siblingScope.product_line_name ??
-            (scope.expansionName ? null : productLineDisplayNameFromDomain(productDomainFromProfile(profile))),
+            (siblingScope.product_line_name ||
+              (scope.expansionName ? null : productLineDisplayNameFromDomain(productDomainFromProfile(profile)))),
           expansionName: siblingScope.expansion_name,
         }
       : scope;
@@ -546,8 +544,7 @@ function selectedSetNameOption(
 
   const page = sourceOptions.pages.find(
     (candidatePage) =>
-      candidatePage.request.providerKey === candidate.providerKey &&
-      (candidatePage.scope === "set-name" || candidatePage.scope === "sets"),
+      candidatePage.request.providerKey === candidate.providerKey && candidatePage.scope === "set-name",
   );
   const option = page?.items.find((item) =>
     selectedScope.expansionId

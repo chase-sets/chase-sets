@@ -414,7 +414,6 @@ function GuidedSourceScopeFields({
                 submitSourceScopeFilter(event, submit, fields.slice(0, index), field, fields.slice(index + 1))
               }
             />
-            {field.labelFieldName ? <HiddenInput name={field.labelFieldName} value={field.selectedLabel} /> : null}
           </Fragment>
         ))}
       </WorkbenchFormGrid>
@@ -450,25 +449,37 @@ function RouteControlledGuidedScopeSelect({
   }, [field.selectedValue]);
 
   return (
-    <NativeSelect
-      name={field.fieldName}
-      label={field.label}
-      placeholder={t("catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.scope.select", {
-        label: field.label,
-      })}
-      description={field.parentMissing ? (field.parentDiagnostic ?? undefined) : undefined}
-      items={field.options.map((option) => ({
-        value: option.value,
-        label: option.label,
-        description: option.description ?? undefined,
-      }))}
-      value={value}
-      disabled={field.parentMissing}
-      onChange={(event) => {
-        setValue(event.currentTarget.value);
-        onChange(event);
-      }}
-    />
+    <>
+      <NativeSelect
+        name={field.fieldName}
+        label={field.label}
+        placeholder={t("catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.scope.select", {
+          label: field.label,
+        })}
+        description={field.parentMissing ? (field.parentDiagnostic ?? undefined) : undefined}
+        items={field.options.map((option) => ({
+          value: option.value,
+          label: option.label,
+          description: option.description ?? undefined,
+        }))}
+        value={value}
+        disabled={field.parentMissing}
+        onChange={(event) => {
+          setValue(event.currentTarget.value);
+          onChange(event);
+        }}
+      />
+      {field.labelFieldName ? (
+        <HiddenInput
+          name={field.labelFieldName}
+          value={
+            value === field.selectedValue
+              ? field.selectedLabel
+              : (findSourceScopeOption(field.options, value)?.label ?? "")
+          }
+        />
+      ) : null}
+    </>
   );
 }
 

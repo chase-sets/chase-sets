@@ -22,7 +22,13 @@ const unitKey = "lorcanajson:lorcana:single-card:reference-data";
 const route = (id: string) =>
   `https://admin.example/catalog/integrations?providerKey=lorcanajson&unitKey=${unitKey}&importScope=en%3A${id}&languageCode=en&expansionId=${id}&expansionName=Rise+of+the+Floodborn`;
 
-function readModel(requestUrl: string) {
+function readModel(
+  requestUrl: string,
+  setItems = [
+    { value: "1", label: "The First Chapter" },
+    { value: "2", label: "Rise of the Floodborn" },
+  ],
+) {
   const profile = profileReview({
     providerKey: "lorcanajson",
     profileKey: "lorcanajson-lorcana-card",
@@ -59,10 +65,7 @@ function readModel(requestUrl: string) {
     sourceOptionPages: requests.map((request) => ({
       request,
       response: {
-        items: [
-          { value: "1", label: "The First Chapter" },
-          { value: "2", label: "Rise of the Floodborn" },
-        ].map((option) => ({
+        items: setItems.map((option) => ({
           ...option,
           providerKey: "lorcanajson",
           queryKind: "sets",
@@ -92,8 +95,8 @@ function readModel(requestUrl: string) {
   });
 }
 
-function view(requestUrl: string) {
-  const model = readModel(requestUrl);
+function view(requestUrl: string, setItems?: { value: string; label: string }[]) {
+  const model = readModel(requestUrl, setItems);
   return (
     <>
       <CatalogImportContextBar readModel={model} />
@@ -150,5 +153,26 @@ describe("LorcanaJSON atomic expansion route/form", () => {
     expect(command.get("expansionId")).toBe("1");
     expect(command.get("expansionName")).toBe("The First Chapter");
     expect(command.get("importScope")).toBe("en:1");
+  });
+
+  it.each([
+    ["empty Set page", []],
+    ["partial Set page", [{ value: "2", label: "Rise of the Floodborn" }]],
+  ])("keeps the route label when the %s lacks the selected id", (_name, setItems) => {
+    const correctRoute = route("1").replace("expansionName=Rise+of+the+Floodborn", "expansionName=The+First+Chapter");
+    render(view(correctRoute, setItems));
+    fireEvent.click(screen.getByRole("button", { name: /Step 0 · Choose import scope/ }));
+    fireEvent.submit(screen.getByRole<HTMLSelectElement>("combobox", { name: "Set" }).form!);
+    expect(submissions.at(-1)?.get("expansionName")).toBe("The First Chapter");
+  });
+
+  it("keeps the optimistic label through a pending navigation rerender", () => {
+    const { rerender } = render(view(route("2")));
+    fireEvent.click(screen.getByRole("button", { name: /Step 0 · Choose import scope/ }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Set" }), { target: { value: "1" } });
+    rerender(view(route("2")));
+    fireEvent.click(screen.getByRole("button", { name: "Select source scope" }));
+    expect(submissions.at(-1)?.get("expansionId")).toBe("1");
+    expect(submissions.at(-1)?.get("expansionName")).toBe("The First Chapter");
   });
 });
