@@ -444,11 +444,11 @@ describe("platform worker config", () => {
       domainConfigs: {
         mpSearchApi: expect.objectContaining({
           requestDelayMs: 500,
-          rateLimitCooldownMs: 30_000,
+          rateLimitCooldownMs: 100_000,
           maxConcurrentRequests: 1,
         }),
         mpApi: expect.objectContaining({
-          requestDelayMs: 250,
+          requestDelayMs: 10_000,
           maxConcurrentRequests: 2,
         }),
       },
