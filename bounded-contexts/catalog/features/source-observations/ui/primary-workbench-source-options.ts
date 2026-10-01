@@ -177,9 +177,17 @@ export function buildCatalogPrimaryWorkbenchSourceOptionRequests(input: {
     )
     .map((kind) => {
       const parent = kind.parentScope ? (selections.get(kind.parentScope) ?? null) : null;
+      const cardSetParent =
+        kind.scope === "product/card" && kind.parentScope === "set-name"
+          ? {
+              value: context.scope.expansionId ?? null,
+              label: context.scope.expansionName ?? context.scope.expansionId ?? null,
+            }
+          : null;
+      const selectedParent = cardSetParent ?? parent;
       const languageSelection = selections.get("language") ?? null;
       const languageCode = sourceOptionLanguageCode(profile, languageSelection?.value ?? null);
-      const parentValue = kind.parentScope === "language" ? null : (parent?.value ?? null);
+      const parentValue = kind.parentScope === "language" ? null : (selectedParent?.value ?? null);
       const request = {
         providerKey,
         profileKey: profile.profileKey,
@@ -191,8 +199,8 @@ export function buildCatalogPrimaryWorkbenchSourceOptionRequests(input: {
         parentScope: kind.parentScope,
         parentRequired: kind.parentRequired,
         parentDiagnosticText: kind.parentDiagnosticText,
-        selectedParentValue: parent?.value ?? null,
-        selectedParentLabel: parent?.label ?? null,
+        selectedParentValue: selectedParent?.value ?? null,
+        selectedParentLabel: selectedParent?.label ?? null,
         languageCode,
         parentValue,
         cursor: null,
@@ -1107,18 +1115,21 @@ function sourceOptionBlockersForState(
 function sourceOptionSummary(
   pages: readonly CatalogPrimaryWorkbenchReadModel["sourceOptions"]["pages"][number][],
 ): CatalogPrimaryWorkbenchReadModel["sourceOptions"]["summary"] {
+  const rollupPages = pages.filter((page) => page.scope !== "product/card");
   return {
-    declaredKinds: pages.length,
-    loadedPages: pages.filter((page) => page.state === "live" || page.state === "cached" || page.state === "stale")
+    declaredKinds: rollupPages.length,
+    loadedPages: rollupPages
+      .filter((page) => page.state === "live" || page.state === "cached" || page.state === "stale")
       .length,
-    availableOptions: pages.reduce((count, page) => count + page.items.length, 0),
-    stalePages: pages.filter((page) => page.state === "stale").length,
-    degradedPages: pages.filter((page) => page.degraded).length,
-    unavailablePages: pages.filter((page) => page.state === "unavailable").length,
-    rolloutBlockedPages: pages.filter((page) => page.state === "rollout-blocked").length,
-    blockedPages: pages.filter((page) => page.actionState === "blocked" || page.actionState === "unavailable").length,
-    missingParentPages: pages.filter((page) => page.state === "not-requested").length,
-    hasMorePages: pages.filter((page) => page.page.hasMore).length,
+    availableOptions: rollupPages.reduce((count, page) => count + page.items.length, 0),
+    stalePages: rollupPages.filter((page) => page.state === "stale").length,
+    degradedPages: rollupPages.filter((page) => page.degraded).length,
+    unavailablePages: rollupPages.filter((page) => page.state === "unavailable").length,
+    rolloutBlockedPages: rollupPages.filter((page) => page.state === "rollout-blocked").length,
+    blockedPages: rollupPages.filter((page) => page.actionState === "blocked" || page.actionState === "unavailable")
+      .length,
+    missingParentPages: rollupPages.filter((page) => page.state === "not-requested").length,
+    hasMorePages: rollupPages.filter((page) => page.page.hasMore).length,
   };
 }
 
@@ -1147,6 +1158,7 @@ function sourceOptionRefreshBlockers(
     return [hardBlocker];
   }
   const pageBlocker = pages
+    .filter((page) => page.scope !== "product/card")
     .flatMap((page) => page.blockers)
     .find((blocker) => blocker !== "provider-transport-stale-cache");
   return pageBlocker ? [pageBlocker] : [];
@@ -1193,7 +1205,8 @@ function sourceOptionsFreshness(
 }
 
 function sourceOptionRefreshAllHref(requests: readonly CatalogPrimaryWorkbenchSourceOptionRequest[]): string | null {
-  const firstRefresh = requests.find((request) => request.refreshHref)?.refreshHref ?? null;
+  const firstRefresh =
+    requests.find((request) => request.scope !== "product/card" && request.refreshHref)?.refreshHref ?? null;
   return firstRefresh;
 }
 

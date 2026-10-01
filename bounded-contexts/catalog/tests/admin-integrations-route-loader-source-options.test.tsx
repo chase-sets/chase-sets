@@ -420,6 +420,17 @@ describe("Catalog integrations route", () => {
     const unitKey = "scrydex:lorcana:single-card:source-observation-import";
     const profileReviews = { items: [scrydexLorcanaProfileReview(unitKey)], total: 1, count: 1 };
     const previewSourceObservationIntegrationImport = vi.fn().mockResolvedValue(scrydexLorcanaImportPreview(unitKey));
+    const listSourceObservationIntegrationOptions = vi.fn().mockResolvedValue(
+      sourceOptionResponse("sets", {
+        status: "fresh",
+        source: "live",
+        parentValue: null,
+        degraded: false,
+        value: "TFC",
+        label: "The First Chapter",
+        metadata: { expansionId: "TFC", languageCode: "en" },
+      }),
+    );
     mockCreateCatalogRequestApiClient.mockReturnValue({
       listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({
         items: [
@@ -445,17 +456,7 @@ describe("Catalog integrations route", () => {
       listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
       getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
       listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
-      listSourceObservationIntegrationOptions: vi.fn().mockResolvedValue(
-        sourceOptionResponse("sets", {
-          status: "fresh",
-          source: "live",
-          parentValue: null,
-          degraded: false,
-          value: "TFC",
-          label: "The First Chapter",
-          metadata: { expansionId: "TFC", languageCode: "en" },
-        }),
-      ),
+      listSourceObservationIntegrationOptions,
       previewSourceObservationIntegrationImport,
       recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
     });
@@ -496,6 +497,12 @@ describe("Catalog integrations route", () => {
       language: "en",
       setId: "TFC",
     });
+    const cardCalls = listSourceObservationIntegrationOptions.mock.calls.filter((call) => {
+      const params = new URLSearchParams(String(call[0]));
+      return params.get("queryKind") === "cards";
+    });
+    expect(cardCalls).toHaveLength(1);
+    expect(new URLSearchParams(String(cardCalls[0]![0])).get("forceRefresh")).toBeNull();
   });
 
   it("keeps Lorcast selected set commands available before provider scope rows exist", async () => {

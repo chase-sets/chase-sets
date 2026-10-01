@@ -946,10 +946,9 @@ async function selectedProviderSourceOptionPages(
         return { request: sourceOptionRequest };
       }
 
-      const forceRefresh = catalogPrimaryWorkbenchSourceOptionForcesRefresh(
-        refreshIntent,
-        sourceOptionRequest.queryKind,
-      );
+      const forceRefresh =
+        catalogPrimaryWorkbenchSourceOptionForcesRefresh(refreshIntent, sourceOptionRequest.queryKind) &&
+        !(refreshIntent?.action === "force-refresh-all" && sourceOptionRequest.scope === "product/card");
       const href =
         forceRefresh && sourceOptionRequest.refreshHref
           ? sourceOptionRequest.refreshHref
