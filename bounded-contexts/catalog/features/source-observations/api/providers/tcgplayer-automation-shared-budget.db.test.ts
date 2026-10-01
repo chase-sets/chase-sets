@@ -244,18 +244,47 @@ describeDb("TCGplayer shared domain budget", () => {
     const admission = await first.admitDomainRequest!(domainKey, "epoch-owner", 30_000);
     expect(admission.granted).toBe(true);
     await first.releaseDomainLease!(domainKey, admission.leaseId!, "epoch-owner");
+    const beforeStale = await pools.catalog.query<{
+      effective_request_delay_ms: number;
+      effective_learned_min_delay_ms: number;
+      shared_success_streak: number;
+      epoch: number;
+    }>(
+      `SELECT effective_request_delay_ms,
+              effective_learned_min_delay_ms,
+              shared_success_streak,
+              epoch
+         FROM catalog_tcgplayer_automation_domain_rate_limits
+        WHERE domain_key = $1`,
+      [domainKey],
+    );
     const stale = await first.recordDomainSuccess!(
       domainKey,
-      { increaseMultiplier: 2, floorStepMs: 100, decreaseAmountMs: 100, successThreshold: 1 },
+      { increaseMultiplier: 2, floorStepMs: 100, decreaseAmountMs: 100, successThreshold: 2 },
       admission.epoch - 1,
     );
-    expect(stale).toBeUndefined();
+    expect(stale).toBeDefined();
+    const afterStale = await pools.catalog.query(
+      `SELECT effective_request_delay_ms,
+              effective_learned_min_delay_ms,
+              shared_success_streak,
+              epoch
+         FROM catalog_tcgplayer_automation_domain_rate_limits
+        WHERE domain_key = $1`,
+      [domainKey],
+    );
+    expect(afterStale.rows).toEqual(beforeStale.rows);
     const current = await second.recordDomainSuccess!(
       domainKey,
-      { increaseMultiplier: 2, floorStepMs: 100, decreaseAmountMs: 100, successThreshold: 1 },
+      { increaseMultiplier: 2, floorStepMs: 100, decreaseAmountMs: 100, successThreshold: 2 },
       admission.epoch,
     );
     expect(current).toBeDefined();
+    const afterCurrent = await pools.catalog.query(
+      "SELECT shared_success_streak FROM catalog_tcgplayer_automation_domain_rate_limits WHERE domain_key = $1",
+      [domainKey],
+    );
+    expect(afterCurrent.rows).toEqual([{ shared_success_streak: 1 }]);
   });
 });
 
