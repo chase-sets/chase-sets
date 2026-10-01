@@ -113,7 +113,10 @@ function selectedSourceScopeValues(
   const selectedScope = scopeContextFromRouteContext(readModel.routeContext);
 
   for (const [scopeName, fieldMapping] of Object.entries(scopeQueryFieldsByProviderScope)) {
-    const label = fieldMapping.labelFieldName ? scopeFieldValue(selectedScope, fieldMapping.labelFieldName) : "";
+    const label =
+      fieldMapping.labelFieldName && !(fieldMapping.fieldName === "expansionId" && selectedScope.expansionId)
+        ? scopeFieldValue(selectedScope, fieldMapping.labelFieldName)
+        : "";
     const value = scopeFieldValue(selectedScope, fieldMapping.fieldName) || label;
     if (value) {
       selections.set(scopeName, { value, label });

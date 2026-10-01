@@ -3272,6 +3272,14 @@ async function selectGuidedScope({
   if (!settled.importScope) {
     throw new Error(`Selected source scope command form for ${journey.unitKey} did not expose a full importScope.`);
   }
+  const expansionChoice = selectedChoices.find((choice) => choice.fieldName === "expansionId");
+  if (expansionChoice) {
+    expect(settled.displayLabel).toContain(expansionChoice.selectedOptionLabel);
+    const expansionName = new URL(page.url()).searchParams.get("expansionName")?.trim() ?? "";
+    if (expansionName) {
+      expect(expansionName).toBe(expansionChoice.selectedOptionLabel);
+    }
+  }
   const expectedImportScope = expectedNativeGuidedImportScope(selectedChoices) ?? settled.importScope;
   // `settled` is an atomic command-form snapshot. Do not read the live
   // locator here: a route revalidation can replace it between observation and

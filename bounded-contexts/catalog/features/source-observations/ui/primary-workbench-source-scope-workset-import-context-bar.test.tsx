@@ -7,7 +7,7 @@ import {
   buildCatalogPrimaryWorkbenchReadModelForSurface,
   buildCatalogPrimaryWorkbenchSourceOptionRequests,
 } from "./primary-workbench-read-model";
-import { profileReview } from "./primary-workbench-test-fixtures";
+import { controlPlaneOverview, profileReview } from "./primary-workbench-test-fixtures";
 
 const submissions: FormData[] = [];
 vi.mock("react-router", async () => {
@@ -55,6 +55,7 @@ function readModel(requestUrl: string) {
     requestUrl,
     scopes: { items: [], total: 0, count: 0 },
     profileReviews: { items: [profile], total: 1, count: 1 },
+    controlPlaneOverview: controlPlaneOverview(),
     sourceOptionPages: requests.map((request) => ({
       request,
       response: {
