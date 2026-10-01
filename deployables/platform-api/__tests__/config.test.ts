@@ -118,6 +118,7 @@ const envNames = [
   "DATABASE_URL",
   "PLATFORM_CONTROL_DATABASE_URL",
   "PLATFORM_WORK_SIGNAL_DATABASE_URL",
+  "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
   ...platformApiContextNames().map((contextName) => getContextDatabaseEnvName(contextName)),
   ...platformApiContextNames().map((contextName) => getContextWaiterDatabaseEnvName(contextName)),
 ];
@@ -265,6 +266,37 @@ describe("platform api config", () => {
     } finally {
       if (previous === undefined) delete process.env.CHANNELS_CREDENTIAL_KEYRING_JSON;
       else process.env.CHANNELS_CREDENTIAL_KEYRING_JSON = previous;
+    }
+  });
+  it("loads the optional Catalog operator-session keyring without affecting bootstrap", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    expect(loadConfig().catalogOperatorSessionKeyring).toBeNull();
+    process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = "";
+    expect(loadConfig().catalogOperatorSessionKeyring).toBeNull();
+    const keyBase64 = Buffer.alloc(32, 7).toString("base64");
+    const logs = ["log", "error", "warn", "info", "debug"] as const;
+    const spies = logs.map((method) => vi.spyOn(console, method).mockImplementation(() => {}));
+    try {
+      process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = JSON.stringify({
+        activeKeyId: "synthetic",
+        keys: [{ keyId: "synthetic", keyBase64 }],
+      });
+      expect(loadConfig().catalogOperatorSessionKeyring?.activeKeyId).toBe("synthetic");
+      process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = `malformed-synthetic-marker${keyBase64}`;
+      let message = "";
+      try {
+        loadConfig();
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).toBe("invalid-keyring");
+      expect(() => loadBootstrapConfig()).not.toThrow();
+      const output = JSON.stringify({ message, logs: spies.map((spy) => spy.mock.calls) });
+      expect(output).not.toContain("malformed-synthetic-marker");
+      expect(output).not.toContain(keyBase64);
+      for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+    } finally {
+      for (const spy of spies) spy.mockRestore();
     }
   });
   it("defaults checkout admission open and parses the explicit closure switch", () => {

@@ -270,6 +270,13 @@
       "file": ".github/workflows/platform-production.yml",
       "jobId": "deploy-production",
       "stepAnchor": "name:Apply production Kubernetes runtime secrets#33",
+      "secretName": "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-production.yml",
+      "jobId": "deploy-production",
+      "stepAnchor": "name:Apply production Kubernetes runtime secrets#33",
       "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
       "purpose": "terraform-infra"
     },

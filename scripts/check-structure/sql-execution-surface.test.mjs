@@ -976,7 +976,7 @@ describe("repository-wide SQL execution partition", () => {
         "bounded-contexts/channels/features/credentials/domain/codecs.ts",
         "bounded-contexts/channels/features/credentials/domain/contracts.ts",
         "bounded-contexts/channels/features/credentials/read-model/schema.ts",
-        "bounded-contexts/channels/support/runtime-support/secret-envelope.ts",
+        "infrastructure/platform-runtime/secret-envelope.ts",
         "bounded-contexts/pricing/features/repricing-policies/ui/policy-controls.ts",
         "bounded-contexts/pricing/features/repricing-policies/ui/presets.ts",
       ]),

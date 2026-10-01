@@ -43,23 +43,21 @@ function mebibytes(memory) {
 }
 
 describe("render platform Helm values", () => {
-  it("renders the Channels keyring only as a shared API/worker Secret reference", () => {
+  it("renders both keyrings only as shared API/worker Secret references", () => {
     const base = buildPlatformHelmValues({ repoRoot });
     for (const build of [buildPlatformHelmValues, buildPlatformHelmStagingValues, buildPlatformHelmProductionValues]) {
       const values = build({ repoRoot });
       for (const host of ["platform-api", "platform-worker"]) {
         const effective = values.components[host].env ?? base.components[host].env;
-        expect(effective.find((entry) => entry.name === "CHANNELS_CREDENTIAL_KEYRING_JSON")).toEqual({
-          name: "CHANNELS_CREDENTIAL_KEYRING_JSON",
-          secret: true,
-          secretKey: "CHANNELS_CREDENTIAL_KEYRING_JSON",
-        });
+        for (const name of ["CHANNELS_CREDENTIAL_KEYRING_JSON", "CATALOG_OPERATOR_SESSION_KEYRING_JSON"])
+          expect(effective.find((entry) => entry.name === name)).toEqual({ name, secret: true, secretKey: name });
       }
       for (const [name, component] of Object.entries(values.components)) {
         if (!["platform-api", "platform-worker"].includes(name))
-          expect(componentEnvKeys({ env: component.env ?? base.components[name]?.env ?? [] })).not.toContain(
-            "CHANNELS_CREDENTIAL_KEYRING_JSON",
-          );
+          for (const secretName of ["CHANNELS_CREDENTIAL_KEYRING_JSON", "CATALOG_OPERATOR_SESSION_KEYRING_JSON"])
+            expect(componentEnvKeys({ env: component.env ?? base.components[name]?.env ?? [] })).not.toContain(
+              secretName,
+            );
       }
     }
   });

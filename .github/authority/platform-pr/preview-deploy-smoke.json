@@ -11,6 +11,13 @@
       "file": ".github/workflows/platform-pr.yml",
       "jobId": "preview-deploy-smoke",
       "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
+      "secretName": "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
+      "purpose": "application-runtime"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "preview-deploy-smoke",
+      "stepAnchor": "name:Apply preview Kubernetes runtime secrets#13",
       "secretName": "CHASE_SETS_DISCORD_INVITE_URL",
       "purpose": "terraform-infra"
     },

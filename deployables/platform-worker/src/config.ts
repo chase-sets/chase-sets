@@ -30,6 +30,7 @@ import {
 } from "@chase-sets/platform-runtime/runtime-profiles";
 import { workerContextRegistry } from "./generated/worker-context-registry";
 import { parseChannelCredentialKeyring, type ChannelCredentialKeyring } from "@chase-sets/channels/server";
+import { parseSecretEnvelopeKeyring, type SecretEnvelopeKeyring } from "@chase-sets/platform-runtime/secret-envelope";
 
 export type PlatformWorkerContextName = WorkerHostContextName<typeof workerContextRegistry>;
 
@@ -37,6 +38,7 @@ export type PlatformWorkerPoolConfig = PlatformPoolConfig;
 
 export type PlatformWorkerConfig = Readonly<{
   channelCredentialKeyring: ChannelCredentialKeyring | null;
+  catalogOperatorSessionKeyring: SecretEnvelopeKeyring | null;
   runtimeProfile: PlatformWorkerRuntimeProfile;
   deploymentEnvironment: DeploymentEnvironment;
   sharedDatabaseUrl: string | null;
@@ -592,6 +594,7 @@ export function loadConfig(): PlatformWorkerConfig {
     }),
     tcgplayerAutomation: loadTcgplayerAutomationConfig(),
     channelCredentialKeyring: parseChannelCredentialKeyring(process.env.CHANNELS_CREDENTIAL_KEYRING_JSON),
+    catalogOperatorSessionKeyring: parseSecretEnvelopeKeyring(process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON),
     googleMerchant: loadGoogleMerchantConfig({
       syncEnabled: googleMerchantSyncEnabled,
       dryRun: googleMerchantDryRun,

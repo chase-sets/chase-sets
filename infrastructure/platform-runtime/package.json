@@ -42,6 +42,7 @@
     "./pwa": "./pwa.ts",
     "./runtime-profiles": "./runtime-profiles.ts",
     "./signed-payload": "./signed-payload.ts",
+    "./secret-envelope": "./secret-envelope.ts",
     "./runtime-lifecycle": "./runtime-lifecycle.ts",
     "./retention-sweep": "./retention-sweep.ts",
     "./source-context-wake-registry": "./source-context-wake-registry.ts",
