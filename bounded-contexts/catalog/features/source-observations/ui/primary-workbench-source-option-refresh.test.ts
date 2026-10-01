@@ -4,6 +4,7 @@ import {
   catalogPrimaryWorkbenchSourceOptionForcesRefresh,
   catalogPrimaryWorkbenchSourceOptionHref,
   parseCatalogPrimaryWorkbenchSourceOptionIntent,
+  catalogPrimaryWorkbenchSourceOptionShouldRevalidate,
 } from "./primary-workbench-source-option-refresh";
 
 const routeContext = parseCatalogPrimaryWorkbenchRouteContext(
@@ -80,5 +81,41 @@ describe("Catalog primary workbench source-option refresh hrefs", () => {
     expect(catalogPrimaryWorkbenchSourceOptionForcesRefresh(group, "languages")).toBe(false);
     expect(catalogPrimaryWorkbenchSourceOptionForcesRefresh(reload, "expansions")).toBe(false);
     expect(catalogPrimaryWorkbenchSourceOptionForcesRefresh(null, "expansions")).toBe(false);
+  });
+
+  it.each([
+    ["same-URL Card force", "force-refresh", "cards", false],
+    ["same-URL Set force", "force-refresh", "sets", true],
+    ["same-URL reload", "reload", "cards", true],
+    ["same-URL refresh-all", "force-refresh-all", null, true],
+    ["same-URL no intent", null, null, true],
+  ])("revalidates %s according to the single-use Card intent", (_label, action, queryKind, expected) => {
+    const currentUrl = new URL("https://admin.example/catalog/integrations?expansionId=TFC");
+    if (action) currentUrl.searchParams.set("sourceOptionAction", action);
+    if (queryKind) currentUrl.searchParams.set("sourceOptionQueryKind", queryKind);
+    const nextUrl = new URL(currentUrl);
+
+    expect(
+      catalogPrimaryWorkbenchSourceOptionShouldRevalidate({
+        currentUrl,
+        nextUrl,
+        defaultShouldRevalidate: true,
+      }),
+    ).toBe(expected);
+  });
+
+  it("allows navigation to the stripped URL to load normally", () => {
+    const currentUrl = new URL(
+      "https://admin.example/catalog/integrations?expansionId=TFC&sourceOptionAction=force-refresh&sourceOptionQueryKind=cards",
+    );
+    const nextUrl = new URL("https://admin.example/catalog/integrations?expansionId=TFC");
+
+    expect(
+      catalogPrimaryWorkbenchSourceOptionShouldRevalidate({
+        currentUrl,
+        nextUrl,
+        defaultShouldRevalidate: true,
+      }),
+    ).toBe(true);
   });
 });

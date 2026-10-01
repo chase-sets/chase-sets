@@ -31,6 +31,7 @@ import {
   CATALOG_SOURCE_OPTION_ACTION_PARAM,
   CATALOG_SOURCE_OPTION_QUERY_KIND_PARAM,
   catalogPrimaryWorkbenchSourceOptionHref,
+  parseCatalogPrimaryWorkbenchSourceOptionIntent,
 } from "../../primary-workbench-source-option-refresh";
 import { catalogPrimaryWorkbenchScopeQueryKeys } from "../../primary-workbench-scope-context";
 import {
@@ -65,6 +66,7 @@ export function CatalogImportContextBar({
   readModel: CatalogPrimaryWorkbenchReadModel;
   deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
 }>) {
+  useSingleUseCardForceRefreshIntent(deferredSourceOptions);
   const summary = importContextSummary(readModel);
   // Open by default until a scope is chosen; once one is, the operator lands on the
   // collapsed summary and expands deliberately to edit. State, not navigation, so
@@ -95,6 +97,35 @@ export function CatalogImportContextBar({
       </WorkbenchStack>
     </ProgressiveDisclosure>
   );
+}
+
+function useSingleUseCardForceRefreshIntent(
+  deferredSourceOptions: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null | undefined,
+): void {
+  const submit = useSubmit();
+
+  useEffect(() => {
+    const currentUrl = new URL(window.location.href);
+    const intent = parseCatalogPrimaryWorkbenchSourceOptionIntent(currentUrl);
+    if (intent?.action !== "force-refresh" || intent.queryKind !== "cards" || !deferredSourceOptions) {
+      return;
+    }
+
+    let cancelled = false;
+    void deferredSourceOptions.then(() => {
+      if (cancelled) {
+        return;
+      }
+      const params = new URLSearchParams(window.location.search);
+      params.delete(CATALOG_SOURCE_OPTION_ACTION_PARAM);
+      params.delete(CATALOG_SOURCE_OPTION_QUERY_KIND_PARAM);
+      submit(params, { ...importContextSubmitOptions, action: currentUrl.pathname });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [deferredSourceOptions, submit]);
 }
 
 // Build the collapsed one-line import-context summary from the route context:
