@@ -795,14 +795,14 @@
       "@chase-sets/platform-runtime/runtime-profiles": [
         "./infrastructure/platform-runtime/runtime-profiles.ts"
       ],
+      "@chase-sets/platform-runtime/secret-envelope": [
+        "./infrastructure/platform-runtime/secret-envelope.ts"
+      ],
       "@chase-sets/platform-runtime/seo": [
         "./infrastructure/platform-runtime/seo.ts"
       ],
       "@chase-sets/platform-runtime/signed-payload": [
         "./infrastructure/platform-runtime/signed-payload.ts"
-      ],
-      "@chase-sets/platform-runtime/secret-envelope": [
-        "./infrastructure/platform-runtime/secret-envelope.ts"
       ],
       "@chase-sets/platform-runtime/source-context-wake-registry": [
         "./infrastructure/platform-runtime/source-context-wake-registry.ts"
