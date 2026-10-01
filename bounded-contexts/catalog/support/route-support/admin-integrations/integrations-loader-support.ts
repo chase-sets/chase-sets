@@ -410,11 +410,16 @@ async function selectedImportPreview(
 
   try {
     const expectedScope = integrationScopeFromContext(context);
-    const preview =
-      await api.previewSourceObservationIntegrationImport<SourceObservationIntegrationImportPreview>(expectedScope);
+    const preview = await withSourceOptionPageTimeout(
+      api.previewSourceObservationIntegrationImport<SourceObservationIntegrationImportPreview>(expectedScope),
+      SOURCE_OPTION_CACHE_PAGE_TIMEOUT_MS,
+    );
 
     return importPreviewMatchesSelectedScope(preview, expectedScope) ? preview : null;
-  } catch {
+  } catch (error) {
+    if (error instanceof CatalogSourceOptionPageTimeoutError) {
+      throw error;
+    }
     return null;
   }
 }

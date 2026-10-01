@@ -19,6 +19,7 @@ import {
   WorkbenchStack,
   WorkbenchText,
   WorkflowModule,
+  OperationalStatusBanner,
   type ButtonProps,
   type DataColumn,
 } from "@chase-sets/design-system";
@@ -489,7 +490,19 @@ function DeferredImportPreviewEvidence({
         />
       }
     >
-      <Await key={previewKey} resolve={deferredImportPreview}>
+      <Await
+        key={previewKey}
+        resolve={deferredImportPreview}
+        errorElement={
+          <OperationalStatusBanner
+            tone="warning"
+            role="status"
+            data-catalog-deferred-panel="unavailable"
+            title={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.title")}
+            description={t("catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.unavailable")}
+          />
+        }
+      >
         {(preview) =>
           preview && importPreviewMatchesRouteContext(preview, routeContext) ? (
             <ImportPreviewEvidence preview={preview} />

@@ -1153,6 +1153,61 @@ describe("Catalog integrations route", () => {
     }
   });
 
+  it("time-bounds a selected import preview before the stream budget", async () => {
+    vi.useFakeTimers();
+    try {
+      const unitKey = "scrydex:one-piece:single-card:source-observation-import";
+      const previewSourceObservationIntegrationImport = vi.fn(
+        () =>
+          new Promise<never>((_resolve, reject) => {
+            setTimeout(() => reject(new Error("preview failed")), 3_000);
+          }),
+      );
+      mockCreateCatalogRequestApiClient.mockReturnValue({
+        listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+        listSourceObservationProviderProfiles: vi
+          .fn()
+          .mockResolvedValue({ items: [scrydexOnePieceProfileReview(unitKey)], total: 1, count: 1 }),
+        getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+        listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+        previewSourceObservationIntegrationImport,
+        recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+      });
+
+      const routeData = await loader({
+        request: new Request(
+          `https://admin.example/catalog/integrations?providerKey=scrydex&unitKey=${encodeURIComponent(
+            unitKey,
+          )}&expansionName=OP16&profileVersion=2026.06.22`,
+        ),
+        params: {},
+        context: {},
+      } as Parameters<typeof loader>[0]);
+      const preview = routeData.deferredImportPreview;
+      expect(preview).not.toBeNull();
+
+      let settled = false;
+      let rejectionCode: string | undefined;
+      void preview?.then(
+        () => {
+          settled = true;
+        },
+        (error: unknown) => {
+          settled = true;
+          rejectionCode = error instanceof Error && "code" in error ? String(error.code) : undefined;
+        },
+      );
+      await vi.advanceTimersByTimeAsync(2_499);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await vi.runAllTicks();
+      expect(rejectionCode).toBe("catalog_provider_option_query_timeout");
+      expect(previewSourceObservationIntegrationImport).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("resolves a TCGplayer Yu-Gi-Oh refresh-all route without a selected product line", async () => {
     const yugiohUnit = "tcgplayer:yugioh:single-card:source-observation-import";
     const yugiohProfile = profileReview({
