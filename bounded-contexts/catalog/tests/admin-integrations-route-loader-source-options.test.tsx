@@ -1153,6 +1153,57 @@ describe("Catalog integrations route", () => {
     }
   });
 
+  it("resolves a rejected selected import preview to null", async () => {
+    const unitKey = "scrydex:one-piece:single-card:source-observation-import";
+    const previewSourceObservationIntegrationImport = vi.fn().mockRejectedValue(new Error("preview transport failed"));
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationProviderProfiles: vi
+        .fn()
+        .mockResolvedValue({ items: [scrydexOnePieceProfileReview(unitKey)], total: 1, count: 1 }),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      previewSourceObservationIntegrationImport,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+    const routeData = await loader({
+      request: new Request(
+        `https://admin.example/catalog/integrations?providerKey=scrydex&unitKey=${encodeURIComponent(
+          unitKey,
+        )}&expansionName=OP16&profileVersion=2026.06.22`,
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+    expect(routeData.deferredImportPreview).not.toBeNull();
+    await expect(routeData.deferredImportPreview).resolves.toBeNull();
+    expect(previewSourceObservationIntegrationImport).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolves a selected import preview without the API capability to null", async () => {
+    const unitKey = "scrydex:one-piece:single-card:source-observation-import";
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationProviderProfiles: vi
+        .fn()
+        .mockResolvedValue({ items: [scrydexOnePieceProfileReview(unitKey)], total: 1, count: 1 }),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+    const routeData = await loader({
+      request: new Request(
+        `https://admin.example/catalog/integrations?providerKey=scrydex&unitKey=${encodeURIComponent(
+          unitKey,
+        )}&expansionName=OP16&profileVersion=2026.06.22`,
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+    expect(routeData.deferredImportPreview).not.toBeNull();
+    await expect(routeData.deferredImportPreview).resolves.toBeNull();
+  });
+
   it("time-bounds a selected import preview before the stream budget", async () => {
     vi.useFakeTimers();
     try {
