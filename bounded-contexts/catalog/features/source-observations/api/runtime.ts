@@ -38,6 +38,7 @@ import { createScryfallProviderAdapter } from "./provider-adapters/scryfall";
 import { createYgoprodeckProviderAdapter } from "./provider-adapters/ygoprodeck";
 import { createYgojsonProviderAdapter } from "./provider-adapters/ygojson";
 import { createScrydexOnePieceProviderAdapter } from "./provider-adapters/scrydex-one-piece";
+import { createPgCatalogProviderOptionQueryCacheStore } from "./providers/provider-option-query-cache";
 import { normalizeCatalogControlPlaneTelemetryEvent } from "./governance/catalog-integration-observability";
 import { staticCatalogProviderIntegrationProfileVersions } from "./source-observation-runtime-contracts";
 import type {
@@ -309,7 +310,11 @@ export function createSourceObservationRuntime(
     createScryfallProviderAdapter(),
     createYgoprodeckProviderAdapter(),
     createYgojsonProviderAdapter(),
-    createScrydexOnePieceProviderAdapter({ credentials: scrydexOnePieceCredentialsFromEnv() }),
+    createScrydexOnePieceProviderAdapter({
+      credentials: scrydexOnePieceCredentialsFromEnv(),
+      profileVersions,
+      cacheStore: createPgCatalogProviderOptionQueryCacheStore(deps.db),
+    }),
   ]);
   const dryRunProofRegistry = createCatalogIntegrationDryRunProofRegistry();
 

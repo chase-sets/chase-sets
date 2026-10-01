@@ -105,6 +105,10 @@ const catalogProviderOptionQueryCacheProfileBackfillSql = `UPDATE catalog_provid
       ingestion_unit_key = COALESCE(ingestion_unit_key, '')
   WHERE profile_key IS NULL OR ingestion_unit_key IS NULL;`;
 
+const catalogProviderOptionQueryCacheCardCountColumnsSql = `ALTER TABLE catalog_provider_option_query_cache
+  ADD COLUMN IF NOT EXISTS total_count integer NULL,
+  ADD COLUMN IF NOT EXISTS page_size integer NULL;`;
+
 const catalogProviderOptionQueryCacheRequiredProfileColumnsSql = `DO $$
 BEGIN
   IF NOT EXISTS (
@@ -498,6 +502,8 @@ CREATE TABLE IF NOT EXISTS catalog_provider_option_query_cache (
   parent_value text NOT NULL,
   items_json jsonb NOT NULL,
   item_count integer NOT NULL,
+  total_count integer NULL,
+  page_size integer NULL,
   fetched_at timestamptz NOT NULL,
   expires_at timestamptz NOT NULL,
   stale_until timestamptz NOT NULL,
@@ -509,6 +515,10 @@ CREATE TABLE IF NOT EXISTS catalog_provider_option_query_cache (
 ALTER TABLE catalog_provider_option_query_cache
   ADD COLUMN IF NOT EXISTS profile_key text DEFAULT '',
   ADD COLUMN IF NOT EXISTS ingestion_unit_key text DEFAULT '';
+
+ALTER TABLE catalog_provider_option_query_cache
+  ADD COLUMN IF NOT EXISTS total_count integer NULL,
+  ADD COLUMN IF NOT EXISTS page_size integer NULL;
 
 ALTER TABLE catalog_provider_option_query_cache
   ALTER COLUMN profile_key SET DEFAULT '',
@@ -591,6 +601,11 @@ export const catalogSourceObservationSchemaMigrations: readonly BcSchemaMigratio
       catalogProviderOptionQueryCacheLookupIndexReshapeSql,
       catalogProviderOptionQueryCacheLookupIndexSql,
     ],
+  },
+  {
+    migrationId: "20261001_catalog_provider_option_query_cache_card_count",
+    description: "Retain validated Scrydex count pagination on the existing option-query cache row.",
+    statements: ["SET LOCAL lock_timeout = '5s';", catalogProviderOptionQueryCacheCardCountColumnsSql],
   },
   {
     migrationId: "20260713_catalog_source_observation_compatibility_indexes",

@@ -1893,7 +1893,7 @@ describe("source observation runtime: provider integration jobs", () => {
             estimateState: "estimate-unavailable",
             estimatedRequestCount: null,
             estimateReason:
-              "Card page count is available only after the first Scrydex paged search response; set imports use q=printings:<set> to include reprints.",
+              "Card page count requires a fresh completed exact-query Scrydex count observation; set imports use q=printings:<set> to include reprints.",
             actualRequestCount: 1,
             pageCount: 1,
             cacheHitCount: null,

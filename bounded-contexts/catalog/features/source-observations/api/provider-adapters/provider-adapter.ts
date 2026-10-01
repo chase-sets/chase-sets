@@ -28,6 +28,8 @@ export type ProviderOptionQueryInput = Readonly<{
   unitKey: CatalogIntegrationUnitKey;
   optionKind: string;
   parentValues?: Readonly<Record<string, string>>;
+  /** False when the caller owns persistence of the completed option observation. */
+  cacheObservation?: boolean;
 }>;
 
 /**
@@ -70,6 +72,7 @@ export type ProviderOptionItem = Readonly<{
 export type ProviderOptionQueryResult = Readonly<{
   items: readonly ProviderOptionItem[];
   nextCursor?: string;
+  validatedPagination?: Readonly<{ totalCount: number; pageSize: number }> | null;
 }>;
 
 export type ProviderImportScope = Readonly<{
