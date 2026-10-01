@@ -711,10 +711,10 @@ END $$;`,
         (domain_key, effective_request_delay_ms, effective_learned_min_delay_ms, min_request_delay_ms,
          max_request_delay_ms, max_concurrent_requests)
       VALUES
-        ('mpSearchApi', 200, 200, 200, 10000, 2),
-        ('mpApi', 10000, 10000, 10000, 10000, 2),
-        ('infiniteApi', 200, 200, 200, 10000, 2),
-        ('mpGateway', 200, 200, 200, 10000, 2)
+        ('mpSearchApi', 200, 200, 200, 30000, 2),
+        ('mpApi', 10000, 10000, 10000, 30000, 2),
+        ('infiniteApi', 200, 200, 200, 30000, 2),
+        ('mpGateway', 200, 200, 200, 30000, 2)
       ON CONFLICT (domain_key) DO NOTHING;`,
     ],
   },

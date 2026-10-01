@@ -845,7 +845,7 @@ state AS (
   SELECT r.*,
          GREATEST(
            COALESCE(r.last_request_started_at, '-infinity'::timestamptz) +
-             (r.effective_request_delay_ms * interval '1 millisecond'),
+             (GREATEST(r.effective_request_delay_ms, $5::integer, $6::integer) * interval '1 millisecond'),
            COALESCE(r.cooldown_until, '-infinity'::timestamptz),
            (SELECT db_now FROM db_clock)
          ) AS not_before,
