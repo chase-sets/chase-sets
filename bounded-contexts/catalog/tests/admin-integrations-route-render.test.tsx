@@ -682,7 +682,18 @@ describe("Catalog integrations route", () => {
     });
 
     await waitFor(() => {
-      expect(document.querySelectorAll('[data-catalog-deferred-panel="unavailable"]')).toHaveLength(4);
+      const unavailablePanels = Array.from(
+        document.querySelectorAll<HTMLElement>('[data-catalog-deferred-panel="unavailable"]'),
+      );
+      expect(unavailablePanels).toHaveLength(4);
+      expect(unavailablePanels.map((panel) => panel.textContent)).toEqual(
+        expect.arrayContaining([
+          "Import preflightUnavailable",
+          "StatusUnavailable",
+          "Scope sync stateUnavailable",
+          "Alias reviewUnavailable",
+        ]),
+      );
       expect(document.querySelector('[data-catalog-attention-queue="unavailable"]')).not.toBeNull();
     });
     expect(screen.getByRole("heading", { name: WORKBENCH_HEADING })).toBeTruthy();
