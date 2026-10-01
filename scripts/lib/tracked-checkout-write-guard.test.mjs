@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import fs, { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
@@ -40,5 +40,14 @@ describe("tracked checkout write guard", () => {
     } finally {
       rmSync(fixture, { force: true, recursive: true });
     }
+  });
+
+  it("allows a read-only callback open of a tracked real-checkout path", async () => {
+    const target = path.join(repoRoot, "scripts/lib/tracked-checkout-write-guard.test.mjs");
+    await expect(
+      new Promise((resolve, reject) =>
+        fs.open(target, (error, fd) => (error ? reject(error) : fs.close(fd, resolve))),
+      ),
+    ).resolves.toBeNull();
   });
 });

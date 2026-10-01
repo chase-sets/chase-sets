@@ -54,7 +54,7 @@ function wrapRename(object, name) {
 function wrapOpen(object, name) {
   const original = object[name];
   object[name] = function guarded(file, flags, ...rest) {
-    const mode = flags === undefined ? "r" : flags;
+    const mode = flags == null || typeof flags === "function" ? "r" : flags;
     if (mode !== "r" && mode !== fs.constants.O_RDONLY) {
       rejectIfTracked(file);
     }
