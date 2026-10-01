@@ -488,8 +488,35 @@ CREATE TABLE IF NOT EXISTS catalog_tcgplayer_automation_domain_rate_limits (
   domain_key text PRIMARY KEY,
   request_delay_ms integer NOT NULL,
   learned_min_delay_ms integer NOT NULL,
+  min_request_delay_ms integer NOT NULL DEFAULT 0,
+  max_request_delay_ms integer NOT NULL DEFAULT 10000,
+  max_concurrent_requests integer NOT NULL DEFAULT 2,
+  cooldown_until timestamptz NULL,
+  last_request_started_at timestamptz NULL,
+  shared_success_streak integer NOT NULL DEFAULT 0,
+  epoch bigint NOT NULL DEFAULT 0,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE catalog_tcgplayer_automation_domain_rate_limits
+  ADD COLUMN IF NOT EXISTS min_request_delay_ms integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS max_request_delay_ms integer NOT NULL DEFAULT 10000,
+  ADD COLUMN IF NOT EXISTS max_concurrent_requests integer NOT NULL DEFAULT 2,
+  ADD COLUMN IF NOT EXISTS cooldown_until timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS last_request_started_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS shared_success_streak integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS epoch bigint NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS catalog_tcgplayer_automation_domain_rate_limit_leases (
+  lease_id text PRIMARY KEY,
+  domain_key text NOT NULL REFERENCES catalog_tcgplayer_automation_domain_rate_limits(domain_key) ON DELETE CASCADE,
+  owner_id text NOT NULL,
+  acquired_at timestamptz NOT NULL,
+  expires_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS catalog_tcgplayer_automation_domain_rate_limit_leases_live_idx
+  ON catalog_tcgplayer_automation_domain_rate_limit_leases (domain_key, expires_at);
 
 CREATE TABLE IF NOT EXISTS catalog_provider_option_query_cache (
   cache_key text PRIMARY KEY,
@@ -648,6 +675,57 @@ export const catalogSourceObservationSchemaMigrations: readonly BcSchemaMigratio
       catalogMergeCandidateScopeIdentityV2RequiredSql,
       catalogMergeCandidateScopeIdentityV2ForeignKeySql,
       catalogMergeCandidateScopeIdentityV2IndexSql,
+    ],
+  },
+  {
+    migrationId: "20261001_catalog_tcgplayer_shared_domain_budget",
+    description:
+      "Fence process-local TCGplayer limiter SQL and add shared Postgres admission, leases, cooldown and atomic learning.",
+    statements: [
+      "SET LOCAL lock_timeout = '5s';",
+      `DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'catalog_tcgplayer_automation_domain_rate_limits'
+       AND column_name = 'request_delay_ms'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'catalog_tcgplayer_automation_domain_rate_limits'
+       AND column_name = 'effective_request_delay_ms'
+  ) THEN
+    ALTER TABLE catalog_tcgplayer_automation_domain_rate_limits
+      RENAME COLUMN request_delay_ms TO effective_request_delay_ms;
+    ALTER TABLE catalog_tcgplayer_automation_domain_rate_limits
+      RENAME COLUMN learned_min_delay_ms TO effective_learned_min_delay_ms;
+  END IF;
+END $$;`,
+      `ALTER TABLE catalog_tcgplayer_automation_domain_rate_limits
+        ADD COLUMN IF NOT EXISTS min_request_delay_ms integer NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS max_request_delay_ms integer NOT NULL DEFAULT 10000,
+        ADD COLUMN IF NOT EXISTS max_concurrent_requests integer NOT NULL DEFAULT 2,
+        ADD COLUMN IF NOT EXISTS cooldown_until timestamptz NULL,
+        ADD COLUMN IF NOT EXISTS last_request_started_at timestamptz NULL,
+        ADD COLUMN IF NOT EXISTS shared_success_streak integer NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS epoch bigint NOT NULL DEFAULT 0;`,
+      `CREATE TABLE IF NOT EXISTS catalog_tcgplayer_automation_domain_rate_limit_leases (
+  lease_id text PRIMARY KEY,
+  domain_key text NOT NULL REFERENCES catalog_tcgplayer_automation_domain_rate_limits(domain_key) ON DELETE CASCADE,
+  owner_id text NOT NULL,
+  acquired_at timestamptz NOT NULL,
+  expires_at timestamptz NOT NULL
+);`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_tcgplayer_automation_domain_rate_limit_leases_live_idx
+  ON catalog_tcgplayer_automation_domain_rate_limit_leases (domain_key, expires_at);`,
+      `INSERT INTO catalog_tcgplayer_automation_domain_rate_limits
+        (domain_key, effective_request_delay_ms, effective_learned_min_delay_ms, min_request_delay_ms,
+         max_request_delay_ms, max_concurrent_requests)
+      VALUES
+        ('mpSearchApi', 200, 200, 200, 30000, 2),
+        ('mpApi', 10000, 10000, 10000, 30000, 2),
+        ('infiniteApi', 200, 200, 200, 30000, 2),
+        ('mpGateway', 200, 200, 200, 30000, 2)
+      ON CONFLICT (domain_key) DO NOTHING;`,
     ],
   },
 ];

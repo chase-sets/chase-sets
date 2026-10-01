@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { evaluateCatalogIntegrationLegacyCleanupReadiness } from "../../../../../../scripts/check-structure/catalog-integration-legacy-cleanup";
 import {
   CATALOG_SOURCE_OBSERVATION_EVENT_STREAM_RESET_TARGET,
   catalogIntegrationDataBackfillDecisions,
@@ -46,6 +47,7 @@ describe("catalog integration data migration reset", () => {
       "profile-section-projection",
       "provider-option-query-cache",
       "provider-option-rate-limit",
+      "provider-option-rate-limit-lease",
       "provider-profile-version",
     ]);
 
@@ -115,6 +117,7 @@ describe("catalog integration data migration reset", () => {
       profileSectionDiagnostics: 3,
       providerOptionQueryCacheEntries: 6,
       providerOptionRateLimits: 4,
+      providerOptionRateLimitsAboveFloor: 4,
     });
 
     await expect(collectCatalogIntegrationDataVerificationReport(db)).resolves.toEqual({
@@ -136,6 +139,7 @@ describe("catalog integration data migration reset", () => {
       profileSectionDiagnostics: 3,
       providerOptionQueryCacheEntries: 6,
       providerOptionRateLimits: 4,
+      providerOptionRateLimitsAboveFloor: 4,
     });
   });
 
@@ -166,6 +170,7 @@ describe("catalog integration data migration reset", () => {
       profileSections: 20,
       profileSectionDiagnostics: 2,
       providerOptionRateLimits: 2,
+      providerOptionRateLimitsAboveFloor: 2,
     });
 
     const report = await resetCatalogIntegrationPreLaunchData(db);
@@ -187,7 +192,8 @@ describe("catalog integration data migration reset", () => {
       integrationWorkUnits: 0,
       bulkReviewJobs: 0,
       bulkReviewWorkUnits: 0,
-      providerOptionRateLimits: 0,
+      providerOptionRateLimits: 2,
+      providerOptionRateLimitsAboveFloor: 0,
     });
     expect(report.steps.find((step) => step.tableName === "catalog_provider_integration_profile_versions")).toEqual({
       tableName: "catalog_provider_integration_profile_versions",
@@ -206,6 +212,35 @@ describe("catalog integration data migration reset", () => {
     expect(db.statements).toContain(
       "LOCK TABLE catalog_source_observation_integration_durable_jobs, catalog_source_observation_bulk_review_jobs IN SHARE ROW EXCLUSIVE MODE",
     );
+  });
+
+  it("resets rate-limit rows to floors while preserving live leases and cooldowns", async () => {
+    const db = new InMemoryCatalogIntegrationDataDb({
+      providerProfileVersions: 3,
+      activeProviderProfiles: 3,
+      profileSections: 24,
+      providerOptionRateLimits: 4,
+      providerOptionRateLimitsAboveFloor: 4,
+    });
+    const leasesBefore = [...db.liveLeaseRows];
+    const cooldownsBefore = [...db.cooldownRows];
+
+    const report = await resetCatalogIntegrationPreLaunchData(db);
+    const readiness = evaluateCatalogIntegrationLegacyCleanupReadiness({
+      report: { ...report.after, providerProfileVersions: 3, activeProviderProfiles: 3, profileSections: 24 },
+      editableSections: [],
+    });
+
+    expect(report.after).toMatchObject({
+      providerOptionRateLimits: 4,
+      providerOptionRateLimitsAboveFloor: 0,
+    });
+    expect(readiness).toEqual({ launchReady: true, findings: [] });
+    expect(db.liveLeaseRows).toEqual(leasesBefore);
+    expect(db.cooldownRows).toEqual(cooldownsBefore);
+    expect(
+      db.statements.some((sql) => sql.includes("DELETE FROM catalog_tcgplayer_automation_domain_rate_limit_leases")),
+    ).toBe(false);
   });
 
   it("fails the postcondition when Source Observation authority survives the projection wipe", () => {
@@ -326,6 +361,7 @@ describe("catalog integration data migration reset", () => {
         integrationDurableJobs: 1,
         providerOptionQueryCacheEntries: 2,
         providerOptionRateLimits: 2,
+        providerOptionRateLimitsAboveFloor: 2,
         activeProviderProfiles: 0,
       }),
       forcedActiveJobReset: { approver: "", rationale: "", activeJobCount: 0 },
@@ -435,6 +471,7 @@ describe("catalog integration data migration reset", () => {
         profileSectionDiagnostics: 0,
         providerOptionQueryCacheEntries: 0,
         providerOptionRateLimits: 0,
+        providerOptionRateLimitsAboveFloor: 0,
       }),
     ).toEqual([
       expect.objectContaining({ key: "profile-section-projections", required: true }),
@@ -475,6 +512,7 @@ type CatalogIntegrationCounts = Readonly<{
   profileSectionDiagnostics: number;
   providerOptionQueryCacheEntries: number;
   providerOptionRateLimits: number;
+  providerOptionRateLimitsAboveFloor: number;
 }>;
 
 function cleanVerificationReport(counts: Partial<CatalogIntegrationCounts> = {}): CatalogIntegrationCounts {
@@ -497,12 +535,15 @@ function cleanVerificationReport(counts: Partial<CatalogIntegrationCounts> = {})
     profileSectionDiagnostics: 0,
     providerOptionQueryCacheEntries: 0,
     providerOptionRateLimits: 0,
+    providerOptionRateLimitsAboveFloor: 0,
     ...counts,
   };
 }
 
 class InMemoryCatalogIntegrationDataDb {
   readonly statements: string[] = [];
+  readonly liveLeaseRows = [{ leaseId: "live-lease", expiresAt: "2099-01-01T00:00:00.000Z" }];
+  readonly cooldownRows = [{ domainKey: "mpSearchApi", cooldownUntil: "2099-01-01T00:00:00.000Z" }];
   private counts: CatalogIntegrationCounts;
 
   constructor(counts: Partial<CatalogIntegrationCounts> = {}) {
@@ -525,6 +566,7 @@ class InMemoryCatalogIntegrationDataDb {
       profileSectionDiagnostics: 0,
       providerOptionQueryCacheEntries: 0,
       providerOptionRateLimits: 0,
+      providerOptionRateLimitsAboveFloor: 0,
       ...counts,
     };
   }
@@ -543,7 +585,7 @@ class InMemoryCatalogIntegrationDataDb {
       return { rows: [] };
     }
 
-    if (sql.startsWith("WITH deleted AS (DELETE FROM ")) {
+    if (sql.startsWith("WITH deleted AS (")) {
       return { rows: [{ rows_deleted: this.applyDelete(sql) } as T] };
     }
 
@@ -588,6 +630,10 @@ class InMemoryCatalogIntegrationDataDb {
       return deleted;
     }
     if (sql.includes("catalog_tcgplayer_automation_domain_rate_limits")) {
+      if (sql.includes("UPDATE catalog_tcgplayer_automation_domain_rate_limits")) {
+        this.counts = { ...this.counts, providerOptionRateLimitsAboveFloor: 0 };
+        return this.counts.providerOptionRateLimits;
+      }
       return this.clear("providerOptionRateLimits");
     }
     if (sql.includes("catalog_provider_option_query_cache")) {
@@ -665,6 +711,9 @@ class InMemoryCatalogIntegrationDataDb {
       return this.counts.profileSectionDiagnostics;
     }
     if (sql.includes("catalog_tcgplayer_automation_domain_rate_limits")) {
+      if (sql.includes("effective_request_delay_ms <> min_request_delay_ms")) {
+        return this.counts.providerOptionRateLimitsAboveFloor;
+      }
       return this.counts.providerOptionRateLimits;
     }
     if (sql.includes("catalog_provider_option_query_cache")) {

@@ -25,6 +25,8 @@ export {
   createTcgplayerAutomationHttpClients,
   type TcgplayerAutomationHttpConfig,
 } from "./features/source-observations/api/tcgplayer-automation-client";
+export { readTcgplayerAutomationRateLimitState } from "./features/source-observations/api/providers/tcgplayer-automation-client";
+export type { TcgplayerAutomationDomainRateLimitState } from "./features/source-observations/api/providers/tcgplayer-automation-client";
 export { createTcgplayerAutomationCatalogClient } from "./features/source-observations/api/tcgplayer-automation-catalog-client";
 export {
   OBSERVATION_PACK_DECISION_LINK,

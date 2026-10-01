@@ -895,7 +895,7 @@ export function loadTcgplayerAutomationConfig(): PlatformTcgplayerAutomationConf
     ),
   };
 
-  return {
+  const config: PlatformTcgplayerAutomationConfig = {
     auth: {
       tcgAuthCookie,
       userAgent: getOptionalEnv("TCGPLAYER_AUTOMATION_USER_AGENT") ?? DEFAULT_TCGPLAYER_AUTOMATION_USER_AGENT,
@@ -915,6 +915,35 @@ export function loadTcgplayerAutomationConfig(): PlatformTcgplayerAutomationConf
     },
     maxRetries: getRequiredNonNegativeNumberEnv("TCGPLAYER_AUTOMATION_MAX_RETRIES", 3),
   };
+  return enforceTcgplayerAutomationSafetyFloors(config);
+}
+
+function enforceTcgplayerAutomationSafetyFloors(
+  config: PlatformTcgplayerAutomationConfig,
+): PlatformTcgplayerAutomationConfig {
+  const domainConfigs = Object.fromEntries(
+    Object.entries(config.domainConfigs).map(([domainKey, domainConfig]) => {
+      const requestFloor = domainKey === "mpApi" ? 10_000 : 250;
+      const cooldownFloor = domainKey === "mpSearchApi" ? 100_000 : 30_000;
+      if (domainConfig.maxRequestDelayMs < requestFloor) {
+        throw new Error(
+          `TCGPLAYER_AUTOMATION_MAX_REQUEST_DELAY_MS for ${domainKey} must be at least ${requestFloor}ms.`,
+        );
+      }
+      return [
+        domainKey,
+        {
+          ...domainConfig,
+          requestDelayMs: Math.max(domainConfig.requestDelayMs, requestFloor),
+          rateLimitCooldownMs: Math.max(domainConfig.rateLimitCooldownMs, cooldownFloor),
+          maxConcurrentRequests: Math.min(domainConfig.maxConcurrentRequests, 2),
+          minRequestDelayMs: Math.max(domainConfig.minRequestDelayMs, requestFloor),
+          learnedMinDelayMs: Math.max(domainConfig.learnedMinDelayMs, requestFloor),
+        },
+      ];
+    }),
+  ) as Record<PlatformTcgplayerAutomationDomainKey, PlatformTcgplayerAutomationDomainConfig>;
+  return { ...config, domainConfigs };
 }
 
 export function describeTcgplayerAutomationConfigForLogs(config: PlatformTcgplayerAutomationConfig | null) {
