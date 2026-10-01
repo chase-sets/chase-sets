@@ -30,6 +30,10 @@ const schemaPath = "scripts/managed-postgres-authority-manifest.schema.json";
 const workflowPath = ".github/workflows/platform-production.yml";
 const fragmentPath = `${AUTHORITY_ROOT}/platform-production/deploy.json`;
 const boundaryTarget = "./.github/actions/export-managed-postgres-authority";
+// Rule for later grant changes: `migrationBase` and its 1609-grant assertion never move. A slice that adds grants
+// appends its literal reviewed records to this delta; a slice that removes grants lists them as an explicit reviewed
+// removal list, in that slice's own PR. Never derive either list from the candidate. Re-baselining needs its own slice.
+// #8449 delta: the five baseline Channels keyring Apply-step grants with only `secretName` changed.
 const reviewedCatalogDelta = [
   {
     file: ".github/workflows/platform-ephemeral-verification.yml",
@@ -254,9 +258,8 @@ describe("managed Postgres authority source generator", () => {
     const canonical = await readJson(repositoryRoot, MANIFEST_PATH);
     const expected = { ...original, grants: [...original.grants, ...reviewedCatalogDelta] };
     expect(expected.grants).toHaveLength(1614);
-    expect(generated.grants.filter(({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON")).toEqual(
-      reviewedCatalogDelta,
-    );
+    const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
+    expect(generated.grants.filter(isCatalogKeyring)).toEqual(reviewedCatalogDelta.filter(isCatalogKeyring));
     expectParity(expected, generated);
     expectParity(expected, canonical);
     expect(canonical).toEqual(generated);
