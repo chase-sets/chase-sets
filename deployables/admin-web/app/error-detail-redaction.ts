@@ -2,7 +2,7 @@
  * Last-line-of-defense redaction for the admin shell's root ErrorBoundary technical detail.
  *
  * Loaders and actions across every admin section can throw an arbitrary `Error`. Its `message`
- * is the only diagnostic surfaced to the signed-in admin operator, but nothing upstream
+ * is surfaced alongside static boundary metadata to the signed-in admin operator, but nothing upstream
  * guarantees it is free of secrets, session material, or raw domain ids. This mirrors the
  * redaction categories the admin-workflows QA evidence linter enforces on QA artifacts
  * (scripts/admin-workflows-qa-evidence.mjs) so the same categories of private data never render

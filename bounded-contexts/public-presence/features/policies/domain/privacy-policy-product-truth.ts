@@ -443,7 +443,7 @@ export const privacyProductTruthBindings: readonly PrivacyProductTruthBinding[] 
     evidenceRefs: [
       "deployables/admin-web/app/pwa/service-worker-source.ts:41",
       "deployables/admin-web/app/pwa/service-worker-source.ts:8-31",
-      "deployables/admin-web/app/root.tsx:40",
+      "deployables/admin-web/app/root.tsx:41",
       "deployables/admin-web/app/routes/service-worker.ts:4",
     ],
     factualSummary:
