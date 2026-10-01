@@ -55,6 +55,10 @@ describeDb("TCGplayer shared domain budget", () => {
     expect(Date.parse(secondAdmission.notBefore)).toBeGreaterThanOrEqual(Date.parse(secondAdmission.admittedAt));
 
     await first.releaseDomainLease!(TCGPLAYER_AUTOMATION_DOMAIN_KEYS.INFINITE_API, firstAdmission.leaseId!, "api");
+    await pools.catalog.query(
+      "UPDATE catalog_tcgplayer_automation_domain_rate_limits SET last_request_started_at = clock_timestamp() - interval '1 minute' WHERE domain_key = $1",
+      [TCGPLAYER_AUTOMATION_DOMAIN_KEYS.INFINITE_API],
+    );
     const recovered = await second.admitDomainRequest!(TCGPLAYER_AUTOMATION_DOMAIN_KEYS.INFINITE_API, "worker", 30_000);
     expect(recovered.granted).toBe(true);
     await second.releaseDomainLease!(TCGPLAYER_AUTOMATION_DOMAIN_KEYS.INFINITE_API, recovered.leaseId!, "worker");
@@ -73,6 +77,10 @@ describeDb("TCGplayer shared domain budget", () => {
     await pools.catalog.query(
       "UPDATE catalog_tcgplayer_automation_domain_rate_limit_leases SET expires_at = clock_timestamp() - interval '1 second' WHERE lease_id = $1",
       [admission.leaseId],
+    );
+    await pools.catalog.query(
+      "UPDATE catalog_tcgplayer_automation_domain_rate_limits SET last_request_started_at = clock_timestamp() - interval '1 minute' WHERE domain_key = $1",
+      [TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MP_GATEWAY],
     );
     const reclaimed = await store.admitDomainRequest!(TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MP_GATEWAY, "new", 30_000);
     expect(reclaimed.granted).toBe(true);

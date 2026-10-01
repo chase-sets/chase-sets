@@ -442,6 +442,12 @@ export class TcgplayerAutomationDomainHttpClient {
     finish: (outcome: "success" | "failure" | "aborted") => void,
   ): Promise<TResponse> {
     const signal = input.options.signal;
+    const recordDomainRateLimit = this.configStore.recordDomainRateLimit;
+    const recordDomainSuccess = this.configStore.recordDomainSuccess;
+    const releaseDomainLease = this.configStore.releaseDomainLease;
+    if (!recordDomainRateLimit || !recordDomainSuccess || !releaseDomainLease) {
+      throw new TcgplayerAutomationAuthorityError("durable authority contract incomplete");
+    }
     for (let retry = 0; retry <= initialConfig.maxRetries; retry += 1) {
       signal?.throwIfAborted();
       const domainConfig = await this.configStore.loadDomainConfig(this.domainKey);
@@ -493,11 +499,11 @@ export class TcgplayerAutomationDomainHttpClient {
         const value = await parseResponse<TResponse>(response, input.options.responseType ?? "json");
         emit("parse-end");
         if (renewalError) throw renewalError;
-        await this.configStore.recordDomainSuccess(this.domainKey, initialConfig.adaptiveConfig, admission.epoch);
+        await recordDomainSuccess(this.domainKey, initialConfig.adaptiveConfig, admission.epoch);
         settled = true;
         renewalController.abort();
         await renewal;
-        await this.configStore.releaseDomainLease(this.domainKey, leaseId, this.ownerId);
+        await releaseDomainLease(this.domainKey, leaseId, this.ownerId);
         signal?.removeEventListener("abort", onAbort);
         finish("success");
         return value;
@@ -506,7 +512,7 @@ export class TcgplayerAutomationDomainHttpClient {
         settled = true;
         renewalController.abort();
         await renewal.catch(() => undefined);
-        await this.configStore.releaseDomainLease(this.domainKey, leaseId, this.ownerId).catch((releaseError) => {
+        await releaseDomainLease(this.domainKey, leaseId, this.ownerId).catch((releaseError) => {
           throw new TcgplayerAutomationAuthorityError(`lease release failed: ${safeAuthorityErrorCode(releaseError)}`);
         });
         signal?.removeEventListener("abort", onAbort);
@@ -517,7 +523,7 @@ export class TcgplayerAutomationDomainHttpClient {
         emit("retry-start");
         if (isTcgplayerAutomationRateLimitError(error)) {
           emit("cooldown-start");
-          const updatedConfig = await this.configStore.recordDomainRateLimit(
+          const updatedConfig = await recordDomainRateLimit(
             this.domainKey,
             initialConfig.adaptiveConfig,
             domainConfig.rateLimitCooldownMs,
