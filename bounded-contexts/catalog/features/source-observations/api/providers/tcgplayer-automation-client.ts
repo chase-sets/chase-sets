@@ -70,6 +70,7 @@ export type TcgplayerAutomationHttpConfigStore = Readonly<{
   recordDomainRateLimit?: (
     domainKey: TcgplayerAutomationDomainKey,
     adaptiveConfig: TcgplayerAutomationAdaptiveConfig,
+    rateLimitCooldownMs?: number,
   ) => Promise<TcgplayerAutomationDomainRateLimitConfig>;
   recordDomainSuccess?: (
     domainKey: TcgplayerAutomationDomainKey,
@@ -441,8 +442,6 @@ export class TcgplayerAutomationDomainHttpClient {
     finish: (outcome: "success" | "failure" | "aborted") => void,
   ): Promise<TResponse> {
     const signal = input.options.signal;
-    let recordedRateLimit = false;
-
     for (let retry = 0; retry <= initialConfig.maxRetries; retry += 1) {
       signal?.throwIfAborted();
       const domainConfig = await this.configStore.loadDomainConfig(this.domainKey);
@@ -521,8 +520,8 @@ export class TcgplayerAutomationDomainHttpClient {
           const updatedConfig = await this.configStore.recordDomainRateLimit(
             this.domainKey,
             initialConfig.adaptiveConfig,
+            domainConfig.rateLimitCooldownMs,
           );
-          if (!recordedRateLimit) recordedRateLimit = true;
           await this.sleep(updatedConfig.rateLimitCooldownMs, signal);
           emit("cooldown-end");
         } else {
@@ -712,17 +711,14 @@ export function createPostgresTcgplayerAutomationHttpConfigStore(
     admitDomainRequest: (domainKey, ownerId, leaseTtlMs) =>
       durableQuery(db, async () => {
         const config = baseConfig.domainConfigs[domainKey];
-        const result = await db.query<DurableAdmissionRow>(
-          `${DURABLE_ADMISSION_SQL}`,
-          [
-            domainKey,
-            ownerId,
-            `lease-${ownerId}-${Date.now()}`,
-            Math.max(30_000, Math.min(120_000, leaseTtlMs)),
-            Math.max(CATALOG_REQUEST_DELAY_FLOOR_MS, config.minRequestDelayMs),
-            Math.max(CATALOG_REQUEST_DELAY_FLOOR_MS, config.learnedMinDelayMs),
-          ],
-        );
+        const result = await db.query<DurableAdmissionRow>(`${DURABLE_ADMISSION_SQL}`, [
+          domainKey,
+          ownerId,
+          `lease-${ownerId}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          Math.max(30_000, Math.min(120_000, leaseTtlMs)),
+          Math.max(CATALOG_REQUEST_DELAY_FLOOR_MS, config.minRequestDelayMs),
+          Math.max(CATALOG_REQUEST_DELAY_FLOOR_MS, config.learnedMinDelayMs),
+        ]);
         const row = result.rows[0];
         if (!row) throw new TcgplayerAutomationAuthorityError("admission returned no result");
         return {
@@ -753,35 +749,41 @@ export function createPostgresTcgplayerAutomationHttpConfigStore(
           [domainKey, leaseId, ownerId],
         );
       }),
-    recordDomainRateLimit: (domainKey, adaptiveConfig) =>
+    recordDomainRateLimit: (domainKey, adaptiveConfig, rateLimitCooldownMs) =>
       durableQuery(db, async () => {
-        const result = await db.query<DurableRateLimitRow>(
-          `${DURABLE_RATE_LIMIT_SQL}`,
-          [domainKey, adaptiveConfig.increaseMultiplier, adaptiveConfig.floorStepMs],
-        );
+        const result = await db.query<DurableRateLimitRow>(`${DURABLE_RATE_LIMIT_SQL}`, [
+          domainKey,
+          adaptiveConfig.increaseMultiplier,
+          adaptiveConfig.floorStepMs,
+          rateLimitCooldownMs ?? 10_000,
+        ]);
         return durableRateLimitConfig(baseConfig, domainKey, result.rows[0]);
       }),
     recordDomainSuccess: (domainKey, adaptiveConfig, admissionEpoch) =>
       durableQuery(db, async () => {
-        const result = await db.query<DurableRateLimitRow>(
-          `${DURABLE_SUCCESS_SQL}`,
-          [domainKey, adaptiveConfig.decreaseAmountMs, adaptiveConfig.successThreshold, admissionEpoch],
-        );
+        const result = await db.query<DurableRateLimitRow>(`${DURABLE_SUCCESS_SQL}`, [
+          domainKey,
+          adaptiveConfig.decreaseAmountMs,
+          adaptiveConfig.successThreshold,
+          admissionEpoch,
+        ]);
         return durableRateLimitConfig(baseConfig, domainKey, result.rows[0]);
       }),
     readDomainRateLimitState: () =>
       durableQuery(db, async () => {
         const result = await db.query<DurableStateRow>(DURABLE_STATE_SQL);
-        return result.rows.filter((row) => isTcgplayerAutomationDomainKey(row.domain_key)).map((row) => ({
-          domainKey: row.domain_key,
-          requestDelayMs: Number(row.request_delay_ms),
-          learnedMinDelayMs: Number(row.learned_min_delay_ms),
-          floorRequestDelayMs: Number(row.floor_request_delay_ms),
-          cooldownUntil: row.cooldown_until,
-          liveLeaseCount: Number(row.live_lease_count),
-          epoch: Number(row.epoch),
-          snapshotAt: row.snapshot_at,
-        }));
+        return result.rows
+          .filter((row) => isTcgplayerAutomationDomainKey(row.domain_key))
+          .map((row) => ({
+            domainKey: row.domain_key,
+            requestDelayMs: Number(row.request_delay_ms),
+            learnedMinDelayMs: Number(row.learned_min_delay_ms),
+            floorRequestDelayMs: Number(row.floor_request_delay_ms),
+            cooldownUntil: row.cooldown_until,
+            liveLeaseCount: Number(row.live_lease_count),
+            epoch: Number(row.epoch),
+            snapshotAt: row.snapshot_at,
+          }));
       }),
   };
 }
@@ -898,7 +900,9 @@ UPDATE catalog_tcgplayer_automation_domain_rate_limits
        ),
        cooldown_until = GREATEST(
          COALESCE(cooldown_until, '-infinity'::timestamptz),
-         clock_timestamp() + CASE WHEN domain_key = 'mpSearchApi' THEN interval '100 seconds' ELSE interval '10 seconds' END
+         clock_timestamp() +
+           (GREATEST($4::integer, CASE WHEN domain_key = 'mpSearchApi' THEN 100000 ELSE 10000 END)
+             * interval '1 millisecond')
        ),
        shared_success_streak = 0,
        epoch = epoch + 1,
@@ -959,7 +963,10 @@ function mergeTcgplayerAutomationHttpConfig(
 ): TcgplayerAutomationHttpConfig {
   const domain = (domainKey: TcgplayerAutomationDomainKey) =>
     enforceSafetyFloors
-      ? normalizeDomainConfig(domainKey, initial.domainConfigs?.[domainKey] ?? DEFAULT_TCGPLAYER_AUTOMATION_DOMAIN_CONFIG)
+      ? normalizeDomainConfig(
+          domainKey,
+          initial.domainConfigs?.[domainKey] ?? DEFAULT_TCGPLAYER_AUTOMATION_DOMAIN_CONFIG,
+        )
       : { ...(initial.domainConfigs?.[domainKey] ?? DEFAULT_TCGPLAYER_AUTOMATION_DOMAIN_CONFIG) };
   return {
     auth: {
@@ -981,10 +988,14 @@ function normalizeDomainConfig(
   domainKey: TcgplayerAutomationDomainKey,
   input: TcgplayerAutomationDomainRateLimitConfig,
 ): TcgplayerAutomationDomainRateLimitConfig {
-  const requestFloor = domainKey === TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MPAPI ? MP_API_REQUEST_DELAY_FLOOR_MS : CATALOG_REQUEST_DELAY_FLOOR_MS;
-  const cooldownFloor = domainKey === TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MP_SEARCH_API
-    ? MP_SEARCH_API_COOLDOWN_FLOOR_MS
-    : CATALOG_COOLDOWN_FLOOR_MS;
+  const requestFloor =
+    domainKey === TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MPAPI
+      ? MP_API_REQUEST_DELAY_FLOOR_MS
+      : CATALOG_REQUEST_DELAY_FLOOR_MS;
+  const cooldownFloor =
+    domainKey === TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MP_SEARCH_API
+      ? MP_SEARCH_API_COOLDOWN_FLOOR_MS
+      : CATALOG_COOLDOWN_FLOOR_MS;
   if (input.maxRequestDelayMs < requestFloor) {
     throw new Error(`TCGplayer automation ${domainKey} maximum delay is below its safety floor.`);
   }
@@ -996,7 +1007,10 @@ function normalizeDomainConfig(
     ...input,
     requestDelayMs: Math.min(requestDelayMs, maxRequestDelayMs),
     rateLimitCooldownMs: Math.max(input.rateLimitCooldownMs, cooldownFloor),
-    maxConcurrentRequests: Math.min(Math.max(1, Math.floor(input.maxConcurrentRequests)), CATALOG_MAX_CONCURRENT_REQUESTS),
+    maxConcurrentRequests: Math.min(
+      Math.max(1, Math.floor(input.maxConcurrentRequests)),
+      CATALOG_MAX_CONCURRENT_REQUESTS,
+    ),
     minRequestDelayMs,
     maxRequestDelayMs,
     learnedMinDelayMs: Math.min(learnedMinDelayMs, maxRequestDelayMs),

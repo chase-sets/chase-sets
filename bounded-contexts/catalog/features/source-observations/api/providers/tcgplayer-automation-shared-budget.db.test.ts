@@ -39,7 +39,11 @@ describeDb("TCGplayer shared domain budget", () => {
   it("admits through one authority across independent store instances", async () => {
     const first = createPostgresTcgplayerAutomationHttpConfigStore(pools.catalog);
     const second = createPostgresTcgplayerAutomationHttpConfigStore(pools.catalog);
-    const firstAdmission = await first.admitDomainRequest!(TCGPLAYER_AUTOMATION_DOMAIN_KEYS.INFINITE_API, "api", 30_000);
+    const firstAdmission = await first.admitDomainRequest!(
+      TCGPLAYER_AUTOMATION_DOMAIN_KEYS.INFINITE_API,
+      "api",
+      30_000,
+    );
     const secondAdmission = await second.admitDomainRequest!(
       TCGPLAYER_AUTOMATION_DOMAIN_KEYS.INFINITE_API,
       "worker",
@@ -58,7 +62,9 @@ describeDb("TCGplayer shared domain budget", () => {
 
   it("fences predecessor delay column names and reclaims expired leases", async () => {
     await expect(
-      pools.catalog.query("SELECT request_delay_ms, learned_min_delay_ms FROM catalog_tcgplayer_automation_domain_rate_limits"),
+      pools.catalog.query(
+        "SELECT request_delay_ms, learned_min_delay_ms FROM catalog_tcgplayer_automation_domain_rate_limits",
+      ),
     ).rejects.toBeDefined();
 
     const store = createPostgresTcgplayerAutomationHttpConfigStore(pools.catalog);

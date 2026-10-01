@@ -472,6 +472,31 @@ describe("platform worker config", () => {
     expect(JSON.stringify(description)).not.toMatch(/fixture-cookie-value|TCGAuthTicket|fixture-cookie-value/i);
   });
 
+  it("raises unsafe TCGplayer overrides to the shared-budget floors", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE = "fixture-cookie-value";
+    process.env.TCGPLAYER_AUTOMATION_DOMAIN_CONFIG_JSON = JSON.stringify({
+      mpApi: {
+        requestDelayMs: 1,
+        rateLimitCooldownMs: 1,
+        maxConcurrentRequests: 99,
+        minRequestDelayMs: 1,
+        learnedMinDelayMs: 1,
+      },
+      mpSearchApi: { rateLimitCooldownMs: 1 },
+    });
+
+    const config = loadConfig().tcgplayerAutomation!;
+    expect(config.domainConfigs.mpApi).toMatchObject({
+      requestDelayMs: 10_000,
+      rateLimitCooldownMs: 30_000,
+      maxConcurrentRequests: 2,
+      minRequestDelayMs: 10_000,
+      learnedMinDelayMs: 10_000,
+    });
+    expect(config.domainConfigs.mpSearchApi.rateLimitCooldownMs).toBe(100_000);
+  });
+
   it("rejects malformed TCGplayer domain config instead of silently weakening provider budgets", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE = "fixture-cookie-value";

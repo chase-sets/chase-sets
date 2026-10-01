@@ -421,10 +421,10 @@ export const catalogIntegrationDataResetDeleteStatements = catalogIntegrationDat
        shared_success_streak = 0,
        updated_at = clock_timestamp()`
         : surface.key === "provider-profile-version"
-        ? `DELETE FROM ${surface.tableName}
+          ? `DELETE FROM ${surface.tableName}
 WHERE authoring_audit_json IS NULL
   AND migration_evidence_json IS NULL`
-        : `DELETE FROM ${surface.tableName}`,
+          : `DELETE FROM ${surface.tableName}`,
   }));
 
 export function catalogIntegrationDataResetTargetTables(): readonly string[] {
