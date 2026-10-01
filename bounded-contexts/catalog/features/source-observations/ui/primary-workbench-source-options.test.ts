@@ -131,7 +131,12 @@ describe("Catalog primary workbench source options", () => {
     const pages = requests.map((request) =>
       request.queryKind === "cards"
         ? { request }
-        : { request, response: optionResponse(request, "fresh", "live", [{ value: "TFC", label: "The First Chapter" }]) },
+        : {
+            request,
+            response: optionResponse(request, "fresh", "live", [
+              { value: "TFC", label: "The First Chapter", parentValue: null, metadata: {} },
+            ]),
+          },
     );
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl,
