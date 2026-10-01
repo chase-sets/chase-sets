@@ -775,9 +775,8 @@ export function createPostgresTcgplayerAutomationHttpConfigStore(
       durableQuery(db, async () => {
         const result = await db.query<DurableStateRow>(DURABLE_STATE_SQL);
         return result.rows
-          .filter(
-            (row): row is DurableStateRow & { domain_key: TcgplayerAutomationDomainKey } =>
-              isTcgplayerAutomationDomainKey(row.domain_key),
+          .filter((row): row is DurableStateRow & { domain_key: TcgplayerAutomationDomainKey } =>
+            isTcgplayerAutomationDomainKey(row.domain_key),
           )
           .map((row) => ({
             domainKey: row.domain_key,
