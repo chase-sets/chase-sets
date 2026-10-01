@@ -414,7 +414,13 @@ export const catalogIntegrationDataResetDeleteStatements = catalogIntegrationDat
     tableName: surface.tableName,
     action: surface.resetAction,
     sql:
-      surface.key === "provider-profile-version"
+      surface.key === "provider-option-rate-limit"
+        ? `UPDATE ${surface.tableName}
+   SET effective_request_delay_ms = min_request_delay_ms,
+       effective_learned_min_delay_ms = min_request_delay_ms,
+       shared_success_streak = 0,
+       updated_at = clock_timestamp()`
+        : surface.key === "provider-profile-version"
         ? `DELETE FROM ${surface.tableName}
 WHERE authoring_audit_json IS NULL
   AND migration_evidence_json IS NULL`
