@@ -1552,6 +1552,7 @@ test.describe("catalog staging provider sync UAT helpers", () => {
         expect(await page.locator("html").getAttribute("data-refresh-clicks")).toBeNull();
         expect(navigations()).toBe(0);
         expect(reloads()).toBe(0);
+        expect(Date.now() - t0).toBeGreaterThanOrEqual(5_000);
         expect(outcome).toEqual({ label: "Fallback Set", value: "fb-8443" });
         return outcome;
       },
