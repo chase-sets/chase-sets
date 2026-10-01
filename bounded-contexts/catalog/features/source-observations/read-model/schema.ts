@@ -513,10 +513,6 @@ ALTER TABLE catalog_provider_option_query_cache
   ADD COLUMN IF NOT EXISTS ingestion_unit_key text DEFAULT '';
 
 ALTER TABLE catalog_provider_option_query_cache
-  ADD COLUMN IF NOT EXISTS total_count integer NULL,
-  ADD COLUMN IF NOT EXISTS page_size integer NULL;
-
-ALTER TABLE catalog_provider_option_query_cache
   ALTER COLUMN profile_key SET DEFAULT '',
   ALTER COLUMN ingestion_unit_key SET DEFAULT '';
 
@@ -596,6 +592,16 @@ export const catalogSourceObservationSchemaMigrations: readonly BcSchemaMigratio
       catalogProviderOptionQueryCacheRequiredProfileColumnsSql,
       catalogProviderOptionQueryCacheLookupIndexReshapeSql,
       catalogProviderOptionQueryCacheLookupIndexSql,
+    ],
+  },
+  {
+    migrationId: "20261001_catalog_provider_option_query_cache_card_count",
+    description: "Retain validated Scrydex count pagination on the existing option-query cache row.",
+    statements: [
+      "SET LOCAL lock_timeout = '5s';",
+      `ALTER TABLE catalog_provider_option_query_cache
+  ADD COLUMN IF NOT EXISTS total_count integer NULL,
+  ADD COLUMN IF NOT EXISTS page_size integer NULL;`,
     ],
   },
   {

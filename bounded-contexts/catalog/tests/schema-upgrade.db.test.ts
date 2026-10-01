@@ -72,6 +72,9 @@ describeDb("catalog schema upgrades", () => {
     ];
     await queryCatalogProviderIntegrationOptionsWithCache({ request, cacheStore: store, loadLive: async () => items });
     await pool.query("ALTER TABLE catalog_provider_option_query_cache DROP COLUMN total_count, DROP COLUMN page_size");
+    await pool.query(
+      "DELETE FROM bounded_context_schema_migrations WHERE migration_id = '20261001_catalog_provider_option_query_cache_card_count'",
+    );
     await bootstrapContextDatabase(catalogModule, pool);
     expect(await store.read(request)).toMatchObject({
       cacheKey: cacheKeyForProviderOptionQuery(request),
