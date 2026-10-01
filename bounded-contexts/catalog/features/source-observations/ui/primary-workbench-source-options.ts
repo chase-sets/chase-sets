@@ -1118,9 +1118,9 @@ function sourceOptionSummary(
   const rollupPages = pages.filter((page) => page.scope !== "product/card");
   return {
     declaredKinds: rollupPages.length,
-    loadedPages: rollupPages
-      .filter((page) => page.state === "live" || page.state === "cached" || page.state === "stale")
-      .length,
+    loadedPages: rollupPages.filter(
+      (page) => page.state === "live" || page.state === "cached" || page.state === "stale",
+    ).length,
     availableOptions: rollupPages.reduce((count, page) => count + page.items.length, 0),
     stalePages: rollupPages.filter((page) => page.state === "stale").length,
     degradedPages: rollupPages.filter((page) => page.degraded).length,

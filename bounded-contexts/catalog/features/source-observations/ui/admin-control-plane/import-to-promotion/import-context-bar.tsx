@@ -106,9 +106,7 @@ function useSingleUseCardForceRefreshIntent(
 
   useEffect(() => {
     const currentUrl = new URL(window.location.href);
-    const intent = parseCatalogPrimaryWorkbenchSourceOptionIntent(
-      currentUrl,
-    );
+    const intent = parseCatalogPrimaryWorkbenchSourceOptionIntent(currentUrl);
     if (intent?.action !== "force-refresh" || intent.queryKind !== "cards" || !deferredSourceOptions) {
       return;
     }
