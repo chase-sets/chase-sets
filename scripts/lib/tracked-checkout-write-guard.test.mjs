@@ -45,9 +45,7 @@ describe("tracked checkout write guard", () => {
   it("allows a read-only callback open of a tracked real-checkout path", async () => {
     const target = path.join(repoRoot, "scripts/lib/tracked-checkout-write-guard.test.mjs");
     await expect(
-      new Promise((resolve, reject) =>
-        fs.open(target, (error, fd) => (error ? reject(error) : fs.close(fd, resolve))),
-      ),
+      new Promise((resolve, reject) => fs.open(target, (error, fd) => (error ? reject(error) : fs.close(fd, resolve)))),
     ).resolves.toBeNull();
   });
 });
