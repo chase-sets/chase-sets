@@ -46,6 +46,7 @@ describe("catalog integration data migration reset", () => {
       "profile-section-projection",
       "provider-option-query-cache",
       "provider-option-rate-limit",
+      "provider-option-rate-limit-lease",
       "provider-profile-version",
     ]);
 
@@ -187,7 +188,7 @@ describe("catalog integration data migration reset", () => {
       integrationWorkUnits: 0,
       bulkReviewJobs: 0,
       bulkReviewWorkUnits: 0,
-      providerOptionRateLimits: 0,
+      providerOptionRateLimits: 2,
     });
     expect(report.steps.find((step) => step.tableName === "catalog_provider_integration_profile_versions")).toEqual({
       tableName: "catalog_provider_integration_profile_versions",

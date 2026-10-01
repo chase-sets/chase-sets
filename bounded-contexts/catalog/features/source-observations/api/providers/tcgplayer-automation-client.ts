@@ -212,8 +212,8 @@ function safeAuthorityErrorCode(error: unknown): string {
 }
 
 function createLeaseOwnerId(): string {
-  const randomUuid = globalThis.crypto?.randomUUID;
-  return randomUuid ? randomUuid() : `owner-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const randomUuid = globalThis.crypto?.randomUUID?.();
+  return randomUuid ?? `owner-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 export class TcgplayerAutomationDomainHttpClient {
