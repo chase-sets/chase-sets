@@ -68,6 +68,7 @@ const sourceScopeOptionScopes = new Set([
   "expansion",
   "set-name",
   "product",
+  "product/card",
 ]);
 
 export function buildCatalogPrimaryWorkbenchSourceOptions(input: {
