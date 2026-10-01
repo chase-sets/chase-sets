@@ -164,7 +164,9 @@ describe("tcgplayer-market-capture-v1 response-receipt shape", () => {
         if (path.includes("latestsales")) {
           salesCalls.count += 1;
           if (salesCalls.count === 1) return new Response(JSON.stringify(salesPage(2, "Yes")), { status: 200 });
-          return pageTwoStatus === 600 ? outOfRangeResponse(pageTwoStatus) : new Response(HOSTILE_DETAILS, { status: 403 });
+          return pageTwoStatus === 600
+            ? outOfRangeResponse(pageTwoStatus)
+            : new Response(HOSTILE_DETAILS, { status: 403 });
         }
         if (path.includes("listings")) return new Response(JSON.stringify(listingsPage()), { status: 200 });
         if (path.includes("history")) return new Response(JSON.stringify(emptyResponse("history")), { status: 200 });
@@ -184,10 +186,13 @@ describe("tcgplayer-market-capture-v1 response-receipt shape", () => {
       statusClass: pageTwoStatus === 600 ? "other" : "4xx",
     });
     if (pageTwoStatus === 600)
-      expect(diagnostic.stageTrace!.entries.filter((entry) => entry.stage === "headers-received").at(-1)).not.toHaveProperty(
-        "httpStatus",
+      expect(
+        diagnostic.stageTrace!.entries.filter((entry) => entry.stage === "headers-received").at(-1),
+      ).not.toHaveProperty("httpStatus");
+    else
+      expect(diagnostic.stageTrace!.entries.filter((entry) => entry.stage === "headers-received").at(-1)).toMatchObject(
+        { httpStatus: 403 },
       );
-    else expect(diagnostic.stageTrace!.entries.filter((entry) => entry.stage === "headers-received").at(-1)).toMatchObject({ httpStatus: 403 });
     expect(diagnostic.stageTrace!.entries.filter((entry) => entry.stage === "terminal").at(-1)).toMatchObject({
       page: 2,
       outcome: "failure",
