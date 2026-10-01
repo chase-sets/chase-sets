@@ -1478,7 +1478,7 @@ test.describe("catalog staging provider sync UAT helpers", () => {
         const outcome = await observe(
           waitForOption(page.getByRole("combobox", { name: "Set" }), { values: ["missing-8443"] }, recover),
         );
-        expect(Date.now() - t0).toBeGreaterThanOrEqual(5_000);
+        expect(recoveryCalls[0] - t0).toBeGreaterThanOrEqual(5_000);
         await assertNoActions(outcome, recoveryCalls, navigations(), reloads());
         return outcome;
       },
@@ -1500,15 +1500,21 @@ test.describe("catalog staging provider sync UAT helpers", () => {
 
     const ae = await run(
       `<main><h1>Admin Error</h1><details open><summary>Technical detail</summary>boom-8443</details>${counters}${panel}<select aria-label="Set"><option value="other-8443">Other</option></select></main>`,
-      async (recover, navigations, reloads) => {
+      async (recover, navigations, reloads, recoveryCalls) => {
+        t0 = Date.now();
         const outcome = await observe(
           waitForOption(page.getByRole("combobox", { name: "Set" }), { values: ["missing-8443"] }, recover),
         );
-        expect(outcome).toEqual(expect.objectContaining({ message: expect.stringContaining("boom-8443") }));
         expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
         expect(await page.locator("html").getAttribute("data-refresh-clicks")).toBeNull();
         expect(navigations()).toBe(0);
         expect(reloads()).toBe(0);
+        expect(recoveryCalls[0] - t0).toBeGreaterThanOrEqual(5_000);
+        expect(outcome).toEqual(
+          expect.objectContaining({
+            message: expect.stringMatching(/Catalog importer rendered Admin Error while loading.*boom-8443/),
+          }),
+        );
         return outcome;
       },
     );
@@ -1516,10 +1522,14 @@ test.describe("catalog staging provider sync UAT helpers", () => {
 
     const hit = await run(
       `${panel}<select aria-label="Set"><option value="">Choose</option><option value="hit-8443">The First Chapter</option></select>`,
-      async (recover) => {
+      async (recover, navigations, reloads) => {
         const outcome = await observe(
           selectOption(page.getByRole("combobox", { name: "Set" }), { labels: ["The First Chapter"] }, recover),
         );
+        expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+        expect(await page.locator("html").getAttribute("data-refresh-clicks")).toBeNull();
+        expect(navigations()).toBe(0);
+        expect(reloads()).toBe(0);
         expect(outcome).toEqual({ label: "The First Chapter", value: "hit-8443" });
         expect(await page.getByRole("combobox", { name: "Set" }).inputValue()).toBe("hit-8443");
         return outcome;
@@ -1529,7 +1539,7 @@ test.describe("catalog staging provider sync UAT helpers", () => {
 
     const fb = await run(
       `${panel}<select aria-label="Set"><option value="">Choose</option><option value="fb-8443">Fallback Set</option></select>`,
-      async (recover) => {
+      async (recover, navigations, reloads) => {
         t0 = Date.now();
         const outcome = await observe(
           waitForOption(
@@ -1538,7 +1548,10 @@ test.describe("catalog staging provider sync UAT helpers", () => {
             recover,
           ),
         );
-        expect(Date.now() - t0).toBeGreaterThanOrEqual(5_000);
+        expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+        expect(await page.locator("html").getAttribute("data-refresh-clicks")).toBeNull();
+        expect(navigations()).toBe(0);
+        expect(reloads()).toBe(0);
         expect(outcome).toEqual({ label: "Fallback Set", value: "fb-8443" });
         return outcome;
       },
