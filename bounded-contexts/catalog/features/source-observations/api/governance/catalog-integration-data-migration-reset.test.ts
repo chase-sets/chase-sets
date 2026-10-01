@@ -471,6 +471,7 @@ describe("catalog integration data migration reset", () => {
         profileSectionDiagnostics: 0,
         providerOptionQueryCacheEntries: 0,
         providerOptionRateLimits: 0,
+        providerOptionRateLimitsAboveFloor: 0,
       }),
     ).toEqual([
       expect.objectContaining({ key: "profile-section-projections", required: true }),
