@@ -30,6 +30,47 @@ const schemaPath = "scripts/managed-postgres-authority-manifest.schema.json";
 const workflowPath = ".github/workflows/platform-production.yml";
 const fragmentPath = `${AUTHORITY_ROOT}/platform-production/deploy.json`;
 const boundaryTarget = "./.github/actions/export-managed-postgres-authority";
+// Rule for later grant changes: `migrationBase` and its 1609-grant assertion never move. A slice that adds grants
+// appends its literal reviewed records to this delta; a slice that removes grants lists them as an explicit reviewed
+// removal list, in that slice's own PR. Never derive either list from the candidate. Re-baselining needs its own slice.
+// #8449 delta: the five baseline Channels keyring Apply-step grants with only `secretName` changed.
+const reviewedCatalogDelta = [
+  {
+    file: ".github/workflows/platform-ephemeral-verification.yml",
+    jobId: "verify-release",
+    stepAnchor: "name:Apply verification Kubernetes runtime secrets#14",
+    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/platform-merge-gate-verification.yml",
+    jobId: "verify",
+    stepAnchor: "name:Apply gate Kubernetes runtime secrets#11",
+    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/platform-pr.yml",
+    jobId: "preview-deploy-smoke",
+    stepAnchor: "name:Apply preview Kubernetes runtime secrets#13",
+    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/platform-production.yml",
+    jobId: "deploy-production",
+    stepAnchor: "name:Apply production Kubernetes runtime secrets#33",
+    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
+    purpose: "application-runtime",
+  },
+  {
+    file: ".github/workflows/platform-production.yml",
+    jobId: "deploy-staging",
+    stepAnchor: "name:Apply staging Kubernetes runtime secrets#31",
+    secretName: "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
+    purpose: "application-runtime",
+  },
+];
 const roots = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
@@ -48,6 +89,33 @@ async function readJson(root, path) {
 
 async function trackSources(root) {
   await execFileAsync("git", ["add", "-A", "--", AUTHORITY_ROOT], { cwd: root });
+}
+
+async function materializeImmutableMigrationInput(original) {
+  const root = await mkdtemp(join(tmpdir(), "managed-postgres-authority-migration-"));
+  roots.push(root);
+  await execFileAsync("git", ["init", "--initial-branch=main"], { cwd: root });
+  const { stdout } = await execFileAsync(
+    "git",
+    ["ls-tree", "-r", "--name-only", migrationBase, "--", ".github/workflows", AUTHORITY_ROOT],
+    { cwd: repositoryRoot, encoding: "utf8" },
+  );
+  for (const path of stdout.split("\n").filter(Boolean)) {
+    const file = await execFileAsync("git", ["show", `${migrationBase}:${path}`], {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+      maxBuffer: 2 * 1024 * 1024,
+    });
+    await write(root, path, file.stdout);
+  }
+  const expectedOwners = new Map();
+  for (const record of original.grants) {
+    const owner = `${AUTHORITY_ROOT}/${basename(record.file).replace(/\.ya?ml$/, "")}/${record.jobId}.json`;
+    expectedOwners.set(owner, [...(expectedOwners.get(owner) ?? []), record]);
+  }
+  for (const [owner, grants] of expectedOwners) await writeJson(root, owner, { grants });
+  await trackSources(root);
+  return root;
 }
 
 function grant(overrides = {}) {
@@ -181,15 +249,24 @@ describe("managed Postgres authority source generator", () => {
     const original = JSON.parse(stdout);
     expect(original.grants).toHaveLength(1609);
     expect(original.dockerConsumers ?? []).toEqual([]);
+
+    const historicalRoot = await materializeImmutableMigrationInput(original);
+    const historicalGenerated = await generateManagedPostgresAuthority(historicalRoot);
+    expectParity(original, historicalGenerated);
+
     const generated = await generateManagedPostgresAuthority(repositoryRoot);
     const canonical = await readJson(repositoryRoot, MANIFEST_PATH);
-    expectParity(original, generated);
-    expectParity(original, canonical);
+    const expected = { ...original, grants: [...original.grants, ...reviewedCatalogDelta] };
+    expect(expected.grants).toHaveLength(1614);
+    const isCatalogKeyring = ({ secretName }) => secretName === "CATALOG_OPERATOR_SESSION_KEYRING_JSON";
+    expect(generated.grants.filter(isCatalogKeyring)).toEqual(reviewedCatalogDelta.filter(isCatalogKeyring));
+    expectParity(expected, generated);
+    expectParity(expected, canonical);
     expect(canonical).toEqual(generated);
     expect(generated).not.toHaveProperty("dockerConsumers");
 
     const expectedOwners = new Map();
-    for (const record of original.grants) {
+    for (const record of expected.grants) {
       const owner = `${AUTHORITY_ROOT}/${basename(record.file).replace(/\.ya?ml$/, "")}/${record.jobId}.json`;
       expectedOwners.set(owner, [...(expectedOwners.get(owner) ?? []), record]);
     }
@@ -212,8 +289,16 @@ describe("managed Postgres authority source generator", () => {
         ...generated,
         grants: generated.grants.map((record, index) => (index === 0 ? { ...record, purpose: "alerting" } : record)),
       },
+      {
+        ...generated,
+        grants: generated.grants.filter((record) => JSON.stringify(record) !== JSON.stringify(reviewedCatalogDelta[0])),
+      },
+      {
+        ...generated,
+        grants: [...generated.grants, { ...reviewedCatalogDelta[0], stepAnchor: "name:Apply sixth Catalog grant#99" }],
+      },
     ];
-    for (const mutation of mutations) expect(() => expectParity(original, mutation)).toThrow();
+    for (const mutation of mutations) expect(() => expectParity(expected, mutation)).toThrow();
 
     const populated = {
       schemaVersion: 1,

@@ -35,7 +35,7 @@ describe("authoritative-stream-read-classification-acceptance-control", () => {
         "bounded-contexts/channels/features/credentials/domain/codecs.ts",
         "bounded-contexts/channels/features/credentials/domain/contracts.ts",
         "bounded-contexts/channels/features/credentials/read-model/schema.ts",
-        "bounded-contexts/channels/support/runtime-support/secret-envelope.ts",
+        "infrastructure/platform-runtime/secret-envelope.ts",
         "bounded-contexts/channels/features/reconciliation/api/route.ts",
         "bounded-contexts/channels/features/reconciliation/read-model/detail.ts",
         "bounded-contexts/channels/features/reconciliation/ui/drift-panel.tsx",

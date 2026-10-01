@@ -385,6 +385,9 @@ components:
       - name: "CHANNELS_CREDENTIAL_KEYRING_JSON"
         secret: true
         secretKey: "CHANNELS_CREDENTIAL_KEYRING_JSON"
+      - name: "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
+        secret: true
+        secretKey: "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
       - name: "DATABASE_URL_CHANNELS"
         secret: true
         secretKey: "DATABASE_URL_CHANNELS"
@@ -698,6 +701,9 @@ components:
       - name: "CHANNELS_CREDENTIAL_KEYRING_JSON"
         secret: true
         secretKey: "CHANNELS_CREDENTIAL_KEYRING_JSON"
+      - name: "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
+        secret: true
+        secretKey: "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
       - name: "DATABASE_URL_CHANNELS"
         secret: true
         secretKey: "DATABASE_URL_CHANNELS"

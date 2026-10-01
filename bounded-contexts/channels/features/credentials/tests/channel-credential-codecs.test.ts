@@ -7,7 +7,7 @@ import {
   nextCredentialCounter,
   assertKeyringContinuity,
 } from "../domain/codecs";
-import { openSecretEnvelope, sealSecretEnvelope } from "../../../support/runtime-support/secret-envelope";
+import { openSecretEnvelope, sealSecretEnvelope } from "@chase-sets/platform-runtime/secret-envelope";
 
 export const tokenSet = {
   format: "ChannelOAuthTokenSet/v1" as const,

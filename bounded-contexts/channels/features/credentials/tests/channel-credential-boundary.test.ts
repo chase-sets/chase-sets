@@ -63,7 +63,7 @@ it("releases bytes only to the exact bound capability; scans metadata, errors an
   }
 });
 
-it("has exactly one Channels AES implementation and no custody event or artifact writer", () => {
+it("has no Channels cipher source and no custody event or artifact writer", () => {
   const root = new URL("../../../", import.meta.url);
   function sources(directory: URL): URL[] {
     return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -77,9 +77,7 @@ it("has exactly one Channels AES implementation and no custody event or artifact
     });
   }
   const ciphers = sources(root).filter((file) => /createCipheriv|createDecipheriv/.test(readFileSync(file, "utf8")));
-  expect(ciphers.map((file) => file.pathname.slice(root.pathname.length))).toEqual([
-    "support/runtime-support/secret-envelope.ts",
-  ]);
+  expect(ciphers.map((file) => file.pathname.slice(root.pathname.length))).toEqual([]);
   const runtime = readFileSync(new URL("../api/runtime.ts", import.meta.url), "utf8");
   expect(runtime).not.toMatch(/writeFile|appendFile|console\.|emit\(|publish\(|appendEvent/);
 });
