@@ -498,6 +498,15 @@ CREATE TABLE IF NOT EXISTS catalog_tcgplayer_automation_domain_rate_limits (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+ALTER TABLE catalog_tcgplayer_automation_domain_rate_limits
+  ADD COLUMN IF NOT EXISTS min_request_delay_ms integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS max_request_delay_ms integer NOT NULL DEFAULT 10000,
+  ADD COLUMN IF NOT EXISTS max_concurrent_requests integer NOT NULL DEFAULT 2,
+  ADD COLUMN IF NOT EXISTS cooldown_until timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS last_request_started_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS shared_success_streak integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS epoch bigint NOT NULL DEFAULT 0;
+
 CREATE TABLE IF NOT EXISTS catalog_tcgplayer_automation_domain_rate_limit_leases (
   lease_id text PRIMARY KEY,
   domain_key text NOT NULL REFERENCES catalog_tcgplayer_automation_domain_rate_limits(domain_key) ON DELETE CASCADE,
@@ -673,6 +682,7 @@ export const catalogSourceObservationSchemaMigrations: readonly BcSchemaMigratio
     description:
       "Fence process-local TCGplayer limiter SQL and add shared Postgres admission, leases, cooldown and atomic learning.",
     statements: [
+      "SET LOCAL lock_timeout = '5s';",
       `DO $$
 BEGIN
   IF EXISTS (
@@ -705,7 +715,7 @@ END $$;`,
   acquired_at timestamptz NOT NULL,
   expires_at timestamptz NOT NULL
 );`,
-      `CREATE INDEX IF NOT EXISTS catalog_tcgplayer_automation_domain_rate_limit_leases_live_idx
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_tcgplayer_automation_domain_rate_limit_leases_live_idx
   ON catalog_tcgplayer_automation_domain_rate_limit_leases (domain_key, expires_at);`,
       `INSERT INTO catalog_tcgplayer_automation_domain_rate_limits
         (domain_key, effective_request_delay_ms, effective_learned_min_delay_ms, min_request_delay_ms,

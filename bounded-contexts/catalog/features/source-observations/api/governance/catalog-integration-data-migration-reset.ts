@@ -15,7 +15,8 @@ export type CatalogIntegrationDataSurfaceKey =
   | "bulk-review-job-event"
   | "bulk-review-work-unit"
   | "provider-option-query-cache"
-  | "provider-option-rate-limit";
+  | "provider-option-rate-limit"
+  | "provider-option-rate-limit-lease";
 
 export type CatalogIntegrationDataResetAction =
   | "delete"
@@ -388,6 +389,18 @@ export const catalogIntegrationDataSurfacePolicies = [
     backfillRequirement: "No backfill; adapters relearn throttling from current runtime behavior.",
     rollbackRequirement: "Rollback does not restore learned throttling state.",
     verificationQuery: "SELECT COUNT(*) AS count FROM catalog_tcgplayer_automation_domain_rate_limits",
+  },
+  {
+    key: "provider-option-rate-limit-lease",
+    tableName: "catalog_tcgplayer_automation_domain_rate_limit_leases",
+    compatibilitySurface: "provider-payload-provenance-envelope",
+    retention: "operational-cache",
+    resetAction: "verify-only",
+    resetOrder: 106,
+    retainedWhen: ["live leases remain until response settlement or expiry; reset never deletes an active lease"],
+    backfillRequirement: "No backfill; expired leases are reclaimed by the next admission statement.",
+    rollbackRequirement: "Rollback leaves lease rows untouched and predecessor senders remain fenced.",
+    verificationQuery: "SELECT COUNT(*) AS count FROM catalog_tcgplayer_automation_domain_rate_limit_leases",
   },
   {
     key: "provider-profile-version",
