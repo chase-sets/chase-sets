@@ -1418,7 +1418,7 @@ test.describe("catalog staging provider sync UAT helpers", () => {
         <input name="providerKey" value="${provider}"><input name="importScope" value="en:TFC"><input name="languageCode" value="en"><input name="expansionId" value="TFC">
         <button type="button">Sync scope</button><button type="button" onclick="document.documentElement.dataset.retryClicks = (Number(document.documentElement.dataset.retryClicks || 0) + 1).toString()">Retry</button>
       </form></section>`;
-    const degraded = `<section><div role="status" data-catalog-deferred-panel="unavailable" tone="warning">Preview unavailable</div></section>`;
+    const degraded = `<section><form data-catalog-primary-workbench-command="scope.sync"></form></section><section><div role="status" data-catalog-deferred-panel="unavailable" tone="warning">Preview unavailable</div></section>`;
     const ready = `<div data-catalog-import-preview="ready" data-catalog-import-preview-provider="tcgplayer" data-catalog-import-preview-unit="${unitKey}" data-catalog-import-preview-scope="en:TFC" data-catalog-import-preview-strategy="bulk-first"><span>ready evidence</span></div>`;
 
     await page.setContent(fixture(`${commandForm()}${ready}`));
@@ -1429,9 +1429,10 @@ test.describe("catalog staging provider sync UAT helpers", () => {
 
     await page.setContent(fixture(`${commandForm()}${degraded}`));
     let frameNavigatedCount = 0;
-    page.on("framenavigated", () => {
+    const frameNavigatedHandler = () => {
       frameNavigatedCount += 1;
-    });
+    };
+    page.on("framenavigated", frameNavigatedHandler);
     const capturedLogs: string[] = [];
     const originalConsoleLog = console.log;
     console.log = (...args: unknown[]) => {
@@ -1446,6 +1447,7 @@ test.describe("catalog staging provider sync UAT helpers", () => {
       console.log = originalConsoleLog;
     }
     expect(frameNavigatedCount).toBe(0);
+    page.off("framenavigated", frameNavigatedHandler);
     expect(
       capturedLogs.filter(
         (line) =>
