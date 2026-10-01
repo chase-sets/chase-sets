@@ -83,6 +83,10 @@ describeDb("catalog schema upgrades", () => {
       totalCount: null,
       pageSize: null,
     });
+    const migration = await pool.query<{ migration_id: string }>(
+      "SELECT migration_id FROM bounded_context_schema_migrations WHERE migration_id = '20261001_catalog_provider_option_query_cache_card_count'",
+    );
+    expect(migration.rows).toEqual([{ migration_id: "20261001_catalog_provider_option_query_cache_card_count" }]);
     await queryCatalogProviderIntegrationOptionsWithCache({
       request: { ...request, forceRefresh: true },
       cacheStore: store,

@@ -17,7 +17,8 @@ describe("catalogSourceObservationSchemaSql", () => {
       (entry) => entry.migrationId === "20261001_catalog_provider_option_query_cache_card_count",
     );
     expect(migration?.statements[1]).toContain("ADD COLUMN IF NOT EXISTS page_size integer NULL");
-    expect(catalogSourceObservationSchemaSql).not.toContain("ADD COLUMN IF NOT EXISTS total_count");
+    expect(catalogSourceObservationSchemaSql).toContain("ADD COLUMN IF NOT EXISTS total_count integer NULL");
+    expect(catalogSourceObservationSchemaSql).toContain("ADD COLUMN IF NOT EXISTS page_size integer NULL");
   });
 
   it("creates replay-only payload assembly storage without boot-time data reshapes", () => {
