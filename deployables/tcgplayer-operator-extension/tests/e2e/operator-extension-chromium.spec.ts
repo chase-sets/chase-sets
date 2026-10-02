@@ -115,6 +115,13 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
       .poll(() => popup.evaluate('document.querySelector("h1")?.textContent'))
       .toBe("TCGplayer Operator Extension");
     await expect
+      .poll(() =>
+        popup.evaluate(
+          'document.querySelector("h1")?.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })',
+        ),
+      )
+      .toBe(true);
+    await expect
       .poll(() => popup.evaluate('document.querySelector("[role=status]")?.textContent'))
       .toContain("Not paired");
     await popup.evaluate(`(() => {
