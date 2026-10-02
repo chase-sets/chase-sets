@@ -246,6 +246,7 @@ export function getContextListenerDatabaseEnvName(contextName: PlatformWorkerCon
 }
 
 export function loadConfig(): PlatformWorkerConfig {
+  const catalogOperatorSessionKeyring = parseSecretEnvelopeKeyring(process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON);
   loadCatalogProviderSendWindowEnabled(process.env);
   const runtimeProfile = loadRuntimeProfile();
   const deploymentEnvironment = loadDeploymentEnvironment();
@@ -593,9 +594,9 @@ export function loadConfig(): PlatformWorkerConfig {
         "EASYPOST_API_KEY is required for platform worker postage label work in production.",
       includeWebhookSecret: false,
     }),
-    tcgplayerAutomation: loadTcgplayerAutomationConfig(),
+    tcgplayerAutomation: loadTcgplayerAutomationConfig(catalogOperatorSessionKeyring !== null),
     channelCredentialKeyring: parseChannelCredentialKeyring(process.env.CHANNELS_CREDENTIAL_KEYRING_JSON),
-    catalogOperatorSessionKeyring: parseSecretEnvelopeKeyring(process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON),
+    catalogOperatorSessionKeyring,
     googleMerchant: loadGoogleMerchantConfig({
       syncEnabled: googleMerchantSyncEnabled,
       dryRun: googleMerchantDryRun,

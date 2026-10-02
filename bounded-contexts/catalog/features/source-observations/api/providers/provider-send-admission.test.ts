@@ -190,6 +190,46 @@ describe("Catalog provider-send admission", () => {
     expect(debit).toHaveBeenCalledTimes(2);
   });
 
+  it.each([false, true])("C1 authenticated TCGplayer STOP survives custody redaction (durable=%s)", async (durable) => {
+    const store = {
+      ...createInMemoryTcgplayerAutomationHttpConfigStore({
+        auth: { tcgAuthCookie: "SYNTHETIC_STORED_CREDENTIAL", userAgent: "synthetic" },
+        maxRetries: 3,
+      }),
+    };
+    const release = vi.fn(async () => undefined);
+    if (durable) {
+      store.admitDomainRequest = async () => ({
+        granted: true,
+        leaseId: "synthetic-lease",
+        leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+        admittedAt: new Date().toISOString(),
+        notBefore: new Date().toISOString(),
+        epoch: 0,
+      });
+      store.renewDomainLease = async () => true;
+      store.releaseDomainLease = release;
+      store.recordDomainRateLimit = store.loadDomainConfig;
+      store.recordDomainSuccess = store.loadDomainConfig;
+    }
+    const debit = vi.fn(async () => ({ state: "refused" as const, code: "quota-exhausted" as const }));
+    const stop = vi.fn(async () => undefined);
+    const admission = createProviderSendAdmission({ enabled: true, ledger: ledger({ debit, stop }) });
+    const fetch = vi.fn();
+    const client = new TcgplayerAutomationDomainHttpClient("infiniteApi", "https://synthetic.invalid", store, {
+      fetch,
+    });
+    await expect(runCatalogProviderWork(admission, () => client.get("/synthetic"))).rejects.toMatchObject({
+      name: "ProviderSendStoppedError",
+      code: "quota-exhausted",
+      message: "Catalog provider-send window stopped (quota-exhausted).",
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(debit).toHaveBeenCalledTimes(1);
+    expect(stop).toHaveBeenCalledExactlyOnceWith(binding.windowId, "quota-exhausted");
+    expect(release).toHaveBeenCalledTimes(durable ? 1 : 0);
+  });
+
   it("C1 durable TCGplayer refusal releases the pacing lease without fetch or retry", async () => {
     const events: string[] = [];
     const store = {

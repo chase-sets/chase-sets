@@ -221,6 +221,7 @@ describe("platform worker config", () => {
         keys: [{ keyId: "synthetic", keyBase64 }],
       });
       expect(loadConfig().catalogOperatorSessionKeyring?.activeKeyId).toBe("synthetic");
+      expect(loadConfig().tcgplayerAutomation).toMatchObject({ auth: { tcgAuthCookie: null } });
       process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = `malformed-synthetic-marker${keyBase64}`;
       let message = "";
       try {

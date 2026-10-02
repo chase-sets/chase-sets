@@ -52,6 +52,10 @@ Use these terms consistently across APIs, internal tools, docs, and formal UI co
 
 This glossary focuses on catalog truth and identity. Browsing, filtering, and listing aggregation belong to other bounded contexts such as Discovery and Marketplace.
 
+## Operator Session
+
+A TCGplayer Operator Session is encrypted custody of Todd's operator cookie, not a username/password or another user's credential. `stored` custody supplies automation requests; `cleared` custody retains only its monotonic revision and last key id. Clearing custody restores the environment fallback but does not prove that a browser or provider session ended. Reaccepting advances the retained revision, never restarts it.
+
 ## Core Model
 
 - `Provider-send quota` is an installed, durable maximum of admitted application HTTP attempts for a supervised staging window. Retries, redirects and uncertain sends retain their debits; unused quota is not transferable or refillable.

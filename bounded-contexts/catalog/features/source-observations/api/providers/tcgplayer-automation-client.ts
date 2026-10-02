@@ -1,4 +1,4 @@
-import { sendCatalogProviderRequest } from "./provider-send-admission";
+import { ProviderSendStoppedError, sendCatalogProviderRequest } from "./provider-send-admission";
 
 export const TCGPLAYER_AUTOMATION_DOMAIN_KEYS = {
   MP_SEARCH_API: "mpSearchApi",
@@ -36,9 +36,12 @@ export type TcgplayerAutomationAdaptiveConfig = Readonly<{
   successThreshold: number;
 }>;
 
+export type TcgplayerAutomationCredential = Readonly<{ revision: number; source: "operator-session" | "environment" }>;
+
 export type TcgplayerAutomationAuthConfig = Readonly<{
   tcgAuthCookie: string | null;
   userAgent: string;
+  credential: TcgplayerAutomationCredential | null;
 }>;
 
 export type TcgplayerAutomationHttpConfig = Readonly<{
@@ -139,6 +142,7 @@ export type TcgplayerAutomationStageFact = Readonly<{
   lastHttpStatus?: number | null;
   lastHttpStatusAttempt?: number | null;
   failureCode?: "credential-unavailable" | null;
+  credential?: TcgplayerAutomationCredential | null;
   activeStage?: TcgplayerAutomationStage;
   outcome?: "success" | "failure" | "aborted";
 }>;
@@ -186,6 +190,14 @@ export const DEFAULT_TCGPLAYER_AUTOMATION_ADAPTIVE_CONFIG: TcgplayerAutomationAd
 };
 
 const MAX_PROVIDER_DIAGNOSTIC_BODY_LENGTH = 2_048;
+
+export class TcgplayerAutomationCredentialUnavailableError extends Error {
+  public readonly code = "credential-unavailable";
+  constructor() {
+    super("credential-unavailable");
+    this.name = "TcgplayerAutomationCredentialUnavailableError";
+  }
+}
 
 export class TcgplayerAutomationHttpError extends Error {
   public readonly status: number;
@@ -297,6 +309,7 @@ export class TcgplayerAutomationDomainHttpClient {
     let terminal = false;
     let lastHttpStatus: number | null = null;
     let lastHttpStatusAttempt: number | null = null;
+    let credential: TcgplayerAutomationCredential | null = null;
     const emit = (
       stage: TcgplayerAutomationStage,
       detail: Partial<
@@ -315,7 +328,7 @@ export class TcgplayerAutomationDomainHttpClient {
       if (!onStage || (terminal && stage !== "terminal")) return;
       if (stage !== "abort" && stage !== "terminal") activeStage = stage;
       try {
-        onStage({ stage, at: new Date(this.now()).toISOString(), attempt, ...detail });
+        onStage({ stage, at: new Date(this.now()).toISOString(), attempt, credential, ...detail });
       } catch {
         // Telemetry must not affect requests, including abort and limiter release.
       }
@@ -342,6 +355,13 @@ export class TcgplayerAutomationDomainHttpClient {
     emit("config-wait");
     try {
       const initialConfig = await this.configStore.loadConfig();
+      const beginAttempt = async (retry: number) => {
+        attempt = retry + 1;
+        credential = null;
+        const config = retry === 0 ? initialConfig : await this.configStore.loadConfig();
+        credential = config.auth.credential;
+        return config;
+      };
       if (
         this.configStore.admitDomainRequest &&
         this.configStore.renewDomainLease &&
@@ -349,12 +369,12 @@ export class TcgplayerAutomationDomainHttpClient {
         this.configStore.recordDomainRateLimit &&
         this.configStore.recordDomainSuccess
       ) {
-        return await this.executeWithDurableAuthority(input, initialConfig, emit, finish);
+        return await this.executeWithDurableAuthority(input, initialConfig, emit, finish, beginAttempt);
       }
       let recordedRateLimit = false;
 
       for (let retry = 0; retry <= initialConfig.maxRetries; retry += 1) {
-        attempt = retry + 1;
+        const attemptConfig = await beginAttempt(retry);
         emit("config-wait");
         const domainConfig = await this.configStore.loadDomainConfig(this.domainKey);
         emit("limiter-wait");
@@ -365,7 +385,7 @@ export class TcgplayerAutomationDomainHttpClient {
           await this.throttler.waitToStart(input.options.signal);
           emit("request-construction");
           const url = this.requestUrl(input.path, input.params);
-          const headers = await this.requestHeaders(input.options.headers);
+          const headers = this.requestHeaders(attemptConfig, input.options.headers);
           emit("fetch-start");
           const response = await this.send(url, {
             method: input.method,
@@ -386,26 +406,32 @@ export class TcgplayerAutomationDomainHttpClient {
 
           if (!response.ok) {
             emit("error-body-read-start");
-            const error = await this.httpError(response);
+            const error = await this.httpError(response, attemptConfig.auth.tcgAuthCookie);
             emit("error-body-read-end");
             throw error;
           }
 
           await this.throttler.recordSuccess(initialConfig.adaptiveConfig);
           emit("parse-start");
-          return parseResponse<TResponse>(response, input.options.responseType ?? "json").then(
+          return parseResponse<TResponse>(
+            response,
+            input.options.responseType ?? "json",
+            attemptConfig.auth.tcgAuthCookie,
+          ).then(
             (value) => {
               emit("parse-end");
               finish("success");
               return value;
             },
             (error: unknown) => {
+              error = redactCredentialException(error, attemptConfig.auth.tcgAuthCookie);
               emit("parse-failure");
               finish("failure");
               throw error;
             },
           );
         } catch (error) {
+          error = redactCredentialException(error, attemptConfig.auth.tcgAuthCookie);
           if (!isRetryableTcgplayerAutomationError(error) || retry === initialConfig.maxRetries) {
             throw error;
           }
@@ -451,6 +477,7 @@ export class TcgplayerAutomationDomainHttpClient {
       detail?: Partial<Pick<TcgplayerAutomationStageFact, "statusClass" | "activeStage" | "outcome">>,
     ) => void,
     finish: (outcome: "success" | "failure" | "aborted") => void,
+    beginAttempt: (retry: number) => Promise<TcgplayerAutomationHttpConfig>,
   ): Promise<TResponse> {
     const signal = input.options.signal;
     const recordDomainRateLimit = this.configStore.recordDomainRateLimit;
@@ -461,10 +488,11 @@ export class TcgplayerAutomationDomainHttpClient {
     }
     for (let retry = 0; retry <= initialConfig.maxRetries; retry += 1) {
       signal?.throwIfAborted();
+      const attemptConfig = await beginAttempt(retry);
       const domainConfig = await this.configStore.loadDomainConfig(this.domainKey);
       emit("limiter-wait");
       const url = this.requestUrl(input.path, input.params);
-      const headers = await this.requestHeaders(input.options.headers);
+      const headers = this.requestHeaders(attemptConfig, input.options.headers);
       const admission = await this.waitForDurableAdmission(domainConfig, signal, emit);
       const leaseId = admission.leaseId;
       if (!leaseId) {
@@ -501,13 +529,17 @@ export class TcgplayerAutomationDomainHttpClient {
         emit("headers-received", { statusClass: httpStatusClass(response.status) });
         if (!response.ok) {
           emit("error-body-read-start");
-          const error = await this.httpError(response);
+          const error = await this.httpError(response, attemptConfig.auth.tcgAuthCookie);
           emit("error-body-read-end");
           throw error;
         }
 
         emit("parse-start");
-        const value = await parseResponse<TResponse>(response, input.options.responseType ?? "json");
+        const value = await parseResponse<TResponse>(
+          response,
+          input.options.responseType ?? "json",
+          attemptConfig.auth.tcgAuthCookie,
+        );
         emit("parse-end");
         if (renewalError) throw renewalError;
         await recordDomainSuccess(this.domainKey, initialConfig.adaptiveConfig, admission.epoch);
@@ -520,6 +552,7 @@ export class TcgplayerAutomationDomainHttpClient {
         return value;
       } catch (error) {
         if (renewalError) error = renewalError;
+        error = redactCredentialException(error, attemptConfig.auth.tcgAuthCookie);
         settled = true;
         renewalController.abort();
         await renewal.catch(() => undefined);
@@ -608,8 +641,10 @@ export class TcgplayerAutomationDomainHttpClient {
     return url.toString();
   }
 
-  private async requestHeaders(extraHeaders: Readonly<Record<string, string>> | undefined): Promise<Headers> {
-    const config = await this.configStore.loadConfig();
+  private requestHeaders(
+    config: TcgplayerAutomationHttpConfig,
+    extraHeaders: Readonly<Record<string, string>> | undefined,
+  ): Headers {
     const headers = new Headers({
       "Cache-Control": "no-cache",
       "Content-Type": "application/json",
@@ -624,14 +659,33 @@ export class TcgplayerAutomationDomainHttpClient {
     return headers;
   }
 
-  private async httpError(response: Response): Promise<TcgplayerAutomationHttpError> {
+  private async httpError(response: Response, credentialValue: string | null): Promise<TcgplayerAutomationHttpError> {
     const responseBody = await response.text().catch(() => null);
     return new TcgplayerAutomationHttpError(
       `TCGplayer automation request to ${this.domainKey} failed with HTTP ${response.status}.`,
       response.status,
-      redactTcgplayerAutomationProviderDiagnostic(responseBody),
+      redactTcgplayerAutomationProviderDiagnostic(
+        credentialValue ? (responseBody?.replaceAll(credentialValue, "<redacted>") ?? null) : responseBody,
+      ),
     );
   }
+}
+
+function redactCredentialException(error: unknown, credentialValue: string | null): unknown {
+  if (!credentialValue) return error;
+  const bounded = new Error("tcgplayer-automation-request-failed");
+  try {
+    if (
+      error instanceof TcgplayerAutomationHttpError ||
+      error instanceof TcgplayerAutomationAuthorityError ||
+      error instanceof ProviderSendStoppedError
+    )
+      return error;
+    if (error instanceof Error && error.name === "AbortError") bounded.name = "AbortError";
+  } catch {
+    return bounded;
+  }
+  return bounded;
 }
 
 function hasCredentialUnavailableCode(error: unknown): boolean {
@@ -674,8 +728,12 @@ export function createTcgplayerAutomationHttpClients(
   };
 }
 
+export type TcgplayerAutomationHttpConfigInput = Partial<Omit<TcgplayerAutomationHttpConfig, "auth">> & {
+  auth?: Omit<TcgplayerAutomationAuthConfig, "credential"> & Partial<Pick<TcgplayerAutomationAuthConfig, "credential">>;
+};
+
 export function createInMemoryTcgplayerAutomationHttpConfigStore(
-  initial: Partial<TcgplayerAutomationHttpConfig> = {},
+  initial: TcgplayerAutomationHttpConfigInput = {},
 ): TcgplayerAutomationHttpConfigStore {
   let config = mergeTcgplayerAutomationHttpConfig(initial, false);
 
@@ -700,13 +758,18 @@ export function createInMemoryTcgplayerAutomationHttpConfigStore(
 
 export function createPostgresTcgplayerAutomationHttpConfigStore(
   db: PgQueryable,
-  initial: Partial<TcgplayerAutomationHttpConfig> = {},
+  initial: TcgplayerAutomationHttpConfigInput = {},
+  resolveCredential?: () => Promise<Pick<TcgplayerAutomationAuthConfig, "tcgAuthCookie" | "credential">>,
 ): TcgplayerAutomationHttpConfigStore {
   const baseConfig = mergeTcgplayerAutomationHttpConfig(initial, true);
 
   return {
-    loadConfig: () =>
-      durableQuery(db, async () => applyPersistedDomainDelays(baseConfig, await loadPersistedDomainDelays(db))),
+    loadConfig: async () => {
+      const auth = resolveCredential ? { ...baseConfig.auth, ...(await resolveCredential()) } : baseConfig.auth;
+      return durableQuery(db, async () =>
+        applyPersistedDomainDelays({ ...baseConfig, auth }, await loadPersistedDomainDelays(db)),
+      );
+    },
     loadDomainConfig: (domainKey) =>
       durableQuery(db, async () => {
         const config = applyPersistedDomainDelays(baseConfig, await loadPersistedDomainDelays(db));
@@ -985,7 +1048,7 @@ function durableRateLimitConfig(
 }
 
 function mergeTcgplayerAutomationHttpConfig(
-  initial: Partial<TcgplayerAutomationHttpConfig>,
+  initial: TcgplayerAutomationHttpConfigInput,
   enforceSafetyFloors = true,
 ): TcgplayerAutomationHttpConfig {
   const domain = (domainKey: TcgplayerAutomationDomainKey) =>
@@ -999,6 +1062,8 @@ function mergeTcgplayerAutomationHttpConfig(
     auth: {
       tcgAuthCookie: initial.auth?.tcgAuthCookie ?? null,
       userAgent: initial.auth?.userAgent ?? DEFAULT_USER_AGENT,
+      credential:
+        initial.auth?.credential ?? (initial.auth?.tcgAuthCookie ? { revision: 0, source: "environment" } : null),
     },
     domainConfigs: {
       [TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MP_SEARCH_API]: domain(TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MP_SEARCH_API),
@@ -1276,20 +1341,44 @@ class TcgplayerAutomationConcurrencyLimiter {
 async function parseResponse<TResponse>(
   response: Response,
   responseType: NonNullable<TcgplayerAutomationHttpRequestOptions["responseType"]>,
+  credentialValue: string | null,
 ): Promise<TResponse> {
-  if (responseType === "raw") {
-    return response as TResponse;
+  if (responseType === "raw" && !credentialValue) return response as TResponse;
+  const value: unknown =
+    responseType === "raw"
+      ? await response.clone().text()
+      : responseType === "text"
+        ? await response.text()
+        : response.status === 204
+          ? undefined
+          : await response.json();
+  if (credentialValue) {
+    const matchContainedValue = new TextEncoder().encode(credentialValue).byteLength >= 16;
+    const pending: unknown[] = [value];
+    if (responseType === "raw") {
+      pending.push(response.url, response.statusText, ...response.headers.keys(), ...response.headers.values());
+    }
+    while (pending.length > 0) {
+      const item = pending.pop();
+      if (typeof item === "string") {
+        if (item === credentialValue || (matchContainedValue && item.includes(credentialValue))) {
+          throw new Error("tcgplayer-automation-request-failed");
+        }
+        // Text/raw bodies and embedded JSON strings can encode the same credential with JSON escapes.
+        try {
+          const decoded: unknown = JSON.parse(item);
+          if (decoded !== item) pending.push(decoded);
+        } catch {
+          // Ordinary provider text is not necessarily JSON.
+        }
+      } else if (Array.isArray(item)) {
+        for (const entry of item) pending.push(entry);
+      } else if (item !== null && typeof item === "object") {
+        for (const [key, entry] of Object.entries(item)) pending.push(key, entry);
+      }
+    }
   }
-
-  if (responseType === "text") {
-    return (await response.text()) as TResponse;
-  }
-
-  if (response.status === 204) {
-    return undefined as TResponse;
-  }
-
-  return (await response.json()) as TResponse;
+  return (responseType === "raw" ? response : value) as TResponse;
 }
 
 function isRetryableTcgplayerAutomationError(error: unknown): error is TcgplayerAutomationHttpError {

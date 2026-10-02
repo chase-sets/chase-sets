@@ -33,6 +33,78 @@ const PAGE_POLICY: ProviderObservationPolicyValue = {
 
 describe("tcgplayer-market-capture-v1 response-receipt shape", () => {
   it.each([
+    ["environment", { credential: { source: "environment", revision: 0 } }],
+    ["operator-session", { credential: { source: "operator-session", revision: 1 } }],
+    ["maximum revision", { credential: { source: "operator-session", revision: Number.MAX_SAFE_INTEGER } }],
+    ["unresolved", { credential: null }],
+    ["omitted", {}],
+    ["undefined", { credential: undefined }],
+  ])("validates %s provenance without retaining it in the private receipt", async (_name, fields) => {
+    const probe = provenanceProbe(fields);
+    const receipt = await probe.run();
+    const diagnostic = receipt.responseSummary.endpointDiagnostics!.sales;
+    expect(diagnostic).toMatchObject({ lastHttpStatus: 403, failureClass: "forbidden" });
+    expect(diagnostic.stageTrace!.entries).toHaveLength(2);
+    expect(JSON.stringify(receipt)).not.toContain('"credential"');
+    expectPrivate(probe, receipt);
+  });
+
+  it.each([
+    ["wrong source", { source: "unknown", revision: 1 }],
+    ["string revision", { source: "operator-session", revision: "1" }],
+    ["environment revision", { source: "environment", revision: 1 }],
+    ["operator zero", { source: "operator-session", revision: 0 }],
+    ["negative", { source: "operator-session", revision: -1 }],
+    ["fractional", { source: "operator-session", revision: 1.5 }],
+    ["unsafe", { source: "operator-session", revision: Number.MAX_SAFE_INTEGER + 1 }],
+    ["NaN", { source: "operator-session", revision: NaN }],
+    ["infinite", { source: "operator-session", revision: Infinity }],
+    ["missing revision", { source: "operator-session" }],
+    ["missing source", { revision: 1 }],
+    ["array", Object.assign([], { source: "operator-session", revision: 1 })],
+    ["primitive marker", HOSTILE],
+    ["cookie marker", { source: "operator-session", revision: 1, cookie: HOSTILE }],
+    ["custody revision", { source: "operator-session", revision: 1, custodyRevision: 1 }],
+    ["hidden extra", Object.defineProperty({ source: "operator-session", revision: 1 }, "value", { value: HOSTILE })],
+    ["symbol extra", { source: "operator-session", revision: 1, [Symbol("secret")]: HOSTILE }],
+    ["inherited fields", Object.create({ source: "operator-session", revision: 1 })],
+  ])("rejects the whole fact for malformed provenance: %s", async (_name, credential) => {
+    const probe = provenanceProbe({ credential });
+    const receipt = await probe.run();
+    expect(receipt.responseSummary.endpointDiagnostics!.sales).toMatchObject({
+      lastHttpStatus: null,
+      failureClass: "unknown",
+    });
+    expect(receipt.responseSummary.endpointDiagnostics!.sales).not.toHaveProperty("stageTrace");
+    expectPrivate(probe, receipt);
+  });
+
+  it.each(["credential", "source", "revision"])(
+    "rejects %s accessors without evaluating or logging them",
+    async (field) => {
+      const getter = vi.fn(() => {
+        throw new Error(HOSTILE);
+      });
+      const credential = { source: "operator-session", revision: 1 };
+      const fields = { credential };
+      Object.defineProperty(field === "credential" ? fields : credential, field, { get: getter, enumerable: true });
+      const logs = (["log", "warn", "error", "info", "debug"] as const).map((method) =>
+        vi.spyOn(console, method).mockImplementation(() => undefined),
+      );
+      try {
+        const probe = provenanceProbe(fields);
+        const receipt = await probe.run();
+        expect(receipt.responseSummary.endpointDiagnostics!.sales).not.toHaveProperty("stageTrace");
+        expect(getter).not.toHaveBeenCalled();
+        for (const log of logs) expect(log).not.toHaveBeenCalled();
+        expectPrivate(probe, receipt);
+      } finally {
+        for (const log of logs) log.mockRestore();
+      }
+    },
+  );
+
+  it.each([
     ["401", 401, "auth-rejected", 1],
     ["403", 403, "forbidden", 1],
     ["429", 429, "rate-limited", 1],
@@ -59,7 +131,7 @@ describe("tcgplayer-market-capture-v1 response-receipt shape", () => {
           learnedMinDelayMs: 0,
         };
         const config: TcgplayerAutomationHttpConfig = {
-          auth: { tcgAuthCookie: null, userAgent: "synthetic" },
+          auth: { tcgAuthCookie: null, userAgent: "synthetic", credential: null },
           domainConfigs: { mpApi: domain, mpSearchApi: domain, infiniteApi: domain, mpGateway: domain },
           adaptiveConfig: { increaseMultiplier: 2, floorStepMs: 100, decreaseAmountMs: 100, successThreshold: 10 },
           maxRetries: ["403", "429", "later-abort", "recovery"].includes(scenario) ? 1 : 0,
@@ -147,7 +219,7 @@ describe("tcgplayer-market-capture-v1 response-receipt shape", () => {
       learnedMinDelayMs: 0,
     };
     const config: TcgplayerAutomationHttpConfig = {
-      auth: { tcgAuthCookie: null, userAgent: "synthetic" },
+      auth: { tcgAuthCookie: null, userAgent: "synthetic", credential: null },
       domainConfigs: { mpApi: domain, mpSearchApi: domain, infiniteApi: domain, mpGateway: domain },
       adaptiveConfig: { increaseMultiplier: 2, floorStepMs: 100, decreaseAmountMs: 100, successThreshold: 10 },
       maxRetries: 0,
@@ -210,7 +282,7 @@ describe("tcgplayer-market-capture-v1 response-receipt shape", () => {
       learnedMinDelayMs: 0,
     };
     const config: TcgplayerAutomationHttpConfig = {
-      auth: { tcgAuthCookie: null, userAgent: "synthetic" },
+      auth: { tcgAuthCookie: null, userAgent: "synthetic", credential: null },
       domainConfigs: { mpApi: domain, mpSearchApi: domain, infiniteApi: domain, mpGateway: domain },
       adaptiveConfig: { increaseMultiplier: 2, floorStepMs: 100, decreaseAmountMs: 100, successThreshold: 10 },
       maxRetries: 0,
@@ -910,6 +982,29 @@ function controlledTransport(reply: (endpoint: Endpoint, page: number) => unknow
     },
   };
   return { transport, calls };
+}
+
+function provenanceProbe(fields: object) {
+  const transport = syntheticTransport();
+  return captureProbe({
+    ...transport,
+    mpApi: {
+      async post(_path, _data, options) {
+        for (const fact of [
+          { stage: "headers-received", statusClass: "4xx", httpStatus: 403 },
+          { stage: "terminal", outcome: "failure", lastHttpStatus: 403, lastHttpStatusAttempt: 1, failureCode: null },
+        ]) {
+          options?.onStage?.(
+            Object.defineProperties(
+              { ...fact, at: "2026-09-01T15:00:00.000Z", attempt: 1 },
+              Object.getOwnPropertyDescriptors(fields),
+            ) as TcgplayerMarketStageFact,
+          );
+        }
+        throw hostileError(403);
+      },
+    },
+  });
 }
 
 function captureProbe(transport: TcgplayerMarketTransport, policy = PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE) {

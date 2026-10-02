@@ -42,7 +42,7 @@ export type TcgplayerEndpointFailurePhases = Readonly<{
 }>;
 
 export type TcgplayerEndpointStageTrace = Readonly<{
-  entries: readonly (TcgplayerMarketStageFact & Readonly<{ page: number }>)[];
+  entries: readonly (Omit<TcgplayerMarketStageFact, "credential"> & Readonly<{ page: number }>)[];
   overflow: number;
   retryCount: number;
   cooldownCount: number;
@@ -129,12 +129,30 @@ const STAGES = new Set<string>([
   "terminal",
 ]);
 
+function hasValidCredentialProvenance(fact: TcgplayerMarketStageFact): boolean {
+  const descriptor = Object.getOwnPropertyDescriptor(fact, "credential");
+  if (!descriptor) return !("credential" in fact);
+  if (!("value" in descriptor)) return false;
+  const credential: unknown = descriptor.value;
+  if (credential === undefined || credential === null) return true;
+  if (typeof credential !== "object" || Array.isArray(credential)) return false;
+  const keys = Reflect.ownKeys(credential);
+  if (keys.length !== 2 || !keys.includes("source") || !keys.includes("revision")) return false;
+  const source = Object.getOwnPropertyDescriptor(credential, "source");
+  const revision = Object.getOwnPropertyDescriptor(credential, "revision");
+  if (!source || !("value" in source) || !revision || !("value" in revision)) return false;
+  return source.value === "environment"
+    ? revision.value === 0
+    : source.value === "operator-session" && Number.isSafeInteger(revision.value) && revision.value >= 1;
+}
+
 function sanitizeStageFact(
   page: number,
   fact: TcgplayerMarketStageFact,
 ): TcgplayerEndpointStageTrace["entries"][number] | null {
   if (
     !fact ||
+    !hasValidCredentialProvenance(fact) ||
     !Number.isInteger(page) ||
     page < 1 ||
     page > 10000 ||
@@ -159,6 +177,7 @@ function sanitizeStageFact(
           "failureCode",
           "activeStage",
           "outcome",
+          "credential",
         ].includes(key),
     )
   )

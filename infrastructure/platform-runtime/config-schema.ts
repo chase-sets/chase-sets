@@ -868,9 +868,11 @@ export function loadPostageConfig<TIncludeWebhookSecret extends boolean>(input: 
   } as PlatformPostageConfig<TIncludeWebhookSecret>;
 }
 
-export function loadTcgplayerAutomationConfig(): PlatformTcgplayerAutomationConfig | null {
+export function loadTcgplayerAutomationConfig(
+  operatorSessionConfigured = false,
+): PlatformTcgplayerAutomationConfig | null {
   const tcgAuthCookie = getOptionalEnv("TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE");
-  if (!tcgAuthCookie) {
+  if (!tcgAuthCookie && !operatorSessionConfigured) {
     return null;
   }
 

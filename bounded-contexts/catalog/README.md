@@ -66,6 +66,8 @@ The v2 integration control-plane IA — three pages, two utilities, and the per-
 - Resolved Aliases: the Catalog-owned per-target, per-language published alias fact derived from accepted aliases, published to downstream search and display
 - Product Contents: the Catalog-owned relationship describing what one configured Product contains, published to downstream contexts as a stable resolved fact
 
+The `operator-session` slice owns encrypted TCGplayer Operator Session custody for Todd's automation. Each request resolves the retained row; stored custody wins over the environment, unreadable custody fails closed, and cleared custody restores fallback without erasing its revision fence. It does not establish provider authentication or session expiry.
+
 ## Does Not Own
 
 - Listing aggregation

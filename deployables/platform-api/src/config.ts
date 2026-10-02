@@ -767,6 +767,7 @@ function loadPreviewPostgresAdminUrl(deploymentEnvironment: DeploymentEnvironmen
 }
 
 export function loadConfig(): PlatformApiConfig {
+  const catalogOperatorSessionKeyring = parseSecretEnvelopeKeyring(process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON);
   loadCatalogProviderSendWindowEnabled(process.env);
   const baseConfig = loadBaseConfig() as PlatformApiBaseConfig & {
     realtime: PlatformApiRealtimeConfig;
@@ -892,7 +893,7 @@ export function loadConfig(): PlatformApiConfig {
     moneyMovement: stripeProvider.moneyMovement,
     checkoutClosed: getBooleanEnv("CHASE_SETS_CHECKOUT_CLOSED", false),
     channelCredentialKeyring: parseChannelCredentialKeyring(process.env.CHANNELS_CREDENTIAL_KEYRING_JSON),
-    catalogOperatorSessionKeyring: parseSecretEnvelopeKeyring(process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON),
+    catalogOperatorSessionKeyring,
     providerModeObservation: {
       mode: stripeProvider.effectiveMode,
       paymentProcessorKind: stripeProvider.paymentProcessor.kind,
@@ -910,7 +911,7 @@ export function loadConfig(): PlatformApiConfig {
       liveSecretKeyLikely: stripeProvider.keyClassification.serverKeyMode === "live",
     },
     catalogAssetStorage,
-    tcgplayerAutomation: loadTcgplayerAutomationConfig(),
+    tcgplayerAutomation: loadTcgplayerAutomationConfig(catalogOperatorSessionKeyring !== null),
     listingPhotoStorage,
     discoverySearchEmbeddings: {
       apiKey: getOptionalEnv("VOYAGE_API_KEY"),

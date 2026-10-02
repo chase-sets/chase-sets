@@ -6,11 +6,7 @@ import {
   type NotificationChannelAdapter,
   type NotificationPreferenceResolver,
 } from "@chase-sets/outbound-messaging";
-import {
-  createPostgresTcgplayerAutomationHttpConfigStore,
-  createTcgplayerAutomationCatalogClient,
-  createTcgplayerAutomationHttpClients,
-} from "@chase-sets/catalog/server";
+import { createTcgplayerAutomationRuntime } from "@chase-sets/catalog/server";
 import { isChannelsServices, type ChannelsServices } from "@chase-sets/channels/server";
 import {
   createObjectStorageTcgplayerMarketCaptureReceiptSink,
@@ -232,20 +228,20 @@ const postageLabelProvider =
       })
     : createSandboxPostageLabelProvider();
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
-const tcgplayerAutomationHttpClients = config.tcgplayerAutomation
-  ? createTcgplayerAutomationHttpClients(
-      createPostgresTcgplayerAutomationHttpConfigStore(pools.catalog, config.tcgplayerAutomation),
-    )
-  : undefined;
-const tcgplayerAutomationCatalogClient = tcgplayerAutomationHttpClients
-  ? createTcgplayerAutomationCatalogClient(tcgplayerAutomationHttpClients)
-  : undefined;
-const pricingTcgplayerAutomationHttpClients = config.tcgplayerAutomation
-  ? createTcgplayerAutomationHttpClients(
-      createPostgresTcgplayerAutomationHttpConfigStore(pools.catalog, config.tcgplayerAutomation),
-      { ownership: "pricing-non-window" },
-    )
-  : undefined;
+const tcgplayerAutomationRuntime = createTcgplayerAutomationRuntime({
+  pool: pools.catalog,
+  config: config.tcgplayerAutomation,
+  keyring: config.catalogOperatorSessionKeyring,
+});
+const tcgplayerAutomationCatalogClient = tcgplayerAutomationRuntime?.catalogClient;
+const pricingTcgplayerAutomationHttpClients = createTcgplayerAutomationRuntime(
+  {
+    pool: pools.catalog,
+    config: config.tcgplayerAutomation,
+    keyring: config.catalogOperatorSessionKeyring,
+  },
+  { ownership: "pricing-non-window" },
+)?.httpClients;
 const sourceObservationTelemetry = createSourceObservationTelemetry();
 let runtime: WorkerHostRuntime | null = null;
 const marketplaceChannelInboundClamp = createPlatformWorkerMarketplaceChannelInboundClampBinding(

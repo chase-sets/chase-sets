@@ -1,5 +1,6 @@
 import { ProviderSendStoppedError } from "../provider-send-admission";
 import { t } from "@chase-sets/localization";
+import type { OperatorSessionCatalogClient } from "../../../../operator-session/api/runtime";
 import {
   runCatalogIntegrationDryRun,
   type CatalogIntegrationDryRunResult,
@@ -118,7 +119,7 @@ export type TcgplayerProviderPayload =
 
 export type TcgplayerProviderAdapterOptions = Readonly<{
   loadProfileVersions: () => Promise<readonly CatalogProviderIntegrationProfileVersionRecord[]>;
-  client?: TcgplayerAutomationCatalogClient;
+  client?: TcgplayerAutomationCatalogClient & Partial<Pick<OperatorSessionCatalogClient, "resolveCredentialReadiness">>;
   now?: () => Date;
 }>;
 
@@ -322,17 +323,22 @@ export function createTcgplayerProviderAdapter(
       const profileVersions = await loadTcgplayerImportProfileVersions(options);
       const profileUnits = profileVersions.length > 0 ? profileVersions : [null];
       const checkedAt = (options.now ?? (() => new Date()))().toISOString();
+      const credential = (await options.client?.resolveCredentialReadiness?.()) ?? {
+        sourceKind: "environment-secret" as const,
+        state: "missing" as const,
+      };
 
       return profileUnits.map((profileVersion) =>
         createCatalogProviderCredentialReadiness({
           providerKey: "tcgplayer",
           unitKey: unitKeyForTcgplayerProfileVersion(profileVersion),
           requirement: "required",
-          sourceKind: "environment-secret",
-          state: options.client ? "configured" : "missing",
-          message: options.client
-            ? t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.configured")
-            : t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.missing"),
+          sourceKind: credential.sourceKind,
+          state: credential.state,
+          message:
+            credential.state === "configured"
+              ? t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.configured")
+              : t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.missing"),
           checkedAt,
           scope: {
             environmentKey: "runtime",
@@ -342,7 +348,7 @@ export function createTcgplayerProviderAdapter(
             connectorKind: profileVersion?.profile.connector.kind ?? "tcgplayer-automation-client",
             lifecycle: profileVersion?.lifecycle ?? "unregistered",
             credentialRequirement: "required",
-            credentialState: options.client ? "configured" : "missing",
+            credentialState: credential.state,
           },
         }),
       );
