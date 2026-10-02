@@ -402,7 +402,11 @@ export class TcgplayerAutomationDomainHttpClient {
 
           await this.throttler.recordSuccess(initialConfig.adaptiveConfig);
           emit("parse-start");
-          return parseResponse<TResponse>(response, input.options.responseType ?? "json").then(
+          return parseResponse<TResponse>(
+            response,
+            input.options.responseType ?? "json",
+            attemptConfig.auth.tcgAuthCookie,
+          ).then(
             (value) => {
               emit("parse-end");
               finish("success");
@@ -520,7 +524,11 @@ export class TcgplayerAutomationDomainHttpClient {
         }
 
         emit("parse-start");
-        const value = await parseResponse<TResponse>(response, input.options.responseType ?? "json");
+        const value = await parseResponse<TResponse>(
+          response,
+          input.options.responseType ?? "json",
+          attemptConfig.auth.tcgAuthCookie,
+        );
         emit("parse-end");
         if (renewalError) throw renewalError;
         await recordDomainSuccess(this.domainKey, initialConfig.adaptiveConfig, admission.epoch);
@@ -1318,20 +1326,42 @@ class TcgplayerAutomationConcurrencyLimiter {
 async function parseResponse<TResponse>(
   response: Response,
   responseType: NonNullable<TcgplayerAutomationHttpRequestOptions["responseType"]>,
+  credentialValue: string | null,
 ): Promise<TResponse> {
-  if (responseType === "raw") {
-    return response as TResponse;
+  if (responseType === "raw" && !credentialValue) return response as TResponse;
+  const value: unknown =
+    responseType === "raw"
+      ? await response.clone().text()
+      : responseType === "text"
+        ? await response.text()
+        : response.status === 204
+          ? undefined
+          : await response.json();
+  if (credentialValue) {
+    const pending: unknown[] = [value];
+    if (responseType === "raw") {
+      pending.push(response.url, response.statusText, ...response.headers.keys(), ...response.headers.values());
+    }
+    while (pending.length > 0) {
+      const item = pending.pop();
+      if (typeof item === "string") {
+        if (item.includes(credentialValue)) throw new Error("tcgplayer-automation-request-failed");
+        // Text/raw bodies and embedded JSON strings can encode the same credential with JSON escapes.
+        if (!['"', "{", "["].includes(item.trimStart()[0] ?? "")) continue;
+        try {
+          const decoded: unknown = JSON.parse(item);
+          if (decoded !== item) pending.push(decoded);
+        } catch {
+          // Ordinary provider text is not necessarily JSON.
+        }
+      } else if (item !== null && typeof item === "object") {
+        for (const [key, entry] of Object.entries(item)) pending.push(key, entry);
+      } else if (item !== undefined && String(item).includes(credentialValue)) {
+        throw new Error("tcgplayer-automation-request-failed");
+      }
+    }
   }
-
-  if (responseType === "text") {
-    return (await response.text()) as TResponse;
-  }
-
-  if (response.status === 204) {
-    return undefined as TResponse;
-  }
-
-  return (await response.json()) as TResponse;
+  return (responseType === "raw" ? response : value) as TResponse;
 }
 
 function isRetryableTcgplayerAutomationError(error: unknown): error is TcgplayerAutomationHttpError {

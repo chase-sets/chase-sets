@@ -4,7 +4,20 @@ import * as envelope from "@chase-sets/platform-runtime/secret-envelope";
 import { describeTcgplayerAutomationConfigForLogs } from "@chase-sets/platform-runtime/config-schema";
 import { createPostgresCatalogOperatorSessionStore } from "../api/store";
 import { createTcgplayerAutomationRuntime } from "../api/runtime";
-import { createTcgplayerProviderAdapter } from "../../source-observations/api/providers/tcgplayer/adapter";
+import {
+  createTcgplayerProviderAdapter,
+  TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+} from "../../source-observations/api/providers/tcgplayer/adapter";
+import { createTcgplayerAutomationCatalogClient } from "../../source-observations/api/providers/tcgplayer-automation-catalog-client";
+import { tcgplayerAutomationResponseFixtures } from "../../source-observations/api/providers/tcgplayer-automation-response-fixtures.test-data";
+import { getCatalogProviderIntegrationProfileVersion } from "../../source-observations/api/provider-integration-profiles";
+import { prepareProviderAdapterSourceObservationPayload } from "../../source-observations/api/source-observation-promotion-execution";
+import { requireCatalogProviderSourceObservation } from "../../source-observations/api/promotion/provider-source-observation-normalizer";
+import {
+  decideSourceObservation,
+  evolveSourceObservation,
+  initialSourceObservationState,
+} from "../../source-observations/domain/domain";
 import type { TcgplayerAutomationStageFact } from "../../source-observations/api/providers/tcgplayer-automation-client";
 import {
   createInMemoryTcgplayerAutomationHttpConfigStore,
@@ -14,6 +27,195 @@ import {
 const marker = "SYNTHETIC_HOSTILE_OPERATOR_MARKER_8450";
 const keyring = { activeKeyId: "synthetic", keys: new Map([["synthetic", new Uint8Array(32).fill(7)]]) };
 const input = { expectedRevision: 0, value: marker, observedAt: "2026-10-01T00:00:00.000Z", browserExpiresAt: null };
+
+async function successfulResponseHarness(durable: boolean, body: string) {
+  const custody = createPostgresCatalogOperatorSessionStore(recorder().db, keyring);
+  await custody.accept(input);
+  const resolved = await custody.resolve();
+  if (!resolved || "unavailable" in resolved) throw new Error("synthetic custody setup failed");
+  const store = createInMemoryTcgplayerAutomationHttpConfigStore({
+    auth: {
+      tcgAuthCookie: resolved.value,
+      userAgent: "synthetic",
+      credential: { source: "operator-session", revision: resolved.revision },
+    },
+    maxRetries: 0,
+  });
+  const load = vi.spyOn(store, "loadConfig");
+  const release = vi.fn(async () => undefined);
+  const admit = vi.fn(async () => ({
+    granted: true,
+    leaseId: "synthetic-lease",
+    leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    admittedAt: new Date().toISOString(),
+    notBefore: new Date().toISOString(),
+    epoch: 1,
+  }));
+  const authority = durable
+    ? {
+        ...store,
+        admitDomainRequest: admit,
+        renewDomainLease: async () => true,
+        releaseDomainLease: release,
+        recordDomainRateLimit: store.loadDomainConfig,
+        recordDomainSuccess: store.loadDomainConfig,
+      }
+    : store;
+  const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(body, { status: 200 }));
+  return { clients: createTcgplayerAutomationHttpClients(authority, { fetch }), load, fetch, admit, release };
+}
+
+const escapedMarker = [...marker]
+  .map((character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`)
+  .join("");
+
+describe.each([false, true])("successful-response custody boundary (durable=%s)", (durable) => {
+  it("checks only the current attempt's resolved value without caching or resolving again", async () => {
+    const body = JSON.stringify({ evidence: marker });
+    const harness = await successfulResponseHarness(durable, body);
+    const config = await harness.load();
+    harness.load.mockClear();
+    harness.load.mockResolvedValueOnce({
+      ...config,
+      auth: {
+        ...config.auth,
+        tcgAuthCookie: "SYNTHETIC_OTHER_CREDENTIAL",
+        credential: { source: "operator-session", revision: 2 },
+      },
+    });
+    await expect(harness.clients.infiniteApi.get("/synthetic")).resolves.toEqual({ evidence: marker });
+    await expect(harness.clients.infiniteApi.get("/synthetic")).rejects.toThrow("tcgplayer-automation-request-failed");
+    expect(harness.load).toHaveBeenCalledTimes(2);
+    expect(harness.fetch.mock.calls.map((call) => new Headers(call[1]?.headers).get("Cookie"))).toEqual([
+      "TCGAuthTicket_Production=SYNTHETIC_OTHER_CREDENTIAL;",
+      `TCGAuthTicket_Production=${marker};`,
+    ]);
+    expect(harness.release).toHaveBeenCalledTimes(durable ? 2 : 0);
+  });
+
+  it.each(["text", "raw"] as const)(
+    "refuses plain %s echo but preserves ordinary non-JSON text",
+    async (responseType) => {
+      const echo = await successfulResponseHarness(durable, `provider echo: ${marker}`);
+      await expect(echo.clients.infiniteApi.get("/synthetic", {}, { responseType })).rejects.toThrow(
+        "tcgplayer-automation-request-failed",
+      );
+      const clean = await successfulResponseHarness(durable, "ordinary provider text");
+      const result = await clean.clients.infiniteApi.get("/synthetic", {}, { responseType });
+      expect(responseType === "raw" ? await (result as Response).text() : result).toBe("ordinary provider text");
+    },
+  );
+
+  it.each(["clean", "echo", "nested-escaped"])(
+    "%s provider evidence cannot contaminate events or snapshots",
+    async (kind) => {
+      const detail = {
+        ...tcgplayerAutomationResponseFixtures.productDetail,
+        ordinaryEvidence: "synthetic-clean-evidence",
+        ...(kind === "clean" ? {} : { syntheticCredentialEcho: { nested: [marker] } }),
+      };
+      const body = JSON.stringify(detail).replaceAll(marker, kind === "nested-escaped" ? escapedMarker : marker);
+      const harness = await successfulResponseHarness(durable, body);
+      const profile = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.05", {
+        profileKey: "pokemon-single-card-product-sku",
+      })!;
+      const adapter = createTcgplayerProviderAdapter({
+        client: createTcgplayerAutomationCatalogClient(harness.clients),
+        loadProfileVersions: async () => [profile],
+      });
+      const plan = await adapter.planImport({
+        unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        scopeKey: "product-id",
+        values: { productId: "610001" },
+      });
+      const envelopes = [];
+      let error: unknown;
+      try {
+        for await (const payload of adapter.fetchPayloads(plan)) envelopes.push(payload);
+      } catch (caught) {
+        error = caught;
+      }
+      expect(harness.load).toHaveBeenCalledTimes(1);
+      expect(new Headers(harness.fetch.mock.calls[0]![1]?.headers).get("Cookie")).toBe(
+        `TCGAuthTicket_Production=${marker};`,
+      );
+      expect(harness.admit).toHaveBeenCalledTimes(durable ? 1 : 0);
+      expect(harness.release).toHaveBeenCalledTimes(durable ? 1 : 0);
+      if (kind !== "clean") {
+        expect(envelopes, "contaminated payload must not reach normalization or recording").toHaveLength(0);
+        expect(error).toBeInstanceOf(Error);
+        expect(String(error)).toBe("Error: tcgplayer-automation-request-failed");
+        expect(JSON.stringify(error)).not.toContain(marker);
+        return;
+      }
+      expect(error).toBeUndefined();
+      expect(envelopes).toHaveLength(1);
+      const prepared = prepareProviderAdapterSourceObservationPayload({
+        payload: envelopes[0]!.payload,
+        providerProfile: profile.profile,
+      });
+      if (prepared.kind !== "payload") throw new Error("synthetic payload preparation failed");
+      const contract = profile.executableMappingContract;
+      if (!contract?.sourceObservation) throw new Error("synthetic source observation mapping missing");
+      const observation = requireCatalogProviderSourceObservation({
+        contract: { ...contract, sourceObservation: contract.sourceObservation },
+        payload: prepared.payload,
+        observedAt: input.observedAt,
+      });
+      const events = decideSourceObservation(initialSourceObservationState, {
+        type: "RecordSourceObservation",
+        ...observation,
+      });
+      const snapshot = events.reduce(evolveSourceObservation, initialSourceObservationState);
+      expect(events.map((event) => event.type)).toEqual(["catalog.source-observation.recorded"]);
+      for (const evidence of [events, snapshot]) {
+        expect(JSON.stringify(evidence)).toContain("synthetic-clean-evidence");
+        expect(JSON.stringify(evidence)).not.toContain(marker);
+      }
+    },
+  );
+
+  describe.each(["json", "text", "raw"] as const)("%s response", (responseType) => {
+    it.each([
+      ["literal", JSON.stringify({ echo: marker })],
+      ["nested escaped value", `{"nested":[{"echo":"${escapedMarker}"}]}`],
+      ["escaped key", `{"${escapedMarker}":"ordinary"}`],
+      ["embedded JSON string", JSON.stringify({ nested: `{"echo":"${escapedMarker}"}` })],
+    ])("refuses %s without echoed errors or diagnostics", async (_name, body) => {
+      const harness = await successfulResponseHarness(durable, body);
+      const facts: TcgplayerAutomationStageFact[] = [];
+      await expect(
+        harness.clients.infiniteApi.get(
+          "/synthetic",
+          {},
+          {
+            responseType,
+            onStage: (fact) => facts.push(fact),
+          },
+        ),
+      ).rejects.toThrow("tcgplayer-automation-request-failed");
+      expect(JSON.stringify(facts)).not.toContain(marker);
+      expect(facts.filter((fact) => fact.stage === "terminal")).toMatchObject([{ outcome: "failure" }]);
+      expect(harness.load).toHaveBeenCalledTimes(1);
+      expect(harness.fetch).toHaveBeenCalledTimes(1);
+      expect(harness.release).toHaveBeenCalledTimes(durable ? 1 : 0);
+    });
+
+    it("preserves clean content and raw body readability", async () => {
+      const body = JSON.stringify({ nested: ["synthetic-clean-evidence"] });
+      const harness = await successfulResponseHarness(durable, body);
+      const result = await harness.clients.infiniteApi.get("/synthetic", {}, { responseType });
+      if (responseType === "raw") {
+        expect(result).toBeInstanceOf(Response);
+        expect((result as Response).bodyUsed).toBe(false);
+        expect(await (result as Response).text()).toBe(body);
+      } else {
+        expect(result).toEqual(responseType === "text" ? body : JSON.parse(body));
+      }
+      expect(harness.load).toHaveBeenCalledTimes(1);
+    });
+  });
+});
 
 // This query recorder proves crypto and sink boundaries only. PostgreSQL CAS is exercised by the DB suites.
 function recorder() {
