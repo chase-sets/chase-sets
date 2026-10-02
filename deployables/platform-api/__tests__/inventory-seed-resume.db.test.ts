@@ -235,9 +235,9 @@ describe("inventory and checkout seed resume from authoritative streams", () => 
     expect(partial.filter((report) => report.kind === "active").map((report) => report.streamId)).toEqual([
       northShelfStream,
     ]);
-    expect(partial.filter((report) => report.streamId !== northShelfStream).every((report) => report.kind === "absent")).toBe(
-      true,
-    );
+    expect(
+      partial.filter((report) => report.streamId !== northShelfStream).every((report) => report.kind === "absent"),
+    ).toBe(true);
 
     await ordinaryBoot(runtime);
     // The retained aggregate is resumed, not re-authored.
