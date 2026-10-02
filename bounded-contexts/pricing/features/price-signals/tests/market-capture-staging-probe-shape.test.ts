@@ -59,7 +59,7 @@ describe("tcgplayer-market-capture-v1 response-receipt shape", () => {
           learnedMinDelayMs: 0,
         };
         const config: TcgplayerAutomationHttpConfig = {
-          auth: { tcgAuthCookie: null, userAgent: "synthetic" },
+          auth: { tcgAuthCookie: null, userAgent: "synthetic", credential: null },
           domainConfigs: { mpApi: domain, mpSearchApi: domain, infiniteApi: domain, mpGateway: domain },
           adaptiveConfig: { increaseMultiplier: 2, floorStepMs: 100, decreaseAmountMs: 100, successThreshold: 10 },
           maxRetries: ["403", "429", "later-abort", "recovery"].includes(scenario) ? 1 : 0,
@@ -147,7 +147,7 @@ describe("tcgplayer-market-capture-v1 response-receipt shape", () => {
       learnedMinDelayMs: 0,
     };
     const config: TcgplayerAutomationHttpConfig = {
-      auth: { tcgAuthCookie: null, userAgent: "synthetic" },
+      auth: { tcgAuthCookie: null, userAgent: "synthetic", credential: null },
       domainConfigs: { mpApi: domain, mpSearchApi: domain, infiniteApi: domain, mpGateway: domain },
       adaptiveConfig: { increaseMultiplier: 2, floorStepMs: 100, decreaseAmountMs: 100, successThreshold: 10 },
       maxRetries: 0,
@@ -210,7 +210,7 @@ describe("tcgplayer-market-capture-v1 response-receipt shape", () => {
       learnedMinDelayMs: 0,
     };
     const config: TcgplayerAutomationHttpConfig = {
-      auth: { tcgAuthCookie: null, userAgent: "synthetic" },
+      auth: { tcgAuthCookie: null, userAgent: "synthetic", credential: null },
       domainConfigs: { mpApi: domain, mpSearchApi: domain, infiniteApi: domain, mpGateway: domain },
       adaptiveConfig: { increaseMultiplier: 2, floorStepMs: 100, decreaseAmountMs: 100, successThreshold: 10 },
       maxRetries: 0,

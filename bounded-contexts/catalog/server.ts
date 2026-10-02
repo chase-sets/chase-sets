@@ -1,4 +1,10 @@
 export { createCatalogRequestApiClient } from "./support/request-support/api-client";
+export { createTcgplayerAutomationRuntime } from "./features/operator-session/api/runtime";
+export {
+  createPostgresCatalogOperatorSessionStore,
+  type CatalogOperatorSessionStore,
+  type CatalogOperatorSessionMetadata,
+} from "./features/operator-session/api/store";
 export {
   resolveCatalogProductSelection,
   type CatalogProductSelection,
