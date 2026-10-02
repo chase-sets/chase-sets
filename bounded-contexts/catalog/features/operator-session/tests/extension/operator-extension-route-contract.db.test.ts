@@ -83,6 +83,16 @@ describeDb("operator-extension-route-contract: real mounted grants and retained 
       outcome: "unchanged",
       revision: 3,
     });
+    for (let repeat = 0; repeat < 3; repeat++) {
+      expect(await client.push("staging", next, { ...fresh, expectedRevision: 3 })).toEqual({
+        outcome: "unchanged",
+        revision: 3,
+      });
+    }
+    expect(await client.push("staging", next, { ...fresh, expectedRevision: 3 })).toEqual({
+      outcome: "rate-limited",
+      retryAfterMs: 60_000,
+    });
     expect(await client.revoke("staging", next)).toEqual({ outcome: "revoked" });
     expect(await client.push("staging", next, { ...fresh, expectedRevision: 3 })).toEqual({ outcome: "grant-invalid" });
     const authority = createTcgplayerAutomationRuntime({ pool: db(), config: null, keyring });
