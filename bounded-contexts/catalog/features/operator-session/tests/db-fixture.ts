@@ -29,13 +29,10 @@ export function useOperatorSessionDatabase(suffix: string) {
     const urls = createMultiContextTestDatabaseUrls(databaseBaseUrl!, ["catalog"], suffix);
     await ensureMultiContextTestDatabases(databaseBaseUrl!, urls);
     pools = createMultiContextTestPools(urls);
-    await resetMultiContextTestSchemas(pools);
-    await bootstrapContextDatabase(catalogModule, pools.catalog);
   });
   beforeEach(async () => {
-    await pools.catalog.query(
-      "TRUNCATE catalog_tcgplayer_operator_sessions, catalog_tcgplayer_automation_domain_rate_limits CASCADE",
-    );
+    await resetMultiContextTestSchemas(pools);
+    await bootstrapContextDatabase(catalogModule, pools.catalog);
   });
   afterAll(async () => {
     if (pools) await closeMultiContextTestPools(pools);
