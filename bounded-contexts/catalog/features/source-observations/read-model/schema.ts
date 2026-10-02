@@ -1,4 +1,5 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+import { providerSendSchemaSql } from "./provider-send-schema";
 import { durableJobSchemaMigrations, durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
 import { durableJobWorkUnitSchemaSql } from "@chase-sets/platform-runtime/durable-job-work-units";
 import {
@@ -190,7 +191,8 @@ ALTER TABLE catalog_merge_candidates
 const catalogMergeCandidateScopeIdentityV2IndexSql = `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_merge_candidates_scope_record_idx
   ON catalog_merge_candidates (scope_record_id, status, updated_at DESC);`;
 
-export const catalogSourceObservationSchemaSql = `CREATE TABLE IF NOT EXISTS catalog_source_observations (
+export const catalogSourceObservationSchemaSql = `${providerSendSchemaSql.join("\n")}
+CREATE TABLE IF NOT EXISTS catalog_source_observations (
   observation_id text PRIMARY KEY,
   sync_run_id text NULL,
   provider_key text NOT NULL,
@@ -727,5 +729,10 @@ END $$;`,
         ('mpGateway', 200, 200, 200, 30000, 2)
       ON CONFLICT (domain_key) DO NOTHING;`,
     ],
+  },
+  {
+    migrationId: "20261002_catalog_provider_send_window",
+    description: "Install retained Catalog staging provider-send authority, quotas, attempts and job bindings.",
+    statements: [...providerSendSchemaSql],
   },
 ];

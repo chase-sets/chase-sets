@@ -1561,7 +1561,7 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     expect(await page.locator("html").getAttribute("data-refresh-clicks")).toBeNull();
   });
 
-  test("Admin Error fail closed control", async ({ page }) => {
+  test("Admin Error fail closed control @catalog-admin-integrations", async ({ page }) => {
     let frameNavigatedCount = 0;
     const frameNavigatedHandler = () => {
       frameNavigatedCount += 1;
@@ -1591,6 +1591,14 @@ test.describe("catalog staging provider sync UAT helpers", () => {
       await expect(recoverImporterFromAdminError(page)).rejects.toThrow(
         /Catalog importer rendered Admin Error while loading.*boom-8442/,
       );
+      expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+      expect(reloadCount).toBe(0);
+      expect(frameNavigatedCount).toBe(0);
+
+      await page.setContent(
+        adminError(true).replace("boom-8442", "Catalog provider-send window stopped (quota-exhausted)."),
+      );
+      await expect(recoverSourceOptionSelection(page, "Set")).rejects.toThrow(/quota-exhausted/);
       expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
       expect(reloadCount).toBe(0);
       expect(frameNavigatedCount).toBe(0);

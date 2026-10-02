@@ -247,6 +247,7 @@ export function getContextListenerDatabaseEnvName(contextName: PlatformWorkerCon
 
 export function loadConfig(): PlatformWorkerConfig {
   const catalogOperatorSessionKeyring = parseSecretEnvelopeKeyring(process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON);
+  loadCatalogProviderSendWindowEnabled(process.env);
   const runtimeProfile = loadRuntimeProfile();
   const deploymentEnvironment = loadDeploymentEnvironment();
   const productionLike = deploymentEnvironment === "production";
@@ -790,3 +791,4 @@ function getUserIdListEnv(name: string): readonly string[] {
   }
   return userIds.sort((left, right) => left.localeCompare(right));
 }
+import { loadCatalogProviderSendWindowEnabled } from "@chase-sets/platform-runtime/config-schema";

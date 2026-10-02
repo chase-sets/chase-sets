@@ -1,3 +1,5 @@
+import { sendCatalogProviderRequest } from "./provider-send-admission";
+
 export const TCGPLAYER_AUTOMATION_DOMAIN_KEYS = {
   MP_SEARCH_API: "mpSearchApi",
   MPAPI: "mpApi",
@@ -146,6 +148,7 @@ export type TcgplayerAutomationStageFact = Readonly<{
 }>;
 
 export type TcgplayerAutomationHttpClientDeps = Readonly<{
+  ownership?: "catalog" | "pricing-non-window";
   fetch?: typeof fetch;
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   random?: () => number;
@@ -235,6 +238,7 @@ export class TcgplayerAutomationDomainHttpClient {
   private readonly throttler: TcgplayerAutomationRequestThrottler;
   private readonly limiter = new TcgplayerAutomationConcurrencyLimiter();
   private readonly fetchImpl: typeof fetch;
+  private readonly ownership: "catalog" | "pricing-non-window";
   private readonly sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
   private readonly random: () => number;
   private readonly now: () => number;
@@ -250,6 +254,7 @@ export class TcgplayerAutomationDomainHttpClient {
     this.baseUrl = baseUrl;
     this.configStore = configStore;
     this.fetchImpl = deps.fetch ?? fetch;
+    this.ownership = deps.ownership ?? "catalog";
     this.sleep = deps.sleep ?? sleepWithAbort;
     this.random = deps.random ?? Math.random;
     this.now = deps.now ?? Date.now;
@@ -257,6 +262,12 @@ export class TcgplayerAutomationDomainHttpClient {
       sleep: this.sleep,
       now: deps.now ?? Date.now,
     });
+  }
+
+  private send(input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> {
+    return this.ownership === "pricing-non-window"
+      ? this.fetchImpl(input, init)
+      : sendCatalogProviderRequest("tcgplayer", this.fetchImpl, input, init, undefined, "discovery");
   }
 
   async get<TResponse>(
@@ -376,7 +387,7 @@ export class TcgplayerAutomationDomainHttpClient {
           const url = this.requestUrl(input.path, input.params);
           const headers = this.requestHeaders(attemptConfig, input.options.headers);
           emit("fetch-start");
-          const response = await this.fetchImpl(url, {
+          const response = await this.send(url, {
             method: input.method,
             body: input.body,
             headers,
@@ -509,7 +520,7 @@ export class TcgplayerAutomationDomainHttpClient {
       try {
         emit("request-construction");
         emit("fetch-start");
-        response = await this.fetchImpl(url, {
+        response = await this.send(url, {
           method: input.method,
           body: input.body,
           headers,

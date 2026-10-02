@@ -1,3 +1,9 @@
+import {
+  sendCatalogProviderRequest,
+  ProviderSendStoppedError,
+  currentProviderSendAdmission,
+  currentProviderSendBinding,
+} from "../provider-send-admission";
 import { createHash } from "node:crypto";
 
 import { t } from "@chase-sets/localization";
@@ -369,6 +375,12 @@ export function createScrydexOnePieceProviderAdapter(
     },
     async *fetchPayloads(plan, fetchOptions) {
       assertScrydexOnePieceUnit(plan.unitKey);
+      if (currentProviderSendBinding() && plan.unitKey.includes(":single-card:")) {
+        const expansionId = stringValue(plan.scope.values.expansionId ?? plan.scope.values.setId);
+        const observation = expansionId ? await readScrydexCardEstimate(plan.scope, expansionId, options) : null;
+        if (!observation || observation.estimatedRequestCount > 256)
+          throw new ProviderSendStoppedError("unknown-request");
+      }
       const fetchedAt = (options.now ?? (() => new Date()))().toISOString();
       const productDomain = scrydexProductDomainForUnit(plan.unitKey);
       const productLabel = scrydexProductLabel(productDomain);
@@ -1218,6 +1230,9 @@ async function planScrydexCardImport(
     `Scrydex ${productLabel} card import planning requires expansionId or cardId.`,
   );
   const observation = await readScrydexCardEstimate(scope, expansionId, options);
+  if (currentProviderSendBinding() && (!observation || observation.estimatedRequestCount > 256)) {
+    throw new ProviderSendStoppedError("unknown-request");
+  }
   return {
     unitKey: scope.unitKey,
     planKey: `scrydex:${productSegment}:expansion:${normalizePlanSegment(expansionId)}:cards`,
@@ -1238,11 +1253,11 @@ async function planScrydexCardImport(
   };
 }
 
-function planScrydexSealedImport(
+async function planScrydexSealedImport(
   scope: ProviderImportScope,
   usageReadiness: ScrydexUsageReadiness,
   productDomain: ScrydexProductDomain,
-): ProviderImportPlan {
+): Promise<ProviderImportPlan> {
   const productLabel = scrydexProductLabel(productDomain);
   const productSegment = scrydexProductSegment(productDomain);
   const sealedProductId = stringValue(scope.values.sealedProductId ?? scope.values.sealedId ?? scope.values.id);
@@ -1274,6 +1289,17 @@ function planScrydexSealedImport(
     scope.values.expansionId ?? scope.values.setId ?? scope.values.parentValue,
     `Scrydex ${productLabel} sealed-product import planning requires expansionId or sealedProductId.`,
   );
+  const admission = currentProviderSendAdmission();
+  const binding = currentProviderSendBinding();
+  const maximum = await admission?.maximum({
+    provider: "scrydex",
+    category: "planning",
+    binding,
+    unitKey: scope.unitKey,
+    language: scope.values.languageCode ?? scope.values.language ?? "en",
+    coordinate: expansionId,
+  });
+  if (binding && maximum !== 256) throw new ProviderSendStoppedError("unknown-request");
   return {
     unitKey: scope.unitKey,
     planKey: `scrydex:${productSegment}:expansion:${normalizePlanSegment(expansionId)}:sealed`,
@@ -1283,12 +1309,23 @@ function planScrydexSealedImport(
       "Sanitize sealed-product payloads",
       "Attach payload provenance",
     ],
-    usageEstimate: scrydexBulkFirstUsageEstimate({
-      pageSize: scrydexSealedPageSize,
-      selectedFields: scrydexSealedSelect,
-      estimateReason: "Sealed-product page count is available only after the first Scrydex paged response.",
-      usageReadiness,
-    }),
+    usageEstimate: {
+      ...scrydexBulkFirstUsageEstimate({
+        pageSize: scrydexSealedPageSize,
+        selectedFields: scrydexSealedSelect,
+        estimateReason: "Sealed-product page count is available only after the first Scrydex paged response.",
+        usageReadiness,
+      }),
+      ...(maximum === 256 && binding
+        ? {
+            enforcedAdmissionMaximum: {
+              label: "enforced-admission-maximum" as const,
+              requestCount: 256 as const,
+              windowId: binding.windowId,
+            },
+          }
+        : {}),
+    },
   };
 }
 
@@ -1567,6 +1604,7 @@ async function getScrydexUsageReadiness(
       credentialState: "configured",
     };
   } catch (error) {
+    if (error instanceof ProviderSendStoppedError) throw error;
     if (error instanceof ScrydexTransportError) {
       return {
         usageCheckState: "unavailable",
@@ -1666,13 +1704,19 @@ function scrydexUsageTransportDiagnostics(
 
 async function fetchScrydexJson(url: string, options: ScrydexOnePieceProviderAdapterOptions): Promise<JsonValue> {
   const credentials = requireScrydexCredentials(options);
-  const response = await (options.fetch ?? globalThis.fetch)(url, {
-    headers: {
-      Accept: "application/json",
-      "X-Api-Key": credentials.apiKey,
-      "X-Team-ID": credentials.teamId,
+  const response = await sendCatalogProviderRequest(
+    "scrydex",
+    options.fetch ?? globalThis.fetch,
+    url,
+    {
+      headers: {
+        Accept: "application/json",
+        "X-Api-Key": credentials.apiKey,
+        "X-Team-ID": credentials.teamId,
+      },
     },
-  });
+    new URL(url).pathname === "/account/v1/usage" ? "usage" : undefined,
+  );
   if (!response.ok) {
     throw await scrydexTransportError(response);
   }
@@ -2060,6 +2104,17 @@ function absoluteScrydexUrl(
   options: ScrydexOnePieceProviderAdapterOptions,
   productDomain: ScrydexProductDomain = "one-piece",
 ): string {
+  if (currentProviderSendAdmission()?.enabled && currentProviderSendBinding()) {
+    const base = new URL(`${scrydexBaseUrl(options, productDomain).replace(/\/$/, "")}/`);
+    let resolved: URL;
+    try {
+      resolved = new URL(value, base);
+    } catch {
+      throw new ProviderSendStoppedError("unknown-request");
+    }
+    if (resolved.origin !== base.origin) throw new ProviderSendStoppedError("unknown-request");
+    return resolved.toString();
+  }
   if (/^https?:\/\//i.test(value)) {
     return value;
   }

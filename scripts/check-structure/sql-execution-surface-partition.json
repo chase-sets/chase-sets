@@ -65,6 +65,8 @@
     "bounded-contexts/catalog/features/source-observations/api/promotion/promotion-display-identity.ts",
     "bounded-contexts/catalog/features/source-observations/api/providers/provider-integration-profile-store.ts",
     "bounded-contexts/catalog/features/source-observations/api/providers/provider-profile-section-projection.ts",
+    "bounded-contexts/catalog/features/source-observations/api/providers/provider-send-ledger.ts",
+    "bounded-contexts/catalog/features/source-observations/api/providers/provider-send-runtime.ts",
     "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.ts",
     "bounded-contexts/catalog/features/source-observations/api/seeding/representative-catalog-replay.ts",
     "bounded-contexts/catalog/features/source-observations/api/seeding/seed.ts",
@@ -448,7 +450,8 @@
     "infrastructure/platform-runtime/work-signal-store.ts",
     "infrastructure/provider-webhook-inbox/index.ts",
     "infrastructure/web-notifications/index.ts",
-    "scripts/catalog-integration-reset.ts"
+    "scripts/catalog-integration-reset.ts",
+    "scripts/catalog-provider-send-window.ts"
   ],
   "unprovableForm": [
     "deployables/platform-api/src/preview-postgres.ts",
@@ -456,7 +459,7 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 281,
+    "count": 282,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
       "bounded-contexts/auth/support/ucp-support/oauth.ts": 4,
@@ -476,7 +479,7 @@
       "bounded-contexts/catalog/features/source-observations/api/route-modules/provider-options-routes.ts": 17,
       "bounded-contexts/catalog/features/source-observations/api/route-modules/provider-profile-routes.ts": 1,
       "bounded-contexts/catalog/features/source-observations/api/route-modules/source-observation-review-routes.ts": 1,
-      "bounded-contexts/catalog/features/source-observations/api/route.ts": 1,
+      "bounded-contexts/catalog/features/source-observations/api/route.ts": 2,
       "bounded-contexts/catalog/support/authoring-support/seed.ts": 1,
       "bounded-contexts/channels/features/listing-composition/api/route.ts": 2,
       "bounded-contexts/channels/features/manual-sync/api/route.ts": 1,

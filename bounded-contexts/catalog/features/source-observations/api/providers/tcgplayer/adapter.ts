@@ -1,3 +1,4 @@
+import { ProviderSendStoppedError } from "../provider-send-admission";
 import { t } from "@chase-sets/localization";
 import type { OperatorSessionCatalogClient } from "../../../../operator-session/api/runtime";
 import {
@@ -277,7 +278,7 @@ export function createTcgplayerProviderAdapter(
           });
           yield detailEnvelope(plan, detail, fetchedAt);
         } catch (error) {
-          if (isCancellationLikeError(error)) {
+          if (error instanceof ProviderSendStoppedError || isCancellationLikeError(error)) {
             throw error;
           }
           await fetchOptions?.onProgress?.({

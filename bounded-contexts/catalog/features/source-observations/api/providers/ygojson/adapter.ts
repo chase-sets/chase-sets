@@ -1,3 +1,4 @@
+import { sendCatalogProviderRequest } from "../provider-send-admission";
 import { createHash } from "node:crypto";
 
 import { t } from "@chase-sets/localization";
@@ -418,7 +419,7 @@ async function fetchYgojsonAggregate<TItem>(
 }
 
 async function fetchJson<T>(url: string, options: YgojsonProviderAdapterOptions): Promise<T> {
-  const response = await (options.fetch ?? globalThis.fetch)(url);
+  const response = await sendCatalogProviderRequest("ygojson", options.fetch ?? globalThis.fetch, url);
   if (!response.ok) {
     throw new Error(`YGOJSON request failed with HTTP ${response.status}.`);
   }

@@ -483,6 +483,10 @@ describe("source observation routes: integration discovery and profile administr
     const services = {
       getCatalogIntegrationControlPlaneReadiness,
       listRecentIntegrationJobs,
+      getProviderSendWindow: vi.fn(async () => ({
+        state: "unavailable" as const,
+        refusal: "authority-unavailable" as const,
+      })),
     } as unknown as SourceObservationRouteServices;
     const store = mutableProfileStore([
       profileVersion("tcgdex", {
@@ -499,6 +503,16 @@ describe("source observation routes: integration discovery and profile administr
     const app = buildApp(services, store);
 
     const response = await app.request("/source-observations/integration-control-plane/overview");
+
+    const beforeReadiness = getCatalogIntegrationControlPlaneReadiness.mock.calls.length;
+    const quotaReadout = await app.request(
+      "/source-observations/integration-control-plane/overview?provider-send-window=true",
+    );
+    expect(quotaReadout.status).toBe(503);
+    await expect(quotaReadout.json()).resolves.toEqual({
+      providerSendWindow: { state: "unavailable", refusal: "authority-unavailable" },
+    });
+    expect(getCatalogIntegrationControlPlaneReadiness).toHaveBeenCalledTimes(beforeReadiness);
 
     expect(response.status).toBe(200);
     const json = await response.json();

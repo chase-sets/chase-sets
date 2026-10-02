@@ -11,6 +11,12 @@ import {
 } from "../providers/provider-option-query-cache";
 import { queryProviderIntegrationOptions } from "../providers/provider-option-queries";
 import { ProviderAdapterRegistry } from "./registry";
+import {
+  createProviderSendAdmission,
+  runCatalogProviderWork,
+  type ProviderSendLedger,
+} from "../providers/provider-send-admission";
+import { SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY } from "./scrydex-one-piece";
 
 const now = new Date("2026-09-30T12:00:00Z");
 const request: CatalogProviderOptionQueryRequest = {
@@ -97,6 +103,44 @@ function adapter(cacheStore: CatalogProviderOptionQueryCacheStore, fetch: typeof
 }
 
 describe("Scrydex exact cached card estimate", () => {
+  const binding = { windowId: "synthetic-window", phase: "pass" as const, pass: 1 };
+  function guarded(maximum: number | null = null) {
+    const ledger: ProviderSendLedger = {
+      bind: async () => binding,
+      debit: async () => ({ state: "admitted", windowId: binding.windowId, sequence: 1 }),
+      settle: async () => undefined,
+      stop: async () => undefined,
+      maximum: async () => maximum,
+    };
+    return createProviderSendAdmission({ enabled: true, ledger });
+  }
+  it("armed Card planning rejects absent and stale exact observations, not a fabricated maximum", async () => {
+    for (const observation of [null, record({ fetchedAt: new Date(now.getTime() - 900_001).toISOString() })]) {
+      const subject = adapter(store(observation), async () => Response.json({ data: {} }));
+      await expect(runCatalogProviderWork(guarded(256), () => subject.planImport(scope))).rejects.toThrow(
+        "unknown-request",
+      );
+    }
+  });
+  it("ordinal 18 keeps an unavailable estimate distinct from its installed maximum", async () => {
+    const fetch = vi.fn(async (_input: Parameters<typeof globalThis.fetch>[0]) => Response.json({ data: {} }));
+    const subject = adapter(store(), fetch);
+    const sealedScope = {
+      unitKey: SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      scopeKey: "expansion-sealed-products",
+      values: { expansionId: "synthetic-ordinal-18", language: "en" },
+    };
+    await expect(runCatalogProviderWork(guarded(), () => subject.planImport(sealedScope))).rejects.toThrow(
+      "unknown-request",
+    );
+    const plan = await runCatalogProviderWork(guarded(256), () => subject.planImport(sealedScope));
+    expect(plan.usageEstimate).toMatchObject({
+      estimateState: "estimate-unavailable",
+      estimatedRequestCount: null,
+      enforcedAdmissionMaximum: { label: "enforced-admission-maximum", requestCount: 256, windowId: binding.windowId },
+    });
+    expect(fetch.mock.calls.every((call) => String(call[0]).includes("/account/v1/usage"))).toBe(true);
+  });
   it.each([3, 0])("estimates validated synthetic count %i using observed size, not requested 250", async (count) => {
     const cache = store(record({ itemCount: count, totalCount: count, items: count === 0 ? [] : record().items }));
     const fetch = vi.fn(async (_input: Parameters<typeof globalThis.fetch>[0]) => Response.json({ data: {} }));

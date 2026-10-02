@@ -233,8 +233,15 @@ const tcgplayerAutomationRuntime = createTcgplayerAutomationRuntime({
   config: config.tcgplayerAutomation,
   keyring: config.catalogOperatorSessionKeyring,
 });
-const tcgplayerAutomationHttpClients = tcgplayerAutomationRuntime?.httpClients;
 const tcgplayerAutomationCatalogClient = tcgplayerAutomationRuntime?.catalogClient;
+const pricingTcgplayerAutomationHttpClients = createTcgplayerAutomationRuntime(
+  {
+    pool: pools.catalog,
+    config: config.tcgplayerAutomation,
+    keyring: config.catalogOperatorSessionKeyring,
+  },
+  { ownership: "pricing-non-window" },
+)?.httpClients;
 const sourceObservationTelemetry = createSourceObservationTelemetry();
 let runtime: WorkerHostRuntime | null = null;
 const marketplaceChannelInboundClamp = createPlatformWorkerMarketplaceChannelInboundClampBinding(
@@ -251,7 +258,7 @@ const commercialTermsResolver = pools["commercial-terms"]
   : undefined;
 const pricingHostPorts: PricingHostPorts | undefined = pools.pricing
   ? {
-      tcgplayerMarketTransport: tcgplayerAutomationHttpClients ?? { kind: "not-mounted" },
+      tcgplayerMarketTransport: pricingTcgplayerAutomationHttpClients ?? { kind: "not-mounted" },
       tcgplayerMarketCaptureReceiptSink: createObjectStorageTcgplayerMarketCaptureReceiptSink(catalogAssetStorage),
       commercialTermsResolver: requirePricingCommercialTermsResolver(commercialTermsResolver),
       channelConnectionIdentityReader: createChannelConnectionIdentityReader(() => {
