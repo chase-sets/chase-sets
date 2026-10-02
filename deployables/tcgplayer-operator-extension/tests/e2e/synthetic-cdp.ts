@@ -96,6 +96,9 @@ export async function syntheticTarget(port: string, url: string) {
   await send("Runtime.enable");
   await send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
   return {
+    async frameDiagnostics() {
+      return { frameTree: await send("Page.getFrameTree"), contexts: [...contexts] };
+    },
     async evaluate(expression: string, context?: SyntheticContext): Promise<unknown> {
       const response = await send(
         "Runtime.evaluate",
