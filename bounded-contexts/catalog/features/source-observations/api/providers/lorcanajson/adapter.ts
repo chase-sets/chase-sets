@@ -1,3 +1,4 @@
+import { sendCatalogProviderRequest } from "../provider-send-admission";
 import { createHash } from "node:crypto";
 
 import { t } from "@chase-sets/localization";
@@ -614,7 +615,9 @@ async function fetchJson<T>(url: string, options: LorcanajsonProviderAdapterOpti
       : null;
 
   try {
-    const response = await (options.fetch ?? globalThis.fetch)(
+    const response = await sendCatalogProviderRequest(
+      "lorcanajson",
+      options.fetch ?? globalThis.fetch,
       url,
       abortController ? { signal: abortController.signal } : undefined,
     );

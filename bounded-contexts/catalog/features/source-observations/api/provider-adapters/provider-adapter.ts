@@ -82,6 +82,11 @@ export type ProviderImportScope = Readonly<{
 }>;
 
 export type ProviderUsageEstimate = Readonly<{
+  enforcedAdmissionMaximum?: Readonly<{
+    label: "enforced-admission-maximum";
+    requestCount: 256;
+    windowId: string;
+  }> | null;
   requestStrategy: "bulk-first" | "single-record" | "unknown";
   estimateState: "estimated" | "estimate-unavailable";
   estimatedRequestCount: number | null;

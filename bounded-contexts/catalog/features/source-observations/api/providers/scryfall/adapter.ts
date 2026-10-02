@@ -1,3 +1,4 @@
+import { sendCatalogProviderRequest } from "../provider-send-admission";
 import { createHash } from "node:crypto";
 
 import { t } from "@chase-sets/localization";
@@ -498,7 +499,7 @@ async function fetchScryfallSets(options: ScryfallProviderAdapterOptions): Promi
 }
 
 async function fetchJson<T>(url: string, options: ScryfallProviderAdapterOptions): Promise<T> {
-  const response = await (options.fetch ?? globalThis.fetch)(url, {
+  const response = await sendCatalogProviderRequest("scryfall", options.fetch ?? globalThis.fetch, url, {
     headers: {
       "User-Agent":
         options.userAgent ??

@@ -1,3 +1,4 @@
+import { ProviderSendStoppedError } from "./providers/provider-send-admission";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { isDurableJobHandoffError } from "@chase-sets/platform-runtime/durable-job-store";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -387,6 +388,7 @@ export function createSourceObservationPromotionReapplyRuntime({
           reason: null,
         });
       } catch (error) {
+        if (error instanceof ProviderSendStoppedError) throw error;
         if (isDurableJobHandoffError(error)) {
           throw error;
         }
@@ -635,6 +637,7 @@ export function createSourceObservationPromotionReapplyRuntime({
           reason: null,
         });
       } catch (error) {
+        if (error instanceof ProviderSendStoppedError) throw error;
         if (isDurableJobHandoffError(error)) {
           throw error;
         }
@@ -973,6 +976,7 @@ export function createSourceObservationPromotionReapplyRuntime({
           ...(promoted.referenceRecordId ? { referenceRecordId: promoted.referenceRecordId } : {}),
         };
       } catch (error) {
+        if (error instanceof ProviderSendStoppedError) throw error;
         const recovered = await recoverAlreadyPromotedObservationOutcome(observationId);
         if (recovered?.catalogItemId) {
           return {

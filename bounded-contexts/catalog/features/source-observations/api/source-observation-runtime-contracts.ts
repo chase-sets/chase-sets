@@ -1,3 +1,4 @@
+import type { ProviderSendWindowReadout } from "./providers/provider-send-runtime";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import { type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -1089,7 +1090,10 @@ export type SourceObservationProjectorServices = Readonly<{
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
-export type SourceObservationServices = SourceObservationCommandServices &
+export type ProviderSendWindowServices = Readonly<{ getProviderSendWindow: () => Promise<ProviderSendWindowReadout> }>;
+
+export type SourceObservationServices = ProviderSendWindowServices &
+  SourceObservationCommandServices &
   ProviderAdapterServices &
   ProviderOptionQueryServices &
   ProviderProfileAdminServices &

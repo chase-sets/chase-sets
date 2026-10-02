@@ -767,6 +767,7 @@ function loadPreviewPostgresAdminUrl(deploymentEnvironment: DeploymentEnvironmen
 }
 
 export function loadConfig(): PlatformApiConfig {
+  loadCatalogProviderSendWindowEnabled(process.env);
   const baseConfig = loadBaseConfig() as PlatformApiBaseConfig & {
     realtime: PlatformApiRealtimeConfig;
   };
@@ -965,3 +966,4 @@ function loadRealtimeStreamLimiterConfig(): PlatformApiRealtimeStreamLimiterConf
     leaseTtlSeconds: getOptionalPositiveNumberEnv("REALTIME_REDIS_LEASE_TTL_SECONDS", 60) ?? undefined,
   };
 }
+import { loadCatalogProviderSendWindowEnabled } from "@chase-sets/platform-runtime/config-schema";

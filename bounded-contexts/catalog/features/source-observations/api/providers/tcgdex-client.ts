@@ -1,3 +1,4 @@
+import { sendCatalogProviderRequest, ProviderSendStoppedError } from "./provider-send-admission";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type { SourceObservationPokemonCardNormalized } from "../../domain/domain";
 import type { CatalogAssetStorage } from "../seeding/asset-storage";
@@ -256,7 +257,7 @@ export async function fetchTcgdexEnglishMirrorEntity(input: {
   });
 
   try {
-    const response = await fetcher(url);
+    const response = await sendCatalogProviderRequest("tcgdex", fetcher, url, undefined, "mirror");
     if (!response.ok) {
       return null;
     }
@@ -267,7 +268,8 @@ export async function fetchTcgdexEnglishMirrorEntity(input: {
       return null;
     }
     return { id: entityId, name: entityName };
-  } catch {
+  } catch (error) {
+    if (error instanceof ProviderSendStoppedError) throw error;
     return null;
   }
 }
@@ -421,7 +423,7 @@ export async function normalizeTcgdexImageAsset(input: {
 }): Promise<NonNullable<SourceObservationPokemonCardNormalized["productAssetSet"]>> {
   const connector = requireTcgdexConnector(input.profile);
   const assetUrl = `${input.imageBaseUrl}/${connector.highQualityAssetVariant}`;
-  const response = await input.fetcher(assetUrl);
+  const response = await sendCatalogProviderRequest("tcgdex", input.fetcher, assetUrl, undefined, "asset");
   if (!response.ok) {
     throw new Error(`TCGdex asset request failed with ${response.status} for ${assetUrl}.`);
   }
@@ -722,7 +724,7 @@ function toJsonValue(value: unknown): JsonValue {
 }
 
 async function fetchJson<T>(fetcher: typeof globalThis.fetch, url: string): Promise<T> {
-  const response = await fetcher(url);
+  const response = await sendCatalogProviderRequest("tcgdex", fetcher, url);
   if (!response.ok) {
     throw new Error(`TCGdex request failed with ${response.status} for ${url}.`);
   }
