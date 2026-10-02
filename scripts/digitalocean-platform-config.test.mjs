@@ -218,6 +218,28 @@ function expectTerraformAssignment(source, localName, expression) {
 }
 
 describe("DigitalOcean platform runbook", () => {
+  it("requires scheduled and operator refresh exclusion before arming the Catalog send window", () => {
+    const sendWindow = digitaloceanPlatformRunbook
+      .split(/### Supervised Catalog Provider-Send Window\r?\n/)[1]
+      ?.split(/\r?\n### /)[0];
+    expect(sendWindow).toBeDefined();
+    expect(sendWindow).not.toMatch(/scheduled Provider Scope Refresh is inactive/i);
+    expect(sendWindow).toContain(
+      "scheduled Provider Scope Refresh remains enabled at its 900,000 ms (15-minute) default",
+    );
+    expect(sendWindow).toContain("Before arm, the host must exclude both scheduled and operator-dispatched refresh");
+    expect(sendWindow).toContain("POST /provider-scope-discovery/refresh-schedule/:providerKey/pause");
+    expect(sendWindow).toContain(
+      "read back and verify their paused state via `GET /provider-scope-discovery/refresh-schedule`",
+    );
+    expect(sendWindow).toContain("reconcile already-claimed and in-flight refresh work");
+    expect(sendWindow).toContain("A pause or absent interval variable alone is not drain proof");
+    expect(sendWindow).toContain("Hold this exclusion through the protected interval");
+    expect(sendWindow).toContain("resume only under the existing reconciled-cleanup authority");
+    expect(sendWindow).toContain("Unknown refresh exclusion means STOP");
+    expect(sendWindow).toContain("Platform Staging Bootstrap Hook Drill");
+  });
+
   it("documents the database companion sequence for deployable profiles", () => {
     expect(digitaloceanPlatformRunbook).toContain(
       "Database lifecycle is a companion track to runtime profile migration, not a side effect of it.",
