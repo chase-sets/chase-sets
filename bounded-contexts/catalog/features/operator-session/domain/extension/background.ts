@@ -286,16 +286,18 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
     },
     async cookieChanged(change: { removed: boolean; cookie: OperatorCookie }) {
       if (!isOperatorCookie(change.cookie)) return;
-      for (const environment of operatorEnvironments) {
-        await serial(environment, async (current) => {
-          current.cookieGeneration++;
-          if (change.removed) {
-            current.cookiePresent = false;
-            current.browserExpiresAt = null;
-          }
-        });
-        if (!change.removed) await trigger(environment, true);
-      }
+      await Promise.all(
+        operatorEnvironments.map(async (environment) => {
+          await serial(environment, async (current) => {
+            current.cookieGeneration++;
+            if (change.removed) {
+              current.cookiePresent = false;
+              current.browserExpiresAt = null;
+            }
+          });
+          if (!change.removed) await trigger(environment, true);
+        }),
+      );
     },
   };
 }

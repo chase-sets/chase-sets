@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { deferred, fixture, syntheticCookie } from "./fixture";
-import { operatorCookieName, type OperatorCookie } from "../../domain/extension/protocol";
+import { operatorCookieName, operatorEnvironments, type OperatorCookie } from "../../domain/extension/protocol";
 
 describe("operator-extension-cookie-relay", () => {
   it.each([false, true])("refuses an older read after removal (restart=%s)", async (restart) => {
@@ -76,6 +76,74 @@ describe("operator-extension-cookie-relay", () => {
       cookiePresent: true,
       browserExpiresAt: new Date(fresh.expirationDate * 1000).toISOString(),
     });
+    expect(JSON.stringify([...f.data.values()])).not.toContain(syntheticCookie);
+  });
+  it.each([false, true])("fences both environments before waiting for either read (restart=%s)", async (restart) => {
+    const f = fixture();
+    const captured = { ...(await f.adapters.readCookie())!, expirationDate: 1_800_000_000 };
+    const stagingReached = deferred<void>();
+    const productionReached = deferred<void>();
+    const stagingRead = deferred<OperatorCookie | null>();
+    const productionRead = deferred<OperatorCookie | null>();
+    vi.mocked(f.adapters.readCookie)
+      .mockImplementationOnce(() => {
+        stagingReached.resolve();
+        return stagingRead.promise;
+      })
+      .mockImplementationOnce(() => {
+        productionReached.resolve();
+        return productionRead.promise;
+      });
+    const stagingPair = f.pair();
+    await stagingReached.promise;
+    const productionPair = f.pair(undefined, "production");
+    await productionReached.promise;
+    const fresh = { ...captured, value: `${syntheticCookie}_FRESH`, expirationDate: 1_900_000_000 };
+    f.cookie(fresh);
+    const change = f.background.cookieChanged({
+      removed: false,
+      cookie: { ...fresh, value: "EVENT_VALUE_NEVER_READ" },
+    });
+    await f.command({ action: "status", environment: "staging" });
+    productionRead.resolve(captured);
+    await productionPair;
+    const productionStatus = await f.command({ action: "status", environment: "production" });
+    const productionDirty = f.record("production").dirty;
+    const sendsWhileStagingPaused = f.fetcher.mock.calls.length;
+    stagingRead.resolve(captured);
+    await Promise.all([stagingPair, change]);
+    expect(sendsWhileStagingPaused).toBe(0);
+    expect(productionStatus).toMatchObject({ cookiePresent: false, browserExpiresAt: null });
+    expect(productionDirty).toBe(true);
+    for (const environment of operatorEnvironments) {
+      expect(await f.command({ action: "status", environment })).toMatchObject({
+        cookiePresent: false,
+        browserExpiresAt: null,
+      });
+      expect(f.record(environment).dirty).toBe(true);
+    }
+    expect(f.fetcher).not.toHaveBeenCalled();
+    if (restart) await f.restart();
+    f.advance(59_999);
+    for (const environment of operatorEnvironments) await f.background.alarm(environment);
+    expect(f.fetcher).not.toHaveBeenCalled();
+    f.advance(1);
+    for (const environment of operatorEnvironments) await f.background.alarm(environment);
+    expect(f.fetcher).toHaveBeenCalledTimes(2);
+    expect(f.fetcher.mock.calls.map(([url]) => url)).toEqual([
+      "https://admin.staging.chasesets.com/api/public/catalog/operator-session/tcgplayer",
+      "https://admin.chasesets.com/api/public/catalog/operator-session/tcgplayer",
+    ]);
+    for (const [, init] of f.fetcher.mock.calls) {
+      expect(JSON.parse(String(init!.body)).value).toBe(fresh.value);
+    }
+    for (const environment of operatorEnvironments) {
+      expect(f.record(environment).dirty).toBe(false);
+      expect(await f.command({ action: "status", environment })).toMatchObject({
+        cookiePresent: true,
+        browserExpiresAt: new Date(fresh.expirationDate * 1000).toISOString(),
+      });
+    }
     expect(JSON.stringify([...f.data.values()])).not.toContain(syntheticCookie);
   });
   it.each([500, 502, 504])("HTTP %i retries only at five minutes, including after eviction", async (status) => {
