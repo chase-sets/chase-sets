@@ -56,7 +56,13 @@ function syntheticProfile(input: { providerAttribute?: boolean } = {}): CatalogP
       providerAttributes: [],
       targetRecordRuleKey: "set",
       referenceTypes: [
-        { referenceTypeId: typeId, typeKey: "set", name: "Set", descriptionText: "Synthetic Set type", attributeKeys: [] },
+        {
+          referenceTypeId: typeId,
+          typeKey: "set",
+          name: "Set",
+          descriptionText: "Synthetic Set type",
+          attributeKeys: [],
+        },
       ],
       referenceRecords: [
         {
@@ -69,7 +75,10 @@ function syntheticProfile(input: { providerAttribute?: boolean } = {}): CatalogP
           ...(input.providerAttribute
             ? {
                 attributes: [
-                  { attributeKey: providerAttributeKey, value: { kind: "static" as const, value: providerAttributeValue } },
+                  {
+                    attributeKey: providerAttributeKey,
+                    value: { kind: "static" as const, value: providerAttributeValue },
+                  },
                 ],
               }
             : {}),
@@ -129,7 +138,8 @@ function harness(projected: readonly ProjectedReferenceRecord[] = []) {
     types: async (streamId: string) => (await eventStore.readStream({ streamId })).map((event) => event.eventType),
     provision: (referenceData: ReferenceDataServices, profile = syntheticProfile()) =>
       resolvePromotionReferenceHierarchy({ deps, referenceData, profile, normalized, context }),
-    preview: (profile = syntheticProfile()) => resolvePromotionReferenceHierarchyReadOnly({ deps, profile, normalized }),
+    preview: (profile = syntheticProfile()) =>
+      resolvePromotionReferenceHierarchyReadOnly({ deps, profile, normalized }),
   };
 }
 
@@ -232,7 +242,12 @@ describe("promotion reference hierarchy provisioning against authoritative Refer
       async (state) => {
         const h = harness();
         if (state === "draft") {
-          await h.typeCommand({ type: "CreateReferenceType", referenceTypeId: typeId, key: "set", name: h.text("Set") });
+          await h.typeCommand({
+            type: "CreateReferenceType",
+            referenceTypeId: typeId,
+            key: "set",
+            name: h.text("Set"),
+          });
         }
 
         await expect(h.provision(revisingTypeHandlers(h))).rejects.toMatchObject({ code: "concurrency_conflict" });
@@ -277,7 +292,10 @@ describe("promotion reference hierarchy provisioning against authoritative Refer
     it("refuses a provider-attribute candidate whose authoritative attribute moved away", async () => {
       const h = harness([projectedByAttribute]);
       await h.publishType();
-      await h.createRecord(reusedId, { key: "legacy-key", attributes: { [providerAttributeKey]: providerAttributeValue } });
+      await h.createRecord(reusedId, {
+        key: "legacy-key",
+        attributes: { [providerAttributeKey]: providerAttributeValue },
+      });
       await h.recordCommand({ type: "PublishReferenceRecord" }, reusedStream);
       await h.recordCommand(
         {
@@ -301,7 +319,10 @@ describe("promotion reference hierarchy provisioning against authoritative Refer
     it("reuses a provider-attribute candidate with a different canonical key while its attribute still holds", async () => {
       const h = harness([projectedByAttribute]);
       await h.publishType();
-      await h.createRecord(reusedId, { key: "legacy-key", attributes: { [providerAttributeKey]: providerAttributeValue } });
+      await h.createRecord(reusedId, {
+        key: "legacy-key",
+        attributes: { [providerAttributeKey]: providerAttributeValue },
+      });
       await h.recordCommand({ type: "PublishReferenceRecord" }, reusedStream);
       const before = await h.types(reusedStream);
       const profile = syntheticProfile({ providerAttribute: true });
