@@ -1,5 +1,29 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import { createTransientProjectionError, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+
+export async function resetInventoryItemProjection(db: PgQueryable): Promise<void> {
+  const children = await db.query(
+    "SELECT item_id FROM inventory_holds UNION ALL SELECT item_id FROM inventory_restock_decisions LIMIT 1",
+  );
+  if (children.rows.length > 0) {
+    throw new Error(
+      "Cannot reset Inventory items while holds or restock decisions exist; reset dependent holds and restock decisions first, then rebuild items and their dependents in order.",
+    );
+  }
+  const missing = await db.query<{ parent_id: string }>(
+    `SELECT event.payload->>'storageLocationId' AS parent_id FROM event_store_events event
+     WHERE event.event_type = 'inventory.item.created'
+       AND NOT EXISTS (SELECT 1 FROM inventory_storage_locations location
+                       WHERE location.storage_location_id = event.payload->>'storageLocationId')
+     ORDER BY event.global_position LIMIT 1`,
+  );
+  if (missing.rows[0]) {
+    throw new Error(
+      `Cannot reset Inventory items: missing storage location '${missing.rows[0].parent_id}'; rebuild inventory-storage-location-projection first.`,
+    );
+  }
+  await db.query("DELETE FROM inventory_items");
+}
 
 export function buildInventoryItemProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
@@ -28,8 +52,9 @@ export function buildInventoryItemProjectionHandlers(db: PgQueryable): Projector
         acquisitionCostCurrencyCode?: string | null;
       };
 
-      await db.query(
-        `INSERT INTO inventory_items (
+      await db
+        .query(
+          `INSERT INTO inventory_items (
            item_id,
            account_id,
            catalog_catalog_item_id,
@@ -58,21 +83,37 @@ export function buildInventoryItemProjectionHandlers(db: PgQueryable): Projector
              acquisition_cost_currency_code = $11,
              updated_at = $12
          WHERE inventory_items.last_stream_version < $9`,
-        [
-          itemId,
-          accountId,
-          catalogItemId,
-          productId,
-          JSON.stringify(Array.isArray(selectedOptions) ? selectedOptions : []),
-          gradedCard === null || typeof gradedCard !== "object" ? null : JSON.stringify(gradedCard),
-          storageLocationId,
-          totalQuantity,
-          event.streamVersion,
-          acquisitionCostAmount,
-          acquisitionCostCurrencyCode ?? null,
-          event.timing.recordedAt,
-        ],
-      );
+          [
+            itemId,
+            accountId,
+            catalogItemId,
+            productId,
+            JSON.stringify(Array.isArray(selectedOptions) ? selectedOptions : []),
+            gradedCard === null || typeof gradedCard !== "object" ? null : JSON.stringify(gradedCard),
+            storageLocationId,
+            totalQuantity,
+            event.streamVersion,
+            acquisitionCostAmount,
+            acquisitionCostCurrencyCode ?? null,
+            event.timing.recordedAt,
+          ],
+        )
+        .catch((error: unknown) => {
+          if (
+            typeof error === "object" &&
+            error !== null &&
+            "code" in error &&
+            error.code === "23503" &&
+            "constraint" in error &&
+            error.constraint === "inventory_items_storage_location_id_fkey"
+          ) {
+            throw createTransientProjectionError(
+              `Inventory item '${itemId}' is missing storage location '${storageLocationId}'; rebuild inventory-storage-location-projection first.`,
+              { cause: error },
+            );
+          }
+          throw error;
+        });
     },
     "inventory.item.adjusted": async (event) => {
       const { itemId, quantityDelta } = event.data as {
