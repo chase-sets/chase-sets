@@ -44,7 +44,6 @@ export function createOperatorTransport(fetcher: typeof fetch) {
       return { outcome: "refused" };
     const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
     let received = false;
     const deadline = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
@@ -76,17 +75,22 @@ export function createOperatorTransport(fetcher: typeof fetch) {
       ]);
       received = true;
       if (response.redirected || !response.body) return { outcome: "invalid-response" };
-      reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8", { fatal: true });
       let bytes = 0;
       let text = "";
-      for (;;) {
-        const chunk = await Promise.race([reader.read(), deadline]);
-        if (chunk.done) break;
-        bytes += chunk.value.byteLength;
-        if (bytes > operatorResponseByteLimit) return { outcome: "invalid-response" };
-        text += decoder.decode(chunk.value, { stream: true });
-      }
+      await Promise.race([
+        response.body.pipeTo(
+          new WritableStream<Uint8Array>({
+            write(chunk) {
+              bytes += chunk.byteLength;
+              if (bytes > operatorResponseByteLimit) throw new Error("response-limit");
+              text += decoder.decode(chunk, { stream: true });
+            },
+          }),
+          { signal: abort.signal },
+        ),
+        deadline,
+      ]);
       text += decoder.decode();
       const body: unknown = JSON.parse(text);
       if (push && closed(body, ["outcome", "revision"]) && safeInteger(body.revision)) {
@@ -111,10 +115,6 @@ export function createOperatorTransport(fetcher: typeof fetch) {
     } finally {
       clearTimeout(timer);
       abort.abort();
-      if (reader) {
-        void reader.cancel().catch(() => undefined);
-        reader.releaseLock();
-      }
     }
   }
   return {
