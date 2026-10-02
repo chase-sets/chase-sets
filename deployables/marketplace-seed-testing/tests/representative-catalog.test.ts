@@ -645,6 +645,8 @@ async function writeSyntheticLorcanaPack(
       "utf8",
     ),
   );
+  // Isolate ink replay from new-Set projection timing by using the seeded Set key.
+  const setCode = "the-first-chapter";
   const envelopes = inkColors.map((inkColor, index) => {
     const cardId = `synthetic-ink-${index}`;
     const imageUrl = `https://images.example.invalid/synthetic/lorcana-${index}.png`;
@@ -655,12 +657,15 @@ async function writeSyntheticLorcanaPack(
       cardId,
       name: `Synthetic Lorcana ${index}`,
       cardNumber: String(index + 1),
+      setId: setCode,
+      setCode,
       inkColor,
       imageUrls: [imageUrl],
       externalCatalogItemReferences: [],
       tcgplayerProductId: null,
       sourcePayload: {
         ...fixture.sourcePayload,
+        set: { ...fixture.sourcePayload.set, setId: setCode, setCode },
         card: {
           ...fixture.sourcePayload.card,
           id: cardId,
@@ -673,6 +678,8 @@ async function writeSyntheticLorcanaPack(
       },
       catalogHashMaterial: {
         ...fixture.catalogHashMaterial,
+        setId: setCode,
+        setCode,
         cardId,
         cardNumber: String(index + 1),
         name: `Synthetic Lorcana ${index}`,
@@ -705,7 +712,7 @@ async function writeSyntheticLorcanaPack(
       productLineKey: "disney-lorcana",
       productLineDisplayName: "Disney Lorcana",
       setKind: "set",
-      setExternalId: "1",
+      setExternalId: setCode,
       setDisplayName: "The First Chapter",
       providerKey: "lorcanajson",
       integrationProfileKey: "lorcana-card-reference-data",
@@ -713,7 +720,7 @@ async function writeSyntheticLorcanaPack(
       ingestionUnit: envelopes[0]!.unitKey,
       language: "en",
       scopeKey: "set",
-      scopeCoordinates: { languageCode: "en", setCode: "1" },
+      scopeCoordinates: { languageCode: "en", setCode },
     },
     envelopes,
     assets: envelopes.map((envelope) => ({
