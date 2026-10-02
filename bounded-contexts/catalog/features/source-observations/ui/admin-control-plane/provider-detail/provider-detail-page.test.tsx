@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../../primary-workbench-read-model";
 import { controlPlaneOverview, profileReview, sourceObservationScope } from "../../primary-workbench-test-fixtures";
 import { CatalogProviderDetailPage } from "./provider-detail-page";
@@ -8,6 +8,7 @@ import { catalogProviderDetailHref } from "./provider-detail-links";
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
 });
 
 describe("CatalogProviderDetailPage", () => {
@@ -168,6 +169,49 @@ describe("CatalogProviderDetailPage", () => {
     );
 
     expect(screen.getAllByText(/activat/i).length).toBeGreaterThan(0);
+  });
+});
+
+describe("CatalogProviderDetailPage Operator session section", () => {
+  function providerReadModel(providerKey: string) {
+    return buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
+      requestUrl: `https://admin.example/catalog/providers/${providerKey}?providerKey=${providerKey}`,
+      scopes: { items: [sourceObservationScope({ provider_key: providerKey })], total: 1, count: 1 },
+      profileReviews: {
+        items: [profileReview({ providerKey, active: true, lifecycle: "active" })],
+        total: 1,
+        count: 1,
+      },
+      controlPlaneOverview: controlPlaneOverview(),
+      canManageCatalog: true,
+    });
+  }
+
+  it("mounts the section on TCGplayer only when the route supplies an Operator session key", () => {
+    const fetch = vi.fn(() => new Promise<Response>(() => undefined));
+    vi.stubGlobal("fetch", fetch);
+
+    render(
+      <CatalogProviderDetailPage readModel={providerReadModel("tcgplayer")} operatorSessionKey="actor|location" />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Operator session" })).toBeTruthy();
+    expect(fetch).toHaveBeenCalledWith("/api/catalog/operator-session", expect.objectContaining({ method: "GET" }));
+  });
+
+  it.each([
+    ["TCGplayer without a key", "tcgplayer", null],
+    ["another provider with a key", "tcgdex", "actor|location"],
+  ])("omits the section for %s", (_label, providerKey, operatorSessionKey) => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+
+    render(
+      <CatalogProviderDetailPage readModel={providerReadModel(providerKey)} operatorSessionKey={operatorSessionKey} />,
+    );
+
+    expect(screen.queryByRole("heading", { name: "Operator session" })).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 

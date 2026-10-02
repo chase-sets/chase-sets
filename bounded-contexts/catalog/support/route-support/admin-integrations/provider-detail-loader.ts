@@ -1,4 +1,6 @@
+import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import type { LoaderFunctionArgs } from "react-router";
+import { operatorSessionProviderKey } from "../../../features/operator-session/ui/admin-panel/operator-session-http";
 import type { ProviderRefreshSchedulePanelItem } from "../../../features/provider-scope-discovery/ui/provider-refresh-schedule-panel";
 import { createCatalogRequestApiClient } from "../../request-support/api-client";
 import { loadHealthSurface } from "./integrations-loader-support";
@@ -30,12 +32,30 @@ export async function loadProviderDetail(args: LoaderFunctionArgs) {
       ? args.request
       : new Request(url.toString(), { method: "GET", headers: args.request.headers });
 
-  const [surfaceData, providerRefreshSchedules] = await Promise.all([
+  const [surfaceData, providerRefreshSchedules, operatorSessionActorKey] = await Promise.all([
     loadHealthSurface({ ...args, request }),
     loadProviderRefreshSchedules(request, providerKey),
+    loadOperatorSessionActorKey(request, providerKey),
   ]);
 
-  return { ...surfaceData, providerRefreshSchedules };
+  return { ...surfaceData, providerRefreshSchedules, operatorSessionActorKey };
+}
+
+// The Operator session section is shown only to platform-admin actors on the
+// TCGplayer provider. The returned actor key (never a session or grant value)
+// lets the route remount the panel when the actor changes; null hides it, and
+// an actor-resolution failure fails closed.
+async function loadOperatorSessionActorKey(request: Request, providerKey: string | null): Promise<string | null> {
+  if (providerKey !== operatorSessionProviderKey) {
+    return null;
+  }
+
+  try {
+    const actor = await resolveActorFromAuthApi({ request });
+    return actor?.roleKey === "platform-admin" ? `${actor.userId}:${actor.membershipId}` : null;
+  } catch {
+    return null;
+  }
 }
 
 async function loadProviderRefreshSchedules(

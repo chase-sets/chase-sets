@@ -16,6 +16,8 @@ import {
   type DataColumn,
 } from "@chase-sets/design-system";
 import { formatDateTime, t } from "@chase-sets/localization";
+import { operatorSessionProviderKey } from "../../../../operator-session/ui/admin-panel/operator-session-http";
+import { OperatorSessionPanel } from "../../../../operator-session/ui/admin-panel/operator-session-panel";
 import {
   ProviderRefreshSchedulePanel,
   type ProviderRefreshSchedulePanelItem,
@@ -54,10 +56,13 @@ export function CatalogProviderDetailPage({
   readModel,
   commandFeedback = null,
   providerRefreshSchedules = null,
+  operatorSessionKey = null,
 }: Readonly<{
   readModel: CatalogPrimaryWorkbenchReadModel;
   commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
   providerRefreshSchedules?: readonly ProviderRefreshSchedulePanelItem[] | null;
+  /** Set only for platform-admin actors on TCGplayer; keys the Operator session panel. */
+  operatorSessionKey?: string | null;
 }>) {
   const authoring = readModel.profileAuthoring;
   const selectedProfile = authoring.selectedProfile;
@@ -81,6 +86,10 @@ export function CatalogProviderDetailPage({
       {commandFeedback ? <CommandFeedbackBanner feedback={commandFeedback} /> : null}
 
       <ProviderDetailHeader readModel={readModel} providerKey={providerKey} />
+
+      {operatorSessionKey && providerKey === operatorSessionProviderKey ? (
+        <OperatorSessionPanel key={operatorSessionKey} />
+      ) : null}
 
       {providerRefreshSchedules ? (
         <ProviderRefreshSchedulePanel
