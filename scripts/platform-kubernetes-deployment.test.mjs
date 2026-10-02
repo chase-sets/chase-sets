@@ -291,6 +291,35 @@ function completedSpawn(calls, completions) {
 }
 
 describe("platform Kubernetes deployment", () => {
+  it.each([undefined, "true", "false"])(
+    "threads Catalog send-window %s through real CLI parsing and Helm arguments",
+    (flag) => {
+      const argv = ["deploy", "--image", rollbackImageRef, "--runtime-env", "DEPLOYMENT_ENVIRONMENT=staging"];
+      if (flag !== undefined) argv.push("--runtime-env", `CATALOG_PROVIDER_SEND_WINDOW_ENABLED=${flag}`);
+      const parsed = parseArgs(argv, {});
+      expect(parsed.envOverrides.CATALOG_PROVIDER_SEND_WINDOW_ENABLED).toBe(flag);
+      const args = buildHelmUpgradeArgs(parsed);
+      expect(args).toContain("infrastructure/helm/platform/values.staging.yaml");
+      const index = args.indexOf(`global.envOverrides.CATALOG_PROVIDER_SEND_WINDOW_ENABLED=${flag}`);
+      if (flag === undefined) {
+        expect(args.some((arg) => arg.includes("CATALOG_PROVIDER_SEND_WINDOW_ENABLED"))).toBe(false);
+      } else {
+        expect(index).toBeGreaterThan(0);
+        expect(args[index - 1]).toBe("--set-string");
+      }
+    },
+  );
+
+  it("does not introduce the Catalog send-window override into production Helm arguments", () => {
+    const parsed = parseArgs(
+      ["deploy", "--image", rollbackImageRef, "--runtime-env", "DEPLOYMENT_ENVIRONMENT=production"],
+      {},
+    );
+    const args = buildHelmUpgradeArgs(parsed);
+    expect(args).toContain("infrastructure/helm/platform/values.production.yaml");
+    expect(args.some((arg) => arg.includes("CATALOG_PROVIDER_SEND_WINDOW_ENABLED"))).toBe(false);
+  });
+
   it("parses DigitalOcean platform image refs with tags or digests", () => {
     expect(parsePlatformImageRef("registry.digitalocean.com/chase-sets/chase-sets-platform:abc123")).toEqual({
       registry: "registry.digitalocean.com",

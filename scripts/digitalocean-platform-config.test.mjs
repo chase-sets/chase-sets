@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ADMIN_WEB_API_DEPENDENCIES } from "./admin-shell-smoke-matrix.mjs";
 import { classifyChanges } from "./change-scope.mjs";
+import { parseReleaseDeploymentScopeArgs, resolveReleaseDeploymentScope } from "./release-deployment-scope.mjs";
 import { listContextManifests } from "./lib/repo.mjs";
 import {
   assertNoDestructiveChanges,
@@ -217,6 +218,28 @@ function expectTerraformAssignment(source, localName, expression) {
 }
 
 describe("DigitalOcean platform runbook", () => {
+  it("requires scheduled and operator refresh exclusion before arming the Catalog send window", () => {
+    const sendWindow = digitaloceanPlatformRunbook
+      .split(/### Supervised Catalog Provider-Send Window\r?\n/)[1]
+      ?.split(/\r?\n### /)[0];
+    expect(sendWindow).toBeDefined();
+    expect(sendWindow).not.toMatch(/scheduled Provider Scope Refresh is inactive/i);
+    expect(sendWindow).toContain(
+      "scheduled Provider Scope Refresh remains enabled at its 900,000 ms (15-minute) default",
+    );
+    expect(sendWindow).toContain("Before arm, the host must exclude both scheduled and operator-dispatched refresh");
+    expect(sendWindow).toContain("POST /provider-scope-discovery/refresh-schedule/:providerKey/pause");
+    expect(sendWindow).toContain(
+      "read back and verify their paused state via `GET /provider-scope-discovery/refresh-schedule`",
+    );
+    expect(sendWindow).toContain("reconcile already-claimed and in-flight refresh work");
+    expect(sendWindow).toContain("A pause or absent interval variable alone is not drain proof");
+    expect(sendWindow).toContain("Hold this exclusion through the protected interval");
+    expect(sendWindow).toContain("resume only under the existing reconciled-cleanup authority");
+    expect(sendWindow).toContain("Unknown refresh exclusion means STOP");
+    expect(sendWindow).toContain("Platform Staging Bootstrap Hook Drill");
+  });
+
   it("documents the database companion sequence for deployable profiles", () => {
     expect(digitaloceanPlatformRunbook).toContain(
       "Database lifecycle is a companion track to runtime profile migration, not a side effect of it.",
@@ -636,6 +659,52 @@ function platformApiExposedContextNames(runtimeProfile) {
 }
 
 describe("DigitalOcean platform configuration", () => {
+  it("enrolls the Catalog send-window composition controls in the required DB proof profile", () => {
+    const compositionTest =
+      "bounded-contexts/catalog/features/source-observations/api/providers/provider-send-admission.test.ts";
+    expect(classifyChanges({ changedFiles: [compositionTest] })).toMatchObject({ dbTestsRequired: true });
+  });
+
+  it("opts only staging into the supervised Catalog send window and requires a forced setup", () => {
+    expect(platformProductionWorkflow).toMatch(
+      /catalog_provider_send_window_enabled:\n\s+description:[^\n]+\n\s+required: false\n\s+default: false\n\s+type: boolean/,
+    );
+    const staging = workflowStep(platformProductionWorkflow, "Deploy staging Kubernetes release");
+    expect(staging).toContain(
+      "--runtime-env \"CATALOG_PROVIDER_SEND_WINDOW_ENABLED=${{ inputs.catalog_provider_send_window_enabled == true && 'true' || 'false' }}\"",
+    );
+    expect(workflowJob(platformProductionWorkflow, "deploy-production")).not.toContain(
+      "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+    );
+    expect(platformReleaseCandidateWorkflow).not.toContain("catalog_provider_send_window_enabled");
+    const validation = workflowStep(
+      workflowJob(platformProductionWorkflow, "resolve-release"),
+      "Validate Catalog provider-send window opt-in",
+    );
+    expect(validation).toContain(
+      'if [ "$CATALOG_PROVIDER_SEND_WINDOW_ENABLED" = "true" ] && [ "$FORCE_DEPLOY" != "true" ]; then',
+    );
+    expect(validation).toContain("exit 1");
+    expect(validation).toContain("inputs.force_deploy == true");
+    const scope = workflowStep(platformProductionWorkflow, "Resolve deployment scope");
+    expect(scope).toContain(
+      "--force-deploy \"${{ github.event_name == 'workflow_dispatch' && inputs.force_deploy == true && 'true' || 'false' }}\"",
+    );
+    const parsed = parseReleaseDeploymentScopeArgs(
+      ["--event-name", "workflow_dispatch", "--release-commit", "synthetic-same-sha", "--force-deploy", "true"],
+      {},
+    );
+    expect(
+      resolveReleaseDeploymentScope(parsed, {
+        execFileSync: () => "",
+        log: () => undefined,
+        listChangedFiles: () => {
+          throw new Error("Forced same-SHA deployment must not diff-skip");
+        },
+      }),
+    ).toMatchObject({ deploy: true, reason: "manual-force" });
+  });
+
   it("threads the exact graph-owned authority and v2 trust trigger to both database-grant provisioners", () => {
     const contextGrants = terraformResourceBlock(platformMain, "terraform_data", "context_database_grants");
     const wakeListenerGrants = terraformResourceBlock(platformMain, "terraform_data", "wake_listener_database_grants");
