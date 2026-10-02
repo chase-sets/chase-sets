@@ -653,16 +653,16 @@ export class TcgplayerAutomationDomainHttpClient {
 }
 
 function redactCredentialException(error: unknown, credentialValue: string | null): unknown {
-  if (!credentialValue || typeof error !== "object" || error === null) return error;
+  if (!credentialValue) return error;
+  const bounded = new Error("tcgplayer-automation-request-failed");
   try {
-    const message = Object.getOwnPropertyDescriptor(error, "message")?.value;
-    if (typeof message === "string" && message.includes(credentialValue)) {
-      return new Error("tcgplayer-automation-request-failed");
-    }
+    if (error instanceof TcgplayerAutomationHttpError || error instanceof TcgplayerAutomationAuthorityError)
+      return error;
+    if (error instanceof Error && error.name === "AbortError") bounded.name = "AbortError";
   } catch {
-    return new Error("tcgplayer-automation-request-failed");
+    return bounded;
   }
-  return error;
+  return bounded;
 }
 
 function hasCredentialUnavailableCode(error: unknown): boolean {

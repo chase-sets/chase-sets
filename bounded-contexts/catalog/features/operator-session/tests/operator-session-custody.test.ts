@@ -143,7 +143,7 @@ describe("operator-session ciphertext custody", () => {
       open.mockRestore();
     }
   });
-  it.each(["http", "parse", "transport"])(
+  it.each(["http", "parse", "transport", "primitive", "property"])(
     "never exposes an opaque credential echoed through %s errors",
     async (failure) => {
       const store = createInMemoryTcgplayerAutomationHttpConfigStore({
@@ -157,6 +157,8 @@ describe("operator-session ciphertext custody", () => {
       const clients = createTcgplayerAutomationHttpClients(store, {
         fetch: async () => {
           if (failure === "transport") throw new Error(marker);
+          if (failure === "primitive") throw marker;
+          if (failure === "property") throw Object.assign(new Error("transport-failed"), { detail: marker });
           return new Response(marker, { status: failure === "http" ? 403 : 200 });
         },
       });
