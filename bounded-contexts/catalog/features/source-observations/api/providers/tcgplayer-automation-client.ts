@@ -1,4 +1,6 @@
 import { ProviderSendStoppedError, sendCatalogProviderRequest } from "./provider-send-admission";
+import type { OperatorSessionAttemptOutcome } from "../../../operator-session/api/outcomes";
+import { operatorSessionRateBudgetContext } from "../../../operator-session/domain/rate-budget-context";
 
 export const TCGPLAYER_AUTOMATION_DOMAIN_KEYS = {
   MP_SEARCH_API: "mpSearchApi",
@@ -42,6 +44,7 @@ export type TcgplayerAutomationAuthConfig = Readonly<{
   tcgAuthCookie: string | null;
   userAgent: string;
   credential: TcgplayerAutomationCredential | null;
+  custodyRevision: number | null;
 }>;
 
 export type TcgplayerAutomationHttpConfig = Readonly<{
@@ -52,6 +55,7 @@ export type TcgplayerAutomationHttpConfig = Readonly<{
 }>;
 
 export type TcgplayerAutomationHttpConfigStore = Readonly<{
+  recordCredentialOutcome?: (outcome: OperatorSessionAttemptOutcome) => Promise<void>;
   loadConfig: () => Promise<TcgplayerAutomationHttpConfig>;
   loadDomainConfig: (domainKey: TcgplayerAutomationDomainKey) => Promise<TcgplayerAutomationDomainRateLimitConfig>;
   persistDomainDelays: (
@@ -86,6 +90,9 @@ export type TcgplayerAutomationHttpConfigStore = Readonly<{
 }>;
 
 export type TcgplayerAutomationAdmissionResult = Readonly<{
+  domainKey: TcgplayerAutomationDomainKey;
+  requestDelayMs: number;
+  floorRequestDelayMs: number;
   granted: boolean;
   leaseId: string | null;
   leaseExpiresAt: string | null;
@@ -310,6 +317,25 @@ export class TcgplayerAutomationDomainHttpClient {
     let lastHttpStatus: number | null = null;
     let lastHttpStatusAttempt: number | null = null;
     let credential: TcgplayerAutomationCredential | null = null;
+    const usedLeases = new Set<string>();
+    const captureHeaders = (
+      config: TcgplayerAutomationHttpConfig,
+      status: number,
+      rateBudgetContext: "retained" | "unknown",
+    ): OperatorSessionAttemptOutcome | null => {
+      if (Number.isInteger(status) && status >= 100 && status <= 599) {
+        lastHttpStatus = status;
+        lastHttpStatusAttempt = attempt;
+      }
+      const { credential: selected, custodyRevision } = config.auth;
+      return selected && custodyRevision !== null
+        ? {
+            identity: { ...selected, custodyRevision },
+            status,
+            rateBudgetContext,
+          }
+        : null;
+    };
     const emit = (
       stage: TcgplayerAutomationStage,
       detail: Partial<
@@ -369,7 +395,15 @@ export class TcgplayerAutomationDomainHttpClient {
         this.configStore.recordDomainRateLimit &&
         this.configStore.recordDomainSuccess
       ) {
-        return await this.executeWithDurableAuthority(input, initialConfig, emit, finish, beginAttempt);
+        return await this.executeWithDurableAuthority(
+          input,
+          initialConfig,
+          emit,
+          finish,
+          beginAttempt,
+          captureHeaders,
+          usedLeases,
+        );
       }
       let recordedRateLimit = false;
 
@@ -379,7 +413,7 @@ export class TcgplayerAutomationDomainHttpClient {
         const domainConfig = await this.configStore.loadDomainConfig(this.domainKey);
         emit("limiter-wait");
         await this.limiter.acquire(domainConfig.maxConcurrentRequests);
-
+        let captured: OperatorSessionAttemptOutcome | null = null;
         try {
           emit("throttle-wait");
           await this.throttler.waitToStart(input.options.signal);
@@ -394,6 +428,7 @@ export class TcgplayerAutomationDomainHttpClient {
             signal: input.options.signal,
           });
           const status = response.status;
+          captured = captureHeaders(attemptConfig, status, "unknown");
           const hasValidHttpStatus = Number.isInteger(status) && status >= 100 && status <= 599;
           if (hasValidHttpStatus) {
             lastHttpStatus = status;
@@ -453,6 +488,7 @@ export class TcgplayerAutomationDomainHttpClient {
           emit("retry-end");
         } finally {
           this.limiter.release();
+          await this.recordCredentialOutcome(captured);
         }
       }
 
@@ -460,6 +496,19 @@ export class TcgplayerAutomationDomainHttpClient {
     } catch (error) {
       finish(signal?.aborted ? "aborted" : "failure", error);
       throw error;
+    }
+  }
+
+  private async recordCredentialOutcome(outcome: OperatorSessionAttemptOutcome | null): Promise<void> {
+    if (
+      !outcome ||
+      (!(outcome.status >= 200 && outcome.status < 300) && outcome.status !== 401 && outcome.status !== 403)
+    )
+      return;
+    try {
+      await this.configStore.recordCredentialOutcome?.(outcome);
+    } catch {
+      // Passive readiness must not change the request's retry or thrown-error contract.
     }
   }
 
@@ -474,10 +523,16 @@ export class TcgplayerAutomationDomainHttpClient {
     initialConfig: TcgplayerAutomationHttpConfig,
     emit: (
       stage: TcgplayerAutomationStage,
-      detail?: Partial<Pick<TcgplayerAutomationStageFact, "statusClass" | "activeStage" | "outcome">>,
+      detail?: Partial<Pick<TcgplayerAutomationStageFact, "statusClass" | "activeStage" | "outcome" | "httpStatus">>,
     ) => void,
     finish: (outcome: "success" | "failure" | "aborted") => void,
     beginAttempt: (retry: number) => Promise<TcgplayerAutomationHttpConfig>,
+    captureHeaders: (
+      config: TcgplayerAutomationHttpConfig,
+      status: number,
+      context: "retained" | "unknown",
+    ) => OperatorSessionAttemptOutcome | null,
+    usedLeases: Set<string>,
   ): Promise<TResponse> {
     const signal = input.options.signal;
     const recordDomainRateLimit = this.configStore.recordDomainRateLimit;
@@ -498,6 +553,7 @@ export class TcgplayerAutomationDomainHttpClient {
       if (!leaseId) {
         throw new TcgplayerAutomationAuthorityError("admission returned no lease");
       }
+      const rateBudgetContext = operatorSessionRateBudgetContext(admission, this.domainKey, usedLeases, this.now());
 
       const requestController = new AbortController();
       const renewalController = new AbortController();
@@ -517,6 +573,7 @@ export class TcgplayerAutomationDomainHttpClient {
       });
 
       let response: Response | undefined;
+      let captured: OperatorSessionAttemptOutcome | null = null;
       try {
         emit("request-construction");
         emit("fetch-start");
@@ -526,7 +583,8 @@ export class TcgplayerAutomationDomainHttpClient {
           headers,
           signal: requestController.signal,
         });
-        emit("headers-received", { statusClass: httpStatusClass(response.status) });
+        captured = captureHeaders(attemptConfig, response.status, rateBudgetContext);
+        emit("headers-received", { statusClass: httpStatusClass(response.status), httpStatus: response.status });
         if (!response.ok) {
           emit("error-body-read-start");
           const error = await this.httpError(response, attemptConfig.auth.tcgAuthCookie);
@@ -580,6 +638,8 @@ export class TcgplayerAutomationDomainHttpClient {
           emit("retry-backoff-end");
         }
         emit("retry-end");
+      } finally {
+        await this.recordCredentialOutcome(captured);
       }
     }
 
@@ -729,7 +789,8 @@ export function createTcgplayerAutomationHttpClients(
 }
 
 export type TcgplayerAutomationHttpConfigInput = Partial<Omit<TcgplayerAutomationHttpConfig, "auth">> & {
-  auth?: Omit<TcgplayerAutomationAuthConfig, "credential"> & Partial<Pick<TcgplayerAutomationAuthConfig, "credential">>;
+  auth?: Omit<TcgplayerAutomationAuthConfig, "credential" | "custodyRevision"> &
+    Partial<Pick<TcgplayerAutomationAuthConfig, "credential" | "custodyRevision">>;
 };
 
 export function createInMemoryTcgplayerAutomationHttpConfigStore(
@@ -759,7 +820,9 @@ export function createInMemoryTcgplayerAutomationHttpConfigStore(
 export function createPostgresTcgplayerAutomationHttpConfigStore(
   db: PgQueryable,
   initial: TcgplayerAutomationHttpConfigInput = {},
-  resolveCredential?: () => Promise<Pick<TcgplayerAutomationAuthConfig, "tcgAuthCookie" | "credential">>,
+  resolveCredential?: () => Promise<
+    Pick<TcgplayerAutomationAuthConfig, "tcgAuthCookie" | "credential" | "custodyRevision">
+  >,
 ): TcgplayerAutomationHttpConfigStore {
   const baseConfig = mergeTcgplayerAutomationHttpConfig(initial, true);
 
@@ -805,6 +868,9 @@ export function createPostgresTcgplayerAutomationHttpConfigStore(
         const row = result.rows[0];
         if (!row) throw new TcgplayerAutomationAuthorityError("admission returned no result");
         return {
+          domainKey,
+          requestDelayMs: Number(row.request_delay_ms),
+          floorRequestDelayMs: Number(row.floor_request_delay_ms),
           granted: row.granted,
           leaseId: row.granted ? row.lease_id : null,
           leaseExpiresAt: row.granted ? row.lease_expires_at : null,
@@ -901,6 +967,8 @@ function createTcgplayerAutomationDomainClient(
 }
 
 type DurableAdmissionRow = Readonly<{
+  request_delay_ms: number;
+  floor_request_delay_ms: number;
   granted: boolean;
   lease_id: string | null;
   lease_expires_at: string | null;
@@ -972,7 +1040,9 @@ SELECT EXISTS (SELECT 1 FROM booked) AS granted,
        (SELECT expires_at::text FROM booked) AS lease_expires_at,
        (SELECT db_now::text FROM db_clock) AS db_now,
        state.not_before::text AS not_before,
-       state.epoch
+       state.epoch,
+       GREATEST(state.effective_request_delay_ms, $5::integer, $6::integer) AS request_delay_ms,
+       GREATEST($5::integer, $6::integer) AS floor_request_delay_ms
   FROM state;`;
 
 const DURABLE_RATE_LIMIT_SQL = `
@@ -1062,6 +1132,7 @@ function mergeTcgplayerAutomationHttpConfig(
     auth: {
       tcgAuthCookie: initial.auth?.tcgAuthCookie ?? null,
       userAgent: initial.auth?.userAgent ?? DEFAULT_USER_AGENT,
+      custodyRevision: initial.auth?.custodyRevision ?? null,
       credential:
         initial.auth?.credential ?? (initial.auth?.tcgAuthCookie ? { revision: 0, source: "environment" } : null),
     },

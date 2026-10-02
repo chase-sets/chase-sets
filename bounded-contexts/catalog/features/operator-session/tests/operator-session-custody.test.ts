@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
+import type { PgTransactionalPool, PgQueryResult } from "@chase-sets/event-core-postgres";
 import * as envelope from "@chase-sets/platform-runtime/secret-envelope";
 import { describeTcgplayerAutomationConfigForLogs } from "@chase-sets/platform-runtime/config-schema";
 import { createPostgresCatalogOperatorSessionStore } from "../api/store";
@@ -45,6 +45,9 @@ async function successfulResponseHarness(durable: boolean, body: string, value =
   const load = vi.spyOn(store, "loadConfig");
   const release = vi.fn(async () => undefined);
   const admit = vi.fn(async () => ({
+    domainKey: "infiniteApi" as const,
+    requestDelayMs: 200,
+    floorRequestDelayMs: 200,
     granted: true,
     leaseId: "synthetic-lease",
     leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -526,6 +529,7 @@ function recorder() {
   let row: Record<string, unknown> | undefined;
   const writes: unknown[] = [];
   const query = vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+    if (sql.includes("row_to_json(outcome)")) return { rows: [{ ...row, outcome: null }] };
     if (sql.startsWith("SELECT *")) return { rows: row ? [row] : [] };
     if (sql.startsWith("INSERT") || sql.includes("SET state = 'stored'")) {
       writes.push(values);
@@ -561,7 +565,10 @@ function recorder() {
     }
     return { rows: [] };
   });
-  const db: PgQueryable = {
+  const db: PgTransactionalPool = {
+    async connect() {
+      return { query: db.query, release() {} };
+    },
     async query<Row>(sql: string, values?: readonly unknown[]): Promise<PgQueryResult<Row>> {
       return (await query(sql, values)) as PgQueryResult<Row>;
     },
@@ -768,8 +775,15 @@ describe("operator-session ciphertext custody", () => {
     expect(await runtime.catalogClient.resolveCredentialReadiness()).toEqual({
       sourceKind: "environment-secret",
       state: "missing",
+      diagnosticCode: "credential-missing",
     });
-    expect(createTcgplayerAutomationRuntime({ pool: capture.db, config: null, keyring: null })).toBeUndefined();
+    expect(
+      await createTcgplayerAutomationRuntime({
+        pool: capture.db,
+        config: null,
+        keyring: null,
+      }).catalogClient.resolveCredentialReadiness(),
+    ).toEqual({ sourceKind: "environment-secret", state: "missing", diagnosticCode: "credential-missing" });
   });
 
   it("readiness resolves every call and keeps an unavailable environment source distinct from custody", async () => {
@@ -782,6 +796,7 @@ describe("operator-session ciphertext custody", () => {
     expect(await runtime.catalogClient.resolveCredentialReadiness()).toEqual({
       sourceKind: "environment-secret",
       state: "missing",
+      diagnosticCode: "credential-missing",
     });
     await expect(runtime.httpClients.infiniteApi.get("/synthetic")).rejects.toMatchObject({
       code: "credential-unavailable",
@@ -791,16 +806,19 @@ describe("operator-session ciphertext custody", () => {
     expect(await runtime.catalogClient.resolveCredentialReadiness()).toEqual({
       sourceKind: "operator-session",
       state: "configured",
+      diagnosticCode: null,
     });
     await runtime.store.clear({ expectedRevision: 1, expectedKeyId: keyring.activeKeyId });
     expect(await runtime.catalogClient.resolveCredentialReadiness()).toEqual({
       sourceKind: "environment-secret",
       state: "missing",
+      diagnosticCode: "credential-missing",
     });
     await runtime.store.accept({ ...input, expectedRevision: 2 });
     expect(await runtime.catalogClient.resolveCredentialReadiness()).toEqual({
       sourceKind: "operator-session",
       state: "configured",
+      diagnosticCode: null,
     });
   });
 });

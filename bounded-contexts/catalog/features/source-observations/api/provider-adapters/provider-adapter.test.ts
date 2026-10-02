@@ -1434,7 +1434,11 @@ describe("ProviderAdapterRegistry", () => {
       loadProfileVersions: async () => [requireTcgplayerPokemonProfileVersion()],
       client: {
         ...tcgplayerClient(),
-        resolveCredentialReadiness: async () => ({ sourceKind: "environment-secret", state: "configured" }),
+        resolveCredentialReadiness: async () => ({
+          sourceKind: "environment-secret",
+          state: "configured",
+          diagnosticCode: null,
+        }),
       },
       now: () => new Date("2026-06-06T00:00:00.000Z"),
     }).getCredentialReadiness();

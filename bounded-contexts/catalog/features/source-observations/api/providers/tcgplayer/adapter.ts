@@ -326,6 +326,7 @@ export function createTcgplayerProviderAdapter(
       const credential = (await options.client?.resolveCredentialReadiness?.()) ?? {
         sourceKind: "environment-secret" as const,
         state: "missing" as const,
+        diagnosticCode: "credential-missing",
       };
 
       return profileUnits.map((profileVersion) =>
@@ -335,10 +336,8 @@ export function createTcgplayerProviderAdapter(
           requirement: "required",
           sourceKind: credential.sourceKind,
           state: credential.state,
-          message:
-            credential.state === "configured"
-              ? t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.configured")
-              : t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.missing"),
+          diagnosticCode: credential.diagnosticCode,
+          message: tcgplayerCredentialMessage(credential.diagnosticCode),
           checkedAt,
           scope: {
             environmentKey: "runtime",
@@ -354,6 +353,25 @@ export function createTcgplayerProviderAdapter(
       );
     },
   };
+}
+
+function tcgplayerCredentialMessage(code: string | null): string {
+  switch (code) {
+    case "operator-session-custody-unavailable":
+      return t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.custodyUnavailable");
+    case "operator-session-expired":
+      return t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.expired");
+    case "credential-refresh-needed":
+      return t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.refreshNeeded");
+    case "rejected-after-refresh":
+      return t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.rejectedAfterRefresh");
+    case "adapter-authentication-failed":
+      return t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.authenticationFailed");
+    case "credential-missing":
+      return t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.missing");
+    default:
+      return t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.configured");
+  }
 }
 
 async function listTcgplayerSetProducts(input: {
