@@ -82,8 +82,9 @@ function installedLedger(pass = 0, nonScrydexUsed = 0) {
 }
 
 function continuation(nextPage: string) {
-  const fetch = vi.fn<typeof globalThis.fetch>(async (): Promise<Response> =>
-    Response.json(fetch.mock.calls.length === 1 ? { data: [], next_page: nextPage } : { data: [] }),
+  const fetch = vi.fn<typeof globalThis.fetch>(
+    async (): Promise<Response> =>
+      Response.json(fetch.mock.calls.length === 1 ? { data: [], next_page: nextPage } : { data: [] }),
   );
   const registry = new ProviderAdapterRegistry([
     createScrydexOnePieceProviderAdapter({
