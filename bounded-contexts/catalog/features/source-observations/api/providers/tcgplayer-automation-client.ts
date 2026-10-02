@@ -238,6 +238,13 @@ function createLeaseOwnerId(): string {
   return randomUuid ?? `owner-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+function captureAttemptIdentity(
+  config: TcgplayerAutomationHttpConfig,
+): OperatorSessionAttemptOutcome["identity"] | null {
+  const { credential, custodyRevision } = config.auth;
+  return credential && custodyRevision !== null ? { ...credential, custodyRevision } : null;
+}
+
 export class TcgplayerAutomationDomainHttpClient {
   public readonly domainKey: TcgplayerAutomationDomainKey;
   public readonly baseUrl: string;
@@ -319,7 +326,7 @@ export class TcgplayerAutomationDomainHttpClient {
     let credential: TcgplayerAutomationCredential | null = null;
     const usedLeases = new Set<string>();
     const captureHeaders = (
-      config: TcgplayerAutomationHttpConfig,
+      identity: OperatorSessionAttemptOutcome["identity"] | null,
       status: number,
       rateBudgetContext: "retained" | "unknown",
     ): OperatorSessionAttemptOutcome | null => {
@@ -327,10 +334,9 @@ export class TcgplayerAutomationDomainHttpClient {
         lastHttpStatus = status;
         lastHttpStatusAttempt = attempt;
       }
-      const { credential: selected, custodyRevision } = config.auth;
-      return selected && custodyRevision !== null
+      return identity
         ? {
-            identity: { ...selected, custodyRevision },
+            identity,
             status,
             rateBudgetContext,
           }
@@ -385,7 +391,7 @@ export class TcgplayerAutomationDomainHttpClient {
         attempt = retry + 1;
         credential = null;
         const config = retry === 0 ? initialConfig : await this.configStore.loadConfig();
-        credential = config.auth.credential;
+        credential = config.auth.credential ? { ...config.auth.credential } : null;
         return config;
       };
       if (
@@ -409,6 +415,7 @@ export class TcgplayerAutomationDomainHttpClient {
 
       for (let retry = 0; retry <= initialConfig.maxRetries; retry += 1) {
         const attemptConfig = await beginAttempt(retry);
+        const attemptIdentity = captureAttemptIdentity(attemptConfig);
         emit("config-wait");
         const domainConfig = await this.configStore.loadDomainConfig(this.domainKey);
         emit("limiter-wait");
@@ -428,7 +435,7 @@ export class TcgplayerAutomationDomainHttpClient {
             signal: input.options.signal,
           });
           const status = response.status;
-          captured = captureHeaders(attemptConfig, status, "unknown");
+          captured = captureHeaders(attemptIdentity, status, "unknown");
           const hasValidHttpStatus = Number.isInteger(status) && status >= 100 && status <= 599;
           if (hasValidHttpStatus) {
             lastHttpStatus = status;
@@ -528,7 +535,7 @@ export class TcgplayerAutomationDomainHttpClient {
     finish: (outcome: "success" | "failure" | "aborted") => void,
     beginAttempt: (retry: number) => Promise<TcgplayerAutomationHttpConfig>,
     captureHeaders: (
-      config: TcgplayerAutomationHttpConfig,
+      identity: OperatorSessionAttemptOutcome["identity"] | null,
       status: number,
       context: "retained" | "unknown",
     ) => OperatorSessionAttemptOutcome | null,
@@ -544,6 +551,7 @@ export class TcgplayerAutomationDomainHttpClient {
     for (let retry = 0; retry <= initialConfig.maxRetries; retry += 1) {
       signal?.throwIfAborted();
       const attemptConfig = await beginAttempt(retry);
+      const attemptIdentity = captureAttemptIdentity(attemptConfig);
       const domainConfig = await this.configStore.loadDomainConfig(this.domainKey);
       emit("limiter-wait");
       const url = this.requestUrl(input.path, input.params);
@@ -583,7 +591,7 @@ export class TcgplayerAutomationDomainHttpClient {
           headers,
           signal: requestController.signal,
         });
-        captured = captureHeaders(attemptConfig, response.status, rateBudgetContext);
+        captured = captureHeaders(attemptIdentity, response.status, rateBudgetContext);
         emit("headers-received", { statusClass: httpStatusClass(response.status), httpStatus: response.status });
         if (!response.ok) {
           emit("error-body-read-start");
