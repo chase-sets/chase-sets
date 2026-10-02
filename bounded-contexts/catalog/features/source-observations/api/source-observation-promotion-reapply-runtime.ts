@@ -1,7 +1,7 @@
 import { ProviderSendStoppedError } from "./providers/provider-send-admission";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { isDurableJobHandoffError } from "@chase-sets/platform-runtime/durable-job-store";
-import { createId } from "@chase-sets/primitives/typed-ids";
+import { createHash } from "node:crypto";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import type { CatalogItemId, ReferenceRecordId } from "../../../ids";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
@@ -215,15 +215,19 @@ export function createSourceObservationPromotionReapplyRuntime({
     const reusableCatalogItemId =
       existingCatalogItemId ??
       (duplicatePreventionResult?.status === "matched" ? duplicatePreventionResult.catalogItemId : null);
-    const catalogItemId = reusableCatalogItemId ?? (createId("cat") as CatalogItemId);
+    const sourceCatalogItemId: CatalogItemId = `cat_source_${createHash("sha256").update(input.observation.observation_id).digest("hex")}`;
+    const catalogItemId = reusableCatalogItemId ?? sourceCatalogItemId;
+    const refreshExistingItem =
+      reusableCatalogItemId !== null &&
+      (existingCatalogItemId !== null || reusableCatalogItemId !== sourceCatalogItemId);
 
-    const { referenceRecordIdsByTypeKey, ...promotionEvidence } = reusableCatalogItemId
+    const { referenceRecordIdsByTypeKey, ...promotionEvidence } = refreshExistingItem
       ? await refreshCatalogItemFromObservation({
           items,
           referenceData,
           productContents,
           deps,
-          catalogItemId: reusableCatalogItemId,
+          catalogItemId,
           normalized,
           providerKey: input.observation.provider_key,
           externalKey: input.observation.external_key,

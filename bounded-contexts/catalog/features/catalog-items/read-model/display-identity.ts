@@ -3,6 +3,13 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { asArray, asStringArray, type FieldValue } from "../../../support/projection-support/read-model-support";
 import type { CatalogItemDisplayResolutionStatus } from "../domain/domain";
 import {
+  evolveReferenceRecord,
+  initialReferenceRecordState,
+  type ReferenceRecordEvent,
+  type ReferenceRecordState,
+} from "../../reference-data/domain/domain";
+import { resolveLocalizedTextMap } from "../../../support/runtime-support/common";
+import {
   composeDisplayWithNativeSecondary,
   loadCatalogItemDisplayAlias,
   loadReferenceRecordDisplayAliasesById,
@@ -1078,14 +1085,66 @@ async function loadReferenceRecordRows(db: PgQueryable, ids: readonly string[]):
     return [];
   }
 
-  const result = await db.query<ReferenceRecordRow>(
-    `SELECT reference_record_id, type_key, key, name, attributes, relationships, status
-     FROM catalog_reference_records
-     WHERE reference_record_id = ANY($1)`,
+  // Reference provisioning and planning share an event-store boundary, not a
+  // projector schedule. Batch each graph frontier, including retained records.
+  const result = await db.query<{
+    reference_record_id: string;
+    stream_version: number;
+    reference_event: ReferenceRecordEvent;
+  }>(
+    `SELECT substring(stream_id from length('catalog.reference-record-') + 1) AS reference_record_id,
+            stream_version::integer AS stream_version,
+            jsonb_build_object('type', event_type, 'data', payload) AS reference_event
+     FROM event_store_events
+     WHERE stream_id = ANY (
+       SELECT 'catalog.reference-record-' || reference_id FROM unnest($1::text[]) AS reference_id
+     )
+     ORDER BY stream_id, stream_version`,
     [ids],
   );
 
-  return result.rows;
+  const states = new Map<string, { state: ReferenceRecordState; version: number }>();
+  for (const row of result.rows) {
+    const previous = states.get(row.reference_record_id);
+    const state = previous?.state ?? initialReferenceRecordState;
+    const event = row.reference_event;
+    const validTransition = (() => {
+      switch (event.type) {
+        case "catalog.reference-record.created":
+          return !previous && event.data.referenceRecordId === row.reference_record_id;
+        case "catalog.reference-record.revised":
+          return state.id !== null && state.status !== "archived";
+        case "catalog.reference-record.published":
+          return state.id !== null && state.status === "draft";
+        case "catalog.reference-record.deprecated":
+          return state.id !== null && state.status === "active";
+        case "catalog.reference-record.archived":
+          return state.id !== null && state.status === "deprecated";
+        case "catalog.reference-record.aliases-resolved":
+          return state.id !== null;
+        default:
+          return false;
+      }
+    })();
+    if (row.stream_version !== (previous?.version ?? 0) + 1 || !validTransition) {
+      throw new Error(`catalog-reference-history-invalid:${row.reference_record_id}`);
+    }
+    states.set(row.reference_record_id, { state: evolveReferenceRecord(state, event), version: row.stream_version });
+  }
+  return [...states].map(([id, { state }]) => {
+    if (state.id !== id || !state.typeKey || !state.key || !state.name) {
+      throw new Error(`catalog-reference-history-invalid:${id}`);
+    }
+    return {
+      reference_record_id: id,
+      type_key: state.typeKey,
+      key: state.key,
+      name: resolveLocalizedTextMap(state.name),
+      attributes: state.attributes,
+      relationships: state.relationships,
+      status: state.status,
+    };
+  });
 }
 
 function addReferenceGraph(references: Map<string, ReferenceRecordRef>, reference: ReferenceRecordRef): void {

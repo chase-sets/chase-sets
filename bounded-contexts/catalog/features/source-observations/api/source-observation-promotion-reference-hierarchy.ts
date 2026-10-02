@@ -1,10 +1,20 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { toJsonValue, type JsonValue } from "@chase-sets/primitives/json";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import type { ReferenceRecordId, ReferenceTypeId } from "../../../ids";
 import type { LocalizedTextMap } from "../../../support/runtime-support/common";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
-import type { ReferenceRelationship } from "../../reference-data/domain/domain";
+import {
+  evolveReferenceRecord,
+  evolveReferenceType,
+  initialReferenceRecordState,
+  initialReferenceTypeState,
+  type ReferenceRecordEvent,
+  type ReferenceTypeEvent,
+  type ReferenceRelationship,
+} from "../../reference-data/domain/domain";
 import {
   type SourceObservationLorcanaCardPrintNormalized,
   type SourceObservationLorcanaSetReferenceNormalized,
@@ -356,17 +366,22 @@ async function ensureReferenceType(
     attributeKeys: readonly string[];
   },
 ): Promise<void> {
-  const existing = await input.deps.db.query(
-    "SELECT reference_type_id FROM catalog_reference_types WHERE reference_type_id = $1",
-    [def.referenceTypeId],
-  );
-
-  if (existing.rowCount && existing.rowCount > 0) {
-    return;
-  }
-
   const streamId = `catalog.reference-type-${def.referenceTypeId}`;
-  try {
+  const codec = createPassthroughDomainEventCodec<ReferenceTypeEvent>();
+  const events = (await readCompleteStream(input.deps.eventStore, { streamId })).map(codec.decode);
+  const state = events.reduce(evolveReferenceType, initialReferenceTypeState);
+  if (
+    events.length > 0 &&
+    (events[0]?.type !== "catalog.reference-type.created" ||
+      events.filter((event) => event.type === "catalog.reference-type.created").length !== 1 ||
+      state.id !== def.referenceTypeId ||
+      state.key !== def.key ||
+      (state.status !== "draft" && state.status !== "active"))
+  ) {
+    throw new Error(`promotion-reference-history-invalid:${streamId}`);
+  }
+  if (state.status === "active") return;
+  if (events.length === 0) {
     await input.referenceData.referenceTypeCommandHandler({
       streamId,
       command: {
@@ -379,12 +394,12 @@ async function ensureReferenceType(
       },
       context: input.context,
     });
-  } catch (error) {
-    if (!isAlreadyCreatedReferenceError(error)) {
-      throw error;
-    }
   }
-  await publishReferenceTypeIfDraft(input.referenceData, streamId, input.context);
+  await input.referenceData.referenceTypeCommandHandler({
+    streamId,
+    command: { type: "PublishReferenceType" },
+    context: input.context,
+  });
 }
 
 async function ensureReferenceRecord(
@@ -404,12 +419,25 @@ async function ensureReferenceRecord(
   },
 ): Promise<ReferenceRecordId> {
   const existingReferenceRecordId = await findExistingReferenceRecord(input.deps, def);
-  if (existingReferenceRecordId) {
-    return existingReferenceRecordId;
+  const referenceRecordId = existingReferenceRecordId ?? def.referenceRecordId;
+  const streamId = `catalog.reference-record-${referenceRecordId}`;
+  const codec = createPassthroughDomainEventCodec<ReferenceRecordEvent>();
+  const events = (await readCompleteStream(input.deps.eventStore, { streamId })).map(codec.decode);
+  const state = events.reduce(evolveReferenceRecord, initialReferenceRecordState);
+  if (
+    (existingReferenceRecordId && events.length === 0) ||
+    (events.length > 0 &&
+      (events[0]?.type !== "catalog.reference-record.created" ||
+        events.filter((event) => event.type === "catalog.reference-record.created").length !== 1 ||
+        state.id !== referenceRecordId ||
+        state.typeKey !== def.typeKey ||
+        (referenceRecordId === def.referenceRecordId && state.key !== def.key) ||
+        (state.status !== "draft" && state.status !== "active")))
+  ) {
+    throw new Error(`promotion-reference-history-invalid:${streamId}`);
   }
-
-  const streamId = `catalog.reference-record-${def.referenceRecordId}`;
-  try {
+  if (state.status === "active") return referenceRecordId;
+  if (events.length === 0) {
     await input.referenceData.referenceRecordCommandHandler({
       streamId,
       command: {
@@ -424,67 +452,13 @@ async function ensureReferenceRecord(
       },
       context: input.context,
     });
-  } catch (error) {
-    if (!isAlreadyCreatedReferenceError(error)) {
-      throw error;
-    }
   }
-  await publishReferenceRecordIfDraft(input.referenceData, streamId, input.context);
-
-  return def.referenceRecordId;
-}
-
-async function publishReferenceTypeIfDraft(
-  referenceData: ReferenceDataServices,
-  streamId: string,
-  context: EventStoreContext,
-) {
-  try {
-    await referenceData.referenceTypeCommandHandler({
-      streamId,
-      command: { type: "PublishReferenceType" },
-      context,
-    });
-  } catch (error) {
-    if (!isAlreadyPublishedReferenceError(error)) {
-      throw error;
-    }
-  }
-}
-
-async function publishReferenceRecordIfDraft(
-  referenceData: ReferenceDataServices,
-  streamId: string,
-  context: EventStoreContext,
-) {
-  try {
-    await referenceData.referenceRecordCommandHandler({
-      streamId,
-      command: { type: "PublishReferenceRecord" },
-      context,
-    });
-  } catch (error) {
-    if (!isAlreadyPublishedReferenceError(error)) {
-      throw error;
-    }
-  }
-}
-
-function isAlreadyCreatedReferenceError(error: unknown): boolean {
-  return isConcurrencyConflict(error) || (error instanceof Error && error.message.includes("has already been created"));
-}
-
-function isAlreadyPublishedReferenceError(error: unknown): boolean {
-  return isConcurrencyConflict(error) || (error instanceof Error && error.message.includes("Only draft reference"));
-}
-
-function isConcurrencyConflict(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "concurrency_conflict"
-  );
+  await input.referenceData.referenceRecordCommandHandler({
+    streamId,
+    command: { type: "PublishReferenceRecord" },
+    context: input.context,
+  });
+  return referenceRecordId;
 }
 
 async function findExistingReferenceRecord(

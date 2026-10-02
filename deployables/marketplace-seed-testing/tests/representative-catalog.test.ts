@@ -79,6 +79,7 @@ describe("representative catalog Observation Pack replay", () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     delete process.env.REPRESENTATIVE_CATALOG_PACK_SOURCE;
     delete process.env.REPRESENTATIVE_CATALOG_REPLAY_EVIDENCE_OUT;
@@ -130,9 +131,9 @@ describe("representative catalog Observation Pack replay", () => {
     expect(storedAssets.size).toBe(firstAssetCount);
   });
 
-  it("synthetic source-03-shaped Lorcana pack publishes once, then refuses retained-state replay (known gap #8475)", async () => {
+  it("synthetic source-03-shaped Lorcana pack publishes truthful identities and converges on repeated boots", async () => {
     process.env.REPRESENTATIVE_CATALOG_PACK_SOURCE = await writeSyntheticLorcanaPack(["Amethyst"], "1");
-    const evidenceRoot = await mkdtemp(path.join(tmpdir(), "representative-catalog-synthetic-repeat-refusal-"));
+    const evidenceRoot = await mkdtemp(path.join(tmpdir(), "representative-catalog-synthetic-repeat-"));
     temporaryRoots.push(evidenceRoot);
     const receiptPath = path.join(evidenceRoot, "receipt.json");
     process.env.REPRESENTATIVE_CATALOG_REPLAY_EVIDENCE_OUT = receiptPath;
@@ -173,14 +174,24 @@ describe("representative catalog Observation Pack replay", () => {
     const firstAssetCount = storedAssets.size;
     await unlink(receiptPath);
 
-    // #8475 owns projection-stable fingerprints; keep this exact fail-closed refusal visible until repaired.
-    await expect(seedRuntime.seed()).rejects.toMatchObject({
-      name: "RepresentativeCatalogReplayError",
-      code: "representative-catalog-history-invalid-plan",
-    });
+    const identities = await seedRuntime.pools.catalog.query<{ subtitle: string; resolution_status: string }>(
+      "SELECT subtitle, resolution_status FROM catalog_item_display_identities WHERE catalog_item_id = $1",
+      [observations.rows[0]!.promoted_catalog_item_id],
+    );
+    expect(identities.rows).toHaveLength(1);
+    expect(identities.rows[0]).toMatchObject({ resolution_status: "resolved" });
+    expect(identities.rows[0]?.subtitle).toContain("The First Chapter");
+    expect(identities.rows[0]?.subtitle).toContain("Amethyst");
+    await seedRuntime.seed();
     expect(await countRows(seedRuntime.pools.catalog, "event_store_events")).toBe(firstEventCount);
     expect(storedAssets.size).toBe(firstAssetCount);
-    await expect(readFile(receiptPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    expect(JSON.parse(await readFile(receiptPath, "utf8"))).toMatchObject({
+      type: "representative-catalog-replay.complete",
+      totals: { appendedEventCount: 0, appendedAssetSetCount: 0 },
+    });
+    await seedRuntime.seed();
+    expect(await countRows(seedRuntime.pools.catalog, "event_store_events")).toBe(firstEventCount);
+    expect(storedAssets.size).toBe(firstAssetCount);
     const retainedObservations = await seedRuntime.pools.catalog.query<{
       status: string;
       promoted_catalog_item_id: string;
@@ -196,6 +207,111 @@ describe("representative catalog Observation Pack replay", () => {
        WHERE observation.provider_key = 'lorcanajson'`,
     );
     expect(retainedObservations.rows).toEqual(observations.rows);
+    const services = catalogModule.createServices(seedRuntime.pools.catalog, { catalogAssetStorage });
+    await services.referenceData.referenceRecordCommandHandler({
+      streamId: "catalog.reference-record-ref_lorcanajson_lorcana_set_1",
+      command: { type: "DeprecateReferenceRecord" },
+      context: { tenantId: "tnt_system", audit: { performedByUserId: "usr_system", forAccountId: "acc_system" } },
+    });
+    await services.referenceData.referenceRecordCommandHandler({
+      streamId: "catalog.reference-record-ref_lorcanajson_lorcana_set_1",
+      command: { type: "ArchiveReferenceRecord" },
+      context: { tenantId: "tnt_system", audit: { performedByUserId: "usr_system", forAccountId: "acc_system" } },
+    });
+    await unlink(receiptPath);
+    const terminalEventCount = await countRows(seedRuntime.pools.catalog, "event_store_events");
+    await expect(seedRuntime.seed()).rejects.toMatchObject({
+      name: "RepresentativeCatalogReplayError",
+      code: "representative-catalog-history-invalid",
+    });
+    expect(await countRows(seedRuntime.pools.catalog, "event_store_events")).toBe(terminalEventCount);
+    expect(storedAssets.size).toBe(firstAssetCount);
+    await expect(readFile(receiptPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it.each(["CreateCatalogItem", "SetCatalogItemProductAssetSets"])(
+    "resumes a synthetic promotion interrupted after %s without reauthoring its stream",
+    async (interruptedCommand) => {
+      await seedRuntime.bootstrap();
+      process.env.REPRESENTATIVE_CATALOG_PACK_SOURCE = await writeSyntheticLorcanaPack(["Amethyst"], "1");
+      vi.stubGlobal("fetch", async () => {
+        throw new Error("synthetic replay must stay offline");
+      });
+      const createServices = catalogModule.createServices;
+      let interruptedItemId: string | null = null;
+      const spy = vi.spyOn(catalogModule, "createServices").mockImplementation((...args) => {
+        const services = createServices(...args);
+        const handler = services.items.commandHandler;
+        vi.spyOn(services.items, "commandHandler").mockImplementation(async (input) => {
+          const result = await handler(input);
+          if (input.command.type === interruptedCommand && interruptedItemId === null) {
+            interruptedItemId = input.streamId.slice("catalog.item-".length);
+            throw new Error("synthetic crash after durable item creation");
+          }
+          return result;
+        });
+        return services;
+      });
+      await expect(seedRuntime.seed()).rejects.toThrow("representative-catalog-promotion-failed");
+      spy.mockRestore();
+      expect(interruptedItemId).not.toBeNull();
+      const recorded = await seedRuntime.pools.catalog.query<{ count: number }>(
+        "SELECT COUNT(*)::integer AS count FROM event_store_events WHERE event_type = 'catalog.source-observation.recorded'",
+      );
+      expect(recorded.rows[0]?.count).toBe(1);
+      await seedRuntime.seed();
+      const created = await seedRuntime.pools.catalog.query<{ count: number }>(
+        "SELECT COUNT(*)::integer AS count FROM event_store_events WHERE stream_id = $1 AND event_type = 'catalog.catalog-item.created'",
+        [`catalog.item-${interruptedItemId}`],
+      );
+      expect(created.rows[0]?.count).toBe(1);
+      const duplicateEvents = await seedRuntime.pools.catalog.query(
+        "SELECT event_type FROM event_store_events WHERE stream_id = $1 GROUP BY event_type, payload HAVING COUNT(*) > 1",
+        [`catalog.item-${interruptedItemId}`],
+      );
+      expect(duplicateEvents.rows).toEqual([]);
+      const promoted = await seedRuntime.pools.catalog.query<{ promoted_catalog_item_id: string; status: string }>(
+        "SELECT promoted_catalog_item_id, status FROM catalog_source_observations WHERE provider_key = 'lorcanajson'",
+      );
+      expect(promoted.rows).toEqual([{ promoted_catalog_item_id: interruptedItemId, status: "promoted" }]);
+      const events = await countRows(seedRuntime.pools.catalog, "event_store_events");
+      const assets = storedAssets.size;
+      await seedRuntime.seed();
+      expect(await countRows(seedRuntime.pools.catalog, "event_store_events")).toBe(events);
+      expect(storedAssets.size).toBe(assets);
+    },
+  );
+
+  it("refuses synthetic pre-fix fingerprints without rewriting history or issuing a completion receipt", async () => {
+    await seedRuntime.bootstrap();
+    process.env.REPRESENTATIVE_CATALOG_PACK_SOURCE = await writeSyntheticLorcanaPack(["Amethyst"], "1");
+    const root = await mkdtemp(path.join(tmpdir(), "representative-catalog-old-fingerprint-"));
+    temporaryRoots.push(root);
+    const receiptPath = path.join(root, "receipt.json");
+    process.env.REPRESENTATIVE_CATALOG_REPLAY_EVIDENCE_OUT = receiptPath;
+    vi.stubGlobal("fetch", async () => {
+      throw new Error("synthetic replay must stay offline");
+    });
+    const query = seedRuntime.pools.catalog.query.bind(seedRuntime.pools.catalog);
+    const spy = vi
+      .spyOn(seedRuntime.pools.catalog, "query")
+      .mockImplementation(async (sql, values) =>
+        sql.includes("AS reference_event") ? { rows: [], rowCount: 0 } : query(sql, values),
+      );
+    // Synthetic #8470 history: the real planner sees no Set name before projection.
+    await seedRuntime.seed();
+    spy.mockRestore();
+    vi.restoreAllMocks();
+    await unlink(receiptPath);
+    const events = await countRows(seedRuntime.pools.catalog, "event_store_events");
+    const assets = storedAssets.size;
+    await expect(seedRuntime.seed()).rejects.toMatchObject({
+      name: "RepresentativeCatalogReplayError",
+      code: "representative-catalog-history-invalid-plan",
+    });
+    expect(await countRows(seedRuntime.pools.catalog, "event_store_events")).toBe(events);
+    expect(storedAssets.size).toBe(assets);
+    await expect(readFile(receiptPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("synthetic Lorcana pack without ink cannot take ordinary promotion or publication", async () => {
@@ -561,6 +677,9 @@ function useRepresentativeCatalogRuntime() {
            'acc_system'
          )`,
       );
+    },
+    async bootstrap() {
+      return seedWithOptions({ enabledDataProfiles: ["catalog-integration-bootstrap"], environmentName: "test" });
     },
     async seed() {
       return seedWithOptions({
@@ -1007,6 +1126,24 @@ async function expectPoisonedHistoriesToFail(input: {
       payload: { ...promoted!.payload, promotionPlanFingerprint: "f".repeat(64) },
     },
     {
+      label: "mismatched-promotion-profile",
+      eventId: promoted!.event_id,
+      eventType: promoted!.event_type,
+      payload: { ...promoted!.payload, promotionProfileVersion: "synthetic-poisoned-profile" },
+    },
+    {
+      label: "mismatched-source-facts",
+      eventId: recorded!.event_id,
+      eventType: recorded!.event_type,
+      payload: { ...recorded!.payload, normalized: { kind: "synthetic-poisoned-facts" } },
+    },
+    {
+      label: "unexpected-event",
+      eventId: promoted!.event_id,
+      eventType: "catalog.synthetic-unexpected",
+      payload: {},
+    },
+    {
       label: "repeated",
       eventId: promoted!.event_id,
       eventType: "catalog.source-observation.recorded",
@@ -1015,6 +1152,7 @@ async function expectPoisonedHistoriesToFail(input: {
   ] as const;
 
   for (const poison of cases) {
+    const assets = storedAssets.size;
     const original = poison.eventId === recorded!.event_id ? recorded! : promoted!;
     await input.pool.query("UPDATE event_store_events SET event_type = $2, payload = $3::jsonb WHERE event_id = $1", [
       poison.eventId,
@@ -1037,6 +1175,7 @@ async function expectPoisonedHistoriesToFail(input: {
         poison.label,
       ).rejects.toThrow("representative-catalog-history-invalid");
       expect(await countRows(input.pool, "event_store_events")).toBe(input.eventCount);
+      expect(storedAssets.size).toBe(assets);
     } finally {
       await input.pool.query("UPDATE event_store_events SET event_type = $2, payload = $3::jsonb WHERE event_id = $1", [
         original.event_id,
