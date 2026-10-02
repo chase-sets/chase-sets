@@ -1,10 +1,14 @@
 import { readFileSync, readdirSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { createHash } from "node:crypto";
-import type { FullResult, Reporter } from "@playwright/test/reporter";
+import type { FullResult, Reporter, TestCase, TestResult } from "@playwright/test/reporter";
 
 export default class OperatorArtifactReporter implements Reporter {
-  onEnd(result: FullResult) {
+  private tests: { title: string; status: TestResult["status"]; durationMs: number }[] = [];
+  onTestEnd(test: TestCase, result: TestResult) {
+    this.tests.push({ title: test.title, status: result.status, durationMs: result.duration });
+  }
+  async onEnd(result: FullResult) {
     const root = resolve(import.meta.dirname, "../../../artifacts/operator-extension");
     mkdirSync(root, { recursive: true });
     const cookie = Buffer.from(["SYNTHETIC", "OPERATOR", "COOKIE", "CHROMIUM"].join("_"));
@@ -27,7 +31,7 @@ export default class OperatorArtifactReporter implements Reporter {
     const clean = files.every((file) => !file.cookieMarkers && !file.grantMarkers && !file.unexpectedArchive);
     writeFileSync(
       join(root, "artifact-scan.json"),
-      JSON.stringify({ syntheticOnly: true, clean, files }, null, 2) + "\n",
+      JSON.stringify({ syntheticOnly: true, clean, files, tests: this.tests, status: result.status }, null, 2) + "\n",
     );
     return { status: clean ? result.status : ("failed" as const) };
   }
