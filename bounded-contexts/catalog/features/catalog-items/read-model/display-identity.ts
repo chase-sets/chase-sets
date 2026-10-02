@@ -5,6 +5,7 @@ import type { CatalogItemDisplayResolutionStatus } from "../domain/domain";
 import {
   evolveReferenceRecord,
   initialReferenceRecordState,
+  isLegalReferenceRecordTransition,
   type ReferenceRecordEvent,
   type ReferenceRecordState,
 } from "../../reference-data/domain/domain";
@@ -1108,25 +1109,10 @@ async function loadReferenceRecordRows(db: PgQueryable, ids: readonly string[]):
     const previous = states.get(row.reference_record_id);
     const state = previous?.state ?? initialReferenceRecordState;
     const event = row.reference_event;
-    const validTransition = (() => {
-      switch (event.type) {
-        case "catalog.reference-record.created":
-          return !previous && event.data.referenceRecordId === row.reference_record_id;
-        case "catalog.reference-record.revised":
-          return state.id !== null && state.status !== "archived";
-        case "catalog.reference-record.published":
-          return state.id !== null && state.status === "draft";
-        case "catalog.reference-record.deprecated":
-          return state.id !== null && state.status === "active";
-        case "catalog.reference-record.archived":
-          return state.id !== null && state.status === "deprecated";
-        case "catalog.reference-record.aliases-resolved":
-          return state.id !== null;
-        default:
-          return false;
-      }
-    })();
-    if (row.stream_version !== (previous?.version ?? 0) + 1 || !validTransition) {
+    if (
+      row.stream_version !== (previous?.version ?? 0) + 1 ||
+      !isLegalReferenceRecordTransition(state, event, row.reference_record_id)
+    ) {
       throw new Error(`catalog-reference-history-invalid:${row.reference_record_id}`);
     }
     states.set(row.reference_record_id, { state: evolveReferenceRecord(state, event), version: row.stream_version });

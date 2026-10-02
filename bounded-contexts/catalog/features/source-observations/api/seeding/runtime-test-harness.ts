@@ -1598,6 +1598,9 @@ export function createChangedObservationRefreshHarness(
      * Defaults to a resolving global title template plus a draft current item
      * for every reusable/promoted Catalog Item id the harness knows. */
     displayIdentity?: SyntheticDisplayIdentityFixture;
+    /** SYNTHETIC poison: every discovered Reference Record history carries a
+     * second contiguous published event, a transition the decider never emits. */
+    referenceHistoryPoison?: "repeated-publish";
   } = {},
 ) {
   const itemCommands: Array<{ streamId: string; command: { type: string } & Record<string, unknown> }> = [];
@@ -1772,6 +1775,9 @@ export function createChangedObservationRefreshHarness(
             relationships: [],
           }),
           storedEvent(2, referenceStream, "catalog.reference-record.published", {}),
+          ...(input.referenceHistoryPoison === "repeated-publish"
+            ? [storedEvent(3, referenceStream, "catalog.reference-record.published", {})]
+            : []),
         ]);
         return {
           rowCount: 1,
