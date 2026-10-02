@@ -422,6 +422,9 @@ export const catalogIntegrationDataSurfacePolicies = [
 ] as const satisfies readonly CatalogIntegrationDataSurfacePolicy[];
 
 export const catalogIntegrationDataResetDeleteStatements = catalogIntegrationDataSurfacePolicies
+  // Provider-send authority, quota, attempt and job-binding tables are permanent
+  // admission evidence. They are deliberately outside this pre-launch reset.
+  .filter((surface) => !surface.tableName.startsWith("catalog_provider_send_"))
   .filter(
     (surface) =>
       surface.resetAction === "delete" ||

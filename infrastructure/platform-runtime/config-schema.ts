@@ -68,6 +68,18 @@ export const DEPLOYMENT_ENVIRONMENTS = [
 
 export type DeploymentEnvironment = (typeof DEPLOYMENT_ENVIRONMENTS)[number];
 
+export function loadCatalogProviderSendWindowEnabled(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  const enabled = env.CATALOG_PROVIDER_SEND_WINDOW_ENABLED;
+  if (enabled === undefined || enabled === "false") return false;
+  if (enabled !== "true") throw new Error("CATALOG_PROVIDER_SEND_WINDOW_ENABLED must be true or false.");
+  if (env.DEPLOYMENT_ENVIRONMENT !== "staging") {
+    throw new Error("Catalog provider-send window enablement requires staging.");
+  }
+  return true;
+}
+
 export type PlatformPostageConfig<TIncludeWebhookSecret extends boolean = boolean> =
   | Readonly<{
       kind: "sandbox";

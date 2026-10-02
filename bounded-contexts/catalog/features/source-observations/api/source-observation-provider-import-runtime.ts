@@ -1,3 +1,5 @@
+import { bindProviderAdapter } from "./providers/provider-send-runtime";
+import { ProviderSendStoppedError } from "./providers/provider-send-admission";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { isDurableJobHandoffError } from "@chase-sets/platform-runtime/durable-job-store";
 import { toJsonValue, type JsonValue } from "@chase-sets/primitives/json";
@@ -481,7 +483,11 @@ export function createSourceObservationProviderImportRuntime({
         providerUsageEvidence: providerUsageEvidenceFromImportPlan(plan, providerUsageRequestKeys),
       };
     } catch (error) {
-      if (error instanceof SourceObservationJobCancelledError || isDurableJobHandoffError(error)) {
+      if (
+        error instanceof ProviderSendStoppedError ||
+        error instanceof SourceObservationJobCancelledError ||
+        isDurableJobHandoffError(error)
+      ) {
         throw error;
       }
 
@@ -508,14 +514,16 @@ export function createSourceObservationProviderImportRuntime({
     }
 
     if (profileVersion.profile.connector.kind === "tcgdex-json") {
-      return createTcgdexProviderAdapter({ loadActiveProfileVersion: async () => profileVersion });
+      return bindProviderAdapter(createTcgdexProviderAdapter({ loadActiveProfileVersion: async () => profileVersion }));
     }
 
     if (profileVersion.profile.connector.kind === "tcgplayer-automation-client") {
-      return createTcgplayerProviderAdapter({
-        loadProfileVersions: async () => [profileVersion],
-        client: deps.tcgplayerAutomationCatalogClient,
-      });
+      return bindProviderAdapter(
+        createTcgplayerProviderAdapter({
+          loadProfileVersions: async () => [profileVersion],
+          client: deps.tcgplayerAutomationCatalogClient,
+        }),
+      );
     }
 
     return providerAdapterRegistry.require(profileVersion.providerKey);

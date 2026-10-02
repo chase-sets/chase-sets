@@ -54,6 +54,9 @@ This glossary focuses on catalog truth and identity. Browsing, filtering, and li
 
 ## Core Model
 
+- `Provider-send quota` is an installed, durable maximum of admitted application HTTP attempts for a supervised staging window. Retries, redirects and uncertain sends retain their debits; unused quota is not transferable or refillable.
+- `Enforced admission maximum` is a policy reservation enforced before sending, not a measured provider inventory or page-count estimate. Ordinal 18 may use its installed 256-attempt maximum while its estimate remains unavailable.
+
 The catalog is composed of four primary concepts:
 
 - `Catalog Item` — the canonical parent definition of a thing

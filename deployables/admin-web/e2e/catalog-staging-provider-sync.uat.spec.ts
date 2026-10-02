@@ -1595,6 +1595,14 @@ test.describe("catalog staging provider sync UAT helpers", () => {
       expect(reloadCount).toBe(0);
       expect(frameNavigatedCount).toBe(0);
 
+      await page.setContent(
+        adminError(true).replace("boom-8442", "Catalog provider-send window stopped (quota-exhausted)."),
+      );
+      await expect(recoverSourceOptionSelection(page, "Set")).rejects.toThrow(/quota-exhausted/);
+      expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+      expect(reloadCount).toBe(0);
+      expect(frameNavigatedCount).toBe(0);
+
       reloadCount = 0;
       frameNavigatedCount = 0;
       await page.setContent(adminError(false));

@@ -1,3 +1,8 @@
+import {
+  sendCatalogProviderRequest,
+  providerSendProviders,
+  ProviderSendStoppedError,
+} from "../providers/provider-send-admission";
 import { createHash } from "node:crypto";
 import sharp from "sharp";
 import {
@@ -245,7 +250,9 @@ export async function normalizeLorcanaImageAsset(
     return null;
   }
 
-  const response = await input.fetcher(sourceUrl);
+  const provider = providerSendProviders.find((candidate) => candidate === input.providerKey);
+  if (!provider) throw new ProviderSendStoppedError("unknown-request");
+  const response = await sendCatalogProviderRequest(provider, input.fetcher, sourceUrl, undefined, "asset");
   if (!response.ok) {
     throw new Error(`Lorcana image asset request failed with ${response.status} for ${sourceUrl}.`);
   }

@@ -1,3 +1,4 @@
+import { sendCatalogProviderRequest } from "../provider-send-admission";
 import { createHash } from "node:crypto";
 
 import { t } from "@chase-sets/localization";
@@ -471,7 +472,7 @@ async function fetchAllYgoprodeckCards(
 }
 
 async function fetchJson<T>(url: string, options: YgoprodeckProviderAdapterOptions): Promise<T> {
-  const response = await (options.fetch ?? globalThis.fetch)(url, {
+  const response = await sendCatalogProviderRequest("ygoprodeck", options.fetch ?? globalThis.fetch, url, {
     headers: {
       "User-Agent":
         options.userAgent ??

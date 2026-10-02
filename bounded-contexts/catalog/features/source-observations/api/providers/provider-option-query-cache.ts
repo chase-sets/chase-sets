@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { ProviderSendStoppedError } from "./provider-send-admission";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { CatalogProviderIntegrationOption } from "./provider-option-query-resolver";
 
@@ -287,6 +288,7 @@ export async function queryCatalogProviderIntegrationOptionsWithCache(input: {
       diagnostics: [],
     });
   } catch (error) {
+    if (error instanceof ProviderSendStoppedError) throw error;
     if (cached && isUsableStale(cached, now)) {
       return pageFromItems(cached.items, request, staleCacheSummary(cached, request, messageForError(error)));
     }
