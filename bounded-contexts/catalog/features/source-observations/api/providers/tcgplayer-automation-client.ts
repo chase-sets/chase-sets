@@ -1,4 +1,4 @@
-import { sendCatalogProviderRequest } from "./provider-send-admission";
+import { ProviderSendStoppedError, sendCatalogProviderRequest } from "./provider-send-admission";
 
 export const TCGPLAYER_AUTOMATION_DOMAIN_KEYS = {
   MP_SEARCH_API: "mpSearchApi",
@@ -675,7 +675,11 @@ function redactCredentialException(error: unknown, credentialValue: string | nul
   if (!credentialValue) return error;
   const bounded = new Error("tcgplayer-automation-request-failed");
   try {
-    if (error instanceof TcgplayerAutomationHttpError || error instanceof TcgplayerAutomationAuthorityError)
+    if (
+      error instanceof TcgplayerAutomationHttpError ||
+      error instanceof TcgplayerAutomationAuthorityError ||
+      error instanceof ProviderSendStoppedError
+    )
       return error;
     if (error instanceof Error && error.name === "AbortError") bounded.name = "AbortError";
   } catch {
