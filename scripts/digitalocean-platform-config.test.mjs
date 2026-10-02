@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ADMIN_WEB_API_DEPENDENCIES } from "./admin-shell-smoke-matrix.mjs";
 import { classifyChanges } from "./change-scope.mjs";
+import { parseReleaseDeploymentScopeArgs, resolveReleaseDeploymentScope } from "./release-deployment-scope.mjs";
 import { listContextManifests } from "./lib/repo.mjs";
 import {
   assertNoDestructiveChanges,
@@ -636,6 +637,46 @@ function platformApiExposedContextNames(runtimeProfile) {
 }
 
 describe("DigitalOcean platform configuration", () => {
+  it("opts only staging into the supervised Catalog send window and requires a forced setup", () => {
+    expect(platformProductionWorkflow).toMatch(
+      /catalog_provider_send_window_enabled:\n\s+description:[^\n]+\n\s+required: false\n\s+default: false\n\s+type: boolean/,
+    );
+    const staging = workflowStep(platformProductionWorkflow, "Deploy staging Kubernetes release");
+    expect(staging).toContain(
+      "--runtime-env \"CATALOG_PROVIDER_SEND_WINDOW_ENABLED=${{ inputs.catalog_provider_send_window_enabled == true && 'true' || 'false' }}\"",
+    );
+    expect(workflowJob(platformProductionWorkflow, "deploy-production")).not.toContain(
+      "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+    );
+    expect(platformReleaseCandidateWorkflow).not.toContain("catalog_provider_send_window_enabled");
+    const validation = workflowStep(
+      workflowJob(platformProductionWorkflow, "resolve-release"),
+      "Validate Catalog provider-send window opt-in",
+    );
+    expect(validation).toContain(
+      'if [ "$CATALOG_PROVIDER_SEND_WINDOW_ENABLED" = "true" ] && [ "$FORCE_DEPLOY" != "true" ]; then',
+    );
+    expect(validation).toContain("exit 1");
+    expect(validation).toContain("inputs.force_deploy == true");
+    const scope = workflowStep(platformProductionWorkflow, "Resolve deployment scope");
+    expect(scope).toContain(
+      "--force-deploy \"${{ github.event_name == 'workflow_dispatch' && inputs.force_deploy == true && 'true' || 'false' }}\"",
+    );
+    const parsed = parseReleaseDeploymentScopeArgs(
+      ["--event-name", "workflow_dispatch", "--release-commit", "synthetic-same-sha", "--force-deploy", "true"],
+      {},
+    );
+    expect(
+      resolveReleaseDeploymentScope(parsed, {
+        execFileSync: () => "",
+        log: () => undefined,
+        listChangedFiles: () => {
+          throw new Error("Forced same-SHA deployment must not diff-skip");
+        },
+      }),
+    ).toMatchObject({ deploy: true, reason: "manual-force" });
+  });
+
   it("threads the exact graph-owned authority and v2 trust trigger to both database-grant provisioners", () => {
     const contextGrants = terraformResourceBlock(platformMain, "terraform_data", "context_database_grants");
     const wakeListenerGrants = terraformResourceBlock(platformMain, "terraform_data", "wake_listener_database_grants");

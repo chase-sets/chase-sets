@@ -462,6 +462,10 @@
           "value": ""
         },
         {
+          "name": "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+          "value": "false"
+        },
+        {
           "name": "CHASE_SETS_INTERNAL_API_ORIGIN",
           "value": "http://chase-sets-platform-chase-sets-platform-platform-api:8080"
         },
@@ -1080,6 +1084,10 @@
         {
           "name": "CATALOG_INTEGRATION_REAPPLY_DISABLED",
           "value": ""
+        },
+        {
+          "name": "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+          "value": "false"
         },
         {
           "name": "CHASE_SETS_MARKETPLACE_INDEXING",

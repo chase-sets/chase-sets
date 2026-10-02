@@ -1,4 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { CatalogRuntimeDeps } from "../../../../support/authoring-support/runtime-support";
+import { createCatalogItemRuntime } from "../../../catalog-items/api/runtime";
+import { createReferenceDataRuntime } from "../../../reference-data/api/runtime";
+import { createSourceObservationRuntime } from "../runtime";
+import {
+  bindCatalogProviderServices,
+  createCatalogProviderSendRuntime,
+  readProviderSendWindow,
+  runProviderSendJob,
+} from "./provider-send-runtime";
 import {
   createInMemoryTcgplayerAutomationHttpConfigStore,
   TcgplayerAutomationDomainHttpClient,
@@ -26,6 +37,7 @@ import {
   type ProviderSendLedger,
   runCatalogProviderWork,
   type ProviderSendBinding,
+  sendCatalogProviderRequest,
 } from "./provider-send-admission";
 
 const binding: ProviderSendBinding = { windowId: "synthetic-window", phase: "pass", pass: 1 };
@@ -40,6 +52,162 @@ function ledger(overrides: Partial<ProviderSendLedger> = {}): ProviderSendLedger
 }
 
 describe("Catalog provider-send admission", () => {
+  function composedRuntime() {
+    const query = vi.fn<PgQueryable["query"]>().mockResolvedValue({ rows: [] });
+    const client = { query, release: vi.fn() };
+    const pool = { query, connect: vi.fn(async () => client) };
+    const runtime = createCatalogProviderSendRuntime(pool);
+    const unexpected = async (): Promise<never> => {
+      throw new Error("Unexpected synthetic event-store access");
+    };
+    const deps: CatalogRuntimeDeps = {
+      providerSendRuntime: runtime,
+      db: pool,
+      eventStore: {
+        appendToStream: unexpected,
+        appendToStreams: unexpected,
+        readStream: unexpected,
+        readAll: unexpected,
+      },
+      checkpointStore: { loadCheckpoint: async () => "0", saveCheckpoint: async () => undefined },
+    };
+    const transport = vi.fn(async () => Response.json({ synthetic: true }));
+    const sourceObservations = createSourceObservationRuntime(
+      deps,
+      createCatalogItemRuntime(deps),
+      createReferenceDataRuntime(deps),
+    );
+    const services = bindCatalogProviderServices(
+      {
+        ...sourceObservations,
+        listTcgdexLanguages: async () => {
+          await sendCatalogProviderRequest(
+            "tcgdex",
+            transport,
+            "https://synthetic.invalid/languages",
+            undefined,
+            "discovery",
+          );
+          return [];
+        },
+      },
+      runtime,
+    );
+    return { query, pool, runtime, deps, services, transport };
+  }
+
+  it.each([undefined, "false"])("disabled runtime %s composes without ledger access", async (flag) => {
+    if (flag === undefined) vi.stubEnv("CATALOG_PROVIDER_SEND_WINDOW_ENABLED", undefined);
+    else vi.stubEnv("CATALOG_PROVIDER_SEND_WINDOW_ENABLED", flag);
+    try {
+      const fixture = composedRuntime();
+      expect(fixture.runtime).toBeNull();
+      expect(await readProviderSendWindow(fixture.runtime)).toEqual({ state: "disabled" });
+      await runProviderSendJob(fixture.deps, "synthetic-job", () => fixture.services.listTcgdexLanguages());
+      expect(fixture.transport).toHaveBeenCalledTimes(1);
+      expect(fixture.query).not.toHaveBeenCalled();
+      expect(fixture.pool.connect).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("affirmative pristine-unarmed authority passes a composed service and null-bound job", async () => {
+    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "staging");
+    vi.stubEnv("CATALOG_PROVIDER_SEND_WINDOW_ENABLED", "true");
+    try {
+      const fixture = composedRuntime();
+      fixture.query.mockImplementation(async (sql) => ({
+        rows: sql.includes("catalog_provider_send_authority")
+          ? [{ window_id: null }]
+          : sql.includes("catalog_provider_send_job_bindings")
+            ? [{ window_id: null, phase: null, pass: null }]
+            : [],
+      }));
+      expect(await readProviderSendWindow(fixture.runtime)).toEqual({ state: "unarmed" });
+      await fixture.services.listTcgdexLanguages();
+      await runProviderSendJob(fixture.deps, "synthetic-null-bound-job", () => fixture.services.listTcgdexLanguages());
+      expect(fixture.transport).toHaveBeenCalledTimes(2);
+      expect(fixture.query.mock.calls.some(([sql]) => sql.includes("catalog_provider_send_windows LIMIT 1"))).toBe(
+        true,
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it.each(["authority-unavailable", "stale-binding", "terminal"] as const)(
+    "composed %s refuses before transport",
+    async (code) => {
+      vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "staging");
+      vi.stubEnv("CATALOG_PROVIDER_SEND_WINDOW_ENABLED", "true");
+      try {
+        const fixture = composedRuntime();
+        if (!fixture.runtime) throw new Error("Synthetic staging runtime must be enabled");
+        vi.spyOn(fixture.runtime.ledger, "bind").mockResolvedValue(binding);
+        vi.spyOn(fixture.runtime.ledger, "stop").mockResolvedValue(undefined);
+        if (code === "authority-unavailable") {
+          vi.spyOn(fixture.runtime.ledger, "debit").mockRejectedValue(new Error("synthetic-private-driver-detail"));
+        } else {
+          vi.spyOn(fixture.runtime.ledger, "debit").mockResolvedValue({ state: "refused", code });
+        }
+        fixture.query.mockResolvedValue({
+          rows: [{ window_id: binding.windowId, phase: binding.phase, pass: binding.pass }],
+        });
+        await expect(fixture.services.listTcgdexLanguages()).rejects.toThrow(code);
+        await expect(
+          runProviderSendJob(fixture.deps, "synthetic-retained-job", () => fixture.services.listTcgdexLanguages()),
+        ).rejects.toThrow(code);
+        expect(fixture.transport).not.toHaveBeenCalled();
+        fixture.query.mockResolvedValue({ rows: [] });
+        await expect(
+          runProviderSendJob(fixture.deps, "synthetic-missing-binding", () => fixture.services.listTcgdexLanguages()),
+        ).rejects.toThrow("stale-binding");
+        expect(fixture.transport).not.toHaveBeenCalled();
+        expect(() =>
+          sendCatalogProviderRequest("tcgdex", fixture.transport, "https://synthetic.invalid/no-context"),
+        ).toThrow("authority-unavailable");
+        expect(fixture.transport).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
+
+  it("composed readout distinguishes armed, terminal, and unavailable without resetting authority", async () => {
+    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "staging");
+    vi.stubEnv("CATALOG_PROVIDER_SEND_WINDOW_ENABLED", "true");
+    try {
+      const fixture = composedRuntime();
+      if (!fixture.runtime) throw new Error("Synthetic staging runtime must be enabled");
+      const read = vi.spyOn(fixture.runtime.ledger, "read");
+      for (const state of ["armed", "terminal"] as const) {
+        read.mockResolvedValue({
+          state,
+          ...binding,
+          armedAt: "2026-10-02T00:00:00.000Z",
+          quota: providerSendPolicy.totalSends,
+          used: 0,
+          reserved: providerSendPolicy.totalSends,
+          inFlight: 0,
+          refusal: state === "terminal" ? "terminal" : null,
+          quotas: [],
+          members: [],
+          attempts: [],
+        });
+        expect(await readProviderSendWindow(fixture.runtime)).toMatchObject({ state, windowId: binding.windowId });
+      }
+      read.mockRejectedValue(new Error("synthetic-private-driver-detail"));
+      expect(await readProviderSendWindow(fixture.runtime)).toEqual({
+        state: "unavailable",
+        refusal: "authority-unavailable",
+      });
+      expect(fixture.query).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it.each([
     ["Scryfall", createScryfallProviderAdapter],
     ["YGOPRODeck", createYgoprodeckProviderAdapter],

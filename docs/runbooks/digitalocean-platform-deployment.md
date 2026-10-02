@@ -24,6 +24,28 @@ Platform Deploy renders the canonical runtime values, builds immutable images, e
 
 Platform Deploy, Platform Staging Reset, and Platform Registry Cleanup share the `platform-registry-mutation` GitHub Actions concurrency group so deploy and registry mutations cannot race.
 
+### Supervised Catalog Provider-Send Window
+
+The existing Platform Deploy boolean input `catalog_provider_send_window_enabled` defaults to `false`. It supplies `CATALOG_PROVIDER_SEND_WINDOW_ENABLED=true/false` to staging API and worker only. Production and previews remain false; bootstrap, scenario-seed, and web workloads do not enroll. CLI environment settings do not enable deployed Pods. Opt-in true without `force_deploy=true` is refused. Use `force_deploy=true` for both same-SHA setup and cleanup so a deploy-scoped diff skip cannot mask the choice. A forced setup or cleanup Platform Deploy also redeploys production at the same SHA; it does not pass this opt-in to production. Existing release authorization, credentials, and coupled-production gates still apply.
+
+This is consumer enablement, not permission to arm or send. Execution remains owned by the supervised #7514 host and its existing audited authority.
+
+| State | Admission and required transition |
+| --- | --- |
+| Off | Ordinary steady state. No ledger access. Drain pre-existing Catalog provider jobs before setup. |
+| Enabled / pristine-unarmed | Only affirmative pristine authority (singleton null and no window history) permits ordinary sends. This is not armed protection. Await the setup deploy's auto-dispatched Platform Staging Advisory Evidence run, then drain its null-bound jobs before arm. |
+| Armed / enabled | Host checks both API and worker rollouts, exact image digest, effective flag true, and the armed shared ledger before any provider work. Hold the supervised interval and exclude other provider refresh. |
+| Terminal / enabled | Sends refuse. Termination retains ledger authority and durable job bindings. Reconcile and close the interval before considering off. |
+| Verified cleanup / off | Only after no window-owned queued, running, reclaimable, or in-flight work can execute: force-deploy false and verify both workloads effectively off at the intended digest. Retain ledger and bindings; never retry old jobs after off. Ordinary work may resume only after host reconciliation. |
+| Later window / terminal-retained | Re-enabling refuses until authorized re-arm. It is not pristine-unarmed; retained history must never be reset to simulate it. |
+| Unavailable / unknown | STOP. Missing authority/context, stale bindings, partial rollout, or unknown cleanup never authorize work or off. |
+
+Hold every other staging Helm mutator from setup through verified off, not merely baseline through repeat: non-opt-in Platform Deploy (automatic release-candidate dispatch, reset-triggered, or manual) renders false; Platform Staging Helm Recovery and Platform Staging Rollback Drill can restore an earlier revision's flag. Any such occurrence is STOP until host reconciliation. Managed-Postgres-CA reconciliation uses `--reuse-values` and preserves the flag, but is not evidence of both effective workloads. GitHub concurrency groups do not implement this lifecycle hold.
+
+Exclude advisory/scenario-seed reruns and other refresh during the armed interval. `CATALOG_PROVIDER_SCOPE_REFRESH_INTERVAL_MS` is not declared in staging Helm, so scheduled Provider Scope Refresh is inactive; exclude operator-dispatched refresh as well. The setup advisory scenario seed quiesces/restores the worker and its E2E accesses deployed apps, so its completion and null-bound-job drain must precede arm.
+
+Every outcome, including early cancellation, force cancellation, failed rollout, and runner loss, keeps STOP until the host reconciles both workloads and retained ledger/job state. Off is never automatic, periodic-only, or a substitute for interval closure. If any old work or in-flight request could still execute, or that is unknown, keep STOP and do not deploy off. A successful cleanup render alone does not prove terminal state or jobs were reconciled; the ledger remains retained independently of the Pod flag.
+
 ### Staging DNS Operations
 
 The parent `chasesets.com` zone delegates `staging` to the child `staging.chasesets.com` zone. The child apex combines its DOKS ingress A record with Google Workspace MX/TXT records; it must never be a CNAME. `www`, `marketplace`, and `admin` are also A records targeting the DOKS load balancer. The environment DNS root owns mail, asset, and diagnostic records, while the platform root preserves the live routing resource addresses.

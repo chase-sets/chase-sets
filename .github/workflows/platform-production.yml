@@ -38,6 +38,11 @@ on:
         required: false
         default: false
         type: boolean
+      catalog_provider_send_window_enabled:
+        description: Opt staging API and worker into the supervised Catalog provider-send window. Requires force_deploy.
+        required: false
+        default: false
+        type: boolean
       force_restore_point:
         description: Force a precreated production database restore-point fork for this release.
         required: false
@@ -274,6 +279,17 @@ jobs:
       production_restore_point_required: ${{ steps.recovery_mode.outputs.production_restore_point_required }}
       dispatch_created_at: ${{ steps.dispatch_contract.outputs.dispatch_created_at }}
     steps:
+      - name: Validate Catalog provider-send window opt-in
+        env:
+          CATALOG_PROVIDER_SEND_WINDOW_ENABLED: ${{ inputs.catalog_provider_send_window_enabled == true && 'true' || 'false' }}
+          FORCE_DEPLOY: ${{ inputs.force_deploy == true && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          if [ "$CATALOG_PROVIDER_SEND_WINDOW_ENABLED" = "true" ] && [ "$FORCE_DEPLOY" != "true" ]; then
+            echo "Catalog provider-send window opt-in requires force_deploy=true." >&2
+            exit 1
+          fi
+
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
@@ -1729,6 +1745,7 @@ jobs:
             --image-pull-secret chase-sets \
             --runtime-env "DEPLOYMENT_ENVIRONMENT=staging" \
             --runtime-env "OBSERVABILITY_ENABLED=${TF_VAR_observability_enabled:-true}" \
+            --runtime-env "CATALOG_PROVIDER_SEND_WINDOW_ENABLED=${{ inputs.catalog_provider_send_window_enabled == true && 'true' || 'false' }}" \
             --runtime-env "CHASE_SETS_RUNTIME_PROFILE=public" \
             --runtime-env "PLATFORM_DATA_PROFILES=critical-bootstrap,catalog-integration-bootstrap" \
             --runtime-env "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS=${TF_VAR_admin_google_workspace_hosted_domains:-}" \
