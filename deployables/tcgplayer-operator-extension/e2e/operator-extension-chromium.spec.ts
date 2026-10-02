@@ -43,6 +43,13 @@ test("operator-extension-deterministic-build @tcgplayer-operator-extension", asy
 });
 
 test("operator-extension-chromium: opaque UI, exact-host cookies and retained reload @tcgplayer-operator-extension", async () => {
+  const stages: string[] = [];
+  function stage(name: string) {
+    stages.push(name);
+    mkdirSync(evidence, { recursive: true });
+    writeFileSync(join(evidence, "chromium-stages.json"), JSON.stringify(stages));
+  }
+  stage("launch");
   const profile = mkdtempSync(join(tmpdir(), "synthetic-operator-extension-"));
   const context = await chromium.launchPersistentContext(profile, {
     channel: "chromium",
@@ -56,8 +63,10 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
     ],
   });
   await context.route(/^https?:\/\//, (route) => route.abort("blockedbyclient"));
+  stage("launched");
   try {
     const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
+    stage("worker");
     expect(new URL(worker.url()).host).toBe(operatorExtensionId);
     // Direct loopback CDP setup is outside Playwright recording. Only synthetic values enter this profile.
     const port = readFileSync(join(profile, "DevToolsActivePort"), "utf8").split(/\r?\n/)[0];
@@ -110,6 +119,7 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
       });
     }
     const cookieMarker = ["SYNTHETIC", "OPERATOR", "COOKIE", "CHROMIUM"].join("_");
+    stage("setup-connected");
     const grantMarker = "A".repeat(43);
     const key = "catalog.operator-session.staging";
     for (const domain of [undefined, ".tcgplayer.com"]) {
@@ -123,18 +133,21 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
       }
     }
     socket.close();
+    stage("cookies-proved");
     await worker.evaluate(async () => {
       await chrome.action.openPopup();
     });
     const popup =
       context.pages().find((page) => page.url().endsWith("/popup.html")) ?? (await context.waitForEvent("page"));
     const ui = popup.frameLocator("iframe");
+    stage("popup-open");
     await expect(ui.getByRole("heading", { name: "TCGplayer Operator Extension" })).toBeVisible();
     await expect(ui.getByRole("status")).not.toHaveText("Loading status");
     await ui.getByLabel("Pairing grant").fill(grantMarker);
     await ui.getByRole("button", { name: "Pair", exact: true }).click();
     await expect(ui.getByLabel("Pairing grant")).toHaveValue("");
     await expect(ui.getByRole("status")).toContainText("Paired.");
+    stage("paired");
     const sandbox = popup.frames().find((frame) => frame.url().endsWith("/sandbox.html"));
     if (!sandbox) throw new Error("Sandbox missing");
     expect(await sandbox.evaluate(() => typeof chrome === "undefined" || (!chrome.storage && !chrome.cookies))).toBe(
@@ -153,11 +166,13 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
     // No grant or cookie setup is traced. The retained screenshot is status-only.
     await popup.screenshot({ path: join(evidence, "sandbox-status.png") });
     await popup.close();
+    stage("isolated");
     const compatibleWorker = context.waitForEvent("serviceworker");
     await worker.evaluate(() => {
       setTimeout(() => chrome.runtime.reload(), 0);
     });
     const compatible = await compatibleWorker;
+    stage("compatible-reloaded");
     await compatible.evaluate(async () => {
       await chrome.action.openPopup();
     });
@@ -174,6 +189,7 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
       setTimeout(() => chrome.runtime.reload(), 0);
     });
     const restarted = await unknownWorker;
+    stage("unknown-reloaded");
     await restarted.evaluate(async () => {
       await chrome.action.openPopup();
     });
