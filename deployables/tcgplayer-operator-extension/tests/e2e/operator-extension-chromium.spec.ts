@@ -1,44 +1,42 @@
 /// <reference types="chrome" />
 
-import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { chromium, expect, test } from "@playwright/test";
 import { build } from "vite";
-import { operatorExtensionId } from "../src/manifest-contract";
+import { operatorExtensionId } from "../../src/manifest-contract";
+import {
+  operatorEvidenceIdentity,
+  operatorFileInventory,
+} from "../../../../scripts/prepare-operator-extension-evidence.mjs";
 
-const root = resolve(import.meta.dirname, "..");
+const root = resolve(import.meta.dirname, "../..");
 const dist = resolve(root, "dist");
 const evidence = resolve(root, "../../artifacts/operator-extension");
-function inventory(directory: string): Record<string, string> {
-  return Object.fromEntries(
-    readdirSync(directory, { recursive: true, withFileTypes: true })
-      .filter((file) => file.isFile())
-      .map((file) => {
-        const path = join(file.parentPath, file.name);
-        return [
-          relative(directory, path).replaceAll("\\", "/"),
-          createHash("sha256").update(readFileSync(path)).digest("hex"),
-        ];
-      })
-      .sort(([left], [right]) => left!.localeCompare(right!)),
-  );
-}
+const identity = operatorEvidenceIdentity(resolve(root, "../.."));
 
 test("operator-extension-deterministic-build @tcgplayer-operator-extension", async () => {
-  const first = inventory(dist);
+  const first = operatorFileInventory(dist);
   await build({ root, configFile: resolve(root, "vite.config.ts"), logLevel: "error" });
-  const second = inventory(dist);
+  const second = operatorFileInventory(dist);
   expect(second).toEqual(first);
   expect({ ...second, "unlisted.js": "unexpected" }).not.toEqual(first);
-  const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
   mkdirSync(evidence, { recursive: true });
   writeFileSync(
     join(evidence, "handoff.json"),
-    JSON.stringify({ schemaVersion: 1, sourceHead: head, extensionId: operatorExtensionId, files: second }, null, 2) +
-      "\n",
+    JSON.stringify(
+      {
+        schemaVersion: 1,
+        identity,
+        extensionId: operatorExtensionId,
+        version: "0.1.0",
+        twoBuildsIdentical: true,
+        files: second,
+      },
+      null,
+      2,
+    ) + "\n",
   );
 });
 
@@ -47,7 +45,7 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
   function stage(name: string) {
     stages.push(name);
     mkdirSync(evidence, { recursive: true });
-    writeFileSync(join(evidence, "chromium-stages.json"), JSON.stringify(stages));
+    writeFileSync(join(evidence, "chromium-stages.json"), JSON.stringify({ identity, stages }));
   }
   stage("launch");
   const profile = mkdtempSync(join(tmpdir(), "synthetic-operator-extension-"));
@@ -204,6 +202,7 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
           ) === JSON.stringify({ schemaVersion: 999, opaque: "preserve" }),
       ),
     ).toBe(true);
+    stage("reload-proved");
     const retained = readdirSync(evidence, { recursive: true, withFileTypes: true }).filter((file) => file.isFile());
     for (const file of retained) {
       const bytes = readFileSync(join(file.parentPath, file.name));

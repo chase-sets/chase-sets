@@ -70,7 +70,7 @@
         "./contracts/catalog-seed/index.ts"
       ],
       "@chase-sets/catalog/client": [
-        "./bounded-contexts/catalog/features/operator-session/ui/extension-popup/client.ts"
+        "./bounded-contexts/catalog/client.ts"
       ],
       "@chase-sets/catalog/context": [
         "./bounded-contexts/catalog/context.json"

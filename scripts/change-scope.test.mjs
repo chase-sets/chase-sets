@@ -513,6 +513,7 @@ const hostedDbAdmissionCorpusSeeds = [
       "@chase-sets/app-admin-web",
       "@chase-sets/app-platform-api",
       "@chase-sets/app-platform-worker",
+      "@chase-sets/app-tcgplayer-operator-extension",
       "@chase-sets/catalog",
       "@chase-sets/discovery",
       "@chase-sets/inventory",

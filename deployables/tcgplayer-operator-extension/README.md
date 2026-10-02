@@ -14,6 +14,14 @@ key pins `ghemdloifdkoadnapmigabiekchlholm`; it does not authenticate a download
 There is no private signing key, public ZIP, store release, remote update URL,
 auto-updater, or other-user onboarding.
 
+The hosted operator-suite job publishes only validated `summary.json` and
+`scan.json`. The summary embeds the complete handoff inventory and binds the
+source PR head separately from the executed checkout, run, attempt, job and
+suite. Successful evidence requires identical builds and compatible/unknown
+record reload proof. Failure/retry summaries never authorize installation;
+independent exact-head review remains required even for successful evidence.
+Raw browser profiles, traces, reports and extension bytes are never uploaded.
+
 ## Update And Offboarding
 
 Replace only the reviewed unpacked artifact, then explicitly Reload that same

@@ -2,7 +2,7 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CatalogApiError } from "../client";
+import { ApiError as CatalogApiError } from "../support/shell-support/api/client";
 import IntegrationsRoute, { action, loader } from "../routes/admin/integrations";
 import { loader as providersLoader, action as providerDetailAction } from "../routes/admin/catalog-provider-detail";
 import { action as governanceAction } from "../routes/admin/integrations-governance";
