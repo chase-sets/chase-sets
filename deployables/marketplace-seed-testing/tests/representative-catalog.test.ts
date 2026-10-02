@@ -84,6 +84,63 @@ describe("representative catalog Observation Pack replay", () => {
     await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
   });
 
+  it("synthetic Lorcana pack resolves required ink through the real seed and ordinary publication, then converges", async () => {
+    const packDir = await writeSyntheticLorcanaPack();
+    process.env.REPRESENTATIVE_CATALOG_PACK_SOURCE = packDir;
+    vi.stubGlobal("fetch", async () => {
+      throw new Error("synthetic Lorcana replay must never call provider transport");
+    });
+
+    await seedRuntime.seed();
+    const rows = await seedRuntime.pools.catalog.query<{
+      observation_id: string;
+      observation_status: string;
+      status: string;
+      subtitle: string;
+      display_identity_hash: string;
+      ink: string;
+    }>(
+      `SELECT observation.observation_id, observation.status AS observation_status,
+         item.status, item.subtitle, item.display_identity_hash, value->>'value' AS ink
+       FROM catalog_source_observations AS observation
+       JOIN catalog_items AS item ON item.catalog_item_id = observation.promoted_catalog_item_id
+       CROSS JOIN LATERAL jsonb_array_elements(item.field_values) AS value
+       JOIN catalog_fields AS field ON field.field_id = value->>'fieldId'
+       WHERE observation.provider_key = 'lorcanajson' AND field.key = 'ink-color'
+       ORDER BY observation.observation_id`,
+    );
+    expect(rows.rows).toHaveLength(2);
+    for (const [index, ink] of ["Amethyst", "Amber"].entries()) {
+      expect(rows.rows[index]).toMatchObject({ observation_status: "promoted", status: "active", ink });
+      expect(rows.rows[index]?.subtitle).toContain(ink);
+      expect(rows.rows[index]?.display_identity_hash).toBeTruthy();
+    }
+    const observationCount = await seedRuntime.pools.catalog.query<{ count: string }>(
+      "SELECT COUNT(*) AS count FROM catalog_source_observations WHERE provider_key = 'lorcanajson'",
+    );
+    expect(Number(observationCount.rows[0]?.count)).toBe(2);
+    const firstEventCount = await countRows(seedRuntime.pools.catalog, "event_store_events");
+    const firstAssetCount = storedAssets.size;
+    await seedRuntime.seed();
+    expect(await countRows(seedRuntime.pools.catalog, "event_store_events")).toBe(firstEventCount);
+    expect(storedAssets.size).toBe(firstAssetCount);
+  });
+
+  it("synthetic Lorcana pack without ink cannot take ordinary promotion or publication", async () => {
+    process.env.REPRESENTATIVE_CATALOG_PACK_SOURCE = await writeSyntheticLorcanaPack([null]);
+    vi.stubGlobal("fetch", async () => {
+      throw new Error("synthetic Lorcana replay must never call provider transport");
+    });
+    await expect(seedRuntime.seed()).rejects.toThrow("representative-catalog-promotion-failed");
+    const observations = await seedRuntime.pools.catalog.query<{
+      status: string;
+      promoted_catalog_item_id: string | null;
+    }>("SELECT status, promoted_catalog_item_id FROM catalog_source_observations WHERE provider_key = 'lorcanajson'");
+    expect(observations.rows).toHaveLength(1);
+    expect(observations.rows[0]?.status).not.toBe("promoted");
+    expect(observations.rows[0]?.promoted_catalog_item_id).toBeNull();
+  });
+
   it("replays through mapping, promotion, asset normalization, publication, downstream projections, and converges on boot two", async () => {
     const packDir = await writeSyntheticPack({ accepted: true });
     const assetServer = await startCatalogAssetServer();
@@ -558,6 +615,111 @@ async function writeSyntheticScrydexPack(conflictingCoordinate = false): Promise
         envelopeContentHashes: [observationPackEnvelopeContentHash(envelope)],
       },
     ],
+  });
+  const manifest = recordObservationPackAcceptance(bundle.manifest, {
+    acceptedBy: "Todd",
+    acceptedAt: "2026-07-22T18:30:00-05:00",
+    decisionLink: OBSERVATION_PACK_DECISION_LINK,
+  });
+  for (const file of bundle.files) {
+    const target = path.join(root, ...file.path.split("/"));
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, file.path === "manifest.json" ? serializeObservationPackManifest(manifest) : file.body);
+  }
+  return root;
+}
+
+async function writeSyntheticLorcanaPack(
+  inkColors: readonly (string | null)[] = ["Amethyst", "Amber"],
+): Promise<string> {
+  const root = await mkdtemp(path.join(tmpdir(), "representative-catalog-synthetic-lorcana-"));
+  temporaryRoots.push(root);
+  const fixture = JSON.parse(
+    await readFile(
+      new URL(
+        "../../../bounded-contexts/catalog/features/source-observations/api/__fixtures__/lorcanajson-card-reference/normal.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  const envelopes = inkColors.map((inkColor, index) => {
+    const cardId = `synthetic-ink-${index}`;
+    const imageUrl = `https://images.example.invalid/synthetic/lorcana-${index}.png`;
+    const payload = {
+      ...fixture,
+      observationId: `lorcanajson_card_en_${cardId}`,
+      externalKey: `card:${cardId}`,
+      cardId,
+      name: `Synthetic Lorcana ${index}`,
+      cardNumber: String(index + 1),
+      inkColor,
+      imageUrls: [imageUrl],
+      externalCatalogItemReferences: [],
+      tcgplayerProductId: null,
+      sourcePayload: {
+        ...fixture.sourcePayload,
+        card: {
+          ...fixture.sourcePayload.card,
+          id: cardId,
+          name: `Synthetic Lorcana ${index}`,
+          cardNumber: String(index + 1),
+          inkColor,
+          imageUrls: [imageUrl],
+          tcgplayerProductId: null,
+        },
+      },
+      catalogHashMaterial: {
+        ...fixture.catalogHashMaterial,
+        cardId,
+        cardNumber: String(index + 1),
+        name: `Synthetic Lorcana ${index}`,
+        inkColor,
+        tcgplayerProductId: null,
+      },
+      mergeIdentity: {
+        ...fixture.mergeIdentity,
+        printedProductName: `Synthetic Lorcana ${index}`,
+        collectorNumber: String(index + 1),
+      },
+    };
+    return {
+      unitKey: "lorcanajson:lorcana:single-card:reference-data",
+      providerKey: "lorcanajson",
+      externalKey: payload.externalKey,
+      payload,
+      provenance: {
+        sourceUrl: payload.sourceUrl,
+        sourceUpdatedAt: payload.sourceUpdatedAt,
+        fetchedAt: "2026-06-23T00:00:00.000Z",
+      },
+    };
+  });
+  const bundle = buildObservationPack({
+    packId: "synthetic-lorcanajson-lorcana-ink-en",
+    packVersion: "v1-synthetic",
+    capturedAt: "2026-07-22T18:00:00-05:00",
+    identity: {
+      productLineKey: "disney-lorcana",
+      productLineDisplayName: "Disney Lorcana",
+      setKind: "set",
+      setExternalId: "1",
+      setDisplayName: "The First Chapter",
+      providerKey: "lorcanajson",
+      integrationProfileKey: "lorcana-card-reference-data",
+      integrationProfileVersion: "2026.06.23",
+      ingestionUnit: envelopes[0]!.unitKey,
+      language: "en",
+      scopeKey: "set",
+      scopeCoordinates: { languageCode: "en", setCode: "1" },
+    },
+    envelopes,
+    assets: envelopes.map((envelope) => ({
+      bytes: sourceImage,
+      mediaType: "image/png",
+      sourceReference: envelope.payload.imageUrls[0]!,
+      envelopeContentHashes: [observationPackEnvelopeContentHash(envelope)],
+    })),
   });
   const manifest = recordObservationPackAcceptance(bundle.manifest, {
     acceptedBy: "Todd",
