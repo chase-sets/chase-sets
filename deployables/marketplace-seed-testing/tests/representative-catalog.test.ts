@@ -101,9 +101,11 @@ describe("representative catalog Observation Pack replay", () => {
       ink: string;
     }>(
       `SELECT observation.observation_id, observation.status AS observation_status,
-         item.status, item.subtitle, item.display_identity_hash, value->>'value' AS ink
+         item.status, identity.subtitle, identity.display_identity_hash, value->>'value' AS ink
        FROM catalog_source_observations AS observation
        JOIN catalog_items AS item ON item.catalog_item_id = observation.promoted_catalog_item_id
+       JOIN catalog_item_display_identities AS identity
+         ON identity.catalog_item_id = item.catalog_item_id AND identity.language_code = item.language_code
        CROSS JOIN LATERAL jsonb_array_elements(item.field_values) AS value
        JOIN catalog_fields AS field ON field.field_id = value->>'fieldId'
        WHERE observation.provider_key = 'lorcanajson' AND field.key = 'ink-color'
