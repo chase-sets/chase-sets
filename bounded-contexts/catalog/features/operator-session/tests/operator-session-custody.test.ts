@@ -4,6 +4,7 @@ import * as envelope from "@chase-sets/platform-runtime/secret-envelope";
 import { describeTcgplayerAutomationConfigForLogs } from "@chase-sets/platform-runtime/config-schema";
 import { createPostgresCatalogOperatorSessionStore } from "../api/store";
 import { createTcgplayerAutomationRuntime } from "../api/runtime";
+import { validateOperatorSessionValue } from "../domain/value";
 import {
   createTcgplayerProviderAdapter,
   TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
@@ -28,9 +29,9 @@ const marker = "SYNTHETIC_HOSTILE_OPERATOR_MARKER_8450";
 const keyring = { activeKeyId: "synthetic", keys: new Map([["synthetic", new Uint8Array(32).fill(7)]]) };
 const input = { expectedRevision: 0, value: marker, observedAt: "2026-10-01T00:00:00.000Z", browserExpiresAt: null };
 
-async function successfulResponseHarness(durable: boolean, body: string) {
+async function successfulResponseHarness(durable: boolean, body: string, value = marker) {
   const custody = createPostgresCatalogOperatorSessionStore(recorder().db, keyring);
-  await custody.accept(input);
+  await custody.accept({ ...input, value });
   const resolved = await custody.resolve();
   if (!resolved || "unavailable" in resolved) throw new Error("synthetic custody setup failed");
   const store = createInMemoryTcgplayerAutomationHttpConfigStore({
@@ -69,29 +70,317 @@ const escapedMarker = [...marker]
   .map((character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`)
   .join("");
 
-describe.each([false, true])("successful-response custody boundary (durable=%s)", (durable) => {
-  it("checks only the current attempt's resolved value without caching or resolving again", async () => {
-    const body = JSON.stringify({ evidence: marker });
-    const harness = await successfulResponseHarness(durable, body);
-    const config = await harness.load();
-    harness.load.mockClear();
-    harness.load.mockResolvedValueOnce({
-      ...config,
-      auth: {
-        ...config.auth,
-        tcgAuthCookie: "SYNTHETIC_OTHER_CREDENTIAL",
-        credential: { source: "operator-session", revision: 2 },
-      },
-    });
-    await expect(harness.clients.infiniteApi.get("/synthetic")).resolves.toEqual({ evidence: marker });
-    await expect(harness.clients.infiniteApi.get("/synthetic")).rejects.toThrow("tcgplayer-automation-request-failed");
-    expect(harness.load).toHaveBeenCalledTimes(2);
-    expect(harness.fetch.mock.calls.map((call) => new Headers(call[1]?.headers).get("Cookie"))).toEqual([
-      "TCGAuthTicket_Production=SYNTHETIC_OTHER_CREDENTIAL;",
-      `TCGAuthTicket_Production=${marker};`,
+type MatchingCase = Readonly<{ name: string; credential: string; body: string; refuses: boolean }>;
+
+function jsonCase(name: string, credential: string, value: unknown, refuses: boolean): MatchingCase {
+  return { name, credential, body: JSON.stringify(value), refuses };
+}
+
+function unicodeEscaped(value: string): string {
+  return [...value].map((character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`).join("");
+}
+
+const matchingCases: MatchingCase[] = [
+  ...["a", "id", "true", "0"].flatMap((credential) => [
+    jsonCase("short equality: whole string", credential, credential, true),
+    jsonCase("short equality: unknown member name", credential, { [credential]: "ordinary" }, true),
+    jsonCase("short equality: nested array string", credential, { outer: [{ inner: [credential] }] }, true),
+  ]),
+  jsonCase(
+    "short coincidence: shippingCategoryId and longer text",
+    "a",
+    { shippingCategoryId: 42, text: "ordinary data" },
+    false,
+  ),
+  jsonCase("short coincidence: untrue", "true", { text: "untrue" }, false),
+  jsonCase("short coincidence: productId", "id", { productId: 42 }, false),
+  ...[true, false, null, 1, 0].flatMap((value) => {
+    const credential = JSON.stringify(value);
+    return [
+      jsonCase("primitive distinction: typed value", credential, value, false),
+      jsonCase(
+        "primitive distinction: nested typed values and array indices",
+        credential,
+        { values: [value, 0, 1] },
+        false,
+      ),
+      jsonCase("primitive distinction: quoted value", credential, credential, true),
+      jsonCase("primitive distinction: member name", credential, { [credential]: 42 }, true),
+    ];
+  }),
+  jsonCase("long typed primitive: number", "1234567890123456", 1234567890123456, false),
+  jsonCase("long typed primitive: quoted number", "1234567890123456", "1234567890123456", true),
+  ...[15, 16].flatMap((length) => {
+    const credential = "X".repeat(length);
+    return [
+      jsonCase(`boundary ${length}: exact string`, credential, credential, true),
+      jsonCase(`boundary ${length}: exact key`, credential, { [credential]: 42 }, true),
+      jsonCase(`boundary ${length}: contained string`, credential, `prefix-${credential}-suffix`, length === 16),
+      jsonCase(`boundary ${length}: contained key`, credential, { [`prefix-${credential}-suffix`]: 42 }, length === 16),
+    ];
+  }),
+  jsonCase("maximum value: exact", "X".repeat(4096), "X".repeat(4096), true),
+  jsonCase("maximum value: embedded", "X".repeat(4096), `prefix-${"X".repeat(4096)}-suffix`, true),
+  jsonCase("maximum value: clean", "X".repeat(4096), { evidence: "ordinary" }, false),
+  jsonCase("case/normalization: different case", "Ab", "ab", false),
+  jsonCase("case/normalization: no trimming", "Ab", " Ab ", false),
+  jsonCase("case/normalization: exact", "Ab", "Ab", true),
+  ...["a", "true", marker].flatMap((credential) => [
+    {
+      name: "escaped JSON: nested value",
+      credential,
+      body: `{"outer":[{"value":"${unicodeEscaped(credential)}"}]}`,
+      refuses: true,
+    },
+    { name: "escaped JSON: nested key", credential, body: `[{"${unicodeEscaped(credential)}":42}]`, refuses: true },
+    jsonCase(
+      "embedded JSON strings: encoded object",
+      credential,
+      { document: `{"${unicodeEscaped(credential)}":42}` },
+      true,
+    ),
+    jsonCase("embedded JSON strings: encoded string", credential, JSON.stringify(credential), true),
+    jsonCase(
+      "embedded JSON strings: two encoding layers",
+      credential,
+      JSON.stringify(JSON.stringify({ value: credential })),
+      true,
+    ),
+  ]),
+  {
+    name: "escaped JSON: short substring control",
+    credential: "a",
+    body: '{"text":"d\\u0061t\\u0061"}',
+    refuses: false,
+  },
+  { name: "escaped JSON: typed control", credential: "true", body: '{"v\\u0061lue":true}', refuses: false },
+  ...[true, false, null, 0, 1].map((value) =>
+    jsonCase(
+      "embedded JSON strings: nested primitive stays typed",
+      JSON.stringify(value),
+      JSON.stringify({ values: [value] }),
+      false,
+    ),
+  ),
+  jsonCase(
+    "embedded JSON strings: original long containment checked before decoding",
+    "1234567890123456",
+    JSON.stringify({ values: [1234567890123456] }),
+    true,
+  ),
+  jsonCase("long containment: prose value", marker, { value: `provider says ${marker}` }, true),
+  jsonCase("long containment: member name", marker, { [`prefix-${marker}-suffix`]: 42 }, true),
+  {
+    name: "long containment: escaped nested value",
+    credential: marker,
+    body: `{"outer":[{"value":"prefix-${escapedMarker}-suffix"}]}`,
+    refuses: true,
+  },
+  ...["prefix-a-suffix", "Cookie: TCGAuthTicket_Production=a;"].map((value) =>
+    jsonCase("known missed echo: accepted short concatenation", "a", { value }, false),
+  ),
+];
+
+const stringSurfaceCases: MatchingCase[] = [
+  ...["a", "true"].flatMap((credential) => [
+    { name: "text/raw exact short: literal", credential, body: credential, refuses: true },
+    { name: "text/raw exact short: JSON quoted", credential, body: JSON.stringify(credential), refuses: true },
+    { name: "text/raw exact short: JSON escaped", credential, body: `"${unicodeEscaped(credential)}"`, refuses: true },
+    { name: "text/raw coincidence: ordinary longer text", credential, body: "ordinary data is untrue", refuses: false },
+    jsonCase(
+      "text/raw coincidence: unchanged fixture with boolean true",
+      credential,
+      tcgplayerAutomationResponseFixtures.productDetail,
+      false,
+    ),
+    jsonCase("text/raw coincidence: nested typed primitive", credential, { value: true }, false),
+  ]),
+  ...["prefix-a-suffix", "Cookie: TCGAuthTicket_Production=a;"].map((body) => ({
+    name: "known missed echo: accepted short concatenation body",
+    credential: "a",
+    body,
+    refuses: false,
+  })),
+  ...[
+    marker,
+    `provider says ${marker}`,
+    `{"prefix-${escapedMarker}-suffix":42}`,
+    `{"value":"prefix-${escapedMarker}-suffix"}`,
+  ].map((body) => ({
+    name: "long containment: literal or escaped body",
+    credential: marker,
+    body,
+    refuses: true,
+  })),
+];
+
+describe.each([false, true])("explicit credential matching contract (durable=%s)", (durable) => {
+  async function assertResponse(testCase: MatchingCase, responseType: "json" | "text" | "raw", response?: Response) {
+    const { credential, body, refuses } = testCase;
+    expect(() => validateOperatorSessionValue(credential)).not.toThrow();
+    const harness = await successfulResponseHarness(durable, body, credential);
+    if (response) harness.fetch.mockResolvedValueOnce(response);
+    const facts: TcgplayerAutomationStageFact[] = [];
+    const request = harness.clients.infiniteApi.get(
+      "/synthetic",
+      {},
+      { responseType, onStage: (fact) => facts.push(fact) },
+    );
+    if (refuses) {
+      const error: unknown = await request.catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(Error);
+      expect(String(error)).toBe("Error: tcgplayer-automation-request-failed");
+      expect(Reflect.ownKeys(error as Error).sort()).toEqual(["message", "stack"]);
+      expect(JSON.stringify(error)).toBe("{}");
+      expect(facts.filter((fact) => fact.stage === "terminal")).toMatchObject([{ outcome: "failure" }]);
+      if (!durable) expect(facts.some((fact) => fact.stage === "parse-failure")).toBe(true);
+    } else {
+      const result = await request;
+      if (responseType === "raw") {
+        if (response) expect(result).toBe(response);
+        expect((result as Response).bodyUsed).toBe(false);
+        expect(await (result as Response).text()).toBe(body);
+      } else {
+        expect(result).toEqual(responseType === "text" ? body : JSON.parse(body));
+      }
+      expect(facts.filter((fact) => fact.stage === "terminal")).toMatchObject([{ outcome: "success" }]);
+    }
+    expect(facts.filter((fact) => fact.stage === "fetch-start")).toMatchObject([
+      { attempt: 1, credential: { source: "operator-session", revision: 1 } },
     ]);
-    expect(harness.release).toHaveBeenCalledTimes(durable ? 2 : 0);
+    for (const fact of facts) {
+      for (const forbidden of ["body", "response", "headers", "cookie", "error", "cause"])
+        expect(fact).not.toHaveProperty(forbidden);
+    }
+    expect(new Headers(harness.fetch.mock.calls[0]![1]?.headers).get("Cookie")).toBe(
+      `TCGAuthTicket_Production=${credential};`,
+    );
+    expect(harness.load).toHaveBeenCalledTimes(1);
+    expect(harness.fetch).toHaveBeenCalledTimes(1);
+    expect(harness.release).toHaveBeenCalledTimes(durable ? 1 : 0);
+  }
+
+  it.each(["a", "id", "true", "SYNTHETIC_UNRELATED_CREDENTIAL"])("unchanged r2 control: %s", async (credential) => {
+    await assertResponse(
+      jsonCase("unchanged r2 control", credential, tcgplayerAutomationResponseFixtures.productDetail, false),
+      "json",
+    );
   });
+
+  it.each(matchingCases)("$name (case %#)", async (testCase) => assertResponse(testCase, "json"));
+
+  describe.each(["text", "raw"] as const)("%s strings", (responseType) => {
+    it.each(stringSurfaceCases)("$name (case %#)", async (testCase) => assertResponse(testCase, responseType));
+  });
+
+  it("maximum value: 4097 rejected before write", async () => {
+    const capture = recorder();
+    await expect(
+      createPostgresCatalogOperatorSessionStore(capture.db, keyring).accept({ ...input, value: "X".repeat(4097) }),
+    ).rejects.toMatchObject({ code: "invalid-session-value", message: "invalid-session-value" });
+    expect(capture.query).not.toHaveBeenCalled();
+  });
+
+  it("undefined 204 payload has no string to inspect", async () => {
+    const harness = await successfulResponseHarness(durable, "", "0");
+    harness.fetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await expect(harness.clients.infiniteApi.get("/synthetic")).resolves.toBeUndefined();
+    expect(harness.release).toHaveBeenCalledTimes(durable ? 1 : 0);
+  });
+
+  it.each([401, 403, 429])("diagnostics/status: preserves HTTP %i and bounded failure facts", async (status) => {
+    const harness = await successfulResponseHarness(durable, marker);
+    harness.fetch.mockResolvedValueOnce(new Response(marker, { status }));
+    const facts: TcgplayerAutomationStageFact[] = [];
+    const request = harness.clients.infiniteApi.get("/synthetic", {}, { onStage: (fact) => facts.push(fact) });
+    const error: unknown = await request.catch((caught: unknown) => caught);
+    expect(error).toMatchObject({
+      status,
+      message: `TCGplayer automation request to infiniteApi failed with HTTP ${status}.`,
+    });
+    expect(JSON.stringify({ error, facts })).not.toContain(marker);
+    expect(facts.filter((fact) => fact.stage === "terminal")).toMatchObject([{ outcome: "failure" }]);
+    expect(facts.some((fact) => fact.stage === "parse-start")).toBe(false);
+    expect(harness.fetch).toHaveBeenCalledTimes(1);
+    expect(harness.load).toHaveBeenCalledTimes(1);
+    expect(harness.release).toHaveBeenCalledTimes(durable ? 1 : 0);
+  });
+
+  it.each<Omit<MatchingCase, "body"> & Pick<ResponseInit, "headers" | "statusText"> & { url?: string }>([
+    { name: "exact short header value", credential: "a", headers: { "x-evidence": "a" }, refuses: true },
+    { name: "exact short header name", credential: "a", headers: { a: "ordinary" }, refuses: true },
+    { name: "exact short statusText", credential: "true", statusText: "true", refuses: true },
+    {
+      name: "long header containment",
+      credential: marker,
+      headers: { "x-evidence": `prefix-${marker}-suffix` },
+      refuses: true,
+    },
+    { name: "long URL containment", credential: marker, url: `https://synthetic.invalid/${marker}`, refuses: true },
+    {
+      name: "short metadata coincidence",
+      credential: "a",
+      headers: { "x-data": "data" },
+      statusText: "ordinary",
+      url: "https://synthetic.invalid/data",
+      refuses: false,
+    },
+    {
+      name: "nonmatching metadata",
+      credential: marker,
+      headers: { "x-data": "data" },
+      statusText: "OK",
+      url: "https://synthetic.invalid/data",
+      refuses: false,
+    },
+  ])("raw metadata: $name", async ({ name, credential, headers, statusText, url, refuses }) => {
+    const body = "{}";
+    const response = new Response(body, { status: 200, headers, statusText });
+    if (url) Object.defineProperty(response, "url", { value: url });
+    await assertResponse({ name, credential, body, refuses }, "raw", response);
+  });
+});
+
+describe.each([false, true])("successful-response custody boundary (durable=%s)", (durable) => {
+  it.each(["json", "raw"] as const)(
+    "checks only the current attempt's resolved value without caching or resolving again (%s)",
+    async (responseType) => {
+      const body = JSON.stringify({ evidence: marker });
+      const harness = await successfulResponseHarness(durable, body);
+      const config = await harness.load();
+      harness.load.mockClear();
+      harness.load.mockResolvedValueOnce({
+        ...config,
+        auth: {
+          ...config.auth,
+          tcgAuthCookie: "SYNTHETIC_OTHER_CREDENTIAL",
+          credential: { source: "operator-session", revision: 2 },
+        },
+      });
+      const facts: TcgplayerAutomationStageFact[] = [];
+      const options = { responseType, onStage: (fact: TcgplayerAutomationStageFact) => facts.push(fact) };
+      const result = await harness.clients.infiniteApi.get("/synthetic", {}, options);
+      if (responseType === "raw") {
+        expect((result as Response).bodyUsed).toBe(false);
+        expect(await (result as Response).text()).toBe(body);
+      } else {
+        expect(result).toEqual({ evidence: marker });
+      }
+      await expect(harness.clients.infiniteApi.get("/synthetic", {}, options)).rejects.toThrow(
+        "tcgplayer-automation-request-failed",
+      );
+      expect(harness.load).toHaveBeenCalledTimes(2);
+      expect(harness.fetch.mock.calls.map((call) => new Headers(call[1]?.headers).get("Cookie"))).toEqual([
+        "TCGAuthTicket_Production=SYNTHETIC_OTHER_CREDENTIAL;",
+        `TCGAuthTicket_Production=${marker};`,
+      ]);
+      expect(harness.release).toHaveBeenCalledTimes(durable ? 2 : 0);
+      expect(facts.filter((fact) => fact.stage === "fetch-start").map((fact) => fact.credential)).toEqual([
+        { source: "operator-session", revision: 2 },
+        { source: "operator-session", revision: 1 },
+      ]);
+    },
+  );
 
   it.each(["text", "raw"] as const)(
     "refuses plain %s echo but preserves ordinary non-JSON text",
@@ -106,16 +395,18 @@ describe.each([false, true])("successful-response custody boundary (durable=%s)"
     },
   );
 
-  it.each(["clean", "echo", "nested-escaped"])(
+  it.each(["clean", "echo", "nested-escaped", "short-exact", "short-coincidence", "typed-coincidence"])(
     "%s provider evidence cannot contaminate events or snapshots",
     async (kind) => {
+      const credential = kind.startsWith("short") ? "a" : kind === "typed-coincidence" ? "true" : marker;
+      const refuses = ["echo", "nested-escaped", "short-exact"].includes(kind);
       const detail = {
         ...tcgplayerAutomationResponseFixtures.productDetail,
         ordinaryEvidence: "synthetic-clean-evidence",
-        ...(kind === "clean" ? {} : { syntheticCredentialEcho: { nested: [marker] } }),
+        ...(refuses ? { syntheticCredentialEcho: { nested: [credential] } } : {}),
       };
       const body = JSON.stringify(detail).replaceAll(marker, kind === "nested-escaped" ? escapedMarker : marker);
-      const harness = await successfulResponseHarness(durable, body);
+      const harness = await successfulResponseHarness(durable, body, credential);
       const profile = getCatalogProviderIntegrationProfileVersion("tcgplayer", "2026.06.05", {
         profileKey: "pokemon-single-card-product-sku",
       })!;
@@ -137,12 +428,45 @@ describe.each([false, true])("successful-response custody boundary (durable=%s)"
       }
       expect(harness.load).toHaveBeenCalledTimes(1);
       expect(new Headers(harness.fetch.mock.calls[0]![1]?.headers).get("Cookie")).toBe(
-        `TCGAuthTicket_Production=${marker};`,
+        `TCGAuthTicket_Production=${credential};`,
       );
       expect(harness.admit).toHaveBeenCalledTimes(durable ? 1 : 0);
       expect(harness.release).toHaveBeenCalledTimes(durable ? 1 : 0);
-      if (kind !== "clean") {
+      const recorded = envelopes.map((envelope) => {
+        const prepared = prepareProviderAdapterSourceObservationPayload({
+          payload: envelope.payload,
+          providerProfile: profile.profile,
+        });
+        if (prepared.kind !== "payload") throw new Error("synthetic payload preparation failed");
+        const contract = profile.executableMappingContract;
+        if (!contract?.sourceObservation) throw new Error("synthetic source observation mapping missing");
+        const observation = requireCatalogProviderSourceObservation({
+          contract: { ...contract, sourceObservation: contract.sourceObservation },
+          payload: prepared.payload,
+          observedAt: input.observedAt,
+        });
+        const events = decideSourceObservation(initialSourceObservationState, {
+          type: "RecordSourceObservation",
+          ...observation,
+        });
+        const snapshot = events.reduce(evolveSourceObservation, initialSourceObservationState);
+        for (const evidence of [events, snapshot]) {
+          expect(JSON.stringify(evidence), "credential must not enter domain events or snapshots").not.toContain(
+            marker,
+          );
+          expect(JSON.stringify(evidence), "exact short echo must not enter domain events or snapshots").not.toContain(
+            '"syntheticCredentialEcho"',
+          );
+          expect(JSON.stringify(evidence)).toContain("synthetic-clean-evidence");
+        }
+        expect(events.map((event) => event.type)).toEqual(["catalog.source-observation.recorded"]);
+        expect(observation.sourcePayload).toEqual(detail);
+        expect(snapshot.sourcePayload).toEqual(detail);
+        return { events, snapshot };
+      });
+      if (refuses) {
         expect(envelopes, "contaminated payload must not reach normalization or recording").toHaveLength(0);
+        expect(recorded).toEqual([]);
         expect(error).toBeInstanceOf(Error);
         expect(String(error)).toBe("Error: tcgplayer-automation-request-failed");
         expect(JSON.stringify(error)).not.toContain(marker);
@@ -150,28 +474,8 @@ describe.each([false, true])("successful-response custody boundary (durable=%s)"
       }
       expect(error).toBeUndefined();
       expect(envelopes).toHaveLength(1);
-      const prepared = prepareProviderAdapterSourceObservationPayload({
-        payload: envelopes[0]!.payload,
-        providerProfile: profile.profile,
-      });
-      if (prepared.kind !== "payload") throw new Error("synthetic payload preparation failed");
-      const contract = profile.executableMappingContract;
-      if (!contract?.sourceObservation) throw new Error("synthetic source observation mapping missing");
-      const observation = requireCatalogProviderSourceObservation({
-        contract: { ...contract, sourceObservation: contract.sourceObservation },
-        payload: prepared.payload,
-        observedAt: input.observedAt,
-      });
-      const events = decideSourceObservation(initialSourceObservationState, {
-        type: "RecordSourceObservation",
-        ...observation,
-      });
-      const snapshot = events.reduce(evolveSourceObservation, initialSourceObservationState);
-      expect(events.map((event) => event.type)).toEqual(["catalog.source-observation.recorded"]);
-      for (const evidence of [events, snapshot]) {
-        expect(JSON.stringify(evidence)).toContain("synthetic-clean-evidence");
-        expect(JSON.stringify(evidence)).not.toContain(marker);
-      }
+      expect(recorded).toHaveLength(1);
+      expect(envelopes[0]!.payload).toEqual({ kind: "product-detail", detail });
     },
   );
 

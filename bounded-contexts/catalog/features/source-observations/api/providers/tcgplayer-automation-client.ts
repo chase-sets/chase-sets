@@ -1338,6 +1338,7 @@ async function parseResponse<TResponse>(
           ? undefined
           : await response.json();
   if (credentialValue) {
+    const matchContainedValue = new TextEncoder().encode(credentialValue).byteLength >= 16;
     const pending: unknown[] = [value];
     if (responseType === "raw") {
       pending.push(response.url, response.statusText, ...response.headers.keys(), ...response.headers.values());
@@ -1345,19 +1346,20 @@ async function parseResponse<TResponse>(
     while (pending.length > 0) {
       const item = pending.pop();
       if (typeof item === "string") {
-        if (item.includes(credentialValue)) throw new Error("tcgplayer-automation-request-failed");
+        if (item === credentialValue || (matchContainedValue && item.includes(credentialValue))) {
+          throw new Error("tcgplayer-automation-request-failed");
+        }
         // Text/raw bodies and embedded JSON strings can encode the same credential with JSON escapes.
-        if (!['"', "{", "["].includes(item.trimStart()[0] ?? "")) continue;
         try {
           const decoded: unknown = JSON.parse(item);
           if (decoded !== item) pending.push(decoded);
         } catch {
           // Ordinary provider text is not necessarily JSON.
         }
+      } else if (Array.isArray(item)) {
+        for (const entry of item) pending.push(entry);
       } else if (item !== null && typeof item === "object") {
         for (const [key, entry] of Object.entries(item)) pending.push(key, entry);
-      } else if (item !== undefined && String(item).includes(credentialValue)) {
-        throw new Error("tcgplayer-automation-request-failed");
       }
     }
   }
