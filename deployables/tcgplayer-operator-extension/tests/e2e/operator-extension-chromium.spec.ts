@@ -188,6 +188,11 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
           "catalog.operator-session.staging"
         ];
         return (
+          typeof record === "object" &&
+          record !== null &&
+          !Array.isArray(record) &&
+          "schemaVersion" in record &&
+          "opaque" in record &&
           JSON.stringify(Object.keys(record).sort()) === JSON.stringify(["opaque", "schemaVersion"]) &&
           record.schemaVersion === 999 &&
           record.opaque === "preserve"
