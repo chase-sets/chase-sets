@@ -612,6 +612,11 @@ export async function loadCatalogItemPromotionProfile(
       cardVariant,
       cardIllustrator,
       releaseYear,
+      ...(profile.normalizedObservationMapping.kind === "lorcana-card-print"
+        ? {
+            inkColor: await requireCatalogIdByKey<FieldId>(deps, profile, "catalog_fields", "field_id", "ink-color"),
+          }
+        : {}),
       ...(mapping.fieldKeys.set
         ? {
             set: await requireCatalogIdByKey<FieldId>(
