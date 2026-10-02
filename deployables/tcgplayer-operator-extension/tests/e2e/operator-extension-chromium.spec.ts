@@ -98,16 +98,7 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
         await chrome.action.openPopup({ windowId: window.id });
       });
       const popup = await syntheticTarget(port, `chrome-extension://${operatorExtensionId}/popup.html`);
-      await expect
-        .poll(() => popup.sandboxContext())
-        .toBeDefined()
-        .catch(async (error: unknown) => {
-          writeFileSync(
-            resolve(root, "../../artifacts/operator-extension-raw/frame-diagnostics.json"),
-            JSON.stringify(await popup.frameDiagnostics(), null, 2),
-          );
-          throw error;
-        });
+      await expect.poll(() => popup.sandboxContext()).toBeDefined();
       const frame = await popup.sandboxContext();
       if (frame === undefined) throw new Error("Synthetic sandbox context missing");
       return {

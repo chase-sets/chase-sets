@@ -95,56 +95,30 @@ export async function syntheticTarget(port: string, url: string) {
   }
   await send("Runtime.enable");
   await send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
+  async function evaluate(expression: string, context?: SyntheticContext): Promise<unknown> {
+    const response = await send(
+      "Runtime.evaluate",
+      {
+        expression,
+        awaitPromise: true,
+        returnByValue: true,
+        ...(context === undefined ? {} : { contextId: context.id }),
+      },
+      context?.sessionId,
+    );
+    if (typeof response !== "object" || response === null || "exceptionDetails" in response || !("result" in response))
+      throw new Error("Synthetic evaluation refused");
+    const result = response.result;
+    return typeof result === "object" && result !== null && "value" in result ? result.value : undefined;
+  }
   return {
-    async frameDiagnostics() {
-      return { frameTree: await send("Page.getFrameTree"), contexts: [...contexts] };
-    },
-    async evaluate(expression: string, context?: SyntheticContext): Promise<unknown> {
-      const response = await send(
-        "Runtime.evaluate",
-        {
-          expression,
-          awaitPromise: true,
-          returnByValue: true,
-          ...(context === undefined ? {} : { contextId: context.id }),
-        },
-        context?.sessionId,
-      );
-      if (
-        typeof response !== "object" ||
-        response === null ||
-        "exceptionDetails" in response ||
-        !("result" in response)
-      )
-        throw new Error("Synthetic evaluation refused");
-      const result = response.result;
-      return typeof result === "object" && result !== null && "value" in result ? result.value : undefined;
-    },
+    evaluate,
     async sandboxContext(): Promise<SyntheticContext | undefined> {
-      const result = await send("Page.getFrameTree");
-      if (typeof result !== "object" || result === null || !("frameTree" in result)) return undefined;
-      function find(value: unknown): SyntheticContext | undefined {
-        if (typeof value !== "object" || value === null || !("frame" in value)) return undefined;
-        const frame = value.frame;
-        if (
-          typeof frame === "object" &&
-          frame !== null &&
-          "url" in frame &&
-          typeof frame.url === "string" &&
-          frame.url.endsWith("/sandbox.html") &&
-          "id" in frame &&
-          typeof frame.id === "string"
-        )
-          return contexts.get(frame.id);
-        if ("childFrames" in value && Array.isArray(value.childFrames)) {
-          for (const child of value.childFrames) {
-            const id = find(child);
-            if (id !== undefined) return id;
-          }
-        }
-        return undefined;
+      const sandboxUrl = new URL("sandbox.html", url).href;
+      for (const context of contexts.values()) {
+        if ((await evaluate(`location.href === ${JSON.stringify(sandboxUrl)}`, context)) === true) return context;
       }
-      return find(result.frameTree);
+      return undefined;
     },
     close() {
       for (const call of pending.values()) {
