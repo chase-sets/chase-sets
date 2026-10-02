@@ -43,10 +43,22 @@ test.describe("marketplace search scroll restoration", () => {
     const secondLoadedPage = pageFrom(template!, "loaded-twice", null);
     const resultSetKey = JSON.stringify([searchQuery, "", "", "", "", "", "", false, "relevance", []]);
     const storedSnapshot = JSON.stringify({ version: 2, resultSetKey, pages: [preloadPage], scrollY: 0 });
-    await page.evaluate(({ key, value }) => window.sessionStorage.setItem(key, value), {
-      key: searchRestorationStorageKey,
-      value: storedSnapshot,
-    });
+    // Install after the outgoing document's pagehide, and never replant on back navigation.
+    await page.addInitScript(
+      ({ key, value, query }) => {
+        const initializedKey = `${key}.fixture-initialized`;
+        if (
+          window.location.pathname !== "/search" ||
+          new URLSearchParams(window.location.search).get("q") !== query ||
+          window.sessionStorage.getItem(initializedKey)
+        ) {
+          return;
+        }
+        window.sessionStorage.setItem(key, value);
+        window.sessionStorage.setItem(initializedKey, "true");
+      },
+      { key: searchRestorationStorageKey, value: storedSnapshot, query: searchQuery },
+    );
 
     const loadedPages = [firstLoadedPage, secondLoadedPage];
     let loadCount = 0;
@@ -79,10 +91,11 @@ test.describe("marketplace search scroll restoration", () => {
     const roundtripLink = page.getByRole("link", { name: /View details for .*loaded-twice item 24/ });
     await expect(roundtripLink).toBeVisible();
     await roundtripLink.scrollIntoViewIfNeeded();
+    await roundtripLink.focus();
     const beforeRoundtrip = await page.evaluate(() => window.scrollY);
     expect(beforeRoundtrip).toBeGreaterThan(0);
 
-    await roundtripLink.click();
+    await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/\/items\//);
 
     const restorationStart = Date.now();
