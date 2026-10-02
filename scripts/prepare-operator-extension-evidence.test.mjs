@@ -128,6 +128,27 @@ describe("operator-only hosted evidence", () => {
       candidateVerified: false,
     });
   });
+  it.each([
+    "unknown-popup-opened",
+    "unknown-popup-attached",
+    "unknown-sandbox-ready",
+    "unknown-status-proved",
+    "unknown-record-preserved",
+  ])("retains the fixed %s failure boundary without claiming completed reload", (stage) => {
+    const f = fixture();
+    f.progress.stages = f.progress.stages.slice(0, f.progress.stages.indexOf(stage) + 1);
+    f.save();
+    expect(() => prepareOperatorEvidence(f)).toThrow("Operator evidence refused");
+    f.producer.status = "failed";
+    f.producer.tests[1].status = "failed";
+    f.save();
+    expect(prepareOperatorEvidence({ ...f, producerOutcome: "failure" })).toMatchObject({
+      stages: f.progress.stages,
+      reloadProved: false,
+      candidateVerified: false,
+      installationAuthority: false,
+    });
+  });
   it("refuses a successful job paired with a failed producer", () => {
     const f = fixture();
     f.producer.status = "failed";
@@ -156,6 +177,8 @@ describe("operator-only hosted evidence", () => {
     "build",
     "retry",
     "empty",
+    "stage-code",
+    "stage-order",
   ])("refuses %s evidence without publishing bytes", (fault) => {
     const f = fixture();
     if (fault === "cookie" || fault === "grant")
@@ -172,6 +195,9 @@ describe("operator-only hosted evidence", () => {
     if (fault === "build") f.handoff.twoBuildsIdentical = false;
     if (fault === "retry") f.producer.tests[1].retry = 1;
     if (fault === "empty") f.producer.tests = [];
+    if (fault === "stage-code") f.progress.stages[10] = "unrecognized-stage";
+    if (fault === "stage-order")
+      [f.progress.stages[10], f.progress.stages[11]] = [f.progress.stages[11], f.progress.stages[10]];
     f.save();
     if (fault === "missing") rmSync(join(f.input, "producer.json"));
     expect(() => prepareOperatorEvidence(f)).toThrow("Operator evidence refused");

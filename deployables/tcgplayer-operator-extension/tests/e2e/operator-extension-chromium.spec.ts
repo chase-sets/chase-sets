@@ -166,8 +166,10 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
       .toContain("Paired.");
     await retainedPopup.close();
     // This record contains no secret and tests unknown-version byte preservation only.
-    await compatible.evaluate(async (storageKey) => {
+    const unknownRecordBeforeReload = await compatible.evaluate(async (storageKey) => {
       await chrome.storage.local.set({ [storageKey]: { schemaVersion: 999, opaque: "preserve" } });
+      // Chrome storage, not the object literal's insertion order, defines the serialized baseline.
+      return JSON.stringify((await chrome.storage.local.get(storageKey))[storageKey]);
     }, key);
     const unknownWorker = context.waitForEvent("serviceworker");
     await compatible.evaluate(() => {
@@ -192,15 +194,16 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
         );
       }),
     ).toBe(true);
-    stage("unknown-record-preserved");
     expect(
       await restarted.evaluate(
-        async () =>
+        async (beforeReload) =>
           JSON.stringify(
             (await chrome.storage.local.get("catalog.operator-session.staging"))["catalog.operator-session.staging"],
-          ) === JSON.stringify({ schemaVersion: 999, opaque: "preserve" }),
+          ) === beforeReload,
+        unknownRecordBeforeReload,
       ),
     ).toBe(true);
+    stage("unknown-record-preserved");
     await reloaded.close();
     stage("reload-proved");
     const retained = readdirSync(evidence, { recursive: true, withFileTypes: true }).filter((file) => file.isFile());
