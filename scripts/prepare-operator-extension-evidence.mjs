@@ -108,6 +108,11 @@ const stages = [
   "isolated",
   "compatible-reloaded",
   "unknown-reloaded",
+  "unknown-popup-opened",
+  "unknown-popup-attached",
+  "unknown-sandbox-ready",
+  "unknown-status-proved",
+  "unknown-record-preserved",
   "reload-proved",
 ];
 

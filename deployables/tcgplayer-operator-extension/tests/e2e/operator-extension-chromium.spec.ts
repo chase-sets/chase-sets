@@ -91,16 +91,19 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
     }
     cookieTarget.close();
     stage("cookies-proved");
-    async function openPopup(current: typeof worker) {
+    async function openPopup(current: typeof worker, unknownVersion = false) {
       await current.evaluate(async () => {
         const window = (await chrome.windows.getAll({ windowTypes: ["normal"] }))[0];
         if (window?.id === undefined) throw new Error("Synthetic browser window missing");
         await chrome.action.openPopup({ windowId: window.id });
       });
+      if (unknownVersion) stage("unknown-popup-opened");
       const popup = await syntheticTarget(port, `chrome-extension://${operatorExtensionId}/popup.html`);
+      if (unknownVersion) stage("unknown-popup-attached");
       await expect.poll(() => popup.sandboxContext()).toBeDefined();
       const frame = await popup.sandboxContext();
       if (frame === undefined) throw new Error("Synthetic sandbox context missing");
+      if (unknownVersion) stage("unknown-sandbox-ready");
       return {
         evaluate: (expression: string) => popup.evaluate(expression, frame),
         async close() {
@@ -172,10 +175,11 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
     });
     const restarted = await unknownWorker;
     stage("unknown-reloaded");
-    const reloaded = await openPopup(restarted);
+    const reloaded = await openPopup(restarted, true);
     await expect
       .poll(() => reloaded.evaluate('document.querySelector("[role=status]")?.textContent'))
       .toContain("Update required");
+    stage("unknown-status-proved");
     expect(
       await restarted.evaluate(
         async () =>
@@ -184,6 +188,7 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
           ) === JSON.stringify({ schemaVersion: 999, opaque: "preserve" }),
       ),
     ).toBe(true);
+    stage("unknown-record-preserved");
     await reloaded.close();
     stage("reload-proved");
     const retained = readdirSync(evidence, { recursive: true, withFileTypes: true }).filter((file) => file.isFile());
