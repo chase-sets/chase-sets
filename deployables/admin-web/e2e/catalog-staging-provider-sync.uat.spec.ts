@@ -1561,7 +1561,7 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     expect(await page.locator("html").getAttribute("data-refresh-clicks")).toBeNull();
   });
 
-  test("Admin Error fail closed control", async ({ page }) => {
+  test("Admin Error fail closed control @catalog-admin-integrations", async ({ page }) => {
     let frameNavigatedCount = 0;
     const frameNavigatedHandler = () => {
       frameNavigatedCount += 1;

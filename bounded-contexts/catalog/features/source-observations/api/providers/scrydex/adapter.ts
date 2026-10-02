@@ -2104,6 +2104,17 @@ function absoluteScrydexUrl(
   options: ScrydexOnePieceProviderAdapterOptions,
   productDomain: ScrydexProductDomain = "one-piece",
 ): string {
+  if (currentProviderSendAdmission()?.enabled && currentProviderSendBinding()) {
+    const base = new URL(`${scrydexBaseUrl(options, productDomain).replace(/\/$/, "")}/`);
+    let resolved: URL;
+    try {
+      resolved = new URL(value, base);
+    } catch {
+      throw new ProviderSendStoppedError("unknown-request");
+    }
+    if (resolved.origin !== base.origin) throw new ProviderSendStoppedError("unknown-request");
+    return resolved.toString();
+  }
   if (/^https?:\/\//i.test(value)) {
     return value;
   }
