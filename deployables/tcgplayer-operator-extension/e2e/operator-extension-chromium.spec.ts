@@ -122,9 +122,7 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
         })()`);
       }
     }
-    await setup(
-      `chrome.storage.local.set({${JSON.stringify(key)}:{schemaVersion:1,environment:"staging",grant:${JSON.stringify(grantMarker)},lastRevision:3,profileRevision:7,state:"idle",nextAttemptAt:Date.now()+3600000,dirty:false,staleRetries:0,lastPushedAt:null,lastOutcome:null}})`,
-    );
+    socket.close();
     await worker.evaluate(async () => {
       await chrome.action.openPopup();
     });
@@ -133,6 +131,10 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
     const ui = popup.frameLocator("iframe");
     await expect(ui.getByRole("heading", { name: "TCGplayer Operator Extension" })).toBeVisible();
     await expect(ui.getByRole("status")).not.toHaveText("Loading status");
+    await ui.getByLabel("Pairing grant").fill(grantMarker);
+    await ui.getByRole("button", { name: "Pair", exact: true }).click();
+    await expect(ui.getByLabel("Pairing grant")).toHaveValue("");
+    await expect(ui.getByRole("status")).toContainText("Paired.");
     const sandbox = popup.frames().find((frame) => frame.url().endsWith("/sandbox.html"));
     if (!sandbox) throw new Error("Sandbox missing");
     expect(await sandbox.evaluate(() => typeof chrome === "undefined" || (!chrome.storage && !chrome.cookies))).toBe(
@@ -151,10 +153,27 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
     // No grant or cookie setup is traced. The retained screenshot is status-only.
     await popup.screenshot({ path: join(evidence, "sandbox-status.png") });
     await popup.close();
-    await setup(`chrome.storage.local.set({${JSON.stringify(key)}:{schemaVersion:999,opaque:"preserve"}})`);
-    socket.close();
-    await worker.evaluate(() => chrome.runtime.reload());
-    const restarted = await context.waitForEvent("serviceworker");
+    const compatibleWorker = context.waitForEvent("serviceworker");
+    await worker.evaluate(() => {
+      setTimeout(() => chrome.runtime.reload(), 0);
+    });
+    const compatible = await compatibleWorker;
+    await compatible.evaluate(async () => {
+      await chrome.action.openPopup();
+    });
+    const retainedPopup =
+      context.pages().find((page) => page.url().endsWith("/popup.html")) ?? (await context.waitForEvent("page"));
+    await expect(retainedPopup.frameLocator("iframe").getByRole("status")).toContainText("Paired.");
+    await retainedPopup.close();
+    // This record contains no secret and tests unknown-version byte preservation only.
+    await compatible.evaluate(async (storageKey) => {
+      await chrome.storage.local.set({ [storageKey]: { schemaVersion: 999, opaque: "preserve" } });
+    }, key);
+    const unknownWorker = context.waitForEvent("serviceworker");
+    await compatible.evaluate(() => {
+      setTimeout(() => chrome.runtime.reload(), 0);
+    });
+    const restarted = await unknownWorker;
     await restarted.evaluate(async () => {
       await chrome.action.openPopup();
     });
