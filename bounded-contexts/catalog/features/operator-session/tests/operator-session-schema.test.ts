@@ -21,12 +21,26 @@ describe("operator-session schema enrollment", () => {
     expect(reset).not.toContain("catalog_tcgplayer_operator_sessions");
     expect(reset).not.toContain("catalog_operator_session_grants");
     expect(catalogAuthoringSchemaSql).toContain(catalogOperatorSessionGrantSchemaSql);
-    expect(catalogOperatorSessionGrantSchemaMigrations[0]!.statements).toEqual([catalogOperatorSessionGrantSchemaSql]);
+    expect(catalogOperatorSessionGrantSchemaMigrations[0]!.statements).toEqual([
+      catalogOperatorSessionGrantSchemaSql,
+      `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS catalog_operator_session_one_unrevoked
+  ON catalog_operator_session_grants ((true)) WHERE revoked_at IS NULL;`,
+      `DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_index WHERE indexrelid = 'catalog_operator_session_one_unrevoked'::regclass
+      AND indisvalid AND indisunique
+  ) THEN
+    RAISE EXCEPTION 'operator session grant index unavailable';
+  END IF;
+END $$;`,
+    ]);
     expect(catalogModule.schemaMigrations).toEqual(
       expect.arrayContaining([...catalogOperatorSessionGrantSchemaMigrations]),
     );
     expect(catalogOperatorSessionGrantSchemaSql).toContain("octet_length(token_hash) = 32");
-    expect(catalogOperatorSessionGrantSchemaSql).toContain("((true)) WHERE revoked_at IS NULL");
+    expect(catalogOperatorSessionGrantSchemaMigrations[0]!.statements[1]).toContain(
+      "((true)) WHERE revoked_at IS NULL",
+    );
   });
   it("enrolls every DB suite without running it in the database-free profile", () => {
     const manifest = JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8"));

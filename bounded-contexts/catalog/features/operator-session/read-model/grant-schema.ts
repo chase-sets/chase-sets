@@ -11,14 +11,25 @@ export const catalogOperatorSessionGrantSchemaSql = `CREATE TABLE IF NOT EXISTS 
   revoked_at timestamptz NULL CHECK (revoked_at IS NULL OR isfinite(revoked_at)),
   revoke_reason text NULL CHECK (revoke_reason IN ('replaced', 'disconnect', 'unpair')),
   CHECK ((revoked_at IS NULL) = (revoke_reason IS NULL))
-);
-CREATE UNIQUE INDEX IF NOT EXISTS catalog_operator_session_one_unrevoked
+);`;
+
+const oneUnrevokedGrantIndexSql = `CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS catalog_operator_session_one_unrevoked
   ON catalog_operator_session_grants ((true)) WHERE revoked_at IS NULL;`;
+
+// An interrupted concurrent build can leave an invalid index that IF NOT EXISTS skips.
+const requireValidGrantIndexSql = `DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_index WHERE indexrelid = 'catalog_operator_session_one_unrevoked'::regclass
+      AND indisvalid AND indisunique
+  ) THEN
+    RAISE EXCEPTION 'operator session grant index unavailable';
+  END IF;
+END $$;`;
 
 export const catalogOperatorSessionGrantSchemaMigrations: readonly BcSchemaMigration[] = [
   {
     migrationId: "20261002_catalog_operator_session_grants_v1",
     description: "Hash-only operator push grants with one unrevoked authority.",
-    statements: [catalogOperatorSessionGrantSchemaSql],
+    statements: [catalogOperatorSessionGrantSchemaSql, oneUnrevokedGrantIndexSql, requireValidGrantIndexSql],
   },
 ];
