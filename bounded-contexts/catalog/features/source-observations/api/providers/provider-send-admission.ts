@@ -84,6 +84,14 @@ export type ProviderSendLedger = Readonly<{
 export function createProviderSendAdmission(options: Readonly<{ enabled: boolean; ledger: ProviderSendLedger }>) {
   return {
     enabled: options.enabled,
+    refuse: async (binding: ProviderSendBinding | null, code: ProviderSendRefusal) => {
+      if (!options.enabled || !binding) return;
+      try {
+        await options.ledger.stop(binding.windowId, code);
+      } catch {
+        throw new ProviderSendStoppedError("authority-unavailable");
+      }
+    },
     maximum: async (request: ProviderSendRequest) => {
       if (!options.enabled) return null;
       try {
@@ -164,7 +172,14 @@ export async function runCatalogProviderWork<T>(
   const existing = providerSendContext.getStore();
   if (existing && binding === undefined) return work();
   const captured = binding === undefined ? await admission.bind() : binding;
-  return providerSendContext.run({ admission, binding: captured }, work);
+  return providerSendContext.run({ admission, binding: captured }, async () => {
+    try {
+      return await work();
+    } catch (error) {
+      if (error instanceof ProviderSendStoppedError) await admission.refuse(captured, error.code);
+      throw error;
+    }
+  });
 }
 
 export function currentProviderSendBinding(): ProviderSendBinding | null {

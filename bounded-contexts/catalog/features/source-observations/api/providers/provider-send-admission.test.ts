@@ -8,6 +8,13 @@ import {
   SCRYDEX_LORCANA_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
 } from "./scrydex/adapter";
 import { ProviderAdapterRegistry } from "../provider-adapters/registry";
+import { createScryfallProviderAdapter } from "./scryfall/adapter";
+import { createYgoprodeckProviderAdapter } from "./ygoprodeck/adapter";
+import { createYgojsonProviderAdapter } from "./ygojson/adapter";
+import { createMtgjsonProviderAdapter } from "./mtgjson/adapter";
+import { createLorcanajsonProviderAdapter } from "./lorcanajson/adapter";
+import { createLorcastProviderAdapter } from "./lorcast/adapter";
+import { readBoundedHttpObject } from "./bounded-http-object";
 import {
   createCatalogProviderOptionQueryCacheRecord,
   queryCatalogProviderIntegrationOptionsWithCache,
@@ -33,6 +40,48 @@ function ledger(overrides: Partial<ProviderSendLedger> = {}): ProviderSendLedger
 }
 
 describe("Catalog provider-send admission", () => {
+  it.each([
+    ["Scryfall", createScryfallProviderAdapter],
+    ["YGOPRODeck", createYgoprodeckProviderAdapter],
+    ["YGOJSON", createYgojsonProviderAdapter],
+    ["MTGJSON", createMtgjsonProviderAdapter],
+    ["LorcanaJSON", createLorcanajsonProviderAdapter],
+    ["Lorcast", createLorcastProviderAdapter],
+  ] as const)("%s real adapter denies omitted Catalog binding before transport", async (_name, createAdapter) => {
+    vi.stubEnv("CATALOG_PROVIDER_SEND_WINDOW_ENABLED", "true");
+    try {
+      const fetch = vi.fn();
+      const adapter = createAdapter({ fetch });
+      const units = await adapter.listIntegrationUnits();
+      const unit = units[0];
+      if (!unit) throw new Error("Synthetic adapter fixture has no unit");
+      await expect(adapter.listOptions({ unitKey: unit.unitKey, optionKind: "sets" })).rejects.toThrow(
+        "authority-unavailable",
+      );
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("bounded mirror/pack object retains STOP instead of a retryable transport error", async () => {
+    vi.stubEnv("CATALOG_PROVIDER_SEND_WINDOW_ENABLED", "true");
+    const fetch = vi.fn();
+    try {
+      await expect(
+        readBoundedHttpObject({
+          fetch,
+          url: "https://synthetic.invalid/pack",
+          maxBytes: 1024,
+          deadlineMs: 1000,
+          accept: "application/json",
+        }),
+      ).rejects.toThrow("authority-unavailable");
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
   it("STOP cannot be recovered as display-usable stale option cache", async () => {
     const now = new Date("2026-10-02T00:00:00.000Z");
     const request = {
