@@ -16,7 +16,7 @@ import {
   type DataColumn,
 } from "@chase-sets/design-system";
 import { formatDateTime, t } from "@chase-sets/localization";
-import { operatorSessionProviderKey } from "../../../../operator-session/ui/admin-panel/operator-session-http";
+import { operatorSessionProviderKey } from "../../../../operator-session/ui/admin-panel/operator-session-admin-types";
 import { OperatorSessionPanel } from "../../../../operator-session/ui/admin-panel/operator-session-panel";
 import {
   ProviderRefreshSchedulePanel,

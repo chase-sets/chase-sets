@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { OperatorSessionMetadata } from "../../ui/admin-panel/operator-session-http";
+import type { OperatorSessionMetadata } from "../../ui/admin-panel/operator-session-admin-types";
 
 // Controlled HTTP for the three Admin operator-session routes: every browser
 // request must be scripted in order, and unscripted requests fail loudly. All

@@ -1,6 +1,6 @@
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import type { LoaderFunctionArgs } from "react-router";
-import { operatorSessionProviderKey } from "../../../features/operator-session/ui/admin-panel/operator-session-http";
+import { operatorSessionProviderKey } from "../../../features/operator-session/ui/admin-panel/operator-session-admin-types";
 import type { ProviderRefreshSchedulePanelItem } from "../../../features/provider-scope-discovery/ui/provider-refresh-schedule-panel";
 import { createCatalogRequestApiClient } from "../../request-support/api-client";
 import { loadHealthSurface } from "./integrations-loader-support";

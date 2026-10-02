@@ -674,6 +674,155 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
   });
 });
 
+// Disconnect eligibility is what the panel knows remains to revoke or clear,
+// not whether the latest metadata read succeeded.
+describe("AC3 break-glass eligibility through the mounted provider-detail route", () => {
+  // The post-mint read is scripted only after the initial read has consumed
+  // its reply, so both GETs stay in order.
+  async function pairFromAbsent<T>(arrangeRefresh: () => T) {
+    http.reply("GET", metadataPath, 200, absentMetadata());
+    const router = renderProviderRoute();
+    const panel = await findPanel();
+    await within(panel).findByRole("button", { name: "Pair extension" });
+    expect(within(panel).queryByRole("button", { name: "Disconnect" })).toBeNull();
+
+    http.reply("POST", grantPath, 200, { grant: syntheticGrant, idleExpiresAt: activeGrant.idleExpiresAt });
+    const refresh = arrangeRefresh();
+    fireEvent.click(within(panel).getByRole("button", { name: "Pair extension" }));
+    const grantRegion = await findGrantRegion(panel);
+    await waitFor(() =>
+      expect(http.requests).toEqual([`GET ${metadataPath}`, `POST ${grantPath}`, `GET ${metadataPath}`]),
+    );
+    return { router, panel, grantRegion, refresh };
+  }
+
+  function expectNoRevisionFact(panel: HTMLElement) {
+    expect(within(panel).getByText("Operator session unavailable")).toBeTruthy();
+    expect(within(panel).queryByText("Revision")).toBeNull();
+  }
+
+  it.each(["validated", "pending", "unavailable"] as const)(
+    "keeps Disconnect for a minted grant whose metadata refresh is %s, including after dismissal",
+    async (refresh) => {
+      const { router, panel, grantRegion } = await pairFromAbsent(() => {
+        if (refresh === "validated") http.reply("GET", metadataPath, 200, absentMetadata({ grant: activeGrant }));
+        if (refresh === "pending") http.defer("GET", metadataPath);
+        if (refresh === "unavailable") http.reply("GET", metadataPath, 503, { code: "custody-unavailable" });
+      });
+      if (refresh === "validated") await waitFor(() => expect(within(panel).getByText("Active")).toBeTruthy());
+      if (refresh === "pending") expect(within(panel).getByText("No stored session")).toBeTruthy();
+      if (refresh === "unavailable") {
+        await within(panel).findByText("Operator session unavailable");
+        expectNoRevisionFact(panel);
+      }
+      expect(within(panel).getByRole("button", { name: "Disconnect" })).toBeTruthy();
+
+      fireEvent.click(within(grantRegion).getByRole("button", { name: "Dismiss grant" }));
+      expect(panel.querySelector("[data-operator-session-grant]")).toBeNull();
+      expect(document.body.innerHTML).not.toContain(syntheticGrant);
+      expect(JSON.stringify(router.state)).not.toContain(syntheticGrant);
+      expect(within(panel).getByRole("button", { name: "Disconnect" })).toBeTruthy();
+      if (refresh === "unavailable") expectNoRevisionFact(panel);
+    },
+  );
+
+  it.each([
+    ["pending", "succeeds", 200, { outcome: "unchanged", revision: 0 }],
+    ["unavailable", "stops after revocation", 503, { code: "custody-unavailable" }],
+  ] as const)(
+    "a confirmed Disconnect while the post-mint refresh is %s drops the grant once and %s",
+    async (refresh, _result, status, body) => {
+      const { panel, refresh: postMintRead } = await pairFromAbsent(() => {
+        if (refresh === "pending") return http.defer("GET", metadataPath);
+        http.reply("GET", metadataPath, 503, { code: "custody-unavailable" });
+        return null;
+      });
+      const deleted = http.defer("DELETE", metadataPath);
+
+      await confirmDisconnect(panel);
+      expect(panel.querySelector("[data-operator-session-grant]")).toBeNull();
+      expect(within(panel).queryByRole("button", { name: "Copy" })).toBeNull();
+      expect(document.body.innerHTML).not.toContain(syntheticGrant);
+
+      http.reply("GET", metadataPath, 503, { code: "custody-unavailable" });
+      await act(async () => deleted.reply(status, body));
+      await within(panel).findByText("Operator session unavailable");
+      expect(http.requests).toEqual([
+        `GET ${metadataPath}`,
+        `POST ${grantPath}`,
+        `GET ${metadataPath}`,
+        `DELETE ${metadataPath}`,
+        `GET ${metadataPath}`,
+      ]);
+      expectNoRevisionFact(panel);
+      if (status === 200) {
+        // A confirmed revoke-all and clear leaves nothing known to Disconnect.
+        expect(within(panel).getByText(/revision 0 is unchanged/)).toBeTruthy();
+        expect(within(panel).queryByRole("button", { name: "Disconnect" })).toBeNull();
+      } else {
+        // An incomplete Disconnect is not completion, so break-glass remains.
+        expect(within(panel).getByText(/Disconnect did not finish/)).toBeTruthy();
+        expect(within(panel).getByRole("button", { name: "Disconnect" })).toBeTruthy();
+      }
+
+      if (postMintRead) {
+        await act(async () => postMintRead.reply(200, absentMetadata({ grant: activeGrant })));
+        expect(within(panel).queryByText("Active")).toBeNull();
+        expectNoRevisionFact(panel);
+      }
+    },
+  );
+
+  it("retains last-known stored custody after a refused Pair and a failed refresh", async () => {
+    http.reply("GET", metadataPath, 200, storedMetadata(1, { custodyAvailable: false }));
+    renderProviderRoute();
+    const panel = await findPanel();
+    await within(panel).findByRole("button", { name: "Disconnect" });
+
+    http.reply("POST", grantPath, 403, flatForbidden);
+    http.reply("GET", metadataPath, 503, { code: "custody-unavailable" });
+    fireEvent.click(within(panel).getByRole("button", { name: "Pair extension" }));
+    await within(panel).findByText("Operator session unavailable");
+    expect(within(panel).getByRole("alert").textContent).toBe("This action is not permitted for your current access.");
+    expectNoRevisionFact(panel);
+    expect(within(panel).getByRole("button", { name: "Disconnect" })).toBeTruthy();
+
+    http.reply("DELETE", metadataPath, 200, { outcome: "cleared", revision: 2 });
+    http.reply("GET", metadataPath, 200, clearedMetadata(2, { custodyAvailable: false }));
+    await confirmDisconnect(panel);
+    expect(await within(panel).findByText("Stored session cleared. The record is now revision 2.")).toBeTruthy();
+    expect(http.requests.filter((request) => request.startsWith("DELETE"))).toHaveLength(1);
+  });
+
+  it.each([
+    [
+      "cleared",
+      200,
+      { outcome: "cleared", revision: 2 },
+      "Stored session cleared. The record is now revision 2.",
+      false,
+    ],
+    ["stale-revision", 409, { outcome: "stale-revision", revision: 2 }, /it is now revision 2\./, true],
+  ] as const)(
+    "reconciles Disconnect from a confirmed %s outcome when the next refresh fails",
+    async (_outcome, status, body, message, retained) => {
+      http.reply("GET", metadataPath, 200, storedMetadata(1));
+      renderProviderRoute();
+      const panel = await findPanel();
+      await within(panel).findByRole("button", { name: "Disconnect" });
+
+      http.reply("DELETE", metadataPath, status, body);
+      http.reply("GET", metadataPath, 503, { code: "custody-unavailable" });
+      await confirmDisconnect(panel);
+
+      expect(await within(panel).findByText(message)).toBeTruthy();
+      await within(panel).findByText("Operator session unavailable");
+      expect(within(panel).queryByRole("button", { name: "Disconnect" }) !== null).toBe(retained);
+      expect(http.requests.filter((request) => request.startsWith("DELETE"))).toHaveLength(1);
+    },
+  );
+});
+
 describe("AC5 accessibility", () => {
   it("names every control, moves focus into the Disconnect dialog and back, and announces the grant", async () => {
     http.reply("GET", metadataPath, 200, storedMetadata(1, { grant: activeGrant }));

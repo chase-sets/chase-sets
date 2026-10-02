@@ -15,15 +15,8 @@ import {
 } from "@chase-sets/design-system";
 import { formatDateTime, t } from "@chase-sets/localization";
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  disconnectOperatorSession,
-  mintOperatorSessionGrant,
-  readOperatorSessionMetadata,
-  type OperatorSessionDisconnectOutcome,
-  type OperatorSessionFailure,
-  type OperatorSessionMetadata,
-  type OperatorSessionMintedGrant,
-} from "./operator-session-http";
+import { validateOperatorSessionInstant, validateOperatorSessionRevision } from "../../domain/value";
+import type { OperatorSessionGrantMetadata, OperatorSessionMetadata } from "./operator-session-admin-types";
 
 // The panel only renders on the TCGplayer provider page, so re-authentication
 // returns to that literal same-origin route, never to a value read from the URL.
@@ -51,6 +44,12 @@ export function OperatorSessionPanel() {
   const [busy, setBusy] = useState<Mutation | null>(null);
   const [grant, setGrant] = useState<OperatorSessionMintedGrant | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
+  // Break-glass: whether a grant or custody is known to remain, so Disconnect
+  // has something to revoke or clear. It is not read from the metadata on
+  // screen: a successful mint is itself evidence of a grant, and a failed read
+  // or refused/incomplete mutation is neither absence nor completion, so only
+  // validated metadata and a confirmed Disconnect change it.
+  const [disconnectable, setDisconnectable] = useState(false);
   const pairButton = useRef<HTMLButtonElement>(null);
   // A completion applies only while the panel is mounted and it is still the
   // latest of its kind. Aborting a request would not roll back the server, so
@@ -61,7 +60,13 @@ export function OperatorSessionPanel() {
     const read = ++live.current.read;
     const result = await readOperatorSessionMetadata();
     if (!live.current.mounted || read !== live.current.read) return;
-    setMetadataState(result.ok ? { kind: "ready", metadata: result.value } : { kind: "unavailable" });
+    if (!result.ok) {
+      setMetadataState({ kind: "unavailable" });
+      return;
+    }
+    const metadata = result.value;
+    setMetadataState({ kind: "ready", metadata });
+    setDisconnectable(metadata.storedAt !== null || metadata.grant !== null);
   }, []);
 
   useEffect(() => {
@@ -94,21 +99,28 @@ export function OperatorSessionPanel() {
 
   const pair = () =>
     mutate("pair", mintOperatorSessionGrant, (result) => {
-      if (result.ok) setGrant(result.value);
-      else setNotice({ kind: "failure", failure: result.failure });
+      if (!result.ok) {
+        setNotice({ kind: "failure", failure: result.failure });
+        return;
+      }
+      setGrant(result.value);
+      setDisconnectable(true);
     });
 
   const disconnect = () =>
-    mutate("disconnect", disconnectOperatorSession, (result) =>
-      setNotice(
-        result.ok
-          ? { kind: "disconnected", outcome: result.value }
-          : {
-              kind: refusedBeforeDisconnect(result.failure) ? "failure" : "disconnect-incomplete",
-              failure: result.failure,
-            },
-      ),
-    );
+    mutate("disconnect", disconnectOperatorSession, (result) => {
+      if (!result.ok) {
+        setNotice({
+          kind: refusedBeforeDisconnect(result.failure) ? "failure" : "disconnect-incomplete",
+          failure: result.failure,
+        });
+        return;
+      }
+      setNotice({ kind: "disconnected", outcome: result.value });
+      // Cleared and unchanged both follow a committed revoke-all and a fresh
+      // clear; a stale revision means newer stored custody still remains.
+      if (result.value.outcome !== "stale-revision") setDisconnectable(false);
+    });
 
   function dismissGrant() {
     live.current.mutation++;
@@ -117,9 +129,6 @@ export function OperatorSessionPanel() {
   }
 
   const metadata = metadataState.kind === "ready" ? metadataState.metadata : null;
-  // Break-glass: Disconnect stays available whenever custody or a grant remains,
-  // even when the current key cannot read the stored session.
-  const canDisconnect = metadata !== null && (metadata.storedAt !== null || metadata.grant !== null);
 
   return (
     <WorkflowModule
@@ -157,7 +166,7 @@ export function OperatorSessionPanel() {
             >
               {t("catalog.features.operatorSession.ui.adminPanel.pair.submit")}
             </Button>
-            {canDisconnect ? (
+            {disconnectable ? (
               <AlertDialog
                 title={t("catalog.features.operatorSession.ui.adminPanel.disconnect.dialog.title")}
                 description={t("catalog.features.operatorSession.ui.adminPanel.disconnect.dialog.description")}
@@ -398,5 +407,160 @@ function failureMessage(failure: OperatorSessionFailure): string {
       return t("catalog.features.operatorSession.ui.adminPanel.error.revisionExhausted");
     case "unknown":
       return t("catalog.features.operatorSession.ui.adminPanel.error.unknown");
+  }
+}
+
+// Browser client for the three Admin operator-session routes
+// (api/route.ts operatorSessionAdminRoutes). Every response is validated
+// against the closed api/grants.ts shapes before the panel sees it; failures
+// collapse to a bounded code, so response bodies and thrown errors never reach
+// the UI.
+const adminPath = "/api/catalog/operator-session";
+
+type OperatorSessionMintedGrant = Readonly<{ grant: string; idleExpiresAt: string }>;
+
+type OperatorSessionDisconnectOutcome = Readonly<{
+  outcome: "cleared" | "unchanged" | "stale-revision";
+  revision: number;
+}>;
+
+type OperatorSessionFailure =
+  | "step-up-required"
+  | "unauthenticated"
+  | "forbidden"
+  | "rate-limited"
+  | "custody-unavailable"
+  | "revision-exhausted"
+  | "unknown";
+
+type OperatorSessionResult<T> =
+  | Readonly<{ ok: true; value: T }>
+  | Readonly<{ ok: false; failure: OperatorSessionFailure }>;
+
+async function readOperatorSessionMetadata(): Promise<OperatorSessionResult<OperatorSessionMetadata>> {
+  const response = await send("GET", adminPath);
+  if (response?.status !== 200) return failed(response);
+  return validated(parseMetadata(response.body));
+}
+
+async function mintOperatorSessionGrant(): Promise<OperatorSessionResult<OperatorSessionMintedGrant>> {
+  const response = await send("POST", `${adminPath}/grant`);
+  if (response?.status !== 200) return failed(response);
+  return validated(parseMintedGrant(response.body));
+}
+
+async function disconnectOperatorSession(): Promise<OperatorSessionResult<OperatorSessionDisconnectOutcome>> {
+  const response = await send("DELETE", adminPath);
+  if (response?.status === 200) return validated(parseDisconnectOutcome(response.body, ["cleared", "unchanged"]));
+  if (response?.status === 409) return validated(parseDisconnectOutcome(response.body, ["stale-revision"]));
+  return failed(response);
+}
+
+type RawResponse = Readonly<{ status: number; body: unknown }>;
+
+async function send(method: "GET" | "POST" | "DELETE", path: string): Promise<RawResponse | null> {
+  try {
+    const response = await fetch(path, {
+      method,
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { accept: "application/json" },
+    });
+    const body: unknown = await response.json().catch(() => undefined);
+    return { status: response.status, body };
+  } catch {
+    return null;
+  }
+}
+
+// Step-up is the flat 400 {code:"step_up_required"} the slice middleware
+// returns (api/route.ts). The payout-style nested {error:{code}} envelope is a
+// different contract and is deliberately not recognised here. Every 403 shape
+// (host authorization_forbidden or the slice's flat forbidden) is forbidden.
+function failed(response: RawResponse | null): Readonly<{ ok: false; failure: OperatorSessionFailure }> {
+  return { ok: false, failure: classifyFailure(response) };
+}
+
+function classifyFailure(response: RawResponse | null): OperatorSessionFailure {
+  if (!response) return "unknown";
+  const code = isRecord(response.body) ? response.body.code : undefined;
+  if (response.status === 400 && code === "step_up_required") return "step-up-required";
+  if (response.status === 401) return "unauthenticated";
+  if (response.status === 403) return "forbidden";
+  if (response.status === 429) return "rate-limited";
+  if (response.status === 503 && code === "custody-unavailable") return "custody-unavailable";
+  if (response.status === 503 && code === "revision-exhausted") return "revision-exhausted";
+  return "unknown";
+}
+
+function validated<T>(value: T | null): OperatorSessionResult<T> {
+  return value === null ? { ok: false, failure: "unknown" } : { ok: true, value };
+}
+
+function parseMetadata(body: unknown): OperatorSessionMetadata | null {
+  if (!hasExactKeys(body, ["revision", "storedAt", "browserExpiresAt", "custodyAvailable", "grant"])) return null;
+  const { revision, storedAt, browserExpiresAt, custodyAvailable, grant } = body;
+  if (!isRevision(revision) || typeof custodyAvailable !== "boolean") return null;
+  if (!isNullableInstant(storedAt) || !isNullableInstant(browserExpiresAt)) return null;
+  // Absent custody is revision 0 with null instants; cleared custody keeps its
+  // revision with null instants; only stored custody carries instants.
+  if (storedAt === null ? browserExpiresAt !== null : revision === 0) return null;
+  const parsedGrant = grant === null ? null : parseGrantMetadata(grant);
+  if (grant !== null && parsedGrant === null) return null;
+  return { revision, storedAt, browserExpiresAt, custodyAvailable, grant: parsedGrant };
+}
+
+function parseGrantMetadata(body: unknown): OperatorSessionGrantMetadata | null {
+  if (!hasExactKeys(body, ["active", "createdAt", "idleExpiresAt", "lastUsedAt"])) return null;
+  const { active, createdAt, idleExpiresAt, lastUsedAt } = body;
+  if (typeof active !== "boolean" || !isInstant(createdAt) || !isInstant(idleExpiresAt) || !isInstant(lastUsedAt))
+    return null;
+  return { active, createdAt, idleExpiresAt, lastUsedAt };
+}
+
+// grants.ts mints randomBytes(32) as base64url: exactly 43 URL-safe characters.
+function parseMintedGrant(body: unknown): OperatorSessionMintedGrant | null {
+  if (!hasExactKeys(body, ["grant", "idleExpiresAt"])) return null;
+  const { grant, idleExpiresAt } = body;
+  if (typeof grant !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(grant) || !isInstant(idleExpiresAt)) return null;
+  return { grant, idleExpiresAt };
+}
+
+function parseDisconnectOutcome(
+  body: unknown,
+  outcomes: readonly OperatorSessionDisconnectOutcome["outcome"][],
+): OperatorSessionDisconnectOutcome | null {
+  if (!hasExactKeys(body, ["outcome", "revision"])) return null;
+  const { outcome, revision } = body;
+  if (!outcomes.includes(outcome as OperatorSessionDisconnectOutcome["outcome"]) || !isRevision(revision)) return null;
+  return { outcome: outcome as OperatorSessionDisconnectOutcome["outcome"], revision };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasExactKeys<K extends string>(value: unknown, keys: readonly K[]): value is Record<K, unknown> {
+  return isRecord(value) && Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+}
+
+function isRevision(value: unknown): value is number {
+  return typeof value === "number" && passes(() => validateOperatorSessionRevision(value));
+}
+
+function isInstant(value: unknown): value is string {
+  return typeof value === "string" && passes(() => validateOperatorSessionInstant(value));
+}
+
+function isNullableInstant(value: unknown): value is string | null {
+  return value === null || isInstant(value);
+}
+
+function passes(validate: () => void): boolean {
+  try {
+    validate();
+    return true;
+  } catch {
+    return false;
   }
 }
