@@ -19,6 +19,7 @@ import { referenceDataRoutes } from "../../features/reference-data/api/route";
 import { catalogScopeRegistryRoutes } from "../../features/scope-registry/api/route";
 import { sourceObservationRoutes } from "../../features/source-observations/api/route";
 import { scopeSyncBatchRoutes } from "../../features/scope-sync-batches/api/route";
+import { operatorSessionAdminRoutes } from "../../features/operator-session/api/route";
 
 export type CatalogAuthoringEnv = {
   Variables: {
@@ -29,6 +30,7 @@ export type CatalogAuthoringEnv = {
 
 export function buildCatalogAuthoringApi(services: CatalogServices) {
   const app = new Hono<CatalogAuthoringEnv>();
+  app.route("/operator-session", operatorSessionAdminRoutes(services.operatorSession));
 
   app.get("/bulk-authoring-jobs/active", async (c) => {
     const items = await services.authoringBulkJobs.listActive(c.get("context"));

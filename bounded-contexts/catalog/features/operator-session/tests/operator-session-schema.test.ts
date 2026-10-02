@@ -3,6 +3,10 @@ import { describe, expect, it } from "vitest";
 import { module as catalogModule } from "../../../index";
 import { catalogAuthoringSchemaMigrations, catalogAuthoringSchemaSql } from "../../../support/authoring-support/schema";
 import { catalogOperatorSessionSchemaMigrations, catalogOperatorSessionSchemaSql } from "../read-model/schema";
+import {
+  catalogOperatorSessionGrantSchemaMigrations,
+  catalogOperatorSessionGrantSchemaSql,
+} from "../read-model/grant-schema";
 
 describe("operator-session schema enrollment", () => {
   it("registers identical additive boot DDL and a ledger migration in the existing module registry", () => {
@@ -15,6 +19,14 @@ describe("operator-session schema enrollment", () => {
       "utf8",
     );
     expect(reset).not.toContain("catalog_tcgplayer_operator_sessions");
+    expect(reset).not.toContain("catalog_operator_session_grants");
+    expect(catalogAuthoringSchemaSql).toContain(catalogOperatorSessionGrantSchemaSql);
+    expect(catalogOperatorSessionGrantSchemaMigrations[0]!.statements).toEqual([catalogOperatorSessionGrantSchemaSql]);
+    expect(catalogModule.schemaMigrations).toEqual(
+      expect.arrayContaining([...catalogOperatorSessionGrantSchemaMigrations]),
+    );
+    expect(catalogOperatorSessionGrantSchemaSql).toContain("octet_length(token_hash) = 32");
+    expect(catalogOperatorSessionGrantSchemaSql).toContain("((true)) WHERE revoked_at IS NULL");
   });
   it("enrolls every DB suite without running it in the database-free profile", () => {
     const manifest = JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8"));

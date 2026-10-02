@@ -61,6 +61,11 @@
   "seedRequirements": [],
   "hostPorts": [
     {
+      "portName": "catalogOperatorSessionConfiguration",
+      "providedBy": "platform-api",
+      "purpose": "Supplies the existing operator custody factory configuration and keyring; Catalog owns grant authority."
+    },
+    {
       "portName": "catalogAssetStorage",
       "providedBy": "platform-api",
       "purpose": "Stores Catalog-owned provider asset bytes and returns public URLs for Source Observation promotion."
@@ -83,6 +88,11 @@
       "mountPath": "/api/catalog",
       "kind": "primary",
       "requiresAuth": true
+    },
+    {
+      "mountPath": "/api/public/catalog/operator-session",
+      "kind": "additional",
+      "requiresAuth": false
     }
   ],
   "projectionGroups": [
@@ -603,7 +613,7 @@
     },
     "operator-session": {
       "classification": "slice",
-      "purpose": "Own Catalog encrypted TCGplayer Operator Session custody, monotonic clearing fences, and per-attempt credential resolution.",
+      "purpose": "Own Catalog encrypted TCGplayer Operator Session custody, Todd-only push grants, monotonic clearing fences, and per-attempt credential resolution.",
       "expectedConsumers": [
         "source-observations",
         "Internal catalog module composition",
@@ -807,6 +817,30 @@
     }
   },
   "mutationConsistencyInventory": [
+    {
+      "id": "catalog.operator-session-acknowledged-mutations",
+      "owner": "catalog",
+      "risk": "critical",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:POST /grant",
+        "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:DELETE /",
+        "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:PUT /tcgplayer",
+        "api-route:bounded-contexts/catalog/features/operator-session/api/route.ts:DELETE /grant"
+      ],
+      "visibleDestination": {
+        "description": "No UI is built here. Callers receive the committed grant/expiry, custody outcome/revision or revoke outcome directly; Admin metadata reads those same authoritative rows, without a projection."
+      },
+      "proof": {
+        "authoritativeResponse": "Mint and unpair respond only after grant COMMIT acknowledgement. PUT returns its existing CAS outcome/revision only after atomic custody-plus-renewal COMMIT acknowledgement. Disconnect acknowledges irrevocable revoke before fresh metadata and fenced clear, returning only after clear COMMIT acknowledgement. Indeterminate commits return 503, never a success snapshot or a no-write promise. Real-app tests pause COMMIT, inspect complete rows through an independent connection, and discriminate committed-but-ack-dropped from killed-before-commit effects.",
+        "tests": [
+          "deployables/platform-api/__tests__/operator-session/operator-session-grant-mint.db.test.ts",
+          "deployables/platform-api/__tests__/operator-session/operator-session-grant-lifecycle.db.test.ts",
+          "deployables/platform-api/__tests__/operator-session/operator-session-grant-scope.db.test.ts",
+          "deployables/platform-api/__tests__/operator-session/operator-session-push.db.test.ts"
+        ]
+      }
+    },
     {
       "id": "catalog.scope-sync-batch-command-snapshots",
       "owner": "catalog",
