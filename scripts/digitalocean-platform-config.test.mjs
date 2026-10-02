@@ -637,6 +637,12 @@ function platformApiExposedContextNames(runtimeProfile) {
 }
 
 describe("DigitalOcean platform configuration", () => {
+  it("enrolls the Catalog send-window composition controls in the required DB proof profile", () => {
+    const compositionTest =
+      "bounded-contexts/catalog/features/source-observations/api/providers/provider-send-admission.test.ts";
+    expect(classifyChanges({ changedFiles: [compositionTest] })).toMatchObject({ dbTestsRequired: true });
+  });
+
   it("opts only staging into the supervised Catalog send window and requires a forced setup", () => {
     expect(platformProductionWorkflow).toMatch(
       /catalog_provider_send_window_enabled:\n\s+description:[^\n]+\n\s+required: false\n\s+default: false\n\s+type: boolean/,

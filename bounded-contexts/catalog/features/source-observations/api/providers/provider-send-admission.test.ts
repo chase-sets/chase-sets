@@ -69,7 +69,7 @@ describe("Catalog provider-send admission", () => {
         readStream: unexpected,
         readAll: unexpected,
       },
-      checkpointStore: { loadCheckpoint: async () => "0", saveCheckpoint: async () => undefined },
+      checkpointStore: { loadCheckpoint: unexpected, saveCheckpoint: async () => undefined },
     };
     const transport = vi.fn(async () => Response.json({ synthetic: true }));
     const sourceObservations = createSourceObservationRuntime(
