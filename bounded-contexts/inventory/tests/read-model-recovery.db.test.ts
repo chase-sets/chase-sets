@@ -461,6 +461,8 @@ describeDb("Inventory retained-checkpoint read-model recovery", () => {
       expect(await replayBoundary()).toEqual(before);
       expect((await capture()).poison).toEqual([]);
       expect((await capture()).counts).toEqual([{ locations: 1, items: 0, holds: 0 }]);
+      const runner = getProjectionGroup(runtime, "inventory", "inventory-item-projection").subscriptionRunners[0]!;
+      expect((await runner.refreshStatus()).recoveryRequired).toBe(markerLoss);
     },
   );
 
@@ -480,6 +482,8 @@ describeDb("Inventory retained-checkpoint read-model recovery", () => {
       expect(await replayBoundary()).toEqual(before);
       expect((await capture()).poison).toEqual([]);
       expect((await capture()).counts).toEqual([{ locations: 2, items: 2, holds: 0 }]);
+      const runner = getProjectionGroup(runtime, "inventory", "inventory-hold-projection").subscriptionRunners[0]!;
+      expect((await runner.refreshStatus()).recoveryRequired).toBe(markerLoss);
     },
   );
 
@@ -553,6 +557,9 @@ describeDb("Inventory retained-checkpoint read-model recovery", () => {
       ).rejects.toThrow(`missing item '${itemId}'`);
       expect(await replayBoundary()).toEqual(before);
       expect((await capture()).poison).toEqual([]);
+      const runner = getProjectionGroup(runtime, "inventory", "inventory-restock-decision-projection")
+        .subscriptionRunners[0]!;
+      expect((await runner.refreshStatus()).recoveryRequired).toBe(markerLoss);
     },
   );
 
