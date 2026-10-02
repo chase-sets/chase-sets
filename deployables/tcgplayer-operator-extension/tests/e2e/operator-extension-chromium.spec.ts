@@ -181,6 +181,19 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
       .toContain("Update required");
     stage("unknown-status-proved");
     expect(
+      await restarted.evaluate(async () => {
+        const record = (await chrome.storage.local.get("catalog.operator-session.staging"))[
+          "catalog.operator-session.staging"
+        ];
+        return (
+          JSON.stringify(Object.keys(record).sort()) === JSON.stringify(["opaque", "schemaVersion"]) &&
+          record.schemaVersion === 999 &&
+          record.opaque === "preserve"
+        );
+      }),
+    ).toBe(true);
+    stage("unknown-record-preserved");
+    expect(
       await restarted.evaluate(
         async () =>
           JSON.stringify(
@@ -188,7 +201,6 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
           ) === JSON.stringify({ schemaVersion: 999, opaque: "preserve" }),
       ),
     ).toBe(true);
-    stage("unknown-record-preserved");
     await reloaded.close();
     stage("reload-proved");
     const retained = readdirSync(evidence, { recursive: true, withFileTypes: true }).filter((file) => file.isFile());
