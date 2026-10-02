@@ -524,7 +524,7 @@ async function readProvisionableReferenceRecord(
     (referenceRecordId !== def.referenceRecordId || state.key === def.key) &&
     (selector.kind === "type-key"
       ? state.key === def.key
-      : state.attributes[selector.attributeKey] === selector.attributeValue);
+      : scalarAttributeText(state.attributes[selector.attributeKey]) === selector.attributeValue);
   if (history.length > 0 ? !represented : candidate !== null) {
     throw new Error(`promotion-reference-history-invalid:${streamId}`);
   }
@@ -533,6 +533,11 @@ async function readProvisionableReferenceRecord(
 
 function isProvisionableStatus(status: ReferenceRecordState["status"]): boolean {
   return status === "draft" || status === "active";
+}
+
+/** The text a provider attribute discovery query (`attributes ->> key`) compares; non-scalars never match. */
+function scalarAttributeText(value: JsonValue | undefined): string | null {
+  return typeof value === "string" || typeof value === "number" || typeof value === "boolean" ? String(value) : null;
 }
 
 async function findExistingReferenceRecord(

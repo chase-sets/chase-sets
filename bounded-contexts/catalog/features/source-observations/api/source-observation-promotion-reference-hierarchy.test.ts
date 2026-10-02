@@ -47,7 +47,9 @@ type CreateReferenceRecordOverrides = Partial<
   Omit<Extract<ReferenceRecordCommand, { type: "CreateReferenceRecord" }>, "type" | "referenceRecordId">
 >;
 
-function syntheticProfile(input: { providerAttribute?: boolean } = {}): CatalogProviderIntegrationProfile {
+function syntheticProfile(
+  input: { providerAttribute?: boolean; providerAttributeValue?: string } = {},
+): CatalogProviderIntegrationProfile {
   return {
     ...lorcanajsonLorcanaCardReferenceProviderProfile,
     displayName: "Synthetic Hierarchy Profile",
@@ -77,7 +79,7 @@ function syntheticProfile(input: { providerAttribute?: boolean } = {}): CatalogP
                 attributes: [
                   {
                     attributeKey: providerAttributeKey,
-                    value: { kind: "static" as const, value: providerAttributeValue },
+                    value: { kind: "static" as const, value: input.providerAttributeValue ?? providerAttributeValue },
                   },
                 ],
               }
@@ -334,6 +336,30 @@ describe("promotion reference hierarchy provisioning against authoritative Refer
       expect(previewed.targetReferenceRecordId).toBe(reusedId);
       expect(await h.types(reusedStream)).toEqual(before);
       expect(await h.types(recordStream)).toEqual([]);
+    });
+
+    it("proves a provider attribute by the text the discovery query compares, not its JSON type", async () => {
+      // The projection matches `attributes ->> key` as text, so a stored JSON
+      // number is the same selector as its requested text form.
+      for (const [projectedText, requested, outcome] of [
+        ["7", "7", "reused"],
+        ["8", "8", "refused"],
+      ] as const) {
+        const h = harness([{ ...projectedByAttribute, attributes: { [providerAttributeKey]: projectedText } }]);
+        await h.publishType();
+        await h.createRecord(reusedId, { key: "legacy-key", attributes: { [providerAttributeKey]: 7 } });
+        await h.recordCommand({ type: "PublishReferenceRecord" }, reusedStream);
+        const before = await h.types(reusedStream);
+        const profile = syntheticProfile({ providerAttribute: true, providerAttributeValue: requested });
+
+        if (outcome === "reused") {
+          expect((await h.provision(h.referenceData, profile)).targetReferenceRecordId).toBe(reusedId);
+        } else {
+          await expect(h.provision(h.referenceData, profile)).rejects.toThrow(invalidReused);
+        }
+        expect(await h.types(reusedStream)).toEqual(before);
+        expect(await h.types(recordStream)).toEqual([]);
+      }
     });
 
     it("selects the deterministic Set when the caught-up projection no longer offers the candidate", async () => {
