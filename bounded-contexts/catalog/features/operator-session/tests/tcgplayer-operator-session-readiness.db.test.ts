@@ -36,7 +36,8 @@ describeDb("AC4 source-derived candidate-green/bypass-red DB controls", () => {
   const instant = "2026-10-02T00:31:00.000Z";
   // Every variant uses the same database time, credential, status, budget, expiry and success history.
   const frozen = (db: PgQueryable): PgQueryable => ({
-    query: (sql, values) => db.query(sql.replaceAll("clock_timestamp()", `TIMESTAMPTZ '${instant}'`), values),
+    query: <Row>(sql: string, values?: readonly unknown[]) =>
+      db.query<Row>(sql.replaceAll("clock_timestamp()", `TIMESTAMPTZ '${instant}'`), values),
   });
   const pool = (): PgTransactionalPool => ({
     ...frozen(database()),
@@ -123,7 +124,7 @@ describeDb("AC4 source-derived candidate-green/bypass-red DB controls", () => {
       const previous = await rows();
       const ran = vi.fn();
       const factory = mutant ? bypassCustodyReset(ran) : createPostgresCatalogOperatorSessionStore;
-      const result = await withPgTransaction(pool(), (db) => {
+      const result = await withPgTransaction(pool(), async (db) => {
         const custody = factory(db, keyring);
         return operation === "accept"
           ? custody.accept(session(0))
