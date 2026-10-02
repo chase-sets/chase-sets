@@ -97,6 +97,7 @@ const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/app-platform-worker",
   "@chase-sets/app-public-web",
   "@chase-sets/app-tcgplayer-connector-extension",
+  "@chase-sets/app-tcgplayer-operator-extension",
   "@chase-sets/auth",
   "@chase-sets/auth-context",
   "@chase-sets/authenticity",

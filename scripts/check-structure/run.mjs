@@ -1329,6 +1329,12 @@ function isApiDeployableFile(relativeFile) {
 export function isAllowedDeployableBoundedContextImport(relativeFile, specifier, targetContext) {
   const normalizedFile = relativeFile.replaceAll("\\", "/");
   if (
+    normalizedFile.startsWith("deployables/tcgplayer-operator-extension/") &&
+    specifier === "@chase-sets/catalog/client"
+  ) {
+    return true;
+  }
+  if (
     normalizedFile.startsWith("deployables/tcgplayer-connector-extension/") &&
     specifier === "@chase-sets/channels/client"
   ) {

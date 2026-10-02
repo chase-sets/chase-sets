@@ -69,6 +69,9 @@
       "@chase-sets/catalog-seed": [
         "./contracts/catalog-seed/index.ts"
       ],
+      "@chase-sets/catalog/client": [
+        "./bounded-contexts/catalog/features/operator-session/ui/extension-popup/client.ts"
+      ],
       "@chase-sets/catalog/context": [
         "./bounded-contexts/catalog/context.json"
       ],
