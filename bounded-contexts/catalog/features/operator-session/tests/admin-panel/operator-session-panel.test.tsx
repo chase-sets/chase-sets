@@ -4,11 +4,6 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CatalogProviderDetailRoute, { loader } from "../../../../routes/admin/catalog-provider-detail";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../../../source-observations/ui/primary-workbench-read-model";
-import {
-  controlPlaneOverview,
-  profileReview,
-  sourceObservationScope,
-} from "../../../source-observations/ui/primary-workbench-test-fixtures";
 import { OperatorSessionPanel } from "../../ui/admin-panel/operator-session-panel";
 import {
   absentMetadata,
@@ -77,17 +72,14 @@ function actor(roleKey: string, userId = "user-synthetic-1") {
   };
 }
 
+// A provider with no profiles yet keeps the real page composition while
+// rendering far fewer workbench sections around the panel.
 function providerReadModel(requestUrl: string) {
-  const providerKey = new URL(requestUrl).searchParams.get("providerKey") ?? "tcgplayer";
   return buildCatalogPrimaryWorkbenchReadModelForSurface("health", {
     requestUrl,
-    scopes: { items: [sourceObservationScope({ provider_key: providerKey })], total: 1, count: 1 },
-    profileReviews: {
-      items: [profileReview({ providerKey, active: true, lifecycle: "active" })],
-      total: 1,
-      count: 1,
-    },
-    controlPlaneOverview: controlPlaneOverview(),
+    scopes: { items: [], total: 0, count: 0 },
+    profileReviews: { items: [], total: 0, count: 0 },
+    controlPlaneOverview: null,
     canManageCatalog: true,
   });
 }
@@ -108,9 +100,27 @@ function renderProviderRoute(path = "/catalog/providers/tcgplayer") {
   return router;
 }
 
-async function findPanel() {
-  const heading = await screen.findByRole("heading", { name: "Operator session" });
-  return heading.closest("section") as HTMLElement;
+// Route tests render the whole provider-detail page, so waits anchor on cheap
+// attribute selectors; role and name assertions stay scoped to small subtrees
+// instead of walking the page's accessibility tree on every poll.
+async function findBySelector(selector: string) {
+  return waitFor(() => {
+    const element = document.querySelector<HTMLElement>(selector);
+    if (!element) throw new Error(`${selector} is not rendered`);
+    return element;
+  });
+}
+
+const findPanel = () => findBySelector("[data-catalog-operator-session-panel]");
+const findProviderPage = () => findBySelector("[data-catalog-provider-detail]");
+const findDialog = () => findBySelector('[role="alertdialog"]');
+
+async function waitForDialogClosed() {
+  await waitFor(() => expect(document.querySelector('[role="alertdialog"]')).toBeNull());
+}
+
+function accessibleTitle(element: HTMLElement) {
+  return document.getElementById(element.getAttribute("aria-labelledby") ?? "")?.textContent;
 }
 
 async function findGrantRegion(panel: HTMLElement) {
@@ -131,9 +141,10 @@ async function renderPanelWith(body: unknown, status = 200) {
 
 async function confirmDisconnect(panel: HTMLElement) {
   fireEvent.click(within(panel).getByRole("button", { name: "Disconnect" }));
-  const dialog = await screen.findByRole("alertdialog", { name: "Disconnect the stored session?" });
+  const dialog = await findDialog();
+  expect(accessibleTitle(dialog)).toBe("Disconnect the stored session?");
   fireEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
-  await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  await waitForDialogClosed();
 }
 
 function normalizedMarkup(element: HTMLElement) {
@@ -292,7 +303,9 @@ describe("AC2 gating through the provider-detail route", () => {
     http.reply("GET", metadataPath, 200, absentMetadata());
     renderProviderRoute();
 
-    expect(await findPanel()).toBeTruthy();
+    const panel = await findPanel();
+    expect(within(panel).getByRole("heading", { name: "Operator session" })).toBeTruthy();
+    expect((await findProviderPage()).contains(panel)).toBe(true);
     await waitFor(() => expect(http.requests).toEqual([`GET ${metadataPath}`]));
   });
 
@@ -304,8 +317,10 @@ describe("AC2 gating through the provider-detail route", () => {
     arrange();
     renderProviderRoute();
 
-    expect((await screen.findAllByRole("heading", { name: "tcgplayer" })).length).toBeGreaterThan(0);
-    expect(screen.queryByRole("heading", { name: "Operator session" })).toBeNull();
+    const page = await findProviderPage();
+    expect(page.textContent).toContain("tcgplayer");
+    expect(page.querySelector("[data-catalog-operator-session-panel]")).toBeNull();
+    expect(page.textContent).not.toContain("Operator session");
     expect(mocks.resolveActor).toHaveBeenCalledTimes(1);
     expect(http.requests).toEqual([]);
   });
@@ -313,8 +328,10 @@ describe("AC2 gating through the provider-detail route", () => {
   it("hides the section from a platform-admin actor on another provider", async () => {
     renderProviderRoute("/catalog/providers/tcgdex");
 
-    expect((await screen.findAllByRole("heading", { name: "tcgdex" })).length).toBeGreaterThan(0);
-    expect(screen.queryByRole("heading", { name: "Operator session" })).toBeNull();
+    const page = await findProviderPage();
+    expect(page.textContent).toContain("tcgdex");
+    expect(page.querySelector("[data-catalog-operator-session-panel]")).toBeNull();
+    expect(page.textContent).not.toContain("Operator session");
     expect(mocks.resolveActor).not.toHaveBeenCalled();
     expect(http.requests).toEqual([]);
   });
@@ -398,7 +415,7 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
       expect(within(panel).getByText("Stored at").nextElementSibling?.textContent).toBe("Oct 1, 2026, 9:30 AM UTC"),
     );
     expect(within(panel).queryByText(/Stored session cleared/)).toBeNull();
-    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
     expect(http.requests.filter((request) => request.startsWith("DELETE"))).toHaveLength(1);
 
     http.reply("DELETE", metadataPath, 200, { outcome: "cleared", revision: 5 });
@@ -529,7 +546,7 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
       expect(http.requests).toEqual([`GET ${metadataPath}`, `POST ${grantPath}`, `GET ${metadataPath}`]),
     );
     expect(document.body.innerHTML).not.toContain(syntheticGrant);
-    expect(screen.queryByRole("button", { name: "Copy" })).toBeNull();
+    expect(within(await findPanel()).queryByRole("button", { name: "Copy" })).toBeNull();
   });
 
   it("discards a late mint after the loader revalidates to a different actor", async () => {
@@ -549,7 +566,7 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
 
     await within(await findPanel()).findByRole("button", { name: "Pair extension" });
     expect(document.body.innerHTML).not.toContain(syntheticGrant);
-    expect(screen.queryByRole("button", { name: "Copy" })).toBeNull();
+    expect(within(await findPanel()).queryByRole("button", { name: "Copy" })).toBeNull();
   });
 
   it("blocks Disconnect while a mint is in flight", async () => {
@@ -563,7 +580,7 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
     const disconnect = within(panel).getByRole("button", { name: "Disconnect" }) as HTMLButtonElement;
     expect(disconnect.disabled).toBe(true);
     fireEvent.click(disconnect);
-    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
 
     http.reply("GET", metadataPath, 200, storedMetadata(1, { grant: activeGrant }));
     await act(async () => mint.reply(200, { grant: syntheticGrant, idleExpiresAt: activeGrant.idleExpiresAt }));
@@ -609,7 +626,7 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
 
     await waitFor(() => expect(within(panel).getByText("Active")).toBeTruthy());
     expect(document.body.innerHTML).not.toContain(syntheticGrant);
-    expect(screen.queryByRole("button", { name: "Copy" })).toBeNull();
+    expect(within(await findPanel()).queryByRole("button", { name: "Copy" })).toBeNull();
   });
 
   it("keeps hostile response and exception text out of every sink except the active grant display", async () => {
@@ -667,11 +684,12 @@ describe("AC5 accessibility", () => {
 
     disconnect.focus();
     fireEvent.click(disconnect);
-    const dialog = await screen.findByRole("alertdialog", { name: "Disconnect the stored session?" });
+    const dialog = await findDialog();
+    expect(accessibleTitle(dialog)).toBe("Disconnect the stored session?");
     expect(within(dialog).getByText(/does not sign you out of TCGplayer/)).toBeTruthy();
     await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    await waitForDialogClosed();
     await waitFor(() => expect(document.activeElement).toBe(disconnect));
     expect(http.requests).toEqual([`GET ${metadataPath}`]);
 
