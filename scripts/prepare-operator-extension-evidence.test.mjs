@@ -87,6 +87,16 @@ describe("operator-only hosted evidence", () => {
     for (const name of readdirSync(f.output))
       expect(scanOperatorPayload(readFileSync(join(f.output, name)))).toEqual({ cookieMarkers: 0, grantMarkers: 0 });
   });
+  it("includes canonical UI font assets in the complete build inventory without uploading their bytes", () => {
+    const f = fixture();
+    for (const format of ["woff", "woff2"])
+      writeFileSync(join(f.dist, `synthetic-design-system-font.${format}`), "synthetic-font");
+    f.handoff.files = operatorFileInventory(f.dist);
+    f.save();
+    const summary = prepareOperatorEvidence(f);
+    expect(summary.handoff.files).toEqual(operatorFileInventory(f.dist));
+    expect(readdirSync(f.output).sort()).toEqual(["scan.json", "summary.json"]);
+  });
   it("retains controlled failure and retry outcomes even when production retries are zero, never installation authority", () => {
     const f = fixture();
     f.producer.status = "failed";

@@ -73,7 +73,7 @@ function validateFiles(files) {
   requireSafe(entries.length >= 4 && entries.length <= 100);
   for (const [path, digest] of entries) {
     requireSafe(/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*\.[a-zA-Z0-9.-]+$/.test(path));
-    requireSafe(!path.includes("..") && /\.(js|css|html|json)$/.test(path));
+    requireSafe(!path.includes("..") && /\.(js|css|html|json|woff|woff2)$/.test(path));
     requireSafe(typeof digest === "string" && /^[a-f0-9]{64}$/.test(digest));
   }
   for (const path of ["manifest.json", "background.js", "popup.html", "sandbox.html"]) requireSafe(path in files);
