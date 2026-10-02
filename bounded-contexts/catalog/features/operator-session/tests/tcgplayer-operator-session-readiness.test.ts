@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   deriveTcgplayerOperatorSessionReadiness as derive,
   nextOperatorSessionOutcome as next,
+  operatorSessionOutcomeFromRow,
   type OperatorSessionIdentity,
   type OperatorSessionOutcome,
   type OperatorSessionReadinessSnapshot,
@@ -33,6 +34,34 @@ const snapshot = (patch: Partial<OperatorSessionReadinessSnapshot> = {}): Operat
 });
 
 describe("TCGplayer operator session readiness", () => {
+  it("normalizes the persisted outcome without changing its bounded identity or UTC instants", () => {
+    expect(
+      operatorSessionOutcomeFromRow({
+        source: "environment",
+        revision: "0",
+        custody_revision: "9007199254740991",
+        state: "healthy",
+        state_since: "2026-10-01T19:00:00-05:00",
+        last_rejection_at: null,
+        last_rejection_status: null,
+        rate_budget_context: "unknown",
+        ever_succeeded: true,
+        updated_at: new Date(iso(0)),
+      }),
+    ).toEqual({
+      source: "environment",
+      revision: 0,
+      custodyRevision: Number.MAX_SAFE_INTEGER,
+      state: "healthy",
+      stateSince: iso(0),
+      lastRejectionAt: null,
+      lastRejectionStatus: null,
+      rateBudgetContext: "unknown",
+      everSucceeded: true,
+      updatedAt: iso(0),
+    });
+  });
+
   it.each([
     ["absent without environment", snapshot({ custody: "absent", identity: null }), "missing", "credential-missing"],
     ["cleared without environment", snapshot({ custody: "cleared", identity: null }), "missing", "credential-missing"],

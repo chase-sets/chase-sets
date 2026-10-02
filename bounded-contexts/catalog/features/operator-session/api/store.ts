@@ -11,13 +11,12 @@ import {
   validateOperatorSessionRevision,
   validateOperatorSessionValue,
 } from "../domain/value";
-import type { OperatorSessionReadinessSnapshot } from "../domain/readiness";
 import {
-  lockOperatorSessionReadiness,
-  resetOperatorSessionOutcome,
   operatorSessionOutcomeFromRow,
   type OperatorSessionOutcomeRow,
-} from "./outcomes";
+  type OperatorSessionReadinessSnapshot,
+} from "../domain/readiness";
+import { lockOperatorSessionReadiness, resetOperatorSessionOutcome } from "./outcomes";
 
 const version = "CatalogOperatorSession/v1";
 const providerKey = "tcgplayer";

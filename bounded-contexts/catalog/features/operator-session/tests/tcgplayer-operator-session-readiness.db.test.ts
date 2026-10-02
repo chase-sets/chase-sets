@@ -1,5 +1,6 @@
 import { expect, it, vi } from "vitest";
-import { withPgTransaction } from "@chase-sets/event-core-postgres";
+import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { bypassLiveTuple, bypassCustodyReset, bypassHeadersCapture } from "./readiness-bypass-fixture";
 import { describeDb, keyring, session, useOperatorSessionDatabase } from "./db-fixture";
 import { createPostgresCatalogOperatorSessionStore, readCatalogOperatorSessionSnapshot } from "../api/store";
 import { createOperatorSessionOutcomeRecorder, lockOperatorSessionReadiness } from "../api/outcomes";
@@ -28,6 +29,193 @@ const environment = (custodyRevision: number): OperatorSessionIdentity => ({
   source: "environment",
   revision: 0,
   custodyRevision,
+});
+
+describeDb("AC4 source-derived candidate-green/bypass-red DB controls", () => {
+  const database = useOperatorSessionDatabase("operator_session_bypass_8455");
+  const instant = "2026-10-02T00:31:00.000Z";
+  // Every variant uses the same database time, credential, status, budget, expiry and success history.
+  const frozen = (db: PgQueryable): PgQueryable => ({
+    query: (sql, values) => db.query(sql.replaceAll("clock_timestamp()", `TIMESTAMPTZ '${instant}'`), values),
+  });
+  const pool = (): PgTransactionalPool => ({
+    ...frozen(database()),
+    connect: async () => {
+      const connection = await database().connect();
+      return { ...frozen(connection), release: (error) => connection.release(error) };
+    },
+  });
+  const accept = (revision: number) =>
+    withPgTransaction(pool(), (db) => createPostgresCatalogOperatorSessionStore(db, keyring).accept(session(revision)));
+  const clear = (revision: number) =>
+    withPgTransaction(pool(), (db) =>
+      createPostgresCatalogOperatorSessionStore(db, keyring).clear({
+        expectedRevision: revision,
+        expectedKeyId: keyring.activeKeyId,
+      }),
+    );
+  const rows = async () => (await database().query("SELECT * FROM catalog_tcgplayer_operator_session_outcomes")).rows;
+  const record = (identity: OperatorSessionIdentity, status = 401) =>
+    createOperatorSessionOutcomeRecorder(pool())({ identity, status, rateBudgetContext: "retained" });
+  const fences = [
+    "absent environment",
+    "old operator",
+    "old environment after accept",
+    "old environment after clear",
+  ] as const;
+  const prepare = async (fence: (typeof fences)[number]) => {
+    if (fence === "absent environment") {
+      await accept(0);
+      return { captured: environment(0), live: operator(1) };
+    }
+    await accept(0);
+    await clear(1);
+    if (fence === "old operator") return { captured: operator(1), live: environment(2) };
+    await accept(2);
+    if (fence === "old environment after accept") return { captured: environment(2), live: operator(3) };
+    await clear(3);
+    return { captured: environment(2), live: environment(4) };
+  };
+  const discriminates = (mutant: boolean, assertion: () => void) => {
+    if (mutant) expect(assertion).toThrowError(/expected/);
+    else assertion();
+  };
+
+  it.each(fences.flatMap((fence) => [false, true].map((mutant) => ({ fence, mutant }))))(
+    "recorder live tuple bypass: $fence, mutant=$mutant",
+    async ({ fence, mutant }) => {
+      const { captured, live } = await prepare(fence);
+      const before = await readCatalogOperatorSessionSnapshot(database(), keyring, "labeled-synthetic-environment");
+      expect(before.readiness).toMatchObject({ identity: live, browserExpiresAt: null, outcome: null });
+      const ran = vi.fn();
+      const recorder = (mutant ? bypassLiveTuple(ran) : createOperatorSessionOutcomeRecorder)(pool());
+      await recorder({ identity: captured, status: 401, rateBudgetContext: "retained" });
+      expect(ran).toHaveBeenCalledTimes(mutant ? 1 : 0);
+      const persisted = await rows();
+      if (mutant)
+        expect(persisted).toMatchObject([
+          {
+            source: captured.source,
+            revision: String(captured.revision),
+            custody_revision: String(captured.custodyRevision),
+            state: "rejecting",
+            last_rejection_status: 401,
+            rate_budget_context: "retained",
+            ever_succeeded: false,
+            state_since: new Date(instant),
+            last_rejection_at: new Date(instant),
+            updated_at: new Date(instant),
+          },
+        ]);
+      discriminates(mutant, () => expect(persisted).toEqual([]));
+      expect(
+        (await readCatalogOperatorSessionSnapshot(database(), keyring, "labeled-synthetic-environment")).readiness
+          .identity,
+      ).toEqual(live);
+    },
+  );
+
+  it.each(["accept", "clear"].flatMap((operation) => [false, true].map((mutant) => ({ operation, mutant }))))(
+    "successful custody-change outcome reset bypass: $operation, mutant=$mutant",
+    async ({ operation, mutant }) => {
+      if (operation === "clear") await accept(0);
+      await record(operation === "clear" ? operator(1) : environment(0));
+      const previous = await rows();
+      const ran = vi.fn();
+      const factory = mutant ? bypassCustodyReset(ran) : createPostgresCatalogOperatorSessionStore;
+      const result = await withPgTransaction(pool(), (db) => {
+        const custody = factory(db, keyring);
+        return operation === "accept"
+          ? custody.accept(session(0))
+          : custody.clear({ expectedRevision: 1, expectedKeyId: keyring.activeKeyId });
+      });
+      expect(result).toEqual({
+        outcome: operation === "accept" ? "stored" : "cleared",
+        revision: operation === "accept" ? 1 : 2,
+      });
+      expect(ran).toHaveBeenCalledTimes(mutant ? 1 : 0);
+      const persisted = await rows();
+      if (mutant) expect(persisted).toEqual(previous);
+      discriminates(mutant, () => expect(persisted).toEqual([]));
+    },
+  );
+
+  it.each(
+    [false, true].flatMap((durable) =>
+      fences.flatMap((fence) => [false, true].map((mutant) => ({ durable, fence, mutant }))),
+    ),
+  )(
+    "client headers-time capture bypass: $fence, durable=$durable, mutant=$mutant",
+    async ({ durable, fence, mutant }) => {
+      // Capture the old tuple, then complete custody changes while the synthetic fetch is pending.
+      if (fence !== "absent environment") await accept(0);
+      if (fence.startsWith("old environment")) await clear(1);
+      const runtime = createTcgplayerAutomationRuntime({
+        pool: pool(),
+        keyring,
+        config: {
+          maxRetries: 0,
+          auth: { tcgAuthCookie: "labeled-synthetic-environment", userAgent: "labeled-synthetic" },
+        },
+      });
+      const captured = (await readCatalogOperatorSessionSnapshot(database(), keyring, "labeled-synthetic-environment"))
+        .readiness.identity!;
+      const recorded = vi.fn(runtime.configStore.recordCredentialOutcome);
+      const loads = vi.fn(runtime.configStore.loadConfig);
+      const store: TcgplayerAutomationHttpConfigStore = {
+        ...runtime.configStore,
+        loadConfig: loads,
+        recordCredentialOutcome: recorded,
+        ...(!durable ? { admitDomainRequest: undefined } : {}),
+      };
+      let live: OperatorSessionIdentity;
+      const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+        if (fence === "old operator") await clear(1);
+        else {
+          await accept(fence === "absent environment" ? 0 : 2);
+          if (fence === "old environment after clear") await clear(3);
+        }
+        live = (await readCatalogOperatorSessionSnapshot(database(), keyring, "labeled-synthetic-environment"))
+          .readiness.identity!;
+        // A current healthy row makes false attribution observable at readiness, not only at a mock.
+        await record(live, 200);
+        return new Response("labeled-synthetic-rejection", { status: 401 });
+      });
+      const ran = vi.fn();
+      const Client = mutant ? bypassHeadersCapture(ran) : TcgplayerAutomationDomainHttpClient;
+      const client = new Client("infiniteApi", "https://labeled-synthetic.invalid", store, {
+        fetch,
+        now: () => Date.parse(instant),
+        sleep: async (_ms, signal) => {
+          if (signal)
+            await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+        },
+      });
+      await expect(client.get("/labeled-synthetic")).rejects.toMatchObject({ status: 401 });
+      expect(fetch).toHaveBeenCalledOnce();
+      expect(loads).toHaveBeenCalledTimes(mutant ? 2 : 1);
+      expect(ran).toHaveBeenCalledTimes(mutant ? 1 : 0);
+      expect(recorded).toHaveBeenCalledExactlyOnceWith({
+        identity: mutant ? live! : captured,
+        status: 401,
+        rateBudgetContext: durable ? "retained" : "unknown",
+      });
+      const snapshot = (await readCatalogOperatorSessionSnapshot(database(), keyring, "labeled-synthetic-environment"))
+        .readiness;
+      expect(snapshot).toMatchObject({ identity: live!, browserExpiresAt: null, outcome: { everSucceeded: true } });
+      const readiness = deriveTcgplayerOperatorSessionReadiness(snapshot, Date.parse(instant));
+      if (mutant) {
+        expect(snapshot.outcome).toMatchObject({
+          state: "rejecting",
+          lastRejectionStatus: 401,
+          stateSince: instant,
+          lastRejectionAt: instant,
+        });
+        expect(readiness).toMatchObject({ state: "invalid", diagnosticCode: "credential-refresh-needed" });
+      }
+      discriminates(mutant, () => expect(readiness.state).toBe("configured"));
+    },
+  );
 });
 const marker = "LABELED_SYNTHETIC_HOSTILE_SESSION_8455";
 async function profiles() {

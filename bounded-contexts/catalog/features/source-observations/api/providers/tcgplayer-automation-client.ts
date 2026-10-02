@@ -516,6 +516,14 @@ export class TcgplayerAutomationDomainHttpClient {
       await this.configStore.recordCredentialOutcome?.(outcome);
     } catch {
       // Passive readiness must not change the request's retry or thrown-error contract.
+      console.error({
+        event: "catalog.operator-session-outcome-recorder-failed",
+        provider: "tcgplayer",
+        status: outcome.status,
+        source: outcome.identity.source,
+        revision: outcome.identity.revision,
+        custodyRevision: outcome.identity.custodyRevision,
+      });
     }
   }
 

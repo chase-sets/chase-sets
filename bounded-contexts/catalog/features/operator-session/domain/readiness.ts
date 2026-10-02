@@ -22,6 +22,34 @@ export type OperatorSessionReadinessSnapshot = Readonly<{
   outcome: OperatorSessionOutcome | null;
 }>;
 
+export type OperatorSessionOutcomeRow = {
+  source: "operator-session" | "environment";
+  revision: string;
+  custody_revision: string;
+  state: "untested" | "healthy" | "rejecting";
+  state_since: Date | string;
+  last_rejection_at: Date | string | null;
+  last_rejection_status: 401 | 403 | null;
+  rate_budget_context: "retained" | "unknown";
+  ever_succeeded: boolean;
+  updated_at: Date | string;
+};
+
+export function operatorSessionOutcomeFromRow(row: OperatorSessionOutcomeRow): OperatorSessionOutcome {
+  return {
+    source: row.source,
+    revision: Number(row.revision),
+    custodyRevision: Number(row.custody_revision),
+    state: row.state,
+    stateSince: new Date(row.state_since).toISOString(),
+    lastRejectionAt: row.last_rejection_at === null ? null : new Date(row.last_rejection_at).toISOString(),
+    lastRejectionStatus: row.last_rejection_status,
+    rateBudgetContext: row.rate_budget_context,
+    everSucceeded: row.ever_succeeded,
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
 export const operatorSessionRejectionWindowMs = 30 * 60 * 1000;
 export const operatorSessionRefreshIntervalMs = 5 * 60 * 1000;
 

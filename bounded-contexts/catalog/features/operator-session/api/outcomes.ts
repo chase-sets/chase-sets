@@ -1,10 +1,11 @@
 import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
   nextOperatorSessionOutcome,
+  operatorSessionOutcomeFromRow,
   sameOperatorSessionIdentity,
   validOperatorSessionIdentity,
   type OperatorSessionIdentity,
-  type OperatorSessionOutcome,
+  type OperatorSessionOutcomeRow,
 } from "../domain/readiness";
 
 export async function lockOperatorSessionReadiness(db: PgQueryable): Promise<void> {
@@ -18,34 +19,6 @@ export async function resetOperatorSessionOutcome(db: PgQueryable): Promise<void
     WHERE outcome.provider_key = 'tcgplayer' AND outcome.source = previous.source
       AND outcome.revision = previous.revision AND outcome.custody_revision = previous.custody_revision
       AND outcome.state = previous.state AND outcome.updated_at = previous.updated_at`);
-}
-
-export type OperatorSessionOutcomeRow = {
-  source: "operator-session" | "environment";
-  revision: string;
-  custody_revision: string;
-  state: "untested" | "healthy" | "rejecting";
-  state_since: Date | string;
-  last_rejection_at: Date | string | null;
-  last_rejection_status: 401 | 403 | null;
-  rate_budget_context: "retained" | "unknown";
-  ever_succeeded: boolean;
-  updated_at: Date | string;
-};
-
-export function operatorSessionOutcomeFromRow(row: OperatorSessionOutcomeRow): OperatorSessionOutcome {
-  return {
-    source: row.source,
-    revision: Number(row.revision),
-    custodyRevision: Number(row.custody_revision),
-    state: row.state,
-    stateSince: new Date(row.state_since).toISOString(),
-    lastRejectionAt: row.last_rejection_at === null ? null : new Date(row.last_rejection_at).toISOString(),
-    lastRejectionStatus: row.last_rejection_status,
-    rateBudgetContext: row.rate_budget_context,
-    everSucceeded: row.ever_succeeded,
-    updatedAt: new Date(row.updated_at).toISOString(),
-  };
 }
 
 export type OperatorSessionAttemptOutcome = Readonly<{
