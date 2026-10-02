@@ -191,10 +191,12 @@ describe("Catalog provider-send admission", () => {
   });
 
   it.each([false, true])("C1 authenticated TCGplayer STOP survives custody redaction (durable=%s)", async (durable) => {
-    const store = createInMemoryTcgplayerAutomationHttpConfigStore({
-      auth: { tcgAuthCookie: "SYNTHETIC_STORED_CREDENTIAL", userAgent: "synthetic" },
-      maxRetries: 3,
-    });
+    const store = {
+      ...createInMemoryTcgplayerAutomationHttpConfigStore({
+        auth: { tcgAuthCookie: "SYNTHETIC_STORED_CREDENTIAL", userAgent: "synthetic" },
+        maxRetries: 3,
+      }),
+    };
     const release = vi.fn(async () => undefined);
     if (durable) {
       store.admitDomainRequest = async () => ({
