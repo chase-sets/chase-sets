@@ -63,9 +63,12 @@ const providerSendRefusals: readonly ProviderSendRefusal[] = [
 ];
 
 export class ProviderSendStoppedError extends Error {
-  constructor(public readonly code: ProviderSendRefusal) {
+  public readonly code: ProviderSendRefusal;
+
+  constructor(code: ProviderSendRefusal) {
     super(`Catalog provider-send window stopped (${code}).`);
     this.name = "ProviderSendStoppedError";
+    this.code = code;
   }
 }
 
