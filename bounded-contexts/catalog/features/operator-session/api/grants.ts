@@ -75,7 +75,7 @@ export function createOperatorSessionGrants(
             const grant = (
               await bound.query<GrantRow>(`SELECT id, created_at, last_used_at, idle_expires_at,
               (revoked_at IS NULL AND clock_timestamp() < idle_expires_at) AS active
-              FROM catalog_operator_session_grants ORDER BY created_at DESC, id DESC LIMIT 1`)
+              FROM catalog_operator_session_grants ORDER BY (revoked_at IS NULL) DESC, created_at DESC, id DESC LIMIT 1`)
             ).rows[0];
             return {
               revision: metadata?.revision ?? 0,
