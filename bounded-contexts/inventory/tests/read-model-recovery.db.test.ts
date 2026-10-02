@@ -456,7 +456,7 @@ describeDb("Inventory retained-checkpoint read-model recovery", () => {
       if (markerLoss) await removeMarker("inventory-item-projection");
       const before = await replayBoundary();
       await expect(rebuildContextProjectionGroup(runtime, "inventory", "inventory-item-projection")).rejects.toThrow(
-        `missing storage location '${location.storage_location_id}'`,
+        `Cannot reset Inventory items: missing storage location '${location.storage_location_id}'; rebuild inventory-storage-location-projection first.`,
       );
       expect(await replayBoundary()).toEqual(before);
       expect((await capture()).poison).toEqual([]);
@@ -477,7 +477,7 @@ describeDb("Inventory retained-checkpoint read-model recovery", () => {
       if (markerLoss) await removeMarker("inventory-hold-projection");
       const before = await replayBoundary();
       await expect(rebuildContextProjectionGroup(runtime, "inventory", "inventory-hold-projection")).rejects.toThrow(
-        `missing item '${item.item_id}'`,
+        `Cannot reset Inventory holds: missing item '${item.item_id}'; rebuild inventory-item-projection first.`,
       );
       expect(await replayBoundary()).toEqual(before);
       expect((await capture()).poison).toEqual([]);
@@ -554,7 +554,9 @@ describeDb("Inventory retained-checkpoint read-model recovery", () => {
       const before = await replayBoundary();
       await expect(
         rebuildContextProjectionGroup(runtime, "inventory", "inventory-restock-decision-projection"),
-      ).rejects.toThrow(`missing item '${itemId}'`);
+      ).rejects.toThrow(
+        `Cannot reset Inventory restock decisions: missing item '${itemId}'; rebuild inventory-item-projection first.`,
+      );
       expect(await replayBoundary()).toEqual(before);
       expect((await capture()).poison).toEqual([]);
       const runner = getProjectionGroup(runtime, "inventory", "inventory-restock-decision-projection")
