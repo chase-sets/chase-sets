@@ -177,6 +177,9 @@ importers:
 
   bounded-contexts/catalog:
     dependencies:
+      '@chase-sets/auth-context':
+        specifier: workspace:*
+        version: link:../../contracts/auth-context
       '@chase-sets/bounded-context-module':
         specifier: workspace:*
         version: link:../../contracts/bounded-context-module

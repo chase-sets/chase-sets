@@ -21,6 +21,8 @@
 // own is also allowed (freshness canaries are documented operational checks); only
 // deployment-canary promote/abort/decision forms are denied.
 
+import ts from "@chase-sets/typescript-compiler-api";
+
 export const softwareDeliveryConceptGuardExtensions = new Set([".ts", ".tsx"]);
 
 const softwareDeliveryConceptGuardRoots = ["bounded-contexts/", "deployables/"];
@@ -32,9 +34,8 @@ export const softwareDeliveryConceptGuards = [
   // Removed release-controls slice and equivalents.
   { label: "release-controls deployment surface", pattern: /\brelease-controls\b/i },
   { label: "releaseControls deployment surface", pattern: /\breleaseControls\b/ },
-  // Production release-lock used as a deploy gate. `releaseLock` / `release-lock`
-  // are deploy-only identifiers (hold-release verbs use releaseHold / releaseFunds
-  // and never collide with this token), so a word-anchored match is safe.
+  // Production release-lock used as a deploy gate. Only proven Web Streams reader
+  // cleanup in the operator request codec is removed from the token scan below.
   { label: "PRODUCTION_RELEASE_LOCKED deploy gate", pattern: /\bPRODUCTION_RELEASE_LOCKED\b/ },
   { label: "release-lock deploy gate", pattern: /\brelease-lock\b/i },
   { label: "releaseLock deploy gate", pattern: /\breleaseLock\b/ },
@@ -106,11 +107,119 @@ export function isSoftwareDeliveryConceptGuardedFile(relativeFile, extension) {
   );
 }
 
+function withoutOperatorRequestReaderCleanup(relativeFile, content) {
+  if (
+    relativeFile !== "bounded-contexts/catalog/features/operator-session/api/request.ts" ||
+    !content.includes("releaseLock")
+  )
+    return content;
+  const fileName = "operator-request-guard.ts";
+  const options = { target: ts.ScriptTarget.ES2022, lib: ["lib.es2022.d.ts", "lib.dom.d.ts"], types: [], noEmit: true };
+  const host = ts.createCompilerHost(options);
+  const source = ts.createSourceFile(fileName, content, options.target, true);
+  const getSourceFile = host.getSourceFile.bind(host);
+  host.getSourceFile = (name, ...args) => (name === fileName ? source : getSourceFile(name, ...args));
+  host.resolveModuleNames = (names) => names.map(() => undefined);
+  const program = ts.createProgram([fileName], options, host);
+  const checker = program.getTypeChecker();
+  const nodes = [];
+  function visit(node) {
+    nodes.push(node);
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+  const fromDom = (symbol) =>
+    symbol?.declarations?.length > 0 &&
+    symbol.declarations.every((declaration) => /[/\\]lib\.dom\.d\.ts$/.test(declaration.getSourceFile().fileName));
+  const references = (symbol) =>
+    nodes.filter((node) => ts.isIdentifier(node) && checker.getSymbolAtLocation(node) === symbol);
+  const ranges = [];
+  for (const node of nodes) {
+    if (
+      !ts.isCallExpression(node) ||
+      node.arguments.length ||
+      !ts.isPropertyAccessExpression(node.expression) ||
+      node.expression.name.text !== "releaseLock"
+    )
+      continue;
+    const receiver = node.expression.expression;
+    if (!ts.isIdentifier(receiver)) continue;
+    const symbol = checker.getSymbolAtLocation(receiver);
+    const declaration = symbol?.valueDeclaration;
+    if (
+      !declaration ||
+      !ts.isVariableDeclaration(declaration) ||
+      !(declaration.parent.flags & ts.NodeFlags.Const) ||
+      symbol.declarations.length !== 1
+    )
+      continue;
+    const initializer = declaration.initializer;
+    if (
+      !initializer ||
+      !ts.isCallExpression(initializer) ||
+      initializer.arguments.length ||
+      !ts.isPropertyAccessExpression(initializer.expression) ||
+      initializer.expression.name.text !== "getReader"
+    )
+      continue;
+    const body = initializer.expression.expression;
+    if (!ts.isPropertyAccessExpression(body) || body.name.text !== "body" || !ts.isIdentifier(body.expression))
+      continue;
+    const requestSymbol = checker.getSymbolAtLocation(body.expression);
+    const parameter = requestSymbol?.valueDeclaration;
+    if (
+      !parameter ||
+      !ts.isParameter(parameter) ||
+      !parameter.type ||
+      parameter.type.getText(source) !== "Request" ||
+      !fromDom(checker.getSymbolAtLocation(parameter.type.typeName))
+    )
+      continue;
+    if (
+      !fromDom(checker.getSymbolAtLocation(initializer.expression.name)) ||
+      !fromDom(checker.getSymbolAtLocation(node.expression.name))
+    )
+      continue;
+    // Neither the Request binding nor the const reader may escape or be mutated.
+    if (
+      !references(requestSymbol).every(
+        (ref) =>
+          ref === parameter.name ||
+          (ts.isPropertyAccessExpression(ref.parent) &&
+            ref.parent.expression === ref &&
+            ref.parent.name.text === "body" &&
+            ((ts.isPrefixUnaryExpression(ref.parent.parent) &&
+              ref.parent.parent.operator === ts.SyntaxKind.ExclamationToken) ||
+              ref.parent === body)),
+      )
+    )
+      continue;
+    if (
+      !references(symbol).every(
+        (ref) =>
+          ref === declaration.name ||
+          (ts.isPropertyAccessExpression(ref.parent) &&
+            ref.parent.expression === ref &&
+            ["read", "cancel", "releaseLock"].includes(ref.parent.name.text) &&
+            ts.isCallExpression(ref.parent.parent) &&
+            ref.parent.parent.expression === ref.parent),
+      )
+    )
+      continue;
+    ranges.push([node.expression.name.getStart(source), node.expression.name.end]);
+  }
+  for (const [start, end] of ranges.sort((a, b) => b[0] - a[0]))
+    content = content.slice(0, start) + " ".repeat(end - start) + content.slice(end);
+  return content;
+}
+
 export function findSoftwareDeliveryConceptViolations({ relativeFile, content }) {
+  const readerCleanupContent = withoutOperatorRequestReaderCleanup(relativeFile, content);
   const violations = softwareDeliveryConceptGuards.filter(
     (guard) =>
       (!guard.applies || guard.applies({ relativeFile, content })) &&
-      (guard.pattern.test(relativeFile) || guard.pattern.test(content)),
+      (guard.pattern.test(relativeFile) ||
+        guard.pattern.test(guard.label === "releaseLock deploy gate" ? readerCleanupContent : content)),
   );
 
   if (isFeatureFlagDomainFile(relativeFile)) {

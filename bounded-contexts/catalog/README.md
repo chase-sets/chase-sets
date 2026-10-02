@@ -68,6 +68,10 @@ The v2 integration control-plane IA — three pages, two utilities, and the per-
 
 The `operator-session` slice owns encrypted TCGplayer Operator Session custody for Todd's automation. Each request resolves the retained row; stored custody wins over the environment, unreadable custody fails closed, and cleared custody restores fallback without erasing its revision fence. It does not establish provider authentication or session expiry.
 
+Operator Session Push Grants use `/api/catalog/operator-session` for Admin metadata and Disconnect, with direct mint at `/grant`. Admin mutations require `catalog.manage`, the platform-admin role, same-origin requests, and authentication within ten minutes. The separate public mount `/api/public/catalog/operator-session` accepts only a narrow bearer for `PUT /tcgplayer` and `DELETE /grant`; it grants no Admin or cookie authority.
+
+The grant lock and custody SQL share one physical PostgreSQL backend. PUT commits custody acceptance and conditional idle renewal atomically, including renewal for stale and unchanged outcomes. A lost COMMIT acknowledgement returns a bounded 503 with an indeterminate outcome, never an automatic server retry or a no-write promise. Disconnect deliberately commits revoke before its fresh fenced clear. The existing retained revision governs every later request. Per-replica admission is bounded to four operations, 120 requests/minute, and six PUTs/minute per valid grant; these are not distributed quotas.
+
 ## Does Not Own
 
 - Listing aggregation

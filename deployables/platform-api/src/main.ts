@@ -322,6 +322,10 @@ const runtime = createPlatformApiHost({
     addressVerificationProvider: postageLabelProvider,
     ...(postageWebhookGateway ? { postageWebhookGateway } : {}),
     catalogAssetStorage,
+    catalogOperatorSessionConfiguration: {
+      config: config.tcgplayerAutomation,
+      keyring: config.catalogOperatorSessionKeyring,
+    },
     ...(tcgplayerAutomationCatalogClient ? { tcgplayerAutomationCatalogClient } : {}),
     sourceObservationTelemetry,
     checkoutObservabilityTelemetry,
