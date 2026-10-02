@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { chromium, expect, test } from "@playwright/test";
 import { build } from "vite";
 import { operatorExtensionId } from "../../src/manifest-contract";
+import { syntheticTarget } from "./synthetic-cdp";
 import {
   operatorEvidenceIdentity,
   operatorFileInventory,
@@ -43,6 +44,7 @@ test("operator-extension-deterministic-build @tcgplayer-operator-extension", asy
 test("operator-extension-chromium: opaque UI, exact-host cookies and retained reload @tcgplayer-operator-extension", async () => {
   const stages: string[] = [];
   function stage(name: string) {
+    console.log(`Operator Chromium stage: ${name}`);
     stages.push(name);
     mkdirSync(evidence, { recursive: true });
     writeFileSync(join(evidence, "chromium-stages.json"), JSON.stringify({ identity, stages }));
@@ -68,53 +70,10 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
     expect(new URL(worker.url()).host).toBe(operatorExtensionId);
     // Direct loopback CDP setup is outside Playwright recording. Only synthetic values enter this profile.
     const port = readFileSync(join(profile, "DevToolsActivePort"), "utf8").split(/\r?\n/)[0];
-    const targets: unknown = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
-    if (!Array.isArray(targets)) throw new Error("Missing synthetic debug target");
-    const target: unknown = targets.find(
-      (candidate: unknown) =>
-        typeof candidate === "object" && candidate !== null && "url" in candidate && candidate.url === worker.url(),
-    );
-    if (
-      typeof target !== "object" ||
-      target === null ||
-      !("webSocketDebuggerUrl" in target) ||
-      typeof target.webSocketDebuggerUrl !== "string"
-    )
-      throw new Error("Missing synthetic worker target");
-    const socket = new WebSocket(target.webSocketDebuggerUrl);
-    await new Promise<void>((done, reject) => {
-      socket.onopen = () => done();
-      socket.onerror = () => reject(new Error("Synthetic setup unavailable"));
-    });
-    let sequence = 0;
+    if (!port || !/^\d+$/.test(port)) throw new Error("Synthetic debug port missing");
+    const cookieTarget = await syntheticTarget(port, worker.url());
     async function setup(expression: string) {
-      const id = ++sequence;
-      return new Promise<void>((done, reject) => {
-        const timer = setTimeout(() => reject(new Error("Synthetic setup deadline")), 5000);
-        const receive = (event: MessageEvent) => {
-          const reply: unknown = JSON.parse(String(event.data));
-          if (typeof reply !== "object" || reply === null || !("id" in reply) || reply.id !== id) return;
-          clearTimeout(timer);
-          socket.removeEventListener("message", receive);
-          if (
-            "error" in reply ||
-            !("result" in reply) ||
-            typeof reply.result !== "object" ||
-            reply.result === null ||
-            "exceptionDetails" in reply.result
-          )
-            reject(new Error("Synthetic setup refused"));
-          else done();
-        };
-        socket.addEventListener("message", receive);
-        socket.send(
-          JSON.stringify({
-            id,
-            method: "Runtime.evaluate",
-            params: { expression, awaitPromise: true, returnByValue: true },
-          }),
-        );
-      });
+      await cookieTarget.evaluate(expression);
     }
     const cookieMarker = ["SYNTHETIC", "OPERATOR", "COOKIE", "CHROMIUM"].join("_");
     stage("setup-connected");
@@ -130,39 +89,59 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
         })()`);
       }
     }
-    socket.close();
+    cookieTarget.close();
     stage("cookies-proved");
-    await worker.evaluate(async () => {
-      await chrome.action.openPopup();
-    });
-    const popup =
-      context.pages().find((page) => page.url().endsWith("/popup.html")) ?? (await context.waitForEvent("page"));
-    const ui = popup.frameLocator("iframe");
+    async function openPopup(current: typeof worker) {
+      await current.evaluate(async () => {
+        const window = (await chrome.windows.getAll({ windowTypes: ["normal"] }))[0];
+        if (window?.id === undefined) throw new Error("Synthetic browser window missing");
+        await chrome.action.openPopup({ windowId: window.id });
+      });
+      const popup = await syntheticTarget(port, `chrome-extension://${operatorExtensionId}/popup.html`);
+      await expect.poll(() => popup.sandboxContext()).toBeDefined();
+      const frame = await popup.sandboxContext();
+      if (frame === undefined) throw new Error("Synthetic sandbox context missing");
+      return {
+        evaluate: (expression: string) => popup.evaluate(expression, frame),
+        async close() {
+          await context.pages()[0]?.bringToFront();
+          popup.close();
+        },
+      };
+    }
+    const popup = await openPopup(worker);
     stage("popup-open");
-    await expect(ui.getByRole("heading", { name: "TCGplayer Operator Extension" })).toBeVisible();
-    await expect(ui.getByRole("status")).not.toHaveText("Loading status");
-    await ui.getByLabel("Pairing grant").fill(grantMarker);
-    await ui.getByRole("button", { name: "Pair", exact: true }).click();
-    await expect(ui.getByLabel("Pairing grant")).toHaveValue("");
-    await expect(ui.getByRole("status")).toContainText("Paired.");
-    stage("paired");
-    const sandbox = popup.frames().find((frame) => frame.url().endsWith("/sandbox.html"));
-    if (!sandbox) throw new Error("Sandbox missing");
-    expect(await sandbox.evaluate(() => typeof chrome === "undefined" || (!chrome.storage && !chrome.cookies))).toBe(
-      true,
+    await expect
+      .poll(() => popup.evaluate('document.querySelector("h1")?.textContent'))
+      .toBe("TCGplayer Operator Extension");
+    await expect
+      .poll(() => popup.evaluate('document.querySelector("[role=status]")?.textContent'))
+      .toContain("Not paired");
+    await popup.evaluate(`(() => {
+      const input = document.querySelector('input[type=password]');
+      if (!input || !document.querySelector('label[for="' + input.id + '"]')?.textContent.includes('Pairing grant')) throw Error('Synthetic input missing');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(grantMarker)});
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await expect
+      .poll(() =>
+        popup.evaluate(
+          "Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'Pair')?.disabled",
+        ),
+      )
+      .toBe(false);
+    await popup.evaluate(
+      "Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'Pair').click()",
     );
+    await expect.poll(() => popup.evaluate('document.querySelector("input[type=password]")?.value === ""')).toBe(true);
+    await expect
+      .poll(() => popup.evaluate('document.querySelector("[role=status]")?.textContent'))
+      .toContain("Paired.");
+    stage("paired");
+    expect(await popup.evaluate('typeof chrome === "undefined" || (!chrome.storage && !chrome.cookies)')).toBe(true);
     expect(
-      await sandbox.evaluate(() => {
-        try {
-          void parent.document;
-          return false;
-        } catch {
-          return true;
-        }
-      }),
+      await popup.evaluate("(() => { try { void parent.document; return false; } catch { return true; } })()"),
     ).toBe(true);
-    // No grant or cookie setup is traced. The retained screenshot is status-only.
-    await popup.screenshot({ path: join(evidence, "sandbox-status.png") });
     await popup.close();
     stage("isolated");
     const compatibleWorker = context.waitForEvent("serviceworker");
@@ -171,12 +150,10 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
     });
     const compatible = await compatibleWorker;
     stage("compatible-reloaded");
-    await compatible.evaluate(async () => {
-      await chrome.action.openPopup();
-    });
-    const retainedPopup =
-      context.pages().find((page) => page.url().endsWith("/popup.html")) ?? (await context.waitForEvent("page"));
-    await expect(retainedPopup.frameLocator("iframe").getByRole("status")).toContainText("Paired.");
+    const retainedPopup = await openPopup(compatible);
+    await expect
+      .poll(() => retainedPopup.evaluate('document.querySelector("[role=status]")?.textContent'))
+      .toContain("Paired.");
     await retainedPopup.close();
     // This record contains no secret and tests unknown-version byte preservation only.
     await compatible.evaluate(async (storageKey) => {
@@ -188,12 +165,10 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
     });
     const restarted = await unknownWorker;
     stage("unknown-reloaded");
-    await restarted.evaluate(async () => {
-      await chrome.action.openPopup();
-    });
-    const reloaded =
-      context.pages().find((page) => page.url().endsWith("/popup.html")) ?? (await context.waitForEvent("page"));
-    await expect(reloaded.frameLocator("iframe").getByRole("status")).toContainText("Update required");
+    const reloaded = await openPopup(restarted);
+    await expect
+      .poll(() => reloaded.evaluate('document.querySelector("[role=status]")?.textContent'))
+      .toContain("Update required");
     expect(
       await restarted.evaluate(
         async () =>
@@ -202,6 +177,7 @@ test("operator-extension-chromium: opaque UI, exact-host cookies and retained re
           ) === JSON.stringify({ schemaVersion: 999, opaque: "preserve" }),
       ),
     ).toBe(true);
+    await reloaded.close();
     stage("reload-proved");
     const retained = readdirSync(evidence, { recursive: true, withFileTypes: true }).filter((file) => file.isFile());
     for (const file of retained) {

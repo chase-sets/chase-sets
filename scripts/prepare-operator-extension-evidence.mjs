@@ -162,6 +162,7 @@ export function prepareOperatorEvidence({ input, output, dist, identity, produce
     producerOutcome,
     testStatus: producer.status,
     tests: producer.tests,
+    stages: progress,
     reloadProved: same(progress, stages),
     candidateVerified: successful,
     installationAuthority: false,

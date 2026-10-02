@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import catalogManifest from "@chase-sets/catalog/context";
+import { contextManifest as catalogManifest } from "@chase-sets/catalog";
 import { createOperatorTransport, createTcgplayerAutomationRuntime } from "@chase-sets/catalog/server";
 import { admin, adminPath, database, describeDb, keyring, mint, mounted, session } from "./fixture";
 

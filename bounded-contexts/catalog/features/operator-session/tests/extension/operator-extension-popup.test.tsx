@@ -27,7 +27,7 @@ describe("operator-extension localized popup", () => {
     const input = screen.getByLabelText("Pairing grant");
     expect(input.getAttribute("type")).toBe("password");
     fireEvent.change(input, { target: { value: syntheticGrant } });
-    fireEvent.click(screen.getByRole("button", { name: "Pair", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: /^Pair$/ }));
     expect(input.getAttribute("value")).toBe("");
     await waitFor(() =>
       expect(request).toHaveBeenLastCalledWith({ action: "pair", environment: "staging", grant: syntheticGrant }),
