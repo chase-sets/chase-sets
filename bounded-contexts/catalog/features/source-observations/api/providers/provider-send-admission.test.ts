@@ -214,7 +214,9 @@ describe("Catalog provider-send admission", () => {
     const stop = vi.fn(async () => undefined);
     const admission = createProviderSendAdmission({ enabled: true, ledger: ledger({ debit, stop }) });
     const fetch = vi.fn();
-    const client = new TcgplayerAutomationDomainHttpClient("infiniteApi", "https://synthetic.invalid", store, { fetch });
+    const client = new TcgplayerAutomationDomainHttpClient("infiniteApi", "https://synthetic.invalid", store, {
+      fetch,
+    });
     await expect(runCatalogProviderWork(admission, () => client.get("/synthetic"))).rejects.toMatchObject({
       name: "ProviderSendStoppedError",
       code: "quota-exhausted",
