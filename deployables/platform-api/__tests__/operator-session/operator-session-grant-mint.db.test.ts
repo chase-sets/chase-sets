@@ -103,9 +103,9 @@ describeDb("mounted operator grant mint authority", () => {
     });
   });
   it.each([
-    ["equal creation instants", "2026-12-01T02:03:04.005Z"],
-    ["a backward DB-clock transition", "2026-12-01T02:03:03.005Z"],
-  ])("metadata prefers the unrevoked replacement with %s", async (_name, replacementTime) => {
+    ["equal creation instants", "2026-12-01T02:03:04.005Z", "2026-12-31T02:03:04.005Z"],
+    ["a backward DB-clock transition", "2026-12-01T02:03:03.005Z", "2026-12-31T02:03:03.005Z"],
+  ])("metadata prefers the unrevoked replacement with %s", async (_name, replacementTime, expiry) => {
     const wire = transport(db());
     const predecessorTime = new Date("2026-12-01T02:03:04.005Z");
     wire.controls.now = predecessorTime;
@@ -119,13 +119,17 @@ describeDb("mounted operator grant mint authority", () => {
     );
     const before = await snapshot(db());
     expect(before.grants).toHaveLength(2);
-    expect(before.grants[0]).toMatchObject({ created_at: wire.controls.now, revoked_at: null });
+    expect(before.grants[0]).toMatchObject({
+      created_at: wire.controls.now,
+      last_used_at: wire.controls.now,
+      idle_expires_at: new Date(expiry),
+      revoked_at: null,
+    });
     expect(before.grants[1]).toMatchObject({
       created_at: predecessorTime,
       revoked_at: wire.controls.now,
       revoke_reason: "replaced",
     });
-    const replacement = before.grants[0]!;
     const expected = {
       revision: 0,
       storedAt: null,
@@ -133,9 +137,9 @@ describeDb("mounted operator grant mint authority", () => {
       custodyAvailable: true,
       grant: {
         active: true,
-        createdAt: replacement.created_at.toISOString(),
-        idleExpiresAt: replacement.idle_expires_at.toISOString(),
-        lastUsedAt: replacement.last_used_at.toISOString(),
+        createdAt: replacementTime,
+        idleExpiresAt: expiry,
+        lastUsedAt: replacementTime,
       },
     };
     const active = await admin(app, "GET", adminPath, {});
@@ -144,7 +148,7 @@ describeDb("mounted operator grant mint authority", () => {
     expect(await active.json()).toEqual(expected);
     expect(await snapshot(db())).toEqual(before);
 
-    wire.controls.now = replacement.idle_expires_at;
+    wire.controls.now = new Date(expiry);
     const expired = await admin(app, "GET", adminPath, {});
     expect(expired.status).toBe(200);
     expect(await expired.json()).toEqual({ ...expected, grant: { ...expected.grant, active: false } });
@@ -157,7 +161,6 @@ describeDb("mounted operator grant mint authority", () => {
     const absent = await admin(app, "GET", adminPath, {});
     expect((await absent.json()).grant).toBeNull();
     await mint(app);
-    const predecessor = (await snapshot(db())).grants[0]!;
     wire.controls.now = new Date("2026-12-01T02:03:03.005Z");
     const replacement = await mint(app);
     expect((await unpair(app, replacement)).status).toBe(200);
@@ -169,9 +172,9 @@ describeDb("mounted operator grant mint authority", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect((await response.json()).grant).toEqual({
       active: false,
-      createdAt: predecessor.created_at.toISOString(),
-      idleExpiresAt: predecessor.idle_expires_at.toISOString(),
-      lastUsedAt: predecessor.last_used_at.toISOString(),
+      createdAt: "2026-12-01T02:03:04.005Z",
+      idleExpiresAt: "2026-12-31T02:03:04.005Z",
+      lastUsedAt: "2026-12-01T02:03:04.005Z",
     });
     expect(await snapshot(db())).toEqual(before);
   });
