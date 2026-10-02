@@ -15,6 +15,10 @@ import { catalogDimensionSchemaSql } from "../../features/dimensions/read-model/
 import { catalogDisplayTemplateSchemaSql } from "../../features/display-templates/read-model/schema";
 import { catalogFieldSchemaSql } from "../../features/fields/read-model/schema";
 import {
+  catalogOperatorSessionGrantSchemaSql,
+  catalogOperatorSessionGrantSchemaMigrations,
+} from "../../features/operator-session/read-model/grant-schema";
+import {
   catalogOperatorSessionSchemaSql,
   catalogOperatorSessionSchemaMigrations,
 } from "../../features/operator-session/read-model/schema";
@@ -67,6 +71,7 @@ export const catalogAuthoringSchemaSql = [
   catalogAliasEquivalenceSchemaSql,
   catalogOperatorSessionSchemaSql,
   catalogAttentionDismissalSchemaSql,
+  catalogOperatorSessionGrantSchemaSql,
   realtimeOutboxSchemaSql,
 ].join("\n\n");
 
@@ -76,6 +81,7 @@ export const catalogAuthoringSchemaMigrations = [
   }),
   ...catalogSourceObservationSchemaMigrations,
   ...catalogOperatorSessionSchemaMigrations,
+  ...catalogOperatorSessionGrantSchemaMigrations,
   ...catalogCatalogItemSchemaMigrations,
   ...catalogProviderScopeDiscoverySchemaMigrations,
   ...catalogScopeSyncStateSchemaMigrations,

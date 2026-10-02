@@ -1107,6 +1107,12 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     );
   }
 
+  for (const path of ["/api/catalog/operator-session", "/api/catalog/operator-session/*"]) {
+    app.use(path, async (c, next) => {
+      c.header("Cache-Control", "no-store");
+      await next();
+    });
+  }
   attachApiMountMiddleware(
     app,
     apiMounts

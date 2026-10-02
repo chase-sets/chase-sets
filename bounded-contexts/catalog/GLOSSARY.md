@@ -56,6 +56,10 @@ This glossary focuses on catalog truth and identity. Browsing, filtering, and li
 
 A TCGplayer Operator Session is encrypted custody of Todd's operator cookie, not a username/password or another user's credential. `stored` custody supplies automation requests; `cleared` custody retains only its monotonic revision and last key id. Clearing custody restores the environment fallback but does not prove that a browser or provider session ended. Reaccepting advances the retained revision, never restarts it.
 
+### Operator Session Push Grant
+
+An Operator Session Push Grant is a narrow bearer credential minted directly by a recently authenticated platform administrator for Todd's operator session. Catalog stores only its hash. It permits session pushes and unpairing, not Admin access or other users' credentials. A completed push renews its 30-day idle expiry using database time; expired or revoked grants cannot revive. Unpair revokes only the grant. Disconnect commits revocation before clearing custody and does not log out the browser or provider.
+
 ## Core Model
 
 - `Provider-send quota` is an installed, durable maximum of admitted application HTTP attempts for a supervised staging window. Retries, redirects and uncertain sends retain their debits; unused quota is not transferable or refillable.
