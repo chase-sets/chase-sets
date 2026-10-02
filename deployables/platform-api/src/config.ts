@@ -767,7 +767,7 @@ function loadPreviewPostgresAdminUrl(deploymentEnvironment: DeploymentEnvironmen
 }
 
 export function loadConfig(): PlatformApiConfig {
-  loadCatalogProviderSendWindowEnabled();
+  loadCatalogProviderSendWindowEnabled(process.env);
   const baseConfig = loadBaseConfig() as PlatformApiBaseConfig & {
     realtime: PlatformApiRealtimeConfig;
   };

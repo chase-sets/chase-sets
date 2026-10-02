@@ -68,9 +68,7 @@ export const DEPLOYMENT_ENVIRONMENTS = [
 
 export type DeploymentEnvironment = (typeof DEPLOYMENT_ENVIRONMENTS)[number];
 
-export function loadCatalogProviderSendWindowEnabled(
-  env: Readonly<Record<string, string | undefined>> = process.env,
-): boolean {
+export function loadCatalogProviderSendWindowEnabled(env: Readonly<Record<string, string | undefined>>): boolean {
   const enabled = env.CATALOG_PROVIDER_SEND_WINDOW_ENABLED;
   if (enabled === undefined || enabled === "false") return false;
   if (enabled !== "true") throw new Error("CATALOG_PROVIDER_SEND_WINDOW_ENABLED must be true or false.");

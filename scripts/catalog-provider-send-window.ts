@@ -66,7 +66,7 @@ async function main(argv: readonly string[]) {
     values.set(match[1]!, match[2]!);
   }
   const environment = values.get("environment");
-  if (environment !== "staging" || !loadCatalogProviderSendWindowEnabled())
+  if (environment !== "staging" || !loadCatalogProviderSendWindowEnabled(process.env))
     throw new Error("provider-send-window-staging-enablement-required");
   const action = values.get("action");
   if (action !== "read" && action !== "arm" && action !== "advance" && action !== "terminate")

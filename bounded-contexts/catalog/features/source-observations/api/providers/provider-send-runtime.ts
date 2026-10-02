@@ -16,7 +16,7 @@ import {
 import { createPostgresProviderSendLedger } from "./provider-send-ledger";
 
 export function createCatalogProviderSendRuntime(pool: PgTransactionalPool) {
-  if (!loadCatalogProviderSendWindowEnabled()) return null;
+  if (!loadCatalogProviderSendWindowEnabled(process.env)) return null;
   const ledger = createPostgresProviderSendLedger(pool);
   const admission = createProviderSendAdmission({ enabled: true, ledger });
   return { ledger, admission };

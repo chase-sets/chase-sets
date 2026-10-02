@@ -246,7 +246,7 @@ export function getContextListenerDatabaseEnvName(contextName: PlatformWorkerCon
 }
 
 export function loadConfig(): PlatformWorkerConfig {
-  loadCatalogProviderSendWindowEnabled();
+  loadCatalogProviderSendWindowEnabled(process.env);
   const runtimeProfile = loadRuntimeProfile();
   const deploymentEnvironment = loadDeploymentEnvironment();
   const productionLike = deploymentEnvironment === "production";
