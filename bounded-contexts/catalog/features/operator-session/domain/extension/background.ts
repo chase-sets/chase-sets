@@ -28,6 +28,7 @@ type Slot = {
   blocked: boolean;
   queue: Promise<unknown>;
   flight: Promise<void> | null;
+  cookieGeneration: number;
   cookiePresent: boolean;
   browserExpiresAt: string | null;
 };
@@ -42,6 +43,7 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
         blocked: false,
         queue: Promise.resolve(),
         flight: null,
+        cookieGeneration: 0,
         cookiePresent: false,
         browserExpiresAt: null,
       },
@@ -159,7 +161,7 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
       }
       // Reserve the rate slot durably before reading or sending. Eviction can only delay work.
       await write(current, { ...record, state: "pushing", dirty: true, nextAttemptAt: adapters.now() + 60_000 });
-      return record.profileRevision;
+      return { profileRevision: record.profileRevision, cookieGeneration: current.cookieGeneration };
     });
     if (fence === null) return;
     let cookie: OperatorCookie | null;
@@ -168,11 +170,13 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
       cookie = await adapters.readCookie();
       observedAt = new Date(adapters.now()).toISOString();
     } catch {
-      await applyResponse(environment, fence, { outcome: "unavailable" });
+      await applyResponse(environment, fence.profileRevision, { outcome: "unavailable" });
       return;
     }
     const call = await serial(environment, async (current) => {
-      if (current.blocked || current.record.profileRevision !== fence || !current.record.grant) return null;
+      if (current.blocked || current.record.profileRevision !== fence.profileRevision || !current.record.grant)
+        return null;
+      if (current.cookieGeneration !== fence.cookieGeneration) return null;
       current.cookiePresent = cookie !== null && isOperatorCookie(cookie);
       current.browserExpiresAt = current.cookiePresent && cookie ? cookieExpiry(cookie) : null;
       if (!current.cookiePresent || !cookie) {
@@ -189,7 +193,7 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
         }),
       };
     });
-    if (call) await applyResponse(environment, fence, await call.response);
+    if (call) await applyResponse(environment, fence.profileRevision, await call.response);
   }
   async function kick(environment: OperatorEnvironment): Promise<void> {
     const current = slot(environment);
@@ -283,12 +287,14 @@ export function createOperatorBackground(adapters: OperatorAdapters) {
     async cookieChanged(change: { removed: boolean; cookie: OperatorCookie }) {
       if (!isOperatorCookie(change.cookie)) return;
       for (const environment of operatorEnvironments) {
-        if (change.removed) {
-          await serial(environment, async (current) => {
+        await serial(environment, async (current) => {
+          current.cookieGeneration++;
+          if (change.removed) {
             current.cookiePresent = false;
             current.browserExpiresAt = null;
-          });
-        } else await trigger(environment, true);
+          }
+        });
+        if (!change.removed) await trigger(environment, true);
       }
     },
   };

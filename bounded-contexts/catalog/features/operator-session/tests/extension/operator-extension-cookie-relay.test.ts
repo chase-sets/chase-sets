@@ -1,8 +1,111 @@
-import { describe, expect, it } from "vitest";
-import { fixture, syntheticCookie } from "./fixture";
-import { operatorCookieName } from "../../domain/extension/protocol";
+import { describe, expect, it, vi } from "vitest";
+import { deferred, fixture, syntheticCookie } from "./fixture";
+import { operatorCookieName, type OperatorCookie } from "../../domain/extension/protocol";
 
 describe("operator-extension-cookie-relay", () => {
+  it.each([false, true])("refuses an older read after removal (restart=%s)", async (restart) => {
+    const f = fixture();
+    const captured = (await f.adapters.readCookie())!;
+    const reached = deferred<void>();
+    const read = deferred<OperatorCookie | null>();
+    vi.mocked(f.adapters.readCookie).mockImplementationOnce(() => {
+      reached.resolve();
+      return read.promise;
+    });
+    const pairing = f.pair();
+    await reached.promise;
+    f.cookie(null);
+    await f.background.cookieChanged({ removed: true, cookie: captured });
+    expect(await f.command({ action: "status", environment: "staging" })).toMatchObject({
+      cookiePresent: false,
+      browserExpiresAt: null,
+    });
+    read.resolve({ ...captured, expirationDate: 1_800_000_000 });
+    await pairing;
+    expect(await f.command({ action: "status", environment: "staging" })).toMatchObject({
+      cookiePresent: false,
+      browserExpiresAt: null,
+    });
+    expect(f.fetcher).not.toHaveBeenCalled();
+    expect(f.record().lastRevision).toBe(0);
+    if (restart) await f.restart();
+    f.advance(59_999);
+    await f.background.alarm("staging");
+    expect(f.fetcher).not.toHaveBeenCalled();
+    f.advance(1);
+    await f.background.alarm("staging");
+    expect(f.record().lastOutcome).toBe("cookie-absent");
+    expect(f.fetcher).not.toHaveBeenCalled();
+  });
+  it.each([false, true])("keeps a set's trailing fresh read (restart=%s)", async (restart) => {
+    const f = fixture();
+    const captured = (await f.adapters.readCookie())!;
+    const reached = deferred<void>();
+    const read = deferred<OperatorCookie | null>();
+    vi.mocked(f.adapters.readCookie).mockImplementationOnce(() => {
+      reached.resolve();
+      return read.promise;
+    });
+    const pairing = f.pair();
+    await reached.promise;
+    const fresh = { ...captured, value: `${syntheticCookie}_FRESH`, expirationDate: 1_800_000_000 };
+    f.cookie(fresh);
+    const change = f.background.cookieChanged({
+      removed: false,
+      cookie: { ...fresh, value: "EVENT_VALUE_NEVER_READ" },
+    });
+    await f.command({ action: "status", environment: "staging" });
+    read.resolve(captured);
+    await Promise.all([pairing, change]);
+    expect(f.record().dirty).toBe(true);
+    expect(f.fetcher).not.toHaveBeenCalled();
+    expect(await f.command({ action: "status", environment: "staging" })).toMatchObject({
+      cookiePresent: false,
+      browserExpiresAt: null,
+    });
+    if (restart) await f.restart();
+    f.advance(59_999);
+    await f.background.alarm("staging");
+    expect(f.fetcher).not.toHaveBeenCalled();
+    f.advance(1);
+    await f.background.alarm("staging");
+    expect(f.fetcher).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(f.fetcher.mock.calls[0]![1]!.body)).value).toBe(fresh.value);
+    expect(f.record().dirty).toBe(false);
+    expect(await f.command({ action: "status", environment: "staging" })).toMatchObject({
+      cookiePresent: true,
+      browserExpiresAt: new Date(fresh.expirationDate * 1000).toISOString(),
+    });
+    expect(JSON.stringify([...f.data.values()])).not.toContain(syntheticCookie);
+  });
+  it.each([500, 502, 504])("HTTP %i retries only at five minutes, including after eviction", async (status) => {
+    for (const restart of [false, true]) {
+      for (const body of [
+        JSON.stringify({ outcome: "stored", revision: 91, cookie: syntheticCookie }),
+        "SYNTHETIC_HOSTILE_NON_JSON",
+      ]) {
+        const f = fixture();
+        f.fetcher.mockImplementation(async () => new Response(body, { status }));
+        await f.pair();
+        expect(f.record()).toMatchObject({
+          state: "retrying",
+          lastOutcome: "unavailable",
+          lastRevision: 0,
+          lastPushedAt: null,
+          dirty: true,
+        });
+        expect(JSON.stringify([...f.data.values()])).not.toContain("SYNTHETIC");
+        if (restart) await f.restart();
+        f.advance(299_999);
+        await f.background.alarm("staging");
+        expect(f.fetcher).toHaveBeenCalledTimes(1);
+        f.advance(1);
+        await f.background.alarm("staging");
+        expect(f.fetcher).toHaveBeenCalledTimes(2);
+        expect(f.record().lastRevision).toBe(0);
+      }
+    }
+  });
   it("is paired-only and retains the trailing rate reservation over worker eviction", async () => {
     const f = fixture();
     await f.background.resume();

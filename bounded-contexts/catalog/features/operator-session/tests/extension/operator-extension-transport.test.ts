@@ -14,6 +14,18 @@ const push = {
 afterEach(() => vi.useRealTimers());
 
 describe("operator-extension fixed-origin transport", () => {
+  it.each([500, 502, 503, 504])("classifies HTTP %i without trusting or reading its body", async (status) => {
+    for (const body of [
+      JSON.stringify({ code: "custody-unavailable" }),
+      JSON.stringify({ outcome: "stored", revision: 91, cookie: syntheticCookie }),
+      "SYNTHETIC_HOSTILE_NON_JSON",
+      null,
+      new ReadableStream<Uint8Array>({ pull: () => new Promise(() => undefined) }),
+    ]) {
+      const client = createOperatorTransport(async () => new Response(body, { status }));
+      expect(await client.push("staging", syntheticGrant, push)).toEqual({ outcome: "unavailable" });
+    }
+  });
   it("omits ambient credentials, rejects redirects, uses exact bearer/path/body and bodyless revoke", async () => {
     const fetcher = vi
       .fn<typeof fetch>()

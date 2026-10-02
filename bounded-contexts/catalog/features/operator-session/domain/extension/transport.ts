@@ -22,7 +22,6 @@ const errors: Readonly<Record<number, readonly string[]>> = {
   415: ["unsupported-media-type"],
   422: ["invalid-session-value"],
   429: ["rate-limited"],
-  503: ["custody-unavailable", "revision-exhausted"],
 };
 
 export function createOperatorTransport(fetcher: typeof fetch) {
@@ -77,6 +76,7 @@ export function createOperatorTransport(fetcher: typeof fetch) {
       // Denial removes authority even if its body is malformed or never finishes.
       // No body, revision or success is adopted from this status-only refusal.
       if (response.status === 401) return { outcome: "grant-invalid" };
+      if (response.status >= 500 && response.status < 600) return { outcome: "unavailable" };
       if (!response.body) return { outcome: "invalid-response" };
       const decoder = new TextDecoder("utf-8", { fatal: true });
       let bytes = 0;
@@ -111,7 +111,7 @@ export function createOperatorTransport(fetcher: typeof fetch) {
         const seconds = /^\d{1,5}$/.test(header) ? Number(header) : 300;
         return { outcome: "rate-limited", retryAfterMs: Math.max(60_000, Math.min(3_600_000, seconds * 1000)) };
       }
-      return { outcome: response.status >= 500 ? "unavailable" : "refused" };
+      return { outcome: "refused" };
     } catch {
       return { outcome: abort.signal.aborted || !received ? "unavailable" : "invalid-response" };
     } finally {
