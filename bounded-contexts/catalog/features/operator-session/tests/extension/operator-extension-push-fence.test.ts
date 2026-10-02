@@ -3,6 +3,16 @@ import { deferred, fixture, syntheticGrant, syntheticGrantB } from "./fixture";
 import { operatorRecordKey } from "../../domain/extension/record";
 
 describe("operator-extension-push-fence", () => {
+  it("a malformed 401 still removes local authority without echoing the body", async () => {
+    const f = fixture();
+    f.fetcher.mockResolvedValueOnce(Response.json({ code: "SYNTHETIC_HOSTILE_BODY", extra: true }, { status: 401 }));
+    await f.pair();
+    expect(f.record().grant === null).toBe(true);
+    expect(f.record().state).toBe("re-pair-required");
+    f.advance(60_000);
+    await f.command({ action: "recover", environment: "staging" });
+    expect(f.fetcher).toHaveBeenCalledTimes(1);
+  });
   it("discards A's stale response after B is paired", async () => {
     const f = fixture();
     const response = deferred<Response>();

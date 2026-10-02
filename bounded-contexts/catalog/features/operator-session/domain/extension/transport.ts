@@ -17,7 +17,6 @@ export const operatorResponseByteLimit = 512;
 export const operatorRequestDeadlineMs = 10_000;
 const errors: Readonly<Record<number, readonly string[]>> = {
   400: ["invalid-request"],
-  401: ["grant-invalid"],
   408: ["request-timeout"],
   413: ["request-too-large"],
   415: ["unsupported-media-type"],
@@ -74,7 +73,11 @@ export function createOperatorTransport(fetcher: typeof fetch) {
         deadline,
       ]);
       received = true;
-      if (response.redirected || !response.body) return { outcome: "invalid-response" };
+      if (response.redirected) return { outcome: "invalid-response" };
+      // Denial removes authority even if its body is malformed or never finishes.
+      // No body, revision or success is adopted from this status-only refusal.
+      if (response.status === 401) return { outcome: "grant-invalid" };
+      if (!response.body) return { outcome: "invalid-response" };
       const decoder = new TextDecoder("utf-8", { fatal: true });
       let bytes = 0;
       let text = "";
@@ -103,7 +106,6 @@ export function createOperatorTransport(fetcher: typeof fetch) {
         return { outcome: "revoked" };
       if (!closed(body, ["code"]) || !errors[response.status]?.some((code) => code === body.code))
         return { outcome: "invalid-response" };
-      if (response.status === 401) return { outcome: "grant-invalid" };
       if (response.status === 429) {
         const header = response.headers.get("Retry-After") ?? "";
         const seconds = /^\d{1,5}$/.test(header) ? Number(header) : 300;
