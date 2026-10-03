@@ -8,6 +8,21 @@ Run `pnpm run ops browser:usability select --base origin/main` for a candidate's
 
 This first version is **moderator-driven**, using the desktop browser tool and a fresh subagent. It does not launch agents from GitHub Actions or require new credentials. If browser tooling or an isolated fixture is unavailable, record **not run** with the reason; do not fabricate evidence or block publication on a local environment failure. Existing hosted CI and independent code review remain authoritative.
 
+## Audit a surface
+
+Run `pnpm run ops browser:usability audit` to inspect advisory route coverage, or add `--surface guest`, `buyer`, `seller`, `operator-catalog`, or `operator-workspaces` to show one surface. The read-only command reads tracked files once with `git ls-files`. `unscoped` lists routes without an owner; `invalid` lists routes with multiple scopes or conflicting claims and exclusions. Each surface reports `inScope`, `claimed`, `excluded`, and the `unclaimed` route paths. An unclaimed route is work to consider, not a failed gate. This audit does not visit routes or adjudicate outcomes.
+
+Five modules in `scripts/browser-usability-goals/` own the route scopes; `scripts/browser-usability-goals.mjs` remains the aggregate import. Each exports `{ id, routeScope, goals, excludedRoutes }`. `routeScope` contains anchored regex strings. Each goal retains `id`, `version`, `goal`, `startPath`, `role`, `checks`, and `paths`, and declares:
+
+- `host`: `marketplace`, `public-web`, or `admin-web`; `role`: `guest`, `buyer`, `seller`, or `operator`.
+- `oracle`: a moderator-only non-empty outcome instruction for every check, with no extra keys.
+- `routes`: scoped repository route paths mapped to a check id. A route claim means the check exercises that route, not merely that it is nearby. `find-card` has no buyer-scope route claim because its discovery pages belong to guest scope; its existing discovery/catalog path prefixes still select it.
+- `paths`: non-empty changed-path prefixes that select the goal. An exact `routes` key also selects it. `selectOnSharedChange: true` opts into shared-change selection; only the moved four goals opt in initially.
+- `permits`: an optional exception to the participant's read-only default. The moderator restores permitted changes afterwards. The payment, postage, external-channel, message, and credential boundary always applies.
+- `startSignedIn`: the moderator's starting authentication state; defaults to `false` for guest and `true` otherwise. The moderator signs in, not the participant.
+
+Goal intent must not contain URL path tokens. The participant receives intent, starting URL, task context, and permissions, never `oracle` or `routes`. Exclusions use `{ path, reason }`, must match scope, and cannot also be claimed. Reasons are `layout-only`, `redirect-only`, `error-page`, `provider-step-only`, or `fixture-gap: <missing state>`. `validateBrowserUsabilityGoalModules` is exercised by the focused script tests; coverage itself is not a CI guard. No new goals are introduced by this organization.
+
 ## Prepare privately
 
 Commit the candidate locally first. Use the existing browser-e2e sandbox and readiness tooling, with a synthetic account. Do not run writes on staging, production, or a shared account. Obey heavy-verifier admission; do not bypass another lane's lock. See `pnpm run dev:e2e:probe` and `scripts/browser-e2e-readiness.mjs` for the existing service/projection readiness evidence. No new sandbox launcher is required.

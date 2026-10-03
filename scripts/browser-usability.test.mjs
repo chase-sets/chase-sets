@@ -3,21 +3,35 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { adjudicateProbe, compareProbes, localOrigin, prepareProbe, validatePreflight } from "./browser-usability.mjs";
-import { selectBrowserUsabilityGoals } from "./browser-usability-goals.mjs";
+import {
+  adjudicateProbe,
+  compareProbes,
+  localOrigin,
+  main,
+  prepareProbe,
+  validatePreflight,
+} from "./browser-usability.mjs";
+import {
+  auditBrowserUsabilityRoutes,
+  browserUsabilityGoal,
+  browserUsabilityGoalModules,
+  browserUsabilityGoals,
+  selectBrowserUsabilityGoals,
+  validateBrowserUsabilityGoalModules,
+} from "./browser-usability-goals.mjs";
 import { createBrowserUsabilitySession } from "./browser-usability-session.mjs";
 
 const head = "a".repeat(40);
 const origin = "http://localhost:9753";
 const roots = [];
-function fixture() {
+function fixture(goalId = "find-card") {
   const root = mkdtempSync(path.join(os.tmpdir(), "browser-usability-"));
   roots.push(root);
   writeFileSync(path.join(root, "proof.txt"), "synthetic independent fixture evidence\n");
   const preflight = {
     head,
     origin,
-    role: "buyer",
+    role: browserUsabilityGoal(goalId).role,
     environment: "isolated-synthetic",
     observedAt: new Date().toISOString(),
     fixtureId: "fixture-v1",
@@ -35,7 +49,7 @@ function fixture() {
     ),
   };
   const directory = path.join(root, "run");
-  const manifest = prepareProbe({ goalId: "find-card", origin, preflight, evidenceDirectory: root, directory, head });
+  const manifest = prepareProbe({ goalId, origin, preflight, evidenceDirectory: root, directory, head });
   return { root, directory, preflight, manifest };
 }
 function tab() {
@@ -72,6 +86,53 @@ afterEach(() => {
 });
 
 describe("goal selection and preflight", () => {
+  it("opts only the four existing goals into shared selection and selects new goals by prefix or exact route", () => {
+    const extra = { id: "fixture-goal", paths: ["fixture/features/"], routes: { "fixture/route.tsx": "outcome" } };
+    const goals = [...browserUsabilityGoals, extra];
+    expect(
+      selectBrowserUsabilityGoals(["packages/design-system/src/button.tsx"], goals)
+        .map((goal) => goal.id)
+        .sort(),
+    ).toEqual(["buyer-shipment", "condition-policy", "find-card", "seller-away"]);
+    expect(selectBrowserUsabilityGoals(["fixture/features/action.mjs"], goals)).toEqual([extra]);
+    expect(selectBrowserUsabilityGoals(["fixture/route.tsx"], goals)).toEqual([extra]);
+    expect(selectBrowserUsabilityGoals(["fixture/route.tsx.extra"], goals)).toEqual([]);
+  });
+  it.each(["find-card", "seller-away", "fixture-permits"])(
+    "writes ordered goal permissions without moderator oracle or routes for %s",
+    (goalId) => {
+      const synthetic = {
+        ...browserUsabilityGoals.find((goal) => goal.id === "seller-away"),
+        id: "fixture-permits",
+        permits: "You may schedule time away for the dates in your task context.",
+      };
+      if (goalId === synthetic.id) browserUsabilityGoals.push(synthetic);
+      try {
+        const f = fixture(goalId);
+        const brief = readFileSync(path.join(f.directory, "participant.md"), "utf8");
+        const readOnly =
+          "Read-only by default: no purchases, messages, reviews, reports, or account, listing, or settings changes.";
+        const boundary =
+          "Never confirm a payment, buy postage, publish or sync to an external channel, send a message, or submit a password or other credential. Stop at the last screen before any of these and report what it would do.";
+        expect(brief).toContain(readOnly);
+        expect(brief.indexOf(boundary)).toBeGreaterThan(brief.indexOf(readOnly));
+        const goal = browserUsabilityGoal(goalId);
+        if (goal.permits) {
+          const exception = `Exception for this goal only: ${goal.permits} The moderator restores it afterwards.`;
+          expect(brief.indexOf(exception)).toBeGreaterThan(brief.indexOf(readOnly));
+          expect(brief.indexOf(exception)).toBeLessThan(brief.indexOf(boundary));
+        } else expect(brief).not.toContain("Exception for this goal only:");
+        expect(brief).not.toContain("Only the seller-away goal");
+        expect(brief).not.toContain("Do not enter credentials");
+        expect(brief).not.toContain('"oracle"');
+        expect(brief).not.toContain('"routes"');
+        for (const value of Object.values(goal.oracle)) expect(brief).not.toContain(value);
+        for (const route of Object.keys(goal.routes)) expect(brief).not.toContain(route);
+      } finally {
+        if (goalId === synthetic.id) browserUsabilityGoals.pop();
+      }
+    },
+  );
   it("selects owning flows and broadens shared UI changes, not unrelated runtime work", () => {
     expect(selectBrowserUsabilityGoals(["bounded-contexts/fulfillment/features/x.ts"]).map((g) => g.id)).toEqual([
       "buyer-shipment",
@@ -144,6 +205,188 @@ describe("goal selection and preflight", () => {
         head,
       }),
     ).toThrow(/relative/);
+  });
+});
+
+describe("surface contracts and coverage", () => {
+  const modules = () => structuredClone(browserUsabilityGoalModules);
+  it("validates all five shipped modules and defaults moderator authentication by role", () => {
+    expect(() => validateBrowserUsabilityGoalModules(modules())).not.toThrow();
+    expect(browserUsabilityGoal("condition-policy").startSignedIn).toBe(false);
+    expect(browserUsabilityGoal("find-card").startSignedIn).toBe(true);
+    expect(browserUsabilityGoal("seller-away").startSignedIn).toBe(true);
+  });
+  it.each([
+    ["Duplicate goal id", (m) => m[1].goals.push(structuredClone(m[1].goals[0]))],
+    [
+      "Invalid role",
+      (m) => {
+        m[0].goals[0].role = "admin";
+      },
+    ],
+    [
+      "Invalid host",
+      (m) => {
+        m[0].goals[0].host = "external";
+      },
+    ],
+    [
+      "Missing oracle",
+      (m) => {
+        delete m[0].goals[0].oracle.deadline;
+      },
+    ],
+    [
+      "Missing oracle",
+      (m) => {
+        m[0].goals[0].oracle.deadline = " ";
+      },
+    ],
+    [
+      "Missing oracle",
+      (m) => {
+        m[0].goals[0].oracle.deadline = 1;
+      },
+    ],
+    [
+      "Extra oracle key",
+      (m) => {
+        m[0].goals[0].oracle.extra = "private";
+      },
+    ],
+    [
+      "Route outside scope",
+      (m) => {
+        m[0].goals[0].routes["bounded-contexts/ordering/routes/account-purchase.tsx"] = "deadline";
+      },
+    ],
+    [
+      "Route maps to unknown check",
+      (m) => {
+        m[0].goals[0].routes["bounded-contexts/public-presence/routes/marketplace/help.tsx"] = "extra";
+      },
+    ],
+    [
+      "Paths must be non-empty",
+      (m) => {
+        m[0].goals[0].paths = [];
+      },
+    ],
+    [
+      "Paths must be non-empty",
+      (m) => {
+        m[0].goals[0].paths = [""];
+      },
+    ],
+    [
+      "startSignedIn must be a boolean",
+      (m) => {
+        m[0].goals[0].startSignedIn = "false";
+      },
+    ],
+    [
+      "Goal text contains a URL path token",
+      (m) => {
+        m[0].goals[0].goal += " Visit /help.";
+      },
+    ],
+    [
+      "Exclusion outside scope",
+      (m) => {
+        m[0].excludedRoutes = [
+          { path: "bounded-contexts/ordering/routes/account-purchase.tsx", reason: "layout-only" },
+        ];
+      },
+    ],
+    [
+      "Invalid exclusion reason",
+      (m) => {
+        m[0].excludedRoutes = [
+          { path: "bounded-contexts/public-presence/routes/marketplace/home.tsx", reason: "not-needed" },
+        ];
+      },
+    ],
+    [
+      "Invalid exclusion reason",
+      (m) => {
+        m[0].excludedRoutes = [
+          { path: "bounded-contexts/public-presence/routes/marketplace/home.tsx", reason: "fixture-gap: " },
+        ];
+      },
+    ],
+    [
+      "Route both claimed and excluded",
+      (m) => {
+        m[0].excludedRoutes = [
+          { path: "bounded-contexts/public-presence/routes/marketplace/help.tsx", reason: "layout-only" },
+        ];
+      },
+    ],
+  ])("rejects %s with a named message (%#)", (message, mutate) => {
+    const candidate = modules();
+    mutate(candidate);
+    expect(() => validateBrowserUsabilityGoalModules(candidate)).toThrow(message);
+  });
+  it.each(["layout-only", "redirect-only", "error-page", "provider-step-only", "fixture-gap: missing synthetic state"])(
+    "accepts exclusion reason %s",
+    (reason) => {
+      const candidate = modules();
+      candidate[0].excludedRoutes = [{ path: "bounded-contexts/public-presence/routes/marketplace/home.tsx", reason }];
+      expect(() => validateBrowserUsabilityGoalModules(candidate)).not.toThrow();
+    },
+  );
+  it("accepts operator roles, all hosts, and an explicit signed-out non-guest", () => {
+    for (const host of ["marketplace", "public-web", "admin-web"]) {
+      const candidate = modules();
+      Object.assign(candidate[0].goals[0], { role: "operator", host, startSignedIn: false });
+      expect(() => validateBrowserUsabilityGoalModules(candidate)).not.toThrow();
+    }
+  });
+  it("reports unscoped and doubly scoped route fixtures and ignores tests and non-routes", () => {
+    const candidate = modules();
+    const route = "bounded-contexts/public-presence/routes/marketplace/home.tsx";
+    candidate[1].routeScope.push(candidate[0].routeScope[0]);
+    const result = auditBrowserUsabilityRoutes(
+      [
+        route,
+        "bounded-contexts/unknown/routes/page.tsx",
+        "bounded-contexts/unknown/routes/page.test.tsx",
+        "packages/design-system/button.tsx",
+      ],
+      candidate,
+    ).coverage;
+    expect(result.unscoped).toEqual(["bounded-contexts/unknown/routes/page.tsx"]);
+    expect(result.invalid).toEqual([{ path: route, reason: "multiple scopes", surfaces: ["guest", "buyer"] }]);
+    expect(result.surfaces.guest.unclaimed).toContain(route);
+  });
+  it("counts claimed and excluded routes once per surface", () => {
+    const candidate = modules();
+    const claimed = "bounded-contexts/public-presence/routes/marketplace/help.tsx";
+    const excluded = "bounded-contexts/public-presence/routes/marketplace/home.tsx";
+    candidate[0].excludedRoutes.push({ path: excluded, reason: "layout-only" });
+    expect(auditBrowserUsabilityRoutes([claimed, excluded], candidate).coverage.surfaces.guest).toEqual({
+      inScope: 2,
+      claimed: 1,
+      excluded: 1,
+      unclaimed: [],
+    });
+  });
+  it("partitions representative route fixtures across all five surfaces", () => {
+    const result = auditBrowserUsabilityRoutes([
+      "bounded-contexts/public-presence/routes/marketplace/home.tsx",
+      "bounded-contexts/ordering/routes/account-purchase.tsx",
+      "bounded-contexts/marketplace/routes/account-listings.tsx",
+      "bounded-contexts/catalog/routes/scopes.tsx",
+      "deployables/admin-web/app/routes/layout.tsx",
+    ]).coverage;
+    expect(result.unscoped).toEqual([]);
+    expect(result.invalid).toEqual([]);
+    expect(Object.values(result.surfaces).map((surface) => surface.inScope)).toEqual([1, 1, 1, 1, 1]);
+  });
+  it("supports advisory surface filtering without gating production coverage", () => {
+    const result = main(["audit"]).coverage;
+    expect(main(["audit", "--surface", "seller"]).coverage.surfaces).toEqual({ seller: result.surfaces.seller });
+    expect(() => main(["audit", "--surface", "unknown"])).toThrow("Unknown browser usability surface");
   });
 });
 
