@@ -790,7 +790,7 @@ function GameRosterSection({ pagePath, selectedGame }: { pagePath: string; selec
   );
 }
 
-// A play-once walkthrough (#8506): the three steps reveal in order beside the
+// A play-once walkthrough: the three steps reveal in order beside the
 // sample offer the first time the section scrolls into view, then rest
 // visible. `trigger="in-view"` server-renders every step visible, so the
 // steps read without JavaScript and a `/#open-offers` jump (the open-offers
