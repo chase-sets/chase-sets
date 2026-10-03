@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { parse } from "yaml";
 import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
 import {
   createHarness,
@@ -16,9 +18,35 @@ const compare = (left, right) => (left < right ? -1 : left > right ? 1 : 0);
 const recordOrder = (left, right) => compare(JSON.stringify(left), JSON.stringify(right));
 const edgeKey = ({ from, specifier }) => `${from}|${specifier}`;
 
-export function normalizeGraph(graph, rootUrl) {
-  const normalizeUrl = (url) =>
-    typeof url === "string" && url.startsWith(rootUrl) ? `repo:/${url.slice(rootUrl.length)}` : url;
+export function dependencyDirectoryMap(snapshotKeys, maxLength) {
+  assert(Number.isInteger(maxLength) && maxLength > 33, "invalid pnpm virtual-store directory length");
+  const directories = new Map();
+  for (const snapshot of snapshotKeys) {
+    // pnpm 11's directory encoding is host-dependent; the full lock snapshot is not.
+    let filename = snapshot.replace(/^\//u, "").replace(/[\\/:*?"<>|#]/gu, "+");
+    if (filename.includes("(")) filename = filename.replace(/\)$/u, "").replace(/\)\(|\(|\)/gu, "_");
+    if (filename.length > maxLength || (filename !== filename.toLowerCase() && !filename.startsWith("file+"))) {
+      const hash = createHash("sha256").update(filename).digest("hex").slice(0, 32);
+      filename = `${filename.slice(0, maxLength - 33)}_${hash}`;
+    }
+    assert(!directories.has(filename), `ambiguous pnpm dependency directory: ${filename}`);
+    directories.set(filename, snapshot);
+  }
+  return directories;
+}
+
+export function normalizeGraph(graph, rootUrl, dependencyDirectories = new Map()) {
+  const normalizeUrl = (url) => {
+    if (typeof url !== "string" || !url.startsWith(rootUrl)) return url;
+    let relative = url.slice(rootUrl.length);
+    const dependency = /^node_modules\/\.pnpm\/([^/]+)(\/node_modules\/.*)$/u.exec(relative);
+    if (dependency) {
+      const snapshot = dependencyDirectories.get(decodeURIComponent(dependency[1]));
+      assert(snapshot, `unknown pnpm dependency directory: ${dependency[1]}`);
+      relative = `node_modules/.pnpm/${encodeURIComponent(snapshot)}${dependency[2]}`;
+    }
+    return `repo:/${relative}`;
+  };
   return {
     modules: [...graph.modules].sort(compare),
     edges: graph.edges.map((edge) => ({ ...edge, resolved: normalizeUrl(edge.resolved) })).sort(recordOrder),
@@ -170,8 +198,18 @@ export async function collectCaller(harness, manifest) {
   ]);
   await validateParity(root, manifest, before, after);
   const rootUrl = pathToFileURL(root + path.sep).href;
-  const graphs = { candidate: normalizeGraph(after, rootUrl) };
-  if (manifest.check === "backfill-widening") graphs.source = normalizeGraph(before, rootUrl);
+  let dependencyDirectories;
+  if (
+    [before, after].some((graph) =>
+      graph.edges.some((edge) => edge.resolved?.startsWith(`${rootUrl}node_modules/.pnpm/`)),
+    )
+  ) {
+    const lock = parse(await readFile(path.join(root, "pnpm-lock.yaml"), "utf8"));
+    const modules = parse(await readFile(path.join(root, "node_modules/.modules.yaml"), "utf8"));
+    dependencyDirectories = dependencyDirectoryMap(Object.keys(lock.snapshots), modules.virtualStoreDirMaxLength);
+  }
+  const graphs = { candidate: normalizeGraph(after, rootUrl, dependencyDirectories) };
+  if (manifest.check === "backfill-widening") graphs.source = normalizeGraph(before, rootUrl, dependencyDirectories);
   return { ...manifest, graphs };
 }
 

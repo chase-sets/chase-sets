@@ -18,6 +18,7 @@ import {
   processManifests,
   serializeManifest,
   normalizeGraph,
+  dependencyDirectoryMap,
   validateParity,
   manifestDirectory,
 } from "./typescript-resolver-caller-manifest.mjs";
@@ -265,6 +266,53 @@ describe("Resolver caller manifest detection", () => {
     expect(normalized.edges).toHaveLength(3);
     expect(normalized.edges[0].resolved).toBe("repo:/a.ts?x#y");
     expect(normalized.errors[0].code).toBe("ERR_MODULE_NOT_FOUND");
+  });
+
+  it("preserves full dependency identities and target suffixes across pnpm Windows/POSIX directories", () => {
+    const snapshots = [
+      "@opentelemetry/exporter-metrics-otlp-http@0.216.0(@opentelemetry/api@1.9.1)",
+      "@opentelemetry/auto-instrumentations-node@0.74.0(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.7.1(@opentelemetry/api@1.9.1))",
+      "@opentelemetry/exporter-trace-otlp-http@0.216.0(@opentelemetry/api@1.9.1)",
+    ];
+    const windows = dependencyDirectoryMap(snapshots, 60);
+    const posix = dependencyDirectoryMap(snapshots, 120);
+    expect([...windows.keys()]).toEqual([
+      "@opentelemetry+exporter-met_1d51d053619801c595b7979a3569362a",
+      "@opentelemetry+auto-instrum_10b0eca79c1e4ba39bededdbb57f8bac",
+      "@opentelemetry+exporter-tra_59980fb8abe3270bad77f21f260ffaeb",
+    ]);
+    expect([...posix.keys()]).toEqual([
+      "@opentelemetry+exporter-metrics-otlp-http@0.216.0_@opentelemetry+api@1.9.1",
+      "@opentelemetry+auto-instrumentations-node@0.74.0_@opentelemetry+api@1.9.1_@opentelemetr_10b0eca79c1e4ba39bededdbb57f8bac",
+      "@opentelemetry+exporter-trace-otlp-http@0.216.0_@opentelemetry+api@1.9.1",
+    ]);
+    const root = "file:///checkout/";
+    const graph = (directories) => ({
+      modules: ["scripts/a.mjs"],
+      errors: [],
+      edges: [...directories.keys()].map((directory, index) => ({
+        from: "scripts/a.mjs",
+        specifier: snapshots[index].split("@0.")[0],
+        resolved: `${root}node_modules/.pnpm/${directory}/node_modules/${snapshots[index].split("@0.")[0]}/build/src/index.js?x#y`,
+      })),
+    });
+    const normalized = normalizeGraph(graph(windows), root, windows);
+    expect(normalized).toEqual(normalizeGraph(graph(posix), root, posix));
+    for (const snapshot of snapshots)
+      expect(normalized.edges.some((edge) => edge.resolved.includes(encodeURIComponent(snapshot)))).toBe(true);
+    expect(normalized.edges.every((edge) => edge.resolved.endsWith("/build/src/index.js?x#y"))).toBe(true);
+    const changedTarget = graph(windows);
+    changedTarget.edges[0].resolved = changedTarget.edges[0].resolved.replace("index.js?x#y", "other.js?x#y");
+    expect(normalizeGraph(changedTarget, root, windows)).not.toEqual(normalized);
+    const changedIdentity = dependencyDirectoryMap(
+      [snapshots[0].replace("0.216.0", "0.217.0"), ...snapshots.slice(1)],
+      60,
+    );
+    expect(normalizeGraph(graph(changedIdentity), root, changedIdentity)).not.toEqual(normalized);
+    const changedPeers = dependencyDirectoryMap([snapshots[0].replace("1.9.1", "1.9.2"), ...snapshots.slice(1)], 60);
+    expect(normalizeGraph(graph(changedPeers), root, changedPeers)).not.toEqual(normalized);
+    expect(() => normalizeGraph(graph(windows), root)).toThrow("unknown pnpm dependency directory");
+    expect(() => dependencyDirectoryMap([snapshots[0], snapshots[0]], 60)).toThrow("ambiguous");
   });
 
   it("write mode refuses a forbidden additional backfill target change without writing", async () => {
