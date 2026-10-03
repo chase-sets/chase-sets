@@ -102,9 +102,9 @@ test.describe.serial("catalog import job status filter", () => {
         await expect(statusSelect).toBeVisible();
         await expect(visibleJobRow(importModule, fixture.partialJobId)).toHaveCount(0);
         await expect(visibleJobRow(importModule, fixture.completedJobId)).toHaveCount(0);
-        await expect(importModule.locator("[data-catalog-import-job-row='true']").filter({ visible: true })).toHaveCount(
-          0,
-        );
+        await expect(
+          importModule.locator("[data-catalog-import-job-row='true']").filter({ visible: true }),
+        ).toHaveCount(0);
         await expect(importModule.getByText("No Queued found", { exact: true })).toBeVisible();
         await expect(importModule.getByText("Try adjusting your filters.", { exact: true })).toBeVisible();
         await expect(importModule.getByText("No durable import jobs for this context", { exact: true })).toHaveCount(0);
@@ -272,7 +272,10 @@ async function expectEveryVisibleRowHasOperatorStatus(importModule: Locator, sta
 }
 
 function summaryRow(filter: Locator, label: string): Locator {
-  return filter.locator("dl > div").filter({ has: filter.page().locator("dt", { hasText: label }) }).locator("dd");
+  return filter
+    .locator("dl > div")
+    .filter({ has: filter.page().locator("dt", { hasText: label }) })
+    .locator("dd");
 }
 
 async function summaryValue(filter: Locator, label: string): Promise<string> {
