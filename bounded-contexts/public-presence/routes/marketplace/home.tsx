@@ -19,16 +19,30 @@ import {
   type CheckoutFeePreview,
 } from "../../features/waitlist/ui/checkout-fee-preview";
 import { normalizeLandingExperimentVariant } from "../../features/waitlist/ui/landing-experiment";
+import { landingFaqEntries } from "../../features/waitlist/ui/landing-faq";
 import { publicPresenceT as t } from "../../features/waitlist/ui/public-presence-translator";
 import { loadLandingFeePresentation } from "../../support/request-support/landing-fee-presentation";
 
 const fallbackPublicOrigin = "https://chasesets.com";
-const faqStructuredDataEntries = [
-  ["publicPresence.faq.launch.question", "publicPresence.faq.launch.answer"],
-  ["publicPresence.faq.fees.question", "publicPresence.faq.fees.answer"],
-  ["publicPresence.faq.shipping.question", "publicPresence.faq.shipping.answer"],
-  ["publicPresence.faq.safety.question", "publicPresence.faq.safety.answer"],
-] as const;
+// Compatibility redirect for fee-calculator share links generated while the
+// calculator still lived on `/`. Those links carry exactly this
+// UTM triple plus `price`; the calculator now lives on the compare pages and
+// old links encoded no competitor, so they land on /compare/tcgplayer with
+// the query untouched and the `#fee-calculator` anchor the calculator owns.
+const legacyFeeCalculatorShareUtm = {
+  utm_source: "fee-calculator",
+  utm_medium: "share",
+  utm_campaign: "what-you-keep",
+} as const;
+const legacyFeeCalculatorSharePath = "/compare/tcgplayer";
+const legacyFeeCalculatorShareHash = "#fee-calculator";
+
+function isLegacyFeeCalculatorShareLink(url: URL) {
+  return (
+    url.searchParams.has("price") &&
+    Object.entries(legacyFeeCalculatorShareUtm).every(([key, value]) => url.searchParams.get(key) === value)
+  );
+}
 
 function optional(value: FormDataEntryValue | null) {
   const text = typeof value === "string" ? value.trim() : "";
@@ -46,6 +60,9 @@ function actionErrorMessage(error: unknown) {
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
+  if (isLegacyFeeCalculatorShareLink(url)) {
+    throw redirect(`${legacyFeeCalculatorSharePath}${url.search}${legacyFeeCalculatorShareHash}`);
+  }
   const publicOrigin = process.env.CHASE_SETS_PUBLIC_ORIGIN?.trim() || url.origin;
   const discordInviteUrl = process.env.CHASE_SETS_DISCORD_INVITE_URL?.trim() || null;
   if (!discordInviteUrl && process.env.NODE_ENV !== "production") {
@@ -57,14 +74,13 @@ export async function loader({ request }: LoaderFunctionArgs) {
       "[public-presence] CHASE_SETS_DISCORD_INVITE_URL is not set. The Discord CTA will not render until it is configured.",
     );
   }
-  // Buyer-side checkout fee transparency and the seller fee calculator both
-  // derive from the same whitelisted public policy read; see
+  // Buyer-side checkout fee transparency derives from the same whitelisted
+  // public policy read the /compare pages use for the fee calculator; see
   // loadLandingFeePresentation for the per-surface failure doctrines.
-  const { checkoutFeePreview, feeSchedule } = await loadLandingFeePresentation(request);
+  const { checkoutFeePreview } = await loadLandingFeePresentation(request);
 
   return {
     discordInviteUrl,
-    feeSchedule,
     publicOrigin,
     checkoutFeePreview,
     // Raw `?game=` slug from a game roster tile or per-game campaign link;
@@ -215,7 +231,7 @@ export function buildHomeStructuredData(
       {
         "@type": "FAQPage",
         "@id": `${homeUrl}#landing-faq`,
-        mainEntity: faqStructuredDataEntries.map(([question, answer]) => ({
+        mainEntity: landingFaqEntries.map(({ question, answer }) => ({
           "@type": "Question",
           name: t(question),
           acceptedAnswer: {
@@ -250,7 +266,6 @@ export default function PublicPresenceHomeRoute() {
         source={data.source}
         selectedGame={data.selectedGame}
         checkoutFeePreview={data.checkoutFeePreview}
-        feeSchedule={data.feeSchedule}
       />
     </>
   );

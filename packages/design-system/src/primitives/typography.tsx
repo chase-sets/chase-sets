@@ -283,20 +283,6 @@ export function Caption<TTarget extends ElementType = "p">(props: CaptionProps<T
   return <Text {...props} size={props.size ?? "2xs"} tone={props.tone ?? "secondary"} />;
 }
 
-export interface DiscountValueProps extends Omit<HTMLAttributes<HTMLSpanElement>, "className" | "style"> {
-  original: ReactNode;
-  current: ReactNode;
-}
-
-export function DiscountValue({ original, current, ...rest }: DiscountValueProps) {
-  return (
-    <span {...rest} className="inline-flex flex-wrap justify-end gap-x-1">
-      <s className="text-danger decoration-danger">{original}</s>
-      <span className="text-trust">{current}</span>
-    </span>
-  );
-}
-
 export interface InlineTextGroupProps extends Omit<HTMLAttributes<HTMLSpanElement>, "className" | "style"> {
   children?: ReactNode;
   gap?: 1 | 2 | 3;

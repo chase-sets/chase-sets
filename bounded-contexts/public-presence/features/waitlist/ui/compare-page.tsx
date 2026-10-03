@@ -198,7 +198,6 @@ export function ComparePage({
 }) {
   const competitorName = t(competitorNameKeys[competitor]);
   const values = competitorValues(competitor);
-  const otherCompetitor: FeeComparisonCompetitor = competitor === "tcgplayer" ? "ebay" : "tcgplayer";
 
   // Truth gate: the Chase Sets fee cell only shows numbers from the live
   // published schedule; without it the cell points at the published
@@ -257,7 +256,7 @@ export function ComparePage({
             </Stack>
           </Surface>
         </Grid>
-        <FeeCalculatorSection schedule={feeSchedule} compareLinks={[otherCompetitor]} />
+        <FeeCalculatorSection schedule={feeSchedule} competitor={competitor} />
         <PageSection data-public-presence-section="compare_faq" title={t("publicPresence.compare.faq.title")}>
           <ProgressiveDisclosureGroup
             items={buildCompareFaqEntries(competitor).map((entry, index) => ({
