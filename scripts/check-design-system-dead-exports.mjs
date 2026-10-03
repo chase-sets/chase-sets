@@ -120,7 +120,6 @@ const canonicalReserveZeroConsumerExports = [
   "SideNav",
   "Spacer",
   "Stagger",
-  "Subheading",
   "surfaceSemanticToneClasses",
   "Tag",
   "ThemeScope",
