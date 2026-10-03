@@ -2,6 +2,15 @@
   "schemaVersion": "workspace-unit-duration-replay/v1",
   "observations": [
     {
+      "runId": 37059140120,
+      "runAttempt": 1,
+      "jobId": 111011245217,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/app-tcgplayer-operator-extension",
+      "script": "test",
+      "observedDurationMs": 2307
+    },
+    {
       "runId": 36592121561,
       "runAttempt": 1,
       "jobId": 109487781288,

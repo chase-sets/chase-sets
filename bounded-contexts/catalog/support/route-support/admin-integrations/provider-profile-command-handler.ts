@@ -1,4 +1,4 @@
-import type { CatalogProviderProfileVersionReview } from "../../../client";
+import type { CatalogProviderProfileVersionReview } from "../../client-support/contracts";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
 import type { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
 import type { CatalogIntegrationsCommandResult } from "./integrations-command-result";

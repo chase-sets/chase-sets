@@ -62,6 +62,14 @@ An Operator Session Push Grant is a narrow bearer credential minted directly by 
 
 ## Core Model
 
+### TCGplayer Operator Extension
+
+The TCGplayer Operator Extension forwards Todd's current applicable browser
+session to Catalog using a narrow Operator Session Push Grant. It is separate
+from the seller connector. Pairing is per environment; unpairing revokes the
+grant, not custody or the browser/provider session. The popup cannot read
+stored grants or cookies.
+
 - `Provider-send quota` is an installed, durable maximum of admitted application HTTP attempts for a supervised staging window. Retries, redirects and uncertain sends retain their debits; unused quota is not transferable or refillable.
 - `Enforced admission maximum` is a policy reservation enforced before sending, not a measured provider inventory or page-count estimate. Ordinal 18 may use its installed 256-attempt maximum while its estimate remains unavailable.
 

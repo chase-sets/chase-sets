@@ -1,12 +1,11 @@
 import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
-export { CatalogApiError, catalogApi, createCatalogApiClient } from "../../client";
+export { ApiError as CatalogApiError, api as catalogApi, createCatalogApiClient } from "../shell-support/api/client";
 export type {
   Blueprint,
   BlueprintDetail,
   BulkPublishCandidate,
   BulkPublishPreview,
   BulkPublishResult,
-  CatalogApiClientOptions,
   CatalogItemDetail,
   CatalogItemListItem,
   CategoryDetail,
@@ -32,8 +31,9 @@ export type {
   ScopeCoverageState,
   UnmappedScopeInboxGroup,
   UnmappedScopeInboxReadModel,
-} from "../../client";
-import { createCatalogApiClient } from "../../client";
+} from "../client-support/contracts";
+export type { CatalogApiClientOptions } from "../shell-support/api/client";
+import { createCatalogApiClient } from "../shell-support/api/client";
 
 export function createCatalogRequestApiClient(request: Request) {
   return createCatalogApiClient({

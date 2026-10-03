@@ -5,7 +5,7 @@ import {
   type CatalogScopeRecordDetail,
   type ScopeCoverageMatrix,
 } from "../../request-support/api-client";
-import { CatalogApiError } from "../../../client";
+import { ApiError as CatalogApiError } from "../../shell-support/api/client";
 import { catalogScopeHasLanguageEditionsToReview } from "../../../features/source-observations/ui/admin-control-plane/scope-detail/language-editions/language-edition-review";
 import type { CatalogAliasReviewReadModel } from "../../../features/alias-equivalence/api/alias-review-admin-contracts";
 import { loadDailySurfaceForRequest } from "../admin-integrations/integrations-loader-support";

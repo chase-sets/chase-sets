@@ -125,6 +125,16 @@ export const e2eSuites = Object.freeze([
     requiresDisplay: true,
     estimatedDurationSeconds: 60,
   },
+  {
+    id: "tcgplayer_operator_extension",
+    label: "TCGplayer Operator Extension Isolation",
+    deployable: "tcgplayer-operator-extension",
+    journeys: ["sandbox isolation", "cookie applicability", "retained operator pairing"],
+    grep: "@tcgplayer-operator-extension",
+    command: ["--filter", "@chase-sets/app-tcgplayer-operator-extension", "run", "test:chromium"],
+    requiresDisplay: true,
+    estimatedDurationSeconds: 60,
+  },
 ]);
 
 const suiteOrder = new Map(e2eSuites.map((suite, index) => [suite.id, index]));
@@ -665,6 +675,17 @@ function boundedContextSuiteIdsForChangedFile(filePath, contextName) {
 
 export function e2eSuiteIdsForChangedFile(filePath) {
   const normalized = normalizeFilePath(filePath);
+
+  if (
+    normalized.startsWith("deployables/tcgplayer-operator-extension/") ||
+    normalized.startsWith("bounded-contexts/catalog/features/operator-session/domain/extension/") ||
+    normalized.startsWith("bounded-contexts/catalog/features/operator-session/ui/extension-popup/") ||
+    normalized.startsWith("bounded-contexts/catalog/features/operator-session/tests/extension/") ||
+    normalized === "bounded-contexts/catalog/client.ts" ||
+    normalized === "contracts/localization/locales/en/catalog/operator-extension.ts"
+  ) {
+    return ["tcgplayer_operator_extension"];
+  }
 
   if (
     normalized.startsWith("deployables/tcgplayer-connector-extension/") ||
