@@ -1607,9 +1607,7 @@ describe("landing hero signup panel first screen (#8504)", () => {
       // No title, description, counter or visible label precedes the intent control.
       expect(textNodes.filter((node) => follows(node, intentControl))).toEqual([]);
 
-      const noPayment = textNodes.find(
-        (node) => node.textContent === t("publicPresence.waitlist.compactDescription"),
-      )!;
+      const noPayment = textNodes.find((node) => node.textContent === t("publicPresence.waitlist.compactDescription"))!;
       const consent = textNodes.find((node) => node.textContent === t("publicPresence.waitlist.impliedConsent"))!;
       const ordered = [intentControl, email, submit, noPayment, consent];
       expect(ordered.every(Boolean)).toBe(true);
