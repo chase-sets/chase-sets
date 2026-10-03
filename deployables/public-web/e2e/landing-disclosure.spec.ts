@@ -65,18 +65,20 @@ for (const variant of ["seller_first_v1", "seller_first_v2"] as const) {
 // First-screen signup fit (#8504), measured under #8503's contract: light
 // scheme, scroll 0, after `document.fonts.ready`, with the counter shown. The
 // count and promo responses are stubbed in the browser so the counter and the
-// promo bar above the nav always render, as they do in production; every
-// target must be present and visible, never conditionally skipped.
+// promo bar above the nav always render, as they do in production. Two linked
+// messages give the bar its link button and carousel controls, so the space
+// above the hero is no smaller than production's. Every target must be present
+// and visible, never conditionally skipped.
 const firstScreenDisplayCount = 125;
 const firstScreenPromoMessages = {
-  items: [
-    {
-      id: "landing-first-screen-evidence",
-      title: "Landing first-screen evidence",
-      description: "Stubbed promo message for the landing first-screen check.",
-      tone: "info",
-    },
-  ],
+  items: [1, 2].map((index) => ({
+    id: `landing-first-screen-evidence-${index}`,
+    title: `Landing first-screen evidence ${index}`,
+    description: "Stubbed promo message for the landing first-screen check.",
+    href: "/founders",
+    link_label: "Details",
+    tone: "info",
+  })),
 };
 
 for (const variant of ["seller_first_v1", "seller_first_v2"] as const) {
