@@ -765,6 +765,69 @@ describe("operator-session ciphertext custody", () => {
     await expect(runtime.store.readMetadata()).rejects.toMatchObject({ message: "custody-unavailable" });
   });
 
+  it.each([
+    { hasKeyring: false, hasEnvironment: false, configured: false },
+    { hasKeyring: true, hasEnvironment: false, configured: true },
+    { hasKeyring: false, hasEnvironment: true, configured: true },
+    { hasKeyring: true, hasEnvironment: true, configured: true },
+  ])("keeps transport configuration separate from passive readiness: %j", async (testCase) => {
+    const capture = recorder();
+    const fetch = vi.fn();
+    const runtime = createTcgplayerAutomationRuntime(
+      {
+        pool: capture.db,
+        config: testCase.hasEnvironment ? { auth: { tcgAuthCookie: marker, userAgent: "synthetic" } } : null,
+        keyring: testCase.hasKeyring ? keyring : null,
+      },
+      { fetch },
+    );
+    const adapter = createTcgplayerProviderAdapter({
+      client: runtime.catalogClient,
+      loadProfileVersions: async () => [],
+    });
+    const diagnostics = await adapter.getTransportDiagnostics();
+    expect(diagnostics).toHaveLength(2);
+    expect(diagnostics[0]).toMatchObject({
+      code: testCase.configured ? "tcgplayer-automation-client-configured" : "tcgplayer-automation-client-unconfigured",
+      severity: testCase.configured ? "info" : "error",
+    });
+    if (!testCase.configured) {
+      expect(diagnostics[0]?.message).toBe("TCGplayer automation transport is not configured in this runtime.");
+    }
+    expect(capture.query).not.toHaveBeenCalled();
+    expect(await runtime.catalogClient.resolveCredentialReadiness()).toEqual({
+      sourceKind: "environment-secret",
+      state: testCase.hasEnvironment ? "configured" : "missing",
+      diagnosticCode: testCase.hasEnvironment ? null : "credential-missing",
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps unreadable custody visible when the transport is unconfigured", async () => {
+    const capture = recorder();
+    await createPostgresCatalogOperatorSessionStore(capture.db, keyring).accept(input);
+    const fetch = vi.fn();
+    const runtime = createTcgplayerAutomationRuntime({ pool: capture.db, config: null, keyring: null }, { fetch });
+    const adapter = createTcgplayerProviderAdapter({
+      client: runtime.catalogClient,
+      loadProfileVersions: async () => [],
+    });
+    expect((await adapter.getTransportDiagnostics())[0]).toMatchObject({
+      code: "tcgplayer-automation-client-unconfigured",
+      severity: "error",
+      message: "TCGplayer automation transport is not configured in this runtime.",
+    });
+    expect(await adapter.getCredentialReadiness!()).toEqual([
+      expect.objectContaining({
+        sourceKind: "operator-session",
+        state: "unknown",
+        diagnosticCode: "operator-session-custody-unavailable",
+        importBlocking: true,
+      }),
+    ]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("keyring-only boot does not read custody and missing credentials refuse without fetch", async () => {
     const capture = recorder();
     const fetch = vi.fn();

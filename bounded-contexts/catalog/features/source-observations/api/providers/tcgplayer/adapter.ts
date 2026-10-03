@@ -119,7 +119,8 @@ export type TcgplayerProviderPayload =
 
 export type TcgplayerProviderAdapterOptions = Readonly<{
   loadProfileVersions: () => Promise<readonly CatalogProviderIntegrationProfileVersionRecord[]>;
-  client?: TcgplayerAutomationCatalogClient & Partial<Pick<OperatorSessionCatalogClient, "resolveCredentialReadiness">>;
+  client?: TcgplayerAutomationCatalogClient &
+    Partial<Pick<OperatorSessionCatalogClient, "transportConfigured" | "resolveCredentialReadiness">>;
   now?: () => Date;
 }>;
 
@@ -297,23 +298,11 @@ export function createTcgplayerProviderAdapter(
       const retryableCodes = TCGPLAYER_AUTOMATION_RETRYABLE_STATUS_CODES.join(", ");
       const domains = Object.values(TCGPLAYER_AUTOMATION_DOMAINS).join(", ");
 
-      if (!options.client) {
-        return profileUnits.flatMap((profileVersion) =>
-          tcgplayerTransportDiagnosticsForUnit({
-            profileVersion,
-            unitKey: unitKeyForTcgplayerProfileVersion(profileVersion),
-            clientConfigured: false,
-            domains,
-            retryableCodes,
-          }),
-        );
-      }
-
       return profileUnits.flatMap((profileVersion) =>
         tcgplayerTransportDiagnosticsForUnit({
           profileVersion,
           unitKey: unitKeyForTcgplayerProfileVersion(profileVersion),
-          clientConfigured: true,
+          clientConfigured: options.client?.transportConfigured ?? Boolean(options.client),
           domains,
           retryableCodes,
         }),

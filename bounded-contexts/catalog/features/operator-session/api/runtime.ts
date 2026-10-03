@@ -17,6 +17,7 @@ import { createPostgresCatalogOperatorSessionStore, readCatalogOperatorSessionSn
 
 export type OperatorSessionCatalogClient = TcgplayerAutomationCatalogClient &
   Readonly<{
+    transportConfigured: boolean;
     resolveCredentialReadiness(): Promise<ReturnType<typeof deriveTcgplayerOperatorSessionReadiness>>;
   }>;
 
@@ -44,6 +45,7 @@ export function createTcgplayerAutomationRuntime(
   const httpClients = createTcgplayerAutomationHttpClients(observedConfigStore, deps);
   const catalogClient: OperatorSessionCatalogClient = {
     ...createTcgplayerAutomationCatalogClient(httpClients),
+    transportConfigured: Boolean(input.keyring || environmentValue),
     async resolveCredentialReadiness() {
       return deriveTcgplayerOperatorSessionReadiness((await snapshot()).readiness, (deps.now ?? Date.now)());
     },
