@@ -11,6 +11,12 @@ import {
   validateOperatorSessionRevision,
   validateOperatorSessionValue,
 } from "../domain/value";
+import {
+  operatorSessionOutcomeFromRow,
+  type OperatorSessionOutcomeRow,
+  type OperatorSessionReadinessSnapshot,
+} from "../domain/readiness";
+import { lockOperatorSessionReadiness, resetOperatorSessionOutcome } from "./outcomes";
 
 const version = "CatalogOperatorSession/v1";
 const providerKey = "tcgplayer";
@@ -105,6 +111,7 @@ export function createPostgresCatalogOperatorSessionStore(
       validateOperatorSessionInstant(input.observedAt);
       if (input.browserExpiresAt !== null) validateOperatorSessionInstant(input.browserExpiresAt);
       validateOperatorSessionRevision(input.expectedRevision);
+      await lockOperatorSessionReadiness({ query });
       const row = await read();
       if (input.expectedRevision !== Number(row?.revision ?? 0)) return stale();
       const keyId = keyring?.activeKeyId;
@@ -140,8 +147,8 @@ export function createPostgresCatalogOperatorSessionStore(
             `UPDATE catalog_tcgplayer_operator_sessions SET state = 'stored', version = $2,
             revision = $3, key_id = $4, ciphertext = $5, iv = $6, tag = $7,
             stored_at = clock_timestamp(), observed_at = $8, browser_expires_at = $9
-          WHERE provider_key = $1 AND revision = $10 AND key_id = $11 RETURNING revision`,
-            [...values, input.expectedRevision, row.key_id],
+          WHERE provider_key = $1 AND revision = $10 AND key_id = $11 AND state = $12 RETURNING revision`,
+            [...values, input.expectedRevision, row.key_id, row.state],
           )
         : await query(
             `INSERT INTO catalog_tcgplayer_operator_sessions
@@ -150,7 +157,9 @@ export function createPostgresCatalogOperatorSessionStore(
           ON CONFLICT (provider_key) DO NOTHING RETURNING revision`,
             values,
           );
-      return result.rows.length ? { outcome: "stored", revision } : stale();
+      if (!result.rows.length) return stale();
+      await resetOperatorSessionOutcome({ query });
+      return { outcome: "stored", revision };
     },
     async clear(input) {
       validateOperatorSessionRevision(input.expectedRevision);
@@ -161,6 +170,7 @@ export function createPostgresCatalogOperatorSessionStore(
       ) {
         throw new CatalogOperatorSessionError("invalid-session-fence");
       }
+      await lockOperatorSessionReadiness({ query });
       const row = await read();
       if (input.expectedRevision !== Number(row?.revision ?? 0) || input.expectedKeyId !== (row?.key_id ?? null))
         return stale();
@@ -169,10 +179,12 @@ export function createPostgresCatalogOperatorSessionStore(
       const result = await query(
         `UPDATE catalog_tcgplayer_operator_sessions SET state = 'cleared', revision = $4,
           ciphertext = NULL, iv = NULL, tag = NULL, stored_at = NULL, observed_at = NULL, browser_expires_at = NULL
-        WHERE provider_key = $1 AND revision = $2 AND key_id = $3 RETURNING revision`,
+        WHERE provider_key = $1 AND revision = $2 AND key_id = $3 AND state = 'stored' RETURNING revision`,
         [providerKey, input.expectedRevision, input.expectedKeyId, revision],
       );
-      return result.rows.length ? { outcome: "cleared", revision } : stale();
+      if (!result.rows.length) return stale();
+      await resetOperatorSessionOutcome({ query });
+      return { outcome: "cleared", revision };
     },
     async readMetadata() {
       const row = await read();
@@ -198,4 +210,57 @@ export function createPostgresCatalogOperatorSessionStore(
       }
     },
   };
+}
+
+export async function readCatalogOperatorSessionSnapshot(
+  db: PgQueryable,
+  keyring: SecretEnvelopeKeyring | null,
+  environmentValue: string | null,
+): Promise<{ value: string | null; readiness: OperatorSessionReadinessSnapshot }> {
+  try {
+    const row = (
+      await db.query<Row & { outcome: OperatorSessionOutcomeRow | null }>(
+        `SELECT custody.*, row_to_json(outcome) AS outcome
+       FROM (SELECT 'tcgplayer'::text AS provider_key) AS provider
+       LEFT JOIN catalog_tcgplayer_operator_sessions AS custody ON custody.provider_key = provider.provider_key
+       LEFT JOIN catalog_tcgplayer_operator_session_outcomes AS outcome ON outcome.provider_key = provider.provider_key`,
+      )
+    ).rows[0];
+    const custody = row?.state ?? "absent";
+    let value = custody === "stored" ? open(row!, keyring) : environmentValue;
+    const outcome = row?.outcome ? operatorSessionOutcomeFromRow(row.outcome) : null;
+    if (custody === "stored" && !value)
+      return {
+        value: null,
+        readiness: { custody: "unavailable", identity: null, browserExpiresAt: null, outcome: null },
+      };
+    if (value) {
+      try {
+        validateOperatorSessionValue(value);
+      } catch {
+        value = null;
+      }
+    }
+    const custodyRevision = Number(row?.revision ?? 0);
+    return {
+      value,
+      readiness: {
+        custody,
+        identity: value
+          ? {
+              source: custody === "stored" ? "operator-session" : "environment",
+              revision: custody === "stored" ? custodyRevision : 0,
+              custodyRevision,
+            }
+          : null,
+        browserExpiresAt: row?.browser_expires_at ? new Date(row.browser_expires_at).toISOString() : null,
+        outcome,
+      },
+    };
+  } catch {
+    return {
+      value: null,
+      readiness: { custody: "unavailable", identity: null, browserExpiresAt: null, outcome: null },
+    };
+  }
 }

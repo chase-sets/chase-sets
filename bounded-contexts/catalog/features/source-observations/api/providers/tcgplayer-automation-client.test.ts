@@ -399,6 +399,7 @@ describe("TCGplayer automation HTTP client", () => {
           tcgAuthCookie: "secret-cookie",
           userAgent: "Catalog Test Agent",
           credential: { source: "environment", revision: 0 },
+          custodyRevision: null,
         },
         maxRetries: 0,
       },
@@ -424,7 +425,7 @@ describe("TCGplayer automation HTTP client", () => {
     });
     const client = clientWithConfig(
       {
-        auth: { tcgAuthCookie: null, userAgent: "Catalog Test Agent", credential: null },
+        auth: { tcgAuthCookie: null, userAgent: "Catalog Test Agent", credential: null, custodyRevision: null },
         maxRetries: 0,
       },
       { fetch: fetchMock },

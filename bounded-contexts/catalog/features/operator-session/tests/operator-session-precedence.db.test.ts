@@ -44,8 +44,9 @@ describeDb("operator-session precedence and routine lifecycle", () => {
     await expect(request(lost)).rejects.toMatchObject({ code: "credential-unavailable" });
     expect(fetch).toHaveBeenCalledTimes(count);
     expect(await lost.catalogClient.resolveCredentialReadiness()).toEqual({
-      state: "missing",
+      state: "unknown",
       sourceKind: "operator-session",
+      diagnosticCode: "operator-session-custody-unavailable",
     });
     const wrong = createTcgplayerAutomationRuntime(
       {
