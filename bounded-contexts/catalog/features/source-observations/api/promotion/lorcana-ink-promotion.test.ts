@@ -56,6 +56,8 @@ async function seededLorcanaTemplate(): Promise<SyntheticDisplayTemplate> {
 async function fixture(
   profile: CatalogProviderIntegrationProfile = lorcanajsonLorcanaCardReferenceProviderProfile,
   missingKey?: string,
+  referenceName = "The First Chapter",
+  projectReferenceRecords = true,
 ) {
   const template = await seededLorcanaTemplate();
   const keys: string[] = [];
@@ -74,6 +76,7 @@ async function fixture(
     key,
   }));
   const db = createSyntheticDisplayIdentityQueryable({
+    projectReferenceRecords,
     templates: [template],
     fields,
     fallback,
@@ -85,7 +88,7 @@ async function fixture(
         reference_record_id: "synthetic_lorcana_set",
         type_key: "set",
         key: "1",
-        name: "The First Chapter",
+        name: referenceName,
         attributes: {},
         relationships: [],
         status: "active",
@@ -108,8 +111,13 @@ function mappedObservation() {
   return normalized;
 }
 
-async function plan(mode: CatalogProviderPromotionMode) {
-  const harness = await fixture();
+async function plan(mode: CatalogProviderPromotionMode, referenceName = "The First Chapter", projectReferences = true) {
+  const harness = await fixture(
+    lorcanajsonLorcanaCardReferenceProviderProfile,
+    undefined,
+    referenceName,
+    projectReferences,
+  );
   const catalog = await loadCatalogItemPromotionProfile(harness.deps, lorcanajsonLorcanaCardReferenceProviderProfile);
   const input = {
     db: harness.db,
@@ -130,6 +138,21 @@ async function plan(mode: CatalogProviderPromotionMode) {
 }
 
 describe("Lorcana ink promotion through real mapper, active-key loader and seeded template (synthetic Catalog)", () => {
+  it.each(["create", "refresh"] as const)(
+    "binds %s to truthful reference history rather than projection visibility",
+    async (mode) => {
+      const before = await plan(mode, "The First Chapter", false);
+      const after = await plan(mode, "The First Chapter", true);
+      const revised = await plan(mode, "Synthetic Corrected Set", false);
+      expect(before.result.status).toBe("planned");
+      expect(before.result.plan?.displayIdentity.resolutionStatus).toBe("resolved");
+      expect(before.result.plan?.planFingerprint).toBe(after.result.plan?.planFingerprint);
+      expect(before.result.plan?.displayIdentity).toEqual(after.result.plan?.displayIdentity);
+      expect(revised.result.plan?.planFingerprint).not.toBe(after.result.plan?.planFingerprint);
+      expect(before.harness.db.queries.some((query) => /INSERT|UPDATE|DELETE/.test(query))).toBe(false);
+    },
+  );
+
   it.each(["create", "refresh"] as const)("resolves the required ink-bearing identity before %s", async (mode) => {
     const { result, harness, input } = await plan(mode);
     expect(harness.template.required_field_keys).toEqual(["card-name", "card-number", "ink-color", "rarity", "set"]);

@@ -56,6 +56,7 @@ import {
   MarketingImageHero,
   OrderIntentSummary,
   OfferCard,
+  Page,
   PaymentRecoveryPanel,
   ProductOptions,
   SearchControlBar,
@@ -530,6 +531,12 @@ describe("design system marketplace patterns", () => {
     expect(comfortableMarkup).toContain("min-h-[22rem]");
   });
 
+  // Every `rounded-*` token on an element, responsive prefixes kept, so a
+  // `md:rounded-tokenLg` mutant is as visible as an unprefixed one.
+  function heroRoundedTokens(element: Element) {
+    return Array.from(element.classList).filter((token) => /(?:^|:)rounded(?:-|$)/.test(token));
+  }
+
   describe("MarketingImageHero surface diet (#8270)", () => {
     // Chrome vocabulary the surface-diet law forbids on furniture. Responsive
     // and state variants are stripped first so `md:border` still counts, and
@@ -593,12 +600,13 @@ describe("design system marketplace patterns", () => {
         expect(root.classList.contains("relative")).toBe(true);
         expect(root.classList.contains(density === "compact" ? "min-h-[18rem]" : "min-h-[22rem]")).toBe(true);
 
-        // Image and scrim layers keep their own rounded clipping (ruled: not chrome).
+        // Image and scrim layers keep their own rounded clipping (ruled: not
+        // chrome) from `lg` up only; below `lg` they bleed with square corners (#8500).
         const image = within(root).getByRole("img", { name: "Cards ready to list" });
-        expect(image.classList.contains("rounded-tokenLg")).toBe(true);
+        expect(heroRoundedTokens(image)).toEqual(["lg:rounded-tokenLg"]);
         const scrim = root.querySelector('div[class*="bg-[linear-gradient"]');
         expect(scrim).not.toBeNull();
-        expect(scrim!.classList.contains("rounded-tokenLg")).toBe(true);
+        expect(heroRoundedTokens(scrim!)).toEqual(["lg:rounded-tokenLg"]);
         expect(chromeTokens(scrim!)).toEqual([]);
 
         expect(within(root).getByText("Early access")).toBeTruthy();
@@ -703,6 +711,99 @@ describe("design system marketplace patterns", () => {
       expect(within(root).queryByLabelText("Marketing highlight")).toBeNull();
       expect(within(root).queryByLabelText("Marketing highlights")).toBeNull();
       expect(within(root).getByRole("form", { name: "Early access form" })).toBeTruthy();
+    });
+  });
+
+  describe("MarketingImageHero full-bleed below lg (#8500)", () => {
+    // The hero has no gutter prop: below `lg` it bleeds by exactly the `Page`
+    // gutter and puts its copy back on that gutter, so both recipes are derived
+    // here from the rendered `Page` tokens rather than restated as literals.
+    const heroVariants = [
+      { density: "compact" as const, withPanel: true },
+      { density: "compact" as const, withPanel: false },
+      { density: "comfortable" as const, withPanel: true },
+      { density: "comfortable" as const, withPanel: false },
+    ];
+    const breakpointPrefix = /^(?:sm|md|lg|xl|2xl):/;
+
+    function pageGutterTokens() {
+      const { container, unmount } = render(<Page />);
+      const tokens = Array.from((container.firstElementChild as HTMLElement).classList).filter((token) =>
+        /^(?:(?:sm|md|lg|xl|2xl):)?px-\d+$/.test(token),
+      );
+      unmount();
+      return tokens;
+    }
+    function marginXTokens(element: Element) {
+      return Array.from(element.classList)
+        .filter((token) => /^(?:(?:sm|md|lg|xl|2xl):)?-?mx-/.test(token))
+        .sort();
+    }
+    function horizontalPaddingTokens(element: Element) {
+      return Array.from(element.classList)
+        .filter((token) => /^(?:(?:sm|md|lg|xl|2xl):)?(?:p|px|pl|pr|ps|pe)-/.test(token))
+        .sort();
+    }
+    function renderHero({ density, withPanel }: (typeof heroVariants)[number]) {
+      const { container, unmount } = render(
+        <MarketingImageHero
+          imageSrc="/assets/hero.webp"
+          imageAlt="Cards ready to list"
+          density={density}
+          eyebrow="Early access"
+          title="List cards without giving up margin"
+          description="Keep the margin the old marketplaces took."
+          conversionPanel={withPanel ? <form aria-label="Early access form" /> : undefined}
+          highlights={[
+            { label: "Seller fee", value: "0% beta listings" },
+            { label: "Buyer totals", value: "Visible before payment" },
+          ]}
+        />,
+      );
+      return { root: container.firstElementChild as HTMLElement, unmount };
+    }
+
+    it("AC1: hero bleed matches Page gutter and corners are lg-only", () => {
+      const gutter = pageGutterTokens();
+      expect(gutter).toEqual(["px-4", "md:px-6"]);
+      // `px-4` → `-mx-4`, `md:px-6` → `md:-mx-6`: the bleed is the gutter, negated.
+      const expectedBleed = gutter.map((token) => token.replace(/px-(\d+)$/, "-mx-$1"));
+
+      for (const variant of heroVariants) {
+        const label = `${variant.density} density (conversionPanel: ${variant.withPanel})`;
+        const { root, unmount } = renderHero(variant);
+
+        expect(marginXTokens(root), label).toEqual([...expectedBleed, "lg:mx-0"].sort());
+        expect(
+          Array.from(root.classList).some((token) => /^w-/.test(token.replace(breakpointPrefix, ""))),
+          label,
+        ).toBe(false);
+        expect(root.classList.contains("relative"), label).toBe(true);
+
+        const image = within(root).getByRole("img", { name: "Cards ready to list" });
+        expect(heroRoundedTokens(image), label).toEqual(["lg:rounded-tokenLg"]);
+        const scrim = root.querySelector('div[class*="bg-[linear-gradient"]');
+        expect(scrim, label).not.toBeNull();
+        expect(heroRoundedTokens(scrim!), label).toEqual(["lg:rounded-tokenLg"]);
+        unmount();
+      }
+    });
+
+    it("AC2: hero copy uses Page gutter in both densities", () => {
+      const gutter = pageGutterTokens();
+      expect(gutter).toEqual(["px-4", "md:px-6"]);
+
+      for (const density of ["compact", "comfortable"] as const) {
+        const { root, unmount } = renderHero({ density, withPanel: true });
+        const heading = within(root).getByRole("heading", { level: 1 });
+        const copyGrid = Array.from(root.children).find((child) => child.contains(heading));
+        expect(copyGrid, density).toBeDefined();
+
+        // Exactly the gutter below `lg` and the unchanged `lg:p-6` above it: no
+        // unprefixed or `sm:` horizontal padding (such as `sm:p-5`) may remain.
+        expect(horizontalPaddingTokens(copyGrid!), density).toEqual([...gutter, "lg:p-6"].sort());
+        unmount();
+      }
     });
   });
 

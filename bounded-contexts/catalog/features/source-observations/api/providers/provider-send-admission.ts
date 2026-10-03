@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { isCatalogFixtureTransport } from "./catalog-fixture-transports";
 
 export const providerSendPolicy = Object.freeze({
   preflightCard: 32,
@@ -117,6 +118,7 @@ export function createProviderSendAdmission(options: Readonly<{ enabled: boolean
       input: Parameters<typeof fetch>[0],
       init?: RequestInit,
     ): Promise<Response> {
+      if (isCatalogFixtureTransport(transport)) return transport(input, init);
       if (!options.enabled) return transport(input, init);
       let debit: ProviderSendDebit;
       try {
@@ -206,6 +208,7 @@ export function sendCatalogProviderRequest(
   category?: ProviderSendCategory,
   fallbackCategory?: ProviderSendCategory,
 ): Promise<Response> {
+  if (isCatalogFixtureTransport(transport)) return transport(input, init);
   const context = providerSendContext.getStore();
   if (!context) {
     if (process.env.CATALOG_PROVIDER_SEND_WINDOW_ENABLED === "true") {

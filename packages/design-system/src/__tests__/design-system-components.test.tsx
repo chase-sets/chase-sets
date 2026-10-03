@@ -1,9 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { act, useState } from "react";
+import { act, useState, type ReactNode } from "react";
 import { hydrateRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import tailwindConfig from "../../../../tailwind.config";
 import {
   Button,
@@ -94,6 +94,49 @@ import { ChaseRoot, ColorModeToggle, useChaseMotion, useReducedMotion } from "..
 import { ThemePreferenceControl, ThemeToggle } from "../theme/theme-toggle";
 import { chaseTheme, resolveThemeOverrideStyle, resolveThemeStyle, type SpaceToken } from "../theme/tokens";
 import { resolveResponsiveClass, resolveSpaceClass } from "../utils/system";
+
+interface MotionDivRender {
+  initial: unknown;
+  animate: unknown;
+  variants: unknown;
+  transition: unknown;
+}
+
+const motionDivRenders = vi.hoisted(() => [] as MotionDivRender[]);
+
+// Transparent passthrough: the real Motion runtime still renders (server styles,
+// hydration, animations), while every `motion.div` render records the motion
+// props the Stagger tests compare against the base fixture.
+// `ref` reaches the real div only because React 19 passes refs as plain props.
+vi.mock("motion/react", async (importOriginal) => {
+  const React = await vi.importActual<typeof import("react")>("react");
+  const actual = await importOriginal<typeof import("motion/react")>();
+  const ActualMotionDiv = actual.motion.div;
+
+  function RecordingMotionDiv(props: Record<string, unknown>) {
+    motionDivRenders.push({
+      initial: props.initial,
+      animate: props.animate,
+      variants: props.variants,
+      transition: props.transition,
+    });
+
+    return React.createElement(ActualMotionDiv, props as never);
+  }
+
+  return {
+    ...actual,
+    motion: new Proxy(actual.motion, {
+      get(target, key) {
+        return key === "div" ? RecordingMotionDiv : Reflect.get(target, key);
+      },
+    }),
+  };
+});
+
+beforeEach(() => {
+  motionDivRenders.length = 0;
+});
 
 const expectedSpacingTokens = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] satisfies SpaceToken[];
 
@@ -2404,5 +2447,586 @@ describe("design system components", () => {
     expect(plain).toContain("<svg");
     // Different lucide glyphs produce different path geometry.
     expect(keyhole).not.toBe(plain);
+  });
+});
+
+// Immutable oracle for the default/mount Stagger output, captured from base
+// 92df7170e0dfa7b1fde72324b428f3022d4ea1ce (scratch capture over `git show
+// <base>:packages/design-system/src/motion/primitives.tsx`), never from the
+// changed implementation. Markup covers the Stagger subtree only; motion props
+// are the group's `initial`/`animate`/`variants` and each child's `variants`.
+const baseStaggerEase = [0.16, 1, 0.3, 1];
+const baseStaggerFixture = {
+  default: {
+    markup:
+      '<div><div style="opacity:0;transform:translateY(14px) scale(0.985)"><div>First</div></div><div style="opacity:0;transform:translateY(14px) scale(0.985)"><div>Second</div></div><div style="opacity:0;transform:translateY(14px) scale(0.985)"><div>Third</div></div></div>',
+    group: {
+      initial: "hidden",
+      animate: "visible",
+      variants: { hidden: {}, visible: { transition: { staggerChildren: 0.07, delayChildren: 0 } } },
+    },
+    children: Array.from({ length: 3 }, () => ({
+      variants: {
+        hidden: { opacity: 0, y: 14, scale: 0.985 },
+        visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.15, ease: baseStaggerEase } },
+      },
+    })),
+  },
+  configured: {
+    markup:
+      '<div><div style="opacity:0;transform:translateY(22px)"><div>First</div></div><div style="opacity:0;transform:translateY(22px)"><div>Second</div></div><div style="opacity:0;transform:translateY(22px)"><div>Third</div></div></div>',
+    group: {
+      initial: "hidden",
+      animate: "visible",
+      variants: { hidden: {}, visible: { transition: { staggerChildren: 0.12, delayChildren: 0 } } },
+    },
+    children: Array.from({ length: 3 }, () => ({
+      variants: {
+        hidden: { opacity: 0, y: 22 },
+        visible: { opacity: 1, y: 0, transition: { duration: 0.15, ease: baseStaggerEase } },
+      },
+    })),
+  },
+};
+
+const staggerChildLabels = ["First", "Second", "Third"] as const;
+
+function staggerChildren() {
+  return staggerChildLabels.map((label) => <div key={label}>{label}</div>);
+}
+
+// The latest Stagger render: the group followed by its three child wrappers.
+function recordedStaggerRenders() {
+  const [group, ...children] = motionDivRenders.slice(-(staggerChildLabels.length + 1));
+
+  return {
+    group: { initial: group.initial, animate: group.animate, variants: group.variants, transition: group.transition },
+    children: children.map((child) => ({
+      initial: child.initial,
+      animate: child.animate,
+      variants: child.variants,
+      transition: child.transition,
+    })),
+  };
+}
+
+function inlineStyles(markup: string) {
+  return [...markup.matchAll(/style="([^"]*)"/g)].map((match) => match[1]);
+}
+
+interface IntersectionObserverMockInstance {
+  callback: IntersectionObserverCallback;
+  options: IntersectionObserverInit | undefined;
+  observe: ReturnType<typeof vi.fn>;
+  unobserve: ReturnType<typeof vi.fn>;
+  disconnect: ReturnType<typeof vi.fn>;
+}
+
+function installIntersectionObserverMock() {
+  const instances: IntersectionObserverMockInstance[] = [];
+
+  class IntersectionObserverMock implements IntersectionObserverMockInstance {
+    readonly root = null;
+    readonly rootMargin = "0px";
+    readonly thresholds: number[];
+    readonly options: IntersectionObserverInit | undefined;
+    readonly observe = vi.fn();
+    readonly unobserve = vi.fn();
+    readonly disconnect = vi.fn();
+    readonly takeRecords = vi.fn(() => []);
+
+    constructor(
+      readonly callback: IntersectionObserverCallback,
+      options?: IntersectionObserverInit,
+    ) {
+      this.options = options;
+      this.thresholds = Array.isArray(options?.threshold) ? options.threshold : [options?.threshold ?? 0];
+      instances.push(this);
+    }
+  }
+
+  vi.stubGlobal("IntersectionObserver", IntersectionObserverMock);
+
+  return {
+    instances,
+    async deliver(instance: IntersectionObserverMockInstance, target: Element, ratios: number[]) {
+      const entries = ratios.map(
+        (ratio) =>
+          ({
+            target,
+            intersectionRatio: ratio,
+            isIntersecting: ratio > 0,
+            time: 0,
+            rootBounds: null,
+            boundingClientRect: target.getBoundingClientRect(),
+            intersectionRect: target.getBoundingClientRect(),
+          }) as IntersectionObserverEntry,
+      );
+
+      await act(async () => {
+        instance.callback(entries, instance as unknown as IntersectionObserver);
+      });
+    },
+    restore() {
+      vi.unstubAllGlobals();
+    },
+  };
+}
+
+async function settleFrames() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 60));
+  });
+}
+
+function hydratedStaggerHarness() {
+  const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+  const container = document.createElement("div");
+  let root: Root | undefined;
+
+  document.body.appendChild(container);
+
+  return {
+    container,
+    consoleError,
+    async hydrate(ui: ReactNode) {
+      const markup = renderToString(ui);
+      container.innerHTML = markup;
+
+      await act(async () => {
+        root = hydrateRoot(container, ui);
+      });
+
+      return markup;
+    },
+    async rerender(ui: ReactNode) {
+      await act(async () => {
+        root?.render(ui);
+      });
+    },
+    childWrappers() {
+      return staggerChildLabels.map((label) => within(container).getByText(label).parentElement as HTMLElement);
+    },
+    group() {
+      return this.childWrappers()[0].parentElement as HTMLElement;
+    },
+    hydrationErrors() {
+      return consoleError.mock.calls.filter((call) =>
+        call.some((entry) => /hydrat|did not match|server rendered/i.test(String(entry))),
+      );
+    },
+    async cleanup() {
+      await act(async () => {
+        root?.unmount();
+      });
+      container.remove();
+      consoleError.mockRestore();
+    },
+  };
+}
+
+function expectVisibleWrapper(wrapper: HTMLElement) {
+  expect(wrapper.style.opacity).not.toBe("0");
+  expect(["", "none"]).toContain(wrapper.style.transform);
+}
+
+function expectHiddenWrapper(wrapper: HTMLElement) {
+  expect(wrapper.style.opacity).toBe("0");
+}
+
+async function waitForOrderedReveal(wrappers: HTMLElement[]) {
+  const revealOrder: number[] = [];
+
+  await waitFor(
+    () => {
+      wrappers.forEach((wrapper, index) => {
+        if (wrapper.style.opacity === "1" && !revealOrder.includes(index)) {
+          revealOrder.push(index);
+        }
+      });
+
+      // A later child may never be fully revealed before an earlier one; a
+      // stalled frame can only make reveals look simultaneous, never inverted.
+      expect(revealOrder).toEqual(revealOrder.map((_, index) => index));
+      expect(revealOrder).toHaveLength(wrappers.length);
+    },
+    { timeout: 4000, interval: 10 },
+  );
+}
+
+describe("Stagger in-view trigger", () => {
+  it("preserves base Stagger markup and child motion props for default and mount triggers", () => {
+    const cases = [
+      { name: "default", props: {} },
+      { name: "configured", props: { preset: "slideUp", staggerMs: 120 } },
+    ] as const;
+
+    for (const { name, props } of cases) {
+      for (const trigger of [undefined, "mount"] as const) {
+        motionDivRenders.length = 0;
+        const markup = renderToString(
+          <Stagger {...props} {...(trigger ? { trigger } : {})}>
+            {staggerChildren()}
+          </Stagger>,
+        );
+        const expected = baseStaggerFixture[name];
+
+        expect(markup).toBe(expected.markup);
+        expect(recordedStaggerRenders()).toEqual({ group: expected.group, children: expected.children });
+      }
+    }
+  });
+
+  it("renders all in-view Stagger children visibly on the server and hydrates without warnings", async () => {
+    const harness = hydratedStaggerHarness();
+
+    try {
+      const markup = await harness.hydrate(
+        <ChaseRoot reducedMotion="never">
+          <Stagger trigger="in-view">{staggerChildren()}</Stagger>
+        </ChaseRoot>,
+      );
+      const styles = inlineStyles(markup);
+
+      for (const label of staggerChildLabels) {
+        expect(markup).toContain(label);
+      }
+      expect(styles.length).toBeGreaterThanOrEqual(staggerChildLabels.length);
+      for (const style of styles) {
+        expect(style).not.toContain("opacity:0");
+        for (const transform of style.matchAll(/transform:([^;]*)/g)) {
+          expect(transform[1]).toBe("none");
+        }
+      }
+
+      expect(harness.hydrationErrors()).toEqual([]);
+      await settleFrames();
+      harness.childWrappers().forEach(expectVisibleWrapper);
+    } finally {
+      await harness.cleanup();
+    }
+  });
+
+  it("keeps in-view Stagger visible when IntersectionObserver is unavailable", async () => {
+    vi.stubGlobal("IntersectionObserver", undefined);
+    const harness = hydratedStaggerHarness();
+
+    try {
+      expect(typeof IntersectionObserver).toBe("undefined");
+      await harness.hydrate(
+        <ChaseRoot reducedMotion="never">
+          <Stagger trigger="in-view">{staggerChildren()}</Stagger>
+        </ChaseRoot>,
+      );
+      await settleFrames();
+
+      expect(harness.consoleError.mock.calls).toEqual([]);
+      harness.childWrappers().forEach(expectVisibleWrapper);
+    } finally {
+      await harness.cleanup();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("arms off-screen Stagger and plays ordered children only at ratio 0.4", async () => {
+    const observers = installIntersectionObserverMock();
+    const harness = hydratedStaggerHarness();
+
+    try {
+      await harness.hydrate(
+        <ChaseRoot reducedMotion="never">
+          <Stagger trigger="in-view" staggerMs={200}>
+            {staggerChildren()}
+          </Stagger>
+        </ChaseRoot>,
+      );
+      const group = harness.group();
+      const wrappers = harness.childWrappers();
+
+      expect(observers.instances).toHaveLength(1);
+      const [observer] = observers.instances;
+      expect(observer.observe).toHaveBeenCalledWith(group);
+      expect(observer.options?.threshold).toEqual([0, 0.4]);
+      wrappers.forEach(expectVisibleWrapper);
+
+      await observers.deliver(observer, group, [0]);
+      await waitFor(() => {
+        wrappers.forEach(expectHiddenWrapper);
+      });
+      expect(wrappers[0].style.transform).not.toBe("none");
+      expect(observer.disconnect).not.toHaveBeenCalled();
+
+      await observers.deliver(observer, group, [0.3]);
+      await settleFrames();
+      wrappers.forEach(expectHiddenWrapper);
+      expect(observer.disconnect).not.toHaveBeenCalled();
+
+      motionDivRenders.length = 0;
+      await observers.deliver(observer, group, [0.4]);
+      await waitForOrderedReveal(wrappers);
+      wrappers.forEach(expectVisibleWrapper);
+      expect(observer.disconnect).toHaveBeenCalled();
+
+      const playing = recordedStaggerRenders();
+      expect(playing.group).toMatchObject({
+        animate: "visible",
+        variants: { visible: { transition: { staggerChildren: 0.2, delayChildren: 0 } } },
+      });
+      expect(playing.children.map((child) => child.variants)).toEqual(
+        staggerChildLabels.map(() => ({
+          hidden: { opacity: 0, y: 14, scale: 0.985, transition: { duration: 0 } },
+          visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.15, ease: [0.16, 1, 0.3, 1] } },
+        })),
+      );
+    } finally {
+      await harness.cleanup();
+      observers.restore();
+    }
+  });
+
+  it("never hides Stagger initially intersecting at ratio 0.3", async () => {
+    const observers = installIntersectionObserverMock();
+    const harness = hydratedStaggerHarness();
+
+    try {
+      await harness.hydrate(
+        <ChaseRoot reducedMotion="never">
+          <Stagger trigger="in-view">{staggerChildren()}</Stagger>
+        </ChaseRoot>,
+      );
+      const group = harness.group();
+      const wrappers = harness.childWrappers();
+      const [observer] = observers.instances;
+
+      await observers.deliver(observer, group, [0.3]);
+      await settleFrames();
+      wrappers.forEach(expectVisibleWrapper);
+      expect(observer.disconnect).toHaveBeenCalled();
+
+      await observers.deliver(observer, group, [0]);
+      await observers.deliver(observer, group, [0.4]);
+      await settleFrames();
+      wrappers.forEach(expectVisibleWrapper);
+      expect(motionDivRenders.some((call) => call.animate === "hidden")).toBe(false);
+    } finally {
+      await harness.cleanup();
+      observers.restore();
+    }
+  });
+
+  it("never re-hides or replays completed in-view Stagger", async () => {
+    const observers = installIntersectionObserverMock();
+    const harness = hydratedStaggerHarness();
+    const tree = (
+      <ChaseRoot reducedMotion="never">
+        <Stagger trigger="in-view" staggerMs={10}>
+          {staggerChildren()}
+        </Stagger>
+      </ChaseRoot>
+    );
+
+    try {
+      await harness.hydrate(tree);
+      const group = harness.group();
+      const wrappers = harness.childWrappers();
+      const [observer] = observers.instances;
+
+      await observers.deliver(observer, group, [0]);
+      await waitFor(() => {
+        wrappers.forEach(expectHiddenWrapper);
+      });
+      await observers.deliver(observer, group, [0.4]);
+      await waitFor(() => {
+        wrappers.forEach((wrapper) => expect(wrapper.style.opacity).toBe("1"));
+      });
+      expect(observer.disconnect).toHaveBeenCalled();
+
+      motionDivRenders.length = 0;
+      await observers.deliver(observer, group, [0]);
+      await settleFrames();
+      wrappers.forEach((wrapper) => expect(wrapper.style.opacity).toBe("1"));
+
+      await observers.deliver(observer, group, [0.4]);
+      await settleFrames();
+      wrappers.forEach((wrapper) => expect(wrapper.style.opacity).toBe("1"));
+
+      await harness.rerender(
+        <ChaseRoot reducedMotion="never" density="compact">
+          <Stagger trigger="in-view" staggerMs={10}>
+            {staggerChildren()}
+          </Stagger>
+        </ChaseRoot>,
+      );
+      await observers.deliver(observer, group, [0, 0.4]);
+      await settleFrames();
+      wrappers.forEach((wrapper) => expect(wrapper.style.opacity).toBe("1"));
+
+      expect(motionDivRenders.some((call) => call.animate === "hidden")).toBe(false);
+      expect(observers.instances).toHaveLength(1);
+      expect(observer.observe).toHaveBeenCalledTimes(1);
+    } finally {
+      await harness.cleanup();
+      observers.restore();
+    }
+  });
+
+  it("keeps in-view Stagger visible without transform or delay under always reduced motion", async () => {
+    const observers = installIntersectionObserverMock();
+    const harness = hydratedStaggerHarness();
+
+    try {
+      await harness.hydrate(
+        <ChaseRoot reducedMotion="always">
+          <Stagger trigger="in-view">{staggerChildren()}</Stagger>
+        </ChaseRoot>,
+      );
+      const group = harness.group();
+      const wrappers = harness.childWrappers();
+
+      for (const observer of observers.instances) {
+        await observers.deliver(observer, group, [0]);
+      }
+      await settleFrames();
+
+      wrappers.forEach(expectVisibleWrapper);
+      expect(motionDivRenders.some((call) => call.animate === "hidden")).toBe(false);
+
+      const rendered = recordedStaggerRenders();
+      expect(rendered.group).toMatchObject({
+        initial: "visible",
+        animate: "visible",
+        variants: { visible: { transition: { staggerChildren: 0, delayChildren: 0 } } },
+      });
+      expect(rendered.children.map((child) => child.variants)).toEqual(
+        staggerChildLabels.map(() => ({
+          hidden: { opacity: 0, transition: { duration: 0 } },
+          visible: { opacity: 1, transition: { duration: 0.01, ease: "linear" } },
+        })),
+      );
+    } finally {
+      await harness.cleanup();
+      observers.restore();
+    }
+  });
+
+  it("immediately shows armed Stagger when reduced motion resolves after mount", async () => {
+    const observers = installIntersectionObserverMock();
+    const harness = hydratedStaggerHarness();
+
+    try {
+      await harness.hydrate(
+        <ChaseRoot reducedMotion="never">
+          <Stagger trigger="in-view">{staggerChildren()}</Stagger>
+        </ChaseRoot>,
+      );
+      const group = harness.group();
+      const wrappers = harness.childWrappers();
+      const [observer] = observers.instances;
+
+      await observers.deliver(observer, group, [0]);
+      await waitFor(() => {
+        wrappers.forEach(expectHiddenWrapper);
+      });
+
+      await harness.rerender(
+        <ChaseRoot reducedMotion="always">
+          <Stagger trigger="in-view">{staggerChildren()}</Stagger>
+        </ChaseRoot>,
+      );
+      await waitFor(() => {
+        wrappers.forEach((wrapper) => {
+          expect(wrapper.style.opacity).toBe("1");
+          expect(["", "none"]).toContain(wrapper.style.transform);
+        });
+      });
+      expect(observer.disconnect).toHaveBeenCalled();
+
+      await observers.deliver(observer, group, [0]);
+      await settleFrames();
+      wrappers.forEach(expectVisibleWrapper);
+    } finally {
+      await harness.cleanup();
+      observers.restore();
+    }
+  });
+
+  it("ignores a mount to in-view trigger change after the group has played", async () => {
+    const observers = installIntersectionObserverMock();
+    const harness = hydratedStaggerHarness();
+
+    try {
+      await harness.hydrate(
+        <ChaseRoot reducedMotion="never">
+          <Stagger trigger="mount">{staggerChildren()}</Stagger>
+        </ChaseRoot>,
+      );
+      const group = harness.group();
+      const wrappers = harness.childWrappers();
+
+      await waitForOrderedReveal(wrappers);
+      expect(observers.instances).toHaveLength(0);
+
+      motionDivRenders.length = 0;
+      await harness.rerender(
+        <ChaseRoot reducedMotion="never">
+          <Stagger trigger="in-view">{staggerChildren()}</Stagger>
+        </ChaseRoot>,
+      );
+      for (const observer of observers.instances) {
+        await observers.deliver(observer, group, [0]);
+      }
+      await settleFrames();
+
+      expect(observers.instances).toHaveLength(0);
+      wrappers.forEach((wrapper) => expect(wrapper.style.opacity).toBe("1"));
+      expect(motionDivRenders.some((call) => call.animate === "hidden")).toBe(false);
+    } finally {
+      await harness.cleanup();
+      observers.restore();
+    }
+  });
+
+  it("ignores an in-view to mount trigger change while the group is armed", async () => {
+    const observers = installIntersectionObserverMock();
+    const harness = hydratedStaggerHarness();
+
+    try {
+      await harness.hydrate(
+        <ChaseRoot reducedMotion="never">
+          <Stagger trigger="in-view" staggerMs={10}>
+            {staggerChildren()}
+          </Stagger>
+        </ChaseRoot>,
+      );
+      const group = harness.group();
+      const wrappers = harness.childWrappers();
+      const [observer] = observers.instances;
+
+      await observers.deliver(observer, group, [0]);
+      await waitFor(() => {
+        wrappers.forEach(expectHiddenWrapper);
+      });
+
+      await harness.rerender(
+        <ChaseRoot reducedMotion="never">
+          <Stagger trigger="mount" staggerMs={10}>
+            {staggerChildren()}
+          </Stagger>
+        </ChaseRoot>,
+      );
+      await settleFrames();
+
+      wrappers.forEach(expectHiddenWrapper);
+      expect(observer.disconnect).not.toHaveBeenCalled();
+      expect(observers.instances).toHaveLength(1);
+
+      await observers.deliver(observer, group, [0.4]);
+      await waitForOrderedReveal(wrappers);
+      wrappers.forEach(expectVisibleWrapper);
+      expect(observer.disconnect).toHaveBeenCalled();
+    } finally {
+      await harness.cleanup();
+      observers.restore();
+    }
   });
 });

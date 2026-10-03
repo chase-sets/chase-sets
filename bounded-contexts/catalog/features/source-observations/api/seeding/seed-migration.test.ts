@@ -1,6 +1,7 @@
 import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { describe, expect, it } from "vitest";
+import { syntheticReferenceRecordEvents } from "./synthetic-display-identity-queryable";
 import {
   decideSourceObservation,
   evolveSourceObservation,
@@ -31,7 +32,7 @@ function scenarioDb(history: Row[] = []): PgQueryable {
       let rows: unknown[];
       if (sql.includes("projection_active")) {
         rows = [{ stream_created: true, stream_published: true, projection_active: true }];
-      } else if (sql.includes("FROM event_store_events")) {
+      } else if (sql.includes("FROM event_store_events") && !sql.includes("AS reference_event")) {
         rows = structuredClone(history);
       } else if (sql.includes("FROM catalog_fields")) {
         rows = fields;
@@ -48,7 +49,7 @@ function scenarioDb(history: Row[] = []): PgQueryable {
             required_field_keys: ["card-name", "card-number", "rarity"],
           },
         ];
-      } else if (sql.includes("FROM catalog_reference_records")) {
+      } else if (sql.includes("AS reference_event")) {
         rows = [
           {
             reference_record_id: catalogSeedIds.referenceRecords.expansions.jungle,
@@ -101,7 +102,9 @@ function scenarioDb(history: Row[] = []): PgQueryable {
             attributes: { "homepage-url": "https://www.pokemon.com/us" },
             relationships: [],
           },
-        ].filter((row) => Array.isArray(values[0]) && values[0].includes(row.reference_record_id));
+        ]
+          .filter((row) => Array.isArray(values[0]) && values[0].includes(row.reference_record_id))
+          .flatMap(syntheticReferenceRecordEvents);
       } else if (sql.includes("FROM catalog_item_aliases") || sql.includes("FROM catalog_reference_record_aliases")) {
         rows = [];
       } else if (sql.includes("FROM catalog_items")) {

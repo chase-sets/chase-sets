@@ -17,6 +17,7 @@ describe("operator-session failures stop before real host sinks", () => {
       "@chase-sets/http/rate-limit",
       "@chase-sets/auth-context",
       "@chase-sets/http/responses",
+      "@chase-sets/platform-runtime/http",
       "../domain/value",
       "./operation",
       "./request",
