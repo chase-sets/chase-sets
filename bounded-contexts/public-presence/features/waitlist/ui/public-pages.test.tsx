@@ -5,7 +5,7 @@ import { Children, type ComponentProps, type ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { resolveChaseMotion, type Stagger } from "@chase-sets/design-system";
+import { resolveChaseMotion, type StaggerProps } from "@chase-sets/design-system";
 import ts from "@chase-sets/typescript-compiler-api";
 import { checkoutFeeTranslationValues, fallbackCheckoutFeePreview } from "./checkout-fee-preview";
 import { landingFaqEntries } from "./landing-faq";
@@ -20,14 +20,14 @@ import { publicPresenceT as t } from "./public-presence-translator";
 import { WaitlistSuccessPage } from "./success-page";
 
 const titleOverrides = vi.hoisted(() => new Map<string, string>());
-const staggerRenders = vi.hoisted(() => [] as Record<string, unknown>[]);
+const staggerRenders = vi.hoisted(() => [] as StaggerProps[]);
 vi.mock("@chase-sets/design-system", async (importOriginal) => {
   const original = await importOriginal<typeof import("@chase-sets/design-system")>();
   return {
     ...original,
     Surface: (props: ComponentProps<typeof original.Surface>) => <original.Surface {...props} data-test-surface />,
     Stagger: (props: ComponentProps<typeof original.Stagger>) => {
-      staggerRenders.push(props as unknown as Record<string, unknown>);
+      staggerRenders.push(props);
       return <original.Stagger {...props} />;
     },
   };
@@ -273,7 +273,7 @@ describe("public waitlist form migration smoke", () => {
     const section = container.querySelector<HTMLElement>('[data-public-presence-section="open_offers"]')!;
 
     expect(staggerRenders.length).toBeGreaterThan(0);
-    const props = staggerRenders.at(-1)! as ComponentProps<typeof Stagger>;
+    const props = staggerRenders.at(-1)!;
     expect(props.trigger).toBe("in-view");
     const steps = Children.count(props.children);
     expect(steps).toBe(3);
