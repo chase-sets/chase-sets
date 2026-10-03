@@ -63,11 +63,10 @@ export function selectBrowserUsabilityGoals(paths, goals = browserUsabilityGoals
   const shared =
     /^(packages\/design-system\/|contracts\/localization\/|bounded-contexts\/auth\/|bounded-contexts\/identity\/|deployables\/(marketplace|public-web)\/|scripts\/browser-usability)/;
   return goals.filter((goal) =>
-    paths.some(
-      (file) =>
-        (shared.test(file) && goal.selectOnSharedChange === true) ||
-        goal.paths.some((prefix) => file.startsWith(prefix)) ||
-        Object.hasOwn(goal.routes ?? {}, file),
+    paths.some((file) =>
+      shared.test(file)
+        ? goal.selectOnSharedChange === true
+        : goal.paths.some((prefix) => file.startsWith(prefix)) || Object.hasOwn(goal.routes ?? {}, file),
     ),
   );
 }

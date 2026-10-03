@@ -87,7 +87,11 @@ afterEach(() => {
 
 describe("goal selection and preflight", () => {
   it("opts only the four existing goals into shared selection and selects new goals by prefix or exact route", () => {
-    const extra = { id: "fixture-goal", paths: ["fixture/features/"], routes: { "fixture/route.tsx": "outcome" } };
+    const extra = {
+      id: "fixture-goal",
+      paths: ["fixture/features/", "packages/design-system/"],
+      routes: { "fixture/route.tsx": "outcome", "packages/design-system/src/button.tsx": "outcome" },
+    };
     const goals = [...browserUsabilityGoals, extra];
     expect(
       selectBrowserUsabilityGoals(["packages/design-system/src/button.tsx"], goals)
