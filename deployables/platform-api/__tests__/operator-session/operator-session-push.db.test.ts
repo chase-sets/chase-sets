@@ -100,6 +100,7 @@ describeDb("real app and custody factory retained fence", () => {
     expect(await runtime?.catalogClient.resolveCredentialReadiness()).toEqual({
       sourceKind: "environment-secret",
       state: "configured",
+      diagnosticCode: null,
     });
     // The landed precedence suite verifies the actual provider attempt carries environment revision 0.
   });

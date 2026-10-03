@@ -40,6 +40,7 @@
     "bounded-contexts/catalog/features/fields/read-model/queries.ts",
     "bounded-contexts/catalog/features/operator-session/api/grants.ts",
     "bounded-contexts/catalog/features/operator-session/api/operation.ts",
+    "bounded-contexts/catalog/features/operator-session/api/outcomes.ts",
     "bounded-contexts/catalog/features/operator-session/api/store.ts",
     "bounded-contexts/catalog/features/product-contents/api/runtime.ts",
     "bounded-contexts/catalog/features/product-contents/api/seed.ts",
