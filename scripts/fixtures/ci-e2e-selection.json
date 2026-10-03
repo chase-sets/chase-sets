@@ -32,7 +32,7 @@
     "scripts/check-structure/sql-execution-surface-partition.json",
     "scripts/typescript-resolver-caller-parity.test.mjs"
   ],
-  "scannedPaths": 7047,
+  "scannedPaths": 7090,
   "families": [
     {
       "family": "browserRuntimePatterns:0",
@@ -159,7 +159,7 @@
       "pattern": "/^bounded-contexts\\/catalog\\/features\\/[^/]+\\/(?:api|ui)\\//",
       "suites": ["marketplace_browse", "catalog_admin_integrations"],
       "path": "bounded-contexts/catalog/features/alias-equivalence/api/alias-review-admin-contracts.ts",
-      "trackedCandidates": 623,
+      "trackedCandidates": 627,
       "synthetic": false
     },
     {
@@ -1164,6 +1164,11 @@
       "batches": ["marketplace_account"]
     },
     {
+      "changedFiles": ["bounded-contexts/catalog/client.ts"],
+      "suiteIds": ["tcgplayer_operator_extension"],
+      "batches": ["tcgplayer_operator_extension"]
+    },
+    {
       "changedFiles": ["bounded-contexts/catalog/features/alias-equivalence/api/alias-review-admin-contracts.ts"],
       "suiteIds": ["marketplace_browse", "catalog_admin_integrations"],
       "batches": ["marketplace_browse,catalog_admin_integrations"]
@@ -1172,6 +1177,21 @@
       "changedFiles": ["bounded-contexts/catalog/features/dimensions/api/route.ts"],
       "suiteIds": ["catalog_admin_modeling"],
       "batches": ["catalog_admin_modeling"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/catalog/features/operator-session/domain/extension/background.ts"],
+      "suiteIds": ["tcgplayer_operator_extension"],
+      "batches": ["tcgplayer_operator_extension"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/catalog/features/operator-session/tests/extension/fixture.ts"],
+      "suiteIds": ["tcgplayer_operator_extension"],
+      "batches": ["tcgplayer_operator_extension"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/catalog/features/operator-session/ui/extension-popup/client.ts"],
+      "suiteIds": ["tcgplayer_operator_extension"],
+      "batches": ["tcgplayer_operator_extension"]
     },
     {
       "changedFiles": [
@@ -1558,6 +1578,11 @@
       "batches": []
     },
     {
+      "changedFiles": ["contracts/localization/locales/en/catalog/operator-extension.ts"],
+      "suiteIds": ["tcgplayer_operator_extension"],
+      "batches": ["tcgplayer_operator_extension"]
+    },
+    {
       "changedFiles": ["deployables/admin-web/e2e/access-account-badges.spec.ts"],
       "suiteIds": ["admin_access"],
       "batches": ["admin_access"]
@@ -1746,6 +1771,11 @@
       "changedFiles": ["deployables/tcgplayer-connector-extension/package.json"],
       "suiteIds": ["tcgplayer_connector_extension"],
       "batches": ["tcgplayer_connector_extension"]
+    },
+    {
+      "changedFiles": ["deployables/tcgplayer-operator-extension/package.json"],
+      "suiteIds": ["tcgplayer_operator_extension"],
+      "batches": ["tcgplayer_operator_extension"]
     },
     {
       "changedFiles": ["infrastructure/digitalocean/platform/main.tf"],

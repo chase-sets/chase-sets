@@ -350,6 +350,10 @@ describe("shared CI gate plan", () => {
     );
     const prefixes = [...source.matchAll(/normalized\.startsWith\("([^"]+)"\)/g)].map((match) => match[1]);
     expect(prefixes).toEqual([
+      "deployables/tcgplayer-operator-extension/",
+      "bounded-contexts/catalog/features/operator-session/domain/extension/",
+      "bounded-contexts/catalog/features/operator-session/ui/extension-popup/",
+      "bounded-contexts/catalog/features/operator-session/tests/extension/",
       "deployables/tcgplayer-connector-extension/",
       "bounded-contexts/channels/features/connector-client/",
       "deployables/marketplace/",
@@ -359,6 +363,14 @@ describe("shared CI gate plan", () => {
     ]);
     for (const prefix of prefixes)
       expect(scopedCases.some(({ changedFiles }) => changedFiles.some((file) => file.startsWith(prefix)))).toBe(true);
+    const exactPaths = [...source.matchAll(/normalized === "([^"]+)"/g)].map((match) => match[1]);
+    for (const file of exactPaths) {
+      expect(tracked.has(file), file).toBe(true);
+      expect(
+        scopedCases.some(({ changedFiles }) => changedFiles.includes(file)),
+        file,
+      ).toBe(true);
+    }
     expect(selectionFixture.families.filter(({ synthetic }) => synthetic)).toHaveLength(6);
   });
 
