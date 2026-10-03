@@ -371,6 +371,12 @@
     },
     {
       "deployable": "marketplace-web",
+      "family": "deals-framing-probe",
+      "owningContext": "discovery",
+      "purpose": "Static, never-merged Deals framing probe (discovery): one scratch route over a frozen fixture."
+    },
+    {
+      "deployable": "marketplace-web",
       "family": "guest-checkout",
       "owningContext": "auth",
       "purpose": "Guest checkout exit/claim family (auth): lets a guest-checkout buyer leave guest mode without a full account family detour."

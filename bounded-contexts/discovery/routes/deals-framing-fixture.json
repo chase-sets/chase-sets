@@ -1,0 +1,53 @@
+{
+  "source": {
+    "url": "https://github.com/chase-sets/chase-sets/issues/7898#issuecomment-5853527125",
+    "section": "Capture 3: Buy and Sell boards",
+    "environment": "staging (read-only transaction via platform-worker pod, host session)",
+    "capturedAt": "2026-09-27T06:49:32Z"
+  },
+  "currencyCode": "USD",
+  "medianWindow": null,
+  "gatedBoards": [
+    { "name": "Buy dollar gated", "side": "buy", "totalRows": 0, "shownRows": 0, "completeness": "complete" },
+    { "name": "Sell dollar gated", "side": "sell", "totalRows": 0, "shownRows": 0, "completeness": "complete" }
+  ],
+  "boards": {
+    "buy": {
+      "name": "Buy dollar ungated",
+      "totalRows": 0,
+      "shownRows": 0,
+      "completeness": "complete",
+      "rows": []
+    },
+    "sell": {
+      "name": "Sell dollar ungated",
+      "totalRows": 2,
+      "shownRows": 2,
+      "completeness": "complete",
+      "rows": [
+        {
+          "rank": 1,
+          "catalogItem": "cat_seed_pikachu_jungle",
+          "product": "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_excellent|dim_seed_grading_company:-|dim_seed_grade:-",
+          "price": "18.25",
+          "benchmark": "17.95",
+          "gapAmount": "0.30",
+          "gapPercent": "1.6713091922005571",
+          "quantity": 4,
+          "trades": 3
+        },
+        {
+          "rank": 2,
+          "catalogItem": "cat_seed_pikachu_jungle",
+          "product": "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_excellent|dim_seed_grading_company:-|dim_seed_grade:-",
+          "price": "18.00",
+          "benchmark": "17.95",
+          "gapAmount": "0.05",
+          "gapPercent": "0.27855153203342618384",
+          "quantity": 8,
+          "trades": 3
+        }
+      ]
+    }
+  }
+}
