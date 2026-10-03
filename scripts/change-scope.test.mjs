@@ -603,21 +603,22 @@ function statusAwareRiskFiles({ changedFiles, status }) {
 }
 
 function priorHostedAdmission(scope, lane) {
+  // Historical DB admission, with today's scope-gated E2E policy.
   return {
     dbJobExecutes: lane.targetedHeavyRequired && scope.dbTestsRequired,
     dbRequiredByName: lane.targetedHeavyRequired && scope.dbTestsRequired,
-    e2eJobExecutes: lane.targetedHeavyRequired && scope.e2eTestsRequired,
-    e2eRequiredByName: lane.targetedHeavyRequired && scope.e2eTestsRequired,
+    e2eJobExecutes: scope.e2eTestsRequired,
+    e2eRequiredByName: scope.e2eTestsRequired,
     affectedWorkspaces: scope.affectedWorkspaces,
   };
 }
 
-function isolatedHostedDbAdmission(scope, lane) {
+function isolatedHostedDbAdmission(scope) {
   return {
     dbJobExecutes: scope.dbTestsRequired,
     dbRequiredByName: scope.dbTestsRequired,
-    e2eJobExecutes: lane.targetedHeavyRequired && scope.e2eTestsRequired,
-    e2eRequiredByName: lane.targetedHeavyRequired && scope.e2eTestsRequired,
+    e2eJobExecutes: scope.e2eTestsRequired,
+    e2eRequiredByName: scope.e2eTestsRequired,
     affectedWorkspaces: scope.affectedWorkspaces,
   };
 }
@@ -1726,7 +1727,7 @@ describe("change-scope", () => {
         integrationRiskRequired: statusAwareIntegrationRisk.required,
       });
       const prior = priorHostedAdmission(scope, lane);
-      const next = isolatedHostedDbAdmission(scope, lane);
+      const next = isolatedHostedDbAdmission(scope);
       const changesAdmission =
         prior.dbJobExecutes !== next.dbJobExecutes || prior.dbRequiredByName !== next.dbRequiredByName;
 
@@ -1760,24 +1761,20 @@ describe("change-scope", () => {
         expect(next).toMatchObject({
           dbJobExecutes: true,
           dbRequiredByName: true,
-          e2eJobExecutes: false,
-          e2eRequiredByName: false,
+          e2eJobExecutes: true,
+          e2eRequiredByName: true,
         });
       }
     }
   });
 
-  it("makes every sibling seed-path and shared-targeted-lane mutant bite the locked corpus", () => {
+  it("makes every sibling seed-path and DB-shared-targeted-lane mutant bite the locked corpus", () => {
     const siblingMutantTable = hostedDbAdmissionCorpusSeeds
       .filter((entry) => entry.siblingKind)
       .map((entry) => {
         const scope = classifyChanges({ changedFiles: entry.changedFiles });
-        const lane = hostedLaneFor({
-          eventName: entry.eventName,
-          integrationRiskRequired: scope.integrationRiskRequired,
-        });
-        const baseline = isolatedHostedDbAdmission(scope, lane);
-        const mutant = isolatedHostedDbAdmission({ ...scope, dbTestsRequired: false }, lane);
+        const baseline = isolatedHostedDbAdmission(scope);
+        const mutant = isolatedHostedDbAdmission({ ...scope, dbTestsRequired: false });
         return {
           mutant: `omit-${entry.siblingKind}-from-db-scope`,
           path: entry.changedFiles[0],
@@ -1802,21 +1799,20 @@ describe("change-scope", () => {
       eventName: overlap.eventName,
       integrationRiskRequired: overlapScope.integrationRiskRequired,
     });
-    const isolated = isolatedHostedDbAdmission(overlapScope, overlapLane);
-    const sharedPredicateMutant = priorHostedAdmission(overlapScope, {
-      ...overlapLane,
-      targetedHeavyRequired: true,
-    });
+    const isolated = isolatedHostedDbAdmission(overlapScope);
+    const sharedPredicateMutant = priorHostedAdmission(overlapScope, overlapLane);
     const sharedPredicateMutantRow = {
-      mutant: "raise-shared-targeted-heavy-required",
+      mutant: "put-db-back-under-shared-targeted-heavy-required",
       isolatedDbExecutes: isolated.dbJobExecutes,
       isolatedE2eExecutes: isolated.e2eJobExecutes,
       mutantDbExecutes: sharedPredicateMutant.dbJobExecutes,
       mutantE2eExecutes: sharedPredicateMutant.e2eJobExecutes,
-      killed: isolated.dbJobExecutes && !isolated.e2eJobExecutes && sharedPredicateMutant.e2eJobExecutes,
+      killed: isolated.dbJobExecutes && !sharedPredicateMutant.dbJobExecutes,
     };
 
     expect(sharedPredicateMutantRow.killed).toBe(true);
+    expect(isolated.e2eJobExecutes).toBe(true);
+    expect(sharedPredicateMutant.e2eJobExecutes).toBe(true);
     console.info("hosted-db sibling mutant table", siblingMutantTable);
     console.info("hosted-db shared-predicate mutant", sharedPredicateMutantRow);
   });
