@@ -9,6 +9,7 @@ import * as outcomes from "../api/outcomes";
 import * as store from "../api/store";
 import * as client from "../../source-observations/api/providers/tcgplayer-automation-client";
 import * as admission from "../../source-observations/api/providers/provider-send-admission";
+import { catalogProductionTransport } from "../../source-observations/api/providers/catalog-fixture-transports";
 import * as budget from "../domain/rate-budget-context";
 
 // Test-only, source-derived mutants. No product files or shared module bindings are modified.
@@ -25,7 +26,17 @@ function bypass<T>(
   const mutated = stripTypeScriptTypes(source.replaceAll(needle, replacement), { mode: "transform" })
     .replace(/import\s*\{[\s\S]*?\}\s*from\s*"[^"]+";/g, "")
     .replace(/^export /gm, "");
-  const bindings = { ...postgres, ...secrets, ...readiness, ...value, ...outcomes, ...admission, ...budget, onBypass };
+  const bindings = {
+    ...postgres,
+    ...secrets,
+    ...readiness,
+    ...value,
+    ...outcomes,
+    ...admission,
+    ...budget,
+    catalogProductionTransport,
+    onBypass,
+  };
   return new Function(...Object.keys(bindings), `${mutated}\nreturn ${symbol};`)(...Object.values(bindings)) as T;
 }
 
