@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CatalogApiError } from "../client";
+import { ApiError as CatalogApiError } from "../support/shell-support/api/client";
 import { loader } from "../routes/admin/integrations";
 import { sourceObservationScope } from "../features/source-observations/ui/primary-workbench-test-fixtures";
 import {

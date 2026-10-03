@@ -194,8 +194,6 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.buyerHero.description":
     "Request early access to finish sets and decks, post open offers for the cards you want, and compare delivered totals before checkout.",
   "publicPresence.home.discordCta": "Join the founders circle on Discord",
-  "publicPresence.home.eyebrow": "Chase the cards. Complete the sets. Keep the margin.",
-  "publicPresence.home.buyerHero.eyebrow": "Complete the sets. See the total. Buy with confidence.",
   "publicPresence.home.feeCalculator.caption":
     "Marketplace fee, seller-paid payment processing, and what you keep selling {total}: Chase Sets versus TCGplayer and eBay.",
   "publicPresence.home.feeCalculator.capNote":
@@ -557,7 +555,6 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.routes.welcome.meta.title": "You're on the list | Chase Sets",
   "publicPresence.waitlist.badge": "Early access",
   "publicPresence.waitlist.compactDescription": "Prelaunch only. No buying, listing, or payment required.",
-  "publicPresence.waitlist.compactTitle": "Request early access",
   "publicPresence.waitlist.counter.label": "Join {count}+ collectors and sellers already on the list",
   "publicPresence.waitlist.impliedConsent": "We'll email you about early access. Unsubscribe anytime.",
   "publicPresence.waitlist.marketingConsent": "Also send me product updates and beta news",

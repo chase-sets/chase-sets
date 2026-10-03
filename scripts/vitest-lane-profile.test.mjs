@@ -88,7 +88,7 @@ test("preserves explicit workspace overrides in lane mode", () => {
   assert.equal(config.test.maxWorkers, 1);
 });
 
-test("keeps the exact 65+1 tracked Vitest config topology on the shared lane resolver", () => {
+test("keeps the exact 66+1 tracked Vitest config topology on the shared lane resolver", () => {
   const trackedConfigs = execFileSync("git", ["ls-files", "--", "*vitest*.config.*"], {
     cwd: repoRoot,
     encoding: "utf8",
@@ -99,8 +99,8 @@ test("keeps the exact 65+1 tracked Vitest config topology on the shared lane res
   const scriptsConfig = "vitest.scripts.config.mjs";
   const workspaceConfigs = trackedConfigs.filter((configPath) => configPath !== scriptsConfig);
 
-  assert.equal(trackedConfigs.length, 66);
-  assert.equal(workspaceConfigs.length, 65);
+  assert.equal(trackedConfigs.length, 67);
+  assert.equal(workspaceConfigs.length, 66);
   assert.deepEqual(
     trackedConfigs.filter((configPath) => configPath === scriptsConfig),
     [scriptsConfig],

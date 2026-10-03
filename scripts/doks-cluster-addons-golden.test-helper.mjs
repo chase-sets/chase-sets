@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
 export const originMainRef = "refs/remotes/origin/main";
@@ -7,7 +8,7 @@ export const dryRunEnvironments = ["staging", "production"];
 export const emptyAllowedNormalizedDeltas = Object.freeze([]);
 
 const dryRunTokenMarker = "do_dry_run_must_not_be_read";
-const temporaryBase = realpathSync(resolve("."));
+const temporaryBase = realpathSync(tmpdir());
 const fixedGitEnvironment = {
   GIT_AUTHOR_NAME: "DOKS golden fixture",
   GIT_AUTHOR_EMAIL: "doks-golden-fixture@invalid.example",

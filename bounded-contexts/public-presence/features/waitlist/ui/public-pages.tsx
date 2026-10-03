@@ -670,11 +670,6 @@ export function PublicPresenceHomePage({
             imageWidth={1600}
             imageHeight={1000}
             density="compact"
-            eyebrow={
-              landingExperimentVariant === landingExperimentVariants.sellerFirstV2
-                ? t("publicPresence.home.buyerHero.eyebrow")
-                : t("publicPresence.home.eyebrow")
-            }
             title={
               landingExperimentVariant === landingExperimentVariants.sellerFirstV2
                 ? heroTitleContent(t("publicPresence.home.buyerHero.title"), "cards")
@@ -1136,31 +1131,19 @@ function WaitlistSignupPanel({
   const panel = (
     <Surface id={panelId} elevation="elevated" glow padding={isHero ? 2 : 4}>
       <Stack gap={isHero ? 2 : 4}>
+        {/* The hero panel opens on the form so email and submit fit the first
+            phone screen (#8504); its notes and counter follow the button. */}
         {isHero ? (
-          <Stack gap={1}>
-            <Text weight="semibold">{t("publicPresence.waitlist.compactTitle")}</Text>
-            <Text size="sm" tone="secondary">
-              {t("publicPresence.waitlist.compactDescription")}
-            </Text>
-            {prefillGameLabel ? (
-              // Per-game proof point: a roster tile / per-game campaign link
-              // landed here, so the panel confirms which game is prefilled.
-              <Inline gap={1} align="center">
-                <Badge tone="info">{prefillGameLabel}</Badge>
-                <Text size="sm" tone="secondary">
-                  {t("publicPresence.waitlist.gamePrefill")}
-                </Text>
-              </Inline>
-            ) : null}
-            {waitlistCounterDisplay !== null ? (
-              <Inline gap={1} align="center">
-                <ToneIcon name="users" tone="primary" size="sm" />
-                <Text size="sm" weight="semibold">
-                  {t("publicPresence.waitlist.counter.label", { count: waitlistCounterDisplay })}
-                </Text>
-              </Inline>
-            ) : null}
-          </Stack>
+          prefillGameLabel ? (
+            // Per-game proof point: a roster tile / per-game campaign link
+            // landed here, so the panel confirms which game is prefilled.
+            <Inline gap={1} align="center">
+              <Badge tone="info">{prefillGameLabel}</Badge>
+              <Text size="sm" tone="secondary">
+                {t("publicPresence.waitlist.gamePrefill")}
+              </Text>
+            </Inline>
+          ) : null
         ) : (
           <Stack gap={2}>
             <BadgeRow>
@@ -1179,17 +1162,12 @@ function WaitlistSignupPanel({
         <Form spacing="none" method="post" action="?index" onSubmit={handleSubmit}>
           <Stack gap={isHero ? 2 : 4}>
             {isHero ? (
-              <Stack gap={1}>
-                <Text size="sm" weight="semibold">
-                  {t("publicPresence.waitlist.heroIntent.label")}
-                </Text>
-                <SegmentedControl
-                  aria-label={t("publicPresence.waitlist.heroIntent.label")}
-                  items={heroIntentItems}
-                  value={heroIntentValue(intent)}
-                  onValueChange={trackHeroIntentSelected}
-                />
-              </Stack>
+              <SegmentedControl
+                aria-label={t("publicPresence.waitlist.heroIntent.label")}
+                items={heroIntentItems}
+                value={heroIntentValue(intent)}
+                onValueChange={trackHeroIntentSelected}
+              />
             ) : null}
             <TextInput
               label={t("publicPresence.waitlist.email")}
@@ -1270,9 +1248,28 @@ function WaitlistSignupPanel({
             <Button type="submit" size={isHero ? "md" : "lg"} block leadingIcon="rocket">
               {t("publicPresence.waitlist.submit")}
             </Button>
-            <Text size="sm" tone="secondary">
-              {isHero ? t("publicPresence.waitlist.impliedConsent") : t("publicPresence.waitlist.noCommitment")}
-            </Text>
+            {isHero ? (
+              <Stack gap={1}>
+                <Text size="sm" tone="secondary">
+                  {t("publicPresence.waitlist.compactDescription")}
+                </Text>
+                <Text size="sm" tone="secondary">
+                  {t("publicPresence.waitlist.impliedConsent")}
+                </Text>
+              </Stack>
+            ) : (
+              <Text size="sm" tone="secondary">
+                {t("publicPresence.waitlist.noCommitment")}
+              </Text>
+            )}
+            {isHero && waitlistCounterDisplay !== null ? (
+              <Inline gap={1} align="center">
+                <ToneIcon name="users" tone="primary" size="sm" />
+                <Text size="sm" weight="semibold">
+                  {t("publicPresence.waitlist.counter.label", { count: waitlistCounterDisplay })}
+                </Text>
+              </Inline>
+            ) : null}
           </Stack>
         </Form>
       </Stack>
