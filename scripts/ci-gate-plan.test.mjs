@@ -1,17 +1,82 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
-import { classifyChanges } from "./change-scope.mjs";
+import { classifyChanges, listChangedFiles, toOutputMap } from "./change-scope.mjs";
 import {
   CI_GATE_CATEGORIES,
   CI_GATE_DEFINITIONS,
   CI_GATE_EXECUTABILITY,
   CI_GATE_SELECTIONS,
   FULL_BATTERY_LABELS,
+  ciGatePlanOutputMap,
   createCiGatePlan,
   validateCiGatePlan,
 } from "./ci-gate-plan.mjs";
-import { batchE2eSuiteIds } from "./e2e-suites.mjs";
+import { batchE2eSuiteIds, e2eSuites } from "./e2e-suites.mjs";
+import { listWorkspacePackages } from "./lib/repo.mjs";
+
+const selectionFixture = JSON.parse(readFileSync("scripts/fixtures/ci-e2e-selection.json", "utf8"));
+const E2E_SELECTION_BASE_SHA = "6dd05a038a8863a1b28a96d68ccdb7906a16bed4";
+const priorPlannerSource = execFileSync("git", ["show", `${E2E_SELECTION_BASE_SHA}:scripts/ci-gate-plan.mjs`], {
+  encoding: "utf8",
+}).replace('"./e2e-suites.mjs"', JSON.stringify(pathToFileURL(path.resolve("scripts/e2e-suites.mjs")).href));
+const priorDirectory = mkdtempSync(path.join(os.tmpdir(), "ci-e2e-baseline-"));
+let priorPlanner;
+try {
+  const priorFile = path.join(priorDirectory, "ci-gate-plan.mjs");
+  writeFileSync(priorFile, priorPlannerSource);
+  priorPlanner = await import(pathToFileURL(priorFile).href);
+} finally {
+  rmSync(priorDirectory, { recursive: true, force: true });
+}
+const { createCiGatePlan: priorCreateCiGatePlan, ciGatePlanOutputMap: priorOutputMap } = priorPlanner;
+const workspaces = listWorkspacePackages();
+const scopedCases = selectionFixture.cases.map((entry) => ({
+  ...entry,
+  scope: classifyChanges({ changedFiles: entry.changedFiles, workspaces }),
+}));
+
+function executedSuiteIds(plan, outputMap = ciGatePlanOutputMap) {
+  const gate = plan.gates.find(({ id }) => id === "e2e-tests");
+  return outputMap(plan).e2e_tests_required === "true"
+    ? gate.e2eBatches.flatMap((batch) => batch.split(",")).sort()
+    : [];
+}
+
+function assertExecutableParity(planner = createCiGatePlan) {
+  for (const entry of scopedCases) {
+    const group = executedSuiteIds(planner({ mode: "merge-group", scope: entry.scope }));
+    for (const scenario of scenarios.filter(({ mode }) => mode === "pull-request")) {
+      expect(
+        executedSuiteIds(planner({ ...scenario, scope: entry.scope })),
+        JSON.stringify(entry.changedFiles),
+      ).toEqual(group);
+    }
+  }
+}
+
+function assertPreservedSelection(planner = createCiGatePlan) {
+  for (const entry of scopedCases) {
+    expect(entry.scope.e2eSuiteIds).toEqual(entry.suiteIds);
+    for (const scenario of scenarios) {
+      const inputs = { ...scenario, scope: entry.scope };
+      const prior = priorCreateCiGatePlan(inputs);
+      const candidate = planner(inputs);
+      const expected = structuredClone(prior);
+      const e2e = expected.gates.find(({ id }) => id === "e2e-tests");
+      expect(e2e.e2eBatches).toEqual(entry.batches);
+      e2e.category = "scope-gated";
+      e2e.selection = entry.suiteIds.length > 0 ? "REQUIRED" : "NOT_REQUIRED";
+      e2e.reason = entry.suiteIds.length > 0 ? "scope" : "not-affected";
+      expect(candidate, `${JSON.stringify(entry.changedFiles)} ${JSON.stringify(scenario)}`).toEqual(expected);
+      expect(executedSuiteIds(candidate)).toEqual([...entry.suiteIds].sort());
+    }
+  }
+}
 
 const IMPLEMENTATION_BASE_SHA = "0b4bf3adde0adda5bae2060dd898443cb4dcdb21";
 execFileSync("git", ["cat-file", "-e", `${IMPLEMENTATION_BASE_SHA}^{commit}`], { stdio: "ignore" });
@@ -202,6 +267,266 @@ const scenarios = [
 ];
 
 describe("shared CI gate plan", () => {
+  it("incident #8493 executes the complete 29-path suite set before merge queue admission", () => {
+    expect(selectionFixture.incidentHead).toBe("6ad07d20f93f9e6fa5baef975583b71d9b4a1aac");
+    const historicalBase = execFileSync("git", ["merge-base", selectionFixture.incidentHead, E2E_SELECTION_BASE_SHA], {
+      encoding: "utf8",
+    }).trim();
+    const historicalPaths = execFileSync(
+      "git",
+      ["diff", "--name-only", historicalBase, selectionFixture.incidentHead],
+      {
+        encoding: "utf8",
+      },
+    )
+      .trim()
+      .split("\n");
+    expect(selectionFixture.incident).toEqual(historicalPaths);
+    expect(selectionFixture.incident).toHaveLength(29);
+    const scope = classifyChanges({ changedFiles: selectionFixture.incident, workspaces });
+    expect(scope.integrationRiskRequired).toBe(false);
+    expect(scope.e2eSuiteIds).toEqual(["marketplace_browse", "catalog_admin_integrations"]);
+    const inputs = { mode: "pull-request", provenance: "same-repository", labels: [], scope };
+    const baseline = priorCreateCiGatePlan(inputs);
+    expect(baseline.gates.find(({ id }) => id === "e2e-tests")).toMatchObject({
+      selection: "NOT_REQUIRED",
+      reason: "pr-fast-lane",
+      e2eBatches: ["marketplace_browse,catalog_admin_integrations"],
+    });
+    expect(executedSuiteIds(baseline, priorOutputMap)).toEqual([]);
+    for (const mode of ["pull-request", "merge-group"]) {
+      const plan = createCiGatePlan({ ...inputs, mode });
+      expect(plan.gates.find(({ id }) => id === "e2e-tests").selection).toBe("REQUIRED");
+      expect(executedSuiteIds(plan)).toEqual(["catalog_admin_integrations", "marketplace_browse"]);
+    }
+  });
+
+  it("enumerates every canonical mapping shape and its real executable territory", () => {
+    const source = readFileSync("scripts/e2e-suites.mjs", "utf8");
+    const names = [
+      "browserRuntimePatterns",
+      "contextSuiteOwnership",
+      "marketplaceContextRouteSuiteOwnership",
+      "adminContextRouteSuiteOwnership",
+      "e2eSpecSuiteOwnership",
+      "e2eNoSuiteExclusions",
+      "marketplaceRouteSuiteOwnership",
+      "boundedContextRouteSuiteOwnership",
+    ];
+    // Inspect ownership data only; the real classifier remains the sole selector.
+    const inventory = runInNewContext(
+      source
+        .slice(source.indexOf("const suiteOrder"), source.indexOf("function normalizeFilePath"))
+        .replaceAll("export const", "const") + `\n({${names.join(",")}})`,
+      { e2eSuites },
+    );
+    const families = Object.entries(inventory).flatMap(([name, entries]) =>
+      [...entries].map((entry, index) => {
+        if (Array.isArray(entry)) {
+          const suffix =
+            name === "contextSuiteOwnership"
+              ? "features/[^/]+/(?:api|ui)/"
+              : name === "marketplaceContextRouteSuiteOwnership"
+                ? "routes/marketplace/"
+                : "routes/(?:admin|access-admin|catalog-admin)/";
+          return {
+            family: `${name}:${entry[0]}`,
+            pattern: String(new RegExp(`^bounded-contexts/${entry[0]}/${suffix}`)),
+            suites: entry[1],
+          };
+        }
+        return { family: `${name}:${index}`, pattern: String(entry.pattern ?? entry), suites: entry.suites ?? null };
+      }),
+    );
+    expect(families).toEqual(
+      selectionFixture.families.map(({ family, pattern, suites }) => ({ family, pattern, suites })),
+    );
+    const tracked = new Set(execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" }).split("\0"));
+    for (const family of selectionFixture.families) {
+      const pattern = new RegExp(family.pattern.slice(1, -1));
+      expect(pattern.test(family.path), family.family).toBe(true);
+      expect(selectionFixture.cases.some(({ changedFiles }) => changedFiles.includes(family.path))).toBe(true);
+      if (!family.synthetic) expect(tracked.has(family.path), family.family).toBe(true);
+    }
+    // The registered SDK suite has no path ownership in the production selector.
+    // This change preserves that mapping rather than inventing a new one.
+    expect(new Set(scopedCases.flatMap(({ suiteIds }) => suiteIds))).toEqual(
+      new Set(e2eSuites.filter(({ id }) => id !== "platform_mcp_sdk").map(({ id }) => id)),
+    );
+    const prefixes = [...source.matchAll(/normalized\.startsWith\("([^"]+)"\)/g)].map((match) => match[1]);
+    expect(prefixes).toEqual([
+      "deployables/tcgplayer-connector-extension/",
+      "bounded-contexts/channels/features/connector-client/",
+      "deployables/marketplace/",
+      "deployables/admin-web/",
+      "deployables/platform-api/",
+      "packages/design-system/",
+    ]);
+    for (const prefix of prefixes)
+      expect(scopedCases.some(({ changedFiles }) => changedFiles.some((file) => file.startsWith(prefix)))).toBe(true);
+    expect(selectionFixture.families.filter(({ synthetic }) => synthetic)).toHaveLength(6);
+  });
+
+  it("selects identical executable E2E sets across modes, provenance and labels", () => {
+    assertExecutableParity();
+  });
+
+  it("feeds real modified, added, deleted and both renamed paths through the classifier and output consumers", () => {
+    const temporary = mkdtempSync(path.join(os.tmpdir(), "ci-e2e-path-operations-"));
+    const git = (args) =>
+      execFileSync("git", args, { cwd: temporary, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    const paths = scopedCases
+      .filter(({ changedFiles }) => changedFiles.length === 1)
+      .map(({ changedFiles }) => changedFiles[0]);
+    const writePaths = (content) => {
+      for (const file of paths) {
+        const target = path.join(temporary, file);
+        mkdirSync(path.dirname(target), { recursive: true });
+        writeFileSync(target, content);
+      }
+    };
+    const commit = () => {
+      git(["add", "--all"]);
+      git([
+        "-c",
+        "user.name=CI selection fixture",
+        "-c",
+        "user.email=ci-selection@example.invalid",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "--quiet",
+        "-m",
+        "Synthetic path operation",
+      ]);
+      return git(["rev-parse", "HEAD"]);
+    };
+    const check = (base, head, expectedPaths) => {
+      const changedFiles = listChangedFiles(base, head, { cwd: temporary });
+      expect(changedFiles).toEqual([...expectedPaths].sort());
+      for (const files of [changedFiles, ...changedFiles.map((file) => [file])]) {
+        const scope = classifyChanges({ changedFiles: files, workspaces });
+        const batches = JSON.parse(toOutputMap(scope).e2e_suite_batches_json);
+        const group = createCiGatePlan({ mode: "merge-group", scope });
+        const priorGroup = priorCreateCiGatePlan({ mode: "merge-group", scope });
+        expect(executedSuiteIds(group)).toEqual(executedSuiteIds(priorGroup, priorOutputMap));
+        expect(group.gates.find(({ id }) => id === "e2e-tests").e2eBatches).toEqual(batches);
+        for (const scenario of scenarios.filter(({ mode }) => mode === "pull-request")) {
+          expect(executedSuiteIds(createCiGatePlan({ ...scenario, scope }))).toEqual(executedSuiteIds(group));
+        }
+      }
+    };
+    try {
+      git(["init", "--quiet"]);
+      writePaths("Synthetic fixture baseline\n");
+      let base = commit();
+      writePaths("Synthetic fixture modified\n");
+      let head = commit();
+      check(base, head, paths);
+      base = head;
+      for (const file of paths) rmSync(path.join(temporary, file));
+      head = commit();
+      check(base, head, paths);
+      base = head;
+      writePaths("Synthetic fixture added\n");
+      head = commit();
+      check(base, head, paths);
+      base = head;
+      const rename = scopedCases.at(-1).changedFiles;
+      mkdirSync(path.dirname(path.join(temporary, rename[1])), { recursive: true });
+      git(["mv", rename[0], rename[1]]);
+      head = commit();
+      check(base, head, rename);
+    } finally {
+      rmSync(temporary, { recursive: true, force: true });
+    }
+  });
+
+  it("locks baseline-versus-candidate selection with only enumerated E2E deltas", () => {
+    expect(selectionFixture.baseSha).toBe(E2E_SELECTION_BASE_SHA);
+    assertPreservedSelection();
+  });
+
+  it("kills arbitrary-path merge-group-only mapping, blanket-all-suites and group-shard-removal mutants independently", () => {
+    const mutate = (change) => (inputs) => {
+      const plan = createCiGatePlan(inputs);
+      change(plan, inputs);
+      return plan;
+    };
+    const groupOnlyMapping = mutate((plan, inputs) => {
+      if (inputs.mode === "merge-group" && inputs.scope.changedFiles.includes("scripts/ci-gate-plan.mjs")) {
+        const gate = plan.gates.find(({ id }) => id === "e2e-tests");
+        gate.selection = "REQUIRED";
+        gate.e2eBatches = ["admin_access"];
+      }
+    });
+    expect(() => assertExecutableParity(groupOnlyMapping)).toThrow();
+    const blanketAllSuites = mutate((plan) => {
+      const gate = plan.gates.find(({ id }) => id === "e2e-tests");
+      gate.selection = "REQUIRED";
+      gate.e2eBatches = batchE2eSuiteIds(e2eSuites.map(({ id }) => id));
+    });
+    expect(() => assertPreservedSelection(blanketAllSuites)).toThrow();
+    const removeGroupShard = mutate((plan, inputs) => {
+      if (inputs.mode === "merge-group") plan.gates.find(({ id }) => id === "e2e-tests").e2eBatches.pop();
+    });
+    expect(() => assertPreservedSelection(removeGroupShard)).toThrow();
+    assertExecutableParity();
+    assertPreservedSelection();
+  });
+
+  it("binds real PR github-output CLI admission to hosted E2E condition and scope batch wiring", () => {
+    const scope = classifyChanges({ changedFiles: selectionFixture.incident, workspaces });
+    const temporary = mkdtempSync(path.join(os.tmpdir(), "ci-e2e-output-"));
+    const outputFile = path.join(temporary, "github-output");
+    try {
+      execFileSync(process.execPath, ["scripts/ci-gate-plan.mjs", "github-output"], {
+        env: {
+          ...process.env,
+          GITHUB_OUTPUT: outputFile,
+          CI_GATE_PLAN_MODE: "pull-request",
+          CI_GATE_PLAN_LABELS_JSON: "[]",
+          CI_GATE_PLAN_PROVENANCE: "same-repository",
+          CI_GATE_PLAN_SCOPE_JSON: JSON.stringify(scope),
+        },
+        stdio: "pipe",
+      });
+      const outputs = Object.fromEntries(
+        readFileSync(outputFile, "utf8")
+          .trim()
+          .split("\n")
+          .map((line) => {
+            const delimiter = line.indexOf("=");
+            return [line.slice(0, delimiter), line.slice(delimiter + 1)];
+          }),
+      );
+      expect(outputs.e2e_tests_required).toBe("true");
+      expect(outputs.full_battery_required).toBe("false");
+      expect(outputs.targeted_heavy_required).toBe("false");
+      expect(executedSuiteIds(JSON.parse(outputs.plan_json))).toEqual([
+        "catalog_admin_integrations",
+        "marketplace_browse",
+      ]);
+      expect(workflowCondition(headWorkflow, "e2e-tests")).toBe(
+        "needs['change-scope'].outputs.e2e_tests_required == 'true'",
+      );
+      expect(workflowJob(headWorkflow, "e2e-tests").text).toContain(
+        "suite_batch: ${{ fromJson(needs['change-scope'].outputs.e2e_suite_batches_json) }}",
+      );
+      expect(workflowJob(headWorkflow, "change-scope").text).toContain(
+        "e2e_tests_required: ${{ steps.gate-plan.outputs.e2e_tests_required }}",
+      );
+      expect(workflowJob(headWorkflow, "change-scope").text).toContain(
+        "e2e_suite_batches_json: ${{ steps.scope.outputs.e2e_suite_batches_json }}",
+      );
+      expect(workflowJob(headWorkflow, "change-scope").text).toContain(
+        "CI_GATE_PLAN_SCOPE_JSON: ${{ steps.scope.outputs.scope_json }}",
+      );
+    } finally {
+      rmSync(temporary, { recursive: true, force: true });
+    }
+  });
+
   it("requires DB tests for platform-pr workflow alone without narrowing the all-DB workspace list", () => {
     const scope = classifyChanges({ changedFiles: [".github/workflows/platform-pr.yml"] });
     const plan = createCiGatePlan({ mode: "pull-request", provenance: "same-repository", labels: [], scope });
@@ -223,12 +548,14 @@ describe("shared CI gate plan", () => {
         const plan = createCiGatePlan({ ...scenario, scope });
         for (const gate of plan.gates) {
           const expectedRequired = baseSelection(gate.id, { ...scenario, scope });
-          const expected = expectedRequired ? "REQUIRED" : "NOT_REQUIRED";
-          const reason = expectedReason(gate.id, baseCategories.get(gate.id), expectedRequired, { ...scenario, scope });
+          const category = gate.id === "e2e-tests" ? "scope-gated" : baseCategories.get(gate.id);
+          const required = gate.id === "e2e-tests" ? scope.e2eTestsRequired : expectedRequired;
+          const expected = required ? "REQUIRED" : "NOT_REQUIRED";
+          const reason = expectedReason(gate.id, category, required, { ...scenario, scope });
           if (gate.selection !== expected || gate.reason !== reason) {
             deltas.push({ case: testCase.name, scenario, gate: gate.id, expected, actual: gate.selection, reason });
           }
-          expect(gate.category).toBe(baseCategories.get(gate.id));
+          expect(gate.category).toBe(category);
           expect(gate.affectedWorkspaces).toEqual(scope.affectedWorkspaces);
           expect(gate.e2eBatches).toEqual(gate.id === "e2e-tests" ? batchE2eSuiteIds(scope.e2eSuiteIds) : []);
         }
@@ -259,6 +586,10 @@ describe("shared CI gate plan", () => {
     expect(categories.get("db-tests")).toBe("scope-gated");
     expect(categories.get("terraform-observability-plan")).toBe("scope-gated");
     expect(categories.get("e2e-tests")).toBe("targeted-heavy");
+    expect(CI_GATE_DEFINITIONS.find(({ id }) => id === "e2e-tests").category).toBe("scope-gated");
+    expect(new Set(CI_GATE_DEFINITIONS.map(({ category }) => category))).toEqual(
+      new Set(CI_GATE_CATEGORIES.filter((category) => category !== "targeted-heavy")),
+    );
     expect(categories.get("preview-deploy-smoke")).toBe("pr-complement");
     expect(categories.get("compose-preview-smoke")).toBe("pr-complement");
     const outside = workflowJobs(baseWorkflow)
@@ -315,7 +646,7 @@ describe("shared CI gate plan", () => {
     expect(() => validateCiGatePlan(executeHostedOnlyGate)).toThrow("GATE_EXECUTABILITY_MISMATCH");
   });
 
-  it("keeps DB scope-gated while E2E remains targeted-heavy on the same diff", () => {
+  it("keeps DB and E2E scope-gated without broadening the targeted-heavy lane", () => {
     const scope = classifyChanges({ changedFiles: ["bounded-contexts/checkout/features/cart/ui/cart-page.tsx"] });
     expect(scope.dbTestsRequired).toBe(true);
     expect(scope.e2eTestsRequired).toBe(true);
@@ -336,8 +667,8 @@ describe("shared CI gate plan", () => {
     }
     const fast = createCiGatePlan({ mode: "pull-request", labels: [], provenance: "same-repository", scope });
     expect(fast.gates.find(({ id }) => id === "e2e-tests")).toMatchObject({
-      selection: "NOT_REQUIRED",
-      reason: "pr-fast-lane",
+      selection: "REQUIRED",
+      reason: "scope",
     });
     const mergeGroup = createCiGatePlan({ mode: "merge-group", scope });
     expect(mergeGroup.gates.find(({ id }) => id === "e2e-tests").selection).toBe("REQUIRED");
