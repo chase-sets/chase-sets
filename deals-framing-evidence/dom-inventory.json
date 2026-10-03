@@ -1,0 +1,1221 @@
+{
+  "sourceSha": "e91424f42efad822fd6fe5363753818a1aed2fff",
+  "baseUrl": "http://localhost:5291",
+  "capturedAt": "2026-10-03T21:27:03.534Z",
+  "states": [
+    {
+      "label": "A-buy-desktop",
+      "url": "http://localhost:5291/deals-framing-probe?variant=a&side=buy",
+      "status": 200,
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900,
+        "canonical": true
+      },
+      "screenshot": "screenshots/A-buy-desktop-1440x900.png",
+      "unlisted": [],
+      "designSystemInternal": [
+        "Table data loaded"
+      ],
+      "dom": {
+        "variant": "a",
+        "side": "buy",
+        "rowCount": 0,
+        "innerWidth": 1440,
+        "innerHeight": 900,
+        "title": [
+          "Deals"
+        ],
+        "segments": [
+          "Buy",
+          "Sell"
+        ],
+        "checkedSegment": [
+          "Buy"
+        ],
+        "segmentGroupName": "Deals",
+        "tableHeaders": [],
+        "mobileLabels": [],
+        "visibleRows": 0,
+        "badges": [],
+        "badgeClasses": [],
+        "gapCells": [],
+        "actions": [],
+        "filtersHeading": [
+          "Filters",
+          "No items found"
+        ],
+        "emptyState": [
+          "No items found",
+          "0 rows in the frozen #7898 Capture 3 fixture."
+        ],
+        "visibleLeafTexts": [
+          "Filters",
+          "Deals",
+          "Buy",
+          "Sell",
+          "Sort",
+          "Newest",
+          "Table data loaded",
+          "No items found",
+          "0 rows in the frozen #7898 Capture 3 fixture.",
+          "0 items selected"
+        ]
+      }
+    },
+    {
+      "label": "A-sell-desktop",
+      "url": "http://localhost:5291/deals-framing-probe?variant=a&side=sell",
+      "status": 200,
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900,
+        "canonical": true
+      },
+      "screenshot": "screenshots/A-sell-desktop-1440x900.png",
+      "unlisted": [],
+      "designSystemInternal": [
+        "Table data loaded"
+      ],
+      "dom": {
+        "variant": "a",
+        "side": "sell",
+        "rowCount": 2,
+        "innerWidth": 1440,
+        "innerHeight": 900,
+        "title": [
+          "Deals"
+        ],
+        "segments": [
+          "Buy",
+          "Sell"
+        ],
+        "checkedSegment": [
+          "Sell"
+        ],
+        "segmentGroupName": "Deals",
+        "tableHeaders": [
+          "Product",
+          "Price",
+          "Benchmark",
+          "Quantity",
+          "Action"
+        ],
+        "mobileLabels": [],
+        "visibleRows": 2,
+        "badges": [
+          "Deal",
+          "Deal"
+        ],
+        "badgeClasses": [
+          "inline-flex items-center gap-1 rounded-tokenMd border px-2.5 py-1 text-xs font-semibold shadow-tokenSm border-deal-soft bg-deal-soft text-deal",
+          "inline-flex items-center gap-1 rounded-tokenMd border px-2.5 py-1 text-xs font-semibold shadow-tokenSm border-deal-soft bg-deal-soft text-deal"
+        ],
+        "gapCells": [
+          "+$0.30 · +1.67% above the median of $17.95",
+          "+$0.05 · +0.28% above the median of $17.95"
+        ],
+        "actions": [
+          "Add to Sell List",
+          "Add to Sell List"
+        ],
+        "filtersHeading": [
+          "Filters"
+        ],
+        "emptyState": [
+          "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_excellent|dim_seed_grading_company:-|dim_seed_grade:-",
+          "+$0.30 · +1.67% above the median of $17.95",
+          "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_excellent|dim_seed_grading_company:-|dim_seed_grade:-",
+          "+$0.05 · +0.28% above the median of $17.95"
+        ],
+        "visibleLeafTexts": [
+          "Filters",
+          "Deals",
+          "Buy",
+          "Sell",
+          "Sort",
+          "Newest",
+          "Table data loaded",
+          "Product",
+          "Price",
+          "Benchmark",
+          "Quantity",
+          "Action",
+          "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_excellent|dim_seed_grading_company:-|dim_seed_grade:-",
+          "$18.25",
+          "Deal",
+          "+$0.30 · +1.67% above the median of $17.95",
+          "4",
+          "Add to Sell List",
+          "$18.00",
+          "+$0.05 · +0.28% above the median of $17.95",
+          "8",
+          "0 items selected"
+        ]
+      }
+    },
+    {
+      "label": "B-buy-desktop",
+      "url": "http://localhost:5291/deals-framing-probe?variant=b&side=buy",
+      "status": 200,
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900,
+        "canonical": true
+      },
+      "screenshot": "screenshots/B-buy-desktop-1440x900.png",
+      "unlisted": [],
+      "designSystemInternal": [
+        "Table data loaded"
+      ],
+      "dom": {
+        "variant": "b",
+        "side": "buy",
+        "rowCount": 0,
+        "innerWidth": 1440,
+        "innerHeight": 900,
+        "title": [
+          "Under market"
+        ],
+        "segments": [
+          "Under market",
+          "Over market"
+        ],
+        "checkedSegment": [
+          "Under market"
+        ],
+        "segmentGroupName": "Under market",
+        "tableHeaders": [],
+        "mobileLabels": [],
+        "visibleRows": 0,
+        "badges": [],
+        "badgeClasses": [],
+        "gapCells": [],
+        "actions": [],
+        "filtersHeading": [
+          "Filters",
+          "No items found"
+        ],
+        "emptyState": [
+          "No items found",
+          "0 rows in the frozen #7898 Capture 3 fixture."
+        ],
+        "visibleLeafTexts": [
+          "Filters",
+          "Under market",
+          "Over market",
+          "Sort",
+          "Newest",
+          "Table data loaded",
+          "No items found",
+          "0 rows in the frozen #7898 Capture 3 fixture.",
+          "0 items selected"
+        ]
+      }
+    },
+    {
+      "label": "B-sell-desktop",
+      "url": "http://localhost:5291/deals-framing-probe?variant=b&side=sell",
+      "status": 200,
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900,
+        "canonical": true
+      },
+      "screenshot": "screenshots/B-sell-desktop-1440x900.png",
+      "unlisted": [],
+      "designSystemInternal": [
+        "Table data loaded"
+      ],
+      "dom": {
+        "variant": "b",
+        "side": "sell",
+        "rowCount": 2,
+        "innerWidth": 1440,
+        "innerHeight": 900,
+        "title": [
+          "Over market"
+        ],
+        "segments": [
+          "Under market",
+          "Over market"
+        ],
+        "checkedSegment": [
+          "Over market"
+        ],
+        "segmentGroupName": "Over market",
+        "tableHeaders": [
+          "Product",
+          "Price",
+          "Quantity",
+          "Action"
+        ],
+        "mobileLabels": [],
+        "visibleRows": 2,
+        "badges": [
+          "Over market",
+          "Over market"
+        ],
+        "badgeClasses": [
+          "inline-flex items-center gap-1 rounded-tokenMd border px-2.5 py-1 text-xs font-semibold shadow-tokenSm border-muted bg-background text-secondary",
+          "inline-flex items-center gap-1 rounded-tokenMd border px-2.5 py-1 text-xs font-semibold shadow-tokenSm border-muted bg-background text-secondary"
+        ],
+        "gapCells": [
+          "$18.25 · median $17.95 · +1.67%",
+          "$18.00 · median $17.95 · +0.28%"
+        ],
+        "actions": [
+          "Add to Sell List",
+          "Add to Sell List"
+        ],
+        "filtersHeading": [
+          "Filters"
+        ],
+        "emptyState": [
+          "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_excellent|dim_seed_grading_company:-|dim_seed_grade:-",
+          "$18.25 · median $17.95 · +1.67%",
+          "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_excellent|dim_seed_grading_company:-|dim_seed_grade:-",
+          "$18.00 · median $17.95 · +0.28%"
+        ],
+        "visibleLeafTexts": [
+          "Filters",
+          "Over market",
+          "Under market",
+          "Sort",
+          "Newest",
+          "Table data loaded",
+          "Product",
+          "Price",
+          "Quantity",
+          "Action",
+          "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_excellent|dim_seed_grading_company:-|dim_seed_grade:-",
+          "$18.25 · median $17.95 · +1.67%",
+          "4",
+          "Add to Sell List",
+          "$18.00 · median $17.95 · +0.28%",
+          "8",
+          "0 items selected"
+        ]
+      }
+    },
+    {
+      "label": "A-buy-mobile",
+      "url": "http://localhost:5291/deals-framing-probe?variant=a&side=buy",
+      "status": 200,
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844,
+        "canonical": true
+      },
+      "screenshot": "screenshots/A-buy-mobile-390x844.png",
+      "unlisted": [],
+      "designSystemInternal": [
+        "Table data loaded"
+      ],
+      "dom": {
+        "variant": "a",
+        "side": "buy",
+        "rowCount": 0,
+        "innerWidth": 390,
+        "innerHeight": 844,
+        "title": [
+          "Deals"
+        ],
+        "segments": [
+          "Buy",
+          "Sell"
+        ],
+        "checkedSegment": [
+          "Buy"
+        ],
+        "segmentGroupName": "Deals",
+        "tableHeaders": [],
+        "mobileLabels": [],
+        "visibleRows": 0,
+        "badges": [],
+        "badgeClasses": [],
+        "gapCells": [],
+        "actions": [],
+        "filtersHeading": [
+          "Filters",
+          "No items found"
+        ],
+        "emptyState": [
+          "No items found",
+          "0 rows in the frozen #7898 Capture 3 fixture."
+        ],
+        "visibleLeafTexts": [
+          "Filters",
+          "Deals",
+          "Buy",
+          "Sell",
+          "Sort",
+          "Newest",
+          "Table data loaded",
+          "No items found",
+          "0 rows in the frozen #7898 Capture 3 fixture.",
+          "0 items selected"
+        ]
+      }
+    },
+    {
+      "label": "A-sell-mobile",
+      "url": "http://localhost:5291/deals-framing-probe?variant=a&side=sell",
+      "status": 200,
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844,
+        "canonical": true
+      },
+      "screenshot": "screenshots/A-sell-mobile-390x844.png",
+      "unlisted": [],
+      "designSystemInternal": [
+        "Table data loaded"
+      ],
+      "dom": {
+        "variant": "a",
+        "side": "sell",
+        "rowCount": 2,
+        "innerWidth": 390,
+        "innerHeight": 844,
+        "title": [
+          "Deals"
+        ],
+        "segments": [
+          "Buy",
+          "Sell"
+        ],
+        "checkedSegment": [
+          "Sell"
+        ],
+        "segmentGroupName": "Deals",
+        "tableHeaders": [],
+        "mobileLabels": [
+          "PRODUCT",
+          "PRICE",
+          "BENCHMARK",
+          "QUANTITY",
+          "ACTION",
+          "PRODUCT",
+          "PRICE",
+          "BENCHMARK",
+          "QUANTITY",
+          "ACTION"
+        ],
+        "visibleRows": 2,
+        "badges": [
+          "Deal",
+          "Deal"
+        ],
+        "badgeClasses": [
+          "inline-flex items-center gap-1 rounded-tokenMd border px-2.5 py-1 text-xs font-semibold shadow-tokenSm border-deal-soft bg-deal-soft text-deal",
+          "inline-flex items-center gap-1 rounded-tokenMd border px-2.5 py-1 text-xs font-semibold shadow-tokenSm border-deal-soft bg-deal-soft text-deal"
+        ],
+        "gapCells": [
+          "+$0.30 · +1.67% above the median of $17.95",
+          "+$0.05 · +0.28% above the median of $17.95"
+        ],
+        "actions": [
+          "Add to Sell List",
+          "Add to Sell List"
+        ],
+        "filtersHeading": [
+          "Filters"
+        ],
+        "emptyState": [
+          "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_excellent|dim_seed_grading_company:-|dim_seed_grade:-",
+          "+$0.30 · +1.67% above the median of $17.95",
+          "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_excellent|dim_seed_grading_company:-|dim_seed_grade:-",
+          "+$0.05 · +0.28% above the median of $17.95"
+        ],
+        "visibleLeafTexts": [
+          "Filters",
+          "Deals",
+          "Buy",
+          "Sell",
+          "Sort",
+          "Newest",
+          "Table data loaded",
+          "Product",
+          "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_excellent|dim_seed_grading_company:-|dim_seed_grade:-",
+          "Price",
+          "$18.25",
+          "Benchmark",
+          "Deal",
+          "+$0.30 · +1.67% above the median of $17.95",
+          "Quantity",
+          "4",
+          "Action",
+          "Add to Sell List",
+          "$18.00",
+          "+$0.05 · +0.28% above the median of $17.95",
+          "8",
+          "0 items selected"
+        ]
+      }
+    },
+    {
+      "label": "B-buy-mobile",
+      "url": "http://localhost:5291/deals-framing-probe?variant=b&side=buy",
+      "status": 200,
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844,
+        "canonical": true
+      },
+      "screenshot": "screenshots/B-buy-mobile-390x844.png",
+      "unlisted": [],
+      "designSystemInternal": [
+        "Table data loaded"
+      ],
+      "dom": {
+        "variant": "b",
+        "side": "buy",
+        "rowCount": 0,
+        "innerWidth": 390,
+        "innerHeight": 844,
+        "title": [
+          "Under market"
+        ],
+        "segments": [
+          "Under market",
+          "Over market"
+        ],
+        "checkedSegment": [
+          "Under market"
+        ],
+        "segmentGroupName": "Under market",
+        "tableHeaders": [],
+        "mobileLabels": [],
+        "visibleRows": 0,
+        "badges": [],
+        "badgeClasses": [],
+        "gapCells": [],
+        "actions": [],
+        "filtersHeading": [
+          "Filters",
+          "No items found"
+        ],
+        "emptyState": [
+          "No items found",
+          "0 rows in the frozen #7898 Capture 3 fixture."
+        ],
+        "visibleLeafTexts": [
+          "Filters",
+          "Under market",
+          "Over market",
+          "Sort",
+          "Newest",
+          "Table data loaded",
+          "No items found",
+          "0 rows in the frozen #7898 Capture 3 fixture.",
+          "0 items selected"
+        ]
+      }
+    },
+    {
+      "label": "B-sell-mobile",
+      "url": "http://localhost:5291/deals-framing-probe?variant=b&side=sell",
+      "status": 200,
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844,
+        "canonical": true
+      },
+      "screenshot": "screenshots/B-sell-mobile-390x844.png",
+      "unlisted": [],
+      "designSystemInternal": [
+        "Table data loaded"
+      ],
+      "dom": {
+        "variant": "b",
+        "side": "sell",
+        "rowCount": 2,
+        "innerWidth": 390,
+        "innerHeight": 844,
+        "title": [
+          "Over market"
+        ],
+        "segments": [
+          "Under market",
+          "Over market"
+        ],
+        "checkedSegment": [
+          "Over market"
+        ],
+        "segmentGroupName": "Over market",
+        "tableHeaders": [],
+        "mobileLabels": [
+          "PRODUCT",
+          "PRICE",
+          "QUANTITY",
+          "ACTION",
+          "PRODUCT",
+          "PRICE",
+          "QUANTITY",
+          "ACTION"
+        ],
+        "visibleRows": 2,
+        "badges": [
+          "Over market",
+          "Over market"
+        ],
+        "badgeClasses": [
+          "inline-flex items-center gap-1 rounded-tokenMd border px-2.5 py-1 text-xs font-semibold shadow-tokenSm border-muted bg-background text-secondary",
+          "inline-flex items-center gap-1 rounded-tokenMd border px-2.5 py-1 text-xs font-semibold shadow-tokenSm border-muted bg-background text-secondary"
+        ],
+        "gapCells": [
+          "$18.25 · median $17.95 · +1.67%",
+          "$18.00 · median $17.95 · +0.28%"
+        ],
+        "actions": [
+          "Add to Sell List",
+          "Add to Sell List"
+        ],
+        "filtersHeading": [
+          "Filters"
+        ],
+        "emptyState": [
+          "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_excellent|dim_seed_grading_company:-|dim_seed_grade:-",
+          "$18.25 · median $17.95 · +1.67%",
+          "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_excellent|dim_seed_grading_company:-|dim_seed_grade:-",
+          "$18.00 · median $17.95 · +0.28%"
+        ],
+        "visibleLeafTexts": [
+          "Filters",
+          "Over market",
+          "Under market",
+          "Sort",
+          "Newest",
+          "Table data loaded",
+          "Product",
+          "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_excellent|dim_seed_grading_company:-|dim_seed_grade:-",
+          "Price",
+          "$18.25 · median $17.95 · +1.67%",
+          "Quantity",
+          "4",
+          "Action",
+          "Add to Sell List",
+          "$18.00 · median $17.95 · +0.28%",
+          "8",
+          "0 items selected"
+        ]
+      }
+    },
+    {
+      "label": "A-buy-desktop-1280x900",
+      "url": "http://localhost:5291/deals-framing-probe?variant=a&side=buy",
+      "status": 200,
+      "viewport": {
+        "name": "desktop-1280x900",
+        "width": 1280,
+        "height": 900,
+        "canonical": false
+      },
+      "screenshot": "supplementary/A-buy-desktop-1280x900.png",
+      "unlisted": [],
+      "designSystemInternal": [
+        "Table data loaded"
+      ],
+      "dom": {
+        "variant": "a",
+        "side": "buy",
+        "rowCount": 0,
+        "innerWidth": 1280,
+        "innerHeight": 900,
+        "title": [
+          "Deals"
+        ],
+        "segments": [
+          "Buy",
+          "Sell"
+        ],
+        "checkedSegment": [
+          "Buy"
+        ],
+        "segmentGroupName": "Deals",
+        "tableHeaders": [],
+        "mobileLabels": [],
+        "visibleRows": 0,
+        "badges": [],
+        "badgeClasses": [],
+        "gapCells": [],
+        "actions": [],
+        "filtersHeading": [
+          "Filters",
+          "No items found"
+        ],
+        "emptyState": [
+          "No items found",
+          "0 rows in the frozen #7898 Capture 3 fixture."
+        ],
+        "visibleLeafTexts": [
+          "Filters",
+          "Deals",
+          "Buy",
+          "Sell",
+          "Sort",
+          "Newest",
+          "Table data loaded",
+          "No items found",
+          "0 rows in the frozen #7898 Capture 3 fixture.",
+          "0 items selected"
+        ]
+      }
+    },
+    {
+      "label": "A-sell-desktop-1280x900",
+      "url": "http://localhost:5291/deals-framing-probe?variant=a&side=sell",
+      "status": 200,
+      "viewport": {
+        "name": "desktop-1280x900",
+        "width": 1280,
+        "height": 900,
+        "canonical": false
+      },
+      "screenshot": "supplementary/A-sell-desktop-1280x900.png",
+      "unlisted": [],
+      "designSystemInternal": [
+        "Table data loaded"
+      ],
+      "dom": {
+        "variant": "a",
+        "side": "sell",
+        "rowCount": 2,
+        "innerWidth": 1280,
+        "innerHeight": 900,
+        "title": [
+          "Deals"
+        ],
+        "segments": [
+          "Buy",
+          "Sell"
+        ],
+        "checkedSegment": [
+          "Sell"
+        ],
+        "segmentGroupName": "Deals",
+        "tableHeaders": [
+          "Product",
+          "Price",
+          "Benchmark",
+          "Quantity",
+          "Action"
+        ],
+        "mobileLabels": [],
+        "visibleRows": 2,
+        "badges": [
+          "Deal",
+          "Deal"
+        ],
+        "badgeClasses": [
+          "inline-flex items-center gap-1 rounded-tokenMd border px-2.5 py-1 text-xs font-semibold shadow-tokenSm border-deal-soft bg-deal-soft text-deal",
+          "inline-flex items-center gap-1 rounded-tokenMd border px-2.5 py-1 text-xs font-semibold shadow-tokenSm border-deal-soft bg-deal-soft text-deal"
+        ],
+        "gapCells": [
+          "+$0.30 · +1.67% above the median of $17.95",
+          "+$0.05 · +0.28% above the median of $17.95"
+        ],
+        "actions": [
+          "Add to Sell List",
+          "Add to Sell List"
+        ],
+        "filtersHeading": [
+          "Filters"
+        ],
+        "emptyState": [
+          "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_excellent|dim_seed_grading_company:-|dim_seed_grade:-",
+          "+$0.30 · +1.67% above the median of $17.95",
+          "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_excellent|dim_seed_grading_company:-|dim_seed_grade:-",
+          "+$0.05 · +0.28% above the median of $17.95"
+        ],
+        "visibleLeafTexts": [
+          "Filters",
+          "Deals",
+          "Buy",
+          "Sell",
+          "Sort",
+          "Newest",
+          "Table data loaded",
+          "Product",
+          "Price",
+          "Benchmark",
+          "Quantity",
+          "Action",
+          "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_excellent|dim_seed_grading_company:-|dim_seed_grade:-",
+          "$18.25",
+          "Deal",
+          "+$0.30 · +1.67% above the median of $17.95",
+          "4",
+          "Add to Sell List",
+          "$18.00",
+          "+$0.05 · +0.28% above the median of $17.95",
+          "8",
+          "0 items selected"
+        ]
+      }
+    },
+    {
+      "label": "B-buy-desktop-1280x900",
+      "url": "http://localhost:5291/deals-framing-probe?variant=b&side=buy",
+      "status": 200,
+      "viewport": {
+        "name": "desktop-1280x900",
+        "width": 1280,
+        "height": 900,
+        "canonical": false
+      },
+      "screenshot": "supplementary/B-buy-desktop-1280x900.png",
+      "unlisted": [],
+      "designSystemInternal": [
+        "Table data loaded"
+      ],
+      "dom": {
+        "variant": "b",
+        "side": "buy",
+        "rowCount": 0,
+        "innerWidth": 1280,
+        "innerHeight": 900,
+        "title": [
+          "Under market"
+        ],
+        "segments": [
+          "Under market",
+          "Over market"
+        ],
+        "checkedSegment": [
+          "Under market"
+        ],
+        "segmentGroupName": "Under market",
+        "tableHeaders": [],
+        "mobileLabels": [],
+        "visibleRows": 0,
+        "badges": [],
+        "badgeClasses": [],
+        "gapCells": [],
+        "actions": [],
+        "filtersHeading": [
+          "Filters",
+          "No items found"
+        ],
+        "emptyState": [
+          "No items found",
+          "0 rows in the frozen #7898 Capture 3 fixture."
+        ],
+        "visibleLeafTexts": [
+          "Filters",
+          "Under market",
+          "Over market",
+          "Sort",
+          "Newest",
+          "Table data loaded",
+          "No items found",
+          "0 rows in the frozen #7898 Capture 3 fixture.",
+          "0 items selected"
+        ]
+      }
+    },
+    {
+      "label": "B-sell-desktop-1280x900",
+      "url": "http://localhost:5291/deals-framing-probe?variant=b&side=sell",
+      "status": 200,
+      "viewport": {
+        "name": "desktop-1280x900",
+        "width": 1280,
+        "height": 900,
+        "canonical": false
+      },
+      "screenshot": "supplementary/B-sell-desktop-1280x900.png",
+      "unlisted": [],
+      "designSystemInternal": [
+        "Table data loaded"
+      ],
+      "dom": {
+        "variant": "b",
+        "side": "sell",
+        "rowCount": 2,
+        "innerWidth": 1280,
+        "innerHeight": 900,
+        "title": [
+          "Over market"
+        ],
+        "segments": [
+          "Under market",
+          "Over market"
+        ],
+        "checkedSegment": [
+          "Over market"
+        ],
+        "segmentGroupName": "Over market",
+        "tableHeaders": [
+          "Product",
+          "Price",
+          "Quantity",
+          "Action"
+        ],
+        "mobileLabels": [],
+        "visibleRows": 2,
+        "badges": [
+          "Over market",
+          "Over market"
+        ],
+        "badgeClasses": [
+          "inline-flex items-center gap-1 rounded-tokenMd border px-2.5 py-1 text-xs font-semibold shadow-tokenSm border-muted bg-background text-secondary",
+          "inline-flex items-center gap-1 rounded-tokenMd border px-2.5 py-1 text-xs font-semibold shadow-tokenSm border-muted bg-background text-secondary"
+        ],
+        "gapCells": [
+          "$18.25 · median $17.95 · +1.67%",
+          "$18.00 · median $17.95 · +0.28%"
+        ],
+        "actions": [
+          "Add to Sell List",
+          "Add to Sell List"
+        ],
+        "filtersHeading": [
+          "Filters"
+        ],
+        "emptyState": [
+          "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_excellent|dim_seed_grading_company:-|dim_seed_grade:-",
+          "$18.25 · median $17.95 · +1.67%",
+          "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_excellent|dim_seed_grading_company:-|dim_seed_grade:-",
+          "$18.00 · median $17.95 · +0.28%"
+        ],
+        "visibleLeafTexts": [
+          "Filters",
+          "Over market",
+          "Under market",
+          "Sort",
+          "Newest",
+          "Table data loaded",
+          "Product",
+          "Price",
+          "Quantity",
+          "Action",
+          "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_excellent|dim_seed_grading_company:-|dim_seed_grade:-",
+          "$18.25 · median $17.95 · +1.67%",
+          "4",
+          "Add to Sell List",
+          "$18.00 · median $17.95 · +0.28%",
+          "8",
+          "0 items selected"
+        ]
+      }
+    },
+    {
+      "label": "A-buy-mobile-390x664",
+      "url": "http://localhost:5291/deals-framing-probe?variant=a&side=buy",
+      "status": 200,
+      "viewport": {
+        "name": "mobile-390x664",
+        "width": 390,
+        "height": 664,
+        "canonical": false
+      },
+      "screenshot": "supplementary/A-buy-mobile-390x664.png",
+      "unlisted": [],
+      "designSystemInternal": [
+        "Table data loaded"
+      ],
+      "dom": {
+        "variant": "a",
+        "side": "buy",
+        "rowCount": 0,
+        "innerWidth": 390,
+        "innerHeight": 664,
+        "title": [
+          "Deals"
+        ],
+        "segments": [
+          "Buy",
+          "Sell"
+        ],
+        "checkedSegment": [
+          "Buy"
+        ],
+        "segmentGroupName": "Deals",
+        "tableHeaders": [],
+        "mobileLabels": [],
+        "visibleRows": 0,
+        "badges": [],
+        "badgeClasses": [],
+        "gapCells": [],
+        "actions": [],
+        "filtersHeading": [
+          "Filters",
+          "No items found"
+        ],
+        "emptyState": [
+          "No items found",
+          "0 rows in the frozen #7898 Capture 3 fixture."
+        ],
+        "visibleLeafTexts": [
+          "Filters",
+          "Deals",
+          "Buy",
+          "Sell",
+          "Sort",
+          "Newest",
+          "Table data loaded",
+          "No items found",
+          "0 rows in the frozen #7898 Capture 3 fixture.",
+          "0 items selected"
+        ]
+      }
+    },
+    {
+      "label": "A-sell-mobile-390x664",
+      "url": "http://localhost:5291/deals-framing-probe?variant=a&side=sell",
+      "status": 200,
+      "viewport": {
+        "name": "mobile-390x664",
+        "width": 390,
+        "height": 664,
+        "canonical": false
+      },
+      "screenshot": "supplementary/A-sell-mobile-390x664.png",
+      "unlisted": [],
+      "designSystemInternal": [
+        "Table data loaded"
+      ],
+      "dom": {
+        "variant": "a",
+        "side": "sell",
+        "rowCount": 2,
+        "innerWidth": 390,
+        "innerHeight": 664,
+        "title": [
+          "Deals"
+        ],
+        "segments": [
+          "Buy",
+          "Sell"
+        ],
+        "checkedSegment": [
+          "Sell"
+        ],
+        "segmentGroupName": "Deals",
+        "tableHeaders": [],
+        "mobileLabels": [
+          "PRODUCT",
+          "PRICE",
+          "BENCHMARK",
+          "QUANTITY",
+          "ACTION",
+          "PRODUCT",
+          "PRICE",
+          "BENCHMARK",
+          "QUANTITY",
+          "ACTION"
+        ],
+        "visibleRows": 2,
+        "badges": [
+          "Deal",
+          "Deal"
+        ],
+        "badgeClasses": [
+          "inline-flex items-center gap-1 rounded-tokenMd border px-2.5 py-1 text-xs font-semibold shadow-tokenSm border-deal-soft bg-deal-soft text-deal",
+          "inline-flex items-center gap-1 rounded-tokenMd border px-2.5 py-1 text-xs font-semibold shadow-tokenSm border-deal-soft bg-deal-soft text-deal"
+        ],
+        "gapCells": [
+          "+$0.30 · +1.67% above the median of $17.95",
+          "+$0.05 · +0.28% above the median of $17.95"
+        ],
+        "actions": [
+          "Add to Sell List",
+          "Add to Sell List"
+        ],
+        "filtersHeading": [
+          "Filters"
+        ],
+        "emptyState": [
+          "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_excellent|dim_seed_grading_company:-|dim_seed_grade:-",
+          "+$0.30 · +1.67% above the median of $17.95",
+          "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_excellent|dim_seed_grading_company:-|dim_seed_grade:-",
+          "+$0.05 · +0.28% above the median of $17.95"
+        ],
+        "visibleLeafTexts": [
+          "Filters",
+          "Deals",
+          "Buy",
+          "Sell",
+          "Sort",
+          "Newest",
+          "Table data loaded",
+          "Product",
+          "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_excellent|dim_seed_grading_company:-|dim_seed_grade:-",
+          "Price",
+          "$18.25",
+          "Benchmark",
+          "Deal",
+          "+$0.30 · +1.67% above the median of $17.95",
+          "Quantity",
+          "4",
+          "Action",
+          "Add to Sell List",
+          "$18.00",
+          "+$0.05 · +0.28% above the median of $17.95",
+          "8",
+          "0 items selected"
+        ]
+      }
+    },
+    {
+      "label": "B-buy-mobile-390x664",
+      "url": "http://localhost:5291/deals-framing-probe?variant=b&side=buy",
+      "status": 200,
+      "viewport": {
+        "name": "mobile-390x664",
+        "width": 390,
+        "height": 664,
+        "canonical": false
+      },
+      "screenshot": "supplementary/B-buy-mobile-390x664.png",
+      "unlisted": [],
+      "designSystemInternal": [
+        "Table data loaded"
+      ],
+      "dom": {
+        "variant": "b",
+        "side": "buy",
+        "rowCount": 0,
+        "innerWidth": 390,
+        "innerHeight": 664,
+        "title": [
+          "Under market"
+        ],
+        "segments": [
+          "Under market",
+          "Over market"
+        ],
+        "checkedSegment": [
+          "Under market"
+        ],
+        "segmentGroupName": "Under market",
+        "tableHeaders": [],
+        "mobileLabels": [],
+        "visibleRows": 0,
+        "badges": [],
+        "badgeClasses": [],
+        "gapCells": [],
+        "actions": [],
+        "filtersHeading": [
+          "Filters",
+          "No items found"
+        ],
+        "emptyState": [
+          "No items found",
+          "0 rows in the frozen #7898 Capture 3 fixture."
+        ],
+        "visibleLeafTexts": [
+          "Filters",
+          "Under market",
+          "Over market",
+          "Sort",
+          "Newest",
+          "Table data loaded",
+          "No items found",
+          "0 rows in the frozen #7898 Capture 3 fixture.",
+          "0 items selected"
+        ]
+      }
+    },
+    {
+      "label": "B-sell-mobile-390x664",
+      "url": "http://localhost:5291/deals-framing-probe?variant=b&side=sell",
+      "status": 200,
+      "viewport": {
+        "name": "mobile-390x664",
+        "width": 390,
+        "height": 664,
+        "canonical": false
+      },
+      "screenshot": "supplementary/B-sell-mobile-390x664.png",
+      "unlisted": [],
+      "designSystemInternal": [
+        "Table data loaded"
+      ],
+      "dom": {
+        "variant": "b",
+        "side": "sell",
+        "rowCount": 2,
+        "innerWidth": 390,
+        "innerHeight": 664,
+        "title": [
+          "Over market"
+        ],
+        "segments": [
+          "Under market",
+          "Over market"
+        ],
+        "checkedSegment": [
+          "Over market"
+        ],
+        "segmentGroupName": "Over market",
+        "tableHeaders": [],
+        "mobileLabels": [
+          "PRODUCT",
+          "PRICE",
+          "QUANTITY",
+          "ACTION",
+          "PRODUCT",
+          "PRICE",
+          "QUANTITY",
+          "ACTION"
+        ],
+        "visibleRows": 2,
+        "badges": [
+          "Over market",
+          "Over market"
+        ],
+        "badgeClasses": [
+          "inline-flex items-center gap-1 rounded-tokenMd border px-2.5 py-1 text-xs font-semibold shadow-tokenSm border-muted bg-background text-secondary",
+          "inline-flex items-center gap-1 rounded-tokenMd border px-2.5 py-1 text-xs font-semibold shadow-tokenSm border-muted bg-background text-secondary"
+        ],
+        "gapCells": [
+          "$18.25 · median $17.95 · +1.67%",
+          "$18.00 · median $17.95 · +0.28%"
+        ],
+        "actions": [
+          "Add to Sell List",
+          "Add to Sell List"
+        ],
+        "filtersHeading": [
+          "Filters"
+        ],
+        "emptyState": [
+          "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_excellent|dim_seed_grading_company:-|dim_seed_grade:-",
+          "$18.25 · median $17.95 · +1.67%",
+          "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_excellent|dim_seed_grading_company:-|dim_seed_grade:-",
+          "$18.00 · median $17.95 · +0.28%"
+        ],
+        "visibleLeafTexts": [
+          "Filters",
+          "Over market",
+          "Under market",
+          "Sort",
+          "Newest",
+          "Table data loaded",
+          "Product",
+          "cat_seed_pikachu_jungle::dim_seed_form:chc_seed_form_raw|dim_seed_condition:chc_seed_condition_excellent|dim_seed_grading_company:-|dim_seed_grade:-",
+          "Price",
+          "$18.25 · median $17.95 · +1.67%",
+          "Quantity",
+          "4",
+          "Action",
+          "Add to Sell List",
+          "$18.00 · median $17.95 · +0.28%",
+          "8",
+          "0 items selected"
+        ]
+      }
+    }
+  ]
+}
