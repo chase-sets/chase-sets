@@ -2,7 +2,7 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { CatalogIntegrationRecentJobSummary } from "../../../api/admin/admin-control-plane-overview";
+import type { CatalogIntegrationRecentJobSummary } from "../../contracts";
 import { buildCatalogPrimaryWorkbenchReadModelForSurface } from "../../primary-workbench-read-model";
 import {
   controlPlaneOverview,
@@ -535,7 +535,7 @@ describe("CatalogProviderDetailPage TCGplayer recent-job inspection", () => {
     expect(factValue("job-a", "Skipped")).toBe(expected.skipped);
     expect(factValue("job-a", "Failures")).toBe(expected.failed);
     expect(factValue("job-a", "Provider usage")).toBe(expected.usage);
-    if (expected.job.operatorStatus && expected.job.operatorStatus !== "completed") {
+    if (expected.job.operatorStatus) {
       expect(visibleFactsText("job-a")).not.toContain("Completed");
     }
   });
