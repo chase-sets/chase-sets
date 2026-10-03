@@ -1,10 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { act, cleanup, fireEvent, render as renderWithoutRouter, type RenderOptions } from "@testing-library/react";
-import type { ComponentProps, ReactNode } from "react";
+import { Children, type ComponentProps, type ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { resolveChaseMotion, type Stagger } from "@chase-sets/design-system";
 import ts from "@chase-sets/typescript-compiler-api";
 import { checkoutFeeTranslationValues, fallbackCheckoutFeePreview } from "./checkout-fee-preview";
 import { landingFaqEntries } from "./landing-faq";
@@ -19,11 +20,16 @@ import { publicPresenceT as t } from "./public-presence-translator";
 import { WaitlistSuccessPage } from "./success-page";
 
 const titleOverrides = vi.hoisted(() => new Map<string, string>());
+const staggerRenders = vi.hoisted(() => [] as Record<string, unknown>[]);
 vi.mock("@chase-sets/design-system", async (importOriginal) => {
   const original = await importOriginal<typeof import("@chase-sets/design-system")>();
   return {
     ...original,
     Surface: (props: ComponentProps<typeof original.Surface>) => <original.Surface {...props} data-test-surface />,
+    Stagger: (props: ComponentProps<typeof original.Stagger>) => {
+      staggerRenders.push(props as unknown as Record<string, unknown>);
+      return <original.Stagger {...props} />;
+    },
   };
 });
 vi.mock("./public-presence-translator", async (importOriginal) => {
@@ -72,6 +78,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   titleOverrides.clear();
+  staggerRenders.length = 0;
 });
 
 // The seven landing identities (#8503), in order, for both experiment variants.
@@ -217,12 +224,73 @@ describe("public waitlist form migration smoke", () => {
     expect(offerTitle!.closest(".ds-glass")?.textContent).toContain(
       t("publicPresence.home.openOffers.after.offerCard.details"),
     );
-    expect(titles[0]!.closest("[data-test-surface]")).not.toBeNull();
     expect(titles.map((title) => title.textContent)).toEqual([
-      t("publicPresence.home.openOffers.before.title"),
-      t("publicPresence.home.openOffers.after.title"),
       t("publicPresence.home.openOffers.after.offerCard.title"),
     ]);
+  });
+
+  it.each(landingVariantCases)(
+    "renders open_offers as #open-offers with its title, one OfferCard and the post, accept, checkout steps and no before/after cards in $variant (#8506 AC1)",
+    ({ pagePath }) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(JSON.stringify({ items: [] }))),
+      );
+      const { container } = render(<PublicPresenceHomePage actionData={null} source={{ ...source, pagePath }} />);
+      const section = container.querySelector<HTMLElement>('[data-public-presence-section="open_offers"]')!;
+      expect(section).not.toBeNull();
+      expect(section.id).toBe("open-offers");
+      expect(container.querySelectorAll("#open-offers")).toHaveLength(1);
+      expect(section.querySelector("h2")?.textContent).toBe(t("publicPresence.home.openOffers.title"));
+
+      // One OfferCard: its title is the section's only card title.
+      expect([...section.querySelectorAll("h3")].map((title) => title.textContent)).toEqual([
+        t("publicPresence.home.openOffers.after.offerCard.title"),
+      ]);
+      expect(section.querySelectorAll(".ds-glass")).toHaveLength(1);
+
+      const steps = [...section.querySelectorAll<HTMLElement>("[data-open-offers-step]")];
+      expect(steps.map((step) => step.textContent)).toEqual(
+        ["post", "accept", "checkout"].map(
+          (step, index) => `${index + 1}${t(`publicPresence.home.openOffers.step.${step}`)}`,
+        ),
+      );
+
+      // The before/after cards were tinted Surfaces carrying this copy.
+      expect(section.querySelector("[data-test-surface]")).toBeNull();
+      for (const retired of ["The old way", "Social card groups", "On Chase Sets", "Post it once."]) {
+        expect(section.textContent, retired).not.toContain(retired);
+      }
+    },
+  );
+
+  it("plays the open_offers steps once in view and finishes within 5,000ms, with no video, canvas or image (#8506 AC2)", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ items: [] }))),
+    );
+    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
+    const section = container.querySelector<HTMLElement>('[data-public-presence-section="open_offers"]')!;
+
+    expect(staggerRenders.length).toBeGreaterThan(0);
+    const props = staggerRenders.at(-1)! as ComponentProps<typeof Stagger>;
+    expect(props.trigger).toBe("in-view");
+    const steps = Children.count(props.children);
+    expect(steps).toBe(3);
+    expect(section.querySelectorAll("[data-open-offers-step]")).toHaveLength(steps);
+
+    const motion = resolveChaseMotion();
+    const preset = props.preset ?? "lift";
+    const presetDurationMs = (motion.presets[preset].transition?.duration ?? Number.NaN) * 1_000;
+    if (preset === "lift") {
+      expect(presetDurationMs).toBe(motion.durations.base * 1_000);
+    }
+    const staggerMs = props.staggerMs ?? 70;
+    const sequenceMs = (steps - 1) * staggerMs + presetDurationMs;
+    expect(sequenceMs).toBeGreaterThan(0);
+    expect(sequenceMs).toBeLessThanOrEqual(5_000);
+
+    expect(section.querySelector("video, canvas, img, picture, object, embed, iframe")).toBeNull();
   });
 
   it("renders the buyer hero and records seller_first_v2 for an explicit buyer intent", () => {
@@ -1011,7 +1079,9 @@ describe("public waitlist form migration smoke", () => {
     const expected: Record<(typeof landingSectionOrder)[number], string[]> = {
       hero: ["elevated"],
       game_roster: [],
-      open_offers: ["tinted", "tinted", "tinted", "tinted", "tinted"],
+      // #8506: the walkthrough steps are plain badge rows; the OfferCard is a
+      // Card, never a Surface.
+      open_offers: [],
       fee_comparison: [],
       founders_offer: [],
       final_cta: ["elevated"],
@@ -1717,21 +1787,21 @@ describe("landing surface-diet census (AC5)", () => {
 
   it("gives every Surface root in public-pages.tsx an explicit elevation intent with no bare or legacy elevated roots (#8270 AC3)", () => {
     const surfaces = surfaceElements(publicPagesSource);
-    // 2 shell roots (nav/footer, flush) + 4 landing roots (1 elevated panel,
-    // 3 tinted open-offers cards) + 1 PublicInfoPage section root (tinted)
-    // = 7, matching the source-derived census after the #8503 cuts.
-    expect(surfaces).toHaveLength(7);
+    // 2 shell roots (nav/footer, flush) + 1 landing root (the elevated panel;
+    // #8506 retired the 3 tinted open-offers cards) + 1 PublicInfoPage
+    // section root (tinted) = 4, matching the source-derived census.
+    expect(surfaces).toHaveLength(4);
 
     const explicitElevation = surfaces.filter((surface) => surface.elevation !== null);
     const legacyElevated = surfaces.filter((surface) => surface.elevatedBoolean);
     const bareRoots = surfaces.filter((surface) => surface.elevation === null && !surface.elevatedBoolean);
 
-    expect(explicitElevation).toHaveLength(7);
+    expect(explicitElevation).toHaveLength(4);
     expect(legacyElevated).toHaveLength(0);
     expect(bareRoots).toHaveLength(0);
 
     expect(explicitElevation.filter((surface) => surface.elevation === "flush")).toHaveLength(2);
-    expect(explicitElevation.filter((surface) => surface.elevation === "tinted")).toHaveLength(4);
+    expect(explicitElevation.filter((surface) => surface.elevation === "tinted")).toHaveLength(1);
     expect(explicitElevation.filter((surface) => surface.elevation === "elevated")).toHaveLength(1);
     expect(explicitElevation.filter((surface) => surface.elevation === "outlined")).toHaveLength(0);
     // Source-level guard: a bare `elevated` attribute (boolean or expression)

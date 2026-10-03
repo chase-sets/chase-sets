@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 // After #8503 the landing page keeps one fine-print disclosure; the FAQ group
 // is also collapsed but emits no disclosure event (compare_faq prior art).
@@ -16,13 +16,55 @@ const faqQuestionCount = 4;
 
 // #8503 AC5 measurement contract: Desktop Chrome project, 390x664, light,
 // scroll at 0, measured after document.fonts.ready with the production
-// counter state; collapsed disclosures stay collapsed.
+// counter state; collapsed disclosures stay collapsed. #8506 AC4 tightens
+// #8503's 9.5 screens and 1,000 words once the open-offers walkthrough ships.
 const landingLength = {
   width: 390,
   height: 664,
-  maxViewportHeights: 9.5,
-  maxWords: 1_000,
+  maxViewportHeights: 8.0,
+  maxWords: 600,
 } as const;
+
+// Computed styles from each open-offers walkthrough step's text up to and
+// including its section. `toBeVisible()` accepts `opacity: 0`, so a
+// server-hidden step would pass it; the opacity and transform of every
+// ancestor tell a shown step from a hidden or mid-transition one.
+function openOffersStepChains(page: Page) {
+  return page.evaluate(() => {
+    const section = document.querySelector<HTMLElement>("#open-offers");
+    if (!section) {
+      return null;
+    }
+    return [...section.querySelectorAll<HTMLElement>("[data-open-offers-step]")].map((step) => {
+      const text = [...step.querySelectorAll<HTMLElement>("*")]
+        .filter((element) =>
+          [...element.childNodes].some((node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim()),
+        )
+        .at(-1);
+      const chain: { opacity: string; transform: string }[] = [];
+      let reachedSection = false;
+      for (let element: HTMLElement | null = text ?? null; element; element = element.parentElement) {
+        const style = getComputedStyle(element);
+        chain.push({ opacity: style.opacity, transform: style.transform });
+        if (element === section) {
+          reachedSection = true;
+          break;
+        }
+      }
+      const box = text?.getBoundingClientRect();
+      return {
+        step: step.getAttribute("data-open-offers-step"),
+        text: text?.textContent?.trim() ?? "",
+        width: box?.width ?? 0,
+        height: box?.height ?? 0,
+        reachedSection,
+        chain,
+      };
+    });
+  });
+}
+
+const openOffersPhone = { width: 390, height: 664 } as const;
 
 for (const variant of ["seller_first_v1", "seller_first_v2"] as const) {
   const landingPath = variant === "seller_first_v2" ? "/?intent=buy" : "/";
@@ -98,7 +140,140 @@ for (const variant of ["seller_first_v1", "seller_first_v2"] as const) {
     });
   }
 
-  test(`${variant} landing length at ${landingLength.width}x${landingLength.height} (#8503 AC5) @public-web-public-presence`, async ({
+  test(`${variant} open-offers steps show without JavaScript at ${openOffersPhone.width}x${openOffersPhone.height} (#8506 AC3) @public-web-public-presence`, async ({
+    browser,
+    baseURL,
+  }, testInfo) => {
+    expect(testInfo.project.name).toBe("public-web-chromium");
+    expect(baseURL).toBe(process.env.PUBLIC_WEB_URL);
+    const context = await browser.newContext({
+      baseURL,
+      javaScriptEnabled: false,
+      viewport: openOffersPhone,
+      colorScheme: "light",
+    });
+    try {
+      const page = await context.newPage();
+      // No `landing_page_view` wait: that event needs JavaScript.
+      await page.goto(landingPath, { waitUntil: "load" });
+      const section = page.locator("#open-offers");
+      await expect(section).toHaveCount(1);
+      await expect(section).toHaveAttribute("data-public-presence-section", "open_offers");
+      await section.scrollIntoViewIfNeeded();
+      const steps = await openOffersStepChains(page);
+      testInfo.annotations.push({ type: "open-offers-no-js", description: JSON.stringify(steps) });
+      await section.screenshot({ path: testInfo.outputPath("open-offers-no-js.png") });
+
+      expect(steps?.map((step) => step.step)).toEqual(["1", "2", "3"]);
+      for (const step of steps!) {
+        expect(step.text, `step ${step.step} text`).not.toBe("");
+        expect(step.width, `step ${step.step} width`).toBeGreaterThan(0);
+        expect(step.height, `step ${step.step} height`).toBeGreaterThan(0);
+        expect(step.reachedSection, `step ${step.step} sits inside the section`).toBe(true);
+        expect(
+          step.chain.map((element) => element.opacity),
+          `step ${step.step} opacity up to the section`,
+        ).toEqual(step.chain.map(() => "1"));
+      }
+    } finally {
+      await context.close();
+    }
+  });
+
+  test(`${variant} open-offers steps rest untransformed under reduced motion at ${openOffersPhone.width}x${openOffersPhone.height} (#8506 AC3) @public-web-public-presence`, async ({
+    browser,
+    baseURL,
+  }, testInfo) => {
+    expect(testInfo.project.name).toBe("public-web-chromium");
+    expect(baseURL).toBe(process.env.PUBLIC_WEB_URL);
+    const context = await browser.newContext({
+      baseURL,
+      reducedMotion: "reduce",
+      viewport: openOffersPhone,
+      colorScheme: "light",
+    });
+    try {
+      const page = await context.newPage();
+      await page.addInitScript(() => {
+        (window as { dataLayer?: unknown[] }).dataLayer = [];
+      });
+      await page.goto(landingPath, { waitUntil: "domcontentloaded" });
+      await page.waitForFunction(() =>
+        (window as { dataLayer?: Array<{ event?: string }> }).dataLayer?.some(
+          (entry) => entry.event === "landing_page_view",
+        ),
+      );
+      const section = page.locator("#open-offers");
+      await expect(section).toHaveCount(1);
+      // Scroll the section in so an armed group would have played by now.
+      await section.scrollIntoViewIfNeeded();
+      await expect(section.locator("[data-open-offers-step]")).toHaveCount(3);
+      const steps = await openOffersStepChains(page);
+      testInfo.annotations.push({ type: "open-offers-reduced-motion", description: JSON.stringify(steps) });
+      await section.screenshot({ path: testInfo.outputPath("open-offers-reduced-motion.png") });
+
+      expect(steps?.map((step) => step.step)).toEqual(["1", "2", "3"]);
+      for (const step of steps!) {
+        expect(step.width, `step ${step.step} width`).toBeGreaterThan(0);
+        expect(step.height, `step ${step.step} height`).toBeGreaterThan(0);
+        expect(step.reachedSection, `step ${step.step} sits inside the section`).toBe(true);
+        expect(
+          step.chain.map((element) => element.transform),
+          `step ${step.step} transform up to the section`,
+        ).toEqual(step.chain.map(() => "none"));
+        expect(
+          step.chain.map((element) => element.opacity),
+          `step ${step.step} opacity up to the section`,
+        ).toEqual(step.chain.map(() => "1"));
+      }
+    } finally {
+      await context.close();
+    }
+  });
+
+  test(`${variant} /#open-offers scrolls the open-offers title into view at ${openOffersPhone.width}x${openOffersPhone.height} (#8506 AC3) @public-web-public-presence`, async ({
+    page,
+    baseURL,
+  }, testInfo) => {
+    expect(testInfo.project.name).toBe("public-web-chromium");
+    expect(baseURL).toBe(process.env.PUBLIC_WEB_URL);
+    await page.setViewportSize(openOffersPhone);
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.addInitScript(() => {
+      (window as { dataLayer?: unknown[] }).dataLayer = [];
+    });
+    // The open-offers nurture email links here (transactional-email-intents.ts).
+    await page.goto(`${landingPath}#open-offers`, { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() =>
+      (window as { dataLayer?: Array<{ event?: string }> }).dataLayer?.some(
+        (entry) => entry.event === "landing_page_view",
+      ),
+    );
+    const section = page.locator("#open-offers");
+    await expect(section).toHaveCount(1);
+    const title = section.locator("h2");
+    await expect(title).toHaveCount(1);
+    const geometry = await page.evaluate(() => {
+      const heading = document.querySelector("#open-offers h2")!.getBoundingClientRect();
+      const sectionBox = document.querySelector("#open-offers")!.getBoundingClientRect();
+      return {
+        scrollY: window.scrollY,
+        innerHeight: window.innerHeight,
+        sectionTop: sectionBox.top,
+        titleTop: heading.top,
+        titleBottom: heading.bottom,
+      };
+    });
+    testInfo.annotations.push({ type: "open-offers-hash", description: JSON.stringify(geometry) });
+    await page.screenshot({ path: testInfo.outputPath("open-offers-hash.png") });
+    expect(geometry.scrollY).toBeGreaterThan(0);
+    // Scroll offsets are whole pixels, so a fragment target on a half-pixel
+    // layout offset can rest up to 1px above the top edge.
+    expect(geometry.titleTop, "title top inside the viewport").toBeGreaterThan(-1);
+    expect(geometry.titleBottom, "title bottom inside the viewport").toBeLessThanOrEqual(geometry.innerHeight);
+  });
+
+  test(`${variant} landing length at ${landingLength.width}x${landingLength.height} (#8503 AC5, #8506 AC4) @public-web-public-presence`, async ({
     page,
     baseURL,
   }, testInfo) => {

@@ -18,7 +18,6 @@ import {
   Inline,
   LinkButton,
   LinkText,
-  List,
   MarketingImageHero,
   MobileStickyBar,
   MobileStickyInset,
@@ -32,6 +31,7 @@ import {
   Show,
   SkipLink,
   Stack,
+  Stagger,
   StickyBar,
   Surface,
   ProgressiveDisclosure,
@@ -790,74 +790,43 @@ function GameRosterSection({ pagePath, selectedGame }: { pagePath: string; selec
   );
 }
 
-// The "everywhere else" card describes the generic pattern of buy/sell social
-// groups (unlisted, unprotected, seller-hunts-a-stranger), not any single
-// named platform. Unlike the fee-comparison surfaces (which name TCGplayer
-// and eBay per the ratified competitor-naming decision), there is no single
-// platform to name here.
+// A play-once walkthrough (#8506): the three steps reveal in order beside the
+// sample offer the first time the section scrolls into view, then rest
+// visible. `trigger="in-view"` server-renders every step visible, so the
+// steps read without JavaScript and a `/#open-offers` jump (the open-offers
+// nurture email link) lands on a settled section. Two steps of stagger plus
+// the `lift` transition finish well inside WCAG 2.2.2's five seconds, so the
+// sequence needs no pause control.
+const openOffersWalkthroughStaggerMs = 600;
+
 function OpenOffersSection() {
   return (
     <PageSection
+      id="open-offers"
       data-public-presence-section="open_offers"
       title={t("publicPresence.home.openOffers.title")}
-      description={t("publicPresence.home.openOffers.description")}
     >
       <Grid columns={{ base: 1, lg: 2 }} gap={4}>
-        <Surface tone="subtle" elevation="tinted">
-          <Stack gap={3}>
-            <BadgeRow>
-              <Badge tone="warning">{t("publicPresence.home.openOffers.before.badge")}</Badge>
-            </BadgeRow>
-            <Heading level={3}>{t("publicPresence.home.openOffers.before.title")}</Heading>
-            <Text tone="secondary">{t("publicPresence.home.openOffers.before.description")}</Text>
-            <List
-              items={[
-                t("publicPresence.home.openOffers.before.point.post"),
-                t("publicPresence.home.openOffers.before.point.replies"),
-                t("publicPresence.home.openOffers.before.point.payment"),
-                t("publicPresence.home.openOffers.before.point.risk"),
-              ]}
-            />
-          </Stack>
-        </Surface>
-        <Stack gap={3}>
-          <Surface tone="subtle" elevation="tinted">
-            <Stack gap={3}>
-              <BadgeRow>
-                <Badge tone="success">{t("publicPresence.home.openOffers.after.badge")}</Badge>
-              </BadgeRow>
-              <Heading level={3}>{t("publicPresence.home.openOffers.after.title")}</Heading>
-              <Text tone="secondary">{t("publicPresence.home.openOffers.after.description")}</Text>
-            </Stack>
-          </Surface>
-          <OfferCard
-            title={t("publicPresence.home.openOffers.after.offerCard.title")}
-            amount={t("publicPresence.home.openOffers.after.offerCard.amount")}
-            status={t("publicPresence.home.openOffers.after.offerCard.status")}
-            details={t("publicPresence.home.openOffers.after.offerCard.details")}
-          />
-          <List
-            items={[
-              t("publicPresence.home.openOffers.after.point.accept"),
-              t("publicPresence.home.openOffers.after.point.checkout"),
-              t("publicPresence.home.openOffers.after.point.record"),
-            ]}
-          />
-        </Stack>
-      </Grid>
-      <Grid columns={{ base: 1, md: 3 }} gap={3}>
-        {[
-          "publicPresence.home.openOffers.step.post",
-          "publicPresence.home.openOffers.step.accept",
-          "publicPresence.home.openOffers.step.checkout",
-        ].map((key, index) => (
-          <Surface key={key} elevation="tinted">
-            <Stack gap={2}>
-              <Badge tone="neutral">{index + 1}</Badge>
-              <Text tone="secondary">{t(key)}</Text>
-            </Stack>
-          </Surface>
-        ))}
+        <OfferCard
+          title={t("publicPresence.home.openOffers.after.offerCard.title")}
+          amount={t("publicPresence.home.openOffers.after.offerCard.amount")}
+          status={t("publicPresence.home.openOffers.after.offerCard.status")}
+          details={t("publicPresence.home.openOffers.after.offerCard.details")}
+        />
+        <Stagger trigger="in-view" staggerMs={openOffersWalkthroughStaggerMs}>
+          {[
+            "publicPresence.home.openOffers.step.post",
+            "publicPresence.home.openOffers.step.accept",
+            "publicPresence.home.openOffers.step.checkout",
+          ].map((key, index) => (
+            <Box key={key} paddingY={2} data-open-offers-step={index + 1}>
+              <Inline gap={3} align="start" wrap={false}>
+                <Badge tone="neutral">{index + 1}</Badge>
+                <Text tone="secondary">{t(key)}</Text>
+              </Inline>
+            </Box>
+          ))}
+        </Stagger>
       </Grid>
     </PageSection>
   );
