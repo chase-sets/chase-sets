@@ -1,3 +1,4 @@
+import { catalogFixtureTransports, catalogProductionTransport } from "../catalog-fixture-transports";
 import { sendCatalogProviderRequest } from "../provider-send-admission";
 import { createHash } from "node:crypto";
 
@@ -98,6 +99,10 @@ type MtgjsonCardData = Readonly<{
 export function createMtgjsonProviderAdapter(
   options: MtgjsonProviderAdapterOptions = {},
 ): ProviderAdapter<MtgjsonProviderPayload> {
+  return createMtgjsonAdapter({ ...options, fetch: options.fetch && catalogProductionTransport(options.fetch) });
+}
+
+function createMtgjsonAdapter(options: MtgjsonProviderAdapterOptions = {}): ProviderAdapter<MtgjsonProviderPayload> {
   return {
     providerKey: "mtgjson",
     capabilities: {
@@ -274,8 +279,8 @@ export function createMtgjsonProviderAdapter(
 }
 
 export function createMtgjsonValidationProviderAdapter(): ProviderAdapter<MtgjsonProviderPayload> {
-  return createMtgjsonProviderAdapter({
-    fetch: mtgjsonValidationFetch,
+  return createMtgjsonAdapter({
+    fetch: catalogFixtureTransports.mtgjson,
     now: () => new Date("2026-06-08T00:00:00.000Z"),
     profileVersion: MTGJSON_VALIDATION_PROFILE_VERSION,
   });
@@ -531,55 +536,3 @@ function normalizeSetCode(value: string): string {
 function normalizeLabel(value: unknown): string {
   return stringValue(value)?.toLowerCase() ?? "";
 }
-
-function mtgjsonValidationFetch(input: RequestInfo | URL): Promise<Response> {
-  const response = mtgjsonValidationResponses[String(input)];
-  if (!response) {
-    return Promise.resolve(new Response(null, { status: 404 }));
-  }
-
-  return Promise.resolve(
-    new Response(JSON.stringify(response), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    }),
-  );
-}
-
-const mtgjsonValidationResponses: Readonly<Record<string, unknown>> = {
-  "https://mtgjson.com/api/v5/SetList.json": {
-    meta: { date: "2026-06-05", version: "5.3.0+20260605" },
-    data: [
-      {
-        code: "TSP",
-        name: "Time Spiral",
-        releaseDate: "2006-10-06",
-        totalSetSize: 301,
-        type: "expansion",
-      },
-    ],
-  },
-  "https://mtgjson.com/api/v5/TSP.json": {
-    meta: { date: "2026-06-05", version: "5.3.0+20260605" },
-    data: {
-      code: "TSP",
-      name: "Time Spiral",
-      releaseDate: "2006-10-06",
-      totalSetSize: 301,
-      cards: [
-        {
-          uuid: "13fd9d47-9aa7-5f7c-8f47-fury-sliver",
-          name: "Fury Sliver",
-          number: "157",
-          rarity: "uncommon",
-          layout: "normal",
-          type: "Creature - Sliver",
-          identifiers: {
-            scryfallId: "0000579f-7b35-4ed3-b44c-db2a538066fe",
-          },
-          finishes: ["foil", "nonfoil"],
-        },
-      ],
-    },
-  },
-};

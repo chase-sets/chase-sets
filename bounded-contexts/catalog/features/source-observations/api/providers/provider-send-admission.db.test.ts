@@ -8,9 +8,25 @@ import {
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
+import { Hono } from "hono";
+import type { CatalogAuthoringEnv } from "../../../../support/authoring-support/api";
+import type { CatalogRuntimeDeps } from "../../../../support/authoring-support/runtime-support";
+import { createCatalogItemRuntime } from "../../../catalog-items/api/runtime";
+import { createReferenceDataRuntime } from "../../../reference-data/api/runtime";
+import { createSourceObservationRuntime } from "../runtime";
+import { sourceObservationRoutes } from "../route";
+import { createCatalogProviderConnectionsReadSource } from "../admin/provider-connections-read-source";
+import { createCatalogProviderSendRuntime } from "./provider-send-runtime";
+import { createCatalogIntegrationDryRunProofRegistry } from "../governance/catalog-integration-dry-run-proofs";
 import { module as catalogModule } from "../../../../index";
 import { createPostgresProviderSendLedger, type ProviderSendWindowInstallation } from "./provider-send-ledger";
-import { createProviderSendAdmission, type ProviderSendRequest } from "./provider-send-admission";
+import {
+  createProviderSendAdmission,
+  runCatalogProviderWork,
+  sendCatalogProviderRequest,
+  type ProviderSendRequest,
+} from "./provider-send-admission";
 import {
   catalogIntegrationDataResetTargetTables,
   resetCatalogIntegrationPreLaunchData,
@@ -81,6 +97,99 @@ describeDb("Catalog provider-send durable window", () => {
     };
     return { ledger, binding, request };
   }
+
+  it("actual readiness reads preserve an armed window with only usage attempts and complete proofs", async () => {
+    const { ledger } = await armed();
+    vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "staging");
+    vi.stubEnv("CATALOG_PROVIDER_SEND_WINDOW_ENABLED", "true");
+    vi.stubEnv("SCRYDEX_API_KEY", "SYNTHETIC_TEST_API_KEY");
+    vi.stubEnv("SCRYDEX_TEAM_ID", "SYNTHETIC_TEST_TEAM_ID");
+    const http = vi.fn<typeof fetch>(async (input) => {
+      const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
+      if (url.hostname !== "api.scrydex.com" || url.pathname !== "/account/v1/usage") {
+        throw new Error(`Unexpected provider HTTP in readiness: ${url.origin}${url.pathname}`);
+      }
+      return Response.json({ total_credits: 50_000, remaining_credits: 50_000, used_credits: 0 });
+    });
+    vi.stubGlobal("fetch", http);
+    try {
+      const deps: CatalogRuntimeDeps = {
+        db: pools.catalog,
+        eventStore: createPostgresEventStore({ pool: pools.catalog }),
+        checkpointStore: createPostgresProjectionStore({ db: pools.catalog }),
+        providerSendRuntime: createCatalogProviderSendRuntime(pools.catalog),
+      };
+      const services = createSourceObservationRuntime(
+        deps,
+        createCatalogItemRuntime(deps),
+        createReferenceDataRuntime(deps),
+      );
+      const readiness = vi.spyOn(services, "getCatalogIntegrationControlPlaneReadiness");
+      const app = new Hono<CatalogAuthoringEnv>();
+      app.use("*", async (c, next) => {
+        c.set("actor", { permissions: ["catalog.view"] });
+        await next();
+      });
+      app.route("/", sourceObservationRoutes(services));
+      const connections = createCatalogProviderConnectionsReadSource(() => services);
+      const expectedProofs = [...createCatalogIntegrationDryRunProofRegistry().keys()];
+      const reads = [
+        async () => expect((await app.request("/integration-control-plane/overview?audience=daily")).status).toBe(200),
+        async () => expect((await app.request("/integration-control-plane/overview")).status).toBe(200),
+        async () => expect((await app.request("/integration-control-plane/readiness")).status).toBe(200),
+        async () => expect((await connections()).complete).toBe(true),
+      ];
+      let previousAttempts = 0;
+      for (let repeat = 0; repeat < 2; repeat++) {
+        for (const read of reads) {
+          readiness.mockClear();
+          await read();
+          expect(readiness).toHaveBeenCalledTimes(1);
+          const result: Awaited<ReturnType<typeof services.getCatalogIntegrationControlPlaneReadiness>> =
+            await readiness.mock.results[0]!.value;
+          for (const unitKey of expectedProofs) {
+            expect(
+              result.units.find((unit) => unit.unitKey === unitKey),
+              unitKey,
+            ).toMatchObject({
+              dryRunStatus: "completed",
+              fixtureValidationStatus: "ready",
+              observationFacts: expect.any(Number),
+            });
+            expect(result.units.find((unit) => unit.unitKey === unitKey)!.observationFacts).toBeGreaterThan(0);
+          }
+          const persisted = await ledger.read();
+          expect(persisted).toMatchObject({ state: "armed", refusal: null, inFlight: 0 });
+          if (persisted.state === "unarmed") throw new Error("Expected armed window");
+          expect(persisted.attempts.length).toBeGreaterThan(previousAttempts);
+          expect(
+            persisted.attempts.every((attempt) => attempt.category === "usage" && attempt.provider === "scrydex"),
+          ).toBe(true);
+          expect(persisted.used).toBe(http.mock.calls.length);
+          previousAttempts = persisted.attempts.length;
+        }
+      }
+    } finally {
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("non-exempt uncategorized transport terminates the armed window before HTTP", async () => {
+    const { ledger, binding } = await armed();
+    const transport = vi.fn<typeof fetch>(async () => Response.json({ synthetic: true }));
+    const admission = createProviderSendAdmission({ enabled: true, ledger });
+    await expect(
+      runCatalogProviderWork(
+        admission,
+        () => sendCatalogProviderRequest("tcgdex", transport, "https://api.tcgdex.net/v2/en/sets/swsh3"),
+        binding,
+      ),
+    ).rejects.toThrow("unknown-request");
+    expect(transport).not.toHaveBeenCalled();
+    expect(await ledger.read()).toMatchObject({ state: "terminal", refusal: "unknown-request", used: 0, attempts: [] });
+  });
 
   it("bootstrap installs an affirmative unarmed authority and immutable exact quota slots", async () => {
     const ledger = createPostgresProviderSendLedger(pools.catalog);

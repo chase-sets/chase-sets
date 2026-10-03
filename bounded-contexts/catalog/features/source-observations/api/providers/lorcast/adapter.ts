@@ -1,3 +1,4 @@
+import { catalogFixtureTransports, catalogProductionTransport } from "../catalog-fixture-transports";
 import { sendCatalogProviderRequest } from "../provider-send-admission";
 import { createHash } from "node:crypto";
 
@@ -188,6 +189,10 @@ const lorcastProofFetchedAt = "2026-06-23T00:00:00.000Z";
 export function createLorcastProviderAdapter(
   options: LorcastProviderAdapterOptions = {},
 ): ProviderAdapter<LorcastProviderPayload> {
+  return createLorcastAdapter({ ...options, fetch: options.fetch && catalogProductionTransport(options.fetch) });
+}
+
+function createLorcastAdapter(options: LorcastProviderAdapterOptions = {}): ProviderAdapter<LorcastProviderPayload> {
   return {
     providerKey: "lorcast",
     capabilities: {
@@ -371,8 +376,8 @@ export function createLorcastProviderAdapter(
 }
 
 export function createLorcastValidationProviderAdapter(): ProviderAdapter<LorcastProviderPayload> {
-  return createLorcastProviderAdapter({
-    fetch: lorcastValidationFetch,
+  return createLorcastAdapter({
+    fetch: catalogFixtureTransports.lorcast,
     now: () => new Date(lorcastProofFetchedAt),
     profileVersion: LORCAST_VALIDATION_PROFILE_VERSION,
   });
@@ -849,64 +854,3 @@ function normalizeSetCode(value: string): string {
 function normalizeLabel(value: unknown): string {
   return stringValue(value)?.toLowerCase() ?? "";
 }
-
-function lorcastValidationFetch(input: RequestInfo | URL): Promise<Response> {
-  const response = lorcastValidationResponses[String(input)];
-  if (!response) {
-    return Promise.resolve(new Response(null, { status: 404 }));
-  }
-
-  return Promise.resolve(
-    new Response(JSON.stringify(response), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    }),
-  );
-}
-
-const lorcastValidationResponses: Readonly<Record<string, unknown>> = {
-  "https://api.lorcast.com/v0/sets": {
-    results: [
-      {
-        id: "set_7ecb0e0c71af496a9e0110e23824e0a5",
-        name: "The First Chapter",
-        code: "1",
-        released_at: "2023-08-18",
-        prereleased_at: "2023-08-18",
-      },
-    ],
-  },
-  "https://api.lorcast.com/v0/sets/1": {
-    id: "set_7ecb0e0c71af496a9e0110e23824e0a5",
-    name: "The First Chapter",
-    code: "1",
-    released_at: "2023-08-18T00:00:00.000Z",
-    prereleased_at: "2023-08-18T00:00:00.000Z",
-  },
-  "https://api.lorcast.com/v0/sets/1/cards": [
-    {
-      id: "crd_elsa_snow_queen_1_041",
-      name: "Elsa - Snow Queen",
-      version: null,
-      released_at: "2023-08-18",
-      image_uris: {
-        digital: {
-          small: "https://cards.lorcast.io/card/digital/small/crd_elsa_snow_queen_1_041.avif",
-          normal: "https://cards.lorcast.io/card/digital/normal/crd_elsa_snow_queen_1_041.avif",
-          large: "https://cards.lorcast.io/card/digital/large/crd_elsa_snow_queen_1_041.avif",
-        },
-      },
-      ink: "Amethyst",
-      type: ["Character"],
-      rarity: "Super_rare",
-      collector_number: "41",
-      lang: "en",
-      tcgplayer_id: 1005010,
-      set: {
-        id: "set_7ecb0e0c71af496a9e0110e23824e0a5",
-        code: "1",
-        name: "The First Chapter",
-      },
-    },
-  ],
-};
