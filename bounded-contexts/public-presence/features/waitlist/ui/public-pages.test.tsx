@@ -8,8 +8,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import ts from "@chase-sets/typescript-compiler-api";
 import type { PublicMarketplaceFeeSchedule } from "./fee-comparison-calculator";
 import { checkoutFeeTranslationValues, fallbackCheckoutFeePreview } from "./checkout-fee-preview";
+import { developerArticles } from "../../developer-portal/domain/developer-article-catalog";
+import { DeveloperArticlePage, DeveloperPortalPage } from "../../developer-portal/ui/developer-pages";
+import { helpCategories, publicHelpArticles } from "../../help/domain/article-catalog";
+import { HelpArticlePage, HelpCategoryPage, HelpHubPage } from "../../help/ui/help-pages";
+import { PrivacyPolicyRouteAdapter } from "../../policies/ui/policy-artifact-route-adapter";
+import { ComparePage } from "./compare-page";
 import { PublicInfoPage, PublicPresenceHomePage } from "./public-pages";
 import { publicPresenceT as t } from "./public-presence-translator";
+import { WaitlistSuccessPage } from "./success-page";
 
 const titleOverrides = vi.hoisted(() => new Map<string, string>());
 vi.mock("@chase-sets/design-system", async (importOriginal) => {
@@ -1916,5 +1923,183 @@ describe("public shell and info page surface diet (#8270 AC3)", () => {
       expect(chromeTokens(root)).toEqual(["bg-surface-2"]);
     }
     expect(main!.querySelectorAll(".surface-border, .shadow-tokenLg, .shadow-tokenSm")).toHaveLength(0);
+  });
+});
+
+describe("public shell single content gutter (#8499)", () => {
+  // `Page` owns the content gutter; furniture outside `main` repeats its tokens.
+  const pageGutterTokens = ["md:px-6", "px-4"];
+  // Any `p-*`, `px-*`, `pl-*`, `pr-*`, `ps-*` or `pe-*` class, with or without
+  // responsive/state prefixes, except a `*-0` class (the `px-0` that
+  // `paddingX={0}` emits is not padding).
+  const horizontalPaddingPattern = /^(?:[a-z0-9-]+:)*(?:p|px|pl|pr|ps|pe)-(?!0$).+$/;
+  const promoSelector = 'section[aria-label="Marketplace announcements"]';
+
+  function horizontalPaddingTokens(element: Element) {
+    return (element.getAttribute("class") ?? "")
+      .split(/\s+/)
+      .filter((token) => horizontalPaddingPattern.test(token))
+      .sort();
+  }
+
+  function ancestorsBetween(main: Element, root: Element) {
+    const chain: Element[] = [];
+    for (let node = main.parentElement; node && node !== root; node = node.parentElement) {
+      chain.push(node);
+    }
+    return chain;
+  }
+
+  function stubPromoMessages(items: readonly Record<string, unknown>[]) {
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ items }), { headers: { "Content-Type": "application/json" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  async function settlePromoFetch(fetchMock: ReturnType<typeof stubPromoMessages>) {
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+
+  function shellParts(container: HTMLElement) {
+    const main = container.querySelector<HTMLElement>("main#main-content");
+    const nav = container.querySelector("nav");
+    const footer = container.querySelector("footer");
+    expect(main).not.toBeNull();
+    expect(nav).not.toBeNull();
+    expect(footer).not.toBeNull();
+    const stack = main!.parentElement!;
+    return { main: main!, nav: nav!, footer: footer!, stack, furniture: Array.from(stack.children) };
+  }
+
+  const infoContent = {
+    eyebrow: "Contact",
+    title: "Talk to the team",
+    description: "Support and status channels.",
+    sections: [{ title: "Support", body: ["Email support@example.test."] }],
+  };
+  const helpArticle =
+    publicHelpArticles.find((article) => article.policyValueKeys.length === 0) ?? publicHelpArticles[0]!;
+  const developerArticle = developerArticles[0]!;
+
+  // Every `<PublicPresencePageShell` render site: ten sites in six files.
+  const shellConsumers: readonly (readonly [string, () => ReactNode])[] = [
+    ["landing page", () => <PublicPresenceHomePage actionData={null} source={source} />],
+    ["PublicInfoPage", () => <PublicInfoPage content={infoContent} />],
+    ["compare page", () => <ComparePage competitor="tcgplayer" feeSchedule={null} />],
+    ["success page", () => <WaitlistSuccessPage signupId="wls_public" publicOrigin="https://chasesets.com" />],
+    ["help hub", () => <HelpHubPage />],
+    ["help category", () => <HelpCategoryPage category={helpCategories[0]} articles={[]} />],
+    ["help article", () => <HelpArticlePage article={helpArticle} related={[]} />],
+    ["developer portal", () => <DeveloperPortalPage />],
+    ["developer article", () => <DeveloperArticlePage article={developerArticle} />],
+    ["policy artifact page", () => <PrivacyPolicyRouteAdapter />],
+  ];
+
+  it("lists every PublicPresencePageShell render site as a consumer", () => {
+    const featuresDirectory = join(repositoryRoot(), "bounded-contexts", "public-presence", "features");
+    const renderSiteFiles = [
+      ["waitlist", "ui", "public-pages.tsx"],
+      ["waitlist", "ui", "compare-page.tsx"],
+      ["waitlist", "ui", "success-page.tsx"],
+      ["help", "ui", "help-pages.tsx"],
+      ["developer-portal", "ui", "developer-pages.tsx"],
+      ["policies", "ui", "policy-artifact-page.tsx"],
+    ];
+    const renderSites = renderSiteFiles.reduce(
+      (count, segments) =>
+        count +
+        (readFileSync(join(featuresDirectory, ...segments), "utf8").match(/<PublicPresencePageShell\b/g) ?? []).length,
+      0,
+    );
+
+    expect(renderSites).toBe(10);
+    expect(shellConsumers).toHaveLength(renderSites);
+  });
+
+  it.each(shellConsumers)(
+    "renders main#main-content > Page root with no horizontally padded ancestor or wrapper for the %s",
+    (_name, renderConsumer) => {
+      stubPromoMessages([]);
+      const { container } = render(renderConsumer());
+      const { main } = shellParts(container);
+
+      expect(main.children).toHaveLength(1);
+      expect(horizontalPaddingTokens(main.firstElementChild!)).toEqual(pageGutterTokens);
+      const ancestors = ancestorsBetween(main, container);
+      expect(ancestors.length).toBeGreaterThan(0);
+      expect(
+        ancestors
+          .map((ancestor) => ({ tag: ancestor.tagName.toLowerCase(), padding: horizontalPaddingTokens(ancestor) }))
+          .filter(({ padding }) => padding.length > 0),
+      ).toEqual([]);
+    },
+  );
+
+  it("renders no promo wrapper or extra stack gap with zero titled messages", async () => {
+    const fetchMock = stubPromoMessages([]);
+    const { container } = render(<PublicInfoPage content={infoContent} />);
+    await settlePromoFetch(fetchMock);
+    const { nav, footer, stack, furniture } = shellParts(container);
+
+    expect(container.querySelector(promoSelector)).toBeNull();
+    expect(furniture).toHaveLength(3);
+    expect(furniture[0]!.contains(nav)).toBe(true);
+    expect(furniture[2]!.contains(footer)).toBe(true);
+    expect(Array.from(stack.children).every((child) => child.childElementCount > 0)).toBe(true);
+  });
+
+  it("renders no promo wrapper when every fetched message lacks a title", async () => {
+    const fetchMock = stubPromoMessages([
+      { id: "promo_untitled", description: "No title" },
+      { id: "promo_blank", title: "" },
+    ]);
+    const { container } = render(<PublicInfoPage content={infoContent} />);
+    await settlePromoFetch(fetchMock);
+    const { nav, furniture } = shellParts(container);
+
+    expect(container.querySelector(promoSelector)).toBeNull();
+    expect(furniture).toHaveLength(3);
+    expect(furniture[0]!.contains(nav)).toBe(true);
+  });
+
+  it("matches the Page gutter with one titled promo message", async () => {
+    const fetchMock = stubPromoMessages([{ id: "promo_one", title: "Founders offer is open", tone: "info" }]);
+    const { container } = render(<PublicInfoPage content={infoContent} />);
+    await settlePromoFetch(fetchMock);
+    const { main, nav, footer, stack, furniture } = shellParts(container);
+    const promo = container.querySelector(promoSelector);
+
+    expect(promo).not.toBeNull();
+    expect(furniture).toHaveLength(4);
+    expect(furniture[0]).toBe(promo!.parentElement);
+    expect(furniture[1]).toBe(nav.parentElement);
+    expect(furniture[3]).toBe(footer.parentElement);
+
+    const pageRootTokens = horizontalPaddingTokens(main.firstElementChild!);
+    expect(pageRootTokens).toEqual(pageGutterTokens);
+    for (const wrapper of [promo!.parentElement!, nav.parentElement!, footer.parentElement!]) {
+      expect(wrapper.parentElement).toBe(stack);
+      expect(horizontalPaddingTokens(wrapper)).toEqual(pageRootTokens);
+    }
+  });
+
+  it.each([
+    ["landing page", () => <PublicPresenceHomePage actionData={null} source={source} />],
+    ["compare page", () => <ComparePage competitor="ebay" feeSchedule={null} />],
+  ] as const)("gives the nav and footer the Page gutter tokens on the %s", async (_name, renderPage) => {
+    const fetchMock = stubPromoMessages([]);
+    const { container } = render(renderPage());
+    await settlePromoFetch(fetchMock);
+    const { main, nav, footer } = shellParts(container);
+
+    const pageRootTokens = horizontalPaddingTokens(main.firstElementChild!);
+    expect(pageRootTokens).toEqual(pageGutterTokens);
+    expect(horizontalPaddingTokens(nav.parentElement!)).toEqual(pageRootTokens);
+    expect(horizontalPaddingTokens(footer.parentElement!)).toEqual(pageRootTokens);
   });
 });

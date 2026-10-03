@@ -3,6 +3,7 @@ import {
   Form,
   Banner,
   Badge,
+  Box,
   BrandFoilText,
   BrandLink,
   Button,
@@ -402,6 +403,13 @@ function useWaitlistCounterDisplay() {
   return displayCount;
 }
 
+// The shell owns no gutter of its own around `main`: `Page` applies `px-4 md:px-6`
+// to page content, and furniture outside `main` repeats the same tokens so every
+// edge lines up at every viewport width.
+function ShellGutter({ children }: { children: ReactNode }) {
+  return <Box paddingX={{ base: 4, md: 6 }}>{children}</Box>;
+}
+
 export function PublicPresencePageShell({
   children,
   landingExperimentVariant = landingExperimentVariants.sellerFirstV1,
@@ -410,50 +418,61 @@ export function PublicPresencePageShell({
   landingExperimentVariant?: LandingExperimentVariant;
 }) {
   const promoBarMessages = usePromoBarMessages();
+  // `PromoBar` renders null unless a message has a title, so the wrapper (and its
+  // `Stack` gap slot) must follow the same titled-message rule, not array length.
+  const hasTitledPromoMessage = promoBarMessages.some((message) => Boolean(message.title));
 
   return (
     <LandingExperimentVariantContext.Provider value={landingExperimentVariant}>
       <ChaseRoot colorMode="system" linkComponent={RouterLinkAdapter}>
         <SkipLink />
         <MobileStickyInset>
-          <Container width="wide">
+          <Container width="wide" paddingX={0}>
             <Stack gap={4}>
-              <PromoBar messages={promoBarMessages} />
-              <Surface element="nav" tone="subtle" elevation="flush" padding={2}>
-                <Cluster gap={2}>
-                  <Inline gap={3} align="center">
-                    <BrandLink label={t("publicPresence.brand")} />
-                  </Inline>
-                  <LinkButton
-                    href="/#waitlist-form"
-                    tone="primary"
-                    size="sm"
-                    leadingIcon="rocket"
-                    onClick={() => trackCtaClick("nav", "waitlist_form", landingExperimentVariant)}
-                  >
-                    {t("publicPresence.nav.waitlist")}
-                  </LinkButton>
-                </Cluster>
-              </Surface>
+              {hasTitledPromoMessage ? (
+                <ShellGutter>
+                  <PromoBar messages={promoBarMessages} />
+                </ShellGutter>
+              ) : null}
+              <ShellGutter>
+                <Surface element="nav" tone="subtle" elevation="flush" padding={2}>
+                  <Cluster gap={2}>
+                    <Inline gap={3} align="center">
+                      <BrandLink label={t("publicPresence.brand")} />
+                    </Inline>
+                    <LinkButton
+                      href="/#waitlist-form"
+                      tone="primary"
+                      size="sm"
+                      leadingIcon="rocket"
+                      onClick={() => trackCtaClick("nav", "waitlist_form", landingExperimentVariant)}
+                    >
+                      {t("publicPresence.nav.waitlist")}
+                    </LinkButton>
+                  </Cluster>
+                </Surface>
+              </ShellGutter>
               <main id="main-content">{children}</main>
-              <Surface element="footer" tone="subtle" elevation="flush">
-                <Stack gap={3}>
-                  <Text weight="semibold">{t("publicPresence.footer.title")}</Text>
-                  <Inline gap={3}>
-                    {policyLinks.map((link) => (
-                      <LinkText key={link.href} href={link.href} touchTarget>
-                        {link.label}
+              <ShellGutter>
+                <Surface element="footer" tone="subtle" elevation="flush">
+                  <Stack gap={3}>
+                    <Text weight="semibold">{t("publicPresence.footer.title")}</Text>
+                    <Inline gap={3}>
+                      {policyLinks.map((link) => (
+                        <LinkText key={link.href} href={link.href} touchTarget>
+                          {link.label}
+                        </LinkText>
+                      ))}
+                      <LinkText href="/contact" touchTarget>
+                        {t("publicPresence.nav.contact")}
                       </LinkText>
-                    ))}
-                    <LinkText href="/contact" touchTarget>
-                      {t("publicPresence.nav.contact")}
-                    </LinkText>
-                  </Inline>
-                  <Text size="sm" tone="secondary">
-                    {t("publicPresence.footer.description")}
-                  </Text>
-                </Stack>
-              </Surface>
+                    </Inline>
+                    <Text size="sm" tone="secondary">
+                      {t("publicPresence.footer.description")}
+                    </Text>
+                  </Stack>
+                </Surface>
+              </ShellGutter>
             </Stack>
           </Container>
         </MobileStickyInset>
