@@ -25,7 +25,7 @@ import { loadLandingFeePresentation } from "../../support/request-support/landin
 
 const fallbackPublicOrigin = "https://chasesets.com";
 // Compatibility redirect for fee-calculator share links generated while the
-// calculator still lived on `/` (#8503 AC6). Those links carry exactly this
+// calculator still lived on `/`. Those links carry exactly this
 // UTM triple plus `price`; the calculator now lives on the compare pages and
 // old links encoded no competitor, so they land on /compare/tcgplayer with
 // the query untouched and the `#fee-calculator` anchor the calculator owns.

@@ -885,7 +885,7 @@ function OpenOffersSection() {
 function FeeComparisonSection({ onDisclosureOpen }: { onDisclosureOpen: TrackDisclosureOpen }) {
   const landingExperimentVariant = useLandingExperimentVariant();
 
-  // One row only (#8503): the kept amount is the whole argument on the
+  // One row only: the kept amount is the whole argument on the
   // landing page; the fee breakdown, calculator and worked examples live on
   // the /compare pages this section links to.
   return (
@@ -939,7 +939,7 @@ function FeeComparisonSection({ onDisclosureOpen }: { onDisclosureOpen: TrackDis
 }
 
 // Founders offer module: title and description state the cap and the 60-day
-// window; the mechanics live on /founders (#8503 trimmed the point list).
+// window; the mechanics live on /founders, not in a point list here.
 // Cap is stated as a static number, not a live count: an "N of 500 founder
 // numbers claimed" scarcity chip needs an activated-founders cohort counter
 // that does not exist yet (only the waitlist signup counter is live, and
@@ -993,7 +993,7 @@ function FinalCtaSection({
             <Text tone="secondary">{t("publicPresence.home.finalCta.description")}</Text>
           </Stack>
           {/* One-line founder byline: the credibility the removed founder-story
-              section carried, from its existing name/role keys (#8503). */}
+              section carried, from its existing name/role keys. */}
           <Text size="sm" tone="secondary" data-public-presence-founder-byline>
             {t("publicPresence.home.finalCta.byline", {
               name: t("publicPresence.home.founderStory.name"),
@@ -1061,7 +1061,7 @@ function WaitlistSignupPanel({
   // still land in the games selection, so the prefill merges reactively
   // instead of relying on initial state alone. Both forms post the prefill as
   // hidden `games` values; the seller cohort-quality fields (games, inventory
-  // size, store link) are collected on /welcome after signup (#8503).
+  // size, store link) are collected on /welcome after signup.
   useEffect(() => {
     if (!selectedGame) {
       return;
@@ -1201,7 +1201,7 @@ function WaitlistSignupPanel({
               onFocus={() => trackFormStart("email")}
               controlSize="lg"
             />
-            {/* Both forms stay minimal (#3954, #8503): a game prefill travels
+            {/* Both forms stay minimal (#3954): a game prefill travels
                 as hidden values, never as a visible field. */}
             {games.map((game) => (
               <HiddenInput key={game} name="games" value={game} />
