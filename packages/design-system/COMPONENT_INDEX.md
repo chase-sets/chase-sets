@@ -4,7 +4,7 @@
 
 This index is generated from the root `@chase-sets/design-system` export surface and the production consumer inventory used by `scripts/check-design-system-dead-exports.mjs`.
 
-- Runtime exports indexed: 364
+- Runtime exports indexed: 363
 - Source modules covered: 128
 - Example consumers scan: production files under `bounded-contexts/` and `deployables/`, excluding tests
 
@@ -112,7 +112,6 @@ This index is generated from the root `@chase-sets/design-system` export surface
 | `DetailConfidenceModule` | `packages/design-system/src/components/commerce/detail.tsx` | Purpose not documented; symbol name suggests: Detail Confidence Module. | `bounded-contexts/fulfillment/features/shipments/ui/shipment-detail-page.tsx` |
 | `DetailPanel` | `packages/design-system/src/components/data-display/card.tsx` | Purpose not documented; symbol name suggests: Detail Panel. | `bounded-contexts/discovery/features/google-shopping-operations/ui/google-shopping-operations-page.tsx` |
 | `Dialog` | `packages/design-system/src/components/feedback/dialog.tsx` | Purpose not documented; symbol name suggests: Dialog. | `bounded-contexts/catalog/features/blueprints/ui/blueprint-detail-page.tsx` |
-| `DiscountValue` | `packages/design-system/src/primitives/typography.tsx` | Purpose not documented; symbol name suggests: Discount Value. | `bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx` |
 | `Divider` | `packages/design-system/src/primitives/layout.tsx` | Purpose not documented; symbol name suggests: Divider. | `bounded-contexts/auth/features/registration/ui/register-page.tsx` |
 | `EmbeddedProviderSurface` | `packages/design-system/src/primitives/layout.tsx` | Full-width host for provider-managed embedded flows whose iframe dimensions are controlled by a vendor runtime. | `bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx` |
 | `embeddedSurfaceThemeSnapshot` | `packages/design-system/src/theme/embedded-surface-theme.ts` | Purpose not documented; symbol name suggests: embedded Surface Theme Snapshot. | `bounded-contexts/payments/features/payments/ui/account-payment/stripe-confirmation-card.tsx` |

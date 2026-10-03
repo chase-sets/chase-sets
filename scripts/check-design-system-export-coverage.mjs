@@ -101,7 +101,6 @@ export const TESTED_DESIGN_SYSTEM_ROOT_EXPORTS = Object.freeze([
   "DetailConfidenceModule",
   "DetailPanel",
   "Dialog",
-  "DiscountValue",
   "Divider",
   "EmbeddedProviderSurface",
   "EmptyState",
