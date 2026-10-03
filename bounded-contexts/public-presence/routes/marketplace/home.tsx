@@ -61,7 +61,7 @@ function actionErrorMessage(error: unknown) {
 export async function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
   if (isLegacyFeeCalculatorShareLink(url)) {
-    return redirect(`${legacyFeeCalculatorSharePath}${url.search}${legacyFeeCalculatorShareHash}`);
+    throw redirect(`${legacyFeeCalculatorSharePath}${url.search}${legacyFeeCalculatorShareHash}`);
   }
   const publicOrigin = process.env.CHASE_SETS_PUBLIC_ORIGIN?.trim() || url.origin;
   const discordInviteUrl = process.env.CHASE_SETS_DISCORD_INVITE_URL?.trim() || null;

@@ -389,7 +389,6 @@ describe("public presence home route", () => {
       context: undefined,
     } as never);
 
-    expect(data).not.toBeInstanceOf(Response);
     expect(fetch).toHaveBeenCalledWith(
       expect.stringContaining("/api/public-presence/policy-values"),
       expect.anything(),
@@ -401,23 +400,36 @@ describe("public presence home route", () => {
 
   // #8503 AC6: links the landing calculator generated before it moved carry
   // `price` plus this exact UTM triple; they redirect to the TCGplayer compare
-  // page with the query untouched and the calculator anchor.
+  // page with the query untouched and the calculator anchor. The loader throws
+  // the redirect Response (React Router prior art), so a test catches it.
   const legacyShareQuery = "?price=12.00&cards=2&utm_source=fee-calculator&utm_medium=share&utm_campaign=what-you-keep";
+
+  async function loaderOutcome(
+    path: string,
+  ): Promise<{ response: Response } | { data: Awaited<ReturnType<typeof loader>> }> {
+    try {
+      return {
+        data: await loader({
+          request: new Request(`https://chasesets.test${path}`),
+          params: {},
+          context: undefined,
+        } as never),
+      };
+    } catch (thrown) {
+      if (thrown instanceof Response) return { response: thrown };
+      throw thrown;
+    }
+  }
 
   it("redirects a legacy fee-calculator share link on / to /compare/tcgplayer with the unchanged query (AC6)", async () => {
     const fetch = vi.fn(async () => new Response("policy source unavailable", { status: 503 }));
     vi.stubGlobal("fetch", fetch);
 
-    const result = await loader({
-      request: new Request(`https://chasesets.test/${legacyShareQuery}`),
-      params: {},
-      context: undefined,
-    } as never);
+    const outcome = await loaderOutcome(`/${legacyShareQuery}`);
 
-    expect(result).toBeInstanceOf(Response);
-    const response = result as Response;
-    expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe(`/compare/tcgplayer${legacyShareQuery}#fee-calculator`);
+    if (!("response" in outcome)) throw new Error("Expected the loader to redirect a legacy share link.");
+    expect(outcome.response.status).toBe(302);
+    expect(outcome.response.headers.get("Location")).toBe(`/compare/tcgplayer${legacyShareQuery}#fee-calculator`);
     // The redirect is decided before any policy read.
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -432,14 +444,10 @@ describe("public presence home route", () => {
   ])("does not redirect %s (AC6 nonmatching)", async (_label, path) => {
     stubPolicyReadUnavailable();
 
-    const data = await loader({
-      request: new Request(`https://chasesets.test${path}`),
-      params: {},
-      context: undefined,
-    } as never);
+    const outcome = await loaderOutcome(path);
 
-    expect(data).not.toBeInstanceOf(Response);
-    expect((data as { source: { pagePath: string } }).source.pagePath).toBe(path);
+    if (!("data" in outcome)) throw new Error(`Expected the loader to render ${path}, not redirect.`);
+    expect(outcome.data.source.pagePath).toBe(path);
   });
 
   it("leaves the signup action untouched by the legacy share-link query (AC6)", async () => {

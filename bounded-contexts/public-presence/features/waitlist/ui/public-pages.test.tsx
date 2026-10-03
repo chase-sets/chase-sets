@@ -156,7 +156,7 @@ describe("landing fine-print disclosures", () => {
       window.dataLayer = [];
       const pageSource = { ...source, pagePath };
       const { container, rerender } = render(<PublicPresenceHomePage actionData={null} source={pageSource} />);
-      const opened = () => window.dataLayer.filter((event) => event.event === "disclosure_opened");
+      const opened = () => (window.dataLayer ?? []).filter((event) => event.event === "disclosure_opened");
       const sourceNote = () =>
         container.querySelector<HTMLButtonElement>('[data-landing-disclosure="fee_comparison_source_note"] button')!;
       expect(opened()).toHaveLength(0);
