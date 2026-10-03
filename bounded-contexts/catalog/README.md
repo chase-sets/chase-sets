@@ -46,6 +46,12 @@ The v2 integration control-plane IA — three pages, two utilities, and the per-
 
 ## Owns
 
+The [TCGplayer Operator Extension](../../deployables/tcgplayer-operator-extension/README.md)
+composes Catalog's operator-session background and sandboxed popup through
+`./client`. Relay behavior, local records, transport, UI and tests live in the
+operator-session slice, not in the deployable. The existing grant/custody
+server remains the only writer of platform custody.
+
 - Canonical `catalog_item_id` identity
 - Dimension definitions and their Options
 - Blueprint-driven product resolution rules
