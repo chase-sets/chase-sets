@@ -1,6 +1,7 @@
 import { ProviderSendStoppedError, sendCatalogProviderRequest } from "./provider-send-admission";
 import type { OperatorSessionAttemptOutcome } from "../../../operator-session/api/outcomes";
 import { operatorSessionRateBudgetContext } from "../../../operator-session/domain/rate-budget-context";
+import { catalogProductionTransport } from "./catalog-fixture-transports";
 
 export const TCGPLAYER_AUTOMATION_DOMAIN_KEYS = {
   MP_SEARCH_API: "mpSearchApi",
@@ -267,8 +268,9 @@ export class TcgplayerAutomationDomainHttpClient {
     this.domainKey = domainKey;
     this.baseUrl = baseUrl;
     this.configStore = configStore;
-    this.fetchImpl = deps.fetch ?? fetch;
     this.ownership = deps.ownership ?? "catalog";
+    this.fetchImpl =
+      this.ownership === "catalog" && deps.fetch ? catalogProductionTransport(deps.fetch) : (deps.fetch ?? fetch);
     this.sleep = deps.sleep ?? sleepWithAbort;
     this.random = deps.random ?? Math.random;
     this.now = deps.now ?? Date.now;

@@ -1,3 +1,4 @@
+import { catalogProductionTransport } from "../catalog-fixture-transports";
 import {
   sendCatalogProviderRequest,
   ProviderSendStoppedError,
@@ -290,6 +291,12 @@ const scrydexLorcanaProofSealedProduct: ScrydexOnePieceSealedProduct = {
 
 export function createScrydexOnePieceProviderAdapter(
   options: ScrydexOnePieceProviderAdapterOptions = {},
+): ProviderAdapter<ScrydexOnePieceProviderPayload> {
+  return createScrydexAdapter({ ...options, fetch: options.fetch && catalogProductionTransport(options.fetch) });
+}
+
+function createScrydexAdapter(
+  options: ScrydexOnePieceProviderAdapterOptions,
 ): ProviderAdapter<ScrydexOnePieceProviderPayload> {
   return {
     providerKey: "scrydex",

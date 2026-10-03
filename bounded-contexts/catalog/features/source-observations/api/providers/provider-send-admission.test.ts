@@ -4,6 +4,14 @@ import type { CatalogRuntimeDeps } from "../../../../support/authoring-support/r
 import { createCatalogItemRuntime } from "../../../catalog-items/api/runtime";
 import { createReferenceDataRuntime } from "../../../reference-data/api/runtime";
 import { createSourceObservationRuntime } from "../runtime";
+import { createCatalogIntegrationDryRunProofRegistry } from "../governance/catalog-integration-dry-run-proofs";
+import { catalogFixtureTransports } from "./catalog-fixture-transports";
+import { createTcgdexProviderAdapter } from "./tcgdex/adapter";
+import { getActiveCatalogProviderIntegrationProfileVersion } from "./registry";
+import { fetchTcgdexEnglishMirrorEntity, normalizeTcgdexImageAsset } from "./tcgdex-client";
+import { normalizeLorcanaImageAsset } from "../seeding/product-asset-normalization";
+import { createPostgresProviderSendLedger } from "./provider-send-ledger";
+import { queryProviderIntegrationOptions } from "./provider-option-queries";
 import {
   bindCatalogProviderServices,
   createCatalogProviderSendRuntime,
@@ -38,6 +46,7 @@ import {
   runCatalogProviderWork,
   type ProviderSendBinding,
   sendCatalogProviderRequest,
+  type ProviderSendRequest,
 } from "./provider-send-admission";
 
 const binding: ProviderSendBinding = { windowId: "synthetic-window", phase: "pass", pass: 1 };
@@ -52,6 +61,333 @@ function ledger(overrides: Partial<ProviderSendLedger> = {}): ProviderSendLedger
 }
 
 describe("Catalog provider-send admission", () => {
+  it.each([false, true])(
+    "real option query entry retains discovery on reload/force refresh (%s)",
+    async (forceRefresh) => {
+      const debit = vi
+        .fn<ProviderSendLedger["debit"]>()
+        .mockResolvedValue({ state: "refused", code: "quota-exhausted" });
+      const admission = createProviderSendAdmission({ enabled: true, ledger: ledger({ debit }) });
+      const network = vi.fn<typeof fetch>();
+      vi.stubGlobal("fetch", network);
+      try {
+        await expect(
+          runCatalogProviderWork(admission, () =>
+            queryProviderIntegrationOptions(
+              {
+                providerKey: "tcgdex",
+                queryKind: "expansions",
+                languageCode: "en",
+                parentValue: "swsh",
+                forceRefresh,
+              },
+              null,
+              null,
+            ),
+          ),
+        ).rejects.toThrow("quota-exhausted");
+        expect(debit).toHaveBeenCalledTimes(1);
+        expect(debit.mock.calls[0]![0]).toMatchObject({ provider: "tcgdex", category: "discovery", binding });
+        expect(network).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
+  it("retained worker continuations keep payload attribution through real adapter pagination", async () => {
+    const requests: ProviderSendRequest[] = [];
+    const store = ledger({
+      debit: async (request) => {
+        requests.push(request);
+        return { state: "admitted", windowId: binding.windowId, sequence: requests.length };
+      },
+    });
+    const admission = createProviderSendAdmission({ enabled: true, ledger: store });
+    const fixture = composedRuntime();
+    fixture.query.mockResolvedValue({
+      rows: [{ window_id: binding.windowId, phase: binding.phase, pass: binding.pass }],
+    });
+    const deps: CatalogRuntimeDeps = {
+      ...fixture.deps,
+      providerSendRuntime: {
+        ledger: createPostgresProviderSendLedger(fixture.pool),
+        admission,
+      },
+    };
+    const transport = vi.fn<typeof fetch>(async (input) =>
+      Response.json({
+        data: [{ id: String(input).includes("page=2") ? "synthetic-two" : "synthetic-one", name: "Synthetic card" }],
+        has_more: !String(input).includes("page=2"),
+        next_page: "https://api.scryfall.com/cards/search?page=2",
+      }),
+    );
+    const adapter = new ProviderAdapterRegistry([createScryfallProviderAdapter({ fetch: transport })]).require(
+      "scryfall",
+    );
+    const [unit] = await adapter.listIntegrationUnits();
+    if (!unit) throw new Error("Missing Scryfall unit");
+    await runProviderSendJob(deps, "synthetic-integration-or-bulk-job", async () => {
+      const plan = await adapter.planImport({ unitKey: unit.unitKey, scopeKey: "set", values: { setCode: "tsp" } });
+      const payloads = [];
+      for await (const payload of adapter.fetchPayloads(plan)) payloads.push(payload);
+      expect(payloads).toHaveLength(2);
+    });
+    expect(requests).toHaveLength(2);
+    expect(
+      requests.every(
+        (request) =>
+          request.provider === "scryfall" &&
+          request.category === "payload" &&
+          request.binding?.windowId === binding.windowId,
+      ),
+    ).toBe(true);
+    expect(transport).toHaveBeenCalledTimes(2);
+  });
+
+  it("mirror and promotion asset entry points retain explicit categories before transport", async () => {
+    const profile = getActiveCatalogProviderIntegrationProfileVersion("tcgdex");
+    if (!profile) throw new Error("Missing TCGdex profile");
+    const debit = vi.fn<ProviderSendLedger["debit"]>().mockResolvedValue({ state: "refused", code: "quota-exhausted" });
+    const admission = createProviderSendAdmission({ enabled: true, ledger: ledger({ debit }) });
+    const transport = vi.fn<typeof fetch>();
+    const assetStorage = { putObject: vi.fn() };
+    const entries = [
+      [
+        "mirror",
+        () =>
+          fetchTcgdexEnglishMirrorEntity({ profile: profile.profile, entity: "set", id: "swsh3", fetch: transport }),
+      ],
+      [
+        "mirror",
+        () =>
+          readBoundedHttpObject({
+            fetch: transport,
+            url: "https://synthetic.invalid/pack",
+            maxBytes: 1024,
+            deadlineMs: 1000,
+            accept: "application/json",
+          }),
+      ],
+      [
+        "asset",
+        () =>
+          normalizeTcgdexImageAsset({
+            profile: profile.profile,
+            imageBaseUrl: "https://synthetic.invalid/image",
+            storageBaseKey: "synthetic",
+            observedAt: "2026-10-02T00:00:00.000Z",
+            fetcher: transport,
+            assetStorage,
+          }),
+      ],
+      [
+        "asset",
+        () =>
+          normalizeLorcanaImageAsset({
+            providerKey: "lorcanajson",
+            imageUrls: ["https://synthetic.invalid/card.webp"],
+            storageBaseKey: "synthetic",
+            observedAt: "2026-10-02T00:00:00.000Z",
+            sourceUpdatedAt: "2026-10-02T00:00:00.000Z",
+            fetcher: transport,
+            assetStorage,
+          }),
+      ],
+    ] as const;
+    for (const [category, entry] of entries) {
+      debit.mockClear();
+      await expect(runCatalogProviderWork(admission, async () => entry())).rejects.toThrow("quota-exhausted");
+      expect(debit).toHaveBeenCalledTimes(1);
+      expect(debit.mock.calls[0]![0]).toMatchObject({ category, binding });
+    }
+    expect(transport).not.toHaveBeenCalled();
+    expect(assetStorage.putObject).not.toHaveBeenCalled();
+  });
+
+  it.each(["supplied", "wrapper", "bound", "forged-name", "global", "fixture-as-global"] as const)(
+    "only closed transport identity exempts the same unknown request (%s)",
+    async (kind) => {
+      const fixture: typeof fetch = catalogFixtureTransports.tcgdex;
+      const input = "https://api.tcgdex.net/v2/en/sets/swsh3";
+      const request = {
+        provider: "tcgdex",
+        category: "unknown",
+        binding,
+        tariff: "non-scrydex",
+        fixture: true,
+      } as const;
+      const debit = vi
+        .fn<ProviderSendLedger["debit"]>()
+        .mockResolvedValue({ state: "refused", code: "unknown-request" });
+      const admission = createProviderSendAdmission({ enabled: true, ledger: ledger({ debit }) });
+      expect((await admission.send(request, fixture, input)).status).toBe(200);
+      expect(debit).not.toHaveBeenCalled();
+      const supplied = vi.fn<typeof fetch>(async () => Response.json({ fixture: true }));
+      const wrapped = vi.fn<typeof fetch>((...args) => fixture(...args));
+      const transport =
+        kind === "wrapper"
+          ? wrapped
+          : kind === "bound"
+            ? fixture.bind(null)
+            : kind === "fixture-as-global"
+              ? fixture
+              : supplied;
+      if (kind === "forged-name") Object.defineProperty(transport, "name", { value: fixture.name });
+      if (kind === "global" || kind === "fixture-as-global") vi.stubGlobal("fetch", transport);
+      try {
+        await expect(admission.send(request, transport, input)).rejects.toThrow("unknown-request");
+        expect(debit).toHaveBeenCalledExactlyOnceWith(request);
+        expect(supplied).not.toHaveBeenCalled();
+        expect(wrapped).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
+  it.each([
+    [
+      "tcgdex",
+      () =>
+        createTcgdexProviderAdapter({
+          fetch: catalogFixtureTransports.tcgdex,
+          loadActiveProfileVersion: async () => {
+            const profile = getActiveCatalogProviderIntegrationProfileVersion("tcgdex");
+            if (!profile) throw new Error("Missing TCGdex profile");
+            return profile;
+          },
+        }),
+      "expansions",
+    ],
+    ["mtgjson", () => createMtgjsonProviderAdapter({ fetch: catalogFixtureTransports.mtgjson }), "sets"],
+    ["lorcanajson", () => createLorcanajsonProviderAdapter({ fetch: catalogFixtureTransports.lorcanajson }), "sets"],
+    ["lorcast", () => createLorcastProviderAdapter({ fetch: catalogFixtureTransports.lorcast }), "sets"],
+    ["scryfall", () => createScryfallProviderAdapter({ fetch: catalogFixtureTransports.scryfall }), "sets"],
+    ["ygoprodeck", () => createYgoprodeckProviderAdapter({ fetch: catalogFixtureTransports.ygoprodeck }), "sets"],
+    ["ygojson", () => createYgojsonProviderAdapter({ fetch: catalogFixtureTransports.ygojson }), "sets"],
+  ] as const)(
+    "production %s adapter never exempts an adapter-supplied fixture identity",
+    async (provider, create, optionKind) => {
+      const adapter = new ProviderAdapterRegistry([create()]).require(provider);
+      const [unit] = await adapter.listIntegrationUnits();
+      if (!unit) throw new Error("Missing production integration unit");
+      const debit = vi
+        .fn<ProviderSendLedger["debit"]>()
+        .mockResolvedValue({ state: "refused", code: "quota-exhausted" });
+      const admission = createProviderSendAdmission({ enabled: true, ledger: ledger({ debit }) });
+      await expect(
+        runCatalogProviderWork(admission, () => adapter.listOptions({ unitKey: unit.unitKey, optionKind })),
+      ).rejects.toThrow("quota-exhausted");
+      expect(debit).toHaveBeenCalledTimes(1);
+      expect(debit.mock.calls[0]![0]).toMatchObject({ provider, category: "discovery", binding });
+    },
+  );
+
+  it.each(["scrydex", "tcgplayer"] as const)(
+    "production %s transport refuses a directly supplied closed fixture identity",
+    async (provider) => {
+      for (const wrapped of [true, false]) {
+        const fixture: typeof fetch = catalogFixtureTransports.tcgdex;
+        const wrapper = vi.fn<typeof fetch>((...args) => fixture(...args));
+        const supplied = wrapped ? wrapper : fixture;
+        const debit = vi
+          .fn<ProviderSendLedger["debit"]>()
+          .mockResolvedValue({ state: "refused", code: "quota-exhausted" });
+        const admission = createProviderSendAdmission({ enabled: true, ledger: ledger({ debit }) });
+        const adapter = new ProviderAdapterRegistry([
+          createScrydexOnePieceProviderAdapter({
+            fetch: supplied,
+            credentials: { apiKey: "SYNTHETIC_TEST_ONLY", teamId: "SYNTHETIC_TEST_ONLY" },
+          }),
+        ]).require("scrydex");
+        const client = new TcgplayerAutomationDomainHttpClient(
+          "infiniteApi",
+          "https://api.tcgdex.net/v2/en",
+          createInMemoryTcgplayerAutomationHttpConfigStore(),
+          { fetch: supplied, sleep: async () => undefined },
+        );
+        const OriginalResponse = globalThis.Response;
+        const response = vi.spyOn(globalThis, "Response").mockImplementation(function (body, init) {
+          return new OriginalResponse(body, init);
+        });
+        const network = vi.fn<typeof fetch>();
+        vi.stubGlobal("fetch", network);
+        try {
+          await expect(
+            runCatalogProviderWork(admission, () =>
+              provider === "scrydex" ? adapter.getCredentialReadiness() : client.get("/sets/swsh3"),
+            ),
+          ).rejects.toMatchObject({ name: "ProviderSendStoppedError", code: "quota-exhausted" });
+          expect(debit).toHaveBeenCalledTimes(1);
+          expect(debit.mock.calls[0]![0]).toMatchObject({
+            provider,
+            category: provider === "scrydex" ? "usage" : "discovery",
+            binding,
+          });
+          expect(wrapper).not.toHaveBeenCalled();
+          expect(response).not.toHaveBeenCalled();
+          expect(network).not.toHaveBeenCalled();
+        } finally {
+          response.mockRestore();
+          vi.unstubAllGlobals();
+        }
+      }
+    },
+  );
+
+  it.each(["pristine", "armed", "terminal", "stale", "absent"] as const)(
+    "all 13 fixture proofs produce observations without ledger or network I/O (%s)",
+    async (state) => {
+      vi.stubEnv("CATALOG_PROVIDER_SEND_WINDOW_ENABLED", "true");
+      const network = vi.fn(() => {
+        throw new Error("Unexpected network from a fixture proof");
+      });
+      vi.stubGlobal("fetch", network);
+      const debit = vi.fn<ProviderSendLedger["debit"]>().mockResolvedValue(
+        state === "pristine"
+          ? { state: "unarmed" }
+          : {
+              state: "refused",
+              code: state === "stale" ? "stale-binding" : state === "terminal" ? "terminal" : "unknown-request",
+            },
+      );
+      const bind = vi.fn<ProviderSendLedger["bind"]>().mockResolvedValue(binding);
+      const settle = vi.fn();
+      const stop = vi.fn();
+      const admission = createProviderSendAdmission({ enabled: true, ledger: ledger({ debit, bind, settle, stop }) });
+      const proofs = [...createCatalogIntegrationDryRunProofRegistry()].filter(([key]) =>
+        /^(tcgdex|mtgjson|lorcanajson|lorcast|scryfall|ygoprodeck|ygojson):/.test(key),
+      );
+      expect(proofs).toHaveLength(13);
+      try {
+        for (const [unitKey, proof] of proofs) {
+          const result =
+            state === "absent"
+              ? await proof()
+              : await runCatalogProviderWork(
+                  admission,
+                  proof,
+                  state === "pristine" ? null : state === "stale" ? { ...binding, pass: 0 } : binding,
+                );
+          expect(result.unitKey).toBe(unitKey);
+          expect(result.observations.length, unitKey).toBeGreaterThan(0);
+          expect(result.observations.every((observation) => observation.providerKey === unitKey.split(":")[0])).toBe(
+            true,
+          );
+        }
+        expect(debit).not.toHaveBeenCalled();
+        expect(bind).not.toHaveBeenCalled();
+        expect(settle).not.toHaveBeenCalled();
+        expect(stop).not.toHaveBeenCalled();
+        expect(network).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllGlobals();
+        vi.unstubAllEnvs();
+      }
+    },
+  );
+
   function composedRuntime() {
     const query = vi.fn<PgQueryable["query"]>().mockResolvedValue({ rows: [] });
     const client = { query, release: vi.fn() };
@@ -460,7 +796,7 @@ describe("Catalog provider-send admission", () => {
     "Scrydex %s continuation refuses quota+1 without publishing a complete cache",
     async (shape) => {
       let used = 0;
-      const debit = vi.fn(async () =>
+      const debit = vi.fn<ProviderSendLedger["debit"]>(async () =>
         ++used <= 32
           ? { state: "admitted" as const, windowId: binding.windowId, sequence: used }
           : { state: "refused" as const, code: "quota-exhausted" as const },
@@ -497,6 +833,7 @@ describe("Catalog provider-send admission", () => {
       ).rejects.toThrow("quota-exhausted");
       expect(fetch).toHaveBeenCalledTimes(32);
       expect(debit).toHaveBeenCalledTimes(33);
+      expect(debit.mock.calls.every(([request]) => request.category === "card-force")).toBe(true);
       expect(write).not.toHaveBeenCalled();
     },
   );
