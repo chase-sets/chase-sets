@@ -1,5 +1,5 @@
 import { formatBpsPercent, formatMoney, t } from "@chase-sets/localization";
-import { useId } from "react";
+import { Fragment, useId } from "react";
 import { useSearchParams } from "react-router";
 import {
   Badge,
@@ -65,6 +65,21 @@ export function formatDealsFramingGap(variant: DealsFramingVariant, side: DealsF
     : t("discovery.routes.dealsFramingProbe.gap.a.sell", { gap, percent, benchmark });
 }
 
+// Break opportunities after each "::" and "|" separator let the verbatim product
+// identifier wrap at narrow widths without changing its text content.
+function ProductIdentifier({ value }: { value: string }) {
+  return (
+    <Text size="sm" wrap="break">
+      {value.split(/(?<=::|\|)/).map((segment, index) => (
+        <Fragment key={index}>
+          {index > 0 ? <wbr /> : null}
+          {segment}
+        </Fragment>
+      ))}
+    </Text>
+  );
+}
+
 function buildColumns(variant: DealsFramingVariant, side: DealsFramingSide): DataColumn<FixtureRow>[] {
   const gapCell = (row: FixtureRow) => (
     <Stack gap={1} align="start">
@@ -80,11 +95,7 @@ function buildColumns(variant: DealsFramingVariant, side: DealsFramingSide): Dat
   const product: DataColumn<FixtureRow> = {
     key: "product",
     header: t("discovery.routes.dealsFramingProbe.column.product"),
-    cell: (row) => (
-      <Text size="sm" wrap="anywhere">
-        {row.product}
-      </Text>
-    ),
+    cell: (row) => <ProductIdentifier value={row.product} />,
   };
   const quantity: DataColumn<FixtureRow> = {
     key: "quantity",
@@ -160,6 +171,7 @@ export default function DealsFramingProbeRoute() {
       </Card>
       <Stack
         gap={4}
+        minWidth="0"
         data-deals-probe-variant={variant}
         data-deals-probe-side={side}
         data-deals-probe-row-count={rows.length}

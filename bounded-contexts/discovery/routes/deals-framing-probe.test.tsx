@@ -56,7 +56,10 @@ function renderedStrings(container: HTMLElement) {
   const strings = new Set<string>();
   const walker = container.ownerDocument.createTreeWalker(container, NodeFilter.SHOW_TEXT);
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    const text = node.textContent?.replace(/\s+/g, " ").trim();
+    // <wbr> break opportunities split one string into several text nodes.
+    const parent = node.parentElement;
+    const source = parent && [...parent.children].every((child) => child.tagName === "WBR") ? parent : node;
+    const text = source.textContent?.replace(/\s+/g, " ").trim();
     if (text) strings.add(text);
   }
   for (const element of container.querySelectorAll("[aria-label], [title], [placeholder], [alt]")) {
