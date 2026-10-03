@@ -234,9 +234,9 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
         identity: "9f9a50a07958feca",
       }),
       Object.freeze({
-        name: "resumes inventory from a committed-but-incomplete storage location",
+        name: "resumes inventory after only its first storage-location create commits",
         referenceDurationMs: 28698,
-        identity: "c93a07182fe7d5ff",
+        identity: "0d059da8303ae139",
       }),
       Object.freeze({
         name: "resumes an archived storage location committed before its archive step",

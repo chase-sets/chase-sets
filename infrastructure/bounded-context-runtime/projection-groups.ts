@@ -955,6 +955,7 @@ export function resolveModuleProjectionGroups(
             subscriptions.length > 0 &&
             subscriptions.every(
               (subscription) =>
+                !subscription.recoveryRequired &&
                 subscription.lastGlobalPosition === subscription.sourceHeadGlobalPosition &&
                 subscription.blockedStreamCount === 0,
             );
