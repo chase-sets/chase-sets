@@ -3,7 +3,7 @@
 ## Status
 
 Proposed for #6462, under #6461's authorship handoff. Independent exact-head review
-ratifies these decisions. Host decision 6462-hq-decision-r1 settles destination correction, catalog completeness and evidence-window reachability. Survivor Shipping-shortfall funding is Todd's decision (https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5904695428); this ADR is ratifiable only once that rule is recorded below. This ADR does not ship grouping.
+ratifies these decisions. Host decision 6462-hq-decision-r1 settles destination correction, catalog completeness and evidence-window reachability. Todd settled Survivor Shipping-shortfall funding at https://github.com/chase-sets/chase-sets/issues/6462#issuecomment-5972382100. This ADR does not ship grouping.
 
 V1 contains exactly an existing anchor Order and one follow-on Order. It preserves
 the [#6460 ruling](https://github.com/chase-sets/chase-sets/issues/6460#issuecomment-5170328894)
@@ -219,11 +219,11 @@ are cents in the nine-field order above; allowance is 100 bps unless noted.
 | Nonzero protection overage | 800 / 500 | 10000 / 0 bps | (300, 0, 0, 300, 300, 100, 0, 100, 400) | Buyer sees combined Shipping, not another protection fee |
 | Worse than standalone | 1100 / 500 | 1000 / 100 bps | candidate (600, 0, 0, 600, 600, 10, 10, 0, 600) | Standalone base/charge 500: refuse offer before reserve/Payment |
 | Follow-on cancelled pre-packing | First base 500 stays 500 | Only cancelled member refunds/releases | First's entire committed vector unchanged | Group dissolves; the original anchor ships alone on its own standalone frozen vector; no shortfall arises and no buyer repricing |
-| Anchor cancelled pre-packing | Combined 800; survivor incremental base 300 | Survivor standalone quote 500 | Survivor vector unchanged, not raised to 500 | Survivor ships under its own Shipment with its vector unchanged; the standalone-versus-incremental gap follows 'Survivor Shipping shortfall' |
+| Anchor cancelled pre-packing | Combined 800; survivor incremental base 300 | Survivor standalone quote 500 | Survivor vector unchanged, not raised to 500 | Survivor ships under its own Shipment with its vector unchanged; the standalone-versus-incremental gap follows 'Survivor Shipping shortfall'; a `buyer-cancelled` anchor's refund withholds S = 500 - 300 = 200 per 'Survivor Shipping shortfall' |
 
 Payments, refund caps, fees, Settlement sale accounting, seller capacity, inventory
 and purchase-limit usage stay per Order. No consolidation credit, money pooling,
-first-money mutation or reassignment of cancelled-member allowance to the survivor.
+first-money mutation or reassignment of cancelled-member allowance to the survivor. The only exception is the frozen survivor Shipping-shortfall withholding from a `buyer-cancelled` anchor's refund.
 Ordinary refunds and inventory/capacity release affect only the cancelled member.
 
 ## Postage attribution and policy
@@ -262,7 +262,7 @@ deduplicating only by provider ID downstream is not the current contract.
 | Refund terminal `refunded` | Original provider label and debit, even after re-buy | One credit reversing that debit; `rejected` produces no credit |
 | Re-buy after authoritative void | New label generation, same actual-label subject | New debit; late old refund still belongs only to the old debit |
 | Seller-elected separate dispatch | Each actual member Shipment owns its own actual label | One debit/refund lineage per label; both Order vectors frozen; extra label cost stays seller-funded |
-| Anchor cancelled before packing | No new shared label; surviving member ships under its own Shipment | Never attribute survivor postage to the cancelled anchor; the survivor's own label keeps the existing single full debit; gap funding follows 'Survivor Shipping shortfall' |
+| Anchor cancelled before packing | No new shared label; surviving member ships under its own Shipment | Never attribute survivor postage to the cancelled anchor; the survivor's own label keeps the existing single full debit; gap funding follows 'Survivor Shipping shortfall'; a `buyer-cancelled` anchor's withheld shortfall reaches the seller through that anchor's reduced refund debit |
 
 ### Durable operation identity
 
@@ -444,7 +444,15 @@ The grouped purchase detail discloses the mismatch and links each Order's own co
 
 ### Survivor Shipping shortfall
 
-When the anchor is cancelled before packing, the surviving follow-on ships under its own Shipment with its frozen incremental vector unchanged, and the buyer is never repriced. #7196 A assigns the gap between standalone and incremental seller Shipping payout to the platform. #6460 forbids new Settlement entries, and current Settlement credits only the frozen payout and debits the seller the full survivor label (`fulfillment-source-projection.ts`). The two rulings cannot both hold without a new posting, so funding is Todd's decision at https://github.com/chase-sets/chase-sets/issues/4388#issuecomment-5904695428. Until it is recorded here, this ADR is not ratifiable and #7200 must not enable formation. Follow-on cancellation creates no shortfall: the anchor ships on its own standalone frozen vector.
+Todd ruled at https://github.com/chase-sets/chase-sets/issues/6462#issuecomment-5972382100: "Buyer pays even if they didn't get a full refund." This withdraws #7196 A's platform-absorption clause.
+- **Scope:** the anchor is cancelled with reason `buyer-cancelled`, in the formed-before-activation or committed/pre-packing phase, while the follow-on is a current, uncancelled member. Every other reason keeps today's full refund, and the gap stays with the seller through the survivor's existing full-label debit. Follow-on cancellation creates no shortfall.
+- **Amount:** `S = standaloneSellerShippingPayoutAmount - follow-on sellerShippingPayoutAmount`, in integer cents, clamped at zero. Both values are frozen at formation: #7200 stores the standalone value in the follow-on's frozen snapshot and quote fingerprint. Because the protection terms are identical, S equals the displayed saving.
+- **Withholding:** the anchor's own `ordering.order.cancelled` carries S, both frozen payouts, `survivorOrderId` and `orderGroupId`. Payments withholds `W = min(S, remaining refundable, remaining unrefunded anchor seller payout)` from that refund under the kind `order-group-survivor-shipping-shortfall`, and records S, W and `S - W` on its refund facts. The seller bears `S - W` through the existing label debit. The buyer is never charged later, and the platform never funds it.
+- **Seller kept whole:** the anchor's single existing `refund` debit becomes `proportional(exposure, refunded + W, cap) - W`, and the protection reversal uses `refunded + W`. The seller keeps exactly W of the anchor's buyer money. There is no new entry, entry kind, platform credit or reserve draw.
+- **Release:** if the survivor is later cancelled, Payments refunds the outstanding W on the anchor exactly once, keyed by the anchor Order. The same rule then debits the seller exactly W.
+- **Disclosure:** checkout shows S before the follow-on Payment, and the anchor's cancel confirmation shows W.
+
+No group fact gains money, and the survivor is never repriced. Formation stays disabled until the withholding slice lands.
 
 ### Evidence-window release cannot reach a group member
 
@@ -458,6 +466,8 @@ As a guard, Ordering refuses any CancelOrder on a current group member (formed o
 
 | Alternative | Decision / tradeoff |
 | --- | --- |
+| Platform absorbs the survivor shortfall | Withdrawn by Todd (https://github.com/chase-sets/chase-sets/issues/6462#issuecomment-5972382100); needs a platform-funded posting #6460 forbids. The buyer funds it from the anchor refund. |
+| Withhold on every cancellation reason | Reject: seller, Support, inventory and fraud cancellations promise a full refund; the gap stays with the seller. |
 | One group owns commercial money | Reject: violates per-Order refunds, allowance/protection and immutable first money. Exact-two linkage is simpler than financial consolidation. |
 | N members or member-added events | Reject: exceeds #7196 and changes protocol/cardinality. Dissolution ends the original pair; a new eligible group has new identity. |
 | Projection eligibility, expiring lease, or direct-port-only coordination | Reject: packing races, stale generation resurrection and stranded reservations. Aggregate admission plus causal worker recovery costs more protocol but is authoritative. |
@@ -467,7 +477,7 @@ As a guard, Ordering refuses any CancelOrder on a current group member (formed o
 | Provider reference guarantees retry safety | Reject: captured records explicitly prove one attempt only; local durable invocation/ambiguity authority is necessary. |
 | Cancel both or charge survivor after cancellation | Reject: #7196 A preserves survivor; the survivor gap follows 'Survivor Shipping shortfall', never survivor repricing. |
 | Separate dispatch dissolves the Order Group | Reject: no genuine member cancellation and no R reason; retain linkage/admission, record physical disposition, seller funds extra labels. |
-| Dissolve on destination correction, or propagate it to both | Reject. No member is removed, and R has no correction reason. Dissolution splits a parcel the buyer can make consistent and recreates the survivor-shortfall money question. Propagation exceeds #6458's single-Order authority. Hold combined execution until the destinations match instead. |
+| Dissolve on destination correction, or propagate it to both | Reject. No member is removed, and R has no correction reason. Dissolution splits a parcel the buyer can make consistent and would trigger the survivor-shortfall rule. Propagation exceeds #6458's single-Order authority. Hold combined execution until the destinations match instead. |
 
 Only the ADR/index, two ID declarations/tests and planned glossary entries ship in
 this slice. Runtime aggregates, codecs/registry, migrations, UI, provider adapters,
