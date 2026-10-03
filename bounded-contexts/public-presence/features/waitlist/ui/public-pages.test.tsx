@@ -1186,13 +1186,11 @@ describe("public waitlist form migration smoke", () => {
     const variants = [
       {
         pageSource: source,
-        heroEyebrow: t("publicPresence.home.eyebrow"),
         heroTitle: t("publicPresence.home.title"),
         heroDescription: t("publicPresence.home.description"),
       },
       {
         pageSource: { ...source, pagePath: "/?intent=buy" },
-        heroEyebrow: t("publicPresence.home.buyerHero.eyebrow"),
         heroTitle: t("publicPresence.home.buyerHero.title"),
         heroDescription: t("publicPresence.home.buyerHero.description"),
       },
@@ -1228,7 +1226,8 @@ describe("public waitlist form migration smoke", () => {
       const titleEl = heroSection.querySelector("h1");
       if (!titleEl) throw new Error("Expected the hero h1 to render.");
       expect(titleEl.textContent).toBe(variant.heroTitle);
-      expect(titleEl.previousElementSibling?.textContent).toBe(variant.heroEyebrow);
+      // The hero opens on the h1: no eyebrow sits above it (#8504).
+      expect(titleEl.previousElementSibling).toBeNull();
       expect(titleEl.nextElementSibling?.textContent).toBe(variant.heroDescription);
 
       expect(container.querySelector('nav a[href="/#waitlist-form"]')?.textContent).toBe(
@@ -1543,6 +1542,107 @@ describe("public waitlist form migration smoke", () => {
     ]);
 
     stop();
+  });
+});
+
+describe("landing hero signup panel first screen (#8504)", () => {
+  const heroVariants = [
+    { variant: "seller_first_v1", pagePath: source.pagePath },
+    { variant: "seller_first_v2", pagePath: "/?intent=buy" },
+  ] as const;
+
+  function stubWaitlistCount(displayCount: number | null) {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).includes("/waitlist/count")
+        ? new Response(JSON.stringify({ displayCount }), { headers: { "Content-Type": "application/json" } })
+        : new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  function visibleTextNodes(root: Element) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes: Text[] = [];
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node.textContent?.trim()) nodes.push(node as Text);
+    }
+    return nodes;
+  }
+
+  function follows(earlier: Node, later: Node) {
+    return Boolean(earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING);
+  }
+
+  it.each(
+    heroVariants.flatMap(({ variant, pagePath }) => [
+      { variant, pagePath, displayCount: 125 },
+      { variant, pagePath, displayCount: null },
+    ]),
+  )(
+    "$variant panel orders intent, email, submit, notes, then counter (displayCount $displayCount)",
+    async ({ pagePath, displayCount }) => {
+      const fetchMock = stubWaitlistCount(displayCount);
+      window.dataLayer = [];
+
+      const { container } = render(<PublicPresenceHomePage actionData={null} source={{ ...source, pagePath }} />);
+
+      await vi.waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith("/api/public-presence/waitlist/count", expect.anything()),
+      );
+      await act(async () => {});
+
+      const h1 = container.querySelector('[data-public-presence-section="hero"] h1');
+      expect(h1?.previousElementSibling).toBeNull();
+
+      const panel = document.getElementById("waitlist-form")!;
+      const intentControl = panel.querySelector('[role="radiogroup"]')!;
+      const email = panel.querySelector('input[name="email"]')!;
+      const submit = panel.querySelector('button[type="submit"]')!;
+      const intentLabel = t("publicPresence.waitlist.heroIntent.label");
+      expect(intentControl.getAttribute("aria-label")).toBe(intentLabel);
+      expect(panel.textContent).not.toContain(intentLabel);
+
+      const textNodes = visibleTextNodes(panel);
+      // No title, description, counter or visible label precedes the intent control.
+      expect(textNodes.filter((node) => follows(node, intentControl))).toEqual([]);
+
+      const noPayment = textNodes.find((node) => node.textContent === t("publicPresence.waitlist.compactDescription"))!;
+      const consent = textNodes.find((node) => node.textContent === t("publicPresence.waitlist.impliedConsent"))!;
+      const ordered = [intentControl, email, submit, noPayment, consent];
+      expect(ordered.every(Boolean)).toBe(true);
+      for (let index = 1; index < ordered.length; index += 1) {
+        expect(follows(ordered[index - 1]!, ordered[index]!)).toBe(true);
+      }
+
+      const trailingText = textNodes.filter((node) => follows(consent, node)).map((node) => node.textContent);
+      expect(trailingText).toEqual(
+        displayCount === null ? [] : [t("publicPresence.waitlist.counter.label", { count: displayCount })],
+      );
+    },
+  );
+
+  it.each(heroVariants)("hero form analytics unchanged ($variant)", ({ pagePath }) => {
+    stubWaitlistCount(null);
+    window.dataLayer = [];
+
+    render(<PublicPresenceHomePage actionData={null} source={{ ...source, pagePath }} />);
+
+    const panel = document.getElementById("waitlist-form")!;
+    fireEvent.focus(panel.querySelector('input[name="email"]')!);
+    const sellSegment = [...panel.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((segment) =>
+      segment.textContent?.includes(t("publicPresence.waitlist.heroIntent.sell")),
+    );
+    fireEvent.click(sellSegment!);
+
+    expect(
+      window.dataLayer.filter((detail) =>
+        ["waitlist_form_started", "waitlist_role_selected"].includes(String(detail.event)),
+      ),
+    ).toEqual([
+      expect.objectContaining({ event: "waitlist_form_started", section: "hero", field: "email" }),
+      expect.objectContaining({ event: "waitlist_role_selected", section: "hero", role: "sell" }),
+    ]);
   });
 });
 
