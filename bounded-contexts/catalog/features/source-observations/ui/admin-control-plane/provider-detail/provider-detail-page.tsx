@@ -1,5 +1,7 @@
+import { useState } from "react";
 import {
   Badge,
+  BadgeCluster,
   Button,
   DataTable,
   DenseAdminWorkbench,
@@ -7,11 +9,13 @@ import {
   EmptyState,
   KeyValueList,
   OperationalStatusBanner,
+  ProgressiveDisclosure,
   TextInput,
   WorkbenchDataCell,
   WorkbenchForm,
   WorkbenchGrid,
   WorkbenchStack,
+  WorkbenchText,
   WorkflowModule,
   type DataColumn,
 } from "@chase-sets/design-system";
@@ -22,8 +26,12 @@ import {
   ProviderRefreshSchedulePanel,
   type ProviderRefreshSchedulePanelItem,
 } from "../../../../provider-scope-discovery/ui/provider-refresh-schedule-panel";
-import type { CatalogPrimaryWorkbenchReadModel } from "../../../api/primary-workbench-admin-contracts";
+import type {
+  CatalogPrimaryWorkbenchProviderTransportCategory,
+  CatalogPrimaryWorkbenchReadModel,
+} from "../../../api/primary-workbench-admin-contracts";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../primary-workbench-command-feedback";
+import { getCatalogPrimaryWorkbenchProviderTransportCopy } from "../../primary-workbench-copy";
 import {
   commandErrorTitle,
   commandFeedbackDescription,
@@ -270,6 +278,13 @@ function ProviderParticipatingUnit({
   );
 }
 
+type ProviderRecentJob = CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"][number];
+
+// Open disclosures are remembered by provider and job ID, never by row
+// position, so a refreshed or reordered snapshot keeps each one attached to
+// its own retained job.
+type OpenProviderJobs = Readonly<{ providerKey: string; jobIds: readonly string[] }>;
+
 function ProviderRecentJobs({
   readModel,
   providerKey,
@@ -279,11 +294,43 @@ function ProviderRecentJobs({
 }>) {
   const jobs = providerKey ? readModel.importJobs.jobs.filter((job) => job.providerKey === providerKey) : [];
   const lastJob = jobs[0] ?? null;
-  const columns: DataColumn<(typeof jobs)[number]>[] = [
+  const inspectable = providerKey === operatorSessionProviderKey;
+  const [openJobs, setOpenJobs] = useState<OpenProviderJobs | null>(null);
+  const openJobIds =
+    openJobs && openJobs.providerKey === providerKey
+      ? openJobs.jobIds.filter((jobId) => jobs.some((job) => job.jobId === jobId))
+      : [];
+  if (openJobs && openJobIds.length !== openJobs.jobIds.length) {
+    // A job that left the retained window, or a provider change, closes its
+    // disclosure for good rather than reopening if the ID comes back.
+    setOpenJobs(providerKey && openJobIds.length > 0 ? { providerKey, jobIds: openJobIds } : null);
+  }
+  const setJobOpen = (jobId: string, open: boolean) => {
+    if (!providerKey) return;
+    setOpenJobs((current) => {
+      const currentIds = current?.providerKey === providerKey ? current.jobIds.filter((id) => id !== jobId) : [];
+      const nextIds = open ? [...currentIds, jobId] : currentIds;
+      return nextIds.length > 0 ? { providerKey, jobIds: nextIds } : null;
+    });
+  };
+  const columns: DataColumn<ProviderRecentJob>[] = [
     {
       key: "job",
       header: t("catalog.features.sourceObservations.ui.primaryWorkbench.health.table.job"),
-      cell: (job) => <WorkbenchDataCell title={job.jobId} description={job.summary} />,
+      cell: (job) =>
+        inspectable ? (
+          <ProgressiveDisclosure
+            title={job.jobId}
+            description={job.summary}
+            open={openJobIds.includes(job.jobId)}
+            onOpenChange={(open) => setJobOpen(job.jobId, open)}
+            data-catalog-provider-job-disclosure={job.jobId}
+          >
+            <ProviderJobOutcome job={job} />
+          </ProgressiveDisclosure>
+        ) : (
+          <WorkbenchDataCell title={job.jobId} description={job.summary} />
+        ),
     },
     {
       key: "state",
@@ -317,6 +364,7 @@ function ProviderRecentJobs({
         </Badge>
       }
       density="compact"
+      data-catalog-provider-recent-jobs="true"
     >
       <DataTable
         rows={jobs}
@@ -329,6 +377,137 @@ function ProviderRecentJobs({
       />
     </WorkflowModule>
   );
+}
+
+// Only the retained progress, failure groups, and result/usage counters render
+// here. Missing result or usage evidence reads Unavailable, never zero.
+function ProviderJobOutcome({ job }: Readonly<{ job: ProviderRecentJob }>) {
+  const unavailable = t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.usage.unavailable");
+
+  return (
+    <KeyValueList
+      density="compact"
+      layout="grid"
+      items={[
+        {
+          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.progress"),
+          value: (
+            <WorkbenchStack gap="sm">
+              <WorkbenchText size="xs">
+                {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.operator.status", {
+                  status: stateLabel(job.operatorStatus),
+                })}
+              </WorkbenchText>
+              <WorkbenchText size="xs">
+                {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.progress.value", {
+                  completed: job.completed,
+                  total: job.total,
+                  percent: job.progressPercent,
+                })}
+              </WorkbenchText>
+            </WorkbenchStack>
+          ),
+        },
+        {
+          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.failures"),
+          value: (
+            <BadgeCluster
+              items={job.failureGroups.map((group) => ({
+                key: group.key,
+                tone: group.severity === "error" ? "danger" : "warning",
+                label: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.group", {
+                  label: failureGroupLabel(group),
+                  count: group.count,
+                }),
+              }))}
+              emptyLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}
+            />
+          ),
+        },
+        {
+          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.observed"),
+          value: job.result ? job.result.observedCount : unavailable,
+        },
+        {
+          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.count.skipped"),
+          value: job.result ? job.result.skippedCount : unavailable,
+        },
+        {
+          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.count.failed"),
+          value: job.result ? job.result.failedCount : unavailable,
+        },
+        {
+          key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.usage"),
+          value: <ProviderJobUsage usage={job.result?.usage ?? null} unavailable={unavailable} />,
+        },
+      ]}
+    />
+  );
+}
+
+function ProviderJobUsage({
+  usage,
+  unavailable,
+}: Readonly<{
+  usage: NonNullable<ProviderRecentJob["result"]>["usage"];
+  unavailable: string;
+}>) {
+  if (!usage) {
+    return <WorkbenchText size="xs">{unavailable}</WorkbenchText>;
+  }
+
+  // The cache line needs both counters, so it is hidden rather than half-filled
+  // when either one was not retained.
+  const hasCacheCounts = usage.cacheHitCount !== null && usage.cacheMissCount !== null;
+
+  return (
+    <WorkbenchStack gap="sm">
+      <WorkbenchText size="xs">
+        {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.usage.requests", {
+          count: usage.actualRequestCount ?? unavailable,
+        })}
+      </WorkbenchText>
+      <WorkbenchText size="xs">
+        {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.usage.pages", {
+          count: usage.pageCount ?? unavailable,
+        })}
+      </WorkbenchText>
+      {hasCacheCounts ? (
+        <WorkbenchText size="xs">
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.usage.cache", {
+            hits: usage.cacheHitCount,
+            misses: usage.cacheMissCount,
+          })}
+        </WorkbenchText>
+      ) : null}
+    </WorkbenchStack>
+  );
+}
+
+// Private copy of the import-jobs module mapper: the DTO label is the raw
+// machine key, so groups are localized by key with the approved copy.
+function failureGroupLabel(group: ProviderRecentJob["failureGroups"][number]): string {
+  if (group.key === "durable-job-cancelled") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.cancelled");
+  }
+  if (group.key === "durable-job-failed") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.durable");
+  }
+  if (group.key === "partial-provider-data") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.partial");
+  }
+  if (group.key === "stale-replay") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.stale.replay");
+  }
+  if (group.key.startsWith("provider-transport-")) {
+    const category = group.key.replace(/^provider-transport-/, "") as CatalogPrimaryWorkbenchProviderTransportCategory;
+
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.transport", {
+      category: getCatalogPrimaryWorkbenchProviderTransportCopy(category).label,
+    });
+  }
+
+  return group.label;
 }
 
 function jobStateTone(state: string): "success" | "danger" | "warning" | "neutral" {
