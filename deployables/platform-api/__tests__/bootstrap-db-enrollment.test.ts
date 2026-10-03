@@ -476,8 +476,9 @@ describe("Platform API bootstrap DB enrollment", () => {
     // The pinned oracle lives under __tests__/fixtures, so its import.meta.url-derived
     // default root is __tests__; bind both guards to the one production platform-api root.
     const platformApiRoot = join(testDirectory, "..");
-    expect(normalize(checkBootstrapDbEnrollment({ platformApiRoot }))).toEqual(
-      normalize(old.checkBootstrapDbEnrollment({ platformApiRoot })),
+    // Compare both implementations against the same current enrollment corpus.
+    expect(normalize(checkBootstrapDbEnrollment({ platformApiRoot, manifest: bootstrapDbEnrollmentManifest }))).toEqual(
+      normalize(old.checkBootstrapDbEnrollment({ platformApiRoot, manifest: bootstrapDbEnrollmentManifest })),
     );
     for (const count of [10, 11, 12, 13]) {
       const files = Array.from({ length: count }, (_, index) => unitFileFor(`oracle-${index}`, "test:db:1", 1_000));
