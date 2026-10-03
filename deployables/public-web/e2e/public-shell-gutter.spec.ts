@@ -88,3 +88,64 @@ for (const route of routes) {
     });
   }
 }
+
+// Landing hero geometry (#8500). Below `lg` the hero image runs from viewport
+// edge to viewport edge with square corners while the `h1` sits on the same
+// gutter as the promo bar; from `lg` up the image keeps the #8270 treatment,
+// sitting on the nav edges with rounded corners. Edges are measured against
+// `document.documentElement.clientWidth`, never `innerWidth`, so a `100vw`
+// bleed that overflows under a classic scrollbar cannot pass.
+const heroViewports = [
+  { width: 375, height: 800, imageEdges: "viewport", cornerRadius: "square" },
+  { width: 768, height: 1024, imageEdges: "viewport", cornerRadius: "square" },
+  { width: 1440, height: 900, imageEdges: "nav", cornerRadius: "rounded" },
+] as const;
+
+for (const viewport of heroViewports) {
+  test(`landing hero geometry at ${viewport.width}px @public-web-public-presence`, async ({
+    page,
+    baseURL,
+  }, testInfo) => {
+    expect(testInfo.project.name).toBe("public-web-chromium");
+    expect(baseURL).toBe(process.env.PUBLIC_WEB_URL);
+    await page.route("**/api/public-presence/promo-bar-messages", (request) =>
+      request.fulfill({ json: promoMessages }),
+    );
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+
+    const promo = await requireEdges(page.locator('section[aria-label="Marketplace announcements"]'), "promo bar");
+    const nav = await requireEdges(page.locator("nav"), "nav");
+    const heroImage = page.locator('[data-public-presence-section="hero"] > section > img');
+    const image = await requireEdges(heroImage, "hero image");
+    const heading = await requireEdges(page.locator('[data-public-presence-section="hero"] h1'), "hero h1");
+    const clientWidth = await page.evaluate(() => document.documentElement.clientWidth);
+
+    const expectedImageEdges = viewport.imageEdges === "viewport" ? { left: 0, right: clientWidth } : nav;
+    expect(
+      Math.abs(image.left - expectedImageEdges.left),
+      `hero image left edge at ${viewport.imageEdges}`,
+    ).toBeLessThanOrEqual(edgeToleranceCssPx);
+    expect(
+      Math.abs(image.right - expectedImageEdges.right),
+      `hero image right edge at ${viewport.imageEdges}`,
+    ).toBeLessThanOrEqual(edgeToleranceCssPx);
+
+    const cornerRadiusCssPx = await heroImage.evaluate((element) =>
+      Number.parseFloat(getComputedStyle(element).borderTopLeftRadius),
+    );
+    if (viewport.cornerRadius === "square") {
+      expect(cornerRadiusCssPx, "hero image corners are square").toBe(0);
+      expect(Math.abs(heading.left - promo.left), "hero h1 left edge matches promo bar").toBeLessThanOrEqual(
+        edgeToleranceCssPx,
+      );
+    } else {
+      expect(cornerRadiusCssPx, "hero image corners are rounded").toBeGreaterThan(0);
+    }
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
+    ).toBe(true);
+
+    await page.screenshot({ path: testInfo.outputPath("landing-hero.png"), fullPage: false });
+  });
+}
