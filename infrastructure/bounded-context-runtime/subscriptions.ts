@@ -855,10 +855,15 @@ export function createSubscriptionRunner(
 
       try {
         const recoveryState = await loadSubscriptionCheckpointRecoveryState(targetPool, checkpointKey);
-        const storedCheckpoint = recoveryState.recoveryRequired ? null : recoveryState.checkpoint;
+        status.recoveryRequired = recoveryState.recoveryRequired;
+        if (recoveryState.recoveryRequired) {
+          throw new Error(
+            `Subscription '${checkpointKey}' recovery requires a committed projection group reset before replay.`,
+          );
+        }
+        const storedCheckpoint = recoveryState.checkpoint;
         const checkpoint = storedCheckpoint ?? ZERO_GLOBAL_POSITION;
         status.initialized = storedCheckpoint !== null;
-        status.recoveryRequired = recoveryState.recoveryRequired;
         status.lastGlobalPosition = checkpoint;
         const sourceHeadGlobalPosition = await readSourceHeadForRun(context);
         status.sourceHeadGlobalPosition = sourceHeadGlobalPosition;

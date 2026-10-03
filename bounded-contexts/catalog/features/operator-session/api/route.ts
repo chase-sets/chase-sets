@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { resolveRecentAuthenticationStatus, type ResolvedActor } from "@chase-sets/auth-context";
 import { authenticationRequiredResponse, forbiddenResponse } from "@chase-sets/http/responses";
+import { resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import type { createOperatorSessionGrants } from "./grants";
 
 type Services = ReturnType<typeof createOperatorSessionGrants>;
@@ -16,7 +17,10 @@ export function operatorSessionAdminRoutes(services: Services) {
     )
       return c.json(forbiddenResponse(), 403);
     if (c.req.method !== "GET") {
-      if (c.req.header("origin") !== new URL(c.req.url).origin || c.req.header("sec-fetch-site") === "cross-site")
+      if (
+        c.req.header("origin") !== resolvePublicRequestOrigin(c.req.raw) ||
+        c.req.header("sec-fetch-site") === "cross-site"
+      )
         return c.json({ code: "forbidden" }, 403);
       if (!resolveRecentAuthenticationStatus(actor, { maxAgeMinutes: 10 }).recentlyAuthenticated)
         return c.json({ code: "step_up_required" }, 400);

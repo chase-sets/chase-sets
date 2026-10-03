@@ -1,10 +1,23 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { toJsonValue, type JsonValue } from "@chase-sets/primitives/json";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import type { ReferenceRecordId, ReferenceTypeId } from "../../../ids";
 import type { LocalizedTextMap } from "../../../support/runtime-support/common";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
-import type { ReferenceRelationship } from "../../reference-data/domain/domain";
+import {
+  evolveReferenceRecord,
+  evolveReferenceType,
+  initialReferenceRecordState,
+  initialReferenceTypeState,
+  isLegalReferenceRecordTransition,
+  isLegalReferenceTypeTransition,
+  type ReferenceRecordEvent,
+  type ReferenceRecordState,
+  type ReferenceTypeEvent,
+  type ReferenceRelationship,
+} from "../../reference-data/domain/domain";
 import {
   type SourceObservationLorcanaCardPrintNormalized,
   type SourceObservationLorcanaSetReferenceNormalized,
@@ -117,7 +130,8 @@ export async function resolvePromotionReferenceHierarchy(input: {
  * but never creates or publishes a Reference Type or Reference Record. A record
  * the executing path would create is reported by its deterministic id; the
  * display identity resolver then sees it as absent, which is the truthful
- * preview of the current Catalog data.
+ * preview of the current Catalog data. A reuse candidate the executing path
+ * would refuse is refused here by the same authoritative-history proof.
  */
 export async function resolvePromotionReferenceHierarchyReadOnly(input: {
   deps: CatalogRuntimeDeps;
@@ -140,7 +154,8 @@ export async function resolvePromotionReferenceHierarchyReadOnly(input: {
     provisioner: {
       ensureReferenceType: async () => undefined,
       ensureReferenceRecord: async (def) =>
-        (await findExistingReferenceRecord(input.deps, def)) ?? def.referenceRecordId,
+        (await readProvisionableReferenceRecord(input.deps, def, await findExistingReferenceRecord(input.deps, def)))
+          .referenceRecordId,
     },
   });
 
@@ -356,18 +371,27 @@ async function ensureReferenceType(
     attributeKeys: readonly string[];
   },
 ): Promise<void> {
-  const existing = await input.deps.db.query(
-    "SELECT reference_type_id FROM catalog_reference_types WHERE reference_type_id = $1",
-    [def.referenceTypeId],
-  );
-
-  if (existing.rowCount && existing.rowCount > 0) {
-    return;
-  }
-
   const streamId = `catalog.reference-type-${def.referenceTypeId}`;
-  try {
-    await input.referenceData.referenceTypeCommandHandler({
+  const history = await readCompleteStream(input.deps.eventStore, { streamId });
+  const codec = createPassthroughDomainEventCodec<ReferenceTypeEvent>();
+  let state = initialReferenceTypeState;
+  for (const stored of history) {
+    const event = codec.decode(stored);
+    if (!isLegalReferenceTypeTransition(state, event, def.referenceTypeId)) {
+      throw new Error(`promotion-reference-history-invalid:${streamId}`);
+    }
+    state = evolveReferenceType(state, event);
+  }
+  if (history.length > 0 && (state.key !== def.key || !isProvisionableStatus(state.status))) {
+    throw new Error(`promotion-reference-history-invalid:${streamId}`);
+  }
+  if (state.status === "active") return;
+  // Every write is fenced to the history this validation saw. A revision that
+  // lands between the read and the publish refuses with the event store's
+  // concurrency conflict instead of publishing a type that was never validated.
+  let expectedVersion = history[history.length - 1]?.streamVersion ?? 0;
+  if (history.length === 0) {
+    const created = await input.referenceData.referenceTypeCommandHandler({
       streamId,
       command: {
         type: "CreateReferenceType",
@@ -378,13 +402,16 @@ async function ensureReferenceType(
         attributeKeys: def.attributeKeys,
       },
       context: input.context,
+      expectedVersion,
     });
-  } catch (error) {
-    if (!isAlreadyCreatedReferenceError(error)) {
-      throw error;
-    }
+    expectedVersion = created.version;
   }
-  await publishReferenceTypeIfDraft(input.referenceData, streamId, input.context);
+  await input.referenceData.referenceTypeCommandHandler({
+    streamId,
+    command: { type: "PublishReferenceType" },
+    context: input.context,
+    expectedVersion,
+  });
 }
 
 async function ensureReferenceRecord(
@@ -403,14 +430,18 @@ async function ensureReferenceRecord(
     relationships?: readonly ReferenceRelationship[];
   },
 ): Promise<ReferenceRecordId> {
-  const existingReferenceRecordId = await findExistingReferenceRecord(input.deps, def);
-  if (existingReferenceRecordId) {
-    return existingReferenceRecordId;
-  }
-
-  const streamId = `catalog.reference-record-${def.referenceRecordId}`;
-  try {
-    await input.referenceData.referenceRecordCommandHandler({
+  const { referenceRecordId, streamId, state, version } = await readProvisionableReferenceRecord(
+    input.deps,
+    def,
+    await findExistingReferenceRecord(input.deps, def),
+  );
+  if (state.status === "active") return referenceRecordId;
+  // Every write is fenced to the history this validation saw. A revision that
+  // lands between the read and the publish refuses with the event store's
+  // concurrency conflict instead of publishing a record that was never validated.
+  let expectedVersion = version;
+  if (version === 0) {
+    const created = await input.referenceData.referenceRecordCommandHandler({
       streamId,
       command: {
         type: "CreateReferenceRecord",
@@ -423,68 +454,90 @@ async function ensureReferenceRecord(
         relationships: def.relationships ?? [],
       },
       context: input.context,
+      expectedVersion,
     });
-  } catch (error) {
-    if (!isAlreadyCreatedReferenceError(error)) {
-      throw error;
-    }
+    expectedVersion = created.version;
   }
-  await publishReferenceRecordIfDraft(input.referenceData, streamId, input.context);
-
-  return def.referenceRecordId;
+  await input.referenceData.referenceRecordCommandHandler({
+    streamId,
+    command: { type: "PublishReferenceRecord" },
+    context: input.context,
+    expectedVersion,
+  });
+  return referenceRecordId;
 }
 
-async function publishReferenceTypeIfDraft(
-  referenceData: ReferenceDataServices,
-  streamId: string,
-  context: EventStoreContext,
-) {
-  try {
-    await referenceData.referenceTypeCommandHandler({
-      streamId,
-      command: { type: "PublishReferenceType" },
-      context,
-    });
-  } catch (error) {
-    if (!isAlreadyPublishedReferenceError(error)) {
-      throw error;
+/**
+ * A reuse candidate discovered through the projected read model, together with
+ * the selector that discovered it. The projection only discovers; the selector
+ * is re-proven against the candidate's complete authoritative history before
+ * provisioning accepts the candidate.
+ */
+type ReferenceRecordReuseCandidate = Readonly<{
+  referenceRecordId: ReferenceRecordId;
+  selector:
+    | Readonly<{ kind: "type-key" }>
+    | Readonly<{ kind: "provider-attribute"; attributeKey: string; attributeValue: string }>;
+}>;
+
+/**
+ * Fold the complete authoritative history of the record provisioning would
+ * reuse or create, validating every transition, and prove the folded record is
+ * the one the rule asked for: the requested type, a draft or active lifecycle,
+ * and the selector that discovered it (requested key, or the exact requested
+ * provider attribute) still holding. A lagging projection can therefore never
+ * redirect provisioning to a record that was renamed or re-keyed away, and a
+ * stream the evolver would fold but the decider could never have produced is
+ * refused instead of folded. The returned version is the fence for any write.
+ */
+async function readProvisionableReferenceRecord(
+  deps: CatalogRuntimeDeps,
+  def: {
+    referenceRecordId: ReferenceRecordId;
+    typeKey: string;
+    key: string;
+  },
+  candidate: ReferenceRecordReuseCandidate | null,
+): Promise<{
+  referenceRecordId: ReferenceRecordId;
+  streamId: string;
+  state: ReferenceRecordState;
+  version: number;
+}> {
+  const referenceRecordId = candidate?.referenceRecordId ?? def.referenceRecordId;
+  const streamId = `catalog.reference-record-${referenceRecordId}`;
+  const history = await readCompleteStream(deps.eventStore, { streamId });
+  const codec = createPassthroughDomainEventCodec<ReferenceRecordEvent>();
+  let state = initialReferenceRecordState;
+  for (const stored of history) {
+    const event = codec.decode(stored);
+    if (!isLegalReferenceRecordTransition(state, event, referenceRecordId)) {
+      throw new Error(`promotion-reference-history-invalid:${streamId}`);
     }
+    state = evolveReferenceRecord(state, event);
   }
-}
-
-async function publishReferenceRecordIfDraft(
-  referenceData: ReferenceDataServices,
-  streamId: string,
-  context: EventStoreContext,
-) {
-  try {
-    await referenceData.referenceRecordCommandHandler({
-      streamId,
-      command: { type: "PublishReferenceRecord" },
-      context,
-    });
-  } catch (error) {
-    if (!isAlreadyPublishedReferenceError(error)) {
-      throw error;
-    }
+  const selector = candidate?.selector ?? { kind: "type-key" };
+  const represented =
+    history.length > 0 &&
+    state.typeKey === def.typeKey &&
+    isProvisionableStatus(state.status) &&
+    (referenceRecordId !== def.referenceRecordId || state.key === def.key) &&
+    (selector.kind === "type-key"
+      ? state.key === def.key
+      : scalarAttributeText(state.attributes[selector.attributeKey]) === selector.attributeValue);
+  if (history.length > 0 ? !represented : candidate !== null) {
+    throw new Error(`promotion-reference-history-invalid:${streamId}`);
   }
+  return { referenceRecordId, streamId, state, version: history[history.length - 1]?.streamVersion ?? 0 };
 }
 
-function isAlreadyCreatedReferenceError(error: unknown): boolean {
-  return isConcurrencyConflict(error) || (error instanceof Error && error.message.includes("has already been created"));
+function isProvisionableStatus(status: ReferenceRecordState["status"]): boolean {
+  return status === "draft" || status === "active";
 }
 
-function isAlreadyPublishedReferenceError(error: unknown): boolean {
-  return isConcurrencyConflict(error) || (error instanceof Error && error.message.includes("Only draft reference"));
-}
-
-function isConcurrencyConflict(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === "concurrency_conflict"
-  );
+/** The text a provider attribute discovery query (`attributes ->> key`) compares; non-scalars never match. */
+function scalarAttributeText(value: JsonValue | undefined): string | null {
+  return typeof value === "string" || typeof value === "number" || typeof value === "boolean" ? String(value) : null;
 }
 
 async function findExistingReferenceRecord(
@@ -494,7 +547,7 @@ async function findExistingReferenceRecord(
     key: string;
     attributes?: Readonly<Record<string, JsonValue>>;
   },
-): Promise<ReferenceRecordId | null> {
+): Promise<ReferenceRecordReuseCandidate | null> {
   const existing = await deps.db.query<{ reference_record_id: string }>(
     `SELECT reference_record_id
      FROM catalog_reference_records
@@ -503,8 +556,9 @@ async function findExistingReferenceRecord(
     [def.typeKey, def.key],
   );
 
-  if (existing.rows[0]?.reference_record_id) {
-    return existing.rows[0].reference_record_id as ReferenceRecordId;
+  const referenceRecordId = existing.rows[0]?.reference_record_id;
+  if (referenceRecordId) {
+    return { referenceRecordId: referenceRecordId as ReferenceRecordId, selector: { kind: "type-key" } };
   }
 
   return findReferenceRecordByProviderAttribute(deps, def);
@@ -516,14 +570,15 @@ async function findReferenceRecordByProviderAttribute(
     typeKey: string;
     attributes?: Readonly<Record<string, JsonValue>>;
   },
-): Promise<ReferenceRecordId | null> {
+): Promise<ReferenceRecordReuseCandidate | null> {
   const providerAttribute = Object.entries(def.attributes ?? {}).find(
     ([key, value]) => isProviderReferenceAttributeKey(key) && typeof value === "string" && value.trim().length > 0,
   );
-  const providerAttributeKey = providerAttribute?.[0] ?? null;
-  const providerAttributeValue = providerAttribute?.[1] ?? null;
-
-  if (typeof providerAttributeValue !== "string" || providerAttributeValue.trim().length === 0) {
+  if (!providerAttribute) {
+    return null;
+  }
+  const [attributeKey, attributeValue] = providerAttribute;
+  if (typeof attributeValue !== "string" || attributeValue.trim().length === 0) {
     return null;
   }
 
@@ -533,10 +588,16 @@ async function findReferenceRecordByProviderAttribute(
      WHERE type_key = $1
        AND attributes ->> $2 = $3
      LIMIT 1`,
-    [def.typeKey, providerAttributeKey, providerAttributeValue],
+    [def.typeKey, attributeKey, attributeValue],
   );
 
-  return (existing.rows[0]?.reference_record_id as ReferenceRecordId | undefined) ?? null;
+  const referenceRecordId = existing.rows[0]?.reference_record_id;
+  return referenceRecordId
+    ? {
+        referenceRecordId: referenceRecordId as ReferenceRecordId,
+        selector: { kind: "provider-attribute", attributeKey, attributeValue },
+      }
+    : null;
 }
 
 function isProviderReferenceAttributeKey(key: string): boolean {

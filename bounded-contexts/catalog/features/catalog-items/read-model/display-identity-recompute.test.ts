@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { syntheticReferenceRecordEvents } from "../../source-observations/api/seeding/synthetic-display-identity-queryable";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import type { PgQueryResult, PgQueryable } from "@chase-sets/event-core-postgres";
@@ -446,7 +447,7 @@ function recomputeDb(options: {
         };
       }
 
-      if (sql.includes("FROM catalog_reference_records")) {
+      if (sql.includes("AS reference_event")) {
         return {
           rows: [
             {
@@ -458,7 +459,7 @@ function recomputeDb(options: {
               relationships: [],
               status: "active",
             },
-          ] as T[],
+          ].flatMap(syntheticReferenceRecordEvents) as T[],
           rowCount: 1,
         };
       }
