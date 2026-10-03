@@ -289,7 +289,7 @@ describe("DOKS add-on dry-run ancestry-safe golden contract", () => {
 
   beforeAll(() => {
     sourceStatusBeforeSetup = runGit(["status", "--porcelain"], repositoryRoot);
-    syntheticSuiteRoot = realpathSync(mkdtempSync(join(repositoryRoot, ".doks-golden-suite-")));
+    syntheticSuiteRoot = realpathSync(mkdtempSync(join(tmpdir(), ".doks-golden-suite-")));
     try {
       const fixtureRoot = join(syntheticSuiteRoot, "planner");
       const fixture = initializePlannerFixtureRepository({
