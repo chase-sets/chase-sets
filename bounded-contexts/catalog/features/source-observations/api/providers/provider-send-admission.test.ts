@@ -704,6 +704,9 @@ describe("Catalog provider-send admission", () => {
     const release = vi.fn(async () => undefined);
     if (durable) {
       store.admitDomainRequest = async () => ({
+        domainKey: "infiniteApi",
+        requestDelayMs: 200,
+        floorRequestDelayMs: 200,
         granted: true,
         leaseId: "synthetic-lease",
         leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -741,6 +744,9 @@ describe("Catalog provider-send admission", () => {
       admitDomainRequest: vi.fn(async () => {
         events.push("lease");
         return {
+          domainKey: "infiniteApi" as const,
+          requestDelayMs: 200,
+          floorRequestDelayMs: 200,
           granted: true,
           leaseId: "synthetic-lease",
           leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),

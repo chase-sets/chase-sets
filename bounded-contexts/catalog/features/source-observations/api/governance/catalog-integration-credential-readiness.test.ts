@@ -30,6 +30,20 @@ import {
 } from "./catalog-integration-credential-readiness";
 
 describe("Catalog provider credential readiness", () => {
+  it("keeps omitted diagnostics unchanged and permits a bounded adapter override", () => {
+    const input = {
+      providerKey: "tcgplayer",
+      requirement: "required" as const,
+      sourceKind: "operator-session" as const,
+      state: "invalid" as const,
+      message: "Authentication rejected.",
+    };
+    expect(createCatalogProviderCredentialReadiness(input).diagnosticCode).toBe("credential-invalid");
+    expect(
+      createCatalogProviderCredentialReadiness({ ...input, diagnosticCode: "credential-refresh-needed" }),
+    ).toMatchObject({ diagnosticCode: "credential-refresh-needed", importBlocking: true });
+    expect(createCatalogProviderCredentialReadiness({ ...input, diagnosticCode: null }).diagnosticCode).toBeNull();
+  });
   it("redacts credential material from readiness evidence and scope", () => {
     const readiness = createCatalogProviderCredentialReadiness({
       providerKey: "TCGPLAYER",

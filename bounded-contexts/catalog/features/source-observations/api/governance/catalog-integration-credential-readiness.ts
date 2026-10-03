@@ -56,6 +56,7 @@ export function createCatalogProviderCredentialReadiness(
     sourceKind: CatalogProviderCredentialSourceKind;
     state: CatalogProviderCredentialReadinessState;
     message: string;
+    diagnosticCode?: string | null;
     checkedAt?: string | null;
     scope?: CatalogProviderCredentialReadinessScope;
     expiresAt?: string | null;
@@ -74,7 +75,10 @@ export function createCatalogProviderCredentialReadiness(
     state: input.state,
     importBlocking,
     optionQueryBlocking: importBlocking,
-    diagnosticCode: catalogProviderCredentialReadinessDiagnosticCode(input.state),
+    diagnosticCode:
+      input.diagnosticCode === undefined
+        ? catalogProviderCredentialReadinessDiagnosticCode(input.state)
+        : input.diagnosticCode,
     message: input.message,
     checkedAt: input.checkedAt ?? null,
     scope: redactCatalogProviderCredentialReadinessScope(input.scope ?? {}),
