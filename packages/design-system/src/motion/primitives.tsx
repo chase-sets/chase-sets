@@ -76,7 +76,7 @@ export function Stagger({ preset = "lift", staggerMs = 70, trigger = "mount", ch
   const nodes = Children.toArray(children);
   const staggerDelay = motionSettings.reducedMotion ? 0 : staggerMs / 1000;
   const definition = motionSettings.presets[preset];
-  const inView = trigger === "in-view";
+  const [inView] = useState(trigger === "in-view");
   const reducedMotion = motionSettings.reducedMotion;
   const groupRef = useRef<HTMLDivElement>(null);
   const settledRef = useRef(false);

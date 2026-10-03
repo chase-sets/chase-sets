@@ -107,6 +107,7 @@ const motionDivRenders = vi.hoisted(() => [] as MotionDivRender[]);
 // Transparent passthrough: the real Motion runtime still renders (server styles,
 // hydration, animations), while every `motion.div` render records the motion
 // props the Stagger tests compare against the base fixture.
+// `ref` reaches the real div only because React 19 passes refs as plain props.
 vi.mock("motion/react", async (importOriginal) => {
   const React = await vi.importActual<typeof import("react")>("react");
   const actual = await importOriginal<typeof import("motion/react")>();
@@ -2943,6 +2944,86 @@ describe("Stagger in-view trigger", () => {
       await observers.deliver(observer, group, [0]);
       await settleFrames();
       wrappers.forEach(expectVisibleWrapper);
+    } finally {
+      await harness.cleanup();
+      observers.restore();
+    }
+  });
+
+  it("ignores a mount to in-view trigger change after the group has played", async () => {
+    const observers = installIntersectionObserverMock();
+    const harness = hydratedStaggerHarness();
+
+    try {
+      await harness.hydrate(
+        <ChaseRoot reducedMotion="never">
+          <Stagger trigger="mount">{staggerChildren()}</Stagger>
+        </ChaseRoot>,
+      );
+      const group = harness.group();
+      const wrappers = harness.childWrappers();
+
+      await waitForOrderedReveal(wrappers);
+      expect(observers.instances).toHaveLength(0);
+
+      motionDivRenders.length = 0;
+      await harness.rerender(
+        <ChaseRoot reducedMotion="never">
+          <Stagger trigger="in-view">{staggerChildren()}</Stagger>
+        </ChaseRoot>,
+      );
+      for (const observer of observers.instances) {
+        await observers.deliver(observer, group, [0]);
+      }
+      await settleFrames();
+
+      expect(observers.instances).toHaveLength(0);
+      wrappers.forEach((wrapper) => expect(wrapper.style.opacity).toBe("1"));
+      expect(motionDivRenders.some((call) => call.animate === "hidden")).toBe(false);
+    } finally {
+      await harness.cleanup();
+      observers.restore();
+    }
+  });
+
+  it("ignores an in-view to mount trigger change while the group is armed", async () => {
+    const observers = installIntersectionObserverMock();
+    const harness = hydratedStaggerHarness();
+
+    try {
+      await harness.hydrate(
+        <ChaseRoot reducedMotion="never">
+          <Stagger trigger="in-view" staggerMs={10}>
+            {staggerChildren()}
+          </Stagger>
+        </ChaseRoot>,
+      );
+      const group = harness.group();
+      const wrappers = harness.childWrappers();
+      const [observer] = observers.instances;
+
+      await observers.deliver(observer, group, [0]);
+      await waitFor(() => {
+        wrappers.forEach(expectHiddenWrapper);
+      });
+
+      await harness.rerender(
+        <ChaseRoot reducedMotion="never">
+          <Stagger trigger="mount" staggerMs={10}>
+            {staggerChildren()}
+          </Stagger>
+        </ChaseRoot>,
+      );
+      await settleFrames();
+
+      wrappers.forEach(expectHiddenWrapper);
+      expect(observer.disconnect).not.toHaveBeenCalled();
+      expect(observers.instances).toHaveLength(1);
+
+      await observers.deliver(observer, group, [0.4]);
+      await waitForOrderedReveal(wrappers);
+      wrappers.forEach(expectVisibleWrapper);
+      expect(observer.disconnect).toHaveBeenCalled();
     } finally {
       await harness.cleanup();
       observers.restore();
