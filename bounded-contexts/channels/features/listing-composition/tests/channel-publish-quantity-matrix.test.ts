@@ -20,6 +20,7 @@ function derive(overrides: Partial<Parameters<typeof deriveChannelPublishQuantit
   return deriveChannelPublishQuantity({
     available: 10,
     listingQuantityCap: 100,
+    connectionPublishQuantityCap: null,
     channelConnectionId: "connection-a",
     allocation: shared,
     buffer: CHANNEL_STOCK_ALLOCATION_BUFFER_POLICY_FALLBACK,
@@ -28,6 +29,28 @@ function derive(overrides: Partial<Parameters<typeof deriveChannelPublishQuantit
 }
 
 describe("channel-publish-quantity-matrix", () => {
+  it.each([
+    ["shared pool", 10, 2, shared, 100, 2],
+    [
+      "partition below cap",
+      10,
+      2,
+      { mode: "partitioned" as const, partitions: [{ channelConnectionId: "connection-a", units: 1 }] },
+      100,
+      1,
+    ],
+    ["stock below cap", 3, 5, shared, 100, 3],
+    ["listing below cap", 10, 5, shared, 1, 1],
+    ["zero stock", 0, 2, shared, 100, 0],
+    ["negative stock clamps", -1, 2, shared, 100, 0],
+    ["no cap", 10, null, shared, 100, 10],
+  ])(
+    "connection publish quantity cap: %s",
+    (_label, available, connectionPublishQuantityCap, allocation, listingQuantityCap, expected) => {
+      expect(derive({ available, connectionPublishQuantityCap, allocation, listingQuantityCap })).toBe(expected);
+    },
+  );
+
   it.each([
     ["buffer off", 9, { bufferThresholdUnits: 0, bufferHoldbackUnits: 0 }, 9],
     ["threshold minus one", 4, { bufferThresholdUnits: 5, bufferHoldbackUnits: 2 }, 2],

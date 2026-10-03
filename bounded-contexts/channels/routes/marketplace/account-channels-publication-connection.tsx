@@ -6,6 +6,7 @@ import type { MetaFunction } from "react-router";
 import { useActionData, useLoaderData, useNavigation, useParams, useRevalidator } from "react-router";
 import { contextManifest, type ChannelPublicationConnectionDetail, type ChannelPublicationSettings } from "../../index";
 import { ChannelPublicationDetailPage } from "../../features/listing-composition/ui/publication-pages";
+import { assertChannelPublicationSettingsPayload } from "../../features/listing-composition/domain/codecs";
 import {
   ChannelsPublicationApiError,
   createChannelsPublicationRequestApiClient,
@@ -50,7 +51,10 @@ export const action = defineFormAction({
         descriptionFooter: text(formData, "descriptionFooter"),
         categoryAllowlist: lines(formData, "categoryAllowlist"),
         excludedListingIds: lines(formData, "excludedListingIds"),
+        publishQuantityCap:
+          optionalText(formData, "publishQuantityCap") === null ? null : Number(text(formData, "publishQuantityCap")),
       };
+      assertChannelPublicationSettingsPayload(settings);
       const result = await createChannelsPublicationRequestApiClient(request).replaceSettings(
         connectionId(request),
         settings,

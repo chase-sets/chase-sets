@@ -15,8 +15,9 @@ import {
   buildChannelInventoryFactsProjectionHandlers,
   buildChannelMarketplaceFactsProjectionHandlers,
 } from "../read-model/facts-projection";
-import { resolveChannelPublishableQuantity } from "../read-model/queries";
-import { channelListingCompositionTableNames } from "../read-model/schema";
+import { readChannelPublicationConnection, resolveChannelPublishableQuantity } from "../read-model/queries";
+import { channelListingCompositionSchemaMigrations, channelListingCompositionTableNames } from "../read-model/schema";
+import { buildChannelListingStateProjectionHandlers } from "../read-model/state-projection";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required for Channels DB tests in CI.");
@@ -34,6 +35,117 @@ describeDb("channel-projection-concurrent-write", () => {
     await bootstrapContextDatabase(channelsModule, pools.channels);
   });
   afterAll(async () => closeMultiContextTestPools(pools));
+
+  it("publish_quantity_cap migration and read-back upgrades the previous schema and round-trips null and 2", async () => {
+    await resetMultiContextTestSchemas(pools);
+    const migrationId = "20261003_channels_connection_publish_quantity_cap";
+    if (!channelsModule.schemaMigrations) throw new Error("Channels migrations are required.");
+    const previousModule = {
+      ...channelsModule,
+      schemaSql: channelsModule.schemaSql.replace("    publish_quantity_cap integer NULL,\n", ""),
+      schemaMigrations: channelsModule.schemaMigrations
+        .filter((migration) => migration.migrationId !== migrationId)
+        .map((migration) => ({
+          ...migration,
+          statements: migration.statements.map((statement) =>
+            statement.replace("    publish_quantity_cap integer NULL,\n", ""),
+          ),
+        })),
+    };
+    await bootstrapContextDatabase(previousModule, pools.channels);
+    const columns = () =>
+      pools.channels.query<{ column_name: string }>(
+        "SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='channels_connection_publication_settings' AND column_name='publish_quantity_cap'",
+      );
+    expect((await columns()).rows).toEqual([]);
+    await bootstrapContextDatabase(channelsModule, pools.channels);
+    expect((await columns()).rows).toEqual([{ column_name: "publish_quantity_cap" }]);
+    await bootstrapContextDatabase(channelsModule, pools.channels);
+    const migration = channelListingCompositionSchemaMigrations.find((entry) => entry.migrationId === migrationId)!;
+    for (const statement of migration.statements) await pools.channels.query(statement);
+    await pools.channels.query(
+      `INSERT INTO channels_connection_facts (connection_id,account_id,provider_key,environment,status,updated_at,connection_stream_version)
+       VALUES ('connection-1','account-1','synthetic-provider','sandbox','active',now(),1),
+              ('connection-other','account-1','synthetic-provider','sandbox','active',now(),1)`,
+    );
+    const marketplace = buildChannelMarketplaceFactsProjectionHandlers(pools.channels);
+    const inventory = buildChannelInventoryFactsProjectionHandlers(pools.channels);
+    const state = buildChannelListingStateProjectionHandlers(pools.channels);
+    await marketplace["marketplace.listing.created"]!(
+      event(
+        "marketplace.listing.created",
+        {
+          listingId: "listing-1",
+          accountId: "account-1",
+          inventoryItemId: "item-1",
+          catalogItemId: "catalog-1",
+          priceAmount: "20.00",
+          priceCurrencyCode: "USD",
+          quantityCap: 10,
+          selectedOptions: [],
+          itemTitle: "Synthetic card",
+          itemSubtitle: null,
+          productSummary: null,
+          gradedCard: null,
+        },
+        "marketplace.listing-listing-1",
+        1,
+      ),
+    );
+    await inventory["inventory.item.created"]!(
+      event(
+        "inventory.item.created",
+        {
+          itemId: "item-1",
+          accountId: "account-1",
+          catalogItemId: "catalog-1",
+          totalQuantity: 10,
+        },
+        "inventory.item-item-1",
+        1,
+      ),
+    );
+    let version = 0;
+    for (const publishQuantityCap of [null, 2, null]) {
+      version += 1;
+      await state["channels.channel-publication-configuration.settings-replaced"]!(
+        event(
+          "channels.channel-publication-configuration.settings-replaced",
+          {
+            connectionId: "connection-1",
+            settings: {
+              titlePrefix: "",
+              titleSuffix: "",
+              descriptionFooter: "",
+              categoryAllowlist: [],
+              excludedListingIds: [],
+              publishQuantityCap,
+            },
+          },
+          "channels.channel-publication-configuration-connection-1",
+          version,
+        ),
+      );
+      expect(
+        (
+          await readChannelPublicationConnection(pools.channels, {
+            accountId: "account-1",
+            connectionId: "connection-1",
+          })
+        )?.settings?.publishQuantityCap,
+      ).toBe(publishQuantityCap);
+      await expect(
+        resolveChannelPublishableQuantity(pools.channels, { connectionId: "connection-1", listingId: "listing-1" }),
+      ).resolves.toEqual({ kind: "resolved", publishableQuantity: publishQuantityCap ?? 10 });
+      await expect(
+        resolveChannelPublishableQuantity(pools.channels, { connectionId: "connection-other", listingId: "listing-1" }),
+      ).resolves.toEqual({ kind: "resolved", publishableQuantity: 10 });
+      await expect(resolveChannelPublishableQuantity(pools.channels, { listingId: "listing-1" })).resolves.toEqual({
+        kind: "resolved",
+        publishableQuantity: 10,
+      });
+    }
+  });
 
   it("channel-publishable-quantity-availability preserves actual stock and active holds", async () => {
     const marketplace = buildChannelMarketplaceFactsProjectionHandlers(pools.channels);

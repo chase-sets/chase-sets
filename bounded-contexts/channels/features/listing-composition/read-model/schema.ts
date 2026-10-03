@@ -65,6 +65,7 @@ const tables = [
   `CREATE TABLE IF NOT EXISTS channels_connection_publication_settings (
     connection_id text PRIMARY KEY, title_prefix text NOT NULL, title_suffix text NOT NULL,
     description_footer text NOT NULL, category_allowlist jsonb NOT NULL, excluded_listing_ids jsonb NOT NULL,
+    publish_quantity_cap integer NULL,
     updated_at timestamptz NOT NULL, last_stream_version bigint NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS channels_channel_mappings (
@@ -147,6 +148,13 @@ export const channelListingCompositionSchemaMigrations: readonly BcSchemaMigrati
     migrationId: "20260912_channels_inventory_item_storage_location",
     description: "Retain Inventory's created storage location for exact external sale target resolution.",
     statements: ["ALTER TABLE channels_inventory_item_facts ADD COLUMN IF NOT EXISTS storage_location_id text NULL"],
+  },
+  {
+    migrationId: "20261003_channels_connection_publish_quantity_cap",
+    description: "Retain the connection-wide Channel Publish Quantity Cap.",
+    statements: [
+      "ALTER TABLE channels_connection_publication_settings ADD COLUMN IF NOT EXISTS publish_quantity_cap integer NULL",
+    ],
   },
 ];
 
