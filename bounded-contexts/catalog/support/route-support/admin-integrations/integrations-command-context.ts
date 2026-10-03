@@ -2,8 +2,8 @@ import type {
   CatalogProviderProfileVersionReview,
   SourceObservationPromotionPreview,
   SourceObservationPromotionScope,
-} from "../../../client";
-import { CatalogApiError } from "../../../client";
+} from "../../client-support/contracts";
+import { ApiError as CatalogApiError } from "../../shell-support/api/client";
 import type {
   CatalogSyncScope,
   CatalogSyncScopeReferenceKind,

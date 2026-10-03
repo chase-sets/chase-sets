@@ -5,7 +5,7 @@ import type {
   CatalogProviderProfileVersionReview,
   SourceObservationIntegrationScope,
   SourceObservationListItem,
-} from "../../../client";
+} from "../../client-support/contracts";
 import type {
   CatalogSyncProviderParticipationPreview,
   CatalogSyncScope,
@@ -60,7 +60,7 @@ import {
   resolveCatalogAttentionQueueResult,
   type CatalogDeferredAttentionQueueResult,
 } from "./attention-queue-result";
-import { CatalogApiError } from "../../../client";
+import { ApiError as CatalogApiError } from "../../shell-support/api/client";
 import { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
 import { integrationScopeFromContext, previewPromotionForContext } from "./integrations-command-context";
 import {

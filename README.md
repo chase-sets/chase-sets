@@ -97,6 +97,7 @@ Deployables are thin composition roots. Business behavior should not live in dep
 - `deployables/platform-worker` (`@chase-sets/app-platform-worker`): package scripts `bootstrap`, `bootstrap:production`, `dev`, `dev:ci`, `start`, `start:production`, `test`, `test:db`, `test:fast`, `test:unit`, `test:watch`, `typecheck`.
 - `deployables/public-web` (`@chase-sets/app-public-web`): package scripts `build`, `dev`, `prebuild`, `start`, `test`, `typecheck`.
 - `deployables/tcgplayer-connector-extension` (`@chase-sets/app-tcgplayer-connector-extension`): package scripts `build`, `test`, `test:chromium`, `test:watch`, `typecheck`.
+- `deployables/tcgplayer-operator-extension` (`@chase-sets/app-tcgplayer-operator-extension`): package scripts `build`, `test`, `test:chromium`, `test:watch`, `typecheck`.
 
 Default local ports are sandbox-aware. Each worktree receives a stable
 port block derived from its path so multiple worktrees can run at the same

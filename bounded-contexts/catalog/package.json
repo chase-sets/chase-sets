@@ -17,6 +17,7 @@
   "exports": {
     ".": "./index.ts",
     "./context": "./context.json",
+    "./client": "./client.ts",
     "./routes/*": "./routes/*.tsx",
     "./server": "./server.ts",
     "./web": "./web.ts"
@@ -37,6 +38,8 @@
     "@chase-sets/product-measures": "workspace:*",
     "@chase-sets/provider-credentials": "workspace:*",
     "hono": "^4.12.12",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
     "sharp": "^0.34.5",
     "zod": "^4.4.3"
   }

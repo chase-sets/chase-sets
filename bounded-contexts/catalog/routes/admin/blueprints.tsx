@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { type Blueprint } from "../../client";
+import { type Blueprint } from "../../support/client-support/contracts";
 import { BlueprintListPage } from "../../features/blueprints/ui/blueprint-list-page";
 import { createCatalogRequestApiClient } from "../../support/request-support/api-client";
 import { catalogRealtimeRouteTopics } from "../../support/realtime-support/topics";
