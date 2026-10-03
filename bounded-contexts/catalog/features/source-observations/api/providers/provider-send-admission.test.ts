@@ -284,6 +284,58 @@ describe("Catalog provider-send admission", () => {
     },
   );
 
+  it.each(["scrydex", "tcgplayer"] as const)(
+    "production %s transport refuses a directly supplied closed fixture identity",
+    async (provider) => {
+      for (const wrapped of [true, false]) {
+        const fixture: typeof fetch = catalogFixtureTransports.tcgdex;
+        const wrapper = vi.fn<typeof fetch>((...args) => fixture(...args));
+        const supplied = wrapped ? wrapper : fixture;
+        const debit = vi
+          .fn<ProviderSendLedger["debit"]>()
+          .mockResolvedValue({ state: "refused", code: "quota-exhausted" });
+        const admission = createProviderSendAdmission({ enabled: true, ledger: ledger({ debit }) });
+        const adapter = new ProviderAdapterRegistry([
+          createScrydexOnePieceProviderAdapter({
+            fetch: supplied,
+            credentials: { apiKey: "SYNTHETIC_TEST_ONLY", teamId: "SYNTHETIC_TEST_ONLY" },
+          }),
+        ]).require("scrydex");
+        const client = new TcgplayerAutomationDomainHttpClient(
+          "infiniteApi",
+          "https://api.tcgdex.net/v2/en",
+          createInMemoryTcgplayerAutomationHttpConfigStore(),
+          { fetch: supplied, sleep: async () => undefined },
+        );
+        const OriginalResponse = globalThis.Response;
+        const response = vi.spyOn(globalThis, "Response").mockImplementation(function (body, init) {
+          return new OriginalResponse(body, init);
+        });
+        const network = vi.fn<typeof fetch>();
+        vi.stubGlobal("fetch", network);
+        try {
+          await expect(
+            runCatalogProviderWork(admission, () =>
+              provider === "scrydex" ? adapter.getCredentialReadiness() : client.get("/sets/swsh3"),
+            ),
+          ).rejects.toMatchObject({ name: "ProviderSendStoppedError", code: "quota-exhausted" });
+          expect(debit).toHaveBeenCalledTimes(1);
+          expect(debit.mock.calls[0]![0]).toMatchObject({
+            provider,
+            category: provider === "scrydex" ? "usage" : "discovery",
+            binding,
+          });
+          expect(wrapper).not.toHaveBeenCalled();
+          expect(response).not.toHaveBeenCalled();
+          expect(network).not.toHaveBeenCalled();
+        } finally {
+          response.mockRestore();
+          vi.unstubAllGlobals();
+        }
+      }
+    },
+  );
+
   it.each(["pristine", "armed", "terminal", "stale", "absent"] as const)(
     "all 13 fixture proofs produce observations without ledger or network I/O (%s)",
     async (state) => {
