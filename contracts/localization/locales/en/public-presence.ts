@@ -253,33 +253,11 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.buyerHero.highlight.setCompletion.label": "Set completion",
   "publicPresence.home.buyerHero.highlight.setCompletion.value": "Find the cards that finish your sets",
   "publicPresence.home.heroImageAlt": "Trading cards being sorted, priced, and prepared for shipment.",
-  "publicPresence.home.openOffers.after.badge": "On Chase Sets",
-  "publicPresence.home.openOffers.after.description":
-    "The same request becomes a priced offer against the real catalog entry, visible to every matching seller.",
   "publicPresence.home.openOffers.after.offerCard.amount": "$140.00",
   "publicPresence.home.openOffers.after.offerCard.details":
     "The exact card, price, and shipping destination are locked in before any seller sees it.",
   "publicPresence.home.openOffers.after.offerCard.status": "Sample offer • visible to matching sellers",
   "publicPresence.home.openOffers.after.offerCard.title": "Charizard ex — Special Illustration Rare",
-  "publicPresence.home.openOffers.after.point.accept":
-    "Any seller with a matching card can accept it — no listing negotiation needed.",
-  "publicPresence.home.openOffers.after.point.checkout":
-    "Acceptance creates a real order, with checkout fee and shipping shown before payment.",
-  "publicPresence.home.openOffers.after.point.record":
-    "The offer and its outcome stay tied to a real order record, not a forum thread.",
-  "publicPresence.home.openOffers.after.title": "Post it once. Any seller can accept.",
-  "publicPresence.home.openOffers.before.badge": "The old way",
-  "publicPresence.home.openOffers.before.description": "A buyer posts what they want in a card group, then waits.",
-  "publicPresence.home.openOffers.before.point.payment":
-    "Payment happens outside any marketplace, with no order to point back to.",
-  "publicPresence.home.openOffers.before.point.post": "“ISO Charizard ex, will pay $140 shipped.”",
-  "publicPresence.home.openOffers.before.point.replies":
-    "14 replies. Half of them just ask “still looking?” a week later.",
-  "publicPresence.home.openOffers.before.point.risk":
-    "If it goes wrong, the group can only remove the post after the fact.",
-  "publicPresence.home.openOffers.before.title": "Social card groups",
-  "publicPresence.home.openOffers.description":
-    "Buyers already post “looking for” requests in card groups and hope a stranger notices. Chase Sets turns that into a real offer any matching seller can accept.",
   "publicPresence.home.openOffers.step.accept": "Any seller with a matching card can accept it, at your price.",
   "publicPresence.home.openOffers.step.checkout":
     "Acceptance becomes a real order — checkout fee and shipping shown before payment.",
