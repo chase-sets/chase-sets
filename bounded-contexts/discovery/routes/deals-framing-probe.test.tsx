@@ -170,10 +170,11 @@ describe("DealsFramingProbeRoute", () => {
       expect(badge.className).not.toContain("deal");
       expect(badge.className).toContain("text-secondary");
     }
-    expect(within(table).getAllByRole("button").map((button) => button.textContent)).toEqual([
-      "Add to Sell List",
-      "Add to Sell List",
-    ]);
+    expect(
+      within(table)
+        .getAllByRole("button")
+        .map((button) => button.textContent),
+    ).toEqual(["Add to Sell List", "Add to Sell List"]);
   });
 
   it.each([
