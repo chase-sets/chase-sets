@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -269,19 +270,13 @@ const scenarios = [
 describe("shared CI gate plan", () => {
   it("incident #8493 executes the complete 29-path suite set before merge queue admission", () => {
     expect(selectionFixture.incidentHead).toBe("6ad07d20f93f9e6fa5baef975583b71d9b4a1aac");
-    const historicalBase = execFileSync("git", ["merge-base", selectionFixture.incidentHead, E2E_SELECTION_BASE_SHA], {
-      encoding: "utf8",
-    }).trim();
-    const historicalPaths = execFileSync(
-      "git",
-      ["diff", "--name-only", historicalBase, selectionFixture.incidentHead],
-      {
-        encoding: "utf8",
-      },
-    )
-      .trim()
-      .split("\n");
-    expect(selectionFixture.incident).toEqual(historicalPaths);
+    // Bound to the verified historical diff, without depending on retention of
+    // a squashed PR's branch in future CI checkouts.
+    expect(
+      createHash("sha256")
+        .update(`${selectionFixture.incident.join("\n")}\n`)
+        .digest("hex"),
+    ).toBe("a2780d68580eee6086a5a98eb47b6ab6a8ca21c296d1f23c88ded7103b64b39f");
     expect(selectionFixture.incident).toHaveLength(29);
     const scope = classifyChanges({ changedFiles: selectionFixture.incident, workspaces });
     expect(scope.integrationRiskRequired).toBe(false);
