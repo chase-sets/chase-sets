@@ -93,7 +93,7 @@ The launch policy's default upload ceiling is 250,000 rows. That is a validation
 
 ## Compare fees and check current terms
 
-Use the [TCGplayer comparison page](/compare/tcgplayer) and [eBay comparison page](/compare/ebay) for dated side-by-side context. The [comparison calculator](/compare#calculator) lets you enter the same item price before comparing. Chase Sets' live fee schedule remains the canonical source for the fee you lock when you confirm a listing: [Marketplace sales and checkout fees](/sales-fees).
+Use the [TCGplayer comparison page](/compare/tcgplayer) and [eBay comparison page](/compare/ebay) for dated side-by-side context. The [comparison calculator](/compare/tcgplayer#fee-calculator) lets you enter the same item price before comparing. Chase Sets' live fee schedule remains the canonical source for the fee you lock when you confirm a listing: [Marketplace sales and checkout fees](/sales-fees).
 
 If you receive beta access, read the [Founders offer terms](/founders) and confirm that your account's current admission status makes the offer available before pricing your first listings. This migration guide does not reproduce offer values or eligibility rules; the terms page and current account state are authoritative. The [campaign claims record](https://github.com/chase-sets/chase-sets/blob/main/docs/campaigns/offer-economics-claims-substantiation.md) is the public-copy truth gate while the offer is pre-launch.
 

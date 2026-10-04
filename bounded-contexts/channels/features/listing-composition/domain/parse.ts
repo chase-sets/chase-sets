@@ -200,12 +200,18 @@ function validateSettings(value: unknown): void {
     "descriptionFooter",
     "categoryAllowlist",
     "excludedListingIds",
+    "publishQuantityCap",
   ]);
   text(settings.titlePrefix, 1_000, true);
   text(settings.titleSuffix, 1_000, true);
   text(settings.descriptionFooter, 5_000, true);
   stringArray(settings.categoryAllowlist, 1_000, 128);
   stringArray(settings.excludedListingIds, 1_000, 128);
+  if (settings.publishQuantityCap !== null) {
+    safeInteger(settings.publishQuantityCap);
+    if (Number(settings.publishQuantityCap) < 1 || Number(settings.publishQuantityCap) > 1_000)
+      invalid("bound-violation");
+  }
 }
 
 function validateOptionalText(value: unknown): void {

@@ -19,7 +19,11 @@ export const channelPublicationConfigurationEventCodec: DomainEventCodec<Channel
         closed(data, ["connectionId", "settings"]);
         text(data.connectionId, 128);
         assertChannelPublicationSettingsPayload(data.settings);
-        return event(stored, data);
+        const settings = record(data.settings);
+        return event(stored, {
+          ...data,
+          settings: { ...settings, publishQuantityCap: settings.publishQuantityCap ?? null },
+        });
       }
       case "channels.channel-publication-configuration.mapping-candidate-recorded": {
         closed(data, ["connectionId", "provenance", "candidates"]);
@@ -224,12 +228,20 @@ export function assertChannelPublicationOutcomePayload(value: unknown): void {
 }
 export function assertChannelPublicationSettingsPayload(value: unknown): void {
   const data = record(value);
-  closed(data, ["titlePrefix", "titleSuffix", "descriptionFooter", "categoryAllowlist", "excludedListingIds"]);
+  closedOptional(
+    data,
+    ["titlePrefix", "titleSuffix", "descriptionFooter", "categoryAllowlist", "excludedListingIds"],
+    ["publishQuantityCap"],
+  );
   text(data.titlePrefix, 1_000, true);
   text(data.titleSuffix, 1_000, true);
   text(data.descriptionFooter, 5_000, true);
   stringArray(data.categoryAllowlist, 1_000, 128);
   stringArray(data.excludedListingIds, 1_000, 128);
+  if (Object.hasOwn(data, "publishQuantityCap") && data.publishQuantityCap !== null) {
+    integer(data.publishQuantityCap);
+    if (Number(data.publishQuantityCap) < 1 || Number(data.publishQuantityCap) > 1_000) invalid();
+  }
 }
 
 export function assertChannelMappingCandidatesPayload(value: unknown): void {
