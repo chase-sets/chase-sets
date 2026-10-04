@@ -198,7 +198,9 @@ async function collectSourceData({ options, policy, client, queryStart }) {
         key,
         (async () => {
           try {
-            return run.run_attempt === 1 ? run : await client.json(`/actions/runs/${run.id}/attempts/1`);
+            return run.run_attempt === 1
+              ? run
+              : await client.json(`/actions/runs/${run.id}/attempts/1`, { advisory: true });
           } catch {
             return null;
           }
@@ -1136,7 +1138,7 @@ export function createGitHubClient(options, collection = {}) {
       }
     }
     const message = boundedError(lastError);
-    status.errors.push(message);
+    if (!requestOptions.advisory) status.errors.push(message);
     throw new Error(message);
   }
 

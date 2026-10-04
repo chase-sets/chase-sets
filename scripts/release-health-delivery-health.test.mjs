@@ -178,6 +178,42 @@ describe("first-attempt workflow success", () => {
     });
   });
 
+  it("isolates inaccessible advisory authority through the production HTTP client and keeps canonical issues unchanged", async () => {
+    const collectHttp = async (attemptStatus) => {
+      const calls = [];
+      const optionsHttp = {
+        ...options,
+        updateIssues: true,
+        sleep: async () => {},
+        fetchImpl: async (url, request) => {
+          calls.push({ url, method: request.method });
+          const path = new URL(url).pathname;
+          if (path.endsWith("/attempts/1")) return new Response(JSON.stringify(synthetic()), { status: attemptStatus });
+          const body =
+            path === "/graphql"
+              ? { data: { repository: { pullRequests: { pageInfo: { hasNextPage: false }, nodes: [] } } } }
+              : path.includes("platform-pr.yml")
+                ? { workflow_runs: [synthetic(1001, { run_attempt: 2 })] }
+                : path.includes("/actions/workflows/")
+                  ? { workflow_runs: [] }
+                  : [];
+          return new Response(JSON.stringify(body), { status: 200 });
+        },
+      };
+      const result = await collectDeliveryHealth(optionsHttp, { policy });
+      return { result, calls };
+    };
+    const good = await collectHttp(200);
+    const missing = await collectHttp(404);
+    expect(metric(missing.result).firstAttempt).toMatchObject({ unknown: 1, coverage: "partial", successRate: null });
+    expect(missing.result.record.completeness).toEqual(good.result.record.completeness);
+    expect(missing.result.record.slis).toEqual(good.result.record.slis);
+    expect(missing.result.issueUpdates).toEqual(good.result.issueUpdates);
+    expect(missing.calls.filter((call) => call.method !== "GET")).toEqual(
+      good.calls.filter((call) => call.method !== "GET"),
+    );
+  });
+
   it("rejects duplicate run identities and unsafe latest authority without attempt I/O", async () => {
     const client = clientFor([synthetic(), synthetic(), synthetic(1002, { head_sha: "invalid", run_attempt: 2 })]);
     const result = await collectDeliveryHealth(options, { policy, client });
