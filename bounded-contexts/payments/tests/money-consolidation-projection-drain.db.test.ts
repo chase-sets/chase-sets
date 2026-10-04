@@ -277,6 +277,13 @@ describe("payments money subscription DB proof (synthetic isolated fixtures)", (
 
       const later = await append(source, badStream, eventType, payloadFor(badOrder, false));
       await append(source, `${prefix}synthetic_unrelated`, eventType, payloadFor(goodOrder, false));
+      if (index === 0) {
+        await append("ordering", "ordering.order-synthetic_cancellation_sibling", "ordering.order.cancelled", {
+          orderId: goodOrder,
+          reason: "seller-cannot-fulfill",
+          cancelledAt: now,
+        });
+      }
       await drainSubscriptionRunners(runners);
       receipt = await errors(key);
       expect(receipt.poison).toHaveLength(1);
