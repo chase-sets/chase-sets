@@ -1299,33 +1299,43 @@ describe("prospective issue readiness", () => {
         "Context scope.\n### Don't-rebuild pointers\n- scripts/issue-readiness.mjs\n- bounded-contexts/catalog/README.md",
       ),
     },
-  ])("prospective CLI matches evaluator for readiness rule matrix ($ruleId)", async ({ ruleId, secondaryRuleId, body }) => {
-    const files = new Map([
-      ["body.md", body],
-      ["metadata.json", JSON.stringify(prospectiveMetadata())],
-    ]);
-    const requests = [];
-    const logs = [];
-    const result = await main({
-      argv: ["--prospective-body", "body.md", "--prospective-metadata", "metadata.json", "--checker-sha", CHECKER_SHA],
-      client: async (...args) => {
-        requests.push(args);
-        throw new Error("prospective parity mode reached GitHub");
-      },
-      readTextFile: async (file) => files.get(file),
-      logger: { log: (value) => logs.push(value), error: (value) => logs.push(value) },
-      now: () => CHECKED_AT,
-    });
-    const cliRecord = JSON.parse(logs[0]);
-    const evaluator = prospectiveResult(body);
-    const findRule = (record, id) => record.checkedRules.find((entry) => entry.id === id);
+  ])(
+    "prospective CLI matches evaluator for readiness rule matrix ($ruleId)",
+    async ({ ruleId, secondaryRuleId, body }) => {
+      const files = new Map([
+        ["body.md", body],
+        ["metadata.json", JSON.stringify(prospectiveMetadata())],
+      ]);
+      const requests = [];
+      const logs = [];
+      const result = await main({
+        argv: [
+          "--prospective-body",
+          "body.md",
+          "--prospective-metadata",
+          "metadata.json",
+          "--checker-sha",
+          CHECKER_SHA,
+        ],
+        client: async (...args) => {
+          requests.push(args);
+          throw new Error("prospective parity mode reached GitHub");
+        },
+        readTextFile: async (file) => files.get(file),
+        logger: { log: (value) => logs.push(value), error: (value) => logs.push(value) },
+        now: () => CHECKED_AT,
+      });
+      const cliRecord = JSON.parse(logs[0]);
+      const evaluator = prospectiveResult(body);
+      const findRule = (record, id) => record.checkedRules.find((entry) => entry.id === id);
 
-    expect(result.exitCode).toBe(0);
-    expect(logs).toHaveLength(1);
-    expect(findRule(cliRecord, ruleId)).toEqual(findRule(evaluator, ruleId));
-    if (secondaryRuleId) expect(findRule(cliRecord, secondaryRuleId)).toEqual(findRule(evaluator, secondaryRuleId));
-    expect(requests).toEqual([]);
-  });
+      expect(result.exitCode).toBe(0);
+      expect(logs).toHaveLength(1);
+      expect(findRule(cliRecord, ruleId)).toEqual(findRule(evaluator, ruleId));
+      if (secondaryRuleId) expect(findRule(cliRecord, secondaryRuleId)).toEqual(findRule(evaluator, secondaryRuleId));
+      expect(requests).toEqual([]);
+    },
+  );
 
   it("prospective CLI emits decomposition facts", async () => {
     const files = new Map([

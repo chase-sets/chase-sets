@@ -818,7 +818,9 @@ function authorityProbeComplete(value) {
   const evidence =
     /https:\/\/\S+|\b(?:captured|fixture|artifact|probe output|workflow run)\b|\b[\w.-]+\.(?:json|ya?ml|md|txt|log|csv)\b/i.test(
       plain,
-    ) || plain.match(REPO_POINTER) !== null || /(?:^|[^\w])#\d{2,}\b/.test(plain);
+    ) ||
+    plain.match(REPO_POINTER) !== null ||
+    /(?:^|[^\w])#\d{2,}\b/.test(plain);
   const timing =
     /\b(?:before|during|after|at|when)\b.{0,80}\b(?:dispatch|queue|merge|run|request|event|webhook|lifecycle|implementation|acceptance)\b/i.test(
       value,
