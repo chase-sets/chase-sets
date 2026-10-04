@@ -1058,6 +1058,7 @@ export interface SourceObservationIntegrationJobOutcome {
   expansionId: string | null;
   status: "imported" | "reapplied" | "skipped" | "failed";
   observed: number;
+  outOfUnitExcludedCount?: number;
   reapplied: number;
   reason: string | null;
   providerUsageEvidence?: SourceObservationProviderUsageEvidence | null;
@@ -1067,6 +1068,7 @@ export interface SourceObservationIntegrationJobResult {
   requested: number;
   imported: number;
   observed: number;
+  outOfUnitExcludedCount?: number;
   reapplied: number;
   skipped: number;
   failed: number;

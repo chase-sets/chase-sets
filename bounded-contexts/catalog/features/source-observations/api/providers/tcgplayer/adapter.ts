@@ -207,6 +207,7 @@ export function createTcgplayerProviderAdapter(
           completed: 0,
           total: 1,
           currentLabel: stringValue(plan.scope.values.productName) ?? `Product ${productId}`,
+          outOfUnitExcludedCount: 0,
         });
         const detail = await client.getProductDetail({ productId });
         if (!productDetailMatchesUnit(detail, constraints)) {
@@ -224,6 +225,7 @@ export function createTcgplayerProviderAdapter(
           completed: 1,
           total: 1,
           currentLabel: detail.productName,
+          outOfUnitExcludedCount: 0,
         });
         yield detailEnvelope(plan, detail, fetchedAt);
         return;
@@ -245,11 +247,13 @@ export function createTcgplayerProviderAdapter(
         setName,
       });
       let completed = 0;
+      let outOfUnitExcludedCount = 0;
       await fetchOptions?.onProgress?.({
         phase: "fetching",
         completed,
         total: scopedProducts.length,
         currentLabel: setName,
+        outOfUnitExcludedCount,
       });
 
       for (const product of scopedProducts) {
@@ -257,11 +261,13 @@ export function createTcgplayerProviderAdapter(
           const detail = await client.getProductDetail({ productId: product.productId });
           if (!productDetailMatchesUnit(detail, constraints)) {
             completed += 1;
+            outOfUnitExcludedCount += 1;
             await fetchOptions?.onProgress?.({
               phase: "fetching",
               completed,
               total: scopedProducts.length,
               currentLabel: detail.productName,
+              outOfUnitExcludedCount,
             });
             // Set-search summaries are only candidates: TCGplayer can describe
             // sealed products with the same generic summary shape as cards.
@@ -276,6 +282,7 @@ export function createTcgplayerProviderAdapter(
             completed,
             total: scopedProducts.length,
             currentLabel: detail.productName,
+            outOfUnitExcludedCount,
           });
           yield detailEnvelope(plan, detail, fetchedAt);
         } catch (error) {
@@ -287,6 +294,7 @@ export function createTcgplayerProviderAdapter(
             completed,
             total: scopedProducts.length,
             currentLabel: product.productName,
+            outOfUnitExcludedCount,
           });
           yield failureEnvelope(plan, product, fetchedAt, error);
         }

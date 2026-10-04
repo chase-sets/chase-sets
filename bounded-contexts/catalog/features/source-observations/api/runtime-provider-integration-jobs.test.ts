@@ -5,7 +5,10 @@ import type { CatalogItemServices } from "../../catalog-items/api/runtime";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
 import { createCatalogIntegrationRolloutControlPolicy } from "./governance/catalog-integration-rollout-controls";
 import { TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY } from "./provider-adapters/tcgplayer";
+import { createTcgplayerProviderAdapter } from "./provider-adapters/tcgplayer";
+import type { ProviderAdapter } from "./provider-adapters/provider-adapter";
 import { createSourceObservationRuntime } from "./runtime";
+import { retryableIntegrationJobResult, summarizeIntegrationJobOutcomes } from "./source-observation-job-serialization";
 import {
   context,
   createActiveTcgplayerProfileVersions,
@@ -1009,83 +1012,94 @@ describe("source observation runtime: provider integration jobs", () => {
     }
   });
 
-  it("retries provider integration jobs by preserving successful outcomes and pruning failed outcomes", async () => {
-    const harness = createIntegrationJobDedupeHarness({
-      existingJob: {
-        ...integrationJobRow({
-          jobId: "job_retry",
-          action: "import",
-          scope: { provider: "tcgdex", language: "en", seriesId: "base" },
-          profileSnapshot: tcgdexProfileSnapshot("2026.06.03"),
-          eventContext: context,
-        }),
-        status: "completed",
+  it.each([undefined, 1])(
+    "retries provider integration jobs by preserving successful outcomes and pruning failed outcomes (count %s)",
+    async (count) => {
+      const harness = createIntegrationJobDedupeHarness({
+        existingJob: {
+          ...integrationJobRow({
+            jobId: "job_retry",
+            action: "import",
+            scope: { provider: "tcgplayer", language: "en", productLineId: "3" },
+            profileSnapshot: null,
+            eventContext: context,
+          }),
+          status: "completed",
+          progress: {
+            phase: "completed",
+            completed: 2,
+            total: 2,
+            currentName: null,
+            status: "failed",
+          },
+          result: {
+            requested: 2,
+            imported: 1,
+            observed: 102,
+            reapplied: 0,
+            skipped: 0,
+            failed: 1,
+            outcomes: [
+              {
+                providerKey: "tcgplayer",
+                languageCode: "en",
+                expansionId: "base1",
+                status: "imported",
+                observed: 102,
+                ...(count === undefined ? {} : { outOfUnitExcludedCount: count }),
+                reapplied: 0,
+                reason: null,
+              },
+              {
+                providerKey: "tcgplayer",
+                languageCode: "en",
+                expansionId: "base2",
+                status: "failed",
+                observed: 0,
+                ...(count === undefined ? {} : { outOfUnitExcludedCount: 7 }),
+                reapplied: 0,
+                reason: "Provider timeout.",
+              },
+            ],
+          },
+          completed_at: "2026-05-28T00:00:05.000Z",
+        },
+      });
+      const services = createSourceObservationRuntime(
+        harness.deps,
+        {} as CatalogItemServices,
+        {} as ReferenceDataServices,
+      );
+
+      const job = await services.retryIntegrationJob({ jobId: "job_retry", context });
+
+      expect(job).toMatchObject({
+        jobId: "job_retry",
+        status: "queued",
         progress: {
-          phase: "completed",
-          completed: 2,
+          phase: "queued",
+          completed: 1,
           total: 2,
-          currentName: null,
-          status: "failed",
         },
         result: {
           requested: 2,
           imported: 1,
-          observed: 102,
-          reapplied: 0,
-          skipped: 0,
-          failed: 1,
-          outcomes: [
-            {
-              providerKey: "tcgdex",
-              languageCode: "en",
-              expansionId: "base1",
-              status: "imported",
-              observed: 102,
-              reapplied: 0,
-              reason: null,
-            },
-            {
-              providerKey: "tcgdex",
-              languageCode: "en",
-              expansionId: "base2",
-              status: "failed",
-              observed: 0,
-              reapplied: 0,
-              reason: "Provider timeout.",
-            },
-          ],
+          failed: 0,
         },
-        completed_at: "2026-05-28T00:00:05.000Z",
-      },
-    });
-    const services = createSourceObservationRuntime(
-      harness.deps,
-      {} as CatalogItemServices,
-      {} as ReferenceDataServices,
-    );
-
-    const job = await services.retryIntegrationJob({ jobId: "job_retry", context });
-
-    expect(job).toMatchObject({
-      jobId: "job_retry",
-      status: "queued",
-      progress: {
-        phase: "queued",
-        completed: 1,
-        total: 2,
-      },
-      result: {
-        requested: 2,
-        imported: 1,
-        failed: 0,
-      },
-    });
-    expect(job.result?.outcomes).toEqual([expect.objectContaining({ expansionId: "base1", status: "imported" })]);
-    expect(harness.jobEvents[harness.jobEvents.length - 1]?.snapshot).toMatchObject({
-      jobId: "job_retry",
-      status: "queued",
-    });
-  });
+      });
+      expect(job.result?.outcomes).toEqual([expect.objectContaining({ expansionId: "base1", status: "imported" })]);
+      expect(job.result?.outOfUnitExcludedCount).toBe(count);
+      expect(job.result?.outcomes[0]?.outOfUnitExcludedCount).toBe(count);
+      if (count === undefined) {
+        expect(job.result).not.toHaveProperty("outOfUnitExcludedCount");
+        expect(job.result?.outcomes[0]).not.toHaveProperty("outOfUnitExcludedCount");
+      }
+      expect(harness.jobEvents[harness.jobEvents.length - 1]?.snapshot).toMatchObject({
+        jobId: "job_retry",
+        status: "queued",
+      });
+    },
+  );
 
   it("cancels provider integration jobs as operator-cancelled failed durable jobs", async () => {
     const harness = createIntegrationJobDedupeHarness({
@@ -1166,14 +1180,81 @@ describe("source observation runtime: provider integration jobs", () => {
     expect(harness.appendedSourceEvents).toHaveLength(2);
   });
 
-  it("settles a mixed TCGplayer set after detail assigns generic candidates to another unit", async () => {
+  it.each([0, 1, 2])(
+    "settles a mixed TCGplayer set after detail assigns generic candidates to another unit (count %i)",
+    async (count) => {
+      const tcgplayerHarness = createTcgplayerImportHarness({ productDomain: "one-piece" });
+      const client = {
+        ...tcgplayerHarness.client,
+        listAllProducts: async (input: Parameters<typeof tcgplayerHarness.client.listAllProducts>[0]) =>
+          (await tcgplayerHarness.client.listAllProducts(input)).map((product) => ({
+            ...product,
+            productTypeName: "Products",
+            sealed: false,
+          })),
+        getProductDetail: async (input: Parameters<typeof tcgplayerHarness.client.getProductDetail>[0]) => {
+          const detail = await tcgplayerHarness.client.getProductDetail(input);
+          const excluded = count === 2 || (count === 1 && input.productId === 987660);
+          return { ...detail, productTypeName: excluded ? "Sealed Products" : "Cards", sealed: excluded };
+        },
+      };
+      const harness = createIntegrationJobClaimHandoffHarness({
+        scope: {
+          provider: "tcgplayer",
+          profileKey: "one-piece-single-card-product-sku",
+          ingestionUnitKey: "tcgplayer:one-piece:single-card:source-observation-import",
+          productLineId: "68",
+          setName: "Romance Dawn",
+        },
+        renewSucceeds: true,
+        tcgplayerAutomationCatalogClient: client,
+      });
+      const services = createSourceObservationRuntime(
+        harness.deps,
+        {} as CatalogItemServices,
+        harness.referenceData,
+        createActiveTcgplayerProfileVersions({ profileKey: "one-piece-single-card-product-sku" }),
+      );
+
+      await expect(services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 })).resolves.toBe(
+        1,
+      );
+
+      await expect(services.getIntegrationJob(harness.job.job_id, context)).resolves.toMatchObject({
+        status: "completed",
+        operatorStatus: "completed",
+        result: {
+          requested: 1,
+          imported: count === 2 ? 0 : 1,
+          observed: 2 - count,
+          skipped: count === 2 ? 1 : 0,
+          failed: 0,
+          outOfUnitExcludedCount: count,
+          outcomes: [
+            expect.objectContaining({
+              status: count === 2 ? "skipped" : "imported",
+              observed: 2 - count,
+              outOfUnitExcludedCount: count,
+            }),
+          ],
+        },
+      });
+      expect(harness.appendedSourceEvents).toHaveLength(2 - count);
+    },
+  );
+
+  it("reads durable TCGplayer exclusion counts without progress replay", async () => {
     const tcgplayerHarness = createTcgplayerImportHarness({ productDomain: "one-piece" });
     const client = {
       ...tcgplayerHarness.client,
-      listAllProducts: async (input: Parameters<typeof tcgplayerHarness.client.listAllProducts>[0]) =>
-        (await tcgplayerHarness.client.listAllProducts(input)).map((product) =>
-          product.productId === 987660 ? { ...product, productTypeName: "Products", sealed: false } : product,
-        ),
+      listAllProducts: vi.fn(async (input: Parameters<typeof tcgplayerHarness.client.listAllProducts>[0]) =>
+        (await tcgplayerHarness.client.listAllProducts(input)).map((product) => ({
+          ...product,
+          productTypeName: "Products",
+          sealed: false,
+        })),
+      ),
+      getProductDetail: vi.fn(tcgplayerHarness.client.getProductDetail),
     };
     const harness = createIntegrationJobClaimHandoffHarness({
       scope: {
@@ -1186,23 +1267,281 @@ describe("source observation runtime: provider integration jobs", () => {
       renewSucceeds: true,
       tcgplayerAutomationCatalogClient: client,
     });
+    const versions = createActiveTcgplayerProfileVersions({ profileKey: "one-piece-single-card-product-sku" });
+    const worker = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      harness.referenceData,
+      versions,
+    );
+    await expect(worker.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 })).resolves.toBe(1);
+    const storedResult = JSON.parse(JSON.stringify(harness.job.result));
+    expect(storedResult).toMatchObject({ outOfUnitExcludedCount: 1, outcomes: [{ outOfUnitExcludedCount: 1 }] });
+    expect(Object.keys(storedResult).sort()).toEqual([
+      "failed",
+      "imported",
+      "observed",
+      "outOfUnitExcludedCount",
+      "outcomes",
+      "reapplied",
+      "requested",
+      "skipped",
+    ]);
+    expect(Object.keys(storedResult.outcomes[0]).sort()).toEqual([
+      "expansionId",
+      "languageCode",
+      "observed",
+      "outOfUnitExcludedCount",
+      "providerKey",
+      "providerUsageEvidence",
+      "reapplied",
+      "reason",
+      "status",
+    ]);
+    expect(JSON.stringify(storedResult)).not.toMatch(/987660|Booster Box|\/details/);
+    client.listAllProducts.mockClear();
+    client.getProductDetail.mockClear();
+    client.listAllProducts.mockRejectedValue(new Error("Provider calls disabled during readback."));
+    client.getProductDetail.mockRejectedValue(new Error("Provider calls disabled during readback."));
+    harness.job.result = storedResult;
+    harness.job.progress = { phase: "completed", completed: 0, total: 0, currentName: null, status: null };
+    const reader = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      harness.referenceData,
+      versions,
+    );
+    await expect(reader.getIntegrationJob(harness.job.job_id, context)).resolves.toMatchObject({
+      result: storedResult,
+    });
+    expect(client.listAllProducts).not.toHaveBeenCalled();
+    expect(client.getProductDetail).not.toHaveBeenCalled();
+    delete storedResult.outOfUnitExcludedCount;
+    delete storedResult.outcomes[0].outOfUnitExcludedCount;
+    const legacy = await reader.getIntegrationJob(harness.job.job_id, context);
+    expect(legacy?.result).not.toHaveProperty("outOfUnitExcludedCount");
+    expect(legacy?.result?.outcomes[0]).not.toHaveProperty("outOfUnitExcludedCount");
+  });
+
+  it("does not accumulate repeated TCGplayer progress in the direct import caller", async () => {
+    const source = createTcgplayerImportHarness({ productDomain: "one-piece" });
+    const client = {
+      ...source.client,
+      listAllProducts: async (input: Parameters<typeof source.client.listAllProducts>[0]) =>
+        (await source.client.listAllProducts(input)).map((product) => ({
+          ...product,
+          productTypeName: "Products",
+          sealed: false,
+        })),
+    };
+    const harness = createIntegrationJobClaimHandoffHarness({ tcgplayerAutomationCatalogClient: client });
+    const versions = createActiveTcgplayerProfileVersions({ profileKey: "one-piece-single-card-product-sku" });
+    const profileVersion = await versions.getActiveProfileVersion("tcgplayer");
+    if (!profileVersion) throw new Error("Expected One Piece profile.");
+    const adapter = createTcgplayerProviderAdapter({
+      client,
+      loadProfileVersions: () => versions.listProfileVersions("tcgplayer"),
+    });
+    const replayAdapter: ProviderAdapter = {
+      ...adapter,
+      async *fetchPayloads(plan, options) {
+        yield* adapter.fetchPayloads(plan, {
+          onProgress: async (progress) => {
+            await options?.onProgress?.(progress);
+            await options?.onProgress?.(progress);
+          },
+        });
+      },
+    };
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      harness.referenceData,
+      versions,
+    );
+    await expect(
+      services.importProviderAdapterForReplay({
+        adapter: replayAdapter,
+        profileVersion,
+        context,
+        scope: {
+          provider: "tcgplayer",
+          profileKey: "one-piece-single-card-product-sku",
+          ingestionUnitKey: "tcgplayer:one-piece:single-card:source-observation-import",
+          productLineId: "68",
+          setName: "Romance Dawn",
+        },
+      }),
+    ).resolves.toMatchObject([{ status: "imported", observed: 1, outOfUnitExcludedCount: 1 }]);
+  });
+
+  it("counts current TCGplayer targets once across worker resume and failed-target replacement", async () => {
+    const source = createTcgplayerImportHarness();
+    let failSecondTarget = true;
+    const client = {
+      ...source.client,
+      listCatalogSetNames: async (input: Parameters<typeof source.client.listCatalogSetNames>[0]) => {
+        const response = await source.client.listCatalogSetNames(input);
+        const firstSet = response.results[0];
+        if (!firstSet) throw new Error("Expected synthetic source set.");
+        return {
+          ...response,
+          results: [firstSet, { ...firstSet, setNameId: 7002, name: "Second Set", cleanSetName: "Second Set" }],
+        };
+      },
+      listAllProducts: vi.fn(async (input: Parameters<typeof source.client.listAllProducts>[0]) => {
+        const products = await source.client.listAllProducts(input);
+        const second = input.filters?.term?.setName?.[0] === "Second Set";
+        const secondProduct = products[1];
+        if (!secondProduct) throw new Error("Expected synthetic source candidate.");
+        const candidates = second ? [...products, { ...secondProduct, productId: 610003 }] : products;
+        return candidates.map((product) => ({
+          ...product,
+          productId: product.productId + (second ? 10000 : 0),
+          setName: second ? "Second Set" : "Prismatic Evolutions",
+          productTypeName: "Products",
+          sealed: false,
+        }));
+      }),
+      getProductDetail: vi.fn(async (input: Parameters<typeof source.client.getProductDetail>[0]) => {
+        const second = input.productId > 620000;
+        const id = input.productId - (second ? 10000 : 0);
+        if (second && failSecondTarget && id === 610001) throw new Error("Synthetic second-target detail failure.");
+        const detail = await source.client.getProductDetail({ productId: id === 610003 ? 610002 : id });
+        const excluded = id !== 610001;
+        return {
+          ...detail,
+          productId: input.productId,
+          setName: second ? "Second Set" : "Prismatic Evolutions",
+          productTypeName: excluded ? "Sealed Products" : "Cards",
+          sealed: excluded,
+        };
+      }),
+    };
+    const harness = createIntegrationJobClaimHandoffHarness({
+      scope: { provider: "tcgplayer", productLineId: "3" },
+      renewSucceeds: true,
+      tcgplayerAutomationCatalogClient: client,
+    });
+    const query = harness.deps.db.query.bind(harness.deps.db);
+    harness.deps.db.query = async <T>(sql: string, values: readonly unknown[] = []) => {
+      if (
+        sql.includes("UPDATE catalog_source_observation_integration_durable_jobs") &&
+        sql.includes("completed_at = NULL")
+      ) {
+        harness.job.status = "queued";
+        harness.job.progress = JSON.parse(String(values[1]));
+        harness.job.result = values[2] == null ? harness.job.result : JSON.parse(String(values[2]));
+        harness.job.claim_owner_id = null;
+        harness.job.claimed_until = null;
+        harness.job.completed_at = null;
+        return { rowCount: 1, rows: [harness.job] as T[] };
+      }
+      const result = await query<T>(sql, values);
+      if (sql.includes("SET status = 'queued'") && sql.includes("AS job") && result.rowCount) {
+        harness.job.status = "queued";
+        harness.job.claim_owner_id = null;
+        harness.job.claimed_until = null;
+      }
+      return result;
+    };
+    const versions = createActiveTcgplayerProfileVersions();
+    const runtime = () =>
+      createSourceObservationRuntime(harness.deps, {} as CatalogItemServices, harness.referenceData, versions);
+    const turn = { claimOwnerId: "worker-counts", claimTtlMs: 120_000 };
+    await expect(runtime().processNextIntegrationJob(turn)).resolves.toBe(1);
+    expect(harness.job.result).toMatchObject({ imported: 1, outOfUnitExcludedCount: 1 });
+    harness.job.status = "running";
+    harness.job.claimed_until = "2020-01-01T00:00:00.000Z";
+    await expect(runtime().resumeIntegrationJob({ jobId: harness.job.job_id, context })).resolves.toMatchObject({
+      result: { imported: 1, outOfUnitExcludedCount: 1 },
+    });
+    client.getProductDetail.mockClear();
+    await expect(runtime().processNextIntegrationJob(turn)).resolves.toBe(1);
+    expect(harness.job.result).toMatchObject({ imported: 1, failed: 1, outOfUnitExcludedCount: 3 });
+    expect(client.getProductDetail.mock.calls.every(([input]) => input.productId > 620000)).toBe(true);
+    await expect(runtime().retryIntegrationJob({ jobId: harness.job.job_id, context })).resolves.toMatchObject({
+      result: { imported: 1, failed: 0, outOfUnitExcludedCount: 1 },
+    });
+    failSecondTarget = false;
+    client.getProductDetail.mockClear();
+    await expect(runtime().processNextIntegrationJob(turn)).resolves.toBe(1);
+    const settled = await runtime().getIntegrationJob(harness.job.job_id, context);
+    expect(settled).toMatchObject({
+      status: "completed",
+      result: {
+        imported: 2,
+        observed: 2,
+        failed: 0,
+        outOfUnitExcludedCount: 3,
+        outcomes: [{ outOfUnitExcludedCount: 1 }, { outOfUnitExcludedCount: 2 }],
+      },
+    });
+    expect(client.getProductDetail.mock.calls.every(([input]) => input.productId > 620000)).toBe(true);
+    if (!settled?.result) throw new Error("Expected durable settled result.");
+    expect(summarizeIntegrationJobOutcomes(2, settled.result.outcomes).outOfUnitExcludedCount).toBe(3);
+    expect(retryableIntegrationJobResult(settled.result, 2).outOfUnitExcludedCount).toBe(3);
+    await expect(runtime().processNextIntegrationJob(turn)).resolves.toBe(0);
+    await expect(runtime().getIntegrationJob(harness.job.job_id, context)).resolves.toMatchObject({
+      result: { outOfUnitExcludedCount: 3 },
+    });
+  });
+
+  it("keeps explicit TCGplayer product mismatches rejected rather than excluded", async () => {
+    const source = createTcgplayerImportHarness({ productDomain: "one-piece" });
+    const harness = createIntegrationJobClaimHandoffHarness({
+      scope: {
+        provider: "tcgplayer",
+        profileKey: "one-piece-single-card-product-sku",
+        ingestionUnitKey: "tcgplayer:one-piece:single-card:source-observation-import",
+        productId: "987660",
+      },
+      renewSucceeds: true,
+      tcgplayerAutomationCatalogClient: source.client,
+    });
     const services = createSourceObservationRuntime(
       harness.deps,
       {} as CatalogItemServices,
       harness.referenceData,
       createActiveTcgplayerProfileVersions({ profileKey: "one-piece-single-card-product-sku" }),
     );
-
     await expect(services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 })).resolves.toBe(
       1,
     );
-
     await expect(services.getIntegrationJob(harness.job.job_id, context)).resolves.toMatchObject({
-      status: "completed",
-      operatorStatus: "completed",
-      result: { requested: 1, imported: 1, observed: 1, failed: 0 },
+      operatorStatus: "partial",
+      result: {
+        observed: 0,
+        failed: 1,
+        outOfUnitExcludedCount: 0,
+        outcomes: [{ status: "failed", outOfUnitExcludedCount: 0, reason: expect.any(String) }],
+      },
     });
-    expect(harness.appendedSourceEvents).toHaveLength(1);
+    expect(harness.appendedSourceEvents).toHaveLength(0);
+  });
+
+  it("keeps legacy, other-provider and reapply exclusion measurements unavailable", () => {
+    const legacy = {
+      providerKey: "tcgplayer",
+      languageCode: "en",
+      expansionId: "legacy",
+      status: "imported" as const,
+      observed: 1,
+      reapplied: 0,
+      reason: null,
+    };
+    for (const outcomes of [
+      [],
+      [legacy],
+      [{ ...legacy, providerKey: "tcgdex" }],
+      [{ ...legacy, status: "reapplied" as const, observed: 0, reapplied: 1 }],
+      [legacy, { ...legacy, expansionId: "new", outOfUnitExcludedCount: 2 }],
+    ]) {
+      const result = summarizeIntegrationJobOutcomes(outcomes.length, outcomes);
+      expect(result).not.toHaveProperty("outOfUnitExcludedCount");
+      expect(retryableIntegrationJobResult(result, outcomes.length)).not.toHaveProperty("outOfUnitExcludedCount");
+      if (result.outcomes[0]) expect(result.outcomes[0]).not.toHaveProperty("outOfUnitExcludedCount");
+    }
   });
 
   it("keeps genuine TCGplayer detail failures visibly partial", async () => {
@@ -1229,10 +1568,12 @@ describe("source observation runtime: provider integration jobs", () => {
       imported: 0,
       observed: 1,
       failed: 1,
+      outOfUnitExcludedCount: 0,
       outcomes: [
         expect.objectContaining({
           status: "failed",
           observed: 1,
+          outOfUnitExcludedCount: 0,
           reason: expect.stringContaining("Product 610002 unavailable."),
         }),
       ],
@@ -1240,7 +1581,7 @@ describe("source observation runtime: provider integration jobs", () => {
     await expect(services.getIntegrationJob(harness.job.job_id, context)).resolves.toMatchObject({
       status: "completed",
       operatorStatus: "partial",
-      result: { observed: 1, failed: 1 },
+      result: { observed: 1, failed: 1, outOfUnitExcludedCount: 0 },
     });
     expect(harness.appendedSourceEvents).toHaveLength(1);
   });

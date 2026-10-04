@@ -942,6 +942,11 @@ export function summarizeIntegrationJobOutcomes(
     requested,
     imported: outcomes.filter((outcome) => outcome.status === "imported").length,
     observed: outcomes.reduce((total, outcome) => total + outcome.observed, 0),
+    ...(outcomes.length > 0 && outcomes.every((outcome) => outcome.outOfUnitExcludedCount !== undefined)
+      ? {
+          outOfUnitExcludedCount: outcomes.reduce((total, outcome) => total + (outcome.outOfUnitExcludedCount ?? 0), 0),
+        }
+      : {}),
     reapplied: outcomes.reduce((total, outcome) => total + outcome.reapplied, 0),
     skipped: outcomes.filter((outcome) => outcome.status === "skipped").length,
     failed: outcomes.filter((outcome) => outcome.status === "failed").length,

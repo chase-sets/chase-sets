@@ -303,6 +303,7 @@ export type SourceObservationIntegrationJobOutcome = Readonly<{
   expansionId: string | null;
   status: "imported" | "reapplied" | "skipped" | "failed";
   observed: number;
+  outOfUnitExcludedCount?: number;
   reapplied: number;
   reason: string | null;
   providerUsageEvidence?: SourceObservationProviderUsageEvidence | null;
@@ -358,6 +359,7 @@ export type SourceObservationIntegrationJobResult = Readonly<{
   requested: number;
   imported: number;
   observed: number;
+  outOfUnitExcludedCount?: number;
   reapplied: number;
   skipped: number;
   failed: number;

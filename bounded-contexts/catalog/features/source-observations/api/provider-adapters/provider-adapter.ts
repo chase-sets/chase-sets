@@ -113,6 +113,8 @@ export type ProviderPayloadFetchProgress = Readonly<{
   completed: number;
   total: number;
   currentLabel: string | null;
+  /** Cumulative detail-time exclusions for this fetch, not a progress delta. */
+  outOfUnitExcludedCount?: number;
 }>;
 
 export type ProviderPayloadFetchOptions = Readonly<{
