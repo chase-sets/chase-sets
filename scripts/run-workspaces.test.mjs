@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
 import { listWorkspacePackages } from "./lib/repo.mjs";
 import { finalizeWorkspaceTestResults } from "./lib/workspace-test-results.mjs";
 import {
@@ -65,6 +66,25 @@ async function captureConsole(action) {
 }
 
 describe("run-workspaces", () => {
+  it("uploads only exact validated hosted payloads after executed success or failure, with job-safe env contexts", () => {
+    const workflow = parse(readFileSync(".github/workflows/platform-pr.yml", "utf8"));
+    for (const jobKey of ["unit-tests", "db-tests"]) {
+      const job = workflow.jobs[jobKey];
+      expect(job.env.CHASE_SETS_TEST_RESULTS_DIR).toBe("artifacts/workspace-test-results");
+      expect(JSON.stringify(job.env)).not.toContain("runner.");
+      const prepare = job.steps.find((step) => step.id === "vitest-results");
+      const upload = job.steps.find((step) => step.name === "Upload workspace test results");
+      expect(prepare.run).toBe("node ./scripts/lib/workspace-test-results.mjs");
+      expect(prepare.if).toContain("steps.vitest-producer.outcome == 'failure'");
+      expect(upload.if).toContain("steps.vitest-results.outcome == 'success'");
+      expect(upload.with.path).toBe("artifacts/workspace-test-results/workspace-test-results.json");
+      expect(upload.with.name).toBe(
+        `workspace-test-results-${jobKey}-${"${{ github.run_id }}"}-${"${{ github.run_attempt }}"}`,
+      );
+      expect(upload.with["retention-days"]).toBe(7);
+      expect(upload.with["if-no-files-found"]).toBe("error");
+    }
+  });
   it("collects concurrent and partitioned JSON without overwrites, preserving failed exits and unstarted siblings", async () => {
     const directory = mkdtempSync(path.join(tmpdir(), "runner-results-"));
     const outputs = [];
