@@ -17,7 +17,7 @@ Five modules in `scripts/browser-usability-goals/` own the route scopes; `script
 - `host`: `marketplace`, `public-web`, or `admin-web`; `role`: `guest`, `buyer`, `seller`, or `operator`.
 - `oracle`: a moderator-only non-empty outcome instruction for every check, with no extra keys.
 - `routes`: scoped repository route paths mapped to a check id. A route claim means the check exercises that route, not merely that it is nearby. `find-card` has no buyer-scope route claim because its discovery pages belong to guest scope; its existing discovery/catalog path prefixes still select it.
-- `paths`: non-empty changed-path prefixes that select the goal. An exact `routes` key also selects it. `selectOnSharedChange: true` opts into shared-change selection; only the moved four goals opt in initially.
+- `paths`: non-empty changed-path prefixes that select the goal. An exact `routes` key also selects it on non-shared changes. Shared paths select only goals with `selectOnSharedChange: true`; only the moved four goals opt in initially.
 - `permits`: an optional exception to the participant's read-only default. The moderator restores permitted changes afterwards. The payment, postage, external-channel, message, and credential boundary always applies.
 - `startSignedIn`: the moderator's starting authentication state; defaults to `false` for guest and `true` otherwise. The moderator signs in, not the participant.
 

@@ -117,6 +117,7 @@ export function prepareProbe({ goalId, origin, preflight, evidenceDirectory, dir
       "Read-only by default: no purchases, messages, reviews, reports, or account, listing, or settings changes.",
       ...(goal.permits ? [`Exception for this goal only: ${goal.permits} The moderator restores it afterwards.`] : []),
       "Never confirm a payment, buy postage, publish or sync to an external channel, send a message, or submit a password or other credential. Stop at the last screen before any of these and report what it would do.",
+      "Stop on uncertainty rather than expanding scope.",
       "Use session.observe() after errors, and session.finish({status: 'complete'|'partial'|'blocked', answer, obstacles}). Report what remains unknown. Completion is your claim, not the independent verdict. No other file writes or agents.",
       "The code enforces a six-minute/35-action budget and saves screenshots/call timing. Do not bypass it or restart a timed-out attempt. Do not put credentials, personal data, tokens, or private URLs in the answer.",
       "",

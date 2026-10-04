@@ -120,6 +120,9 @@ describe("goal selection and preflight", () => {
           "Never confirm a payment, buy postage, publish or sync to an external channel, send a message, or submit a password or other credential. Stop at the last screen before any of these and report what it would do.";
         expect(brief).toContain(readOnly);
         expect(brief.indexOf(boundary)).toBeGreaterThan(brief.indexOf(readOnly));
+        const uncertainty = "Stop on uncertainty rather than expanding scope.";
+        expect(brief).toContain(uncertainty);
+        expect(brief.indexOf(uncertainty)).toBeGreaterThan(brief.indexOf(boundary));
         const goal = browserUsabilityGoal(goalId);
         if (goal.permits) {
           const exception = `Exception for this goal only: ${goal.permits} The moderator restores it afterwards.`;
