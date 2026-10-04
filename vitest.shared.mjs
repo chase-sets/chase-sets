@@ -59,3 +59,26 @@ export function defineBoundedContextTestConfig(overrides = {}) {
     },
   });
 }
+
+export function defineDbTestConfig(base, include, overrides = {}) {
+  return {
+    ...base,
+    test: {
+      ...base.test,
+      ...overrides,
+      include,
+      globalSetup: [...base.test.globalSetup, ...(overrides.globalSetup ?? [])],
+    },
+  };
+}
+
+export function defineUnitTestConfig(base, db) {
+  return {
+    ...base,
+    test: {
+      ...base.test,
+      exclude: [...base.test.exclude, ...db.test.include],
+      passWithNoTests: true,
+    },
+  };
+}

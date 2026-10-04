@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
 
@@ -134,7 +134,7 @@ async function createFixture(
 
   await writeFile(
     join(root, "vitest.config.ts"),
-    ["export default {", "  test: {", '    include: ["__tests__/**/*.test.ts"],', "  },", "};", ""].join("\n"),
+    `import { defineWorkspaceTestConfig } from ${JSON.stringify(relative(root, fileURLToPath(new URL("../../../vitest.shared.mjs", import.meta.url))).replaceAll("\\", "/"))};\nexport default defineWorkspaceTestConfig({ test: { include: ["__tests__/**/*.test.ts"] } });\n`,
   );
   await writeFile(
     join(testDirectory, "bootstrap-db-test-support.ts"),
@@ -150,23 +150,42 @@ async function createFixture(
   const unitNames = [...new Set(files.map((file) => file.executionUnit))].sort((left, right) =>
     left.localeCompare(right, "en", { numeric: true }),
   );
-  const excludeArguments = files.map((file) => `--exclude __tests__/${file.fileName}`).join(" ");
+  const shared = relative(root, fileURLToPath(new URL("../../../vitest.shared.mjs", import.meta.url))).replaceAll(
+    "\\",
+    "/",
+  );
+  const dbConfig = (includes: readonly string[]) =>
+    `import base from "./vitest.config.ts";\nimport { defineDbTestConfig } from ${JSON.stringify(shared)};\nexport default defineDbTestConfig(base, ${JSON.stringify(includes)}, { maxWorkers: 3, globalSetup: ["./scripts/bootstrap-db-enrollment-setup.mjs"] });\n`;
+  await writeFile(join(root, "vitest.db.config.mjs"), dbConfig(["**/*.db.test.ts"]));
+  await writeFile(
+    join(root, "vitest.unit.config.mjs"),
+    `import base from "./vitest.config.ts";\nimport db from "./vitest.db.config.mjs";\nimport { defineUnitTestConfig } from ${JSON.stringify(shared)};\nexport default defineUnitTestConfig(base, db);\n`,
+  );
   const packageJson = {
+    name: "@chase-sets/synthetic-platform-api",
+    chaseSets: { testProfile: "db" },
     scripts: {
-      "test:fast": `vitest run ${excludeArguments}`,
-      "test:unit": `vitest run ${excludeArguments}`,
+      "test:db": "vitest run --config ./vitest.db.config.mjs",
+      "test:fast": "vitest run --config ./vitest.unit.config.mjs",
+      "test:unit": "vitest run --config ./vitest.unit.config.mjs",
       ...Object.fromEntries(
         unitNames.map((unitName) => [
           unitName,
-          `vitest run ${files
-            .filter((file) => file.executionUnit === unitName)
-            .map((file) => `__tests__/${file.fileName}`)
-            .join(" ")} --maxWorkers=3`,
+          `vitest run --config ./vitest.db.${unitName.split(":").at(-1)}.config.mjs`,
         ]),
       ),
     },
   };
   options.mutatePackageJson?.(packageJson);
+  for (const unitName of Object.keys(packageJson.scripts).filter((name) => /^test:db:\d+$/.test(name))) {
+    const includes = files
+      .filter((file) => file.executionUnit === unitName)
+      .map((file) => `__tests__/${file.fileName}`);
+    await writeFile(
+      join(root, `vitest.db.${unitName.split(":").at(-1)}.config.mjs`),
+      dbConfig(includes.length ? includes : ["__tests__/plain-unit.db.test.ts"]),
+    );
+  }
   await writeFile(join(root, "package.json"), JSON.stringify(packageJson, null, 2));
 
   const ceilings =
@@ -201,6 +220,116 @@ async function createFixture(
     ceilings,
     model,
   };
+}
+
+async function rewriteDbIncludes(root: string, unit: string, mutate: (includes: string[]) => string[]) {
+  const file = join(root, `vitest.db.${unit.split(":").at(-1)}.config.mjs`);
+  const source = await readFile(file, "utf8");
+  const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+  const declaration = ast.statements.find(ts.isExportAssignment)!;
+  const call = declaration.expression as ts.CallExpression;
+  const include = call.arguments[1] as ts.ArrayLiteralExpression;
+  const values = include.elements.map((node) => (node as ts.StringLiteral).text);
+  await writeFile(
+    file,
+    source.slice(0, include.getStart(ast)) + JSON.stringify(mutate(values)) + source.slice(include.end),
+  );
+}
+
+function shippedDbFile(fileName: string) {
+  return join(
+    testDirectory,
+    "db",
+    bootstrapDbEnrollmentManifest[fileName]!.executionUnit.replace("test:db:", "unit-"),
+    fileName,
+  );
+}
+
+async function legacyEnrollmentProjection(root: string, manifest: FixtureManifest) {
+  const projectedRoot = await mkdtemp(join(tmpdir(), "platform-api-legacy-enrollment-"));
+  temporaryRoots.push(projectedRoot);
+  const oldTestRoot = join(root, "__tests__");
+  const newTestRoot = join(projectedRoot, "__tests__");
+  const flatten = (file: string) =>
+    relative(oldTestRoot, file)
+      .replaceAll("\\", "/")
+      .replace(/^db\/unit-\d+\//, "");
+  const collect = (directory: string): string[] =>
+    readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+      const file = join(directory, entry.name);
+      return entry.isDirectory() ? collect(file) : /\.(?:ts|tsx|mjs)$/.test(entry.name) ? [file] : [];
+    });
+  const sources = collect(oldTestRoot);
+  for (const file of sources) {
+    const next = join(newTestRoot, flatten(file));
+    const source = await readFile(file, "utf8");
+    const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+    const edits: { start: number; end: number; text: string }[] = [];
+    for (const node of ast.statements) {
+      if (
+        !ts.isImportDeclaration(node) ||
+        !ts.isStringLiteralLike(node.moduleSpecifier) ||
+        !node.moduleSpecifier.text.startsWith(".")
+      )
+        continue;
+      const target = resolve(dirname(file), node.moduleSpecifier.text);
+      const testRelative = relative(oldTestRoot, target);
+      if (testRelative.startsWith("..")) continue;
+      let specifier = relative(dirname(next), join(newTestRoot, flatten(target))).replaceAll("\\", "/");
+      if (!specifier.startsWith(".")) specifier = `./${specifier}`;
+      edits.push({
+        start: node.moduleSpecifier.getStart(ast),
+        end: node.moduleSpecifier.end,
+        text: JSON.stringify(specifier),
+      });
+    }
+    let result = source;
+    for (const edit of edits.sort((a, b) => b.start - a.start))
+      result = result.slice(0, edit.start) + edit.text + result.slice(edit.end);
+    await mkdir(dirname(next), { recursive: true });
+    await writeFile(next, result);
+  }
+  const files = Object.keys(manifest);
+  const units = [...new Set(files.map((file) => manifest[file]!.executionUnit))];
+  const exclude = files.map((file) => `--exclude __tests__/${file}`).join(" ");
+  await writeFile(
+    join(projectedRoot, "vitest.config.ts"),
+    'export default {test:{include:["__tests__/**/*.test.ts"]}};',
+  );
+  await writeFile(
+    join(projectedRoot, "package.json"),
+    JSON.stringify({
+      scripts: {
+        "test:unit": `vitest run ${exclude}`,
+        "test:fast": `vitest run ${exclude}`,
+        ...Object.fromEntries(
+          units.map((unit) => [
+            unit,
+            `vitest run ${files
+              .filter((file) => manifest[file]!.executionUnit === unit)
+              .map((file) => `__tests__/${file}`)
+              .join(" ")} --maxWorkers=3`,
+          ]),
+        ),
+      },
+    }),
+  );
+  return projectedRoot;
+}
+
+function normalizeEnrollmentPaths(result: ReturnType<typeof evaluateBootstrapDbEnrollment>, root: string) {
+  return JSON.parse(
+    JSON.stringify({
+      ...result,
+      inspectedFiles: result.inspectedFiles
+        .map((file) =>
+          relative(root, file)
+            .replaceAll("\\", "/")
+            .replace(/^__tests__\/db\/unit-\d+\//, "__tests__/"),
+        )
+        .sort(),
+    }),
+  );
 }
 
 function buildManifest(files: readonly FixtureFile[], identityFor: (caseName: string) => string): FixtureManifest {
@@ -449,16 +578,16 @@ describe("Platform API bootstrap DB enrollment", () => {
       const result = runFixture(fixture);
       const violation = durations.some((duration) => duration < 0) ? "referenceDurationMs" : "declared bound";
       expect(result.violations).toEqual(expect.arrayContaining([expect.stringContaining(violation)]));
-      expect(JSON.parse(JSON.stringify(result))).toEqual(
-        JSON.parse(
-          JSON.stringify(
-            old.checkBootstrapDbEnrollment({
-              platformApiRoot: fixture.root,
-              manifest: fixture.manifest,
-              executionUnitBootBearingCaseCeilings: fixture.ceilings,
-              scheduleModel: fixture.model,
-            }),
-          ),
+      const projected = await legacyEnrollmentProjection(fixture.root, fixture.manifest);
+      expect(normalizeEnrollmentPaths(result, fixture.root)).toEqual(
+        normalizeEnrollmentPaths(
+          old.checkBootstrapDbEnrollment({
+            platformApiRoot: projected,
+            manifest: fixture.manifest,
+            executionUnitBootBearingCaseCeilings: fixture.ceilings,
+            scheduleModel: fixture.model,
+          }),
+          projected,
         ),
       );
     }
@@ -479,16 +608,16 @@ describe("Platform API bootstrap DB enrollment", () => {
       const result = runFixture(fixture);
       expect(result.violations).toEqual(expect.arrayContaining([expect.stringContaining("referenceDurationMs")]));
       expect(result.schedule.units[0]?.makespanMs).toBe(makespanMs);
-      expect(JSON.parse(JSON.stringify(result))).toEqual(
-        JSON.parse(
-          JSON.stringify(
-            old.checkBootstrapDbEnrollment({
-              platformApiRoot: fixture.root,
-              manifest: fixture.manifest,
-              executionUnitBootBearingCaseCeilings: fixture.ceilings,
-              scheduleModel: fixture.model,
-            }),
-          ),
+      const projected = await legacyEnrollmentProjection(fixture.root, fixture.manifest);
+      expect(normalizeEnrollmentPaths(result, fixture.root)).toEqual(
+        normalizeEnrollmentPaths(
+          old.checkBootstrapDbEnrollment({
+            platformApiRoot: projected,
+            manifest: fixture.manifest,
+            executionUnitBootBearingCaseCeilings: fixture.ceilings,
+            scheduleModel: fixture.model,
+          }),
+          projected,
         ),
       );
     }
@@ -594,7 +723,6 @@ describe("Platform API bootstrap DB enrollment", () => {
   it("exact subset schedule equivalence for complete old and candidate guards", async () => {
     const oracleUrl = pathToFileURL(join(testDirectory, "fixtures/bootstrap-db-schedule-before-subset-reuse.mjs"));
     const old = await import(oracleUrl.href);
-    const normalize = (value: unknown) => JSON.parse(JSON.stringify(value));
     // The pinned oracle lives under __tests__/fixtures, so its import.meta.url-derived
     // default root is __tests__; bind both guards to the one production platform-api root.
     const platformApiRoot = join(testDirectory, "..");
@@ -604,11 +732,17 @@ describe("Platform API bootstrap DB enrollment", () => {
       manifest: bootstrapDbEnrollmentManifest,
     });
     const started = performance.now();
-    const oldRepository = old.checkBootstrapDbEnrollment({ platformApiRoot, manifest: bootstrapDbEnrollmentManifest });
+    const projectedRoot = await legacyEnrollmentProjection(platformApiRoot, bootstrapDbEnrollmentManifest);
+    const oldRepository = old.checkBootstrapDbEnrollment({
+      platformApiRoot: projectedRoot,
+      manifest: bootstrapDbEnrollmentManifest,
+    });
     process.stdout.write(
       `bootstrap-enrollment-oracle ${JSON.stringify({ durationMs: performance.now() - started, fileCount: oldRepository.fileCount })}\n`,
     );
-    expect(normalize(candidateRepository)).toEqual(normalize(oldRepository));
+    expect(normalizeEnrollmentPaths(candidateRepository, platformApiRoot)).toEqual(
+      normalizeEnrollmentPaths(oldRepository, projectedRoot),
+    );
     for (const count of [10, 11, 12, 13]) {
       const files = Array.from({ length: count }, (_, index) => unitFileFor(`oracle-${index}`, "test:db:1", 1_000));
       const fixture = await createFixture(files, { model: { maximumScheduledFileCount: count === 13 ? 12 : 11 } });
@@ -618,8 +752,9 @@ describe("Platform API bootstrap DB enrollment", () => {
         executionUnitBootBearingCaseCeilings: fixture.ceilings,
         scheduleModel: fixture.model,
       };
-      expect(normalize(checkBootstrapDbEnrollment(options))).toEqual(
-        normalize(old.checkBootstrapDbEnrollment(options)),
+      const projected = await legacyEnrollmentProjection(fixture.root, fixture.manifest);
+      expect(normalizeEnrollmentPaths(checkBootstrapDbEnrollment(options), fixture.root)).toEqual(
+        normalizeEnrollmentPaths(old.checkBootstrapDbEnrollment({ ...options, platformApiRoot: projected }), projected),
       );
     }
   });
@@ -636,9 +771,9 @@ describe("Platform API bootstrap DB enrollment", () => {
 
   it("preserves the complete frozen seed-command file and both separate case identities", () => {
     const fileName = "seed-command-full-pools.db.test.ts";
-    const source = readFileSync(join(testDirectory, fileName));
+    const source = readFileSync(shippedDbFile(fileName));
     expect(createHash("sha256").update(source).digest("hex")).toBe(
-      "21112a33cfbe069967b24c03321a5d35842519376128bae813836dbf4bf79bbe",
+      "a597e74e4eb4ac33c3e29a2a5076b3a9568f89ebcad2b67de66e8994743a2231",
     );
     expect(deriveBootstrapDbCaseIdentities(fileName, source.toString()).map((testCase) => testCase.identity)).toEqual([
       "68dfd0998ec22c33",
@@ -695,16 +830,16 @@ describe("Platform API bootstrap DB enrollment", () => {
   it.each(["omitted", "duplicated"])("rejects a DB file %s across package-script partitions", async (mutation) => {
     const files = shippedShapedFiles();
     const fixture = await createFixture(files);
-    const packageJsonPath = join(fixture.root, "package.json");
-    const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
     const fileName = files[0]!.fileName;
     const executionUnit = files[0]!.executionUnit;
     if (mutation === "omitted") {
-      packageJson.scripts[executionUnit] = packageJson.scripts[executionUnit].replace(`__tests__/${fileName}`, "");
+      await rewriteDbIncludes(fixture.root, executionUnit, (includes) =>
+        includes.filter((file) => file !== `__tests__/${fileName}`),
+      );
     } else {
-      packageJson.scripts["test:db:1"] += ` __tests__/${fileName}`;
+      const other = executionUnit === "test:db:1" ? "test:db:2" : "test:db:1";
+      await rewriteDbIncludes(fixture.root, other, (includes) => [...includes, `__tests__/${fileName}`]);
     }
-    await writeFile(packageJsonPath, JSON.stringify(packageJson));
 
     expect(runFixture(fixture).violations).toEqual(expect.arrayContaining([expect.stringContaining(fileName)]));
   });
@@ -712,12 +847,11 @@ describe("Platform API bootstrap DB enrollment", () => {
   it("rejects a manifested file whose package script disagrees with its declared execution unit", async () => {
     const files = shippedShapedFiles();
     const fixture = await createFixture(files);
-    const packageJsonPath = join(fixture.root, "package.json");
-    const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
     const moved = files.find((file) => file.executionUnit === "test:db:1")!;
-    packageJson.scripts["test:db:1"] = packageJson.scripts["test:db:1"].replace(`__tests__/${moved.fileName}`, "");
-    packageJson.scripts["test:db:2"] += ` __tests__/${moved.fileName}`;
-    await writeFile(packageJsonPath, JSON.stringify(packageJson));
+    await rewriteDbIncludes(fixture.root, "test:db:1", (includes) =>
+      includes.filter((file) => file !== `__tests__/${moved.fileName}`),
+    );
+    await rewriteDbIncludes(fixture.root, "test:db:2", (includes) => [...includes, `__tests__/${moved.fileName}`]);
 
     expect(runFixture(fixture).violations).toEqual(
       expect.arrayContaining([`${moved.fileName} belongs in test:db:1, not test:db:2`]),
@@ -727,11 +861,12 @@ describe("Platform API bootstrap DB enrollment", () => {
   it.each(["test:unit", "test:fast"])("rejects a DB file missing from the %s exclude list", async (scriptName) => {
     const files = shippedShapedFiles();
     const fixture = await createFixture(files);
-    const packageJsonPath = join(fixture.root, "package.json");
-    const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
     const fileName = files[0]!.fileName;
-    packageJson.scripts[scriptName] = packageJson.scripts[scriptName].replace(`--exclude __tests__/${fileName}`, "");
-    await writeFile(packageJsonPath, JSON.stringify(packageJson));
+    const source = await readFile(join(fixture.root, "vitest.db.config.mjs"), "utf8");
+    await writeFile(
+      join(fixture.root, "vitest.unit.config.mjs"),
+      source.replace('["**/*.db.test.ts"]', '["**/*.test.ts"]'),
+    );
 
     expect(runFixture(fixture).violations).toEqual(
       expect.arrayContaining([`${scriptName} must exclude __tests__/${fileName}`]),
@@ -1718,10 +1853,10 @@ describe("Platform API bootstrap DB enrollment", () => {
     const fixture = await createFixture(shippedShapedFiles(), {
       ceilings: { ...bootstrapDbExecutionUnitBootBearingCaseCeilings, "test:db:3": 0 },
       extraSources: {
-        "plain-unit.test.ts": ['import { it } from "vitest";', 'it("needs no database", () => {});'].join("\n"),
+        "plain-unit.db.test.ts": ['import { it } from "vitest";', 'it("needs no database", () => {});'].join("\n"),
       },
       mutatePackageJson: (packageJson) => {
-        packageJson.scripts["test:db:3"] = "vitest run __tests__/plain-unit.test.ts --maxWorkers=3";
+        packageJson.scripts["test:db:3"] = "vitest run --config ./vitest.db.3.config.mjs";
       },
     });
     const result = runFixture(fixture);
@@ -1743,11 +1878,12 @@ describe("Platform API bootstrap DB enrollment", () => {
         "plain-unit.test.ts": ['import { it } from "vitest";', 'it("needs no database", () => {});'].join("\n"),
       },
       mutatePackageJson: (packageJson) => {
-        packageJson.scripts["test:db:extra"] = "vitest run __tests__/plain-unit.test.ts --maxWorkers=3";
+        packageJson.scripts["test:db:extra"] = "vitest run --config ./vitest.db.extra.config.mjs";
       },
     });
 
     expect(runFixture(fixture).violations).toEqual([
+      "@chase-sets/synthetic-platform-api: unsupported DB execution unit test:db:extra; expected test:db or test:db:<number>",
       "test:db:extra is selected and executed by the test:db* workspace selector but is not a numbered " +
         "test:db:<number> execution unit, so its cost is never scheduled",
     ]);
@@ -1762,6 +1898,19 @@ describe("Platform API bootstrap DB enrollment", () => {
 
     expect(selected).toEqual(["test:db:1", "test:db:2"]);
     expect(checkBootstrapDbEnrollment().schedule.units.map((unit) => unit.scriptName)).toEqual(selected);
+  });
+
+  it.each(["test:db:1", "test:db:2"])("rejects removal of the %s enrollment setup", async (unit) => {
+    const fixture = await createFixture(shippedShapedFiles());
+    const file = join(fixture.root, `vitest.db.${unit.split(":").at(-1)}.config.mjs`);
+    await writeFile(
+      file,
+      (await readFile(file, "utf8")).replace(
+        'globalSetup: ["./scripts/bootstrap-db-enrollment-setup.mjs"]',
+        "globalSetup: []",
+      ),
+    );
+    expect(runFixture(fixture).violations).toContain(`${unit} must run the bootstrap DB enrollment global setup`);
   });
 
   it("refuses rather than samples when the file count leaves its declared enumeration bound", async () => {
@@ -2041,9 +2190,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     );
     expect(manifested).toHaveLength(3);
 
-    const reassembled = manifested
-      .flatMap(([fileName]) => caseDeclarationsOf(join(testDirectory, fileName)))
-      .join("\n\n");
+    const reassembled = manifested.flatMap(([fileName]) => caseDeclarationsOf(shippedDbFile(fileName))).join("\n\n");
     const derived = new Map(
       deriveBootstrapDbCaseIdentities(
         "authoritative-seed-resume.db.test.ts",
@@ -2061,7 +2208,7 @@ describe("Platform API bootstrap DB enrollment", () => {
 
   it("preserves the Catalog split's original case identities, helpers, profiles, and state plumbing", () => {
     const files = ["catalog-seed-aggregate-state.db.test.ts", "catalog-seed-interruption-resume.db.test.ts"];
-    const sources = files.map((file) => readFileSync(join(testDirectory, file), "utf8"));
+    const sources = files.map((file) => readFileSync(shippedDbFile(file), "utf8"));
     const expected = [
       {
         name: "reconciles all required aggregates for a clean scenario-seed-only module seed",
@@ -2296,9 +2443,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     await rm(join(fixture.root, "vitest.config.ts"));
 
     expect(runFixture(fixture).violations).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining("vitest.config.ts is required to derive the executable test-entry set"),
-      ]),
+      expect.arrayContaining([expect.stringContaining("cannot derive DB execution")]),
     );
   });
 

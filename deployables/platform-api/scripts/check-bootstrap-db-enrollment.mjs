@@ -4,6 +4,10 @@ import { dirname, extname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import ts from "@chase-sets/typescript-compiler-api";
+import {
+  discoverConfigTests,
+  validateDbProfileScripts,
+} from "../../../scripts/check-structure/db-profile-script-canonical-form.mjs";
 
 /**
  * The single authority for which case runs in which file, which file runs in
@@ -701,77 +705,6 @@ function resolveLocalTestImport(importerPath, specifier, testDirectory) {
     (candidate) =>
       existsSync(candidate) && !testRelative(candidate).startsWith("..") && !isAbsolute(testRelative(candidate)),
   );
-}
-
-function referencedDbTestFileNames(command) {
-  return [...command.matchAll(/__tests__[\\/]+([a-z0-9-]+\.db\.test\.ts)/gi)].map((match) => match[1]);
-}
-
-function referencedDbTestFileOrder(command) {
-  return referencedDbTestFileNames(command);
-}
-
-// ---------------------------------------------------------------------------
-// Executable discovery: which files the workspace's own vitest configuration
-// treats as test entries, and which of those stand up a bootstrap database.
-// ---------------------------------------------------------------------------
-
-function globToRegExp(glob) {
-  let pattern = "";
-  for (let index = 0; index < glob.length; index += 1) {
-    const character = glob[index];
-    if (character === "*") {
-      if (glob[index + 1] === "*") {
-        const skipsSeparator = glob[index + 2] === "/";
-        pattern += skipsSeparator ? "(?:.*/)?" : ".*";
-        index += skipsSeparator ? 2 : 1;
-        continue;
-      }
-      pattern += "[^/]*";
-      continue;
-    }
-    if (character === "?") {
-      pattern += "[^/]";
-      continue;
-    }
-    pattern += character.replace(/[.+^${}()|[\]\\]/g, "\\$&");
-  }
-  return new RegExp(`^${pattern}$`);
-}
-
-/**
- * Reads the workspace's vitest `include` globs out of its own configuration so
- * the guard's notion of "a file the runner will execute" is the runner's, not a
- * filename convention restated here. A missing or unreadable `include` is a
- * fail-closed condition rather than a fallback to a hard-coded pattern.
- */
-function readVitestIncludeGlobs(root) {
-  const configPath = resolve(root, "vitest.config.ts");
-  if (!existsSync(configPath)) {
-    return { globs: [], violation: `${configPath} is required to derive the executable test-entry set` };
-  }
-
-  const sourceFile = sourceFileFor(configPath, readFileSync(configPath, "utf8"));
-  const globs = [];
-  function visit(node) {
-    if (
-      ts.isPropertyAssignment(node) &&
-      (ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name)) &&
-      node.name.text === "include" &&
-      ts.isArrayLiteralExpression(node.initializer)
-    ) {
-      for (const element of node.initializer.elements) {
-        if (ts.isStringLiteralLike(element)) globs.push(element.text);
-      }
-    }
-    ts.forEachChild(node, visit);
-  }
-  visit(sourceFile);
-
-  if (globs.length === 0) {
-    return { globs: [], violation: `${configPath} declares no vitest include globs to derive test entries from` };
-  }
-  return { globs, violation: null };
 }
 
 function collectSourceFilesUnder(directory) {
@@ -1512,6 +1445,23 @@ export function checkBootstrapDbEnrollment({
   const partitionFileNames = Object.keys(manifest);
   const partitionMemberships = new Map(partitionFileNames.map((fileName) => [fileName, []]));
   const partitionScripts = selectedDbPartitionScripts(packageScripts);
+  let inventory = null;
+  try {
+    const packageJson = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+    const canonical = validateDbProfileScripts({ name: packageJson.name ?? "platform-api", dir: root, packageJson });
+    violations.push(...canonical.violations);
+    inventory = canonical.inventory;
+    for (const unit of inventory?.units ?? []) {
+      if (unit.config.maxWorkers !== bootstrapDbScheduleModel.maxWorkersPerExecutionUnit) {
+        violations.push(`${unit.name} must preserve maxWorkers=${bootstrapDbScheduleModel.maxWorkersPerExecutionUnit}`);
+      }
+      if (!unit.config.globalSetup?.includes("./scripts/bootstrap-db-enrollment-setup.mjs")) {
+        violations.push(`${unit.name} must run the bootstrap DB enrollment global setup`);
+      }
+    }
+  } catch (error) {
+    violations.push(`DB config/disk discovery failed: ${error.message}`);
+  }
   if (partitionScripts.length === 0) {
     violations.push("package.json must publish at least one numbered test:db:* partition script");
   }
@@ -1523,11 +1473,15 @@ export function checkBootstrapDbEnrollment({
       );
     }
   }
-  for (const [scriptName, command] of partitionScripts) {
-    for (const fileName of referencedDbTestFileOrder(command)) {
+  for (const { name: scriptName, files } of inventory?.units ?? []) {
+    for (const relativePath of files) {
+      const fileName = relativePath.split("/").at(-1);
       const memberships = partitionMemberships.get(fileName);
       if (!memberships) {
-        violations.push(`${scriptName} references unmanifested bootstrap DB file '${fileName}'`);
+        const filePath = resolve(root, relativePath);
+        if (importsBootstrapHarness(filePath, readFileSync(filePath, "utf8"), testDirectory, new Map())) {
+          violations.push(`${scriptName} references unmanifested bootstrap DB file '${fileName}'`);
+        }
         continue;
       }
       memberships.push(scriptName);
@@ -1588,11 +1542,9 @@ export function checkBootstrapDbEnrollment({
       violations.push(`package.json must publish ${scriptName}`);
       continue;
     }
-    const excludedFiles = new Set(
-      [...command.matchAll(/--exclude(?:=|\s+)__tests__[\\/]+([a-z0-9-]+\.db\.test\.ts)/gi)].map((match) => match[1]),
-    );
+    const selectedFiles = new Set((inventory?.unit.files ?? []).map((file) => file.split("/").at(-1)));
     for (const fileName of partitionFileNames) {
-      if (!excludedFiles.has(fileName)) {
+      if (selectedFiles.has(fileName)) {
         violations.push(`${scriptName} must exclude __tests__/${fileName}`);
       }
     }
@@ -1603,12 +1555,16 @@ export function checkBootstrapDbEnrollment({
     violations.push(`${legacyPath} legacy monolithic bootstrap DB file must be removed`);
   }
 
+  const sourceFiles = collectSourceFilesUnder(testDirectory);
   for (const fileName of partitionFileNames) {
-    const filePath = resolve(testDirectory, fileName);
-    if (!existsSync(filePath)) {
-      violations.push(`${filePath} required bootstrap DB partition is missing`);
+    const candidates = sourceFiles.filter((file) => file.split(/[\\/]/).at(-1) === fileName);
+    if (candidates.length !== 1) {
+      violations.push(
+        `${fileName} required bootstrap DB partition must exist exactly once; found ${candidates.length}`,
+      );
       continue;
     }
+    const [filePath] = candidates;
     filesToInspect.push({ filePath, expectedPartition: manifest[fileName] });
   }
 
@@ -1643,26 +1599,25 @@ export function checkBootstrapDbEnrollment({
   // through its import graph, has to be manifested and scheduled. A new DB test
   // that merely imports the harness is therefore undiscovered until it is
   // actually enrolled, rather than silently running outside every unit.
-  const { globs: includeGlobs, violation: includeViolation } = readVitestIncludeGlobs(root);
-  if (includeViolation) {
-    violations.push(includeViolation);
-  } else {
-    const includePatterns = includeGlobs.map((glob) => globToRegExp(glob));
+  try {
+    if (!inventory) throw new Error("DB inventory is unavailable");
+    const executableFiles = discoverConfigTests(root, inventory.aggregate.config.baseConfigPath, inventory.files).files;
     const harnessImportCache = new Map();
-    for (const filePath of collectSourceFilesUnder(testDirectory)) {
-      const relativePath = relative(root, filePath).replaceAll("\\", "/");
-      if (!includePatterns.some((pattern) => pattern.test(relativePath))) continue;
+    for (const relativePath of executableFiles) {
+      const filePath = resolve(root, relativePath);
       if (!importsBootstrapHarness(filePath, readFileSync(filePath, "utf8"), testDirectory, harnessImportCache)) {
         continue;
       }
       const fileName = filePath.split(/[\\/]/).at(-1);
-      if (!partitionMemberships.has(fileName)) {
+      if (!partitionMemberships.has(fileName) || partitionMemberships.get(fileName).length !== 1) {
         violations.push(
           `${relativePath} is an executable test entry that stands up a bootstrap database but is not manifested ` +
             "in any numbered test:db:* execution unit",
         );
       }
     }
+  } catch (error) {
+    violations.push(`cannot derive the executable test-entry set: ${error.message}`);
   }
 
   const expectedCases = new Map();

@@ -11,9 +11,9 @@
   },
   "types": "./index.ts",
   "scripts": {
-    "test": "vitest run --config ./vitest.config.ts",
-    "test:unit": "vitest run --config ./vitest.config.ts --exclude projection-operations.db.test.ts --exclude cascade-resume.db.test.ts --exclude inline-apply.db.test.ts --exclude test-support.db.test.ts",
-    "test:db": "vitest run --config ./vitest.config.ts projection-operations.db.test.ts cascade-resume.db.test.ts inline-apply.db.test.ts test-support.db.test.ts",
+    "test": "vitest run --config ./vitest.unit.config.mjs",
+    "test:unit": "vitest run --config ./vitest.unit.config.mjs",
+    "test:db": "vitest run --config ./vitest.db.config.mjs",
     "test:watch": "vitest --config ./vitest.config.ts"
   },
   "dependencies": {

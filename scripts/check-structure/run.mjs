@@ -38,6 +38,7 @@ import { validateProviderScopePickerShapeGuard } from "./provider-scope-picker-s
 import { validateJsonImportAttributes } from "./json-import-attributes.mjs";
 import { validateChannelConnectionContractProvenance } from "./channel-connection-contract-provenance.mjs";
 import { runSqlExecutionSurfaceGuard } from "./sql-execution-surface.mjs";
+import { validateDbProfiles } from "./db-profile-script-canonical-form.mjs";
 import { listWorkspacePackages, repoRoot, workspaceRoots } from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
 
@@ -3659,6 +3660,9 @@ export async function runStructureCheck(options = {}) {
   for (const violation of designSystemDeadExportResult.violations) {
     violations.push(violation);
   }
+
+  const dbProfiles = validateDbProfiles({ repoRoot });
+  violations.push(...dbProfiles.violations);
 
   writeStructureMetricsReport({
     repoRoot,
