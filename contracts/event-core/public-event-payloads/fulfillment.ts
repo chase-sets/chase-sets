@@ -144,8 +144,8 @@ export type {
   FulfillmentShipmentGroupAdmissionRejectedPayload,
   FulfillmentShipmentGroupAdmissionCommittedPayload,
   FulfillmentShipmentGroupAdmissionReleasedPayload,
-} from "../../order-groups";
-import type { OrderGroupEventPayloads } from "../../order-groups";
+} from "../../order-groups/index";
+import type { OrderGroupEventPayloads } from "../../order-groups/index";
 
 export type FulfillmentEventPayloads = Readonly<{
   "fulfillment.shipment-group.admission-reserved": OrderGroupEventPayloads["fulfillment.shipment-group.admission-reserved"];

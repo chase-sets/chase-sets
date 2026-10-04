@@ -6,7 +6,7 @@ import {
   orderGroupPayloadValidators,
   type OrderGroupEventPayloads,
   type OrderGroupFactType,
-} from "../order-groups";
+} from "../order-groups/index";
 import {
   accountEnforcementReasonCodes,
   accountEnforcementReversalReasonCodes,

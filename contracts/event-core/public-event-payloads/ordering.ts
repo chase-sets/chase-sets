@@ -76,8 +76,8 @@ export type {
   OrderingOrderGroupFormedPayload,
   OrderingOrderGroupMemberRemovedPayload,
   OrderingOrderGroupDissolvedPayload,
-} from "../../order-groups";
-import type { OrderGroupEventPayloads } from "../../order-groups";
+} from "../../order-groups/index";
+import type { OrderGroupEventPayloads } from "../../order-groups/index";
 
 export type OrderingEventPayloads = Readonly<{
   "ordering.order.created": OrderingOrderCreatedPayload;
