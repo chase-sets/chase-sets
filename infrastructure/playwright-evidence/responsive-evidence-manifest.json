@@ -2844,6 +2844,921 @@
         }
       ],
       "artifact": "card-feedback-desktop-dark"
+    },
+    {
+      "kind": "claim",
+      "id": "facet-list-desktop",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "captures one expanded populated desktop facet list @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-desktop"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "search-facets-desktop",
+        "selector": "[data-facet-list-presentation='desktop']",
+        "populatedSelector": ":scope [id='search-facets-desktop-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--sidebar-content-inset",
+          "assertion": {
+            "equals": 12
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "facet-list-mobile-360",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "captures one expanded populated mobile facet list at 360 @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-mobile-360"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "search-facets-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": ":scope [id='search-facets-mobile-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-mobile-360"
+    },
+    {
+      "kind": "claim",
+      "id": "facet-list-mobile-390",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "captures one expanded populated mobile facet list at 390 @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-mobile-390"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "search-facets-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": ":scope [id='search-facets-mobile-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-mobile-390"
+    },
+    {
+      "kind": "claim",
+      "id": "facet-list-tablet",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "captures one expanded populated tablet facet list @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-tablet"
+      },
+      "viewport": {
+        "width": 820,
+        "height": 900
+      },
+      "target": {
+        "identity": "search-facets-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": ":scope [id='search-facets-mobile-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-tablet"
+    },
+    {
+      "kind": "negative-control",
+      "id": "facet-list-hidden",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "rejects the hidden desktop sibling before facet capture @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-hidden"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "search-facets-desktop",
+        "selector": "[data-facet-list-presentation='desktop']",
+        "populatedSelector": ":scope [id='search-facets-desktop-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--sidebar-content-inset",
+          "assertion": {
+            "equals": 12
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-hidden"
+    },
+    {
+      "kind": "negative-control",
+      "id": "facet-list-empty",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "rejects empty facet options before capture @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-empty"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "search-facets-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": ":scope [id='search-facets-mobile-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-empty"
+    },
+    {
+      "kind": "negative-control",
+      "id": "facet-list-per-root",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "rejects per-section facet roots before capture @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-per-root"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "search-facets-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": ":scope [id='search-facets-mobile-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-per-root"
+    },
+    {
+      "kind": "negative-control",
+      "id": "facet-list-clipped",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "rejects clipped facet edges before capture @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-clipped"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "search-facets-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": ":scope [id='search-facets-mobile-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-clipped"
+    },
+    {
+      "kind": "negative-control",
+      "id": "facet-list-duplicate-id",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "rejects duplicate facet ids before capture @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-duplicate-id"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "search-facets-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": ":scope [id='search-facets-mobile-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-duplicate-id"
+    },
+    {
+      "kind": "negative-control",
+      "id": "facet-list-clipped-panel",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "rejects clipped content behind an expanded facet header before capture @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-clipped-panel"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "search-facets-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": ":scope [id='search-facets-mobile-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-clipped-panel"
+    },
+    {
+      "kind": "negative-control",
+      "id": "facet-list-frozen-inset",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "rejects frozen responsive facet insets before capture @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-frozen-inset"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "search-facets-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": ":scope [id='search-facets-mobile-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-frozen-inset"
+    },
+    {
+      "kind": "negative-control",
+      "id": "facet-list-anchoring",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "rejects browser-anchored facets before capture @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-anchoring"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "search-facets-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": ":scope [id='search-facets-mobile-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-anchoring"
+    },
+    {
+      "kind": "negative-control",
+      "id": "facet-list-shared-state",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "rejects shared facet state before capture @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-shared-state"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "search-facets-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": ":scope [id='search-facets-mobile-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-shared-state"
+    },
+    {
+      "kind": "negative-control",
+      "id": "facet-list-wrong-presentation",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "rejects the wrong visible facet presentation before capture @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-wrong-presentation"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "search-facets-desktop",
+        "selector": "[data-facet-list-presentation='desktop']",
+        "populatedSelector": ":scope [id='search-facets-desktop-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--sidebar-content-inset",
+          "assertion": {
+            "equals": 12
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-wrong-presentation"
+    },
+    {
+      "kind": "negative-control",
+      "id": "facet-list-overbleed",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "rejects over-bleeding facet edges before capture @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-overbleed"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "search-facets-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": ":scope [id='search-facets-mobile-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-overbleed"
     }
   ]
 }
