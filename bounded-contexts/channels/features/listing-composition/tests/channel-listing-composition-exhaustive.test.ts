@@ -51,6 +51,43 @@ void blockedWithDraft;
 void delistWithDraft;
 
 describe("channel-listing-composition-input-parse", () => {
+  it.each([0, 1_001, 1.5, -1, "2", undefined])(
+    "rejects every programming error before the composer can run: publish quantity cap %s",
+    (publishQuantityCap) => {
+      const candidate = mutateInput((input) => {
+        if (input.settings.kind !== "configured") throw new Error("expected configured settings");
+        Object.assign(input.settings.settings, { publishQuantityCap });
+      });
+      expect(parseChannelListingCompositionInput(candidate)).toEqual({
+        kind: "invalid",
+        programmingError: "bound-violation",
+      });
+    },
+  );
+
+  it("rejects every programming error before the composer can run: unknown settings sibling", () => {
+    const candidate = mutateInput((input) => {
+      if (input.settings.kind !== "configured") throw new Error("expected configured settings");
+      Object.assign(input.settings.settings, { unknown: true });
+    });
+    expect(parseChannelListingCompositionInput(candidate)).toEqual({
+      kind: "invalid",
+      programmingError: "unknown-key",
+    });
+  });
+
+  it.each([null, 1, 2, 1_000])(
+    "accepts publish quantity cap %s without inventing a sold-out reason",
+    (publishQuantityCap) => {
+      const candidate = mutateInput((input) => {
+        if (input.settings.kind !== "configured") throw new Error("expected configured settings");
+        input.settings.settings.publishQuantityCap = publishQuantityCap;
+      });
+      expect(parseChannelListingCompositionInput(candidate).kind).toBe("valid");
+      expect(composeChannelListingPublication(candidate)).toMatchObject({ kind: "publishable", intent: "publish" });
+    },
+  );
+
   it("rejects every programming error before the composer can run", () => {
     const candidates: readonly unknown[] = [
       mutateInput((input) => {

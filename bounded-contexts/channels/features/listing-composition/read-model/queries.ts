@@ -151,8 +151,9 @@ export async function resolveChannelPublishableQuantity(
     held_quantity: string | number;
     allocation_mode: "shared-pool" | "partitioned" | null;
     allocation_partitions: unknown;
+    publish_quantity_cap: number | null;
   }>(
-    `SELECT listing.quantity_cap, item.total_quantity,
+    `SELECT listing.quantity_cap, item.total_quantity, settings.publish_quantity_cap,
             allocation.mode AS allocation_mode, allocation.partitions AS allocation_partitions,
             COALESCE(SUM(hold.quantity) FILTER (WHERE hold.status='active'),0) AS held_quantity
      FROM channels_listing_publication_facts AS listing
@@ -160,9 +161,10 @@ export async function resolveChannelPublishableQuantity(
      LEFT JOIN channels_inventory_hold_facts AS hold ON hold.item_id=item.item_id
      LEFT JOIN channels_inventory_allocation_facts AS allocation
        ON allocation.item_id=listing.inventory_item_id AND allocation.account_id=listing.account_id
+     LEFT JOIN channels_connection_publication_settings AS settings ON settings.connection_id=$2
      WHERE listing.listing_id=$1
-     GROUP BY listing.quantity_cap,item.total_quantity,allocation.mode,allocation.partitions`,
-    [input.listingId],
+     GROUP BY listing.quantity_cap,item.total_quantity,allocation.mode,allocation.partitions,settings.publish_quantity_cap`,
+    [input.listingId, input.connectionId ?? null],
   );
   const row = result.rows[0];
   if (!row) return { kind: "listing-facts-unavailable" };
@@ -177,6 +179,7 @@ export async function resolveChannelPublishableQuantity(
     publishableQuantity: deriveChannelPublishQuantity({
       available,
       listingQuantityCap: row.quantity_cap,
+      connectionPublishQuantityCap: row.publish_quantity_cap ?? null,
       channelConnectionId: input.connectionId ?? "",
       allocation,
       buffer: input.buffer ?? CHANNEL_STOCK_ALLOCATION_BUFFER_POLICY_FALLBACK,
@@ -461,8 +464,9 @@ async function readSettings(db: PgQueryable, connectionId: string): Promise<Chan
     description_footer: string;
     category_allowlist: unknown;
     excluded_listing_ids: unknown;
+    publish_quantity_cap: number | null;
   }>(
-    `SELECT title_prefix,title_suffix,description_footer,category_allowlist,excluded_listing_ids
+    `SELECT title_prefix,title_suffix,description_footer,category_allowlist,excluded_listing_ids,publish_quantity_cap
       FROM channels_connection_publication_settings WHERE connection_id=$1`,
     [connectionId],
   );
@@ -474,6 +478,7 @@ async function readSettings(db: PgQueryable, connectionId: string): Promise<Chan
         descriptionFooter: row.description_footer,
         categoryAllowlist: strings(row.category_allowlist),
         excludedListingIds: strings(row.excluded_listing_ids),
+        publishQuantityCap: row.publish_quantity_cap,
       }
     : null;
 }
