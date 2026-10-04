@@ -32,7 +32,10 @@ afterEach(() => vi.restoreAllMocks());
 
 type QueryCall = Readonly<{ sql: string; values: readonly unknown[] }>;
 
-function memoryPool(store: ReturnType<typeof createInMemoryEventStore>, query: PgQueryable["query"]): PgTransactionalPool {
+function memoryPool(
+  store: ReturnType<typeof createInMemoryEventStore>,
+  query: PgQueryable["query"],
+): PgTransactionalPool {
   const pool = { query, connect: async () => ({ query, release: () => {} }) };
   memoryStores.set(pool, store);
   return pool;
@@ -40,7 +43,7 @@ function memoryPool(store: ReturnType<typeof createInMemoryEventStore>, query: P
 
 function recordingPool() {
   const calls: QueryCall[] = [];
-  const query: PgQueryable["query"] = async (sql, values = []) => {
+  const query: PgQueryable["query"] = async (sql: string, values: readonly unknown[] = []) => {
     calls.push({ sql, values });
     return { rows: [], rowCount: 1 };
   };
@@ -64,7 +67,7 @@ describe("Catalog category producer-consumer contract", () => {
     );
     const commandHandler = vi.spyOn(catalog.items, "commandHandler");
     const api = catalogModule.buildApis(catalog).find((entry) => entry.mountPath === "/api/catalog");
-    if (!api) throw new Error("Public Catalog API is missing");
+    if (!api || !(api.router instanceof Hono)) throw new Error("Public Catalog API router is missing");
     const app = new Hono<{ Variables: { context: EventStoreContext } }>();
     app.use("*", async (c, next) => {
       c.set("context", context);
