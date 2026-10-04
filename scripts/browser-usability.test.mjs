@@ -217,6 +217,10 @@ describe("goal selection and preflight", () => {
 
 describe("surface contracts and coverage", () => {
   const modules = () => structuredClone(browserUsabilityGoalModules);
+  // Synthetic guest-scoped route that no shipped module claims or excludes; every real
+  // in-scope route is claimed or excluded once its surface goals land, so an unclaimed
+  // fixture cannot be a tracked file.
+  const unclaimedRoute = "bounded-contexts/public-presence/routes/marketplace/synthetic-unclaimed-fixture.tsx";
   it("validates all five shipped modules and defaults moderator authentication by role", () => {
     expect(() => validateBrowserUsabilityGoalModules(modules())).not.toThrow();
     expect(browserUsabilityGoal("condition-policy").startSignedIn).toBe(false);
@@ -338,7 +342,7 @@ describe("surface contracts and coverage", () => {
     "accepts exclusion reason %s",
     (reason) => {
       const candidate = modules();
-      candidate[0].excludedRoutes = [{ path: "bounded-contexts/public-presence/routes/marketplace/home.tsx", reason }];
+      candidate[0].excludedRoutes = [{ path: unclaimedRoute, reason }];
       expect(() => validateBrowserUsabilityGoalModules(candidate)).not.toThrow();
     },
   );
@@ -351,7 +355,7 @@ describe("surface contracts and coverage", () => {
   });
   it("reports unscoped and doubly scoped route fixtures and ignores tests and non-routes", () => {
     const candidate = modules();
-    const route = "bounded-contexts/public-presence/routes/marketplace/home.tsx";
+    const route = unclaimedRoute;
     candidate[1].routeScope.push(candidate[0].routeScope[0]);
     const result = auditBrowserUsabilityRoutes(
       [
@@ -369,7 +373,7 @@ describe("surface contracts and coverage", () => {
   it("counts claimed and excluded routes once per surface", () => {
     const candidate = modules();
     const claimed = "bounded-contexts/public-presence/routes/marketplace/help.tsx";
-    const excluded = "bounded-contexts/public-presence/routes/marketplace/home.tsx";
+    const excluded = unclaimedRoute;
     candidate[0].excludedRoutes.push({ path: excluded, reason: "layout-only" });
     expect(auditBrowserUsabilityRoutes([claimed, excluded], candidate).coverage.surfaces.guest).toEqual({
       inScope: 2,
