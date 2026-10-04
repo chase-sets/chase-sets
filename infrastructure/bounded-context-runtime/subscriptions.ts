@@ -521,44 +521,60 @@ export function createSubscriptionRunner(
       context?.throwIfLeaseLost?.();
       if (
         !matchesSubscriptionEvent(bound, { ...subscription, eventTypes: subscriptionEventTypes }) ||
-        !Number.isSafeInteger(bound.streamVersion) || bound.streamVersion < 1
+        !Number.isSafeInteger(bound.streamVersion) ||
+        bound.streamVersion < 1
       ) {
         throw new Error(`Invalid source history trigger '${bound.id}' on '${bound.streamId}'.`);
       }
-      const history = await readCompleteStream({
-        readStream: async ({ fromVersion = 1, limit = EVENT_STORE_READ_PAGE_SIZE_MAX }) => {
-          context?.throwIfLeaseLost?.();
-          if (fromVersion > bound.streamVersion) return [];
-          const pageLimit = Math.min(limit, EVENT_STORE_READ_PAGE_SIZE_MAX, bound.streamVersion - fromVersion + 1);
-          let page;
-          try {
-            page = await sourceEventStore.readStream({ streamId: bound.streamId, fromVersion, limit: pageLimit });
-          } catch (error) {
-            if (isPgRetryableTransientError(error)) {
-              throw createTransientProjectionError(`Source history unavailable for '${bound.streamId}': ${error instanceof Error ? error.message : String(error)}`);
+      const history = await readCompleteStream(
+        {
+          readStream: async ({ fromVersion = 1, limit = EVENT_STORE_READ_PAGE_SIZE_MAX }) => {
+            context?.throwIfLeaseLost?.();
+            if (fromVersion > bound.streamVersion) return [];
+            const pageLimit = Math.min(limit, EVENT_STORE_READ_PAGE_SIZE_MAX, bound.streamVersion - fromVersion + 1);
+            let page;
+            try {
+              page = await sourceEventStore.readStream({ streamId: bound.streamId, fromVersion, limit: pageLimit });
+            } catch (error) {
+              if (isPgRetryableTransientError(error)) {
+                throw createTransientProjectionError(
+                  `Source history unavailable for '${bound.streamId}': ${error instanceof Error ? error.message : String(error)}`,
+                );
+              }
+              throw error;
             }
-            throw error;
-          }
-          context?.throwIfLeaseLost?.();
-          if (page.length > pageLimit || page.some((event) =>
-            event.streamId !== bound.streamId || event.tenantId !== bound.tenantId ||
-            !Number.isSafeInteger(event.streamVersion) || event.streamVersion < 1 ||
-            event.streamVersion > bound.streamVersion ||
-            compareGlobalPosition(event.globalPosition, bound.globalPosition) > 0
-          )) {
-            throw new Error(`Invalid source history page for '${bound.streamId}' through '${bound.id}'.`);
-          }
-          return page;
+            context?.throwIfLeaseLost?.();
+            if (
+              page.length > pageLimit ||
+              page.some(
+                (event) =>
+                  event.streamId !== bound.streamId ||
+                  event.tenantId !== bound.tenantId ||
+                  !Number.isSafeInteger(event.streamVersion) ||
+                  event.streamVersion < 1 ||
+                  event.streamVersion > bound.streamVersion ||
+                  compareGlobalPosition(event.globalPosition, bound.globalPosition) > 0,
+              )
+            ) {
+              throw new Error(`Invalid source history page for '${bound.streamId}' through '${bound.id}'.`);
+            }
+            return page;
+          },
         },
-      }, { streamId: bound.streamId });
+        { streamId: bound.streamId },
+      );
       context?.throwIfLeaseLost?.();
       const last = history.at(-1);
-      if (!last || history.length !== bound.streamVersion || !isDeepStrictEqual(toTransportEvent(last), bound)) {
+      if (
+        !last ||
+        history.length !== bound.streamVersion ||
+        !isDeepStrictEqual(structuredClone(toTransportEvent(last)), bound)
+      ) {
         throw new Error(`Incomplete or contradictory source history for '${bound.streamId}' through '${bound.id}'.`);
       }
-      return history.map(toTransportEvent).filter((event) =>
-        matchesSubscriptionEvent(event, { ...subscription, eventTypes: subscriptionEventTypes }),
-      );
+      return history
+        .map(toTransportEvent)
+        .filter((event) => matchesSubscriptionEvent(event, { ...subscription, eventTypes: subscriptionEventTypes }));
     };
   };
   const status: {
@@ -785,7 +801,11 @@ export function createSubscriptionRunner(
                 }
 
                 await runInProjectionDbContext(client, () =>
-                  handler(event, { db: client, throwIfLeaseLost: context?.throwIfLeaseLost, readSourceStreamHistory: sourceHistoryReader(event, context) }),
+                  handler(event, {
+                    db: client,
+                    throwIfLeaseLost: context?.throwIfLeaseLost,
+                    readSourceStreamHistory: sourceHistoryReader(event, context),
+                  }),
                 );
                 context?.throwIfLeaseLost?.();
                 await recordSubscriptionApplicationCompleted(
@@ -1066,7 +1086,11 @@ export function createSubscriptionRunner(
                     });
                     await runInProjectionCascadeContext(cascadeController, () =>
                       runInProjectionDbContext(client, () =>
-                        handler(event, { db: client, throwIfLeaseLost: context?.throwIfLeaseLost, readSourceStreamHistory: sourceHistoryReader(event, context) }),
+                        handler(event, {
+                          db: client,
+                          throwIfLeaseLost: context?.throwIfLeaseLost,
+                          readSourceStreamHistory: sourceHistoryReader(event, context),
+                        }),
                       ),
                     );
                     context?.throwIfLeaseLost?.();
@@ -1251,7 +1275,11 @@ export function createSubscriptionRunner(
                 try {
                   const runHandler = () =>
                     runInProjectionDbContext(client, () =>
-                      handler(event, { db: client, throwIfLeaseLost: context?.throwIfLeaseLost, readSourceStreamHistory: sourceHistoryReader(event, context) }),
+                      handler(event, {
+                        db: client,
+                        throwIfLeaseLost: context?.throwIfLeaseLost,
+                        readSourceStreamHistory: sourceHistoryReader(event, context),
+                      }),
                     );
                   await (cascadeController
                     ? runInProjectionCascadeContext(cascadeController, runHandler)

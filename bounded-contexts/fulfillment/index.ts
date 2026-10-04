@@ -41,7 +41,8 @@ export const module = defineBoundedContextModule<FulfillmentServices, PgTransact
       contextName: "fulfillment",
       manifest: contextManifest,
       handlers: {
-        "ordering.fulfillment-order-group-admission-subscription": () => services.shipments.shipmentGroupAdmissionHandlers,
+        "ordering.fulfillment-order-group-admission-subscription": () =>
+          services.shipments.shipmentGroupAdmissionHandlers,
         "identity.fulfillment-account-projection": () => buildFulfillmentAccountProjectionHandlers(services.db),
         "ordering.fulfillment-order-source-projection": () =>
           buildFulfillmentOrderProjectionHandlers(services.db, {

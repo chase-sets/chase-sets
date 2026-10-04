@@ -66,7 +66,8 @@ const boundedSites = [
 const expectedInventory = [
   ...boundedSites.map(({ id }) => [id, "1"]),
   ["contracts/event-core/complete-stream.ts#readStream#1", "EVENT_STORE_READ_PAGE_SIZE_MAX"],
-  ["infrastructure/bounded-context-runtime/subscriptions.ts#readStream#1", "batchSize"],
+  ["infrastructure/bounded-context-runtime/subscriptions.ts#readStream#1", "pageLimit"],
+  ["infrastructure/bounded-context-runtime/subscriptions.ts#readStream#2", "batchSize"],
 ].sort(([left], [right]) => left.localeCompare(right));
 
 const program = ts.createProgram({
@@ -82,7 +83,7 @@ const program = ts.createProgram({
 const candidateInventory = deriveProgramInventory(program);
 
 describe("bounded-stream-contracts-acceptance-control", () => {
-  it("derives the exact ten-call production census and eight pointer/test bindings from one TypeScript Program", () => {
+  it("derives the exact eleven-call production census and eight pointer/test bindings from one TypeScript Program", () => {
     expect(acceptanceErrors(candidateInventory)).toEqual([]);
     expect(candidateInventory.map((site) => [site.id, site.limit])).toEqual(expectedInventory);
   });

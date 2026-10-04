@@ -7,11 +7,16 @@ import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
 import type { ProjectorHandlerContext, ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import {
-  parseAdmissionIdentity, parseCommitInput, parseAbortInput,
-  parseReserveResult, parseCommitResult, parseAbortResult,
+  parseAdmissionIdentity,
+  parseCommitInput,
+  parseAbortInput,
+  parseReserveResult,
+  parseCommitResult,
+  parseAbortResult,
   type ShipmentGroupAdmissionAuthority,
 } from "@chase-sets/order-groups";
 import { buildShipmentGroupAdmissionSourceHandlers } from "../integrations/source/shipment-group-admission-source";
+import { ShipmentAdmissionBusyError } from "../domain/common";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -72,6 +77,7 @@ import {
   evolveFulfillmentShipment,
   initialFulfillmentShipmentState,
   decideShipmentAdmission,
+  sameAdmissionIdentity,
   type ShipmentAdmissionCommand,
   type FulfillmentShipmentCommand,
   type FulfillmentShipmentEvent,
@@ -198,8 +204,6 @@ const FULFILLMENT_SYSTEM_CONTEXT: EventStoreContext = {
 };
 
 export type FulfillmentShipmentServices = Readonly<{
-  shipmentGroupAdmissionAuthority: ShipmentGroupAdmissionAuthority;
-  shipmentGroupAdmissionHandlers: ProjectorHandlerMap;
   commandHandler: CommandHandler<FulfillmentShipmentCommand, FulfillmentShipmentState, FulfillmentShipmentEvent>;
   packShipment: (
     params: Readonly<{
@@ -1128,7 +1132,11 @@ function postageLabelOperationRequest(
   };
 }
 
-export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): FulfillmentShipmentServices {
+export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): FulfillmentShipmentServices &
+  Readonly<{
+    shipmentGroupAdmissionAuthority: ShipmentGroupAdmissionAuthority;
+    shipmentGroupAdmissionHandlers: ProjectorHandlerMap;
+  }> {
   const postageLabelProvider = deps.postageLabelProvider ?? createUnconfiguredPostageLabelProvider();
   const postageWebhookGateway = deps.postageWebhookGateway ?? createNoopPostageProviderWebhookGateway();
   const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
@@ -1151,22 +1159,33 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       let state = initialFulfillmentShipmentState;
       const codec = createPassthroughDomainEventCodec<FulfillmentShipmentEvent>();
       for (const [index, stored] of history.entries()) {
-        if (stored.streamId !== streamId || stored.streamVersion !== index + 1 ||
+        if (
+          stored.streamId !== streamId ||
+          stored.streamVersion !== index + 1 ||
           (index === 0) !== (stored.eventType === "fulfillment.shipment.created") ||
-          (stored.eventType.startsWith("fulfillment.shipment-group.") && stored.payload.shipmentVersion !== stored.streamVersion)) {
+          (stored.eventType.startsWith("fulfillment.shipment-group.") &&
+            stored.payload.shipmentVersion !== stored.streamVersion)
+        ) {
           throw new Error("Shipment event envelope contradicts its creation or admission lineage.");
         }
         state = evolveFulfillmentShipment(state, codec.decode(stored));
-        if (state.shipmentId !== shipmentId || !state.sellerAccountId) throw new Error("Invalid immutable Shipment binding.");
+        if (state.shipmentId !== shipmentId || !state.sellerAccountId)
+          throw new Error("Invalid immutable Shipment binding.");
       }
       return { state, version: history.at(-1)!.streamVersion };
     } catch (error) {
-      throw new ShipmentHistoryPoisonedError(`Shipment '${shipmentId}' history is poisoned: ${error instanceof Error ? error.message : String(error)}`);
+      throw new ShipmentHistoryPoisonedError(
+        `Shipment '${shipmentId}' history is poisoned: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
-  async function executeAdmission(command: ShipmentAdmissionCommand, context: EventStoreContext,
-    invocation?: ProjectorHandlerContext, causationId: string | null = null) {
+  async function executeAdmission(
+    command: ShipmentAdmissionCommand,
+    context: EventStoreContext,
+    invocation?: ProjectorHandlerContext,
+    causationId: string | null = null,
+  ) {
     for (;;) {
       invocation?.throwIfLeaseLost?.();
       const loaded = await loadAdmissionShipment(command.input.anchorShipmentId, context);
@@ -1176,8 +1195,11 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       try {
         const stored = await repository.append({
           streamId: `fulfillment.shipment-${command.input.anchorShipmentId}`,
-          expectedVersion: loaded.version, context, events: [decision.event],
-          metadata: { causationId }, wakeSourceContextName: "fulfillment",
+          expectedVersion: loaded.version,
+          context,
+          events: [decision.event],
+          metadata: { causationId },
+          wakeSourceContextName: "fulfillment",
         });
         recordCommittedEvents(stored, "fulfillment");
         invocation?.throwIfLeaseLost?.();
@@ -1189,21 +1211,34 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
     }
   }
   const shipmentGroupAdmissionAuthority: ShipmentGroupAdmissionAuthority = {
-    reserve: async (input, context) => parseReserveResult(await executeAdmission({ kind: "reserve", input: parseAdmissionIdentity(input) }, context)),
-    commit: async (input, context) => parseCommitResult(await executeAdmission({ kind: "commit", input: parseCommitInput(input) }, context)),
-    abort: async (input, context) => parseAbortResult(await executeAdmission({ kind: "abort", input: parseAbortInput(input) }, context)),
+    reserve: async (input, context) =>
+      parseReserveResult(await executeAdmission({ kind: "reserve", input: parseAdmissionIdentity(input) }, context)),
+    commit: async (input, context) =>
+      parseCommitResult(await executeAdmission({ kind: "commit", input: parseCommitInput(input) }, context)),
+    abort: async (input, context) =>
+      parseAbortResult(await executeAdmission({ kind: "abort", input: parseAbortInput(input) }, context)),
   };
   const shipmentGroupAdmissionHandlers = buildShipmentGroupAdmissionSourceHandlers({
     loadShipment: loadAdmissionShipment,
     execute: executeAdmission,
-    cancelAnchor: async (shipmentId, context, invocation) => {
+    cancelAnchor: async (identity, context, invocation) => {
+      const shipmentId = identity.anchorShipmentId;
       for (;;) {
         const loaded = await loadAdmissionShipment(shipmentId, context);
-        if (loaded.state.status === "cancelled") return;
+        if (
+          loaded.state.status === "cancelled" ||
+          loaded.state.admission?.type !== "fulfillment.shipment-group.admission-released" ||
+          !sameAdmissionIdentity(loaded.state.admission.data, identity)
+        )
+          return;
         invocation?.throwIfLeaseLost?.();
         try {
-          await commandHandler({ streamId: `fulfillment.shipment-${shipmentId}`, expectedVersion: loaded.version,
-            context, command: { type: "CancelShipment", cancelledAt: new Date().toISOString() } });
+          await commandHandler({
+            streamId: `fulfillment.shipment-${shipmentId}`,
+            expectedVersion: loaded.version,
+            context,
+            command: { type: "CancelShipment", cancelledAt: new Date().toISOString() },
+          });
           return;
         } catch (error) {
           if (error && typeof error === "object" && "code" in error && error.code === "concurrency_conflict") continue;
@@ -1865,6 +1900,12 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       const loaded = await repository.load(`fulfillment.shipment-${params.shipmentId}`);
       if (loaded.state.status === null) {
         throw new FulfillmentDomainError("Shipment not found.");
+      }
+      if (
+        loaded.state.admission?.type === "fulfillment.shipment-group.admission-reserved" ||
+        loaded.state.admission?.type === "fulfillment.shipment-group.admission-committed"
+      ) {
+        throw new ShipmentAdmissionBusyError();
       }
       assertShipmentActionAllowed("cancel-shipment", {
         status: loaded.state.status,
