@@ -353,6 +353,23 @@ function expectRetryCount(result, fixture, requestPath, count, succeeded) {
   expect(result.stdout.includes("Platform smoke checks passed.")).toBe(succeeded);
 }
 
+function expectDiscriminatorObservation(result, expectedPaths) {
+  const diagnosticPaths = retryDiagnosticPaths(result.stderr);
+  const rootPaths = diagnosticPaths.filter((requestPath) => requestPath === "/");
+  const expectedDelays = expectedPaths.map((requestPath) => ({ kind: "retry-delay", path: requestPath }));
+  // Admin home runs first and can retry independently of the API probes under observation.
+  expect(result.events.filter((event) => event.kind === "retry-delay")).toEqual([
+    ...rootPaths.map((requestPath) => ({ kind: "retry-delay", path: requestPath })),
+    ...expectedDelays,
+  ]);
+  expect(diagnosticPaths.filter((requestPath) => requestPath !== "/")).toEqual(expectedPaths);
+  expect(result.events.filter((event) => event.kind === "fetch" && event.path === "/")).toHaveLength(
+    rootPaths.length + 1,
+  );
+  expect(rootPaths.length).toBeLessThan(3);
+  return expectedDelays;
+}
+
 describe("admin API retry", () => {
   it.each(["native timer", "other endpoint"])("admin API retry: observation discriminator - %s", async (source) => {
     const otherPath = "/api/health/ready";
@@ -363,12 +380,8 @@ describe("admin API retry", () => {
     const result = await runAdminRetrySmoke(fixture, { unrelatedTimer: source === "native timer" });
     expectRetryCount(result, fixture, authProbePath, 3, false);
     const unrelated = source === "native timer";
-    expect(result.events.filter((event) => event.kind === "retry-delay")).toEqual([
-      ...(unrelated ? [] : [{ kind: "retry-delay", path: otherPath }]),
-      { kind: "retry-delay", path: authProbePath },
-      { kind: "retry-delay", path: authProbePath },
-    ]);
-    expect(retryDiagnosticPaths(result.stderr)).toEqual(
+    expectDiscriminatorObservation(
+      result,
       unrelated ? [authProbePath, authProbePath] : [otherPath, authProbePath, authProbePath],
     );
     expect(fixture.requests.filter((request) => request.path === otherPath)).toHaveLength(unrelated ? 1 : 2);
@@ -405,6 +418,48 @@ describe("admin API retry", () => {
       );
     }
   });
+
+  it.each([false, true])(
+    "admin API retry: observation discriminator - other endpoint with first root timeout=%s",
+    async (rootTimeout) => {
+      const otherPath = "/api/health/ready";
+      const fixture = await startAdminRetryServer({
+        "/": (attempt) => (rootTimeout && attempt === 1 ? { transport: "timeout" } : undefined),
+        [otherPath]: (attempt) => (attempt === 1 ? { status: 503 } : undefined),
+        [authProbePath]: () => ({ transport: "timeout" }),
+      });
+      const result = await runAdminRetrySmoke(fixture);
+      expectRetryCount(result, fixture, authProbePath, 3, false);
+      expect(fixture.requests.filter((request) => request.path === otherPath)).toHaveLength(2);
+      expect(result.events.filter((event) => event.kind === "fetch" && event.path === otherPath)).toHaveLength(2);
+      const expectedDelays = expectDiscriminatorObservation(result, [otherPath, authProbePath, authProbePath]);
+      if (rootTimeout) {
+        expect(result.stderr).toContain("admin home timed out after 100ms");
+        expect(result.events.find((event) => event.kind === "retry-delay")).toEqual({
+          kind: "retry-delay",
+          path: "/",
+        });
+        expect(() =>
+          expect(result.events.filter((event) => event.kind === "retry-delay"), "discriminator removal").toEqual(
+            expectedDelays,
+          ),
+        ).toThrow(/discriminator removal/);
+      }
+      expect(fixture.sockets.size).toBe(0);
+      console.info(
+        "[root-retry-discriminator-proof]",
+        JSON.stringify({
+          rootTimeout,
+          removalControl: rootTimeout ? "rejected by discriminator removal assertion" : "not exercised",
+          code: result.code,
+          signal: result.signal,
+          events: result.events,
+          diagnostics: result.stderr,
+          requests: fixture.requests.map(({ path: requestPath, method }) => ({ path: requestPath, method })),
+        }),
+      );
+    },
+  );
 
   it("admin API retry: observation discriminator - non-target exhaustion remains a failure", async () => {
     const otherPath = "/api/health/ready";
