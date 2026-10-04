@@ -147,10 +147,12 @@ describe("owner-fenced seed yield", () => {
       vi.useFakeTimers();
       const h = ownershipHarness();
       let started;
+      let commandSignal;
       const ready = new Promise((resolve) => {
         started = resolve;
       });
       h.options.spawnCommand.mockImplementation(async (_command, { signal }) => {
+        commandSignal = signal;
         started();
         await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
         return 76;
@@ -165,6 +167,9 @@ describe("owner-fenced seed yield", () => {
             throw new Error("unreadable");
           });
         await vi.advanceTimersByTimeAsync(loss === "hook" ? 4000 : 6000);
+        expect(commandSignal.aborted).toBe(true);
+        // Killing meets the deadline even if the final bounded GET has not settled.
+        await vi.advanceTimersByTimeAsync(2000);
         expect(await running).toBe(76);
         expect(h.calls).toHaveLength(1);
         expect(h.log).toHaveBeenCalledWith("scenario-seed result=preempted");
