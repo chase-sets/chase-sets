@@ -21,7 +21,7 @@ A per-game production-signoff reference env var (named in each game section) mus
 
 - Public transports (MTGJSON, Scryfall, TCGdex, YGOPRODeck, YGOJSON, LorcanaJSON, Lorcast) do not require credentials.
 - Scrydex requires a shared runtime API key and team identifier in the API and worker environments that execute provider transport. Configure `SCRYDEX_API_KEY` and `SCRYDEX_TEAM_ID` once per environment for all Scrydex-backed product lines; do not create game-specific Scrydex secrets.
-- TCGplayer requires `TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE` in the executing API and worker environment before live option queries or imports can run, using the existing automation-provider credential posture documented in [TCGplayer Automation Operations](./tcgplayer-automation-operations.md).
+- TCGplayer uses stored operator session primary, env cookie fallback (`TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE` only when custody is absent or cleared). API and worker requests resolve the newest custody revision per request; unreadable custody fails closed. Pairing, recovery, offboarding, and revision-bound verification are owned by [TCGplayer Automation Operations](./tcgplayer-automation-operations.md).
 
 ### Shared-transport handling (TCGplayer and Scrydex)
 
@@ -74,22 +74,22 @@ After a Scrydex import completes, record job id, provider key, unit key, profile
 
 When Scrydex readiness is degraded, credits are low, usage checks fail, rate limits are active, cache state is unavailable, or preflight estimates look too large: stop the affected Scrydex unit with `CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP_UNITS=<unit key>` or keep selectors cache-only with `CATALOG_INTEGRATION_PROVIDER_OPTION_QUERY_UNITS_CACHE_ONLY=<unit key>`; do not start or resume imports until the Admin preflight shows the provider, unit, source scope, estimated request count/credit impact or `estimate-unavailable`, usage-check state, and bulk-first plan; prefer a smaller bulk/list/search source scope over per-record fallback; after recovery run a dry-run or smallest approved import and record the actual usage diagnostics; and escalate to provider-account review only with redacted usage summaries and provider-safe diagnostic codes.
 
-### TCGplayer cookie rotation
+### TCGplayer session operations
 
-Rotate the TCGplayer automation cookie when the provider session expires, an operator leaves the provider account, a leak is suspected, or repeated authorization failures continue after cooldown.
+Use [TCGplayer Automation Operations](./tcgplayer-automation-operations.md#rate-limits-and-recovery)
+as the single session-rotation procedure, including its passive gate, extension
+pairing, custody recovery, and ordinary-capture verification. Do not replace the
+env cookie or redeploy/restart to adopt a stored session. Preserve shared rate
+state; a `429` is cooldown evidence, not expiry, and a lone `403` is ambiguous.
+The provider/unit emergency stops above remain available for unsafe traffic or
+suspected exposure. A session push does not clear a stop or approve another
+game's units; remove a stop only through the approved incident/rollout workflow.
 
-1. Set `CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP=tcgplayer` (or the unit-scoped stop for the affected game unit).
-2. Replace `TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE` through the approved secret path for the target environment.
-3. Keep conservative runtime defaults unless an incident review approves a change: request delay `250ms`, cooldown `30000ms`, max concurrent requests `2`, max retries `3`.
-4. Redeploy or restart the API and worker components that execute Catalog provider transport.
-5. Run a small product-line option query and confirm readiness reports `configured` without exposing the cookie.
-6. Clear the emergency stop only after the small query succeeds.
-
-### Credential rotation (shared secrets)
+### Credential rotation (Scrydex shared secrets)
 
 Rotate provider credentials from the approved secret-management UI and release control workflow only. Never paste secret values, team ids, account ids, request headers, or provider screenshots into runbook notes, issue comments, PR bodies, fixtures, logs, or audit evidence.
 
-1. Activate a unit-scoped emergency stop for the affected Scrydex or TCGplayer game unit from the release/Ops controls.
+1. Activate a unit-scoped emergency stop for the affected Scrydex game unit from the release/Ops controls.
 2. Confirm Integration health shows the intended provider/unit blocked and that the other games' TCGplayer and Scrydex units remain independently governed.
 3. Replace the secret value in the secret-management UI, preserving the existing shared Scrydex secret names `SCRYDEX_API_KEY` and `SCRYDEX_TEAM_ID`.
 4. Redeploy or restart only the affected runtime/worker environment through the normal platform UI.
@@ -147,12 +147,12 @@ Magic Catalog sync draws from MTGJSON, Scryfall, and TCGplayer. The three Magic 
 | --- | --- | --- |
 | MTGJSON | None (public) | Set-reference data promoted into Reference Records (never plans Catalog Item commands). |
 | Scryfall | None (public) | Card data. |
-| TCGplayer | `TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE` | Marketplace product ids, SKU mapping, sealed products; shared provider key. |
+| TCGplayer | Stored operator session primary, env cookie fallback | Marketplace product ids, SKU mapping, sealed products; shared provider key. |
 
 Operator notes:
 
-- MTGJSON and Scryfall public transports do not require credentials; TCGplayer requires the automation cookie before live option queries or imports can run.
-- Staging UAT readiness check: MTGJSON and Scryfall are `not-required`; TCGplayer is `configured` with only a redacted runtime secret reference. Keep provider option queries open only for the selected Magic set scope.
+- MTGJSON and Scryfall public transports do not require credentials; TCGplayer uses stored operator session primary, env cookie fallback, under the shared credential posture above.
+- Staging UAT readiness check: MTGJSON and Scryfall are `not-required`; TCGplayer is `configured`. Inspect Operator session metadata for custody/grant state; the readiness badge is not source or provider-success proof. Keep provider option queries open only for the selected Magic set scope.
 - MTGJSON set-reference promotion/reapply must keep the same Reference Record identity and plan fingerprint across repeated reapply; TCGplayer sealed-product reapply/retry must keep the same Catalog Item identity, SKU selected options, and plan fingerprint without creating a replacement Catalog Item.
 - Post-UAT launch requires Magic production signoff evidence (provider policy approval, profile versions, dry-run/import/promotion outcomes, conflicts, duplicate-prevention blocks, emergency-stop proof, and redaction review) before production imports or promotions are enabled.
 
@@ -183,11 +183,11 @@ Pokemon Catalog sync draws from TCGdex and the existing Chase Sets TCGplayer pro
 | Provider | Credentials | Role |
 | --- | --- | --- |
 | TCGdex | None (public) | Card-print, series/expansion, language, and image-evidence data; bulk/list ingestion first. |
-| TCGplayer | `TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE` | Marketplace product ids, SKU mapping, sealed products; shared provider key. |
+| TCGplayer | Stored operator session primary, env cookie fallback | Marketplace product ids, SKU mapping, sealed products; shared provider key. |
 
 Operator notes:
 
-- TCGdex public transport does not require credentials; TCGplayer requires the automation cookie before live option queries or imports can run.
+- TCGdex public transport does not require credentials; TCGplayer uses stored operator session primary, env cookie fallback, under the shared credential posture above.
 - Because TCGplayer is shared with Magic, Yu-Gi-Oh!, One Piece, and Lorcana, do not use a broad TCGplayer enablement as proof that Pokemon TCGplayer units are approved; production Pokemon enablement must name the Pokemon unit/profile evidence, and credential rotation must confirm the other domains' TCGplayer units remain independently governed.
 - Only TCGdex and TCGplayer Pokemon image URI evidence may enter the shared importer/review surfaces, and only when the provider-data signoff covers image evidence for that source. Official Pokemon (pokemon.com) images remain comparison-only.
 - Pokemon is the shared regression anchor: every other product domain's UAT must repeat UI-only smoke proof for one Pokemon set through the same shared importer controls.
@@ -207,12 +207,12 @@ Yu-Gi-Oh! Catalog sync draws from YGOPRODeck, YGOJSON, and the existing Chase Se
 | --- | --- | --- |
 | YGOPRODeck | None (public) | Card, printing, set, archetype, banlist/format, and image-evidence baseline; bulk/list ingestion first. |
 | YGOJSON | None (public) | Structured set/product, sealed-product, and pack-metadata reference and normalization cross-check; set-file/bulk ingestion first. |
-| TCGplayer | `TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE` | Marketplace product ids, group/set identity, SKU mapping, condition/language/printing/edition variants, and price-reference evidence; shared provider key. |
+| TCGplayer | Stored operator session primary, env cookie fallback | Marketplace product ids, group/set identity, SKU mapping, condition/language/printing/edition variants, and price-reference evidence; shared provider key. |
 
 Operator notes:
 
 - YGOPRODeck and YGOJSON public transports do not require credentials; their normal path must be bulk/list/search or set-file first and must not make one provider call per card, printing, or sealed product.
-- TCGplayer requires the automation cookie before live option queries or imports can run; because it is shared with Magic, Pokemon, One Piece, and Lorcana, do not use a broad TCGplayer enablement as proof that Yu-Gi-Oh! TCGplayer units are approved, and credential rotation must confirm the other domains' TCGplayer units remain independently governed.
+- TCGplayer uses stored operator session primary, env cookie fallback; because it is shared with Magic, Pokemon, One Piece, and Lorcana, do not use a broad TCGplayer enablement as proof that Yu-Gi-Oh! TCGplayer units are approved, and credential rotation must confirm the other domains' TCGplayer units remain independently governed.
 - Only YGOPRODeck and TCGplayer Yu-Gi-Oh! image URI evidence may enter the shared importer/review surfaces, and only when the provider-data signoff covers image evidence for that source. Official Konami database images remain comparison-only.
 - Regression: repeat UI-only smoke proof for one Pokemon set, one MTG set, and one One Piece set through the same shared importer controls.
 
