@@ -1,4 +1,7 @@
 import { deflateRawSync } from "node:zlib";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   DELIVERY_HEALTH_VERSION,
@@ -14,12 +17,242 @@ import {
   renderSliMarker,
   unzipJsonEntries,
   validateEphemeralVerificationRecord,
+  runDeliveryHealthCommand,
 } from "./release-health-delivery-health.mjs";
 
 let policy;
 
 beforeAll(async () => {
   policy = await readDeliveryHealthPolicy();
+});
+
+describe("first-attempt workflow success", () => {
+  const checkedAt = "2026-10-04T12:00:00.000Z";
+  const repository = "chase-sets/chase-sets";
+  const synthetic = (id = 1001, overrides = {}) => ({
+    id,
+    workflow_id: 123,
+    event: "pull_request",
+    head_sha: "a".repeat(40),
+    repository: { full_name: repository },
+    run_attempt: 1,
+    status: "completed",
+    conclusion: "success",
+    created_at: "2026-09-01T00:00:00Z",
+    updated_at: "2026-10-04T11:00:00Z",
+    ...overrides,
+  });
+  const clientFor = (runs, attempts = {}, { truncated = false, unavailable = false } = {}) => {
+    const calls = [];
+    return {
+      calls,
+      json: async (request) => {
+        calls.push(request);
+        if (request === "https://api.github.com/graphql")
+          return {
+            data: { repository: { pullRequests: { pageInfo: { hasNextPage: false }, nodes: [] } } },
+          };
+        if (request.includes("/attempts/1")) {
+          if (unavailable) throw new Error("inaccessible");
+          return attempts[request.split("/")[3]];
+        }
+        if (request.includes("platform-pr.yml")) return { workflow_runs: runs };
+        return { workflow_runs: [] };
+      },
+      paginate: async () => [],
+      markTruncated: () => {},
+      status: () => ({
+        truncated: truncated ? [`workflow:${policy.collection.workflowSources.platformPr}`] : [],
+        errors: [],
+      }),
+    };
+  };
+  const collect = (runs, attempts, flags, customPolicy = policy) =>
+    collectDeliveryHealth(
+      { repository, checkedAt, publicationMode: "hourly", updateIssues: false },
+      { policy: customPolicy, client: clientFor(runs, attempts, flags) },
+    );
+  const metric = (result, window = "rolling24h", event = "pullRequest") =>
+    result.record.windows[window].prs.platformPr[event];
+
+  it.each([
+    ["success", "completed", 1, 1, null, 0],
+    ...["failure", "timed_out", "startup_failure", "action_required"].map((value) => [
+      value,
+      "completed",
+      0,
+      1,
+      null,
+      0,
+    ]),
+    ...["cancelled", "skipped", "neutral"].map((value) => [value, "completed", 0, 0, value, 0]),
+    ...["queued", "in_progress", "waiting", "requested", "pending"].map((status) => [null, status, 0, 0, "pending", 0]),
+    [null, "completed", 0, 0, null, 1],
+    ["unrecognized", "completed", 0, 0, null, 1],
+  ])(
+    "classifies %s / %s without inventing a zero-denominator rate",
+    async (conclusion, status, numerator, denominator, excluded, unknown) => {
+      const first = metric(await collect([synthetic(1001, { conclusion, status })])).firstAttempt;
+      expect(first).toMatchObject({
+        numerator,
+        denominator,
+        unknown,
+        successRate: denominator ? numerator / denominator : null,
+      });
+      if (excluded) expect(first.excluded[excluded]).toBe(1);
+    },
+  );
+
+  it("preserves the observed retry-success / first-failure pair through the real collector", async () => {
+    const fixture = JSON.parse(
+      await readFile(new URL("./fixtures/delivery-health-first-attempt.json", import.meta.url), "utf8"),
+    );
+    const result = await collectDeliveryHealth(
+      { repository, checkedAt: "2026-09-27T12:00:00Z", publicationMode: "hourly" },
+      {
+        policy,
+        client: clientFor([fixture.latest, fixture.mergeGroupLatest], {
+          [fixture.latest.id]: fixture.firstAttempt,
+        }),
+      },
+    );
+    expect(metric(result)).toMatchObject({
+      numerator: 1,
+      denominator: 1,
+      retries: 1,
+      firstAttempt: { numerator: 0, denominator: 1, successRate: 0 },
+    });
+    expect(metric(result, "rolling24h", "mergeGroup").firstAttempt).toMatchObject({ numerator: 0, denominator: 1 });
+  });
+
+  it("keeps synthetic first success when a later attempt fails and caches across windows", async () => {
+    const latest = synthetic(1001, { run_attempt: 2, conclusion: "failure" });
+    const client = clientFor([latest], { 1001: synthetic() });
+    const result = await collectDeliveryHealth({ repository, checkedAt }, { policy, client });
+    for (const window of ["rolling24h", "rolling7d", "lastN"]) {
+      expect(metric(result, window)).toMatchObject({
+        numerator: 0,
+        denominator: 1,
+        firstAttempt: { numerator: 1, denominator: 1 },
+      });
+    }
+    expect(client.calls.filter((call) => call.includes("/attempts/1"))).toHaveLength(1);
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["id", { id: 1002 }],
+    ["workflow", { workflow_id: 456 }],
+    ["event", { event: "merge_group" }],
+    ["head", { head_sha: "b".repeat(40) }],
+    ["attempt", { run_attempt: 2 }],
+    ["repository", { repository: { full_name: "other/repo" } }],
+    ["incomplete", { status: undefined }],
+    ["unrecognized status", { status: "invalid" }],
+    ["inconsistent pending", { status: "queued", conclusion: "success" }],
+  ])("makes %s authority unknown while retaining partial observed counts", async (_name, overrides) => {
+    const attempt = overrides ? synthetic(1001, overrides) : undefined;
+    const first = metric(
+      await collect([synthetic(1001, { run_attempt: 2 }), synthetic(1002)], { 1001: attempt }),
+    ).firstAttempt;
+    expect(first).toMatchObject({ numerator: 1, denominator: 1, unknown: 1, coverage: "partial", successRate: null });
+  });
+
+  it("keeps inaccessible and truncated authority unavailable without changing latest SLIs", async () => {
+    const runs = [synthetic(1001, { run_attempt: 2 })];
+    const good = await collect(runs, { 1001: synthetic() });
+    const missing = await collect(runs, {}, { unavailable: true });
+    expect(missing.record.slis).toEqual(good.record.slis);
+    expect(metric(missing).firstAttempt).toMatchObject({ unknown: 1, successRate: null });
+    const truncated = await collect([synthetic()], {}, { truncated: true });
+    expect(metric(truncated).firstAttempt).toMatchObject({
+      numerator: 1,
+      denominator: 1,
+      collectionComplete: false,
+      coverage: "partial",
+      successRate: null,
+    });
+  });
+
+  it("rejects duplicate run identities and unsafe latest authority without attempt I/O", async () => {
+    const client = clientFor([synthetic(), synthetic(), synthetic(1002, { head_sha: "invalid", run_attempt: 2 })]);
+    const result = await collectDeliveryHealth({ repository, checkedAt }, { policy, client });
+    expect(metric(result).firstAttempt).toMatchObject({ numerator: 0, denominator: 0, unknown: 3, successRate: null });
+    expect(client.calls.filter((call) => call.includes("/attempts/1"))).toEqual([]);
+  });
+
+  it("keeps an empty cohort unavailable", async () => {
+    expect(metric(await collect([])).firstAttempt).toMatchObject({
+      runCount: 0,
+      numerator: 0,
+      denominator: 0,
+      successRate: null,
+    });
+  });
+
+  it("uses unchanged latest-activity 24h, 7d and independent last-N selection for both views", async () => {
+    const runs = [
+      synthetic(1001),
+      synthetic(1002, { updated_at: "2026-10-02T11:00:00Z", conclusion: "failure" }),
+      synthetic(1003, { updated_at: "2026-09-26T11:00:00Z" }),
+      synthetic(1004, { event: "merge_group" }),
+    ];
+    const result = await collect(runs, {}, {}, { ...policy, windows: { ...policy.windows, lastN: 1 } });
+    for (const [window, ids] of [
+      ["rolling24h", [1001]],
+      ["rolling7d", [1001, 1002]],
+      ["lastN", [1001]],
+    ]) {
+      expect(metric(result, window).runCount).toBe(ids.length);
+      expect(metric(result, window).firstAttempt.runIds).toEqual(ids);
+      expect(metric(result, window)).toMatchObject({ numerator: 1, denominator: ids.length });
+      expect(metric(result, window).firstAttempt).toMatchObject({ numerator: 1, denominator: ids.length });
+      expect(metric(result, window, "mergeGroup").firstAttempt.runIds).toEqual([1004]);
+    }
+  });
+
+  it("publishes via the actual scheduled command seam, with omitted authority as a negative control", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "delivery-health-8266-"));
+    try {
+      const out = join(directory, "delivery-health.json");
+      const markdown = join(directory, "delivery-health.md");
+      const summary = join(directory, "summary.md");
+      const output = join(directory, "output.txt");
+      const runs = [synthetic(1001, { run_attempt: 2 }), synthetic(1002, { event: "merge_group" })];
+      const args = [
+        "--repository",
+        repository,
+        "--checked-at",
+        checkedAt,
+        "--publication-mode",
+        "hourly",
+        "--out",
+        out,
+        "--markdown-out",
+        markdown,
+        "--github-summary",
+        summary,
+        "--github-output",
+        output,
+      ];
+      const deps = { policy, client: clientFor(runs, { 1001: synthetic(1001, { conclusion: "failure" }) }) };
+      expect(await runDeliveryHealthCommand(args, {}, deps)).toBe(0);
+      const good = JSON.parse(await readFile(out, "utf8"));
+      const rendered = await readFile(markdown, "utf8");
+      expect(await readFile(summary, "utf8")).toContain(rendered);
+      expect(rendered).toContain("existing latest-activity run cohort");
+      expect(rendered).toContain("pull_request | 100% (1/1) | 0/1 (0.0%) | complete | 0");
+      expect(rendered).toContain("merge_group | 100% (1/1) | 1/1 (100.0%) | complete | 0");
+      expect(rendered).toContain("Exclusions (cancelled / skipped / neutral / pending)");
+      expect(await runDeliveryHealthCommand(args, {}, { policy, client: clientFor(runs) })).toBe(0);
+      const missing = JSON.parse(await readFile(out, "utf8"));
+      expect(missing.slis).toEqual(good.slis);
+      expect(missing.slis).toHaveLength(8);
+      expect(await readFile(markdown, "utf8")).toContain("0/0 (unavailable) | partial | 1");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("delivery health conclusion normalization", () => {

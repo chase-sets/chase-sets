@@ -184,6 +184,33 @@ async function collectSourceData({ options, policy, client, queryStart }) {
     ),
   ]);
 
+  const attemptCache = new Map();
+  const runIdCounts = countBy(platformPrRuns, (run) => String(run.id));
+  await mapConcurrent(platformPrRuns, policy.collection.concurrency, async (run) => {
+    if (!["pull_request", "merge_group"].includes(run.event)) return;
+    const key = String(run.id);
+    if (runIdCounts[key] !== 1 || !validateFirstAttempt({ ...run, run_attempt: 1 }, run, options.repository)) {
+      run.firstAttempt = null;
+      return;
+    }
+    if (!attemptCache.has(key)) {
+      attemptCache.set(
+        key,
+        (async () => {
+          try {
+            return run.run_attempt === 1 ? run : await client.json(`/actions/runs/${run.id}/attempts/1`);
+          } catch {
+            return null;
+          }
+        })(),
+      );
+    }
+    run.firstAttempt = validateFirstAttempt(await attemptCache.get(key), run, options.repository);
+  });
+  const firstAttemptCollectionComplete =
+    !sourceFailures.some((failure) => failure.source === "platform-pr-runs") &&
+    !(client.status().truncated ?? []).includes(`workflow:${workflows.platformPr}`);
+
   await mapConcurrent(
     pulls.filter((pull) => pull.filesTruncated || pull.reviewsTruncated),
     policy.collection.concurrency,
@@ -257,7 +284,7 @@ async function collectSourceData({ options, policy, client, queryStart }) {
       verificationArtifact: ephemeralRecordsByRun.get(String(run.id)) ?? null,
       artifactCollectionStatus: ephemeralArtifactStatusByRun.get(String(run.id)) ?? "omitted",
     })),
-    collection: { ephemeralArtifacts: true },
+    collection: { ephemeralArtifacts: true, firstAttemptCollectionComplete },
     circuits: circuitIssues.map((issue) => normalizeCircuitIssue(issue)).filter(Boolean),
     artifactFailures,
     sourceFailures,
@@ -378,8 +405,10 @@ function normalizeSource(source = {}) {
     circuits: Array.isArray(source.circuits) ? source.circuits : [],
     artifactFailures: Array.isArray(source.artifactFailures) ? source.artifactFailures : [],
     sourceFailures: Array.isArray(source.sourceFailures) ? source.sourceFailures : [],
-    collection:
-      source.collection?.ephemeralArtifacts === true ? { ephemeralArtifacts: true } : { ephemeralArtifacts: false },
+    collection: {
+      ephemeralArtifacts: source.collection?.ephemeralArtifacts === true,
+      firstAttemptCollectionComplete: source.collection?.firstAttemptCollectionComplete === true,
+    },
   };
 }
 
@@ -417,6 +446,13 @@ function summarizeWindow(source, window, policy) {
   const bounds = window.kind === "last-n" ? deriveLastNBounds(window.end, window.limit, lastNSeries) : window;
   const failureSignatures = summarizeFailureSignatures(selectMetricSeries(circuits, window, circuitTimestamp));
   const prs = summarizePullRequests(pulls, platformRuns, policy.collection.generatedPaths, window);
+  for (const event of ["pullRequest", "mergeGroup"]) {
+    if (!source.collection.firstAttemptCollectionComplete) {
+      prs.platformPr[event].firstAttempt.coverage = "partial";
+      prs.platformPr[event].firstAttempt.successRate = null;
+      prs.platformPr[event].firstAttempt.collectionComplete = false;
+    }
+  }
   prs.platformPr.rootFailures = failureSignatures.top
     .filter((signature) => signature.lane === "merge-group")
     .map((signature) => ({
@@ -482,8 +518,8 @@ function summarizePullRequests(pulls, runs, generatedPaths, window) {
     reviews: reviewTotals,
     prScope: summarizePrScope(created),
     platformPr: {
-      pullRequest: pullMetric,
-      mergeGroup: mergeMetric,
+      pullRequest: { ...pullMetric, firstAttempt: summarizeFirstAttempts(runGroups.pullRequest) },
+      mergeGroup: { ...mergeMetric, firstAttempt: summarizeFirstAttempts(runGroups.mergeGroup) },
       combined: summarizeRuns(selectMetricSeries(runs, window, runTimestamp)),
       rootFailures: [],
     },
@@ -543,6 +579,67 @@ function summarizeRuns(runs) {
     executionSeconds: percentileSummary(
       runs.map((run) => durationSeconds(run.run_started_at ?? run.runStartedAt, run.updated_at ?? run.completedAt)),
     ),
+  };
+}
+
+function validateFirstAttempt(attempt, run, repository) {
+  if (
+    !attempt ||
+    !Number.isSafeInteger(run.id) ||
+    run.id <= 0 ||
+    !Number.isSafeInteger(run.workflow_id) ||
+    run.workflow_id <= 0 ||
+    !/^[a-f0-9]{40}$/i.test(run.head_sha ?? "") ||
+    run.repository?.full_name !== repository ||
+    !Number.isSafeInteger(run.run_attempt) ||
+    run.run_attempt < 1 ||
+    attempt.id !== run.id ||
+    attempt.workflow_id !== run.workflow_id ||
+    attempt.event !== run.event ||
+    attempt.head_sha !== run.head_sha ||
+    attempt.repository?.full_name !== repository ||
+    attempt.run_attempt !== 1 ||
+    !["completed", "queued", "in_progress", "waiting", "requested", "pending"].includes(attempt.status)
+  )
+    return null;
+  return { status: attempt.status, conclusion: attempt.conclusion };
+}
+
+function summarizeFirstAttempts(runs) {
+  const outcomes = countBy(runs, (run) => {
+    const attempt = run.firstAttempt;
+    if (!attempt) return "unknown";
+    if (attempt.status !== "completed") return attempt.conclusion == null ? "pending" : "unknown";
+    return [
+      "success",
+      "failure",
+      "timed_out",
+      "startup_failure",
+      "action_required",
+      "cancelled",
+      "skipped",
+      "neutral",
+    ].includes(attempt.conclusion)
+      ? attempt.conclusion
+      : "unknown";
+  });
+  const numerator = outcomes.success ?? 0;
+  const denominator =
+    numerator + sumOutcomes(outcomes, new Set(["failure", "timed_out", "startup_failure", "action_required"]));
+  const unknown = outcomes.unknown ?? 0;
+  return {
+    runIds: runs.map((run) => run.id),
+    runCount: runs.length,
+    outcomes,
+    numerator,
+    denominator,
+    excluded: Object.fromEntries(
+      ["cancelled", "skipped", "neutral", "pending"].map((outcome) => [outcome, outcomes[outcome] ?? 0]),
+    ),
+    unknown,
+    coverage: unknown > 0 ? "partial" : "complete",
+    collectionComplete: true,
+    successRate: unknown === 0 && denominator > 0 ? numerator / denominator : null,
   };
 }
 
@@ -854,6 +951,28 @@ export function renderDeliveryHealthMarkdown(record) {
     lines.push(
       `| ${name} | ${formatRate(window.prs.platformPr.pullRequest)} | ${formatRate(window.prs.platformPr.mergeGroup)} | ${formatRate(window.releases.actual)} | ${formatRate(window.releases.ephemeral)} | ${formatSeconds(window.prs.platformPr.combined.executionSeconds.p90)} | ${formatSeconds(window.prs.creationToMergeSeconds.p90)} |`,
     );
+  }
+  lines.push(
+    "",
+    "### First-attempt workflow success (advisory)",
+    "",
+    "Attempt-one outcomes of the existing latest-activity run cohort (updated_at ?? completedAt ?? created_at ?? createdAt), not a created-at or first-push cohort. Latest/recovered and attempt-one views use identical selected run IDs. Partial counts are observed only; unknown authority makes the rate unavailable. This is not flake attribution or an SLI/gate.",
+    "",
+    "| Window | Event | Latest/recovered | Attempt-one | Coverage | Unknown | Exclusions (cancelled / skipped / neutral / pending) |",
+    "| --- | --- | ---: | ---: | --- | ---: | --- |",
+  );
+  for (const [name, window] of Object.entries(record.windows)) {
+    for (const [event, key] of [
+      ["pull_request", "pullRequest"],
+      ["merge_group", "mergeGroup"],
+    ]) {
+      const latest = window.prs.platformPr[key];
+      const first = latest.firstAttempt;
+      const rate = first.successRate === null ? "unavailable" : `${(first.successRate * 100).toFixed(1)}%`;
+      lines.push(
+        `| ${name} | ${event} | ${formatRate(latest)} | ${first.numerator}/${first.denominator} (${rate}) | ${first.coverage}${first.collectionComplete ? "" : " (incomplete collection)"} | ${first.unknown} | ${Object.values(first.excluded).join(" / ")} |`,
+      );
+    }
   }
   lines.push("", `Epic baseline: #${record.baselineComparison.sourceIssue}.`);
   for (const [name, comparison] of Object.entries(record.baselineComparison.metrics)) {
@@ -1634,10 +1753,10 @@ async function writeOutputs(options, result) {
   }
 }
 
-async function main(argv, env = process.env) {
+export async function runDeliveryHealthCommand(argv, env = process.env, dependencies = {}) {
   const options = parseDeliveryHealthArgs(argv, env);
   try {
-    const result = await collectDeliveryHealth(options);
+    const result = await collectDeliveryHealth(options, dependencies);
     await writeOutputs(options, result);
     if (!options.githubSummaryPath) console.log(result.markdown);
     return 0;
@@ -1648,5 +1767,5 @@ async function main(argv, env = process.env) {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  process.exitCode = await main(process.argv.slice(2));
+  process.exitCode = await runDeliveryHealthCommand(process.argv.slice(2));
 }
