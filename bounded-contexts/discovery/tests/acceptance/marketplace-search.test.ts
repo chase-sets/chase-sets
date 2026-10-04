@@ -231,6 +231,169 @@ describe("marketplace search", () => {
     await closeMultiContextTestPools(pools);
   });
 
+  it("pins exact cross-tier relevance order against PostgreSQL", async () => {
+    await seedSearchIndexRegressionFixture();
+
+    // Localized text folds into C: these are A+C, B+C, C+D, and C-only
+    // match sets, not a literal title-subtitle-description-tag weight map.
+    const response = await app.request("/api/marketplace/items?search=ember&includeTotal=true");
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.items.map((item: { catalog_item_id: string }) => item.catalog_item_id)).toEqual([
+      "cat_search_01_title",
+      "cat_search_02_subtitle",
+      "cat_search_03_description",
+      "cat_search_04_tag",
+    ]);
+  });
+
+  it("removes archived and legacy retired items with their facet and category contributions against PostgreSQL", async () => {
+    const handlers = await seedSearchIndexRegressionFixture();
+    const search = async () => {
+      const response = await app.request("/api/marketplace/items?search=ember&includeTotal=true");
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+
+    const beforeArchive = await search();
+    expect(beforeArchive.items.map((item: { catalog_item_id: string }) => item.catalog_item_id)).toEqual([
+      "cat_search_01_title",
+      "cat_search_02_subtitle",
+      "cat_search_03_description",
+      "cat_search_04_tag",
+    ]);
+    expect(beforeArchive.facets).toEqual([
+      {
+        id: "fld_search_finish",
+        kind: "field",
+        label: "Finish",
+        values: [
+          { id: "glossy", label: "Glossy", count: 1, selected: false },
+          { id: "matte", label: "Matte", count: 1, selected: false },
+          { id: "plain", label: "Plain", count: 1, selected: false },
+          { id: "textured", label: "Textured", count: 1, selected: false },
+        ],
+      },
+    ]);
+    expect(beforeArchive.category_counts).toEqual([
+      { slug: "north-cards-cat-search-north-kpkmwg", count: 2 },
+      { slug: "south-cards-cat-search-south-egigli", count: 2 },
+    ]);
+    expect(await loadSearchIndexRow("cat_search_01_title")).toMatchObject({ catalog_item_id: "cat_search_01_title" });
+
+    await handlers["catalog.catalog-item.archived"]!(
+      projectionEvent("catalog.catalog-item.archived", {}, "catalog.item-cat_search_01_title", 40),
+    );
+
+    const beforeRetire = await search();
+    expect(beforeRetire.items.map((item: { catalog_item_id: string }) => item.catalog_item_id)).toEqual([
+      "cat_search_02_subtitle",
+      "cat_search_03_description",
+      "cat_search_04_tag",
+    ]);
+    expect(beforeRetire.facets).toEqual([
+      {
+        id: "fld_search_finish",
+        kind: "field",
+        label: "Finish",
+        values: [
+          { id: "matte", label: "Matte", count: 1, selected: false },
+          { id: "plain", label: "Plain", count: 1, selected: false },
+          { id: "textured", label: "Textured", count: 1, selected: false },
+        ],
+      },
+    ]);
+    expect(beforeRetire.category_counts).toEqual([
+      { slug: "north-cards-cat-search-north-kpkmwg", count: 1 },
+      { slug: "south-cards-cat-search-south-egigli", count: 2 },
+    ]);
+    expect(await loadSearchIndexRow("cat_search_01_title")).toBeUndefined();
+    expect(await loadSearchIndexRow("cat_search_02_subtitle")).toMatchObject({
+      catalog_item_id: "cat_search_02_subtitle",
+    });
+
+    await handlers["catalog.catalog-item.retired"]!(
+      projectionEvent("catalog.catalog-item.retired", {}, "catalog.item-cat_search_02_subtitle", 41),
+    );
+
+    const afterRetire = await search();
+    expect(afterRetire.items.map((item: { catalog_item_id: string }) => item.catalog_item_id)).toEqual([
+      "cat_search_03_description",
+      "cat_search_04_tag",
+    ]);
+    expect(afterRetire.facets).toEqual([
+      {
+        id: "fld_search_finish",
+        kind: "field",
+        label: "Finish",
+        values: [
+          { id: "plain", label: "Plain", count: 1, selected: false },
+          { id: "textured", label: "Textured", count: 1, selected: false },
+        ],
+      },
+    ]);
+    expect(afterRetire.category_counts).toEqual([{ slug: "south-cards-cat-search-south-egigli", count: 2 }]);
+    expect(await loadSearchIndexRow("cat_search_02_subtitle")).toBeUndefined();
+  });
+
+  it("pins the complete zero-result response with and without totals against PostgreSQL", async () => {
+    await seedSearchIndexRegressionFixture();
+
+    for (const includeTotal of [true, false]) {
+      const response = await app.request(
+        `/api/marketplace/items?search=quartz${includeTotal ? "&includeTotal=true" : ""}`,
+      );
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body).toEqual({
+        items: [],
+        facets: [],
+        category_counts: [],
+        total: includeTotal ? 0 : null,
+        count: 0,
+        nextCursor: null,
+        retrievalMode: "lexical",
+        lexicalCount: includeTotal ? 0 : null,
+        queryHash: expect.any(String),
+        resultSetKey: expect.any(String),
+      });
+      expect(body.queryHash.length).toBeGreaterThan(0);
+      expect(body.resultSetKey.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("narrows tag, blueprint, and category filters independently against PostgreSQL", async () => {
+    await seedSearchIndexRegressionFixture();
+    const searchIds = async (filter = "") => {
+      const response = await app.request(`/api/marketplace/items?search=ember&includeTotal=true${filter}`);
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      return body.items.map((item: { catalog_item_id: string }) => item.catalog_item_id);
+    };
+
+    const unfiltered = await searchIds();
+    expect(unfiltered).toEqual([
+      "cat_search_01_title",
+      "cat_search_02_subtitle",
+      "cat_search_03_description",
+      "cat_search_04_tag",
+    ]);
+    // Tag containment is case-sensitive; category is the stored slug, not its name.
+    const filters = [
+      { query: "&tag=Featured", ids: ["cat_search_01_title", "cat_search_03_description"] },
+      { query: "&blueprintId=bpr_search_standard", ids: ["cat_search_01_title", "cat_search_02_subtitle"] },
+      {
+        query: "&category=south-cards-cat-search-south-egigli",
+        ids: ["cat_search_03_description", "cat_search_04_tag"],
+      },
+    ];
+    for (const filter of filters) {
+      const filtered = await searchIds(filter.query);
+      expect(filtered, filter.query).toEqual(filter.ids);
+      expect(unfiltered.length).toBeGreaterThan(filtered.length);
+    }
+  });
+
   it("indexes catalog facts into discovery search and item detail slices", async () => {
     await sendCommand(catalogServices.dimensions.commandHandler, `catalog.dimension-${itemSeed.dimensionId}`, {
       type: "CreateDimension",
@@ -2131,6 +2294,112 @@ describe("marketplace search", () => {
     });
   });
 });
+
+async function seedSearchIndexRegressionFixture() {
+  const handlers = buildDiscoverySearchItemProjectionHandlers(pools.discovery);
+  let position = 0;
+  const project = async (type: string, data: Record<string, unknown>, streamId: string) => {
+    const handler = handlers[type];
+    if (!handler) throw new Error(`Search Index fixture handler is missing: ${type}`);
+    await handler(projectionEvent(type, data, streamId, ++position));
+  };
+
+  await project(
+    "catalog.field.created",
+    {
+      fieldId: "fld_search_finish",
+      key: "finish",
+      name: l10n("Finish"),
+      valueType: "string",
+      behavior: { filterable: true },
+    },
+    "catalog.field-fld_search_finish",
+  );
+  for (const category of [
+    { id: "cat_search_north", name: "North Cards" },
+    { id: "cat_search_south", name: "South Cards" },
+  ]) {
+    const streamId = `catalog.category-${category.id}`;
+    await project("catalog.category.created", { categoryId: category.id, name: l10n(category.name) }, streamId);
+    await project("catalog.category.published", {}, streamId);
+  }
+  for (const blueprint of [
+    { id: "bpr_search_standard", name: "Standard Cards" },
+    { id: "bpr_search_special", name: "Special Cards" },
+  ]) {
+    await project(
+      "catalog.blueprint.created",
+      { blueprintId: blueprint.id, name: l10n(blueprint.name) },
+      `catalog.blueprint-${blueprint.id}`,
+    );
+  }
+  const items = [
+    {
+      id: "cat_search_01_title",
+      title: "Zulu Ember",
+      subtitle: null,
+      description: "Title fixture",
+      tags: ["Featured"],
+      blueprintId: "bpr_search_standard",
+      categoryId: "cat_search_north",
+      finish: "Glossy",
+    },
+    {
+      id: "cat_search_02_subtitle",
+      title: "Bravo Card",
+      subtitle: "Ember",
+      description: "Subtitle fixture",
+      tags: ["Regular"],
+      blueprintId: "bpr_search_standard",
+      categoryId: "cat_search_north",
+      finish: "Matte",
+    },
+    {
+      id: "cat_search_03_description",
+      title: "Alpha Card",
+      subtitle: null,
+      description: "Ember",
+      tags: ["Featured"],
+      blueprintId: "bpr_search_special",
+      categoryId: "cat_search_south",
+      finish: "Textured",
+    },
+    {
+      id: "cat_search_04_tag",
+      title: "Charlie Card",
+      subtitle: null,
+      description: "Tag fixture",
+      tags: ["Ember", "Regular"],
+      blueprintId: "bpr_search_special",
+      categoryId: "cat_search_south",
+      finish: "Plain",
+    },
+  ];
+  for (const item of items) {
+    const streamId = `catalog.item-${item.id}`;
+    await project(
+      "catalog.catalog-item.created",
+      {
+        itemId: item.id,
+        languageCode: "en",
+        title: l10n(item.title),
+        subtitle: item.subtitle ? l10n(item.subtitle) : null,
+        description: l10n(item.description),
+      },
+      streamId,
+    );
+    await project("catalog.catalog-item.blueprint-assigned", { blueprintId: item.blueprintId }, streamId);
+    await project("catalog.catalog-item.category-assigned", { categoryId: item.categoryId }, streamId);
+    await project(
+      "catalog.catalog-item.field-value-set",
+      { fieldId: "fld_search_finish", value: item.finish },
+      streamId,
+    );
+    await project("catalog.catalog-item.tags-set", { tags: item.tags }, streamId);
+    await project("catalog.catalog-item.published", { blueprintId: item.blueprintId }, streamId);
+  }
+  return handlers;
+}
 
 async function loadSearchIndexRow(catalogItemId: string): Promise<Record<string, unknown> | undefined> {
   const result = await pools.discovery.query<{ row: Record<string, unknown> }>(

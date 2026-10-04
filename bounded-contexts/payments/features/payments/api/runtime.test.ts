@@ -10,17 +10,25 @@ import type {
   StoredEvent,
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
-import { PaymentsRateLimitExceededError, createPaymentRuntime as createRuntime } from "./runtime";
+import {
+  PaymentDeclineLimitUnavailableError,
+  PaymentsRateLimitExceededError,
+  createPaymentRuntime as createRuntime,
+} from "./runtime";
 import { createPaymentWebhookRunner } from "./webhook-transaction";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { ProviderWebhookError, type ProviderWebhookTelemetryEvent } from "@chase-sets/http/provider-errors";
 
-function createPaymentRuntime(deps: Omit<Parameters<typeof createRuntime>[0], "runWebhookTransaction">) {
+function createPaymentRuntime(
+  deps: Omit<Parameters<typeof createRuntime>[0], "runWebhookTransaction" | "cardDeclineStore"> &
+    Partial<Pick<Parameters<typeof createRuntime>[0], "cardDeclineStore">>,
+) {
   const pool: PgTransactionalPool = {
     query: deps.db.query,
     connect: async () => ({ query: deps.db.query, release: () => undefined }),
   };
   return createRuntime({
+    cardDeclineStore: { check: vi.fn(async () => null), record: vi.fn(async () => undefined) },
     ...deps,
     runWebhookTransaction: createPaymentWebhookRunner(pool, {
       ...deps.eventStore,
@@ -2005,121 +2013,68 @@ describe("payment runtime", () => {
     );
   });
 
-  it("blocks saved-card payment creation after repeated declines for the same card fingerprint", async () => {
-    const processorGateway = createProcessorGateway();
-    const declinedPayment = {
-      ...existingPaymentRow(),
-      payment_id: "pay_declined",
-      processor_payment_reference: "pi_declined",
-      status: "pending-confirmation",
-    };
-    const { db } = createReconciliationDb({
-      paymentById: (paymentId) => (paymentId === "pay_declined" ? declinedPayment : null),
-    });
-    const declineRuntime = createPaymentRuntime({
-      eventStore: createInMemoryEventStore().eventStore,
-      checkpointStore: createCheckpointStore(),
-      db: db as never,
-      processorGateway,
-    });
-    await declineRuntime.commandHandler({
-      streamId: "payments.payment-pay_declined",
-      command: {
-        type: "CreatePayment",
-        paymentId: "pay_declined" as never,
-        buyerAccountId: "acc_buyer" as never,
+  it.each(["limited", "unavailable"] as const)(
+    "prevents saved-card gateway calls when the shared decline store is %s",
+    async (outcome) => {
+      const check = vi.fn(async () => {
+        if (outcome === "unavailable") throw new Error("synthetic private database detail");
+        return { retryAfterSeconds: 42 };
+      });
+      const creationGateway = createProcessorGateway();
+      const creationRuntime = createPaymentRuntime({
+        cardDeclineStore: { check, record: vi.fn(async () => undefined) },
+        eventStore: createInMemoryEventStore().eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: createOrderInputDb({
+          savedCheckoutInstrumentRows: [
+            {
+              instrument_id: "sci_declined_card",
+              account_id: "acc_buyer",
+              payment_method_category: "card",
+              provider: "stripe",
+              provider_customer_reference: "cus_buyer",
+              provider_reference: "pm_declined_saved",
+              provider_fingerprint: "fp_declined_card",
+              display_label: "Visa ending in 0002",
+              confirmation_experience: "off-session-token",
+              readiness: "ready",
+              allow_redisplay: "always",
+              consent_id: "consent_declined",
+              consent_text: "Save for future checkout.",
+              removed_at: null,
+              is_default: true,
+              created_at: "2026-04-29T00:00:00.000Z",
+              updated_at: "2026-04-29T00:00:00.000Z",
+            },
+          ],
+        }) as never,
+        processorGateway: creationGateway,
+      });
+      const status = await creationRuntime.getCheckoutStatus({
+        accountId: "acc_buyer" as never,
         orderIds: ["ord_1" as never],
-        amount: "24.99",
-        marketplaceSalesFeeAmount: "1.00",
-        marketplaceCheckoutFeeAmount: "0.50",
-        sellerNetAmount: "23.49",
-        currencyCode: "usd",
-        processorName: "stripe",
-        processorPaymentKind: "payment-intent",
-        processorPaymentReference: "pi_declined",
-        processorClientSecret: null,
-        processorStatus: "requires_payment_method",
-        createdAt: "2026-04-29T00:00:00.000Z",
-      },
-      context,
-    });
+        paymentMethodCategory: "card",
+      });
 
-    for (let attempt = 1; attempt <= 5; attempt += 1) {
-      processorGateway.parseWebhook.mockResolvedValueOnce({
-        eventId: `evt_decline_${attempt}`,
-        kind: "payment-failed",
-        processorName: "stripe",
-        processorPaymentKind: "payment-intent",
-        processorPaymentReference: "pi_declined",
-        internalPaymentId: "pay_declined",
-        processorStatus: "requires_payment_method",
-        failureCode: "card_declined",
-        failureMessage: "Card was declined.",
-        occurredAt: `2026-04-29T00:0${attempt}:00.000Z`,
-        savedPaymentMethod: {
-          processorName: "stripe",
-          providerCustomerReference: "cus_buyer",
-          providerReference: `pm_declined_${attempt}`,
-          paymentMethodFingerprint: "fp_declined_card",
-          paymentMethodCategory: "card",
-          displayLabel: "Visa ending in 0002",
-          readiness: "ready",
-          allowRedisplay: "always",
-          removed: false,
-        },
-      } as never);
-      await declineRuntime.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context).catch(() => undefined);
-    }
-
-    const creationGateway = createProcessorGateway();
-    const creationRuntime = createPaymentRuntime({
-      eventStore: createInMemoryEventStore().eventStore,
-      checkpointStore: createCheckpointStore(),
-      db: createOrderInputDb({
-        savedCheckoutInstrumentRows: [
+      await expect(
+        creationRuntime.createAccountPayment(
           {
-            instrument_id: "sci_declined_card",
-            account_id: "acc_buyer",
-            payment_method_category: "card",
-            provider: "stripe",
-            provider_customer_reference: "cus_buyer",
-            provider_reference: "pm_declined_saved",
-            provider_fingerprint: "fp_declined_card",
-            display_label: "Visa ending in 0002",
-            confirmation_experience: "off-session-token",
-            readiness: "ready",
-            allow_redisplay: "always",
-            consent_id: "consent_declined",
-            consent_text: "Save for future checkout.",
-            removed_at: null,
-            is_default: true,
-            created_at: "2026-04-29T00:00:00.000Z",
-            updated_at: "2026-04-29T00:00:00.000Z",
+            accountId: "acc_buyer" as never,
+            orderIds: ["ord_1" as never],
+            paymentMethodCategory: "card",
+            marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+            savedCheckoutInstrumentId: "sci_declined_card",
           },
-        ],
-      }) as never,
-      processorGateway: creationGateway,
-    });
-    const status = await creationRuntime.getCheckoutStatus({
-      accountId: "acc_buyer" as never,
-      orderIds: ["ord_1" as never],
-      paymentMethodCategory: "card",
-    });
-
-    await expect(
-      creationRuntime.createAccountPayment(
-        {
-          accountId: "acc_buyer" as never,
-          orderIds: ["ord_1" as never],
-          paymentMethodCategory: "card",
-          marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
-          savedCheckoutInstrumentId: "sci_declined_card",
-        },
-        context,
-      ),
-    ).rejects.toBeInstanceOf(PaymentsRateLimitExceededError);
-    expect(creationGateway.createPaymentSession).not.toHaveBeenCalled();
-  });
+          context,
+        ),
+      ).rejects.toBeInstanceOf(
+        outcome === "limited" ? PaymentsRateLimitExceededError : PaymentDeclineLimitUnavailableError,
+      );
+      expect(check).toHaveBeenCalledWith("fp_declined_card");
+      expect(creationGateway.createPaymentSession).not.toHaveBeenCalled();
+      expect(creationGateway.createCustomer).not.toHaveBeenCalled();
+    },
+  );
 
   it("makes the first consent-saved checkout instrument default", async () => {
     const { eventStore } = createInMemoryEventStore();

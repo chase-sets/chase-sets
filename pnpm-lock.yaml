@@ -619,6 +619,9 @@ importers:
       '@chase-sets/object-storage':
         specifier: workspace:*
         version: link:../../infrastructure/object-storage
+      '@chase-sets/order-groups':
+        specifier: workspace:*
+        version: link:../../contracts/order-groups
       '@chase-sets/outbound-messaging':
         specifier: workspace:*
         version: link:../../contracts/outbound-messaging
@@ -1906,6 +1909,9 @@ importers:
       '@chase-sets/observability':
         specifier: workspace:*
         version: link:../../infrastructure/observability
+      '@chase-sets/order-groups':
+        specifier: workspace:*
+        version: link:../../contracts/order-groups
       '@chase-sets/ordering':
         specifier: workspace:*
         version: link:../../bounded-contexts/ordering
