@@ -15,7 +15,7 @@ promiseTable:
     tests: ["bounded-contexts/commercial-terms/routes/public/sales-fees.test.tsx"]
   - claim: Published payout-fee figures resolve from the current Settlement payout-fee policy document.
     issues: ["#7819"]
-    tests: ["bounded-contexts/public-presence/tests/help-route.test.tsx", "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts"]
+    tests: ["bounded-contexts/public-presence/tests/help-route.test.tsx", "deployables/platform-api/__tests__/db/unit-1/bootstrap-production-reconciliation.db.test.ts"]
   - claim: Confirming a listing locks the resolved fee terms for its units, and later schedule revisions never change locked units.
     issues: ["#4067"]
     tests: ["bounded-contexts/marketplace/features/listings/domain/domain.test.ts", "bounded-contexts/commercial-terms/features/resolutions/read-model/resolve.test.ts"]

@@ -6666,7 +6666,7 @@ export const helpArticles = [
         issues: ["#7819"],
         tests: [
           "bounded-contexts/public-presence/tests/help-route.test.tsx",
-          "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts",
+          "deployables/platform-api/__tests__/db/unit-1/bootstrap-production-reconciliation.db.test.ts",
         ],
       },
       {

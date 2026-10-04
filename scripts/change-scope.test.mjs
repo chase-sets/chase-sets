@@ -1142,7 +1142,7 @@ describe("change-scope", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
       baseDir,
-      changedFiles: ["bounded-contexts/catalog/tests/catalog-authoring/acceptance/admin-page-projections.test.ts"],
+      changedFiles: ["bounded-contexts/catalog/tests/catalog-authoring/acceptance/admin-page-projections.db.test.ts"],
       workspaces: [
         {
           ...workspace(baseDir, "bounded-contexts", "catalog", "@test/catalog", {}, { testProfile: "db" }),

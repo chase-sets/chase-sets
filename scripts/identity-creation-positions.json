@@ -217,14 +217,14 @@
       "reason": "This internal-route assertion pins the exact account command personal registration composes, by comparing the appended account event against the Account decider's output for that literal."
     },
     {
-      "path": "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts",
+      "path": "deployables/platform-api/__tests__/db/unit-1/bootstrap-production-reconciliation.db.test.ts",
       "command": "CreateAccount",
       "occurrences": 1,
       "disposition": "test-fixture",
       "reason": "This database fixture seeds an existing account aggregate so production bootstrap reconciliation has authoritative state to inspect."
     },
     {
-      "path": "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts",
+      "path": "deployables/platform-api/__tests__/db/unit-1/bootstrap-production-reconciliation.db.test.ts",
       "command": "CreateUser",
       "occurrences": 1,
       "disposition": "test-fixture",
