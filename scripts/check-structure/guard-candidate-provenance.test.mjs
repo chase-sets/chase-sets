@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -188,6 +189,49 @@ function liveGit(args) {
   return execFileSync("git", args, { cwd: repoRoot, encoding: "utf8" }).trim();
 }
 
+function withSyntheticPullRequest(run) {
+  const directory = mkdtempSync(path.join(tmpdir(), "chase-sets-synthetic-pr-provenance-"));
+  const git = (args) =>
+    execFileSync("git", args, {
+      cwd: directory,
+      encoding: "utf8",
+      input: "",
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
+  try {
+    git(["init", "--quiet"]);
+    const tree = git(["hash-object", "-w", "-t", "tree", "--stdin"]);
+    const commit = (label, parents = []) =>
+      git([
+        "-c",
+        "user.name=Synthetic provenance control",
+        "-c",
+        "user.email=provenance@synthetic.invalid",
+        "commit-tree",
+        tree,
+        ...parents.flatMap((parent) => ["-p", parent]),
+        "-m",
+        `synthetic provenance: ${label}`,
+      ]);
+    const root = commit("root");
+    const base = commit("pinned base", [root]);
+    const head = commit("reviewed head", [root]);
+    const merge = commit("analyzed PR merge", [base, head]);
+    git(["update-ref", "HEAD", merge]);
+    git(["update-ref", "refs/remotes/origin/main", base]);
+    const payload = { pull_request: { head: { sha: head }, base: { sha: root } } };
+    const derive = ({ eventPayload = payload, execGit = git } = {}) =>
+      deriveGuardCandidateProvenance({
+        env: { GITHUB_EVENT_NAME: "pull_request" },
+        execGit,
+        readEventPayload: () => eventPayload,
+      });
+    return run({ git, commit, root, base, head, merge, payload, derive });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
 function fixtureHash(fixture) {
   return sha256(fixture);
 }
@@ -355,6 +399,121 @@ describe("guard candidate provenance", () => {
         { name: "baseTipAtAnalysis-from-eventBaseSnapshot", ...baseTipResult },
         { name: "forkPoint-from-eventBaseSnapshot", ancestryClausePassed: true, ...forkPointResult },
       ],
+    });
+  });
+
+  it.each(["equal", "advanced"])("accepts a synthetic pinned PR merge when fetched main is %s", (state) => {
+    withSyntheticPullRequest(({ git, commit, base, head, merge, root, derive }) => {
+      const fetchedMain = state === "advanced" ? commit("main advance", [base]) : base;
+      git(["update-ref", "refs/remotes/origin/main", fetchedMain]);
+      const record = derive();
+      expect(record.roles.analyzedTree.sha).toBe(merge);
+      expect(record.roles.baseTipAtAnalysis).toEqual({ sha: base, source: "analyzed-tree-first-parent" });
+      expect(record.roles.reviewedHead.sha).toBe(head);
+      expect(record.roles.landingCandidate.sha).toBe(head);
+      expect(record.roles.eventBaseSnapshot.sha).toBe(root);
+      expect(record.roles.forkPoint.sha).toBe(root);
+      expect(record.reviewedHeadLands).toBe(true);
+      if (state === "advanced") expect(fetchedMain).not.toBe(base);
+    });
+  });
+
+  it.each([
+    {
+      name: "wrong reviewed-head parent",
+      code: "guard-provenance-invalid",
+      clause: "base-tip-parentage",
+      run: ({ payload, root, derive }) => {
+        payload.pull_request.head.sha = root;
+        return derive();
+      },
+    },
+    {
+      name: "reversed merge parents",
+      code: "guard-provenance-invalid",
+      clause: "base-tip-parentage",
+      run: ({ git, commit, base, head, derive }) => {
+        git(["update-ref", "HEAD", commit("reversed merge", [head, base])]);
+        return derive();
+      },
+    },
+    ...[1, 3].map((count) => ({
+      name: `${count}-parent merge`,
+      code: "guard-provenance-invalid",
+      clause: "base-tip-parentage",
+      run: ({ git, commit, base, head, root, derive }) => {
+        git(["update-ref", "HEAD", commit(`${count}-parent merge`, [base, head, root].slice(0, count))]);
+        return derive();
+      },
+    })),
+    {
+      name: "non-ancestor base after main rewrite",
+      code: "guard-provenance-invalid",
+      clause: "base-tip-parentage",
+      run: ({ git, commit, root, derive }) => {
+        git(["update-ref", "refs/remotes/origin/main", commit("rewritten main", [root])]);
+        return derive();
+      },
+    },
+    {
+      name: "main behind the pinned base",
+      code: "guard-provenance-invalid",
+      clause: "base-tip-parentage",
+      run: ({ git, root, derive }) => {
+        git(["update-ref", "refs/remotes/origin/main", root]);
+        return derive();
+      },
+    },
+    {
+      name: "missing qualified ref",
+      code: "guard-provenance-unavailable",
+      clause: "qualified-base-ref",
+      run: ({ git, derive }) => {
+        git(["update-ref", "-d", "refs/remotes/origin/main"]);
+        return derive();
+      },
+    },
+    {
+      name: "missing pinned-base commit evidence",
+      code: "guard-provenance-unavailable",
+      clause: "object-existence",
+      run: ({ git, base, derive }) =>
+        derive({
+          execGit: (args) =>
+            args[0] === "cat-file" && args[2] === `${base}^{commit}` ? { status: 128, stdout: "" } : git(args),
+        }),
+    },
+    {
+      name: "missing ancestry evidence after main advance",
+      code: "guard-provenance-unavailable",
+      clause: "base-tip-parentage",
+      run: ({ git, commit, base, derive }) => {
+        git(["update-ref", "refs/remotes/origin/main", commit("main advance", [base])]);
+        return derive({
+          execGit: (args) =>
+            args[0] === "merge-base" && args[1] === "--is-ancestor" ? { status: 128, stdout: "" } : git(args),
+        });
+      },
+    },
+    {
+      name: "missing parentage evidence",
+      code: "guard-provenance-unavailable",
+      clause: "git-parentage",
+      run: ({ git, derive }) =>
+        derive({ execGit: (args) => (args[0] === "rev-list" ? { status: 128, stdout: "" } : git(args)) }),
+    },
+    {
+      name: "contradictory analyzed-commit identity",
+      code: "guard-provenance-invalid",
+      clause: "base-tip-parentage",
+      run: ({ git, base, head, derive }) =>
+        derive({ execGit: (args) => (args[0] === "rev-list" ? `${base} ${base} ${head}` : git(args)) }),
+    },
+  ])("refuses synthetic PR provenance with $name", ({ run, code, clause }) => {
+    expect(captureError(() => withSyntheticPullRequest(run))).toMatchObject({
+      status: "red",
+      code,
+      reachedClause: clause,
     });
   });
 
