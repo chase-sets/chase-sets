@@ -833,6 +833,23 @@ describe("predecessor-recorded structural scanner oracle", () => {
     expect(parseIssueFormBody(body).fields).toMatchObject({ Context: "kept", "Scope fence": "scope" });
   });
 
+  it.each(["###", "####"])("keeps Don't-rebuild pointers at heading level %s inside Context", (level) => {
+    const body = [
+      "## Context",
+      "scripts/issue-readiness.mjs",
+      `${level} Don't-rebuild pointers`,
+      "corpus-r2.json",
+      "## Scope fence",
+      "bounded parser repair",
+    ].join("\n");
+    const parsed = parseIssueFormBody(body);
+
+    expect(parsed.status).toBe("ok");
+    expect(parsed.fields.Context).toContain("corpus-r2.json");
+    expect(parsed.fields.Context).not.toContain("bounded parser repair");
+    expect(parsed.fields["Scope fence"]).toBe("bounded parser repair");
+  });
+
   it("the returned structure record uses exact UTF-8 offsets and key order", () => {
     const structure = scanIssueFormStructure("é\r\n## Context\n💩\n漢");
 
@@ -1062,6 +1079,39 @@ describe("issue-readiness/v1 receipt and rule contract", () => {
       id: "ready-08-authority-probe-timed",
       status: "pass",
       reasonCodes: [],
+    });
+  });
+
+  it.each(["corpus-r2.json", "`corpus-r2.json`"])(
+    "accepts the same named authority artifact with formatting %s",
+    (artifact) => {
+      const body = replaceField(
+        fixture.readyBody,
+        "External authority probe & evidence timing",
+        `${artifact} after acceptance.`,
+      );
+      const result = prospectiveResult(body);
+
+      expect(result.checkedRules).toContainEqual({
+        id: "ready-08-authority-probe-timed",
+        status: "pass",
+        reasonCodes: [],
+      });
+    },
+  );
+
+  it.each([
+    "after acceptance.",
+    "corpus-r2.json; no lifecycle moment is stated.",
+    "Evidence after acceptance `not-a-reference`.",
+  ])("does not accept authority evidence without artifact and lifecycle timing: %s", (field) => {
+    const body = replaceField(fixture.readyBody, "External authority probe & evidence timing", field);
+    const result = prospectiveResult(body);
+
+    expect(result.checkedRules).toContainEqual({
+      id: "ready-08-authority-probe-timed",
+      status: "fail",
+      reasonCodes: ["AUTHORITY_PROBE_OR_TIMING_MISSING"],
     });
   });
 

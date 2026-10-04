@@ -618,16 +618,18 @@ export function scanIssueFormStructure(text) {
         fence = null;
       }
     } else if (fence === null) {
-      const heading = line.match(/^#{2,3}\s+(.+?)\s*$/);
+      const heading = line.match(/^(#{2,3})\s+(.+?)\s*$/);
       if (heading) {
-        const label = heading[1];
-        const accepted = known.has(label);
-        headings.push({ label, lineIndex: index, startOffset, endOffset, accepted });
-        if (accepted) {
-          if (acceptedLabels.has(label)) {
-            reasonCodes.push(`FORM_FIELD_DUPLICATE:${label}`);
-          } else {
-            acceptedLabels.add(label);
+        const label = heading[2];
+        if (!(heading[1].length === 3 && label === "Don't-rebuild pointers")) {
+          const accepted = known.has(label);
+          headings.push({ label, lineIndex: index, startOffset, endOffset, accepted });
+          if (accepted) {
+            if (acceptedLabels.has(label)) {
+              reasonCodes.push(`FORM_FIELD_DUPLICATE:${label}`);
+            } else {
+              acceptedLabels.add(label);
+            }
           }
         }
       }
@@ -812,7 +814,10 @@ function tier(value) {
 
 function authorityProbeComplete(value) {
   if (exactNone(value, "none — no acceptance criterion depends on an external authority.")) return true;
-  const evidence = /https:\/\/\S+|`[^`]+`|\b(?:captured|fixture|artifact|probe output|workflow run)\b/i.test(value);
+  const evidence =
+    /https:\/\/\S+|\b(?:captured|fixture|artifact|probe output|workflow run)\b|\b[\w.-]+\.(?:json|ya?ml|md|txt|log|csv)\b/i.test(
+      value,
+    ) || evidencePointers(value).size > 0;
   const timing =
     /\b(?:before|during|after|at|when)\b.{0,80}\b(?:dispatch|queue|merge|run|request|event|webhook|lifecycle|implementation|acceptance)\b/i.test(
       value,
