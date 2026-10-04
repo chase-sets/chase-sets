@@ -4,7 +4,12 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readOption, readRepeatedOptions } from "./lib/cli-options.mjs";
-import { browserUsabilityGoal, selectBrowserUsabilityGoals } from "./browser-usability-goals.mjs";
+import {
+  auditBrowserUsabilityRoutes,
+  browserUsabilityGoal,
+  browserUsabilityGoalModules,
+  selectBrowserUsabilityGoals,
+} from "./browser-usability-goals.mjs";
 
 const schema = "browser-usability/v1";
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
@@ -109,7 +114,10 @@ export function prepareProbe({ goalId, origin, preflight, evidenceDirectory, dir
       `Run directory: ${path.resolve(directory)}`,
       "Use only the provided browser session wrapper for observations, actions, and finish. No source, tests, APIs, hidden DOM, other reports, or oracle data. Read only this brief; import the session helper without inspecting it.",
       "Before choosing a target, inspect the screenshot. AX may help read or activate a matching visible control; an AX-only invisible target is not a discovered control. Never guess routes. Stay on the starting origin; do not follow external links or consent to permissions.",
-      "No purchases, messages, reviews, reports, or account changes. Only the seller-away goal permits its named synthetic away-window change. Stop on uncertainty rather than expanding scope. Do not enter credentials: the moderator prepares authentication.",
+      "Read-only by default: no purchases, messages, reviews, reports, or account, listing, or settings changes.",
+      ...(goal.permits ? [`Exception for this goal only: ${goal.permits} The moderator restores it afterwards.`] : []),
+      "Never confirm a payment, buy postage, publish or sync to an external channel, send a message, or submit a password or other credential. Stop at the last screen before any of these and report what it would do.",
+      "Stop on uncertainty rather than expanding scope.",
       "Use session.observe() after errors, and session.finish({status: 'complete'|'partial'|'blocked', answer, obstacles}). Report what remains unknown. Completion is your claim, not the independent verdict. No other file writes or agents.",
       "The code enforces a six-minute/35-action budget and saves screenshots/call timing. Do not bypass it or restart a timed-out attempt. Do not put credentials, personal data, tokens, or private URLs in the answer.",
       "",
@@ -245,6 +253,16 @@ function readProbe(directory) {
 export function main(argv = process.argv.slice(2)) {
   const [command] = argv;
   const option = (name) => required(readOption(argv, `--${name}`), `--${name}`);
+  if (command === "audit") {
+    const surfaceId = readOption(argv, "--surface");
+    const modules = surfaceId
+      ? browserUsabilityGoalModules.filter((surface) => surface.id === surfaceId)
+      : browserUsabilityGoalModules;
+    if (!modules.length) throw new Error(`Unknown browser usability surface: ${surfaceId}`);
+    const result = auditBrowserUsabilityRoutes(git(["ls-files"]).split(/\r?\n/).filter(Boolean));
+    if (surfaceId) result.coverage.surfaces = { [surfaceId]: result.coverage.surfaces[surfaceId] };
+    return result;
+  }
   if (command === "select") {
     const base = readOption(argv, "--base") ?? "origin/main";
     const paths = git(["diff", "--name-only", base, "--"]).split(/\r?\n/).filter(Boolean);
@@ -278,6 +296,7 @@ export function main(argv = process.argv.slice(2)) {
     return {
       usage: [
         "pnpm run ops browser:usability select [--base origin/main]",
+        "pnpm run ops browser:usability audit [--surface ID]",
         "pnpm run ops browser:usability prepare --goal ID --origin http://localhost:PORT --preflight FILE --out NEW_DIRECTORY",
         "pnpm run ops browser:usability adjudicate --run DIRECTORY --evidence FILE",
         "pnpm run ops browser:usability compare --candidate DIRECTORY --baseline DIRECTORY [--baseline DIRECTORY ...]",
