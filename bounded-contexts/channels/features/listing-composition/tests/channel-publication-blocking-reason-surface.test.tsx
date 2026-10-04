@@ -94,6 +94,7 @@ function detail(items: readonly ChannelPublicationBlockedListing[], total: numbe
       descriptionFooter: "",
       categoryAllowlist: ["cards"],
       excludedListingIds: [],
+      publishQuantityCap: null,
     },
     mappingReview: { items: [], nextCursor: null, completeness: { kind: "complete", total: 0 } },
     blockedListings: { items, total },
