@@ -2,6 +2,22 @@ import path from "node:path";
 import { buildMinimalProcessEnvironment } from "./lib/process.mjs";
 import { browserE2eLifecyclePathEnv } from "./browser-e2e-evidence.mjs";
 
+export function createPublicWebDevProcessDefinition(sandbox, sandboxEnvironment) {
+  return {
+    name: "public-web",
+    workspace: "@chase-sets/app-public-web",
+    env: {
+      ...sandboxEnvironment,
+      PLATFORM_API_URL: sandbox.urls.platformApi,
+      VITE_PLATFORM_API_URL: sandbox.urls.platformApi,
+      CHASE_SETS_INTERNAL_API_ORIGIN: sandbox.urls.platformApi,
+      CHASE_SETS_MARKETPLACE_ORIGIN: sandbox.urls.marketplaceWeb,
+      PORT: String(sandbox.ports.publicWeb),
+    },
+    port: sandbox.ports.publicWeb,
+  };
+}
+
 const representativeSnapshotEnvironmentNames = Object.freeze([
   "CATALOG_ASSET_LOCAL_ROOT",
   "REPRESENTATIVE_CATALOG_PACK_MANIFEST_KEYS",
