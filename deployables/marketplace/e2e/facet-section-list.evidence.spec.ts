@@ -97,8 +97,10 @@ async function inspectFacetList(page: Page, presentation: Presentation) {
         throw new Error("facet-evidence: clipped-options");
       const insetName = presentation === "desktop" ? "--sidebar-content-inset" : "--panel-content-inset";
       const inset = getComputedStyle(owner).getPropertyValue(insetName).trim();
-      const expectedInset = presentation === "desktop" ? "0.75rem" : "1.25rem";
-      if (inset !== expectedInset) throw new Error("facet-evidence: inset");
+      const expectedInset = presentation === "desktop" ? 0.75 : 1.25;
+      const remValue = /^(\d*\.?\d+)rem$/.exec(inset)?.[1];
+      if (Number(remValue) !== expectedInset)
+        throw new Error(`facet-evidence: inset expected=${expectedInset}rem actual=${inset}`);
       if (presentation === "mobile" && !owner.classList.contains("panel-edge-scroll-area"))
         throw new Error("facet-evidence: edge-body");
       const bounds = () => {
@@ -130,6 +132,12 @@ async function inspectFacetList(page: Page, presentation: Presentation) {
       if (parseFloat(style.marginTop) < 0 || parseFloat(style.marginBottom) < 0)
         throw new Error("facet-evidence: vertical-bleed");
       if (style.overflowAnchor !== "none") throw new Error("facet-evidence: anchoring");
+      const rootCorners = {
+        top: parseFloat(style.borderTopLeftRadius),
+        bottom: parseFloat(style.borderBottomLeftRadius),
+      };
+      if (rootCorners.bottom <= 0 || (presentation === "desktop" && rootCorners.top <= 0))
+        throw new Error("facet-evidence: missing-boundary-corner");
       const items = Array.from(root.querySelectorAll<HTMLElement>("[data-accordion-item-value]"));
       const corners = items.map((item) => {
         const css = getComputedStyle(item);
@@ -167,6 +175,7 @@ async function inspectFacetList(page: Page, presentation: Presentation) {
         options: options.length,
         inset,
         bounds: originalBounds,
+        rootCorners,
         corners,
         scrollOwners: owners.length,
         scrollTop: owner.scrollTop,

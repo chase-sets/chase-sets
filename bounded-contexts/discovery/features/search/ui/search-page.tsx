@@ -752,7 +752,7 @@ export function SearchPage({
                   {facet.title}
                 </Text>
                 {facet.selectionSummary ? (
-                  <Text element="span" size="xs" weight="normal" tone="secondary">
+                  <Text element="span" size="xs" weight="regular" tone="secondary">
                     {facet.selectionSummary}
                   </Text>
                 ) : null}

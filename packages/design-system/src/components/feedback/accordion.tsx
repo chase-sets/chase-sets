@@ -225,11 +225,21 @@ export function Accordion({
         isSectionList && edgeMode === "card" && bleed === "both" && "first:-mt-4 last:-mb-4",
         isSectionList &&
           edgeMode === "compact" &&
-          "mx-[calc(-1*var(--sidebar-content-inset,0.75rem))] w-[calc(100%+2*var(--sidebar-content-inset,0.75rem))] max-w-none self-stretch first:rounded-t-tokenLg last:rounded-b-tokenLg",
+          "max-w-none self-stretch first:rounded-t-tokenLg last:rounded-b-tokenLg",
+        isSectionList &&
+          edgeMode === "compact" &&
+          (bleed === "horizontal"
+            ? "mx-[calc(-1*var(--sidebar-content-inset,0.75rem))] w-[calc(100%+2*var(--sidebar-content-inset,0.75rem))]"
+            : "-mx-3 w-[calc(100%+1.5rem)]"),
         isSectionList && edgeMode === "compact" && bleed === "both" && "first:-mt-3 last:-mb-3",
         isSectionList &&
           edgeMode === "panel" &&
-          "mx-[calc(-1*var(--panel-content-inset,1.25rem))] w-[calc(100%+2*var(--panel-content-inset,1.25rem))] max-w-none self-stretch first:rounded-t-tokenXl last:rounded-b-tokenXl",
+          "max-w-none self-stretch first:rounded-t-tokenXl last:rounded-b-tokenXl",
+        isSectionList &&
+          edgeMode === "panel" &&
+          (bleed === "horizontal"
+            ? "mx-[calc(-1*var(--panel-content-inset,1.25rem))] w-[calc(100%+2*var(--panel-content-inset,1.25rem))]"
+            : "-mx-5 w-[calc(100%+2.5rem)]"),
         isSectionList && edgeMode === "panel" && bleed === "both" && "first:-mt-5 last:-mb-5",
       )}
     >

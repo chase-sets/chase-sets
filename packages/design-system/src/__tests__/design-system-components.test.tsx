@@ -1694,8 +1694,8 @@ describe("design system components", () => {
     const activeTrigger = screen.getByRole("button", { name: /Section 1/ });
     const activePanel = screen.getByText("Content 1").parentElement;
 
-    expect(accordion.className).toContain("mx-[calc(-1*var(--panel-content-inset,1.25rem))]");
-    expect(accordion.className).toContain("w-[calc(100%+2*var(--panel-content-inset,1.25rem))]");
+    expect(accordion.className).toContain("-mx-5");
+    expect(accordion.className).toContain("w-[calc(100%+2.5rem)]");
     expect(accordion.className).toContain("self-stretch");
     expect(accordion.className).toContain("first:-mt-5");
     expect(accordion.className).toContain("first:rounded-t-tokenXl");
