@@ -233,14 +233,6 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
     hasSearch = true;
   }
 
-  if (params.category && options.excludeFacet?.kind !== "category") {
-    conditions.push(
-      `(${itemColumn("category_names")} @> $${paramIndex}::jsonb OR ${itemColumn("category_slugs")} @> $${paramIndex}::jsonb)`,
-    );
-    values.push(JSON.stringify([params.category]));
-    paramIndex++;
-  }
-
   if (params.tag) {
     conditions.push(`${itemColumn("tags")} @> $${paramIndex}::jsonb`);
     values.push(JSON.stringify([params.tag]));
