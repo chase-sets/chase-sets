@@ -67,7 +67,7 @@ export function findLandingCopyViolations(
   return violations;
 }
 
-// Seller-fee claim accuracy (#8606). The published sales-fee schedule and the
+// Seller-fee claim accuracy. The published sales-fee schedule and the
 // Founders offer terms are authoritative: 0% applies only to listings created
 // inside a founders account's 60-day window, and every order still funds the
 // Order Protection contribution, so no seller keeps 100% of a sale. Landing
