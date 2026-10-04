@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import { orderGroupFactRegistry, type OrderGroupEventPayloads, type OrderGroupFactType } from "../order-groups/index";
 import {
   accountEnforcementReasonCodes,
   accountEnforcementReversalReasonCodes,
@@ -101,6 +102,98 @@ const missingClosedVersion: IdentityAccountClosedPayload = {
 
 const shardDirectory = path.join(import.meta.dirname, "public-event-payloads");
 const aggregateFileName = "index.ts";
+
+describe("Order Group post-Fulfillment-shard registration", () => {
+  it("registers each exact payload type in the owning shard and aggregate", () => {
+    expectTypeOf<Pick<ChaseSetsEventPayloads, OrderGroupFactType>>().toEqualTypeOf<OrderGroupEventPayloads>();
+    expectTypeOf<Pick<OrderingEventPayloads, Extract<OrderGroupFactType, `ordering.${string}`>>>().toEqualTypeOf<
+      Pick<OrderGroupEventPayloads, Extract<OrderGroupFactType, `ordering.${string}`>>
+    >();
+    expectTypeOf<Pick<FulfillmentEventPayloads, Extract<OrderGroupFactType, `fulfillment.${string}`>>>().toEqualTypeOf<
+      Pick<OrderGroupEventPayloads, Extract<OrderGroupFactType, `fulfillment.${string}`>>
+    >();
+  });
+
+  it("censuses every landed shard for collisions and rejects parallel namespaces", () => {
+    const registrations = listShardModules(shardDirectory).flatMap((file) =>
+      [...readFileSync(path.join(shardDirectory, file), "utf8").matchAll(/^\s*"([^"]+)":/gm)].map((match) => ({
+        type: match[1],
+        file,
+      })),
+    );
+    const groupRegistrations = registrations.filter(
+      ({ type }) => type.includes("order-group.") || type.includes("shipment-group."),
+    );
+    expect(groupRegistrations).toHaveLength(9);
+    expect(groupRegistrations.map(({ type }) => type).sort()).toEqual(Object.keys(orderGroupFactRegistry).sort());
+    for (const { type, publisher, consumers } of Object.values(orderGroupFactRegistry)) {
+      expect(registrations.filter((entry) => entry.type === type)).toEqual([{ type, file: `${publisher}.ts` }]);
+      expect(consumers.length).toBeGreaterThan(0);
+      expect(new Set(consumers).size).toBe(consumers.length);
+    }
+  });
+
+  it("uses the canonical package codecs for registered public payloads", () => {
+    expectTypeOf<
+      import("@chase-sets/event-core/public-event-payloads").OrderGroupEventPayloads
+    >().toEqualTypeOf<OrderGroupEventPayloads>();
+    for (const { type, codec } of Object.values(orderGroupFactRegistry)) {
+      expect(() => codec.decode({ eventType: type, payload: {} })).toThrow();
+      expect(() => codec.decode({ eventType: `${type}.v1`, payload: {} })).toThrow();
+    }
+  });
+
+  it("rejects each closed-schema discriminator for the public aggregate payload", () => {
+    const formed = orderGroupFactRegistry["ordering.order-group.formed"];
+    const payload: ChaseSetsEventPayloads["ordering.order-group.formed"] = {
+      contractVersion: "order-group-admission/v1",
+      requestId: "request-1",
+      sourceGeneration: 0,
+      draftKey: "draft-1",
+      anchorShipmentId: "shp_01ARYZ6S41TSV4RRFFQ69G5FAV",
+      anchorOrderId: "ord_01ARYZ6S41TSV4RRFFQ69G5FAV",
+      proposedMemberOrderId: "ord_01ARYZ6S41TSV4RRFFQ69G5FAW",
+      groupId: "ogr_01ARYZ6S41TSV4RRFFQ69G5FAV",
+      quoteFingerprint: "quote-1",
+      memberOrderIds: ["ord_01ARYZ6S41TSV4RRFFQ69G5FAV", "ord_01ARYZ6S41TSV4RRFFQ69G5FAW"],
+      formedAt: "2026-10-03T20:00:00Z",
+      anchorOrderVersion: 4,
+      stagedMemberOrderVersion: 1,
+    };
+    expect(formed.codec.encode(formed.codec.decode({ eventType: formed.type, payload }))).toEqual({
+      eventType: formed.type,
+      payload,
+    });
+    const { quoteFingerprint: omitted, ...missing } = payload;
+    expect(omitted).toBe("quote-1");
+    const invalid = {
+      missing,
+      extra: { ...payload, buyerEmail: "private" },
+      malformed: { ...payload, groupId: "ogr_not-a-ulid" },
+      cardinality: { ...payload, memberOrderIds: [payload.anchorOrderId] },
+      version: { ...payload, contractVersion: "order-group-admission/v0" },
+      nestedExtra: {
+        ...payload,
+        memberOrderIds: [{ id: payload.anchorOrderId, extra: true }, payload.proposedMemberOrderId],
+      },
+      dateOnly: { ...payload, formedAt: "2026-10-03" },
+      outOfRange: { ...payload, anchorOrderVersion: Number.MAX_SAFE_INTEGER + 1 },
+    };
+    for (const [discriminator, candidate] of Object.entries(invalid)) {
+      expect(() => formed.codec.decode({ eventType: formed.type, payload: candidate }), discriminator).toThrow();
+    }
+    const { memberOrderIds: members, stagedMemberOrderVersion: staged, formedAt, ...identity } = payload;
+    expect(members).toHaveLength(2);
+    expect(staged).toBe(1);
+    const aborted = orderGroupFactRegistry["ordering.order-group.admission-aborted"];
+    expect(() =>
+      aborted.codec.decode({
+        eventType: aborted.type,
+        payload: { ...identity, abortedAt: formedAt, reason: "staging-failed" },
+      }),
+    ).toThrow();
+  });
+});
 
 function listShardModules(directory: string): readonly string[] {
   return readdirSync(directory)

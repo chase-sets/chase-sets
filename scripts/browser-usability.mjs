@@ -430,8 +430,9 @@ export function auditProbeSweep({ root, surfaceId, notRun = [], files = trackedF
     );
   const exercised = [];
   const unexercised = [];
-  const excluded = surface.excludedRoutes;
-  for (const route of surfaceRoutes(surface, files)) {
+  const routes = surfaceRoutes(surface, files);
+  const excluded = surface.excludedRoutes.filter((entry) => routes.includes(entry.path));
+  for (const route of routes) {
     if (excluded.some((entry) => entry.path === route)) continue;
     const reached = goals.find((goal) =>
       selected.get(goal.goalId)?.adjudication.reachedRoutes?.some((entry) => entry.route === route),

@@ -128,7 +128,6 @@ const traderNavOverrides: Record<string, Partial<NavigationItem>> = {
   notifications: {
     label: t("marketplace.app.host.notifications"),
     icon: "bell",
-    href: undefined,
   },
   sales: {
     label: t("marketplace.app.host.sales"),

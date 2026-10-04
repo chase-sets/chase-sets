@@ -52,6 +52,7 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
   const result = checkHeavySlotCoverage();
   const expectedEntrypoints = [
     "contracts/market-estimate-display/vitest.config.ts",
+    "contracts/order-groups/vitest.config.ts",
     "deployables/platform-api/vitest.config.ts",
     "deployables/tcgplayer-operator-extension/vitest.config.ts",
     "infrastructure/stripe-appearance/vitest.config.ts",
@@ -71,7 +72,7 @@ test("derives every heavy artifact entry point and requires a reachable guard ac
     "scripts/run-workspaces.mjs",
     "vitest.scripts.config.mjs",
   ];
-  assert.equal(result.entrypoints.length, 82);
+  assert.equal(result.entrypoints.length, 83);
   assert.deepEqual(
     expectedEntrypoints.filter((entrypoint) => !result.entrypoints.includes(entrypoint)),
     [],
