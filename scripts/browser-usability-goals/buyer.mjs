@@ -64,14 +64,13 @@ export default {
         "checkout-session":
           "Checkout session read model: a session started from the seeded cart by this run, carrying the delivery option and address the participant chose. The cart page alone is not a session.",
         "payment-step":
-          "Checkout session and payment read models: the run's session carries a payment in pending-confirmation and nothing captured. If the sandbox has no payment processor and the session never leaves its preparing state, record environment-invalid rather than a product failure.",
+          "Checkout session and payment read models: the run's session carries a payment in pending-confirmation and nothing captured. The payment entry renders on the checkout session page itself, so this check claims no separate payment page. If the sandbox has no payment processor and the session never leaves its preparing state, record environment-invalid rather than a product failure.",
         "cart-restored":
-          "After restoration: the two seeded cart lines are present again and no session or payment started by this run remains open. Re-running the checkout seed reconciliation is the restoration path.",
+          "Before restoration, record the session and payment ids this run created. Restoration is the moderator's owned isolated sandbox refresh (pnpm run dev:db:refresh in the moderator's worktree: scripts/dev-system.mjs runRefresh destroys that sandbox's Postgres volume and re-runs bootstrap), never a shared or live seat. Afterwards read back both: the cart read model holds exactly the two seeded cart lines (checkoutSeedIds.cartLines), and each recorded run-created session and payment is absent or terminal, with no pending-confirmation payment left. Re-running the checkout seed alone reconciles only the seeded lines and the reserved bootstrap session; it closes nothing this run created and is not restoration.",
       },
       routes: {
         "bounded-contexts/checkout/routes/account-cart.tsx": "cart-contents",
         "bounded-contexts/checkout/routes/checkout-session.tsx": "checkout-session",
-        "bounded-contexts/payments/routes/marketplace/account-payment.tsx": "payment-step",
       },
       paths: [
         "bounded-contexts/checkout/features/cart/",
@@ -80,6 +79,43 @@ export default {
       ],
       permits:
         "You may check out the items already in your cart and continue up to the payment step for this synthetic account.",
+    },
+    {
+      id: "buyer-checkout-readiness",
+      version: 1,
+      startPath: "/checkout/buy/readiness",
+      role: "buyer",
+      host: "marketplace",
+      goal: "You are about to buy the items waiting in your cart and want to be sure nothing will hold the order up. Find out whether your cart is ready to check out, how many items would be included, and whether anything needs your attention first. Stop before you go any further: do not start a checkout or buy anything.",
+      checks: ["readiness-status"],
+      oracle: {
+        "readiness-status":
+          "Checkout cart readiness snapshot for the synthetic buyer (createCartReadinessSnapshot over the two seeded cart lines, checkoutSeedIds.cartLines): status ready, two lines, no customer-safe facts. Compare the readiness, item count and absence of warnings the participant reports. The readiness page is a read-only GET until its form is submitted, so the checkout session read model must show no session created by this run.",
+      },
+      routes: {
+        "bounded-contexts/checkout/routes/checkout-start.tsx": "readiness-status",
+      },
+      paths: [
+        "bounded-contexts/checkout/features/sessions/ui/checkout-start",
+        "bounded-contexts/checkout/support/route-support/buy-checkout-readiness/",
+      ],
+    },
+    {
+      id: "buyer-payment-record",
+      version: 1,
+      startPath: "/account/payments/pay_seed_review_eligible_captured",
+      role: "buyer",
+      host: "marketplace",
+      goal: "You have opened the payment record for a sealed product you bought and want to be sure the money actually went through. Confirm the payment's current status, the total that was charged, when it was taken, and which purchase it paid for. Do not retry, start, or change any payment.",
+      checks: ["payment-record"],
+      oracle: {
+        "payment-record":
+          "Bootstrap seed payment paymentsReservedSeedIds.payments.reviewEligibleCaptured (seedPaymentsDatabase, seedReservedPayments): status captured, captured 2026-03-20T11:35Z, amount equal to the covered order total in the payment read model, covering the review-eligible delivered order (reputationReservedSeedIds.orders.reviewEligibleDelivered). Compare status, captured time, total and covered purchase; the payments read model must show no payment command by this run. If the seeded payment is absent because bootstrap has not completed its passes, record environment-invalid.",
+      },
+      routes: {
+        "bounded-contexts/payments/routes/marketplace/account-payment.tsx": "payment-record",
+      },
+      paths: ["bounded-contexts/payments/features/payments/ui/account-payment/"],
     },
     {
       id: "buyer-pending-purchase",
@@ -147,17 +183,19 @@ export default {
       startPath: "/account",
       role: "buyer",
       host: "marketplace",
-      goal: "You want to know how your feedback stands. Find the review you left for a seller after a sealed product arrived, including the rating you gave and whether the seller has replied, and see what has been said about you as a buyer. Do not write, reply to, or report a review.",
-      checks: ["written-review", "received-summary"],
+      goal: "You want to know how your feedback stands. Find the review you left for a seller after a sealed product arrived, including the rating you gave and whether the seller has replied, and confirm which purchase that review belongs to. Then see what has been said about you as a buyer. Do not write, reply to, or report a review.",
+      checks: ["written-review", "review-purchase", "received-summary"],
       oracle: {
         "written-review":
-          "Bootstrap seed review reputationReservedSeedIds.reviews.buyerToSellerActive (seedReputationData): rating 4 by the synthetic buyer about the demo seller. Compare the rating and the reply state in the review read model.",
+          "Bootstrap seed review reputationReservedSeedIds.reviews.buyerToSellerActive (seedReputationData): submitted at 4 stars, then updated to 5 stars before reveal, so the final seed state is rating 5 by the synthetic buyer about the demo seller with no reply. Compare the rating and the reply state against the review read model, not the first seed command.",
+        "review-purchase":
+          "Review detail read model for reputationReservedSeedIds.reviews.buyerToSellerActive: its order is reputationReservedSeedIds.orders.reviewEligibleDelivered, the delivered Twilight Masquerade Elite Trainer Box purchase. Only the review's own page links to that purchase; the written-reviews list shows rating and reply state without it, so the evidence must show the review's own page, not the list.",
         "received-summary":
           "Reputation summary read model for the synthetic buyer account: the only seller-to-buyer seed review (reputationReservedSeedIds.reviews.sellerToBuyerWithdrawn) is withdrawn, so no active received review should be reported.",
       },
       routes: {
         "bounded-contexts/marketplace/routes/marketplace/account-written-reviews.tsx": "written-review",
-        "bounded-contexts/marketplace/routes/marketplace/account-review.tsx": "written-review",
+        "bounded-contexts/marketplace/routes/marketplace/account-review.tsx": "review-purchase",
         "bounded-contexts/marketplace/routes/marketplace/account-review-summary.tsx": "received-summary",
       },
       paths: ["bounded-contexts/marketplace/features/reviews/"],
@@ -248,11 +286,6 @@ export default {
       path: "bounded-contexts/auth/routes/marketplace/account-select.tsx",
       reason:
         "fixture-gap: second account membership for the seeded buyer so sign-in issues an account selection step; the collector owns exactly one account",
-    },
-    {
-      path: "bounded-contexts/checkout/routes/checkout-start.tsx",
-      reason:
-        "fixture-gap: cart line that fails readiness or a guest entry to render the readiness page; the signed-in seeded cart posts through this route and is redirected to its session",
     },
     { path: "bounded-contexts/checkout/routes/buy-checkout-confirmation.tsx", reason: "provider-step-only" },
     { path: "bounded-contexts/discovery/routes/account-product-alerts.tsx", reason: "redirect-only" },
