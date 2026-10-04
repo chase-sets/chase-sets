@@ -310,7 +310,9 @@ function InlineContent({
   return content.map((inline, index): ReactNode => {
     const key = `${inline.type}-${index}`;
     if (inline.type === "link") {
-      const isMarketplaceLink = inline.href === "/account" || inline.href.startsWith("/account/");
+      const pathname = inline.href.startsWith("/") ? new URL(inline.href, "https://help.invalid").pathname : undefined;
+      const isMarketplaceLink =
+        !inline.href.startsWith("//") && (pathname === "/account" || pathname?.startsWith("/account/"));
       if (isMarketplaceLink && !origin) return inline.label;
       const href = isMarketplaceLink ? new URL(inline.href, origin).href : inline.href;
       return (

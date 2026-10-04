@@ -174,6 +174,7 @@ describe("help article link audit", () => {
 
   for (const href of [
     "/account",
+    "/account?tab=listings#new",
     "/account/listings?status=draft#new",
     "/compare/tcgplayer#fee-calculator",
     "/help/selling?view=all#top",

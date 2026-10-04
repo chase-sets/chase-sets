@@ -116,38 +116,43 @@ describe("public help pages", () => {
     },
   );
 
-  it("preserves account query/hash and non-account links in every inline block shape", () => {
-    const links = [
-      "/account",
-      "/account/listings?status=draft#new",
-      "/help/selling",
-      "/sales-fees",
-      "https://example.test",
-      "/accounting",
-    ];
-    const content = links.map((href) => ({ type: "link" as const, href, label: href }));
-    const article: typeof sellerArticle = {
-      ...sellerArticle,
-      blocks: [
-        { type: "heading" as const, id: "links", level: 2 as const, content, text: links.join(" ") },
-        { type: "paragraph" as const, content },
-        { type: "list" as const, ordered: false, items: [content] },
-      ],
-    };
-    const { container } = render(
-      <HelpArticlePage article={article} related={[]} marketplaceOrigin="https://marketplace.chasesets.test/" />,
-      { wrapper: MemoryRouter },
-    );
-    expect(
-      [...container.querySelector("article")!.querySelectorAll("a")].map((anchor) => anchor.getAttribute("href")),
-    ).toEqual(
-      Array.from({ length: 3 }, () =>
-        links.map((href) =>
-          href === "/account" || href.startsWith("/account/") ? `https://marketplace.chasesets.test${href}` : href,
-        ),
-      ).flat(),
-    );
-  });
+  it.each([undefined, "https://marketplace.chasesets.test/"])(
+    "preserves account query/hash and non-account links in every inline block shape (%s)",
+    (marketplaceOrigin) => {
+      const links = [
+        "/account",
+        "/account?tab=listings#new",
+        "/account/listings?status=draft#new",
+        "/help/selling",
+        "/sales-fees",
+        "https://example.test",
+        "https://example.test/account",
+        "/accounting",
+      ];
+      const content = links.map((href) => ({ type: "link" as const, href, label: href }));
+      const article: typeof sellerArticle = {
+        ...sellerArticle,
+        blocks: [
+          { type: "heading" as const, id: "links", level: 2 as const, content, text: links.join(" ") },
+          { type: "paragraph" as const, content },
+          { type: "list" as const, ordered: false, items: [content] },
+        ],
+      };
+      const { container } = render(
+        <HelpArticlePage article={article} related={[]} marketplaceOrigin={marketplaceOrigin} />,
+        { wrapper: MemoryRouter },
+      );
+      expect(
+        [...container.querySelector("article")!.querySelectorAll("a")].map((anchor) => anchor.getAttribute("href")),
+      ).toEqual(
+        Array.from({ length: 3 }, () =>
+          links.flatMap((href, index) =>
+            index < 3 ? (marketplaceOrigin ? [`https://marketplace.chasesets.test${href}`] : []) : [href],
+          ),
+        ).flat(),
+      );
+    },
+  );
 
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [] }) }));
