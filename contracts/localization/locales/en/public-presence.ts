@@ -174,7 +174,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.faq.all": "Read every FAQ",
   "publicPresence.faq.description": "Quick, plain answers about buying, selling, fees, and protection.",
   "publicPresence.faq.fees.answer":
-    "Listings created during beta keep a 0% seller fee until sold. Chase Sets also does not pass separate seller payment-processing fees to sellers. Buyers pay only payment processing at cost, shown before payment: {checkoutCardRate} + {checkoutCardFixed} by card, {checkoutBankRate} by bank account, $0.00 with Chase Sets balance.",
+    "Listings you create in your first 60 days of beta lock a 0% sales fee until they sell. Listings created after that window lock the published standard sales fee at listing time. Every order funds Order Protection at 1% of item value, paid by the seller. Chase Sets also does not pass separate seller payment-processing fees to sellers. Buyers pay only payment processing at cost, shown before payment: {checkoutCardRate} + {checkoutCardFixed} by card, {checkoutBankRate} by bank account, $0.00 with Chase Sets balance.",
   "publicPresence.faq.fees.question": "What do sellers pay during beta?",
   "publicPresence.faq.launch.answer":
     "Not yet. Join the waitlist first. Numbered beta invite waves come next, followed by open signup for everyone. Joining the waitlist gives you a chance at an invite before launch and founders offer eligibility. No launch or wave dates are promised.",
@@ -190,7 +190,7 @@ export const publicPresenceEnglishTranslations = {
     "Public policies cover privacy, support, checkout, fees, refunds, returns, and protection. Checkout itself isn't open yet.",
   "publicPresence.footer.title": "Chase Sets prelaunch",
   "publicPresence.home.description":
-    "Request early access to post open offers for the cards you want, or list yours with 0% fees during beta. Built for people who buy and sell.",
+    "Request early access to post open offers for the cards you want, or list yours with a 0% sales fee on listings you create in your first 60 days of beta. Built for people who buy and sell.",
   "publicPresence.home.buyerHero.description":
     "Request early access to finish sets and decks, post open offers for the cards you want, and compare delivered totals before checkout.",
   "publicPresence.home.discordCta": "Join the founders circle on Discord",
@@ -242,8 +242,9 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.gameRoster.title": "Five games at launch",
   "publicPresence.home.heroHighlight.launch.label": "Buyer totals",
   "publicPresence.home.heroHighlight.launch.value": "Costs visible before payment",
-  "publicPresence.home.heroHighlight.lowValue.label": "0% beta seller fees",
-  "publicPresence.home.heroHighlight.lowValue.value": "Keep 100% of the sale",
+  "publicPresence.home.heroHighlight.lowValue.label": "Founders window",
+  "publicPresence.home.heroHighlight.lowValue.value":
+    "0% sales fee on listings you create in your first 60 days of beta",
   "publicPresence.home.heroHighlight.offers.label": "Open offers",
   "publicPresence.home.heroHighlight.offers.value": "Post what you'll pay",
   "publicPresence.home.buyerHero.highlight.deliveredTotals.label": "Delivered totals",
@@ -271,12 +272,12 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.sellerEconomics.comparison.column.metric": "On a $10 card",
   "publicPresence.home.sellerEconomics.comparison.column.tcgplayer": "TCGplayer",
   "publicPresence.home.sellerEconomics.comparison.compareLink": "See the full fee comparison",
-  "publicPresence.home.sellerEconomics.comparison.row.youKeep.chaseSets": "$10.00",
+  "publicPresence.home.sellerEconomics.comparison.row.youKeep.chaseSets": "$9.90",
   "publicPresence.home.sellerEconomics.comparison.row.youKeep.ebay": "$8.38",
   "publicPresence.home.sellerEconomics.comparison.row.youKeep.label": "You keep",
   "publicPresence.home.sellerEconomics.comparison.row.youKeep.tcgplayer": "$8.38",
   "publicPresence.home.sellerEconomics.comparison.sourceNote":
-    "TCGplayer and eBay figures use each marketplace's own published seller-fee schedule. Both apply to a $10.00 item price before shipping or tax, as of July 2026, with cents rounded down in each marketplace's favor. Chase Sets figures reflect the 0% beta seller fee lock with no separate seller payment-processing fee.",
+    "TCGplayer and eBay figures use each marketplace's own published seller-fee schedule. Both apply to a $10.00 item price before shipping or tax, as of July 2026, with cents rounded down in each marketplace's favor. Chase Sets figures reflect the 0% sales fee locked on listings created in a founder's first 60 days of beta, with no separate seller payment-processing fee. Every order funds Order Protection at 1% of item value, paid by the seller. The Chase Sets figure deducts that contribution and excludes shipping and tax.",
   "publicPresence.home.sellerEconomics.comparison.title": "The same $10 card, three marketplaces",
   "publicPresence.home.title": "The marketplace that works both ways.",
   "publicPresence.home.buyerHero.title": "The cards you need, with the full picture before you pay.",
@@ -563,9 +564,9 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.waitlist.interest.efficientShipping": "Efficient shipping",
   "publicPresence.waitlist.interest.efficientShipping.description":
     "Orders and fulfillment that make bulk and budget cards practical.",
-  "publicPresence.waitlist.interest.lowSellerFees": "0% beta seller fees",
+  "publicPresence.waitlist.interest.lowSellerFees": "Founders 60-day 0% sales fee",
   "publicPresence.waitlist.interest.lowSellerFees.description":
-    "Fee-locked beta listings and no separate seller processing fee.",
+    "A 0% sales fee locked on listings you create in your first 60 days of beta, and no separate seller processing fee.",
   "publicPresence.waitlist.interest.pricingTools": "Pricing tools",
   "publicPresence.waitlist.interest.pricingTools.description": "Pricing context and repricing tools when markets move.",
   "publicPresence.waitlist.interest.setCompletion": "Set completion",
@@ -606,7 +607,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.welcome.referral.progress.value": "{count} of {goal}",
   "publicPresence.welcome.referral.share.discord": "Share on Discord",
   "publicPresence.welcome.referral.share.message":
-    "Sellers keep 100% of the sale on Chase Sets right now: 0% beta fees, no separate seller processing fee. Join me: {link}",
+    "Chase Sets founders get a 0% sales fee on listings they create in their first 60 days of beta, with no separate seller processing fee. Join me: {link}",
   "publicPresence.welcome.referral.share.title": "Share your link",
   "publicPresence.welcome.referral.share.x": "Share on X",
   "publicPresence.welcome.referral.title": "Move up the list",
