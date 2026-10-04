@@ -842,9 +842,9 @@ function importsBootstrapHarness(filePath, source, testDirectory, cache) {
 function worstCaseListScheduleMs(durationsMs, workerCount) {
   if (durationsMs.length === 0) return 0;
   if (durationsMs.length <= workerCount) return Math.max(...durationsMs);
-  // Invalid negative references are reported by the guard but still projected.
-  // Preserve those refusal-path values; the partition proof needs nonnegative work.
-  if (durationsMs.some((duration) => duration < 0)) {
+  // Refused references and file sets are still projected. Preserve those values
+  // outside the nonnegative, at-most-16-file domain of the closed model schema.
+  if (durationsMs.length > 16 || durationsMs.some((duration) => duration < 0)) {
     const complete = (1 << durationsMs.length) - 1;
     const memo = new Map();
     function walk(placed, loads) {
