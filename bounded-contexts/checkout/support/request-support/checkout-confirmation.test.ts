@@ -19,15 +19,19 @@ const { mockCreateAccountPayment, mockCreatePaymentsRequestApiClient, mockGetChe
   };
 });
 
-const { mockCreateCheckoutReservation, mockCreateInventoryRequestApiClient } = vi.hoisted(() => {
-  const mockCreateCheckoutReservation = vi.fn();
-  return {
-    mockCreateCheckoutReservation,
-    mockCreateInventoryRequestApiClient: vi.fn(() => ({
-      createCheckoutReservation: mockCreateCheckoutReservation,
-    })),
-  };
-});
+const { mockCreateCheckoutReservation, mockReleaseCheckoutReservation, mockCreateInventoryRequestApiClient } =
+  vi.hoisted(() => {
+    const mockCreateCheckoutReservation = vi.fn();
+    const mockReleaseCheckoutReservation = vi.fn();
+    return {
+      mockCreateCheckoutReservation,
+      mockReleaseCheckoutReservation,
+      mockCreateInventoryRequestApiClient: vi.fn(() => ({
+        createCheckoutReservation: mockCreateCheckoutReservation,
+        releaseCheckoutReservation: mockReleaseCheckoutReservation,
+      })),
+    };
+  });
 
 vi.mock("@chase-sets/payments/server", async () => {
   const actual = await vi.importActual<typeof import("@chase-sets/payments/server")>("@chase-sets/payments/server");
@@ -56,7 +60,11 @@ vi.mock("@chase-sets/marketplace/server", () => ({
   },
 }));
 
-import { createCheckoutInventoryReservations, createCheckoutPaymentThroughPayments } from "./checkout-confirmation";
+import {
+  createCheckoutInventoryReservations,
+  createCheckoutPaymentThroughPayments,
+  releaseCheckoutInventoryReservations,
+} from "./checkout-confirmation";
 import type { CheckoutSessionRow } from "../../features/sessions/read-model/queries";
 
 function paymentsApiError(status: number, code: string, message: string) {
@@ -72,13 +80,61 @@ function paymentsApiError(status: number, code: string, message: string) {
 }
 
 describe("checkout confirmation request support", () => {
+  it("releases with the resolved session ID and no body seller", async () => {
+    const reservation = {
+      holdId: "hld_1",
+      sellerAccountId: "acc_seller",
+      inventoryItemId: "inv_1",
+      lineKey: "cli_1",
+      quantity: 1,
+      expiresAt: "2099-01-01T00:00:00.000Z",
+      extensionCount: 0,
+      status: "active" as const,
+    };
+    const request = new Request("https://checkout.test");
+    const actual = await vi.importActual<typeof import("@chase-sets/inventory/server")>("@chase-sets/inventory/server");
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      async () =>
+        new Response(JSON.stringify({ ...reservation, status: "released" }), {
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    mockReleaseCheckoutReservation.mockImplementationOnce(
+      actual.createInventoryRequestApiClient(request).releaseCheckoutReservation,
+    );
+    const released = await releaseCheckoutInventoryReservations(
+      request,
+      checkoutSessionForReservationTests({
+        session_id: "chk_resolved",
+        checkout_reservations: [reservation, { ...reservation, holdId: "hld_inactive", status: "released" }],
+      }),
+    );
+    expect(mockCreateInventoryRequestApiClient).toHaveBeenCalledWith(request);
+    expect(mockReleaseCheckoutReservation).toHaveBeenCalledExactlyOnceWith("hld_1", {
+      checkoutSessionId: "chk_resolved",
+      lineKey: "cli_1",
+    });
+    expect(released).toEqual([{ ...reservation, status: "released" }]);
+    expect(fetch).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining("/api/inventory/checkout-reservations/hld_1/release"),
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({
+      checkoutSessionId: "chk_resolved",
+      lineKey: "cli_1",
+    });
+  });
+
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.useRealTimers();
     vi.clearAllMocks();
     mockCreateAccountPayment.mockReset();
     mockGetCheckoutStatus.mockReset();
     mockCreatePaymentsRequestApiClient.mockClear();
     mockCreateCheckoutReservation.mockReset();
+    mockReleaseCheckoutReservation.mockReset();
     mockCreateInventoryRequestApiClient.mockClear();
   });
 

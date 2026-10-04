@@ -107,6 +107,23 @@ async function seedInventoryItem(eventStore: EventStore) {
 }
 
 describe("inventory hold runtime", () => {
+  it("delegates checkout lookup with the session filter and retains account-scoped lookup", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const db = createInventoryDb({ holdRows: [{ hold_id: "hld_1", account_id: "acc_seller" }] });
+    const services = createInventoryHoldRuntime({ eventStore, db, checkpointStore: {} as never });
+    expect(await services.getCheckoutHold("hld_1", "chk_own")).toMatchObject({ account_id: "acc_seller" });
+    expect(db.query).toHaveBeenLastCalledWith(expect.stringContaining("AND source_ref->>'checkoutSessionId' = $2"), [
+      "hld_1",
+      "chk_own",
+    ]);
+    expect(db.query).toHaveBeenLastCalledWith(expect.stringContaining("AND purpose = 'checkout'"), expect.anything());
+    await services.getHold("hld_1", "acc_seller");
+    expect(db.query).toHaveBeenLastCalledWith(expect.stringContaining("AND account_id = $2"), ["hld_1", "acc_seller"]);
+    const empty = createInventoryHoldRuntime({ eventStore, db: createInventoryDb(), checkpointStore: {} as never });
+    expect(await empty.getCheckoutHold("hld_1", "chk_foreign")).toBeNull();
+    expect(await empty.getHold("hld_1", "acc_foreign")).toBeNull();
+  });
+
   it("reuses a matching stable hold id without appending a duplicate hold", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     await seedInventoryItem(eventStore);
