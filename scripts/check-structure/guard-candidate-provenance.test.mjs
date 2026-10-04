@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   GuardCandidateProvenanceError,
@@ -415,6 +416,37 @@ describe("guard candidate provenance", () => {
       expect(record.roles.forkPoint.sha).toBe(root);
       expect(record.reviewedHeadLands).toBe(true);
       if (state === "advanced") expect(fetchedMain).not.toBe(base);
+    });
+  });
+
+  it("reproduces the prior equality refusal on the same synthetic forward-main Git DAG", async () => {
+    const source = readFileSync(modulePath, "utf8").replaceAll("\r\n", "\n");
+    const repairedCondition =
+      '    resolvedBaseRef !== roles.baseTipAtAnalysis.sha &&\n    !isAncestor(execGit, roles.baseTipAtAnalysis.sha, resolvedBaseRef, "base-tip-parentage")';
+    expect(source).toContain(repairedCondition);
+    const priorEqualitySource = source
+      .replace(repairedCondition, "    resolvedBaseRef !== roles.baseTipAtAnalysis.sha")
+      .replace('"../lib/repo.mjs"', JSON.stringify(pathToFileURL(path.join(repoRoot, "scripts/lib/repo.mjs")).href));
+    const { deriveGuardCandidateProvenance: derivePriorEquality } = await import(
+      `data:text/javascript;base64,${Buffer.from(priorEqualitySource).toString("base64")}`
+    );
+    withSyntheticPullRequest(({ git, commit, base, payload, derive }) => {
+      git(["update-ref", "refs/remotes/origin/main", commit("main advance", [base])]);
+      const before = captureError(() =>
+        derivePriorEquality({
+          env: { GITHUB_EVENT_NAME: "pull_request" },
+          execGit: git,
+          readEventPayload: () => payload,
+        }),
+      );
+      expect(before).toMatchObject({
+        status: "red",
+        code: "guard-provenance-invalid",
+        reachedClause: "base-tip-parentage",
+      });
+      const after = derive();
+      expect(after.roles.baseTipAtAnalysis.sha).toBe(base);
+      emit("GUARD_PROVENANCE_SYNTHETIC_MAIN_ADVANCE", { control: "prior-equality-mutant", before, after });
     });
   });
 
