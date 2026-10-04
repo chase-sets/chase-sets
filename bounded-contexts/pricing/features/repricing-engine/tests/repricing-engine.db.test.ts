@@ -768,6 +768,8 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
       let gateHolder: PgPoolClient | undefined;
       let observer: PgPoolClient | undefined;
       let readerPid: number | undefined;
+      let readerFinished = false;
+      let siblingFailure: { error: unknown } | undefined;
       let heldClients = 0;
       let peakClients = 0;
       const acquired = () => {
@@ -822,9 +824,15 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
                 } finally {
                   heldClients -= 1;
                   client.release();
+                  if (sql.includes("AS pricing_mode")) readerFinished = true;
                 }
               })();
-              if (sql.includes("FROM products")) siblingReads.push(read);
+              if (sql.includes("FROM products")) {
+                siblingReads.push(read);
+                void read.catch((error: unknown) => {
+                  siblingFailure ??= { error };
+                });
+              }
               return read;
             },
             connect: async () => {
@@ -882,6 +890,8 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
               )
             ).rows;
           while (true) {
+            if (siblingFailure) throw siblingFailure.error;
+            expect(readerFinished, "gated SQL settled before the active-backend checkpoint").toBe(false);
             expect(settled).toBe(false);
             const activity = await readActivity();
             if (activity[0]?.state === "active" && activity[0].wait_event_type === "Lock") {
