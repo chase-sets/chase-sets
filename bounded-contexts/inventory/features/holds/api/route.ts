@@ -228,10 +228,20 @@ export function inventoryCheckoutReservationRoutes(services: InventoryHoldServic
 
   app.post("/:id/extend", async (c) => {
     const body = await c.req.json().catch(() => ({}));
-    const sellerAccountId = String(body.sellerAccountId ?? "").trim();
     const expiresAt = checkoutReservationExtensionExpiresAt();
 
     try {
+      const existing =
+        typeof body?.checkoutSessionId === "string" && body.checkoutSessionId.trim()
+          ? await services.getCheckoutHold(c.req.param("id"), body.checkoutSessionId)
+          : null;
+      if (!existing) {
+        return c.json(
+          { error: { code: "checkout_reservation_not_found", message: "Checkout reservation not found." } },
+          404,
+        );
+      }
+      const sellerAccountId = existing.account_id;
       const result = await services.extendCheckoutHold(
         {
           accountId: sellerAccountId,
@@ -269,19 +279,20 @@ export function inventoryCheckoutReservationRoutes(services: InventoryHoldServic
 
   app.post("/:id/release", async (c) => {
     const body = await c.req.json().catch(() => ({}));
-    const sellerAccountId = String(body.sellerAccountId ?? "").trim();
     const holdId = c.req.param("id");
 
     try {
-      const existing = await services.getHold(holdId, sellerAccountId);
+      const existing =
+        typeof body?.checkoutSessionId === "string" && body.checkoutSessionId.trim()
+          ? await services.getCheckoutHold(holdId, body.checkoutSessionId)
+          : null;
       if (!existing) {
-        throw new InventoryDomainError("Inventory hold not found.");
-      }
-      if (existing.purpose !== "checkout") {
-        throw new InventoryDomainError(
-          "Only checkout inventory holds can be released through checkout reservation routes.",
+        return c.json(
+          { error: { code: "checkout_reservation_not_found", message: "Checkout reservation not found." } },
+          404,
         );
       }
+      const sellerAccountId = existing.account_id;
       if (existing.status === "released" && existing.release_reason === "checkout-cancelled") {
         return c.json({
           holdId,
