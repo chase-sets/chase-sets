@@ -35,6 +35,7 @@ export * from "./payments";
 export * from "./settlement";
 export * from "./platform-operations";
 export * from "./public-presence";
+export { orderGroupFactRegistry, orderGroupPayloadValidators } from "../../order-groups";
 
 export type ChaseSetsEventPayloads = AuthEventPayloads &
   IdentityEventPayloads &

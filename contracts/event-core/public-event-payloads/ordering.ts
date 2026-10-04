@@ -70,7 +70,21 @@ export type OrderingOrderCancelledPayload = Readonly<{
   reservationRequests: readonly OrderingReservationRequestPayload[];
 }>;
 
+export type {
+  OrderingOrderGroupAdmissionRequestedPayload,
+  OrderingOrderGroupAdmissionAbortedPayload,
+  OrderingOrderGroupFormedPayload,
+  OrderingOrderGroupMemberRemovedPayload,
+  OrderingOrderGroupDissolvedPayload,
+} from "../../order-groups";
+import type { OrderGroupEventPayloads } from "../../order-groups";
+
 export type OrderingEventPayloads = Readonly<{
   "ordering.order.created": OrderingOrderCreatedPayload;
   "ordering.order.cancelled": OrderingOrderCancelledPayload;
+  "ordering.order-group.admission-requested": OrderGroupEventPayloads["ordering.order-group.admission-requested"];
+  "ordering.order-group.admission-aborted": OrderGroupEventPayloads["ordering.order-group.admission-aborted"];
+  "ordering.order-group.formed": OrderGroupEventPayloads["ordering.order-group.formed"];
+  "ordering.order-group.member-removed": OrderGroupEventPayloads["ordering.order-group.member-removed"];
+  "ordering.order-group.dissolved": OrderGroupEventPayloads["ordering.order-group.dissolved"];
 }>;
