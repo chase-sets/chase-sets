@@ -80,7 +80,7 @@ export default {
         "suspended-accounts":
           "Compare against the identity seed: acc_seed_suspended_account (Dormant Account) is the only suspended account; confirm in the accounts read model.",
         "owner-user-status":
-          "Compare against the identity seed: the Dormant Account owner (usr_seed_suspended_user) is suspended; confirm in the users read model.",
+          "A screenshot or the action log shows the users list with its status column; the account hub's per-user suspend or reactivate control alone is not evidence. Compare against the identity seed: the Dormant Account owner (usr_seed_suspended_user) is suspended; confirm in the users read model.",
         "team-roles":
           "Compare against the identity seed memberships for acc_seed_demo_account: demo owner, support teammate manager; confirm in the memberships read model.",
         "membership-history":
@@ -91,9 +91,7 @@ export default {
       routes: {
         "bounded-contexts/identity/routes/admin/access-home.tsx": "suspended-accounts",
         "deployables/admin-web/app/routes/access-home.tsx": "suspended-accounts",
-        "bounded-contexts/identity/routes/admin/accounts.tsx": "suspended-accounts",
         "bounded-contexts/identity/routes/admin/users.tsx": "owner-user-status",
-        "bounded-contexts/identity/routes/admin/memberships.tsx": "team-roles",
         "bounded-contexts/identity/routes/admin/accounts-detail.tsx": "membership-history",
       },
       paths: [
@@ -121,10 +119,48 @@ export default {
           "API key and invitation read models show no new, rotated, revoked, resent, or cancelled records, and no one-time secret panel appears in any screenshot.",
       },
       routes: {
-        "bounded-contexts/identity/routes/admin/api-keys.tsx": "api-key-states",
-        "bounded-contexts/identity/routes/admin/invitations.tsx": "invitation-outcomes",
+        "bounded-contexts/identity/routes/admin/accounts-detail.tsx": "api-key-states",
       },
       paths: ["bounded-contexts/identity/features/api-keys/", "bounded-contexts/identity/features/invitations/"],
+    },
+    {
+      id: "operator-platform-access-audit",
+      version: 1,
+      startPath: "/access",
+      role: "operator",
+      host: "admin-web",
+      goal: "Security wants a platform-wide access audit rather than a single account's. Across every account on the platform, find each account whose legal name differs from the name shoppers see, and give both names. Find everyone who holds a role other than owner, which account they are on, and whether that access is active. Find every invitation that was never accepted and what happened to it instead. Finally, find every API key that has been revoked and whose key it was. Do not suspend, reactivate, change a role, revoke, invite, create, rotate, resend, cancel, or decline anything.",
+      checks: [
+        "legal-name-mismatches",
+        "non-owner-roles",
+        "unaccepted-invitations",
+        "revoked-keys",
+        "no-record-changed",
+      ],
+      oracle: {
+        "legal-name-mismatches":
+          "A screenshot or the action log shows the accounts list, the only page with a legal name column across accounts; the access home table shows display names only and the account hub one account. Compare against the identity seed: Demo Account/Chase Sets, Demo Collector/Collector Zero, Value Trader/Binder Builder, High Roller Trader/Top Loader Capital, and Sealed Stockroom/Pack Runners differ; Support Ops, Dormant Account, and the platform admin bootstrap account (Chase Sets Platform, when bootstrapped) match; confirm in the accounts read model.",
+        "non-owner-roles":
+          "A screenshot or the action log shows the memberships list, the only page with roles across accounts; the access home lists only memberships pending review. Compare against the identity seed: mbr_seed_support_membership is Support User as manager on Demo Account, active; every other seeded membership is owner; the platform admin bootstrap (bootstrapPlatformAdminIdentity), when run, adds one platform-admin membership on Chase Sets Platform; confirm in the memberships read model.",
+        "unaccepted-invitations":
+          "A screenshot or the action log shows the invitations list across accounts; the access home lists only pending invitations and the account hub only one account's. Compare against the identity seed: ivt_seed_declined, ivt_seed_cancelled, and ivt_seed_expired (viewer invitations on Demo Account) ended declined, cancelled, and expired; ivt_seed_support_accept was accepted; none is pending; confirm in the invitations read model.",
+        "revoked-keys":
+          "A screenshot or the action log shows the API keys list across accounts; the access home lists only active keys due for rotation and the account hub only one account's. Compare against the identity seed: key_seed_rotated_revoked (Legacy automation key, Demo Account user) is the only revoked key and key_seed_demo_primary stays active; confirm in the API keys read model.",
+        "no-record-changed":
+          "Identity read models show no new or changed account, membership, invitation, or API key during the run window, and no one-time secret panel appears in any screenshot.",
+      },
+      routes: {
+        "bounded-contexts/identity/routes/admin/accounts.tsx": "legal-name-mismatches",
+        "bounded-contexts/identity/routes/admin/memberships.tsx": "non-owner-roles",
+        "bounded-contexts/identity/routes/admin/invitations.tsx": "unaccepted-invitations",
+        "bounded-contexts/identity/routes/admin/api-keys.tsx": "revoked-keys",
+      },
+      paths: [
+        "bounded-contexts/identity/features/accounts/",
+        "bounded-contexts/identity/features/memberships/",
+        "bounded-contexts/identity/features/invitations/",
+        "bounded-contexts/identity/features/api-keys/",
+      ],
     },
     {
       id: "operator-fee-terms-lookup",
@@ -144,7 +180,7 @@ export default {
       routes: {
         "bounded-contexts/commercial-terms/routes/admin/home.tsx": "standard-fee",
       },
-      paths: ["bounded-contexts/commercial-terms/features/home/", "bounded-contexts/commercial-terms/features/"],
+      paths: ["bounded-contexts/commercial-terms/features/"],
     },
     {
       id: "operator-postage-rules-lookup",
@@ -260,7 +296,7 @@ export default {
         "console-home-entry":
           "First screenshot shows the staff console sections home and the action log shows the Platform section opened from it, not reached directly.",
         "gmv-and-trades":
-          "Compare against the ops insights summary read model for the default 30-day range at run time.",
+          "A screenshot or the action log shows the Ops Dashboard with its default 30-day range; Offer Economics also shows platform GMV and trades, but over its own 60-day default. Compare against the ops insights summary read model for the 30-day range at run time.",
         "foregone-fees":
           "Compare against the offer economics summary read model for the default reporting window at run time.",
       },
