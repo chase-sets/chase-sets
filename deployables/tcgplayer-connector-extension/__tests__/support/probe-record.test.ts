@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
-import { test } from "vitest";
+import type { BrowserContext, Worker } from "@playwright/test";
+import { test, vi } from "vitest";
 import { candidateOptions } from "./build-fixture";
-import type { AlarmEnsure } from "./browser-observation";
+import { settledStartup, type AlarmEnsure } from "./browser-observation";
 import {
   mechanismFacts,
   mechanismNames,
@@ -386,6 +387,150 @@ test("synthetic short-window and omitted re-ensure controls never qualify throug
   assert.equal(parsed.mechanisms[0].indexedDbSurvived, true);
   assert.equal(selectMechanism(parsed), undefined);
 });
+
+function syntheticStartupHarness(startedAt: string, listed: boolean) {
+  const url = "chrome-extension://SYNTHETIC/worker.js";
+  const previousWorker = { url: () => url } as Worker;
+  const ready = Promise.withResolvers<void>();
+  const evaluating = Promise.withResolvers<void>();
+  const probe = {
+    startedAt,
+    startupReady: ready.promise,
+    ensures: [
+      {
+        entrypoint: "top-level",
+        startedAt,
+        settledAt: "2026-10-04T13:11:54.031Z",
+        coalesced: false,
+        getResult: null,
+        created: true,
+        createStartedAt: startedAt,
+        alarm: { name: "probe-work", scheduledTime: 1791119544030.5, periodInMinutes: 0.5 },
+      },
+    ],
+  };
+  const calls: string[] = [];
+  const worker = {
+    url: () => url,
+    async evaluate(callback: () => unknown) {
+      calls.push("evaluate");
+      evaluating.resolve();
+      return runInNewContext(`(${callback.toString()})()`, { restartProbe: probe, Date });
+    },
+  } as Worker;
+  const context = {
+    serviceWorkers: () => (listed ? [worker] : []),
+    async waitForEvent(event: string, options: { predicate: (worker: Worker) => boolean; timeout: number }) {
+      calls.push(event);
+      assert.equal(event, "serviceworker");
+      assert.equal(options.timeout, 10_000);
+      assert(options.predicate(worker));
+      return worker;
+    },
+  } as BrowserContext;
+  return { context, previousWorker, worker, probe, ready, evaluating, calls };
+}
+
+for (const listed of [false, true]) {
+  test(`synthetic startup observation accepts ${listed ? "script before passive discovery" : "passive discovery before script"} only after readiness`, async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-10-04T13:11:54.027Z"));
+      const startedAt = listed ? "2026-10-04T13:11:54.025Z" : "2026-10-04T13:11:54.029Z";
+      const harness = syntheticStartupHarness(startedAt, listed);
+      let returned = false;
+      const observation = settledStartup(harness.context, harness.previousWorker, "2026-10-04T13:11:54.000Z").then(
+        (value) => {
+          returned = true;
+          return value;
+        },
+      );
+      await harness.evaluating.promise;
+      assert.equal(returned, false);
+      vi.setSystemTime(new Date("2026-10-04T13:11:54.032Z"));
+      harness.ready.resolve();
+      const result = await observation;
+      assert.equal(result.attachedAt, "2026-10-04T13:11:54.027Z");
+      assert.equal(result.startedAt, startedAt);
+      assert.equal(result.settledAt, "2026-10-04T13:11:54.032Z");
+      assert.deepEqual(result.ensures, harness.probe.ensures);
+      assert.deepEqual(harness.calls, listed ? ["evaluate"] : ["serviceworker", "evaluate"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+}
+
+const startupMutants: [string, (harness: ReturnType<typeof syntheticStartupHarness>) => void, RegExp][] = [
+  [
+    "original worker",
+    (h) => {
+      h.previousWorker = h.worker;
+    },
+    /replacement worker/,
+  ],
+  [
+    "different fixture",
+    (h) => {
+      h.previousWorker = { url: () => "chrome-extension://OTHER/worker.js" } as Worker;
+    },
+    /same fixture/,
+  ],
+  [
+    "pre-intervention startup",
+    (h) => {
+      h.probe.startedAt = "2026-10-04T13:11:53.999Z";
+    },
+    /after intervention/,
+  ],
+  [
+    "startup after readiness",
+    (h) => {
+      h.probe.startedAt = "2026-10-04T13:11:54.033Z";
+    },
+    /before readiness/,
+  ],
+  [
+    "coalesced initial ensure",
+    (h) => {
+      h.probe.ensures[0].coalesced = true;
+      h.probe.ensures[0].startedAt = "2026-10-04T13:11:53.999Z";
+    },
+    /this startup/,
+  ],
+  [
+    "ensure settled before start",
+    (h) => {
+      h.probe.ensures[0].settledAt = "2026-10-04T13:11:54.028Z";
+    },
+    /after it starts/,
+  ],
+  [
+    "ensure still pending at readiness",
+    (h) => {
+      h.probe.ensures[0].settledAt = "2026-10-04T13:11:54.033Z";
+    },
+    /before readiness/,
+  ],
+];
+
+for (const [name, mutate, message] of startupMutants) {
+  test(`synthetic startup observation rejects ${name}`, async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-10-04T13:11:54.032Z"));
+      const harness = syntheticStartupHarness("2026-10-04T13:11:54.029Z", true);
+      mutate(harness);
+      harness.ready.resolve();
+      await assert.rejects(
+        settledStartup(harness.context, harness.previousWorker, "2026-10-04T13:11:54.000Z"),
+        message,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+}
 
 function workerHarness(omitAlarmReensure = false, prepared = true) {
   let alarm: chrome.alarms.Alarm | undefined;

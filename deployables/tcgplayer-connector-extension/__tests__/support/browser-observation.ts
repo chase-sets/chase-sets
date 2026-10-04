@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { chromium, type BrowserContext, type Page, type Worker } from "@playwright/test";
 
 export type AlarmEnsure = {
@@ -32,10 +33,13 @@ export async function alarmSnapshot(page: Page) {
   return page.evaluate(async () => ({ capturedAt: new Date().toISOString(), alarms: await chrome.alarms.getAll() }));
 }
 
-export async function settledStartup(context: BrowserContext) {
-  // Discover an already-running worker; never send a runtime message or open an extension page to wake it.
+export async function settledStartup(context: BrowserContext, previousWorker: Worker, intervenedAt: string) {
+  // Passive discovery can precede script execution; it is not the worker's startup boundary.
+  // Never send a runtime message or open an extension page to wake the worker.
   const worker = await fixtureWorker(context);
   const attachedAt = new Date().toISOString();
+  assert.notEqual(worker, previousWorker, "Startup must belong to the replacement worker");
+  assert.equal(worker.url(), previousWorker.url(), "Replacement must run the same fixture");
   const readiness = await worker.evaluate(async () => {
     await globalThis.restartProbe.startupReady;
     return {
@@ -44,6 +48,13 @@ export async function settledStartup(context: BrowserContext) {
       settledAt: new Date().toISOString(),
     };
   });
+  assert(Date.parse(readiness.startedAt) >= Date.parse(intervenedAt), "Worker must start after intervention");
+  assert(Date.parse(readiness.startedAt) <= Date.parse(readiness.settledAt), "Worker must start before readiness");
+  for (const entry of readiness.ensures) {
+    assert(Date.parse(entry.startedAt) >= Date.parse(readiness.startedAt), "Ensure must belong to this startup");
+    assert(Date.parse(entry.settledAt) >= Date.parse(entry.startedAt), "Ensure must settle after it starts");
+    assert(Date.parse(entry.settledAt) <= Date.parse(readiness.settledAt), "Ensure must settle before readiness");
+  }
   return { attachedAt, ...readiness };
 }
 

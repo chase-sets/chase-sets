@@ -411,8 +411,8 @@ for (const scenario of cases) {
         }
       }
       if (result.mechanism.available && !result.unobservedReason) {
-        result.startup = await settledStartup(context);
-        expect(Date.parse(result.startup.startedAt)).toBeLessThanOrEqual(Date.parse(result.startup.attachedAt));
+        expect(result.workerClosed).toBe(true);
+        result.startup = await settledStartup(context, worker, result.intervenedAt);
         page = await observer(context, extensionId);
         result.postRelaunchAlarms = await alarmSnapshot(page);
         const alarms = result.postRelaunchAlarms.alarms.filter((alarm) => alarm.name === "probe-work");
@@ -422,6 +422,7 @@ for (const scenario of cases) {
           expect(result.startup.ensures.some((entry) => entry.entrypoint === "top-level")).toBe(true);
           for (const entry of result.startup.ensures) {
             expect(entry.settledAt).toBeTruthy();
+            expect(entry.alarm.scheduledTime).toBe(alarms[0]!.scheduledTime);
             if (entry.getResult) {
               expect(entry.created).toBe(false);
               expect(entry.alarm.scheduledTime).toBe(entry.getResult.scheduledTime);
@@ -429,6 +430,8 @@ for (const scenario of cases) {
           }
         }
         result.after = await snapshot(page);
+        expect(result.after.fires).toEqual(before.fires);
+        expect(server.requests).toHaveLength(1);
         const records = result.after.records;
         const both =
           records.length === 2 &&
@@ -445,6 +448,7 @@ for (const scenario of cases) {
           message: "",
         };
         expect(result.refireWindow.requiredMs).toBeLessThanOrEqual(95_000);
+        expect(Date.parse(result.startup.settledAt)).toBeLessThanOrEqual(Date.parse(result.refireWindow.startedAt));
       }
       save(`${scenario.name}-boundary.json`, result);
     });
@@ -487,6 +491,12 @@ for (const scenario of cases) {
           requests: server.requests.length,
           fires: result.final.fires.length,
         });
+        if (result.final.fires.length === 2) {
+          const alarm = result.postRelaunchAlarms!.alarms.find((entry) => entry.name === "probe-work");
+          expect(alarm).toBeDefined();
+          // Fire timestamps use Date's integer milliseconds; Chrome exposes fractional schedule milliseconds.
+          expect(Date.parse(result.final.fires[1]!)).toBeGreaterThanOrEqual(new Date(alarm!.scheduledTime).getTime());
+        }
         const refetch =
           server.requests.length === 2 &&
           result.final.fires.length === 2 &&
