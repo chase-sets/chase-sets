@@ -1674,6 +1674,27 @@ describe("design system components", () => {
     expect(container.querySelector('[class*="before:absolute"]')).toBeTruthy();
   });
 
+  it("keeps Accordion content visible when reduced motion changes after initial render", async () => {
+    const items = [{ value: "language", trigger: "Language", content: <button>English</button> }];
+    const view = render(
+      <ChaseRoot reducedMotion="never">
+        <Accordion id="motion-state" type="multiple" items={items} />
+      </ChaseRoot>,
+    );
+    const panel = document.getElementById("motion-state-panel-language")!;
+    expect(panel.style.height).toBe("0px");
+    view.rerender(
+      <ChaseRoot reducedMotion="always">
+        <Accordion id="motion-state" type="multiple" items={items} />
+      </ChaseRoot>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Language" }));
+    await waitFor(() => expect(panel.style.height).toBe("auto"));
+    expect(panel.style.opacity).toBe("1");
+    fireEvent.click(screen.getByRole("button", { name: "Language" }));
+    await waitFor(() => expect(panel.style.height).toBe("0px"));
+  });
+
   it("renders panel section accordions with an edge-aligned rail", () => {
     const { container } = render(
       <ChaseRoot>

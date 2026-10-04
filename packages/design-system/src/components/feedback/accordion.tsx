@@ -27,14 +27,11 @@ const AnimatedAccordionContent = forwardRef<HTMLDivElement, ComponentProps<"div"
         {...(rest as ComponentProps<typeof motion.div>)}
         ref={ref}
         initial={false}
-        animate={
-          motionSettings.reducedMotion ? undefined : open ? { height: "auto", opacity: 1 } : { height: 0, opacity: 0 }
-        }
-        transition={
-          motionSettings.reducedMotion
-            ? undefined
-            : { duration: motionSettings.durations.base, ease: motionSettings.easing }
-        }
+        animate={open ? { height: "auto", opacity: 1 } : { height: 0, opacity: 0 }}
+        transition={{
+          duration: motionSettings.reducedMotion ? 0 : motionSettings.durations.base,
+          ease: motionSettings.easing,
+        }}
       >
         {children}
       </motion.div>

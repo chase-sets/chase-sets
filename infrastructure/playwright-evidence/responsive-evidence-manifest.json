@@ -2877,6 +2877,16 @@
           }
         },
         {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--sidebar-content-inset",
+          "assertion": {
+            "equals": 12
+          }
+        },
+        {
           "identity": "expanded-language",
           "scope": "target",
           "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
@@ -2925,6 +2935,16 @@
           "property": "width",
           "assertion": {
             "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
           }
         },
         {
@@ -2979,6 +2999,16 @@
           }
         },
         {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
           "identity": "expanded-language",
           "scope": "target",
           "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
@@ -3027,6 +3057,16 @@
           "property": "width",
           "assertion": {
             "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
           }
         },
         {
@@ -3081,6 +3121,16 @@
           }
         },
         {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--sidebar-content-inset",
+          "assertion": {
+            "equals": 12
+          }
+        },
+        {
           "identity": "expanded-language",
           "scope": "target",
           "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
@@ -3129,6 +3179,16 @@
           "property": "width",
           "assertion": {
             "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
           }
         },
         {
@@ -3183,6 +3243,16 @@
           }
         },
         {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
           "identity": "expanded-language",
           "scope": "target",
           "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
@@ -3231,6 +3301,16 @@
           "property": "width",
           "assertion": {
             "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
           }
         },
         {
@@ -3285,6 +3365,16 @@
           }
         },
         {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
           "identity": "expanded-language",
           "scope": "target",
           "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
@@ -3303,6 +3393,67 @@
         }
       ],
       "artifact": "facet-list-duplicate-id"
+    },
+    {
+      "kind": "negative-control",
+      "id": "facet-list-clipped-panel",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "rejects clipped content behind an expanded facet header before capture @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-clipped-panel"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "search-facets-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": ":scope [id='search-facets-mobile-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-clipped-panel"
     },
     {
       "kind": "negative-control",
@@ -3333,6 +3484,16 @@
           "property": "width",
           "assertion": {
             "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
           }
         },
         {
@@ -3387,6 +3548,16 @@
           }
         },
         {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
           "identity": "expanded-language",
           "scope": "target",
           "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
@@ -3435,6 +3606,16 @@
           "property": "width",
           "assertion": {
             "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
           }
         },
         {
@@ -3489,6 +3670,16 @@
           }
         },
         {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--sidebar-content-inset",
+          "assertion": {
+            "equals": 12
+          }
+        },
+        {
           "identity": "expanded-language",
           "scope": "target",
           "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
@@ -3537,6 +3728,16 @@
           "property": "width",
           "assertion": {
             "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
           }
         },
         {

@@ -29,6 +29,20 @@ async function openFixture(page: Page, width: number, height: number) {
   }
   await expect(root.locator('[data-facet-item-value][aria-expanded="true"]')).toHaveCount(1);
   await expect(root.locator('[data-facet-item-value="language"]')).toHaveAttribute("aria-expanded", "true");
+  await expect
+    .poll(() =>
+      page.locator(`#search-facets-${presentation}-panel-language`).evaluate((panel) => {
+        const bounds = panel.getBoundingClientRect();
+        return (
+          bounds.height > 0 &&
+          Array.from(panel.querySelectorAll("button[aria-pressed]")).every((option) => {
+            const rect = option.getBoundingClientRect();
+            return rect.top >= bounds.top && rect.bottom <= bounds.bottom;
+          })
+        );
+      }),
+    )
+    .toBe(true);
   await root.locator('[data-facet-item-value="language"]').scrollIntoViewIfNeeded();
   await page.locator(`#search-facets-${presentation}-panel-language`).scrollIntoViewIfNeeded();
   return presentation;
@@ -41,7 +55,7 @@ async function inspectFacetList(page: Page, presentation: Presentation) {
       if (roots.length !== 1) throw new Error("facet-evidence: root-count");
       const root = roots[0]!;
       const visible = (node: HTMLElement) =>
-        node.checkVisibility({ checkVisibilityCSS: true }) &&
+        node.checkVisibility({ checkVisibilityCSS: true, checkOpacity: true }) &&
         node.getBoundingClientRect().width > 0 &&
         node.getBoundingClientRect().height > 0;
       if (!visible(root)) throw new Error("facet-evidence: hidden-presentation");
@@ -119,6 +133,21 @@ async function inspectFacetList(page: Page, presentation: Presentation) {
           throw new Error("facet-evidence: clipped-or-overbleed");
       };
       exactEdges();
+      for (const option of options) {
+        const bounds = option.getBoundingClientRect();
+        for (let ancestor = option.parentElement; ancestor; ancestor = ancestor.parentElement) {
+          const clip = ancestor.getBoundingClientRect();
+          const css = getComputedStyle(ancestor);
+          const clips = /^(hidden|clip|auto|scroll)$/;
+          if (
+            (clips.test(css.overflowY) && (bounds.top < clip.top - 1 || bounds.bottom > clip.bottom + 1)) ||
+            (clips.test(css.overflowX) && (bounds.left < clip.left - 1 || bounds.right > clip.right + 1))
+          ) {
+            throw new Error("facet-evidence: clipped-options");
+          }
+          if (ancestor === owner) break;
+        }
+      }
       const originalBounds = bounds();
       const oldInset = owner.style.getPropertyValue(insetName);
       try {
@@ -190,6 +219,7 @@ async function inspectFacetList(page: Page, presentation: Presentation) {
 
 async function attachLayout(page: Page, testInfo: TestInfo, presentation: Presentation) {
   const ledger = await inspectFacetList(page, presentation);
+  console.log(`facet layout (${presentation}): ${JSON.stringify(ledger)}`);
   await testInfo.attach("facet-layout", { body: JSON.stringify(ledger, null, 2), contentType: "application/json" });
 }
 
@@ -286,6 +316,21 @@ test("rejects duplicate facet ids before capture @marketplace-browse", async ({ 
     await captureResponsiveEvidence({ page, testInfo, claimId: "facet-list-duplicate-id" });
   }).rejects.toThrow("facet-evidence: duplicate-id");
   artifactsAbsent(testInfo, "facet-list-duplicate-id");
+});
+
+test("rejects clipped content behind an expanded facet header before capture @marketplace-browse", async ({
+  page,
+}, testInfo) => {
+  await openFixture(page, 390, 844);
+  await inspectFacetList(page, "mobile");
+  await page.locator("#search-facets-mobile-panel-language").evaluate((node) => {
+    (node as HTMLElement).style.height = "0px";
+  });
+  await expect(async () => {
+    await inspectFacetList(page, "mobile");
+    await captureResponsiveEvidence({ page, testInfo, claimId: "facet-list-clipped-panel" });
+  }).rejects.toThrow("facet-evidence: clipped-options");
+  artifactsAbsent(testInfo, "facet-list-clipped-panel");
 });
 
 test("rejects frozen responsive facet insets before capture @marketplace-browse", async ({ page }, testInfo) => {
@@ -395,6 +440,7 @@ test("facet toggles retain both scroll positions and mobile reopen state @market
       await expect(page.locator(list("mobile"))).toHaveAttribute("data-facet-expanded-values", values!);
     }
   }
+  console.log(`facet scroll transitions: ${JSON.stringify(transitions)}`);
   await testInfo.attach("facet-scroll-transitions", {
     body: JSON.stringify(transitions, null, 2),
     contentType: "application/json",
