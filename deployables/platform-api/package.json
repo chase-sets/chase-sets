@@ -26,6 +26,7 @@
     "test:db:2": "node ./scripts/check-bootstrap-db-enrollment.mjs && vitest run --config ./vitest.config.ts __tests__/authoritative-seed-resume-core.db.test.ts __tests__/authoritative-seed-resume-reconciliation.db.test.ts __tests__/catalog-seed-interruption-resume.db.test.ts __tests__/seed-command-full-pools.db.test.ts --maxWorkers=3 __tests__/operator-session/operator-session-grant-mint.db.test.ts __tests__/operator-session/operator-session-grant-lifecycle.db.test.ts __tests__/operator-session/operator-session-grant-scope.db.test.ts __tests__/operator-session/operator-session-push.db.test.ts __tests__/operator-session/operator-extension-route-contract.db.test.ts"
   },
   "dependencies": {
+    "@chase-sets/order-groups": "workspace:*",
     "@chase-sets/auth": "workspace:*",
     "@chase-sets/auth-context": "workspace:*",
     "@chase-sets/bounded-context-runtime": "workspace:*",

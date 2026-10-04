@@ -2,6 +2,8 @@ export { default as contextManifest } from "./context.json" with { type: "json" 
 
 import { buildEventSubscriptionsFromManifest, defineBoundedContextModule } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createTransientProjectionError } from "@chase-sets/event-core/projector";
+import { ShipmentAdmissionBusyError } from "./features/shipments/domain/common";
 import contextManifest from "./context.json" with { type: "json" };
 import { fulfillmentRetentionExemptions, fulfillmentRetentionSweeps } from "./support/runtime-support/retention-policy";
 import type { FulfillmentHostPorts, FulfillmentServices } from "./support/runtime-support/services";
@@ -39,6 +41,7 @@ export const module = defineBoundedContextModule<FulfillmentServices, PgTransact
       contextName: "fulfillment",
       manifest: contextManifest,
       handlers: {
+        "ordering.fulfillment-order-group-admission-subscription": () => services.shipments.shipmentGroupAdmissionHandlers,
         "identity.fulfillment-account-projection": () => buildFulfillmentAccountProjectionHandlers(services.db),
         "ordering.fulfillment-order-source-projection": () =>
           buildFulfillmentOrderProjectionHandlers(services.db, {
@@ -46,7 +49,12 @@ export const module = defineBoundedContextModule<FulfillmentServices, PgTransact
               await services.shipments.createShipmentForReadyOrder(params);
             },
             onOrderCancelled: async (params) => {
-              await services.shipments.cancelShipmentForCancelledOrder({ ...params, origin: "order-cancelled" });
+              try {
+                await services.shipments.cancelShipmentForCancelledOrder({ ...params, origin: "order-cancelled" });
+              } catch (error) {
+                if (error instanceof ShipmentAdmissionBusyError) throw createTransientProjectionError(error.message);
+                throw error;
+              }
             },
           }),
         "payments.fulfillment-payment-fraud-source-projection": () =>

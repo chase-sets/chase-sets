@@ -4,6 +4,11 @@ import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
 import type { AccountId, CatalogItemId, OrderId, ShipmentId } from "@chase-sets/primitives/typed-ids";
 import type { PackagePlan } from "@chase-sets/product-measures";
 import {
+  admissionIdentityFromFact, orderGroupContractVersion, orderGroupPayloadValidators,
+  type AdmissionIdentity, type AdmissionRejectionReason, type OrderGroupEventPayloads,
+  type ReserveResult, type CommitResult, type AbortResult,
+} from "@chase-sets/order-groups";
+import {
   createFulfillmentCsatOutcomeFact,
   fulfillmentCsatOutcomeFactEventType,
 } from "../../../support/request-support/csat-outcome-fact";
@@ -18,6 +23,7 @@ import {
   normalizeShipmentExceptionType,
   normalizeShippingMethod,
   ShipmentLabelRefundTerminalConflictError,
+  ShipmentAdmissionBusyError,
   type PackageStatus,
   type PostageLabelStatus,
   type ShipmentExceptionType,
@@ -73,6 +79,8 @@ export type FulfillmentAddressOverrideAudit = Readonly<{
 }>;
 
 export type FulfillmentShipmentState = Readonly<{
+  admission: ShipmentAdmissionEvent | null;
+  admissionHistory: readonly ShipmentAdmissionEvent[];
   shipmentId: ShipmentId | null;
   orderId: OrderId | null;
   buyerAccountId: AccountId | null;
@@ -123,6 +131,8 @@ export type FulfillmentShipmentState = Readonly<{
 }>;
 
 export const initialFulfillmentShipmentState: FulfillmentShipmentState = {
+  admission: null,
+  admissionHistory: [],
   shipmentId: null,
   orderId: null,
   buyerAccountId: null,
@@ -558,7 +568,12 @@ export type FulfillmentCsatOutcomeFactPublishedEvent = DomainEvent<
   ReturnType<typeof createFulfillmentCsatOutcomeFact>
 >;
 
+export type ShipmentAdmissionEvent = {
+  [K in keyof OrderGroupEventPayloads & `fulfillment.${string}`]: DomainEvent<K, OrderGroupEventPayloads[K]>;
+}[keyof OrderGroupEventPayloads & `fulfillment.${string}`];
+
 export type FulfillmentShipmentEvent =
+  | ShipmentAdmissionEvent
   | ShipmentCreatedEvent
   | ShipmentPackingStartedEvent
   | ShipmentPackingLineConfirmedEvent
@@ -576,6 +591,85 @@ export type FulfillmentShipmentEvent =
   | ShipmentReturnedEvent
   | ShipmentExceptionRaisedEvent
   | FulfillmentCsatOutcomeFactPublishedEvent;
+
+export function sameAdmissionIdentity(left: AdmissionIdentity, right: AdmissionIdentity): boolean {
+  return JSON.stringify(admissionIdentityFromFact(left)) === JSON.stringify(admissionIdentityFromFact(right));
+}
+
+export type ShipmentAdmissionCommand =
+  | Readonly<{ kind: "reserve"; input: AdmissionIdentity }>
+  | Readonly<{ kind: "commit"; input: AdmissionIdentity & { anchorOrderVersion: number } }>
+  | Readonly<{ kind: "abort"; input: Parameters<import("@chase-sets/order-groups").ShipmentGroupAdmissionAuthority["abort"]>[0] }>
+  | Readonly<{ kind: "dissolve"; input: AdmissionIdentity & { anchorOrderVersion: number } }>;
+
+type AdmissionDecisionResult = ReserveResult | CommitResult | AbortResult |
+  Readonly<{ status: "accepted" | "replayed"; fact: OrderGroupEventPayloads["fulfillment.shipment-group.admission-released"] }>;
+
+export function decideShipmentAdmission(
+  state: FulfillmentShipmentState,
+  command: ShipmentAdmissionCommand,
+  shipmentVersion: number,
+  now: string,
+): Readonly<{ result: AdmissionDecisionResult; event?: ShipmentAdmissionEvent }> {
+  const { input, kind } = command;
+  if (state.shipmentId !== input.anchorShipmentId || state.orderId !== input.anchorOrderId || !state.sellerAccountId) {
+    return { result: { status: "identity-conflict" } };
+  }
+  const prior = state.admissionHistory.filter((receipt) => sameAdmissionIdentity(receipt.data, input));
+  const release = prior.find((receipt) => receipt.type === "fulfillment.shipment-group.admission-released");
+  if (release) {
+    if ((kind === "abort" && release.data.reason === "aborted") ||
+      (kind === "dissolve" && release.data.reason === "group-dissolved" && prior.some((receipt) =>
+        receipt.type === "fulfillment.shipment-group.admission-committed" &&
+        receipt.data.anchorOrderVersion === command.input.anchorOrderVersion))) {
+      return { result: { status: "replayed", fact: release.data } };
+    }
+    return { result: { status: "released" } };
+  }
+  const rejected = prior.find((receipt) => receipt.type === "fulfillment.shipment-group.admission-rejected");
+  if (rejected) return { result: { status: kind === "reserve" ? rejected.data.reason : "not-reserved" } };
+  const active = state.admission;
+  const occupied = active?.type === "fulfillment.shipment-group.admission-reserved" ||
+    active?.type === "fulfillment.shipment-group.admission-committed";
+  const matches = active && sameAdmissionIdentity(active.data, input);
+  const base = { contractVersion: orderGroupContractVersion, ...admissionIdentityFromFact(input), shipmentVersion } as const;
+  if (kind === "reserve") {
+    if (matches && active.type === "fulfillment.shipment-group.admission-reserved") return { result: { status: "replayed", fact: active.data } };
+    if (matches && active.type === "fulfillment.shipment-group.admission-committed") return { result: { status: "replayed", fact: active.data } };
+    let reason: AdmissionRejectionReason | undefined;
+    if (occupied) reason = "identity-conflict";
+    else if (state.status === "cancelled") reason = "cancelled";
+    else if (state.conflicts.length > 0 || state.admissionHistory.some((receipt) =>
+      receipt.data.requestId === input.requestId || receipt.data.groupId === input.groupId ||
+      receipt.data.sourceGeneration === input.sourceGeneration || receipt.data.quoteFingerprint === input.quoteFingerprint
+    )) reason = "identity-conflict";
+    else if (state.status !== "awaiting-package") reason = "packing-started";
+    if (reason) return { result: { status: reason }, event: {
+      type: "fulfillment.shipment-group.admission-rejected", data: { ...base, reason, rejectedAt: now },
+    } };
+    const event: ShipmentAdmissionEvent = { type: "fulfillment.shipment-group.admission-reserved", data: { ...base, reservedAt: now } };
+    return { result: { status: "accepted", fact: event.data }, event };
+  }
+  if (!occupied) return { result: { status: active ? "identity-conflict" : "not-reserved" } };
+  if (!matches) return { result: { status: "identity-conflict" } };
+  if (kind === "commit") {
+    if (active.type === "fulfillment.shipment-group.admission-committed") {
+      return { result: active.data.anchorOrderVersion === input.anchorOrderVersion
+        ? { status: "replayed", fact: active.data } : { status: "identity-conflict" } };
+    }
+    const event: ShipmentAdmissionEvent = { type: "fulfillment.shipment-group.admission-committed",
+      data: { ...base, anchorOrderVersion: input.anchorOrderVersion, committedAt: now } };
+    return { result: { status: "accepted", fact: event.data }, event };
+  }
+  if (kind === "abort" && active.type === "fulfillment.shipment-group.admission-committed") {
+    return { result: { status: "already-grouped" } };
+  }
+  if (kind === "dissolve" && (active.type !== "fulfillment.shipment-group.admission-committed" ||
+    active.data.anchorOrderVersion !== input.anchorOrderVersion)) return { result: { status: "not-reserved" } };
+  const event: ShipmentAdmissionEvent = { type: "fulfillment.shipment-group.admission-released",
+    data: { ...base, reason: kind === "abort" ? "aborted" : "group-dissolved", releasedAt: now } };
+  return { result: { status: "accepted", fact: event.data }, event };
+}
 
 function normalizeShipmentLines(lines: readonly FulfillmentShipmentLineInput[]) {
   assert(lines.length > 0, "Shipments must include at least one line.");
@@ -621,6 +715,15 @@ export const decideFulfillmentShipment: AggregateDecider<
   FulfillmentShipmentCommand,
   FulfillmentShipmentEvent
 > = (state, command) => {
+  const admissionBusy = state.admission?.type === "fulfillment.shipment-group.admission-reserved" ||
+    state.admission?.type === "fulfillment.shipment-group.admission-committed";
+  if (admissionBusy && (
+    command.type === "StartShipmentPacking" || command.type === "PrepareShipmentPackage" ||
+    command.type === "RaiseShipmentException" ||
+    (command.type === "CancelShipment" && (!command.cancellationSignal ||
+      (command.cancellationSignal.origin === "order-cancelled" &&
+        state.admission?.type === "fulfillment.shipment-group.admission-reserved")))
+  )) throw new ShipmentAdmissionBusyError();
   switch (command.type) {
     case "CreateShipment":
       assert(state.shipmentId === null, "Shipment has already been created.");
@@ -935,7 +1038,7 @@ export const decideFulfillmentShipment: AggregateDecider<
         if (alreadyRecorded) {
           return [];
         }
-        if (state.status !== "awaiting-package") {
+        if (state.status !== "awaiting-package" || admissionBusy) {
           return [
             {
               type: "fulfillment.shipment.cancellation-conflict-recorded",
@@ -1078,8 +1181,36 @@ export const evolveFulfillmentShipment: AggregateEvolver<FulfillmentShipmentStat
   event,
 ) => {
   switch (event.type) {
+    case "fulfillment.shipment-group.admission-reserved":
+    case "fulfillment.shipment-group.admission-rejected":
+    case "fulfillment.shipment-group.admission-committed":
+    case "fulfillment.shipment-group.admission-released": {
+      orderGroupPayloadValidators[event.type].parse(event.data);
+      assert(state.shipmentId === event.data.anchorShipmentId && state.orderId === event.data.anchorOrderId,
+        "Admission receipt contradicts Shipment creation lineage.");
+      const active = state.admission;
+      const prior = state.admissionHistory.filter((receipt) => sameAdmissionIdentity(receipt.data, event.data));
+      if (event.type === "fulfillment.shipment-group.admission-reserved") {
+        assert(!active || active.type === "fulfillment.shipment-group.admission-released", "Admission is already occupied.");
+        assert(prior.length === 0 && state.status === "awaiting-package" && state.conflicts.length === 0,
+          "Admission reservation contradicts Shipment history.");
+      } else if (event.type === "fulfillment.shipment-group.admission-rejected") {
+        assert(prior.length === 0, "Admission rejection repeats a recorded identity.");
+      } else {
+        assert(active && sameAdmissionIdentity(active.data, event.data), "Admission transition has no matching reservation.");
+        assert(event.type === "fulfillment.shipment-group.admission-committed"
+          ? active.type === "fulfillment.shipment-group.admission-reserved"
+          : active.type === (event.data.reason === "aborted"
+            ? "fulfillment.shipment-group.admission-reserved" : "fulfillment.shipment-group.admission-committed"),
+        "Admission transition contradicts its recorded phase.");
+      }
+      return { ...state, admission: event.type === "fulfillment.shipment-group.admission-rejected" ? active : event,
+        admissionHistory: [...state.admissionHistory, event] };
+    }
     case "fulfillment.shipment.created":
       return {
+        admission: null,
+        admissionHistory: [],
         shipmentId: event.data.shipmentId,
         orderId: event.data.orderId,
         buyerAccountId: event.data.buyerAccountId,
