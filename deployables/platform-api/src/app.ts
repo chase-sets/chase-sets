@@ -1,6 +1,8 @@
 import { Hono, type Context, type Next } from "hono";
 import { createCheckoutClosedMiddleware } from "./middleware/checkout-closed";
 import { module as authModule } from "@chase-sets/auth";
+import type { ShipmentGroupAdmissionAuthority } from "@chase-sets/order-groups";
+import type { module as fulfillmentModule } from "@chase-sets/fulfillment";
 import {
   createUcpOAuthMetadataRoutes,
   createUcpOAuthRoutes,
@@ -611,6 +613,16 @@ export function createPlatformApiHost(
     ? { kind: "available", port: createInventoryHoldCleanupAuthorityForPool(inventoryPool) }
     : { kind: "not-mounted" };
   const channelSaleRecorder = inventoryPool ? createPlatformApiChannelSaleRecorder(inventoryPool) : undefined;
+  const admissionAuthority = (): ShipmentGroupAdmissionAuthority => {
+    const services = runtime?.services.fulfillment as ReturnType<typeof fulfillmentModule.createServices> | undefined;
+    if (!services) throw new Error("Shipment Group admission authority is unavailable.");
+    return services.shipments.shipmentGroupAdmissionAuthority;
+  };
+  const shipmentGroupAdmissionAuthority: ShipmentGroupAdmissionAuthority = {
+    reserve: (input, context) => admissionAuthority().reserve(input, context),
+    commit: (input, context) => admissionAuthority().commit(input, context),
+    abort: (input, context) => admissionAuthority().abort(input, context),
+  };
   const inventorySavedListImportBatchCreator: SavedListInventoryImportBatchCreator = async (params, context) => {
     const inventoryServices = runtime?.services.inventory as
       | {
@@ -668,6 +680,7 @@ export function createPlatformApiHost(
       publicPolicySources,
       draftListingCreator,
       inventoryCleanupAuthority,
+      shipmentGroupAdmissionAuthority,
       ...(channelSaleRecorder ? { channelSaleRecorder } : {}),
       inventorySavedListImportBatchCreator,
       marketplaceChannelInboundClamp,

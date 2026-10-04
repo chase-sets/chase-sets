@@ -17,6 +17,239 @@ import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { recordFulfillmentPostageLabelOperationPending } from "../read-model/queries";
 import { buildFulfillmentOrderProjectionHandlers } from "../integrations/source/source-projection";
 import { createFulfillmentShipmentRuntime } from "./runtime";
+import { createId } from "@chase-sets/primitives/typed-ids";
+import { parseAdmissionIdentity } from "@chase-sets/order-groups";
+import { ShipmentAdmissionBusyError } from "../domain/common";
+import { ShipmentHistoryPoisonedError } from "../domain/mutation-attempt";
+
+describe("Shipment Group admission authority", () => {
+  const now = "2026-10-04T00:00:00.000Z";
+  const context = {
+    tenantId: "tnt_admission" as never,
+    audit: { performedByUserId: "usr_buyer" as never, forAccountId: "acc_buyer" as never },
+  };
+  const identity = parseAdmissionIdentity({
+    requestId: "request",
+    sourceGeneration: 1,
+    draftKey: "draft",
+    anchorShipmentId: createId("shp"),
+    anchorOrderId: createId("ord"),
+    proposedMemberOrderId: createId("ord"),
+    groupId: createId("ogr"),
+    quoteFingerprint: "quote",
+  });
+  async function fixture(wrap: (store: EventStore) => EventStore = (store) => store) {
+    const memory = createInMemoryEventStore();
+    const runtime = createFulfillmentShipmentRuntime({
+      eventStore: wrap(memory.eventStore),
+      checkpointStore: createCheckpointStore(),
+      db: {
+        query: vi.fn().mockResolvedValue({
+          rows: [
+            createPackedShipmentRow({
+              shipment_id: identity.anchorShipmentId,
+              status: "awaiting-package",
+              package_status: "pending",
+            }),
+          ],
+        }),
+      },
+    });
+    const streamId = `fulfillment.shipment-${identity.anchorShipmentId}`;
+    await runtime.commandHandler({
+      streamId,
+      context,
+      command: {
+        type: "CreateShipment",
+        shipmentId: identity.anchorShipmentId,
+        orderId: identity.anchorOrderId,
+        buyerAccountId: "acc_buyer" as never,
+        sellerAccountId: "acc_seller" as never,
+        shippingOption: "standard",
+        createdAt: now,
+        shippingDestinationSnapshot,
+        shippingOriginSnapshot,
+        lines: [
+          {
+            lineId: "spl_test" as never,
+            orderLineId: "line",
+            catalogItemId: "cat_test" as never,
+            productId: "cat_test::",
+            itemTitle: "Card",
+            itemSubtitle: null,
+            productSummary: null,
+            quantity: 1,
+          },
+        ],
+      },
+    });
+    return { ...memory, runtime, streamId, authority: runtime.shipmentGroupAdmissionAuthority };
+  }
+  it.each(["startPackingShipment", "packShipment", "cancelShipment"] as const)(
+    "busy %s consumes no attempt and the same ID succeeds after Abort",
+    async (method) => {
+      const f = await fixture();
+      await f.authority.reserve(identity, context);
+      const params = {
+        shipmentId: identity.anchorShipmentId,
+        sellerAccountId: "acc_seller",
+        packageCount: 1,
+        mutationAttemptId: "018f47d2-9d2a-4d68-8f33-6fb718c7829a",
+      };
+      const before = f.readAllEvents();
+      await expect(f.runtime[method](params, context)).rejects.toBeInstanceOf(ShipmentAdmissionBusyError);
+      expect(f.readAllEvents()).toEqual(before);
+      await f.authority.abort({ ...identity, reason: "cancelled" }, context);
+      if (method === "packShipment") {
+        await f.runtime.commandHandler({
+          streamId: f.streamId,
+          context,
+          command: { type: "StartShipmentPacking", startedAt: now },
+        });
+        await f.runtime.commandHandler({
+          streamId: f.streamId,
+          context,
+          command: { type: "ConfirmShipmentPackingLine", lineId: "spl_test" as never, confirmedAt: now },
+        });
+      }
+      if (method === "cancelShipment") {
+        await f.runtime.commandHandler({
+          streamId: f.streamId,
+          context,
+          command: { type: "StartShipmentPacking", startedAt: now },
+        });
+        await f.runtime.commandHandler({
+          streamId: f.streamId,
+          context,
+          command: {
+            type: "CancelShipment",
+            cancelledAt: now,
+            cancellationSignal: {
+              orderId: identity.anchorOrderId,
+              origin: "order-cancelled",
+              reason: "buyer-cancelled",
+            },
+          },
+        });
+      }
+      await expect(f.runtime[method](params, context)).resolves.toMatchObject({
+        shipmentId: identity.anchorShipmentId,
+      });
+      expect(f.readAllEvents().filter((event) => event.streamId !== f.streamId)).toHaveLength(1);
+    },
+  );
+  it.each(["StartShipmentPacking", "CancelShipment"] as const)(
+    "reloads a reserve after concurrent %s wins the expected-version append",
+    async (type) => {
+      let enter!: () => void;
+      let release!: () => void;
+      const entered = new Promise<void>((resolve) => {
+        enter = resolve;
+      });
+      const resume = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let gated = false;
+      const f = await fixture((store) => ({
+        ...store,
+        appendToStream: async (input) => {
+          if (!gated && input.events[0]?.eventType === "fulfillment.shipment-group.admission-reserved") {
+            gated = true;
+            enter();
+            await resume;
+          }
+          return store.appendToStream(input);
+        },
+      }));
+      const reserve = f.authority.reserve(identity, context);
+      await entered;
+      await f.runtime.commandHandler({
+        streamId: f.streamId,
+        context,
+        command: type === "StartShipmentPacking" ? { type, startedAt: now } : { type, cancelledAt: now },
+      });
+      release();
+      expect(await reserve).toEqual({ status: type === "CancelShipment" ? "cancelled" : "packing-started" });
+      expect(f.readAllEvents().at(-1)).toMatchObject({
+        eventType: "fulfillment.shipment-group.admission-rejected",
+        streamVersion: 3,
+      });
+      expect(f.readAllEvents().some((event) => event.eventType.endsWith("admission-reserved"))).toBe(false);
+    },
+  );
+  it("serializes competing reservations and replays a duplicate without another receipt", async () => {
+    const f = await fixture();
+    const other = {
+      ...identity,
+      requestId: "other",
+      sourceGeneration: 2,
+      groupId: createId("ogr"),
+      quoteFingerprint: "other",
+    };
+    const results = await Promise.all([f.authority.reserve(identity, context), f.authority.reserve(other, context)]);
+    expect(results.map((result) => result.status).sort()).toEqual(["accepted", "identity-conflict"]);
+    const before = f.readAllEvents();
+    await Promise.all([f.authority.reserve(identity, context), f.authority.reserve(other, context)]);
+    expect(f.readAllEvents()).toEqual(before);
+  });
+  it.each(["missing", "order", "tenant"])("rejects %s binding with no write", async (kind) => {
+    const f = await fixture();
+    const before = f.readAllEvents();
+    const input =
+      kind === "missing"
+        ? { ...identity, anchorShipmentId: createId("shp") }
+        : kind === "order"
+          ? { ...identity, anchorOrderId: createId("ord") }
+          : identity;
+    expect(
+      await f.authority.reserve(input, kind === "tenant" ? { ...context, tenantId: "tnt_foreign" as never } : context),
+    ).toEqual({ status: "identity-conflict" });
+    expect(f.readAllEvents()).toEqual(before);
+  });
+  it.each(["reserve", "commit", "abort"] as const)(
+    "strictly rejects malformed and extra %s fields before append",
+    async (method) => {
+      const f = await fixture();
+      const before = f.readAllEvents();
+      const valid =
+        method === "commit"
+          ? { ...identity, anchorOrderVersion: 2 }
+          : method === "abort"
+            ? { ...identity, reason: "cancelled" as const }
+            : identity;
+      const invalid: unknown[] = [
+        null,
+        [],
+        { ...valid, callerClock: now },
+        { ...valid, sellerAccountId: "acc_seller" },
+      ];
+      for (const key of Object.keys(valid)) invalid.push({ ...valid, [key]: undefined }, { ...valid, [key]: {} });
+      for (const input of invalid) {
+        // Deliberately malformed boundary values, not a production capability cast.
+        await expect(f.authority[method](input as never, context)).rejects.toThrow();
+      }
+      expect(f.readAllEvents()).toEqual(before);
+    },
+  );
+  it.each(["unexpected", "mixed tenant", "repeated creation", "repeated reservation", "wrong receipt version"])(
+    "poisons %s history before any write",
+    async (kind) => {
+      const f = await fixture();
+      await f.authority.reserve(identity, context);
+      const events = f.streams.get(f.streamId)!;
+      const last = events.at(-1)!;
+      if (kind === "unexpected") events[1] = { ...last, eventType: "fulfillment.unknown" };
+      if (kind === "mixed tenant") events[1] = { ...last, tenantId: "tnt_foreign" as never };
+      if (kind === "repeated creation") events[1] = { ...events[0]!, streamVersion: 2 };
+      if (kind === "repeated reservation")
+        events.push({ ...last, streamVersion: 3, payload: { ...last.payload, shipmentVersion: 3 } });
+      if (kind === "wrong receipt version") events[1] = { ...last, payload: { ...last.payload, shipmentVersion: 9 } };
+      const count = f.readAllEvents().length;
+      await expect(f.authority.reserve(identity, context)).rejects.toBeInstanceOf(ShipmentHistoryPoisonedError);
+      expect(f.readAllEvents()).toHaveLength(count);
+    },
+  );
+});
 
 function webhookReceiptQueryResult(sql: string, values: readonly unknown[] = []) {
   if (sql.includes("WITH inserted AS") && sql.includes("fulfillment_postage_provider_events")) {

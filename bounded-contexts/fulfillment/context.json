@@ -12,6 +12,21 @@
   "seedRequirements": ["identity", "payments", "ordering"],
   "eventSubscriptions": [
     {
+      "sourceContextName": "ordering",
+      "projectionName": "fulfillment-order-group-admission-subscription",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": [
+        "ordering.order-group.admission-requested",
+        "ordering.order-group.formed",
+        "ordering.order-group.admission-aborted",
+        "ordering.order-group.member-removed",
+        "ordering.order-group.dissolved"
+      ],
+      "order": 15,
+      "projectionHandlerSetNames": ["fulfillment-order-group-admission-subscription"]
+    },
+    {
       "sourceContextName": "identity",
       "projectionName": "fulfillment-account-projection",
       "subscriptionVersion": 1,
@@ -69,6 +84,14 @@
     }
   ],
   "projectionGroups": [
+    {
+      "projectionName": "fulfillment-order-group-admission-subscription",
+      "sourceContextNames": ["ordering"],
+      "ownedTables": [],
+      "sideEffectOnly": true,
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
     {
       "projectionName": "fulfillment-account-projection",
       "sourceContextNames": ["identity"],
