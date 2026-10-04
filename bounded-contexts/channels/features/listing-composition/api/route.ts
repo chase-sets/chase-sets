@@ -94,13 +94,11 @@ function parseLimit(value: string | undefined): number {
 }
 function parseSettingsRequest(value: unknown) {
   const body = record(value, ["expectedStreamVersion", "settings"]);
-  const settings = record(body.settings, [
-    "titlePrefix",
-    "titleSuffix",
-    "descriptionFooter",
-    "categoryAllowlist",
-    "excludedListingIds",
-  ]);
+  const settings = record(
+    body.settings,
+    ["titlePrefix", "titleSuffix", "descriptionFooter", "categoryAllowlist", "excludedListingIds"],
+    ["publishQuantityCap"],
+  );
   const parsed = {
     expectedStreamVersion: integer(body.expectedStreamVersion),
     settings: {
@@ -109,6 +107,7 @@ function parseSettingsRequest(value: unknown) {
       descriptionFooter: string(settings.descriptionFooter),
       categoryAllowlist: strings(settings.categoryAllowlist),
       excludedListingIds: strings(settings.excludedListingIds),
+      publishQuantityCap: settings.publishQuantityCap == null ? null : integer(settings.publishQuantityCap),
     },
   };
   assertChannelPublicationSettingsPayload(parsed.settings);
@@ -137,10 +136,17 @@ function parseMappingDecisionRequest(
   });
   return parsed;
 }
-function record(value: unknown, keys: readonly string[]): Record<string, unknown> {
+function record(
+  value: unknown,
+  keys: readonly string[],
+  optionalKeys: readonly string[] = [],
+): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid_input");
   const result = value as Record<string, unknown>;
-  if (Object.keys(result).some((key) => !keys.includes(key)) || keys.some((key) => !(key in result))) {
+  if (
+    Object.keys(result).some((key) => !keys.includes(key) && !optionalKeys.includes(key)) ||
+    keys.some((key) => !(key in result))
+  ) {
     throw new Error("invalid_input");
   }
   return result;

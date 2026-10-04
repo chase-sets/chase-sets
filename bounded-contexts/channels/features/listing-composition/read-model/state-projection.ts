@@ -8,11 +8,11 @@ export function buildChannelListingStateProjectionHandlers(db: PgQueryable): Pro
       const settings = record(data.settings);
       await db.query(
         `INSERT INTO channels_connection_publication_settings
-           (connection_id,title_prefix,title_suffix,description_footer,category_allowlist,excluded_listing_ids,updated_at,last_stream_version)
-         VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8)
+           (connection_id,title_prefix,title_suffix,description_footer,category_allowlist,excluded_listing_ids,publish_quantity_cap,updated_at,last_stream_version)
+         VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9)
          ON CONFLICT (connection_id) DO UPDATE SET title_prefix=EXCLUDED.title_prefix,title_suffix=EXCLUDED.title_suffix,
            description_footer=EXCLUDED.description_footer,category_allowlist=EXCLUDED.category_allowlist,
-           excluded_listing_ids=EXCLUDED.excluded_listing_ids,updated_at=EXCLUDED.updated_at,
+           excluded_listing_ids=EXCLUDED.excluded_listing_ids,publish_quantity_cap=EXCLUDED.publish_quantity_cap,updated_at=EXCLUDED.updated_at,
            last_stream_version=EXCLUDED.last_stream_version
          WHERE channels_connection_publication_settings.last_stream_version < EXCLUDED.last_stream_version`,
         [
@@ -22,6 +22,7 @@ export function buildChannelListingStateProjectionHandlers(db: PgQueryable): Pro
           settings.descriptionFooter,
           JSON.stringify(settings.categoryAllowlist),
           JSON.stringify(settings.excludedListingIds),
+          settings.publishQuantityCap ?? null,
           event.timing.recordedAt,
           event.streamVersion,
         ],
