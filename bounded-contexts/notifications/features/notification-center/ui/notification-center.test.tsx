@@ -295,28 +295,46 @@ describe("notification center route", () => {
     expect(fetchCalls.filter((call) => call.url.includes("/api/notifications/center?"))).toHaveLength(1);
   });
 
-  it("keeps the current feed snapshot when a read action fails", async () => {
-    const user = userEvent.setup();
-    respond("POST /api/notifications/center/read-all", () => json({ error: "unavailable" }, 500));
+  it.each([
+    ["Mark read", "POST /api/notifications/center/del_1/read"],
+    ["Mark all read", "POST /api/notifications/center/read-all"],
+  ])(
+    "reports a failed %s, keeps the current feed snapshot, and clears after a committed repeat",
+    async (label, key) => {
+      const user = userEvent.setup();
+      const feedWrites: Responder[] = [
+        () => json({ error: "unavailable" }, 500),
+        () => json({ status: "read", feed: feedSnapshot("2026-05-13T00:05:00.000Z", 0) }),
+      ];
+      respond(key, () => feedWrites.shift()!());
 
-    renderRoute();
-    await screen.findByText("1 unread");
+      renderRoute();
+      await screen.findByText("1 unread");
 
-    await user.click(screen.getByRole("button", { name: "Mark all read" }));
+      await user.click(screen.getByRole("button", { name: label }));
 
-    await waitFor(() =>
-      expect(fetchCalls.some((call) => call.url.endsWith("/api/notifications/center/read-all"))).toBe(true),
-    );
-    expect(screen.getByText("1 unread")).toBeTruthy();
-    expect(screen.getByText("New")).toBeTruthy();
-    expect(screen.queryByRole("alert")).toBeNull();
-  });
+      const banner = await screen.findByRole("alert");
+      expect(within(banner).getByText("Try again in a moment.")).toBeTruthy();
+      expect(within(banner).queryByText("Notifications could not load")).toBeNull();
+      expect(screen.getByText("1 unread")).toBeTruthy();
+      expect(screen.getByText("New")).toBeTruthy();
+      expect(screen.getByText("Order confirmed")).toBeTruthy();
 
-  it("reconciles preferences from saved snapshots and preserves state on failed writes", async () => {
+      await user.click(screen.getByRole("button", { name: label }));
+
+      expect(await screen.findByText("0 unread")).toBeTruthy();
+      expect(screen.getByText("Read")).toBeTruthy();
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(fetchCalls.filter((call) => requestKey(call.url, call.method) === key)).toHaveLength(2);
+    },
+  );
+
+  it("reconciles preferences from saved snapshots and reports failed writes without changing state", async () => {
     const user = userEvent.setup();
     const preferenceWrites: Responder[] = [
       () => json({ item: { key: "email", enabled: false } }),
       () => json({ error: "unavailable" }, 500),
+      () => json({ item: { key: "email", enabled: true } }),
     ];
     respond("POST /api/notifications/preferences/email", () => preferenceWrites.shift()!());
 
@@ -327,11 +345,21 @@ describe("notification center route", () => {
     await user.click(emailSwitch);
     await waitFor(() => expect(emailSwitch.getAttribute("aria-checked")).toBe("false"));
 
+    expect(screen.queryByRole("alert")).toBeNull();
+
     await user.click(emailSwitch);
-    await waitFor(() => expect(preferenceWrites).toHaveLength(0));
+    const banner = await screen.findByRole("alert");
+    expect(within(banner).getByText("Try again in a moment.")).toBeTruthy();
+    expect(within(banner).queryByText("Notifications could not load")).toBeNull();
     expect(emailSwitch.getAttribute("aria-checked")).toBe("false");
+
+    await user.click(emailSwitch);
+    await waitFor(() => expect(emailSwitch.getAttribute("aria-checked")).toBe("true"));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(preferenceWrites).toHaveLength(0);
     expect(fetchCalls.filter((call) => call.url.includes("/api/notifications/preferences/email"))).toEqual([
       expect.objectContaining({ method: "POST", body: JSON.stringify({ enabled: false }) }),
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ enabled: true }) }),
       expect.objectContaining({ method: "POST", body: JSON.stringify({ enabled: true }) }),
     ]);
   });

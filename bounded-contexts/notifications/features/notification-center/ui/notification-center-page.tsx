@@ -22,6 +22,7 @@ import { formatDateTime, t } from "@chase-sets/localization";
 import {
   createNotificationCenterApiClient,
   type NotificationCenterFeedResponse,
+  type NotificationCenterReadMutationResponse,
   type NotificationPreference,
 } from "../../../client";
 import type {
@@ -136,23 +137,26 @@ function NotificationCenterLoading() {
   );
 }
 
+function NotificationCommandFailure() {
+  return (
+    <Banner tone="danger" title={t("notifications.features.notificationCenter.ui.page.readFailure.description")} />
+  );
+}
+
 function NotificationFeed({ feed: loadedFeed }: Readonly<{ feed: NotificationCenterFeedResponse }>) {
   // Seeded from the loader and then reconciled only from committed mutation snapshots;
-  // a failed write leaves the current snapshot in place.
+  // a failed write leaves the current snapshot in place and reports the failure until a
+  // later command commits.
   const [feed, setFeed] = useState(loadedFeed);
+  const [commandFailed, setCommandFailed] = useState(false);
   useEffect(() => {
     setFeed(loadedFeed);
   }, [loadedFeed]);
   const notificationsApi = useMemo(() => createNotificationCenterApiClient(), []);
 
-  const markRead = async (deliveryId: string) => {
-    const response = await notificationsApi.markRead(deliveryId).catch(() => null);
-    if (response) {
-      setFeed(response.feed);
-    }
-  };
-  const markAllRead = async () => {
-    const response = await notificationsApi.markAllRead().catch(() => null);
+  const applyFeedCommand = async (command: Promise<NotificationCenterReadMutationResponse>) => {
+    const response = await command.catch(() => null);
+    setCommandFailed(!response);
     if (response) {
       setFeed(response.feed);
     }
@@ -160,6 +164,7 @@ function NotificationFeed({ feed: loadedFeed }: Readonly<{ feed: NotificationCen
 
   return (
     <Stack gap={3}>
+      {commandFailed ? <NotificationCommandFailure /> : null}
       <Cluster gap={3}>
         <Heading level={2} visualSize={5}>
           {t("notifications.features.notificationCenter.ui.page.feed.heading")}
@@ -206,7 +211,12 @@ function NotificationFeed({ feed: loadedFeed }: Readonly<{ feed: NotificationCen
                       </LinkButton>
                     ) : null}
                     {!read ? (
-                      <Button type="button" tone="ghost" size="sm" onClick={() => void markRead(item.deliveryId)}>
+                      <Button
+                        type="button"
+                        tone="ghost"
+                        size="sm"
+                        onClick={() => void applyFeedCommand(notificationsApi.markRead(item.deliveryId))}
+                      >
                         {t("notifications.features.notificationCenter.ui.page.feed.markRead")}
                       </Button>
                     ) : null}
@@ -228,7 +238,7 @@ function NotificationFeed({ feed: loadedFeed }: Readonly<{ feed: NotificationCen
           tone="secondary"
           size="sm"
           disabled={feed.unread === 0}
-          onClick={() => void markAllRead()}
+          onClick={() => void applyFeedCommand(notificationsApi.markAllRead())}
         >
           {t("notifications.features.notificationCenter.ui.page.feed.markAllRead")}
         </Button>
@@ -242,6 +252,7 @@ function NotificationSettings({
   section,
 }: Readonly<{ settings: NotificationCenterSettings; section: NotificationCenterSettingsSection }>) {
   const [preferences, setPreferences] = useState(settings.preferences);
+  const [preferenceFailed, setPreferenceFailed] = useState(false);
   useEffect(() => {
     setPreferences(settings.preferences);
   }, [settings.preferences]);
@@ -257,6 +268,7 @@ function NotificationSettings({
 
   const changePreference = async (key: NotificationPreference["key"], enabled: boolean) => {
     const response = await notificationsApi.setPreference(key, enabled).catch(() => null);
+    setPreferenceFailed(!response);
     if (response) {
       setPreferences((current) => current.map((preference) => (preference.key === key ? response.item : preference)));
     }
@@ -272,6 +284,7 @@ function NotificationSettings({
         description={t("notifications.features.notificationCenter.ui.page.settings.preferences.description")}
       >
         <Stack gap={3}>
+          {preferenceFailed ? <NotificationCommandFailure /> : null}
           {preferences.map((preference) => {
             const copy = preferenceCopyKeys[preference.key];
 
