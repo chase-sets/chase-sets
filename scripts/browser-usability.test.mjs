@@ -836,6 +836,35 @@ describe("read-only sweep summaries", () => {
       surface.excludedRoutes.pop();
     }
   });
+  it.each([false, true])("scopes exclusions to the audited route universe (empty: %s)", (empty) => {
+    const root = sweep();
+    const surface = browserUsabilityGoalModules.find((s) => s.id === "buyer");
+    const excluded = "bounded-contexts/ordering/routes/account-purchase.tsx";
+    const outside = "bounded-contexts/fulfillment/routes/marketplace/account-shipment.tsx";
+    const unexercised = "bounded-contexts/fulfillment/routes/marketplace/account-shipments.tsx";
+    const files = empty ? [] : [excluded, unexercised];
+    const exclusions = [
+      { path: excluded, reason: "provider-step-only" },
+      { path: outside, reason: "fixture-gap: synthetic unseeded shipment" },
+    ];
+    surface.excludedRoutes.push(...exclusions);
+    try {
+      expect(audit(root).coverage.excluded).toEqual(surface.excludedRoutes);
+      const coverage = audit(root, { files }).coverage;
+      expect(coverage.exercised).toEqual([]);
+      expect(coverage.unexercised.map((entry) => entry.route)).toEqual(empty ? [] : [unexercised]);
+      expect(coverage.excluded).toEqual(empty ? [] : [exclusions[0]]);
+      const union = [
+        ...coverage.exercised,
+        ...coverage.unexercised.map((entry) => entry.route),
+        ...coverage.excluded.map((entry) => entry.path),
+      ];
+      expect(new Set(union).size).toBe(files.length);
+      expect(union.sort()).toEqual([...files].sort());
+    } finally {
+      surface.excludedRoutes.splice(-exclusions.length);
+    }
+  });
   it("supports the CLI summary and leaves every run byte unchanged", () => {
     const root = sweep();
     const f = sweepRun(root, "attempt");
