@@ -20,7 +20,7 @@ CREATE INDEX IF NOT EXISTS payments_card_decline_counters_expiry_idx
 export const paymentsCardDeclineSchemaMigrations = [
   {
     migrationId: "20261004_payments_card_decline_velocity",
-    description: "Share card decline windows and durable webhook receipts across Payments replicas.",
+    description: "shared_card_decline_windows_and_durable_webhook_receipts",
     statements: [
       tables,
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS payments_card_decline_counters_expiry_idx
