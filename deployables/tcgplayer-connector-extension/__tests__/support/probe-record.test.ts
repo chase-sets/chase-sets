@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
 import { test } from "vitest";
+import { candidateOptions } from "./build-fixture";
+import type { AlarmEnsure } from "./browser-observation";
 import {
   mechanismFacts,
   mechanismNames,
@@ -358,4 +362,137 @@ test("downstream requires one source with four true facts, refire, and both stor
   }
   record.alarm.refiredAfterRelaunch = false;
   assert.equal(selectMechanism(parseProbeRecord(record)), undefined);
+});
+
+test("synthetic short-window and omitted re-ensure controls never qualify through the real selector", () => {
+  const short = availableRecord();
+  short.mechanisms[0].refetchOnlyAfterAlarm = null;
+  short.mechanisms[0].refetchOnlyAfterAlarmReason = {
+    code: "window-shorter-than-period",
+    message: "SYNTHETIC elapsed=40000 required=65001",
+  };
+  short.alarm.refiredAfterRelaunch = null;
+  short.alarm.refiredAfterRelaunchReason = short.mechanisms[0].refetchOnlyAfterAlarmReason;
+  assert.equal(selectMechanism(parseProbeRecord(short)), undefined);
+  const omitted = availableRecord();
+  omitted.mechanisms[0].artifactRef = "SYNTHETIC/context.close-without-alarm-reensure.json";
+  omitted.alarm.artifactRef = omitted.mechanisms[0].artifactRef;
+  omitted.storage.artifactRef = omitted.mechanisms[0].artifactRef;
+  omitted.mechanisms[0].refetchOnlyAfterAlarm = false;
+  omitted.alarm.refiredAfterRelaunch = false;
+  const parsed = parseProbeRecord(omitted);
+  assert.equal(parsed.mechanisms[0].terminatedMidFetch, true);
+  assert.equal(parsed.mechanisms[0].pendingTransactionAtomic, true);
+  assert.equal(parsed.mechanisms[0].indexedDbSurvived, true);
+  assert.equal(selectMechanism(parsed), undefined);
+});
+
+function workerHarness(omitAlarmReensure = false, prepared = true) {
+  let alarm: chrome.alarms.Alarm | undefined;
+  let creates = 0;
+  let reads = 0;
+  const local: Record<string, unknown> = prepared ? { localCanary: "SYNTHETIC_LOCAL_CANARY", fires: ["retained"] } : {};
+  const listeners: Record<string, (...args: unknown[]) => void> = {};
+  const event = (name: string) => ({
+    addListener: (listener: (...args: unknown[]) => void) => {
+      listeners[name] = listener;
+    },
+  });
+  const scope = {
+    options: { ...candidateOptions, omitAlarmReensure },
+    createTransport: () => () => {
+      throw new Error("Unexpected work in ensure-only control");
+    },
+    chrome: {
+      runtime: { getManifest: () => ({}), onStartup: event("startup"), onInstalled: event("installed") },
+      alarms: {
+        onAlarm: event("alarm"),
+        async get() {
+          reads++;
+          return alarm;
+        },
+        async create() {
+          creates++;
+          alarm = { name: "probe-work", periodInMinutes: 0.5, scheduledTime: Date.now() + 30_000 };
+        },
+      },
+      storage: {
+        local: {
+          async get() {
+            return local;
+          },
+          async set(value: object) {
+            Object.assign(local, value);
+          },
+        },
+        session: { async set() {} },
+      },
+    },
+    indexedDB: {
+      open() {
+        const request = { result: {}, onsuccess: () => {} };
+        queueMicrotask(() => request.onsuccess());
+        return request;
+      },
+    },
+  };
+  const source = readFileSync(new URL("../fixtures/restart-probe/worker.js", import.meta.url), "utf8").replace(
+    /^import .*;\r?\n/gm,
+    "",
+  );
+  const probe = runInNewContext(`${source}\nrestartProbe;`, scope) as {
+    startupReady: Promise<unknown>;
+    ensures: AlarmEnsure[];
+    ensureAlarm(entrypoint: string): Promise<AlarmEnsure>;
+    prepare(): Promise<unknown>;
+  };
+  return {
+    probe,
+    listeners,
+    local,
+    counts: () => ({ creates, reads }),
+    alarm: () => alarm,
+    remove: () => {
+      alarm = undefined;
+    },
+  };
+}
+
+test("actual fixture registers listeners synchronously and coalesces all startup paths without changing schedules or retained state", async () => {
+  const harness = workerHarness();
+  assert.deepEqual(Object.keys(harness.listeners).sort(), ["alarm", "installed", "startup"]);
+  harness.listeners.startup();
+  harness.listeners.installed({ reason: "install" });
+  await harness.probe.startupReady;
+  assert.deepEqual(harness.counts(), { creates: 1, reads: 2 });
+  assert.equal(harness.probe.ensures.length, 3);
+  assert.equal(harness.probe.ensures.filter((entry) => entry.coalesced).length, 2);
+  const schedule = harness.alarm()!.scheduledTime;
+  const present = await Promise.all([harness.probe.ensureAlarm("repeat-1"), harness.probe.ensureAlarm("repeat-2")]);
+  await harness.probe.ensureAlarm("repeat-3");
+  assert.equal(harness.counts().creates, 1);
+  for (const invocation of present) {
+    assert.equal(invocation.created, false);
+    assert.equal(invocation.getResult!.scheduledTime, schedule);
+    assert.equal(invocation.alarm.scheduledTime, schedule);
+  }
+  harness.remove();
+  await Promise.all([harness.probe.ensureAlarm("missing-1"), harness.probe.ensureAlarm("missing-2")]);
+  assert.equal(harness.counts().creates, 2);
+  assert.deepEqual(harness.local.fires, ["retained"]);
+});
+
+test("actual fixture initial startup waits for prepare; omission disables only startup paths and prepare still creates", async () => {
+  for (const omitted of [false, true]) {
+    const harness = workerHarness(omitted, false);
+    harness.listeners.startup();
+    harness.listeners.installed({ reason: "install" });
+    await Promise.resolve();
+    assert.equal(harness.counts().creates, 0);
+    await harness.probe.prepare();
+    assert.equal(harness.counts().creates, 1);
+    assert.equal(harness.local.localCanary, "SYNTHETIC_LOCAL_CANARY");
+    assert.equal(JSON.stringify(harness.local.fires), "[]");
+    if (omitted) assert.equal(harness.probe.ensures.map((entry) => entry.entrypoint).join(), "prepare");
+  }
 });

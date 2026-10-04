@@ -1,9 +1,21 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { platform, release } from "node:os";
 import { resolve } from "node:path";
+import { gzipSync } from "node:zlib";
 import { expect, test, type BrowserContext, type Page, type Worker } from "@playwright/test";
 import { candidateOptions, buildFixture, type FixtureOptions } from "./support/build-fixture";
-import { fixtureWorker, launchFixture, observeUntil, observer, snapshot } from "./support/browser-observation";
+import {
+  alarmSnapshot,
+  fixtureWorker,
+  launchFixture,
+  observeUntil,
+  observer,
+  settledStartup,
+  snapshot,
+} from "./support/browser-observation";
 import { holdOrigin, startHoldServer } from "./support/hold-server";
 import {
   mechanismFacts,
@@ -17,7 +29,10 @@ import {
 } from "./support/probe-record";
 
 const require = createRequire(import.meta.url);
-const root = resolve(import.meta.dirname, "../../../artifacts/7938", new Date().toISOString().replaceAll(/[:.]/g, "-"));
+const root = resolve(import.meta.dirname, "../../../artifacts/8589", new Date().toISOString().replaceAll(/[:.]/g, "-"));
+const playwrightVersion: string = JSON.parse(
+  readFileSync(require.resolve("@playwright/test/package.json"), "utf8"),
+).version;
 const observations: CaseObservation[] = [];
 type Snapshot = Awaited<ReturnType<typeof snapshot>>;
 type CaseObservation = {
@@ -25,6 +40,11 @@ type CaseObservation = {
   chromiumVersion: string;
   mechanism: Mechanism;
   before: Snapshot;
+  initial: Awaited<ReturnType<typeof globalThis.restartProbe.prepare>>;
+  observedFirstFireMs: number;
+  preCloseAlarms: Awaited<ReturnType<typeof alarmSnapshot>> | null;
+  postRelaunchAlarms: Awaited<ReturnType<typeof alarmSnapshot>> | null;
+  startup: Awaited<ReturnType<typeof settledStartup>> | null;
   after: Snapshot | null;
   final: Snapshot | null;
   workerClosed: boolean;
@@ -39,6 +59,83 @@ type CaseObservation = {
 function save(name: string, value: unknown) {
   mkdirSync(root, { recursive: true });
   writeFileSync(resolve(root, name), `${JSON.stringify(value, null, 2)}\n`);
+}
+
+async function publishPayloads() {
+  const packageRequire = createRequire(require.resolve("@playwright/test/package.json"));
+  const coreRequire = createRequire(packageRequire.resolve("playwright/package.json"));
+  const {
+    utils: { ZipFile },
+  } = coreRequire("playwright-core/lib/coreBundle") as {
+    utils: {
+      ZipFile: new (path: string) => {
+        entries(): Promise<string[]>;
+        read(path: string): Promise<Buffer>;
+        close(): void;
+      };
+    };
+  };
+  const digest = (bytes: Buffer) => ({ bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") });
+  const traceRoot = test.info().project.outputDir;
+  const traces = [];
+  const markers =
+    /Bearer\s+[A-Za-z0-9._~-]{12,}|(?:sk_live_|rk_live_|ghp_)[A-Za-z0-9]+|"name"\s*:\s*"(?:authorization|cookie|set-cookie)"\s*,\s*"value"\s*:\s*"[^"\s]+/i;
+  expect(markers.test(JSON.stringify({ name: "cookie", value: "SYNTHETIC_FORBIDDEN_PROVIDER_SESSION" }))).toBe(true);
+  for (const file of readdirSync(traceRoot, { recursive: true })
+    .map(String)
+    .filter((file) => file.endsWith(".zip"))
+    .sort()) {
+    const path = resolve(traceRoot, file);
+    const archive = new ZipFile(path);
+    const entries = [];
+    try {
+      for (const entry of await archive.entries()) {
+        const bytes = await archive.read(entry);
+        entries.push({ entry, ...digest(bytes), forbiddenMarker: markers.test(bytes.toString("utf8")) });
+      }
+    } finally {
+      archive.close();
+    }
+    traces.push({ file, ...digest(readFileSync(path)), entries });
+  }
+  expect(traces.length).toBeGreaterThan(0);
+  const scan = { scope: "all retained trace ZIP entries, including resources and source payloads", traces };
+  save("trace-scan.json", scan);
+  expect(traces.flatMap((trace) => trace.entries).filter((entry) => entry.forbiddenMarker)).toEqual([]);
+  const identity = {
+    issue: 8589,
+    artifactRoot: root,
+    platform: platform(),
+    osRelease: release(),
+    sourceHead:
+      process.env.OPERATOR_EVIDENCE_SOURCE_HEAD ??
+      execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
+    checkoutHead: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
+    runId: process.env.GITHUB_RUN_ID ?? "local-diagnostic",
+    runAttempt: process.env.GITHUB_RUN_ATTEMPT ?? "1",
+    job: process.env.GITHUB_JOB ?? "8589-impl-g1",
+    playwrightVersion,
+  };
+  save("identity.json", identity);
+  const payloads = readdirSync(root)
+    .filter((file) => file.endsWith(".json"))
+    .sort()
+    .map((file) => {
+      const bytes = readFileSync(resolve(root, file));
+      return { file, ...digest(bytes), raw: bytes.toString("utf8") };
+    });
+  const packet = { identity, payloads };
+  save(
+    "manifest.json",
+    payloads.map(({ raw: _raw, ...entry }) => entry),
+  );
+  // Hosted CI does not upload this probe directory. Retain exact bytes in its immutable job log without a workflow change.
+  const encoded = gzipSync(Buffer.from(JSON.stringify(packet))).toString("base64");
+  for (let offset = 0; offset < encoded.length; offset += 8_000)
+    console.log(`RESTART_PROBE_8589_PACKET ${offset / 8_000} ${encoded.slice(offset, offset + 8_000)}`);
+  console.log(
+    `RESTART_PROBE_8589_MANIFEST ${JSON.stringify({ ...identity, packetEncoding: "gzip+base64", chunks: Math.ceil(encoded.length / 8_000), files: payloads.map(({ raw: _raw, ...entry }) => entry) })}`,
+  );
 }
 
 test("restart-probe rejects a busy fixed port and non-loopback builds without output", async () => {
@@ -72,6 +169,11 @@ test("restart-probe rejects a busy fixed port and non-loopback builds without ou
 
 const cases: { name: string; mechanism: MechanismName; options: FixtureOptions; refused?: boolean }[] = [
   ...mechanismNames.map((mechanism) => ({ name: mechanism, mechanism, options: candidateOptions })),
+  {
+    name: "context.close-without-alarm-reensure",
+    mechanism: "context.close",
+    options: { ...candidateOptions, omitAlarmReensure: true },
+  },
   { name: "ordering-mutant", mechanism: "context.close", options: { ...candidateOptions, orderingMutant: true } },
   {
     name: "delete-database-mutant",
@@ -100,6 +202,7 @@ for (const scenario of cases) {
     let page: Page;
     let extensionId: string;
     let result: CaseObservation;
+    let initial: CaseObservation["initial"];
     let closed = false;
     const directory = resolve(root, scenario.name);
     const extensionRoot = resolve(directory, "extension");
@@ -116,13 +219,29 @@ for (const scenario of cases) {
       server = await startHoldServer();
       buildFixture(extensionRoot, scenario.options, holdOrigin);
       context = await launchFixture(extensionRoot, profile);
+      expect(playwrightVersion).toBe("1.60.0");
+      expect(context.browser()!.version()).toBe("148.0.7778.96");
       worker = await fixtureWorker(context);
       worker.on("close", () => {
         closed = true;
       });
       extensionId = new URL(worker.url()).host;
       page = await observer(context, extensionId);
-      await worker.evaluate(() => globalThis.restartProbe.prepare());
+      initial = await worker.evaluate(() => globalThis.restartProbe.prepare());
+      if (!scenario.options.omitAlarmReensure) {
+        const repeated = await worker.evaluate(async () => {
+          const probe = globalThis.restartProbe;
+          await Promise.all([probe.ensureAlarm("control:overlap-1"), probe.ensureAlarm("control:overlap-2")]);
+          await probe.ensureAlarm("control:repeat");
+          return probe.ensures;
+        });
+        for (const entry of repeated.filter((entry) => entry.entrypoint.startsWith("control:"))) {
+          expect(entry.created).toBe(false);
+          expect(entry.alarm.scheduledTime).toBe(initial.alarm.scheduledTime);
+          expect(entry.getResult?.scheduledTime).toBe(initial.alarm.scheduledTime);
+        }
+        initial.ensures = repeated;
+      }
       expect((await snapshot(page)).records).toEqual([]);
     });
 
@@ -135,6 +254,10 @@ for (const scenario of cases) {
       await observeUntil(async () => (await snapshot(page)).fires.length > 0, 20_000);
       const before = await snapshot(page);
       expect(before.fires).toHaveLength(1);
+      expect(Date.parse(initial.preparedAt)).toBeLessThanOrEqual(Date.parse(before.fires[0]!));
+      const observedFirstFireMs = Math.round(Date.parse(before.fires[0]!) - (initial.alarm.scheduledTime - 30_000));
+      expect(observedFirstFireMs).toBeGreaterThanOrEqual(0);
+      expect(observedFirstFireMs).toBeLessThanOrEqual(60_000);
       if (scenario.refused) {
         await expect.poll(() => worker.evaluate(() => globalThis.restartProbe.state.refusal)).not.toBeNull();
         expect(server.requests).toHaveLength(0);
@@ -166,6 +289,11 @@ for (const scenario of cases) {
           indexedDbSurvived: null,
         },
         before,
+        initial,
+        observedFirstFireMs,
+        preCloseAlarms: null,
+        postRelaunchAlarms: null,
+        startup: null,
         after: null,
         final: null,
         workerClosed: false,
@@ -182,6 +310,8 @@ for (const scenario of cases) {
         () => globalThis.restartProbe.state.pendingTransaction,
       );
       expect(await worker.evaluate(() => globalThis.restartProbe.state.pendingFetch)).toBe(true);
+      result.preCloseAlarms = await alarmSnapshot(page);
+      expect(result.preCloseAlarms.alarms.filter((alarm) => alarm.name === "probe-work")).toHaveLength(1);
       result.intervenedAt = new Date().toISOString();
       if (scenario.mechanism === "context.close") {
         expect(await worker.evaluate(() => globalThis.restartProbe.state.pendingTransaction)).toBe(true);
@@ -281,7 +411,23 @@ for (const scenario of cases) {
         }
       }
       if (result.mechanism.available && !result.unobservedReason) {
+        result.startup = await settledStartup(context);
+        expect(Date.parse(result.startup.startedAt)).toBeLessThanOrEqual(Date.parse(result.startup.attachedAt));
         page = await observer(context, extensionId);
+        result.postRelaunchAlarms = await alarmSnapshot(page);
+        const alarms = result.postRelaunchAlarms.alarms.filter((alarm) => alarm.name === "probe-work");
+        expect(alarms).toHaveLength(scenario.options.omitAlarmReensure ? 0 : 1);
+        if (scenario.options.omitAlarmReensure) expect(result.startup.ensures).toEqual([]);
+        else {
+          expect(result.startup.ensures.some((entry) => entry.entrypoint === "top-level")).toBe(true);
+          for (const entry of result.startup.ensures) {
+            expect(entry.settledAt).toBeTruthy();
+            if (entry.getResult) {
+              expect(entry.created).toBe(false);
+              expect(entry.alarm.scheduledTime).toBe(entry.getResult.scheduledTime);
+            }
+          }
+        }
         result.after = await snapshot(page);
         const records = result.after.records;
         const both =
@@ -295,26 +441,44 @@ for (const scenario of cases) {
           startedAt: new Date().toISOString(),
           endedAt: "",
           elapsedMs: 0,
-          requiredMs: 30_000 + Date.parse(before.fires[0]!) - before.scheduledAt,
+          requiredMs: 30_000 + observedFirstFireMs + 5_000,
           message: "",
         };
+        expect(result.refireWindow.requiredMs).toBeLessThanOrEqual(95_000);
       }
       save(`${scenario.name}-boundary.json`, result);
     });
 
-    test("observe the first 20 seconds of the refire window", async () => {
-      if (!result?.after) return;
-      await observeUntil(() => server.requests.length >= 2, 20_000);
-    });
+    for (let segment = 1; segment <= 5; segment++) {
+      test(`complete refire observation segment ${segment} (at most 20 seconds)`, async () => {
+        if (!result?.refireWindow) return;
+        const window = result.refireWindow;
+        const elapsed = Date.now() - Date.parse(window.startedAt);
+        expect(Date.now() - Date.parse(result.intervenedAt)).toBeLessThan(120_000);
+        const remaining = Math.min(
+          20_000,
+          Math.max(0, window.requiredMs - elapsed),
+          120_000 - (Date.now() - Date.parse(result.intervenedAt)),
+        );
+        if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
+        expect(Date.now() - Date.parse(result.intervenedAt)).toBeLessThan(120_000);
+        expect(server.requests.length).toBeLessThanOrEqual(2);
+        if (scenario.options.omitAlarmReensure) {
+          expect(server.requests).toHaveLength(1);
+          expect((await snapshot(page)).fires).toHaveLength(1);
+        }
+      });
+    }
 
     test("record post-restart refire, atomicity, persistence and storage", async () => {
       if (!result) return;
       if (result.after) {
-        await observeUntil(() => server.requests.length >= 2, 20_000);
         result.final = await snapshot(page);
         const window = result.refireWindow!;
         window.endedAt = new Date().toISOString();
         window.elapsedMs = Date.parse(window.endedAt) - Date.parse(window.startedAt);
+        expect(window.elapsedMs).toBeGreaterThanOrEqual(window.requiredMs);
+        expect(Date.parse(window.endedAt) - Date.parse(result.intervenedAt)).toBeLessThan(120_000);
         window.message = JSON.stringify({
           startedAt: window.startedAt,
           endedAt: window.endedAt,
@@ -327,7 +491,7 @@ for (const scenario of cases) {
           server.requests.length === 2 &&
           result.final.fires.length === 2 &&
           Date.parse(result.final.fires[1]!) <= Date.parse(server.requests[1]!.at) &&
-          Date.parse(result.final.fires[1]!) >= Date.parse(result.intervenedAt);
+          Date.parse(result.final.fires[1]!) >= Date.parse(window.startedAt);
         if (refetch || server.requests.length >= 2 || window.elapsedMs >= window.requiredMs) {
           result.mechanism.refetchOnlyAfterAlarm = refetch;
         } else {
@@ -348,16 +512,7 @@ for (const scenario of cases) {
   });
 }
 
-test("publish the closed observed record and discriminating controls", async () => {
-  const baseline = observations.find((entry) => entry.name === "context.close")!;
-  const ordering = observations.find((entry) => entry.name === "ordering-mutant")!;
-  const deleted = observations.find((entry) => entry.name === "delete-database-mutant")!;
-  expect(observations).toHaveLength(6);
-  expect(ordering.before.records).toEqual([]);
-  expect(ordering.after?.records).toEqual([]);
-  expect(ordering.mechanism.terminatedMidFetch).toBe(baseline.mechanism.terminatedMidFetch);
-  expect(deleted.mechanism.indexedDbSurvived).toBe(false);
-  expect(deleted.after?.records).toEqual([]);
+function aggregate(baseline: CaseObservation) {
   let refiredAfterRelaunch: boolean | null = null;
   if (baseline.final) {
     if (baseline.final.fires.length >= 2) refiredAfterRelaunch = true;
@@ -367,17 +522,19 @@ test("publish the closed observed record and discriminating controls", async () 
     code: "window-shorter-than-period",
     message: baseline.refireWindow?.message,
   };
-  const record = parseProbeRecord({
+  return parseProbeRecord({
     schemaVersion: 2,
     chromiumVersion: baseline.chromiumVersion,
-    playwrightVersion: JSON.parse(readFileSync(require.resolve("@playwright/test/package.json"), "utf8")).version,
+    playwrightVersion,
     capturedAt: new Date().toISOString(),
-    mechanisms: mechanismNames.map((name) => observations.find((entry) => entry.name === name)!.mechanism),
+    mechanisms: mechanismNames.map((name) =>
+      name === "context.close" ? baseline.mechanism : observations.find((entry) => entry.name === name)!.mechanism,
+    ),
     alarm: {
       mechanism: baseline.mechanism.name,
       artifactRef: baseline.mechanism.artifactRef,
       requestedPeriodSeconds: 30,
-      observedFirstFireMs: Date.parse(baseline.before.fires[0]!) - baseline.before.scheduledAt,
+      observedFirstFireMs: baseline.observedFirstFireMs,
       refiredAfterRelaunch,
       ...(refiredAfterRelaunch === null ? { refiredAfterRelaunchReason: refireReason } : {}),
     },
@@ -391,6 +548,39 @@ test("publish the closed observed record and discriminating controls", async () 
         : {}),
     },
   });
+}
+
+test("publish the closed observed record and discriminating controls", async () => {
+  const baseline = observations.find((entry) => entry.name === "context.close")!;
+  const omission = observations.find((entry) => entry.name === "context.close-without-alarm-reensure")!;
+  const ordering = observations.find((entry) => entry.name === "ordering-mutant")!;
+  const deleted = observations.find((entry) => entry.name === "delete-database-mutant")!;
+  expect(observations).toHaveLength(7);
+  expect(ordering.before.records).toEqual([]);
+  expect(ordering.after?.records).toEqual([]);
+  expect(ordering.mechanism.terminatedMidFetch).toBe(baseline.mechanism.terminatedMidFetch);
+  expect(deleted.mechanism.indexedDbSurvived).toBe(false);
+  expect(deleted.after?.records).toEqual([]);
+  for (const mutant of [ordering, deleted]) {
+    expect(mutant.requests).toHaveLength(2);
+    expect(mutant.final?.fires).toHaveLength(2);
+    expect(mutant.final?.records).toEqual([]);
+  }
+  for (const fact of ["terminatedMidFetch", "pendingTransactionAtomic", "indexedDbSurvived"] as const) {
+    expect(omission.mechanism[fact]).toBe(true);
+    expect(omission.mechanism[fact]).toBe(baseline.mechanism[fact]);
+  }
+  expect(omission.mechanism.refetchOnlyAfterAlarm).toBe(false);
+  expect(omission.final?.fires).toHaveLength(1);
+  expect(omission.requests).toHaveLength(1);
+  const record = aggregate(baseline);
+  const omittedRecord = aggregate(omission);
+  save("context.close-without-alarm-reensure-aggregate.json", omittedRecord);
+  save("context.close-without-alarm-reensure-decision.json", {
+    selectedMechanism: selectMechanism(omittedRecord)?.name ?? null,
+  });
+  expect(omittedRecord.alarm.refiredAfterRelaunch).toBe(false);
+  expect(selectMechanism(omittedRecord)).toBeUndefined();
   save("extension-restart-probe-chromium.json", record);
   const selected = selectMechanism(record);
   save("decision.json", {
@@ -399,5 +589,7 @@ test("publish the closed observed record and discriminating controls", async () 
     orderingDiscriminates: baseline.before.records.length === 1 && ordering.after?.records.length === 0,
     deleteDatabaseDiscriminates: baseline.mechanism.indexedDbSurvived && !deleted.mechanism.indexedDbSurvived,
   });
+  await publishPayloads();
+  expect(selected?.name).toBe("context.close");
   console.log(`Restart probe record: ${resolve(root, "extension-restart-probe-chromium.json")}`);
 });
