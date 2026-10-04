@@ -14,16 +14,29 @@ import {
 } from "./test-support";
 import { ensureOwnedPostgresDatabases } from "./provisioning";
 
-function createFakeResetPool(connectionString: string) {
+function createFakeResetPool(connectionString: string, failures: Readonly<Record<string, Error>> = {}) {
   const resetQueries: string[] = [];
+  const clientQueries: string[] = [];
+  const release = vi.fn();
+  const query = vi.fn(async () => ({ rows: [] }));
+  const connect = vi.fn(async () => ({
+    query: async (sql: string) => {
+      clientQueries.push(sql);
+      if (sql.startsWith("DROP OWNED")) resetQueries.push(sql);
+      const failure = failures[sql];
+      if (failure) throw failure;
+      return { rows: [] };
+    },
+    release,
+  }));
 
   return {
     resetQueries,
+    clientQueries,
+    release,
     options: { connectionString },
-    query: async (sql: string) => {
-      resetQueries.push(sql);
-      return { rows: [] };
-    },
+    query,
+    connect,
   };
 }
 
@@ -238,6 +251,8 @@ describe("test-support database ownership", () => {
 });
 
 describe("resetMultiContextTestSchemas", () => {
+  const resetSql = "DROP OWNED BY CURRENT_USER CASCADE; GRANT ALL PRIVILEGES ON SCHEMA public TO CURRENT_USER;";
+
   it("issues one reset statement per resolved database, not one per distinct pool object", async () => {
     const sharedDatabaseUrl = "postgresql://acc_suite:acc_suite@localhost:5432/acc_suite_catalog";
     const otherDatabaseUrl = "postgresql://acc_suite:acc_suite@localhost:5432/acc_suite_identity";
@@ -254,5 +269,65 @@ describe("resetMultiContextTestSchemas", () => {
 
     expect(catalogPoolA.resetQueries.length + catalogPoolB.resetQueries.length).toBe(1);
     expect(identityPool.resetQueries).toHaveLength(1);
+  });
+
+  it("coordinates and resets on the same acquired client, committing before release", async () => {
+    const pool = createFakeResetPool("postgresql://role:password@localhost/db");
+
+    await resetMultiContextTestSchemas({ pool });
+
+    expect(pool.clientQueries).toEqual([
+      "BEGIN",
+      "SELECT pg_advisory_xact_lock((8232::bigint << 32) | oid::bigint) FROM pg_roles WHERE rolname = CURRENT_USER",
+      resetSql,
+      "COMMIT",
+    ]);
+    expect(pool.query).not.toHaveBeenCalled();
+    expect(pool.connect).toHaveBeenCalledOnce();
+    expect(pool.release).toHaveBeenCalledExactlyOnceWith(undefined);
+  });
+
+  it("deduplicates same-role URL aliases but retains different roles on the same database", async () => {
+    const first = createFakeResetPool("postgresql://first:password@localhost/db");
+    const alias = createFakeResetPool("postgresql://first:other@localhost:5432/db?application_name=alias");
+    const second = createFakeResetPool("postgresql://second:password@localhost/db");
+
+    await resetMultiContextTestSchemas({ first, alias, second });
+
+    expect(first.resetQueries).toEqual([resetSql]);
+    expect(alias.connect).not.toHaveBeenCalled();
+    expect(second.resetQueries).toEqual([resetSql]);
+  });
+
+  it("rolls back a failed reset, preserving the original error and releasing the client", async () => {
+    const failure = new Error("destructive reset failed");
+    const pool = createFakeResetPool("postgresql://role:password@localhost/db", { [resetSql]: failure });
+
+    await expect(resetMultiContextTestSchemas({ pool })).rejects.toBe(failure);
+
+    expect(pool.clientQueries.slice(-2)).toEqual([resetSql, "ROLLBACK"]);
+    expect(pool.clientQueries).not.toContain("COMMIT");
+    expect(pool.release).toHaveBeenCalledExactlyOnceWith(undefined);
+  });
+
+  it("discards the client when rollback fails without masking the reset error", async () => {
+    const failure = new Error("connection lost");
+    const rollbackFailure = new Error("rollback connection lost");
+    const pool = createFakeResetPool("postgresql://role:password@localhost/db", {
+      [resetSql]: failure,
+      ROLLBACK: rollbackFailure,
+    });
+
+    await expect(resetMultiContextTestSchemas({ pool })).rejects.toBe(failure);
+
+    expect(pool.release).toHaveBeenCalledExactlyOnceWith(rollbackFailure);
+  });
+
+  it("does not bypass coordination for a query-only pool", async () => {
+    const query = vi.fn(async () => ({ rows: [] }));
+
+    await expect(resetMultiContextTestSchemas({ pool: { query } })).rejects.toBeInstanceOf(TypeError);
+
+    expect(query).not.toHaveBeenCalled();
   });
 });

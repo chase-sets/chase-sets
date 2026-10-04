@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { BcApiModule, BcSeedOptions } from "@chase-sets/bounded-context-module";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import { createPgPool, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPgPool, withPgTransaction, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { Hono } from "hono";
 import { afterEach, vi } from "vitest";
 import {
@@ -309,11 +309,19 @@ export async function resetMultiContextTestSchemas(pools: Readonly<Record<string
   }
 
   await forEachWithConcurrency([...poolsByDatabaseTarget.values()], testSchemaResetConcurrency, (pool) => {
-    return pool.query("DROP OWNED BY CURRENT_USER CASCADE; GRANT ALL PRIVILEGES ON SCHEMA public TO CURRENT_USER;");
+    return withPgTransaction(pool, async (client) => {
+      // Advisory locks are database-local. Reserve a reset namespace and use the
+      // role OID so independent processes coordinate without role hash collisions.
+      await client.query(
+        "SELECT pg_advisory_xact_lock((8232::bigint << 32) | oid::bigint) FROM pg_roles WHERE rolname = CURRENT_USER",
+      );
+      await client.query("DROP OWNED BY CURRENT_USER CASCADE; GRANT ALL PRIVILEGES ON SCHEMA public TO CURRENT_USER;");
+    });
   });
 }
 
-// DROP OWNED BY CURRENT_USER is database-wide, not pool-scoped, so distinct pools targeting the same database must collapse to one reset to avoid a lock-order deadlock (40P01).
+// DROP OWNED is database/role-wide, not pool-scoped. Collapse aliases within an
+// invocation; the transaction lock coordinates independent invocations.
 function resolvePgPoolDatabaseTarget(pool: PgTransactionalPool): unknown {
   const connectionString = (pool as unknown as { options?: { connectionString?: unknown } }).options?.connectionString;
 
@@ -323,7 +331,7 @@ function resolvePgPoolDatabaseTarget(pool: PgTransactionalPool): unknown {
 
   try {
     const url = new URL(connectionString);
-    return `${url.hostname}:${url.port || "5432"}${url.pathname}`;
+    return `${url.hostname}:${url.port || "5432"}${url.pathname}:${url.username}`;
   } catch {
     return pool;
   }

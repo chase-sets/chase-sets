@@ -1,8 +1,14 @@
 import { createConnection, createServer, type Socket } from "node:net";
-import { createPgPool, type PgQueryResult, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  createPgPool,
+  type PgPoolClient,
+  type PgQueryResult,
+  type PgTransactionalPool,
+} from "@chase-sets/event-core-postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   closeMultiContextTestPools,
+  createMultiContextTestDatabaseUrls,
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "./test-support";
@@ -122,11 +128,16 @@ describeDb("multi-context schema reset cold acquisition concurrency", () => {
     ).toEqual(platformApiContextNames.map(() => ({ total: 0, idle: 0, waiting: 0 })));
 
     const twentiethResetQueries: string[] = [];
-    const twentiethPool = {
+    const remainderClient = {
       async query<Row = Record<string, unknown>>(sql: string): Promise<PgQueryResult<Row>> {
-        twentiethResetQueries.push(sql);
+        if (sql === resetSql) twentiethResetQueries.push(sql);
         return { rows: [] };
       },
+      release() {},
+    };
+    const twentiethPool: PgTransactionalPool = {
+      query: remainderClient.query,
+      connect: async () => remainderClient,
     };
 
     const firstPool = pools[platformApiContextNames[0]];
@@ -172,18 +183,31 @@ describeDb("multi-context schema reset cold acquisition concurrency", () => {
 
 function observeResetQueries(
   pool: PgTransactionalPool & PoolDiagnostics & Readonly<{ end: () => Promise<void> }>,
+  beforeReset?: (client: PgPoolClient) => Promise<void>,
 ): CloseableObservedPool {
   const resetQueries: string[] = [];
   const successfulResetQueries: string[] = [];
 
   return {
-    async query<Row = Record<string, unknown>>(sql: string, values?: readonly unknown[]): Promise<PgQueryResult<Row>> {
-      resetQueries.push(sql);
-      const result = await pool.query<Row>(sql, values);
-      successfulResetQueries.push(sql);
-      return result;
+    query: pool.query.bind(pool),
+    async connect() {
+      const client = await pool.connect();
+      return {
+        async query<Row = Record<string, unknown>>(
+          sql: string,
+          values?: readonly unknown[],
+        ): Promise<PgQueryResult<Row>> {
+          if (sql === resetSql) {
+            resetQueries.push(sql);
+            await beforeReset?.(client);
+          }
+          const result = await client.query<Row>(sql, values);
+          if (sql === resetSql) successfulResetQueries.push(sql);
+          return result;
+        },
+        release: (error?: unknown) => client.release(error),
+      };
     },
-    connect: () => pool.connect(),
     end: () => pool.end(),
     get totalCount() {
       return pool.totalCount;
@@ -197,6 +221,247 @@ function observeResetQueries(
     resetQueries,
     successfulResetQueries,
   };
+}
+
+describeDb("multi-context schema reset coordination", () => {
+  let databaseUrls: Readonly<Record<"primary" | "other" | "otherRole", string>>;
+  const openPools: CloseableObservedPool[] = [];
+
+  beforeAll(async () => {
+    databaseUrls = createMultiContextTestDatabaseUrls(
+      adminDatabaseUrl!,
+      ["primary", "other", "otherRole"],
+      "reset_lock",
+    );
+    await ensureMultiContextTestDatabases(adminDatabaseUrl!, databaseUrls);
+    const admin = openPool(adminDatabaseUrl!);
+    const ownerName = new URL(databaseUrls.primary).username;
+    const roleName = new URL(databaseUrls.otherRole).username;
+    // Inherited database ownership survives DROP OWNED, unlike a schema grant.
+    await admin.query(`GRANT "${ownerName}" TO "${roleName}"`);
+  });
+
+  afterAll(async () => {
+    await closeMultiContextTestPools(Object.fromEntries(openPools.map((pool, index) => [index, pool])));
+    expect(openPools.map((pool) => [pool.totalCount, pool.idleCount, pool.waitingCount])).toEqual(
+      openPools.map(() => [0, 0, 0]),
+    );
+  });
+
+  function openPool(url: string, beforeReset?: (client: PgPoolClient) => Promise<void>): CloseableObservedPool {
+    const pool = createPgPool(url) as PgTransactionalPool & PoolDiagnostics & Readonly<{ end: () => Promise<void> }>;
+    const observed = observeResetQueries(pool, beforeReset);
+    openPools.push(observed);
+    return observed;
+  }
+
+  function checkpoint(url: string, fail = false) {
+    const reached = createCheckpoint<PgPoolClient>();
+    const resume = createCheckpoint<void>();
+    const pool = openPool(url, async (client) => {
+      reached.resolve(client);
+      await resume.promise;
+      if (fail) await client.query("SELECT 1 / 0");
+    });
+    return { pool, reached: reached.promise, resume: () => resume.resolve() };
+  }
+
+  it("blocks an overlapping independent same-target reset while different database and role resets progress", async () => {
+    const holder = checkpoint(databaseUrls.primary);
+    const contender = checkpoint(databaseUrls.primary);
+    const observer = openPool(databaseUrls.primary);
+    const otherRoleUrl = new URL(databaseUrls.otherRole);
+    otherRoleUrl.pathname = new URL(databaseUrls.primary).pathname;
+    const differentDatabase = openPool(databaseUrls.other);
+    const differentRole = openPool(otherRoleUrl.toString());
+    const started: Promise<unknown>[] = [];
+
+    try {
+      await observer.query("CREATE TABLE reset_primary_owned (id integer)");
+      await differentDatabase.query("CREATE TABLE reset_other_database_owned (id integer)");
+      await differentRole.query("CREATE TABLE reset_other_role_owned (id integer)");
+      const holderAttempt = trackResetAttempt(started, resetMultiContextTestSchemas({ holder: holder.pool }));
+      const holderClient = await reachResetCheckpoint(holder.reached, holderAttempt);
+      const { rows } = await holderClient.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+      const holderPid = rows[0]!.pid;
+      const contenderAttempt = trackResetAttempt(started, resetMultiContextTestSchemas({ contender: contender.pool }));
+
+      expect(await waitForResetContention(observer, holderPid, contender.reached)).toBe("advisory-wait");
+      expect(contender.pool.resetQueries).toEqual([]);
+      const independentReset = trackResetAttempt(
+        started,
+        resetMultiContextTestSchemas({ differentDatabase, differentRole }),
+      );
+      await independentReset;
+      expect(differentDatabase.successfulResetQueries).toEqual([resetSql]);
+      expect(differentRole.successfulResetQueries).toEqual([resetSql]);
+      expect(contender.pool.resetQueries).toEqual([]);
+      console.info(
+        "[schema-reset-coordination] same-target=advisory-wait different-database=completed different-role=completed",
+      );
+
+      holder.resume();
+      await holderAttempt;
+      await reachResetCheckpoint(contender.reached, contenderAttempt);
+      contender.resume();
+      await contenderAttempt;
+      expect(holder.pool.successfulResetQueries).toEqual([resetSql]);
+      expect(contender.pool.successfulResetQueries).toEqual([resetSql]);
+      const remaining = await observer.query<{ primary: string | null; other_role: string | null }>(
+        "SELECT to_regclass('reset_primary_owned')::text AS primary, to_regclass('reset_other_role_owned')::text AS other_role",
+      );
+      expect(remaining.rows).toEqual([{ primary: null, other_role: null }]);
+      const otherRemaining = await differentDatabase.query<{ owned: string | null }>(
+        "SELECT to_regclass('reset_other_database_owned')::text AS owned",
+      );
+      expect(otherRemaining.rows).toEqual([{ owned: null }]);
+    } finally {
+      holder.resume();
+      contender.resume();
+      await Promise.allSettled(started);
+    }
+  });
+
+  it("detects unsafe overlap in a control using the previous uncoordinated reset boundary", async () => {
+    const holder = checkpoint(databaseUrls.primary);
+    const contender = checkpoint(databaseUrls.primary);
+    const observer = openPool(databaseUrls.primary);
+    const started: Promise<unknown>[] = [];
+    const uncoordinatedReset = async (pool: PgTransactionalPool) => {
+      const client = await pool.connect();
+      try {
+        await client.query(resetSql);
+      } finally {
+        client.release();
+      }
+    };
+
+    try {
+      const holderAttempt = trackResetAttempt(started, uncoordinatedReset(holder.pool));
+      const holderClient = await reachResetCheckpoint(holder.reached, holderAttempt);
+      const { rows } = await holderClient.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+      const contenderAttempt = trackResetAttempt(started, uncoordinatedReset(contender.pool));
+      expect(await waitForResetContention(observer, rows[0]!.pid, contender.reached)).toBe("unsafe-overlap");
+      expect(contender.pool.resetQueries).toEqual([resetSql]);
+      console.info("[schema-reset-coordination] uncoordinated-control=unsafe-overlap");
+      // The checkpoint proves the unsafe entry without intentionally deadlocking
+      // cleanup: execute the destructive control statements one at a time.
+      holder.resume();
+      await holderAttempt;
+      contender.resume();
+      await contenderAttempt;
+    } finally {
+      holder.resume();
+      contender.resume();
+      await Promise.allSettled(started);
+    }
+  });
+
+  it.each(["statement-error", "connection-close"] as const)(
+    "releases a waiting same-target reset after %s before pool cleanup",
+    async (failureMode) => {
+      const holder = checkpoint(databaseUrls.primary, failureMode === "statement-error");
+      const contender = checkpoint(databaseUrls.primary);
+      const observer = openPool(databaseUrls.primary);
+      const started: Promise<unknown>[] = [];
+
+      try {
+        const holderResult = resetMultiContextTestSchemas({ holder: holder.pool }).then(
+          () => ({ status: "fulfilled" as const }),
+          (error: unknown) => ({ status: "rejected" as const, error }),
+        );
+        trackResetAttempt(started, holderResult);
+        const holderClient = await reachResetCheckpoint(holder.reached, holderResult);
+        const { rows } = await holderClient.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+        const holderPid = rows[0]!.pid;
+        const contenderAttempt = trackResetAttempt(
+          started,
+          resetMultiContextTestSchemas({ contender: contender.pool }),
+        );
+        expect(await waitForResetContention(observer, holderPid, contender.reached)).toBe("advisory-wait");
+
+        if (failureMode === "connection-close") {
+          const adminUrl = new URL(adminDatabaseUrl!);
+          adminUrl.pathname = new URL(databaseUrls.primary).pathname;
+          const admin = openPool(adminUrl.toString());
+          const terminated = await admin.query<{ terminated: boolean }>(
+            "SELECT pg_terminate_backend($1) AS terminated",
+            [holderPid],
+          );
+          expect(terminated.rows[0]?.terminated).toBe(true);
+        }
+        holder.resume();
+        const result = await holderResult;
+        expect(result.status).toBe("rejected");
+        if (result.status === "rejected" && failureMode === "statement-error") {
+          expect(result.error).toMatchObject({ code: "22012" });
+        }
+        await reachResetCheckpoint(contender.reached, contenderAttempt);
+        contender.resume();
+        await contenderAttempt;
+        expect(holder.pool.successfulResetQueries).toEqual([]);
+        expect(contender.pool.successfulResetQueries).toEqual([resetSql]);
+        expect(observer.totalCount).toBeGreaterThan(0);
+        console.info(`[schema-reset-coordination] failure=${failureMode} contender=completed before-pool-cleanup=true`);
+      } finally {
+        holder.resume();
+        contender.resume();
+        await Promise.allSettled(started);
+      }
+    },
+  );
+});
+
+function trackResetAttempt<T>(started: Promise<unknown>[], attempt: Promise<T>): Promise<T> {
+  started.push(attempt);
+  // Attach a handler immediately; checkpoint assertions may fail before await.
+  void attempt.catch(() => undefined);
+  return attempt;
+}
+
+async function reachResetCheckpoint(
+  checkpoint: Promise<PgPoolClient>,
+  attempt: Promise<unknown>,
+): Promise<PgPoolClient> {
+  return Promise.race([
+    checkpoint,
+    attempt.then(() => {
+      throw new Error("Reset completed without reaching its destructive-statement checkpoint.");
+    }),
+  ]);
+}
+
+function createCheckpoint<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((complete) => {
+    resolve = complete;
+  });
+  return { promise, resolve };
+}
+
+async function waitForResetContention(
+  observer: PgTransactionalPool,
+  holderPid: number,
+  destructiveStatementReached: Promise<PgPoolClient>,
+): Promise<"advisory-wait" | "unsafe-overlap"> {
+  let unsafeOverlap = false;
+  void destructiveStatementReached.then(() => {
+    unsafeOverlap = true;
+  });
+  const deadline = Date.now() + platformApiConnectionTimeoutMs;
+  while (Date.now() < deadline) {
+    if (unsafeOverlap) return "unsafe-overlap";
+    const { rows } = await observer.query<{ waiting: boolean }>(
+      `SELECT EXISTS (
+        SELECT 1 FROM pg_stat_activity
+        WHERE datname = current_database() AND wait_event = 'advisory'
+          AND $1 = ANY(pg_blocking_pids(pid))
+      ) AS waiting`,
+      [holderPid],
+    );
+    if (rows[0]?.waiting) return "advisory-wait";
+  }
+  throw new Error(`Reset contender neither waited on backend ${holderPid} nor reached the destructive statement.`);
 }
 
 async function createColdAcquisitionProxy(
