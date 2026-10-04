@@ -9,7 +9,7 @@ import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { resolveClientAddress, resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
 import { paymentWebhookErrorFromUnknown } from "./webhook-errors";
-import { PaymentsRateLimitExceededError, type PaymentServices } from "./runtime";
+import { PaymentDeclineLimitUnavailableError, PaymentsRateLimitExceededError, type PaymentServices } from "./runtime";
 import { normalizeRequestedBalanceCreditAmount } from "./balance-credit-request";
 import type { AccountId, OrderId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { PaymentProcessorPublicConfig } from "@chase-sets/payment-processing";
@@ -134,6 +134,12 @@ function staleFeeQuoteResponse(c: { json: (body: unknown, status?: number) => Re
 }
 
 function paymentRateLimitResponse(error: unknown) {
+  if (error instanceof PaymentDeclineLimitUnavailableError) {
+    return new Response(JSON.stringify({ error: { code: error.code, message: error.message } }), {
+      status: 503,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
   if (!(error instanceof PaymentsRateLimitExceededError)) {
     return null;
   }

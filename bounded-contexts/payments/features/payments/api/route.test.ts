@@ -4,6 +4,7 @@ import { buildPaymentsApi } from "../../../api";
 import type { PaymentsApiEnv } from "./route";
 import { createAccountPaymentRoutes, createPaymentProcessorWebhookRoutes, preflightPaymentStart } from "./route";
 import type { PaymentServices } from "./runtime";
+import { PaymentDeclineLimitUnavailableError, PaymentsRateLimitExceededError } from "./runtime";
 import { PaymentsDomainError } from "../../../support/runtime-support/common";
 import { ProviderWebhookError } from "@chase-sets/http/provider-errors";
 import { DEPLOYMENT_ENVIRONMENTS } from "@chase-sets/platform-runtime/config-schema";
@@ -394,6 +395,49 @@ describe("payments routes", () => {
       },
       expect.any(Object),
     );
+  });
+
+  it.each([
+    ["/payments", "createAccountPayment"],
+    ["/checkout/recover", "recoverCheckoutPayment"],
+  ] as const)("preserves decline-store 503 and existing 429 on %s", async (path, method) => {
+    const services = createServices();
+    const app = buildAccountApp({
+      actor: {
+        sessionId: "ses_decline",
+        tenantId: "tnt_identity",
+        userId: "usr_decline",
+        accountId: `acc_decline_${method}`,
+        membershipId: "mbr_decline",
+        roleKey: "owner",
+        permissions: ["orders.manage"],
+      },
+      services,
+    });
+    vi.mocked(services[method]).mockRejectedValueOnce(new PaymentDeclineLimitUnavailableError());
+    vi.mocked(services[method]).mockRejectedValueOnce(
+      new PaymentsRateLimitExceededError("payments.card-decline.fingerprint", 42),
+    );
+    const request = () =>
+      new Request(`http://payments.test/account${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-forwarded-for": "203.0.113.215" },
+        body: JSON.stringify({ orderIds: ["ord_1"] }),
+      });
+    const unavailable = await app.fetch(request());
+    expect(unavailable.status).toBe(503);
+    expect(await unavailable.json()).toEqual({
+      error: {
+        code: "payment_decline_limit_unavailable",
+        message: "Payment attempts are temporarily unavailable. Please retry later.",
+      },
+    });
+    const limited = await app.fetch(request());
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("Retry-After")).toBe("42");
+    expect(await limited.json()).toMatchObject({
+      error: { code: "rate_limited", surface: "payments.card-decline.fingerprint" },
+    });
   });
 
   it("rate limits repeated account payment creation", async () => {
