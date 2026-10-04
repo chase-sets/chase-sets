@@ -52,7 +52,7 @@ function createPools(runtimeProfile: "landing" | "public") {
 }
 
 describe("cleanup-authority-inventory-host-capability", () => {
-  it("binds the lazy admission port to the constructed Fulfillment authority using the imported interface", async () => {
+  it("supplies the available cleanup capability and binds the lazy admission port from the real platform-api registry", async () => {
     const pools = createPools("public");
     try {
       const runtime = createPlatformApiHost({
@@ -83,18 +83,6 @@ describe("cleanup-authority-inventory-host-capability", () => {
       expect(reserve).toHaveBeenCalledWith(input, accountContext);
       expect(commit).toHaveBeenCalledWith({ ...input, anchorOrderVersion: 7 }, accountContext);
       expect(abort).toHaveBeenCalledWith({ ...input, reason: "cancelled" }, accountContext);
-    } finally {
-      await closePlatformApiPools(pools);
-    }
-  });
-  it("supplies the available variant from the real platform-api registry", async () => {
-    const pools = createPools("public");
-    try {
-      const runtime = createPlatformApiHost({
-        runtimeProfile: "public",
-        pools,
-        hostPorts: { processorGateway: createFakePaymentProcessorGateway() },
-      });
       const ordering = orderingServicesOf(runtime.services);
 
       expect(ordering.orders.cleanupAuthority.kind).toBe("available");

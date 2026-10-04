@@ -70,15 +70,28 @@ describe("Shipment Group admission real-store recovery", () => {
     const target = createPostgresEventStore({ pool: pools.fulfillment });
     const checkpointStore = createPostgresProjectionStore({ db: pools.fulfillment });
     let crashed = false;
+    let outage = false;
+    let outageReads = 0;
+    const throwIfOutage = () => {
+      if (outage) {
+        throw createTransientProjectionError("Synthetic crash after durable admission append, before acknowledgement.");
+      }
+    };
     const eventStore: EventStore = {
       ...target,
+      readStream: async (input) => {
+        // Replay may need no append, so the outage must also fence authoritative reads.
+        if (outage) outageReads += 1;
+        throwIfOutage();
+        return target.readStream(input);
+      },
       appendToStream: async (input) => {
+        throwIfOutage();
         const result = await target.appendToStream(input);
         if (!crashed && input.events.some((event) => event.eventType === crashAfter)) {
           crashed = true;
-          throw createTransientProjectionError(
-            "Synthetic crash after durable admission append, before acknowledgement.",
-          );
+          outage = true;
+          throwIfOutage();
         }
         return result;
       },
@@ -251,6 +264,10 @@ describe("Shipment Group admission real-store recovery", () => {
       expectClean,
       startAfter,
       crashed: () => crashed,
+      outageReads: () => outageReads,
+      recover: () => {
+        outage = false;
+      },
     };
   }
 
@@ -296,18 +313,29 @@ describe("Shipment Group admission real-store recovery", () => {
       await f.request();
       await f.form();
       const removed = await f.remove();
-      await f.dissolve();
+      const dissolved = await f.dissolve();
       await f.startAfter(removed.globalPosition);
       await expect(f.runner().runOnce()).rejects.toThrow("Synthetic crash");
       expect(f.crashed()).toBe(true);
+      expect(f.outageReads()).toBeGreaterThan(0);
+      const durable = await f.read();
+      const phases = ["reserved", "committed", "released"];
+      expect(durable.slice(1).map((event) => event.eventType.split("admission-")[1])).toEqual(
+        phases.slice(0, phases.indexOf(phase) + 1),
+      );
       expect(await loadSubscriptionCheckpoint(pools.fulfillment, admissionKey)).toBe(removed.globalPosition);
-      await f.runner().runOnce();
+      await f.expectClean();
+      f.recover();
+      const recovered = await f.runner().runOnce();
+      expect(recovered.processed).toBe(1);
+      expect(await loadSubscriptionCheckpoint(pools.fulfillment, admissionKey)).toBe(dissolved.globalPosition);
       expect((await f.read()).slice(1).map((event) => event.eventType.split("admission-")[1])).toEqual([
         "reserved",
         "committed",
         "released",
       ]);
       const original = await f.read();
+      expect(original.slice(0, durable.length)).toEqual(durable);
       await f.runner().runOnce();
       expect(await f.read()).toEqual(original);
       await f.expectClean();
