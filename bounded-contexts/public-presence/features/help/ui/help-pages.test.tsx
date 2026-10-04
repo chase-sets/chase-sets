@@ -96,7 +96,7 @@ describe("public help pages", () => {
     for (const label of new Set(accountLinks.map((link) => link.label))) {
       const occurrences = accountLinks.filter((link) => link.label === label).length;
       expect(textNodes.filter((text) => text === label)).toHaveLength(occurrences);
-      expect(within(body as HTMLElement).queryAllByRole("link", { name: label, exact: true })).toHaveLength(0);
+      expect(within(body as HTMLElement).queryAllByRole("link", { name: label })).toHaveLength(0);
     }
   });
 
@@ -126,10 +126,10 @@ describe("public help pages", () => {
       "/accounting",
     ];
     const content = links.map((href) => ({ type: "link" as const, href, label: href }));
-    const article = {
+    const article: typeof sellerArticle = {
       ...sellerArticle,
       blocks: [
-        { type: "heading" as const, id: "links", level: 2 as const, content },
+        { type: "heading" as const, id: "links", level: 2 as const, content, text: links.join(" ") },
         { type: "paragraph" as const, content },
         { type: "list" as const, ordered: false, items: [content] },
       ],
