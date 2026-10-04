@@ -138,6 +138,8 @@ export const releaseQualificationScopeRegistry = Object.freeze({
     localization: "runtime-library",
     "market-estimate-display": "runtime-library",
     "money-movement": "money-movement-contract",
+    // Versioned stored public facts constrain durable replay across contexts.
+    "order-groups": "event-store-persistence",
     "outbound-messaging": "live-provider",
     "payment-processing": "live-provider",
     "postage-labels": "live-provider",

@@ -90,6 +90,8 @@ const schedulerVocabularyLookalikePaths = [
 // is that fan-out's exact membership and order at the base commit. It is
 // asserted against the live workspace inventory as well, so adding a workspace
 // fails here loudly and this pin is refreshed with it.
+// Accepted inventory delta: #7197 adds @chase-sets/order-groups. The captured
+// classifier decisions, reasons, and output-key equivalence remain unchanged.
 const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/app-admin-web",
   "@chase-sets/app-marketplace-web",
@@ -133,6 +135,7 @@ const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/notifications",
   "@chase-sets/object-storage",
   "@chase-sets/observability",
+  "@chase-sets/order-groups",
   "@chase-sets/ordering",
   "@chase-sets/outbound-messaging",
   "@chase-sets/payment-processing",

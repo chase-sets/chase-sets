@@ -573,6 +573,9 @@
       "@chase-sets/observability": [
         "./infrastructure/observability/index.ts"
       ],
+      "@chase-sets/order-groups": [
+        "./contracts/order-groups/index.ts"
+      ],
       "@chase-sets/ordering": [
         "./bounded-contexts/ordering/index.ts"
       ],

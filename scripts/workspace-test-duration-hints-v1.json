@@ -24,6 +24,7 @@
     { "workspace": "@chase-sets/notification-outbox", "script": "test", "estimatedDurationSeconds": 4 },
     { "workspace": "@chase-sets/object-storage", "script": "test", "estimatedDurationSeconds": 5 },
     { "workspace": "@chase-sets/observability", "script": "test", "estimatedDurationSeconds": 5 },
+    { "workspace": "@chase-sets/order-groups", "script": "test", "estimatedDurationSeconds": 1 },
     { "workspace": "@chase-sets/outbound-messaging", "script": "test", "estimatedDurationSeconds": 5 },
     { "workspace": "@chase-sets/payment-processing", "script": "test", "estimatedDurationSeconds": 4 },
     { "workspace": "@chase-sets/postage-labels", "script": "test", "estimatedDurationSeconds": 5 },
