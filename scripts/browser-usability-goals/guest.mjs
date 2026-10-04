@@ -86,7 +86,11 @@ export default {
         "bounded-contexts/discovery/routes/item-detail-market-history.tsx": "market-history",
         "bounded-contexts/pricing/routes/marketplace/market-price-history.tsx": "market-history",
       },
-      paths: ["bounded-contexts/discovery/", "bounded-contexts/pricing/", "contracts/catalog-seed/representative-commerce-state.ts"],
+      paths: [
+        "bounded-contexts/discovery/",
+        "bounded-contexts/pricing/",
+        "contracts/catalog-seed/representative-commerce-state.ts",
+      ],
     },
     {
       id: "public-seller-listing",
@@ -231,7 +235,10 @@ export default {
       startSignedIn: false,
       goal: "register",
       checks: ["registration-screen"],
-      oracle: { "registration-screen": "Confirm the registration screen is reached; stop before credential entry or submission." },
+      oracle: {
+        "registration-screen":
+          "Confirm the registration screen is reached; stop before credential entry or submission.",
+      },
       routes: {
         "bounded-contexts/auth/routes/marketplace/register.tsx": "registration-screen",
       },
