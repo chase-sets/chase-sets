@@ -500,7 +500,7 @@ describe("design system marketplace patterns", () => {
         title="List cards without giving up margin"
         conversionPanel={<form aria-label="Early access form" />}
         highlights={[
-          { label: "0% beta seller fees", value: "Keep 100% of the sale" },
+          { label: "Founders window", value: "0% sales fee on listings you create in your first 60 days of beta" },
           { label: "No seller processing fee", value: "$0 separate line" },
           { label: "Buyer totals", value: "Costs visible before payment" },
         ]}
@@ -509,8 +509,8 @@ describe("design system marketplace patterns", () => {
 
     expect(markup).toContain('md:hidden" aria-label="Marketing highlight">');
     expect(markup).toContain('hidden max-w-2xl grid-cols-3 gap-4 md:grid" aria-label="Marketing highlights">');
-    expect(markup).toContain("0% beta seller fees");
-    expect(markup).toContain("Keep 100% of the sale");
+    expect(markup).toContain("Founders window");
+    expect(markup).toContain("0% sales fee on listings you create in your first 60 days of beta");
   });
 
   it("maps marketing hero legacy default density to comfortable", () => {
@@ -630,7 +630,7 @@ describe("design system marketplace patterns", () => {
           title="List cards without giving up margin"
           conversionPanel={<form aria-label="Early access form" />}
           highlights={[
-            { label: "0% beta seller fees", value: "Keep 100% of the sale" },
+            { label: "Founders window", value: "0% sales fee on listings you create in your first 60 days of beta" },
             { label: "No seller processing fee", value: "$0 separate line" },
             { label: "Buyer totals", value: "Costs visible before payment" },
           ]}
@@ -642,7 +642,9 @@ describe("design system marketplace patterns", () => {
 
       const mobileRow = within(root).getByLabelText("Marketing highlight");
       expect(mobileRow.classList.contains("md:hidden")).toBe(true);
-      expect(mobileRow.textContent).toBe("0% beta seller feesKeep 100% of the sale");
+      expect(mobileRow.textContent).toBe(
+        "Founders window0% sales fee on listings you create in your first 60 days of beta",
+      );
 
       const desktopRow = within(root).getByLabelText("Marketing highlights");
       expect(desktopRow.classList.contains("hidden")).toBe(true);
@@ -650,7 +652,7 @@ describe("design system marketplace patterns", () => {
       expect(desktopRow.classList.contains("grid-cols-3")).toBe(true);
       expect(desktopRow.children).toHaveLength(3);
       expect(Array.from(desktopRow.children).map((cell) => cell.textContent)).toEqual([
-        "0% beta seller feesKeep 100% of the sale",
+        "Founders window0% sales fee on listings you create in your first 60 days of beta",
         "No seller processing fee$0 separate line",
         "Buyer totalsCosts visible before payment",
       ]);
