@@ -418,9 +418,23 @@ function validateFrozenRecord(errors, value, keys, label) {
   return true;
 }
 
+function hasOnlyIndexedDataElements(array) {
+  if (Reflect.ownKeys(array).length !== array.length + 1) return false;
+  for (let index = 0; index < array.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(array, index);
+    if (!descriptor || !Object.hasOwn(descriptor, "value")) return false;
+  }
+  return true;
+}
+
 function validateApplicability(errors, applicability, label) {
   if (typeof applicability !== "object" || applicability === null || Array.isArray(applicability)) {
     errors.push(`${label} must be an object.`);
+    return;
+  }
+  const kindDescriptor = Object.getOwnPropertyDescriptor(applicability, "kind");
+  if (kindDescriptor && !Object.hasOwn(kindDescriptor, "value")) {
+    errors.push(`${label} must contain only data properties.`);
     return;
   }
   if (!RELEASE_QUALIFICATION_APPLICABILITY_KINDS.includes(applicability.kind)) {
@@ -431,6 +445,10 @@ function validateApplicability(errors, applicability, label) {
   if (!validateFrozenRecord(errors, applicability, keys, label) || applicability.kind === "path-scope/v0") return;
   if (!Array.isArray(applicability.modules) || applicability.modules.length === 0) {
     errors.push(`${label}.modules must be a non-empty array.`);
+    return;
+  }
+  if (!hasOnlyIndexedDataElements(applicability.modules)) {
+    errors.push(`${label}.modules must contain only indexed data elements.`);
     return;
   }
   if (!Object.isFrozen(applicability.modules)) errors.push(`${label}.modules must be frozen.`);
@@ -455,6 +473,10 @@ function validateApplicability(errors, applicability, label) {
     paths.add(module.path);
     if (!Array.isArray(module.specifiers)) {
       errors.push(`${moduleLabel}.specifiers must be an array.`);
+      continue;
+    }
+    if (!hasOnlyIndexedDataElements(module.specifiers)) {
+      errors.push(`${moduleLabel}.specifiers must contain only indexed data elements.`);
       continue;
     }
     if (!Object.isFrozen(module.specifiers)) errors.push(`${moduleLabel}.specifiers must be frozen.`);

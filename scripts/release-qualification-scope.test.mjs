@@ -576,6 +576,8 @@ describe("reviewed-ruling applicability schema", () => {
   const moduleKeysError = `${moduleLabel} must have exactly keys: path, specifiers.`;
   const specifierKeysError = `${specifierLabel} must have exactly keys: specifier, binding.`;
   const pathError = `${moduleLabel}.path must be a non-empty repository-relative path without backslashes, leading ./ or .. segments.`;
+  const frozenModule = freezeApplicability(pureApplicability()).modules[0];
+  const frozenSpecifier = frozenModule.specifiers[0];
   it.each([
     ["missing applicability", undefined, `${applicabilityLabel} must be an object.`],
     ["non-object applicability", "path-scope/v0", `${applicabilityLabel} must be an object.`],
@@ -607,6 +609,26 @@ describe("reviewed-ruling applicability schema", () => {
       "non-array modules",
       { kind: "pure-module/v1", modules: {} },
       `${applicabilityLabel}.modules must be a non-empty array.`,
+    ],
+    [
+      "modules array extra named key",
+      { kind: "pure-module/v1", modules: Object.assign([frozenModule], { extra: true }) },
+      `${applicabilityLabel}.modules must contain only indexed data elements.`,
+    ],
+    [
+      "specifiers array extra named key",
+      withModule({ path: "src/a.ts", specifiers: Object.assign([frozenSpecifier], { extra: true }) }),
+      `${moduleLabel}.specifiers must contain only indexed data elements.`,
+    ],
+    [
+      "modules array accessor element",
+      { kind: "pure-module/v1", modules: Object.defineProperty([], "0", { get: () => frozenModule }) },
+      `${applicabilityLabel}.modules must contain only indexed data elements.`,
+    ],
+    [
+      "specifiers array accessor element",
+      withModule({ path: "src/a.ts", specifiers: Object.defineProperty([], "0", { get: () => frozenSpecifier }) }),
+      `${moduleLabel}.specifiers must contain only indexed data elements.`,
     ],
     ["missing path", withModule({ specifiers: [] }), moduleKeysError],
     ["missing specifiers", withModule({ path: "src/a.ts" }), moduleKeysError],
@@ -650,14 +672,22 @@ describe("reviewed-ruling applicability schema", () => {
   });
 
   it("AC3 refuses accessors and non-enumerable unknown own keys", () => {
-    const accessor = {
-      get kind() {
-        return "path-scope/v0";
+    for (const get of [
+      () => "path-scope/v0",
+      () => {
+        throw new Error("kind getter must not execute");
       },
-    };
-    expect(validateReleaseQualificationScopeRegistry(registryWithApplicability(Object.freeze(accessor)))).toEqual([
-      `${applicabilityLabel} must contain only data properties.`,
-    ]);
+    ]) {
+      const accessor = Object.defineProperty({}, "kind", { get });
+      const registry = registryWithApplicability(Object.freeze(accessor));
+      expect(validateReleaseQualificationScopeRegistry(registry)).toEqual([
+        `${applicabilityLabel} must contain only data properties.`,
+      ]);
+      const record = runFixture({ files: [{ path: "docs/test.md", status: "modified" }] }, { registry });
+      expect(record.class).toBe("persistent_required");
+      expect(record.reasonCodes).toEqual(["unreadable_metadata"]);
+      expect(record.failClosed.trigger).toBe("unreadable_metadata");
+    }
     const extra = Object.defineProperty({ kind: "path-scope/v0" }, "hidden", { value: true });
     expect(validateReleaseQualificationScopeRegistry(registryWithApplicability(Object.freeze(extra)))).toEqual([
       `${applicabilityLabel} must have exactly keys: kind.`,
@@ -747,6 +777,7 @@ describe("reviewed-ruling applicability schema", () => {
 });
 
 describe("applicability one-variable mutants with byte-exact restoration", () => {
+  // Exact source anchors keep each mutant one-variable; update them with intentional source reformatting.
   it.each([
     ["third kind", '["path-scope/v0", "pure-module/v1"]', '["path-scope/v0", "pure-module/v1", "pure-module/v2"]'],
     ["third binding", '["type-only", "value"]', '["type-only", "value", "runtime"]'],
