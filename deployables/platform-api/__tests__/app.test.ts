@@ -2432,7 +2432,8 @@ describe("platform API payment provider mode observation", () => {
       .map((entry) => entry.file);
 
     // Includes the shared-seed bootstrap host, whose owned pools close in finally.
-    expect(hostCallCount).toBe(26);
+    // AC2's caller-held/standalone seed host in bootstrap-lock-contention.db.test.ts closes its pools in finally.
+    expect(hostCallCount).toBe(27);
     expect(productionHostFiles.sort()).toEqual([
       "deployables/platform-api/src/admin-qa-actor-fixtures.ts",
       "deployables/platform-api/src/bootstrap.ts",
@@ -2442,7 +2443,7 @@ describe("platform API payment provider mode observation", () => {
     ]);
     expect(
       hostCallSites.filter((entry) => entry.file.includes("/__tests__/")).reduce((total, e) => total + e.count, 0),
-    ).toBe(21);
+    ).toBe(22);
 
     // Only the serving composition root supplies the port, and the manifest declares it once.
     const mainSource = readFileSync(join(repositoryRoot, "deployables/platform-api/src/main.ts"), "utf8");
