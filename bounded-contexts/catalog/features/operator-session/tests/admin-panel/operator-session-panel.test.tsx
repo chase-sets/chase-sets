@@ -38,10 +38,17 @@ vi.mock("../../../../support/request-support/api-client", () => ({
 }));
 
 const signInHref = "/catalog/sign-in?returnTo=%2Fcatalog%2Fproviders%2Ftcgplayer";
+const initialDocumentStyles = {
+  html: document.documentElement.style.cssText,
+  body: document.body.style.cssText,
+};
 let http: ControlledHttp;
 let writeText: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
+  // JSDOM has no layout: clientWidth=0 invents a viewport-wide inset scrollbar.
+  // Model this fixture's scrollbar-free viewport, keeping the real dialog lifecycle.
+  vi.spyOn(document.documentElement, "clientWidth", "get").mockImplementation(() => window.innerWidth);
   http = createControlledHttp();
   vi.stubGlobal("fetch", http.fetch);
   writeText = vi.fn(async () => undefined);
@@ -54,11 +61,27 @@ beforeEach(() => {
   }));
 });
 
-afterEach(() => {
-  cleanup();
-  vi.unstubAllGlobals();
-  vi.clearAllMocks();
+afterEach(async () => {
+  try {
+    await cleanupRenderedUi();
+  } finally {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  }
 });
+
+async function cleanupRenderedUi() {
+  cleanup();
+  // Base UI restores scroll locking on a timer after React has unmounted.
+  // Let that owned cleanup finish instead of carrying it into the next test.
+  await waitFor(expectDocumentStylesRestored);
+}
+
+function expectDocumentStylesRestored() {
+  expect(document.documentElement.style.cssText).toBe(initialDocumentStyles.html);
+  expect(document.body.style.cssText).toBe(initialDocumentStyles.body);
+}
 
 function actor(roleKey: string, userId = "user-synthetic-1") {
   return {
@@ -824,6 +847,37 @@ describe("AC3 break-glass eligibility through the mounted provider-detail route"
 });
 
 describe("AC5 accessibility", () => {
+  it("releases an open dialog's scroll lock and focus before mounting the next provider route", async () => {
+    http.reply("GET", metadataPath, 200, storedMetadata(1));
+    renderProviderRoute();
+    const panel = await findPanel();
+    const disconnect = await within(panel).findByRole("button", { name: "Disconnect" });
+    disconnect.focus();
+    fireEvent.click(disconnect);
+    const dialog = await findDialog();
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    await waitFor(() => expect(document.body.style.cssText).not.toBe(initialDocumentStyles.body));
+
+    await cleanupRenderedUi();
+    expectDocumentStylesRestored();
+    expect(document.querySelector("[data-base-ui-portal]")).toBeNull();
+    expect(document.activeElement).toBe(document.body);
+
+    http.reply("GET", metadataPath, 200, storedMetadata(1));
+    renderProviderRoute();
+    const nextPanel = await findPanel();
+    const nextDisconnect = await within(nextPanel).findByRole("button", { name: "Disconnect" });
+    nextDisconnect.focus();
+    fireEvent.click(nextDisconnect);
+    const nextDialog = await findDialog();
+    expect(accessibleTitle(nextDialog)).toBe("Disconnect the stored session?");
+    await waitFor(() => expect(nextDialog.contains(document.activeElement)).toBe(true));
+    fireEvent.click(within(nextDialog).getByRole("button", { name: "Cancel" }));
+    await waitForDialogClosed();
+    await waitFor(() => expect(document.activeElement).toBe(nextDisconnect));
+    expect(http.requests).toEqual([`GET ${metadataPath}`, `GET ${metadataPath}`]);
+  });
+
   it("names every control, moves focus into the Disconnect dialog and back, and announces the grant", async () => {
     http.reply("GET", metadataPath, 200, storedMetadata(1, { grant: activeGrant }));
     renderProviderRoute();
