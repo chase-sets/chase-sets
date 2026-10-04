@@ -241,12 +241,6 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
     paramIndex++;
   }
 
-  if (params.tag) {
-    conditions.push(`${itemColumn("tags")} @> $${paramIndex}::jsonb`);
-    values.push(JSON.stringify([params.tag]));
-    paramIndex++;
-  }
-
   if (params.blueprintId) {
     conditions.push(`${itemColumn("blueprint_id")} = $${paramIndex}`);
     values.push(params.blueprintId);
