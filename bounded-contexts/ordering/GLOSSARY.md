@@ -13,6 +13,15 @@ Notes:
 - Orders are owned by Ordering.
 - Fulfillment and Payments react to order facts but do not define orders.
 
+## Order Group
+
+An **Order Group** is the planned Ordering-owned linkage of exactly one existing anchor Order and one follow-on Order for the same signed-in buyer and seller, compatible Shipping policies, and the same standardized origin and destination.
+
+- Its `OrderGroupId` uses `ogr_`; the anchor Order stream owns formation and dissolution.
+- Money, payment, refunds, fees, inventory, and capacity remain per Order. Neither member's committed money is redistributed. A voluntary `buyer-cancelled` anchor's refund withholds the frozen survivor Shipping shortfall; a mandatory-refund cancellation, as ADR 0032 defines it, withholds nothing.
+- Pre-packing cancellation removes only the cancelled member and dissolves the group; the survivor keeps its frozen money. A destination correction changes only its own Order and never dissolves the group. The buyer funds the survivor Shipping shortfall from that refund, per [ADR 0032](../../docs/adr/0032-order-groups-and-shipment-groups.md).
+- This is a planned contract, not shipped grouping behavior, an N-member cart, or an Order Split. Fulfillment owns Shipment Group admission and physical execution.
+
 ## Purchase
 
 A **Purchase** is the buyer-facing projection of an order.
