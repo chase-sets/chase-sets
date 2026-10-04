@@ -47,7 +47,6 @@ import {
   SearchFilterPanel,
   SearchInput,
   MarketplaceFacetChoiceGroup,
-  MarketplaceFacetGroup,
   MarketplaceFacetRail,
   MarketplaceFilterBottomSheet,
   MarketplaceMobileFilterBar,
@@ -2015,8 +2014,6 @@ describe("design system marketplace patterns", () => {
             footer={<Button>Show results</Button>}
           >
             <MarketplaceFacetChoiceGroup
-              title="Condition"
-              description="Narrow by condition."
               allLabel="Any Condition"
               items={[
                 { id: "near-mint", label: "Near Mint", count: 7 },
@@ -2053,7 +2050,6 @@ describe("design system marketplace patterns", () => {
 
     render(
       <MarketplaceFacetChoiceGroup
-        title="Condition"
         allLabel="Any Condition"
         items={[
           { id: "near-mint", label: "Near Mint", count: 7 },
@@ -2088,7 +2084,6 @@ describe("design system marketplace patterns", () => {
 
     const { container } = render(
       <MarketplaceFacetChoiceGroup
-        title="Condition"
         allLabel="Any Condition"
         items={Array.from({ length: 9 }, (_, index) => ({
           id: `condition-${index + 1}`,
@@ -2121,41 +2116,22 @@ describe("design system marketplace patterns", () => {
     expect(screen.getByRole("button", { name: "Condition 9 (1)" })).toBeTruthy();
   });
 
-  it("renders marketplace facet groups as keyboard-operable disclosures", async () => {
-    const user = userEvent.setup();
-
-    render(
-      <MarketplaceFacetGroup title="Condition" selectionSummary="Near Mint" defaultExpanded={false}>
-        <button type="button">Near Mint</button>
-      </MarketplaceFacetGroup>,
-    );
-
-    const trigger = screen.getByRole("button", { name: /Condition.*Near Mint/ });
-    const panelId = trigger.getAttribute("aria-controls");
-
-    expect(trigger.getAttribute("aria-expanded")).toBe("false");
-    expect(panelId).toBeTruthy();
-    expect(document.getElementById(panelId!)).toBeTruthy();
-
-    trigger.focus();
-    await user.keyboard("{Enter}");
-
-    expect(trigger.getAttribute("aria-expanded")).toBe("true");
-    expect(document.activeElement).toBe(trigger);
-    expect(screen.getByRole("button", { name: "Near Mint" })).toBeTruthy();
-
-    await user.keyboard(" ");
-
-    expect(trigger.getAttribute("aria-expanded")).toBe("false");
-    expect(document.activeElement).toBe(trigger);
-  });
+  it.each([MarketplaceFacetRail, MarketplaceFacetChoiceGroup])(
+    "renders facet options without internal disclosure roots: %s",
+    (Content) => {
+      const { container } = render(
+        <Content allLabel="Any Condition" items={[{ id: "nm", label: "Near Mint", count: 2 }]} onSelect={vi.fn()} />,
+      );
+      expect(screen.getByRole("button", { name: "Near Mint (2)" })).toBeTruthy();
+      expect(container.querySelectorAll("[aria-controls], [data-accordion-item-value], h3")).toHaveLength(0);
+    },
+  );
 
   it("filters searchable marketplace facet rails", async () => {
     const user = userEvent.setup();
 
     render(
       <MarketplaceFacetRail
-        title="Expansion"
         allLabel="Any Expansion"
         items={[
           { id: "base", label: "Base Set", count: 9 },
@@ -2179,7 +2155,6 @@ describe("design system marketplace patterns", () => {
 
     const { container } = render(
       <MarketplaceFacetRail
-        title="Expansion"
         allLabel="Any Expansion"
         items={Array.from({ length: 9 }, (_, index) => ({
           id: `set-${index + 1}`,

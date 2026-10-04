@@ -155,7 +155,6 @@ export const TESTED_DESIGN_SYSTEM_ROOT_EXPORTS = Object.freeze([
   "MarketplaceDashboardPanel",
   "MarketplaceEmptyState",
   "MarketplaceFacetChoiceGroup",
-  "MarketplaceFacetGroup",
   "MarketplaceFacetRail",
   "MarketplaceFacetStrip",
   "MarketplaceFilterBottomSheet",

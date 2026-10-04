@@ -5,6 +5,7 @@ import { createTransport, holdOrigin } from "../fixtures/restart-probe/transport
 export type FixtureOptions = {
   orderingMutant: boolean;
   deleteOnStartup: boolean;
+  omitAlarmReensure: boolean;
   registry: string[];
   permissions: string[];
 };
@@ -12,6 +13,7 @@ export type FixtureOptions = {
 export const candidateOptions: FixtureOptions = {
   orderingMutant: false,
   deleteOnStartup: false,
+  omitAlarmReensure: false,
   registry: [holdOrigin],
   permissions: [`${holdOrigin}/*`],
 };

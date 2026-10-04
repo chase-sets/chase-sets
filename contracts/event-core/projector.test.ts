@@ -33,5 +33,9 @@ describe("transactional projection handlers", () => {
     await handlers["catalog.catalog-item.published"]?.(event, { db, throwIfLeaseLost });
 
     expect(handler).toHaveBeenCalledWith(event, { db, throwIfLeaseLost });
+    const readSourceStreamHistory = vi.fn(async () => [event]);
+    await handlers["catalog.catalog-item.published"]?.(event, { db, throwIfLeaseLost, readSourceStreamHistory });
+    expect(handler).toHaveBeenLastCalledWith(event, { db, throwIfLeaseLost, readSourceStreamHistory });
+    expect(await readSourceStreamHistory()).toEqual([event]);
   });
 });

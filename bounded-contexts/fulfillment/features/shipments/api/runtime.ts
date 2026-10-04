@@ -3,6 +3,20 @@ import { createHash, randomUUID } from "node:crypto";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import { recordCommittedEvents } from "@chase-sets/event-core/consistency";
+import type { ProjectorHandlerContext, ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import {
+  parseAdmissionIdentity,
+  parseCommitInput,
+  parseAbortInput,
+  parseReserveResult,
+  parseCommitResult,
+  parseAbortResult,
+  type ShipmentGroupAdmissionAuthority,
+} from "@chase-sets/order-groups";
+import { buildShipmentGroupAdmissionSourceHandlers } from "../integrations/source/shipment-group-admission-source";
+import { ShipmentAdmissionBusyError } from "../domain/common";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -62,6 +76,9 @@ import {
   decideFulfillmentShipment,
   evolveFulfillmentShipment,
   initialFulfillmentShipmentState,
+  decideShipmentAdmission,
+  sameAdmissionIdentity,
+  type ShipmentAdmissionCommand,
   type FulfillmentShipmentCommand,
   type FulfillmentShipmentEvent,
   type FulfillmentShipmentState,
@@ -1115,7 +1132,11 @@ function postageLabelOperationRequest(
   };
 }
 
-export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): FulfillmentShipmentServices {
+export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): FulfillmentShipmentServices &
+  Readonly<{
+    shipmentGroupAdmissionAuthority: ShipmentGroupAdmissionAuthority;
+    shipmentGroupAdmissionHandlers: ProjectorHandlerMap;
+  }> {
   const postageLabelProvider = deps.postageLabelProvider ?? createUnconfiguredPostageLabelProvider();
   const postageWebhookGateway = deps.postageWebhookGateway ?? createNoopPostageProviderWebhookGateway();
   const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
@@ -1125,6 +1146,106 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
     initialState: () => initialFulfillmentShipmentState,
     evolve: evolveFulfillmentShipment,
     decide: decideFulfillmentShipment,
+  });
+
+  async function loadAdmissionShipment(shipmentId: string, context: EventStoreContext) {
+    const streamId = `fulfillment.shipment-${shipmentId}`;
+    const history = await readCompleteStream(deps.eventStore, { streamId });
+    if (history.length === 0 || history.every((event) => event.tenantId !== context.tenantId)) {
+      return { state: initialFulfillmentShipmentState, version: 0 };
+    }
+    try {
+      assertCompleteHistoryTenant(history, String(context.tenantId));
+      let state = initialFulfillmentShipmentState;
+      const codec = createPassthroughDomainEventCodec<FulfillmentShipmentEvent>();
+      for (const [index, stored] of history.entries()) {
+        if (
+          stored.streamId !== streamId ||
+          stored.streamVersion !== index + 1 ||
+          (index === 0) !== (stored.eventType === "fulfillment.shipment.created") ||
+          (stored.eventType.startsWith("fulfillment.shipment-group.") &&
+            stored.payload.shipmentVersion !== stored.streamVersion)
+        ) {
+          throw new Error("Shipment event envelope contradicts its creation or admission lineage.");
+        }
+        state = evolveFulfillmentShipment(state, codec.decode(stored));
+        if (state.shipmentId !== shipmentId || !state.sellerAccountId)
+          throw new Error("Invalid immutable Shipment binding.");
+      }
+      return { state, version: history.at(-1)!.streamVersion };
+    } catch (error) {
+      throw new ShipmentHistoryPoisonedError(
+        `Shipment '${shipmentId}' history is poisoned: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  async function executeAdmission(
+    command: ShipmentAdmissionCommand,
+    context: EventStoreContext,
+    invocation?: ProjectorHandlerContext,
+    causationId: string | null = null,
+  ) {
+    for (;;) {
+      invocation?.throwIfLeaseLost?.();
+      const loaded = await loadAdmissionShipment(command.input.anchorShipmentId, context);
+      const decision = decideShipmentAdmission(loaded.state, command, loaded.version + 1, new Date().toISOString());
+      if (!decision.event) return decision.result;
+      invocation?.throwIfLeaseLost?.();
+      try {
+        const stored = await repository.append({
+          streamId: `fulfillment.shipment-${command.input.anchorShipmentId}`,
+          expectedVersion: loaded.version,
+          context,
+          events: [decision.event],
+          metadata: { causationId },
+          wakeSourceContextName: "fulfillment",
+        });
+        recordCommittedEvents(stored, "fulfillment");
+        invocation?.throwIfLeaseLost?.();
+        return decision.result;
+      } catch (error) {
+        if (error && typeof error === "object" && "code" in error && error.code === "concurrency_conflict") continue;
+        throw error;
+      }
+    }
+  }
+  const shipmentGroupAdmissionAuthority: ShipmentGroupAdmissionAuthority = {
+    reserve: async (input, context) =>
+      parseReserveResult(await executeAdmission({ kind: "reserve", input: parseAdmissionIdentity(input) }, context)),
+    commit: async (input, context) =>
+      parseCommitResult(await executeAdmission({ kind: "commit", input: parseCommitInput(input) }, context)),
+    abort: async (input, context) =>
+      parseAbortResult(await executeAdmission({ kind: "abort", input: parseAbortInput(input) }, context)),
+  };
+  const shipmentGroupAdmissionHandlers = buildShipmentGroupAdmissionSourceHandlers({
+    loadShipment: loadAdmissionShipment,
+    execute: executeAdmission,
+    cancelAnchor: async (identity, context, invocation) => {
+      const shipmentId = identity.anchorShipmentId;
+      for (;;) {
+        const loaded = await loadAdmissionShipment(shipmentId, context);
+        if (
+          loaded.state.status === "cancelled" ||
+          loaded.state.admission?.type !== "fulfillment.shipment-group.admission-released" ||
+          !sameAdmissionIdentity(loaded.state.admission.data, identity)
+        )
+          return;
+        invocation?.throwIfLeaseLost?.();
+        try {
+          await commandHandler({
+            streamId: `fulfillment.shipment-${shipmentId}`,
+            expectedVersion: loaded.version,
+            context,
+            command: { type: "CancelShipment", cancelledAt: new Date().toISOString() },
+          });
+          return;
+        } catch (error) {
+          if (error && typeof error === "object" && "code" in error && error.code === "concurrency_conflict") continue;
+          throw error;
+        }
+      }
+    },
   });
 
   async function requireSellerShipment(shipmentId: string, sellerAccountId: string, context?: EventStoreContext) {
@@ -1498,6 +1619,8 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
 
   return {
     commandHandler,
+    shipmentGroupAdmissionAuthority,
+    shipmentGroupAdmissionHandlers,
     processPostageProviderWebhook: async (input, context) => {
       const event = await postageWebhookGateway.processPostageProviderWebhook(input);
       if (!event) {
@@ -1777,6 +1900,12 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       const loaded = await repository.load(`fulfillment.shipment-${params.shipmentId}`);
       if (loaded.state.status === null) {
         throw new FulfillmentDomainError("Shipment not found.");
+      }
+      if (
+        loaded.state.admission?.type === "fulfillment.shipment-group.admission-reserved" ||
+        loaded.state.admission?.type === "fulfillment.shipment-group.admission-committed"
+      ) {
+        throw new ShipmentAdmissionBusyError();
       }
       assertShipmentActionAllowed("cancel-shipment", {
         status: loaded.state.status,

@@ -1,6 +1,6 @@
 import type { createCheckoutUcpHandlers } from "@chase-sets/checkout/server";
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
@@ -2175,6 +2175,65 @@ function countConstructionCallSites(files: readonly string[], root: string, call
   return callSites;
 }
 
+const PRODUCTION_HOST_FILES = [
+  "deployables/platform-api/src/admin-qa-actor-fixtures.ts",
+  "deployables/platform-api/src/bootstrap.ts",
+  "deployables/platform-api/src/main.ts",
+  "deployables/platform-api/src/representative-commerce-state.ts",
+  "scripts/replay-projection.ts",
+];
+
+function verifyHostConstructionCensus(root: string, files = collectRepositorySourceFiles(root)) {
+  const callSites = countConstructionCallSites(
+    files,
+    root,
+    "createPlatformApiHost",
+    "export function createPlatformApiHost",
+  );
+  const productionFiles = callSites.filter((entry) => !entry.file.includes("/__tests__/")).map((entry) => entry.file);
+  expect(productionFiles.sort(), "the closed production host owner classification").toEqual(PRODUCTION_HOST_FILES);
+  expect(callSites.filter((entry) => entry.file.includes("/__tests__/")).map((entry) => entry.file)).toEqual(
+    expect.arrayContaining([
+      "deployables/platform-api/__tests__/app.test.ts",
+      "deployables/platform-api/__tests__/database-pools.test.ts",
+    ]),
+  );
+
+  const mainSource = readFileSync(join(root, "deployables/platform-api/src/main.ts"), "utf8");
+  expect(
+    mainSource.includes("providerModeObservation: config.providerModeObservation"),
+    "serving host provider observation wiring",
+  ).toBe(true);
+  const bootstrapSource = readFileSync(join(root, "deployables/platform-api/src/bootstrap.ts"), "utf8");
+  expect(bootstrapSource.includes("providerModeObservation")).toBe(false);
+  return callSites;
+}
+
+function withHostCensusCorpus(action: (root: string) => void) {
+  const artifacts = join(repositoryRootFromTests(), "artifacts");
+  mkdirSync(artifacts, { recursive: true });
+  const root = mkdtempSync(join(artifacts, "host-census-control-")).split("\\").join("/");
+  // A fixed fixture reenacts the old 26/21 census before adding an eligible sibling.
+  const hostCall = ["createPlatformApiHost", "({});"].join("");
+  const sources = [
+    ...PRODUCTION_HOST_FILES.map((file) => ({
+      file,
+      source: `${hostCall}\n${file.endsWith("/main.ts") ? "providerModeObservation: config.providerModeObservation" : ""}`,
+    })),
+    { file: "deployables/platform-api/__tests__/app.test.ts", source: Array(20).fill(hostCall).join("\n") },
+    { file: "deployables/platform-api/__tests__/database-pools.test.ts", source: hostCall },
+  ];
+  try {
+    for (const { file, source } of sources) {
+      mkdirSync(dirname(join(root, file)), { recursive: true });
+      writeFileSync(join(root, file), source);
+    }
+    action(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 describe("platform API payment provider mode observation", () => {
   it("serves the configured provider mode observation without resolving an actor", async () => {
     const resolveActor = vi.fn(async () => null);
@@ -2253,39 +2312,75 @@ describe("platform API payment provider mode observation", () => {
     expect(clonedResolveActor, "the deletion mutant must resolve the actor").toHaveBeenCalledTimes(1);
   });
 
-  it("keeps every Payments account route behind actor resolution", async () => {
-    const resolveActor = vi.fn(async () => null);
-    const { runtime, serviceCalls, paymentsServices } = createPaymentsHostRuntime({
-      observation: SYNTHETIC_HOST_OBSERVATION,
-    });
-    const app = buildPlatformApiApp(runtime, { resolveActor });
-    const inventory = accountRouteInventory(paymentsRegistryModule(), paymentsServices);
-
-    expect(inventory, "the complete mounted account inventory").toHaveLength(16);
-
-    for (const [index, route] of inventory.entries()) {
-      const serviceCallsBefore = serviceCalls.length;
-      const requestPath = `/api/marketplace${materializePathParameters(route.path)}`;
-      const response = await app.request(requestPath, {
-        method: route.method,
-        ...(route.method === "GET" || route.method === "HEAD"
-          ? {}
-          : { headers: { "Content-Type": "application/json" }, body: "{}" }),
+  it.each([false, true])(
+    "keeps every Payments account route behind actor resolution (additional route: %s)",
+    async (additionalRoute) => {
+      const registeredModule = paymentsRegistryModule();
+      const module = additionalRoute
+        ? {
+            ...registeredModule,
+            buildApis: (services: unknown) => {
+              const entries = paymentsApiEntries(registeredModule, services);
+              const marketplace = entries.find((entry) => entry.mountPath === "/api/marketplace");
+              if (!marketplace) {
+                throw new Error("Payments must publish the marketplace mount for the addition control.");
+              }
+              const protectedRoute = marketplace.router.routes.find(
+                (route) => route.method === "GET" && route.path === "/account/payments/:id",
+              );
+              if (!protectedRoute) {
+                throw new Error("Payments must publish the protected payment read for the addition control.");
+              }
+              marketplace.router.get("/account/census-control/:id", protectedRoute.handler);
+              return entries;
+            },
+          }
+        : registeredModule;
+      const resolveActor = vi.fn(async () => null);
+      const { runtime, serviceCalls, paymentsServices } = createPaymentsHostRuntime({
+        observation: SYNTHETIC_HOST_OBSERVATION,
+        module,
       });
+      const app = buildPlatformApiApp(runtime, { resolveActor });
+      const inventory = accountRouteInventory(module, paymentsServices);
 
-      expect(response.status, `${route.method} ${requestPath} must refuse an anonymous request`).toBe(401);
-      expect(resolveActor, `${route.method} ${requestPath} must resolve exactly once`).toHaveBeenCalledTimes(index + 1);
-      expect(
-        serviceCalls.length - serviceCallsBefore,
-        `${route.method} ${requestPath} must refuse before any Payments service call`,
-      ).toBe(0);
-    }
+      expect(inventory.length, "the mounted account inventory must not be empty").toBeGreaterThan(0);
+      expect(inventory).toEqual(
+        expect.arrayContaining([
+          { method: "POST", path: "/account/payments" },
+          { method: "GET", path: "/account/payments/:id" },
+        ]),
+      );
+      if (additionalRoute) {
+        expect(inventory).toContainEqual({ method: "GET", path: "/account/census-control/:id" });
+      }
 
-    // A declaration widened to the mount prefix, or a middleware that treats an exact declaration as a
-    // prefix, would make these sixteen controls stop resolving; composition refuses that declaration
-    // outright, which is asserted in the refusal cases below.
-    expect(resolveActor).toHaveBeenCalledTimes(inventory.length);
-  });
+      for (const [index, route] of inventory.entries()) {
+        const serviceCallsBefore = serviceCalls.length;
+        const requestPath = `/api/marketplace${materializePathParameters(route.path)}`;
+        const response = await app.request(requestPath, {
+          method: route.method,
+          ...(route.method === "GET" || route.method === "HEAD"
+            ? {}
+            : { headers: { "Content-Type": "application/json" }, body: "{}" }),
+        });
+
+        expect(response.status, `${route.method} ${requestPath} must refuse an anonymous request`).toBe(401);
+        expect(resolveActor, `${route.method} ${requestPath} must resolve exactly once`).toHaveBeenCalledTimes(
+          index + 1,
+        );
+        expect(
+          serviceCalls.length - serviceCallsBefore,
+          `${route.method} ${requestPath} must refuse before any Payments service call`,
+        ).toBe(0);
+      }
+
+      // A declaration widened to the mount prefix, or a middleware that treats an exact declaration as a
+      // prefix, would make these account controls stop resolving; composition refuses that declaration
+      // outright, which is asserted in the refusal cases below.
+      expect(resolveActor).toHaveBeenCalledTimes(inventory.length);
+    },
+  );
 
   it("keeps sibling platform actor consumers behind actor resolution", async () => {
     const resolveActor = vi.fn(async () => null);
@@ -2420,36 +2515,12 @@ describe("platform API payment provider mode observation", () => {
     const repositoryRoot = repositoryRootFromTests().split("\\").join("/");
     const sourceFiles = collectRepositorySourceFiles(repositoryRoot);
 
-    const hostCallSites = countConstructionCallSites(
-      sourceFiles,
-      repositoryRoot,
-      "createPlatformApiHost",
-      "export function createPlatformApiHost",
-    );
-    const hostCallCount = hostCallSites.reduce((total, entry) => total + entry.count, 0);
-    const productionHostFiles = hostCallSites
-      .filter((entry) => !entry.file.includes("/__tests__/"))
-      .map((entry) => entry.file);
-
     // Includes the shared-seed bootstrap host, whose owned pools close in finally.
     // AC2's caller-held/standalone seed host in bootstrap-lock-contention.db.test.ts closes its pools in finally.
-    expect(hostCallCount).toBe(27);
-    expect(productionHostFiles.sort()).toEqual([
-      "deployables/platform-api/src/admin-qa-actor-fixtures.ts",
-      "deployables/platform-api/src/bootstrap.ts",
-      "deployables/platform-api/src/main.ts",
-      "deployables/platform-api/src/representative-commerce-state.ts",
-      "scripts/replay-projection.ts",
-    ]);
-    expect(
-      hostCallSites.filter((entry) => entry.file.includes("/__tests__/")).reduce((total, e) => total + e.count, 0),
-    ).toBe(22);
-
-    // Only the serving composition root supplies the port, and the manifest declares it once.
-    const mainSource = readFileSync(join(repositoryRoot, "deployables/platform-api/src/main.ts"), "utf8");
-    expect(mainSource.includes("providerModeObservation: config.providerModeObservation")).toBe(true);
-    const bootstrapSource = readFileSync(join(repositoryRoot, "deployables/platform-api/src/bootstrap.ts"), "utf8");
-    expect(bootstrapSource.includes("providerModeObservation")).toBe(false);
+    const hostCallSites = verifyHostConstructionCensus(repositoryRoot, sourceFiles);
+    expect(hostCallSites.map((entry) => entry.file)).toContain(
+      "deployables/platform-api/__tests__/bootstrap-lock-contention.db.test.ts",
+    );
 
     const paymentsServiceCallSites = countConstructionCallSites(
       sourceFiles,
@@ -2485,6 +2556,45 @@ describe("platform API payment provider mode observation", () => {
     ) as Readonly<{ anonymousRoutes?: readonly unknown[]; hostPorts: readonly { portName: string }[] }>;
     expect(paymentsManifest.anonymousRoutes).toEqual([{ routePath: PROVIDER_MODE_PATH, methods: ["GET"] }]);
     expect(paymentsManifest.hostPorts.map((port) => port.portName)).toContain("providerModeObservation");
+  });
+
+  it("discovers and accepts a harmless test-only host construction in an arbitrary eligible sibling", () => {
+    withHostCensusCorpus((root) => {
+      const before = verifyHostConstructionCensus(root);
+      const totalCalls = (sites: typeof before) => sites.reduce((total, entry) => total + entry.count, 0);
+      expect(totalCalls(before), "fixed fixture starts at the retired host-call total").toBe(26);
+      const sibling = "deployables/platform-api/__tests__/nested/new-host-control.mts";
+      mkdirSync(dirname(join(root, sibling)), { recursive: true });
+      writeFileSync(join(root, sibling), ["createPlatformApiHost", "({});"].join(""));
+
+      const after = verifyHostConstructionCensus(root);
+      expect(after).toContainEqual({ file: sibling, count: 1 });
+      expect(totalCalls(after)).toBe(totalCalls(before) + 1);
+      expect(() => expect(totalCalls(after)).toBe(26), "the addition rejects the retired literal").toThrow();
+    });
+  });
+
+  it("discovers and rejects an unclassified production host owner", () => {
+    withHostCensusCorpus((root) => {
+      const file = join(root, "deployables/platform-api/src/unclassified-host.mts");
+      writeFileSync(file, ["createPlatformApiHost", "({});"].join(""));
+      expect(() => verifyHostConstructionCensus(root)).toThrow("closed production host owner classification");
+    });
+  });
+
+  it("rejects a missing required production host owner", () => {
+    withHostCensusCorpus((root) => {
+      rmSync(join(root, "deployables/platform-api/src/bootstrap.ts"));
+      expect(() => verifyHostConstructionCensus(root)).toThrow("closed production host owner classification");
+    });
+  });
+
+  it("rejects missing provider observation wiring in the serving host", () => {
+    withHostCensusCorpus((root) => {
+      verifyHostConstructionCensus(root);
+      writeFileSync(join(root, "deployables/platform-api/src/main.ts"), ["createPlatformApiHost", "({});"].join(""));
+      expect(() => verifyHostConstructionCensus(root)).toThrow("serving host provider observation wiring");
+    });
   });
 
   it("turns red when the manifest declaration is deleted", async () => {
