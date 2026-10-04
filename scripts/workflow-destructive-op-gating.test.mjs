@@ -142,6 +142,7 @@ SYNTHETIC_6129_DATA
 for label in terraform destroy doctl; do echo "$label"; done
 case "$label" in terraform|destroy) echo data ;; esac
 labels=("terraform destroy" "doctl registry repository delete-tag")
+tools=(terraform destroy doctl registry repository delete-tag)
 echo "$((terraform + destroy))"
 ((terraform + destroy))
 command -v terraform
@@ -450,6 +451,14 @@ describe("semantic cleanup shape contracts and real discovery", () => {
   });
 
   it("rejects restore resolver inversion and unconditional apply wiring", () => {
+    const echoed = readWorkflow(restoreFile).replace('resolved_apply="true"', "echo resolved_apply=true");
+    expect(checkWorkflowDestructiveOperationGating(echoed).violations).toContainEqual(
+      expect.stringContaining("single fail-closed"),
+    );
+    const echoedArray = readWorkflow(restoreFile).replace('apply_args=("--apply")', "echo apply_args= '(' --apply ')'");
+    expect(checkWorkflowDestructiveOperationGating(echoedArray).violations).toContainEqual(
+      expect.stringContaining("cannot associate"),
+    );
     const inverted = readWorkflow(restoreFile).replace(
       '"true") resolved_apply="false"',
       '"true") resolved_apply="true"',

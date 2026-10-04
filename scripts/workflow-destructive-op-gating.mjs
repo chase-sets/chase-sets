@@ -471,14 +471,16 @@ function commandsFromTokens(tokens) {
   const commands = [];
   let words = [];
   let redirects = [];
+  let assignments = [];
   let header = null;
   let pattern = false;
   let caseDepth = 0;
   let arrayDepth = 0;
   const flush = () => {
-    if (words.length) commands.push({ words, redirects });
+    if (words.length || assignments.length) commands.push({ words, redirects, assignments });
     words = [];
     redirects = [];
+    assignments = [];
   };
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
@@ -525,7 +527,18 @@ function commandsFromTokens(tokens) {
       }
       continue;
     }
-    if (!words.length && /^[A-Za-z_]\w*=/.test(token.raw ?? "")) continue;
+    if (!words.length && /^[A-Za-z_]\w*=/.test(token.raw ?? "")) {
+      const separator = token.value.indexOf("=");
+      const assignment = { name: token.value.slice(0, separator), value: token.value.slice(separator + 1), token };
+      if (/^[A-Za-z_]\w*=$/.test(token.value) && tokens[index + 1]?.value === "(") {
+        const end = tokens.findIndex((candidate, tokenIndex) => tokenIndex > index + 1 && candidate.value === ")");
+        assignment.array = tokens.slice(index + 2, end).filter((candidate) => candidate.type === "word");
+        arrayDepth = 1;
+        index += 1;
+      }
+      assignments.push(assignment);
+      continue;
+    }
     if (!words.length && !token.quoted) {
       if (value === "case") {
         header = "case";
@@ -798,17 +811,8 @@ function nonzeroExit(tokens) {
   );
 }
 
-function tokenValues(tokens) {
-  return tokens.filter((token) => token.value !== "\n").map((token) => token.value);
-}
-
-function sequenceAt(tokens, values) {
-  const actual = tokenValues(tokens);
-  return actual.findIndex((_, index) => values.every((value, offset) => actual[index + offset] === value));
-}
-
 // Only case branches used by the cleanup contracts are interpreted here. This
-// is a shape proof, not the dataflow/ownership or reachability proof of #6130/31.
+// is a shape proof, not a dataflow, ownership, or reachability proof.
 function caseAt(tokens, start) {
   if (tokens[start]?.value !== "case" || tokens[start + 2]?.value !== "in") return null;
   const selector = tokens[start + 1];
@@ -839,7 +843,19 @@ function caseAt(tokens, start) {
 
 function cases(tokens) {
   return tokens.flatMap((token, index) =>
-    token.value === "case" && !token.quoted ? [caseAt(tokens, index)].filter(Boolean) : [],
+    token.value === "case" && !token.quoted && commandHead(tokens, index)
+      ? [caseAt(tokens, index)].filter(Boolean)
+      : [],
+  );
+}
+
+function commandHead(tokens, index) {
+  const previous = tokens[index - 1];
+  return (
+    !previous ||
+    (previous.type === "operator" &&
+      ["\n", ";", ";;", ";&", ";;&", "&&", "||", "|", "&", "(", ")"].includes(previous.value)) ||
+    (!previous.quoted && ["then", "else", "do", "{"].includes(previous.value))
   );
 }
 
@@ -853,6 +869,8 @@ function exactComparisonRefusal(tokens, variable, phrase = null) {
   for (let index = 0; index < values.length; index += 1) {
     if (
       values[index] !== "if" ||
+      significant[index].quoted ||
+      !commandHead(tokens, tokens.indexOf(significant[index])) ||
       values[index + 1] !== "[" ||
       ![`$${variable}`, `\${${variable}}`].includes(values[index + 2]) ||
       values[index + 3] !== "!="
@@ -918,7 +936,27 @@ function publications(tokens) {
 }
 
 function assignment(tokens, variable, value) {
-  return sequenceAt(tokens, [`${variable}=${value}`]) >= 0;
+  return commandsFromTokens(tokens).some(
+    (command) =>
+      command.words.length === 0 &&
+      command.assignments.some(
+        (candidate) => candidate.name === variable && candidate.value === value && !candidate.token.dynamic,
+      ),
+  );
+}
+
+function arrayAssignment(tokens, variable, values) {
+  return commandsFromTokens(tokens).some(
+    (command) =>
+      command.words.length === 0 &&
+      command.assignments.some(
+        (candidate) =>
+          candidate.name === variable &&
+          candidate.array &&
+          candidate.array.every((token) => !token.dynamic) &&
+          JSON.stringify(candidate.array.map((token) => token.value)) === JSON.stringify(values),
+      ),
+  );
 }
 
 function safeResolvers(workflow, job) {
@@ -1019,8 +1057,8 @@ function modeWiring(detected, resolver, workflow) {
           const name = token.value.match(/^([A-Za-z_]\w*)=$/)?.[1];
           if (
             name &&
-            sequenceAt(apply.tokens, [`${name}=`, "(", "--apply", ")"]) >= 0 &&
-            sequenceAt(dryRun.tokens, [`${name}=`, "(", ")"]) >= 0 &&
+            arrayAssignment(apply.tokens, name, ["--apply"]) &&
+            arrayAssignment(dryRun.tokens, name, []) &&
             args.some((argument) => argument.dynamic && argument.value === `\${${name}[@]}`) &&
             !args.some((argument) => argument.value === "--apply")
           )
