@@ -5490,7 +5490,7 @@ export const helpArticles = [
           {
             type: "link",
             label: "comparison calculator",
-            href: "/compare#calculator",
+            href: "/compare/tcgplayer#fee-calculator",
           },
           {
             type: "text",

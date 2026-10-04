@@ -7,6 +7,7 @@ import {
   HiddenInput,
   LinkButton,
   MarketplaceNotice,
+  NumberField,
   Page,
   PageHeader,
   PageSection,
@@ -229,6 +230,15 @@ function DetailSections({ detail, disabled }: { detail: ChannelPublicationConnec
                 name="descriptionFooter"
                 defaultValue={settings?.descriptionFooter ?? ""}
                 rows={3}
+              />
+              <NumberField
+                label={t("channels.publication.settings.publish.quantity.cap")}
+                name="publishQuantityCap"
+                defaultValue={settings?.publishQuantityCap ?? undefined}
+                min={1}
+                max={1_000}
+                step={1}
+                placeholder={t("channels.publication.settings.publish.quantity.cap.placeholder")}
               />
               <Textarea
                 label={t("channels.publication.settings.category.allowlist")}
