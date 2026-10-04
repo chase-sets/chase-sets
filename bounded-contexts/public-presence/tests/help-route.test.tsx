@@ -40,6 +40,7 @@ const request = new Request("https://chasesets.com/help");
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 
@@ -144,6 +145,18 @@ function stubPolicyResponse(response: unknown) {
 }
 
 describe("public help routes", () => {
+  it.each([undefined, "", "   ", " https://marketplace.chasesets.test/ "])(
+    "supplies only the configured marketplace origin (%s), never the request origin",
+    async (origin) => {
+      vi.stubEnv("CHASE_SETS_MARKETPLACE_ORIGIN", origin);
+      const data = await articleLoader({
+        request,
+        params: { category: "selling", slug: "seller-migration-tcgplayer-ebay" },
+        context: {},
+      } as never);
+      expect(data.marketplaceOrigin).toBe(origin?.trim() || undefined);
+    },
+  );
   it("serializes every category member as exactly the ordered card projection", () => {
     let examinedMembers = 0;
 
