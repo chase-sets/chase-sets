@@ -1694,8 +1694,8 @@ describe("design system components", () => {
     const activeTrigger = screen.getByRole("button", { name: /Section 1/ });
     const activePanel = screen.getByText("Content 1").parentElement;
 
-    expect(accordion.className).toContain("-mx-5");
-    expect(accordion.className).toContain("w-[calc(100%+2.5rem)]");
+    expect(accordion.className).toContain("mx-[calc(-1*var(--panel-content-inset,1.25rem))]");
+    expect(accordion.className).toContain("w-[calc(100%+2*var(--panel-content-inset,1.25rem))]");
     expect(accordion.className).toContain("self-stretch");
     expect(accordion.className).toContain("first:-mt-5");
     expect(accordion.className).toContain("first:rounded-t-tokenXl");
@@ -1704,6 +1704,85 @@ describe("design system components", () => {
     expect(activeTrigger.className).toContain("px-5");
     expect(activePanel?.className).toContain("pl-12");
     expect(container.querySelector('[class*="before:w-1"]')).toBeTruthy();
+  });
+
+  it.each(["compact", "panel"] as const)(
+    "separates %s horizontal bleed from vertical edges and keeps insets symbolic",
+    (edge) => {
+      render(
+        <ChaseRoot>
+          <PanelSectionAccordion
+            data-testid="horizontal"
+            edge={edge}
+            bleed="horizontal"
+            type="multiple"
+            anchorActiveItemToScrollEnd={false}
+            items={[
+              { value: "a", trigger: "A", content: "First" },
+              { value: "b", trigger: "B", content: "Second" },
+              { value: "c", trigger: "C", content: "Third" },
+            ]}
+          />
+        </ChaseRoot>,
+      );
+      const root = screen.getByTestId("horizontal");
+      const variable = edge === "compact" ? "--sidebar-content-inset,0.75rem" : "--panel-content-inset,1.25rem";
+      expect(root.className).toContain(`mx-[calc(-1*var(${variable}))]`);
+      expect(root.className).toContain(`w-[calc(100%+2*var(${variable}))]`);
+      expect(root.className).not.toMatch(/-m[tyb]-/);
+      expect(root.className).toContain("first:rounded-t-");
+      expect(root.className).toContain("last:rounded-b-");
+      expect(root.className).toContain("[overflow-anchor:none]");
+      const items = root.querySelectorAll<HTMLElement>("[data-accordion-item-value]");
+      expect(items).toHaveLength(3);
+      expect(items[0]!.className).toContain("border-b");
+      expect(items[1]!.className).toContain("border-b");
+      expect(items[2]!.className).not.toContain("border-b");
+      expect(root.querySelectorAll('[class*="overflow-y"]')).toHaveLength(0);
+    },
+  );
+
+  it("explicitly disabling panel anchoring keeps both scroll owners unchanged on toggle", () => {
+    render(
+      <ChaseRoot>
+        {["desktop", "mobile"].map((id) => (
+          <div key={id} data-testid={`${id}-scroll`} style={{ overflowY: "auto", height: 100 }}>
+            <PanelSectionAccordion
+              id={id}
+              type="multiple"
+              edge="panel"
+              anchorActiveItemToScrollEnd={false}
+              items={[{ value: "a", trigger: `${id} section`, content: "Options" }]}
+            />
+          </div>
+        ))}
+      </ChaseRoot>,
+    );
+    const owners = [screen.getByTestId("desktop-scroll"), screen.getByTestId("mobile-scroll")];
+    owners.forEach((owner, index) => {
+      owner.scrollTop = 30 + index;
+    });
+    const rect = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue({
+        top: 0,
+        bottom: 500,
+        left: 0,
+        right: 100,
+        width: 100,
+        height: 500,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      });
+    try {
+      for (const id of ["desktop", "mobile"]) {
+        fireEvent.click(screen.getByRole("button", { name: `${id} section` }));
+        expect(owners.map((owner) => owner.scrollTop)).toEqual([30, 31]);
+      }
+    } finally {
+      rect.mockRestore();
+    }
   });
 
   it("aligns section-list option icons with the trigger title", () => {
@@ -2048,10 +2127,10 @@ describe("design system components", () => {
     );
     const statusMarkup = renderToString(<MarketStatusBadge status="marketOnly" />);
 
-    expect(facetMarkup).toContain("Browse Categories");
+    expect(facetMarkup).not.toContain("Browse Categories");
     expect(facetMarkup).toContain("Pokemon TCG (7)");
     expect(facetMarkup).toContain("Show more");
-    expect(facetMarkup).toContain("<section");
+    expect(facetMarkup).not.toContain("<section");
     expect(facetMarkup).not.toContain(
       "ds-glass overflow-hidden rounded-tokenLg border border-muted shadow-tokenSm bg-surface-2",
     );

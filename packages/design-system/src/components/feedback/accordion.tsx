@@ -95,6 +95,7 @@ export interface AccordionProps extends Omit<
   type?: "single" | "multiple";
   variant?: "surface" | "sectionList";
   edge?: AccordionSectionEdge;
+  bleed?: "both" | "horizontal";
   value?: string | string[];
   defaultValue?: string | string[];
   onValueChange?: (value: string | string[]) => void;
@@ -123,6 +124,7 @@ export function Accordion({
   type = "single",
   variant = "surface",
   edge,
+  bleed = "both",
   value,
   defaultValue,
   onValueChange,
@@ -213,27 +215,33 @@ export function Accordion({
       {...rest}
       onValueChange={handleValueChange}
       className={cx(
+        !anchorActiveItemToScrollEnd && "[overflow-anchor:none]",
         isSectionList
           ? "relative overflow-hidden"
           : "modern-surface rounded-tokenLg border border-muted shadow-tokenSm",
         isSectionList &&
           edgeMode === "card" &&
-          "-mx-4 w-[calc(100%+2rem)] max-w-none self-stretch first:-mt-4 first:rounded-t-tokenLg last:-mb-4 last:rounded-b-tokenLg",
+          "-mx-4 w-[calc(100%+2rem)] max-w-none self-stretch first:rounded-t-tokenLg last:rounded-b-tokenLg",
+        isSectionList && edgeMode === "card" && bleed === "both" && "first:-mt-4 last:-mb-4",
         isSectionList &&
           edgeMode === "compact" &&
-          "-mx-3 w-[calc(100%+1.5rem)] max-w-none self-stretch first:-mt-3 first:rounded-t-tokenLg last:-mb-3 last:rounded-b-tokenLg",
+          "mx-[calc(-1*var(--sidebar-content-inset,0.75rem))] w-[calc(100%+2*var(--sidebar-content-inset,0.75rem))] max-w-none self-stretch first:rounded-t-tokenLg last:rounded-b-tokenLg",
+        isSectionList && edgeMode === "compact" && bleed === "both" && "first:-mt-3 last:-mb-3",
         isSectionList &&
           edgeMode === "panel" &&
-          "-mx-5 w-[calc(100%+2.5rem)] max-w-none self-stretch first:-mt-5 first:rounded-t-tokenXl last:-mb-5 last:rounded-b-tokenXl",
+          "mx-[calc(-1*var(--panel-content-inset,1.25rem))] w-[calc(100%+2*var(--panel-content-inset,1.25rem))] max-w-none self-stretch first:rounded-t-tokenXl last:rounded-b-tokenXl",
+        isSectionList && edgeMode === "panel" && bleed === "both" && "first:-mt-5 last:-mb-5",
       )}
     >
       {items.map((item, index) => {
         const isOpen = openValues.includes(item.value);
         const panelId = `${accordionId}-panel-${item.value}`;
+        const triggerId = `${accordionId}-trigger-${item.value}`;
 
         return (
           <AccordionPrimitive.Item
             key={item.value}
+            data-accordion-item-value={item.value}
             value={item.value}
             disabled={item.disabled}
             ref={isOpen ? activeItemRef : undefined}
@@ -255,6 +263,7 @@ export function Accordion({
             <AccordionPrimitive.Header>
               <AccordionPrimitive.Trigger
                 {...item.triggerProps}
+                id={item.triggerProps?.id ?? triggerId}
                 aria-controls={item.triggerProps?.["aria-controls"] ?? panelId}
                 disabled={item.disabled}
                 className={cx(
@@ -276,6 +285,7 @@ export function Accordion({
             </AccordionPrimitive.Header>
             <AccordionPrimitive.Panel
               id={panelId}
+              aria-labelledby={item.triggerProps?.id ?? triggerId}
               keepMounted
               render={(props, state) => (
                 <AnimatedAccordionContent
