@@ -276,6 +276,29 @@ export default {
       },
       paths: ["bounded-contexts/platform-operations/features/support-requests/"],
     },
+    {
+      id: "buyer-notification-center",
+      version: 1,
+      startPath: "/account/notifications",
+      role: "buyer",
+      host: "marketplace",
+      goal: "You want to catch up on anything you have been notified about. Find out how many notifications are waiting for you unread and what the most recent one is about, or confirm that there are none. Then check which ways of being notified are switched on for your account and whether you have any product alerts set up. Do not mark anything as read, and do not change a preference or a product alert.",
+      checks: ["unread-notifications", "notification-settings"],
+      oracle: {
+        "unread-notifications":
+          "Web notification read model (web_notifications rows for identitySeedIds.collector.accountId): no bootstrap seed writes this table, so rows exist only where the worker dispatched web deliveries from seeded source events, and none is a correct answer when the account has no rows. Compare the unread count (read_at null) and the newest row's title with what the participant reports, and confirm no read_at was written by this run. If the page shows that notifications could not be loaded, record environment-invalid rather than a wrong answer.",
+        "notification-settings":
+          "Notification preference read model: notification_preferences holds no row for the collector (the notifications context has no seed), so the page shows defaultNotificationPreferences: web, email and product alerts on, sms and rcs off. No discovery seed creates a product alert for the collector, so the product alerts section is empty. Compare both; the preference and product alert read models must show no write by this run.",
+      },
+      routes: {
+        "bounded-contexts/notifications/routes/account-notifications.tsx": "unread-notifications",
+      },
+      paths: [
+        "bounded-contexts/notifications/features/notification-center/",
+        "bounded-contexts/notifications/features/preferences/",
+        "bounded-contexts/discovery/features/product-alerts/",
+      ],
+    },
   ],
   excludedRoutes: [
     {
@@ -304,7 +327,6 @@ export default {
       reason:
         "fixture-gap: delivered purchase for the seeded buyer with an open, unreviewed review window; the seeded delivered orders are already reviewed or held by open support requests",
     },
-    { path: "bounded-contexts/notifications/routes/account-notifications.tsx", reason: "redirect-only" },
     {
       path: "bounded-contexts/payments/routes/marketplace/checkout-payment.tsx",
       reason:
