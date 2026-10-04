@@ -642,7 +642,9 @@ describe("design system marketplace patterns", () => {
 
       const mobileRow = within(root).getByLabelText("Marketing highlight");
       expect(mobileRow.classList.contains("md:hidden")).toBe(true);
-      expect(mobileRow.textContent).toBe("Founders window0% sales fee on listings you create in your first 60 days of beta");
+      expect(mobileRow.textContent).toBe(
+        "Founders window0% sales fee on listings you create in your first 60 days of beta",
+      );
 
       const desktopRow = within(root).getByLabelText("Marketing highlights");
       expect(desktopRow.classList.contains("hidden")).toBe(true);

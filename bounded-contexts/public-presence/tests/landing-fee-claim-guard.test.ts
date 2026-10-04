@@ -48,7 +48,8 @@ describe("landing seller-fee claim guard (#8606)", () => {
 
   it("does not mistake rates, caps, or money amounts for a 0% claim", () => {
     const probe = {
-      "publicPresence.faq.fees.answer": "2.9% + $0.30 by card, 0.5% by bank account, $0.00 with balance, capped at 10%.",
+      "publicPresence.faq.fees.answer":
+        "2.9% + $0.30 by card, 0.5% by bank account, $0.00 with balance, capped at 10%.",
     };
     expect(findSellerFeeClaimViolations(probe)).toEqual([]);
   });
@@ -56,8 +57,8 @@ describe("landing seller-fee claim guard (#8606)", () => {
   it("ignores claims outside the landing-visible namespaces", () => {
     const probe = { "publicPresence.syntheticOutOfScope.body": "Keep 100% of the sale with 0% fees." };
     expect(findSellerFeeClaimViolations(probe)).toEqual([]);
-    expect(LANDING_COPY_NAMESPACE_PREFIXES.some((prefix) => "publicPresence.syntheticOutOfScope.body".startsWith(prefix))).toBe(
-      false,
-    );
+    expect(
+      LANDING_COPY_NAMESPACE_PREFIXES.some((prefix) => "publicPresence.syntheticOutOfScope.body".startsWith(prefix)),
+    ).toBe(false);
   });
 });

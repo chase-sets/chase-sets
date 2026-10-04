@@ -243,7 +243,8 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.heroHighlight.launch.label": "Buyer totals",
   "publicPresence.home.heroHighlight.launch.value": "Costs visible before payment",
   "publicPresence.home.heroHighlight.lowValue.label": "Founders window",
-  "publicPresence.home.heroHighlight.lowValue.value": "0% sales fee on listings you create in your first 60 days of beta",
+  "publicPresence.home.heroHighlight.lowValue.value":
+    "0% sales fee on listings you create in your first 60 days of beta",
   "publicPresence.home.heroHighlight.offers.label": "Open offers",
   "publicPresence.home.heroHighlight.offers.value": "Post what you'll pay",
   "publicPresence.home.buyerHero.highlight.deliveredTotals.label": "Delivered totals",

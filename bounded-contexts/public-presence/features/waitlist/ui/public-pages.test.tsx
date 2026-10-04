@@ -677,7 +677,9 @@ describe("public waitlist form migration smoke", () => {
     const highlightCells = Array.from(
       heroSection.querySelector('[aria-label="Marketing highlights"]')?.children ?? [],
     ).map((cell) => cell.textContent);
-    expect(highlightCells).toContain("Founders window0% sales fee on listings you create in your first 60 days of beta");
+    expect(highlightCells).toContain(
+      "Founders window0% sales fee on listings you create in your first 60 days of beta",
+    );
     expect(heroSection.textContent).not.toContain("Keep 100% of the sale");
     expect(heroSection.textContent).not.toContain("0% beta seller fees");
     expect(heroSection.textContent).not.toContain("0% fees during beta");
