@@ -9,17 +9,20 @@ import type { RefundCausationInput } from "../../domain/causation";
 import { refundIdForRemedy } from "../../domain/causation";
 import { getCapturedPaymentByOrderId, getOrderPaymentInput } from "../../../payments/read-model/queries";
 import { recordRefundEffectFailure } from "../refund-effect-retry";
-import { moneyToCents, centsToMoneyAmount, compareMoneyAmounts, normalizeMoneyAmount } from "@chase-sets/primitives/money";
+import {
+  moneyToCents,
+  centsToMoneyAmount,
+  compareMoneyAmounts,
+  normalizeMoneyAmount,
+} from "@chase-sets/primitives/money";
 // `cancel-order` is intentionally excluded: it is driven through order
 // cancellation (ordering emits `ordering.order.cancelled`, which the
 // cancellation refund effect handles), so the buyer is refunded — including the
 // checkout fee — only once the order actually transitions to cancelled and its
 // inventory holds are released.
 const refundResolutionTypes = new Set(["full-refund", "partial-refund", "return-for-refund"]);
-
 /** Structured, non-free-form reason carried as refund causation when a platform-coverage remedy releases its refund. */
 const REMEDY_REFUND_RELEASED_REASON_CODE = "platform-coverage-remedy-refund-released";
-
 /**
  * `return-for-refund` records a pending refund effect instead of issuing one
  * immediately: the buyer is not refunded until the returned item's delivery
@@ -29,17 +32,14 @@ const REMEDY_REFUND_RELEASED_REASON_CODE = "platform-coverage-remedy-refund-rele
  * type keeps issuing its refund immediately at resolution time.
  */
 const immediateRefundResolutionTypes = new Set(["full-refund", "partial-refund"]);
-
 function compareMoney(left: string, right: string) {
   moneyToCents(left);
   moneyToCents(right);
   return compareMoneyAmounts(left, right);
 }
-
 function minMoney(left: string, right: string) {
   return normalizeMoneyAmount(compareMoney(left, right) <= 0 ? left : right);
 }
-
 function clampMoneyDifference(left: string, right: string) {
   const remainingCents = moneyToCents(left) - moneyToCents(right);
   const clampedCents = remainingCents < 0n ? 0n : remainingCents;
@@ -700,9 +700,9 @@ export function buildPaymentsSupportRefundEffectHandlers(
       // transit, so cap it again before ever calling issueRefund.
       const remainingOrderAmount = remainingRefundableOrderAmount(payment, data.orderId, orderInput.total_amount);
       const grossAmount = minMoney(pending.requested_amount, remainingOrderAmount);
-      const amount = clampMoneyDifference(
-        grossAmount, pending.return_shipping_deduction_amount ?? "0.00",
-      );
+      const returnShippingDeduction = pending.return_shipping_deduction_amount ?? "0.00";
+      const amount = clampMoneyDifference(grossAmount, returnShippingDeduction);
+
       if (compareMoney(amount, "0.00") <= 0) {
         await db.query(
           `UPDATE payments_support_refund_effects

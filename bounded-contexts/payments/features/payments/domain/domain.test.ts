@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { decidePayment, evolvePayment, initialPaymentState, remainingRefundableAmountForOrders, type PaymentCommand, type PaymentState } from "./domain";
+import {
+  decidePayment,
+  evolvePayment,
+  initialPaymentState,
+  remainingRefundableAmountForOrders,
+  type PaymentCommand,
+  type PaymentState,
+} from "./domain";
 
 const commercialAmounts = {
   marketplaceSalesFeeAmount: "2.00",
@@ -12,17 +19,35 @@ describe("payments canonical domain money", () => {
     for (const amount of ["1.001", "-1.00", "10000000000.00", "", "not-money", "1e2", "+1.00"]) {
       expect(() => createdPaymentState(amount)).toThrow();
       const state = capturedPaymentState();
-      expect(() => remainingRefundableAmountForOrders({
-        ...state, orderRefundCaps: [{ orderId: "ord_1" as never, amount }],
-      }, ["ord_1" as never])).toThrow();
+      expect(() =>
+        remainingRefundableAmountForOrders(
+          {
+            ...state,
+            orderRefundCaps: [{ orderId: "ord_1" as never, amount }],
+          },
+          ["ord_1" as never],
+        ),
+      ).toThrow();
     }
     const state = capturedPaymentState();
-    expect(remainingRefundableAmountForOrders({
-      ...state, refundedOrderAmounts: [{ orderId: "ord_1" as never, amount: "11.00" }],
-    }, ["ord_1" as never])).toBe("0.00");
-    expect(remainingRefundableAmountForOrders({
-      ...state, refundedOrderAmounts: [{ orderId: "ord_1" as never, amount: "3.00" }],
-    }, ["ord_1" as never])).toBe("7.00");
+    expect(
+      remainingRefundableAmountForOrders(
+        {
+          ...state,
+          refundedOrderAmounts: [{ orderId: "ord_1" as never, amount: "11.00" }],
+        },
+        ["ord_1" as never],
+      ),
+    ).toBe("0.00");
+    expect(
+      remainingRefundableAmountForOrders(
+        {
+          ...state,
+          refundedOrderAmounts: [{ orderId: "ord_1" as never, amount: "3.00" }],
+        },
+        ["ord_1" as never],
+      ),
+    ).toBe("7.00");
   });
 });
 

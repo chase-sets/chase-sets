@@ -24,9 +24,14 @@ describe("payments order input projection", () => {
     for (const commercialTermsSnapshot of cases) {
       const db = { query: vi.fn(async () => ({ rows: [] })) };
       const handler = buildPaymentsOrderInputProjectionHandlers(db)["ordering.order.created"]!;
-      await expect(handler(storedEvent("ordering.order.created", {
-        orderId: "ord_synthetic_money", commercialTermsSnapshot,
-      }))).rejects.toThrow();
+      await expect(
+        handler(
+          storedEvent("ordering.order.created", {
+            orderId: "ord_synthetic_money",
+            commercialTermsSnapshot,
+          }),
+        ),
+      ).rejects.toThrow();
       expect(db.query).not.toHaveBeenCalled();
     }
     for (const [net, shipping, payout, expected] of [
@@ -36,10 +41,16 @@ describe("payments order input projection", () => {
       ["9999999999.99", "0.00", undefined, "9999999999.99"],
     ]) {
       const db = { query: vi.fn(async (_sql: string, _values?: readonly unknown[]) => ({ rows: [] })) };
-      await buildPaymentsOrderInputProjectionHandlers(db)["ordering.order.created"]!(storedEvent("ordering.order.created", {
-        orderId: "ord_synthetic_money",
-        commercialTermsSnapshot: { sellerNetAmount: net, sellerShippingPayoutAmount: shipping, sellerPayoutAmount: payout },
-      }));
+      await buildPaymentsOrderInputProjectionHandlers(db)["ordering.order.created"]!(
+        storedEvent("ordering.order.created", {
+          orderId: "ord_synthetic_money",
+          commercialTermsSnapshot: {
+            sellerNetAmount: net,
+            sellerShippingPayoutAmount: shipping,
+            sellerPayoutAmount: payout,
+          },
+        }),
+      );
       expect(db.query.mock.calls[0]![1]![20]).toBe(expected);
     }
   });

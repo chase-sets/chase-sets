@@ -790,7 +790,9 @@ export function remainingRefundableAmountForOrders(
   orderIds: readonly OrderId[],
   excludingRefundId?: RefundId | null,
 ): string {
-  return sumMoneyAmounts(orderIds.map((orderId) => remainingRefundableAmountForOrder(state, orderId, excludingRefundId)));
+  return sumMoneyAmounts(
+    orderIds.map((orderId) => remainingRefundableAmountForOrder(state, orderId, excludingRefundId)),
+  );
 }
 
 function assertRefundOrdersBelongToPayment(state: PaymentState, orderIds: readonly OrderId[]) {
@@ -861,8 +863,7 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
         "Order refundable amount",
       );
       const sellerPayoutAmount = normalizeMoneyAmount(
-        command.sellerPayoutAmount ??
-          sumMoneyAmounts(sellerPayouts.map((component) => component.sellerPayoutAmount)),
+        command.sellerPayoutAmount ?? sumMoneyAmounts(sellerPayouts.map((component) => component.sellerPayoutAmount)),
         {
           fieldName: "Seller payout amount",
           allowZero: true,

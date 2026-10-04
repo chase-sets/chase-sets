@@ -157,16 +157,16 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
           data.protectionAmount ?? data.commercialTermsSnapshot.protectionAmount ?? "0.00",
           data.protectionAllowanceAmount ?? data.commercialTermsSnapshot.protectionAllowanceAmount ?? "0.00",
           data.protectionOverageAmount ?? data.commercialTermsSnapshot.protectionOverageAmount ?? "0.00",
-          normalizeMoneyAmount(data.commercialTermsSnapshot.sellerPayoutAmount ??
-            sumMoneyAmounts([
-              data.commercialTermsSnapshot.sellerNetAmount,
-              (
+          normalizeMoneyAmount(
+            data.commercialTermsSnapshot.sellerPayoutAmount ??
+              sumMoneyAmounts([
+                data.commercialTermsSnapshot.sellerNetAmount,
                 data.commercialTermsSnapshot.sellerShippingPayoutAmount ??
                   data.commercialTermsSnapshot.shippingAllowanceAmount ??
                   data.shippingAllowanceAmount ??
-                  "0.00"
-              )
-            ])),
+                  "0.00",
+              ]),
+          ),
           data.commercialTermsSnapshot.shippingAllowancePercentageBps ?? 500,
           data.commercialTermsSnapshot.termsScheduleId,
           data.commercialTermsSnapshot.termsAgreementId,
