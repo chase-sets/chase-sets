@@ -947,10 +947,10 @@ async function refreshDiscoverySearchItem(
       embedded_text_hash,
       updated_at
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25,
-      setweight(to_tsvector('english', $26), 'A') ||
+      setweight(to_tsvector('english', $29), 'A') ||
         setweight(to_tsvector('english', $27), 'B') ||
         setweight(to_tsvector('english', $28), 'C') ||
-        setweight(to_tsvector('english', $29), 'D'),
+        setweight(to_tsvector('english', $26), 'D'),
       setweight(to_tsvector('simple', $30), 'A') ||
         setweight(to_tsvector('simple', $31), 'B') ||
         setweight(to_tsvector('simple', $32), 'C') ||
