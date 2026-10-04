@@ -30,6 +30,7 @@ export type ChannelPublicationSettings = Readonly<{
   descriptionFooter: string;
   categoryAllowlist: readonly string[];
   excludedListingIds: readonly string[];
+  publishQuantityCap: number | null;
 }>;
 
 export type ChannelCompositionProfileDerivation = Readonly<{
