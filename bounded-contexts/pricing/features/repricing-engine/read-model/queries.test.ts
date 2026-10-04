@@ -6,7 +6,15 @@ const product = { catalogItemId: "cat_1", productId: "prd_1" };
 const emptyRound = { listings: [], competingAsks: [], marketEstimate: null, lastSold: null };
 
 function controlledReads(synchronousFailure?: number, error?: unknown) {
-  const reads = Array.from({ length: 4 }, () => Promise.withResolvers<PgQueryResult<unknown>>());
+  const reads = Array.from({ length: 4 }, () => {
+    let resolve!: (value: PgQueryResult<unknown>) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<PgQueryResult<unknown>>((resolveRead, rejectRead) => {
+      resolve = resolveRead;
+      reject = rejectRead;
+    });
+    return { promise, resolve, reject };
+  });
   const started = vi.fn();
   const db: PgQueryable = {
     query: <Row>(sql: string, values?: readonly unknown[]) => {

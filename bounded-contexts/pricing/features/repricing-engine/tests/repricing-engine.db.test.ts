@@ -774,8 +774,14 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
         heldClients += 1;
         peakClients = Math.max(peakClients, heldClients);
       };
-      const readerActive = Promise.withResolvers<void>();
-      const inputRejected = Promise.withResolvers<void>();
+      let releaseReader!: () => void;
+      const readerActive = new Promise<void>((resolve) => {
+        releaseReader = resolve;
+      });
+      let markInputRejected!: () => void;
+      const inputRejected = new Promise<void>((resolve) => {
+        markInputRejected = resolve;
+      });
       const siblingReads: Promise<unknown>[] = [];
       let settled = false;
       let outcome: Promise<unknown> | undefined;
@@ -794,8 +800,8 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
           db: {
             query: async <Row>(sql: string, values?: readonly unknown[]) => {
               if (failure !== "complete" && sql.includes("AS policy_revision")) {
-                await readerActive.promise;
-                inputRejected.resolve();
+                await readerActive;
+                markInputRejected();
                 throw originalError;
               }
               const read = (async () => {
@@ -885,8 +891,8 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
             }
             await new Promise((resolve) => setTimeout(resolve, 10));
           }
-          readerActive.resolve();
-          await inputRejected.promise;
+          releaseReader();
+          await inputRejected;
           // Probe the actual backend while the original error propagates through the runtime.
           for (let checkpoint = 0; checkpoint < 10; checkpoint += 1) {
             expect((await readActivity())[0]).toMatchObject({ state: "active", wait_event_type: "Lock" });
@@ -931,7 +937,7 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
           );
         }
       } finally {
-        readerActive.resolve();
+        releaseReader();
         try {
           if (gateHolder) await gateHolder.query("SELECT pg_advisory_unlock(8232, 1)");
         } finally {
