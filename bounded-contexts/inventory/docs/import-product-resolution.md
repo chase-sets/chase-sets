@@ -16,6 +16,18 @@ Manual product selection per row is not the intended workflow. Import adapters s
 8. Unmapped rows remain rejected for review instead of forcing per-row manual selection.
 9. Committing accepted rows creates or adjusts Inventory Items and may create Marketplace draft Listings through the existing host port.
 
+Every source uses the same final Product validity rule: a missing, nonexistent,
+inactive, source-mismatched, option-incomplete, or schema-invalid Product stores
+`product_id = null` and `resolution_status = unresolved`. Rejected rows from any
+provider, plus Saved List location review, feed the same drawer and Seller
+Attention predicate.
+
+The deterministic `inventory-import-product-resolution-maintenance` job repairs
+legacy rejected rows in 250-row `(created_at, row_id)` keyset pages. It records
+one validator-versioned receipt, uses guarded updates, retries a poison row
+three times, and never falls through a mapped-invalid candidate. Replaying the
+same validator version returns the receipt without changing rows.
+
 ## Supported CSV Sources
 
 - Chase Sets CSV: native IDs and selected options, or account-scoped seller SKU mappings when `catalogItemId` is omitted.

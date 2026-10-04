@@ -7,15 +7,16 @@
 import type { InventoryImportBatch, InventoryImportBatchDetail, InventoryImportBatchRow } from "../read-model/queries";
 
 // A row still needs the seller when it was rejected, is not yet committed, and
-// either came from a saved list (always needs a location/catalog confirmation)
-// or is a native-CSV row whose account SKU never resolved to a catalog item.
+// either came from a Saved List (which always needs confirmation) or has an
+// incomplete Product resolution. Keep this predicate source-agnostic so every
+// provider's rejected Product rows enter the same drawer queue.
 export function rowNeedsResolution(
   row: InventoryImportBatchRow,
   sourceKey: InventoryImportBatch["source_key"],
 ): boolean {
   return (
     row.status === "rejected" &&
-    (sourceKey === "saved-list" || (sourceKey === "native-csv" && row.resolution_status === "unresolved")) &&
+    (sourceKey === "saved-list" || row.resolution_status === "unresolved") &&
     !row.committed_at
   );
 }

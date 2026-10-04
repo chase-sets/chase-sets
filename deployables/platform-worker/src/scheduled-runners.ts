@@ -1,4 +1,5 @@
 import type { GoogleShoppingSyncMode } from "@chase-sets/discovery/server";
+import type { InventoryServices } from "@chase-sets/inventory/server";
 import type { PaymentsServices } from "@chase-sets/payments/server";
 import type { SettlementServices } from "@chase-sets/settlement/server";
 import type { PricingServices } from "@chase-sets/pricing/server";
@@ -177,6 +178,7 @@ export function createRegisteredScheduledRunners({
         };
       }
     | undefined;
+  const inventory = services.inventory as InventoryServices | undefined;
   const discovery = services.discovery as
     | {
         googleShoppingSync?: {
@@ -844,6 +846,20 @@ export function createRegisteredScheduledRunners({
             });
           }
           return result.embedded;
+        },
+      ),
+    );
+  }
+
+  if (inventory?.importBatches?.enqueueProductResolutionMaintenanceJob) {
+    runners.push(
+      createScheduledJobRunner(
+        "inventory.import-product-resolution-maintenance.enqueue",
+        24 * 60 * 60 * 1000,
+        controlPlane,
+        async () => {
+          await inventory.importBatches!.enqueueProductResolutionMaintenanceJob!({ validatorVersion: 1 });
+          return 1;
         },
       ),
     );

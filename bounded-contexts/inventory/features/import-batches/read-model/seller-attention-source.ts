@@ -13,8 +13,8 @@ import {
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 // The projected fields the source reads from the import-batch read model. Only
-// batches whose resolution status is unresolved, with a positive count of rows
-// still needing the seller, appear.
+// rejected, uncommitted rows with an incomplete Product (or Saved List review)
+// appear, matching the drawer's rowNeedsResolution predicate.
 export type ImportResolutionAttentionRow = Readonly<{
   batchId: string;
   // Human display reference for the import batch.
@@ -74,8 +74,9 @@ export function createImportResolutionAttentionSourceFromReadModel(db: PgQueryab
          INNER JOIN inventory_import_batch_rows AS row
            ON row.batch_id = batch.batch_id
          WHERE batch.account_id = $1
-           AND row.resolution_status = 'unresolved'
-           AND row.status <> 'committed'
+           AND row.status = 'rejected'
+           AND row.committed_at IS NULL
+           AND (row.resolution_status = 'unresolved' OR batch.source_key = 'saved-list')
          GROUP BY batch.batch_id, batch.source_filename
          ORDER BY MIN(row.updated_at) ASC, batch.batch_id ASC`,
         [context.accountId],
