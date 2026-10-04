@@ -246,7 +246,8 @@ describe("platform api bootstrap lock contention", () => {
         for (const phase of phases) {
           await vi.waitFor(
             () => {
-              if (child.exitCode !== null) throw new Error(`Bootstrap exited before ${phase}: ${output}`);
+              if (child.exitCode !== null)
+                throw new Error(`${disposition} bootstrap exited before ${phase}: ${output}`);
               expect(existsSync(join(directory, `${phase}.entered`)), output).toBe(true);
             },
             { timeout: 180_000, interval: 50 },
@@ -265,6 +266,25 @@ describe("platform api bootstrap lock contention", () => {
           expect(code, output).toBe(0);
           expect(output).toContain("Platform admin bootstrap reconciled.");
         }
+        const adminCreationEvents = await pools.identity.query<{ event_type: string; count: string }>(
+          `SELECT event_type, COUNT(*) AS count FROM event_store_events
+           WHERE stream_id = ANY($1::text[])
+             AND event_type = ANY($2::text[])
+           GROUP BY event_type ORDER BY event_type`,
+          [
+            [
+              "identity.account-acc_platform_admin",
+              "identity.user-usr_platform_admin",
+              "identity.membership-mbr_platform_admin",
+            ],
+            ["identity.account.created", "identity.user.created", "identity.membership.granted"],
+          ],
+        );
+        expect(adminCreationEvents.rows, `${disposition} bootstrap must not re-create the retained admin`).toEqual([
+          { event_type: "identity.account.created", count: "1" },
+          { event_type: "identity.membership.granted", count: "1" },
+          { event_type: "identity.user.created", count: "1" },
+        ]);
         await vi.waitFor(async () => {
           const contender = await tryHoldSchemaBootstrapAdvisoryLock(pools.auth);
           await contender?.();

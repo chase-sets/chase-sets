@@ -74,13 +74,15 @@ async function bootstrap() {
         if (platformAdmin) {
           const identityServices = runtime.services.identity as Parameters<typeof bootstrapPlatformAdminIdentity>[0];
           const authServices = runtime.services.auth as Parameters<typeof bootstrapPlatformAdminPassword>[0];
-          const admin = await runBootstrapPhase("platform-admin-identity", () =>
-            bootstrapPlatformAdminIdentity(identityServices, {
+          const admin = await runBootstrapPhase("platform-admin-identity", async () => {
+            // A prior worker-less bootstrap may have committed Identity events without projecting them.
+            await syncContextProjectionGroups(runtime, "identity");
+            return bootstrapPlatformAdminIdentity(identityServices, {
               email: platformAdmin.email,
               displayName: platformAdmin.displayName,
               accountName: platformAdmin.accountName,
-            }),
-          );
+            });
+          });
 
           await runBootstrapPhase("auth-projection-sync", () => syncContextProjectionGroups(runtime, "auth"));
           await runBootstrapPhase("platform-admin-password", () =>
