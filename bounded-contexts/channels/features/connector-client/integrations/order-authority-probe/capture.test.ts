@@ -180,7 +180,7 @@ function harness(
     // can reach a socket. Only this loopback URL and a synthetic marker do.
     return fetch(`${loopback}${route}`, {
       credentials: "omit",
-      redirect: "error",
+      redirect: "manual",
       signal: request.signal,
       headers: { "X-Synthetic-Transport": "synthetic-no-live-credentials" },
     });
