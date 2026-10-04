@@ -440,9 +440,10 @@ describe("admin API retry", () => {
           path: "/",
         });
         expect(() =>
-          expect(result.events.filter((event) => event.kind === "retry-delay"), "discriminator removal").toEqual(
-            expectedDelays,
-          ),
+          expect(
+            result.events.filter((event) => event.kind === "retry-delay"),
+            "discriminator removal",
+          ).toEqual(expectedDelays),
         ).toThrow(/discriminator removal/);
       }
       expect(fixture.sockets.size).toBe(0);
