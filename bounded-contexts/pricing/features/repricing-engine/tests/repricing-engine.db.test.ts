@@ -8,7 +8,7 @@ import {
   ensureMultiContextTestDatabases,
   resetMultiContextTestSchemas,
 } from "@chase-sets/bounded-context-runtime/test-support";
-import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, type PgPoolClient, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
 import type { RepricingPolicyId } from "@chase-sets/primitives/typed-ids";
 import { module as pricingModule } from "../../../index";
@@ -765,54 +765,181 @@ describeDb("pricing signal-reactive repricing engine (#4331)", () => {
       const originalError = new Error("Synthetic round input failure.");
       const cleanupError = new Error("Synthetic terminal persistence failure.");
       let terminalAttempted = false;
-      const runtime = createRepricingEngineRuntime({
-        eventStore: createPostgresEventStore({ pool }),
-        db: {
-          query: async <Row>(sql: string, values?: readonly unknown[]) => {
-            if (failure !== "complete" && sql.includes("AS policy_revision")) {
-              throw originalError;
-            }
-            return pool.query<Row>(sql, values);
-          },
-          connect: async () => {
-            const client = await pool.connect();
-            return {
-              release: client.release.bind(client),
-              query: async <Row>(sql: string, values?: readonly unknown[]) => {
-                if (
-                  sql.includes("WHERE job_id = $1") &&
-                  (sql.includes("SET status = 'completed'") || sql.includes("SET status = 'failed'"))
-                ) {
-                  terminalAttempted = true;
-                  if (failure === "fail-write-error") throw cleanupError;
-                  await pool.query(
-                    `UPDATE pricing_repricing_evaluation_jobs SET claim_owner_id = $1
-                    WHERE job_id = $2 AND claim_owner_id = $3`,
-                    ["worker:synthetic-terminal-recovery", values![0], "worker:synthetic-terminal-stale"],
-                  );
+      let gateHolder: PgPoolClient | undefined;
+      let observer: PgPoolClient | undefined;
+      let readerPid: number | undefined;
+      let heldClients = 0;
+      let peakClients = 0;
+      const acquired = () => {
+        heldClients += 1;
+        peakClients = Math.max(peakClients, heldClients);
+      };
+      const readerActive = Promise.withResolvers<void>();
+      const inputRejected = Promise.withResolvers<void>();
+      const siblingReads: Promise<unknown>[] = [];
+      let settled = false;
+      let outcome: Promise<unknown> | undefined;
+      try {
+        if (failure !== "complete") {
+          // Existing pool: gate holder + observer + round lock + four inputs <= 7 of 10.
+          await seedRound(pool, { listingPrices: ["16.00"] });
+          gateHolder = await pool.connect();
+          acquired();
+          await gateHolder.query("SELECT pg_advisory_lock(8232, 1)");
+          observer = await pool.connect();
+          acquired();
+        }
+        const runtime = createRepricingEngineRuntime({
+          eventStore: createPostgresEventStore({ pool }),
+          db: {
+            query: async <Row>(sql: string, values?: readonly unknown[]) => {
+              if (failure !== "complete" && sql.includes("AS policy_revision")) {
+                await readerActive.promise;
+                inputRejected.resolve();
+                throw originalError;
+              }
+              const read = (async () => {
+                const client = await pool.connect();
+                acquired();
+                try {
+                  if (failure !== "complete" && sql.includes("AS pricing_mode")) {
+                    readerPid = (await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]!.pid;
+                    return await client.query<Row>(
+                      sql.replace(
+                        "FROM products",
+                        "FROM products CROSS JOIN (SELECT pg_advisory_xact_lock(8232, 1)) AS sibling_gate",
+                      ),
+                      values,
+                    );
+                  }
+                  return await client.query<Row>(sql, values);
+                } finally {
+                  heldClients -= 1;
+                  client.release();
                 }
-                return client.query<Row>(sql, values);
-              },
-            };
+              })();
+              if (sql.includes("FROM products")) siblingReads.push(read);
+              return read;
+            },
+            connect: async () => {
+              const client = await pool.connect();
+              acquired();
+              return {
+                release: (error?: unknown) => {
+                  heldClients -= 1;
+                  client.release(error);
+                },
+                query: async <Row>(sql: string, values?: readonly unknown[]) => {
+                  if (
+                    sql.includes("WHERE job_id = $1") &&
+                    (sql.includes("SET status = 'completed'") || sql.includes("SET status = 'failed'"))
+                  ) {
+                    terminalAttempted = true;
+                    if (failure === "fail-write-error") throw cleanupError;
+                    await pool.query(
+                      `UPDATE pricing_repricing_evaluation_jobs SET claim_owner_id = $1
+                    WHERE job_id = $2 AND claim_owner_id = $3`,
+                      ["worker:synthetic-terminal-recovery", values![0], "worker:synthetic-terminal-stale"],
+                    );
+                  }
+                  return client.query<Row>(sql, values);
+                },
+              };
+            },
           },
-        },
-      });
-      await runtime.enqueueMarketPriceSignal(signal(`evt_synthetic_terminal_${failure}`));
-      const trip = vi.fn();
-      const work = runtime.processNextEvaluationJob({
-        claimOwnerId: "worker:synthetic-terminal-stale",
-        claimTtlMs: 30_000,
-        marketplaceGatewayForAccount: () => gateway(() => "applied"),
-        onSpiralBreakerTrip: trip,
-      });
-      if (failure === "complete")
-        await expect(work).rejects.toMatchObject({ name: "RepricingEvaluationClaimLostError" });
-      else await expect(work).rejects.toBe(originalError);
-      expect(terminalAttempted).toBe(true);
-      expect(trip).not.toHaveBeenCalled();
-      expect((await pool.query("SELECT status, result FROM pricing_repricing_evaluation_jobs")).rows).toEqual([
-        { status: "running", result: null },
-      ]);
+        });
+        await runtime.enqueueMarketPriceSignal(signal(`evt_synthetic_terminal_${failure}`));
+        const trip = vi.fn();
+        const work = runtime.processNextEvaluationJob({
+          claimOwnerId: "worker:synthetic-terminal-stale",
+          claimTtlMs: 30_000,
+          marketplaceGatewayForAccount: () => gateway(() => "applied"),
+          onSpiralBreakerTrip: trip,
+        });
+        outcome = work.then(
+          (value) => {
+            settled = true;
+            return { value };
+          },
+          (error: unknown) => {
+            settled = true;
+            return { error };
+          },
+        );
+        if (failure !== "complete") {
+          const readActivity = async () =>
+            (
+              await observer!.query<{ state: string; wait_event_type: string; query: string }>(
+                `SELECT state, wait_event_type, query FROM pg_stat_activity
+           WHERE pid = $1 AND datname = current_database() AND usename = current_user`,
+                [readerPid],
+              )
+            ).rows;
+          while (true) {
+            expect(settled).toBe(false);
+            const activity = await readActivity();
+            if (activity[0]?.state === "active" && activity[0].wait_event_type === "Lock") {
+              expect(activity[0].query).toContain("AS pricing_mode");
+              expect(activity[0].query).toContain("pg_advisory_xact_lock(8232, 1)");
+              break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+          readerActive.resolve();
+          await inputRejected.promise;
+          // Probe the actual backend while the original error propagates through the runtime.
+          for (let checkpoint = 0; checkpoint < 10; checkpoint += 1) {
+            expect((await readActivity())[0]).toMatchObject({ state: "active", wait_event_type: "Lock" });
+            expect(settled, "operation settled while its competing-asks backend was active").toBe(false);
+            expect(terminalAttempted).toBe(false);
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+          console.info(
+            `repricing sibling-read checkpoint: ${failure}; backend=${readerPid}; active; operation=pending; peak-held-clients=${peakClients}`,
+          );
+          observer!.release();
+          observer = undefined;
+          heldClients -= 1;
+          await gateHolder!.query("SELECT pg_advisory_unlock(8232, 1)");
+          gateHolder!.release();
+          gateHolder = undefined;
+          heldClients -= 1;
+        }
+        if (failure === "complete")
+          await expect(work).rejects.toMatchObject({ name: "RepricingEvaluationClaimLostError" });
+        else await expect(work).rejects.toBe(originalError);
+        expect(terminalAttempted).toBe(true);
+        expect(trip).not.toHaveBeenCalled();
+        expect((await pool.query("SELECT status, result FROM pricing_repricing_evaluation_jobs")).rows).toEqual([
+          { status: "running", result: null },
+        ]);
+        if (failure !== "complete") {
+          expect(
+            (
+              await pool.query(
+                `SELECT pid FROM pg_stat_activity WHERE datname = current_database() AND usename = current_user
+           AND pid <> pg_backend_pid() AND state = 'active'`,
+              )
+            ).rows,
+          ).toHaveLength(0);
+          expect(peakClients).toBeLessThanOrEqual(7);
+          expect(heldClients).toBe(0);
+          await resetMultiContextTestSchemas(pools);
+          await pool.query(pricingModule.schemaSql);
+          console.info(
+            `repricing sibling-read cleanup: ${failure}; peak-held-clients=${peakClients}; active-readers=0; controls=released; work=drained; reset/bootstrap=complete`,
+          );
+        }
+      } finally {
+        readerActive.resolve();
+        try {
+          if (gateHolder) await gateHolder.query("SELECT pg_advisory_unlock(8232, 1)");
+        } finally {
+          gateHolder?.release();
+          observer?.release();
+          await Promise.allSettled([...(outcome ? [outcome] : []), ...siblingReads]);
+        }
+      }
     },
   );
 
