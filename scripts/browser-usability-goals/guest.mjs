@@ -122,6 +122,7 @@ export default {
       routes: {
         "bounded-contexts/public-presence/routes/marketplace/help.tsx": "help-home",
         "bounded-contexts/public-presence/routes/marketplace/help-category.tsx": "help-category",
+        "bounded-contexts/public-presence/routes/marketplace/help-article.tsx": "help-article",
       },
       paths: ["bounded-contexts/public-presence/features/help/"],
     },
