@@ -29,6 +29,13 @@ beforeAll(async () => {
 describe("first-attempt workflow success", () => {
   const checkedAt = "2026-10-04T12:00:00.000Z";
   const repository = "chase-sets/chase-sets";
+  const options = {
+    repository,
+    checkedAt,
+    publicationMode: "hourly",
+    updateIssues: false,
+    fetchImpl: globalThis.fetch,
+  };
   const synthetic = (id = 1001, overrides = {}) => ({
     id,
     workflow_id: 123,
@@ -68,10 +75,7 @@ describe("first-attempt workflow success", () => {
     };
   };
   const collect = (runs, attempts, flags, customPolicy = policy) =>
-    collectDeliveryHealth(
-      { repository, checkedAt, publicationMode: "hourly", updateIssues: false },
-      { policy: customPolicy, client: clientFor(runs, attempts, flags) },
-    );
+    collectDeliveryHealth(options, { policy: customPolicy, client: clientFor(runs, attempts, flags) });
   const metric = (result, window = "rolling24h", event = "pullRequest") =>
     result.record.windows[window].prs.platformPr[event];
 
@@ -108,7 +112,7 @@ describe("first-attempt workflow success", () => {
       await readFile(new URL("./fixtures/delivery-health-first-attempt.json", import.meta.url), "utf8"),
     );
     const result = await collectDeliveryHealth(
-      { repository, checkedAt: "2026-09-27T12:00:00Z", publicationMode: "hourly" },
+      { ...options, checkedAt: "2026-09-27T12:00:00Z" },
       {
         policy,
         client: clientFor([fixture.latest, fixture.mergeGroupLatest], {
@@ -128,7 +132,7 @@ describe("first-attempt workflow success", () => {
   it("keeps synthetic first success when a later attempt fails and caches across windows", async () => {
     const latest = synthetic(1001, { run_attempt: 2, conclusion: "failure" });
     const client = clientFor([latest], { 1001: synthetic() });
-    const result = await collectDeliveryHealth({ repository, checkedAt }, { policy, client });
+    const result = await collectDeliveryHealth(options, { policy, client });
     for (const window of ["rolling24h", "rolling7d", "lastN"]) {
       expect(metric(result, window)).toMatchObject({
         numerator: 0,
@@ -176,7 +180,7 @@ describe("first-attempt workflow success", () => {
 
   it("rejects duplicate run identities and unsafe latest authority without attempt I/O", async () => {
     const client = clientFor([synthetic(), synthetic(), synthetic(1002, { head_sha: "invalid", run_attempt: 2 })]);
-    const result = await collectDeliveryHealth({ repository, checkedAt }, { policy, client });
+    const result = await collectDeliveryHealth(options, { policy, client });
     expect(metric(result).firstAttempt).toMatchObject({ numerator: 0, denominator: 0, unknown: 3, successRate: null });
     expect(client.calls.filter((call) => call.includes("/attempts/1"))).toEqual([]);
   });
