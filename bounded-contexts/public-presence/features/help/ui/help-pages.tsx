@@ -163,9 +163,17 @@ function ArticleCard({ article }: { article: HelpArticleCard }) {
   );
 }
 
-export function HelpArticlePage({ article, related }: { article: HelpArticle; related: readonly HelpArticle[] }) {
+export function HelpArticlePage({
+  article,
+  related,
+  marketplaceOrigin,
+}: {
+  article: HelpArticle;
+  related: readonly HelpArticle[];
+  marketplaceOrigin?: string;
+}) {
   const hasTableOfContents = article.headings.length >= 3;
-  const articleBody = <CompiledArticleBody article={article} />;
+  const articleBody = <CompiledArticleBody article={article} marketplaceOrigin={marketplaceOrigin} />;
 
   return (
     <PublicPresencePageShell>
@@ -222,7 +230,13 @@ export function HelpArticlePage({ article, related }: { article: HelpArticle; re
   );
 }
 
-export function CompiledArticleBody({ article }: { article: HelpArticle }) {
+export function CompiledArticleBody({
+  article,
+  marketplaceOrigin,
+}: {
+  article: HelpArticle;
+  marketplaceOrigin?: string;
+}) {
   const unresolvedPolicyValueKeys = collectUnresolvedPolicyValueKeys(article.blocks);
   return (
     <Surface
@@ -240,7 +254,7 @@ export function CompiledArticleBody({ article }: { article: HelpArticle }) {
           if (block.type === "heading") {
             return (
               <Heading key={block.id} id={block.id} level={block.level} visualSize={block.level}>
-                <InlineContent content={block.content} />
+                <InlineContent content={block.content} marketplaceOrigin={marketplaceOrigin} />
               </Heading>
             );
           }
@@ -250,14 +264,14 @@ export function CompiledArticleBody({ article }: { article: HelpArticle }) {
                 key={`list-${index}`}
                 ordered={block.ordered}
                 items={block.items.map((item, itemIndex) => (
-                  <InlineContent key={itemIndex} content={item} />
+                  <InlineContent key={itemIndex} content={item} marketplaceOrigin={marketplaceOrigin} />
                 ))}
               />
             );
           }
           return (
             <Text key={`paragraph-${index}`} tone="secondary">
-              <InlineContent content={block.content} />
+              <InlineContent content={block.content} marketplaceOrigin={marketplaceOrigin} />
             </Text>
           );
         })}
@@ -285,15 +299,26 @@ export function ArticleTableOfContents({ article }: { article: HelpArticle }) {
   );
 }
 
-function InlineContent({ content }: { content: readonly HelpArticleInline[] }) {
+function InlineContent({
+  content,
+  marketplaceOrigin,
+}: {
+  content: readonly HelpArticleInline[];
+  marketplaceOrigin?: string;
+}) {
+  const origin = marketplaceOrigin?.trim();
   return content.map((inline, index): ReactNode => {
     const key = `${inline.type}-${index}`;
-    if (inline.type === "link")
+    if (inline.type === "link") {
+      const isMarketplaceLink = inline.href === "/account" || inline.href.startsWith("/account/");
+      if (isMarketplaceLink && !origin) return inline.label;
+      const href = isMarketplaceLink ? new URL(inline.href, origin).href : inline.href;
       return (
-        <LinkText key={key} href={inline.href}>
+        <LinkText key={key} href={href}>
           {inline.label}
         </LinkText>
       );
+    }
     if (inline.type === "strong") return <strong key={key}>{inline.value}</strong>;
     if (inline.type === "emphasis") return <em key={key}>{inline.value}</em>;
     if (inline.type === "code") return <code key={key}>{inline.value}</code>;

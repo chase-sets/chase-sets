@@ -73,6 +73,82 @@ function resolvedArticle(slug: string) {
 }
 
 describe("public help pages", () => {
+  const sellerArticle = resolvedArticle("seller-migration-tcgplayer-ebay");
+  const sellerLinks = sellerArticle.blocks.flatMap((block) =>
+    (block.type === "list" ? block.items : [block.content]).flatMap((content) =>
+      content.filter((inline) => inline.type === "link"),
+    ),
+  );
+  const accountLinks = sellerLinks.filter((inline) => inline.href.startsWith("/account/"));
+
+  it.each([undefined, "", "   "])("help account links without marketplace origin (%s)", (marketplaceOrigin) => {
+    const { container } = render(
+      <HelpArticlePage article={sellerArticle} related={[]} marketplaceOrigin={marketplaceOrigin} />,
+      { wrapper: MemoryRouter },
+    );
+    const body = container.querySelector("article")!;
+    expect(accountLinks).toHaveLength(8);
+    expect(body.querySelectorAll('a[href*="/account"]')).toHaveLength(0);
+    expect(body.innerHTML).not.toContain("/account");
+    const textNodes: string[] = [];
+    const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) textNodes.push(walker.currentNode.textContent!);
+    for (const label of new Set(accountLinks.map((link) => link.label))) {
+      const occurrences = accountLinks.filter((link) => link.label === label).length;
+      expect(textNodes.filter((text) => text === label)).toHaveLength(occurrences);
+      expect(within(body as HTMLElement).queryAllByRole("link", { name: label, exact: true })).toHaveLength(0);
+    }
+  });
+
+  it.each(["https://marketplace.chasesets.test", " https://marketplace.chasesets.test/ "])(
+    "help account links with marketplace origin (%s)",
+    (marketplaceOrigin) => {
+      const { container } = render(
+        <HelpArticlePage article={sellerArticle} related={[]} marketplaceOrigin={marketplaceOrigin} />,
+        { wrapper: MemoryRouter },
+      );
+      const body = container.querySelector("article")!;
+      expect([...body.querySelectorAll("a")].map((anchor) => anchor.getAttribute("href"))).toEqual(
+        sellerLinks.map((link) =>
+          link.href.startsWith("/account/") ? `https://marketplace.chasesets.test${link.href}` : link.href,
+        ),
+      );
+    },
+  );
+
+  it("preserves account query/hash and non-account links in every inline block shape", () => {
+    const links = [
+      "/account",
+      "/account/listings?status=draft#new",
+      "/help/selling",
+      "/sales-fees",
+      "https://example.test",
+      "/accounting",
+    ];
+    const content = links.map((href) => ({ type: "link" as const, href, label: href }));
+    const article = {
+      ...sellerArticle,
+      blocks: [
+        { type: "heading" as const, id: "links", level: 2 as const, content },
+        { type: "paragraph" as const, content },
+        { type: "list" as const, ordered: false, items: [content] },
+      ],
+    };
+    const { container } = render(
+      <HelpArticlePage article={article} related={[]} marketplaceOrigin="https://marketplace.chasesets.test/" />,
+      { wrapper: MemoryRouter },
+    );
+    expect(
+      [...container.querySelector("article")!.querySelectorAll("a")].map((anchor) => anchor.getAttribute("href")),
+    ).toEqual(
+      Array.from({ length: 3 }, () =>
+        links.map((href) =>
+          href === "/account" || href.startsWith("/account/") ? `https://marketplace.chasesets.test${href}` : href,
+        ),
+      ).flat(),
+    );
+  });
+
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [] }) }));
   });
