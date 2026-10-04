@@ -47,7 +47,6 @@ export function discoveryItemSearchRoutes(services: DiscoveryItemSearchServices)
       category_counts: result.category_counts,
       total: result.total,
       count: result.items.length,
-      nextCursor: result.nextCursor,
       retrievalMode: result.retrievalMode,
       lexicalCount: result.lexicalCount,
       queryHash: result.queryHash,
