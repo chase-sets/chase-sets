@@ -2325,7 +2325,13 @@ describe("platform API payment provider mode observation", () => {
               if (!marketplace) {
                 throw new Error("Payments must publish the marketplace mount for the addition control.");
               }
-              marketplace.router.get("/account/census-control", (context) => context.json({ ok: true }));
+              const protectedRoute = marketplace.router.routes.find(
+                (route) => route.method === "GET" && route.path === "/account/payments/:id",
+              );
+              if (!protectedRoute) {
+                throw new Error("Payments must publish the protected payment read for the addition control.");
+              }
+              marketplace.router.get("/account/census-control/:id", protectedRoute.handler);
               return entries;
             },
           }
@@ -2346,7 +2352,7 @@ describe("platform API payment provider mode observation", () => {
         ]),
       );
       if (additionalRoute) {
-        expect(inventory).toContainEqual({ method: "GET", path: "/account/census-control" });
+        expect(inventory).toContainEqual({ method: "GET", path: "/account/census-control/:id" });
       }
 
       for (const [index, route] of inventory.entries()) {
