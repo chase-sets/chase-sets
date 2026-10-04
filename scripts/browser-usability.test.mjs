@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   adjudicateProbe,
+  auditProbeSweep,
   compareProbes,
   localOrigin,
   main,
@@ -65,7 +66,7 @@ function tab() {
 function evidence(f, verdict = "verified-complete") {
   return {
     runId: f.manifest.runId,
-    head,
+    head: f.manifest.head,
     reviewer: "independent-moderator",
     verdict,
     runSha256: createHash("sha256")
@@ -79,6 +80,59 @@ function evidence(f, verdict = "verified-complete") {
     ),
   };
 }
+
+function sweepRun(
+  root,
+  name,
+  { goalId = "find-card", status = "finished", preparedAt = "2026-10-03T12:00:00Z", candidateHead = head } = {},
+) {
+  const base = fixture(goalId);
+  const directory = path.join(root, name);
+  const manifest = prepareProbe({
+    goalId,
+    origin,
+    preflight: { ...base.preflight, head: candidateHead },
+    evidenceDirectory: base.root,
+    directory,
+    head: candidateHead,
+  });
+  manifest.preparedAt = preparedAt;
+  writeFileSync(path.join(directory, "manifest.json"), JSON.stringify(manifest));
+  const run = {
+    schema: manifest.schema,
+    runId: manifest.runId,
+    manifestSha256: createHash("sha256")
+      .update(readFileSync(path.join(directory, "manifest.json")))
+      .digest("hex"),
+    status,
+    elapsedMs: status === "running" ? null : 1234,
+    actions: 1,
+    calls: [{ status: "success" }],
+    participant: { status: "complete" },
+  };
+  writeFileSync(path.join(directory, "run.json"), JSON.stringify(run));
+  return { ...base, directory, manifest };
+}
+function judge(f, extra = {}, verdict = "verified-complete") {
+  const value = evidence(f, verdict);
+  value.checks = Object.fromEntries(
+    browserUsabilityGoal(f.manifest.goalId).checks.map((id) => [
+      id,
+      { status: "pass", reason: "Synthetic moderator observation.", evidence: "proof.txt" },
+    ]),
+  );
+  return adjudicateProbe({ directory: f.directory, evidence: { ...value, ...extra }, evidenceDirectory: f.root });
+}
+const finding = () => ({
+  id: "F1",
+  category: "blocked",
+  severity: "major",
+  summary: "Synthetic obstacle.",
+  observedPath: "/account",
+  step: 0,
+  evidence: "proof.txt",
+  basis: "moderator-reproduced",
+});
 afterEach(() => {
   vi.useRealTimers();
   // Each root is created by mkdtemp above, never derived from user input.
@@ -501,6 +555,296 @@ describe("independent adjudication", () => {
     expect(
       adjudicateProbe({ directory: f.directory, evidence: evidence(f, "partial"), evidenceDirectory: f.root }).verdict,
     ).toBe("partial");
+  });
+});
+
+describe("moderator findings", () => {
+  it.each([
+    ["id missing", { id: undefined }],
+    ["id type", { id: 1 }],
+    ["id format", { id: "F0" }],
+    ["id leading zero", { id: "F01" }],
+    ["category missing", { category: undefined }],
+    ["category invalid", { category: "bug" }],
+    ["severity missing", { severity: undefined }],
+    ["severity invalid", { severity: "critical" }],
+    ["summary missing", { summary: undefined }],
+    ["summary type", { summary: 1 }],
+    ["summary empty", { summary: "" }],
+    ["summary too long", { summary: "x".repeat(501) }],
+    ["observedPath origin", { observedPath: origin }],
+    ["observedPath query", { observedPath: "/account?a=1" }],
+    ["observedPath fragment", { observedPath: "/account#x" }],
+    ["observedPath relative", { observedPath: "account" }],
+    ["observedPath protocol relative", { observedPath: "//host/account" }],
+    ["observedPath type", { observedPath: 1 }],
+    ["observedPath backslash", { observedPath: "/account\\x" }],
+    ["step negative", { step: -1 }],
+    ["step fractional", { step: 0.5 }],
+    ["step out of range", { step: 1 }],
+    ["step type", { step: "0" }],
+    ["evidence missing", { evidence: undefined }],
+    ["evidence absolute", { evidence: path.resolve("proof.txt") }],
+    ["evidence escape", { evidence: "../proof.txt" }],
+    ["evidence nonexistent", { evidence: "missing.txt" }],
+    ["basis missing", { basis: undefined }],
+    ["basis invalid", { basis: "participant" }],
+    ["unknown key", { extra: true }],
+  ])("rejects invalid finding %s", (_, change) => {
+    const f = fixture();
+    const run = sweepRun(f.root, "attempt");
+    expect(() => judge(run, { findings: [{ ...finding(), ...change }] })).toThrow();
+  });
+  it.each([null, {}, "findings"])("rejects non-array findings %j", (findings) => {
+    const f = fixture();
+    expect(() => judge(sweepRun(f.root, "attempt"), { findings })).toThrow(/array/);
+  });
+  it.each([null, [], "finding"])("rejects non-object finding %j", (invalid) => {
+    const f = fixture();
+    expect(() => judge(sweepRun(f.root, "attempt"), { findings: [invalid] })).toThrow(/finding/);
+  });
+  it("rejects duplicate finding ids and empty evidence", () => {
+    const f = fixture();
+    const run = sweepRun(f.root, "attempt");
+    expect(() => judge(run, { findings: [finding(), finding()] })).toThrow(/duplicate/);
+    writeFileSync(path.join(run.root, "empty.txt"), "");
+    expect(() => judge(run, { findings: [{ ...finding(), evidence: "empty.txt" }] })).toThrow(/empty/);
+  });
+  it.each([
+    "blocked",
+    "wrong-answer",
+    "dead-end",
+    "misleading-copy",
+    "discoverability",
+    "slow",
+    "error-state",
+    "accessibility",
+    "environment",
+  ])("accepts category %s and hashes evidence", (category) => {
+    const f = fixture();
+    const receipt = judge(sweepRun(f.root, "attempt"), { findings: [{ ...finding(), category }] });
+    expect(receipt.findings[0].evidence).toEqual({
+      path: "proof.txt",
+      sha256: createHash("sha256")
+        .update(readFileSync(path.join(f.root, "proof.txt")))
+        .digest("hex"),
+    });
+  });
+  it.each(["blocker", "major", "minor", "polish"])("accepts severity %s and optional-field omission", (severity) => {
+    const f = fixture();
+    const value = finding();
+    delete value.observedPath;
+    delete value.step;
+    expect(
+      judge(sweepRun(f.root, "attempt"), {
+        findings: [{ ...value, severity, basis: "participant-reported", summary: "x".repeat(500) }],
+      }).findings,
+    ).toHaveLength(1);
+  });
+  it("accepts older evidence and compares older receipts without findings", () => {
+    const f = fixture();
+    const run = sweepRun(f.root, "attempt");
+    expect(judge(run)).not.toHaveProperty("findings");
+    expect(main(["compare", "--candidate", run.directory]).status).toBe("insufficient-baseline");
+  });
+  const route = "bounded-contexts/fulfillment/routes/marketplace/account-shipment.tsx";
+  it.each([
+    ["unknown route", { route: "bounded-contexts/fulfillment/routes/marketplace/nonexistent.tsx" }],
+    ["wrong surface", { route: "bounded-contexts/public-presence/routes/marketplace/help.tsx" }],
+    ["missing step", { step: undefined }],
+    ["invalid step", { step: 1 }],
+    ["missing evidence", { evidence: undefined }],
+    ["absolute evidence", { evidence: path.resolve("proof.txt") }],
+    ["unknown key", { extra: true }],
+  ])("rejects reachedRoutes %s", (_, change) => {
+    const f = fixture();
+    expect(() =>
+      judge(sweepRun(f.root, "attempt"), { reachedRoutes: [{ route, step: 0, evidence: "proof.txt", ...change }] }),
+    ).toThrow();
+  });
+  it.each([null, {}])("rejects non-array reachedRoutes %j", (reachedRoutes) => {
+    const f = fixture();
+    expect(() => judge(sweepRun(f.root, "attempt"), { reachedRoutes })).toThrow(/array/);
+  });
+});
+
+describe("read-only sweep summaries", () => {
+  function sweep() {
+    const root = mkdtempSync(path.join(os.tmpdir(), "browser-sweep-"));
+    roots.push(root);
+    return root;
+  }
+  const audit = (root, extra = {}) => auditProbeSweep({ root, surfaceId: "buyer", ...extra });
+  it.each(["finished", "timed-out"])("summarizes a clean or %s terminal attempt", (status) => {
+    const root = sweep();
+    const f = sweepRun(root, "attempt", { status });
+    judge(f, {}, status === "finished" ? "verified-complete" : "blocked");
+    expect(audit(root).goals[0]).toEqual({
+      goalId: "find-card",
+      status: status === "finished" ? "verified-complete" : "blocked",
+      selectedRunId: f.manifest.runId,
+      attempts: [
+        {
+          runId: f.manifest.runId,
+          preparedAt: f.manifest.preparedAt,
+          runStatus: status,
+          elapsedMs: 1234,
+          actions: 1,
+          verdict: status === "finished" ? "verified-complete" : "blocked",
+        },
+      ],
+    });
+  });
+  it("orders by preparedAt and prefers the latest non-environment adjudication, not the latest directory", () => {
+    const root = sweep();
+    const latest = sweepRun(root, "a", { preparedAt: "2026-10-03T15:00:00Z" });
+    judge(latest, {}, "environment-invalid");
+    const retry = sweepRun(root, "z", { preparedAt: "2026-10-03T14:00:00Z" });
+    judge(retry);
+    judge(sweepRun(root, "b", { preparedAt: "2026-10-03T13:00:00Z" }), {}, "environment-invalid");
+    expect(audit(root).goals[0]).toMatchObject({ status: "verified-complete", selectedRunId: retry.manifest.runId });
+    expect(audit(root).goals[0].attempts.map((a) => a.preparedAt)).toEqual([
+      "2026-10-03T13:00:00Z",
+      "2026-10-03T14:00:00Z",
+      "2026-10-03T15:00:00Z",
+    ]);
+  });
+  it("selects the latest environment-invalid attempt when no other adjudication qualifies", () => {
+    const root = sweep();
+    judge(sweepRun(root, "older"), {}, "environment-invalid");
+    const latest = sweepRun(root, "newer", { preparedAt: "2026-10-03T15:00:00Z" });
+    judge(latest, {}, "environment-invalid");
+    expect(audit(root).goals[0]).toMatchObject({ status: "environment-invalid", selectedRunId: latest.manifest.runId });
+  });
+  it.each(["running", "finished"])("reports %s unadjudicated attempts as incomplete", (status) => {
+    const root = sweep();
+    sweepRun(root, "attempt", { status });
+    expect(audit(root).goals[0]).toMatchObject({ status: "incomplete" });
+  });
+  it("reports missing, prepared-only, and explicit not-run goals, ignoring other directories and files", () => {
+    const root = sweep();
+    mkdirSync(path.join(root, "unrelated"));
+    writeFileSync(path.join(root, "unrelated.json"), "{}");
+    expect(audit(root).goals.every((g) => g.status === "missing")).toBe(true);
+    expect(audit(root).head).toBeNull();
+    const f = sweepRun(root, "attempt");
+    rmSync(path.join(f.directory, "run.json"));
+    expect(audit(root).goals[0]).toMatchObject({
+      status: "incomplete",
+      attempts: [{ runStatus: null, verdict: null }],
+    });
+    expect(audit(root, { notRun: [{ goalId: "find-card", reason: "fixture gap" }] }).goals[0]).toMatchObject({
+      status: "not-run",
+      reason: "fixture gap",
+    });
+  });
+  it("rejects mixed heads even when each receipt is valid", () => {
+    const root = sweep();
+    judge(sweepRun(root, "first"));
+    judge(sweepRun(root, "second", { candidateHead: "b".repeat(40) }));
+    expect(() => audit(root)).toThrow("Sweep contains more than one head");
+  });
+  it.each(["unknown goal", "outside surface", "tampered receipt", "tampered run", "tampered manifest"])(
+    "rejects %s",
+    (kind) => {
+      const root = sweep();
+      const f = sweepRun(root, "attempt");
+      judge(f);
+      const file = path.join(
+        f.directory,
+        kind === "tampered receipt" ? "adjudication.json" : kind === "tampered run" ? "run.json" : "manifest.json",
+      );
+      const value = JSON.parse(readFileSync(file));
+      if (kind === "unknown goal") value.goalId = "unknown";
+      else if (kind === "outside surface") value.goalId = "condition-policy";
+      else value.head = "b".repeat(40);
+      writeFileSync(file, JSON.stringify(value));
+      expect(() => audit(root)).toThrow();
+    },
+  );
+  it("rejects unknown, conflicting, duplicate, and reasonless not-run entries", () => {
+    const root = sweep();
+    expect(() => audit(root, { notRun: [{ goalId: "unknown", reason: "gap" }] })).toThrow(/Unknown/);
+    expect(() => audit(root, { notRun: [{ goalId: "find-card", reason: "" }] })).toThrow(/reason/);
+    const entry = { goalId: "find-card", reason: "gap" };
+    expect(() => audit(root, { notRun: [entry, entry] })).toThrow(/Duplicate/);
+    judge(sweepRun(root, "attempt"));
+    expect(() => audit(root, { notRun: [entry] })).toThrow(/both/);
+  });
+  it("keeps F1 from separate runs distinct and sorts severity, goal, and key", () => {
+    const root = sweep();
+    judge(sweepRun(root, "first"), { findings: [finding(), { ...finding(), id: "F2", severity: "polish" }] });
+    judge(sweepRun(root, "second"), {
+      findings: [
+        { ...finding(), severity: "blocker" },
+        { ...finding(), id: "F2", severity: "minor" },
+      ],
+    });
+    const result = audit(root);
+    expect(new Set(result.findings.map((f) => f.key)).size).toBe(4);
+    expect(result.findings.map((f) => f.severity)).toEqual(["blocker", "major", "minor", "polish"]);
+    expect(result.findings.every((f) => f.key === `buyer/${f.goalId}/${f.runId}/${f.id}`)).toBe(true);
+  });
+  it("does not exercise a blocked navigation target; a reached broken page is exercised", () => {
+    const root = sweep();
+    const target = "bounded-contexts/fulfillment/routes/marketplace/account-shipment.tsx";
+    const f = sweepRun(root, "blocked", { goalId: "buyer-shipment" });
+    judge(f, { findings: [finding()] }, "blocked");
+    const before = audit(root);
+    expect(before.coverage.exercised).not.toContain(target);
+    expect(before.coverage.unexercised).toContainEqual({
+      key: `buyer/unexercised/${target}`,
+      route: target,
+      goalId: "buyer-shipment",
+      status: "blocked",
+    });
+    const broken = sweepRun(root, "broken", { goalId: "buyer-shipment", preparedAt: "2026-10-03T15:00:00Z" });
+    const receipt = judge(broken, { reachedRoutes: [{ route: target, step: 0, evidence: "proof.txt" }] }, "incorrect");
+    expect(receipt.reachedRoutes[0].evidence.sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(audit(root).coverage.exercised).toContain(target);
+  });
+  it("uses only selected reachedRoutes, gives exclusions precedence, and partitions the route universe", () => {
+    const root = sweep();
+    const surface = browserUsabilityGoalModules.find((s) => s.id === "buyer");
+    const excluded = "bounded-contexts/ordering/routes/account-purchase.tsx";
+    const reached = "bounded-contexts/fulfillment/routes/marketplace/account-shipment.tsx";
+    const old = "bounded-contexts/fulfillment/routes/marketplace/account-shipments.tsx";
+    judge(sweepRun(root, "older", { goalId: "buyer-shipment" }), {
+      reachedRoutes: [{ route: old, step: 0, evidence: "proof.txt" }],
+    });
+    judge(sweepRun(root, "selected", { goalId: "buyer-shipment", preparedAt: "2026-10-03T15:00:00Z" }), {
+      reachedRoutes: [excluded, reached].map((route) => ({ route, step: 0, evidence: "proof.txt" })),
+    });
+    surface.excludedRoutes.push({ path: excluded, reason: "provider-step-only" });
+    try {
+      const coverage = audit(root, { files: [excluded, reached, old] }).coverage;
+      expect(coverage.exercised).toEqual([reached]);
+      expect(coverage.unexercised.map((entry) => entry.route)).toEqual([old]);
+      expect(coverage.excluded).toEqual([{ path: excluded, reason: "provider-step-only" }]);
+      const union = [
+        ...coverage.exercised,
+        ...coverage.unexercised.map((entry) => entry.route),
+        ...coverage.excluded.map((entry) => entry.path),
+      ];
+      expect(new Set(union).size).toBe(3);
+      expect(union.sort()).toEqual([excluded, reached, old].sort());
+    } finally {
+      surface.excludedRoutes.pop();
+    }
+  });
+  it("supports the CLI summary and leaves every run byte unchanged", () => {
+    const root = sweep();
+    const f = sweepRun(root, "attempt");
+    judge(f);
+    const before = ["manifest.json", "run.json", "adjudication.json"].map((name) =>
+      readFileSync(path.join(f.directory, name), "utf8"),
+    );
+    expect(main(["audit", "--root", root, "--surface", "buyer"])).toEqual(audit(root));
+    expect(
+      ["manifest.json", "run.json", "adjudication.json"].map((name) =>
+        readFileSync(path.join(f.directory, name), "utf8"),
+      ),
+    ).toEqual(before);
   });
 });
 

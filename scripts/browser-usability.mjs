@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readOption, readRepeatedOptions } from "./lib/cli-options.mjs";
@@ -20,6 +20,86 @@ const required = (value, name) => {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${name} is required.`);
   return value;
 };
+
+const findingSeverities = ["blocker", "major", "minor", "polish"];
+function moderatorObservations(evidence, run, goal, resolveEvidence, files) {
+  const object = (value, keys, name) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`Invalid ${name}.`);
+    for (const key of Object.keys(value)) if (!keys.includes(key)) throw new Error(`Unknown ${name} key: ${key}.`);
+  };
+  const step = (value) => {
+    if (!Number.isInteger(value) || value < 0 || value >= (run.calls?.length ?? 0))
+      throw new Error("Invalid observation step.");
+  };
+  const result = {};
+  if (evidence.findings !== undefined) {
+    if (!Array.isArray(evidence.findings)) throw new Error("findings must be an array.");
+    const ids = new Set();
+    result.findings = evidence.findings.map((finding) => {
+      object(
+        finding,
+        ["id", "category", "severity", "summary", "observedPath", "step", "evidence", "basis"],
+        "finding",
+      );
+      if (typeof finding.id !== "string" || !/^F[1-9]\d*$/.test(finding.id) || ids.has(finding.id))
+        throw new Error("Invalid or duplicate finding id.");
+      ids.add(finding.id);
+      if (
+        ![
+          "blocked",
+          "wrong-answer",
+          "dead-end",
+          "misleading-copy",
+          "discoverability",
+          "slow",
+          "error-state",
+          "accessibility",
+          "environment",
+        ].includes(finding.category)
+      )
+        throw new Error("Invalid finding category.");
+      if (!findingSeverities.includes(finding.severity)) throw new Error("Invalid finding severity.");
+      if (typeof finding.summary !== "string" || finding.summary.length < 1 || finding.summary.length > 500)
+        throw new Error("Invalid finding summary.");
+      if (
+        finding.observedPath !== undefined &&
+        (typeof finding.observedPath !== "string" || !/^\/(?!\/)[^?#\\\s]*$/.test(finding.observedPath))
+      )
+        throw new Error("Invalid finding observedPath.");
+      if (finding.step !== undefined) step(finding.step);
+      if (!["moderator-reproduced", "participant-reported"].includes(finding.basis))
+        throw new Error("Invalid finding basis.");
+      return { ...finding, evidence: resolveEvidence(finding.evidence) };
+    });
+  }
+  if (evidence.reachedRoutes !== undefined) {
+    if (!Array.isArray(evidence.reachedRoutes)) throw new Error("reachedRoutes must be an array.");
+    const surface = browserUsabilityGoalModules.find((entry) => entry.goals.some((entry) => entry.id === goal.id));
+    const routes = surfaceRoutes(surface, files);
+    result.reachedRoutes = evidence.reachedRoutes.map((reached) => {
+      object(reached, ["route", "step", "evidence"], "reached route");
+      if (!routes.includes(reached.route))
+        throw new Error("Reached route is outside the goal's surface route universe.");
+      step(reached.step);
+      return { ...reached, evidence: resolveEvidence(reached.evidence) };
+    });
+  }
+  return result;
+}
+
+function surfaceRoutes(surface, files) {
+  const patterns = surface.routeScope.map((pattern) => new RegExp(pattern));
+  return files.filter(
+    (file) =>
+      /^(bounded-contexts\/[^/]+\/routes\/|deployables\/(marketplace|admin-web|public-web)\/app\/routes\/)/.test(
+        file,
+      ) &&
+      file.endsWith(".tsx") &&
+      !/\.(test|spec)\.tsx$/.test(file) &&
+      patterns.some((pattern) => pattern.test(file)),
+  );
+}
+const trackedFiles = () => git(["ls-files"]).split(/\r?\n/).filter(Boolean);
 
 export function localOrigin(value) {
   const url = new URL(value);
@@ -174,6 +254,13 @@ export function adjudicateProbe({ directory, evidence, evidenceDirectory }) {
     reviewer: evidence.reviewer,
     verdict: evidence.verdict,
     checks,
+    ...moderatorObservations(
+      evidence,
+      run,
+      goal,
+      (file) => evidenceFile(evidenceDirectory, file),
+      evidence.reachedRoutes === undefined ? [] : trackedFiles(),
+    ),
     adjudicatedAt: new Date().toISOString(),
     advisory: true,
   };
@@ -233,8 +320,7 @@ export function compareProbes(candidate, baselines) {
   };
 }
 
-function readProbe(directory) {
-  const manifestBytes = readFileSync(path.join(directory, "manifest.json"));
+function readProbe(directory, files, manifestBytes = readFileSync(path.join(directory, "manifest.json"))) {
   const manifest = JSON.parse(manifestBytes);
   const bytes = readFileSync(path.join(directory, "run.json"));
   const run = JSON.parse(bytes);
@@ -247,7 +333,127 @@ function readProbe(directory) {
     run.manifestSha256 !== digest(manifestBytes)
   )
     throw new Error("Receipt no longer matches the run.");
+  moderatorObservations(
+    adjudication,
+    run,
+    browserUsabilityGoal(manifest.goalId),
+    (proof) => {
+      if (!proof || typeof proof.path !== "string" || !/^[0-9a-f]{64}$/.test(proof.sha256))
+        throw new Error("Invalid receipt evidence hash.");
+      return proof;
+    },
+    adjudication.reachedRoutes === undefined ? [] : (files ?? trackedFiles()),
+  );
   return { manifest, run, adjudication };
+}
+
+export function auditProbeSweep({ root, surfaceId, notRun = [], files = trackedFiles() }) {
+  const surface = browserUsabilityGoalModules.find((entry) => entry.id === surfaceId);
+  if (!surface) throw new Error(`Unknown browser usability surface: ${surfaceId}`);
+  if (!Array.isArray(notRun)) throw new Error("not-run must be an array.");
+  const reasons = new Map();
+  for (const entry of notRun) {
+    if (!entry || typeof entry !== "object") throw new Error("Invalid not-run entry.");
+    if (!surface.goals.some((goal) => goal.id === entry.goalId)) throw new Error("Unknown not-run goal.");
+    if (reasons.has(entry.goalId)) throw new Error("Duplicate not-run goal.");
+    reasons.set(entry.goalId, required(entry.reason, "not-run reason"));
+  }
+  const runs = [];
+  const heads = new Set();
+  const ids = new Set();
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const directory = path.join(root, entry.name);
+    if (!existsSync(path.join(directory, "manifest.json"))) continue;
+    const manifestBytes = readFileSync(path.join(directory, "manifest.json"));
+    const manifest = JSON.parse(manifestBytes);
+    browserUsabilityGoal(manifest.goalId);
+    if (!surface.goals.some((goal) => goal.id === manifest.goalId)) throw new Error("Manifest goal outside surface.");
+    if (!/^[0-9a-f]{40}$/.test(manifest.head) || !Number.isFinite(Date.parse(manifest.preparedAt)))
+      throw new Error("Invalid sweep manifest head or preparedAt.");
+    if (ids.has(manifest.runId)) throw new Error("Duplicate sweep run id.");
+    ids.add(manifest.runId);
+    heads.add(manifest.head);
+    const probe = existsSync(path.join(directory, "adjudication.json"))
+      ? readProbe(directory, files, manifestBytes)
+      : {
+          manifest,
+          run: existsSync(path.join(directory, "run.json")) ? readJson(path.join(directory, "run.json")) : null,
+        };
+    runs.push(probe);
+  }
+  if (heads.size > 1) throw new Error("Sweep contains more than one head.");
+  const selected = new Map();
+  const goals = surface.goals.map((goal) => {
+    const attempts = runs
+      .filter((probe) => probe.manifest.goalId === goal.id)
+      .sort(
+        (a, b) =>
+          Date.parse(a.manifest.preparedAt) - Date.parse(b.manifest.preparedAt) ||
+          a.manifest.runId.localeCompare(b.manifest.runId),
+      );
+    const adjudicated = attempts.filter((probe) => probe.adjudication);
+    if (reasons.has(goal.id) && adjudicated.length) throw new Error("Goal has both not-run and adjudicated attempts.");
+    const chosen =
+      adjudicated.filter((probe) => probe.adjudication.verdict !== "environment-invalid").at(-1) ?? adjudicated.at(-1);
+    if (chosen) selected.set(goal.id, chosen);
+    return {
+      goalId: goal.id,
+      status:
+        chosen?.adjudication.verdict ?? (reasons.has(goal.id) ? "not-run" : attempts.length ? "incomplete" : "missing"),
+      ...(reasons.has(goal.id) ? { reason: reasons.get(goal.id) } : {}),
+      ...(chosen ? { selectedRunId: chosen.manifest.runId } : {}),
+      attempts: attempts.map(({ manifest, run, adjudication }) => ({
+        runId: manifest.runId,
+        preparedAt: manifest.preparedAt,
+        runStatus: run?.status ?? null,
+        elapsedMs: run?.elapsedMs ?? null,
+        actions: run?.actions ?? null,
+        verdict: adjudication?.verdict ?? null,
+      })),
+    };
+  });
+  const findings = runs
+    .flatMap(({ manifest, adjudication }) =>
+      (adjudication?.findings ?? []).map((finding) => ({
+        key: `${surfaceId}/${manifest.goalId}/${manifest.runId}/${finding.id}`,
+        goalId: manifest.goalId,
+        runId: manifest.runId,
+        ...finding,
+      })),
+    )
+    .sort(
+      (a, b) =>
+        findingSeverities.indexOf(a.severity) - findingSeverities.indexOf(b.severity) ||
+        a.goalId.localeCompare(b.goalId) ||
+        a.key.localeCompare(b.key),
+    );
+  const exercised = [];
+  const unexercised = [];
+  const excluded = surface.excludedRoutes;
+  for (const route of surfaceRoutes(surface, files)) {
+    if (excluded.some((entry) => entry.path === route)) continue;
+    const reached = goals.find((goal) =>
+      selected.get(goal.goalId)?.adjudication.reachedRoutes?.some((entry) => entry.route === route),
+    );
+    if (reached) exercised.push(route);
+    else {
+      const claimant = goals.find((goal) => Object.hasOwn(browserUsabilityGoal(goal.goalId).routes ?? {}, route));
+      unexercised.push({
+        key: `${surfaceId}/unexercised/${route}`,
+        route,
+        goalId: claimant?.goalId ?? null,
+        status: claimant?.status ?? "missing",
+      });
+    }
+  }
+  return {
+    head: [...heads][0] ?? null,
+    surface: surfaceId,
+    goals,
+    findings,
+    coverage: { exercised, unexercised, excluded },
+  };
 }
 
 export function main(argv = process.argv.slice(2)) {
@@ -255,6 +461,13 @@ export function main(argv = process.argv.slice(2)) {
   const option = (name) => required(readOption(argv, `--${name}`), `--${name}`);
   if (command === "audit") {
     const surfaceId = readOption(argv, "--surface");
+    const root = readOption(argv, "--root");
+    if (root)
+      return auditProbeSweep({
+        root: path.resolve(root),
+        surfaceId: option("surface"),
+        notRun: readOption(argv, "--not-run") ? readJson(readOption(argv, "--not-run")) : [],
+      });
     const modules = surfaceId
       ? browserUsabilityGoalModules.filter((surface) => surface.id === surfaceId)
       : browserUsabilityGoalModules;
@@ -291,12 +504,16 @@ export function main(argv = process.argv.slice(2)) {
     });
   }
   if (command === "compare")
-    return compareProbes(readProbe(option("candidate")), readRepeatedOptions(argv, "--baseline").map(readProbe));
+    return compareProbes(
+      readProbe(option("candidate")),
+      readRepeatedOptions(argv, "--baseline").map((directory) => readProbe(directory)),
+    );
   if (!command || command === "help" || command === "--help")
     return {
       usage: [
         "pnpm run ops browser:usability select [--base origin/main]",
         "pnpm run ops browser:usability audit [--surface ID]",
+        "pnpm run ops browser:usability audit --root DIRECTORY --surface ID [--not-run FILE]",
         "pnpm run ops browser:usability prepare --goal ID --origin http://localhost:PORT --preflight FILE --out NEW_DIRECTORY",
         "pnpm run ops browser:usability adjudicate --run DIRECTORY --evidence FILE",
         "pnpm run ops browser:usability compare --candidate DIRECTORY --baseline DIRECTORY [--baseline DIRECTORY ...]",
