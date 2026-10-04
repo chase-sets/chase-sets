@@ -117,7 +117,7 @@ export default {
       startPath: "/account/desk",
       role: "seller",
       host: "marketplace",
-      goal: "The buyer named in your task context has offered to buy your raw Near Mint Base Set Charizard. Find that offer, see how it compares with your asking price, and find out what you would be paid after fees if you accepted it and whether you could accept it today. Do not accept or decline it, and do not go past the point where the sale would be confirmed.",
+      goal: "The buyer named in your task context has offered to buy your raw Near Mint Base Set Charizard. Find that offer, see how it compares with your asking price, and find out what you would be paid after fees if you accepted it and whether you could accept it today. Do not accept or decline it, do not start setting up payouts, and do not go past the point where the sale would be confirmed.",
       checks: ["offer-identity", "expected-payout", "acceptance-readiness", "fixture-restored"],
       oracle: {
         "offer-identity":
@@ -154,7 +154,7 @@ export default {
           "The bootstrap sale created from offer off_seed_twilight_masquerade_etb_encore at 44.50 USD (bounded-contexts/marketplace/support/runtime-support/seed.ts acceptReservedSeedOffer; bounded-contexts/ordering/support/runtime-support/seed.ts). Order ids are not deterministic: resolve the order by offer and amount, not by id.",
         "sale-status": "Ordering sale read model status for that order, compared against the participant's answer.",
         "feedback-eligibility":
-          "Reputation order review opportunity for that order: eligible_at is the seeded delivery time 2026-03-22T12:00Z with a 60-day window, so the window is expired. The answer must match the opportunity read model, not the participant's assumption.",
+          "Reputation order review opportunity for that order: eligible_at is the seeded delivery time 2026-03-22T12:00Z with a 60-day window, so the window is expired; the order also carries the seller's withdrawn seeded review rev_seed_seller_to_buyer_withdrawn. The answer must match the opportunity read model, not the participant's assumption.",
       },
       routes: {
         "bounded-contexts/ordering/routes/account-sales.tsx": "sale-identity",
@@ -168,13 +168,13 @@ export default {
       startPath: "/account/desk",
       role: "seller",
       host: "marketplace",
-      goal: "One of your sale shipments is packed but still has no shipping label. Find it, confirm what it contains and which carrier service it will travel by, and open its packing slip and report what the slip shows. Do not buy a label or change the shipment.",
+      goal: "One of your sale shipments is packed but still has no shipping label. Find it, confirm what it contains and which shipping option the buyer chose, and open its packing slip and report what the slip shows. Do not buy a label or change the shipment.",
       checks: ["shipment-identity", "shipment-details", "packing-slip"],
       oracle: {
         "shipment-identity":
           "Bootstrap shipment shp_seed_awaiting_label (bounded-contexts/fulfillment/support/seed-support/ids.ts; bounded-contexts/fulfillment/support/runtime-support/seed.ts), the only seeded shipment in awaiting-label status.",
         "shipment-details":
-          "Fulfillment shipment read model for that shipment: one Twilight Masquerade Elite Trainer Box, UPS standard, status awaiting-label.",
+          "Fulfillment shipment read model for that shipment: one Twilight Masquerade Elite Trainer Box, buyer shipping option standard, status awaiting-label, and carrier, shipping method, and tracking all unset (the seed stops before any label is attached, so the detail page shows the carrier and shipping method as not selected yet). A reported carrier or tracking number is wrong.",
         "packing-slip":
           "A clean-route revisit of the packing-slip print page for that shipment id (the seller packing-slip read model), compared with what the participant reported. The print link opens a new tab, so record a participant who could not read it as an obstacle, not a pass.",
       },
@@ -235,6 +235,28 @@ export default {
       paths: ["bounded-contexts/inventory/features/", "bounded-contexts/inventory/routes/marketplace/"],
     },
     {
+      id: "seller-returned-package",
+      version: 1,
+      startPath: "/account/desk",
+      role: "seller",
+      host: "marketplace",
+      goal: "A package you shipped to a buyer came back to you. Find which item is waiting for you to decide whether it goes back into stock, how many units came back, and why the package was returned. Decide nothing and change nothing.",
+      checks: ["returned-item", "return-reason"],
+      oracle: {
+        "returned-item":
+          "Inventory restock-decisions read model for the synthetic seller: the one pending decision with source shipment-returned. Bootstrap does not write it directly; the inventory fulfillment restock workflow creates it when the fulfillment seed returns shp_seed_returned (bounded-contexts/fulfillment/support/runtime-support/seed.ts) against the confirmed reservation of the reference accepted-offer order, so it points at inv_seed_twilight_masquerade_elite_trainer_box (Twilight Masquerade Elite Trainer Box), quantity 1. Resolve the exact item and quantity from the read model before dispatch; if no pending decision exists after projections converge, record a fixture obstacle, not a participant failure.",
+        "return-reason":
+          "Same read model row: return reason 'Carrier return to sender', pending since 2026-03-22T12:00Z. The decision must still be pending with no outcome after the run.",
+      },
+      routes: {
+        "bounded-contexts/inventory/routes/marketplace/account-inventory-restock-decisions.tsx": "returned-item",
+      },
+      paths: [
+        "bounded-contexts/inventory/features/restock-decisions/",
+        "bounded-contexts/inventory/routes/marketplace/account-inventory-restock-decisions",
+      ],
+    },
+    {
       id: "seller-price-suggestion",
       version: 1,
       startPath: "/account/desk",
@@ -248,7 +270,7 @@ export default {
         "asking-price":
           "Bootstrap listing price 399.99 USD for lst_seed_charizard_base_set_nm in the seller listing read model.",
         "fixture-restored":
-          "No listing price changed and no recommendation was applied; the moderator dismisses any recommendations a refresh produced so the next run starts from the seeded empty state.",
+          "No listing price changed and no recommendation was applied; the moderator dismisses any recommendations a refresh produced so that no proposed or applied recommendation remains for the next run (dismissed rows persist in the read model).",
       },
       routes: {
         "bounded-contexts/pricing/routes/marketplace/account-repricing.tsx": "suggested-price",
@@ -395,10 +417,6 @@ export default {
     {
       path: "bounded-contexts/inventory/routes/marketplace/account-inventory-imports.tsx",
       reason: "fixture-gap: inventory import batch for the demo seller",
-    },
-    {
-      path: "bounded-contexts/inventory/routes/marketplace/account-inventory-restock-decisions.tsx",
-      reason: "fixture-gap: restock decision for the demo seller written by the bootstrap seed",
     },
     {
       path: "bounded-contexts/pricing/routes/marketplace/account-desk-repricing-policy.tsx",
