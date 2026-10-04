@@ -1,6 +1,10 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 import { notificationOutboxSchemaSql } from "@chase-sets/notification-outbox";
 import {
+  paymentsCardDeclineSchemaSql,
+  paymentsCardDeclineSchemaMigrations,
+} from "../../features/payments/api/card-decline-schema";
+import {
   paymentsOrderInputSchemaMigrations,
   paymentsOrderInputSchemaSql,
 } from "../../features/payments/integrations/order-input/order-input-schema";
@@ -49,9 +53,11 @@ export const paymentsSchemaSql = [
   paymentsPaymentSchemaSql,
   paymentsRefundSchemaSql,
   paymentsWorkClaimSchemaSql,
+  paymentsCardDeclineSchemaSql,
 ].join("\n\n");
 
 export const paymentsSchemaMigrations = [
+  ...paymentsCardDeclineSchemaMigrations,
   ...paymentsOrderInputSchemaMigrations,
   ...paymentsDisputeEvidenceSourceSchemaMigrations,
   ...paymentsPaymentSchemaMigrations,
