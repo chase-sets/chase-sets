@@ -2398,6 +2398,7 @@ async function seedSearchIndexRegressionFixture() {
     await project("catalog.catalog-item.tags-set", { tags: item.tags }, streamId);
     await project("catalog.catalog-item.published", { blueprintId: item.blueprintId }, streamId);
   }
+  await pools.discovery.query("DELETE FROM discovery_search_items");
   return handlers;
 }
 
