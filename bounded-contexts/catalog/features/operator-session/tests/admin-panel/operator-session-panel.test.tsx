@@ -38,10 +38,17 @@ vi.mock("../../../../support/request-support/api-client", () => ({
 }));
 
 const signInHref = "/catalog/sign-in?returnTo=%2Fcatalog%2Fproviders%2Ftcgplayer";
+const initialDocumentStyles = {
+  html: document.documentElement.style.cssText,
+  body: document.body.style.cssText,
+};
 let http: ControlledHttp;
 let writeText: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
+  // JSDOM has no layout: clientWidth=0 invents a viewport-wide inset scrollbar.
+  // Model this fixture's scrollbar-free viewport, keeping the real dialog lifecycle.
+  vi.spyOn(document.documentElement, "clientWidth", "get").mockImplementation(() => window.innerWidth);
   http = createControlledHttp();
   vi.stubGlobal("fetch", http.fetch);
   writeText = vi.fn(async () => undefined);
@@ -54,11 +61,27 @@ beforeEach(() => {
   }));
 });
 
-afterEach(() => {
-  cleanup();
-  vi.unstubAllGlobals();
-  vi.clearAllMocks();
+afterEach(async () => {
+  try {
+    await cleanupRenderedUi();
+  } finally {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  }
 });
+
+async function cleanupRenderedUi() {
+  cleanup();
+  // Base UI restores scroll locking on a timer after React has unmounted.
+  // Let that owned cleanup finish instead of carrying it into the next test.
+  await waitFor(expectDocumentStylesRestored);
+}
+
+function expectDocumentStylesRestored() {
+  expect(document.documentElement.style.cssText).toBe(initialDocumentStyles.html);
+  expect(document.body.style.cssText).toBe(initialDocumentStyles.body);
+}
 
 function actor(roleKey: string, userId = "user-synthetic-1") {
   return {
@@ -84,7 +107,7 @@ function providerReadModel(requestUrl: string) {
   });
 }
 
-function renderProviderRoute(path = "/catalog/providers/tcgplayer") {
+async function renderProviderRoute(path = "/catalog/providers/tcgplayer") {
   const router = createMemoryRouter(
     [
       {
@@ -96,7 +119,11 @@ function renderProviderRoute(path = "/catalog/providers/tcgplayer") {
     ],
     { initialEntries: [path] },
   );
-  render(<RouterProvider router={router} />);
+  // Flush the initial loader, metadata read and dialog subscriptions before
+  // exposing the route fixture to interactions, not merely its visible DOM.
+  await act(async () => {
+    render(<RouterProvider router={router} />);
+  });
   return router;
 }
 
@@ -299,9 +326,29 @@ describe("AC1 operator session metadata states", () => {
 });
 
 describe("AC2 gating through the provider-detail route", () => {
+  it("settles the initial loader and metadata before route interactions", async () => {
+    http.reply("GET", metadataPath, 200, storedMetadata(1));
+    const router = await renderProviderRoute();
+
+    expect(router.state.initialized).toBe(true);
+    const panel = document.querySelector<HTMLElement>("[data-catalog-operator-session-panel]");
+    if (!panel) throw new Error("the initial provider route has not committed its panel");
+    expect(within(panel).queryByText("Loading operator session…")).toBeNull();
+    const disconnect = within(panel).getByRole("button", { name: "Disconnect" });
+    disconnect.focus();
+    fireEvent.click(disconnect);
+    const dialog = await findDialog();
+    expect(accessibleTitle(dialog)).toBe("Disconnect the stored session?");
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitForDialogClosed();
+    await waitFor(() => expect(document.activeElement).toBe(disconnect));
+    expect(http.requests).toEqual([`GET ${metadataPath}`]);
+  });
+
   it("shows the section to a platform-admin actor on TCGplayer", async () => {
     http.reply("GET", metadataPath, 200, absentMetadata());
-    renderProviderRoute();
+    await renderProviderRoute();
 
     const panel = await findPanel();
     expect(within(panel).getByRole("heading", { name: "Operator session" })).toBeTruthy();
@@ -315,7 +362,7 @@ describe("AC2 gating through the provider-detail route", () => {
     ["a failed actor resolution", () => mocks.resolveActor.mockRejectedValue(new Error(hostileMarker))],
   ])("hides the section from %s on TCGplayer", async (_label, arrange) => {
     arrange();
-    renderProviderRoute();
+    await renderProviderRoute();
 
     const page = await findProviderPage();
     expect(page.textContent).toContain("tcgplayer");
@@ -326,7 +373,7 @@ describe("AC2 gating through the provider-detail route", () => {
   });
 
   it("hides the section from a platform-admin actor on another provider", async () => {
-    renderProviderRoute("/catalog/providers/tcgdex");
+    await renderProviderRoute("/catalog/providers/tcgdex");
 
     const page = await findProviderPage();
     expect(page.textContent).toContain("tcgdex");
@@ -340,7 +387,7 @@ describe("AC2 gating through the provider-detail route", () => {
 describe("AC3 pair and Disconnect through the mounted provider-detail route", () => {
   it("mints, refreshes metadata without re-reading the secret, then Disconnect drops the grant", async () => {
     http.reply("GET", metadataPath, 200, absentMetadata());
-    const router = renderProviderRoute();
+    const router = await renderProviderRoute();
     const panel = await findPanel();
     const mint = http.defer("POST", grantPath);
 
@@ -387,7 +434,7 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
     ["unchanged", clearedMetadata(2, { grant: activeGrant }), /revision 2 is unchanged/],
   ] as const)("reports a %s Disconnect with the returned revision", async (outcome, before, message) => {
     http.reply("GET", metadataPath, 200, before);
-    renderProviderRoute();
+    await renderProviderRoute();
     const panel = await findPanel();
     await within(panel).findByRole("button", { name: "Disconnect" });
 
@@ -402,7 +449,7 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
 
   it("shows a 409 conflict with the newer stored session and requires a fresh confirmation", async () => {
     http.reply("GET", metadataPath, 200, storedMetadata(3));
-    renderProviderRoute();
+    await renderProviderRoute();
     const panel = await findPanel();
     await within(panel).findByRole("button", { name: "Disconnect" });
 
@@ -434,7 +481,7 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
     ["a malformed success", (h: ControlledHttp) => h.reply("DELETE", metadataPath, 200, { outcome: "cleared" })],
   ])("never claims completion after %s and keeps an unavailable refresh", async (_label, arrange) => {
     http.reply("GET", metadataPath, 200, storedMetadata(1, { grant: activeGrant }));
-    renderProviderRoute();
+    await renderProviderRoute();
     const panel = await findPanel();
     await within(panel).findByRole("button", { name: "Disconnect" });
 
@@ -453,7 +500,7 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
 
   it("names the revision limit when Disconnect stops after revocation", async () => {
     http.reply("GET", metadataPath, 200, storedMetadata(1));
-    renderProviderRoute();
+    await renderProviderRoute();
     const panel = await findPanel();
     await within(panel).findByRole("button", { name: "Disconnect" });
 
@@ -468,7 +515,7 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
 
   it("keeps break-glass Disconnect available after key loss", async () => {
     http.reply("GET", metadataPath, 200, storedMetadata(1, { custodyAvailable: false }));
-    renderProviderRoute();
+    await renderProviderRoute();
     const panel = await findPanel();
 
     expect(await within(panel).findByText(/cannot be read with the current key/)).toBeTruthy();
@@ -485,7 +532,7 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
   ] as const)("%s refusal envelopes", (action, method, path) => {
     async function attempt(status: number, body: unknown) {
       http.reply("GET", metadataPath, 200, storedMetadata(1));
-      renderProviderRoute();
+      await renderProviderRoute();
       const panel = await findPanel();
       await within(panel).findByRole("button", { name: "Disconnect" });
       http.reply(method, path, status, body);
@@ -531,7 +578,7 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
 
   it("discards a late mint after a reused-route navigation", async () => {
     http.reply("GET", metadataPath, 200, absentMetadata());
-    const router = renderProviderRoute();
+    const router = await renderProviderRoute();
     const panel = await findPanel();
     const mint = http.defer("POST", grantPath);
     fireEvent.click(await within(panel).findByRole("button", { name: "Pair extension" }));
@@ -551,7 +598,7 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
 
   it("discards a late mint after the loader revalidates to a different actor", async () => {
     http.reply("GET", metadataPath, 200, absentMetadata());
-    const router = renderProviderRoute();
+    const router = await renderProviderRoute();
     const panel = await findPanel();
     const mint = http.defer("POST", grantPath);
     fireEvent.click(await within(panel).findByRole("button", { name: "Pair extension" }));
@@ -571,7 +618,7 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
 
   it("blocks Disconnect while a mint is in flight", async () => {
     http.reply("GET", metadataPath, 200, storedMetadata(1));
-    renderProviderRoute();
+    await renderProviderRoute();
     const panel = await findPanel();
     await within(panel).findByRole("button", { name: "Disconnect" });
     const mint = http.defer("POST", grantPath);
@@ -590,7 +637,7 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
 
   it("discards a metadata read that completes after a newer Disconnect", async () => {
     http.reply("GET", metadataPath, 200, storedMetadata(1));
-    renderProviderRoute();
+    await renderProviderRoute();
     const panel = await findPanel();
     await within(panel).findByRole("button", { name: "Disconnect" });
 
@@ -612,7 +659,7 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
 
   it("dismissal drops the grant and its copy action, and later refreshes never restore it", async () => {
     http.reply("GET", metadataPath, 200, absentMetadata());
-    renderProviderRoute();
+    await renderProviderRoute();
     const panel = await findPanel();
     http.reply("POST", grantPath, 200, { grant: syntheticGrant, idleExpiresAt: activeGrant.idleExpiresAt });
     const postMintRead = http.defer("GET", metadataPath);
@@ -632,7 +679,7 @@ describe("AC3 pair and Disconnect through the mounted provider-detail route", ()
   it("keeps hostile response and exception text out of every sink except the active grant display", async () => {
     const consoleCalls = [vi.spyOn(console, "error"), vi.spyOn(console, "warn"), vi.spyOn(console, "log")];
     http.reply("GET", metadataPath, 200, absentMetadata());
-    const router = renderProviderRoute();
+    const router = await renderProviderRoute();
     const panel = await findPanel();
 
     http.reply("POST", grantPath, 200, {
@@ -681,7 +728,7 @@ describe("AC3 break-glass eligibility through the mounted provider-detail route"
   // its reply, so both GETs stay in order.
   async function pairFromAbsent<T>(arrangeRefresh: () => T) {
     http.reply("GET", metadataPath, 200, absentMetadata());
-    const router = renderProviderRoute();
+    const router = await renderProviderRoute();
     const panel = await findPanel();
     await within(panel).findByRole("button", { name: "Pair extension" });
     expect(within(panel).queryByRole("button", { name: "Disconnect" })).toBeNull();
@@ -775,7 +822,7 @@ describe("AC3 break-glass eligibility through the mounted provider-detail route"
 
   it("retains last-known stored custody after a refused Pair and a failed refresh", async () => {
     http.reply("GET", metadataPath, 200, storedMetadata(1, { custodyAvailable: false }));
-    renderProviderRoute();
+    await renderProviderRoute();
     const panel = await findPanel();
     await within(panel).findByRole("button", { name: "Disconnect" });
 
@@ -807,7 +854,7 @@ describe("AC3 break-glass eligibility through the mounted provider-detail route"
     "reconciles Disconnect from a confirmed %s outcome when the next refresh fails",
     async (_outcome, status, body, message, retained) => {
       http.reply("GET", metadataPath, 200, storedMetadata(1));
-      renderProviderRoute();
+      await renderProviderRoute();
       const panel = await findPanel();
       await within(panel).findByRole("button", { name: "Disconnect" });
 
@@ -824,9 +871,40 @@ describe("AC3 break-glass eligibility through the mounted provider-detail route"
 });
 
 describe("AC5 accessibility", () => {
+  it("releases an open dialog's scroll lock and focus before mounting the next provider route", async () => {
+    http.reply("GET", metadataPath, 200, storedMetadata(1));
+    await renderProviderRoute();
+    const panel = await findPanel();
+    const disconnect = await within(panel).findByRole("button", { name: "Disconnect" });
+    disconnect.focus();
+    fireEvent.click(disconnect);
+    const dialog = await findDialog();
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    await waitFor(() => expect(document.body.style.cssText).not.toBe(initialDocumentStyles.body));
+
+    await cleanupRenderedUi();
+    expectDocumentStylesRestored();
+    expect(document.querySelector("[data-base-ui-portal]")).toBeNull();
+    expect(document.activeElement).toBe(document.body);
+
+    http.reply("GET", metadataPath, 200, storedMetadata(1));
+    await renderProviderRoute();
+    const nextPanel = await findPanel();
+    const nextDisconnect = await within(nextPanel).findByRole("button", { name: "Disconnect" });
+    nextDisconnect.focus();
+    fireEvent.click(nextDisconnect);
+    const nextDialog = await findDialog();
+    expect(accessibleTitle(nextDialog)).toBe("Disconnect the stored session?");
+    await waitFor(() => expect(nextDialog.contains(document.activeElement)).toBe(true));
+    fireEvent.click(within(nextDialog).getByRole("button", { name: "Cancel" }));
+    await waitForDialogClosed();
+    await waitFor(() => expect(document.activeElement).toBe(nextDisconnect));
+    expect(http.requests).toEqual([`GET ${metadataPath}`, `GET ${metadataPath}`]);
+  });
+
   it("names every control, moves focus into the Disconnect dialog and back, and announces the grant", async () => {
     http.reply("GET", metadataPath, 200, storedMetadata(1, { grant: activeGrant }));
-    renderProviderRoute();
+    await renderProviderRoute();
     const panel = await findPanel();
     const disconnect = await within(panel).findByRole("button", { name: "Disconnect" });
     expect(within(panel).getByRole("button", { name: "Pair extension" })).toBeTruthy();
