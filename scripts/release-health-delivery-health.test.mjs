@@ -152,6 +152,7 @@ describe("first-attempt workflow success", () => {
     ["attempt", { run_attempt: 2 }],
     ["repository", { repository: { full_name: "other/repo" } }],
     ["incomplete", { status: undefined }],
+    ["incomplete pending", { status: "queued", conclusion: undefined }],
     ["unrecognized status", { status: "invalid" }],
     ["inconsistent pending", { status: "queued", conclusion: "success" }],
   ])("makes %s authority unknown while retaining partial observed counts", async (_name, overrides) => {

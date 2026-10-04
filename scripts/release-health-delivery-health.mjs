@@ -601,6 +601,7 @@ function validateFirstAttempt(attempt, run, repository) {
     attempt.head_sha !== run.head_sha ||
     attempt.repository?.full_name !== repository ||
     attempt.run_attempt !== 1 ||
+    !(typeof attempt.conclusion === "string" || attempt.conclusion === null) ||
     !["completed", "queued", "in_progress", "waiting", "requested", "pending"].includes(attempt.status)
   )
     return null;
