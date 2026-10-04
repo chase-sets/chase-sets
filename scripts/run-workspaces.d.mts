@@ -11,10 +11,11 @@ export const DB_TEST_SCRIPT_SELECTOR: "test:db*";
 export function runWorkspaceScripts(
   options: Readonly<{
     argv: readonly string[];
+    env?: NodeJS.ProcessEnv;
     run?: (
       command: string,
       args: readonly string[],
-      options: Readonly<{ prefix?: string; stdio?: "inherit"; timeoutMs?: number }>,
+      options: Readonly<{ prefix?: string; stdio?: "inherit"; timeoutMs?: number; env?: NodeJS.ProcessEnv }>,
     ) => Promise<void>;
     loadEnvironment?: (options: Readonly<{ includeTestDatabaseUrl: boolean }>) => void;
     appendSummary?: (path: string, contents: string, encoding: "utf8") => void;

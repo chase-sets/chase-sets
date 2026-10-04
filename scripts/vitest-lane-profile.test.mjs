@@ -16,10 +16,38 @@ import { heavySlotScriptBatteryGlobalSetupPath } from "./lib/heavy-slot-script-b
 import { repoRoot } from "./lib/repo.mjs";
 
 const originalLaneMode = process.env.CHASE_SETS_LANE_MODE;
+const originalResultsDirectory = process.env.CHASE_SETS_TEST_RESULTS_DIR;
+const originalResultsFile = process.env.CHASE_SETS_VITEST_JSON_FILE;
 
 afterEach(() => {
   if (originalLaneMode === undefined) delete process.env.CHASE_SETS_LANE_MODE;
   else process.env.CHASE_SETS_LANE_MODE = originalLaneMode;
+  for (const [key, value] of [
+    ["CHASE_SETS_TEST_RESULTS_DIR", originalResultsDirectory],
+    ["CHASE_SETS_VITEST_JSON_FILE", originalResultsFile],
+  ]) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+});
+
+test("enables both built-in reporters only with the explicit runner/child gates", () => {
+  process.env.CHASE_SETS_TEST_RESULTS_DIR = path.resolve(".tmp/results");
+  delete process.env.CHASE_SETS_VITEST_JSON_FILE;
+  assert.throws(() => defineWorkspaceTestConfig(), /absolute/);
+  assert.throws(() => defineScriptsTestConfig({ CHASE_SETS_TEST_RESULTS_DIR: "results" }), /absolute/);
+  process.env.CHASE_SETS_VITEST_JSON_FILE = path.resolve(".tmp/results/unique.json");
+  for (const config of [
+    defineWorkspaceTestConfig(),
+    defineBoundedContextTestConfig(),
+    defineScriptsTestConfig(process.env),
+  ]) {
+    assert.deepEqual(config.test.reporters, ["default", "json"]);
+    assert.deepEqual(config.test.outputFile, { json: process.env.CHASE_SETS_VITEST_JSON_FILE });
+  }
+  delete process.env.CHASE_SETS_TEST_RESULTS_DIR;
+  assert.equal(defineWorkspaceTestConfig().test.reporters, undefined);
+  assert.equal(defineWorkspaceTestConfig().test.outputFile, undefined);
 });
 
 function setLaneMode(value) {

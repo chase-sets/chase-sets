@@ -12,6 +12,8 @@ import {
   publishReleaseHealthFlakeDigest,
   summarizeDeliverySignatureFlakes,
   summarizeWorkflowRuns,
+  findVitestTransitions,
+  readVitestArchive,
   writeReleaseHealthFlakeDigest,
 } from "./release-health-flake-digest.mjs";
 import { renderCircuitMarker } from "./release-health-merge-group-failure-signatures.mjs";
@@ -44,6 +46,141 @@ const LEGACY = [
 ];
 
 describe("release health flake digest", () => {
+  it("ingests Actions-shaped Vitest archives through writer and canonical publication at the unchanged threshold", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vitest-digest-synthetic-"));
+    try {
+      const paths = artifactPaths(dir);
+      const digest = await writeReleaseHealthFlakeDigest({ ...collectorOptions(vitestCollectorFetch()), ...paths });
+      expect(digest.collection.status, JSON.stringify(digest.collection)).toBe("complete");
+      expect(digest.retryCount).toBe(0);
+      expect(digest.flakyFailureCount).toBe(1);
+      expect(digest.vitestCandidateCount).toBe(1);
+      expect(digest.classification).toBe("breaching");
+      expect(digest.issueBody).toContain("suite synthetic test");
+      expect(digest.collection.sources["vitest-current"].producers).toHaveLength(2);
+      const github = issueAuthority();
+      const result = await publishReleaseHealthFlakeDigest({
+        ...publicationOptions(paths),
+        fetchImpl: github.fetchImpl,
+      });
+      expect(result.status).toBe("breaching");
+      expect(result.mutations[0].issueNumber).toBe(7442);
+      const missingSource = structuredClone(digest);
+      delete missingSource.collection.sources["vitest-current"];
+      await writeFrozenArtifact(dir, missingSource);
+      expect(
+        (await publishReleaseHealthFlakeDigest({ ...publicationOptions(paths), fetchImpl: github.fetchImpl })).status,
+      ).toBe("unknown");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps complete no-transition and changed identity/SHA/order corpora clear", async () => {
+    for (const scenario of [
+      { firstState: "passed" },
+      { secondState: "failed" },
+      { firstState: "skipped" },
+      { firstState: "todo" },
+      { firstState: "pending" },
+      { firstState: "disabled" },
+      { changedHead: true },
+      { changedTestedSha: true },
+      { changedName: true },
+      { reverse: true },
+    ]) {
+      const digest = await collectReleaseHealthFlakeDigest(collectorOptions(vitestCollectorFetch(scenario)));
+      expect(digest.collection.status, JSON.stringify(scenario)).toBe("complete");
+      expect(digest.vitestCandidateCount, JSON.stringify(scenario)).toBe(0);
+      expect(digest.classification).toBe("clear");
+    }
+  });
+
+  it("makes missing, expired, malformed, duplicated and started-but-unreported eligible evidence unknown, not clear", async () => {
+    for (const scenario of [
+      { missingArtifact: true },
+      { expired: true },
+      { malformed: true },
+      { unknownTask: true },
+      { duplicateArtifact: true },
+      { duplicateAttempt: true },
+      { missingPayload: true },
+      { incompletePage: true },
+    ]) {
+      const digest = await collectReleaseHealthFlakeDigest(collectorOptions(vitestCollectorFetch(scenario)));
+      expect(digest.collection.status, JSON.stringify(scenario)).toBe("unknown");
+      expect(digest.classification).toBe("unknown");
+    }
+  });
+
+  it("treats pre-rollout, cancelled and skipped producers as neutral, retaining executed failed siblings", async () => {
+    for (const scenario of [{ preRollout: true }, { skipped: true }, { cancelled: true }]) {
+      const digest = await collectReleaseHealthFlakeDigest(collectorOptions(vitestCollectorFetch(scenario)));
+      expect(digest.collection.status).toBe("complete");
+      expect(digest.vitestCandidateCount).toBe(0);
+    }
+    const digest = await collectReleaseHealthFlakeDigest(
+      collectorOptions(vitestCollectorFetch({ unstartedSibling: true })),
+    );
+    expect(digest.collection.status).toBe("complete");
+    expect(digest.vitestCandidateCount).toBe(1);
+  });
+
+  it("reconciles second-page producer/artifact authority and counts an attempt only once", async () => {
+    const digest = await collectReleaseHealthFlakeDigest(collectorOptions(vitestCollectorFetch({ secondPage: true })));
+    expect(digest.collection.status, JSON.stringify(digest.collection)).toBe("complete");
+    expect(digest.vitestCandidateCount).toBe(1);
+    const repeated = await collectReleaseHealthFlakeDigest(
+      collectorOptions(vitestCollectorFetch({ sameRunRetry: true })),
+    );
+    expect(repeated.collection.status, JSON.stringify(repeated.collection)).toBe("complete");
+    expect(repeated.vitestCandidateCount).toBe(1);
+    expect(repeated.flakyFailureCount).toBe(1);
+    expect(repeated.vitestCandidates[0].additionalFlakyFailureCount).toBe(0);
+  });
+
+  it("selects only the exact canonical ZIP entry and separates archive size from payload size", () => {
+    const payload = Buffer.from(JSON.stringify(syntheticVitestPayload(101, 1)));
+    expect(
+      readVitestArchive(
+        storedZip([
+          ["diagnostics.json", Buffer.alloc(3 * 1024 * 1024)],
+          ["workspace-test-results.json", payload],
+        ]),
+      ),
+    ).toEqual(payload);
+    expect(() => readVitestArchive(storedZip([["diagnostics.json", payload]]))).toThrow(/missing/);
+    expect(() => readVitestArchive(storedZip([["nested/workspace-test-results.json", payload]]))).toThrow(/missing/);
+    expect(() =>
+      readVitestArchive(
+        storedZip([
+          ["workspace-test-results.json", payload],
+          ["workspace-test-results.json", payload],
+        ]),
+      ),
+    ).toThrow(/duplicated/);
+    expect(() =>
+      readVitestArchive(storedZip([["workspace-test-results.json", Buffer.alloc(32 * 1024 * 1024 + 1)]])),
+    ).toThrow(/bound/);
+  });
+
+  it("rejects ambiguous execution identities before they can manufacture transitions", () => {
+    const observation = {
+      job: "unit-tests",
+      workspace: "@chase-sets/synthetic",
+      script: "test",
+      file: "test.ts",
+      fullName: "test",
+      headSha: HEAD_SHA,
+      testedSha: HEAD_SHA,
+      runId: "1",
+      runAttempt: 1,
+      state: "failed",
+      startedAt: "2026-07-06T00:00:00Z",
+      completedAt: "2026-07-06T00:01:00Z",
+    };
+    expect(() => findVitestTransitions([observation, observation])).toThrow(/ambiguous/);
+  });
   it("traces the scheduled writer, exact artifact payloads, and direct canonical publisher", async () => {
     const workflow = await readFile(
       new URL("../.github/workflows/platform-ci-flake-digest.yml", import.meta.url),
@@ -814,7 +951,194 @@ function completeAuthoritySources(windows, options = {}) {
       uniqueCollectedCount: 0,
       pageCount: 1,
     },
+    "vitest-current": { status: "complete", window: windows.current, requestCount: 0, producers: [] },
   };
+}
+
+// Synthetic GitHub/Vitest identities; never paired with a real external run.
+function syntheticVitestPayload(runId, attempt, options = {}) {
+  const date = options.reverse
+    ? runId === 101
+      ? "2026-07-07"
+      : "2026-07-06"
+    : runId === 101 && attempt === 1
+      ? "2026-07-06"
+      : "2026-07-07";
+  const first = runId === 101 && attempt === 1;
+  const state = first ? (options.firstState ?? "failed") : (options.secondState ?? "passed");
+  return {
+    schemaVersion: "workspace-test-results/v1",
+    producer: {
+      repository: REPOSITORY,
+      headSha: !first && options.changedHead ? "c".repeat(40) : HEAD_SHA,
+      testedSha: !first && options.changedTestedSha ? "d".repeat(40) : "b".repeat(40),
+      runId: String(runId),
+      runAttempt: attempt,
+      job: "unit-tests",
+    },
+    invocations: [
+      {
+        id: `${"0".repeat(32)}${String(runId).padStart(4, "0")}`,
+        script: "test",
+        startedAt: `${date}T10:01:00.000Z`,
+        completedAt: `${date}T10:02:00.000Z`,
+        tasks: [
+          {
+            workspace: "@chase-sets/synthetic",
+            script: "test",
+            status: options.unknownTask ? "unknown" : "complete",
+            reason: options.unknownTask ? "started report missing" : "",
+            assertionCount: options.unknownTask ? 0 : 1,
+            fileFailureCount: 0,
+            rows: options.unknownTask
+              ? []
+              : [
+                  {
+                    file: "bounded-contexts/synthetic/test.test.ts",
+                    fullName: !first && options.changedName ? "different test" : "suite synthetic test",
+                    state,
+                    durationMs: options.malformed ? -1 : 1.25,
+                    retryCount: 0,
+                  },
+                ],
+          },
+          ...(options.unstartedSibling
+            ? [
+                {
+                  workspace: "@chase-sets/synthetic",
+                  script: "test:unit",
+                  status: "not-started",
+                  reason: "",
+                  assertionCount: 0,
+                  fileFailureCount: 0,
+                  rows: [],
+                },
+              ]
+            : []),
+        ],
+      },
+    ],
+  };
+}
+
+function vitestCollectorFetch(options = {}) {
+  const runs = options.sameRunRetry ? [run(101, 2)] : [run(101, 1, "failure"), run(102)];
+  for (const value of runs)
+    Object.assign(value, {
+      path: ".github/workflows/platform-pr.yml",
+      status: "completed",
+      head_sha: options.changedHead && value.id === 102 ? "c".repeat(40) : HEAD_SHA,
+      repository: { id: 42 },
+    });
+  const fallback = completeCollectorFetch({ currentRuns: runs });
+  return async (input) => {
+    const url = new URL(input);
+    const jobsMatch = url.pathname.match(/\/runs\/(\d+)\/attempts\/(\d+)\/jobs$/);
+    if (jobsMatch) {
+      const runId = Number(jobsMatch[1]);
+      const attempt = Number(jobsMatch[2]);
+      const p = syntheticVitestPayload(runId, attempt, options);
+      const date = p.invocations[0].startedAt.slice(0, 10);
+      const job = {
+        id: runId * 10 + attempt,
+        run_id: runId,
+        run_attempt: attempt,
+        name: "Unit Tests",
+        status: "completed",
+        conclusion: "success",
+        steps: [
+          {
+            name: "Run non-DB tests",
+            status: "completed",
+            conclusion: options.skipped ? "skipped" : options.cancelled ? "cancelled" : "success",
+            started_at: `${date}T10:00:00Z`,
+            completed_at: `${date}T10:03:00Z`,
+          },
+          ...(options.preRollout
+            ? []
+            : [{ name: "Prepare workspace test results", status: "completed", conclusion: "success" }]),
+        ],
+      };
+      if (options.secondPage) {
+        const dummy = Array.from({ length: 100 }, (_, i) => ({ id: 1000 + i, name: "unrelated" }));
+        if (url.searchParams.get("page") === "1")
+          return jsonResponse(
+            { total_count: 101, jobs: dummy },
+            { link: nextLink(new URL(url.toString().replace(`/repos/${REPOSITORY}`, "/repositories/42")), 2) },
+          );
+      }
+      return jsonResponse({ total_count: options.secondPage ? 101 : 1, jobs: [job] });
+    }
+    const artifactMatch = url.pathname.match(/\/runs\/(\d+)\/artifacts$/);
+    if (artifactMatch) {
+      const runId = Number(artifactMatch[1]);
+      const attempts = options.sameRunRetry ? [1, 2] : [1];
+      const artifacts = options.missingArtifact
+        ? []
+        : attempts.map((attempt) => ({
+            id: runId * 10 + attempt,
+            name: `workspace-test-results-unit-tests-${runId}-${attempt}`,
+            size_in_bytes: 2000,
+            expired: options.expired ?? false,
+            expires_at: "2026-07-12T00:00:00Z",
+          }));
+      if (options.duplicateArtifact) artifacts.push({ ...artifacts[0], id: 9999 });
+      if (options.duplicateAttempt) artifacts.push(artifacts[0]);
+      if (options.secondPage || options.incompletePage) {
+        if (url.searchParams.get("page") === "1")
+          return jsonResponse(
+            {
+              total_count: 101,
+              artifacts: Array.from({ length: 100 }, (_, i) => ({ id: 10000 + i, name: "unrelated" })),
+            },
+            { link: options.incompletePage ? null : nextLink(url, 2) },
+          );
+      }
+      return jsonResponse({ total_count: options.secondPage ? 101 : artifacts.length, artifacts });
+    }
+    const zipMatch = url.pathname.match(/\/artifacts\/(\d+)\/zip$/);
+    if (zipMatch) {
+      const id = Number(zipMatch[1]);
+      const bytes = storedZip([
+        [
+          options.missingPayload ? "diagnostic.json" : "workspace-test-results.json",
+          Buffer.from(JSON.stringify(syntheticVitestPayload(Math.floor(id / 10), id % 10, options))),
+        ],
+      ]);
+      return { ok: true, arrayBuffer: async () => bytes };
+    }
+    return fallback(input);
+  };
+}
+
+function storedZip(entries) {
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+  for (const [name, bytes] of entries) {
+    const nameBytes = Buffer.from(name);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt32LE(bytes.length, 18);
+    local.writeUInt32LE(bytes.length, 22);
+    local.writeUInt16LE(nameBytes.length, 26);
+    localParts.push(local, nameBytes, bytes);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt32LE(bytes.length, 20);
+    central.writeUInt32LE(bytes.length, 24);
+    central.writeUInt16LE(nameBytes.length, 28);
+    central.writeUInt32LE(offset, 42);
+    centralParts.push(central, nameBytes);
+    offset += local.length + nameBytes.length + bytes.length;
+  }
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(Buffer.concat(centralParts).length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...localParts, ...centralParts, end]);
 }
 
 function issueAuthority() {

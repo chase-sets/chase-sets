@@ -1,7 +1,10 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { listWorkspacePackages } from "./lib/repo.mjs";
+import { finalizeWorkspaceTestResults } from "./lib/workspace-test-results.mjs";
 import {
   DB_TEST_SCRIPT_SELECTOR,
   DEFAULT_TEST_COMMAND_TIMEOUT_MS,
@@ -62,6 +65,80 @@ async function captureConsole(action) {
 }
 
 describe("run-workspaces", () => {
+  it("collects concurrent and partitioned JSON without overwrites, preserving failed exits and unstarted siblings", async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "runner-results-"));
+    const outputs = [];
+    try {
+      const env = {
+        CHASE_SETS_TEST_RESULTS_DIR: directory,
+        CHASE_SETS_TEST_RESULTS_HEAD_SHA: "a".repeat(40),
+        GITHUB_REPOSITORY: "synthetic/repository",
+        GITHUB_SHA: "b".repeat(40),
+        GITHUB_RUN_ID: "123",
+        GITHUB_RUN_ATTEMPT: "1",
+        GITHUB_JOB: "db-tests",
+      };
+      await expect(
+        runWorkspaceScripts({
+          argv: ["test:db*", "--concurrency=2"],
+          buildInvocation,
+          env,
+          loadEnvironment: () => {},
+          listWorkspaces: () => [
+            workspace("@chase-sets/synthetic-a", { "test:db:1": "vitest", "test:db:2": "vitest" }),
+            workspace("@chase-sets/synthetic-b", { "test:db": "vitest" }),
+          ],
+          run: async (_command, args, options) => {
+            const output = options.env.CHASE_SETS_VITEST_JSON_FILE;
+            outputs.push(output);
+            const failed = args.includes("@chase-sets/synthetic-a");
+            writeFileSync(
+              output,
+              JSON.stringify({
+                numTotalTests: 1,
+                testResults: [
+                  {
+                    name: path.resolve("synthetic.test.ts"),
+                    status: failed ? "failed" : "passed",
+                    assertionResults: [
+                      {
+                        ancestorTitles: ["suite"],
+                        title: "test",
+                        fullName: "suite test",
+                        status: failed ? "failed" : "passed",
+                        duration: 2,
+                      },
+                    ],
+                  },
+                ],
+              }),
+            );
+            if (failed) throw new Error("synthetic test failure");
+          },
+        }),
+      ).rejects.toThrow("1 workspace script run(s) failed");
+      const result = finalizeWorkspaceTestResults(directory);
+      const tasks = result.invocations[0].tasks;
+      expect(new Set(outputs).size).toBe(2);
+      expect(tasks.map((task) => task.status)).toEqual(["complete", "not-started", "complete"]);
+      expect(tasks[0].rows[0].state).toBe("failed");
+      expect(tasks[2].rows[0].durationMs).toBe(2);
+      expect(tasks[2].rows[0].retryCount).toBe(0);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("leaves the child environment and filesystem untouched with collection unset", async () => {
+    await runWorkspaceScripts({
+      argv: ["test:db"],
+      buildInvocation,
+      env: { CI: "true" },
+      loadEnvironment: () => {},
+      listWorkspaces: () => [workspace("@chase-sets/synthetic", { "test:db": "vitest" })],
+      run: async (_command, _args, options) => expect(options).not.toHaveProperty("env"),
+    });
+  });
   it("keeps local verify:test on the same non-DB workspace runner used by CI", () => {
     const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
     const verifyTest = packageJson.scripts["verify:test"];
