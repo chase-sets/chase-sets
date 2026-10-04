@@ -88,7 +88,7 @@ export default {
       checks: ["sale-fee", "seller-agreement-status", "payments-terms-status", "authenticity-scope"],
       oracle: {
         "sale-fee":
-          "Compare the reported sale fee and processing-fee treatment against the active commercial-terms fee schedule the sales-fees article resolves its values from.",
+          "Confirm from the recorded observations that the participant reached the sales-fees article and took the fee figures from it; a correct answer taken only from a comparison or landing page leaves this check unmet. Then compare the reported sale fee and processing-fee treatment against the active commercial-terms fee schedule the sales-fees article resolves its values from.",
         "seller-agreement-status":
           "Compare the reported status against the seller agreement policy artifact's publication state, not the participant's paraphrase.",
         "payments-terms-status":
@@ -243,7 +243,7 @@ export default {
       startPath: "/market/charizard-base-set-4-102-holo-rare-seed-charizard-base-set-xsr3yp",
       role: "guest",
       host: "public-web",
-      goal: "You searched the web for Base Set Charizard prices and landed on this page. Report the most recent sale price, the thirty-day median, how many copies are listed right now, and the lowest listed price, saying plainly when a figure is not available. Do not create an alert, list, or buy.",
+      goal: "You searched the web for Base Set Charizard prices and landed on this page. Report the most recent sale price, the thirty-day median, how many listings are up for sale right now, and the lowest listed price, saying plainly when a figure is not available. Do not create an alert, list, or buy.",
       checks: ["market-stats"],
       oracle: {
         "market-stats":
