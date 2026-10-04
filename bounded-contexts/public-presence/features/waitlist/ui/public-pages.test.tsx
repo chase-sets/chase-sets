@@ -653,6 +653,42 @@ describe("public waitlist form migration smoke", () => {
     expect(faqSection.querySelector('a[href="/faq"]')?.textContent).toBe(t("publicPresence.faq.all"));
   });
 
+  // #8606: the hero and FAQ bound the 0% claim to the founder 60-day window
+  // and never claim the seller keeps 100% (the Order Protection contribution
+  // applies to every order). Pinned as literal copy, not via t(), so a locale
+  // edit that reintroduces the claim fails here as well as in the guard.
+  it("renders the hero highlight and FAQ fee answer bounded to the founder 60-day window (#8606 AC2)", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+
+    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
+
+    const heroSection = container.querySelector('[data-public-presence-section="hero"]');
+    const faqSection = container.querySelector('[data-public-presence-section="faq"]');
+    if (!heroSection || !faqSection) {
+      throw new Error("Expected hero and FAQ sections to render.");
+    }
+
+    const highlightCells = Array.from(
+      heroSection.querySelector('[aria-label="Marketing highlights"]')?.children ?? [],
+    ).map((cell) => cell.textContent);
+    expect(highlightCells).toContain("Founders window0% sales fee on listings you create in your first 60 days of beta");
+    expect(heroSection.textContent).not.toContain("Keep 100% of the sale");
+    expect(heroSection.textContent).not.toContain("0% beta seller fees");
+    expect(heroSection.textContent).not.toContain("0% fees during beta");
+
+    expect(faqSection.textContent).toContain(
+      "Listings you create in your first 60 days of beta lock a 0% sales fee until they sell. Listings created after that window lock the published standard sales fee at listing time.",
+    );
+    expect(faqSection.textContent).not.toContain("Listings created during beta keep a 0% seller fee");
+    expect(container.textContent).not.toContain("100%");
+  });
+
   it.each([
     { role: "both", pagePath: "/" },
     { role: "buy", pagePath: "/?intent=buy" },

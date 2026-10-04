@@ -66,3 +66,46 @@ export function findLandingCopyViolations(
   }
   return violations;
 }
+
+// Seller-fee claim accuracy (#8606). The published sales-fee schedule and the
+// Founders offer terms are authoritative: 0% applies only to listings created
+// inside a founders account's 60-day window, and every order still funds the
+// Order Protection contribution, so no seller keeps 100% of a sale. Landing
+// copy drifted to "0% beta seller fees" / "Keep 100% of the sale" once; this
+// keeps the contradiction from returning. Vocabulary stays in the list above.
+export type SellerFeeClaimRule = Readonly<{ rule: string; violates: (value: string) => boolean }>;
+
+// A bare "0%" (not 10%, 100%, 0.5%, or $0.00) is a zero-fee claim.
+const zeroFeeClaimPattern = /(?<![\d.])0%/;
+// Every zero-fee claim must name the founder 60-day window in the same entry.
+const founderWindowPattern = /\b60[- ]days?\b/i;
+// Retention claims the Order Protection contribution makes false.
+const fullRetentionPattern = /\b100%|\bkeep (?:all|every (?:cent|dollar|penny)|the (?:whole|full|entire) sale)\b/i;
+
+export const SELLER_FEE_CLAIM_RULES: readonly SellerFeeClaimRule[] = [
+  {
+    rule: "0% claim must name the founder 60-day window",
+    violates: (value) => zeroFeeClaimPattern.test(value) && !founderWindowPattern.test(value),
+  },
+  {
+    rule: "no 100% / keep-the-whole-sale retention claim",
+    violates: (value) => fullRetentionPattern.test(value),
+  },
+];
+
+export type SellerFeeClaimViolation = Readonly<{ key: string; rule: string; value: string }>;
+
+export function findSellerFeeClaimViolations(
+  translations: Readonly<Record<string, string>>,
+  rules: readonly SellerFeeClaimRule[] = SELLER_FEE_CLAIM_RULES,
+): SellerFeeClaimViolation[] {
+  const violations: SellerFeeClaimViolation[] = [];
+  for (const [key, value] of landingCopyEntries(translations)) {
+    for (const { rule, violates } of rules) {
+      if (violates(value)) {
+        violations.push({ key, rule, value });
+      }
+    }
+  }
+  return violations;
+}
