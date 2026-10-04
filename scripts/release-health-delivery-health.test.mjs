@@ -186,17 +186,37 @@ describe("first-attempt workflow success", () => {
         updateIssues: true,
         sleep: async () => {},
         fetchImpl: async (url, request) => {
-          calls.push({ url, method: request.method });
+          calls.push({ url, method: request.method, body: request.body });
           const path = new URL(url).pathname;
-          if (path.endsWith("/attempts/1")) return new Response(JSON.stringify(synthetic()), { status: attemptStatus });
+          if (path.endsWith("/attempts/1"))
+            return new Response(JSON.stringify(synthetic(Number(/\/runs\/(\d+)\/attempts\/1$/.exec(path)[1]))), {
+              status: attemptStatus,
+            });
           const body =
             path === "/graphql"
               ? { data: { repository: { pullRequests: { pageInfo: { hasNextPage: false }, nodes: [] } } } }
               : path.includes("platform-pr.yml")
-                ? { workflow_runs: [synthetic(1001, { run_attempt: 2 })] }
+                ? {
+                    workflow_runs: Array.from({ length: 10 }, (_, index) =>
+                      synthetic(1001 + index, { run_attempt: 2 }),
+                    ),
+                  }
                 : path.includes("/actions/workflows/")
                   ? { workflow_runs: [] }
-                  : [];
+                  : path === "/search/issues"
+                    ? {
+                        items: [
+                          {
+                            number: 2001,
+                            state: "open",
+                            body: renderSliMarker({
+                              sli: "pull-request-ci-success",
+                              schemaVersion: "delivery-health-sli/v1",
+                            }),
+                          },
+                        ],
+                      }
+                    : [];
           return new Response(JSON.stringify(body), { status: 200 });
         },
       };
@@ -205,10 +225,15 @@ describe("first-attempt workflow success", () => {
     };
     const good = await collectHttp(200);
     const missing = await collectHttp(404);
-    expect(metric(missing.result).firstAttempt).toMatchObject({ unknown: 1, coverage: "partial", successRate: null });
+    expect(metric(missing.result).firstAttempt).toMatchObject({ unknown: 10, coverage: "partial", successRate: null });
     expect(missing.result.record.completeness).toEqual(good.result.record.completeness);
     expect(missing.result.record.slis).toEqual(good.result.record.slis);
     expect(missing.result.issueUpdates).toEqual(good.result.issueUpdates);
+    expect(missing.result.issueUpdates).toContainEqual({
+      sli: "pull-request-ci-success",
+      action: "closed",
+      issueNumber: 2001,
+    });
     expect(missing.calls.filter((call) => call.method !== "GET")).toEqual(
       good.calls.filter((call) => call.method !== "GET"),
     );
