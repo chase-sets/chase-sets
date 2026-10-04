@@ -247,12 +247,6 @@ function buildSearchFilter(params: DiscoverySearchParams, options: SearchFilterB
     paramIndex++;
   }
 
-  if (params.blueprintId) {
-    conditions.push(`${itemColumn("blueprint_id")} = $${paramIndex}`);
-    values.push(params.blueprintId);
-    paramIndex++;
-  }
-
   if (params.language) {
     conditions.push(`${itemColumn("language_code")} = $${paramIndex}`);
     values.push(params.language);
