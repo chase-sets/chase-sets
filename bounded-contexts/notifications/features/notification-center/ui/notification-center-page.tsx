@@ -173,7 +173,7 @@ function NotificationFeed({ feed: loadedFeed }: Readonly<{ feed: NotificationCen
           const read = Boolean(item.readAt);
 
           return (
-            <Card key={item.deliveryId}>
+            <Card key={item.deliveryId} elevation="outlined">
               <Stack gap={3}>
                 <Cluster align="start" gap={3}>
                   <Stack gap={1} minWidth="0">
@@ -295,7 +295,7 @@ function NotificationSettings({
         {settings.productAlerts.items.length > 0 ? (
           <Stack gap={3}>
             {settings.productAlerts.items.map((alert) => (
-              <Card key={alert.alert_id}>
+              <Card key={alert.alert_id} elevation="outlined">
                 <Stack gap={3}>
                   <Cluster align="start" gap={3}>
                     <Stack gap={1} minWidth="0">
