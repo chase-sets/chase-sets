@@ -467,7 +467,9 @@ describe("SearchPage", () => {
       renderSearchPage({ committedSearch: "abra" });
       const opener = screen.getByRole("button", { name: "Open filters" });
       await user.click(opener);
-      await waitFor(() => expect(screen.getByRole("dialog", { name: "Filters" }).contains(document.activeElement)).toBe(true));
+      await waitFor(() =>
+        expect(screen.getByRole("dialog", { name: "Filters" }).contains(document.activeElement)).toBe(true),
+      );
       const ids = Array.from(document.querySelectorAll("[id]"), (node) => node.id);
       expect(new Set(ids).size).toBe(ids.length);
       for (const trigger of document.querySelectorAll<HTMLElement>("[data-facet-item-value]")) {

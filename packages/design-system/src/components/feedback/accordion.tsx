@@ -215,7 +215,7 @@ export function Accordion({
       {...rest}
       onValueChange={handleValueChange}
       className={cx(
-        !anchorActiveItemToScrollEnd && "[overflow-anchor:none]",
+        isSectionList && bleed === "horizontal" && !anchorActiveItemToScrollEnd && "[overflow-anchor:none]",
         isSectionList
           ? "relative overflow-hidden"
           : "modern-surface rounded-tokenLg border border-muted shadow-tokenSm",

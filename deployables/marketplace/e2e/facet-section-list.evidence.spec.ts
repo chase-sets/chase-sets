@@ -30,6 +30,7 @@ async function openFixture(page: Page, width: number, height: number) {
   await expect(root.locator('[data-facet-item-value][aria-expanded="true"]')).toHaveCount(1);
   await expect(root.locator('[data-facet-item-value="language"]')).toHaveAttribute("aria-expanded", "true");
   await root.locator('[data-facet-item-value="language"]').scrollIntoViewIfNeeded();
+  await page.locator(`#search-facets-${presentation}-panel-language`).scrollIntoViewIfNeeded();
   return presentation;
 }
 
@@ -84,6 +85,16 @@ async function inspectFacetList(page: Page, presentation: Presentation) {
       )
         throw new Error("facet-evidence: scroll-owner");
       const owner = owners[0]!;
+      const viewport = owner.getBoundingClientRect();
+      if (
+        options.some((option) => {
+          const bounds = option.getBoundingClientRect();
+          return (
+            bounds.top < Math.max(0, viewport.top) - 1 || bounds.bottom > Math.min(innerHeight, viewport.bottom) + 1
+          );
+        })
+      )
+        throw new Error("facet-evidence: clipped-options");
       const insetName = presentation === "desktop" ? "--sidebar-content-inset" : "--panel-content-inset";
       const inset = getComputedStyle(owner).getPropertyValue(insetName).trim();
       const expectedInset = presentation === "desktop" ? "0.75rem" : "1.25rem";

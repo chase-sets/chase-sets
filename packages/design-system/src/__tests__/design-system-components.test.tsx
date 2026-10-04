@@ -1762,11 +1762,12 @@ describe("design system components", () => {
     owners.forEach((owner, index) => {
       owner.scrollTop = 30 + index;
     });
-    const rect = vi
-      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
-      .mockReturnValue({
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return {
         top: 0,
-        bottom: 500,
+        bottom: owners.includes(this) ? 100 : 500,
         left: 0,
         right: 100,
         width: 100,
@@ -1774,7 +1775,8 @@ describe("design system components", () => {
         x: 0,
         y: 0,
         toJSON: () => ({}),
-      });
+      };
+    });
     try {
       for (const id of ["desktop", "mobile"]) {
         fireEvent.click(screen.getByRole("button", { name: `${id} section` }));

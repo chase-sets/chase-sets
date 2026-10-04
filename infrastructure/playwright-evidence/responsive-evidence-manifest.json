@@ -3474,9 +3474,9 @@
         "height": 844
       },
       "target": {
-        "identity": "search-facets-mobile",
-        "selector": "[data-facet-list-presentation='mobile']",
-        "populatedSelector": ":scope [id='search-facets-mobile-panel-language'] button[aria-pressed]"
+        "identity": "search-facets-desktop",
+        "selector": "[data-facet-list-presentation='desktop']",
+        "populatedSelector": ":scope [id='search-facets-desktop-panel-language'] button[aria-pressed]"
       },
       "measurements": [
         {
