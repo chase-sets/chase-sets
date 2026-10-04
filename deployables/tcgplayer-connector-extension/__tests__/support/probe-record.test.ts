@@ -391,11 +391,16 @@ test("synthetic short-window and omitted re-ensure controls never qualify throug
 function syntheticStartupHarness(startedAt: string, listed: boolean) {
   const url = "chrome-extension://SYNTHETIC/worker.js";
   const previousWorker = { url: () => url } as Worker;
-  const ready = Promise.withResolvers<void>();
-  const evaluating = Promise.withResolvers<void>();
+  let ready!: () => void;
+  let evaluating!: () => void;
+  const evaluationStarted = new Promise<void>((resolve) => {
+    evaluating = resolve;
+  });
   const probe = {
     startedAt,
-    startupReady: ready.promise,
+    startupReady: new Promise<void>((resolve) => {
+      ready = resolve;
+    }),
     ensures: [
       {
         entrypoint: "top-level",
@@ -414,7 +419,7 @@ function syntheticStartupHarness(startedAt: string, listed: boolean) {
     url: () => url,
     async evaluate(callback: () => unknown) {
       calls.push("evaluate");
-      evaluating.resolve();
+      evaluating();
       return runInNewContext(`(${callback.toString()})()`, { restartProbe: probe, Date });
     },
   } as Worker;
@@ -428,7 +433,7 @@ function syntheticStartupHarness(startedAt: string, listed: boolean) {
       return worker;
     },
   } as BrowserContext;
-  return { context, previousWorker, worker, probe, ready, evaluating, calls };
+  return { context, previousWorker, worker, probe, ready, evaluationStarted, calls };
 }
 
 for (const listed of [false, true]) {
@@ -445,10 +450,10 @@ for (const listed of [false, true]) {
           return value;
         },
       );
-      await harness.evaluating.promise;
+      await harness.evaluationStarted;
       assert.equal(returned, false);
       vi.setSystemTime(new Date("2026-10-04T13:11:54.032Z"));
-      harness.ready.resolve();
+      harness.ready();
       const result = await observation;
       assert.equal(result.attachedAt, "2026-10-04T13:11:54.027Z");
       assert.equal(result.startedAt, startedAt);
@@ -521,7 +526,7 @@ for (const [name, mutate, message] of startupMutants) {
       vi.setSystemTime(new Date("2026-10-04T13:11:54.032Z"));
       const harness = syntheticStartupHarness("2026-10-04T13:11:54.029Z", true);
       mutate(harness);
-      harness.ready.resolve();
+      harness.ready();
       await assert.rejects(
         settledStartup(harness.context, harness.previousWorker, "2026-10-04T13:11:54.000Z"),
         message,
