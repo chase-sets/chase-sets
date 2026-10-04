@@ -1175,6 +1175,12 @@ describe("render platform Helm values", () => {
   });
 
   it("models bootstrap as a pre-rollout quiesce hook that restores workers on failure", () => {
+    const [helper, rbac] = readChartFiles(["templates/_helpers.tpl", "templates/rbac.yaml"]);
+    expect(helper).toContain('- name: "CHASE_SETS_QUIESCE_MODE"\n  value: "helm-hook"');
+    expect(helper).toContain("fieldPath: metadata.name");
+    expect(helper).toContain('value: "helm-hook:$(CHASE_SETS_QUIESCE_POD_NAME)"');
+    expect(rbac).toContain('resources: ["scaledobjects"]\n    verbs: ["patch"]');
+    expect(rbac).not.toMatch(/verbs:.*(?:delete|list|watch)/);
     const values = buildPlatformHelmValues({ repoRoot });
     const bootstrap = values.components["platform-bootstrap"];
 

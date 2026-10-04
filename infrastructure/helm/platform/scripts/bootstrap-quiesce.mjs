@@ -5,6 +5,10 @@ import process from "node:process";
 
 const serviceAccountPath = "/var/run/secrets/kubernetes.io/serviceaccount";
 const kedaPausedReplicasAnnotation = "autoscaling.keda.sh/paused-replicas";
+export const QUIESCE_PROTOCOL_VERSION = "owner-fenced-seed-yield/v1";
+export const quiesceOwnerAnnotation = "chase-sets.com/quiesce-owner";
+export const SEED_REFUSED_EXIT_CODE = 75;
+export const SEED_PREEMPTED_EXIT_CODE = 76;
 
 export function parseQuiesceOptions(argv, env = process.env) {
   const separatorIndex = argv.indexOf("--");
@@ -12,6 +16,8 @@ export function parseQuiesceOptions(argv, env = process.env) {
   const deployments = parseDeploymentList(env.CHASE_SETS_QUIESCE_DEPLOYMENTS);
 
   return {
+    mode: env.CHASE_SETS_QUIESCE_MODE ?? "helm-hook",
+    owner: env.CHASE_SETS_QUIESCE_OWNER,
     deployments,
     command,
     namespace: env.CHASE_SETS_KUBERNETES_NAMESPACE ?? null,
@@ -33,6 +39,7 @@ export function parseDeploymentList(value) {
 
 export async function runQuiescedBootstrap(options) {
   validateOptions(options);
+  if (options.mode === "scenario-seed") return runQuiescedSeed(options);
 
   const originals = new Map();
   const kedaManagedDeployments = new Set();
@@ -74,7 +81,7 @@ export async function runQuiescedBootstrap(options) {
   try {
     for (const deployment of originals.keys()) {
       await options.log(`Quiescing ${deployment} before bootstrap.`);
-      if (await options.kubernetes.pauseScaledObject(deployment)) {
+      if (await options.kubernetes.pauseScaledObject(deployment, options.owner)) {
         kedaManagedDeployments.add(deployment);
         pausedScaledObjects.add(deployment);
       } else {
@@ -128,6 +135,130 @@ export async function runQuiescedBootstrap(options) {
   }
 }
 
+// Both acquisition and release re-read authority after a conflict. A stale resourceVersion
+// must never turn a seed's finally into a resume of a newer hook's pause.
+export async function changeSeedOwnership(kubernetes, name, owner, action, authorize = async () => true) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const resource = await kubernetes.readScaledObject(name);
+    const { resourceVersion, annotations = {} } = resource.metadata ?? {};
+    if (!resourceVersion) return false;
+    if (action === "acquire") {
+      if (kedaPausedReplicasAnnotation in annotations || quiesceOwnerAnnotation in annotations) return false;
+    } else if (annotations[quiesceOwnerAnnotation] !== owner) {
+      return false;
+    }
+    if (!(await authorize(resource))) return false;
+    try {
+      await kubernetes.patchScaledObject(name, {
+        metadata: {
+          resourceVersion,
+          annotations: {
+            [kedaPausedReplicasAnnotation]: action === "acquire" ? "0" : null,
+            [quiesceOwnerAnnotation]: action === "acquire" ? owner : null,
+          },
+        },
+      });
+      return true;
+    } catch (error) {
+      if (error.statusCode !== 409) throw error;
+    }
+  }
+  return false;
+}
+
+async function runQuiescedSeed(options) {
+  const name = options.deployments[0];
+  const result = async (status, exitCode) => {
+    await options.log(`scenario-seed result=${status}`);
+    return exitCode;
+  };
+  try {
+    if (!(await changeSeedOwnership(options.kubernetes, name, options.owner, "acquire"))) {
+      return result("refused", SEED_REFUSED_EXIT_CODE);
+    }
+  } catch {
+    return result("refused", SEED_REFUSED_EXIT_CODE);
+  }
+
+  const controller = new AbortController();
+  let stopped = false;
+  let timer;
+  let unreadableTimer;
+  let wake;
+  const preempt = () => controller.abort();
+  const readable = () => {
+    clearTimeout(unreadableTimer);
+    unreadableTimer = setTimeout(preempt, 6000);
+  };
+  readable();
+  const monitor = (async () => {
+    while (!stopped && !controller.signal.aborted) {
+      const pollStartedAt = Date.now();
+      try {
+        const resource = await options.kubernetes.readScaledObject(name);
+        if (stopped) return;
+        if (
+          typeof resource.metadata?.resourceVersion !== "string" ||
+          resource.metadata?.annotations?.[quiesceOwnerAnnotation] !== options.owner ||
+          resource.metadata?.annotations?.[kedaPausedReplicasAnnotation] !== "0"
+        ) {
+          preempt();
+          return;
+        }
+        readable();
+      } catch {
+        // The independent watchdog also fires during a stalled request.
+      }
+      if (stopped || controller.signal.aborted) return;
+      await new Promise((resolve) => {
+        wake = resolve;
+        timer = setTimeout(
+          resolve,
+          Math.max(0, Math.min(options.pollIntervalMs ?? 2000, 2000) - (Date.now() - pollStartedAt)),
+        );
+      });
+    }
+  })();
+
+  let exitCode;
+  let commandError;
+  try {
+    // KEDA applies paused-replicas=0. Seeds never restore Deployment replicas or
+    // perform a late scale PATCH that could race a hook's finally.
+    await options.kubernetes.waitForReplicas(name, 0, {
+      timeoutMs: options.timeoutMs,
+      pollIntervalMs: Math.min(options.pollIntervalMs ?? 2000, 2000),
+      signal: controller.signal,
+    });
+    exitCode = controller.signal.aborted
+      ? SEED_PREEMPTED_EXIT_CODE
+      : await options.spawnCommand(options.command, {
+          timeoutMs: options.commandTimeoutMs,
+          log: options.log,
+          signal: controller.signal,
+        });
+  } catch (error) {
+    commandError = error;
+  } finally {
+    stopped = true;
+    clearTimeout(timer);
+    wake?.();
+    await monitor;
+    clearTimeout(unreadableTimer);
+    if (!controller.signal.aborted) {
+      try {
+        if (!(await changeSeedOwnership(options.kubernetes, name, options.owner, "release"))) preempt();
+      } catch {
+        preempt();
+      }
+    }
+  }
+  if (commandError && !controller.signal.aborted) throw commandError;
+  return controller.signal.aborted
+    ? result("preempted", SEED_PREEMPTED_EXIT_CODE)
+    : result(exitCode === 0 ? "success" : "failure", exitCode);
+}
+
 export function createKubernetesClient(options = {}) {
   const namespace = options.namespace ?? readFileSync(`${serviceAccountPath}/namespace`, "utf8").trim();
   const host = options.host ?? process.env.KUBERNETES_SERVICE_HOST;
@@ -171,12 +302,18 @@ export function createKubernetesClient(options = {}) {
               reject(error);
               return;
             }
-            resolve(text ? JSON.parse(text) : {});
+            try {
+              resolve(text ? JSON.parse(text) : {});
+            } catch (error) {
+              reject(error);
+            }
           });
         },
       );
 
+      const deadline = setTimeout(() => req.destroy(new Error("Kubernetes request timed out after 2000ms.")), 2000);
       req.on("error", reject);
+      req.on("close", () => clearTimeout(deadline));
       if (payload != null) {
         req.write(payload);
       }
@@ -198,12 +335,13 @@ export function createKubernetesClient(options = {}) {
     return `/apis/keda.sh/v1alpha1/namespaces/${encodeURIComponent(namespace)}/scaledobjects/${encodeURIComponent(name)}`;
   }
 
-  async function patchScaledObjectPausedReplicas(name, pausedReplicas) {
+  async function patchScaledObjectPausedReplicas(name, pausedReplicas, owner = null) {
     try {
       await request("PATCH", scaledObjectPath(name), {
         metadata: {
           annotations: {
             [kedaPausedReplicasAnnotation]: pausedReplicas,
+            [quiesceOwnerAnnotation]: owner,
           },
         },
       });
@@ -217,6 +355,8 @@ export function createKubernetesClient(options = {}) {
   }
 
   return {
+    readScaledObject: (name) => request("GET", scaledObjectPath(name)),
+    patchScaledObject: (name, body) => request("PATCH", scaledObjectPath(name), body),
     async readScale(name) {
       const response = await request("GET", scalePath(name));
       return { specReplicas: Number(response.spec?.replicas ?? 0) };
@@ -224,8 +364,8 @@ export function createKubernetesClient(options = {}) {
     async scaleDeployment(name, replicas) {
       await request("PATCH", scalePath(name), { spec: { replicas } });
     },
-    async pauseScaledObject(name) {
-      return patchScaledObjectPausedReplicas(name, "0");
+    async pauseScaledObject(name, owner) {
+      return patchScaledObjectPausedReplicas(name, "0", owner);
     },
     async resumeScaledObject(name) {
       return patchScaledObjectPausedReplicas(name, null);
@@ -233,6 +373,7 @@ export function createKubernetesClient(options = {}) {
     async waitForReplicas(name, replicas, waitOptions) {
       const deadline = Date.now() + waitOptions.timeoutMs;
       while (Date.now() <= deadline) {
+        if (waitOptions.signal?.aborted) return;
         const response = await request("GET", deploymentPath(name));
         const status = response.status ?? {};
         const ready =
@@ -253,9 +394,21 @@ export function createKubernetesClient(options = {}) {
 
 export function spawnShellCommand(command, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn("sh", ["-lc", command.join(" ")], { stdio: "inherit" });
+    if (options.signal?.aborted) {
+      resolve(SEED_PREEMPTED_EXIT_CODE);
+      return;
+    }
+    const child = spawn("sh", ["-lc", command.join(" ")], { stdio: "inherit", detached: true });
     let timedOut = false;
-    let forceKillTimeout = null;
+    const killGroup = () => {
+      if (!child.pid) return;
+      try {
+        process.kill(-child.pid, "SIGKILL");
+      } catch (error) {
+        if (error.code !== "ESRCH") throw error;
+      }
+    };
+    options.signal?.addEventListener("abort", killGroup, { once: true });
     const commandTimeout =
       options.timeoutMs && options.timeoutMs > 0
         ? setTimeout(() => {
@@ -263,27 +416,22 @@ export function spawnShellCommand(command, options = {}) {
             void options.log?.(
               `Bootstrap command timed out after ${Math.round(options.timeoutMs / 1000)}s; terminating.`,
             );
-            child.kill("SIGTERM");
-            forceKillTimeout = setTimeout(() => child.kill("SIGKILL"), 5000);
+            killGroup();
           }, options.timeoutMs)
         : null;
     child.on("error", (error) => {
       if (commandTimeout) {
         clearTimeout(commandTimeout);
       }
-      if (forceKillTimeout) {
-        clearTimeout(forceKillTimeout);
-      }
+      options.signal?.removeEventListener("abort", killGroup);
       reject(error);
     });
     child.on("exit", (code) => {
       if (commandTimeout) {
         clearTimeout(commandTimeout);
       }
-      if (forceKillTimeout) {
-        clearTimeout(forceKillTimeout);
-      }
-      resolve(timedOut ? 124 : (code ?? 1));
+      options.signal?.removeEventListener("abort", killGroup);
+      resolve(options.signal?.aborted ? SEED_PREEMPTED_EXIT_CODE : timedOut ? 124 : (code ?? 1));
     });
   });
 }
@@ -295,6 +443,13 @@ function validateOptions(options) {
   if (!Array.isArray(options.command) || options.command.length === 0) {
     throw new Error("Bootstrap command is required after '--'.");
   }
+  if (
+    options.mode === "scenario-seed" &&
+    (options.deployments.length !== 1 || !/^scenario-seed:[a-z0-9][a-z0-9.-]*$/.test(options.owner ?? ""))
+  ) {
+    throw new Error("Scenario seed requires one worker and a scenario-seed:<jobName> owner.");
+  }
+  if (options.mode && !["helm-hook", "scenario-seed"].includes(options.mode)) throw new Error("Unknown quiesce mode.");
 }
 
 function sleep(ms) {
@@ -306,7 +461,14 @@ function isKubernetesNotFound(error) {
 }
 
 async function main() {
+  if (process.argv[2] === "--protocol-version") {
+    console.log(QUIESCE_PROTOCOL_VERSION);
+    return;
+  }
   const parsed = parseQuiesceOptions(process.argv.slice(2));
+  if (parsed.mode === "helm-hook" && !/^helm-hook:.+/.test(parsed.owner ?? "")) {
+    throw new Error("Helm hook requires a helm-hook:<pod> owner.");
+  }
   const exitCode = await runQuiescedBootstrap({
     ...parsed,
     kubernetes: createKubernetesClient({ namespace: parsed.namespace }),

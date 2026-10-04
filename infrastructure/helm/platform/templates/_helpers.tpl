@@ -117,6 +117,14 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
   {{- end }}
 {{- end }}
 {{- if and (eq .component.kind "job") .component.job.quiesce.enabled }}
+- name: "CHASE_SETS_QUIESCE_MODE"
+  value: "helm-hook"
+- name: "CHASE_SETS_QUIESCE_POD_NAME"
+  valueFrom:
+    fieldRef:
+      fieldPath: metadata.name
+- name: "CHASE_SETS_QUIESCE_OWNER"
+  value: "helm-hook:$(CHASE_SETS_QUIESCE_POD_NAME)"
 - name: "CHASE_SETS_QUIESCE_DEPLOYMENTS"
   value: {{ include "chase-sets-platform.quiesceDeployments" . | quote }}
 - name: "CHASE_SETS_QUIESCE_TIMEOUT_SECONDS"

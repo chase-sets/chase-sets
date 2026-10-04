@@ -36,6 +36,7 @@ import {
   readGitHubProductionWriterCensus,
   readHelmOperationCensus,
   recoverStableStalePendingUpgrade,
+  releaseScenarioSeedQuiesce,
   reconcileManagedPostgresCaOnKubernetes,
   rollbackPlatformOnKubernetes,
   runScenarioSeedOnKubernetes as runScenarioSeedOnKubernetesUnderTest,
@@ -390,6 +391,8 @@ describe("platform Kubernetes deployment", () => {
       "node ./infrastructure/helm/platform/scripts/bootstrap-quiesce.mjs -- pnpm --filter @chase-sets/app-platform-api run bootstrap:production",
     ]);
     expect(env.get("PLATFORM_DATA_PROFILES")).toEqual({ name: "PLATFORM_DATA_PROFILES", value: "scenario-seed" });
+    expect(env.get("CHASE_SETS_QUIESCE_MODE")?.value).toBe("scenario-seed");
+    expect(env.get("CHASE_SETS_QUIESCE_OWNER")?.value).toBe("scenario-seed:staging-scenario-seed-proof");
     expect(env.get("DATABASE_POOL_MAX")).toEqual({ name: "DATABASE_POOL_MAX", value: "1" });
     expect(env.get("CHASE_SETS_QUIESCE_RESTORE_ON_SUCCESS")).toEqual({
       name: "CHASE_SETS_QUIESCE_RESTORE_ON_SUCCESS",
@@ -449,7 +452,7 @@ describe("platform Kubernetes deployment", () => {
         apiGroups: ["keda.sh"],
         resources: ["scaledobjects"],
         resourceNames: ["chase-sets-platform-chase-sets-platform-platform-worker"],
-        verbs: ["patch"],
+        verbs: ["get", "patch"],
       },
     ]);
     expect(roleBinding.roleRef.name).toBe(role.metadata.name);
@@ -640,6 +643,136 @@ describe("platform Kubernetes deployment", () => {
     ]);
     // Piped stdio is what makes the tail readable; an inherited stream would only reach the step log.
     expect(tailCall.options.stdio).toEqual(["ignore", "pipe", "pipe"]);
+  });
+
+  it.each(["refused", "preempted"])("carries actual wrapper %s markers as non-success Job evidence", async (status) => {
+    const calls = [];
+    const failure = await runScenarioSeedOnKubernetes({
+      image: "registry.digitalocean.com/chase-sets/chase-sets-platform:proof",
+      jobName: "synthetic-seed",
+      envOverrides: { DEPLOYMENT_ENVIRONMENT: "staging" },
+      spawn: completedSpawn(calls, [
+        { code: 0 },
+        { code: 0 },
+        { code: 0 },
+        { code: 0, stdout: JSON.stringify({ status: { failed: 1 } }) },
+        { code: 0, stdout: `[bootstrap-quiesce] scenario-seed result=${status}\n` },
+        { code: 0 },
+      ]),
+    }).catch((error) => error);
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure.evidence.result).toBe(status);
+  });
+
+  it.each(["helm-hook:pod", "scenario-seed:foreign", null])(
+    "cleanup refuses foreign/unowned authority %s",
+    async (owner) => {
+      const calls = [];
+      const result = await releaseScenarioSeedQuiesce({
+        jobName: "synthetic-seed",
+        spawn: completedSpawn(calls, [
+          {
+            code: 0,
+            stdout: JSON.stringify({
+              metadata: {
+                resourceVersion: "1",
+                annotations: {
+                  "autoscaling.keda.sh/paused-replicas": "0",
+                  ...(owner ? { "chase-sets.com/quiesce-owner": owner } : {}),
+                },
+              },
+            }),
+          },
+        ]),
+      });
+      expect(result.result).toBe("refused");
+      expect(calls).toHaveLength(1);
+    },
+  );
+
+  it.each(["active", "pending", "ambiguous-pod", "live-pod", "missing-job", "terminal", "conflict"])(
+    "reclaim proves an inactive terminal Job and CAS ownership: %s",
+    async (state) => {
+      const calls = [];
+      const resource = {
+        metadata: {
+          resourceVersion: "17",
+          annotations: {
+            "chase-sets.com/quiesce-owner": "scenario-seed:synthetic-seed",
+            "autoscaling.keda.sh/paused-replicas": "0",
+          },
+        },
+      };
+      const job = {
+        metadata: { name: "synthetic-seed", uid: "synthetic-uid" },
+        status: {
+          active: state === "active" ? 1 : 0,
+          conditions: state === "pending" ? [] : [{ type: "Complete", status: "True" }],
+        },
+      };
+      const pods = {
+        items: [
+          {
+            metadata: {
+              ownerReferences: [{ kind: "Job", uid: state === "ambiguous-pod" ? "foreign" : "synthetic-uid" }],
+            },
+            status: { phase: state === "live-pod" ? "Running" : "Succeeded" },
+          },
+        ],
+      };
+      const outputs = [
+        { code: 0, stdout: JSON.stringify(resource) },
+        state === "missing-job" ? { code: 1, stderr: "NotFound" } : { code: 0, stdout: JSON.stringify(job) },
+        { code: 0, stdout: JSON.stringify(pods) },
+        state === "conflict" ? { code: 1, stderr: "Error from server (Conflict)" } : { code: 0, stdout: "{}" },
+        {
+          code: 0,
+          stdout: JSON.stringify({
+            metadata: { resourceVersion: "18", annotations: { "chase-sets.com/quiesce-owner": "helm-hook:pod" } },
+          }),
+        },
+      ];
+      const result = await releaseScenarioSeedQuiesce({
+        jobName: "synthetic-seed",
+        reclaim: true,
+        spawn: completedSpawn(calls, outputs),
+      });
+      expect(result.result).toBe(state === "terminal" ? "released" : "refused");
+      const patch = calls.find((call) => call.args[0] === "patch");
+      if (["terminal", "conflict"].includes(state)) {
+        expect(JSON.parse(patch.args[patch.args.indexOf("--patch") + 1])).toEqual({
+          metadata: {
+            resourceVersion: "17",
+            annotations: { "chase-sets.com/quiesce-owner": null, "autoscaling.keda.sh/paused-replicas": null },
+          },
+        });
+      } else expect(patch).toBeUndefined();
+      expect(calls.every((call) => call.args.includes("--request-timeout=2s"))).toBe(true);
+    },
+  );
+
+  it("release clears only its own owner and exposes a single release/reclaim CLI", async () => {
+    const calls = [];
+    expect(parseArgs(["scenario-seed-release", "--job-name", "synthetic-seed", "--reclaim", "true"], {})).toMatchObject(
+      { command: "scenario-seed-release", jobName: "synthetic-seed", reclaim: true },
+    );
+    const result = await releaseScenarioSeedQuiesce({
+      jobName: "synthetic-seed",
+      spawn: completedSpawn(calls, [
+        {
+          code: 0,
+          stdout: JSON.stringify({
+            metadata: {
+              resourceVersion: "1",
+              annotations: { "chase-sets.com/quiesce-owner": "scenario-seed:synthetic-seed" },
+            },
+          }),
+        },
+        { code: 0, stdout: "{}" },
+      ]),
+    });
+    expect(result.result).toBe("released");
+    expect(calls.map((call) => call.args[0])).toEqual(["get", "patch"]);
   });
 
   it("runs advisory scenario seed without creating worker-scaling access", async () => {
