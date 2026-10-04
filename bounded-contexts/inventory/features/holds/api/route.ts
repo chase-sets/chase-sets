@@ -236,10 +236,7 @@ export function inventoryCheckoutReservationRoutes(services: InventoryHoldServic
           ? await services.getCheckoutHold(c.req.param("id"), body.checkoutSessionId)
           : null;
       if (!existing) {
-        return c.json(
-          { error: { code: "checkout_reservation_not_found", message: "Checkout reservation not found." } },
-          404,
-        );
+        return c.json({ error: { code: "checkout_reservation_not_found" } }, 404);
       }
       const sellerAccountId = existing.account_id;
       const result = await services.extendCheckoutHold(
@@ -287,10 +284,7 @@ export function inventoryCheckoutReservationRoutes(services: InventoryHoldServic
           ? await services.getCheckoutHold(holdId, body.checkoutSessionId)
           : null;
       if (!existing) {
-        return c.json(
-          { error: { code: "checkout_reservation_not_found", message: "Checkout reservation not found." } },
-          404,
-        );
+        return c.json({ error: { code: "checkout_reservation_not_found" } }, 404);
       }
       const sellerAccountId = existing.account_id;
       if (existing.status === "released" && existing.release_reason === "checkout-cancelled") {
