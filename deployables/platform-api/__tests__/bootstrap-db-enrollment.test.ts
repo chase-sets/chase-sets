@@ -420,6 +420,8 @@ describe("Platform API bootstrap DB enrollment", () => {
       [],
       [0, 0, 0, 0, 0, 0],
       [0, 1, 0, 2, 0, 3],
+      [-1, -2, -3],
+      [3, 3, 3, -100],
       [7, 7, 7, 7, 7, 7, 7],
       [1, 2, 3, 5, 8, 13, 21],
       [23, 2, 19, 5, 17, 7, 13, 11],
@@ -432,6 +434,30 @@ describe("Platform API bootstrap DB enrollment", () => {
             old.worstCaseListScheduleMs(durations, workers),
           );
         }
+  });
+
+  it("preserves the pinned complete guard's projection when a negative reference is refused", async () => {
+    const fixture = await createFixture(
+      [-100, 3, 3, 3].map((duration, index) => unitFileFor(`negative-reference-${index}`, "test:db:1", duration)),
+      { model: { testFileFixedCostMs: 0, executionUnitFixedCostMs: 0, maxWorkersPerExecutionUnit: 2 } },
+    );
+    const old = await import(
+      pathToFileURL(join(testDirectory, "fixtures/bootstrap-db-schedule-before-subset-reuse.mjs")).href
+    );
+    const result = runFixture(fixture);
+    expect(result.violations).toEqual(expect.arrayContaining([expect.stringContaining("referenceDurationMs")]));
+    expect(JSON.parse(JSON.stringify(result))).toEqual(
+      JSON.parse(
+        JSON.stringify(
+          old.checkBootstrapDbEnrollment({
+            platformApiRoot: fixture.root,
+            manifest: fixture.manifest,
+            executionUnitBootBearingCaseCeilings: fixture.ceilings,
+            scheduleModel: fixture.model,
+          }),
+        ),
+      ),
+    );
   });
 
   it.each([0, 1, 2, 3, 4])(

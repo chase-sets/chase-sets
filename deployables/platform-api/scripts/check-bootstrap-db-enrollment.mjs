@@ -842,6 +842,31 @@ function importsBootstrapHarness(filePath, source, testDirectory, cache) {
 function worstCaseListScheduleMs(durationsMs, workerCount) {
   if (durationsMs.length === 0) return 0;
   if (durationsMs.length <= workerCount) return Math.max(...durationsMs);
+  // Invalid negative references are reported by the guard but still projected.
+  // Preserve those refusal-path values; the partition proof needs nonnegative work.
+  if (durationsMs.some((duration) => duration < 0)) {
+    const complete = (1 << durationsMs.length) - 1;
+    const memo = new Map();
+    function walk(placed, loads) {
+      if (placed === complete) return Math.max(...loads);
+      const key = `${placed}|${loads.join(",")}`;
+      const cached = memo.get(key);
+      if (cached !== undefined) return cached;
+      let worst = 0;
+      const considered = new Set();
+      for (let index = 0; index < durationsMs.length; index += 1) {
+        if (placed & (1 << index) || considered.has(durationsMs[index])) continue;
+        considered.add(durationsMs[index]);
+        const next = [...loads];
+        next[0] += durationsMs[index];
+        next.sort((left, right) => left - right);
+        worst = Math.max(worst, walk(placed | (1 << index), next));
+      }
+      memo.set(key, worst);
+      return worst;
+    }
+    return walk(0, new Array(workerCount).fill(0));
+  }
   if (workerCount === 1) return durationsMs.reduce((sum, duration) => sum + duration, 0);
 
   const complete = (1 << durationsMs.length) - 1;
