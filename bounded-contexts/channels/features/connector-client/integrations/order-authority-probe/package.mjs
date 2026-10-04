@@ -122,8 +122,9 @@ This preparation itself is PENDING_HOST_VERIFIER, not a qualification PASS.
    Confirm extension ID ${id}. Open ${preparation.captureUrl}.
    In that helper's console invoke only: await orderAuthorityCapture.run()
    No arguments. Consent and one known order are browser-native prompts, never console/URL input.
-   The worker counts and latches before dispatch; the 15-minute deadline includes prompts.
-   Installation, opening and reloading make no provider request. Reopens/restarts never authorize another run.
+   Consent and order input complete before begin; cancel or blank input sends nothing and creates no export.
+   The worker counts and latches before dispatch. The 15-minute deadline starts at begin, after both prompts have completed.
+   Installation, opening and reloading make no provider request. After begin, reopens/restarts never authorize another run.
 4. Save exactly 8607-receipt.json and 8607-inventory.json under:
    ${receiptDirectory}
    Only the worker fetches: one session lookup, one first-page search, one selected-order detail. No retries, pagination or undocumented discovery.
@@ -133,6 +134,8 @@ This preparation itself is PENDING_HOST_VERIFIER, not a qualification PASS.
    Host validates the two exports and scans before posting:
    node "${cli}" --verify-export --out "${out}"
 5. Remove extension ${id} at chrome://extensions in this profile and confirm it is absent.
+   Verify that extension ${id} is absent at chrome://extensions before recording removal.
+   Qualification's CDP Extensions.loadUnpacked is session-scoped; manual Load-unpacked persistence was not exercised.
    Closing the inspector is not removal. Close this profile. Host disposes only its verified, host-created directory ${profileDirectory}; never unrelated TEMP or other profiles.
    After observing extension absence and profile disposal, host records the attestation:
    node "${cli}" --record-removal --extension-absent --out "${out}"
