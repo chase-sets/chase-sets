@@ -9,6 +9,7 @@ import type {
 } from "@chase-sets/event-core";
 import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import type { MarketplaceSalesFeeLineSnapshotPayload } from "@chase-sets/event-core";
+import { centsToMoneyAmount, moneyToCents, sumMoneyAmounts } from "@chase-sets/primitives/money";
 import {
   createPaymentsCsatOutcomeFact,
   paymentsCsatOutcomeFactEventType,
@@ -16,6 +17,7 @@ import {
 import {
   assert,
   assertNever,
+  addMoney,
   compareMoney,
   ensureIsoTimestamp,
   normalizeCurrencyCode,
@@ -725,35 +727,19 @@ function arraysEqual(left: readonly string[], right: readonly string[]) {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-function moneyToCents(value: string) {
-  return Math.round(Number.parseFloat(value) * 100);
-}
-
-function centsToMoney(cents: number) {
-  return (cents / 100).toFixed(2);
-}
-
-function addMoney(left: string, right: string) {
-  return centsToMoney(moneyToCents(left) + moneyToCents(right));
-}
-
-function sumMoney(entries: readonly string[]) {
-  return centsToMoney(entries.reduce((sum, value) => sum + moneyToCents(value), 0));
-}
-
 function normalizeOrderMoneyAmounts(entries: readonly OrderMoneyAmount[], fieldName: string): OrderMoneyAmount[] {
-  const amounts = new Map<string, number>();
+  const amounts = new Map<string, bigint>();
   for (const entry of entries) {
     const orderId = normalizeRequiredText(entry.orderId, `${fieldName} must include an order.`) as OrderId;
     const amount = normalizeMoneyAmount(entry.amount, {
       fieldName,
       allowZero: true,
     });
-    amounts.set(orderId, (amounts.get(orderId) ?? 0) + moneyToCents(amount));
+    amounts.set(orderId, (amounts.get(orderId) ?? 0n) + moneyToCents(amount));
   }
   return [...amounts.entries()].map(([orderId, amount]) => ({
     orderId: orderId as OrderId,
-    amount: centsToMoney(amount),
+    amount: centsToMoneyAmount(amount),
   }));
 }
 
@@ -775,7 +761,7 @@ function refundableCapsForState(state: PaymentState): OrderMoneyAmount[] {
 }
 
 function requestedAmountForOrder(state: PaymentState, orderId: OrderId, excludingRefundId?: RefundId | null) {
-  return sumMoney(
+  return sumMoneyAmounts(
     state.refundRequests
       .filter((request) => request.refundId !== excludingRefundId && request.orderIds.includes(orderId))
       .map((request) => request.amount),
@@ -786,7 +772,8 @@ function remainingRefundableAmountForOrder(state: PaymentState, orderId: OrderId
   const cap = moneyForOrder(refundableCapsForState(state), orderId);
   const refunded = moneyForOrder(state.refundedOrderAmounts, orderId);
   const requested = requestedAmountForOrder(state, orderId, excludingRefundId);
-  return centsToMoney(Math.max(0, moneyToCents(cap) - moneyToCents(refunded) - moneyToCents(requested)));
+  const remainingCents = moneyToCents(cap) - moneyToCents(refunded) - moneyToCents(requested);
+  return centsToMoneyAmount(remainingCents < 0n ? 0n : remainingCents);
 }
 
 /**
@@ -803,7 +790,7 @@ export function remainingRefundableAmountForOrders(
   orderIds: readonly OrderId[],
   excludingRefundId?: RefundId | null,
 ): string {
-  return sumMoney(orderIds.map((orderId) => remainingRefundableAmountForOrder(state, orderId, excludingRefundId)));
+  return sumMoneyAmounts(orderIds.map((orderId) => remainingRefundableAmountForOrder(state, orderId, excludingRefundId)));
 }
 
 function assertRefundOrdersBelongToPayment(state: PaymentState, orderIds: readonly OrderId[]) {
@@ -825,14 +812,15 @@ function allocateRefundAmountToOrders(
     }
     const cap = moneyForOrder(refundableCapsForState(state), orderId);
     const refunded = moneyForOrder(state.refundedOrderAmounts, orderId);
-    const availableCents = Math.max(0, moneyToCents(cap) - moneyToCents(refunded));
-    const allocationCents = Math.min(remainingCents, availableCents);
+    const remainingOrderCents = moneyToCents(cap) - moneyToCents(refunded);
+    const availableCents = remainingOrderCents < 0n ? 0n : remainingOrderCents;
+    const allocationCents = remainingCents < availableCents ? remainingCents : availableCents;
     if (allocationCents > 0) {
-      allocations.push({ orderId, amount: centsToMoney(allocationCents) });
+      allocations.push({ orderId, amount: centsToMoneyAmount(allocationCents) });
       remainingCents -= allocationCents;
     }
   }
-  assert(remainingCents === 0, "Refund amount cannot exceed the remaining refundable order amount.");
+  assert(remainingCents === 0n, "Refund amount cannot exceed the remaining refundable order amount.");
   return allocations;
 }
 
@@ -842,9 +830,9 @@ function mergeRefundedOrderAmounts(
 ): OrderMoneyAmount[] {
   const totals = new Map(current.map((entry) => [entry.orderId, moneyToCents(entry.amount)]));
   for (const addition of additions) {
-    totals.set(addition.orderId, (totals.get(addition.orderId) ?? 0) + moneyToCents(addition.amount));
+    totals.set(addition.orderId, (totals.get(addition.orderId) ?? 0n) + moneyToCents(addition.amount));
   }
-  return [...totals.entries()].map(([orderId, amount]) => ({ orderId, amount: centsToMoney(amount) }));
+  return [...totals.entries()].map(([orderId, amount]) => ({ orderId, amount: centsToMoneyAmount(amount) }));
 }
 
 function filterSellerPayoutsForOrders(
@@ -874,7 +862,7 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
       );
       const sellerPayoutAmount = normalizeMoneyAmount(
         command.sellerPayoutAmount ??
-          sellerPayouts.reduce((sum, component) => sum + Number.parseFloat(component.sellerPayoutAmount), 0).toFixed(2),
+          sumMoneyAmounts(sellerPayouts.map((component) => component.sellerPayoutAmount)),
         {
           fieldName: "Seller payout amount",
           allowZero: true,
@@ -1088,13 +1076,13 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
       }
       const remainingPaymentAmount = subtractMoney(
         subtractMoney(state.amount!, state.refundedAmount),
-        sumMoney(state.refundRequests.map((request) => request.amount)),
+        sumMoneyAmounts(state.refundRequests.map((request) => request.amount)),
       );
       assert(
         compareMoney(amount, remainingPaymentAmount) <= 0,
         "Refund amount cannot exceed the remaining refundable payment amount.",
       );
-      const orderRemainingAmount = sumMoney(
+      const orderRemainingAmount = sumMoneyAmounts(
         orderIds.map((orderId) => remainingRefundableAmountForOrder(state, orderId, command.refundId)),
       );
       assert(
