@@ -1010,7 +1010,7 @@ describe("caller inventory (seed/bootstrap/import/reconciliation) — issue #583
       });
       collector(
         filePath,
-        `export { value } from ${JSON.stringify(specifier)}`,
+        `export { value } from "${specifier}"`,
         { registry: releaseQualificationScopeRegistry },
         new Set(),
       );
