@@ -32,17 +32,49 @@ const candidatePaths = [
   "scripts/check-heavy-slot-coverage.test.mjs",
 ];
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
-const git = (root, args) =>
-  execFileSync("git", args, {
+function count(work, key, amount = 1) {
+  if (work) work[key] = (work[key] ?? 0) + amount;
+}
+const git = (root, args, work) => {
+  count(work, "gitProcesses");
+  return execFileSync("git", args, {
     cwd: root,
     env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: 32 * 1024 * 1024,
     windowsHide: true,
   });
-const gitText = (root, args) => git(root, args).toString("utf8").trim();
-const status = (root) => git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]);
-const indexPath = (root) => path.resolve(root, gitText(root, ["rev-parse", "--git-path", "index"]));
+};
+const gitText = (root, args, work) => git(root, args, work).toString("utf8").trim();
+const status = (root, work) => git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"], work);
+
+const proofRepositories = new Map();
+const proofIndexes = new Map();
+const proofBlobs = new Map();
+
+function proofRepository(root, work) {
+  const canonicalRoot = realpathSync(root);
+  const repositoryKey = [
+    canonicalRoot,
+    process.env.GIT_DIR ?? "",
+    process.env.GIT_WORK_TREE ?? "",
+    process.env.GIT_INDEX_FILE ?? "",
+    process.env.GIT_COMMON_DIR ?? "",
+  ].join("\0");
+  const cached = proofRepositories.get(repositoryKey);
+  if (cached) return cached;
+  const metadata = gitText(canonicalRoot, ["rev-parse", "--git-path", "index", "--show-object-format"], work).split(
+    /\r?\n/u,
+  );
+  if (metadata.length !== 2) throw new Error("Git repository metadata has unexpected cardinality");
+  const [reportedIndexPath, objectFormat] = metadata;
+  const indexPath = path.resolve(canonicalRoot, reportedIndexPath);
+  if (objectFormat !== "sha1" && objectFormat !== "sha256")
+    throw new Error(`unsupported Git object format ${objectFormat}`);
+  const repository = { canonicalRoot, indexPath, objectFormat };
+  proofRepositories.set(repositoryKey, repository);
+  return repository;
+}
 
 const recognizedIndexModes = new Set(["100644", "100755", "120000"]);
 function nulRecords(bytes, label) {
@@ -91,17 +123,45 @@ export function reconcileIndexedPathRecords(enumerated, staged) {
   });
 }
 
-function readIndexedPaths(root) {
-  const entries = reconcileIndexedPathRecords(git(root, ["ls-files", "-z"]), git(root, ["ls-files", "--stage", "-z"]));
+function readIndexedPaths(repository, indexSha256, work) {
+  const identity = `${repository.canonicalRoot}\0${indexSha256}\0${repository.objectFormat}`;
+  let entries = proofIndexes.get(identity);
+  if (!entries) {
+    entries = reconcileIndexedPathRecords(
+      git(repository.canonicalRoot, ["ls-files", "-z"], work),
+      git(repository.canonicalRoot, ["ls-files", "--stage", "-z"], work),
+    );
+    proofIndexes.set(identity, entries);
+  } else count(work, "indexCacheHits");
   return entries.map((entry) => {
-    const worktreePath = Buffer.concat([Buffer.from(path.resolve(root) + path.sep), entry.pathBytes]);
-    if (entry.mode === "100644" || entry.mode === "100755") return { ...entry, bytes: readFileSync(worktreePath) };
+    const worktreePath = Buffer.concat([Buffer.from(repository.canonicalRoot + path.sep), entry.pathBytes]);
+    if (entry.mode === "100644" || entry.mode === "100755") {
+      count(work, "regularReads");
+      return { ...entry, bytes: readFileSync(worktreePath) };
+    }
 
     lstatSync(worktreePath);
-    const bytes = git(root, ["cat-file", "blob", entry.oid]);
-    const algorithm = entry.oid.length === 40 ? "sha1" : "sha256";
-    const actualOid = createHash(algorithm).update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
-    if (actualOid !== entry.oid) throw new Error(`Git object mismatch for ${entry.oid}`);
+    count(work, "symlinkLstats");
+    count(work, "uncachedGitProcesses");
+    const blobIdentity = `${identity}\0${entry.pathBytes.toString("hex")}\0${entry.mode}\0${entry.stage}\0${repository.objectFormat}\0${entry.oid}`;
+    let bytes = proofBlobs.get(blobIdentity);
+    if (bytes) {
+      count(work, "blobCacheHits");
+      const actualOid = createHash(repository.objectFormat)
+        .update(`blob ${bytes.length}\0`)
+        .update(bytes)
+        .digest("hex");
+      if (actualOid !== entry.oid) throw new Error(`Git object mismatch for ${entry.oid}`);
+    } else {
+      bytes = git(repository.canonicalRoot, ["cat-file", "blob", entry.oid], work);
+      const actualOid = createHash(repository.objectFormat)
+        .update(`blob ${bytes.length}\0`)
+        .update(bytes)
+        .digest("hex");
+      if (actualOid !== entry.oid) throw new Error(`Git object mismatch for ${entry.oid}`);
+      proofBlobs.set(blobIdentity, bytes);
+      count(work, "blobReads");
+    }
     return { ...entry, bytes };
   });
 }
@@ -113,9 +173,14 @@ export function assertProofArguments(args) {
 export function inspectProofCandidate(root, cwd) {
   assert.equal(realpathSync(cwd), realpathSync(root), "brand foil proof must run from its real repository root");
   assert.equal(realpathSync(gitText(root, ["rev-parse", "--show-toplevel"])), realpathSync(root));
-  const head = gitText(root, ["rev-parse", "--verify", "HEAD^{commit}"]);
-  const tree = gitText(root, ["rev-parse", "HEAD^{tree}"]);
-  const base = gitText(root, ["rev-parse", "--verify", "refs/remotes/origin/main^{commit}"]);
+  const identities = gitText(root, [
+    "rev-parse",
+    "HEAD^{commit}",
+    "HEAD^{tree}",
+    "refs/remotes/origin/main^{commit}",
+  ]).split(/\r?\n/u);
+  assert.equal(identities.length, 3);
+  const [head, tree, base] = identities;
   const mergeBase = gitText(root, ["merge-base", base, head]);
   for (const object of [head, tree, base, mergeBase]) assert.match(object, /^[a-f0-9]{40}$/);
   assert.equal(status(root).length, 0, "brand foil proof requires a clean committed candidate and index");
@@ -123,20 +188,29 @@ export function inspectProofCandidate(root, cwd) {
   return { root: realpathSync(root), head, tree, base, mergeBase, parents };
 }
 
-export function snapshotProofRepository(root) {
-  const index = readFileSync(indexPath(root));
-  const tracked = readIndexedPaths(root);
+export function snapshotProofRepository(root, work) {
+  count(work, "readerCalls");
+  count(work, "uncachedGitProcesses", 3);
+  const repository = proofRepository(root, work);
+  const index = readFileSync(repository.indexPath);
+  count(work, "indexReads");
+  const indexSha256 = hash(index);
+  const tracked = readIndexedPaths(repository, indexSha256, work);
   const digest = createHash("sha256");
   for (const { pathBytes, bytes } of tracked) {
     digest.update(pathBytes).update("\0").update(String(bytes.length)).update("\0").update(bytes);
   }
+  count(work, "uncachedGitProcesses", 3);
+  const identities = gitText(repository.canonicalRoot, ["rev-parse", "HEAD", "HEAD^{tree}"], work).split(/\r?\n/u);
+  assert.equal(identities.length, 2);
+  const [head, tree] = identities;
   return {
-    head: gitText(root, ["rev-parse", "HEAD"]),
-    tree: gitText(root, ["rev-parse", "HEAD^{tree}"]),
+    head,
+    tree,
     files: tracked.length,
     bytes: digest.digest("hex"),
     index: hash(index),
-    status: status(root).toString("hex"),
+    status: status(repository.canonicalRoot, work).toString("hex"),
   };
 }
 
@@ -163,10 +237,10 @@ export function omitBrandFoilRegistration(source) {
   return { source: retained.join(""), retainedSha256: hash(retained.join("")), spans };
 }
 
-export function withProofMutation(root, action, log = console.log) {
+export function withProofMutation(root, action, log = console.log, work) {
   const originalRun = readFileSync(path.join(root, runPath));
-  const originalIndex = readFileSync(indexPath(root));
-  const before = snapshotProofRepository(root);
+  const originalIndex = readFileSync(proofRepository(root, work).indexPath);
+  const before = snapshotProofRepository(root, work);
   assert.equal(existsSync(path.join(root, plantedPath)), false, "planted path must be absent");
   try {
     writeFileSync(path.join(root, plantedPath), aggregateFixture);
@@ -176,7 +250,7 @@ export function withProofMutation(root, action, log = console.log) {
     const failures = [];
     for (const restore of [
       () => writeFileSync(path.join(root, runPath), originalRun),
-      () => writeFileSync(indexPath(root), originalIndex),
+      () => writeFileSync(proofRepository(root, work).indexPath, originalIndex),
       () => rmSync(path.join(root, plantedPath), { force: true }),
     ]) {
       try {
@@ -186,15 +260,15 @@ export function withProofMutation(root, action, log = console.log) {
       }
     }
     if (failures.length) throw new AggregateError(failures, "brand foil clone restoration failed");
-    const after = snapshotProofRepository(root);
+    const after = snapshotProofRepository(root, work);
     assert.deepEqual(after, before, "clone bytes/index/status must be restored");
     assert.equal(existsSync(path.join(root, plantedPath)), false);
     log(`Brand foil proof cleanup: ${JSON.stringify({ before, after, plantedPathAbsent: true })}`);
   }
 }
 
-export function withProofClone(candidate, action, log = console.log) {
-  const parentBefore = snapshotProofRepository(candidate.root);
+export function withProofClone(candidate, action, log = console.log, work) {
+  const parentBefore = snapshotProofRepository(candidate.root, work);
   const temporaryRoot = realpathSync(mkdtempSync(path.join(os.tmpdir(), "brand-foil-proof-")));
   const clone = path.join(temporaryRoot, "checkout");
   try {
@@ -209,7 +283,7 @@ export function withProofClone(candidate, action, log = console.log) {
   } finally {
     const failures = [];
     try {
-      const parentAfter = snapshotProofRepository(candidate.root);
+      const parentAfter = snapshotProofRepository(candidate.root, work);
       assert.deepEqual(parentAfter, parentBefore, "source repository bytes/index/status changed");
       log(`Brand foil proof source preserved: ${JSON.stringify({ before: parentBefore, after: parentAfter })}`);
     } catch (error) {
