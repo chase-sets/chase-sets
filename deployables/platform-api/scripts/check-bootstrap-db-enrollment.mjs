@@ -843,8 +843,12 @@ function worstCaseListScheduleMs(durationsMs, workerCount) {
   if (durationsMs.length === 0) return 0;
   if (durationsMs.length <= workerCount) return Math.max(...durationsMs);
   // Refused references and file sets are still projected. Preserve those values
-  // outside the nonnegative, at-most-16-file domain of the closed model schema.
-  if (durationsMs.length > 16 || durationsMs.some((duration) => duration < 0)) {
+  // outside the nonnegative safe-integer domain, including its total, or 16 files.
+  if (
+    durationsMs.length > 16 ||
+    durationsMs.some((duration) => !Number.isSafeInteger(duration) || duration < 0) ||
+    !Number.isSafeInteger(durationsMs.reduce((sum, duration) => sum + duration, 0))
+  ) {
     const complete = (1 << durationsMs.length) - 1;
     const memo = new Map();
     function walk(placed, loads) {

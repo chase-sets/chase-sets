@@ -464,6 +464,36 @@ describe("Platform API bootstrap DB enrollment", () => {
     }
   });
 
+  it.each([
+    { label: "unsafe duration", durations: [9007199254740992, 1, 1], makespanMs: 9007199254740994 },
+    { label: "unsafe total", durations: [9007199254740991, 2, 2], makespanMs: 9007199254740996 },
+  ])("preserves the pinned complete guard's projections for a refused $label", async ({ durations, makespanMs }) => {
+    const old = await import(
+      pathToFileURL(join(testDirectory, "fixtures/bootstrap-db-schedule-before-subset-reuse.mjs")).href
+    );
+    for (const ordered of [durations, [...durations].reverse()]) {
+      const fixture = await createFixture(
+        ordered.map((duration, index) => unitFileFor(`synthetic-unsafe-reference-${index}`, "test:db:1", duration)),
+        { model: { testFileFixedCostMs: 0, executionUnitFixedCostMs: 0, maxWorkersPerExecutionUnit: 1 } },
+      );
+      const result = runFixture(fixture);
+      expect(result.violations).toEqual(expect.arrayContaining([expect.stringContaining("referenceDurationMs")]));
+      expect(result.schedule.units[0]?.makespanMs).toBe(makespanMs);
+      expect(JSON.parse(JSON.stringify(result))).toEqual(
+        JSON.parse(
+          JSON.stringify(
+            old.checkBootstrapDbEnrollment({
+              platformApiRoot: fixture.root,
+              manifest: fixture.manifest,
+              executionUnitBootBearingCaseCeilings: fixture.ceilings,
+              scheduleModel: fixture.model,
+            }),
+          ),
+        ),
+      );
+    }
+  });
+
   it.each([0, 1, 2, 3, 4])(
     "exact subset schedule equivalence across ordered-vector/model pairs of length %i",
     (length) => {
