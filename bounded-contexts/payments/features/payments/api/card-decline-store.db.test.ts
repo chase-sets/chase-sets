@@ -159,6 +159,12 @@ describe("durable card decline velocity (real Postgres)", () => {
     const handlers = buildPaymentProjectionHandlers(pool);
     for (const event of await createPostgresEventStore({ pool }).readStream({ streamId }))
       await handlers[event.eventType]?.(toTransportEvent(event));
+    await pool.query(
+      `INSERT INTO payments_provider_customers
+      (account_id, provider, provider_customer_reference, display_name, email, created_at, updated_at)
+      VALUES ('acc_decline', 'stripe', 'cus_decline', 'Synthetic customer', NULL, $1, $1)`,
+      [at],
+    );
     await pool.query(`INSERT INTO payments_saved_checkout_instruments
       (instrument_id, account_id, payment_method_category, provider, provider_customer_reference, provider_reference, provider_fingerprint, display_label, confirmation_experience, readiness)
       VALUES ('sci_decline', 'acc_decline', 'card', 'stripe', 'cus_decline', 'pm_decline', 'synthetic_fingerprint', 'Synthetic card', 'off-session-token', 'ready')`);
