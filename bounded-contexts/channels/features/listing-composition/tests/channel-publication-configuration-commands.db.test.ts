@@ -76,7 +76,7 @@ describeDb("channel-publication-configuration-commands real DB", () => {
           event_type: string;
           payload: Record<string, unknown>;
           stream_id: string;
-          stream_version: number;
+          stream_version: string | number;
           global_position: string;
         }>(
           "SELECT event_type,payload,stream_id,stream_version,global_position::text FROM event_store_events AS events WHERE events.global_position > $1::bigint ORDER BY events.global_position LIMIT 100",
@@ -86,7 +86,7 @@ describeDb("channel-publication-configuration-commands real DB", () => {
         for (const row of rows.rows) {
           const event = buildTransportEvent(row.event_type, row.payload, {
             streamId: row.stream_id,
-            streamVersion: row.stream_version,
+            streamVersion: Number(row.stream_version),
             globalPosition: row.global_position,
           });
           await projection[row.event_type]?.(event);

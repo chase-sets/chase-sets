@@ -65,8 +65,8 @@ const tables = [
   `CREATE TABLE IF NOT EXISTS channels_connection_publication_settings (
     connection_id text PRIMARY KEY, title_prefix text NOT NULL, title_suffix text NOT NULL,
     description_footer text NOT NULL, category_allowlist jsonb NOT NULL, excluded_listing_ids jsonb NOT NULL,
-    publish_quantity_cap integer NULL,
-    updated_at timestamptz NOT NULL, last_stream_version bigint NOT NULL
+    updated_at timestamptz NOT NULL, last_stream_version bigint NOT NULL,
+    publish_quantity_cap integer NULL
   )`,
   `CREATE TABLE IF NOT EXISTS channels_channel_mappings (
     connection_id text NOT NULL, dimension text NOT NULL CHECK (dimension IN ('category','condition','attribute')),

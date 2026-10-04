@@ -37,18 +37,41 @@ describeDb("channel-projection-concurrent-write", () => {
   afterAll(async () => closeMultiContextTestPools(pools));
 
   it("publish_quantity_cap migration and read-back upgrades the previous schema and round-trips null and 2", async () => {
+    const settingsColumns = () =>
+      pools.channels.query<{ column_name: string }>(
+        "SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='channels_connection_publication_settings' ORDER BY ordinal_position",
+      );
+    const freshColumns = (await settingsColumns()).rows;
+    expect(freshColumns.map((row) => row.column_name)).toEqual([
+      "connection_id",
+      "title_prefix",
+      "title_suffix",
+      "description_footer",
+      "category_allowlist",
+      "excluded_listing_ids",
+      "updated_at",
+      "last_stream_version",
+      "publish_quantity_cap",
+    ]);
+    await pools.channels.query(
+      `INSERT INTO channels_connection_publication_settings VALUES
+       ('legacy-connection','','','','[]'::jsonb,'[]'::jsonb,now(),1)`,
+    );
+    expect(
+      (await pools.channels.query("SELECT publish_quantity_cap FROM channels_connection_publication_settings")).rows,
+    ).toEqual([{ publish_quantity_cap: null }]);
     await resetMultiContextTestSchemas(pools);
     const migrationId = "20261003_channels_connection_publish_quantity_cap";
     if (!channelsModule.schemaMigrations) throw new Error("Channels migrations are required.");
     const previousModule = {
       ...channelsModule,
-      schemaSql: channelsModule.schemaSql.replace("    publish_quantity_cap integer NULL,\n", ""),
+      schemaSql: channelsModule.schemaSql.replace(",\n    publish_quantity_cap integer NULL", ""),
       schemaMigrations: channelsModule.schemaMigrations
         .filter((migration) => migration.migrationId !== migrationId)
         .map((migration) => ({
           ...migration,
           statements: migration.statements.map((statement) =>
-            statement.replace("    publish_quantity_cap integer NULL,\n", ""),
+            statement.replace(",\n    publish_quantity_cap integer NULL", ""),
           ),
         })),
     };
@@ -60,6 +83,7 @@ describeDb("channel-projection-concurrent-write", () => {
     expect((await columns()).rows).toEqual([]);
     await bootstrapContextDatabase(channelsModule, pools.channels);
     expect((await columns()).rows).toEqual([{ column_name: "publish_quantity_cap" }]);
+    expect((await settingsColumns()).rows).toEqual(freshColumns);
     await bootstrapContextDatabase(channelsModule, pools.channels);
     const migration = channelListingCompositionSchemaMigrations.find((entry) => entry.migrationId === migrationId)!;
     for (const statement of migration.statements) await pools.channels.query(statement);
