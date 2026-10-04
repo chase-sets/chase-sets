@@ -70,7 +70,6 @@ export default {
         "bounded-contexts/payments/routes/marketplace/checkout-payment.tsx": "checkout-boundary",
       },
       paths: ["bounded-contexts/checkout/"],
-      selectOnSharedChange: true,
     },
     {
       id: "buyer-profile",
@@ -91,7 +90,6 @@ export default {
         "bounded-contexts/identity/routes/marketplace/account-shipping-addresses.tsx": "profile-state",
       },
       paths: ["bounded-contexts/identity/"],
-      selectOnSharedChange: true,
     },
     {
       id: "buyer-support-request",
@@ -110,7 +108,6 @@ export default {
         "bounded-contexts/platform-operations/routes/marketplace/account-support-detail.tsx": "support-request",
       },
       paths: ["bounded-contexts/platform-operations/"],
-      selectOnSharedChange: true,
     },
   ],
   excludedRoutes: [
