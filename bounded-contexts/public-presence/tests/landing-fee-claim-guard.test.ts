@@ -46,6 +46,43 @@ describe("landing seller-fee claim guard (#8606)", () => {
     expect(findSellerFeeClaimViolations(probe)).toEqual([]);
   });
 
+  it.each([
+    ["On a $10 card", "$10.00"],
+    ["On a $20 card", "$20.00"],
+    ["On a $10.50 card", "$10.50"],
+  ])("rejects numeric full retention split across the home strip: %s / %s", (price, kept) => {
+    const prefix = "publicPresence.home.sellerEconomics.comparison.";
+    const key = `${prefix}row.youKeep.chaseSets`;
+    const violations = findSellerFeeClaimViolations({
+      [`${prefix}column.metric`]: price,
+      [key]: kept,
+    });
+    expect(violations).toEqual([{ key, rule: "no numeric full-sale retention claim", value: kept }]);
+  });
+
+  it.each([
+    ["publicPresence.home.description", "You keep $10.00 on a $10 card."],
+    ["publicPresence.waitlist.promise", "You keep $20 out of a $20 sale."],
+    ["publicPresence.welcome.referral.share.message", "Keep $10.50 of a $10.50 sale."],
+  ])("rejects an inline numeric full-retention claim at %s", (key, value) => {
+    expect(findSellerFeeClaimViolations({ [key]: value })).toEqual([
+      { key, rule: "no numeric full-sale retention claim", value },
+    ]);
+  });
+
+  it("accepts net retention and does not treat competitor amounts or unrelated prices as Chase Sets retention", () => {
+    const prefix = "publicPresence.home.sellerEconomics.comparison.";
+    expect(
+      findSellerFeeClaimViolations({
+        [`${prefix}column.metric`]: "On a $10 card",
+        [`${prefix}row.youKeep.chaseSets`]: "$9.90",
+        [`${prefix}row.youKeep.ebay`]: "$10.00",
+        "publicPresence.home.description": "You keep $9.90 on a $10 card.",
+        "publicPresence.waitlist.promise": "Find a $10 card or a $10 pack.",
+      }),
+    ).toEqual([]);
+  });
+
   it("does not mistake rates, caps, or money amounts for a 0% claim", () => {
     const probe = {
       "publicPresence.faq.fees.answer":

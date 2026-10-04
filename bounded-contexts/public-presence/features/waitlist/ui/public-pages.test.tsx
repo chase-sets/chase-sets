@@ -689,6 +689,20 @@ describe("public waitlist form migration smoke", () => {
     );
     expect(faqSection.textContent).not.toContain("Listings created during beta keep a 0% seller fee");
     expect(container.textContent).not.toContain("100%");
+    const feeComparisonSection = container.querySelector('[data-public-presence-section="fee_comparison"]');
+    if (!feeComparisonSection) {
+      throw new Error("Expected the fee comparison section to render.");
+    }
+    const keepCells = Array.from(feeComparisonSection.querySelectorAll("tbody tr td"));
+    expect(keepCells.map((cell) => cell.textContent)).toEqual(["You keep", "$9.90", "$8.38", "$8.38"]);
+    expect(keepCells[1]?.textContent).not.toBe("$10.00");
+    expect(feeComparisonSection.textContent).toContain("On a $10 card");
+    expect(feeComparisonSection.textContent).toContain(
+      "Every order funds Order Protection at 1% of item value, paid by the seller.",
+    );
+    expect(faqSection.textContent).toContain(
+      "Every order funds Order Protection at 1% of item value, paid by the seller.",
+    );
   });
 
   it.each([
