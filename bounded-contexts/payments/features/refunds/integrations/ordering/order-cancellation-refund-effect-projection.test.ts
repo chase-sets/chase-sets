@@ -60,7 +60,9 @@ function cancellationEvent(data: Readonly<{ orderId: string; reason?: string }> 
   } as never;
 }
 
-function paymentCapturedEvent() {
+function paymentCapturedEvent(
+  data: Readonly<{ paymentId?: string; orderIds?: readonly string[]; marketplaceCheckoutFeeAmount?: string }> = {},
+) {
   return {
     tenantId: "tnt_test",
     streamId: "payments.payment-pay_1",
@@ -73,6 +75,7 @@ function paymentCapturedEvent() {
       orderIds: ["ord_1", "ord_2"],
       marketplaceCheckoutFeeAmount: "0.99",
       capturedAt: "2026-04-02T00:03:00.000Z",
+      ...data,
     },
     timing: {
       occurredAt: "2026-04-02T00:03:00.000Z",
@@ -100,15 +103,13 @@ describe("payments order cancellation refund effect projection", () => {
         }),
       };
       await expect(
-        buildPaymentsOrderCancellationRefundEffectHandlers(db, { issueRefund } as never)["payments.payment-captured"]!({
-          ...paymentCapturedEvent(),
-          data: {
+        buildPaymentsOrderCancellationRefundEffectHandlers(db, { issueRefund } as never)["payments.payment-captured"]!(
+          paymentCapturedEvent({
             paymentId: "pay_synthetic_money",
             orderIds: ["ord_1"],
             marketplaceCheckoutFeeAmount: amount,
-            capturedAt: "2026-04-02T00:03:00.000Z",
-          },
-        } as never),
+          }),
+        ),
       ).rejects.toThrow();
       expect(issueRefund).not.toHaveBeenCalled();
       expect(db.query.mock.calls.some(([sql]) => /INSERT|UPDATE/.test(sql))).toBe(false);

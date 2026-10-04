@@ -30,7 +30,6 @@ const now = "2026-10-04T12:00:00.000Z";
 const context: EventStoreContext = {
   tenantId: "tnt_synthetic_money" as never,
   audit: { performedByUserId: "usr_synthetic_money" as never, forAccountId: "acc_synthetic_money" as never },
-  trace: null,
 };
 
 function sourceModule(contextName: string) {
@@ -270,7 +269,7 @@ describe("payments money subscription DB proof (synthetic isolated fixtures)", (
         expect.objectContaining({ event_id: poisoned.eventId, state: "blocked", retry_count: 0, resolved_at: null }),
       ]);
       expect(receipt.blocked).toEqual([
-        expect.objectContaining({ stream_id: badStream, state: "blocked", deferred_event_count: "0" }),
+        expect.objectContaining({ stream_id: badStream, state: "blocked", deferred_event_count: 0 }),
       ]);
       expect(BigInt((await runner.refreshStatus()).lastGlobalPosition)).toBeGreaterThanOrEqual(
         BigInt(poisoned.globalPosition),
@@ -282,7 +281,7 @@ describe("payments money subscription DB proof (synthetic isolated fixtures)", (
       receipt = await errors(key);
       expect(receipt.poison).toHaveLength(1);
       expect(receipt.blocked).toEqual([
-        expect.objectContaining({ stream_id: badStream, state: "blocked", deferred_event_count: "1" }),
+        expect.objectContaining({ stream_id: badStream, state: "blocked", deferred_event_count: 1 }),
       ]);
       const degraded = await runner.refreshStatus();
       expect(degraded.state).toBe("degraded");

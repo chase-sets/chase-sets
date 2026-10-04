@@ -475,11 +475,19 @@ function buildOrderRefundCaps(
   }>[],
   marketplaceCheckoutFeeAmount: string,
 ) {
-  const checkoutFeeCents = Number(moneyToCents(marketplaceCheckoutFeeAmount));
-  const orderTotals = orders.map((order) => ({
-    orderId: order.order_id as OrderId,
-    totalCents: Number(moneyToCents(order.total_amount)),
-  }));
+  // Keep the shipped number-floor plus last-order-remainder schedule.
+  // Canonical cents are at most 999999999999, so each narrowing is lossless.
+  // Exact bigint proportional division would shift valid per-order caps.
+
+  const validatedCheckoutFeeCents = moneyToCents(marketplaceCheckoutFeeAmount);
+  const checkoutFeeCents = Number(validatedCheckoutFeeCents);
+  const orderTotals = orders.map((order) => {
+    const validatedOrderTotalCents = moneyToCents(order.total_amount);
+    return {
+      orderId: order.order_id as OrderId,
+      totalCents: Number(validatedOrderTotalCents),
+    };
+  });
   const totalCents = orderTotals.reduce((sum, order) => sum + order.totalCents, 0);
   let allocatedCheckoutFeeCents = 0;
 
