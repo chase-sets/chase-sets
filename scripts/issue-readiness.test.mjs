@@ -850,6 +850,15 @@ describe("predecessor-recorded structural scanner oracle", () => {
     expect(parsed.fields["Scope fence"]).toBe("bounded parser repair");
   });
 
+  it("ends Context at an unrelated level-3 heading", () => {
+    const parsed = parseIssueFormBody(
+      ["## Context", "bounded parser repair", "### Unrelated", "not Context", "## Scope fence", "scope"].join("\n"),
+    );
+
+    expect(parsed.fields.Context).toBe("bounded parser repair");
+    expect(parsed.fields["Scope fence"]).toBe("scope");
+  });
+
   it("the returned structure record uses exact UTF-8 offsets and key order", () => {
     const structure = scanIssueFormStructure("é\r\n## Context\n💩\n漢");
 
@@ -1103,6 +1112,8 @@ describe("issue-readiness/v1 receipt and rule contract", () => {
   it.each([
     "after acceptance.",
     "corpus-r2.json; no lifecycle moment is stated.",
+    "Evidence `later` after acceptance.",
+    "Evidence `TBD` after merge.",
     "Evidence after acceptance `not-a-reference`.",
   ])("does not accept authority evidence without artifact and lifecycle timing: %s", (field) => {
     const body = replaceField(fixture.readyBody, "External authority probe & evidence timing", field);
@@ -1260,6 +1271,62 @@ describe("bounded complete GitHub authority collection", () => {
 });
 
 describe("prospective issue readiness", () => {
+  it.each([
+    ...["corpus-r2.json", "`corpus-r2.json`"].map((artifact) => ({
+      ruleId: "ready-08-authority-probe-timed",
+      body: replaceField(
+        fixture.readyBody,
+        "External authority probe & evidence timing",
+        `${artifact} after acceptance.`,
+      ),
+    })),
+    ...[
+      "after acceptance.",
+      "corpus-r2.json; no lifecycle moment is stated.",
+      "Evidence `later` after acceptance.",
+      "Evidence `TBD` after merge.",
+      "Evidence after acceptance `not-a-reference`.",
+    ].map((field) => ({
+      ruleId: "ready-08-authority-probe-timed",
+      body: replaceField(fixture.readyBody, "External authority probe & evidence timing", field),
+    })),
+    {
+      ruleId: "ready-08-authority-probe-timed",
+      secondaryRuleId: "ready-01-repo-evidence",
+      body: replaceField(
+        fixture.readyBody,
+        "Context",
+        "Context scope.\n### Don't-rebuild pointers\n- scripts/issue-readiness.mjs\n- bounded-contexts/catalog/README.md",
+      ),
+    },
+  ])("prospective CLI matches evaluator for readiness rule matrix ($ruleId)", async ({ ruleId, secondaryRuleId, body }) => {
+    const files = new Map([
+      ["body.md", body],
+      ["metadata.json", JSON.stringify(prospectiveMetadata())],
+    ]);
+    const requests = [];
+    const logs = [];
+    const result = await main({
+      argv: ["--prospective-body", "body.md", "--prospective-metadata", "metadata.json", "--checker-sha", CHECKER_SHA],
+      client: async (...args) => {
+        requests.push(args);
+        throw new Error("prospective parity mode reached GitHub");
+      },
+      readTextFile: async (file) => files.get(file),
+      logger: { log: (value) => logs.push(value), error: (value) => logs.push(value) },
+      now: () => CHECKED_AT,
+    });
+    const cliRecord = JSON.parse(logs[0]);
+    const evaluator = prospectiveResult(body);
+    const findRule = (record, id) => record.checkedRules.find((entry) => entry.id === id);
+
+    expect(result.exitCode).toBe(0);
+    expect(logs).toHaveLength(1);
+    expect(findRule(cliRecord, ruleId)).toEqual(findRule(evaluator, ruleId));
+    if (secondaryRuleId) expect(findRule(cliRecord, secondaryRuleId)).toEqual(findRule(evaluator, secondaryRuleId));
+    expect(requests).toEqual([]);
+  });
+
   it("prospective CLI emits decomposition facts", async () => {
     const files = new Map([
       ["body.md", fixture.readyBody],

@@ -814,10 +814,11 @@ function tier(value) {
 
 function authorityProbeComplete(value) {
   if (exactNone(value, "none — no acceptance criterion depends on an external authority.")) return true;
+  const plain = value.replace(/`([^`\n]*)`/g, "$1");
   const evidence =
     /https:\/\/\S+|\b(?:captured|fixture|artifact|probe output|workflow run)\b|\b[\w.-]+\.(?:json|ya?ml|md|txt|log|csv)\b/i.test(
-      value,
-    ) || evidencePointers(value).size > 0;
+      plain,
+    ) || plain.match(REPO_POINTER) !== null || /(?:^|[^\w])#\d{2,}\b/.test(plain);
   const timing =
     /\b(?:before|during|after|at|when)\b.{0,80}\b(?:dispatch|queue|merge|run|request|event|webhook|lifecycle|implementation|acceptance)\b/i.test(
       value,
