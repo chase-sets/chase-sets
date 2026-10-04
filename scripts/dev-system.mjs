@@ -17,6 +17,7 @@ import {
   buildPlatformChildEnvironment,
   buildRepresentativeSnapshotCommandEnvironment,
   createBrowserE2eProductionIngressDefinitions,
+  createPublicWebDevProcessDefinition,
   isBrowserE2eTarget,
 } from "./dev-system-config.mjs";
 import { readEnvFile } from "./lib/env.mjs";
@@ -233,17 +234,7 @@ const processes = [
     },
     port: sandbox.ports.marketplaceWeb,
   },
-  {
-    name: "public-web",
-    workspace: "@chase-sets/app-public-web",
-    env: {
-      ...sandboxEnv,
-      PLATFORM_API_URL: sandbox.urls.platformApi,
-      VITE_PLATFORM_API_URL: sandbox.urls.platformApi,
-      PORT: String(sandbox.ports.publicWeb),
-    },
-    port: sandbox.ports.publicWeb,
-  },
+  createPublicWebDevProcessDefinition(sandbox, sandboxEnv),
 ];
 
 const devTargets = {
