@@ -171,6 +171,11 @@ const defaultAllowedZeroConsumerExports = [
     reason: "internal layout/commerce media primitive; kept after cart adopted MarketplaceCartLineItem",
   },
   {
+    symbol: "NotificationCenterSheet",
+    reason:
+      "#7869 moved the marketplace notification center to an account route; the shared sheet stays per its scope decision until a separate removal",
+  },
+  {
     symbol: "Sparkline",
     reason: "m111 chart primitive (#4306); first consumer is the item-detail market panel (#4307), landing after this",
   },
