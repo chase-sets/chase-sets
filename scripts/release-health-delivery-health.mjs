@@ -959,6 +959,7 @@ export function renderDeliveryHealthMarkdown(record) {
     "",
     "### First-attempt workflow success (advisory)",
     "",
+    "First-attempt workflow success is completed attempt-1 success over determinate completed success/failure outcomes (failure, timed_out, startup_failure, action_required). Cancelled, skipped, neutral and pending are exclusions.",
     "Attempt-one outcomes of the existing latest-activity run cohort (updated_at ?? completedAt ?? created_at ?? createdAt), not a created-at or first-push cohort. Latest/recovered and attempt-one views use identical selected run IDs. Partial counts are observed only; unknown authority makes the rate unavailable. This is not flake attribution or an SLI/gate.",
     "",
     "| Window | Event | Latest/recovered | Attempt-one | Coverage | Unknown | Exclusions (cancelled / skipped / neutral / pending) |",

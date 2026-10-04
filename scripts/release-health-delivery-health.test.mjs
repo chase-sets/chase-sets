@@ -307,6 +307,7 @@ describe("first-attempt workflow success", () => {
       const rendered = await readFile(markdown, "utf8");
       expect(await readFile(summary, "utf8")).toContain(rendered);
       expect(rendered).toContain("existing latest-activity run cohort");
+      expect(rendered).toContain("completed attempt-1 success over determinate completed success/failure outcomes");
       expect(rendered).toContain("pull_request | 100% (1/1) | 0/1 (0.0%) | complete | 0");
       expect(rendered).toContain("merge_group | 100% (1/1) | 1/1 (100.0%) | complete | 0");
       expect(rendered).toContain("Exclusions (cancelled / skipped / neutral / pending)");
