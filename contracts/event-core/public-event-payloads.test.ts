@@ -1,12 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, expectTypeOf, it } from "vitest";
-import {
-  orderGroupFactRegistry,
-  orderGroupPayloadValidators,
-  type OrderGroupEventPayloads,
-  type OrderGroupFactType,
-} from "../order-groups/index";
+import { orderGroupFactRegistry, type OrderGroupEventPayloads, type OrderGroupFactType } from "../order-groups/index";
 import {
   accountEnforcementReasonCodes,
   accountEnforcementReversalReasonCodes,
@@ -138,19 +133,18 @@ describe("Order Group post-Fulfillment-shard registration", () => {
     }
   });
 
-  it("exports the same runtime codecs through the aggregate and rejects a malformed stored fact", async () => {
-    const aggregate = await import("@chase-sets/event-core/public-event-payloads");
-    expect(aggregate.orderGroupFactRegistry).toBe(orderGroupFactRegistry);
-    expect(aggregate.orderGroupPayloadValidators).toBe(orderGroupPayloadValidators);
-    for (const { type, codec } of Object.values(aggregate.orderGroupFactRegistry)) {
+  it("uses the canonical package codecs for registered public payloads", () => {
+    expectTypeOf<
+      import("@chase-sets/event-core/public-event-payloads").OrderGroupEventPayloads
+    >().toEqualTypeOf<OrderGroupEventPayloads>();
+    for (const { type, codec } of Object.values(orderGroupFactRegistry)) {
       expect(() => codec.decode({ eventType: type, payload: {} })).toThrow();
       expect(() => codec.decode({ eventType: `${type}.v1`, payload: {} })).toThrow();
     }
   });
 
-  it("rejects each closed-schema discriminator through the public aggregate codec", async () => {
-    const { orderGroupFactRegistry: registry } = await import("@chase-sets/event-core/public-event-payloads");
-    const formed = registry["ordering.order-group.formed"];
+  it("rejects each closed-schema discriminator for the public aggregate payload", () => {
+    const formed = orderGroupFactRegistry["ordering.order-group.formed"];
     const payload: ChaseSetsEventPayloads["ordering.order-group.formed"] = {
       contractVersion: "order-group-admission/v1",
       requestId: "request-1",
@@ -191,7 +185,7 @@ describe("Order Group post-Fulfillment-shard registration", () => {
     const { memberOrderIds: members, stagedMemberOrderVersion: staged, formedAt, ...identity } = payload;
     expect(members).toHaveLength(2);
     expect(staged).toBe(1);
-    const aborted = registry["ordering.order-group.admission-aborted"];
+    const aborted = orderGroupFactRegistry["ordering.order-group.admission-aborted"];
     expect(() =>
       aborted.codec.decode({
         eventType: aborted.type,
