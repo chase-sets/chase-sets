@@ -268,10 +268,10 @@ describe("marketplace search", () => {
         kind: "field",
         label: "Finish",
         values: [
-          { id: "Glossy", label: "Glossy", count: 1, selected: false },
-          { id: "Matte", label: "Matte", count: 1, selected: false },
-          { id: "Plain", label: "Plain", count: 1, selected: false },
-          { id: "Textured", label: "Textured", count: 1, selected: false },
+          { id: "glossy", label: "Glossy", count: 1, selected: false },
+          { id: "matte", label: "Matte", count: 1, selected: false },
+          { id: "plain", label: "Plain", count: 1, selected: false },
+          { id: "textured", label: "Textured", count: 1, selected: false },
         ],
       },
     ]);
@@ -297,9 +297,9 @@ describe("marketplace search", () => {
         kind: "field",
         label: "Finish",
         values: [
-          { id: "Matte", label: "Matte", count: 1, selected: false },
-          { id: "Plain", label: "Plain", count: 1, selected: false },
-          { id: "Textured", label: "Textured", count: 1, selected: false },
+          { id: "matte", label: "Matte", count: 1, selected: false },
+          { id: "plain", label: "Plain", count: 1, selected: false },
+          { id: "textured", label: "Textured", count: 1, selected: false },
         ],
       },
     ]);
@@ -327,8 +327,8 @@ describe("marketplace search", () => {
         kind: "field",
         label: "Finish",
         values: [
-          { id: "Plain", label: "Plain", count: 1, selected: false },
-          { id: "Textured", label: "Textured", count: 1, selected: false },
+          { id: "plain", label: "Plain", count: 1, selected: false },
+          { id: "textured", label: "Textured", count: 1, selected: false },
         ],
       },
     ]);
