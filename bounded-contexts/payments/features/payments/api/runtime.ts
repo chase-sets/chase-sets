@@ -8,7 +8,8 @@ import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/outbound-messaging";
-import { createConfiguredInMemoryRateLimiter, recordRateLimitExceeded } from "@chase-sets/http/rate-limit";
+import { recordRateLimitExceeded } from "@chase-sets/http/rate-limit";
+import { cardDeclineSurface, type CardDeclineStore } from "./card-decline-store";
 import type { ProviderWebhookTelemetry, ProviderWebhookTelemetryEvent } from "@chase-sets/http/provider-errors";
 import { decideWebhookPayment, paymentWebhookErrorFromUnknown } from "./webhook-errors";
 import type { PaymentWebhookRunner, PaymentWebhookResult } from "./webhook-transaction";
@@ -124,6 +125,7 @@ import {
 } from "@chase-sets/evidence-window-provider-write";
 
 type PaymentRuntimeDeps = Readonly<{
+  cardDeclineStore: CardDeclineStore;
   runWebhookTransaction: PaymentWebhookRunner;
   evidenceWindowCorrelation?: import("@chase-sets/evidence-window-provider-write").ProviderWriteCorrelation;
   evidenceWindowProviderWrite?: import("@chase-sets/evidence-window-provider-write").EvidenceWindowProviderWrite;
@@ -168,38 +170,25 @@ export class PaymentsRateLimitExceededError extends Error {
   }
 }
 
-const cardDeclineVelocityRateLimiter = createConfiguredInMemoryRateLimiter("payments.card-decline.fingerprint", {
-  max: 5,
-  windowMs: 60 * 60 * 1000,
-});
-
-function enforceCardDeclineVelocity(fingerprint: string | null | undefined) {
-  const normalized = fingerprint?.trim();
-  if (!normalized) {
-    return;
-  }
-  const decision = cardDeclineVelocityRateLimiter.peek(`card:${normalized}`);
-  if (decision.limited) {
-    recordRateLimitExceeded("payments.card-decline.fingerprint");
-    throw new PaymentsRateLimitExceededError("payments.card-decline.fingerprint", decision.retryAfterSeconds);
+export class PaymentDeclineLimitUnavailableError extends Error {
+  readonly code = "payment_decline_limit_unavailable";
+  constructor() {
+    super("Payment attempts are temporarily unavailable. Please retry later.");
+    this.name = "PaymentDeclineLimitUnavailableError";
   }
 }
 
-function recordCardDeclineVelocity(
-  method:
-    | Readonly<{
-        paymentMethodCategory?: string | null;
-        paymentMethodFingerprint?: string | null;
-      }>
-    | null
-    | undefined,
-) {
-  if (method?.paymentMethodCategory !== "card" || !method.paymentMethodFingerprint?.trim()) {
-    return;
+async function enforceCardDeclineVelocity(store: CardDeclineStore, fingerprint: string | null | undefined) {
+  if (!fingerprint?.trim()) return;
+  let decision;
+  try {
+    decision = await store.check(fingerprint);
+  } catch {
+    throw new PaymentDeclineLimitUnavailableError();
   }
-  const decision = cardDeclineVelocityRateLimiter.check(`card:${method.paymentMethodFingerprint.trim()}`);
-  if (decision.limited) {
-    recordRateLimitExceeded("payments.card-decline.fingerprint");
+  if (decision) {
+    recordRateLimitExceeded(cardDeclineSurface);
+    throw new PaymentsRateLimitExceededError(cardDeclineSurface, decision.retryAfterSeconds);
   }
 }
 
@@ -1776,7 +1765,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         instrumentId: params.savedCheckoutInstrumentId,
         paymentMethodCategory,
       });
-      enforceCardDeclineVelocity(savedCheckoutInstrument?.provider_fingerprint ?? null);
+      await enforceCardDeclineVelocity(deps.cardDeclineStore, savedCheckoutInstrument?.provider_fingerprint ?? null);
       const shouldSavePaymentMethod =
         Boolean(params.savePaymentMethodForFuture) &&
         !savedCheckoutInstrument &&
@@ -2399,6 +2388,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
                 webhookEvent.providerObjectReference ??
                 webhookEvent.processorPaymentReference),
         };
+        await deps.cardDeclineStore.record(webhookEvent);
         const outerDeps = deps;
         const committed = await deps.runWebhookTransaction(inboxEntry, async (transaction) => {
           const deps = { ...outerDeps, db: transaction.db, eventStore: transaction.eventStore };
@@ -2756,9 +2746,6 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
 
           return { received: true, ignored: false };
         });
-        if (!committed.result.ignored && webhookEvent.kind === "payment-failed") {
-          recordCardDeclineVelocity(webhookEvent.savedPaymentMethod);
-        }
         recordWebhookTelemetry({
           endpoint: "payments",
           failureClass: committed.result.failure_class ?? null,
