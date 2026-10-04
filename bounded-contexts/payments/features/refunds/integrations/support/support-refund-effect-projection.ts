@@ -9,7 +9,7 @@ import type { RefundCausationInput } from "../../domain/causation";
 import { refundIdForRemedy } from "../../domain/causation";
 import { getCapturedPaymentByOrderId, getOrderPaymentInput } from "../../../payments/read-model/queries";
 import { recordRefundEffectFailure } from "../refund-effect-retry";
-
+import { moneyToCents, centsToMoneyAmount, compareMoneyAmounts, normalizeMoneyAmount } from "@chase-sets/primitives/money";
 // `cancel-order` is intentionally excluded: it is driven through order
 // cancellation (ordering emits `ordering.order.cancelled`, which the
 // cancellation refund effect handles), so the buyer is refunded — including the
@@ -31,19 +31,19 @@ const REMEDY_REFUND_RELEASED_REASON_CODE = "platform-coverage-remedy-refund-rele
 const immediateRefundResolutionTypes = new Set(["full-refund", "partial-refund"]);
 
 function compareMoney(left: string, right: string) {
-  return Number.parseFloat(left) - Number.parseFloat(right);
+  moneyToCents(left);
+  moneyToCents(right);
+  return compareMoneyAmounts(left, right);
 }
 
 function minMoney(left: string, right: string) {
-  return Math.min(Number.parseFloat(left), Number.parseFloat(right)).toFixed(2);
+  return normalizeMoneyAmount(compareMoney(left, right) <= 0 ? left : right);
 }
 
-function moneyToCents(value: string) {
-  return Math.round(Number.parseFloat(value) * 100);
-}
-
-function centsToMoney(cents: number) {
-  return (cents / 100).toFixed(2);
+function clampMoneyDifference(left: string, right: string) {
+  const remainingCents = moneyToCents(left) - moneyToCents(right);
+  const clampedCents = remainingCents < 0n ? 0n : remainingCents;
+  return centsToMoneyAmount(clampedCents);
 }
 
 function orderMoneyAmount(entries: readonly { orderId: string; amount: string }[] | undefined, orderId: string) {
@@ -60,7 +60,7 @@ function remainingRefundableOrderAmount(
 ) {
   const cap = payment.order_refund_caps.length > 0 ? orderMoneyAmount(payment.order_refund_caps, orderId) : fallbackCap;
   const refunded = orderMoneyAmount(payment.order_refunded_amounts, orderId);
-  return centsToMoney(Math.max(0, moneyToCents(cap) - moneyToCents(refunded)));
+  return clampMoneyDifference(cap, refunded);
 }
 
 export function createPaymentsSupportRefundEffectId(supportRequestId: string): string {
@@ -377,7 +377,7 @@ export function buildPaymentsSupportRefundEffectHandlers(
         postageCurrency: string | null;
         readyAt: string;
       };
-      const amount = centsToMoney(data.postageAmountCents ?? 0);
+      const amount = centsToMoneyAmount(data.postageAmountCents ?? 0);
       await db.query(
         `WITH source AS (
            UPDATE payments_return_label_sources
@@ -453,7 +453,7 @@ export function buildPaymentsSupportRefundEffectHandlers(
         data.resolution.resolutionType === "partial-refund"
           ? data.resolution.refundAmount
           : (data.resolution.refundAmount ?? orderInput.total_amount);
-      if (!requestedAmount || compareMoney(requestedAmount, "0.00") <= 0) {
+      if (requestedAmount == null || compareMoney(requestedAmount, "0.00") <= 0) {
         await insertSkippedSupportRefundEffect(db, {
           supportRequestId: data.supportRequestId,
           orderId: data.orderId,
@@ -700,8 +700,8 @@ export function buildPaymentsSupportRefundEffectHandlers(
       // transit, so cap it again before ever calling issueRefund.
       const remainingOrderAmount = remainingRefundableOrderAmount(payment, data.orderId, orderInput.total_amount);
       const grossAmount = minMoney(pending.requested_amount, remainingOrderAmount);
-      const amount = centsToMoney(
-        Math.max(0, moneyToCents(grossAmount) - moneyToCents(pending.return_shipping_deduction_amount ?? "0.00")),
+      const amount = clampMoneyDifference(
+        grossAmount, pending.return_shipping_deduction_amount ?? "0.00",
       );
       if (compareMoney(amount, "0.00") <= 0) {
         await db.query(

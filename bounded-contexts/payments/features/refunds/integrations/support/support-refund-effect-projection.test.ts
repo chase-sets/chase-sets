@@ -21,6 +21,80 @@ function baseEvent() {
 }
 
 describe("payments support refund effect projection", () => {
+  async function resolveMoney(requested: string, total: string, cap: string, refunded: string) {
+    const issueRefund = vi.fn(async (_input: { amount: string }) => ({
+      outcome: "requested", refundId: "rfd_synthetic_ac6", version: 1,
+    }));
+    const db = {
+      query: vi.fn(async (sql: string, _values?: readonly unknown[]) => {
+        if (sql.includes("FROM payments_payment_pages")) return { rows: [{
+          payment_id: "pay_synthetic_ac6",
+          order_refund_caps: [{ orderId: "ord_synthetic_ac6", amount: cap }],
+          order_refunded_amounts: [{ orderId: "ord_synthetic_ac6", amount: refunded }],
+        }] };
+        if (sql.includes("FROM payments_order_inputs")) return { rows: [{ total_amount: total }] };
+        if (sql.includes("INSERT INTO payments_support_refund_effects")) return {
+          rowCount: 1, rows: [{ support_request_id: "sup_synthetic_ac6", refund_id: "rfd_synthetic_ac6" }],
+        };
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    const invoke = () => buildPaymentsSupportRefundEffectHandlers(db, { issueRefund } as never)[
+      "support.support-request.resolved"
+    ]!({ ...baseEvent(), data: {
+      supportRequestId: "sup_synthetic_ac6", orderId: "ord_synthetic_ac6",
+      resolution: { resolutionType: "partial-refund", refundAmount: requested, resolvedAt: "2026-05-31T14:00:00.000Z" },
+    } } as never);
+    return { db, issueRefund, invoke };
+  }
+
+  it("support refund effect projection minimum and comparison replacements are value identical", async () => {
+    for (const [requested, total, cap, refunded, expected] of [
+      ["12.99", "100.00", "100.00", "99.00", "1.00"],
+      ["01.00", "2.00", "2.00", "0.00", "1.00"],
+      ["2.00", "1.00", "2.00", "0.00", "1.00"],
+      ["1.00", "2.00", "2.00", "0.00", "1.00"],
+      ["9999999999.99", "9999999999.99", "9999999999.99", "9999999999.98", "0.01"],
+    ]) {
+      const { db, issueRefund, invoke } = await resolveMoney(requested!, total!, cap!, refunded!);
+      await invoke();
+      const insert = db.query.mock.calls.find(([sql]) => sql.includes("INSERT INTO payments_support_refund_effects"));
+      expect.soft(insert![1]![6]).toBe(expected);
+      expect.soft(issueRefund.mock.calls[0]![0].amount).toBe(expected);
+    }
+    const negative = await resolveMoney("-1.00", "2.00", "2.00", "0.00");
+    await expect(negative.invoke()).rejects.toThrow();
+    expect(negative.issueRefund).not.toHaveBeenCalled();
+  });
+
+  it("payments money consolidation applies the ruled rejection behavior per module class", async () => {
+    for (const amount of ["1.001", "-1.00", "10000000000.00", "", "not-money", "1e2", "+1.00"]) {
+      for (const inputs of [
+        [amount, "2.00", "2.00", "0.00"], ["1.00", amount, "2.00", "0.00"],
+        ["1.00", "2.00", amount, "0.00"], ["1.00", "2.00", "2.00", amount],
+      ]) {
+        const { db, issueRefund, invoke } = await resolveMoney(inputs[0]!, inputs[1]!, inputs[2]!, inputs[3]!);
+        await expect(invoke()).rejects.toThrow();
+        expect(issueRefund).not.toHaveBeenCalled();
+        expect(db.query.mock.calls.some(([sql]) => /INSERT|UPDATE/.test(sql))).toBe(false);
+      }
+    }
+    for (const [cents, expected] of [[null, "0.00"], [0, "0.00"], [1299, "12.99"], [999999999999, "9999999999.99"]] as const) {
+      const db = { query: vi.fn(async (_sql: string, _values?: readonly unknown[]) => ({ rows: [] })) };
+      await buildPaymentsSupportRefundEffectHandlers(db, {} as never)["fulfillment.return-shipment.label-ready.v1"]!({
+        ...baseEvent(), data: { returnShipmentId: "rsh_synthetic_money", postageAmountCents: cents },
+      } as never);
+      expect(db.query.mock.calls[0]![1]).toContain(expected);
+    }
+    for (const cents of [-1, 12.5, Number.MAX_SAFE_INTEGER + 1, 1000000000000, NaN, Infinity, -Infinity]) {
+      const db = { query: vi.fn(async () => ({ rows: [] })) };
+      await expect(buildPaymentsSupportRefundEffectHandlers(db, {} as never)["fulfillment.return-shipment.label-ready.v1"]!({
+        ...baseEvent(), data: { returnShipmentId: "rsh_synthetic_money", postageAmountCents: cents },
+      } as never)).rejects.toThrow();
+      expect(db.query).not.toHaveBeenCalled();
+    }
+  });
+
   it("records a concrete support refund effect id for launch evidence", async () => {
     const issueRefund = vi.fn(async () => ({ outcome: "requested", refundId: "rfd_1", version: 1, amount: "12.00" }));
     const db = {

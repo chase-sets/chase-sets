@@ -1,7 +1,7 @@
 import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
-
+import { normalizeMoneyAmount, sumMoneyAmounts } from "@chase-sets/primitives/money";
 function paymentEntryAddressSnapshot(address: AddressSnapshot | null | undefined) {
   if (!address) {
     return null;
@@ -157,16 +157,16 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
           data.protectionAmount ?? data.commercialTermsSnapshot.protectionAmount ?? "0.00",
           data.protectionAllowanceAmount ?? data.commercialTermsSnapshot.protectionAllowanceAmount ?? "0.00",
           data.protectionOverageAmount ?? data.commercialTermsSnapshot.protectionOverageAmount ?? "0.00",
-          data.commercialTermsSnapshot.sellerPayoutAmount ??
-            (
-              Number.parseFloat(data.commercialTermsSnapshot.sellerNetAmount) +
-              Number.parseFloat(
+          normalizeMoneyAmount(data.commercialTermsSnapshot.sellerPayoutAmount ??
+            sumMoneyAmounts([
+              data.commercialTermsSnapshot.sellerNetAmount,
+              (
                 data.commercialTermsSnapshot.sellerShippingPayoutAmount ??
                   data.commercialTermsSnapshot.shippingAllowanceAmount ??
                   data.shippingAllowanceAmount ??
-                  "0.00",
+                  "0.00"
               )
-            ).toFixed(2),
+            ])),
           data.commercialTermsSnapshot.shippingAllowancePercentageBps ?? 500,
           data.commercialTermsSnapshot.termsScheduleId,
           data.commercialTermsSnapshot.termsAgreementId,

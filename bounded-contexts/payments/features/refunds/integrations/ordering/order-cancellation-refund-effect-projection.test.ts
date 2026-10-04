@@ -87,6 +87,28 @@ function paymentCapturedEvent() {
 }
 
 describe("payments order cancellation refund effect projection", () => {
+  it("payments money consolidation applies the ruled rejection behavior per module class", async () => {
+    for (const amount of ["1.001", "-1.00", "10000000000.00", "", "not-money", "1e2", "+1.00"]) {
+      const issueRefund = vi.fn();
+      const db = { query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM payments_order_inputs")) return {
+          rows: [{ order_id: "ord_1", total_amount: "1.00", status: "cancelled" }],
+        };
+        return { rows: [] };
+      }) };
+      await expect(buildPaymentsOrderCancellationRefundEffectHandlers(db, { issueRefund } as never)[
+        "payments.payment-captured"
+      ]!({
+        ...paymentCapturedEvent(), data: {
+          paymentId: "pay_synthetic_money", orderIds: ["ord_1"], marketplaceCheckoutFeeAmount: amount,
+          capturedAt: "2026-04-02T00:03:00.000Z",
+        },
+      } as never)).rejects.toThrow();
+      expect(issueRefund).not.toHaveBeenCalled();
+      expect(db.query.mock.calls.some(([sql]) => /INSERT|UPDATE/.test(sql))).toBe(false);
+    }
+  });
+
   it("refunds a seller-cannot-fulfill cancellation plus its allocated checkout fee once", async () => {
     const issueRefund = vi.fn(async () => ({ outcome: "requested", refundId: "rfd_1", version: 2, amount: "10.33" }));
     const db = {

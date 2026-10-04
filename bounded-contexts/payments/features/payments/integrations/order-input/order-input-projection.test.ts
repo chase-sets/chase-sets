@@ -13,6 +13,37 @@ function storedEvent(eventType: string, data: Record<string, unknown>) {
 }
 
 describe("payments order input projection", () => {
+  it("order input projection never persists a non-money seller payout amount", async () => {
+    const rejected = ["1.001", "-1.00", "10000000000.00", "", "not-money", "1e2", "+1.00"];
+    const cases = rejected.flatMap((amount) => [
+      { sellerNetAmount: amount, sellerShippingPayoutAmount: "0.00" },
+      { sellerNetAmount: "0.00", sellerShippingPayoutAmount: amount },
+      { sellerNetAmount: "0.00", sellerPayoutAmount: amount },
+    ]);
+    cases.push({ sellerNetAmount: "9999999999.99", sellerShippingPayoutAmount: "0.01" });
+    for (const commercialTermsSnapshot of cases) {
+      const db = { query: vi.fn(async () => ({ rows: [] })) };
+      const handler = buildPaymentsOrderInputProjectionHandlers(db)["ordering.order.created"]!;
+      await expect(handler(storedEvent("ordering.order.created", {
+        orderId: "ord_synthetic_money", commercialTermsSnapshot,
+      }))).rejects.toThrow();
+      expect(db.query).not.toHaveBeenCalled();
+    }
+    for (const [net, shipping, payout, expected] of [
+      ["12.99", "0.01", undefined, "13.00"],
+      ["01.00", "00.10", undefined, "1.10"],
+      ["1.00", "0.00", "01.00", "1.00"],
+      ["9999999999.99", "0.00", undefined, "9999999999.99"],
+    ]) {
+      const db = { query: vi.fn(async (_sql: string, _values?: readonly unknown[]) => ({ rows: [] })) };
+      await buildPaymentsOrderInputProjectionHandlers(db)["ordering.order.created"]!(storedEvent("ordering.order.created", {
+        orderId: "ord_synthetic_money",
+        commercialTermsSnapshot: { sellerNetAmount: net, sellerShippingPayoutAmount: shipping, sellerPayoutAmount: payout },
+      }));
+      expect(db.query.mock.calls[0]![1]![20]).toBe(expected);
+    }
+  });
+
   it("stores Ordering sales tax for Payments-owned account order overlays", async () => {
     const db = {
       query: vi.fn(async () => ({ rows: [] })),
