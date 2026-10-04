@@ -7,6 +7,7 @@ import type {
   ProviderAdapter,
   ProviderImportPlan,
   ProviderPayloadEnvelope,
+  ProviderPayloadFetchProgress,
 } from "./provider-adapter";
 import {
   createReferenceCardsProviderAdapter,
@@ -629,66 +630,138 @@ describe("ProviderAdapterRegistry", () => {
     ]);
   });
 
-  it("settles TCGplayer set imports when authoritative details exclude generic search candidates", async () => {
-    const progress: unknown[] = [];
-    const cardSummary = {
-      ...tcgplayerAutomationResponseFixtures.productSearch.results[0].results[0],
-      productId: 610101,
-      productName: "Charizard",
-      productLineId: 3,
-      productLineName: "Pokemon",
-      productTypeName: "Products",
-      setId: 604,
-      setName: "Base Set",
-      sealed: false,
-    };
-    const sealedSummary = {
-      ...cardSummary,
-      productId: 610102,
-      productName: "Base Set Theme Deck",
-    };
-    const details = new Map<number, TcgplayerAutomationProductDetail>([
-      [
-        cardSummary.productId,
-        {
-          ...tcgplayerAutomationResponseFixtures.productDetail,
-          ...cardSummary,
-          productTypeName: "Cards",
-          setCode: "BS",
-          listings: 42,
+  it.each([0, 1, 2])(
+    "settles TCGplayer set imports when authoritative details exclude generic search candidates (count %i)",
+    async (excludedCount) => {
+      const progress: unknown[] = [];
+      const cardSummary = {
+        ...tcgplayerAutomationResponseFixtures.productSearch.results[0].results[0],
+        productId: 610101,
+        productName: "Charizard",
+        productLineId: 3,
+        productLineName: "Pokemon",
+        productTypeName: "Products",
+        setId: 604,
+        setName: "Base Set",
+        sealed: false,
+      };
+      const sealedSummary = {
+        ...cardSummary,
+        productId: 610102,
+        productName: "Base Set Theme Deck",
+      };
+      const details = new Map<number, TcgplayerAutomationProductDetail>([
+        [
+          cardSummary.productId,
+          {
+            ...tcgplayerAutomationResponseFixtures.productDetail,
+            ...cardSummary,
+            productTypeName: excludedCount === 2 ? "Sealed Products" : "Cards",
+            sealed: excludedCount === 2,
+            setCode: "BS",
+            listings: 42,
+          },
+        ],
+        [
+          sealedSummary.productId,
+          {
+            ...tcgplayerAutomationResponseFixtures.productDetail,
+            ...sealedSummary,
+            productTypeName: excludedCount > 0 ? "Sealed Products" : "Cards",
+            sealed: excludedCount > 0,
+            setCode: "BS",
+            listings: 7,
+          },
+        ],
+      ]);
+      const adapter = createTcgplayerProviderAdapter({
+        loadProfileVersions: async () => [requireTcgplayerPokemonProfileVersion()],
+        client: {
+          ...tcgplayerClient(),
+          listAllProducts: async () => [cardSummary, sealedSummary],
+          getProductDetail: async ({ productId }) => {
+            const detail = details.get(productId);
+            if (!detail) {
+              throw new Error(`Unexpected product detail fetch for ${productId}.`);
+            }
+            return detail;
+          },
         },
-      ],
-      [
-        sealedSummary.productId,
+      });
+
+      const plan = await adapter.planImport({
+        unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        scopeKey: "set-name",
+        values: { productLineId: "3", productLineName: "Pokemon", setName: "Base Set" },
+      });
+      const payloads = await collectPayloads(
+        adapter.fetchPayloads(plan, {
+          onProgress: (event) => {
+            progress.push(event);
+          },
+        }),
+      );
+
+      expect(payloads.map((envelope) => envelope.externalKey)).toEqual(
+        excludedCount === 0 ? ["product:610101", "product:610102"] : excludedCount === 1 ? ["product:610101"] : [],
+      );
+      expect(payloads.every((envelope) => envelope.payload.kind === "product-detail")).toBe(true);
+      expect(progress).toEqual([
+        { phase: "fetching", completed: 0, total: 2, currentLabel: "Base Set", outOfUnitExcludedCount: 0 },
         {
-          ...tcgplayerAutomationResponseFixtures.productDetail,
-          ...sealedSummary,
-          productTypeName: "Sealed Products",
-          sealed: true,
-          setCode: "BS",
-          listings: 7,
+          phase: "fetching",
+          completed: 1,
+          total: 2,
+          currentLabel: "Charizard",
+          outOfUnitExcludedCount: excludedCount === 2 ? 1 : 0,
         },
-      ],
-    ]);
+        {
+          phase: "fetching",
+          completed: 2,
+          total: 2,
+          currentLabel: "Base Set Theme Deck",
+          outOfUnitExcludedCount: excludedCount,
+        },
+      ]);
+      if (excludedCount > 0) {
+        const directProgress: unknown[] = [];
+        const directPlan = await adapter.planImport({
+          unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+          scopeKey: "product",
+          values: { productId: "610102" },
+        });
+        const rejected = await collectPayloads(
+          adapter.fetchPayloads(directPlan, {
+            onProgress: (event) => {
+              directProgress.push(event);
+            },
+          }),
+        );
+        expect(rejected).toEqual([
+          expect.objectContaining({
+            payload: expect.objectContaining({ kind: "product-detail-failure" }),
+          }),
+        ]);
+        expect(directProgress).toEqual([expect.objectContaining({ outOfUnitExcludedCount: 0 })]);
+      }
+    },
+  );
+
+  it("keeps TCGplayer detail exceptions separate from out-of-unit exclusions", async () => {
+    const progress: ProviderPayloadFetchProgress[] = [];
     const adapter = createTcgplayerProviderAdapter({
       loadProfileVersions: async () => [requireTcgplayerPokemonProfileVersion()],
       client: {
         ...tcgplayerClient(),
-        listAllProducts: async () => [cardSummary, sealedSummary],
-        getProductDetail: async ({ productId }) => {
-          const detail = details.get(productId);
-          if (!detail) {
-            throw new Error(`Unexpected product detail fetch for ${productId}.`);
-          }
-          return detail;
+        getProductDetail: async () => {
+          throw new Error("Synthetic detail exception.");
         },
       },
     });
-
     const plan = await adapter.planImport({
       unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
       scopeKey: "set-name",
-      values: { productLineId: "3", productLineName: "Pokemon", setName: "Base Set" },
+      values: { productLineId: "3", productLineName: "Pokemon", setName: "Prismatic Evolutions" },
     });
     const payloads = await collectPayloads(
       adapter.fetchPayloads(plan, {
@@ -697,18 +770,10 @@ describe("ProviderAdapterRegistry", () => {
         },
       }),
     );
-
-    expect(payloads).toEqual([
-      expect.objectContaining({
-        externalKey: "product:610101",
-        payload: expect.objectContaining({ kind: "product-detail" }),
-      }),
-    ]);
-    expect(progress).toEqual([
-      { phase: "fetching", completed: 0, total: 2, currentLabel: "Base Set" },
-      { phase: "fetching", completed: 1, total: 2, currentLabel: "Charizard" },
-      { phase: "fetching", completed: 2, total: 2, currentLabel: "Base Set Theme Deck" },
-    ]);
+    expect(payloads.length).toBeGreaterThan(0);
+    expect(payloads.every((envelope) => envelope.payload.kind === "product-detail-failure")).toBe(true);
+    expect(progress).toEqual(expect.arrayContaining([expect.objectContaining({ outOfUnitExcludedCount: 0 })]));
+    expect(progress.every((event) => event.outOfUnitExcludedCount === 0)).toBe(true);
   });
 
   it("serves TCGplayer Magic single-card transport through the active profile unit", async () => {
@@ -843,8 +908,8 @@ describe("ProviderAdapterRegistry", () => {
       }),
     ]);
     expect(progress).toEqual([
-      { phase: "fetching", completed: 0, total: 1, currentLabel: "Time Spiral" },
-      { phase: "fetching", completed: 1, total: 1, currentLabel: "Fury Sliver" },
+      { phase: "fetching", completed: 0, total: 1, currentLabel: "Time Spiral", outOfUnitExcludedCount: 0 },
+      { phase: "fetching", completed: 1, total: 1, currentLabel: "Fury Sliver", outOfUnitExcludedCount: 0 },
     ]);
   });
 
@@ -953,8 +1018,14 @@ describe("ProviderAdapterRegistry", () => {
       }),
     ]);
     expect(progress).toEqual([
-      { phase: "fetching", completed: 0, total: 1, currentLabel: "Time Spiral" },
-      { phase: "fetching", completed: 1, total: 1, currentLabel: "Time Spiral Booster Pack" },
+      { phase: "fetching", completed: 0, total: 1, currentLabel: "Time Spiral", outOfUnitExcludedCount: 0 },
+      {
+        phase: "fetching",
+        completed: 1,
+        total: 1,
+        currentLabel: "Time Spiral Booster Pack",
+        outOfUnitExcludedCount: 0,
+      },
     ]);
 
     const rejectedPlan = await adapter.planImport({
@@ -1327,8 +1398,14 @@ describe("ProviderAdapterRegistry", () => {
       planKey: "tcgplayer:set:68:Romance Dawn",
     });
     expect(progress).toEqual([
-      { phase: "fetching", completed: 0, total: 1, currentLabel: "Romance Dawn" },
-      { phase: "fetching", completed: 1, total: 1, currentLabel: "Romance Dawn Booster Box" },
+      { phase: "fetching", completed: 0, total: 1, currentLabel: "Romance Dawn", outOfUnitExcludedCount: 0 },
+      {
+        phase: "fetching",
+        completed: 1,
+        total: 1,
+        currentLabel: "Romance Dawn Booster Box",
+        outOfUnitExcludedCount: 0,
+      },
     ]);
 
     const rejectedPlan = await onePieceAdapter.planImport({
@@ -1388,8 +1465,8 @@ describe("ProviderAdapterRegistry", () => {
       }),
     ]);
     expect(progress).toEqual([
-      { phase: "fetching", completed: 0, total: 1, currentLabel: "Product 610001" },
-      { phase: "fetching", completed: 1, total: 1, currentLabel: "Eevee ex" },
+      { phase: "fetching", completed: 0, total: 1, currentLabel: "Product 610001", outOfUnitExcludedCount: 0 },
+      { phase: "fetching", completed: 1, total: 1, currentLabel: "Eevee ex", outOfUnitExcludedCount: 0 },
     ]);
   });
 

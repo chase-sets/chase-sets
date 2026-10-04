@@ -380,6 +380,7 @@ export function createSourceObservationProviderImportRuntime({
     observedAtForEnvelope?: (envelope: ProviderPayloadEnvelope) => string;
   }): Promise<SourceObservationIntegrationJobOutcome> {
     let providerUsagePlan: ProviderImportPlan | null = null;
+    let outOfUnitExcludedCount: number | undefined;
     const providerUsageRequestKeys = new Set<string>();
     try {
       const adapter = input.adapterOverride ?? providerAdapterForProfileVersion(input.providerProfileVersion);
@@ -399,12 +400,16 @@ export function createSourceObservationProviderImportRuntime({
         [];
 
       for await (const envelope of adapter.fetchPayloads(plan, {
-        onProgress: (progress) =>
-          input.onProgress?.({
+        onProgress: (progress) => {
+          if (progress.outOfUnitExcludedCount !== undefined) {
+            outOfUnitExcludedCount = progress.outOfUnitExcludedCount;
+          }
+          return input.onProgress?.({
             currentName: progress.currentLabel ?? input.target.name,
             completed: progress.completed,
             total: progress.total,
-          }),
+          });
+        },
       })) {
         const observedAt = input.observedAtForEnvelope?.(envelope) ?? importObservedAt;
         const providerRequestKey = envelope.provenance.sourceUrl?.trim();
@@ -473,6 +478,7 @@ export function createSourceObservationProviderImportRuntime({
         expansionId: input.target.targetId,
         status: payloadFailures.length > 0 ? "failed" : observed > 0 ? "imported" : "skipped",
         observed,
+        ...(outOfUnitExcludedCount === undefined ? {} : { outOfUnitExcludedCount }),
         reapplied: 0,
         reason:
           payloadFailures.length > 0
@@ -497,6 +503,7 @@ export function createSourceObservationProviderImportRuntime({
         expansionId: input.target.targetId,
         status: "failed",
         observed: 0,
+        ...(outOfUnitExcludedCount === undefined ? {} : { outOfUnitExcludedCount }),
         reapplied: 0,
         reason: error instanceof Error ? error.message : "Provider adapter import failed.",
         providerUsageEvidence: providerUsagePlan
