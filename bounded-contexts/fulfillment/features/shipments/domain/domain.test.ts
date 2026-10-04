@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import { parseAdmissionIdentity } from "@chase-sets/order-groups";
+import { orderGroupContractVersion, parseAdmissionIdentity } from "@chase-sets/order-groups";
 import { ShipmentAdmissionBusyError } from "./common";
 import {
   decideFulfillmentShipment,
@@ -200,6 +200,56 @@ describe("Shipment Group admission matrix", () => {
       expect(decideShipmentAdmission(rejectedState, commands[0]!, 3, now)).toEqual({ result: decision.result });
     },
   );
+  it.each([
+    { status: "awaiting-package", reason: "identity-conflict" },
+    { status: "cancelled", reason: "cancelled" },
+    { status: "packing", reason: "identity-conflict" },
+  ] as const)("rejects a recorded conflict in $status as $reason", ({ status, reason }) => {
+    const conflicted = evolveFulfillmentShipment(available, {
+      type: "fulfillment.shipment.cancellation-conflict-recorded",
+      data: {
+        shipmentId: identity.anchorShipmentId,
+        orderId: identity.anchorOrderId,
+        shipmentStatus: available.status,
+        origin: "payment-fraud-warning",
+        reason: null,
+      },
+    });
+    const decision = decideShipmentAdmission({ ...conflicted, status }, commands[0]!, 3, now);
+    expect(decision.result).toEqual({ status: reason });
+    expect(decision.event).toEqual({
+      type: "fulfillment.shipment-group.admission-rejected",
+      data: { contractVersion: orderGroupContractVersion, ...identity, shipmentVersion: 3, reason, rejectedAt: now },
+    });
+  });
+  it.each(["requestId", "sourceGeneration", "groupId", "quoteFingerprint"] as const)(
+    "rejects reacquisition that reuses only %s from a released identity",
+    (field) => {
+      const reused = { ...other, [field]: identity[field] };
+      const decision = decideShipmentAdmission(released, { kind: "reserve", input: reused }, 4, now);
+      expect(decision.result).toEqual({ status: "identity-conflict" });
+      expect(decision.event).toEqual({
+        type: "fulfillment.shipment-group.admission-rejected",
+        data: {
+          contractVersion: orderGroupContractVersion,
+          ...reused,
+          shipmentVersion: 4,
+          reason: "identity-conflict",
+          rejectedAt: now,
+        },
+      });
+    },
+  );
+  it("does not replay dissolution at a different Form version after release", () => {
+    const dissolved = evolveFulfillmentShipment(
+      committed,
+      decideShipmentAdmission(committed, commands[8]!, 4, now).event!,
+    );
+    expect(decideShipmentAdmission(dissolved, commands[8]!, 5, now).result.status).toBe("replayed");
+    expect(
+      decideShipmentAdmission(dissolved, { kind: "dissolve", input: { ...identity, anchorOrderVersion: 4 } }, 5, now),
+    ).toEqual({ result: { status: "released" } });
+  });
 });
 
 const shipmentAddressSnapshots = {

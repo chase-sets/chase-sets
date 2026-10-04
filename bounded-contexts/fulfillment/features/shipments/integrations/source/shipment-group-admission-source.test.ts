@@ -132,6 +132,16 @@ function facts() {
 
 describe("Shipment Group admission source recovery", () => {
   afterEach(() => vi.useRealTimers());
+  it("does not write receipts for early member removal", async () => {
+    const { runtime, read } = await fixture();
+    const source = facts();
+    const before = await read();
+    expect(before.map((event) => event.eventType)).toEqual(["fulfillment.shipment.created"]);
+    await runtime.shipmentGroupAdmissionHandlers[source.removed.type]!(source.removed, {
+      readSourceStreamHistory: async () => [source.request, source.form, source.removed],
+    });
+    expect(await read()).toEqual(before);
+  });
   it("never cancels N+1 when a new reservation and Abort win before old dissolution cancellation", async () => {
     let enter!: () => void;
     let release!: () => void;
