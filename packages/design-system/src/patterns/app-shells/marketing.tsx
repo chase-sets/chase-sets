@@ -53,12 +53,17 @@ export function MarketingImageHero({
     imagePosition === "left" ? "object-left" : imagePosition === "right" ? "object-right" : "object-[18%_72%]";
   const isCompact = resolveDensityMode(density) === "compact";
 
+  // Surface-diet law: the hero is furniture, so its root carries no border,
+  // fill or shadow. Below `lg` the root bleeds by exactly the `Page` gutter
+  // (`px-4 md:px-6` in page-layouts.tsx; `Page` clips at its padding box, so
+  // the bleed reaches its outer edge) and the image and scrim run edge to edge
+  // with square corners; from `lg` up they are clipped to the token radius on
+  // their own. The copy grid pads by the same gutter so the eyebrow, title and
+  // panel sit back on the page gutter. Only the `conversionPanel` slot may
+  // render raised.
   return (
     <section
-      className={cx(
-        "relative overflow-hidden rounded-tokenLg border border-border bg-surface shadow-tokenLg",
-        isCompact ? "min-h-[18rem] sm:min-h-[20rem]" : "min-h-[22rem]",
-      )}
+      className={cx("relative -mx-4 md:-mx-6 lg:mx-0", isCompact ? "min-h-[18rem] sm:min-h-[20rem]" : "min-h-[22rem]")}
     >
       <img
         src={imageSrc}
@@ -70,15 +75,13 @@ export function MarketingImageHero({
         fetchPriority={imageFetchPriority}
         width={imageWidth}
         height={imageHeight}
-        className={cx("absolute inset-0 h-full w-full object-cover", imagePositionClass)}
+        className={cx("absolute inset-0 h-full w-full object-cover lg:rounded-tokenLg", imagePositionClass)}
       />
-      <div className="absolute inset-0 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,transparent)_0%,color-mix(in_srgb,var(--background)_78%,transparent)_48%,color-mix(in_srgb,var(--background)_46%,transparent)_100%)] lg:bg-[linear-gradient(90deg,color-mix(in_srgb,var(--background)_94%,transparent)_0%,color-mix(in_srgb,var(--background)_76%,transparent)_44%,color-mix(in_srgb,var(--background)_14%,transparent)_100%)]" />
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,transparent)_0%,color-mix(in_srgb,var(--background)_78%,transparent)_48%,color-mix(in_srgb,var(--background)_46%,transparent)_100%)] lg:rounded-tokenLg lg:bg-[linear-gradient(90deg,color-mix(in_srgb,var(--background)_94%,transparent)_0%,color-mix(in_srgb,var(--background)_76%,transparent)_44%,color-mix(in_srgb,var(--background)_14%,transparent)_100%)]" />
       <div
         className={cx(
-          "relative grid lg:grid-cols-[minmax(0,0.9fr)_minmax(18rem,0.55fr)]",
-          isCompact
-            ? "min-h-[18rem] gap-3 p-3 sm:min-h-[20rem] sm:p-5 lg:p-6"
-            : "min-h-[22rem] gap-4 p-4 sm:gap-5 sm:p-6 lg:p-6",
+          "relative grid px-4 md:px-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(18rem,0.55fr)] lg:p-6",
+          isCompact ? "min-h-[18rem] gap-3 py-3 sm:min-h-[20rem] sm:py-5" : "min-h-[22rem] gap-4 py-4 sm:gap-5 sm:py-6",
         )}
       >
         <div className={cx("flex max-w-3xl flex-col justify-start lg:justify-center", isCompact ? "gap-3" : "gap-4")}>
@@ -107,22 +110,18 @@ export function MarketingImageHero({
           </div>
           {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
           {conversionPanel && highlights.length > 0 ? (
+            // Highlights are copy, not tiles: flush label/value text rows with
+            // the mobile first-highlight and desktop three-column behavior.
             <>
-              <div
-                className="flex max-w-2xl min-h-[2.75rem] items-center gap-2 rounded-tokenSm border border-[var(--border)] bg-[color-mix(in_srgb,var(--card)_76%,transparent)] px-3 py-2 backdrop-blur md:hidden"
-                aria-label="Marketing highlight"
-              >
+              <div className="flex max-w-2xl items-center gap-2 md:hidden" aria-label="Marketing highlight">
                 <span className="shrink-0 truncate text-xs font-semibold uppercase tracking-wide text-tertiary">
                   {highlights[0].label}
                 </span>
                 <span className="truncate text-sm font-semibold text-foreground">{highlights[0].value}</span>
               </div>
-              <div className="hidden max-w-2xl grid-cols-3 gap-2 md:grid" aria-label="Marketing highlights">
+              <div className="hidden max-w-2xl grid-cols-3 gap-4 md:grid" aria-label="Marketing highlights">
                 {highlights.map((highlight, index) => (
-                  <div
-                    key={index}
-                    className="min-w-0 rounded-tokenSm border border-[var(--border)] bg-[color-mix(in_srgb,var(--card)_76%,transparent)] px-3 py-2 backdrop-blur"
-                  >
+                  <div key={index} className="min-w-0">
                     <div className="truncate text-xs font-semibold uppercase tracking-wide text-tertiary">
                       {highlight.label}
                     </div>
@@ -138,10 +137,7 @@ export function MarketingImageHero({
         ) : highlights.length > 0 ? (
           <div className="grid content-end gap-3 lg:justify-self-end">
             {highlights.map((highlight, index) => (
-              <div
-                key={index}
-                className="max-w-sm rounded-tokenLg border border-[var(--border)] bg-[color-mix(in_srgb,var(--card)_88%,transparent)] p-4 shadow-tokenSm backdrop-blur"
-              >
+              <div key={index} className="max-w-sm">
                 <div className="text-xs font-semibold uppercase tracking-wide text-tertiary">{highlight.label}</div>
                 <div className="mt-1 font-heading text-lg font-semibold text-foreground">{highlight.value}</div>
               </div>

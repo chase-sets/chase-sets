@@ -13,16 +13,6 @@ export const checkoutEnglishTranslations = {
     "\nCREATE TABLE IF NOT EXISTS checkout_catalog_items (\n  catalog_item_id text PRIMARY KEY,\n  title text NOT NULL,\n  subtitle text NULL,\n  blueprint_id text NULL,\n  status text NOT NULL,\n  product_schema jsonb NULL,\n  updated_at timestamptz NOT NULL\n);\n\nCREATE INDEX IF NOT EXISTS checkout_catalog_items_blueprint_idx\n  ON checkout_catalog_items (blueprint_id);\n\nCREATE INDEX IF NOT EXISTS checkout_catalog_items_status_idx\n  ON checkout_catalog_items (status);\n\nCREATE TABLE IF NOT EXISTS checkout_catalog_blueprints (\n  blueprint_id text PRIMARY KEY,\n  name text NOT NULL,\n  status text NOT NULL,\n  dimension_rules jsonb NOT NULL DEFAULT '[]'::jsonb,\n  canonical_dimension_order jsonb NOT NULL DEFAULT '[]'::jsonb,\n  updated_at timestamptz NOT NULL\n);\n\nCREATE TABLE IF NOT EXISTS checkout_catalog_dimensions (\n  dimension_id text PRIMARY KEY,\n  name text NOT NULL,\n  updated_at timestamptz NOT NULL\n);\n\nCREATE TABLE IF NOT EXISTS checkout_catalog_dimension_options (\n  option_id text PRIMARY KEY,\n  dimension_id text NOT NULL,\n  code text NOT NULL,\n  labels jsonb NOT NULL DEFAULT '[]'::jsonb,\n  updated_at timestamptz NOT NULL\n);\n\nCREATE INDEX IF NOT EXISTS checkout_catalog_dimension_options_dimension_idx\n  ON checkout_catalog_dimension_options (dimension_id);\n",
   "checkout.features.cart.readModel.schema.create.table.if.not.exists.checkout":
     "\nCREATE TABLE IF NOT EXISTS checkout_cart_line_pages (\n  buyer_account_id text NOT NULL,\n  line_id text NOT NULL,\n  catalog_catalog_item_id text NOT NULL,\n  product_id text NOT NULL,\n  item_language_code text NULL,\n  item_title text NOT NULL,\n  item_subtitle text NULL,\n  item_image_url text NULL,\n  item_image_srcset text NULL,\n  item_image_loading_url text NULL,\n  item_image_loading_alt text NULL,\n  item_image_loading_srcset text NULL,\n  selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,\n  product_summary text NULL,\n  quantity integer NOT NULL CHECK (quantity > 0),\n  fulfillment_mode text NOT NULL DEFAULT 'optimize',\n  locked_listing_id text NULL,\n  seller_preference_id text NULL,\n  availability_state text NOT NULL DEFAULT 'available',\n  created_at timestamptz NOT NULL DEFAULT now(),\n  updated_at timestamptz NOT NULL DEFAULT now(),\n  PRIMARY KEY (buyer_account_id, line_id)\n);\n\nCREATE INDEX IF NOT EXISTS checkout_cart_line_pages_buyer_idx\n  ON checkout_cart_line_pages (buyer_account_id, updated_at DESC, line_id ASC);\n\nCREATE INDEX IF NOT EXISTS checkout_cart_line_pages_catalog_version_idx\n  ON checkout_cart_line_pages (product_id);\n",
-  "checkout.features.cart.ui.addToCartSection.add.to.cart": "Add To Buy Cart",
-  "checkout.features.cart.ui.addToCartSection.add.to.cart.2": "Add to buy cart",
-  "checkout.features.cart.ui.addToCartSection.cart.lines.capture.buyer.intent.exact":
-    "Buy Cart lines capture buyer intent. Exact listing and inventory matching happens at checkout.",
-  "checkout.features.cart.ui.addToCartSection.matching.visible.listings.right.now":
-    "Matching visible listings right now: ",
-  "checkout.features.cart.ui.addToCartSection.quantity": "Quantity",
-  "checkout.features.cart.ui.addToCartSection.same.seller.cards.earn.five.percent.toward.shipping":
-    "Same-seller cards earn 5% of item value toward shipping at checkout.",
-  "checkout.features.cart.ui.addToCartSection.standard.product": "Standard product",
   "checkout.features.cart.ui.cartPage.browse.the.marketplace.and.add.a":
     "Browse the marketplace and add a product to start building a Buy Cart checkout.",
   "checkout.features.cart.ui.cartPage.buy.cart": "Buy cart",
@@ -205,6 +195,10 @@ export const checkoutEnglishTranslations = {
     "Review the latest total before payment starts.",
   "checkout.features.sessions.ui.checkoutPage.payment.review.next.with.wallet":
     "Up to {amount} {currency} wallet balance can be applied before payment starts.",
+  "checkout.features.sessions.ui.checkoutPage.wallet.unavailable": "Wallet balance is temporarily unavailable",
+  "checkout.features.sessions.ui.checkoutPage.wallet.unavailable.description":
+    "Retry to check your current wallet balance before starting payment. Your checkout details are saved.",
+  "checkout.features.sessions.ui.checkoutPage.retry.wallet": "Retry wallet balance",
   "checkout.features.sessions.ui.checkoutPage.reserved.for.you": "Reserved for you - {time}",
   "checkout.features.sessions.ui.checkoutPage.reservation.expired": "Reservation expired",
   "checkout.features.sessions.ui.checkoutPage.reservation.expired.description":

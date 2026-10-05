@@ -1087,6 +1087,59 @@ describe("platform host web registry", () => {
     expect(getWebHostSections("admin-web")).toEqual(["access", "catalog", "commerce", "growth", "support", "platform"]);
   });
 
+  it.each([undefined, "all", "any"] as const)(
+    "matches shell permissions using %s with empty-list and nested controls",
+    (requiredPermissionsMatch) => {
+      const contribution = {
+        deployable: "admin-web",
+        slot: "primary-nav",
+        key: "payouts",
+        label: "Payouts",
+        icon: "wallet",
+        href: "/payouts",
+        section: "commerce",
+        order: 10,
+        visibility: "signed-in",
+        requiredPermissions: ["payouts.reconcile", "payouts.platform.view"],
+        requiredPermissionsMatch,
+      } as const;
+      const registry = [
+        {
+          contextName: "settlement",
+          packageName: "@test/settlement",
+          manifest: {
+            contextName: "settlement",
+            shellContributions: [
+              contribution,
+              { ...contribution, key: "empty", href: "/empty", requiredPermissions: [] },
+              { ...contribution, key: "parent", href: "/parent", requiredPermissions: [], children: [contribution] },
+            ],
+          },
+        },
+      ] as const satisfies WebContextRegistry;
+      for (const permissions of [
+        [],
+        ["payouts.reconcile"],
+        ["payouts.platform.view"],
+        ["payouts.reconcile", "payouts.platform.view"],
+      ]) {
+        const visible = requiredPermissionsMatch === "any" ? permissions.length > 0 : permissions.length === 2;
+        const items = resolveWebHostNavItems(
+          registry,
+          "admin-web",
+          "primary-nav",
+          { permissions },
+          { section: "commerce" },
+        );
+        expect(items.filter((item) => item.href === "/commerce/payouts")).toHaveLength(visible ? 1 : 0);
+        expect(items.filter((item) => item.href === "/commerce/empty")).toHaveLength(1);
+        const parent = items.find((item) => item.key === "parent");
+        expect(parent?.children?.length ?? 0).toBe(visible ? 1 : 0);
+      }
+      expect(resolveWebHostNavItems(registry, "admin-web", "primary-nav", null, { section: "commerce" })).toEqual([]);
+    },
+  );
+
   it("resolves nested admin nav with section-prefixed child hrefs and permission filtering", () => {
     const registry = [
       {

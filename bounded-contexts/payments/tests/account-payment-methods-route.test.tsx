@@ -96,6 +96,16 @@ function requestMethod(input: string | URL | Request, init?: RequestInit) {
   return (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
 }
 
+// Reads the raised entity treatment back from the classes the design-system
+// Surface owns for `elevation="elevated"`: the raised border and shadow.
+function expectElevatedSurface(anchor: HTMLElement, glow: boolean) {
+  const root = anchor.closest<HTMLElement>(".min-w-0.max-w-full.rounded-tokenLg");
+  expect(root).toBeTruthy();
+  const classes = root!.className.split(/\s+/);
+  expect(classes).toEqual(expect.arrayContaining(["surface-border", "shadow-tokenLg"]));
+  expect(classes.includes("ds-glow")).toBe(glow);
+}
+
 describe("account payment methods route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -213,6 +223,26 @@ describe("account payment methods route", () => {
     expect(screen.queryByText("Visa ending in 4242")).toBeNull();
   });
 
+  it("raises each saved payment method and the embedded Stripe setup host", async () => {
+    const paymentElement = { mount: vi.fn(), destroy: vi.fn() };
+    (window as unknown as { Stripe?: unknown }).Stripe = vi.fn(() => ({
+      elements: vi.fn(() => ({ create: vi.fn(() => paymentElement), update: vi.fn() })),
+      confirmSetup: vi.fn(),
+    }));
+    mockUseLoaderData.mockReturnValue({ accountId: "acc_buyer", setupResult: null, paymentMethods: [cardMethod] });
+    mockUseActionData.mockReturnValue({ setup: embeddedSetup, paymentMethods: [cardMethod] });
+
+    render(
+      <ChaseRoot>
+        <AccountPaymentMethodsRoute />
+      </ChaseRoot>,
+    );
+
+    await waitFor(() => expect(paymentElement.mount).toHaveBeenCalled());
+    expectElevatedSurface(screen.getByText("Visa ending in 4242"), false);
+    expectElevatedSurface(screen.getByRole("button", { name: "Save payment method" }), true);
+  });
+
   it("starts the embedded SetupIntent flow without redirecting", async () => {
     const calls: string[] = [];
     vi.stubGlobal(
@@ -278,6 +308,19 @@ describe("account payment methods route", () => {
     await waitFor(() =>
       expect(update).toHaveBeenCalledWith(
         expect.objectContaining({ appearance: expect.objectContaining({ variables: expect.any(Object) }) }),
+      ),
+    );
+    expect(paymentElement.destroy).not.toHaveBeenCalled();
+    rerender(
+      <ChaseRoot theme={{ colors: { foreground: "var(--missing)" } }}>
+        <AccountPaymentMethodsRoute />
+      </ChaseRoot>,
+    );
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appearance: expect.objectContaining({ variables: expect.objectContaining({ colorText: "#211d33" }) }),
+        }),
       ),
     );
     expect(paymentElement.destroy).not.toHaveBeenCalled();

@@ -166,6 +166,32 @@ keyset paging (at most 50 rows), and returns `rows`, `next` and `filterCounts`.
 `GET /account/repricing-policies/attention-summary` is self-scoped to the authenticated account.
 Foreign and absent activity policies return the same 404. Freeze counts never read the live breaker.
 
+The Seller Desk pages `/account/desk/repricing` and `/account/desk/repricing/:policyId` read these APIs.
+The list shows each policy's status, scope kind, cap and account-wide changes used today, the halt switch
+and recent dry runs. The detail page renders the folded policy and opens its editor in a SideSheet.
+Its activity filters show server `filterCounts` beside each label; the page computes
+no counts. Halt engage/release and delete confirm first; pause and resume are row transitions.
+The Repricing Attention Source (`pricing-repricing`) feeds the Seller Desk attention queue from
+`attention-summary`, except the halt item, which reads the Repricing Halt aggregate like the Desk halt switch.
+
+### Repricing Authoring
+
+The Desk editor compiles four Repricing Presets into the same policy body used by the structured
+single-rule and advanced ordered-rule editors. Opening a preset preserves every compiled field.
+First activation requires a completed preview of the current body; editing invalidates that preview.
+Revision can be saved directly. Both writes retain the Desk's command-receipt fresh-read behavior.
+
+`GET /account/repricing-policies/authoring-prerequisites` requires `pricing.view` and rejects query
+selectors. One set-based read returns sorted distinct non-null `listingCurrencyCodes` from all of the
+actor's listings, including withdrawn listings, and `hasCostBasis` from the exact account-qualified
+listed inventory item with a non-null acquisition cost. Zero cost counts as present. No identifiers
+or amounts leave this endpoint. Failed reads never become empty facts or invented currency defaults.
+
+Intentional domain assertion messages reach the editor through `validation_failed` error details.
+`details[].message` is untranslated server text; a future additional locale must account for this
+before translating domain rejection copy. Untagged exceptions and malformed input remain sanitized;
+older code-only responses render generic localized failure copy. The browser does not run a validator.
+
 ## Incoming Dependencies
 
 - Catalog for canonical item identity, product resolution, and selected-option facts

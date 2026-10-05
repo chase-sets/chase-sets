@@ -107,3 +107,4 @@ export {
   decodeChannelAttentionFact,
   decodeChannelAttentionResolve,
 } from "./features/connection-attention/domain/codecs";
+export { createChannelConnectionsOperatorReadSourceFromReadModel } from "./features/connections/read-model/operator-read-source";

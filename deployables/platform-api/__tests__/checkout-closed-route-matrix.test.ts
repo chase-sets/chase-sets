@@ -45,8 +45,17 @@ vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@chase-sets/event-core-postgres")>();
   return {
     ...actual,
-    createPostgresEventStore: (options: Parameters<typeof actual.createPostgresEventStore>[0]) =>
-      memoryStores.get(options.pool)?.eventStore ?? actual.createPostgresEventStore(options),
+    createPostgresEventStore: (
+      options: Parameters<typeof actual.createPostgresEventStore>[0],
+    ): ReturnType<typeof actual.createPostgresEventStore> => {
+      const memory = memoryStores.get(options.pool)?.eventStore;
+      if (!memory) return actual.createPostgresEventStore(options);
+      return {
+        ...memory,
+        readStreamInTransaction: (_client, input) => memory.readStream(input),
+        appendToStreamInTransaction: (_client, input) => memory.appendToStream(input),
+      };
+    },
   };
 });
 
@@ -775,6 +784,7 @@ describe("checkout-closed-session-lifecycle", () => {
       if (sql.includes("FROM payments_provider_webhook_events"))
         return { rows: inbox.has(String(values[0])) ? [{ provider_event_id: values[0] }] : [] };
       if (sql.includes("INSERT INTO payments_provider_webhook_events")) {
+        if (inbox.has(String(values[0]))) return { rows: [], rowCount: 0 };
         inbox.add(String(values[0]));
         return { rows: [{ provider_event_id: values[0] }], rowCount: 1 };
       }

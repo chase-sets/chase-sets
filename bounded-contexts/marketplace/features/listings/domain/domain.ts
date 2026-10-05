@@ -1,3 +1,4 @@
+import { MarketplaceListingDomainError } from "./listing-error";
 import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-sets/event-core";
 import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { ProductKey } from "@chase-sets/primitives/catalog-identity";
@@ -20,7 +21,7 @@ export type { MarketplaceListingFeeLock, MarketplaceListingFeeTermsSnapshot } fr
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
-    throw new Error(message);
+    throw new MarketplaceListingDomainError("command-rejected", message);
   }
 }
 

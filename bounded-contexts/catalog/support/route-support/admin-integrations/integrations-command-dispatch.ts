@@ -6,7 +6,7 @@ import {
 } from "../../../features/source-observations/ui/primary-workbench-telemetry";
 import { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
 import { commandContextFromFormData, observationIdsFromFormData } from "./integrations-command-context";
-import { CatalogApiError } from "../../../client";
+import { ApiError as CatalogApiError } from "../../shell-support/api/client";
 import type { CatalogPrimaryWorkbenchCommandFeedback } from "../../../features/source-observations/ui/primary-workbench-command-feedback";
 import type { CatalogIntegrationsCommandResult } from "./integrations-command-result";
 import { handleAliasReviewCommand, isAliasReviewCommandIntent } from "./alias-review-command-handler";

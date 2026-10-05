@@ -16,6 +16,7 @@ import {
   type Attributes,
   type Counter,
   type Histogram,
+  type Gauge,
   type UpDownCounter,
 } from "@opentelemetry/api";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -90,6 +91,9 @@ const eventStoreAppendAdvisoryLockHoldDuration = lazyHistogram(
   },
 );
 const projectorCounter = lazyCounter("chase_sets_projection_runs_total");
+const projectionBlockedStreams = lazyGauge("chase_sets_projection_blocked_streams");
+const projectionPoisonEvents = lazyGauge("chase_sets_projection_poison_events");
+const projectionStatusObservedTimestamp = lazyGauge("chase_sets_projection_status_observed_timestamp_seconds");
 const projectorDuration = lazyHistogram("chase_sets_projection_run_duration_ms", {
   unit: "ms",
 });
@@ -124,6 +128,7 @@ const ucpIdempotencyCounter = lazyCounter("chase_sets_ucp_idempotency_total");
 const mcpAuditCounter = lazyCounter("chase_sets_mcp_audit_records_total");
 const publicPresenceWaitlistEventCounter = lazyCounter("chase_sets_public_presence_waitlist_events_total");
 const itemDetailRailEventCounter = lazyCounter("chase_sets_marketplace_item_detail_rail_events_total");
+const collectionsSavedListEventCounter = lazyCounter("chase_sets_collections_saved_list_events_total");
 const settlementOperationCounter = lazyCounter("chase_sets_settlement_operations_total");
 const providerWebhookIngestionCounter = lazyCounter("chase_sets_stripe_webhook_ingestion_total");
 const checkoutObservabilityEventCounter = lazyCounter("chase_sets_checkout_observability_events_total");
@@ -210,6 +215,40 @@ export type ItemDetailRailAnalyticsSignal = Readonly<{
   queryHash?: string | null;
   resultSetKey?: string | null;
 }>;
+
+export const savedListAnalyticsEvents = Object.freeze([
+  "list_created",
+  "product_added",
+  "first_five_lines",
+  "valuation_coverage_band",
+] as const);
+export const savedListAnalyticsKeys = Object.freeze({
+  list_created: Object.freeze(["surface"] as const),
+  product_added: Object.freeze(["surface", "outcome"] as const),
+  first_five_lines: Object.freeze(["surface"] as const),
+  valuation_coverage_band: Object.freeze(["coverage_band", "estimate_state"] as const),
+});
+export const savedListAnalyticsValues = Object.freeze({
+  surface: Object.freeze(["search", "item-detail"] as const),
+  outcome: Object.freeze(["added", "merged"] as const),
+  coverage_band: Object.freeze(["empty", "none", "low", "partial", "high", "full"] as const),
+  estimate_state: Object.freeze(["empty", "incomplete", "stale", "low_confidence", "current"] as const),
+});
+
+type SavedListAnalyticsEventName = (typeof savedListAnalyticsEvents)[number];
+type SavedListAnalyticsLabelKey = keyof typeof savedListAnalyticsValues;
+type SavedListAnalyticsLabelValue<K extends SavedListAnalyticsLabelKey> =
+  | (typeof savedListAnalyticsValues)[K][number]
+  | "none"
+  | "invalid";
+
+export type SavedListAnalyticsSignal = Readonly<
+  {
+    event: SavedListAnalyticsEventName;
+  } & {
+    [K in SavedListAnalyticsLabelKey]: unknown;
+  }
+>;
 
 export type DiscoverySearchQuerySignal = Readonly<{
   queryHash: string;
@@ -498,6 +537,44 @@ type Meter = ReturnType<typeof metrics.getMeter>;
 type CounterOptions = Parameters<Meter["createCounter"]>[1];
 type HistogramOptions = Parameters<Meter["createHistogram"]>[1];
 type UpDownCounterOptions = Parameters<Meter["createUpDownCounter"]>[1];
+
+function lazyGauge(name: string): Gauge {
+  let instrument: Gauge | undefined;
+  return {
+    record(value, attributes, activeContext) {
+      const gauge = runtime?.config.enabled
+        ? (instrument ??= metrics.getMeter(OBSERVABILITY_SCOPE_NAME).createGauge(name))
+        : metrics.getMeter(OBSERVABILITY_SCOPE_NAME).createGauge(name);
+      gauge.record(value, attributes, activeContext);
+    },
+  };
+}
+
+export function recordProjectionStatus(
+  status: Readonly<{
+    targetContextName: string;
+    projectionName: string;
+    blockedStreamCount: number;
+    poisonEventCount: number;
+  }>,
+): void {
+  if (
+    !Number.isSafeInteger(status.blockedStreamCount) ||
+    status.blockedStreamCount < 0 ||
+    !Number.isSafeInteger(status.poisonEventCount) ||
+    status.poisonEventCount < 0
+  ) {
+    return;
+  }
+  const attributes = {
+    environment: runtime?.config.deploymentEnvironment ?? loadObservabilityConfig().deploymentEnvironment,
+    target_context: boundedMetricLabel(status.targetContextName),
+    projection: boundedMetricLabel(status.projectionName),
+  };
+  projectionBlockedStreams.record(status.blockedStreamCount, attributes);
+  projectionPoisonEvents.record(status.poisonEventCount, attributes);
+  projectionStatusObservedTimestamp.record(Date.now() / 1_000, attributes);
+}
 
 function lazyCounter(name: string, options?: CounterOptions): Counter {
   let instrument: Counter | undefined;
@@ -1046,6 +1123,7 @@ export type ProviderWebhookIngestionSignal = Readonly<{
   retryable: boolean;
   providerEventId?: string | null;
   eventKind?: string | null;
+  invariantCode?: string;
 }>;
 
 export function recordProviderWebhookIngestion(event: ProviderWebhookIngestionSignal): void {
@@ -1056,6 +1134,12 @@ export function recordProviderWebhookIngestion(event: ProviderWebhookIngestionSi
     status_code: event.statusCode,
     retryable: event.retryable ? "true" : "false",
     event_kind: boundedMetricLabel(event.eventKind ?? "none"),
+    invariant_code:
+      /^(RecordPayment(Authorization|Capture|Failure|EarlyFraudWarning|FraudReviewOpened|FraudReviewClosed|LiabilityShiftOutcome)|CancelPayment):validation_failed$/.test(
+        event.invariantCode ?? "",
+      )
+        ? event.invariantCode!
+        : "none",
   });
 }
 
@@ -1556,6 +1640,35 @@ export function itemDetailRailAnalyticsAttributes(event: ItemDetailRailAnalytics
 
 export function recordItemDetailRailAnalytics(event: ItemDetailRailAnalyticsSignal): void {
   itemDetailRailEventCounter.add(1, itemDetailRailAnalyticsAttributes(event));
+}
+
+export function savedListAnalyticsAttributes(event: SavedListAnalyticsSignal): Attributes {
+  const isKnownEvent = savedListAnalyticsEvents.includes(event.event);
+  const eventName = isKnownEvent ? event.event : "invalid";
+  const eventKeys: readonly string[] = isKnownEvent
+    ? savedListAnalyticsKeys[eventName as SavedListAnalyticsEventName]
+    : [];
+  const label = <K extends SavedListAnalyticsLabelKey>(key: K): SavedListAnalyticsLabelValue<K> => {
+    if (!eventKeys.includes(key)) {
+      return "none";
+    }
+    const value = event[key];
+    return (savedListAnalyticsValues[key] as readonly unknown[]).includes(value)
+      ? (value as SavedListAnalyticsLabelValue<K>)
+      : "invalid";
+  };
+  return {
+    context: "collections",
+    event: boundedMetricLabel(eventName),
+    surface: boundedMetricLabel(label("surface")),
+    outcome: boundedMetricLabel(label("outcome")),
+    coverage_band: boundedMetricLabel(label("coverage_band")),
+    estimate_state: boundedMetricLabel(label("estimate_state")),
+  };
+}
+
+export function recordSavedListAnalytics(event: SavedListAnalyticsSignal): void {
+  collectionsSavedListEventCounter.add(1, savedListAnalyticsAttributes(event));
 }
 
 export function sanitizeLogFields(fields: LogFields): LogFields {

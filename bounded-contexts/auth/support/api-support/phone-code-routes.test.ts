@@ -312,6 +312,7 @@ describe("phone code auth routes", () => {
             membershipId: "mbr_new",
             accountId: "acc_new",
             roleKey: "owner",
+            rolePermissions: expect.arrayContaining(["pricing.view", "pricing.manage"]),
           }),
         ],
       }),

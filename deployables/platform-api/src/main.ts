@@ -2,11 +2,7 @@ import "./observability-prelude";
 import { serve } from "@hono/node-server";
 import { createClient } from "redis";
 import { refreshProjectionReplaySummary } from "@chase-sets/bounded-context-runtime";
-import {
-  createPostgresTcgplayerAutomationHttpConfigStore,
-  createTcgplayerAutomationCatalogClient,
-  createTcgplayerAutomationHttpClients,
-} from "@chase-sets/catalog/server";
+import { createTcgplayerAutomationRuntime } from "@chase-sets/catalog/server";
 import { createFacebookSocialLoginProvider, createGoogleSocialLoginProvider } from "@chase-sets/auth/server";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
 import { createRemoteUcpAp2MandateVerifier } from "@chase-sets/payments/server";
@@ -54,6 +50,8 @@ import {
   createEvidenceWindowCorrelation,
   createNullEvidenceWindowCorrelation,
   createPostgresEvidenceWindowRegistration,
+  createPostgresEvidenceWindowById,
+  createPostgresEvidenceWindowProviderWrite,
   createPostgresPlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
 import { createPostgresWorkSignalStore } from "@chase-sets/platform-runtime/work-signal-store";
@@ -121,14 +119,20 @@ const controlPlane = createPostgresPlatformControlPlane(pools.control, { lifecyc
 const evidenceWindowRegistration = config.evidenceWindowAdmissionSecret
   ? createPostgresEvidenceWindowRegistration(pools.control)
   : undefined;
+const evidenceWindowById = config.evidenceWindowAdmissionSecret
+  ? createPostgresEvidenceWindowById(pools.control)
+  : undefined;
 const evidenceWindowCorrelation =
   evidenceWindowRegistration && config.stripeEffectiveMode === "test"
     ? createEvidenceWindowCorrelation(evidenceWindowRegistration)
     : createNullEvidenceWindowCorrelation();
 
+const evidenceWindowProviderWrite = createPostgresEvidenceWindowProviderWrite(pools.control);
 const paymentProcessorGateway =
   config.paymentProcessor.kind === "stripe"
     ? createStripePaymentProcessorGateway({
+        evidenceWindowCorrelation,
+        evidenceWindowProviderWrite,
         secretKey: config.paymentProcessor.secretKey,
         publishableKey: config.paymentProcessor.publishableKey,
         webhookSecret: config.paymentProcessor.webhookSecret,
@@ -139,6 +143,8 @@ const paymentProcessorGateway =
 const moneyMovementGateway =
   config.moneyMovement.kind === "stripe"
     ? createStripeConnectMoneyMovementGateway({
+        evidenceWindowCorrelation,
+        evidenceWindowProviderWrite,
         secretKey: config.moneyMovement.secretKey,
         webhookSecret: config.moneyMovement.webhookSecret,
         previousWebhookSecrets: config.moneyMovement.previousWebhookSecrets,
@@ -224,13 +230,12 @@ const mobileMessageWebhookGateway =
     : undefined;
 const emailWebhookGateway = createSesEmailWebhookGateway();
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
-const tcgplayerAutomationCatalogClient = config.tcgplayerAutomation
-  ? createTcgplayerAutomationCatalogClient(
-      createTcgplayerAutomationHttpClients(
-        createPostgresTcgplayerAutomationHttpConfigStore(pools.catalog, config.tcgplayerAutomation),
-      ),
-    )
-  : undefined;
+const tcgplayerAutomationRuntime = createTcgplayerAutomationRuntime({
+  pool: pools.catalog,
+  config: config.tcgplayerAutomation,
+  keyring: config.catalogOperatorSessionKeyring,
+});
+const tcgplayerAutomationCatalogClient = tcgplayerAutomationRuntime?.catalogClient;
 const sourceObservationTelemetry = createSourceObservationTelemetry();
 const checkoutObservabilityTelemetry = createCheckoutObservabilityTelemetry();
 const waitlistAnalyticsRecorder = {
@@ -317,6 +322,10 @@ const runtime = createPlatformApiHost({
     addressVerificationProvider: postageLabelProvider,
     ...(postageWebhookGateway ? { postageWebhookGateway } : {}),
     catalogAssetStorage,
+    catalogOperatorSessionConfiguration: {
+      config: config.tcgplayerAutomation,
+      keyring: config.catalogOperatorSessionKeyring,
+    },
     ...(tcgplayerAutomationCatalogClient ? { tcgplayerAutomationCatalogClient } : {}),
     sourceObservationTelemetry,
     checkoutObservabilityTelemetry,
@@ -329,6 +338,7 @@ const runtime = createPlatformApiHost({
     adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
     registrationAdmission: config.registrationAdmission,
     evidenceWindowCorrelation,
+    evidenceWindowProviderWrite,
     securityLifetimes: config.authSecurityLifetimes,
     searchEmbeddingConfig: config.discoverySearchEmbeddings,
     searchTelemetry: {
@@ -591,7 +601,7 @@ const app = buildPlatformApiApp(runtime, {
   adminRegistrationEnabled: config.adminRegistrationEnabled,
   checkoutClosed: config.checkoutClosed,
   controlPlane,
-  ...(evidenceWindowRegistration && config.evidenceWindowAdmissionSecret
+  ...(evidenceWindowRegistration && evidenceWindowById && config.evidenceWindowAdmissionSecret
     ? {
         evidenceWindowRegistration: {
           admissionSecret: config.evidenceWindowAdmissionSecret,
@@ -603,6 +613,17 @@ const app = buildPlatformApiApp(runtime, {
             },
           },
           registration: evidenceWindowRegistration,
+        },
+        evidenceWindowSourceRecovery: {
+          admissionSecret: config.evidenceWindowAdmissionSecret,
+          authority: {
+            effectiveMode: config.stripeEffectiveMode,
+            gatewayKinds: {
+              paymentProcessor: config.paymentProcessor.kind,
+              moneyMovement: config.moneyMovement.kind,
+            },
+          },
+          registrationById: evidenceWindowById,
         },
       }
     : {}),

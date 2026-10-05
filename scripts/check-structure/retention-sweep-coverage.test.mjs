@@ -58,6 +58,25 @@ describe("retention sweep coverage", () => {
     expect([...retentionCoverageExemptions.values()].every((reason) => reason.trim().length >= 20)).toBe(true);
   });
 
+  it("retains provider-write reconciliation evidence without exempting unrelated journals", async () => {
+    const root = await fixture({
+      "infrastructure/platform-runtime/schema.ts": `export const schema = \`CREATE TABLE IF NOT EXISTS evidence_window_provider_write (
+        state text NOT NULL CHECK (state IN ('pending', 'succeeded', 'failed', 'ambiguous')),
+        created_at timestamptz NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS unrelated_provider_write (
+        state text NOT NULL CHECK (state IN ('pending', 'succeeded', 'failed', 'ambiguous')),
+        created_at timestamptz NOT NULL
+      );\`;`,
+    });
+    await expect(validateRetentionSweepCoverage({ repoRoot: root })).resolves.toEqual({
+      violations: [
+        "infrastructure/platform-runtime/schema.ts: retention candidate 'unrelated_provider_write' has no shared retention-sweep registration or explicit exemption.",
+      ],
+    });
+    expect(retentionCoverageExemptions.get("evidence_window_provider_write")).toContain("reconciliation");
+  });
+
   it("accepts indefinitely valid pricing dry runs but still rejects an unknown terminal table", async () => {
     const root = await fixture({
       "bounded-contexts/pricing/schema.ts": `export const schema = \`CREATE TABLE IF NOT EXISTS pricing_repricing_dry_runs (

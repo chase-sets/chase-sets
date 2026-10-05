@@ -1,4 +1,6 @@
+import { ProviderSendStoppedError } from "../provider-send-admission";
 import { t } from "@chase-sets/localization";
+import type { OperatorSessionCatalogClient } from "../../../../operator-session/api/runtime";
 import {
   runCatalogIntegrationDryRun,
   type CatalogIntegrationDryRunResult,
@@ -117,7 +119,8 @@ export type TcgplayerProviderPayload =
 
 export type TcgplayerProviderAdapterOptions = Readonly<{
   loadProfileVersions: () => Promise<readonly CatalogProviderIntegrationProfileVersionRecord[]>;
-  client?: TcgplayerAutomationCatalogClient;
+  client?: TcgplayerAutomationCatalogClient &
+    Partial<Pick<OperatorSessionCatalogClient, "transportConfigured" | "resolveCredentialReadiness">>;
   now?: () => Date;
 }>;
 
@@ -276,7 +279,7 @@ export function createTcgplayerProviderAdapter(
           });
           yield detailEnvelope(plan, detail, fetchedAt);
         } catch (error) {
-          if (isCancellationLikeError(error)) {
+          if (error instanceof ProviderSendStoppedError || isCancellationLikeError(error)) {
             throw error;
           }
           await fetchOptions?.onProgress?.({
@@ -295,23 +298,11 @@ export function createTcgplayerProviderAdapter(
       const retryableCodes = TCGPLAYER_AUTOMATION_RETRYABLE_STATUS_CODES.join(", ");
       const domains = Object.values(TCGPLAYER_AUTOMATION_DOMAINS).join(", ");
 
-      if (!options.client) {
-        return profileUnits.flatMap((profileVersion) =>
-          tcgplayerTransportDiagnosticsForUnit({
-            profileVersion,
-            unitKey: unitKeyForTcgplayerProfileVersion(profileVersion),
-            clientConfigured: false,
-            domains,
-            retryableCodes,
-          }),
-        );
-      }
-
       return profileUnits.flatMap((profileVersion) =>
         tcgplayerTransportDiagnosticsForUnit({
           profileVersion,
           unitKey: unitKeyForTcgplayerProfileVersion(profileVersion),
-          clientConfigured: true,
+          clientConfigured: options.client?.transportConfigured ?? Boolean(options.client),
           domains,
           retryableCodes,
         }),
@@ -321,17 +312,21 @@ export function createTcgplayerProviderAdapter(
       const profileVersions = await loadTcgplayerImportProfileVersions(options);
       const profileUnits = profileVersions.length > 0 ? profileVersions : [null];
       const checkedAt = (options.now ?? (() => new Date()))().toISOString();
+      const credential = (await options.client?.resolveCredentialReadiness?.()) ?? {
+        sourceKind: "environment-secret" as const,
+        state: "missing" as const,
+        diagnosticCode: "credential-missing",
+      };
 
       return profileUnits.map((profileVersion) =>
         createCatalogProviderCredentialReadiness({
           providerKey: "tcgplayer",
           unitKey: unitKeyForTcgplayerProfileVersion(profileVersion),
           requirement: "required",
-          sourceKind: "environment-secret",
-          state: options.client ? "configured" : "missing",
-          message: options.client
-            ? t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.configured")
-            : t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.missing"),
+          sourceKind: credential.sourceKind,
+          state: credential.state,
+          diagnosticCode: credential.diagnosticCode,
+          message: tcgplayerCredentialMessage(credential.diagnosticCode),
           checkedAt,
           scope: {
             environmentKey: "runtime",
@@ -341,12 +336,31 @@ export function createTcgplayerProviderAdapter(
             connectorKind: profileVersion?.profile.connector.kind ?? "tcgplayer-automation-client",
             lifecycle: profileVersion?.lifecycle ?? "unregistered",
             credentialRequirement: "required",
-            credentialState: options.client ? "configured" : "missing",
+            credentialState: credential.state,
           },
         }),
       );
     },
   };
+}
+
+function tcgplayerCredentialMessage(code: string | null): string {
+  switch (code) {
+    case "operator-session-custody-unavailable":
+      return t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.custodyUnavailable");
+    case "operator-session-expired":
+      return t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.expired");
+    case "credential-refresh-needed":
+      return t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.refreshNeeded");
+    case "rejected-after-refresh":
+      return t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.rejectedAfterRefresh");
+    case "adapter-authentication-failed":
+      return t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.authenticationFailed");
+    case "credential-missing":
+      return t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.missing");
+    default:
+      return t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.configured");
+  }
 }
 
 async function listTcgplayerSetProducts(input: {

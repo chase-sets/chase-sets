@@ -11,11 +11,16 @@ export const pricingWakeRegistryEntry = registryEntry({
   wakeStoreLoadEstimate: "low",
   affectedProjectionNames: [
     "collections:collections-saved-list-valuation-projection",
+    "marketplace:marketplace-managed-offer-reaction",
     "notifications:notifications-source-facts-outbox-projection",
     "pricing:pricing-economics-overrides-projection",
     "pricing:pricing-repricing-evaluation-projection",
     "pricing:pricing-repricing-evaluation-reaction",
     "pricing:pricing-repricing-halt-projection",
+    "pricing:pricing-repricing-policy-projection",
   ],
-  routeDependencyIds: [],
+  routeDependencyIds: [
+    "pricing.seller-desk-repricing-policy-detail-self-refresh",
+    "pricing.seller-desk-repricing-policy-list-refresh",
+  ],
 });

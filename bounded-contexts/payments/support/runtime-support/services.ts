@@ -9,14 +9,26 @@ import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createPaymentRuntime } from "../../features/payments/api/runtime";
+import { createPaymentWebhookRunner } from "../../features/payments/api/webhook-transaction";
+import { createCardDeclineStore } from "../../features/payments/api/card-decline-store";
 import { createRefundRuntime } from "../../features/refunds/api/runtime";
 import type { PaymentProcessorGateway, PaymentProcessorPublicConfig } from "@chase-sets/payment-processing";
 import type { BalanceCreditResolver } from "../../features/payments/api/balance-credit-resolver";
 import type { CheckoutProcessingFeePolicyResolver } from "../../features/payments/api/checkout-processing-fee-policy-resolver";
 import type { ProviderWebhookTelemetry } from "@chase-sets/http/provider-errors";
 import type { ProviderModeObservation } from "../../features/payments/api/contracts";
+import {
+  createEvidenceWindowDisposition,
+  type EvidenceWindowDispositionOptions,
+} from "../../features/payments/api/evidence-window-disposition";
 
 export type PaymentsServiceOptions = Readonly<{
+  evidenceWindowDisposition?: Pick<
+    EvidenceWindowDispositionOptions,
+    "authority" | "requestCapturedRemedy" | "crossCheck"
+  >;
+  evidenceWindowCorrelation?: import("@chase-sets/evidence-window-provider-write").ProviderWriteCorrelation;
+  evidenceWindowProviderWrite?: import("@chase-sets/evidence-window-provider-write").EvidenceWindowProviderWrite;
   processorGateway?: PaymentProcessorGateway;
   balanceCreditResolver?: BalanceCreditResolver;
   checkoutProcessingFeePolicyResolver?: CheckoutProcessingFeePolicyResolver;
@@ -26,6 +38,8 @@ export type PaymentsServiceOptions = Readonly<{
 }>;
 
 export type PaymentsServices = Readonly<{
+  disposeEvidenceWindow: ReturnType<typeof createEvidenceWindowDisposition>;
+  evidenceWindowCorrelation?: import("@chase-sets/evidence-window-provider-write").ProviderWriteCorrelation;
   payments: ReturnType<typeof createPaymentRuntime>;
   refunds: ReturnType<typeof createRefundRuntime>;
   publicConfig: PaymentProcessorPublicConfig;
@@ -84,11 +98,14 @@ export function createPaymentsServices(
     notificationOutbox,
   });
   const payments = createPaymentRuntime({
+    cardDeclineStore: createCardDeclineStore(pool),
+    runWebhookTransaction: createPaymentWebhookRunner(pool, eventStore),
+    evidenceWindowCorrelation: options.evidenceWindowCorrelation,
+    evidenceWindowProviderWrite: options.evidenceWindowProviderWrite,
     eventStore,
     checkpointStore,
     db,
     processorGateway,
-    refunds,
     balanceCreditResolver: options.balanceCreditResolver,
     checkoutProcessingFeePolicyResolver: options.checkoutProcessingFeePolicyResolver,
     notificationOutbox,
@@ -96,9 +113,16 @@ export function createPaymentsServices(
   });
 
   return {
+    disposeEvidenceWindow: createEvidenceWindowDisposition({
+      ...options.evidenceWindowDisposition,
+      processorGateway,
+      journal: options.evidenceWindowProviderWrite,
+      providerModeObservation: options.providerModeObservation,
+    }),
     payments,
     refunds,
     publicConfig: processorGateway.getPublicConfiguration(),
+    evidenceWindowCorrelation: options.evidenceWindowCorrelation,
     projectors: [...payments.projectors, ...refunds.projectors],
     pool,
     db,

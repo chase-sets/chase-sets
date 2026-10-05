@@ -2,13 +2,19 @@ import { withPgTransaction, type PgQueryable, type PgTransactionalPool } from "@
 import type { OrderId } from "@chase-sets/primitives/typed-ids";
 import { OrderingDomainError, type OrderSourceType } from "../domain/common";
 import { releasePurchaseLimitClaimsForFailedSource } from "./purchase-limits";
+import {
+  lockEvidenceWindowSourceIdentity,
+  lockOpenEvidenceWindowSource,
+  readEvidenceWindowSourceByIdentity,
+  withOpenEvidenceWindowSource,
+} from "./evidence-window-source-release";
 
 export type OrderSourceClaim = Readonly<{
   sourceType: OrderSourceType;
   sourceReferenceId: string;
   buyerAccountId: string;
   orderIds: readonly OrderId[];
-  status: "pending" | "created";
+  status: "pending" | "created" | "compensating";
 }>;
 
 type OrderSourceClaimRow = Readonly<{
@@ -16,7 +22,7 @@ type OrderSourceClaimRow = Readonly<{
   source_reference_id: string;
   buyer_account_id: string;
   order_ids: unknown;
-  status: "pending" | "created";
+  status: OrderSourceClaim["status"];
 }>;
 
 function mapOrderSourceClaim(row: OrderSourceClaimRow): OrderSourceClaim {
@@ -53,16 +59,19 @@ export async function getOrderSourceClaim(
 }
 
 export async function claimOrderSource(
-  db: PgQueryable,
+  db: PgTransactionalPool,
   claim: Readonly<{
     sourceType: OrderSourceType;
     sourceReferenceId: string;
     buyerAccountId: string;
     orderIds: readonly OrderId[];
   }>,
+  governed = false,
+  admissionConfigured = false,
 ): Promise<Readonly<{ outcome: "claimed" | "existing"; claim: OrderSourceClaim }>> {
-  const inserted = await db.query<OrderSourceClaimRow>(
-    `INSERT INTO ordering_order_source_claims (
+  const claimInTransaction = async (client: PgQueryable) => {
+    const inserted = await client.query<OrderSourceClaimRow>(
+      `INSERT INTO ordering_order_source_claims (
        source_type,
        source_reference_id,
        buyer_account_id,
@@ -73,30 +82,44 @@ export async function claimOrderSource(
      ) VALUES ($1, $2, $3, $4::jsonb, 'pending', now(), now())
      ON CONFLICT (source_type, source_reference_id) DO NOTHING
      RETURNING source_type, source_reference_id, buyer_account_id, order_ids, status`,
-    [claim.sourceType, claim.sourceReferenceId, claim.buyerAccountId, JSON.stringify(claim.orderIds)],
-  );
-  const insertedRow = inserted.rows[0];
-  if (insertedRow) {
-    return { outcome: "claimed", claim: mapOrderSourceClaim(insertedRow) };
-  }
+      [claim.sourceType, claim.sourceReferenceId, claim.buyerAccountId, JSON.stringify(claim.orderIds)],
+    );
+    const insertedRow = inserted.rows[0];
+    if (insertedRow) {
+      return { outcome: "claimed" as const, claim: mapOrderSourceClaim(insertedRow) };
+    }
 
-  const existing = await getOrderSourceClaim(db, claim.sourceType, claim.sourceReferenceId);
-  if (!existing) {
-    throw new Error("Order source claim conflict could not be resolved.");
-  }
-  if (existing.buyerAccountId !== claim.buyerAccountId) {
-    throw new OrderingDomainError("Order source identity is already claimed by another buyer account.");
-  }
-  return { outcome: "existing", claim: existing };
+    const existing = await getOrderSourceClaim(client, claim.sourceType, claim.sourceReferenceId);
+    if (!existing) {
+      throw new Error("Order source claim conflict could not be resolved.");
+    }
+    if (existing.buyerAccountId !== claim.buyerAccountId) {
+      throw new OrderingDomainError("Order source identity is already claimed by another buyer account.");
+    }
+    return { outcome: "existing" as const, claim: existing };
+  };
+  if (!governed && !admissionConfigured) return claimInTransaction(db);
+  return withPgTransaction(db, async (client) => {
+    await lockEvidenceWindowSourceIdentity(client, claim);
+    if (!governed && (await readEvidenceWindowSourceByIdentity(client, claim))) {
+      throw new OrderingDomainError("Evidence window source requires admitted creation context.");
+    }
+    if (governed && !(await lockOpenEvidenceWindowSource(client, claim))) {
+      throw new OrderingDomainError("Evidence window source binding is missing.");
+    }
+    return claimInTransaction(client);
+  });
 }
 
 export async function completeOrderSourceClaim(
-  db: PgQueryable,
+  db: PgTransactionalPool,
   claim: Pick<OrderSourceClaim, "sourceType" | "sourceReferenceId" | "buyerAccountId">,
   orderIds: readonly OrderId[],
+  governed = false,
 ) {
-  const result = await db.query(
-    `UPDATE ordering_order_source_claims
+  const completeInTransaction = async (client: PgQueryable) => {
+    const result = await client.query(
+      `UPDATE ordering_order_source_claims
      SET order_ids = $4::jsonb,
          status = 'created',
          updated_at = now()
@@ -104,26 +127,46 @@ export async function completeOrderSourceClaim(
        AND source_reference_id = $2
        AND buyer_account_id = $3
        AND status = 'pending'`,
-    [claim.sourceType, claim.sourceReferenceId, claim.buyerAccountId, JSON.stringify(orderIds)],
-  );
-  if (result.rowCount === 0) {
-    const existing = await getOrderSourceClaim(db, claim.sourceType, claim.sourceReferenceId);
-    if (
-      existing?.status !== "created" ||
-      existing.buyerAccountId !== claim.buyerAccountId ||
-      JSON.stringify(existing.orderIds) !== JSON.stringify(orderIds)
-    ) {
-      throw new Error("Order source claim could not be completed.");
+      [claim.sourceType, claim.sourceReferenceId, claim.buyerAccountId, JSON.stringify(orderIds)],
+    );
+    if (result.rowCount === 0) {
+      const existing = await getOrderSourceClaim(client, claim.sourceType, claim.sourceReferenceId);
+      if (
+        existing?.status !== "created" ||
+        existing.buyerAccountId !== claim.buyerAccountId ||
+        JSON.stringify(existing.orderIds) !== JSON.stringify(orderIds)
+      ) {
+        throw new Error("Order source claim could not be completed.");
+      }
     }
-  }
+  };
+  return governed ? withOpenEvidenceWindowSource(db, claim, completeInTransaction) : completeInTransaction(db);
+}
+
+async function deleteOwnedOrderSourceClaim(
+  client: PgQueryable,
+  claim: Pick<OrderSourceClaim, "sourceType" | "sourceReferenceId" | "buyerAccountId" | "orderIds">,
+  status: "pending" | "compensating",
+) {
+  await client.query(
+    `DELETE FROM ordering_order_source_claims
+     WHERE source_type = $1 AND source_reference_id = $2 AND buyer_account_id = $3
+       AND order_ids = $4::jsonb AND status = $5`,
+    [claim.sourceType, claim.sourceReferenceId, claim.buyerAccountId, JSON.stringify(claim.orderIds), status],
+  );
 }
 
 export async function compensatePendingOrderSourceClaim(
   db: PgTransactionalPool,
   claim: Pick<OrderSourceClaim, "sourceType" | "sourceReferenceId" | "buyerAccountId" | "orderIds">,
-  hasDurableOrder: () => Promise<boolean>,
+  hasDurableOrder: (client: PgQueryable) => Promise<boolean>,
+  admissionConfigured = false,
+  reconcileSeller: (sellerAccountId: string, client: PgQueryable) => Promise<void> = async () => {
+    throw new Error("Capacity compensation requires seller signal reconciliation.");
+  },
 ) {
   await withPgTransaction(db, async (client) => {
+    if (admissionConfigured) await lockEvidenceWindowSourceIdentity(client, claim);
     const owned = await client.query(
       `SELECT source_type FROM ordering_order_source_claims
        WHERE source_type = $1 AND source_reference_id = $2 AND buyer_account_id = $3
@@ -131,12 +174,29 @@ export async function compensatePendingOrderSourceClaim(
        FOR UPDATE`,
       [claim.sourceType, claim.sourceReferenceId, claim.buyerAccountId, JSON.stringify(claim.orderIds)],
     );
-    if (owned.rows.length === 0 || (await hasDurableOrder())) {
+    if (owned.rows.length === 0 || (await hasDurableOrder(client))) {
       return;
     }
+    const evidenceSource = await client.query(
+      `SELECT 1 FROM ordering_evidence_window_sources
+       WHERE source_type = $1 AND source_reference_id = $2 AND buyer_account_id = $3`,
+      [claim.sourceType, claim.sourceReferenceId, claim.buyerAccountId],
+    );
+    if (evidenceSource.rows.length > 0) return;
     await releasePurchaseLimitClaimsForFailedSource(client, claim);
+    if (claim.sourceType !== "cart-checkout") {
+      await deleteOwnedOrderSourceClaim(client, claim, "pending");
+      return;
+    }
     await client.query(
-      `DELETE FROM ordering_order_source_claims
+      `UPDATE ordering_seller_open_order_claims
+       SET status = 'released', released_at = now()
+       WHERE order_id = ANY($1::text[]) AND status = 'claimed'`,
+      [claim.orderIds],
+    );
+    await client.query(
+      `UPDATE ordering_order_source_claims
+     SET status = 'compensating', updated_at = now()
      WHERE source_type = $1
        AND source_reference_id = $2
        AND buyer_account_id = $3
@@ -144,5 +204,45 @@ export async function compensatePendingOrderSourceClaim(
        AND status = 'pending'`,
       [claim.sourceType, claim.sourceReferenceId, claim.buyerAccountId, JSON.stringify(claim.orderIds)],
     );
+  });
+  await finishOrderSourceCompensation(db, claim, hasDurableOrder, reconcileSeller, admissionConfigured);
+}
+
+export async function finishOrderSourceCompensation(
+  db: PgTransactionalPool,
+  claim: Pick<OrderSourceClaim, "sourceType" | "sourceReferenceId" | "buyerAccountId" | "orderIds">,
+  hasDurableOrder: (client: PgQueryable) => Promise<boolean>,
+  reconcileSeller: (sellerAccountId: string, client: PgQueryable) => Promise<void>,
+  admissionConfigured = false,
+) {
+  if (claim.sourceType !== "cart-checkout") return;
+  await withPgTransaction(db, async (client) => {
+    if (admissionConfigured) await lockEvidenceWindowSourceIdentity(client, claim);
+    const owned = await client.query(
+      `SELECT source_type FROM ordering_order_source_claims
+       WHERE source_type = $1 AND source_reference_id = $2 AND buyer_account_id = $3
+         AND order_ids = $4::jsonb AND status = 'compensating'
+       FOR UPDATE`,
+      [claim.sourceType, claim.sourceReferenceId, claim.buyerAccountId, JSON.stringify(claim.orderIds)],
+    );
+    if (owned.rows.length === 0 || (await hasDurableOrder(client))) return;
+    const governed = await readEvidenceWindowSourceByIdentity(client, claim);
+    if (governed) return;
+    // Released capacity rows retain the seller identities across signal failures.
+    // The source lock serializes retries until all signals have converged.
+    const sellers = await client.query<{ seller_account_id: string }>(
+      `SELECT DISTINCT seller_account_id FROM ordering_seller_open_order_claims
+       WHERE order_id = ANY($1::text[]) ORDER BY seller_account_id`,
+      [claim.orderIds],
+    );
+    for (const seller of sellers.rows) await reconcileSeller(seller.seller_account_id, client);
+    // No Order owns these rows. Remove them with the source so seed callers
+    // can reuse their explicit proposed order ids on a fresh admission.
+    await client.query(
+      `DELETE FROM ordering_seller_open_order_claims
+       WHERE order_id = ANY($1::text[]) AND status = 'released'`,
+      [claim.orderIds],
+    );
+    await deleteOwnedOrderSourceClaim(client, claim, "compensating");
   });
 }

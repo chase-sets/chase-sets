@@ -219,9 +219,51 @@ function countGit(delegate, counter = batteryWorkUnits, recordInvocation = null)
   };
 }
 
-function runCountedChildProcess(file, args, options) {
-  batteryWorkUnits.totalChildProcessSpawns += 1;
+function runCountedChildProcess(file, args, options, counter = batteryWorkUnits) {
+  counter.totalChildProcessSpawns += 1;
   return execFileSync(file, args, options);
+}
+
+function deriveProvenanceWithWorkUnitMeter(options = {}, counter = batteryWorkUnits, recordInvocation = null) {
+  const env = options.env ?? process.env;
+  const delegate = options.execGit ?? rawGit(repoRoot);
+  const countedExecGit = countGit(delegate, counter);
+  let analyzedTree = null;
+  let fetchedMain = null;
+  let externalValidationArgs = null;
+  return deriveGuardCandidateProvenance({
+    ...options,
+    env,
+    execGit: (args) => {
+      const externalValidation = JSON.stringify(args) === JSON.stringify(externalValidationArgs);
+      externalValidationArgs = null;
+      const before = counter.totalChildProcessSpawns;
+      try {
+        const result = (externalValidation ? delegate : countedExecGit)(args);
+        const stdout = String(result?.stdout ?? result).trim();
+        if (env.GITHUB_EVENT_NAME === "pull_request") {
+          if (JSON.stringify(args) === JSON.stringify(["rev-parse", "HEAD"])) analyzedTree = stdout;
+          if (JSON.stringify(args) === JSON.stringify(["rev-parse", "refs/remotes/origin/main"])) fetchedMain = stdout;
+          if (JSON.stringify(args) === JSON.stringify(["rev-list", "--parents", "-n", "1", analyzedTree])) {
+            const [commit, base, head, extraParent] = stdout.split(/\s+/);
+            if (commit === analyzedTree && base && head && !extraParent && fetchedMain && base !== fetchedMain) {
+              // Only the resolver's next call validates mutable external main.
+              // Candidate ancestry and the same command in battery work stay counted.
+              externalValidationArgs = ["merge-base", "--is-ancestor", base, fetchedMain];
+            }
+          }
+        }
+        return result;
+      } finally {
+        recordInvocation?.({
+          args,
+          role: externalValidation ? "external-main-validation" : "battery",
+          before,
+          after: counter.totalChildProcessSpawns,
+        });
+      }
+    },
+  });
 }
 
 function analyzeWithWorkUnitMeter(options = {}) {
@@ -242,7 +284,12 @@ function analyzeWithWorkUnitMeter(options = {}) {
     execAuthorityGit: countedExecAuthorityGit,
     deriveProvenance: suppliedDerivation
       ? () => suppliedDerivation(countedExecGit)
-      : () => deriveGuardCandidateProvenance({ execGit: (args) => countedExecGit(args) }),
+      : () =>
+          deriveProvenanceWithWorkUnitMeter(
+            { execGit: options.execGit ?? rawGit(analysisRoot) },
+            batteryWorkUnits,
+            options.recordProvenanceGitInvocation,
+          ),
   });
 }
 
@@ -289,9 +336,11 @@ const provenanceFixtures = {
 };
 
 let authoritySideListingSpawnEvidence = null;
+const realTreeProvenanceInvocations = [];
 const realTreeResult = deepFreeze(
   analyzeWithWorkUnitMeter({
     repoRoot,
+    recordProvenanceGitInvocation: (evidence) => realTreeProvenanceInvocations.push(evidence),
     recordAuthorityGitInvocation: (evidence) => {
       authoritySideListingSpawnEvidence = evidence;
     },
@@ -3190,6 +3239,9 @@ describe("Consent authorization sites", () => {
     const receipt = batteryWorkUnitReceipt(batteryWorkUnits);
     process.stdout.write(`consent-authorization-work-units=${JSON.stringify(receipt)}\n`);
     process.stdout.write(
+      `consent-authorization-provenance-spawns=${JSON.stringify({ ...realTreeProvenance, invocations: realTreeProvenanceInvocations })}\n`,
+    );
+    process.stdout.write(
       `consent-authorization-total-spawn-classes=${JSON.stringify(committedTotalChildProcessSpawnsByEnvironment)}\n`,
     );
     assertRealSpawnMeterControls();
@@ -3233,13 +3285,162 @@ describe("Consent authorization sites", () => {
     for (const [environment, expectedSpawns] of Object.entries(committedProvenanceGitSpawnsByEnvironment)) {
       const provenanceCounter = isolatedCounter();
       const fixture = provenanceFixtures[environment];
-      const provenance = deriveGuardCandidateProvenance({
-        env: fixture.env,
-        execGit: countGit(scriptedExecGit(fixture.gitResponses), provenanceCounter),
-        readEventPayload: () => (fixture.eventPayload === null ? "{}" : JSON.stringify(fixture.eventPayload)),
-      });
+      const provenance = deriveProvenanceWithWorkUnitMeter(
+        {
+          env: fixture.env,
+          execGit: scriptedExecGit(fixture.gitResponses),
+          readEventPayload: () => (fixture.eventPayload === null ? "{}" : JSON.stringify(fixture.eventPayload)),
+        },
+        provenanceCounter,
+      );
       expect(provenance.roles.landingCandidate.sha).toBe(fixture.expected.roles.landingCandidate.sha);
       expect(provenanceCounter.totalChildProcessSpawns).toBe(expectedSpawns);
     }
+  });
+
+  it("meters a synthetic pinned PR equally across main advances without bypassing provenance refusals", () => {
+    const {
+      scratch,
+      advancedBase: base,
+      head,
+      analyzedTree: merge,
+      base: eventBase,
+    } = classifiedEnvironments.pullRequest.environment;
+    const git = rawGit(scratch);
+    const tree = String(git(["rev-parse", `${base}^{tree}`])).trim();
+    const advanced = String(git(["commit-tree", tree, "-p", base, "-m", "synthetic external main advance"])).trim();
+    const ancestryArgs = ["merge-base", "--is-ancestor", base, advanced];
+    const options = {
+      env: { GITHUB_EVENT_NAME: "pull_request" },
+      execGit: git,
+      readEventPayload: () => ({ pull_request: { head: { sha: head }, base: { sha: eventBase } } }),
+    };
+    const receipts = [];
+    try {
+      for (const [state, fetchedMain] of [
+        ["equal", base],
+        ["advanced", advanced],
+      ]) {
+        git(["update-ref", "refs/remotes/origin/main", fetchedMain]);
+        const legacyCounter = isolatedCounter();
+        const legacyCalls = [];
+        const before = deriveGuardCandidateProvenance({
+          ...options,
+          execGit: countGit(git, legacyCounter, (evidence) => legacyCalls.push(evidence.args)),
+        });
+        const counter = isolatedCounter();
+        const invocations = [];
+        const after = deriveProvenanceWithWorkUnitMeter(options, counter, (evidence) => invocations.push(evidence));
+        expect(after.roles).toEqual(before.roles);
+        expect(after.roles.analyzedTree.sha).toBe(merge);
+        expect(after.roles.reviewedHead.sha).toBe(head);
+        expect(after.roles.baseTipAtAnalysis.sha).toBe(base);
+        expect(counter.totalChildProcessSpawns).toBe(
+          committedProvenanceGitSpawnsByEnvironment["pull-request-merge-ref"],
+        );
+        expect(legacyCounter.totalChildProcessSpawns).toBe(
+          counter.totalChildProcessSpawns + Number(state === "advanced"),
+        );
+        expect(invocations.map(({ args }) => args)).toEqual(legacyCalls);
+        const external = invocations.filter(({ role }) => role === "external-main-validation");
+        expect(external.map(({ args }) => args)).toEqual(state === "advanced" ? [ancestryArgs] : []);
+        expect(external.every(({ before, after }) => before === after)).toBe(true);
+        expect(
+          invocations.filter(({ role }) => role === "battery").every(({ before, after }) => after - before === 1),
+        ).toBe(true);
+        receipts.push({
+          state,
+          fetchedMain,
+          analyzedTree: merge,
+          reviewedHead: head,
+          legacySpawns: legacyCounter.totalChildProcessSpawns,
+          meteredSpawns: counter.totalChildProcessSpawns,
+          invocations,
+        });
+      }
+      expect(receipts[1].invocations.filter(({ role }) => role === "battery").map(({ args }) => args)).toEqual(
+        receipts[0].invocations.map(({ args }) => args),
+      );
+
+      for (const state of ["non-ancestor", "unavailable"]) {
+        git(["update-ref", "refs/remotes/origin/main", state === "non-ancestor" ? eventBase : advanced]);
+        const invocations = [];
+        expect(() =>
+          deriveProvenanceWithWorkUnitMeter(
+            {
+              ...options,
+              execGit: (args) => {
+                if (state === "unavailable" && JSON.stringify(args) === JSON.stringify(ancestryArgs)) {
+                  throw Object.assign(new Error("synthetic unavailable ancestry"), { status: 128 });
+                }
+                return git(args);
+              },
+            },
+            isolatedCounter(),
+            (evidence) => invocations.push(evidence),
+          ),
+        ).toThrow(
+          expect.objectContaining({
+            code: state === "non-ancestor" ? "guard-provenance-invalid" : "guard-provenance-unavailable",
+            reachedClause: "base-tip-parentage",
+          }),
+        );
+        expect(invocations.at(-1).role).toBe("external-main-validation");
+        receipts.push({ state, analyzedTree: merge, reviewedHead: head, invocations });
+      }
+      process.stdout.write(`consent-authorization-synthetic-main-meter=${JSON.stringify(receipts)}\n`);
+    } finally {
+      git(["update-ref", "refs/remotes/origin/main", base]);
+    }
+  });
+
+  it("rejects a real additional ancestry spawn in analyzer, authority and direct battery roles and kills MUT-BATTERY-METER-BYPASS", () => {
+    const { scratch, advancedBase: base, head, base: eventBase } = classifiedEnvironments.pullRequest.environment;
+    const git = rawGit(scratch);
+    const tree = String(git(["rev-parse", `${base}^{tree}`])).trim();
+    const advanced = String(git(["commit-tree", tree, "-p", base, "-m", "synthetic same-command control"])).trim();
+    const args = ["merge-base", "--is-ancestor", base, advanced];
+    git(["update-ref", "refs/remotes/origin/main", advanced]);
+    const provenanceInvocations = [];
+    try {
+      deriveProvenanceWithWorkUnitMeter(
+        {
+          env: { GITHUB_EVENT_NAME: "pull_request" },
+          execGit: git,
+          readEventPayload: () => ({ pull_request: { head: { sha: head }, base: { sha: eventBase } } }),
+        },
+        isolatedCounter(),
+        (evidence) => provenanceInvocations.push(evidence),
+      );
+    } finally {
+      git(["update-ref", "refs/remotes/origin/main", base]);
+    }
+    expect(
+      provenanceInvocations.filter(({ role }) => role === "external-main-validation").map(({ args }) => args),
+    ).toEqual([args]);
+    const mismatch = "totalChildProcessSpawns: observed value differs from committed value";
+    const receipts = [];
+    for (const role of ["analyzer", "authority", "direct"]) {
+      const observe = (bypass) => {
+        const counter = structuredClone(batteryWorkUnits);
+        expect(collectBatteryWorkUnitViolations(counter)).toEqual([]);
+        if (role === "direct") {
+          const options = { cwd: scratch, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] };
+          if (bypass) execFileSync("git", args, options);
+          else runCountedChildProcess("git", args, options, counter);
+        } else {
+          (bypass ? git : countGit(git, counter))(args);
+        }
+        expect(counter.totalChildProcessSpawns).toBeLessThanOrEqual(batteryWorkUnitCeilings.totalChildProcessSpawns);
+        return collectBatteryWorkUnitViolations(counter);
+      };
+      const candidate = observe(false);
+      expect(candidate).toEqual([mismatch]);
+      const mutant = observe(true);
+      expect(() => expect(mutant).toEqual([mismatch])).toThrow();
+      expect(mutant).toEqual([]);
+      receipts.push({ role, args, candidate, mutant: { name: "MUT-BATTERY-METER-BYPASS", violations: mutant } });
+    }
+    process.stdout.write(`consent-authorization-real-added-spawn=${JSON.stringify(receipts)}\n`);
   });
 });

@@ -90,6 +90,8 @@ const schedulerVocabularyLookalikePaths = [
 // is that fan-out's exact membership and order at the base commit. It is
 // asserted against the live workspace inventory as well, so adding a workspace
 // fails here loudly and this pin is refreshed with it.
+// Accepted inventory delta: #7197 adds @chase-sets/order-groups. The captured
+// classifier decisions, reasons, and output-key equivalence remain unchanged.
 const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/app-admin-web",
   "@chase-sets/app-marketplace-web",
@@ -97,6 +99,7 @@ const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/app-platform-worker",
   "@chase-sets/app-public-web",
   "@chase-sets/app-tcgplayer-connector-extension",
+  "@chase-sets/app-tcgplayer-operator-extension",
   "@chase-sets/auth",
   "@chase-sets/auth-context",
   "@chase-sets/authenticity",
@@ -113,8 +116,10 @@ const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/design-system",
   "@chase-sets/discovery",
   "@chase-sets/easypost-postage",
+  "@chase-sets/embedded-surface-theme",
   "@chase-sets/event-core",
   "@chase-sets/event-core-postgres",
+  "@chase-sets/evidence-window-provider-write",
   "@chase-sets/fulfillment",
   "@chase-sets/http",
   "@chase-sets/identity",
@@ -130,6 +135,7 @@ const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/notifications",
   "@chase-sets/object-storage",
   "@chase-sets/observability",
+  "@chase-sets/order-groups",
   "@chase-sets/ordering",
   "@chase-sets/outbound-messaging",
   "@chase-sets/payment-processing",
@@ -143,6 +149,7 @@ const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/primitives",
   "@chase-sets/product-measures",
   "@chase-sets/product-selection",
+  "@chase-sets/provider-credentials",
   "@chase-sets/provider-webhook-inbox",
   "@chase-sets/public-docs",
   "@chase-sets/public-presence",
@@ -152,6 +159,7 @@ const baseCapturedSchedulerFanoutWorkspaces = [
   "@chase-sets/seller-desk",
   "@chase-sets/ses-email",
   "@chase-sets/settlement",
+  "@chase-sets/stripe-appearance",
   "@chase-sets/stripe-config",
   "@chase-sets/stripe-connect",
   "@chase-sets/stripe-payments",
@@ -508,6 +516,7 @@ const hostedDbAdmissionCorpusSeeds = [
       "@chase-sets/app-admin-web",
       "@chase-sets/app-platform-api",
       "@chase-sets/app-platform-worker",
+      "@chase-sets/app-tcgplayer-operator-extension",
       "@chase-sets/catalog",
       "@chase-sets/discovery",
       "@chase-sets/inventory",
@@ -597,21 +606,22 @@ function statusAwareRiskFiles({ changedFiles, status }) {
 }
 
 function priorHostedAdmission(scope, lane) {
+  // Historical DB admission, with today's scope-gated E2E policy.
   return {
     dbJobExecutes: lane.targetedHeavyRequired && scope.dbTestsRequired,
     dbRequiredByName: lane.targetedHeavyRequired && scope.dbTestsRequired,
-    e2eJobExecutes: lane.targetedHeavyRequired && scope.e2eTestsRequired,
-    e2eRequiredByName: lane.targetedHeavyRequired && scope.e2eTestsRequired,
+    e2eJobExecutes: scope.e2eTestsRequired,
+    e2eRequiredByName: scope.e2eTestsRequired,
     affectedWorkspaces: scope.affectedWorkspaces,
   };
 }
 
-function isolatedHostedDbAdmission(scope, lane) {
+function isolatedHostedDbAdmission(scope) {
   return {
     dbJobExecutes: scope.dbTestsRequired,
     dbRequiredByName: scope.dbTestsRequired,
-    e2eJobExecutes: lane.targetedHeavyRequired && scope.e2eTestsRequired,
-    e2eRequiredByName: lane.targetedHeavyRequired && scope.e2eTestsRequired,
+    e2eJobExecutes: scope.e2eTestsRequired,
+    e2eRequiredByName: scope.e2eTestsRequired,
     affectedWorkspaces: scope.affectedWorkspaces,
   };
 }
@@ -963,6 +973,21 @@ describe("change-scope", () => {
     expect(scope.affectedWorkspaces).toEqual(["@test/inventory", "@test/app-platform-api"]);
     expect(scope.directlyTestOnlyAffectedWorkspaces).toEqual([]);
     expect(scope.affectedWorkspaces).not.toContain("@test/platform-runtime");
+  });
+
+  it("includes provider credential vocabulary and its real Catalog dependents", () => {
+    const scope = classifyChanges({ changedFiles: ["contracts/provider-credentials/index.ts"] });
+
+    expect(scope.directlyAffectedWorkspaces).toEqual(["@chase-sets/provider-credentials"]);
+    expect(scope.affectedWorkspaces).toEqual(
+      expect.arrayContaining([
+        "@chase-sets/provider-credentials",
+        "@chase-sets/catalog",
+        "@chase-sets/app-platform-api",
+      ]),
+    );
+    expect(scope.unitTestsRequired).toBe(true);
+    expect(scope.buildRequired).toBe(true);
   });
 
   it("expands affected workspaces through workspace dependents", () => {
@@ -1705,7 +1730,7 @@ describe("change-scope", () => {
         integrationRiskRequired: statusAwareIntegrationRisk.required,
       });
       const prior = priorHostedAdmission(scope, lane);
-      const next = isolatedHostedDbAdmission(scope, lane);
+      const next = isolatedHostedDbAdmission(scope);
       const changesAdmission =
         prior.dbJobExecutes !== next.dbJobExecutes || prior.dbRequiredByName !== next.dbRequiredByName;
 
@@ -1739,24 +1764,20 @@ describe("change-scope", () => {
         expect(next).toMatchObject({
           dbJobExecutes: true,
           dbRequiredByName: true,
-          e2eJobExecutes: false,
-          e2eRequiredByName: false,
+          e2eJobExecutes: true,
+          e2eRequiredByName: true,
         });
       }
     }
   });
 
-  it("makes every sibling seed-path and shared-targeted-lane mutant bite the locked corpus", () => {
+  it("makes every sibling seed-path and DB-shared-targeted-lane mutant bite the locked corpus", () => {
     const siblingMutantTable = hostedDbAdmissionCorpusSeeds
       .filter((entry) => entry.siblingKind)
       .map((entry) => {
         const scope = classifyChanges({ changedFiles: entry.changedFiles });
-        const lane = hostedLaneFor({
-          eventName: entry.eventName,
-          integrationRiskRequired: scope.integrationRiskRequired,
-        });
-        const baseline = isolatedHostedDbAdmission(scope, lane);
-        const mutant = isolatedHostedDbAdmission({ ...scope, dbTestsRequired: false }, lane);
+        const baseline = isolatedHostedDbAdmission(scope);
+        const mutant = isolatedHostedDbAdmission({ ...scope, dbTestsRequired: false });
         return {
           mutant: `omit-${entry.siblingKind}-from-db-scope`,
           path: entry.changedFiles[0],
@@ -1781,21 +1802,20 @@ describe("change-scope", () => {
       eventName: overlap.eventName,
       integrationRiskRequired: overlapScope.integrationRiskRequired,
     });
-    const isolated = isolatedHostedDbAdmission(overlapScope, overlapLane);
-    const sharedPredicateMutant = priorHostedAdmission(overlapScope, {
-      ...overlapLane,
-      targetedHeavyRequired: true,
-    });
+    const isolated = isolatedHostedDbAdmission(overlapScope);
+    const sharedPredicateMutant = priorHostedAdmission(overlapScope, overlapLane);
     const sharedPredicateMutantRow = {
-      mutant: "raise-shared-targeted-heavy-required",
+      mutant: "put-db-back-under-shared-targeted-heavy-required",
       isolatedDbExecutes: isolated.dbJobExecutes,
       isolatedE2eExecutes: isolated.e2eJobExecutes,
       mutantDbExecutes: sharedPredicateMutant.dbJobExecutes,
       mutantE2eExecutes: sharedPredicateMutant.e2eJobExecutes,
-      killed: isolated.dbJobExecutes && !isolated.e2eJobExecutes && sharedPredicateMutant.e2eJobExecutes,
+      killed: isolated.dbJobExecutes && !sharedPredicateMutant.dbJobExecutes,
     };
 
     expect(sharedPredicateMutantRow.killed).toBe(true);
+    expect(isolated.e2eJobExecutes).toBe(true);
+    expect(sharedPredicateMutant.e2eJobExecutes).toBe(true);
     console.info("hosted-db sibling mutant table", siblingMutantTable);
     console.info("hosted-db shared-predicate mutant", sharedPredicateMutantRow);
   });

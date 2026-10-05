@@ -1,3 +1,5 @@
+import { catalogFixtureTransports, catalogProductionTransport } from "../catalog-fixture-transports";
+import { sendCatalogProviderRequest } from "../provider-send-admission";
 import { createHash } from "node:crypto";
 
 import { t } from "@chase-sets/localization";
@@ -104,6 +106,12 @@ type YgoprodeckCardSetReference = Readonly<{
 }>;
 
 export function createYgoprodeckProviderAdapter(
+  options: YgoprodeckProviderAdapterOptions = {},
+): ProviderAdapter<YgoprodeckProviderPayload> {
+  return createYgoprodeckAdapter({ ...options, fetch: options.fetch && catalogProductionTransport(options.fetch) });
+}
+
+function createYgoprodeckAdapter(
   options: YgoprodeckProviderAdapterOptions = {},
 ): ProviderAdapter<YgoprodeckProviderPayload> {
   return {
@@ -304,8 +312,8 @@ export function createYgoprodeckProviderAdapter(
 }
 
 export function createYgoprodeckValidationProviderAdapter(): ProviderAdapter<YgoprodeckProviderPayload> {
-  return createYgoprodeckProviderAdapter({
-    fetch: ygoprodeckValidationFetch,
+  return createYgoprodeckAdapter({
+    fetch: catalogFixtureTransports.ygoprodeck,
     now: () => new Date("2026-06-21T00:00:00.000Z"),
     profileVersion: YGOPRODECK_VALIDATION_PROFILE_VERSION,
   });
@@ -471,7 +479,7 @@ async function fetchAllYgoprodeckCards(
 }
 
 async function fetchJson<T>(url: string, options: YgoprodeckProviderAdapterOptions): Promise<T> {
-  const response = await (options.fetch ?? globalThis.fetch)(url, {
+  const response = await sendCatalogProviderRequest("ygoprodeck", options.fetch ?? globalThis.fetch, url, {
     headers: {
       "User-Agent":
         options.userAgent ??
@@ -697,74 +705,3 @@ function normalizePlanSegment(value: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
 }
-
-function ygoprodeckValidationFetch(input: RequestInfo | URL): Promise<Response> {
-  const response = ygoprodeckValidationResponses[String(input)];
-  if (!response) {
-    return Promise.resolve(new Response(null, { status: 404 }));
-  }
-
-  return Promise.resolve(
-    new Response(JSON.stringify(response), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    }),
-  );
-}
-
-const ygoprodeckValidationCard = {
-  id: 46986414,
-  name: "Dark Magician",
-  type: "Normal Monster",
-  frameType: "normal",
-  desc: "The ultimate wizard in terms of attack and defense.",
-  race: "Spellcaster",
-  attribute: "DARK",
-  archetype: "Dark Magician",
-  card_sets: [
-    {
-      set_name: "Starter Deck: Yugi",
-      set_code: "SDY-006",
-      set_rarity: "Ultra Rare",
-      set_rarity_code: "(UR)",
-      set_price: "3.21",
-    },
-  ],
-  card_images: [
-    {
-      id: 46986414,
-      image_url: "https://images.ygoprodeck.com/images/cards/46986414.jpg",
-      image_url_small: "https://images.ygoprodeck.com/images/cards_small/46986414.jpg",
-      image_url_cropped: "https://images.ygoprodeck.com/images/cards_cropped/46986414.jpg",
-    },
-  ],
-  card_prices: [
-    {
-      cardmarket_price: "0.10",
-      tcgplayer_price: "0.25",
-      ebay_price: "0.99",
-      amazon_price: "1.50",
-      coolstuffinc_price: "0.49",
-    },
-  ],
-};
-
-const ygoprodeckValidationResponses: Readonly<Record<string, unknown>> = {
-  "https://db.ygoprodeck.com/api/v7/cardsets.php": [
-    {
-      set_name: "Starter Deck: Yugi",
-      set_code: "SDY",
-      num_of_cards: 50,
-      tcg_date: "2002-03-29",
-    },
-  ],
-  "https://db.ygoprodeck.com/api/v7/cardinfo.php?cardset=Starter+Deck%3A+Yugi": {
-    data: [ygoprodeckValidationCard],
-  },
-  "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Dark+Magician": {
-    data: [ygoprodeckValidationCard],
-  },
-  "https://db.ygoprodeck.com/api/v7/cardinfo.php?id=46986414": {
-    data: [ygoprodeckValidationCard],
-  },
-};

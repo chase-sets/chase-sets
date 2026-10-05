@@ -1,5 +1,27 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
+export type OrderingOrderDeliverySummary = Readonly<{
+  shipment_count: number;
+  delivered_count: number;
+  latest_delivered_at: string | null;
+}>;
+
+export async function getOrderingOrderDeliverySummary(
+  db: PgQueryable,
+  orderId: string,
+): Promise<OrderingOrderDeliverySummary> {
+  const result = await db.query<OrderingOrderDeliverySummary>(
+    `SELECT
+       COUNT(*)::integer AS shipment_count,
+       COUNT(*) FILTER (WHERE status = 'delivered')::integer AS delivered_count,
+       MAX(delivered_at)::text AS latest_delivered_at
+     FROM ordering_order_review_shipment_sources
+     WHERE order_id = $1`,
+    [orderId],
+  );
+  return result.rows[0]!;
+}
+
 export type OrderingOrderReviewOpportunity = Readonly<{
   order_id: string;
   subject_account_id: string;

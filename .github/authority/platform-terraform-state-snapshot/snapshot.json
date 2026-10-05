@@ -1,0 +1,116 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-terraform-state-snapshot.yml",
+      "jobId": "snapshot",
+      "stepAnchor": "name:Install dependencies#3",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-terraform-state-snapshot.yml",
+      "jobId": "snapshot",
+      "stepAnchor": "name:Install dependencies#3",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-terraform-state-snapshot.yml",
+      "jobId": "snapshot",
+      "stepAnchor": "name:Snapshot Terraform state#4",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-terraform-state-snapshot.yml",
+      "jobId": "snapshot",
+      "stepAnchor": "name:Snapshot Terraform state#4",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-terraform-state-snapshot.yml",
+      "jobId": "snapshot",
+      "stepAnchor": "name:Summarize Terraform state snapshot#5",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-terraform-state-snapshot.yml",
+      "jobId": "snapshot",
+      "stepAnchor": "name:Summarize Terraform state snapshot#5",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-terraform-state-snapshot.yml",
+      "jobId": "snapshot",
+      "stepAnchor": "uses:./.github/actions/report-scheduled-workflow-alert",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-terraform-state-snapshot.yml",
+      "jobId": "snapshot",
+      "stepAnchor": "uses:./.github/actions/report-scheduled-workflow-alert",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-terraform-state-snapshot.yml",
+      "jobId": "snapshot",
+      "stepAnchor": "uses:./.github/actions/report-scheduled-workflow-alert#2",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-terraform-state-snapshot.yml",
+      "jobId": "snapshot",
+      "stepAnchor": "uses:./.github/actions/report-scheduled-workflow-alert#2",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-terraform-state-snapshot.yml",
+      "jobId": "snapshot",
+      "stepAnchor": "uses:./.github/actions/setup-pnpm-workspace",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-terraform-state-snapshot.yml",
+      "jobId": "snapshot",
+      "stepAnchor": "uses:./.github/actions/setup-pnpm-workspace",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-terraform-state-snapshot.yml",
+      "jobId": "snapshot",
+      "stepAnchor": "uses:actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-terraform-state-snapshot.yml",
+      "jobId": "snapshot",
+      "stepAnchor": "uses:actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-terraform-state-snapshot.yml",
+      "jobId": "snapshot",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-terraform-state-snapshot.yml",
+      "jobId": "snapshot",
+      "stepAnchor": "uses:actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    }
+  ]
+}

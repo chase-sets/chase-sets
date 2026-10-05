@@ -27,6 +27,7 @@ import {
 import { buildEconomicsOverrideProjectionHandlers } from "../features/economics/read-model/override-projection";
 import { readCurrentEconomicsOverrides } from "../features/economics/read-model/override-queries";
 import { module as pricingModule } from "../index";
+import { runDailyRollupCloser } from "../features/market-rollups/read-model/rollup-maintenance";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI) {
@@ -64,6 +65,117 @@ describeDb("pricing schema upgrades", () => {
   beforeEach(async () => resetMultiContextTestSchemas(pools));
   afterAll(async () => closeMultiContextTestPools(pools));
 
+  it("guards an old-boot currency migration, preserves USD rows, and re-derives mixed days in bounded passes", async () => {
+    const pool = pools.pricing;
+    await pool.query(pricingModule.schemaSql);
+    for (const table of ["pricing_daily_product_rollups", "pricing_product_market_aggregates"]) {
+      await pool.query(`ALTER TABLE ${table} DROP CONSTRAINT ${table}_pkey`);
+      await pool.query(`ALTER TABLE ${table} DROP COLUMN currency_code`);
+    }
+    await pool.query(`ALTER TABLE pricing_daily_product_rollups
+      ADD PRIMARY KEY (catalog_catalog_item_id, product_id, day)`);
+    await pool.query(`ALTER TABLE pricing_product_market_aggregates
+      ADD PRIMARY KEY (catalog_catalog_item_id, product_id)`);
+    for (const [product, currency, order] of [
+      ["usd", "USD", "ord_usd"],
+      ["mixed", "USD", "ord_mixed_usd"],
+      ["mixed", "EUR", "ord_mixed_eur"],
+    ]) {
+      await pool.query(
+        `INSERT INTO pricing_market_trades
+         (order_id, line_id, seller_account_id, buyer_account_id, catalog_catalog_item_id, product_id,
+          unit_price_amount, currency_code, quantity, sale_channel, sold_at, updated_at)
+         VALUES ($1, 'line_1', 'seller', 'buyer', 'cat', $2, 10, $3, 1, 'buy-now', '2026-07-01', now())`,
+        [order, product, currency],
+      );
+    }
+    await pool.query(`INSERT INTO pricing_market_trades
+      (order_id, line_id, seller_account_id, buyer_account_id, catalog_catalog_item_id, product_id,
+       unit_price_amount, quantity, sale_channel, sold_at, updated_at)
+      VALUES ('ord_unknown', 'line_1', 'seller', 'buyer', 'cat', 'unknown', 10, 1, 'buy-now', '2026-07-01', now())`);
+    await pool.query(`INSERT INTO pricing_daily_product_rollups
+      (catalog_catalog_item_id, product_id, day, trade_count, updated_at)
+      VALUES ('cat', 'usd', '2026-07-01', 1, now()), ('cat', 'mixed', '2026-07-01', 2, now())`);
+    await pool.query(`INSERT INTO pricing_product_market_aggregates
+      (catalog_catalog_item_id, product_id, trade_count_90d, updated_at)
+      VALUES ('cat', 'usd', 1, now()), ('cat', 'mixed', 2, now())`);
+
+    await expect(bootstrapContextDatabase(pricingModule, pool)).rejects.toThrow("must have currency");
+    expect((await pool.query(`SELECT COUNT(*)::integer AS count FROM pricing_daily_product_rollups`)).rows[0]).toEqual({
+      count: 2,
+    });
+    expect(
+      (await pool.query(`SELECT COUNT(*)::integer AS count FROM pricing_product_market_aggregates`)).rows[0],
+    ).toEqual({ count: 2 });
+    await pool.query(`UPDATE pricing_market_trades
+      SET excluded = true, exclusion_reason = 'fraud-flagged' WHERE order_id = 'ord_unknown'`);
+    await pool.query(`INSERT INTO pricing_market_trade_rollup_rederive_queue
+      (catalog_catalog_item_id, product_id, day, queued_at) VALUES ('cat', 'usd', '2026-07-01', now())`);
+    await expect(bootstrapContextDatabase(pricingModule, pool)).rejects.toThrow("queue must drain");
+    await pool.query(`DELETE FROM pricing_market_trade_rollup_rederive_queue`);
+
+    await bootstrapContextDatabase(pricingModule, pool);
+    const pendingBeforeRetry = await pool.query(
+      `SELECT * FROM pricing_market_trade_rollup_rederive_queue ORDER BY product_id, day`,
+    );
+    // Simulate losing the connection after reshape commit but before its ledger receipt.
+    await pool.query(`DELETE FROM bounded_context_schema_migrations
+      WHERE migration_id IN ('20260927_pricing_currency_keyed_rollups', '20260927_pricing_currency_rollup_series_index')`);
+    await bootstrapContextDatabase(pricingModule, pool);
+    expect(
+      (await pool.query(`SELECT * FROM pricing_market_trade_rollup_rederive_queue ORDER BY product_id, day`)).rows,
+    ).toEqual(pendingBeforeRetry.rows);
+    await bootstrapContextDatabase(pricingModule, pool);
+    const existing = await pool.query<{ product_id: string; currency_code: string }>(
+      `SELECT product_id, currency_code FROM pricing_daily_product_rollups ORDER BY product_id`,
+    );
+    expect(existing.rows).toEqual([{ product_id: "usd", currency_code: "USD" }]);
+    const aggregate = await pool.query<{ product_id: string; currency_code: string }>(
+      `SELECT product_id, currency_code FROM pricing_product_market_aggregates ORDER BY product_id`,
+    );
+    expect(aggregate.rows).toEqual([{ product_id: "usd", currency_code: "USD" }]);
+    const queued = await pool.query<{ count: number }>(
+      `SELECT COUNT(*)::integer AS count FROM pricing_market_trade_rollup_rederive_queue`,
+    );
+    expect(queued.rows).toEqual([{ count: 3 }]);
+    for (let pass = 0; pass < 3; pass++) {
+      await runDailyRollupCloser(pool, { now: "2026-07-02T00:00:00.000Z", rederiveQueueLimit: 1 });
+    }
+    expect(
+      (await pool.query(`SELECT COUNT(*)::integer AS count FROM pricing_market_trade_rollup_rederive_queue`)).rows[0],
+    ).toEqual({ count: 0 });
+    const split = await pool.query<{ currency_code: string; stat_hygiene_policy_revision_id: string }>(
+      `SELECT currency_code, stat_hygiene_policy_revision_id FROM pricing_daily_product_rollups
+       WHERE product_id = 'mixed' ORDER BY currency_code`,
+    );
+    expect(split.rows).toEqual([
+      { currency_code: "EUR", stat_hygiene_policy_revision_id: MARKET_STAT_HYGIENE_COMPILED_REVISION_ID },
+      { currency_code: "USD", stat_hygiene_policy_revision_id: MARKET_STAT_HYGIENE_COMPILED_REVISION_ID },
+    ]);
+  });
+
+  it("boots currency-keyed tables and series index on a fresh database", async () => {
+    await bootstrapContextDatabase(pricingModule, pools.pricing);
+    await bootstrapContextDatabase(pricingModule, pools.pricing);
+    const index = await pools.pricing.query<{ definition: string; valid: boolean }>(
+      `SELECT pg_get_indexdef(indexrelid) AS definition, indisvalid AS valid FROM pg_index
+       WHERE indexrelid = 'pricing_daily_product_rollups_series_idx'::regclass`,
+    );
+    expect(index.rows[0]?.definition).toContain("currency_code");
+    expect(index.rows[0]?.valid).toBe(true);
+    const checks = await pools.pricing.query<{ convalidated: boolean }>(
+      `SELECT convalidated FROM pg_constraint
+       WHERE conname IN ('pricing_daily_product_rollups_currency_required', 'pricing_product_market_aggregates_currency_required')`,
+    );
+    expect(checks.rows).toEqual([{ convalidated: true }, { convalidated: true }]);
+    const keys = await pools.pricing.query<{ table_name: string; column_name: string }>(
+      `SELECT table_name, column_name FROM information_schema.columns
+       WHERE table_name IN ('pricing_daily_product_rollups', 'pricing_product_market_aggregates')
+         AND column_name = 'currency_code' AND is_nullable = 'NO' ORDER BY table_name`,
+    );
+    expect(keys.rows).toHaveLength(2);
+  });
+
   it("upgrades deployed pricing schema idempotently across two boots", async () => {
     const pool = pools.pricing;
     await bootstrapContextDatabase(pricingModule, pool);
@@ -94,9 +206,9 @@ describeDb("pricing schema upgrades", () => {
     );
     await pool.query(
       `INSERT INTO pricing_daily_product_rollups (
-         catalog_catalog_item_id, product_id, day, median_price_amount,
+         catalog_catalog_item_id, product_id, day, currency_code, median_price_amount,
          unit_volume, trade_count, verified_trade_count, updated_at
-       ) VALUES ('cat_deployed', 'prod_deployed', '2026-07-01', 15.00, 8, 8, 0, now())`,
+       ) VALUES ('cat_deployed', 'prod_deployed', '2026-07-01', 'USD', 15.00, 8, 8, 0, now())`,
     );
 
     await bootstrapContextDatabase(pricingModule, pool);
@@ -139,9 +251,9 @@ describeDb("pricing schema upgrades", () => {
 
     await pool.query(
       `INSERT INTO pricing_daily_product_rollups (
-         catalog_catalog_item_id, product_id, day, median_price_amount,
+         catalog_catalog_item_id, product_id, day, currency_code, median_price_amount,
          unit_volume, trade_count, verified_trade_count, updated_at
-       ) VALUES ('cat_new', 'prod_new', '2026-07-02', 10.00, 8, 8, 0, now())`,
+       ) VALUES ('cat_new', 'prod_new', '2026-07-02', 'USD', 10.00, 8, 8, 0, now())`,
     );
     const fresh = await pool.query<{ stat_hygiene_policy_revision_id: string }>(
       `SELECT stat_hygiene_policy_revision_id

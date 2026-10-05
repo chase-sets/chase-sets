@@ -6,8 +6,8 @@
   "scripts": {
     "typecheck": "tsc -p ./tests/tsconfig.json --noEmit",
     "test": "vitest run --config ./tests/vitest.config.mjs",
-    "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude features/wallets/read-model/queries.db.test.ts --exclude features/wallets/read-model/projection-atomicity.db.test.ts --exclude features/wallets/read-model/wallet-adjustment-projection.db.test.ts --exclude features/wallets/read-model/wallet-adjustment-reconciliation.db.test.ts --exclude features/wallets/read-model/ledger-sale-credit-total.db.test.ts --exclude features/wallets/integrations/fulfillment-source/fulfillment-source-projection.db.test.ts --exclude features/wallets/integrations/account-risk-source/account-risk-source-review-sql.db.test.ts --exclude features/wallets/integrations/account-risk-source/account-linkage-closer.db.test.ts --exclude features/protection-coverage/read-model/protection-coverage-projection.db.test.ts --exclude features/payouts/read-model/payout-request-idempotency.db.test.ts --exclude features/payouts/api/payout-fee-concurrency.db.test.ts --exclude features/liability-reconciliation/read-model/liability-reconciliation.db.test.ts --exclude tests/schema-upgrade.db.test.ts",
-    "test:db": "vitest run --config ./tests/vitest.config.mjs features/wallets/read-model/queries.db.test.ts features/wallets/read-model/projection-atomicity.db.test.ts features/wallets/read-model/wallet-adjustment-projection.db.test.ts features/wallets/read-model/wallet-adjustment-reconciliation.db.test.ts features/wallets/read-model/ledger-sale-credit-total.db.test.ts features/wallets/integrations/fulfillment-source/fulfillment-source-projection.db.test.ts features/wallets/integrations/account-risk-source/account-risk-source-review-sql.db.test.ts features/wallets/integrations/account-risk-source/account-linkage-closer.db.test.ts features/protection-coverage/read-model/protection-coverage-projection.db.test.ts features/payouts/read-model/payout-request-idempotency.db.test.ts features/payouts/api/payout-fee-concurrency.db.test.ts features/liability-reconciliation/read-model/liability-reconciliation.db.test.ts tests/schema-upgrade.db.test.ts",
+    "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude features/wallets/read-model/queries.db.test.ts --exclude features/wallets/read-model/projection-atomicity.db.test.ts --exclude features/wallets/read-model/wallet-adjustment-projection.db.test.ts --exclude features/wallets/read-model/wallet-adjustment-reconciliation.db.test.ts --exclude features/wallets/read-model/ledger-sale-credit-total.db.test.ts --exclude features/wallets/integrations/fulfillment-source/fulfillment-source-projection.db.test.ts --exclude features/wallets/integrations/account-risk-source/account-risk-source-review-sql.db.test.ts --exclude features/wallets/integrations/account-risk-source/account-linkage-closer.db.test.ts --exclude features/protection-coverage/read-model/protection-coverage-projection.db.test.ts --exclude features/payouts/read-model/payout-request-idempotency.db.test.ts --exclude features/payouts/api/payout-fee-concurrency.db.test.ts --exclude features/liability-reconciliation/read-model/liability-reconciliation.db.test.ts --exclude tests/schema-upgrade.db.test.ts --exclude features/wallets/integrations/payment-source/payment-source-projection.db.test.ts",
+    "test:db": "vitest run --config ./tests/vitest.config.mjs features/wallets/read-model/queries.db.test.ts features/wallets/read-model/projection-atomicity.db.test.ts features/wallets/read-model/wallet-adjustment-projection.db.test.ts features/wallets/read-model/wallet-adjustment-reconciliation.db.test.ts features/wallets/read-model/ledger-sale-credit-total.db.test.ts features/wallets/integrations/fulfillment-source/fulfillment-source-projection.db.test.ts features/wallets/integrations/account-risk-source/account-risk-source-review-sql.db.test.ts features/wallets/integrations/account-risk-source/account-linkage-closer.db.test.ts features/protection-coverage/read-model/protection-coverage-projection.db.test.ts features/payouts/read-model/payout-request-idempotency.db.test.ts features/payouts/api/payout-fee-concurrency.db.test.ts features/liability-reconciliation/read-model/liability-reconciliation.db.test.ts tests/schema-upgrade.db.test.ts features/wallets/integrations/payment-source/payment-source-projection.db.test.ts",
     "test:watch": "vitest --config ./tests/vitest.config.mjs"
   },
   "chaseSets": {
@@ -22,12 +22,14 @@
   },
   "types": "./index.ts",
   "dependencies": {
+    "@chase-sets/evidence-window-provider-write": "workspace:*",
     "@chase-sets/auth-context": "workspace:*",
     "@chase-sets/customer-feedback": "workspace:*",
     "@chase-sets/bounded-context-module": "workspace:*",
     "@chase-sets/bounded-context-runtime": "workspace:*",
     "@chase-sets/seller-attention-queue": "workspace:*",
     "@chase-sets/design-system": "workspace:*",
+    "@chase-sets/stripe-appearance": "workspace:*",
     "@chase-sets/event-core": "workspace:*",
     "@chase-sets/event-core-postgres": "workspace:*",
     "@chase-sets/http": "workspace:*",

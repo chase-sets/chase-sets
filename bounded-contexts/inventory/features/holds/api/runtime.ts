@@ -31,7 +31,7 @@ import {
   type InventoryHoldState,
 } from "../domain/domain";
 import { buildInventoryHoldProjectionHandlers } from "../read-model/projection";
-import { getInventoryHold } from "../read-model/queries";
+import { getInventoryCheckoutHold, getInventoryHold } from "../read-model/queries";
 
 export type InventoryHoldPlacementParams = Readonly<{
   holdId?: InventoryHoldId | null;
@@ -145,6 +145,7 @@ export type InventoryHoldServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<{ holdId: string; version: number }>;
   getHold: (holdId: string, accountId: string) => ReturnType<typeof getInventoryHold>;
+  getCheckoutHold: (holdId: string, checkoutSessionId: string) => ReturnType<typeof getInventoryCheckoutHold>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -424,6 +425,7 @@ export function createInventoryHoldRuntime(deps: InventoryRuntimeDeps): Inventor
       };
     },
     getHold: (holdId, accountId) => getInventoryHold(deps.db, holdId, accountId),
+    getCheckoutHold: (holdId, checkoutSessionId) => getInventoryCheckoutHold(deps.db, holdId, checkoutSessionId),
     projectors: [
       createProjectionHandlerSet({
         projectionName: "inventory-hold-projection",

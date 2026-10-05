@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import "@chase-sets/design-system/styles.css";
-import { useEffect, type ReactNode } from "react";
-import { EmptyState, LinkButton, Page } from "@chase-sets/design-system";
+import { useEffect, useRef, type ReactNode } from "react";
+import { EmptyState, LinkButton, Page, Text } from "@chase-sets/design-system";
 import { buildCanonicalUrl } from "@chase-sets/platform-runtime/seo";
 import type { LoaderFunctionArgs } from "react-router";
 import {
@@ -13,6 +13,7 @@ import {
   ScrollRestoration,
   useLoaderData,
   useLocation,
+  useMatches,
   useRouteError,
 } from "react-router";
 import { AdminRootShell } from "./admin-root-shell";
@@ -69,15 +70,15 @@ export default function App() {
 export function ErrorBoundary() {
   const error = useRouteError();
   const location = useLocation();
+  const matches = useMatches();
+  const observedAtRef = useRef<{ error: unknown; value: string } | null>(null);
+  if (observedAtRef.current?.error !== error) {
+    observedAtRef.current = { error, value: new Date().toISOString() };
+  }
+  const observedAt = observedAtRef.current!.value;
   const status = isRouteErrorResponse(error) ? error.status : null;
-  const responseDetail =
-    isRouteErrorResponse(error) && error.data
-      ? typeof error.data === "string"
-        ? error.data
-        : JSON.stringify(error.data)
-      : null;
   const rawMessage = isRouteErrorResponse(error)
-    ? [error.status, error.statusText || responseDetail].filter(Boolean).join(" ")
+    ? [error.status, error.statusText].filter(Boolean).join(" ")
     : error instanceof Error
       ? error.message
       : t("adminWeb.app.root.unknown.error");
@@ -85,6 +86,26 @@ export function ErrorBoundary() {
   // before it ever reaches the DOM so a stray raw id, token, or cookie never leaks through this
   // shared error surface.
   const message = redactAdminErrorDetail(rawMessage);
+  const diagnostic = {
+    // Route ids come from static router configuration, never URL parameters or payloads. This is
+    // the deepest matched route, not necessarily the route whose loader or element threw.
+    route: matches.at(-1)?.id ?? "unmatched",
+    observedAt,
+    category: isRouteErrorResponse(error)
+      ? "route-response"
+      : error instanceof TypeError
+        ? "runtime-type-error"
+        : error instanceof ReferenceError
+          ? "runtime-reference-error"
+          : error instanceof SyntaxError
+            ? "runtime-syntax-error"
+            : error instanceof RangeError
+              ? "runtime-range-error"
+              : error instanceof Error
+                ? "runtime-error"
+                : "unknown-error",
+    status,
+  };
   const title = status === 404 ? t("adminWeb.app.root.not.found.title") : t("adminWeb.app.root.admin.error.2");
   const retryHref = `${location.pathname}${location.search}${location.hash}` || "/";
 
@@ -108,6 +129,9 @@ export function ErrorBoundary() {
         <details>
           <summary>{t("adminWeb.app.root.technical.detail")}</summary>
           <p>{message}</p>
+          <Text suppressHydrationWarning wrap="anywhere">
+            {JSON.stringify(diagnostic)}
+          </Text>
         </details>
       </Page>
     </AdminRootShell>

@@ -51,6 +51,7 @@ describe("pricing market-rollups runtime (#4310 policy consumption)", () => {
     await runtime.getProductRollupSeries({
       catalogItemId: "cat_1",
       productId: "prod_1",
+      currencyCode: "USD",
       from: "2026-06-01",
       to: "2026-07-01",
     });

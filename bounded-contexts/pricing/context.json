@@ -13,6 +13,8 @@
     "gross-merchandise-value",
     "market-state-snapshot",
     "repricing-policy",
+    "repricing-preset",
+    "authoring-prerequisites",
     "repricing-listing-outcome",
     "repricing-management-policy",
     "repricing-activity",
@@ -48,6 +50,7 @@
     "market-trades",
     "market-rollups",
     "market-estimates",
+    "offer-targets",
     "repricing-policies",
     "repricing-engine",
     "public-market-pages",
@@ -192,7 +195,7 @@
       "projectionName": "pricing-market-trades-projection",
       "subscriptionVersion": 1,
       "filterToEventTypes": true,
-      "eventTypes": ["payments.payment-fraud-warning-received"],
+      "eventTypes": ["payments.payment-captured", "payments.payment-fraud-warning-received"],
       "order": 90,
       "projectionHandlerSetNames": ["pricing-market-trades-projection"]
     },
@@ -263,6 +266,13 @@
       "resetStrategy": "replay-only"
     },
     {
+      "projectionName": "pricing-repricing-policy-projection",
+      "sourceContextNames": ["pricing"],
+      "ownedTables": ["pricing_repricing_policies"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
       "projectionName": "pricing-repricing-halt-projection",
       "sourceContextNames": ["pricing"],
       "ownedTables": ["pricing_repricing_halts"],
@@ -316,10 +326,12 @@
     },
     {
       "projectionName": "pricing-market-trades-projection",
+      "projectionRevision": 2,
       "sourceContextNames": ["ordering", "fulfillment", "identity", "payments", "authenticity", "settlement"],
       "optionalSourceContextNames": ["authenticity"],
       "ownedTables": [
         "pricing_market_trades",
+        "pricing_market_trade_denominations",
         "pricing_market_trade_authenticity_cases",
         "pricing_market_trade_linkage_clusters",
         "pricing_market_trade_rollup_rederive_queue"
@@ -371,7 +383,27 @@
     {
       "mountPath": "/api/marketplace",
       "kind": "primary",
-      "requiresAuth": true
+      "requiresAuth": true,
+      "readFreshnessRoutes": [
+        {
+          "routePath": "/account/repricing-policies",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "pricing_repricing_policies"
+            }
+          ]
+        },
+        {
+          "routePath": "/account/repricing-policies/:policyId",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "pricing_repricing_policies"
+            }
+          ]
+        }
+      ]
     }
   ],
   "mcpCapabilities": {
@@ -386,6 +418,75 @@
       }
     ]
   },
+  "readAfterWriteRouteInventory": [
+    {
+      "id": "pricing.seller-desk-repricing-policy-list-refresh",
+      "owner": "pricing",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeIds": ["account-desk-repricing", "account-desk-repricing-policy"],
+        "actions": ["Pause policy", "Resume policy", "Delete policy"],
+        "command": "Pricing repricing policy pause, resume and delete commands",
+        "helperUses": ["navigateAfterWriteWithPlatformPostWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-desk-repricing",
+        "apiContextName": "pricing",
+        "apiRoutePath": "/account/repricing-policies",
+        "readModelTables": ["pricing_repricing_policies"],
+        "helperUses": ["loadAfterWrite"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The Seller Desk repricing list loader forwards the policy command receipt to the policy list read only; a valid fresh-write projection freshness timeout shows a refreshable catching-up banner in place of the policy table, so a deleted policy never lingers in the list from stale membership. The page reloads itself with the same receipt at most ten times, 250 ms apart, and the refresh link stays available once that budget is spent. Halt, budget and dry-run reads never carry the receipt."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/pricing/tests/account-desk-repricing-route.test.ts",
+          "bounded-contexts/pricing/features/repricing-policies/ui/policy-editor-drawer.test.tsx",
+          "bounded-contexts/pricing/features/repricing-policies/api/route.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "pricing.seller-desk-repricing-policy-detail-self-refresh",
+      "owner": "pricing",
+      "risk": "important",
+      "freshnessSlo": {
+        "flowClass": "important-self-refresh",
+        "p95Ms": 2500,
+        "p99Ms": 5000
+      },
+      "source": {
+        "routeId": "account-desk-repricing-policy",
+        "actions": ["Pause policy", "Resume policy"],
+        "command": "Pricing repricing policy pause, resume and delete commands",
+        "helperUses": ["navigateAfterWriteWithPlatformPostWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-desk-repricing-policy",
+        "apiContextName": "pricing",
+        "apiRoutePath": "/account/repricing-policies/:policyId",
+        "readModelTables": ["pricing_repricing_policies"],
+        "helperUses": ["loadAfterWrite"],
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The Seller Desk policy detail loader treats valid fresh-write not-found and projection freshness timeout responses as a refreshable catching-up page that reloads itself with the same receipt at most ten times, 250 ms apart, before leaving the refresh link to the seller; without a valid, unexpired receipt a missing policy stays an ordinary not-found and authorization failures propagate unchanged."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/pricing/tests/account-desk-repricing-route.test.ts",
+          "bounded-contexts/pricing/features/repricing-policies/api/route.test.ts"
+        ]
+      }
+    }
+  ],
   "mutationConsistencyInventory": [
     {
       "id": "pricing.repricing-policy-control-snapshots",
@@ -409,6 +510,33 @@
         "tests": [
           "bounded-contexts/pricing/features/repricing-policies/api/route.test.ts",
           "bounded-contexts/pricing/features/repricing-policies/tests/policy-activation.db.test.ts"
+        ]
+      }
+    },
+    {
+      "id": "pricing.seller-desk-repricing-controls",
+      "owner": "pricing",
+      "risk": "important",
+      "strategy": "fresh-read",
+      "surfaces": [
+        "route-action:bounded-contexts/pricing/routes/marketplace/account-desk-repricing.tsx",
+        "route-action:bounded-contexts/pricing/routes/marketplace/account-desk-repricing-policy.tsx"
+      ],
+      "visibleDestination": {
+        "routeId": "account-desk-repricing",
+        "apiContextName": "pricing",
+        "apiRoutePath": "/account/repricing-policies",
+        "readModelTables": ["pricing_repricing_policies"],
+        "description": "Policy command responses contain folded aggregate state and commit metadata. Seller Desk policy redirects carry that metadata into a bounded fresh read. Policy-list membership and policy-detail existence depend on pricing_repricing_policies, owned by pricing-repricing-policy-projection; returned policy bodies are folded from owned aggregates. Halt state is read directly from its aggregate and is not protected by a policy-projection wait. Pending and permanent recovery follow the shared freshness contract.",
+        "transientRecovery": {
+          "kinds": "refreshable-catching-up",
+          "behavior": "The Seller Desk repricing list loader forwards the policy command receipt to the policy list read only; a valid fresh-write projection freshness timeout shows a refreshable catching-up banner in place of the policy table, so a deleted policy never lingers in the list from stale membership. The page reloads itself with the same receipt at most ten times, 250 ms apart, and the refresh link stays available once that budget is spent. Halt, budget and dry-run reads never carry the receipt."
+        }
+      },
+      "proof": {
+        "tests": [
+          "bounded-contexts/pricing/tests/account-desk-repricing-route.test.ts",
+          "bounded-contexts/pricing/features/repricing-policies/api/route.test.ts"
         ]
       }
     },
@@ -578,6 +706,58 @@
           }
         },
         {
+          "routeId": "account-desk-repricing",
+          "routePath": "account/desk/repricing",
+          "fileExport": "./routes/marketplace/account-desk-repricing",
+          "routeType": "route",
+          "sourceContext": "pricing",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "pricing",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        },
+        {
+          "routeId": "account-desk-repricing-policy",
+          "routePath": "account/desk/repricing/:policyId",
+          "fileExport": "./routes/marketplace/account-desk-repricing-policy",
+          "routeType": "route",
+          "sourceContext": "pricing",
+          "delivery": "server-only",
+          "authorization": {
+            "kind": "authenticated",
+            "requiredPermissions": []
+          },
+          "canonicalLink": {
+            "kind": "not-applicable",
+            "reason": "Canonical-link publication is deferred with mobile route extraction."
+          },
+          "availability": {
+            "web": true,
+            "mobile": false
+          },
+          "pageComponentExport": "default",
+          "unsupportedMobile": {
+            "owner": "pricing",
+            "followUp": "#5238",
+            "reason": "Portable data operations have not been extracted for this route."
+          }
+        },
+        {
           "routeId": "account-bulk-reprice",
           "routePath": "account/bulk-reprice",
           "fileExport": "./routes/marketplace/bulk-reprice",
@@ -676,6 +856,11 @@
       "purpose": "Own the blended Market-Value Estimate: the event-sourced Market Price aggregate publishing pricing.market-price.estimated per resolved product (platform verified trades weighted highest, unverified next, external comps by the market-estimate policy, all time-decayed), its minimum-input gate, the current-estimate read model, and the estimate recompute pass riding the market-rollups closer job.",
       "expectedConsumers": ["Internal pricing module composition"]
     },
+    "offer-targets": {
+      "classification": "slice",
+      "purpose": "Evaluate buyer Offer unit item targets from fresh published market-price evidence in market-estimates and authorized Marketplace policy terms without seller inputs.",
+      "expectedConsumers": ["Marketplace buyer Offer preview and application through the Pricing server contract"]
+    },
     "repricing-policies": {
       "classification": "slice",
       "purpose": "Own the RepricingPolicy aggregate (seller-owned rule pipeline: anchor chain, offset, floor, ceiling, tolerance, budgets, scope) and the resolved listing-to-policy assignment read model that is the repricing evaluation engine's work queue input.",
@@ -714,7 +899,7 @@
     "request-support": {
       "classification": "support",
       "purpose": "Provide Pricing request HTTP client composition for route loaders and composition seams.",
-      "expectedConsumers": ["recommendations", "public-market-pages", "bulk-reprice-ingestion"],
+      "expectedConsumers": ["repricing-policies"],
       "crossCuttingRuntimeComposition": true
     },
     "route-support": {

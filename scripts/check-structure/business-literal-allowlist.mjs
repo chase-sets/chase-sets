@@ -37,6 +37,15 @@
 // The guard ratchets: when an entry's file gets a platform-policy migration
 // slice, delete the entry in the same PR.
 export const businessLiteralAllowlist = [
+  // Fixed security lifetimes are not administrator-configurable business policy.
+  {
+    file: "bounded-contexts/catalog/features/operator-session/api/grants.ts",
+    pattern: "interval '30 days'",
+    reason:
+      "#8471 Q1 fixes mint and successful-PUT idle expiry at DB t + 30 days; an administrator must not configure the lifetime of their own credential.",
+    owner: "catalog",
+    ref: "#8471",
+  },
   {
     file: "bounded-contexts/settlement/features/payouts/read-model/queries.ts",
     pattern: "INTERVAL '7 days'",

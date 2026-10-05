@@ -6,6 +6,8 @@ import {
 } from "@chase-sets/event-core-postgres";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
+import { createProviderConnectionsRuntime } from "../../features/provider-connections/api/runtime";
+import type { ProviderConnectionsCrossContextPort } from "../../features/provider-connections/api/contracts";
 import type { NotificationOutbox } from "@chase-sets/outbound-messaging";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createPolicyRuntime, type PolicyRuntime } from "@chase-sets/platform-policy/runtime";
@@ -38,6 +40,7 @@ import {
 } from "../../features/support-requests/read-model/queries";
 
 export type PlatformOperationsHostPorts = Readonly<{
+  providerConnectionsCrossContext?: ProviderConnectionsCrossContextPort;
   notificationOutbox?: NotificationOutbox;
   supportEvidenceAttachmentStorage?: SupportEvidenceAttachmentStorage;
   /**
@@ -74,6 +77,7 @@ export type PlatformOperationsHostPorts = Readonly<{
 }>;
 
 export type PlatformOperationsServices = Readonly<{
+  providerConnections: ReturnType<typeof createProviderConnectionsRuntime>;
   db: PgTransactionalPool;
   insightsDashboards: ReturnType<typeof createDashboardQueryService>;
   opsDashboard: ReturnType<typeof createOpsDashboardRuntime>;
@@ -188,6 +192,7 @@ export function createPlatformOperationsServices(
 
   return {
     db: pool,
+    providerConnections: createProviderConnectionsRuntime(ports.providerConnectionsCrossContext),
     insightsDashboards: createDashboardQueryService(new Map()),
     opsDashboard: createOpsDashboardRuntime({ db, crossContext: ports.opsMarketAnalyticsCrossContext }),
     offerEconomics: createOfferEconomicsRuntime({ crossContext: ports.offerEconomicsCrossContext }),

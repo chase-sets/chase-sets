@@ -26,6 +26,7 @@ Do not rebuild `deployables/design-system-showcase` as the default answer to com
 - Styling system: Tailwind CSS v4
 - Primitive behavior layer: Base UI Shadcn-compatible primitives
 - Theme model: Chase Sets marketplace theme with light, dark, and system semantic tokens
+- Embedded surfaces: `embedded-surface-theme/v1` is the closed 34-slot neutral theme input; `resolveEmbeddedSurfaceTheme`, `embeddedSurfaceThemeSnapshot`, and `observeEmbeddedSurfaceTheme` read the nearest theme scope. Provider-specific mapping and invalid-value fallbacks belong to browser adapters, not this package.
 - Typography: IBM Plex Sans with tabular numerals for price, rating, quantity, fee, and total displays
 - Motion runtime: Motion for React, configured centrally through `ChaseRoot`
 
@@ -36,7 +37,8 @@ Design-system props use one vocabulary across the canonical layer:
 - `tone` describes intent and semantic color, such as neutral, accent, success, warning, danger, or info.
 - `variant` describes structural kind, not semantic intent.
 - `Eyebrow` is the uppercase kicker above a heading: `variant` is the closed vocabulary `accent | primary` (default `accent`) naming the frozen per-site treatment, it always renders a `div`, and it accepts no `className`, `style`, or polymorphic `as`/`render`/`element` props.
-- `elevation` describes surface treatment on `Card` and `Surface` with the vocabulary `flush | tinted | outlined | elevated`. It is orthogonal to `variant`/`tone`: the semantic prop names the background family wherever a fill exists, while `elevation` decides whether a fill exists at all and owns the surface chrome (glass, border, shadow). Omitting `elevation` renders the legacy raised recipe unchanged.
+- `NumericValue` is the closed inline role carrier for prices and market data: it always renders a `span`, its entire class string is the mono face plus tabular figures, it inherits the owner's size, weight, tone, and line height, and it accepts no `className`, `style`, or polymorphic `as`/`render`/`element` props.
+- `elevation` describes surface treatment on `Card` and `Surface` with the vocabulary `flush | tinted | outlined | elevated`. It is orthogonal to `variant`/`tone`: the semantic prop names the background family wherever a fill exists, while `elevation` decides whether a fill exists at all and owns the surface chrome (glass, border, shadow). Omitting `elevation` on `Card` renders the quiet `outlined` treatment; omitting it on `Surface` renders exactly the `flush` treatment for its tone. Production Card and Surface roots must declare elevation explicitly, including roots inside composed emitters. Surface has no `elevated` boolean; use `elevation="elevated"` for raised chrome and opt-in glow.
 - `size` describes control scale.
 - `density` describes row scale and uses the canonical `comfortable | compact` vocabulary. Legacy `default` and `regular` inputs resolve to `comfortable`; marketplace components do not define a separate `focused` density.
 - Icon slots use DS Icon registry names. Prefer leading or trailing slot names such as `leadingIcon?: IconName` and `trailingIcon?: IconName`; single icon slots should also accept `IconName` strings and render through the design-system `Icon` component.
@@ -254,7 +256,7 @@ The design system does not own:
 - data fetching
 - domain rules
 
-Provider-owned embedded flows still use design-system token mappings. See [Embedded Stripe Appearance](./EMBEDDED_STRIPE_APPEARANCE.md) for the Stripe-specific boundary and residual styling limits.
+Provider-owned embedded flows resolve this neutral contract; browser adapters document provider-specific limits.
 
 ## Validation
 

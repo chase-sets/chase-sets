@@ -339,6 +339,8 @@ describe("invitation auth routes", () => {
     });
 
     expect(invitationLink.pathname).toBe("/invite/ivt_journey");
+    const invitedPermissions = mockStartInteractiveAuth.mock.calls.at(-1)?.[1].membershipsOverride[0].rolePermissions;
+    expect(invitedPermissions).not.toContain("pricing.manage");
     expect(acceptanceResponse.status).toBe(200);
     await expect(acceptanceResponse.json()).resolves.toMatchObject({
       type: "session-started",
@@ -349,7 +351,9 @@ describe("invitation auth routes", () => {
       services,
       expect.objectContaining({
         accountId: "acc_invited",
-        membershipsOverride: [expect.objectContaining({ roleKey: "viewer" })],
+        membershipsOverride: [
+          expect.objectContaining({ roleKey: "viewer", rolePermissions: expect.arrayContaining(["pricing.view"]) }),
+        ],
       }),
     );
   });

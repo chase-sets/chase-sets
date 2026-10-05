@@ -114,19 +114,25 @@ function resolveShellContributionPlacements(
   return [contribution.slot];
 }
 
-function hasRequiredPermissions(actor: ShellActor, requiredPermissions: readonly string[]) {
+function hasRequiredPermissions(
+  actor: ShellActor,
+  requiredPermissions: readonly string[],
+  match: "all" | "any" = "all",
+) {
   if (requiredPermissions.length === 0) {
     return true;
   }
 
   const grantedPermissions = actor?.permissions ?? [];
-  return requiredPermissions.every((permission) => grantedPermissions.includes(permission));
+  const hasPermission = (permission: string) => grantedPermissions.includes(permission);
+  return match === "any" ? requiredPermissions.some(hasPermission) : requiredPermissions.every(hasPermission);
 }
 
 function isVisibleForActor(
   actor: ShellActor,
   visibility: BcShellContributionVisibility,
   requiredPermissions: readonly string[],
+  requiredPermissionsMatch?: "all" | "any",
 ) {
   if (visibility === "signed-in" && !actor) {
     return false;
@@ -136,7 +142,7 @@ function isVisibleForActor(
     return false;
   }
 
-  return hasRequiredPermissions(actor, requiredPermissions);
+  return hasRequiredPermissions(actor, requiredPermissions, requiredPermissionsMatch);
 }
 
 function sortShellContributionItems<T extends Pick<BcShellContributionItem, "label" | "order">>(
@@ -169,7 +175,14 @@ function filterShellContributionTree<T extends ShellContributionItemRecord>(
   actor: ShellActor,
   contribution: T,
 ): T | null {
-  if (!isVisibleForActor(actor, contribution.visibility, contribution.requiredPermissions)) {
+  if (
+    !isVisibleForActor(
+      actor,
+      contribution.visibility,
+      contribution.requiredPermissions,
+      contribution.requiredPermissionsMatch,
+    )
+  ) {
     return null;
   }
 

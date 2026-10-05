@@ -62,7 +62,7 @@ describe("Saved List discovery application", () => {
   it("creates a private List, returns command snapshots, and merges duplicate Product identity", async () => {
     const { discovery } = setup();
     const firstTokens = createSavedListAdditionTokens();
-    const first = await discovery.addProduct(
+    const { response: first, createReceipt } = await discovery.addProduct(
       {
         ownerAccountId,
         destination: {
@@ -81,7 +81,7 @@ describe("Saved List discovery application", () => {
     );
 
     const secondTokens = createSavedListAdditionTokens();
-    const second = await discovery.addProduct(
+    const { response: second } = await discovery.addProduct(
       {
         ownerAccountId,
         destination: { kind: "existing", listId: first.listId },
@@ -95,6 +95,10 @@ describe("Saved List discovery application", () => {
     );
 
     expect(first).toMatchObject({ lineStatus: "added", analyticsLabel: "saved-list.created-and-added" });
+    expect(Object.keys(first).sort()).toEqual(
+      ["alreadyClaimed", "analyticsLabel", "command", "lineStatus", "listId", "title"].sort(),
+    );
+    expect(createReceipt).toMatchObject({ outcome: "created", replayed: false });
     expect(second).toMatchObject({ lineStatus: "merged", analyticsLabel: "saved-list.merged" });
     expect(second.command.savedList).toMatchObject({
       visibility: "private",
@@ -103,7 +107,7 @@ describe("Saved List discovery application", () => {
     });
   });
 
-  it("claims one guest intent idempotently for the same account and destination", async () => {
+  it("analytics-guest-response-preserved claims one guest intent idempotently for the same account and destination", async () => {
     const memory = createIntentDb();
     const { discovery, savedLists } = setup(memory.db);
     const targetListId = "svl_target" as SavedListId;
@@ -144,6 +148,9 @@ describe("Saved List discovery application", () => {
       trackedUnitCount: 1,
     });
     expect(memory.intents.get(intent.intentId)?.status).toBe("claimed");
+    expect(Object.keys(memory.intents.get(intent.intentId)?.claimed_response as object).sort()).toEqual(
+      ["alreadyClaimed", "analyticsLabel", "command", "lineStatus", "listId", "title"].sort(),
+    );
   });
 
   it("expires stale intents before lookup and enforces the anonymous active-intent cap", async () => {

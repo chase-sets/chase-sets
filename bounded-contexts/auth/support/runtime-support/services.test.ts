@@ -1,8 +1,47 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolveRecentAuthenticationStatus } from "@chase-sets/auth-context";
 import type { AuthenticatedSessionRead } from "../../features/sessions/api/runtime";
 import type { AuthServices } from "./services";
 import { resolveActorFromSessionId } from "./services";
+
+describe("Account lifecycle proof enrollment", () => {
+  it("enrolls the real DB proof, excludes it from unit CI, and rejects a deleted proof file", () => {
+    const proof = "support/runtime-support/account-lifecycle-authorization.db.test.ts";
+    const manifest = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
+    expect(manifest.scripts["test:db"].split(/\s+/)).toContain(proof);
+    expect(manifest.scripts["test:unit"]).toContain(`--exclude ${proof}`);
+    expect(manifest.scripts["test:db"]).not.toContain("passWithNoTests");
+    expect(existsSync(new URL("./account-lifecycle-authorization.db.test.ts", import.meta.url))).toBe(true);
+  });
+
+  it("classifies every current interactive caller and all seven overrides", () => {
+    const routes = new URL("../api-support/", import.meta.url);
+    const files = readdirSync(routes).filter((name) => name.endsWith("-routes.ts"));
+    const matching = (pattern: RegExp) =>
+      files.filter((name) => pattern.test(readFileSync(new URL(name, routes), "utf8"))).sort();
+    expect(matching(/startInteractiveAuth\(/)).toEqual([
+      "account-selection-routes.ts",
+      "guest-checkout-routes.ts",
+      "invitation-routes.ts",
+      "magic-link-routes.ts",
+      "passkey-routes.ts",
+      "password-routes.ts",
+      "phone-code-routes.ts",
+      "register-routes.ts",
+      "social-login-routes.ts",
+    ]);
+    expect(matching(/membershipsOverride[,:]/)).toEqual([
+      "guest-checkout-routes.ts",
+      "invitation-routes.ts",
+      "magic-link-routes.ts",
+      "passkey-routes.ts",
+      "phone-code-routes.ts",
+      "register-routes.ts",
+      "social-login-routes.ts",
+    ]);
+  });
+});
 
 /**
  * Every identity below is SYNTHETIC and exists only inside this file. None of
@@ -81,6 +120,62 @@ function recentlyAuthenticated(authenticatedAt: string | null | undefined) {
 }
 
 describe("resolveActorFromSessionId on a session-projection miss", () => {
+  it("preserves explicit stored pricing grants separately from the preset matrix", async () => {
+    const { services } = createServicesWithProjectionMiss(SYNTHETIC_FRESH_RECORDED_AT);
+    const membership = await services.identity.getActiveMembershipForUserAccount(
+      SYNTHETIC_USER_ID,
+      SYNTHETIC_ACCOUNT_ID,
+    );
+    vi.mocked(services.identity.getActiveMembershipForUserAccount).mockResolvedValue({
+      ...membership!,
+      role_key: "viewer",
+      role_permissions: ["pricing.manage"],
+    });
+    const actor = await resolveActorFromSessionId(services, SYNTHETIC_SESSION_ID);
+    expect(actor?.permissions).toContain("pricing.manage");
+    expect(actor?.permissions).toContain("pricing.view");
+  });
+  it.each(["owner", "manager", "fulfillment", "viewer", "platform-admin"])(
+    "resolves current pricing presets for empty and stale memberships: %s",
+    async (roleKey) => {
+      for (const stored of [[], ["accounts.view", "synthetic.retained"]]) {
+        for (const projectionHit of [false, true]) {
+          const { services } = createServicesWithProjectionMiss(SYNTHETIC_FRESH_RECORDED_AT);
+          vi.mocked(services.identity.getActiveMembershipForUserAccount).mockResolvedValue({
+            membership_id: SYNTHETIC_MEMBERSHIP_ID,
+            user_id: SYNTHETIC_USER_ID,
+            account_id: SYNTHETIC_ACCOUNT_ID,
+            role_key: roleKey,
+            role_permissions: stored,
+            status: "active",
+            updated_at: SYNTHETIC_FRESH_RECORDED_AT,
+          });
+          if (projectionHit) {
+            vi.mocked(services.sessions.getSession).mockResolvedValue({
+              session_id: SYNTHETIC_SESSION_ID,
+              user_id: SYNTHETIC_USER_ID,
+              user_display_name: null,
+              user_primary_email: null,
+              account_id: SYNTHETIC_ACCOUNT_ID,
+              account_display_name: null,
+              account_name: null,
+              available_account_ids: [SYNTHETIC_ACCOUNT_ID],
+              authentication_method: "password",
+              status: "active",
+              expires_at: SYNTHETIC_EXPIRES_AT,
+              updated_at: SYNTHETIC_FRESH_RECORDED_AT,
+            });
+          }
+          const actor = await resolveActorFromSessionId(services, SYNTHETIC_SESSION_ID);
+          expect(actor?.roleKey).toBe(roleKey);
+          expect(actor?.permissions.includes("pricing.view")).toBe(roleKey !== "platform-admin");
+          expect(actor?.permissions.includes("pricing.manage")).toBe(["owner", "manager"].includes(roleKey));
+          expect(actor?.permissions).toEqual(expect.arrayContaining(stored));
+          expect(services.sessions.readAuthenticatedSession).toHaveBeenCalledWith(SYNTHETIC_SESSION_ID);
+        }
+      }
+    },
+  );
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(FROZEN_READ_MOMENT);

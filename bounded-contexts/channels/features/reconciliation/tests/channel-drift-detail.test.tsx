@@ -169,6 +169,11 @@ function harness(
 }
 
 describe("channel-drift-detail production loader/action/router", () => {
+  it("renders the drift section as flush furniture", async () => {
+    harness();
+    expect((await screen.findByTestId("channel-drift-panel")).className).toBe("rounded-tokenLg overflow-hidden p-4");
+  });
+
   it("retains historical foreign edits without exposing decision controls", async () => {
     harness({ initial: { ...loaded(), rows: [{ ...row, actionable: false }] } });
     expect(await screen.findByText(row.channelListingId)).toBeTruthy();

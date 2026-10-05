@@ -7,6 +7,7 @@ import {
   computeChaseSetsOutcome,
   computeEbayOutcome,
   computeTcgplayerOutcome,
+  feeCalculatorSharePath,
   parseCalculatorCardCount,
   parseCalculatorPrice,
   toPublicMarketplaceFeeSchedule,
@@ -26,6 +27,19 @@ const ratifiedSchedule: PublicMarketplaceFeeSchedule = {
   capAmount: "25.00",
   effectiveFrom: "2026-07-03T00:00:00.000Z",
 };
+
+const surfaceRootSelector = ".min-w-0.max-w-full.rounded-tokenLg";
+
+// Reads a Surface root's rendered intent from design-system-owned classes:
+// flush/tinted carry no `surface-border` and no `shadow-` class.
+function surfaceIntent(surface: Element | null) {
+  const classes = [...(surface?.classList ?? [])];
+  if (classes.includes("surface-border") || classes.some((name) => name.startsWith("shadow-"))) {
+    return classes.includes("shadow-tokenLg") ? "elevated" : "legacy";
+  }
+  if (classes.includes("border")) return "outlined";
+  return classes.includes("bg-surface-2") ? "tinted" : "flush";
+}
 
 afterEach(() => {
   cleanup();
@@ -163,17 +177,28 @@ describe("schedule mapping from the public policy read", () => {
 });
 
 describe("FeeCalculatorSection", () => {
+  it("renders the source note as visible text with no landing disclosure or disclosure event (AC4)", () => {
+    window.dataLayer = [];
+    const { container } = render(<FeeCalculatorSection schedule={ratifiedSchedule} competitor="tcgplayer" />);
+    expect(container.querySelector("[data-landing-disclosure]")).toBeNull();
+    expect(container.querySelector("button[aria-expanded]")).toBeNull();
+    expect(container.querySelector('[data-public-presence-section="fee_calculator"]')?.textContent).toContain(
+      "TCGplayer figures:",
+    );
+    expect(window.dataLayer.filter((event) => event.event === "disclosure_opened")).toHaveLength(0);
+  });
+
   it("renders nothing without a live schedule — truth-gated, never hardcoded", () => {
-    const { container } = render(<FeeCalculatorSection schedule={null} />);
+    const { container } = render(<FeeCalculatorSection schedule={null} competitor="tcgplayer" />);
     expect(container.querySelector('[data-public-presence-section="fee_calculator"]')).toBeNull();
   });
 
   it("recomputes the side-by-side kept amounts as the seller types, including the cap note at $600", () => {
-    const { container } = render(<FeeCalculatorSection schedule={ratifiedSchedule} />);
+    const { container } = render(<FeeCalculatorSection schedule={ratifiedSchedule} competitor="tcgplayer" />);
     const section = container.querySelector('[data-public-presence-section="fee_calculator"]');
     if (!section) throw new Error("Expected the fee calculator to render with a live schedule.");
-    // The twelfth landing anchor: id, not just presence, since it is the
-    // in-page jump target named in the fee-calculator share link (#7741 AC7).
+    // The anchor id, not just presence, since it is the in-page jump target
+    // named in the fee-calculator share link (#7741 AC7, #8503 AC6).
     expect(section.getAttribute("id")).toBe("fee-calculator");
 
     // Default $50 example.
@@ -196,7 +221,7 @@ describe("FeeCalculatorSection", () => {
   });
 
   it("shows the founders 0% window as a callout linking /founders while defaulting to the standard schedule", () => {
-    const { container } = render(<FeeCalculatorSection schedule={ratifiedSchedule} />);
+    const { container } = render(<FeeCalculatorSection schedule={ratifiedSchedule} competitor="tcgplayer" />);
     const section = container.querySelector('[data-public-presence-section="fee_calculator"]');
     if (!section) throw new Error("Expected the fee calculator to render.");
     expect(section.querySelector('a[href="/founders"]')).not.toBeNull();
@@ -205,33 +230,71 @@ describe("FeeCalculatorSection", () => {
     expect(section.textContent).toContain("$47.50");
   });
 
-  it("copies a UTM-tagged share link carrying the entered comparison", () => {
-    const writeText = vi.fn<(text: string) => Promise<undefined>>(async () => undefined);
-    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
-    window.dataLayer = [];
+  it("tints the founders callout as its only Surface root", () => {
+    const { container } = render(<FeeCalculatorSection schedule={ratifiedSchedule} competitor="tcgplayer" />);
+    const section = container.querySelector('[data-public-presence-section="fee_calculator"]');
+    if (!section) throw new Error("Expected the fee calculator to render.");
 
-    const { container, getByText } = render(<FeeCalculatorSection schedule={ratifiedSchedule} />);
-    const priceInput = container.querySelector('input[name="fee-calculator-price"]');
-    if (!priceInput) throw new Error("Expected the sale price input to render.");
-    fireEvent.change(priceInput, { target: { value: "120" } });
-    fireEvent.click(getByText("Copy share link"));
-
-    expect(writeText).toHaveBeenCalledTimes(1);
-    const link = new URL(writeText.mock.calls[0]?.[0] ?? "");
-    expect(link.searchParams.get("price")).toBe("120.00");
-    expect(link.searchParams.get("cards")).toBe("1");
-    expect(link.searchParams.get("utm_source")).toBe("fee-calculator");
-    expect(link.searchParams.get("utm_medium")).toBe("share");
-    expect(link.searchParams.get("utm_campaign")).toBe("what-you-keep");
-    expect(link.hash).toBe("#fee-calculator");
-    expect(getByText("Link copied")).toBeTruthy();
-    expect(window.dataLayer).toContainEqual(
-      expect.objectContaining({ event: "cta_clicked", section: "fee_calculator", target: "copy_share_link" }),
-    );
+    expect([...section.querySelectorAll(surfaceRootSelector)].map(surfaceIntent)).toEqual(["tinted"]);
+    expect(surfaceIntent(section.querySelector('a[href="/founders"]')!.closest(surfaceRootSelector))).toBe("tinted");
   });
+
+  it.each(["tcgplayer", "ebay"] as const)(
+    "copies a UTM-tagged share link to its own /compare/%s page carrying the entered comparison (AC6)",
+    (competitor) => {
+      const writeText = vi.fn<(text: string) => Promise<undefined>>(async () => undefined);
+      vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+      window.dataLayer = [];
+
+      const { container, getByText } = render(
+        <FeeCalculatorSection schedule={ratifiedSchedule} competitor={competitor} />,
+      );
+      const priceInput = container.querySelector('input[name="fee-calculator-price"]');
+      if (!priceInput) throw new Error("Expected the sale price input to render.");
+      fireEvent.change(priceInput, { target: { value: "120" } });
+      fireEvent.click(getByText("Copy share link"));
+
+      expect(writeText).toHaveBeenCalledTimes(1);
+      const link = new URL(writeText.mock.calls[0]?.[0] ?? "");
+      expect(link.origin).toBe(window.location.origin);
+      expect(link.pathname).toBe(feeCalculatorSharePath(competitor));
+      expect(link.pathname).toBe(`/compare/${competitor}`);
+      expect(link.searchParams.get("price")).toBe("120.00");
+      expect(link.searchParams.get("cards")).toBe("1");
+      expect(link.searchParams.get("utm_source")).toBe("fee-calculator");
+      expect(link.searchParams.get("utm_medium")).toBe("share");
+      expect(link.searchParams.get("utm_campaign")).toBe("what-you-keep");
+      expect(link.hash).toBe("#fee-calculator");
+      expect(getByText("Link copied")).toBeTruthy();
+      expect(window.dataLayer).toContainEqual(
+        expect.objectContaining({ event: "cta_clicked", section: "fee_calculator", target: "copy_share_link" }),
+      );
+    },
+  );
+
+  it.each([
+    { competitor: "tcgplayer" as const, other: "ebay" as const },
+    { competitor: "ebay" as const, other: "tcgplayer" as const },
+  ])(
+    "cross-links /compare/$competitor only to the other competitor with the compare_$other tuple",
+    ({ competitor, other }) => {
+      window.dataLayer = [];
+      const { container } = render(<FeeCalculatorSection schedule={ratifiedSchedule} competitor={competitor} />);
+      const section = container.querySelector('[data-public-presence-section="fee_calculator"]');
+      if (!section) throw new Error("Expected the fee calculator to render.");
+
+      expect(section.querySelector(`a[href="/compare/${competitor}"]`)).toBeNull();
+      const crossLink = section.querySelector<HTMLAnchorElement>(`a[href="/compare/${other}"]`);
+      if (!crossLink) throw new Error(`Expected a cross-link to /compare/${other}.`);
+      fireEvent.click(crossLink);
+      expect(window.dataLayer.filter((event) => event.event === "cta_clicked")).toEqual([
+        expect.objectContaining({ event: "cta_clicked", section: "fee_calculator", target: `compare_${other}` }),
+      ]);
+    },
+  );
 });
 
-describe("named competitors on the landing page (#3953 decision)", () => {
+describe("named competitors (#3953 decision)", () => {
   const source = {
     pagePath: "/",
     referrer: null,
@@ -243,7 +306,7 @@ describe("named competitors on the landing page (#3953 decision)", () => {
     referredBySignupId: null,
   };
 
-  it("names TCGplayer and eBay in the fee-comparison table and calculator; anonymized labels are gone", () => {
+  it("names TCGplayer and eBay in the landing fee-comparison table and links the compare page; the landing calculator is gone (#8503)", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -252,64 +315,30 @@ describe("named competitors on the landing page (#3953 decision)", () => {
     );
     window.dataLayer = [];
 
-    const { container } = render(
-      <PublicPresenceHomePage actionData={null} source={source} feeSchedule={ratifiedSchedule} />,
-    );
+    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
 
     const table = container.querySelector('[data-public-presence-section="fee_comparison"]');
-    const calculator = container.querySelector('[data-public-presence-section="fee_calculator"]');
-    if (!table || !calculator) throw new Error("Expected both fee-comparison surfaces to render.");
+    if (!table) throw new Error("Expected the fee-comparison section to render.");
     expect(table.textContent).toContain("TCGplayer");
     expect(table.textContent).toContain("eBay");
-    expect(calculator.textContent).toContain("TCGplayer");
-    expect(calculator.textContent).toContain("eBay");
     expect(container.textContent).not.toContain("Major marketplace");
+    expect(container.querySelector('[data-public-presence-section="fee_calculator"]')).toBeNull();
+    expect(table.querySelector('a[href="/compare/tcgplayer"]')).not.toBeNull();
 
-    // The calculator sits inside the fees narrative: after the comparison
-    // table and before the founders offer (#4081 placement preserved).
+    // The founders offer still follows the fees narrative (#4081 placement preserved).
     const founders = container.querySelector('[data-public-presence-section="founders_offer"]');
     if (!founders) throw new Error("Expected the founders offer section to render.");
-    expect(table.compareDocumentPosition(calculator) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    );
-    expect(calculator.compareDocumentPosition(founders) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+    expect(table.compareDocumentPosition(founders) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
   });
 
-  it("hides the calculator without a live schedule but keeps the named table", () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
-      ),
-    );
-    window.dataLayer = [];
-
-    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} feeSchedule={null} />);
-    expect(container.querySelector('[data-public-presence-section="fee_calculator"]')).toBeNull();
-    expect(container.querySelector('[data-public-presence-section="fee_comparison"]')?.textContent).toContain(
-      "TCGplayer",
-    );
-  });
-
-  it.each([
-    { variant: "seller_first_v1", pagePath: source.pagePath },
-    { variant: "seller_first_v2", pagePath: "/?intent=buy" },
-  ])("still carries exactly one gold-foil word page-wide with the live calculator in $variant", ({ pagePath }) => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
-      ),
-    );
-    window.dataLayer = [];
-
-    const { container } = render(
-      <PublicPresenceHomePage actionData={null} source={{ ...source, pagePath }} feeSchedule={ratifiedSchedule} />,
-    );
-
-    expect(container.querySelector('[data-public-presence-section="fee_calculator"]')).not.toBeNull();
-    expect(container.querySelectorAll(".ds-brand-foil-text")).toHaveLength(1);
+  it("names TCGplayer and eBay in the compare-page calculator", () => {
+    const { container } = render(<FeeCalculatorSection schedule={ratifiedSchedule} competitor="ebay" />);
+    const calculator = container.querySelector('[data-public-presence-section="fee_calculator"]');
+    if (!calculator) throw new Error("Expected the fee calculator to render.");
+    expect(calculator.textContent).toContain("TCGplayer");
+    expect(calculator.textContent).toContain("eBay");
+    expect(calculator.textContent).not.toContain("Major marketplace");
   });
 });

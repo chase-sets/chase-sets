@@ -181,7 +181,7 @@ describe("marketplace search route", () => {
 
     const html = renderToString(<SearchRoute />);
 
-    expect(html).toContain("Search Pikachu, Spider-Man, Jordan, vintage packs...");
+    expect(html).toContain("Search Charizard, Black Lotus, Dark Magician, Luffy...");
   });
 
   it("debounces search URL updates and commits the latest value", () => {

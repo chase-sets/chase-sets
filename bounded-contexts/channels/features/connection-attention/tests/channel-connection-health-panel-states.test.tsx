@@ -15,6 +15,11 @@ function panel(state: ChannelHealthPanelState) {
   );
 }
 describe("channel-connection-health-panel-states", () => {
+  it("renders the health section as flush furniture", () => {
+    panel({ kind: "loaded", data: { connectionId: "synthetic", healthState: "healthy", health: [], manual: null } });
+    expect(screen.getByTestId("channel-health-panel").className).toBe("rounded-tokenLg overflow-hidden p-4");
+  });
+
   it("renders loading", () => {
     panel({ kind: "loading" });
     expect(screen.getByText("Loading channel health and attention.")).toBeTruthy();

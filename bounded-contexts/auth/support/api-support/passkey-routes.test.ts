@@ -69,8 +69,21 @@ function buildApp(services: AuthServices) {
 }
 
 function createServices() {
+  const accounts = new Map<string, string>();
   const db = {
-    query: vi.fn(async () => ({ rows: [] })),
+    query: vi.fn(async (sql: string, params: readonly unknown[] = []) => {
+      if (sql.includes("INSERT INTO auth_identity_accounts")) {
+        if (!accounts.has(String(params[0]))) accounts.set(String(params[0]), "active");
+      }
+      if (sql.includes("SELECT account_id FROM auth_identity_accounts")) {
+        return {
+          rows: (params[0] as readonly string[])
+            .filter((accountId) => accounts.get(accountId) === "active")
+            .map((account_id) => ({ account_id })),
+        };
+      }
+      return { rows: [] };
+    }),
   };
 
   return createAuthServicesFake({
@@ -225,21 +238,19 @@ describe("passkey route security", () => {
       eventIds: ["evt_identity_63"],
     } as const satisfies SourceCommitPosition;
     const dbQuery = vi.mocked(services.db.query);
-    dbQuery
-      .mockResolvedValueOnce({
-        rows: [
-          {
-            challenge_id: "cmd_1",
-            purpose: "passkey-register",
-            email: "owner@pokebash.example",
-            user_id: null,
-            challenge_value: "challenge_value",
-            expires_at: new Date(Date.now() + 60_000).toISOString(),
-            consumed_at: new Date().toISOString(),
-          },
-        ],
-      })
-      .mockResolvedValue({ rows: [] });
+    dbQuery.mockResolvedValueOnce({
+      rows: [
+        {
+          challenge_id: "cmd_1",
+          purpose: "passkey-register",
+          email: "owner@pokebash.example",
+          user_id: null,
+          challenge_value: "challenge_value",
+          expires_at: new Date(Date.now() + 60_000).toISOString(),
+          consumed_at: new Date().toISOString(),
+        },
+      ],
+    });
     mockCreatePersonalIdentity.mockResolvedValue(
       withCommandReceipt(
         {
@@ -298,6 +309,12 @@ describe("passkey route security", () => {
       }),
     );
     expect(body).not.toHaveProperty("commandReceipt");
+    expect(body.authResult.memberships).toEqual([
+      expect.objectContaining({
+        roleKey: "owner",
+        rolePermissions: expect.arrayContaining(["pricing.view", "pricing.manage"]),
+      }),
+    ]);
     // The exact server-minted resolution reaches the constructor.
     expect(mockCreatePersonalIdentity).toHaveBeenCalledWith({
       email: "owner@pokebash.example",

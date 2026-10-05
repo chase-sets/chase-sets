@@ -103,6 +103,12 @@ describe("connector-mount-gate-isolation", () => {
     const sessionId = createId("ses");
     const context = { tenantId: createId("tnt"), audit: { performedByUserId: userId, forAccountId: accountId } };
     await pools.auth.query(
+      `INSERT INTO auth_identity_accounts (account_id, name, display_name, account_type, status, updated_at)
+       VALUES ($1, '', $2, 'personal', 'active', now())
+       ON CONFLICT (account_id) DO NOTHING`,
+      [accountId, "Connector test seller"],
+    );
+    await pools.auth.query(
       `INSERT INTO auth_identity_user_memberships (membership_id, user_id, account_id, role_key, role_permissions, status)
       VALUES ($1,$2,$3,'connector-test-seller','["channels.manage","channels.view"]','active')`,
       [createId("mem"), userId, accountId],

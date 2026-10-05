@@ -238,11 +238,15 @@ export function deriveGuardCandidateProvenance({
     };
   }
 
-  if (environment === "pull-request-merge-ref" && resolvedBaseRef !== roles.baseTipAtAnalysis.sha) {
+  if (
+    environment === "pull-request-merge-ref" &&
+    resolvedBaseRef !== roles.baseTipAtAnalysis.sha &&
+    !isAncestor(execGit, roles.baseTipAtAnalysis.sha, resolvedBaseRef, "base-tip-parentage")
+  ) {
     throw failure(
       "guard-provenance-invalid",
       "base-tip-parentage",
-      "the qualified base ref must resolve to the base tip contemporaneous with the analyzed tree",
+      "the analyzed tree base parent must be an ancestor of or equal to the qualified base ref",
     );
   }
 

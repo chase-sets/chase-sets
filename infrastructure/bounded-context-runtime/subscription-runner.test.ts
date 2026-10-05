@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ts from "@chase-sets/typescript-compiler-api";
+import type { ProjectorHandlerContext } from "@chase-sets/event-core/projector";
 import {
   buildEventSubscriptionsFromManifest,
   type BcApiModule,
@@ -30,6 +31,29 @@ type ReadStreamCall = Readonly<{ streamId: string; fromVersion: number; limit: n
 
 const readStreamCallsByPool = vi.hoisted(() => new Map<object, ReadStreamCall[]>());
 const ignoreReadStreamLimitByPool = vi.hoisted(() => new Set<object>());
+const afterReadAllByPool = vi.hoisted(() => new Map<object, () => Promise<void>>());
+const alterHistoryByPool = vi.hoisted(
+  () => new Map<object, (events: ReturnType<typeof createStoredEvent>[]) => ReturnType<typeof createStoredEvent>[]>(),
+);
+
+function createPassBarrier() {
+  let enter!: () => void;
+  let release!: () => void;
+  const entered = new Promise<void>((resolve) => {
+    enter = resolve;
+  });
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return {
+    entered,
+    release,
+    wait: async () => {
+      enter();
+      await released;
+    },
+  };
+}
 
 vi.mock("@chase-sets/event-core", () => createEventCoreMock());
 vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
@@ -49,13 +73,19 @@ vi.mock("@chase-sets/event-core-postgres", async (importOriginal) => {
       const store = createPostgresEventStore(options);
       return {
         ...store,
+        readAll: async (input: Parameters<typeof store.readAll>[0]) => {
+          const events = await store.readAll(input);
+          await afterReadAllByPool.get(options.pool)?.();
+          return events;
+        },
         readStream: async (input: ReadStreamCall) => {
           const calls = readStreamCallsByPool.get(options.pool) ?? [];
           calls.push({ ...input });
           readStreamCallsByPool.set(options.pool, calls);
-          return store.readStream(
+          const events = await store.readStream(
             ignoreReadStreamLimitByPool.has(options.pool) ? { ...input, limit: Number.MAX_SAFE_INTEGER } : input,
           );
+          return alterHistoryByPool.get(options.pool)?.(events) ?? events;
         },
       };
     },
@@ -82,6 +112,238 @@ describe("bounded context subscription runner", () => {
     resetMockPoolState();
     readStreamCallsByPool.clear();
     ignoreReadStreamLimitByPool.clear();
+    afterReadAllByPool.clear();
+    alterHistoryByPool.clear();
+  });
+
+  it.each([1, 500, 501, 1000])(
+    "reads a complete bound source prefix of %i events, never the target or future",
+    async (horizon) => {
+      const sourcePool = createMockPool();
+      const targetPool = createMockPool();
+      const stream = "ordering.order-anchor";
+      const type = "ordering.order-group.formed";
+      sourceEventsByPool.set(
+        sourcePool,
+        Array.from({ length: horizon + 1 }, (_, index) =>
+          createStoredEvent(
+            String(index + 1),
+            index + 1 === horizon ? type : "ordering.private",
+            { version: index + 1 },
+            stream,
+          ),
+        ),
+      );
+      const handler = vi.fn(async (_event, context?: ProjectorHandlerContext) => {
+        expect(Object.keys(context!).sort()).toEqual(["db", "readSourceStreamHistory", "throwIfLeaseLost"]);
+        const history = await context!.readSourceStreamHistory!();
+        expect(history.map((event) => event.streamVersion)).toEqual([horizon]);
+        expect(history[0]?.data).toEqual({ version: horizon });
+        expect(context!.db).not.toBe(sourcePool);
+      });
+      const runner = createSubscriptionRunner("fulfillment", targetPool as never, sourcePool as never, {
+        subscriptionName: "admission",
+        sourceContextName: "ordering",
+        projectionName: "admission",
+        subscriptionVersion: 1,
+        eventTypes: [type],
+        streamPrefixes: ["ordering.order-"],
+        handlers: { [type]: handler },
+      });
+      await runner.runOnce();
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(getPoisonEventStore(targetPool).size).toBe(0);
+      expect([...getApplicationStatusStore(targetPool).values()]).toEqual(["applied"]);
+      expect(readStreamCallsByPool.get(targetPool)).toBeUndefined();
+      expect(readStreamCallsByPool.get(sourcePool)).toEqual(
+        Array.from({ length: Math.ceil(horizon / 500) }, (_, index) => ({
+          streamId: stream,
+          fromVersion: index * 500 + 1,
+          limit: Math.min(500, horizon - index * 500),
+        })),
+      );
+    },
+  );
+
+  it.each([
+    "wrong stream",
+    "wrong tenant",
+    "gap",
+    "zero",
+    "unsafe",
+    "duplicate",
+    "oversized",
+    "short",
+    "future",
+    "changed id",
+    "changed type",
+    "changed position",
+    "changed trigger",
+  ])("rejects %s history without successful application", async (problem) => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const stream = "ordering.order-anchor";
+    const type = "ordering.order-group.formed";
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", "ordering.private", {}, stream),
+      createStoredEvent("2", type, {}, stream),
+    ]);
+    alterHistoryByPool.set(sourcePool, (events) => {
+      const first = events[0]!;
+      const last = events.at(-1)!;
+      if (problem === "wrong stream") return [{ ...first, streamId: "foreign" }, last];
+      if (problem === "wrong tenant") return [{ ...first, tenantId: "foreign" }, last];
+      if (problem === "gap") return [{ ...first, streamVersion: 2 }, last];
+      if (problem === "zero") return [{ ...first, streamVersion: 0 }, last];
+      if (problem === "unsafe") return [{ ...first, streamVersion: Number.MAX_SAFE_INTEGER + 1 }, last];
+      if (problem === "duplicate") return [first, first];
+      if (problem === "oversized") return [first, last, last];
+      if (problem === "short") return [first];
+      if (problem === "future") return [{ ...first, globalPosition: "10" }, last];
+      if (problem === "changed id") return [first, { ...last, eventId: "evt_wrong" }];
+      if (problem === "changed type") return [first, { ...last, eventType: "ordering.private" }];
+      if (problem === "changed position") return [first, { ...last, globalPosition: "1" }];
+      return [first, { ...last, payload: { changed: true } }];
+    });
+    const effects = vi.fn();
+    const runner = createSubscriptionRunner("fulfillment", targetPool as never, sourcePool as never, {
+      subscriptionName: "admission",
+      sourceContextName: "ordering",
+      projectionName: "admission",
+      subscriptionVersion: 1,
+      eventTypes: [type],
+      handlers: {
+        [type]: async (_event, context) => {
+          await context!.readSourceStreamHistory!();
+          effects();
+        },
+      },
+    });
+    await runner.runOnce();
+    expect(effects).not.toHaveBeenCalled();
+    expect(getPoisonEventStore(targetPool).size).toBe(1);
+    expect([...getApplicationStatusStore(targetPool).values()]).not.toContain("applied");
+  });
+
+  it.each(["single", "batch", "fallback", "blocked"])("supplies the reader in the %s handler path", async (path) => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const stream = "ordering.order-anchor";
+    const type = "ordering.order-group.formed";
+    const key = "admission:ordering:v1";
+    sourceEventsByPool.set(sourcePool, [
+      createStoredEvent("1", type, {}, stream),
+      createStoredEvent("2", type, {}, stream),
+    ]);
+    let failed = false;
+    const seen: number[] = [];
+    const readerErrors: unknown[] = [];
+    const runner = createSubscriptionRunner("fulfillment", targetPool as never, sourcePool as never, {
+      subscriptionName: "admission",
+      sourceContextName: "ordering",
+      projectionName: "admission",
+      subscriptionVersion: 1,
+      checkpointBatchSize: path === "single" ? 1 : 100,
+      handlers: {
+        [type]: async (event, context) => {
+          try {
+            expect((await context!.readSourceStreamHistory!()).at(-1)?.id).toBe(event.id);
+          } catch (error) {
+            readerErrors.push(error);
+            throw error;
+          }
+          if (path === "fallback" && !failed && event.streamVersion === 2) {
+            failed = true;
+            throw new Error("synthetic batch failure");
+          }
+          seen.push(event.streamVersion);
+        },
+      },
+    });
+    if (path === "blocked") {
+      getBlockedStreamStore(targetPool).set(`${key}:${stream}`, {
+        projectionKey: key,
+        streamId: stream,
+        firstBlockedGlobalPosition: "1",
+        firstBlockedStreamVersion: 1,
+        lastSeenGlobalPosition: "2",
+        deferredEventCount: 0,
+        state: "blocked",
+      });
+      const result = await runner.retryBlockedStream(stream);
+      expect(readerErrors).toEqual([]);
+      expect(result).toMatchObject({ state: "resolved" });
+    } else await runner.runOnce();
+    expect(readerErrors).toEqual([]);
+    if (path !== "fallback") expect([...getPoisonEventStore(targetPool).values()]).toEqual([]);
+    expect(seen).toContain(1);
+    if (path !== "fallback") expect(seen).toContain(2);
+    else expect(failed).toBe(true);
+  });
+
+  it("checks lease loss after a source page before returning history or applying effects", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const type = "ordering.order-group.formed";
+    sourceEventsByPool.set(sourcePool, [createStoredEvent("1", type, {}, "ordering.order-anchor")]);
+    let lost = false;
+    const effects = vi.fn();
+    alterHistoryByPool.set(sourcePool, (events) => {
+      lost = true;
+      return events;
+    });
+    const runner = createSubscriptionRunner("fulfillment", targetPool as never, sourcePool as never, {
+      subscriptionName: "admission",
+      sourceContextName: "ordering",
+      projectionName: "admission",
+      subscriptionVersion: 1,
+      handlers: {
+        [type]: async (_event, context) => {
+          await context!.readSourceStreamHistory!();
+          effects();
+        },
+      },
+    });
+    await expect(
+      runner.runOnce({
+        throwIfLeaseLost: () => {
+          if (lost) throw new Error("lease lost");
+        },
+      }),
+    ).rejects.toThrow("lease lost");
+    expect(effects).not.toHaveBeenCalled();
+    expect([...getApplicationStatusStore(targetPool).values()]).not.toContain("applied");
+  });
+
+  it("retries unavailable source history without poison or acknowledgement", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const type = "ordering.order-group.formed";
+    sourceEventsByPool.set(sourcePool, [createStoredEvent("1", type, {}, "ordering.order-anchor")]);
+    alterHistoryByPool.set(sourcePool, () => {
+      throw Object.assign(new Error("source connection lost"), { code: "ECONNRESET" });
+    });
+    const effects = vi.fn();
+    const runner = createSubscriptionRunner("fulfillment", targetPool as never, sourcePool as never, {
+      subscriptionName: "admission",
+      sourceContextName: "ordering",
+      projectionName: "admission",
+      subscriptionVersion: 1,
+      handlers: {
+        [type]: async (_event, context) => {
+          await context!.readSourceStreamHistory!();
+          effects();
+        },
+      },
+    });
+    await expect(runner.runOnce()).rejects.toMatchObject({ projectionFailureKind: "transient" });
+    expect(getPoisonEventStore(targetPool).size).toBe(0);
+    expect(getCheckpointStore(targetPool).get("admission:ordering:v1") ?? "0").toBe("0");
+    expect(effects).not.toHaveBeenCalled();
+    alterHistoryByPool.delete(sourcePool);
+    await runner.runOnce();
+    expect(effects).toHaveBeenCalledOnce();
+    expect([...getApplicationStatusStore(targetPool).values()]).toEqual(["applied"]);
   });
 
   it("fails startup when a subscription declaration has no registered handler or local projector", () => {
@@ -798,6 +1060,169 @@ describe("bounded context subscription runner", () => {
     });
   });
 
+  it.each([false, true])("bounds short-pass progress during application (refresh=%s)", async (refresh) => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const barrier = createPassBarrier();
+    const first = createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_1" });
+    const appended = createStoredEvent("2", "catalog.catalog-item.published", { itemId: "cat_2" });
+    sourceEventsByPool.set(sourcePool, [first]);
+    const appliedIds: string[] = [];
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      batchSize: 3,
+      handlers: {
+        "catalog.catalog-item.published": async (event) => {
+          if (event.id === first.eventId) await barrier.wait();
+          appliedIds.push(String(event.id));
+        },
+      },
+    });
+    const firstPass = runner.runOnce({ settleIdleCheckpoints: true });
+    try {
+      await barrier.entered;
+      sourceEventsByPool.set(sourcePool, [first, appended]);
+      if (refresh) {
+        expect(await runner.refreshStatus()).toMatchObject({
+          sourceHeadGlobalPosition: "2",
+          lastGlobalPosition: "0",
+          outstandingEventCount: "2",
+          state: "running",
+        });
+      }
+    } finally {
+      barrier.release();
+    }
+    expect(await firstPass).toMatchObject({ processed: 1, lastGlobalPosition: "1" });
+    expect(getCheckpointStore(targetPool).get(runner.checkpointKey)).toBe("1");
+    expect(getCheckpointWriteCountStore(targetPool).get(runner.checkpointKey)).toBe(1);
+    expect(appliedIds).toEqual([first.eventId]);
+    expect(runner.getStatus()).toMatchObject({
+      lastGlobalPosition: "1",
+      sourceHeadGlobalPosition: refresh ? "2" : "1",
+      outstandingEventCount: refresh ? "1" : "0",
+      state: refresh ? "behind" : "caught-up",
+    });
+    expect(await runner.runOnce()).toMatchObject({ processed: 1, lastGlobalPosition: "2" });
+    expect(await runner.runOnce()).toMatchObject({ processed: 0, lastGlobalPosition: "2" });
+    expect(appliedIds).toEqual([first.eventId, appended.eventId]);
+    expect(getCheckpointStore(targetPool).get(runner.checkpointKey)).toBe("2");
+  });
+
+  it.each([0, 1, 2, 3])("bounds a %i-event pass after read capture", async (count) => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const barrier = createPassBarrier();
+    const initial = Array.from({ length: count }, (_, index) =>
+      createStoredEvent(String(index + 1), "catalog.catalog-item.published", { itemId: `cat_${index + 1}` }),
+    );
+    const appended = createStoredEvent(String(count + 1), "catalog.catalog-item.published", { itemId: "cat_tail" });
+    sourceEventsByPool.set(sourcePool, initial);
+    afterReadAllByPool.set(sourcePool, barrier.wait);
+    const appliedIds: string[] = [];
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      batchSize: 3,
+      handlers: {
+        "catalog.catalog-item.published": async (event) => {
+          appliedIds.push(String(event.id));
+        },
+      },
+    });
+    const firstPass = runner.runOnce({ settleIdleCheckpoints: true });
+    try {
+      await barrier.entered;
+      sourceEventsByPool.set(sourcePool, [...initial, appended]);
+      expect(await runner.refreshStatus()).toMatchObject({ sourceHeadGlobalPosition: String(count + 1) });
+    } finally {
+      afterReadAllByPool.delete(sourcePool);
+      barrier.release();
+    }
+    expect(await firstPass).toMatchObject({ processed: count, lastGlobalPosition: String(count), state: "running" });
+    expect(getCheckpointStore(targetPool).get(runner.checkpointKey) ?? "0").toBe(String(count));
+    expect(appliedIds).toEqual(initial.map((event) => event.eventId));
+    expect(runner.getStatus()).toMatchObject({
+      lastGlobalPosition: String(count),
+      sourceHeadGlobalPosition: String(count + 1),
+      outstandingEventCount: "1",
+      sourceLagEventCount: "1",
+      applicableLagEstimate: null,
+      state: "behind",
+    });
+    expect(await runner.runOnce()).toMatchObject({ processed: 1, lastGlobalPosition: String(count + 1) });
+    expect(await runner.runOnce()).toMatchObject({ processed: 0 });
+    expect(appliedIds).toEqual([...initial, appended].map((event) => event.eventId));
+  });
+
+  it.each([
+    { count: 0, pauseAt: "save" },
+    { count: 0, pauseAt: "summary" },
+    { count: 1, pauseAt: "save" },
+    { count: 1, pauseAt: "summary" },
+  ])("bounds a $count-event pass during $pauseAt", async ({ count, pauseAt }) => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const barrier = createPassBarrier();
+    const relevant = createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_1" }, "catalog.item-1");
+    const irrelevant = createStoredEvent("2", "catalog.catalog-item.published", {}, "catalog.category-2");
+    const initial = count ? [relevant, irrelevant] : [irrelevant];
+    const appended = createStoredEvent("3", "catalog.catalog-item.published", { itemId: "cat_3" }, "catalog.item-3");
+    sourceEventsByPool.set(sourcePool, initial);
+    const query = targetPool.query.bind(targetPool);
+    let paused = false;
+    vi.spyOn(targetPool, "query").mockImplementation(async (sql, params) => {
+      const result = await query(sql, params);
+      const shouldPause =
+        pauseAt === "save"
+          ? sql.includes("INSERT INTO event_subscription_checkpoints") && params?.[4] === "2"
+          : sql.includes("AS blocked_stream_count");
+      if (!paused && shouldPause) {
+        paused = true;
+        await barrier.wait();
+      }
+      return result;
+    });
+    const appliedIds: string[] = [];
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      streamPrefixes: ["catalog.item-"],
+      handlers: {
+        "catalog.catalog-item.published": async (event) => {
+          appliedIds.push(String(event.id));
+        },
+      },
+    });
+    const firstPass = runner.runOnce({ settleIdleCheckpoints: true });
+    try {
+      await barrier.entered;
+      sourceEventsByPool.set(sourcePool, [...initial, appended]);
+      expect(await runner.refreshStatus()).toMatchObject({ sourceHeadGlobalPosition: "3" });
+    } finally {
+      barrier.release();
+    }
+    expect(await firstPass).toMatchObject({ processed: count, lastGlobalPosition: "2", state: "running" });
+    expect(getCheckpointStore(targetPool).get(runner.checkpointKey)).toBe("2");
+    expect(runner.getStatus()).toMatchObject({
+      lastGlobalPosition: "2",
+      sourceHeadGlobalPosition: "3",
+      outstandingEventCount: "1",
+      sourceLagEventCount: "1",
+      applicableLagEstimate: null,
+      state: "behind",
+    });
+    expect(await runner.runOnce()).toMatchObject({ processed: 1, lastGlobalPosition: "3" });
+    expect(appliedIds).toEqual(count ? [relevant.eventId, appended.eventId] : [appended.eventId]);
+  });
+
   it("persists versioned checkpoints and replays a new subscription version from origin", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();
@@ -1495,7 +1920,7 @@ describe("bounded context subscription runner", () => {
       inspectPagerContract(
         subscriptionsSource,
         new Map([
-          [PAGER_CONTRACT_TEST_PATH, owningTestSource.replace(PAGER_SITE_ID, `${SUBSCRIPTIONS_PATH}#readStream#2`)],
+          [PAGER_CONTRACT_TEST_PATH, owningTestSource.replace(PAGER_SITE_ID, `${SUBSCRIPTIONS_PATH}#readStream#3`)],
         ]),
       ).errors,
     ).not.toEqual([]);
@@ -2567,9 +2992,9 @@ describe("bounded context subscription runner", () => {
 const REPO_ROOT = path.resolve(import.meta.dirname, "../..");
 const SUBSCRIPTIONS_PATH = "infrastructure/bounded-context-runtime/subscriptions.ts";
 const PAGER_CONTRACT_TEST_PATH = "infrastructure/bounded-context-runtime/subscription-runner.test.ts";
-const PAGER_SITE_ID = "infrastructure/bounded-context-runtime/subscriptions.ts#readStream#1";
+const PAGER_SITE_ID = "infrastructure/bounded-context-runtime/subscriptions.ts#readStream#2";
 const PAGER_CONTRACT_POINTER = `@stream-read-contract ${PAGER_CONTRACT_TEST_PATH}`;
-const PAGER_BASELINE_SHA256 = "86e7166fb4a5d656a54deed0b03f70eebe475a45cbd6695c2cd7aeba1521fb9a";
+const PAGER_BASELINE_SHA256 = "9abe64c6c38c63d27d3ded7c1700c06eef37fac810027846eeb370925689ab94";
 const BLOCKED_STREAM_ID = "catalog.item-cat_pager_acceptance";
 const BLOCKED_STREAM_PROJECTION_NAME = "pager-acceptance-projection";
 const BLOCKED_STREAM_PROJECTION_KEY = `${BLOCKED_STREAM_PROJECTION_NAME}:catalog:v1`;

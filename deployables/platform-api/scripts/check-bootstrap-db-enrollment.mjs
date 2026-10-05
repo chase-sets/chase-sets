@@ -234,9 +234,9 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
         identity: "9f9a50a07958feca",
       }),
       Object.freeze({
-        name: "resumes inventory from a committed-but-incomplete storage location",
-        referenceDurationMs: 28602,
-        identity: "c93a07182fe7d5ff",
+        name: "resumes inventory after only its first storage-location create commits",
+        referenceDurationMs: 28698,
+        identity: "0d059da8303ae139",
       }),
       Object.freeze({
         name: "resumes an archived storage location committed before its archive step",
@@ -863,46 +863,84 @@ function importsBootstrapHarness(filePath, source, testDirectory, cache) {
 /**
  * The worst makespan any list schedule of `durationsMs` can produce on
  * `workerCount` workers: each file in turn goes to the least-loaded worker, and
- * the model takes the maximum over every possible file order. Memoized on the
- * placed set plus the sorted worker loads, which collapses the orderings that
- * reach the same state.
+ * the model takes the maximum over every possible file order. For each possible
+ * final file, maximize the least worker load over partitions of the other files.
+ * A maximum-minimum partition is list-schedulable: choose one minimizing squared
+ * loads; moving a job from a larger load to the least load cannot improve it,
+ * so every worker's last job starts at or below the least final load. Interleave
+ * those worker lists at their least loads, then append the chosen final file.
  */
 function worstCaseListScheduleMs(durationsMs, workerCount) {
   if (durationsMs.length === 0) return 0;
   if (durationsMs.length <= workerCount) return Math.max(...durationsMs);
+  // Refused references and file sets are still projected. Preserve those values
+  // outside the nonnegative safe-integer domain, including its total, or 16 files.
+  if (
+    durationsMs.length > 16 ||
+    durationsMs.some((duration) => !Number.isSafeInteger(duration) || duration < 0) ||
+    !Number.isSafeInteger(durationsMs.reduce((sum, duration) => sum + duration, 0))
+  ) {
+    const complete = (1 << durationsMs.length) - 1;
+    const memo = new Map();
+    function walk(placed, loads) {
+      if (placed === complete) return Math.max(...loads);
+      const key = `${placed}|${loads.join(",")}`;
+      const cached = memo.get(key);
+      if (cached !== undefined) return cached;
+      let worst = 0;
+      const considered = new Set();
+      for (let index = 0; index < durationsMs.length; index += 1) {
+        if (placed & (1 << index) || considered.has(durationsMs[index])) continue;
+        considered.add(durationsMs[index]);
+        const next = [...loads];
+        next[0] += durationsMs[index];
+        next.sort((left, right) => left - right);
+        worst = Math.max(worst, walk(placed | (1 << index), next));
+      }
+      memo.set(key, worst);
+      return worst;
+    }
+    return walk(0, new Array(workerCount).fill(0));
+  }
+  if (workerCount === 1) return durationsMs.reduce((sum, duration) => sum + duration, 0);
 
   const complete = (1 << durationsMs.length) - 1;
-  const memo = new Map();
+  const sums = new Float64Array(complete + 1);
+  const counts = new Uint8Array(complete + 1);
+  for (let mask = 1; mask <= complete; mask += 1) {
+    const bit = mask & -mask;
+    sums[mask] = sums[mask ^ bit] + durationsMs[31 - Math.clz32(bit)];
+    counts[mask] = counts[mask ^ bit] + 1;
+  }
+  const memo = Array.from({ length: workerCount + 1 }, () => new Map());
 
-  function walk(placedMask, loads) {
-    if (placedMask === complete) return Math.max(...loads);
-    const key = `${placedMask}|${loads.join(",")}`;
-    const cached = memo.get(key);
+  function greatestLeastLoad(mask, workers) {
+    if (workers === 1) return sums[mask];
+    if (counts[mask] < workers) return 0;
+    const cached = memo[workers].get(mask);
     if (cached !== undefined) return cached;
-
-    let leastLoadedIndex = 0;
-    for (let index = 1; index < loads.length; index += 1) {
-      if (loads[index] < loads[leastLoadedIndex]) leastLoadedIndex = index;
+    let best = 0;
+    const upper = Math.floor(sums[mask] / workers);
+    const first = mask & -mask;
+    // Anchor one block to its first file to remove worker-label permutations.
+    for (let block = mask; block > 0; block = (block - 1) & mask) {
+      if (!(block & first)) continue;
+      const rest = mask ^ block;
+      if (counts[rest] < workers - 1 || sums[block] <= best || Math.floor(sums[rest] / (workers - 1)) <= best) continue;
+      best = Math.max(best, Math.min(sums[block], greatestLeastLoad(rest, workers - 1)));
+      if (best === upper) break;
     }
-
-    let worst = 0;
-    const consideredDurations = new Set();
-    for (let index = 0; index < durationsMs.length; index += 1) {
-      if (placedMask & (1 << index)) continue;
-      if (consideredDurations.has(durationsMs[index])) continue;
-      consideredDurations.add(durationsMs[index]);
-      const next = [...loads];
-      next[leastLoadedIndex] = loads[leastLoadedIndex] + durationsMs[index];
-      next.sort((left, right) => left - right);
-      const candidate = walk(placedMask | (1 << index), next);
-      if (candidate > worst) worst = candidate;
-    }
-
-    memo.set(key, worst);
-    return worst;
+    memo[workers].set(mask, best);
+    return best;
   }
 
-  return walk(0, new Array(workerCount).fill(0));
+  let worst = 0;
+  for (let index = 0; index < durationsMs.length; index += 1) {
+    const rest = complete ^ (1 << index);
+    if (durationsMs[index] + Math.floor(sums[rest] / workerCount) <= worst) continue;
+    worst = Math.max(worst, durationsMs[index] + greatestLeastLoad(rest, workerCount));
+  }
+  return worst;
 }
 
 function executionUnitMakespanMs(fileDurationsMs, model) {

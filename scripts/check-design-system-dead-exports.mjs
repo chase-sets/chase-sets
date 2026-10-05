@@ -118,18 +118,13 @@ const canonicalReserveZeroConsumerExports = [
   "Sidebar",
   "sidebarWidthClasses",
   "SideNav",
-  "Slider",
   "Spacer",
-  "Stagger",
-  "StickyBar",
-  "Subheading",
   "surfaceSemanticToneClasses",
   "Tag",
   "ThemeScope",
   "ThemePreferenceControl",
   "toastManager",
   "ToastProvider",
-  "Toggle",
   "TokenSwatch",
   "Toolbar",
   "ToolbarButton",
@@ -174,6 +169,11 @@ const defaultAllowedZeroConsumerExports = [
   {
     symbol: "MediaFrame",
     reason: "internal layout/commerce media primitive; kept after cart adopted MarketplaceCartLineItem",
+  },
+  {
+    symbol: "NotificationCenterSheet",
+    reason:
+      "#7869 moved the marketplace notification center to an account route; the shared sheet stays per its scope decision until a separate removal",
   },
   {
     symbol: "Sparkline",

@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CatalogApiError } from "../client";
+import { ApiError as CatalogApiError } from "../support/shell-support/api/client";
 import IntegrationsRoute, { action, loader } from "../routes/admin/integrations";
 import { loader as providersLoader, action as providerDetailAction } from "../routes/admin/catalog-provider-detail";
 import { action as governanceAction } from "../routes/admin/integrations-governance";
@@ -20,6 +20,7 @@ import {
   sourceObservationScope,
 } from "../features/source-observations/ui/primary-workbench-test-fixtures";
 import type { CatalogIntegrationControlPlaneUnitReadiness } from "../features/source-observations/ui/contracts";
+import { catalogAttentionQueueReadModelFixture } from "../features/attention-queue/api/attention-queue-test-fixtures";
 
 import {
   actionRequest,
@@ -99,9 +100,11 @@ describe("Catalog integrations route", () => {
     });
   });
 
-  it("keeps the importer on its soft-fail path when the supplementary attention queue fails", async () => {
-    const attentionQueue = vi.fn().mockRejectedValue(new Error("attention queue unavailable"));
-    mockCreateCatalogRequestApiClient.mockReturnValue({
+  // The deferred attention queue resolves to a closed `ready | unavailable`
+  // result (#7845): the daily loader never rejects because of it, but a queue it
+  // could not read is reported as unavailable rather than collapsed into "empty".
+  function dailyApiWithAttentionQueue(getCatalogAttentionQueueReadModel: ReturnType<typeof vi.fn> | undefined) {
+    return {
       listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
       listSourceObservationProviderProfiles: vi.fn().mockResolvedValue({
         items: [profileReview({ active: true, lifecycle: "active" })],
@@ -110,19 +113,66 @@ describe("Catalog integrations route", () => {
       }),
       getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
       listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
-      getCatalogAttentionQueueReadModel: attentionQueue,
+      ...(getCatalogAttentionQueueReadModel ? { getCatalogAttentionQueueReadModel } : {}),
       recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
-    });
+    };
+  }
 
-    const routeData = await loader({
+  async function loadDailyRoute() {
+    return loader({
       request: new Request("https://admin.example/catalog/integrations?providerKey=tcgdex"),
       params: {},
       context: {},
     } as Parameters<typeof loader>[0]);
+  }
 
-    await expect(routeData.deferredAttentionQueue).resolves.toBeNull();
+  it("keeps the importer on its soft-fail path when the supplementary attention queue fails", async () => {
+    const attentionQueue = vi.fn().mockRejectedValue(new Error("attention queue unavailable"));
+    mockCreateCatalogRequestApiClient.mockReturnValue(dailyApiWithAttentionQueue(attentionQueue));
+
+    const routeData = await loadDailyRoute();
+
+    // A transport rejection (the only "abort" this slice knows) is visible
+    // degradation, never a rejected boundary and never an empty inbox.
+    await expect(routeData.deferredAttentionQueue).resolves.toEqual({ status: "unavailable" });
     expect(attentionQueue).toHaveBeenCalledOnce();
     expect(routeData.readModel.routeContext.providerKey).toBe("tcgdex");
+  });
+
+  it("marks the attention queue unavailable when the API lacks the capability", async () => {
+    mockCreateCatalogRequestApiClient.mockReturnValue(dailyApiWithAttentionQueue(undefined));
+
+    const routeData = await loadDailyRoute();
+
+    await expect(routeData.deferredAttentionQueue).resolves.toEqual({ status: "unavailable" });
+    expect(routeData.readModel.routeContext.providerKey).toBe("tcgdex");
+  });
+
+  it("marks the attention queue unavailable when the response fails the loader-local contract", async () => {
+    // A response whose counts disagree with its items: transport succeeded, but
+    // the loader refuses to present a queue it cannot trust as "nothing needs you".
+    const malformed = {
+      ...catalogAttentionQueueReadModelFixture([]),
+      counts: { total: 1, bySeverity: {}, byKind: {} },
+    };
+    const attentionQueue = vi.fn().mockResolvedValue(malformed);
+    mockCreateCatalogRequestApiClient.mockReturnValue(dailyApiWithAttentionQueue(attentionQueue));
+
+    const routeData = await loadDailyRoute();
+
+    await expect(routeData.deferredAttentionQueue).resolves.toEqual({ status: "unavailable" });
+    expect(attentionQueue).toHaveBeenCalledOnce();
+  });
+
+  it("marks the attention queue ready only with the validated read model", async () => {
+    const readModel = catalogAttentionQueueReadModelFixture();
+    const attentionQueue = vi.fn().mockResolvedValue(JSON.parse(JSON.stringify(readModel)));
+    mockCreateCatalogRequestApiClient.mockReturnValue(dailyApiWithAttentionQueue(attentionQueue));
+
+    const routeData = await loadDailyRoute();
+
+    await expect(routeData.deferredAttentionQueue).resolves.toEqual({ status: "ready", readModel });
+    expect(attentionQueue).toHaveBeenCalledOnce();
   });
   it("keeps provider-only TCGplayer units selectable when profile reviews are temporarily unavailable", async () => {
     const pokemonUnit = "tcgplayer:pokemon:single-card:source-observation-import";

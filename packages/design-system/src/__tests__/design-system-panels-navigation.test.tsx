@@ -386,7 +386,9 @@ describe("design system panels, navigation, and shells", () => {
     expect(markup).toContain("Migration evidence");
     expect(markup).toContain("Add evidence");
     expect(markup).toContain("aria-labelledby=");
-    expect(markup).toContain("border-danger");
+    const dangerReadinessItem = markup.match(/<li><div class="([^"]*bg-danger-soft[^"]*)"/)?.[1];
+    expect(dangerReadinessItem?.split(" ")).toEqual(expect.arrayContaining(["bg-danger-soft", "text-danger"]));
+    expect(dangerReadinessItem).not.toMatch(/\bborder(?:\s|-|$)/);
   });
 
   it("renders workflow action bars and empty readiness states on the server", () => {

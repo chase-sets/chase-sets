@@ -10,6 +10,7 @@ import {
   LinkButton,
   MarketplaceDashboardPanel,
   MarketplaceNotice,
+  NumericValue,
   Page,
   PageHeader,
   PageSection,
@@ -125,16 +126,18 @@ export function SettlementMoneyDashboardPage({
         metrics={[
           {
             label: t("settlement.features.moneyDashboard.ui.walletBalance"),
-            value: formatMoney(wallet.available_balance_amount, wallet.currency_code),
+            value: <NumericValue>{formatMoney(wallet.available_balance_amount, wallet.currency_code)}</NumericValue>,
             detail: t("settlement.features.moneyDashboard.ui.pendingBalance", {
               amount: formatMoney(wallet.pending_balance_amount, wallet.currency_code),
             }),
           },
           {
             label: t("settlement.features.moneyDashboard.ui.nextPayout"),
-            value: nextPayout
-              ? formatMoney(nextPayout.amount, nextPayout.currencyCode)
-              : t("settlement.features.moneyDashboard.ui.noneScheduled"),
+            value: nextPayout ? (
+              <NumericValue>{formatMoney(nextPayout.amount, nextPayout.currencyCode)}</NumericValue>
+            ) : (
+              t("settlement.features.moneyDashboard.ui.noneScheduled")
+            ),
             detail: nextPayout
               ? t("settlement.features.moneyDashboard.ui.estimatedBy", {
                   date: formatDate(nextPayout.estimatedArrivalAt),
@@ -186,7 +189,11 @@ export function SettlementMoneyDashboardPage({
                 },
                 {
                   key: t("settlement.features.moneyDashboard.ui.amount"),
-                  value: formatMoney(selectedWalletAdjustment.amount, selectedWalletAdjustment.currency_code),
+                  value: (
+                    <NumericValue>
+                      {formatMoney(selectedWalletAdjustment.amount, selectedWalletAdjustment.currency_code)}
+                    </NumericValue>
+                  ),
                 },
                 {
                   key: t("settlement.features.moneyDashboard.ui.reason"),
@@ -202,9 +209,13 @@ export function SettlementMoneyDashboardPage({
                   ? [
                       {
                         key: t("settlement.features.moneyDashboard.ui.resultingBalance"),
-                        value: formatMoney(
-                          selectedWalletAdjustment.available_balance_after,
-                          selectedWalletAdjustment.currency_code,
+                        value: (
+                          <NumericValue>
+                            {formatMoney(
+                              selectedWalletAdjustment.available_balance_after,
+                              selectedWalletAdjustment.currency_code,
+                            )}
+                          </NumericValue>
                         ),
                       },
                     ]
@@ -326,7 +337,7 @@ export function SettlementMoneyDashboardPage({
               <Stack gap={2}>
                 <Text>
                   {t("settlement.features.payouts.ui.netPayout")}:{" "}
-                  {formatMoney(payout.net_amount, payout.currency_code)}
+                  <NumericValue>{formatMoney(payout.net_amount, payout.currency_code)}</NumericValue>
                 </Text>
                 <SideSheet
                   title={t("settlement.features.moneyDashboard.ui.payoutBreakdown", {
@@ -348,11 +359,13 @@ export function SettlementMoneyDashboardPage({
                     lines={[
                       {
                         label: t("settlement.features.payouts.ui.requestedAmount"),
-                        value: formatMoney(payout.requested_amount, payout.currency_code),
+                        value: (
+                          <NumericValue>{formatMoney(payout.requested_amount, payout.currency_code)}</NumericValue>
+                        ),
                       },
                       {
                         label: t("settlement.features.payouts.ui.payoutFee"),
-                        value: formatMoney(payout.fee_amount, payout.currency_code),
+                        value: <NumericValue>{formatMoney(payout.fee_amount, payout.currency_code)}</NumericValue>,
                       },
                       {
                         label: t("settlement.features.moneyDashboard.ui.requested"),
@@ -375,7 +388,7 @@ export function SettlementMoneyDashboardPage({
                           ]
                         : []),
                     ]}
-                    total={formatMoney(payout.net_amount, payout.currency_code)}
+                    total={<NumericValue>{formatMoney(payout.net_amount, payout.currency_code)}</NumericValue>}
                     totalLabel={t("settlement.features.payouts.ui.netPayout")}
                   />
                 </SideSheet>
@@ -402,7 +415,7 @@ export function SettlementMoneyDashboardPage({
             {
               key: "amount",
               header: t("settlement.features.moneyDashboard.ui.amount"),
-              cell: (entry) => formatMoney(entry.amount, entry.currency_code),
+              cell: (entry) => <NumericValue>{formatMoney(entry.amount, entry.currency_code)}</NumericValue>,
             },
             {
               key: "status",

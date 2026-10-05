@@ -237,6 +237,8 @@ export const orderingEnglishTranslations = {
   "ordering.features.orders.ui.orderDetailPage.source": "Source",
   "ordering.features.orders.ui.orderDetailPage.standard": "Standard",
   "ordering.features.orders.ui.orderDetailPage.status": "Status",
+  "ordering.features.orders.ui.orderDetailPage.delivered": "Delivered",
+  "ordering.features.orders.ui.orderDetailPage.delivered.at": "Delivered at",
   "ordering.features.orders.ui.orderDetailPage.status.2": "Status",
   "ordering.features.orders.ui.orderDetailPage.support.reference": "Support reference",
   "ordering.features.orders.ui.orderDetailPage.tax": "Tax",

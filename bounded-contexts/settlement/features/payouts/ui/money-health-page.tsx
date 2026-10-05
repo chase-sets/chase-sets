@@ -1,5 +1,15 @@
 import { formatDateTime, formatMoney, t } from "@chase-sets/localization";
-import { Badge, DataTable, LinkButton, Page, PageHeader, PageSection, Stack, Text } from "@chase-sets/design-system";
+import {
+  Badge,
+  DataTable,
+  LinkButton,
+  NumericValue,
+  Page,
+  PageHeader,
+  PageSection,
+  Stack,
+  Text,
+} from "@chase-sets/design-system";
 import type { SettlementPayoutRow, SettlementReconciliationRunRow } from "../read-model/queries";
 import type { SettlementWalletRow } from "../../wallets/read-model/queries";
 
@@ -67,14 +77,21 @@ export function SettlementMoneyHealthPage({
             </Text>
             <Text size="sm" tone="secondary">
               {t("settlement.features.payouts.ui.moneyHealthPage.pending.payout.demand")}
-              {formatMoney(platformBalanceForecast.pending_payout_demand_amount, platformBalanceForecast.currency_code)}
+              <NumericValue>
+                {formatMoney(
+                  platformBalanceForecast.pending_payout_demand_amount,
+                  platformBalanceForecast.currency_code,
+                )}
+              </NumericValue>
             </Text>
             <Text size="sm" tone="secondary">
               {t("settlement.features.payouts.ui.moneyHealthPage.forecast.after.pending.demand")}
-              {formatMoney(
-                platformBalanceForecast.forecast_after_pending_demand_amount,
-                platformBalanceForecast.currency_code,
-              )}
+              <NumericValue>
+                {formatMoney(
+                  platformBalanceForecast.forecast_after_pending_demand_amount,
+                  platformBalanceForecast.currency_code,
+                )}
+              </NumericValue>
             </Text>
           </Stack>
         </Stack>
@@ -154,7 +171,9 @@ export function SettlementMoneyHealthPage({
             {
               key: "amount",
               header: t("settlement.features.payouts.ui.moneyHealthPage.negative.amount"),
-              cell: (row) => formatMoney(row.available_balance_amount, row.currency_code),
+              cell: (row) => (
+                <NumericValue>{formatMoney(row.available_balance_amount, row.currency_code)}</NumericValue>
+              ),
             },
             {
               key: "age",
@@ -194,17 +213,17 @@ export function SettlementMoneyHealthPage({
             {
               key: "requested_amount",
               header: t("settlement.features.payouts.ui.requestedAmount"),
-              cell: (row) => formatMoney(row.requested_amount, row.currency_code),
+              cell: (row) => <NumericValue>{formatMoney(row.requested_amount, row.currency_code)}</NumericValue>,
             },
             {
               key: "fee_amount",
               header: t("settlement.features.payouts.ui.payoutFee"),
-              cell: (row) => formatMoney(row.fee_amount, row.currency_code),
+              cell: (row) => <NumericValue>{formatMoney(row.fee_amount, row.currency_code)}</NumericValue>,
             },
             {
               key: "net_amount",
               header: t("settlement.features.payouts.ui.netPayout"),
-              cell: (row) => formatMoney(row.net_amount, row.currency_code),
+              cell: (row) => <NumericValue>{formatMoney(row.net_amount, row.currency_code)}</NumericValue>,
             },
             {
               key: "updated",

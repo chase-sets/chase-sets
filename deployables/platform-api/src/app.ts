@@ -1,6 +1,8 @@
 import { Hono, type Context, type Next } from "hono";
 import { createCheckoutClosedMiddleware } from "./middleware/checkout-closed";
 import { module as authModule } from "@chase-sets/auth";
+import type { ShipmentGroupAdmissionAuthority } from "@chase-sets/order-groups";
+import type { module as fulfillmentModule } from "@chase-sets/fulfillment";
 import {
   createUcpOAuthMetadataRoutes,
   createUcpOAuthRoutes,
@@ -31,12 +33,15 @@ import {
 } from "@chase-sets/discovery/server";
 import {
   catalogRealtimeManifest,
+  createCatalogProviderConnectionsReadSource,
+  type CatalogServices,
   catalogRealtimeTopicPolicyManifest,
   resolveCatalogProductSelection,
 } from "@chase-sets/catalog/server";
 import type { SavedListProductCatalog } from "@chase-sets/collections/server";
 import {
   pricingRealtimeManifest,
+  createBuyerOfferPricing,
   type ChannelConnectionIdentityReader,
   type PricingHostPorts,
 } from "@chase-sets/pricing/server";
@@ -108,6 +113,8 @@ import {
   providerObservationPolicy,
   repricingEnginePolicy,
   repricingManagementPolicy,
+  createRepricingAttentionSourceFromReadModel,
+  type PricingServices,
 } from "@chase-sets/pricing/server";
 import {
   createBlockedPayoutAttentionSourceFromReadModel,
@@ -135,8 +142,13 @@ import {
 } from "@chase-sets/bounded-context-runtime";
 import {
   createHonoObservabilityMiddleware,
+  createLogger,
+  recordSavedListAnalytics,
   recordProjectionFreshnessAudit,
   recordProjectionInlineApplyOutcome,
+  savedListAnalyticsAttributes,
+  type Logger,
+  type SavedListAnalyticsSignal,
 } from "@chase-sets/observability";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import {
@@ -147,7 +159,10 @@ import {
 import { createApiHost, resolveApiHostMounts, type ApiHostRuntime } from "@chase-sets/platform-runtime/api";
 import {
   createEvidenceWindowRegistrationRoutes,
+  createEvidenceWindowSourceAdmissionMiddleware,
+  createEvidenceWindowSourceRecoveryRoutes,
   type EvidenceWindowRoutesOptions,
+  type EvidenceWindowSourceRecoveryRoutesOptions,
   type PlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
 import {
@@ -193,7 +208,11 @@ import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
 import { listActivePolicyDocuments } from "@chase-sets/platform-policy/queries";
 import type { JsonValue } from "@chase-sets/primitives/json";
 import { apiContextRegistry } from "./generated/api-context-registry";
-import { createChannelActionAttentionSourceFromReadModel } from "@chase-sets/channels/server";
+import {
+  createChannelActionAttentionSourceFromReadModel,
+  createChannelConnectionsOperatorReadSourceFromReadModel,
+} from "@chase-sets/channels/server";
+import type { ProviderConnectionsCrossContextPort } from "@chase-sets/platform-operations/server";
 import {
   createMarketplaceChannelInboundClampCapability,
   type MarketplaceChannelInboundClampCapability,
@@ -211,6 +230,41 @@ export function createPlatformApiMarketplaceChannelInboundClampBinding(
   getServices: () => Readonly<{ channelInboundClamp: MarketplaceChannelInboundClampPort }> | undefined,
 ): MarketplaceChannelInboundClampCapability {
   return createMarketplaceChannelInboundClampCapability(mounted, getServices);
+}
+
+export function createSavedListAnalyticsRecorder(
+  logger: Pick<Logger, "info" | "warn"> = createLogger(),
+  recordMetric: typeof recordSavedListAnalytics = recordSavedListAnalytics,
+) {
+  return {
+    record(event: SavedListAnalyticsSignal) {
+      try {
+        const attributes = savedListAnalyticsAttributes(event);
+        try {
+          recordMetric(event);
+        } catch {
+          try {
+            logger.warn("Collections Saved List analytics recorder failed.", {
+              failure: "counter",
+              type: "collections.saved_list.analytics_recorder_failure",
+            });
+          } catch {
+            // Failure reporting is best-effort and must not affect the Saved List response.
+          }
+        }
+        try {
+          logger.info("Collections Saved List analytics event captured.", {
+            ...attributes,
+            type: "collections.saved_list.analytics_event",
+          });
+        } catch {
+          // Structured logging is best-effort and must not affect the Saved List response.
+        }
+      } catch {
+        // Invalid event objects are ignored without exposing input or exception text.
+      }
+    },
+  };
 }
 
 export type BuildPlatformApiOptions = Readonly<{
@@ -238,6 +292,7 @@ export type BuildPlatformApiOptions = Readonly<{
   checkoutClosed?: boolean;
   controlPlane?: PlatformControlPlane;
   evidenceWindowRegistration?: EvidenceWindowRoutesOptions;
+  evidenceWindowSourceRecovery?: Omit<EvidenceWindowSourceRecoveryRoutesOptions, "sources">;
   workSignalStore?: ProjectionWakeStatusWorkSignalStore;
   readConsistencyAuditLogger?: Readonly<{
     info: (message: string, fields?: Readonly<Record<string, unknown>>) => void;
@@ -275,6 +330,19 @@ export function createPlatformApiHost(
     ...(inventoryPool ? [createImportResolutionAttentionSourceFromReadModel(inventoryPool)] : []),
     ...(settlementPool ? [createBlockedPayoutAttentionSourceFromReadModel(settlementPool)] : []),
     ...(channelsPool ? [createChannelActionAttentionSourceFromReadModel(channelsPool)] : []),
+    ...(pricingPool
+      ? [
+          // The halt item reads the same Repricing Halt aggregate as the Desk
+          // halt switch. Desk requests arrive only after the host is created.
+          createRepricingAttentionSourceFromReadModel(pricingPool, {
+            getHalt: (accountId) => {
+              const pricing = runtime?.services.pricing as PricingServices | undefined;
+              if (!pricing) throw new Error("Pricing services are not composed on this host.");
+              return pricing.repricingPolicies.getHalt(accountId);
+            },
+          }),
+        ]
+      : []),
   ];
   const marketplaceChannelInboundClamp = createPlatformApiMarketplaceChannelInboundClampBinding(
     Boolean(marketplacePool),
@@ -546,6 +614,16 @@ export function createPlatformApiHost(
     ? { kind: "available", port: createInventoryHoldCleanupAuthorityForPool(inventoryPool) }
     : { kind: "not-mounted" };
   const channelSaleRecorder = inventoryPool ? createPlatformApiChannelSaleRecorder(inventoryPool) : undefined;
+  const admissionAuthority = (): ShipmentGroupAdmissionAuthority => {
+    const services = runtime?.services.fulfillment as ReturnType<typeof fulfillmentModule.createServices> | undefined;
+    if (!services) throw new Error("Shipment Group admission authority is unavailable.");
+    return services.shipments.shipmentGroupAdmissionAuthority;
+  };
+  const shipmentGroupAdmissionAuthority: ShipmentGroupAdmissionAuthority = {
+    reserve: (input, context) => admissionAuthority().reserve(input, context),
+    commit: (input, context) => admissionAuthority().commit(input, context),
+    abort: (input, context) => admissionAuthority().abort(input, context),
+  };
   const inventorySavedListImportBatchCreator: SavedListInventoryImportBatchCreator = async (params, context) => {
     const inventoryServices = runtime?.services.inventory as
       | {
@@ -573,26 +651,37 @@ export function createPlatformApiHost(
       }
     : undefined;
 
+  const providerConnectionsCrossContext: ProviderConnectionsCrossContextPort = {
+    catalog: createCatalogProviderConnectionsReadSource(
+      () => (runtime?.services.catalog as CatalogServices | undefined)?.sourceObservations,
+    ),
+    ...(channelsPool ? { channels: createChannelConnectionsOperatorReadSourceFromReadModel(channelsPool) } : {}),
+  };
+
   runtime = createApiHost(apiContextRegistry, "platform-api", {
     ...options,
     runtimeProfile,
     hostPorts: {
       ...options.hostPorts,
+      ...(pricingPool ? { managedOfferPricing: createBuyerOfferPricing(pricingPool) } : {}),
       ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
       ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
       ...(checkoutProcessingFeePolicyResolver ? { checkoutProcessingFeePolicyResolver } : {}),
       ...(authenticityFeePolicyResolver ? { authenticityFeePolicyResolver } : {}),
       ...(rateLimitPolicyResolver ? { rateLimitPolicyResolver } : {}),
       ...(savedListProductCatalog ? { savedListProductCatalog } : {}),
+      savedListAnalyticsRecorder: createSavedListAnalyticsRecorder(),
       registrationAdmission,
       ...(policyConsoleCrossContext ? { policyConsoleCrossContext } : {}),
       ...(supportReferenceLookupCrossContext ? { supportReferenceLookupCrossContext } : {}),
       ...(opsMarketAnalyticsCrossContext ? { opsMarketAnalyticsCrossContext } : {}),
+      providerConnectionsCrossContext,
       ...(offerEconomicsCrossContext ? { offerEconomicsCrossContext } : {}),
       sellerAttentionSources,
       publicPolicySources,
       draftListingCreator,
       inventoryCleanupAuthority,
+      shipmentGroupAdmissionAuthority,
       ...(channelSaleRecorder ? { channelSaleRecorder } : {}),
       inventorySavedListImportBatchCreator,
       marketplaceChannelInboundClamp,
@@ -940,6 +1029,15 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
   if (options.evidenceWindowRegistration) {
     app.route("/internal/evidence-windows", createEvidenceWindowRegistrationRoutes(options.evidenceWindowRegistration));
   }
+  if (options.evidenceWindowSourceRecovery && orderingServices?.orders) {
+    app.route(
+      "/internal/evidence-windows",
+      createEvidenceWindowSourceRecoveryRoutes({
+        ...options.evidenceWindowSourceRecovery,
+        sources: orderingServices.orders.evidenceWindowSources,
+      }),
+    );
+  }
   if (marketplacePlatformRoutesEnabled) {
     app.get("/internal/realtime/status", async (c) =>
       c.json(
@@ -1030,6 +1128,12 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     );
   }
 
+  for (const path of ["/api/catalog/operator-session", "/api/catalog/operator-session/*"]) {
+    app.use(path, async (c, next) => {
+      c.header("Cache-Control", "no-store");
+      await next();
+    });
+  }
   attachApiMountMiddleware(
     app,
     apiMounts
@@ -1055,6 +1159,14 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     apiMounts.filter((mount) => mount.contextName === "catalog" && mount.requiresAuth).map((mount) => mount.mountPath),
     catalogApiPermissionMiddleware,
   );
+  if (options.evidenceWindowSourceRecovery && orderingServices?.orders) {
+    const evidenceWindowSourceAdmission = createEvidenceWindowSourceAdmissionMiddleware(
+      options.evidenceWindowSourceRecovery,
+    );
+    for (const mount of apiMounts.filter((entry) => entry.contextName === "ordering")) {
+      app.use(`${mount.mountPath}/account/purchases/checkout`, evidenceWindowSourceAdmission);
+    }
+  }
 
   attachWriteConsistencyMiddleware(app, apiMounts, runtime.projectionGroups, {
     enabled: options.projectionInlineApplyEnabled ?? false,

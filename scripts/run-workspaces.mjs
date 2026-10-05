@@ -8,13 +8,14 @@ import { buildPackageManagerInvocation, runCommand } from "./lib/process.mjs";
 import { listWorkspacePackages } from "./lib/repo.mjs";
 import { ensureWorktreeSandboxEnvironment } from "./lib/sandbox.mjs";
 import { syncLocalEnvFiles } from "./local-env.mjs";
+import { driftBound, validateDbDurationBaseline } from "./check-structure/db-duration-baseline.mjs";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 const inheritedEnvKeys = new Set(Object.keys(process.env));
 const testEnvFiles = [".env", ".env.local", ".env.test", ".env.test.local"];
 const durationHintRegistryUrl = new URL("./workspace-test-duration-hints-v1.json", import.meta.url);
 const workspacePattern = /^@chase-sets\/[a-z0-9-]+$/;
-const durationHintScripts = new Set(["test", "test:unit"]);
+const durationHintScripts = new Set(["test", "test:unit", "test:db"]);
 const durationInvocations = new Map([
   ["test--exclude-test-profile=db", "test"],
   ["test:unit--test-profile=db", "test:unit"],
@@ -67,7 +68,7 @@ function assertWorkspaceIdentity(value, label) {
 
 function assertDurationHintScript(value, label) {
   if (typeof value !== "string" || !durationHintScripts.has(value)) {
-    throw new Error(`${label} must be test or test:unit.`);
+    throw new Error(`${label} must be test, test:unit or test:db.`);
   }
 }
 
@@ -148,7 +149,9 @@ export function validateWorkspaceDurationReplay(fixture, registry) {
       throw new Error(`${label}.invocation is invalid.`);
     }
     assertWorkspaceIdentity(observation.workspace, `${label}.workspace`);
-    assertDurationHintScript(observation.script, `${label}.script`);
+    if (observation.script !== "test" && observation.script !== "test:unit") {
+      throw new Error(`${label}.script must be test or test:unit.`);
+    }
     assertBoundedInteger(observation.observedDurationMs, 0, 600_000, `${label}.observedDurationMs`);
     if (durationInvocations.get(observation.invocation) !== observation.script) {
       throw new Error(`${label}.invocation does not match its script.`);
@@ -224,7 +227,7 @@ export function validateRunWorkspacesSummary(summary) {
     if (typeof task.usedFallback !== "boolean") {
       throw new Error(`${label}.usedFallback must be a boolean.`);
     }
-    assertBoundedInteger(task.actualDurationMs, 0, 600_000, `${label}.actualDurationMs`);
+    assertBoundedInteger(task.actualDurationMs, 0, 3_600_000, `${label}.actualDurationMs`);
     if (task.outcome !== "passed" && task.outcome !== "failed") {
       throw new Error(`${label}.outcome must be passed or failed.`);
     }
@@ -347,6 +350,9 @@ function isDurationScheduledInvocation(options) {
       options.includeTestProfile === undefined) ||
     (options.scriptName === "test:unit" &&
       options.includeTestProfile === "db" &&
+      options.excludeTestProfile === undefined) ||
+    (options.scriptName === DB_TEST_SCRIPT_SELECTOR &&
+      options.includeTestProfile === undefined &&
       options.excludeTestProfile === undefined)
   );
 }
@@ -376,7 +382,7 @@ function filterWorkspaces(workspaces, options) {
   });
 }
 
-function workspaceScriptNames(workspace, scriptName) {
+export function workspaceScriptNames(workspace, scriptName) {
   const scripts = workspace.packageJson.scripts ?? {};
   if (scriptName !== DB_TEST_SCRIPT_SELECTOR) {
     return typeof scripts[scriptName] === "string" ? [scriptName] : [];
@@ -404,12 +410,30 @@ async function runWorkspace(workspace, options) {
 
 async function runConcurrent(tasks, options) {
   const failures = [];
-  let nextIndex = 0;
+  const pending = tasks.slice();
+  const waitingWorkers = new Set();
+  let seedOrApiDbActive = false;
+
+  function needsSeedApiExclusion(task) {
+    return (
+      (task.workspace.name === "@chase-sets/marketplace-seed-testing" ||
+        task.workspace.name === "@chase-sets/app-platform-api") &&
+      (task.scriptNames ?? [options.scriptName]).some((script) => script === "test:db" || script.startsWith("test:db:"))
+    );
+  }
 
   async function worker() {
-    while (nextIndex < tasks.length) {
-      const task = tasks[nextIndex];
-      nextIndex += 1;
+    while (pending.length > 0) {
+      // Preserve priority among runnable tasks without letting the contending
+      // seed/API pair occupy both DB slots. Unrelated tasks can pass the waiter.
+      const nextIndex = pending.findIndex((task) => !seedOrApiDbActive || !needsSeedApiExclusion(task));
+      if (nextIndex === -1) {
+        await new Promise((resolve) => waitingWorkers.add(resolve));
+        continue;
+      }
+      const [task] = pending.splice(nextIndex, 1);
+      const excludesSeedApi = needsSeedApiExclusion(task);
+      if (excludesSeedApi) seedOrApiDbActive = true;
       const workspace = task.workspace;
       const startedAt = options.now();
       const taskResult = options.taskResults
@@ -440,8 +464,12 @@ async function runConcurrent(tasks, options) {
         });
       } finally {
         if (taskResult) {
-          taskResult.actualDurationMs = Math.min(600_000, Math.max(0, options.now() - startedAt));
+          taskResult.actualDurationMs = Math.min(3_600_000, Math.max(0, options.now() - startedAt));
         }
+        // Hold admission across every partition, releasing it on failure too.
+        if (excludesSeedApi) seedOrApiDbActive = false;
+        for (const wake of waitingWorkers) wake();
+        waitingWorkers.clear();
       }
     }
   }
@@ -539,6 +567,7 @@ export async function runWorkspaceScripts(options) {
     loadEnvironment = loadTestEnvironment,
     now = Date.now,
     run = runCommand,
+    readDbBaseline = () => JSON.parse(readFileSync(new URL("./db-duration-baseline-v1.json", import.meta.url), "utf8")),
   } = options;
   const parsed = parseRunWorkspacesArgs(argv);
 
@@ -554,6 +583,8 @@ export async function runWorkspaceScripts(options) {
 
   const allWorkspaces = listWorkspaces();
   const durationScheduled = isDurationScheduledInvocation(parsed);
+  const summaryScriptName = parsed.scriptName === DB_TEST_SCRIPT_SELECTOR ? "test:db" : parsed.scriptName;
+  const dbExecution = summaryScriptName === "test:db" || summaryScriptName.startsWith("test:db:");
   const registry = durationScheduled
     ? validateDurationHintRegistry(
         durationHintRegistry ?? JSON.parse(readFileSync(durationHintRegistryUrl, "utf8")),
@@ -562,7 +593,10 @@ export async function runWorkspaceScripts(options) {
     : undefined;
   const workspaces = filterWorkspaces(allWorkspaces, parsed);
   const tasks = durationScheduled
-    ? scheduleEligibleWorkspaces(workspaces, registry, parsed.scriptName)
+    ? scheduleEligibleWorkspaces(workspaces, registry, summaryScriptName).map((task) => ({
+        ...task,
+        scriptNames: workspaceScriptNames(task.workspace, parsed.scriptName),
+      }))
     : workspaces.map((workspace) => ({
         workspace,
         scriptNames: workspaceScriptNames(workspace, parsed.scriptName),
@@ -575,7 +609,7 @@ export async function runWorkspaceScripts(options) {
   const unhintedTasks = durationScheduled
     ? tasks
         .filter((task) => task.usedFallback)
-        .map((task) => ({ workspace: task.workspace.name, script: parsed.scriptName }))
+        .map((task) => ({ workspace: task.workspace.name, script: summaryScriptName }))
     : [];
   if (unhintedTasks.length > 0) {
     console.error(
@@ -588,19 +622,21 @@ export async function runWorkspaceScripts(options) {
   try {
     await runConcurrent(tasks, {
       ...parsed,
+      scriptName: durationScheduled ? summaryScriptName : parsed.scriptName,
       buildInvocation,
       commandTimeoutMs: parsed.commandTimeoutMs ?? defaultCommandTimeoutMs(parsed.scriptName),
       now,
       run,
-      taskResults: durationScheduled ? taskResults : undefined,
+      taskResults: durationScheduled || dbExecution ? taskResults : undefined,
       usePrefixedLogs: parsed.concurrency > 1,
     });
   } finally {
+    if (dbExecution) annotateDbDurationDrift({ tasks: taskResults }, readDbBaseline);
     if (durationScheduled) {
       const summary = buildRunWorkspacesSummary({
         concurrency: parsed.concurrency,
         elapsedMs: now() - startedAt,
-        scriptName: parsed.scriptName,
+        scriptName: summaryScriptName,
         taskResults,
         unhintedTasks,
       });
@@ -610,6 +646,25 @@ export async function runWorkspaceScripts(options) {
         appendSummary(env.GITHUB_STEP_SUMMARY, renderRunWorkspacesSummaryMarkdown(summary), "utf8");
       }
     }
+  }
+}
+
+function annotateDbDurationDrift(summary, readBaseline) {
+  try {
+    const baseline = validateDbDurationBaseline(readBaseline()).recomputes.at(-1);
+    const unbaselined = [];
+    for (const task of summary.tasks) {
+      const ratified = baseline?.workspaces[task.workspace];
+      if (ratified === undefined) unbaselined.push(task.workspace);
+      else if (task.actualDurationMs > driftBound(ratified)) {
+        console.log(
+          `::warning title=DB duration drift::${task.workspace} test:db ${task.actualDurationMs} ms > drift bound ${driftBound(ratified)} ms (ratified ${ratified} ms)`,
+        );
+      }
+    }
+    if (unbaselined.length) console.log(`DB duration drift: unbaselined: ${unbaselined.join(", ")}`);
+  } catch (error) {
+    console.error(`DB duration drift: unknown baseline: ${error.message}`);
   }
 }
 

@@ -17,6 +17,7 @@
     "./durable-job-work-units": "./durable-job-work-units.ts",
     "./durable-job-web": "./durable-job-web.ts",
     "./error-handler": "./error-handler.ts",
+    "./evidence-window-provider-write-executor": "./evidence-window-provider-write-executor.ts",
     "./health": "./health.ts",
     "./http": "./http.ts",
     "./internal-auth": "./internal-auth.ts",
@@ -41,6 +42,7 @@
     "./pwa": "./pwa.ts",
     "./runtime-profiles": "./runtime-profiles.ts",
     "./signed-payload": "./signed-payload.ts",
+    "./secret-envelope": "./secret-envelope.ts",
     "./runtime-lifecycle": "./runtime-lifecycle.ts",
     "./retention-sweep": "./retention-sweep.ts",
     "./source-context-wake-registry": "./source-context-wake-registry.ts",
@@ -55,6 +57,7 @@
     "./web-route-config": "./web-route-config.ts",
     "./work-signal-store": "./work-signal-store.ts",
     "./worker": "./worker.ts",
+    "./worker-observer": "./worker-observer.ts",
     "./worker-capacity": "./worker-capacity.ts"
   },
   "scripts": {
@@ -66,6 +69,7 @@
     "test:db": "vitest run --config ./vitest.config.ts realtime.db.test.ts retention-sweep.db.test.ts concurrency.db.test.ts agent-guardrails.db.test.ts bulk-append-lane.db.test.ts mcp-audit-log.db.test.ts"
   },
   "dependencies": {
+    "@chase-sets/evidence-window-provider-write": "workspace:*",
     "@chase-sets/auth-context": "workspace:*",
     "@chase-sets/bounded-context-module": "workspace:*",
     "@chase-sets/bounded-context-runtime": "workspace:*",
@@ -76,6 +80,7 @@
     "@chase-sets/localization": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
     "@chase-sets/realtime": "workspace:*",
+    "@chase-sets/stripe-config": "workspace:*",
     "hono": "^4.12.12",
     "react": "^19.2.5"
   },

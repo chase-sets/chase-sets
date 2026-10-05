@@ -452,11 +452,12 @@ describe("#5695 source-owned legal-review corpus manifest", () => {
     );
   });
 
-  it("declares three summary-only incorporated references that resolve once and never overlap the members", () => {
+  it("declares four summary-only incorporated references that resolve once and never overlap the members", () => {
     expect([...incorporatedHelpArticleSlugs]).toEqual([
       "condition-and-photo-standards",
       "order-protection",
       "refunds-and-returns",
+      "getting-paid",
     ]);
     for (const slug of incorporatedHelpArticleSlugs) {
       expect(complianceLegalReviewArticleSlugs).not.toContain(slug as never);

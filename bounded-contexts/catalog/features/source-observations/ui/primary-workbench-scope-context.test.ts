@@ -14,6 +14,35 @@ import {
 import { sourceObservationScope } from "./primary-workbench-test-fixtures";
 
 describe("Catalog primary workbench scope context", () => {
+  it("treats an id-only expansion update as an atomic pair", () => {
+    const fallback = scopeContextFromFields({
+      providerKey: "lorcanajson",
+      expansionId: "2",
+      expansionName: "Rise of the Floodborn",
+    });
+    const form = new FormData();
+    form.set("expansionId", "1");
+
+    expect(scopeContextFromFormData(form, fallback)).toMatchObject({
+      expansionId: "1",
+      expansionName: null,
+    });
+
+    const sameIdForm = new FormData();
+    sameIdForm.set("expansionId", "2");
+    expect(scopeContextFromFormData(sameIdForm, fallback)).toMatchObject({
+      expansionId: "2",
+      expansionName: "Rise of the Floodborn",
+    });
+
+    const nameOnlyForm = new FormData();
+    nameOnlyForm.set("expansionName", "The First Chapter");
+    expect(scopeContextFromFormData(nameOnlyForm, fallback)).toMatchObject({
+      expansionId: "2",
+      expansionName: "The First Chapter",
+    });
+  });
+
   it("round trips distinct provider products without reinterpreting compact sets and clears FormData deselection", () => {
     const identities = ["synthetic-product:A", "synthetic-product:B"].map((productId) => {
       const scope = scopeContextFromFields({ providerKey: "ygojson", languageCode: "en", productId });

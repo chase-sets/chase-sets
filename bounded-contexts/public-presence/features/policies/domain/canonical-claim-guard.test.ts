@@ -7,10 +7,204 @@ import { canonicalClaimRegistry, resolveUnresolvedPublicDisclosureText } from ".
 import { evaluateCanonicalClaimConsistency, projectCanonicalClaimReviewCorpus } from "./canonical-claim-guard";
 import type { PublicPolicyRegistryEntry } from "./policy-registry";
 import { publicPolicyRegistry } from "./policy-registry";
+import { paymentsTermsPolicyArtifact } from "./payments-terms";
 import { readCitedSourceSlice } from "../integrations/privacy-product-truth-inventory.mjs";
 
 const domainDirectory = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(domainDirectory, "../../../../..");
+
+describe("ordinary interest versus the ruled Prepaid Balance term", () => {
+  const prepaid = paymentsTermsPolicyArtifact.sections.find(({ id }) => id === "prepaid-balance")!;
+  const ordinaryAssertions = [
+    "Chase Sets does not pay you interest on funds connected to your Marketplace payment activity, including amounts pending payout.",
+    "Chase Sets does not pay interest on funds connected to your Marketplace payment activity.",
+    "Chase Sets does not pay you interest on Wallet balances.",
+    "Chase Sets does not pay interest on Wallet balances.",
+    "Chase Sets does not pay you interest on ordinary payment activity.",
+    "Chase Sets does not pay interest on ordinary payment activity.",
+    "Chase Sets does not pay you interest on amounts pending payout.",
+    "Chase Sets does not pay interest on amounts pending payout.",
+    "Chase Sets also does not pay interest on your Wallet balance.",
+    "Chase Sets does not pay interest on any Wallet balance or amount pending payout.",
+    ...[
+      "your Wallet balance",
+      "any Wallet balance",
+      "the Wallet balance",
+      "a Wallet balance",
+      "funds in your Wallet",
+      "funds in any Wallet",
+      "funds in the Wallet",
+      "funds in a Wallet",
+      "your Marketplace payment activity",
+      "any Marketplace payment activity",
+      "the Marketplace payment activity",
+      "your ordinary payment activity",
+      "any ordinary payment activity",
+      "the ordinary payment activity",
+      "an ordinary Wallet balance",
+      "pending payouts",
+      "your pending payouts",
+      "any pending payout",
+      "the pending payout",
+      "any amount pending payout",
+      "any amounts pending payout",
+      "your amount pending payout",
+      "your amounts pending payout",
+      "the amount pending payout",
+      "the amounts pending payout",
+    ].flatMap((subject) => [
+      `Chase Sets does not pay interest on ${subject}.`,
+      `Chase Sets does not pay you interest on ${subject}.`,
+    ]),
+  ];
+
+  describe.each([
+    ["standalone", ""],
+    ["appended to the ruled prepaid draft", `${prepaid.draftText} `],
+  ])("%s", (_context, prefix) => {
+    it.each(ordinaryAssertions)("rejects undeclared ordinary assertions under arbitrary ids: %s", (draftText) => {
+      const result = evaluateCanonicalClaimConsistency(
+        isolatedSyntheticCorpus("synthetic-unrelated-8667", `${prefix}${draftText}`),
+        repoRoot,
+      );
+      expect(result).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ claimId: "wallet-no-interest", sectionId: "synthetic-unrelated-8667" }),
+        ]),
+      );
+    });
+  });
+
+  it("accepts the ruled prepaid sentence without section exemptions and retains every prior forbidden phrase", () => {
+    expect(
+      evaluateCanonicalClaimConsistency(
+        isolatedSyntheticCorpus("synthetic-unrelated-8667", prepaid.draftText),
+        repoRoot,
+      ),
+    ).toEqual([]);
+    expect(canonicalClaimRegistry["wallet-no-interest"].forbiddenAssertionPhrases).toEqual(
+      expect.arrayContaining([
+        "do not earn interest",
+        "does not earn interest",
+        "will not earn interest",
+        "no interest is paid",
+      ]),
+    );
+    expect(canonicalClaimRegistry["wallet-no-interest"].forbiddenAssertionPhrases).not.toContain(
+      "does not pay interest",
+    );
+  });
+});
+
+// Claim-specific source-role probes, not a semantic extension of the generic guard.
+const chargeSourceRoles = [
+  {
+    role: "request",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1954-1974",
+    markers: ["createPaymentSession", "amount: processorAmount"],
+  },
+  {
+    role: "saved request",
+    ref: "infrastructure/stripe-payments/index.ts:1616-1670",
+    markers: [
+      'confirm: "true"',
+      "paymentIntentAuthenticationUrl(body)",
+      '"requires_confirmation"',
+      "statement_descriptor_suffix",
+    ],
+  },
+  {
+    role: "new session request",
+    ref: "infrastructure/stripe-payments/index.ts:1672-1761",
+    markers: [
+      'mode: "payment"',
+      '"/v1/checkout/sessions"',
+      'body.payment_status?.trim() ?? body.status?.trim() ?? "open"',
+      "statement_descriptor_suffix",
+    ],
+  },
+  {
+    role: "nonzero pending",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2082-2089",
+    markers: ['compareMoney(processorAmount, "0.00")', '"pending-confirmation"', "captured_at:"],
+  },
+  {
+    role: "session outcomes",
+    ref: "infrastructure/stripe-payments/index.ts:920-1002",
+    markers: [
+      'case "checkout.session.completed"',
+      'paymentObject.mode === "setup"',
+      'paymentStatus !== "paid"',
+      'kind: "payment-authorized"',
+      'kind: "payment-captured"',
+      'case "checkout.session.async_payment_succeeded"',
+    ],
+  },
+  {
+    role: "intent outcomes",
+    ref: "infrastructure/stripe-payments/index.ts:1047-1073",
+    markers: [
+      'case "payment_intent.processing"',
+      'case "payment_intent.amount_capturable_updated"',
+      'kind: "payment-authorized"',
+      'case "payment_intent.succeeded"',
+      'kind: "payment-captured"',
+    ],
+  },
+  {
+    role: "webhook capture recording",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2527-2568",
+    markers: [
+      'case "payment-authorized"',
+      'type: "RecordPaymentAuthorization"',
+      'case "payment-captured"',
+      'type: "RecordPaymentCapture"',
+      "capturedAt: webhookEvent.occurredAt",
+    ],
+  },
+  {
+    role: "reconciliation outcomes",
+    ref: "infrastructure/stripe-payments/index.ts:401-476",
+    markers: [
+      'processorStatus === "succeeded"',
+      'processorStatus === "requires_capture"',
+      'paymentStatus === "paid"',
+      'sessionStatus === "complete"',
+      'sessionStatus === "open"',
+    ],
+  },
+  {
+    role: "reconciliation capture command",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:265-295",
+    markers: ['case "captured"', 'type: "RecordPaymentCapture"', "capturedAt: result.occurredAt", 'case "authorized"'],
+  },
+  {
+    role: "reconciliation recording",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1227-1269",
+    markers: [
+      "providerResultMismatch(payment, result)",
+      "paymentCommandFromProviderResult(result)",
+      "await commandHandler({",
+      "command,",
+    ],
+  },
+  {
+    role: "capture fact",
+    ref: "bounded-contexts/payments/features/payments/domain/domain.ts:968-1005",
+    markers: ['case "RecordPaymentCapture"', 'type: "payments.payment-captured"', "capturedAt,"],
+  },
+] as const;
+
+function missingChargeSourceRoles(refs: readonly string[]): string[] {
+  const slices = refs.map((ref) => {
+    const slice = readCitedSourceSlice(repoRoot, ref);
+    expect(slice.error, ref).toBeUndefined();
+    return slice.text ?? "";
+  });
+  return chargeSourceRoles
+    .filter(({ markers }) => !slices.some((text) => markers.every((marker) => text.includes(marker))))
+    .map(({ role }) => role);
+}
 
 function withTermsOfServiceSectionOverride(
   sectionId: string,
@@ -636,7 +830,8 @@ const citationFencePaths = {
 
 const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   [citationFencePaths.authenticityTerms]: "7e64ea6fba08d7f0796193db12fb203c21525732a33f0b5a22456ada80682b00",
-  [citationFencePaths.privacyPolicy]: "4f9a1c91756db4caf4f0708d369bf042cb2524c61b59e3b3411faba725e4ccb0",
+  // Refreshed for the authorized charge-authority draft correction; only C1-C7 digits remain normalized.
+  [citationFencePaths.privacyPolicy]: "ce7135c9b63f41417e5dad54a32ada1d6a01afe9cb9631e3ad972df2e590c04a",
   [citationFencePaths.authenticityTest]: "4117ad0b8293c6b450b43ef42fbcbdcfb8bcc0d58a1c7b4c1df0e61adc831d34",
   [citationFencePaths.staticSurfaces]: "008c7a9dfe4475ca97613eece7b4f337be854de440e11ceb24d5b2684677b901",
 };
@@ -726,6 +921,91 @@ describe("canonical claim consistency guard", () => {
     );
     expect(violations).toEqual([]);
   });
+
+  it("pins ordered request, outcome and capture-recording source roles for both charge consumers", () => {
+    const definition = canonicalClaimRegistry["payment-charge-timing-and-capture"];
+    expect(definition.status).toBe("settled");
+    expect(definition.description).toContain("nonzero processor amount");
+    expect(definition.description).toContain("do not establish capture");
+    expect(definition.productTruthRefs).toEqual(chargeSourceRoles.map(({ ref }) => ref));
+    expect(missingChargeSourceRoles(definition.productTruthRefs)).toEqual([]);
+    const consumers = publicPolicyRegistry.flatMap(({ artifact }) =>
+      artifact.sections.flatMap((section) =>
+        (section.reviewManifest.canonicalClaims ?? [])
+          .filter(({ claimId }) => claimId === "payment-charge-timing-and-capture")
+          .map((claim) => ({ policyKey: artifact.metadata.policyKey, claim })),
+      ),
+    );
+    expect(consumers.map(({ policyKey }) => policyKey)).toEqual(["privacy-policy", "payments-terms"]);
+    for (const { claim } of consumers) expect(claim.productTruthRefs).toEqual(definition.productTruthRefs);
+  });
+
+  it.each([
+    { name: "creation-only", omitted: chargeSourceRoles.slice(3).map(({ role }) => role), extra: [] },
+    {
+      name: "missing-capture",
+      omitted: [
+        "webhook capture recording",
+        "reconciliation capture command",
+        "reconciliation recording",
+        "capture fact",
+      ],
+      extra: [],
+    },
+    {
+      name: "zero-only capture",
+      omitted: [
+        "webhook capture recording",
+        "reconciliation capture command",
+        "reconciliation recording",
+        "capture fact",
+      ],
+      extra: ["bounded-contexts/payments/features/payments/api/runtime.ts:2038-2049"],
+    },
+    ...chargeSourceRoles.slice(3).map(({ role }) => ({ name: `missing ${role}`, omitted: [role], extra: [] })),
+  ])(
+    "rejects $name for missing source roles even with equal registry/consumer refs and request text",
+    async ({ omitted, extra }) => {
+      const claimId = "payment-charge-timing-and-capture";
+      const refs = [...chargeSourceRoles.filter(({ role }) => !omitted.includes(role)).map(({ ref }) => ref), ...extra];
+      expect(refs).toContain(chargeSourceRoles[0].ref);
+      const registry = publicPolicyRegistry.map((entry) => ({
+        ...entry,
+        artifact: {
+          ...entry.artifact,
+          sections: entry.artifact.sections.map((section) => ({
+            ...section,
+            reviewManifest: {
+              ...section.reviewManifest,
+              canonicalClaims: section.reviewManifest.canonicalClaims?.map((claim) =>
+                claim.claimId === claimId ? { ...claim, productTruthRefs: refs } : claim,
+              ),
+            },
+          })),
+        },
+      })) as readonly PublicPolicyRegistryEntry[];
+      vi.resetModules();
+      vi.doMock("./canonical-claims", async () => {
+        const actual = await vi.importActual<typeof import("./canonical-claims")>("./canonical-claims");
+        return {
+          ...actual,
+          canonicalClaimRegistry: {
+            ...actual.canonicalClaimRegistry,
+            [claimId]: { ...actual.canonicalClaimRegistry[claimId], productTruthRefs: refs },
+          },
+        };
+      });
+      try {
+        const { evaluateCanonicalClaimConsistency: evaluateMutant } = await import("./canonical-claim-guard");
+        // Identity/resolution/any-keyword checks pass; the named source roles do not.
+        expect(evaluateMutant(registry, repoRoot)).toEqual([]);
+        expect(missingChargeSourceRoles(refs)).toEqual(omitted);
+      } finally {
+        vi.doUnmock("./canonical-claims");
+        vi.resetModules();
+      }
+    },
+  );
 
   it("passes the settled payment-chargeback-recovery-mechanism claim on its real evidence", () => {
     const paymentsTerms = publicPolicyRegistry.find((entry) => entry.artifact.metadata.policyKey === "payments-terms");
@@ -931,7 +1211,7 @@ describe("canonical claim consistency guard", () => {
     // Privacy keeps the same settled claim but swaps one canonical citation for
     // an adjacent range that still resolves and still contains a required
     // keyword, so only the provenance-identity rule can catch it.
-    const adjacentRef = "infrastructure/stripe-payments/index.ts:1466-1496";
+    const adjacentRef = "infrastructure/stripe-payments/index.ts:1603-1660";
     expect(canonicalRefs).not.toContain(adjacentRef);
     const drifted = publicPolicyRegistry.map((entry) =>
       entry.artifact.metadata.policyKey === "privacy-policy"
@@ -1619,7 +1899,7 @@ describe("line-keyed policy citation authority", () => {
 });
 
 describe("occurrence-scoped citation byte fence", () => {
-  it("normalizes exactly C1-C7 and matches all four reviewed frozen-base digests", () => {
+  it("normalizes exactly C1-C7 and matches all four reviewed source digests", () => {
     expect(Object.values(citationFenceOccurrences).flat()).toHaveLength(7);
     expect(checkCitationFence(citationFenceSources())).toEqual([]);
   });

@@ -11,6 +11,7 @@ function createServices(): MarketRollupsServices {
       marketStateSnapshotsRecomputed: 0,
       productAggregatesRecomputed: 0,
       platformDaysRecomputed: 0,
+      undenominatedTradeCount: 0,
     })),
     getPlatformGmvSeries: vi.fn(async () => []),
     getPlatformGmvForMonth: vi.fn(async () => "0.00"),
@@ -32,6 +33,7 @@ function createServices(): MarketRollupsServices {
     getTopCatalogItemsByGmv: vi.fn(async () => []),
     getProductRollupSeries: vi.fn(async () => [
       {
+        currencyCode: "USD",
         day: "2026-07-01",
         firstPriceAmount: "10.00",
         lastPriceAmount: "12.00",
@@ -44,19 +46,22 @@ function createServices(): MarketRollupsServices {
       },
     ]),
     getMarketStateSnapshotSeries: vi.fn(async () => []),
-    getProductMarketAggregate: vi.fn(async () => null),
+    getProductMarketAggregate: vi.fn(async () => []),
     getProductMarketStatsSnapshot: vi.fn(async () => ({
-      aggregate: {
-        lastSoldAt: "2026-07-01T12:00:00.000Z",
-        lastSoldPriceAmount: "12.00",
-        medianPrice30d: "11.00",
-        volume30d: 3,
-        tradeCount30d: 3,
-        medianPrice90d: null,
-        volume90d: 3,
-        tradeCount90d: 3,
-        sellThroughRate: "0.5000",
-      },
+      aggregates: [
+        {
+          currencyCode: "USD",
+          lastSoldAt: "2026-07-01T12:00:00.000Z",
+          lastSoldPriceAmount: "12.00",
+          medianPrice30d: "11.00",
+          volume30d: 3,
+          tradeCount30d: 3,
+          medianPrice90d: null,
+          volume90d: 3,
+          tradeCount90d: 3,
+          sellThroughRate: "0.5000",
+        },
+      ],
       marketState: {
         day: "2026-07-01",
         activeListingCount: 2,
@@ -78,16 +83,32 @@ function buildApp(services = createServices()) {
 }
 
 describe("pricing market-rollups API routes", () => {
+  it("requires an uppercase three-letter currency for series reads", async () => {
+    for (const currency of ["", "usd", "USDX"]) {
+      const response = await buildApp().fetch(
+        new Request(
+          `http://pricing.test/market-rollups/cat_1/prod_1/series?from=2026-06-01&to=2026-07-01${currency ? `&currencyCode=${currency}` : ""}`,
+        ),
+      );
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({
+        error: { code: "invalid_request", message: "currencyCode must be a three-letter uppercase currency code." },
+      });
+    }
+  });
   it("returns the product rollup series for a valid range", async () => {
     const services = createServices();
     const response = await buildApp(services).fetch(
-      new Request("http://pricing.test/market-rollups/cat_1/prod_1/series?from=2026-06-01&to=2026-07-01"),
+      new Request(
+        "http://pricing.test/market-rollups/cat_1/prod_1/series?from=2026-06-01&to=2026-07-01&currencyCode=USD",
+      ),
     );
 
     expect(response.status).toBe(200);
     expect(services.getProductRollupSeries).toHaveBeenCalledWith({
       catalogItemId: "cat_1",
       productId: "prod_1",
+      currencyCode: "USD",
       from: "2026-06-01",
       to: "2026-07-01",
       granularity: undefined,
@@ -95,6 +116,7 @@ describe("pricing market-rollups API routes", () => {
     await expect(response.json()).resolves.toEqual({
       items: [
         {
+          currencyCode: "USD",
           day: "2026-07-01",
           firstPriceAmount: "10.00",
           lastPriceAmount: "12.00",
@@ -131,7 +153,7 @@ describe("pricing market-rollups API routes", () => {
     const services = createServices();
     await buildApp(services).fetch(
       new Request(
-        "http://pricing.test/market-rollups/cat_1/prod_1/series?from=2026-01-01&to=2026-07-01&granularity=weekly",
+        "http://pricing.test/market-rollups/cat_1/prod_1/series?from=2026-01-01&to=2026-07-01&granularity=weekly&currencyCode=USD",
       ),
     );
 
@@ -150,7 +172,7 @@ describe("pricing market-rollups API routes", () => {
       productId: "prod_1",
     });
     const body = await response.json();
-    expect(body.aggregate.lastSoldPriceAmount).toBe("12.00");
+    expect(body.aggregates[0].lastSoldPriceAmount).toBe("12.00");
     expect(body.marketState.spreadAmount).toBe("3.00");
   });
 });

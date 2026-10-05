@@ -123,6 +123,17 @@ function renderRouteAdapter(
   return render(<MemoryRouter>{renderAdapter(artifact)}</MemoryRouter>);
 }
 
+// Reads a Surface root's rendered intent from design-system-owned classes:
+// flush/tinted carry no `surface-border` and no `shadow-` class.
+function surfaceIntent(surface: Element | null) {
+  const classes = [...(surface?.classList ?? [])];
+  if (classes.includes("surface-border") || classes.some((name) => name.startsWith("shadow-"))) {
+    return classes.includes("shadow-tokenLg") ? "elevated" : "legacy";
+  }
+  if (classes.includes("border")) return "outlined";
+  return classes.includes("bg-surface-2") ? "tinted" : "flush";
+}
+
 function publishedArtifact(artifact: PublicPolicyArtifact): PublicPolicyArtifact {
   return {
     ...artifact,
@@ -176,6 +187,21 @@ describe("policy artifact page", () => {
       expect(page?.getAttribute("data-policy-effective-at")).toBe(publishedEffectiveAt);
     });
   }
+
+  it.each(policyRouteAdapters)(
+    "tints the $path metadata and contents panels and keeps every policy section flush",
+    ({ artifact, render: renderAdapter }) => {
+      const { container } = renderRouteAdapter(renderAdapter);
+      const page = container.querySelector(`[data-policy-key="${artifact.metadata.policyKey}"]`)!;
+
+      const metadataPanels = [...page.querySelectorAll("section[aria-label]")];
+      const contentsPanels = [...page.querySelectorAll("nav[aria-label]")];
+      const policySections = [...page.querySelectorAll("section[aria-labelledby]")];
+      expect(metadataPanels.map(surfaceIntent)).toEqual(["tinted"]);
+      expect(contentsPanels.map(surfaceIntent)).toEqual(["tinted"]);
+      expect(policySections.map(surfaceIntent)).toEqual(artifact.sections.map(() => "flush"));
+    },
+  );
 
   it.each([
     { label: "Payout fee terms", href: "/payments-terms#payout-fee", title: "Payout fee" },

@@ -43,7 +43,7 @@ const tokenSwatchClasses: Record<TokenSwatchProps["color"], string> = {
 
 export function TokenSwatch({ label, value, color }: TokenSwatchProps) {
   return (
-    <Card variant="feature">
+    <Card variant="feature" elevation="tinted">
       <div className="space-y-3">
         <div
           aria-hidden="true"

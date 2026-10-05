@@ -2,6 +2,33 @@
   "schemaVersion": "workspace-unit-duration-replay/v1",
   "observations": [
     {
+      "runId": 37166190361,
+      "runAttempt": 1,
+      "jobId": 111329590581,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/order-groups",
+      "script": "test",
+      "observedDurationMs": 865
+    },
+    {
+      "runId": 37059140120,
+      "runAttempt": 1,
+      "jobId": 111011245217,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/app-tcgplayer-operator-extension",
+      "script": "test",
+      "observedDurationMs": 2307
+    },
+    {
+      "runId": 36592121561,
+      "runAttempt": 1,
+      "jobId": 109487781288,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/provider-credentials",
+      "script": "test",
+      "observedDurationMs": 1846
+    },
+    {
       "runId": 34699930876,
       "runAttempt": 1,
       "jobId": 103569830709,
@@ -774,6 +801,15 @@
       "workspace": "@chase-sets/channels",
       "script": "test:unit",
       "observedDurationMs": 4544
+    },
+    {
+      "runId": 36277253497,
+      "runAttempt": 1,
+      "jobId": 108502346013,
+      "invocation": "test--exclude-test-profile=db",
+      "workspace": "@chase-sets/stripe-appearance",
+      "script": "test",
+      "observedDurationMs": 5798
     }
   ]
 }

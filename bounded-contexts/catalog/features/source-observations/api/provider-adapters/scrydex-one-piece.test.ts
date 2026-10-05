@@ -435,7 +435,7 @@ describe("Scrydex One Piece provider adapter", () => {
         estimateState: "estimate-unavailable",
         estimatedRequestCount: null,
         estimateReason:
-          "Card page count is available only after the first Scrydex paged search response; set imports use q=printings:<set> to include reprints.",
+          "Card page count requires a fresh completed exact-query Scrydex count observation; set imports use q=printings:<set> to include reprints.",
         pageSize: 250,
         selectedFields: [
           "id",

@@ -23,6 +23,7 @@ describe("SavedListValuationSummary", () => {
       />,
     );
 
+    expect(markup).toMatch(/^<div class="min-w-0 max-w-full rounded-tokenLg p-6">/);
     expect(markup).toContain("Estimated market value");
     expect(markup).toContain("$25.00");
     expect(markup).toContain("2 of 4");

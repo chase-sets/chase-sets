@@ -1,6 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { metrics } from "@opentelemetry/api";
 import {
+  AggregationTemporality,
+  InMemoryMetricExporter,
+  MeterProvider,
+  PeriodicExportingMetricReader,
+} from "@opentelemetry/sdk-metrics";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import {
   catalogControlPlaneEventAttributes,
   catalogIntegrationJobAttributes,
   catalogIntegrationOptionQueryAttributes,
@@ -17,6 +25,11 @@ import {
   projectionInlineApplyOutcomeMetricRecord,
   projectionWakeIntentEnqueueOutcomeMetricRecord,
   publicPresenceWaitlistAnalyticsAttributes,
+  recordSavedListAnalytics,
+  savedListAnalyticsAttributes,
+  savedListAnalyticsEvents,
+  savedListAnalyticsKeys,
+  savedListAnalyticsValues,
   recordCheckoutObservabilityEvent,
   recordEventStoreAppendAdvisoryLockHold,
   recordMcpAuditRecord,
@@ -25,6 +38,7 @@ import {
   recordProviderWebhookIngestion,
   recordDiscoverySearchQuerySignal,
   recordProjectionInterestIndexLookup,
+  recordProjectionStatus,
   recordProjectionInlineApplyOutcome,
   recordProjectionWakeIntentEnqueueOutcome,
   recordProjectionWakeIntentOutcome,
@@ -34,6 +48,96 @@ import {
   sanitizeLogFields,
   type CheckoutObservabilityEventSignal,
 } from "./index";
+
+describe("durable projection count publication", () => {
+  it("exports active gauges, observation time and isolated bounded identity through the real SDK", async () => {
+    const exporter = new InMemoryMetricExporter(AggregationTemporality.CUMULATIVE);
+    const provider = new MeterProvider({
+      readers: [new PeriodicExportingMetricReader({ exporter, exportIntervalMillis: 3_600_000 })],
+    });
+    metrics.disable();
+    metrics.setGlobalMeterProvider(provider);
+    const now = vi.spyOn(Date, "now").mockReturnValue(180_000);
+    try {
+      for (const environment of ["production", "staging"]) {
+        vi.stubEnv("DEPLOYMENT_ENVIRONMENT", environment);
+        recordProjectionStatus({
+          targetContextName: "synthetic-context",
+          projectionName: "synthetic-projection",
+          blockedStreamCount: 2,
+          poisonEventCount: 1,
+          streamId: "synthetic-private-stream",
+          lastError: "synthetic-private-error",
+        } as Parameters<typeof recordProjectionStatus>[0]);
+      }
+      await provider.forceFlush();
+      const exported = exporter
+        .getMetrics()
+        .at(-1)!
+        .scopeMetrics.flatMap((scope) => scope.metrics);
+      expect(exported.map((metric) => metric.descriptor.name).sort()).toEqual([
+        "chase_sets_projection_blocked_streams",
+        "chase_sets_projection_poison_events",
+        "chase_sets_projection_status_observed_timestamp_seconds",
+      ]);
+      for (const metric of exported) {
+        expect(metric.dataPoints.map((point) => point.value)).toEqual(
+          metric.descriptor.name.endsWith("timestamp_seconds")
+            ? [180, 180]
+            : metric.descriptor.name.endsWith("blocked_streams")
+              ? [2, 2]
+              : [1, 1],
+        );
+        expect(metric.dataPoints.map((point) => point.attributes)).toEqual([
+          { environment: "production", target_context: "synthetic-context", projection: "synthetic-projection" },
+          { environment: "staging", target_context: "synthetic-context", projection: "synthetic-projection" },
+        ]);
+      }
+      expect(JSON.stringify(exported)).not.toContain("synthetic-private");
+      vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "production");
+      recordProjectionStatus({
+        targetContextName: "synthetic-context",
+        projectionName: "synthetic-projection",
+        blockedStreamCount: 0,
+        poisonEventCount: 0,
+      });
+      await provider.forceFlush();
+      const recovered = exporter
+        .getMetrics()
+        .at(-1)!
+        .scopeMetrics.flatMap((scope) => scope.metrics);
+      for (const metric of recovered.filter((metric) => !metric.descriptor.name.endsWith("timestamp_seconds"))) {
+        expect(metric.dataPoints.find((point) => point.attributes.environment === "production")?.value).toBe(0);
+      }
+    } finally {
+      now.mockRestore();
+      vi.unstubAllEnvs();
+      await provider.shutdown();
+      metrics.disable();
+    }
+  });
+
+  it("does not publish invalid counts as healthy zero", () => {
+    const createGauge = vi.fn(() => ({ record: vi.fn() }));
+    const meter = vi.spyOn(metrics, "getMeter").mockReturnValue({ createGauge } as never);
+    try {
+      for (const count of [-1, Number.NaN, Number.POSITIVE_INFINITY, 0.5]) {
+        for (const field of ["blockedStreamCount", "poisonEventCount"]) {
+          recordProjectionStatus({
+            targetContextName: "synthetic-context",
+            projectionName: "synthetic-projection",
+            blockedStreamCount: 0,
+            poisonEventCount: 0,
+            [field]: count,
+          });
+        }
+      }
+      expect(createGauge).not.toHaveBeenCalled();
+    } finally {
+      meter.mockRestore();
+    }
+  });
+});
 
 describe("observability config", () => {
   it("loads low-cost local defaults", () => {
@@ -88,6 +192,49 @@ describe("observability config", () => {
 });
 
 describe("provider webhook ingestion observability", () => {
+  it("records invariant ignores on the existing counter with finite invariant_code labels", () => {
+    const samples: unknown[] = [];
+    const meter = vi.spyOn(metrics, "getMeter").mockReturnValue({
+      createCounter: (name: string) => ({
+        add: (value: number, attributes: unknown) => samples.push({ name, value, attributes }),
+      }),
+      createHistogram: vi.fn(),
+      createUpDownCounter: vi.fn(),
+    } as never);
+    try {
+      for (const invariantCode of ["RecordPaymentFailure:validation_failed", "SECRET_SYNTHETIC"]) {
+        recordProviderWebhookIngestion({
+          endpoint: "payments",
+          failureClass: "handler-failure",
+          outcome: "ignored",
+          statusCode: 200,
+          retryable: false,
+          eventKind: "payment-failed",
+          invariantCode,
+        });
+      }
+    } finally {
+      meter.mockRestore();
+    }
+    expect(samples).toEqual([
+      {
+        name: "chase_sets_stripe_webhook_ingestion_total",
+        value: 1,
+        attributes: expect.objectContaining({
+          failure_class: "handler-failure",
+          outcome: "ignored",
+          invariant_code: "RecordPaymentFailure:validation_failed",
+        }),
+      },
+      {
+        name: "chase_sets_stripe_webhook_ingestion_total",
+        value: 1,
+        attributes: expect.objectContaining({ invariant_code: "none" }),
+      },
+    ]);
+    expect(JSON.stringify(samples)).not.toContain("SECRET_SYNTHETIC");
+  });
+
   it("records bounded failure classes without putting provider ids in metric labels", () => {
     const counterAdds: unknown[] = [];
     const createCounter = vi.fn((name: string) => ({
@@ -124,6 +271,7 @@ describe("provider webhook ingestion observability", () => {
           status_code: 400,
           retryable: "true",
           event_kind: "payment-captured",
+          invariant_code: "none",
         },
       },
     ]);
@@ -778,6 +926,152 @@ describe("item detail rail analytics observability", () => {
       viewer: "guest",
       surface: "action_rail",
     });
+  });
+});
+
+describe("Saved List analytics observability", () => {
+  const populated = {
+    list_created: { surface: "search", outcome: "added", coverage_band: "high", estimate_state: "current" },
+    product_added: { surface: "item-detail", outcome: "merged", coverage_band: "partial", estimate_state: "stale" },
+    first_five_lines: { surface: "search", outcome: "added", coverage_band: "full", estimate_state: "incomplete" },
+    valuation_coverage_band: {
+      surface: "item-detail",
+      outcome: "merged",
+      coverage_band: "partial",
+      estimate_state: "stale",
+    },
+  } as const;
+  const expectedAttributes = {
+    list_created: {
+      context: "collections",
+      event: "list_created",
+      surface: "search",
+      outcome: "none",
+      coverage_band: "none",
+      estimate_state: "none",
+    },
+    product_added: {
+      context: "collections",
+      event: "product_added",
+      surface: "item-detail",
+      outcome: "merged",
+      coverage_band: "none",
+      estimate_state: "none",
+    },
+    first_five_lines: {
+      context: "collections",
+      event: "first_five_lines",
+      surface: "search",
+      outcome: "none",
+      coverage_band: "none",
+      estimate_state: "none",
+    },
+    valuation_coverage_band: {
+      context: "collections",
+      event: "valuation_coverage_band",
+      surface: "none",
+      outcome: "none",
+      coverage_band: "partial",
+      estimate_state: "stale",
+    },
+  } as const;
+
+  it.each(savedListAnalyticsEvents)("maps %s through the closed event-specific allowlists", (event) => {
+    const attributes = savedListAnalyticsAttributes({ event, ...populated[event] });
+    expect(Object.keys(attributes).sort()).toEqual(
+      ["context", "event", "surface", "outcome", "coverage_band", "estimate_state"].sort(),
+    );
+    expect(attributes).toEqual(expectedAttributes[event]);
+  });
+
+  it("maps null, empty and unregistered values to bounded fallback tokens", () => {
+    const base = {
+      event: "product_added" as const,
+      surface: null,
+      outcome: "",
+      coverage_band: "synthetic_valid_but_unregistered_value_000001",
+      estimate_state: null,
+    };
+    expect(savedListAnalyticsAttributes(base)).toMatchObject({
+      surface: "invalid",
+      outcome: "invalid",
+      coverage_band: "none",
+      estimate_state: "none",
+    });
+    const unknownToken = savedListAnalyticsAttributes({
+      ...base,
+      event: "valuation_coverage_band",
+      coverage_band: "synthetic_valid_but_unregistered_value_000001",
+    });
+    expect(unknownToken.coverage_band).toBe("invalid");
+    expect(Object.values(unknownToken)).not.toContain("synthetic_valid_but_unregistered_value_000001");
+  });
+
+  it("maps an unknown event name to a fixed fallback without indexing an absent tuple", () => {
+    const attributes = savedListAnalyticsAttributes(
+      JSON.parse(
+        '{"event":"synthetic_unregistered_event","surface":"search","outcome":"added","coverage_band":"high","estimate_state":"current"}',
+      ),
+    );
+    expect(attributes).toEqual({
+      context: "collections",
+      event: "invalid",
+      surface: "none",
+      outcome: "none",
+      coverage_band: "none",
+      estimate_state: "none",
+    });
+  });
+
+  it("matches both event keys and all allowed values in the Collections privacy contract", () => {
+    const contract = readFileSync(
+      resolve(process.cwd(), "../../bounded-contexts/collections/docs/saved-list-analytics.md"),
+      "utf8",
+    );
+    const eventSection = contract.split("## Allowed values")[0] ?? "";
+    const eventRows = [...eventSection.matchAll(/^\| ([a-z_]+) \| ([a-z_, ]+) \|$/gm)];
+    const documentedKeys = Object.fromEntries(eventRows.map(([, event, keys]) => [event, keys.split(", ")]));
+    expect(Object.keys(documentedKeys).sort()).toEqual([...savedListAnalyticsEvents].sort());
+    for (const event of savedListAnalyticsEvents) {
+      expect([...savedListAnalyticsKeys[event]].sort()).toEqual(documentedKeys[event].sort());
+    }
+    const valueSection = contract.split("## Allowed values")[1]?.split("## Forbidden keys")[0] ?? "";
+    const valueRows = [
+      ...valueSection.matchAll(/^\| (surface|outcome|coverage_band|estimate_state) \| ([a-z_, -]+) \|$/gm),
+    ];
+    const documentedValues = Object.fromEntries(valueRows.map(([, key, values]) => [key, values.split(", ")]));
+    expect(Object.keys(documentedValues).sort()).toEqual(Object.keys(savedListAnalyticsValues).sort());
+    for (const key of Object.keys(savedListAnalyticsValues) as (keyof typeof savedListAnalyticsValues)[]) {
+      expect([...savedListAnalyticsValues[key]].sort()).toEqual(documentedValues[key].sort());
+    }
+    const forbiddenSection = contract.split("## Forbidden keys")[1]?.split("## Derivation")[0] ?? "";
+    const forbiddenKeys = [...forbiddenSection.matchAll(/`([A-Za-z][A-Za-z0-9]*)`/g)].map(([, key]) => key);
+    const emittedLabelKeys = ["event", ...Object.keys(savedListAnalyticsValues)];
+    expect(emittedLabelKeys.filter((key) => forbiddenKeys.includes(key))).toEqual([]);
+  });
+
+  it("lazily creates the exact counter with the stable six-label shape", () => {
+    const createCounter = vi.fn(() => ({ add: vi.fn() }));
+    const getMeter = vi.spyOn(metrics, "getMeter").mockReturnValue({ createCounter } as never);
+    try {
+      expect(createCounter).not.toHaveBeenCalled();
+      recordSavedListAnalytics({ event: "list_created", ...populated.list_created });
+      expect(createCounter).toHaveBeenCalledWith("chase_sets_collections_saved_list_events_total", undefined);
+      expect(createCounter.mock.results[0]?.value.add).toHaveBeenCalledWith(
+        1,
+        {
+          context: "collections",
+          event: "list_created",
+          surface: "search",
+          outcome: "none",
+          coverage_band: "none",
+          estimate_state: "none",
+        },
+        undefined,
+      );
+    } finally {
+      getMeter.mockRestore();
+    }
   });
 });
 

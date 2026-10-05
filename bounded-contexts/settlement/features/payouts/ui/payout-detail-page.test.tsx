@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { NumericValue } from "@chase-sets/design-system";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { SettlementPayoutRow } from "../read-model/queries";
@@ -79,5 +80,52 @@ describe("payout detail recovery paths", () => {
     expect(html).toContain(
       'data-testid="payout-support-details-entity" class="rounded-tokenLg border border-muted overflow-hidden bg-surface p-4"',
     );
+  });
+});
+
+/**
+ * The role class is derived from a bare design-system render, never written
+ * here, so this suite cannot drift from the primitive it observes.
+ */
+const numericValueClassName = renderToStaticMarkup(<NumericValue>0</NumericValue>).match(/class="([^"]*)"/)?.[1] ?? "";
+const moneyPattern = /^-?\$[\d,]+\.\d{2}$/;
+
+function parse(html: string): HTMLDivElement {
+  const rendered = document.createElement("div");
+  rendered.innerHTML = html;
+  return rendered;
+}
+
+function numericValues(root: ParentNode): HTMLElement[] {
+  return [...root.querySelectorAll("span")].filter((span) => span.className === numericValueClassName);
+}
+
+function textsOf(elements: readonly HTMLElement[]): string[] {
+  return elements.map((element) => element.textContent ?? "").sort();
+}
+
+describe("SettlementPayoutDetailPage mono market-data role carriers", () => {
+  it("derives the role class from the design system", () => {
+    expect(numericValueClassName).not.toBe("");
+  });
+
+  it("roles the requested, fee, and net breakdown values and leaves the header sentence alone", () => {
+    const rendered = parse(
+      renderToStaticMarkup(
+        <SettlementPayoutDetailPage backHref="/account/desk/money" payout={payout()} showSupportDetails={false} />,
+      ),
+    );
+    const carriers = numericValues(rendered);
+
+    expect(textsOf(carriers)).toEqual(["$1.00", "$124.00", "$125.00"]);
+    for (const carrier of carriers) {
+      expect(carrier.tagName).toBe("SPAN");
+      expect(carrier.parentElement?.tagName).toBe("SPAN");
+      expect(carrier.textContent).toMatch(moneyPattern);
+    }
+    const header = [...rendered.querySelectorAll("*")].find(
+      (element) => element.textContent === "Net payout: $124.00" && element.children.length === 0,
+    );
+    expect(header).toBeDefined();
   });
 });

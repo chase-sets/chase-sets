@@ -1,13 +1,20 @@
 import { Hono, type Handler } from "hono";
+import { validationFailedResponse } from "@chase-sets/http/responses";
 import type { PricingApiEnv } from "../../../api";
 import { PolicyControlValidationError, type RepricingPolicyServices } from "./runtime";
 import { DryRunRequiredError, type RepricingPolicyActivationServices } from "./activation";
-import type { RepricingPolicyCommand, ReviseRepricingPolicyCommand } from "../domain/domain";
+import {
+  RepricingPolicyValidationError,
+  type RepricingPolicyCommand,
+  type ReviseRepricingPolicyCommand,
+} from "../domain/domain";
 import type { RepricingScopePreviewInput } from "../read-model/controls";
 
 export function createRepricingPolicyRoutes(services: RepricingPolicyServices & RepricingPolicyActivationServices) {
   const app = new Hono<PricingApiEnv>();
   app.onError((error, c) => {
+    if (error instanceof PolicyControlValidationError && error.cause instanceof RepricingPolicyValidationError)
+      return c.json(validationFailedResponse("Invalid policy command.", [{ message: error.cause.message }]), 400);
     if (error instanceof SyntaxError || error instanceof PolicyControlValidationError)
       return c.json({ error: { code: "validation_failed" } }, 400);
     throw error;
@@ -49,6 +56,10 @@ export function createRepricingPolicyRoutes(services: RepricingPolicyServices & 
     return c.json(await services.getBudget(c.get("actor")!.accountId, day));
   });
   app.get("/categories", async (c) => c.json(await services.listCategories(c.get("actor")!.accountId)));
+  app.get("/authoring-prerequisites", async (c) => {
+    if (new URL(c.req.url).searchParams.size > 0) return c.json({ error: { code: "validation_failed" } }, 400);
+    return c.json(await services.getAuthoringPrerequisites(c.get("actor")!.accountId));
+  });
   app.post("/scope-preview", async (c) => {
     const accountId = c.get("actor")!.accountId;
     const body = await c.req.json<Omit<RepricingScopePreviewInput, "accountId">>();

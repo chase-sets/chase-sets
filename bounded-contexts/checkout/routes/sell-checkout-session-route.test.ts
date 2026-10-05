@@ -597,6 +597,27 @@ describe("checkout web routes: sell checkout session", () => {
     );
   });
 
+  it.each(["managed_offer_held", "managed_offer_refresh_required", "managed_offer_conflict"])(
+    "requires fresh seller review for %s without retrying a stale confirmation",
+    async (code) => {
+      mockSignedInSellCheckoutState();
+      mockAcceptOfferMatch.mockRejectedValueOnce(new MockMarketplaceApiError(409, { error: { code } }));
+      const result = await sellCheckoutSessionAction({
+        request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: signedInSellCheckoutForm().toString(),
+        }),
+        params: { sessionId: "chk_sell_1" },
+        context: undefined,
+      } as never);
+      expect(result).toMatchObject({ status: "error", recovery: { kind: "readiness-stale" } });
+      expect(mockAcceptOfferMatch).toHaveBeenCalledTimes(1);
+      expect(mockPreviewOfferAcceptanceTerms).not.toHaveBeenCalled();
+      expect(mockConfirmSellListCheckout).not.toHaveBeenCalled();
+    },
+  );
+
   it("surfaces a re-review recovery when Marketplace reports incomplete Listing Evidence at acceptance", async () => {
     mockSignedInSellCheckoutState();
     mockAcceptOfferMatch.mockRejectedValueOnce(

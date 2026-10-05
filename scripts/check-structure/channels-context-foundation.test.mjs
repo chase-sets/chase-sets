@@ -110,7 +110,10 @@ function collectChannelsSurfaceViolations(candidate, relativeFiles) {
   if (
     relativeFiles.some(
       (file) =>
-        file.startsWith("features/connector-client/") && !/^features\/connector-client\/(?:domain|tests)\//.test(file),
+        file.startsWith("features/connector-client/") &&
+        !/^features\/connector-client\/(?:(?:domain|tests)\/|integrations\/order-authority-probe\/(?:package\.mjs|manifest\.json|worker\.js|helper\.js|capture\.html|capture\.test\.ts)$)/.test(
+          file,
+        ),
     )
   ) {
     violations.push("connector-client-buckets");
@@ -726,6 +729,35 @@ describe("channels-foundation-deployable-registration", () => {
 });
 
 describe("channels-foundation-surface-fence", () => {
+  it.each(["package.mjs", "manifest.json", "worker.js", "helper.js", "capture.html", "capture.test.ts"])(
+    "admits the exact order-authority probe path %s",
+    (file) => {
+      expect(
+        collectChannelsSurfaceViolations(readJson(manifestPath), [
+          ...listFiles(channelsRoot),
+          `features/connector-client/integrations/order-authority-probe/${file}`,
+        ]),
+      ).toEqual([]);
+    },
+  );
+
+  it.each([
+    "integrations/synthetic-forbidden-sibling/worker.js",
+    "integrations/order-authority-probe/extra.js",
+    "integrations/order-authority-probe/nested/worker.js",
+    "integrations/order-authority-probe/worker.js/extra.js",
+    "integrations/order-authority-probe/worker.js.backup",
+    "ui/synthetic-forbidden-sibling.ts",
+    "synthetic-forbidden-sibling.ts",
+  ])("rejects the forbidden connector-client sibling %s", (file) => {
+    expect(
+      collectChannelsSurfaceViolations(readJson(manifestPath), [
+        ...listFiles(channelsRoot),
+        `features/connector-client/${file}`,
+      ]),
+    ).toEqual(["connector-client-buckets"]);
+  });
+
   it("accepts the desired-state slice while freezing forbidden context dependencies and excluding landing", () => {
     const manifest = readJson(manifestPath);
     const files = listFiles(channelsRoot);

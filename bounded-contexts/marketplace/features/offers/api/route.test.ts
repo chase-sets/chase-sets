@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { MarketplaceApiEnv } from "../../../api";
 import { createAccountOfferMatchRoutes, createAccountSubmittedOfferRoutes } from "./route";
 import { MarketplaceOfferFeeQuoteStaleError, type MarketplaceOfferServices } from "./runtime";
+import { ManagedOfferConflictError } from "./managed-authority";
+import { privatePolicyFields } from "../../offer-policy/tests/fixtures";
 
 function buildApp(
   options: Readonly<{
@@ -303,6 +305,7 @@ describe("marketplace offer routes", () => {
     const services = createServices();
     vi.mocked(services.getPublicOffer).mockResolvedValue({
       ...submittedOfferWithPrivateDestination,
+      ...privatePolicyFields,
       offer_id: "off_air_balloon",
       catalog_catalog_item_id: "cat_air_balloon",
       product_id: "cat_air_balloon::condition:damaged|form:raw",
@@ -343,6 +346,10 @@ describe("marketplace offer routes", () => {
       price_amount: "24.96",
     });
     expect(body).not.toHaveProperty("shipping_destination_snapshot");
+    for (const [key, value] of Object.entries(privatePolicyFields)) {
+      expect(body).not.toHaveProperty(key);
+      if (typeof value !== "object") expect(JSON.stringify(body)).not.toContain(String(value));
+    }
     expect(JSON.stringify(body)).not.toContain("alternate-contact@example.test");
     expect(services.getPublicOffer).toHaveBeenCalledWith("off_air_balloon");
   });
@@ -462,6 +469,36 @@ describe("marketplace offer routes", () => {
     expect(JSON.stringify(body)).not.toContain("alternate-contact@example.test");
     expect(services.getOfferMatch).toHaveBeenCalledWith("off_1", "acc_seller");
   });
+
+  it.each(["managed_offer_held", "managed_offer_refresh_required", "managed_offer_conflict"] as const)(
+    "returns private-safe retriable %s without accepting",
+    async (code) => {
+      const services = createServices();
+      vi.mocked(services.acceptOffer).mockRejectedValue(new ManagedOfferConflictError(code));
+      const app = buildApp({
+        services,
+        actor: {
+          sessionId: "ses_1",
+          tenantId: "tnt_identity",
+          userId: "usr_1",
+          accountId: "acc_seller",
+          membershipId: "mbr_1",
+          roleKey: "owner",
+          permissions: ["offers.manage", "listings.view"],
+        },
+      });
+      const response = await app.fetch(
+        new Request("http://marketplace.test/account/offers/matches/off_1/accept", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ listingId: "lst_1", feeQuoteFingerprint: "old" }),
+        }),
+      );
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({ error: { code, message: new ManagedOfferConflictError(code).message } });
+      expect(services.acceptOffer).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("accepts a offer match", async () => {
     const services = createServices();

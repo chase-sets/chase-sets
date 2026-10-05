@@ -4,7 +4,7 @@ import {
   openSecretEnvelope,
   sealSecretEnvelope,
   type SecretEnvelopeBytes,
-} from "../../../support/runtime-support/secret-envelope";
+} from "@chase-sets/platform-runtime/secret-envelope";
 import { decodeTokenSet, encodeEnvelopeAad, encodeTokenSet, nextCredentialCounter } from "../domain/codecs";
 import {
   ChannelCredentialError,

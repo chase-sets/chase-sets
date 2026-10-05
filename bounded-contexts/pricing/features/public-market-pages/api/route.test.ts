@@ -31,7 +31,7 @@ describe("public market page routes", () => {
       slug: "charizard-base-set-cat-1-abc123",
       productId: "cat_1::condition:near-mint",
       series: [],
-      aggregate: null,
+      aggregates: [],
       marketState: null,
     };
     const services = servicesStub({ getPublicMarketPage: vi.fn().mockResolvedValue(page) });
@@ -52,7 +52,7 @@ describe("public market page routes", () => {
       slug: "charizard-base-set-cat-1-abc123",
       productId: null,
       series: [],
-      aggregate: null,
+      aggregates: [],
       marketState: null,
     };
     const services = servicesStub({
@@ -105,6 +105,7 @@ describe("public market page routes", () => {
       productId: "cat_1::condition:near-mint",
       series: [
         {
+          currencyCode: "USD",
           day: "2026-07-01",
           firstPriceAmount: "18.00",
           lastPriceAmount: "20.00",
@@ -116,17 +117,20 @@ describe("public market page routes", () => {
           verifiedTradeCount: 3,
         },
       ],
-      aggregate: {
-        lastSoldAt: "2026-07-01T10:00:00.000Z",
-        lastSoldPriceAmount: "20.00",
-        medianPrice30d: "19.50",
-        volume30d: 8,
-        tradeCount30d: 8,
-        medianPrice90d: "18.75",
-        volume90d: 20,
-        tradeCount90d: 20,
-        sellThroughRate: "0.7500",
-      },
+      aggregates: [
+        {
+          currencyCode: "USD",
+          lastSoldAt: "2026-07-01T10:00:00.000Z",
+          lastSoldPriceAmount: "20.00",
+          medianPrice30d: "19.50",
+          volume30d: 8,
+          tradeCount30d: 8,
+          medianPrice90d: "18.75",
+          volume90d: 20,
+          tradeCount90d: 20,
+          sellThroughRate: "0.7500",
+        },
+      ],
       marketState: {
         day: "2026-07-01",
         activeListingCount: 5,

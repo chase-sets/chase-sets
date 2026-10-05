@@ -142,6 +142,16 @@ export type MarkLedgerEntryAvailableCommand = Readonly<{
   availableAt: string;
 }>;
 
+export type CreditSellerCaptureCommand = Readonly<{
+  type: "CreditSellerCapture";
+  kind: "sale" | "rebate";
+  amount: string;
+  currencyCode: CurrencyCode;
+  orderId: OrderId;
+  paymentId: PaymentId;
+  postedAt: string;
+}>;
+
 export type EvaluateNegativeBalanceCollectionsCommand = Readonly<{
   type: "EvaluateNegativeBalanceCollections";
   collectionsThresholdAmount: string;
@@ -169,6 +179,7 @@ export type ReleaseSpendHoldCommand = Readonly<{
 export type WalletCommand =
   | OpenWalletCommand
   | PostLedgerEntryCommand
+  | CreditSellerCaptureCommand
   | MarkLedgerEntryAvailableCommand
   | EvaluateNegativeBalanceCollectionsCommand
   | PlaceSpendHoldCommand
@@ -338,6 +349,91 @@ export const decideWallet: AggregateDecider<WalletState, WalletCommand, WalletEv
           },
         },
       ];
+    case "CreditSellerCapture": {
+      assert(state.accountId !== null, "Wallet must be opened first.");
+      assert(command.kind === "sale" || command.kind === "rebate", "Seller capture credit must be sale or rebate.");
+      const currencyCode = normalizeCurrencyCode(command.currencyCode);
+      assert(state.currencyCode === currencyCode, "Seller capture credit must use the wallet currency.");
+      const amount = normalizeMoneyAmount(command.amount, {
+        fieldName: "Seller capture credit amount",
+        allowZero: true,
+      });
+      const postedAt = ensureIsoTimestamp(command.postedAt, "Seller capture credit must record a timestamp.");
+      const prefix = command.kind === "sale" ? "led_sale" : "led_shipping_allowance";
+      const baseId = `${prefix}_${command.paymentId}_${command.orderId}` as LedgerEntryId;
+      const pendingId = `${baseId}_pending` as LedgerEntryId;
+      const entries = state.entries.filter(
+        (entry) => entry.ledgerEntryId === baseId || entry.ledgerEntryId === pendingId,
+      );
+      if (entries.length > 0) {
+        const base = entries.find((entry) => entry.ledgerEntryId === baseId);
+        const pending = entries.find((entry) => entry.ledgerEntryId === pendingId);
+        const matchesFacts = entries.every(
+          (entry) =>
+            entry.kind === command.kind &&
+            entry.direction === "credit" &&
+            entry.currencyCode === currencyCode &&
+            entry.orderId === command.orderId &&
+            entry.paymentId === command.paymentId &&
+            entry.payoutId === null &&
+            compareMoney(entry.amount, "0.00") > 0,
+        );
+        // availableAt preserves the distinction between an offset and a released pending leg.
+        const completeSingle = entries.length === 1 && base !== undefined && compareMoney(base.amount, amount) === 0;
+        const completeSplit =
+          entries.length === 2 &&
+          base !== undefined &&
+          pending !== undefined &&
+          base.fundsStatus === "available" &&
+          base.availableAt === null &&
+          (pending.fundsStatus === "pending" || pending.availableAt !== null) &&
+          compareMoney(addMoney(base.amount, pending.amount), amount) === 0;
+        assert(
+          matchesFacts && (completeSingle || completeSplit),
+          `Seller capture credit ${baseId} has incomplete or mismatched ledger evidence; operator review required.`,
+        );
+        return [];
+      }
+      if (compareMoney(amount, "0.00") === 0) return [];
+
+      const offset =
+        compareMoney(state.availableBalanceAmount, "0.00") < 0
+          ? minMoney(amount, subtractMoney("0.00", state.availableBalanceAmount))
+          : "0.00";
+      const remainder = subtractMoney(amount, offset);
+      const events: WalletEvent[] = [];
+      let nextState = state;
+      const description = command.kind === "sale" ? "Item sale proceeds" : "Shipping allowance";
+      for (const leg of [
+        {
+          amount: remainder,
+          ledgerEntryId: compareMoney(offset, "0.00") > 0 ? pendingId : baseId,
+          fundsStatus: "pending" as const,
+          description: `${description} for order ${command.orderId}`,
+        },
+        {
+          amount: offset,
+          ledgerEntryId: baseId,
+          fundsStatus: "available" as const,
+          description: `Negative balance offset from ${description.toLowerCase()} for order ${command.orderId}`,
+        },
+      ]) {
+        if (compareMoney(leg.amount, "0.00") === 0) continue;
+        const posting = decideWallet(nextState, {
+          type: "PostLedgerEntry",
+          ...leg,
+          kind: command.kind,
+          direction: "credit",
+          currencyCode,
+          orderId: command.orderId,
+          paymentId: command.paymentId,
+          postedAt,
+        });
+        events.push(...posting);
+        nextState = posting.reduce(evolveWallet, nextState);
+      }
+      return events;
+    }
     case "PostLedgerEntry":
       assert(state.accountId !== null, "Wallet must be opened first.");
       assert(!hasLedgerEntry(state.entries, command.ledgerEntryId), "Ledger entry has already been posted.");

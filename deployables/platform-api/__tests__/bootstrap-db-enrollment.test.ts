@@ -7,13 +7,13 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
 
 import ts from "@chase-sets/typescript-compiler-api";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi, type RunnerTestCase } from "vitest";
 
 import {
   bootstrapDbEnrollmentManifest,
   bootstrapDbExecutionUnitBootBearingCaseCeilings,
   bootstrapDbScheduleModel,
-  checkBootstrapDbEnrollment,
+  checkBootstrapDbEnrollment as evaluateBootstrapDbEnrollment,
   deriveBootstrapDbCaseIdentities,
   type BootstrapDbEnrollmentPartition,
   type BootstrapDbScheduleModel,
@@ -22,6 +22,27 @@ import {
 const testDirectory = dirname(fileURLToPath(import.meta.url));
 
 const temporaryRoots: string[] = [];
+const guardInputs = new Map<string, unknown>();
+const guardClasses = new Map<string, Set<string>>();
+let currentTest: RunnerTestCase | undefined;
+
+function checkBootstrapDbEnrollment(...args: Parameters<typeof evaluateBootstrapDbEnrollment>) {
+  const result = evaluateBootstrapDbEnrollment(...args);
+  const input = {
+    files: result.schedule.files,
+    model: result.schedule.files.length ? (args[0]?.scheduleModel ?? bootstrapDbScheduleModel) : null,
+    observedUnitCount: result.schedule.observedUnitCount,
+    fileCount: result.fileCount,
+  };
+  const key = createHash("sha256").update(JSON.stringify(input)).digest("hex");
+  guardInputs.set(key, input);
+  if (currentTest) {
+    const classes = guardClasses.get(currentTest.id) ?? new Set<string>();
+    classes.add(key);
+    guardClasses.set(currentTest.id, classes);
+  }
+  return result;
+}
 
 type FixtureCase = Readonly<{ name: string; referenceDurationMs: number; body: string; timeoutMs?: number }>;
 type FixtureFile = Readonly<{
@@ -94,9 +115,8 @@ function partitionSource(file: FixtureFile): string {
  * Builds a real workspace root on disk — sources, a vitest configuration, and a
  * package manifest — so every control below is planted through the guard's own
  * discovery rather than by calling an internal helper. Identity values are
- * derived from the fixture's own parsed sources in a first pass and frozen into
- * the fixture manifest in a second, which is exactly how the shipped manifest
- * was produced.
+ * derived from the fixture's own parsed sources and frozen into the fixture
+ * manifest, which is exactly how the shipped manifest was produced.
  */
 async function createFixture(
   files: readonly FixtureFile[],
@@ -168,15 +188,19 @@ async function createFixture(
     );
   const model = createSyntheticScheduleModel({ ...options.model, ...syntheticScheduleModelProvenance });
 
-  const draftManifest = buildManifest(files, () => "0000000000000000");
-  const derived = checkBootstrapDbEnrollment({
-    platformApiRoot: root,
-    manifest: draftManifest,
-    executionUnitBootBearingCaseCeilings: ceilings,
-    scheduleModel: model,
-  }).caseIdentities;
+  const identities = new Map<string, string>();
+  for (const file of files) {
+    for (const { name, identity } of deriveBootstrapDbCaseIdentities(file.fileName, partitionSource(file))) {
+      if (!identities.has(name)) identities.set(name, identity);
+    }
+  }
 
-  return { root, manifest: buildManifest(files, (name) => derived[name] ?? "0000000000000000"), ceilings, model };
+  return {
+    root,
+    manifest: buildManifest(files, (name) => identities.get(name) ?? "0000000000000000"),
+    ceilings,
+    model,
+  };
 }
 
 async function createShippedFixture(
@@ -271,6 +295,7 @@ function exhaustiveScheduleProbe(bypassFileBound = false) {
 
 type ScheduleFile = { fileName: string; durationMs: number };
 type ScheduleProbe = {
+  worstCaseListScheduleMs: (durations: readonly number[], workers: number) => number;
   computeMinimumUnitCount: (files: ScheduleFile[], model: BootstrapDbScheduleModel) => unknown;
   bestAssignmentAt: (files: ScheduleFile[], count: number, model: BootstrapDbScheduleModel) => unknown;
   calculateMinimumAndOneFewer?: (
@@ -294,7 +319,7 @@ function exactScheduleProbes(): { old: ScheduleProbe; candidate: ScheduleProbe }
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
     return runInNewContext(
-      `${source.slice(start, end)}\n({ computeMinimumUnitCount, bestAssignmentAt, canonicalAssignments, calculateMinimumAndOneFewer: typeof calculateMinimumAndOneFewer === 'function' ? calculateMinimumAndOneFewer : undefined })`,
+      `${source.slice(start, end)}\n({ worstCaseListScheduleMs, computeMinimumUnitCount, bestAssignmentAt, canonicalAssignments, calculateMinimumAndOneFewer: typeof calculateMinimumAndOneFewer === 'function' ? calculateMinimumAndOneFewer : undefined })`,
     ) as ScheduleProbe;
   }
   return { old: extract(oracleSource), candidate: extract(candidateSource) };
@@ -310,14 +335,18 @@ function scheduleVerdict(probe: ScheduleProbe, files: ScheduleFile[], model: Boo
   );
   const oneFewerUnit =
     minimum.minimumUnitCount && minimum.minimumUnitCount > 1 ? alternatives[minimum.minimumUnitCount - 2] : null;
-  return JSON.stringify({
+  return {
     minimum,
-    aggregateWithOverheadMs: minimum.witness
-      ? minimum.witness.reduce((sum, unit) => sum + unit.makespanMs, model.jobOverheadMs)
-      : null,
-    oneFewerUnit,
     alternatives,
-  });
+    serialized: JSON.stringify({
+      minimum,
+      aggregateWithOverheadMs: minimum.witness
+        ? minimum.witness.reduce((sum, unit) => sum + unit.makespanMs, model.jobOverheadMs)
+        : null,
+      oneFewerUnit,
+      alternatives,
+    }),
+  };
 }
 
 function expectSharedScheduleEquivalence(
@@ -325,6 +354,7 @@ function expectSharedScheduleEquivalence(
   candidate: ScheduleProbe,
   files: ScheduleFile[],
   model: BootstrapDbScheduleModel,
+  oldVerdict: ReturnType<typeof scheduleVerdict>,
 ) {
   const observed: string[] = [];
   const result = candidate.calculateMinimumAndOneFewer!(files, model, (phase, count, assignment) => {
@@ -336,10 +366,10 @@ function expectSharedScheduleEquivalence(
     refusal: string | null;
   };
   const { oneFewer, ...minimum } = result;
-  const expectedMinimum = old.computeMinimumUnitCount(files, model) as typeof minimum;
+  const expectedMinimum = oldVerdict.minimum as typeof minimum;
   const expectedOneFewer =
     expectedMinimum.minimumUnitCount && expectedMinimum.minimumUnitCount > 1
-      ? old.bestAssignmentAt(files, expectedMinimum.minimumUnitCount - 1, model)
+      ? oldVerdict.alternatives[expectedMinimum.minimumUnitCount - 2]
       : null;
   expect(JSON.stringify(minimum)).toBe(JSON.stringify(expectedMinimum));
   expect(JSON.stringify(oneFewer)).toBe(JSON.stringify(expectedOneFewer));
@@ -374,6 +404,106 @@ afterEach(async () => {
 });
 
 describe("Platform API bootstrap DB enrollment", () => {
+  beforeEach(({ task }) => {
+    currentTest = task;
+  });
+
+  afterAll(({}, suite) => {
+    for (const [key, input] of guardInputs)
+      process.stdout.write(`bootstrap-enrollment-input ${JSON.stringify({ key, input })}\n`);
+    for (const task of suite.tasks) {
+      if (task.type !== "test" || task.mode !== "run") continue;
+      process.stdout.write(
+        `bootstrap-enrollment-case ${JSON.stringify({
+          name: task.name,
+          state: task.result?.state,
+          durationMs: task.result?.duration,
+          classes: [...(guardClasses.get(task.id) ?? [])],
+        })}\n`,
+      );
+    }
+  });
+
+  it("matches the pinned list scheduler for zero, distinct, repeated and reordered durations on up to five workers", () => {
+    const { old, candidate } = exactScheduleProbes();
+    const vectors = [
+      [],
+      [0, 0, 0, 0, 0, 0],
+      [0, 1, 0, 2, 0, 3],
+      [-1, -2, -3],
+      [3, 3, 3, -100],
+      new Array<number>(31).fill(7),
+      [7, 7, 7, 7, 7, 7, 7],
+      [1, 2, 3, 5, 8, 13, 21],
+      [23, 2, 19, 5, 17, 7, 13, 11],
+    ];
+    for (const vector of vectors)
+      for (const durations of [vector, [...vector].reverse()])
+        for (let workers = 1; workers <= 5; workers += 1) {
+          Object.freeze(durations);
+          expect(candidate.worstCaseListScheduleMs(durations, workers)).toBe(
+            old.worstCaseListScheduleMs(durations, workers),
+          );
+        }
+  });
+
+  it("preserves the pinned complete guard's projections for refused references and oversized file sets", async () => {
+    const old = await import(
+      pathToFileURL(join(testDirectory, "fixtures/bootstrap-db-schedule-before-subset-reuse.mjs")).href
+    );
+    for (const durations of [[-100, 3, 3, 3], new Array<number>(31).fill(7)]) {
+      const fixture = await createFixture(
+        durations.map((duration, index) => unitFileFor(`refused-reference-${index}`, "test:db:1", duration)),
+        { model: { testFileFixedCostMs: 0, executionUnitFixedCostMs: 0, maxWorkersPerExecutionUnit: 2 } },
+      );
+      const result = runFixture(fixture);
+      const violation = durations.some((duration) => duration < 0) ? "referenceDurationMs" : "declared bound";
+      expect(result.violations).toEqual(expect.arrayContaining([expect.stringContaining(violation)]));
+      expect(JSON.parse(JSON.stringify(result))).toEqual(
+        JSON.parse(
+          JSON.stringify(
+            old.checkBootstrapDbEnrollment({
+              platformApiRoot: fixture.root,
+              manifest: fixture.manifest,
+              executionUnitBootBearingCaseCeilings: fixture.ceilings,
+              scheduleModel: fixture.model,
+            }),
+          ),
+        ),
+      );
+    }
+  });
+
+  it.each([
+    { label: "unsafe duration", durations: [9007199254740992, 1, 1], makespanMs: 9007199254740994 },
+    { label: "unsafe total", durations: [9007199254740991, 2, 2], makespanMs: 9007199254740996 },
+  ])("preserves the pinned complete guard's projections for a refused $label", async ({ durations, makespanMs }) => {
+    const old = await import(
+      pathToFileURL(join(testDirectory, "fixtures/bootstrap-db-schedule-before-subset-reuse.mjs")).href
+    );
+    for (const ordered of [durations, [...durations].reverse()]) {
+      const fixture = await createFixture(
+        ordered.map((duration, index) => unitFileFor(`synthetic-unsafe-reference-${index}`, "test:db:1", duration)),
+        { model: { testFileFixedCostMs: 0, executionUnitFixedCostMs: 0, maxWorkersPerExecutionUnit: 1 } },
+      );
+      const result = runFixture(fixture);
+      expect(result.violations).toEqual(expect.arrayContaining([expect.stringContaining("referenceDurationMs")]));
+      expect(result.schedule.units[0]?.makespanMs).toBe(makespanMs);
+      expect(JSON.parse(JSON.stringify(result))).toEqual(
+        JSON.parse(
+          JSON.stringify(
+            old.checkBootstrapDbEnrollment({
+              platformApiRoot: fixture.root,
+              manifest: fixture.manifest,
+              executionUnitBootBearingCaseCeilings: fixture.ceilings,
+              scheduleModel: fixture.model,
+            }),
+          ),
+        ),
+      );
+    }
+  });
+
   it.each([0, 1, 2, 3, 4])(
     "exact subset schedule equivalence across ordered-vector/model pairs of length %i",
     (length) => {
@@ -403,9 +533,11 @@ describe("Platform API bootstrap DB enrollment", () => {
                     });
                     const expected = scheduleVerdict(old, files, model);
                     const actual = scheduleVerdict(candidate, files, model);
-                    if (actual !== expected)
-                      throw new Error(`schedule differs at pair ${pairs}: ${expected} vs ${actual}`);
-                    expectSharedScheduleEquivalence(old, candidate, files, model);
+                    if (actual.serialized !== expected.serialized)
+                      throw new Error(
+                        `schedule differs at pair ${pairs}: ${expected.serialized} vs ${actual.serialized}`,
+                      );
+                    expectSharedScheduleEquivalence(old, candidate, files, model, expected);
                     pairs += 1;
                   }
       }
@@ -433,8 +565,9 @@ describe("Platform API bootstrap DB enrollment", () => {
       aggregateCeilingMs: 15,
     }) as { -readonly [Key in keyof BootstrapDbScheduleModel]: BootstrapDbScheduleModel[Key] };
     const compare = () => {
-      expect(scheduleVerdict(candidate, files, model)).toBe(scheduleVerdict(old, files, model));
-      expectSharedScheduleEquivalence(old, candidate, files, model);
+      const expected = scheduleVerdict(old, files, model);
+      expect(scheduleVerdict(candidate, files, model).serialized).toBe(expected.serialized);
+      expectSharedScheduleEquivalence(old, candidate, files, model, expected);
     };
     compare();
     files.reverse();
@@ -462,10 +595,9 @@ describe("Platform API bootstrap DB enrollment", () => {
         durationMs: 1,
       }));
       const boundaryModel = createSyntheticScheduleModel({ maximumScheduledFileCount: bound });
-      expect(scheduleVerdict(candidate, boundaryFiles, boundaryModel)).toBe(
-        scheduleVerdict(old, boundaryFiles, boundaryModel),
-      );
-      expectSharedScheduleEquivalence(old, candidate, boundaryFiles, boundaryModel);
+      const expected = scheduleVerdict(old, boundaryFiles, boundaryModel);
+      expect(scheduleVerdict(candidate, boundaryFiles, boundaryModel).serialized).toBe(expected.serialized);
+      expectSharedScheduleEquivalence(old, candidate, boundaryFiles, boundaryModel, expected);
     }
   });
 
@@ -476,15 +608,20 @@ describe("Platform API bootstrap DB enrollment", () => {
     // The pinned oracle lives under __tests__/fixtures, so its import.meta.url-derived
     // default root is __tests__; bind both guards to the one production platform-api root.
     const platformApiRoot = join(testDirectory, "..");
-    const retainedOracleInputs = {
+    // Compare both implementations against the same current enrollment corpus.
+    const repositoryInputs = {
       platformApiRoot,
-      manifest: old.bootstrapDbEnrollmentManifest,
-      executionUnitBootBearingCaseCeilings: old.bootstrapDbExecutionUnitBootBearingCaseCeilings,
-      scheduleModel: old.bootstrapDbScheduleModel,
+      manifest: bootstrapDbEnrollmentManifest,
+      executionUnitBootBearingCaseCeilings: bootstrapDbExecutionUnitBootBearingCaseCeilings,
+      scheduleModel: bootstrapDbScheduleModel,
     };
-    expect(normalize(checkBootstrapDbEnrollment(retainedOracleInputs))).toEqual(
-      normalize(old.checkBootstrapDbEnrollment(retainedOracleInputs)),
+    const candidateRepository = checkBootstrapDbEnrollment(repositoryInputs);
+    const started = performance.now();
+    const oldRepository = old.checkBootstrapDbEnrollment(repositoryInputs);
+    process.stdout.write(
+      `bootstrap-enrollment-oracle ${JSON.stringify({ durationMs: performance.now() - started, fileCount: oldRepository.fileCount })}\n`,
     );
+    expect(normalize(candidateRepository)).toEqual(normalize(oldRepository));
     for (const count of [10, 11, 12, 13]) {
       const files = Array.from({ length: count }, (_, index) => unitFileFor(`oracle-${index}`, "test:db:1", 1_000));
       const fixture = await createFixture(files, { model: { maximumScheduledFileCount: count === 13 ? 12 : 11 } });
@@ -2184,6 +2321,28 @@ describe("Platform API bootstrap DB enrollment", () => {
         expect.stringContaining("vitest.config.ts is required to derive the executable test-entry set"),
       ]),
     );
+  });
+
+  it("evaluates an unmistakably synthetic twelve-file 62-case shipped-shaped enrollment without changing main", async () => {
+    const files = shippedShapedFiles();
+    files.push({
+      fileName: "synthetic-twelfth-enrollment.db.test.ts",
+      databaseSuffix: "synthetic_twelfth_enrollment",
+      executionUnit: "test:db:2",
+      cases: [1_518, 1_332, 1_213, 1_273, 1_419].map((referenceDurationMs, index) => ({
+        name: `synthetic twelfth enrollment case ${index}`,
+        referenceDurationMs,
+        body: `  expect(${index}).toBe(${index});`,
+      })),
+    });
+    // These are synthetic workload inputs, not fresh connector reference facts.
+    const fixture = await createFixture(files, { model: { maximumScheduledFileCount: 12 } });
+    const result = runFixture(fixture);
+    expect(result.violations).toEqual([]);
+    expect(result.fileCount).toBe(12);
+    expect(result.caseCount).toBe(62);
+    expect(result.schedule.minimumUnitCount).toBe(2);
+    expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(11);
   });
 });
 

@@ -6,6 +6,15 @@ import {
 } from "../domain/provider-observation-policy";
 
 describe("pricing.provider-observation policy", () => {
+  it("provider-observation-policy-listing-type defaults to raw sales while an active document may request All", () => {
+    expect(providerObservationPolicy.defaultValue.sales.listingType).toBe("ListingWithoutPhotos");
+    expect(
+      decodeProviderObservationPolicyValue({
+        ...PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE,
+        sales: { ...PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE.sales, listingType: "All" },
+      } as never).sales.listingType,
+    ).toBe("All");
+  });
   it("keeps capturesPerPass inside the post-signal authority", () => {
     expect(providerObservationPolicy.policyKey).toBe("pricing.provider-observation");
     expect(decodeProviderObservationPolicyValue(PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE as never)).toEqual(

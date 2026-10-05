@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { publicPolicyRegistry, type PublicPolicyRegistryEntry } from "../domain/policy-registry";
 import { renderPublicPolicyPublicationContracts } from "./compile-policy-publications.mjs";
+import { computePrivacyCitedSourceDigest } from "./privacy-product-truth-inventory.mjs";
+import { privacyProductTruthBindings } from "../domain/privacy-policy-product-truth";
 
 const integrationsDirectory = dirname(fileURLToPath(import.meta.url));
 const packageRoot = resolve(integrationsDirectory, "../../..");
@@ -223,6 +225,60 @@ describe("public policy corpus compiler", () => {
     expect(index?.content).toBe(baseline.find((module) => module.relativePath === "index.ts")?.content);
   });
 
+  it.each(["prose", "manifest"] as const)(
+    "isolates charge-authority %s edits to two fingerprints without metadata or Privacy inventory changes",
+    async (surface) => {
+      const subjects = new Map([
+        ["payments-terms", "charge-timing-and-statement-descriptor"],
+        ["privacy-policy", "stripe-managed-processing"],
+      ]);
+      const digestBefore = computePrivacyCitedSourceDigest(repoRoot, privacyProductTruthBindings);
+      const baseline = await renderPublicPolicyPublicationContracts();
+      const editedRegistry = publicPolicyRegistry.map((entry) => ({
+        ...entry,
+        artifact: {
+          ...entry.artifact,
+          sections: entry.artifact.sections.map((section) =>
+            section.id !== subjects.get(entry.artifact.metadata.policyKey)
+              ? section
+              : {
+                  ...section,
+                  ...(surface === "prose"
+                    ? { draftText: `${section.draftText} Synthetic content-only control.` }
+                    : {
+                        reviewManifest: {
+                          ...section.reviewManifest,
+                          scopeNote: `${section.reviewManifest.scopeNote} Synthetic manifest-only control.`,
+                        },
+                      }),
+                },
+          ),
+        },
+      }));
+      for (const [index, entry] of editedRegistry.entries()) {
+        expect(entry.artifact.metadata).toEqual(publicPolicyRegistry[index].artifact.metadata);
+      }
+      const regenerated = await renderPublicPolicyPublicationContracts(editedRegistry);
+      const changed = regenerated.filter(
+        (module) =>
+          baseline.find(({ relativePath }) => relativePath === module.relativePath)?.content !== module.content,
+      );
+      expect(changed.map(({ relativePath }) => relativePath)).toEqual([
+        "privacy-policy-publication.ts",
+        "payments-terms-publication.ts",
+      ]);
+      for (const module of changed) {
+        const before = baseline.find(({ relativePath }) => relativePath === module.relativePath)!.content;
+        const stripFingerprint = (content: string) =>
+          content.replace(/contentFingerprint: "sha256:[a-f0-9]{64}"/, 'contentFingerprint: "<CONTENT-FINGERPRINT>"');
+        expect(stripFingerprint(module.content)).toBe(stripFingerprint(before));
+        expect(module.content).toContain("consentActivatable: false");
+      }
+      expect(regenerated).toHaveLength(8);
+      expect(computePrivacyCitedSourceDigest(repoRoot, privacyProductTruthBindings)).toBe(digestBefore);
+    },
+  );
+
   it("isolates three simultaneous content-only edits to three fingerprint-only publication records", async () => {
     const editedPolicyKeys = ["terms-of-service", "privacy-policy", "authenticity-service-terms"] as const;
     const expectedChangedModules = [
@@ -433,9 +489,11 @@ describe("public policy corpus compiler", () => {
         baseline.find(({ relativePath }) => relativePath === "agent-connector-terms-publication.ts")?.content,
       ),
     ).toBe("sha256:c527cca70b8e0f5055e8fc480f2deefc61629a422af3249dd452a192b06c5c98");
+    // Baseline: current Terms with the electronic-agents-and-automated-access developer-manifest ref reverted.
+    // Re-derived for #8667, the first Terms content edit since #7429; prior pin was on-disk Terms at bb85cc7a24^.
     expect(
       fingerprint(baseline.find(({ relativePath }) => relativePath === "terms-of-service-publication.ts")?.content),
-    ).toBe("sha256:3f2930714f2f58cf68df0948999bb7d61e73b96e2b79af6719fcb15997ecea04");
+    ).toBe("sha256:c0cd736b87c12444ea15b3bea16cf88f097968d1eb8272dc9a01dce4154a42ad");
 
     for (const module of changed) {
       const before = baseline.find((candidate) => candidate.relativePath === module.relativePath)?.content;

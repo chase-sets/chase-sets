@@ -1,5 +1,7 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
-import { registerOrSignInSyntheticAccount, signInWithPassword } from "./support/auth";
+import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
+import { registerSyntheticAccount, signInWithPassword, syntheticAccountFor } from "./support/auth";
+import { marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
 
 const configuredMarketplaceAccount = {
   email: process.env.MARKETPLACE_E2E_EMAIL?.trim() ?? "",
@@ -7,17 +9,13 @@ const configuredMarketplaceAccount = {
 };
 
 const searchQuery = process.env.MARKETPLACE_E2E_SEARCH_QUERY ?? "charizard";
-const syntheticAccountRunId = (process.env.GITHUB_RUN_ID ?? `${Date.now()}-${process.pid}`)
-  .toLowerCase()
-  .replace(/[^a-z0-9]+/g, "-")
-  .slice(0, 12);
-const syntheticAccountNonce = Math.random().toString(36).slice(2, 8);
 const authProjectionTimeoutMs = 90_000;
 
 const accountCriticalRoutes = [
   { path: "/account/cart", heading: /^Your cart$/i, flow: "buy cart" },
   { path: "/account/sell-list", heading: /^Sell List$/i, flow: "sell list" },
   { path: "/account/listings", heading: /^Listings$/i, flow: "listings" },
+  { path: "/account/repricing", heading: /^Repricing$/i, flow: "repricing" },
   { path: "/account/offers/submitted", heading: /^Submitted Offers$/i, flow: "submitted offers" },
   { path: "/account/offers/matches", heading: /^Offer Matches$/i, flow: "offer matches" },
   { path: "/account/inventory", heading: /^Inventory$/i, flow: "inventory" },
@@ -80,18 +78,7 @@ function marketplaceAccountFor(testInfo: TestInfo) {
     };
   }
 
-  const titleSlug = testInfo.title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 20);
-
-  return {
-    email: `critical-flow-${syntheticAccountRunId}-${syntheticAccountNonce}-${testInfo.workerIndex}-${testInfo.retry}-${titleSlug}@chasesets.test`,
-    password: `critical-flow-${syntheticAccountRunId}-${testInfo.workerIndex}-${testInfo.retry}`,
-    displayName: `Critical Flow ${syntheticAccountRunId} ${syntheticAccountNonce} ${testInfo.workerIndex} ${testInfo.retry} ${titleSlug}`,
-    shouldRegister: true,
-  };
+  return syntheticAccountFor(testInfo);
 }
 
 async function authenticateAccount(page: Page, testInfo: TestInfo) {
@@ -102,7 +89,7 @@ async function authenticateAccount(page: Page, testInfo: TestInfo) {
   if (credentials.shouldRegister) {
     return {
       ...credentials,
-      sessionToken: await registerOrSignInSyntheticAccount(page, origin, credentials),
+      sessionToken: await registerSyntheticAccount(page, origin, credentials),
     };
   }
 
@@ -167,7 +154,8 @@ test.describe("marketplace critical flows", () => {
 
     const searchBox = page.getByRole("searchbox").first();
     await expect(searchBox).toBeVisible();
-    await expect(page.getByText(/Find cards, comics, figures, sneakers/i)).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Find trading cards worth chasing.");
+    await expect(searchBox).toHaveAttribute("placeholder", "Search Charizard, Black Lotus, Dark Magician, Luffy...");
     await expect(page.getByRole("link", { name: "Sign In" }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: "Register" }).first()).toBeVisible();
 
@@ -183,8 +171,68 @@ test.describe("marketplace critical flows", () => {
 
     await page.getByRole("link", { name: "Register" }).first().click();
     await expect(page).toHaveURL(/\/register/);
-    await expect(page.getByText(/Create an account with a passkey/i)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Create your account", exact: true })).toBeVisible();
     await expect(page.getByText("Passkey").first()).toBeVisible();
+  });
+
+  test("records sign-in method list and email option at 390x844 @marketplace-account", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expectPageOk(page, "/sign-in");
+    await expect(page.getByLabel(/Email or phone/)).toHaveValue("");
+    await expect(page.locator('main [role="listitem"]')).toHaveText([
+      "Password",
+      "Phone Code",
+      "Email me a sign-in link",
+      "Passkey",
+    ]);
+    await expect(page.getByRole("radiogroup")).toHaveCount(0);
+    await captureResponsiveEvidence({ page, testInfo, claimId: "sign-in-methods-mobile" });
+
+    await page.getByLabel(/Email or phone/).fill("evidence@example.com");
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await page.getByRole("radio", { name: "Email me a sign-in link", exact: true }).click();
+    await expect(page.getByRole("radio", { name: "Email me a sign-in link", exact: true })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await page.getByRole("radiogroup").evaluate(async (group) => {
+      await Promise.all(group.getAnimations({ subtree: true }).map((animation) => animation.finished));
+    });
+    await expect(page.getByText("We'll email you a one-time link.", { exact: true })).toBeVisible();
+    const emailButton = page.getByRole("button", { name: "Email me a sign-in link", exact: true });
+    await expect(emailButton).toBeEnabled();
+    await expect(emailButton.locator("svg.lucide-mail")).toBeVisible();
+    await captureResponsiveEvidence({ page, testInfo, claimId: "sign-in-email-option-mobile" });
+  });
+
+  test("records sign-in method list and email option at 1280x900 @marketplace-account", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await expectPageOk(page, "/sign-in");
+    await expect(page.getByLabel(/Email or phone/)).toHaveValue("");
+    await expect(page.locator('main [role="listitem"]')).toHaveText([
+      "Password",
+      "Phone Code",
+      "Email me a sign-in link",
+      "Passkey",
+    ]);
+    await expect(page.getByRole("radiogroup")).toHaveCount(0);
+    await captureResponsiveEvidence({ page, testInfo, claimId: "sign-in-methods-desktop" });
+
+    await page.getByLabel(/Email or phone/).fill("evidence@example.com");
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await page.getByRole("radio", { name: "Email me a sign-in link", exact: true }).click();
+    await expect(page.getByRole("radio", { name: "Email me a sign-in link", exact: true })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await page.getByRole("radiogroup").evaluate(async (group) => {
+      await Promise.all(group.getAnimations({ subtree: true }).map((animation) => animation.finished));
+    });
+    await expect(page.getByText("We'll email you a one-time link.", { exact: true })).toBeVisible();
+    const emailButton = page.getByRole("button", { name: "Email me a sign-in link", exact: true });
+    await expect(emailButton).toBeEnabled();
+    await expect(emailButton.locator("svg.lucide-mail")).toBeVisible();
+    await captureResponsiveEvidence({ page, testInfo, claimId: "sign-in-email-option-desktop" });
   });
 
   test("protected account routes preserve the requested return path @marketplace-account", async ({ page }) => {
@@ -301,13 +349,13 @@ test.describe("marketplace critical flows", () => {
     }
   });
 
-  test("signed-in account can reach critical marketplace commerce surfaces @marketplace-seller", async ({
+  test("seeded seller can reach critical marketplace commerce surfaces including repricing @marketplace-seller", async ({
     page,
-  }, testInfo) => {
+  }) => {
     test.setTimeout(120_000);
 
     await page.goto("/sign-in?returnTo=%2Faccount%2Fcart");
-    await authenticateAccount(page, testInfo);
+    await signInWithPassword(page, new URL(page.url()).origin, marketplaceBrowserE2eSellerCredentials());
     await expectAccountRouteReady(page, accountCriticalRoutes[0]);
 
     for (const route of accountCriticalRoutes) {

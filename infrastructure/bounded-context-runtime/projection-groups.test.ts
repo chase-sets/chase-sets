@@ -286,6 +286,43 @@ describe("bounded context projection groups", () => {
     });
   });
 
+  it.each(["markRevisionSynced", "completeGenerationRebuild"] as const)(
+    "completion fence rejects a stale token through %s without claiming the revision",
+    async (method) => {
+      const pool = createMockPool();
+      const runner = createSubscriptionRunner("discovery", pool as never, pool as never, {
+        subscriptionName: "discovery.items",
+        sourceContextName: "discovery",
+        projectionName: "items",
+        subscriptionVersion: 1,
+        handlers: {},
+      });
+      const [group] = createProjectionGroupRuntime(
+        "discovery",
+        pool,
+        [
+          {
+            projectionName: "items",
+            sourceContextNames: ["discovery"],
+            ownedTables: [],
+            projectionRevision: 2,
+          },
+        ],
+        [runner],
+      );
+      const stale = await group.startGenerationRebuild!();
+      const current = await group.startGenerationRebuild!();
+      await expect(group[method]!(stale)).rejects.toThrow("stale rebuild token");
+      expect(getProjectionRevisionStore(pool).get("discovery:items")).toBeUndefined();
+      expect(group.getStatus().storedProjectionRevision).toBeNull();
+      expect(getProjectionGroupGenerationStore(pool).get("discovery:items")).toMatchObject({
+        active_generation: "1",
+        rebuilding_generation: current.generation,
+        state: "rebuilding",
+      });
+    },
+  );
+
   it("load-projection-group-generation preserves decimal identity and fails closed for partial or invalid rows", async () => {
     const load = (row: Record<string, unknown>) =>
       loadProjectionGroupGeneration(
@@ -615,54 +652,68 @@ describe("bounded context projection groups", () => {
     expect(runtime.projectionGroups[0].getStatus().revisionStale).toBe(false);
   });
 
-  it("does not mark the new projection revision when automatic rebuild fails", async () => {
-    const sourcePool = createMockPool();
-    const targetPool = createMockPool();
-    sourceEventsByPool.set(sourcePool, [createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_1" })]);
-    getCheckpointStore(targetPool).set("inventory-catalog-item-projection:catalog:v1", "1");
-    getProjectionRevisionStore(targetPool).set("inventory:inventory-catalog-item-projection", 1);
+  it.each(["global-strict", "strict-per-stream"] as const)(
+    "does not mark the new projection revision when automatic rebuild fails with %s",
+    async (errorPolicy) => {
+      const sourcePool = createMockPool();
+      const targetPool = createMockPool();
+      sourceEventsByPool.set(sourcePool, [
+        createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_1" }),
+      ]);
+      getCheckpointStore(targetPool).set("inventory-catalog-item-projection:catalog:v1", "1");
+      getProjectionRevisionStore(targetPool).set("inventory:inventory-catalog-item-projection", 1);
+      let failReplay = true;
 
-    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
-      subscriptionName: "inventory.catalog-item-projection",
-      sourceContextName: "catalog",
-      projectionName: "inventory-catalog-item-projection",
-      subscriptionVersion: 1,
-      handlers: {
-        "catalog.catalog-item.published": async () => {
-          throw new Error("projection handler failed");
+      const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+        subscriptionName: "inventory.catalog-item-projection",
+        sourceContextName: "catalog",
+        projectionName: "inventory-catalog-item-projection",
+        subscriptionVersion: 1,
+        handlers: {
+          "catalog.catalog-item.published": async () => {
+            if (failReplay) throw new Error("projection handler failed");
+          },
         },
-      },
-      eventTypes: ["catalog.catalog-item.published"],
-      errorPolicy: "global-strict",
-    });
-    const runtime = createMountedRuntime(
-      "inventory",
-      targetPool,
-      [
-        {
-          projectionName: "inventory-catalog-item-projection",
-          projectionRevision: 2,
-          sourceContextNames: ["catalog"],
-          ownedTables: ["inventory_catalog_items"],
-          resetStrategy: "replay-only",
-          requiredDuringBootstrap: true,
-        },
-      ],
-      [runner],
-    );
+        eventTypes: ["catalog.catalog-item.published"],
+        errorPolicy,
+      });
+      const runtime = createMountedRuntime(
+        "inventory",
+        targetPool,
+        [
+          {
+            projectionName: "inventory-catalog-item-projection",
+            projectionRevision: 2,
+            sourceContextNames: ["catalog"],
+            ownedTables: ["inventory_catalog_items"],
+            resetStrategy: "replay-only",
+            requiredDuringBootstrap: true,
+          },
+        ],
+        [runner],
+      );
 
-    await expect(syncContextProjectionGroups(runtime, "inventory")).rejects.toThrow("projection handler failed");
+      await expect(syncContextProjectionGroups(runtime, "inventory")).rejects.toThrow(
+        errorPolicy === "global-strict" ? "projection handler failed" : "blocked streams",
+      );
 
-    expect(getTruncateLog(targetPool)).toEqual([]);
-    expect(getProjectionRevisionStore(targetPool).get("inventory:inventory-catalog-item-projection")).toBe(1);
+      expect(getTruncateLog(targetPool)).toEqual([]);
+      expect(getProjectionRevisionStore(targetPool).get("inventory:inventory-catalog-item-projection")).toBe(1);
 
-    await refreshProjectionGroupStatuses(runtime);
-    expect(runtime.projectionGroups[0].getStatus()).toMatchObject({
-      revisionStale: true,
-      state: "error",
-      lastError: "projection handler failed",
-    });
-  });
+      await refreshProjectionGroupStatuses(runtime);
+      expect(runtime.projectionGroups[0].getStatus()).toMatchObject({
+        revisionStale: true,
+        state: errorPolicy === "global-strict" ? "error" : "degraded",
+        lastError: errorPolicy === "global-strict" ? "projection handler failed" : null,
+        blockedStreamCount: errorPolicy === "global-strict" ? 0 : 1,
+      });
+      failReplay = false;
+      await syncContextProjectionGroups(runtime, "inventory");
+      expect(getProjectionRevisionStore(targetPool).get("inventory:inventory-catalog-item-projection")).toBe(2);
+      expect(getCheckpointStore(targetPool).get("inventory-catalog-item-projection:catalog:v1")).toBe("1");
+      expect(runtime.projectionGroups[0].getStatus()).toMatchObject({ revisionStale: false, blockedStreamCount: 0 });
+    },
+  );
 
   it("reports degraded replay status while a required projection group is still catching up", async () => {
     const sourcePool = createMockPool();

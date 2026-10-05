@@ -10,18 +10,9 @@ import {
 } from "./public-web-route-inventory.mjs";
 import { repoRoot } from "./lib/repo.mjs";
 
-const restoredFiles = new Map();
 const temporaryRoots = [];
 
-function replaceTracked(relativePath, replacement) {
-  const absolutePath = path.join(repoRoot, relativePath);
-  if (!restoredFiles.has(absolutePath)) restoredFiles.set(absolutePath, readFileSync(absolutePath, "utf8"));
-  writeFileSync(absolutePath, replacement, "utf8");
-}
-
 afterEach(() => {
-  for (const [filePath, original] of restoredFiles) writeFileSync(filePath, original, "utf8");
-  restoredFiles.clear();
   for (const rootDir of temporaryRoots.splice(0)) rmSync(rootDir, { force: true, recursive: true });
 });
 
@@ -29,6 +20,28 @@ function write(rootDir, relativePath, content) {
   const absolutePath = path.join(rootDir, relativePath);
   mkdirSync(path.dirname(absolutePath), { recursive: true });
   writeFileSync(absolutePath, content, "utf8");
+}
+
+function committedFixture() {
+  const rootDir = mkdtempSync(path.join(os.tmpdir(), "chase-sets-public-route-inventory-"));
+  temporaryRoots.push(rootDir);
+  write(
+    rootDir,
+    "bounded-contexts/pricing/context.json",
+    readFileSync(path.join(repoRoot, "bounded-contexts/pricing/context.json"), "utf8"),
+  );
+  write(
+    rootDir,
+    "bounded-contexts/public-presence/context.json",
+    readFileSync(path.join(repoRoot, "bounded-contexts/public-presence/context.json"), "utf8"),
+  );
+  write(rootDir, generatedHelpCatalogPath, readFileSync(path.join(repoRoot, generatedHelpCatalogPath), "utf8"));
+  execFileSync("git", ["init", "--quiet"], { cwd: rootDir });
+  execFileSync("git", ["add", "."], { cwd: rootDir });
+  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: rootDir });
+  execFileSync("git", ["config", "user.name", "Test"], { cwd: rootDir });
+  execFileSync("git", ["commit", "--quiet", "-m", "tracked fixture"], { cwd: rootDir });
+  return rootDir;
 }
 
 function independentlyDerivePublicWebMembers() {
@@ -111,8 +124,9 @@ describe("public-web route inventory", () => {
   });
 
   it("uses the classifier default arm to fail closed for an unknown shape", () => {
+    const rootDir = committedFixture();
     const manifestPath = "bounded-contexts/pricing/context.json";
-    const original = readFileSync(path.join(repoRoot, manifestPath), "utf8");
+    const original = readFileSync(path.join(rootDir, manifestPath), "utf8");
     const manifest = JSON.parse(original);
     manifest.deployableContributions
       .find((contribution) => contribution.deployable === "public-web")
@@ -123,8 +137,8 @@ describe("public-web route inventory", () => {
         fileExport: "./routes/unknown",
         sourceContext: "pricing",
       });
-    replaceTracked(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-    const member = derivePublicWebRouteInventory({ rootDir: repoRoot }).members.find(
+    write(rootDir, manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    const member = derivePublicWebRouteInventory({ rootDir }).members.find(
       (candidate) => candidate.memberId === "unknown-shape-control",
     );
     expect(member).toMatchObject({ kind: "INDETERMINATE" });
@@ -192,9 +206,10 @@ describe("public-web route inventory", () => {
   });
 
   it("picks up a mounted route and catalog article from the real tree without list edits", () => {
+    const rootDir = committedFixture();
     const manifestPath = "bounded-contexts/pricing/context.json";
     const catalogPath = generatedHelpCatalogPath;
-    const manifest = JSON.parse(readFileSync(path.join(repoRoot, manifestPath), "utf8"));
+    const manifest = JSON.parse(readFileSync(path.join(rootDir, manifestPath), "utf8"));
     manifest.deployableContributions
       .find((contribution) => contribution.deployable === "public-web")
       .routes.push({
@@ -204,16 +219,17 @@ describe("public-web route inventory", () => {
         fileExport: "./routes/tree-control",
         sourceContext: "pricing",
       });
-    replaceTracked(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-    const catalog = readFileSync(path.join(repoRoot, catalogPath), "utf8");
-    replaceTracked(
+    write(rootDir, manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    const catalog = readFileSync(path.join(rootDir, catalogPath), "utf8");
+    write(
+      rootDir,
       catalogPath,
       catalog.replace(
         "\n] as const",
         '\n  { slug: "tree-control", category: "testing", href: "/help/testing/tree-control" },\n] as const',
       ),
     );
-    const members = derivePublicWebRouteInventory({ rootDir: repoRoot }).members;
+    const members = derivePublicWebRouteInventory({ rootDir }).members;
     expect(members).toEqual(expect.arrayContaining([expect.objectContaining({ memberId: "route-tree-control" })]));
     expect(members).toEqual(
       expect.arrayContaining([
@@ -242,8 +258,9 @@ describe("public-web route inventory", () => {
       generatedHelpCatalogPath,
     ],
   ])("fails closed for %s", (_name, file, content, diagnostic) => {
-    replaceTracked(file, content);
-    expect(() => derivePublicWebRouteInventory({ rootDir: repoRoot })).toThrow(diagnostic);
+    const rootDir = committedFixture();
+    write(rootDir, file, content);
+    expect(() => derivePublicWebRouteInventory({ rootDir })).toThrow(diagnostic);
   });
 
   it("fails closed when the generated catalog source is missing", () => {

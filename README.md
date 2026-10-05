@@ -4,6 +4,22 @@ Chase Sets is a trading card and collectibles marketplace built for high-volume,
 
 The codebase is a TypeScript monorepo organized around bounded contexts, event-sourced domain behavior, event-driven integration, and thin deployable composition roots.
 
+## License
+
+Copyright (c) 2026 Chase Sets Limited Company. All rights reserved.
+
+This repository is public for source inspection, **not open source**. The
+[Chase Sets Proprietary Source Inspection License](LICENSE) permits reading,
+unmodified local inspection copies, and unmodified GitHub forks, while preserving
+permissions granted by GitHub's Terms of Service.
+
+Building, running, deploying, modifying, redistributing beyond those permissions,
+or using this code in another product or service requires prior written
+permission from Chase Sets Limited Company. Commercial use, including competing
+services and internal business operations, is not permitted without that
+permission. Third-party licenses, separate agreements, and applicable legal
+exceptions remain unaffected. See [LICENSE](LICENSE) for the complete terms.
+
 ## Product Direction
 
 Chase Sets prioritizes:
@@ -49,7 +65,7 @@ Each context has its own `README.md` and `GLOSSARY.md` where useful. Treat those
 
 - `auth` ([README](bounded-contexts/auth/README.md), `@chase-sets/auth`): owned nouns `authentication`, `session-journey`, `account-selection`.
 - `authenticity` ([README](bounded-contexts/authenticity/README.md), `@chase-sets/authenticity`): owned nouns `authenticity-case`.
-- `catalog` ([README](bounded-contexts/catalog/README.md), `@chase-sets/catalog`): owned nouns `catalog-item`, `category`, `blueprint`, `field`, `component`, `dimension`, `display-template`, `product-contents`, `product-measure-profile`, `provider-scope-observation`, `provider-scope-mapping`, `reference-type`, `reference-record`, `scope-record`, `scope-sync-batch`.
+- `catalog` ([README](bounded-contexts/catalog/README.md), `@chase-sets/catalog`): owned nouns `catalog-item`, `category`, `blueprint`, `field`, `operator-session`, `component`, `dimension`, `display-template`, `product-contents`, `product-measure-profile`, `provider-scope-observation`, `provider-scope-mapping`, `reference-type`, `reference-record`, `scope-record`, `scope-sync-batch`.
 - `channels` ([README](bounded-contexts/channels/README.md), `@chase-sets/channels`): owned nouns `channel-connection`, `channel-health`, `channel-publication-facts`, `channel-composition-profile`, `channel-publication-settings`, `channel-publication-eligibility`, `channel-listing-desired-state`, `channel-listing-reconciliation-run`, `channel-inventory-snapshot`, `channel-sync-run`, `channel-drift`, `channel-drift-decision`, `channel-reconciliation-run`, `missed-sale-gap`, `channel-outbound-hold`.
 - `checkout` ([README](bounded-contexts/checkout/README.md), `@chase-sets/checkout`): owned nouns `cart`, `sell list`, `checkout session`.
 - `collections` ([README](bounded-contexts/collections/README.md), `@chase-sets/collections`): owned nouns `saved-list`, `saved-list-line`, `tracked-quantity`, `saved-list-visibility`, `saved-list-cover`, `saved-list-sharing`, `anonymous-saved-list-intent`.
@@ -59,12 +75,12 @@ Each context has its own `README.md` and `GLOSSARY.md` where useful. Treat those
 - `fulfillment` ([README](bounded-contexts/fulfillment/README.md), `@chase-sets/fulfillment`): owned nouns `shipment`, `return-shipment`.
 - `identity` ([README](bounded-contexts/identity/README.md), `@chase-sets/identity`): owned nouns `user`, `account`, `membership`, `invitation`, `api-key`, `consent`, `registration-operation`, `founders-cohort`, `shipping-address`, `user-preference`.
 - `inventory` ([README](bounded-contexts/inventory/README.md), `@chase-sets/inventory`): owned nouns `inventory-item`, `acquisition-occurrence`, `inventory-hold`, `import-batch`, `recovered-item`, `storage-location`, `external-channel-sale`, `channel-stock-allocation`.
-- `marketplace` ([README](bounded-contexts/marketplace/README.md), `@chase-sets/marketplace`): owned nouns `channel-inbound-clamp`, `listing`, `listing-evidence-policy`, `offer`, `seller-listing-availability`, `seller-order-capacity`, `report`, `review`, `review-summary`, `seller-reliability`.
+- `marketplace` ([README](bounded-contexts/marketplace/README.md), `@chase-sets/marketplace`): owned nouns `offer-policy`, `channel-inbound-clamp`, `listing`, `listing-evidence-policy`, `offer`, `seller-listing-availability`, `seller-order-capacity`, `report`, `review`, `review-summary`, `seller-reliability`.
 - `notifications` ([README](bounded-contexts/notifications/README.md), `@chase-sets/notifications`): owned nouns `notification-center`, `notification-feed-item`, `notification-preference`, `notification-delivery-report`.
 - `ordering` ([README](bounded-contexts/ordering/README.md), `@chase-sets/ordering`): owned nouns `order`, `postage-policy`, `tax quote`, `tax nexus readiness`.
 - `payments` ([README](bounded-contexts/payments/README.md), `@chase-sets/payments`): owned nouns `payment`, `refund`.
-- `platform-operations` ([README](bounded-contexts/platform-operations/README.md), `@chase-sets/platform-operations`): owned nouns `projection-operation`, `platform-operation-attention`, `sales-performance-kpi`, `fulfillment-latency-kpi`, `conversion-order-kpi`, `dashboard-read-model`, `ops-dashboard`, `gmv-reconciliation-run`, `offer-economics-summary`, `platform-feedback`, `platform-feedback-prompt`, `public-doc-article-review`, `rate-limit-policy`, `reported-content`, `risk-alert`, `support-request`, `platform-remedy-policy`, `remedy-approval`, `seller-compliance-sale`.
-- `pricing` ([README](bounded-contexts/pricing/README.md), `@chase-sets/pricing`): owned nouns `market-price`, `market-price-snapshot`, `price-recommendation`, `price-signal`, `trades-tape`, `daily-product-rollup`, `platform-daily-rollup`, `gross-merchandise-value`, `market-state-snapshot`, `repricing-policy`, `repricing-listing-outcome`, `repricing-management-policy`, `repricing-activity`, `repricing-activity-digest`, `digest-window`, `digest-window-member`, `digest-baseline`, `repricing-halt`, `scope-preview`, `repricing-policy-assignment`, `repricing-dry-run`, `bulk-reprice-job`, `market-capture`, `provider-sale-observation`, `weekly-sale-bucket`, `listing-snapshot`, `listing-ask-depth`, `anonymous-capture-seller-ordinal`, `own-sale-observation`, `economics`, `economics-fact`, `fact-source`, `policy-owned`, `observed-hold`, `observed-turnaround`, `daily-return-hurdle`.
+- `platform-operations` ([README](bounded-contexts/platform-operations/README.md), `@chase-sets/platform-operations`): owned nouns `provider-connection`, `projection-operation`, `platform-operation-attention`, `sales-performance-kpi`, `fulfillment-latency-kpi`, `conversion-order-kpi`, `dashboard-read-model`, `ops-dashboard`, `gmv-reconciliation-run`, `offer-economics-summary`, `platform-feedback`, `platform-feedback-prompt`, `public-doc-article-review`, `rate-limit-policy`, `reported-content`, `risk-alert`, `support-request`, `platform-remedy-policy`, `remedy-approval`, `seller-compliance-sale`.
+- `pricing` ([README](bounded-contexts/pricing/README.md), `@chase-sets/pricing`): owned nouns `market-price`, `market-price-snapshot`, `price-recommendation`, `price-signal`, `trades-tape`, `daily-product-rollup`, `platform-daily-rollup`, `gross-merchandise-value`, `market-state-snapshot`, `repricing-policy`, `repricing-preset`, `authoring-prerequisites`, `repricing-listing-outcome`, `repricing-management-policy`, `repricing-activity`, `repricing-activity-digest`, `digest-window`, `digest-window-member`, `digest-baseline`, `repricing-halt`, `scope-preview`, `repricing-policy-assignment`, `repricing-dry-run`, `bulk-reprice-job`, `market-capture`, `provider-sale-observation`, `weekly-sale-bucket`, `listing-snapshot`, `listing-ask-depth`, `anonymous-capture-seller-ordinal`, `own-sale-observation`, `economics`, `economics-fact`, `fact-source`, `policy-owned`, `observed-hold`, `observed-turnaround`, `daily-return-hurdle`.
 - `public-presence` ([README](bounded-contexts/public-presence/README.md), `@chase-sets/public-presence`): owned nouns `public-presence`, `waitlist-signup`, `waitlist-referral-code`, `waitlist-referral-link`, `promo-bar-message`, `help-article`, `help-category`, `developer-article`, `public-policy-artifact`.
 - `settlement` ([README](bounded-contexts/settlement/README.md), `@chase-sets/settlement`): owned nouns `wallet`, `wallet-adjustment`, `payout`, `payout-readiness`, `ledger-entry`.
 
@@ -76,11 +92,12 @@ Deployables are thin composition roots. Business behavior should not live in dep
 
 - `deployables/admin-web` (`@chase-sets/app-admin-web`): package scripts `build`, `dev`, `start`, `test`, `typecheck`.
 - `deployables/marketplace` (`@chase-sets/app-marketplace-web`): package scripts `build`, `dev`, `start`, `test`, `typecheck`.
-- `deployables/marketplace-seed-testing` (`@chase-sets/marketplace-seed-testing`): package scripts `test:db`.
+- `deployables/marketplace-seed-testing` (`@chase-sets/marketplace-seed-testing`): package scripts `test:db`, `test:db:1`, `test:db:2`.
 - `deployables/platform-api` (`@chase-sets/app-platform-api`): package scripts `admin-qa-actor-fixtures`, `admin-qa-actor-fixtures:production`, `bootstrap`, `bootstrap:production`, `dev`, `representative-commerce-state`, `representative-commerce-state:production`, `start`, `start:production`, `test`, `test:db`, `test:db:1`, `test:db:2`, `test:fast`, `test:unit`, `test:watch`, `typecheck`.
 - `deployables/platform-worker` (`@chase-sets/app-platform-worker`): package scripts `bootstrap`, `bootstrap:production`, `dev`, `dev:ci`, `start`, `start:production`, `test`, `test:db`, `test:fast`, `test:unit`, `test:watch`, `typecheck`.
 - `deployables/public-web` (`@chase-sets/app-public-web`): package scripts `build`, `dev`, `prebuild`, `start`, `test`, `typecheck`.
 - `deployables/tcgplayer-connector-extension` (`@chase-sets/app-tcgplayer-connector-extension`): package scripts `build`, `test`, `test:chromium`, `test:watch`, `typecheck`.
+- `deployables/tcgplayer-operator-extension` (`@chase-sets/app-tcgplayer-operator-extension`): package scripts `build`, `test`, `test:chromium`, `test:watch`, `typecheck`.
 
 Default local ports are sandbox-aware. Each worktree receives a stable
 port block derived from its path so multiple worktrees can run at the same

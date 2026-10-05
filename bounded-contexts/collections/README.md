@@ -33,6 +33,7 @@ The context publishes the replay-stable Saved List aggregate, command contracts,
 ## Ubiquitous Language
 
 Collections terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
+The [Saved List Analytics privacy contract](./docs/saved-list-analytics.md) defines closed operational labels and prohibited data.
 
 ## Core Aggregates and Process Managers
 

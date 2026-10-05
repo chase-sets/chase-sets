@@ -8,11 +8,41 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import AccountChannelsConnectionRoute, { action, loader, readActionError } from "./account-channels-connection";
 import { action as downloadAction } from "./account-channel-connection-manual-sync-download";
+import { ChannelsConnectionsApiError } from "../../support/request-support/api-client";
 
 describe("Channels account connection route contribution", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it.each([
+    ["HTML", "<!DOCTYPE html><html></html>"],
+    ["null", "null"],
+    ["array", "[]"],
+  ])("rejects a successful %s connection body before any auxiliary read", async (_name, body) => {
+    vi.stubEnv("CHASE_SETS_INTERNAL_API_ORIGIN", "http://localhost:6412");
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ actor: actor() }))
+      .mockResolvedValueOnce(new Response(body, { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+    const result = loader(loaderArgs(routeRequest()));
+    await expect(result).rejects.toBeInstanceOf(ChannelsConnectionsApiError);
+    await expect(result).rejects.toMatchObject({ status: 200 });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[1]![0]).toBe("http://localhost:6412/api/channels/connections/connection-a");
+  });
+
+  it("preserves a missing connection as not-found without auxiliary reads", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ actor: actor() }))
+      .mockResolvedValueOnce(Response.json({ error: "Not found" }, { status: 404 }));
+    vi.stubGlobal("fetch", fetch);
+    await expect(loader(loaderArgs(routeRequest()))).resolves.toEqual({ kind: "not-found" });
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it("declares the canonical authenticated account contribution and separate download resource", () => {

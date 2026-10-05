@@ -11,10 +11,11 @@ import {
   Stack,
   Surface,
   Text,
-  createStripeElementsAppearance,
-  observeStripeAppearance,
-  stripeAppearanceSnapshot,
+  resolveEmbeddedSurfaceTheme,
+  observeEmbeddedSurfaceTheme,
+  embeddedSurfaceThemeSnapshot,
 } from "@chase-sets/design-system";
+import { createStripeElementsAppearance } from "@chase-sets/stripe-appearance";
 import { createPaymentsApiClient, type PaymentsSavedCheckoutSetupSession } from "../../../../client";
 
 const POLL_INTERVAL_MS = 2_000;
@@ -40,9 +41,9 @@ export function StripeSetupCard({ setup, onSaved }: { setup: PaymentsSavedChecko
       return;
     }
 
-    let currentSnapshot = stripeAppearanceSnapshot({ scope: container });
-    return observeStripeAppearance({ scope: container }, () => {
-      const nextSnapshot = stripeAppearanceSnapshot({ scope: container });
+    let currentSnapshot = embeddedSurfaceThemeSnapshot({ scope: container });
+    return observeEmbeddedSurfaceTheme({ scope: container }, () => {
+      const nextSnapshot = embeddedSurfaceThemeSnapshot({ scope: container });
       if (nextSnapshot === currentSnapshot) {
         return;
       }
@@ -76,7 +77,7 @@ export function StripeSetupCard({ setup, onSaved }: { setup: PaymentsSavedChecko
 
         const elements = stripe.elements({
           clientSecret,
-          appearance: createStripeElementsAppearance({ scope: container }),
+          appearance: createStripeElementsAppearance({ theme: resolveEmbeddedSurfaceTheme({ scope: container }) }),
         });
         const paymentElement = elements.create("payment");
         paymentElement.mount(container);
@@ -120,7 +121,9 @@ export function StripeSetupCard({ setup, onSaved }: { setup: PaymentsSavedChecko
     if (!container) {
       return;
     }
-    void elementsRef.current?.update({ appearance: createStripeElementsAppearance({ scope: container }) });
+    void elementsRef.current?.update({
+      appearance: createStripeElementsAppearance({ theme: resolveEmbeddedSurfaceTheme({ scope: container }) }),
+    });
   }, [appearanceVersion, isReady]);
 
   async function reconcileUntilSaved() {
@@ -181,7 +184,7 @@ export function StripeSetupCard({ setup, onSaved }: { setup: PaymentsSavedChecko
   }
 
   return (
-    <Surface elevated glow>
+    <Surface elevation="elevated" glow>
       <Stack gap={3}>
         <Badge tone="accent">{t("payments.routes.marketplace.accountPayment.secure.payment")}</Badge>
         <Text>{t("payments.routes.marketplace.accountPaymentMethods.manage.payment.methods")}</Text>

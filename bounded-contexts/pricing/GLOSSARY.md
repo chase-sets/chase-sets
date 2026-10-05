@@ -2,6 +2,20 @@
 
 This glossary defines the canonical terminology for the Pricing bounded context.
 
+## Repricing Preset
+
+A **Repricing Preset** is a named strategy that compiles to a complete Repricing Policy body from
+at most two seller knobs and a floor prompt. A single-rule preset opens in the structured editor;
+a multi-rule preset opens in the advanced ordered-rule editor without losing its trailing default.
+
+## Authoring Prerequisites
+
+**Authoring Prerequisites** are the account-wide facts returned by the Pricing-owned
+`authoring-prerequisites` read. `listingCurrencyCodes` is the sorted distinct non-null currency codes
+of all the account's listings. `hasCostBasis` is true when at least one listing links to an inventory
+item owned by that same account with a non-null acquisition cost amount, including zero. Neither
+fact is filtered by policy scope, listing status, assignment or halt. An unavailable read is not absence.
+
 ## Economics
 
 **Economics** is the replayable seller fact set Pricing resolves at one evaluation instant for either the native marketplace or an account-qualified Channel Connection. The native marketplace binds Commercial Terms directly; a Channel Connection binds its Channels-owned identity before provider selection. Both scopes bind currency, Inventory cost evidence, observed capital-cycle evidence, policy defaults, and seller overrides without changing any authoritative source.
@@ -76,6 +90,10 @@ An **Own-Sale Observation** is Pricing's seller-scoped record of one Inventory e
 
 **Market Price** is the wire noun for Pricing's published current fair-value estimate for one resolved Product. `MarketPriceEstimated` (`pricing.market-price.estimated`) publishes that derived answer -- one event-sourced stream per product, carrying the estimate amount, its Confidence Band, input counts, the previous published amount (so downstream tolerance filtering needs no read), and a freshness horizon; a Market Price Snapshot remains a recorded market-state input rather than the estimate itself.
 
+## Market-Following Offer Target
+
+A **Market-Following Offer Target** is Pricing's proposed unit item amount for a buyer Offer from the exact Product's fresh published Market Price. Pricing floors the market cents adjusted by the authorized nonpositive basis points, then clamps to the buyer's maximum unit item amount; a sub-cent result is held. Preview and attempted application use the same evaluator with their own evaluation instant and published estimate version. Quantity and the lifetime Item Commitment Allowance do not alter the unit target, and an ordinary Offer does not lapse because a target is held.
+
 ## Market-Value Estimate
 
 A **Market-Value Estimate** is the derived fair-value answer for one resolved Product, blended from participant-hygienic Comparable Sales: platform verified trades weighted highest, platform unverified trades next, external comps by the Market-Estimate Policy's source weights, all time-decayed through the weighted-percentile algorithm ported from `getSuggestedPriceFromLatestSales`. Repeat platform trades for one buyer→seller pair collapse to the latest print, and a Market Participant's aggregate weight is capped before the blend. Below the policy's minimum-input gate -- distinct Market Participants plus unique external comps AND effective sample size after decay, source weighting, and the participant cap -- there is NO estimate. Every input price is winsorized around the platform-trade core's weighted median (the policy's outlier price ratio), so one extreme comparable can never drag the estimate or its Confidence Band off the core. The estimate is published as the Market Price fact and recomputed by a pass riding the market-rollups closer job (`features/market-estimates/`). See [ADR 0026: Market-Price Methodology](../../docs/adr/0026-market-price-methodology.md) for the two-concept delineation and the full blend/guard stack.
@@ -129,6 +147,14 @@ Both digest keys default independently when absent from a stored revision.
 
 **Repricing Activity** is the seller's evaluated-policy and listing-outcome history, including changes,
 clamps, missing-input pauses, tolerance decisions, budget limits and Spiral Breaker trips.
+
+## Repricing Attention Source
+
+The **Repricing Attention Source** (`pricing-repricing`) is Pricing's contribution to the Seller Desk
+attention queue. It maps the account's repricing attention summary into queue items for an engaged
+Repricing Halt, aged floor binding, missing-input pauses, today's budget-exhausted outcomes and
+Spiral Breaker freezes. Every count comes from that summary; the halt item reads the Repricing Halt
+aggregate, as the Desk halt switch does. Items deep-link to the Desk policy list.
 
 ## Repricing Activity Digest
 
@@ -237,7 +263,9 @@ A **Historical Price Trend** is an analysis view over prior Market Price Snapsho
 
 ## Trades Tape
 
-The **Trades Tape** is the normalized, ordered history of completed marketplace trades used as pricing evidence: one row per order line that reaches a sale, backfilled in full by projection replay over Ordering and Fulfillment events. Each entry carries the sale channel, the payment (`sold_at`) and delivery (`settled_at`) timestamps, a verified-sale marker, and an exclusion flag with reason. Refunded and cancelled exclusions come from order/shipment facts; fraud-flagged exclusions come from m107 risk-flag events (Identity's `manual-payout-review` badge assignment, Payments' Stripe early-fraud-warning receipt) reacting retroactively against every historical trade for the flagged account or order (#4304); the verified marker is set by an m109 authenticity case's "passed" verdict on the trade's order. Ordering still hard-blocks literal same-account trades; `self-dealing` is the broader pair-scoped proxy-self-dealing reason written when both counterparties belong to the same active Settlement account-linkage cluster. One-sided trades remain included. A clear restores only `self-dealing` rows whose pair is no longer covered by any active cluster; terminal `refunded`, `cancelled`, and `fraud-flagged` reasons always win. Retroactive exclusion and restoration enqueue affected sold-day tuples for bounded asynchronous rollup re-derivation. See [ADR 0026: Market-Price Methodology](../../docs/adr/0026-market-price-methodology.md) for the full exclusion-reason precedence table.
+The **Trades Tape** is the normalized, ordered history of completed marketplace trades used as pricing evidence: one row per order line that reaches a sale, backfilled in full by projection replay over Ordering, Payments, and Fulfillment events. Each entry carries the sale channel, the payment (`sold_at`) and delivery (`settled_at`) timestamps, a verified-sale marker, and an exclusion flag with reason. Refunded and cancelled exclusions come from order/shipment facts; fraud-flagged exclusions come from m107 risk-flag events (Identity's `manual-payout-review` badge assignment, Payments' Stripe early-fraud-warning receipt) reacting retroactively against every historical trade for the flagged account or order (#4304); the verified marker is set by an m109 authenticity case's "passed" verdict on the trade's order. Ordering still hard-blocks literal same-account trades; `self-dealing` is the broader pair-scoped proxy-self-dealing reason written when both counterparties belong to the same active Settlement account-linkage cluster. One-sided trades remain included. A clear restores only `self-dealing` rows whose pair is no longer covered by any active cluster; terminal `refunded`, `cancelled`, and `fraud-flagged` reasons always win. Retroactive exclusion and restoration enqueue affected sold-day tuples for bounded asynchronous rollup re-derivation. See [ADR 0026: Market-Price Methodology](../../docs/adr/0026-market-price-methodology.md) for the full exclusion-reason precedence table.
+
+Each trade's currency is denominated only by Payments' capture fact for its order; without that fact the currency remains unknown, never inferred from a listing or account.
 
 ## Stat-Hygiene Policy
 
@@ -249,11 +277,11 @@ The **Market Analytics Display Policy** is Pricing's m110 platform-policy declar
 
 ## Daily Product Rollup
 
-A **Daily Product Rollup** is the computed snapshot of a resolved product's Trades Tape activity for one UTC calendar day: first/last/min/max/median trade price, unit volume, trade count, verified-trade count, and the immutable Stat-Hygiene Policy revision that shaped its median, with excluded trades omitted. It is derived entirely from already-recorded trades and is never an estimate -- see Market Price Snapshot and Market-Value Estimate for the distinct estimate concepts. Days with too few trades still carry their counts; only the median is suppressed for display below the minimum-sample threshold.
+A **Daily Product Rollup** is the computed snapshot of a resolved product's Trades Tape activity for one UTC calendar day per currency: first/last/min/max/median trade price, unit volume, trade count, verified-trade count, and the immutable Stat-Hygiene Policy revision that shaped its median, with excluded and undenominated trades omitted. It is derived entirely from already-recorded trades and is never an estimate -- see Market Price Snapshot and Market-Value Estimate for the distinct estimate concepts. Days with too few trades still carry their counts; only the median is suppressed for display below the minimum-sample threshold.
 
 ## Platform Daily Rollup
 
-A **Platform Daily Rollup** is the computed snapshot of platform-wide Trades Tape activity for one UTC calendar day, summed across every product: Gross Merchandise Value, trade count, unit volume, order count, and verified-trade count, with excluded trades omitted. It is the platform-wide sibling of the Daily Product Rollup and the sole source pricing publishes for platform-operations' GMV/liquidity ops dashboards (#4309) -- there is no second GMV computation path.
+A **Platform Daily Rollup** is the computed snapshot of platform-wide Trades Tape activity for one UTC calendar day, summed across every product: Gross Merchandise Value, trade count, unit volume, order count, and verified-trade count, with excluded trades omitted. Its GMV remains undenominated (parked); unlike the per-currency Daily Product Rollup, it does not split by denomination. It is the sole source pricing publishes for platform-operations' GMV/liquidity ops dashboards (#4309) -- there is no second GMV computation path.
 
 ## Gross Merchandise Value
 
@@ -265,7 +293,7 @@ A **Market-State Snapshot** is the recorded end-of-day supply/demand state for a
 
 ## Product Market Aggregate
 
-A **Product Market Aggregate** is the denormalized, always-current summary for a resolved product -- last-sold trade, 30/90-day median price and volume, and Sell-Through Rate -- maintained for cheap surface reads without querying the Trades Tape or Daily Product Rollups directly.
+A **Product Market Aggregate** is the denormalized, always-current summary for a resolved product per currency -- last-sold trade, 30/90-day median price and volume, and Sell-Through Rate -- maintained for cheap surface reads without querying the Trades Tape or Daily Product Rollups directly.
 
 ## Spread
 

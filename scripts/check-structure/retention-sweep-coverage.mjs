@@ -22,6 +22,10 @@ export const retentionCoverageExemptions = new Map([
     "Durable single-open lifecycle record governed by registration: closed only by expected-version close or expired-replacement retirement; never age-swept and has no reaper.",
   ],
   [
+    "evidence_window_provider_write",
+    "Durable bounded provider-write identities and unresolved reconciliation evidence must survive window expiry; replay deadlines revoke sending, not record retention. #8226 excludes cleanup and background liveness; never age-swept.",
+  ],
+  [
     "event_store_aggregate_snapshots",
     "Bounded one-row-per-stream load-time cache (m113: aggregate snapshots in event-core), not unbounded history; rows are replaced in place and already cascade-deleted with their event_store_streams row via ON DELETE CASCADE.",
   ],
@@ -38,6 +42,10 @@ export const retentionCoverageExemptions = new Map([
   ["platform_projection_checkpoint_waiters", "The scheduled work-signal cleanup runner owns this table."],
   ["platform_projection_wake_intents", "The scheduled work-signal cleanup runner owns this table."],
   ["platform_realtime_stream_leases", "The realtime stream limiter cleans expired leases on admission/release."],
+  [
+    "catalog_tcgplayer_automation_domain_rate_limit_leases",
+    "The Catalog TCGplayer shared-budget admission statement reclaims expired leases and release removes settled leases; this coordination table is not age-swept.",
+  ],
   ["platform_ucp_agent_profiles", "Agent profile expiry is authorization state, not disposable request history."],
   ["platform_ucp_idempotency_records", "The UCP idempotency store has its own expiry pruning path."],
   [

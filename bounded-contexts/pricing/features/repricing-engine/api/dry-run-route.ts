@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { validationFailedResponse } from "@chase-sets/http/responses";
+import { RepricingPolicyValidationError } from "../../repricing-policies/domain/domain";
 import { createDurableJobEventStream } from "@chase-sets/platform-runtime/durable-job-events";
 import type { PricingApiEnv } from "../../../api";
 import type { RepricingEngineServices } from "./runtime";
@@ -36,7 +38,9 @@ export function createRepricingDryRunRoutes(services: Services) {
         context,
       );
       return run ? c.json(run, 202) : c.json({ error: { code: "not_found" } }, 404);
-    } catch {
+    } catch (error) {
+      if (error instanceof RepricingPolicyValidationError)
+        return c.json(validationFailedResponse("Invalid policy command.", [{ message: error.message }]), 400);
       return c.json({ error: { code: "validation_failed" } }, 400);
     }
   });

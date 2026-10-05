@@ -55,6 +55,16 @@ export function resolveAttentionSummary(item: SellerAttentionItem): string {
       return t("marketplace.features.sellerDesk.summary.offerAwaitingResponse", params);
     case "listing-needs-action":
       return t("marketplace.features.sellerDesk.summary.listingNeedsAction", params);
+    case "repricing-halt-engaged":
+      return t("marketplace.features.sellerDesk.summary.repricingHaltEngaged", params);
+    case "repricing-floor-binding":
+      return t("marketplace.features.sellerDesk.summary.repricingFloorBinding", withFormattedCount(params));
+    case "repricing-paused-for-missing-input":
+      return t("marketplace.features.sellerDesk.summary.repricingPausedForMissingInput", withFormattedCount(params));
+    case "repricing-budget-exhausted":
+      return t("marketplace.features.sellerDesk.summary.repricingBudgetExhausted", withFormattedCount(params));
+    case "repricing-frozen":
+      return t("marketplace.features.sellerDesk.summary.repricingFrozen", withFormattedCount(params));
     case "channel-ready":
       return t("channels.manualSync.attention.ready", params);
     case "channel-unknown":
@@ -108,6 +118,8 @@ export function attentionActionLabel(item: SellerAttentionItem): string {
       return t("marketplace.features.sellerDesk.action.offerLink");
     case "listing-action":
       return t("marketplace.features.sellerDesk.action.listingLink");
+    case "pricing-repricing":
+      return t("marketplace.features.sellerDesk.action.repricingLink");
     case "dispute-response":
       return t("marketplace.features.sellerDesk.action.disputeLink");
   }
@@ -129,9 +141,19 @@ export function attentionSourceLabel(source: SellerAttentionSourceId): string {
       return t("marketplace.features.sellerDesk.source.offerResponse");
     case "listing-action":
       return t("marketplace.features.sellerDesk.source.listingAction");
+    case "pricing-repricing":
+      return t("marketplace.features.sellerDesk.source.pricingRepricing");
     case "dispute-response":
       return t("marketplace.features.sellerDesk.source.disputeResponse");
   }
+}
+
+const COUNT_FORMAT = new Intl.NumberFormat("en-US");
+
+// Repricing counts can run into the thousands; group them ("2,341") before the
+// plain `{count}` interpolation.
+function withFormattedCount(params: SellerAttentionItem["summary"]["params"]) {
+  return typeof params.count === "number" ? { ...params, count: COUNT_FORMAT.format(params.count) } : params;
 }
 
 function channelHealthReasonLabel(value: string | number | undefined): string {

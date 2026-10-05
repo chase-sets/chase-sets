@@ -4,6 +4,7 @@ import {
   decideRepricingPolicy,
   evolveRepricingPolicy,
   initialRepricingPolicyState,
+  RepricingPolicyValidationError,
   repricingPolicyScopeSpecificity,
   type CreateRepricingPolicyCommand,
   type RepricingAnchor,
@@ -59,6 +60,37 @@ const createCommand = {
 } satisfies CreateRepricingPolicyCommand;
 
 describe("RepricingPolicy lifecycle", () => {
+  it("domain validation details tag existing assertions without tagging TypeErrors or assertNever", () => {
+    expect(() => decideRepricingPolicy(initialRepricingPolicyState, { ...createCommand, rules: [] })).toThrow(
+      RepricingPolicyValidationError,
+    );
+    expect(() => decideRepricingPolicy(initialRepricingPolicyState, { ...createCommand, rules: [] })).toThrow(
+      "A repricing policy must define at least one rule.",
+    );
+    for (const command of [
+      { ...createCommand, rules: undefined },
+      { ...createCommand, scope: { kind: "synthetic-internal-sentinel" } },
+    ]) {
+      let caught: unknown;
+      try {
+        decideRepricingPolicy(initialRepricingPolicyState, command as unknown as CreateRepricingPolicyCommand);
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(Error);
+      expect(caught).not.toBeInstanceOf(RepricingPolicyValidationError);
+    }
+    const created = fold(
+      initialRepricingPolicyState,
+      decideRepricingPolicy(initialRepricingPolicyState, createCommand),
+    );
+    expect(() =>
+      decideRepricingPolicy(
+        { ...created, status: "deleted" },
+        { type: "ResumeRepricingPolicy", resumedAt: "2026-01-01" },
+      ),
+    ).toThrow(RepricingPolicyValidationError);
+  });
   it("creates a policy with normalized fields", () => {
     const events = decideRepricingPolicy(initialRepricingPolicyState, createCommand);
     expect(events).toHaveLength(1);

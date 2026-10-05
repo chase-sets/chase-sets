@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { AppendToStreamInput, EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { createRepricingPolicyRuntime } from "./runtime";
+import { createRepricingPolicyRuntime, PolicyControlValidationError } from "./runtime";
+import { RepricingPolicyValidationError, type ReviseRepricingPolicyCommand } from "../domain/domain";
 
 const context: EventStoreContext = {
   tenantId: "ten_1" as never,
@@ -72,6 +73,55 @@ const rule = {
 };
 
 describe("createRepricingPolicyRuntime", () => {
+  it("domain validation details keep the intentional tag as cause without rewrapping raw messages", async () => {
+    const { services } = createRuntime();
+    await services.commandHandler({
+      streamId: services.streamIdForPolicy("rpp_validation"),
+      context,
+      command: {
+        type: "CreateRepricingPolicy",
+        policyId: "rpp_validation",
+        accountId: "acc_seller",
+        name: "Synthetic",
+        scope: { kind: "all-listings" },
+        rules: [rule],
+        maxChangesPerDay: 25,
+        createdAt: "2026-09-27T00:00:00Z",
+      },
+    });
+    const command: ReviseRepricingPolicyCommand = {
+      type: "ReviseRepricingPolicy",
+      name: "Synthetic",
+      scope: { kind: "all-listings" },
+      rules: [],
+      maxChangesPerDay: 25,
+      revisedAt: "2026-09-27T00:00:01Z",
+    };
+    await expect(
+      services.executeOwnedRepricingPolicy({ policyId: "rpp_validation", accountId: "acc_seller", context, command }),
+    ).rejects.toMatchObject({
+      message: "Invalid policy command.",
+      cause: expect.any(RepricingPolicyValidationError),
+    });
+    const malformed = {
+      ...command,
+      scope: { kind: "synthetic-internal-sentinel" },
+    } as unknown as ReviseRepricingPolicyCommand;
+    let caught: unknown;
+    try {
+      await services.executeOwnedRepricingPolicy({
+        policyId: "rpp_validation",
+        accountId: "acc_seller",
+        context,
+        command: malformed,
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(PolicyControlValidationError);
+    expect((caught as PolicyControlValidationError).message).toBe("Invalid policy command.");
+    expect((caught as PolicyControlValidationError).cause).not.toBeInstanceOf(RepricingPolicyValidationError);
+  });
   it("dispatches lifecycle commands through the command handler onto a per-policy stream", async () => {
     const { services, events } = createRuntime();
     const streamId = services.streamIdForPolicy("rpp_1");

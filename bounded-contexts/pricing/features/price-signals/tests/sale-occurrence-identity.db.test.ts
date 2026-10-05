@@ -15,10 +15,14 @@ import {
   type MarketCaptureWorkItem,
 } from "../read-model/provider-observation-writes";
 import { generateSyntheticProviderObservationFixture } from "./fixtures/provider-observations/generate-fixture";
+import { captureSourceMutants, expectSourceMutantRed } from "./source-mutant-test-support";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) throw new Error("TEST_DATABASE_URL is required in CI.");
 const describeDb = databaseBaseUrl ? describe : describe.skip;
+
+type CommitCapture = typeof commitProviderObservationCapture;
+type WritesModule = Readonly<{ commitProviderObservationCapture: CommitCapture }>;
 
 describeDb("provider sale occurrence identity and immutable replay", () => {
   let pool: PgTransactionalPool;
@@ -34,32 +38,16 @@ describeDb("provider sale occurrence identity and immutable replay", () => {
   afterAll(async () => closeMultiContextTestPools({ pricing: pool }));
 
   it("reuses a byte-identical same-id replay without child append or cursor advance", async () => {
-    const capture = compactCapture(2);
-    await expect(
-      commitProviderObservationCapture(pool, "tcgplayer", work("", 0, "product:700000001", 1), capture),
-    ).resolves.toBe("committed");
-    const before = await durableState(pool);
+    await replayScenario(pool, commitProviderObservationCapture);
+  });
 
-    const reordered = {
-      ...capture,
-      sales: [...capture.sales].reverse(),
-      weekly: [...capture.weekly].reverse(),
-      snapshots: [...capture.snapshots].reverse(),
-      askDepth: [...capture.askDepth].reverse(),
-    };
-    await expect(
-      commitProviderObservationCapture(pool, "tcgplayer", work("product:700000001", 1, "", 2), reordered),
-    ).resolves.toBe("replayed");
-    expect(await durableState(pool)).toEqual(before);
-
-    const appendedChildMutant = {
-      ...capture,
-      sales: [...capture.sales, { ...capture.sales[0]!, saleFingerprint: "synthetic-header-conflict-bypass-mutant" }],
-    };
-    await expect(
-      commitProviderObservationCapture(pool, "tcgplayer", work("product:700000001", 1, "", 2), appendedChildMutant),
-    ).resolves.toBe("replayed");
-    expect(await durableState(pool)).toEqual(before);
+  it("turns the same-id replay red when the replayed path appends child rows", async () => {
+    await expectSourceMutantRed<WritesModule>(
+      captureSourceMutants.appendOnReplay,
+      "read-model/provider-observation-writes.ts",
+      ["F5:reordered-replay-state", "F5:appended-replay-state"],
+      (mutant) => replayScenario(pool, mutant.commitProviderObservationCapture),
+    );
   });
 
   it("rejects conflicting immutable header content and consolidates different captures by maximum", async () => {
@@ -109,6 +97,31 @@ describeDb("provider sale occurrence identity and immutable replay", () => {
     ]);
   });
 });
+
+async function replayScenario(pool: PgTransactionalPool, commit: CommitCapture) {
+  const capture = compactCapture(2);
+  await expect(commit(pool, "tcgplayer", work("", 0, "product:700000001", 1), capture)).resolves.toBe("committed");
+  const before = await durableState(pool);
+
+  const reordered = {
+    ...capture,
+    sales: [...capture.sales].reverse(),
+    weekly: [...capture.weekly].reverse(),
+    snapshots: [...capture.snapshots].reverse(),
+    askDepth: [...capture.askDepth].reverse(),
+  };
+  await expect(commit(pool, "tcgplayer", work("product:700000001", 1, "", 2), reordered)).resolves.toBe("replayed");
+  expect(await durableState(pool), "F5:reordered-replay-state").toEqual(before);
+
+  const appendedChildMutant = {
+    ...capture,
+    sales: [...capture.sales, { ...capture.sales[0]!, saleFingerprint: "synthetic-header-conflict-bypass-mutant" }],
+  };
+  await expect(commit(pool, "tcgplayer", work("product:700000001", 1, "", 2), appendedChildMutant)).resolves.toBe(
+    "replayed",
+  );
+  expect(await durableState(pool), "F5:appended-replay-state").toEqual(before);
+}
 
 function compactCapture(observedOccurrenceCount: number): ProviderObservationCapture {
   const capture = generateSyntheticProviderObservationFixture().capture;

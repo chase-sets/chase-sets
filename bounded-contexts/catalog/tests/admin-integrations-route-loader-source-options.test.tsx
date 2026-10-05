@@ -2,7 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CatalogApiError } from "../client";
+import { ApiError as CatalogApiError } from "../support/shell-support/api/client";
 import IntegrationsRoute, { action, loader } from "../routes/admin/integrations";
 import { loader as providersLoader, action as providerDetailAction } from "../routes/admin/catalog-provider-detail";
 import { action as governanceAction } from "../routes/admin/integrations-governance";
@@ -420,6 +420,17 @@ describe("Catalog integrations route", () => {
     const unitKey = "scrydex:lorcana:single-card:source-observation-import";
     const profileReviews = { items: [scrydexLorcanaProfileReview(unitKey)], total: 1, count: 1 };
     const previewSourceObservationIntegrationImport = vi.fn().mockResolvedValue(scrydexLorcanaImportPreview(unitKey));
+    const listSourceObservationIntegrationOptions = vi.fn().mockResolvedValue(
+      sourceOptionResponse("sets", {
+        status: "fresh",
+        source: "live",
+        parentValue: null,
+        degraded: false,
+        value: "TFC",
+        label: "The First Chapter",
+        metadata: { expansionId: "TFC", languageCode: "en" },
+      }),
+    );
     mockCreateCatalogRequestApiClient.mockReturnValue({
       listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({
         items: [
@@ -445,17 +456,7 @@ describe("Catalog integrations route", () => {
       listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
       getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
       listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
-      listSourceObservationIntegrationOptions: vi.fn().mockResolvedValue(
-        sourceOptionResponse("sets", {
-          status: "fresh",
-          source: "live",
-          parentValue: null,
-          degraded: false,
-          value: "TFC",
-          label: "The First Chapter",
-          metadata: { expansionId: "TFC", languageCode: "en" },
-        }),
-      ),
+      listSourceObservationIntegrationOptions,
       previewSourceObservationIntegrationImport,
       recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
     });
@@ -496,6 +497,12 @@ describe("Catalog integrations route", () => {
       language: "en",
       setId: "TFC",
     });
+    const cardCalls = listSourceObservationIntegrationOptions.mock.calls.filter((call) => {
+      const params = new URLSearchParams(String(call[0]));
+      return params.get("queryKind") === "cards";
+    });
+    expect(cardCalls).toHaveLength(1);
+    expect(new URLSearchParams(String(cardCalls[0]![0])).get("forceRefresh")).toBeNull();
   });
 
   it("keeps Lorcast selected set commands available before provider scope rows exist", async () => {
@@ -1148,6 +1155,112 @@ describe("Catalog integrations route", () => {
           ],
         }),
       });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("resolves a rejected selected import preview to null", async () => {
+    const unitKey = "scrydex:one-piece:single-card:source-observation-import";
+    const previewSourceObservationIntegrationImport = vi.fn().mockRejectedValue(new Error("preview transport failed"));
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationProviderProfiles: vi
+        .fn()
+        .mockResolvedValue({ items: [scrydexOnePieceProfileReview(unitKey)], total: 1, count: 1 }),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      previewSourceObservationIntegrationImport,
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+    const routeData = await loader({
+      request: new Request(
+        `https://admin.example/catalog/integrations?providerKey=scrydex&unitKey=${encodeURIComponent(
+          unitKey,
+        )}&expansionName=OP16&profileVersion=2026.06.22`,
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+    expect(routeData.deferredImportPreview).not.toBeNull();
+    await expect(routeData.deferredImportPreview).resolves.toBeNull();
+    expect(previewSourceObservationIntegrationImport).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolves a selected import preview without the API capability to null", async () => {
+    const unitKey = "scrydex:one-piece:single-card:source-observation-import";
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listSourceObservationProviderProfiles: vi
+        .fn()
+        .mockResolvedValue({ items: [scrydexOnePieceProfileReview(unitKey)], total: 1, count: 1 }),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+    });
+    const routeData = await loader({
+      request: new Request(
+        `https://admin.example/catalog/integrations?providerKey=scrydex&unitKey=${encodeURIComponent(
+          unitKey,
+        )}&expansionName=OP16&profileVersion=2026.06.22`,
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+    expect(routeData.deferredImportPreview).not.toBeNull();
+    await expect(routeData.deferredImportPreview).resolves.toBeNull();
+  });
+
+  it("time-bounds a selected import preview before the stream budget", async () => {
+    vi.useFakeTimers();
+    try {
+      const unitKey = "scrydex:one-piece:single-card:source-observation-import";
+      const previewSourceObservationIntegrationImport = vi.fn(
+        () =>
+          new Promise<never>((_resolve, reject) => {
+            setTimeout(() => reject(new Error("preview failed")), 3_000);
+          }),
+      );
+      mockCreateCatalogRequestApiClient.mockReturnValue({
+        listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+        listSourceObservationProviderProfiles: vi
+          .fn()
+          .mockResolvedValue({ items: [scrydexOnePieceProfileReview(unitKey)], total: 1, count: 1 }),
+        getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+        listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+        previewSourceObservationIntegrationImport,
+        recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+      });
+
+      const routeData = await loader({
+        request: new Request(
+          `https://admin.example/catalog/integrations?providerKey=scrydex&unitKey=${encodeURIComponent(
+            unitKey,
+          )}&expansionName=OP16&profileVersion=2026.06.22`,
+        ),
+        params: {},
+        context: {},
+      } as Parameters<typeof loader>[0]);
+      const preview = routeData.deferredImportPreview;
+      expect(preview).not.toBeNull();
+
+      let settled = false;
+      let rejectionCode: string | undefined;
+      void preview?.then(
+        () => {
+          settled = true;
+        },
+        (error: unknown) => {
+          settled = true;
+          rejectionCode = error instanceof Error && "code" in error ? String(error.code) : undefined;
+        },
+      );
+      await vi.advanceTimersByTimeAsync(2_499);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await vi.runAllTicks();
+      expect(rejectionCode).toBe("catalog_provider_option_query_timeout");
+      expect(previewSourceObservationIntegrationImport).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }

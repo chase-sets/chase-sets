@@ -1,0 +1,116 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "docker-image",
+      "stepAnchor": "name:Boot smoke runtime image#7",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "docker-image",
+      "stepAnchor": "name:Boot smoke runtime image#7",
+      "secretName": "DIGITALOCEAN_REGISTRY_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "docker-image",
+      "stepAnchor": "name:Build runtime image#5",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "docker-image",
+      "stepAnchor": "name:Build runtime image#5",
+      "secretName": "DIGITALOCEAN_REGISTRY_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "docker-image",
+      "stepAnchor": "name:Push boot-smoked merge-group image#8",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "docker-image",
+      "stepAnchor": "name:Push boot-smoked merge-group image#8",
+      "secretName": "DIGITALOCEAN_REGISTRY_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "docker-image",
+      "stepAnchor": "name:Report skipped merge-group image push#9",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "docker-image",
+      "stepAnchor": "name:Report skipped merge-group image push#9",
+      "secretName": "DIGITALOCEAN_REGISTRY_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "docker-image",
+      "stepAnchor": "uses:actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "docker-image",
+      "stepAnchor": "uses:actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10",
+      "secretName": "DIGITALOCEAN_REGISTRY_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "docker-image",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "docker-image",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "DIGITALOCEAN_REGISTRY_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "docker-image",
+      "stepAnchor": "uses:docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "docker-image",
+      "stepAnchor": "uses:docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5",
+      "secretName": "DIGITALOCEAN_REGISTRY_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "docker-image",
+      "stepAnchor": "uses:docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5#2",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-pr.yml",
+      "jobId": "docker-image",
+      "stepAnchor": "uses:docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5#2",
+      "secretName": "DIGITALOCEAN_REGISTRY_TOKEN",
+      "purpose": "digitalocean-ops"
+    }
+  ]
+}

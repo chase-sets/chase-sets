@@ -3,6 +3,7 @@
   "packageName": "@chase-sets/marketplace",
   "localeCatalogs": ["contracts/localization/locales/en/marketplace.ts"],
   "ownedNouns": [
+    "offer-policy",
     "channel-inbound-clamp",
     "listing",
     "listing-evidence-policy",
@@ -17,6 +18,7 @@
   "streamPrefix": "marketplace.",
   "apiBasePath": "/api/marketplace",
   "slices": [
+    "offer-policy",
     "channel-inbound-clamp",
     "listing-evidence-policy",
     "listings",
@@ -273,6 +275,18 @@
   ],
   "eventReactions": [
     {
+      "sourceContextName": "pricing",
+      "reactionName": "marketplace-managed-offer-reaction",
+      "subscriptionVersion": 1,
+      "filterToEventTypes": true,
+      "eventTypes": ["pricing.market-price.estimated"],
+      "order": 94,
+      "reactionHandlerSetNames": ["marketplace-managed-offer-reaction"],
+      "idempotencyPolicy": "idempotent-command-dispatch",
+      "retryPolicy": "retry-from-last-checkpoint",
+      "failurePolicy": "surface-as-reaction-failure"
+    },
+    {
       "sourceContextName": "platform-operations",
       "reactionName": "marketplace-review-hold-reaction",
       "subscriptionVersion": 1,
@@ -319,6 +333,30 @@
   ],
   "projectionGroups": [
     {
+      "projectionName": "marketplace-managed-offer-reaction",
+      "handlerKind": "reaction",
+      "sourceContextNames": ["pricing"],
+      "ownedTables": [],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "marketplace-managed-offer-projection",
+      "projectionRevision": 2,
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": ["marketplace_managed_offer_work", "marketplace_managed_offer_audit"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "marketplace-offer-policy-projection",
+      "projectionRevision": 2,
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": ["marketplace_buyer_offer_policy_pages", "marketplace_buyer_offer_policy_memberships"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
       "projectionName": "marketplace-catalog-item-projection",
       "sourceContextNames": ["catalog"],
       "ownedTables": [
@@ -359,7 +397,7 @@
     },
     {
       "projectionName": "marketplace-offer-projection",
-      "projectionRevision": 2,
+      "projectionRevision": 4,
       "sourceContextNames": ["marketplace"],
       "ownedTables": [
         "marketplace_offer_pages",
@@ -486,6 +524,11 @@
     }
   ],
   "hostPorts": [
+    {
+      "portName": "managedOfferPricing",
+      "providedBy": "pricing",
+      "purpose": "Evaluate current buyer Offer targets through Pricing's public boundary without Marketplace querying Pricing storage."
+    },
     {
       "portName": "sellerAttentionSources",
       "providedBy": "platform-api",
@@ -1132,6 +1175,23 @@
     }
   ],
   "mutationConsistencyInventory": [
+    {
+      "id": "marketplace.offer-policy-command-snapshots",
+      "owner": "marketplace",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": ["api-route:bounded-contexts/marketplace/features/offer-policy/api/route.ts:POST /:id/commands"],
+      "visibleDestination": {
+        "description": "Account policy commands return the authoritative policy snapshot, stream version and exact preview, without depending on the account-list projection."
+      },
+      "proof": {
+        "authoritativeResponse": "The runtime folds committed events into the loaded aggregate, or reloads authoritative state for an exact operation retry. Detail reads also load the stream; lists are explicitly projected summaries.",
+        "tests": [
+          "bounded-contexts/marketplace/features/offer-policy/api/route.test.ts",
+          "bounded-contexts/marketplace/features/offer-policy/api/runtime.test.ts"
+        ]
+      }
+    },
     {
       "id": "marketplace.listing-api-client-command-snapshots",
       "owner": "marketplace",
@@ -2080,6 +2140,11 @@
     }
   ],
   "directoryIntent": {
+    "offer-policy": {
+      "classification": "slice",
+      "purpose": "Own private Buyer Offer Policy previews, buyer consent, lifecycle and permanent Offer membership authority.",
+      "expectedConsumers": ["Marketplace account API", "Marketplace managed Offer enforcement"]
+    },
     "channel-inbound-clamp": {
       "classification": "slice",
       "purpose": "Own the account-wide, revision-fenced Listing clamp and conservative recovery used while Channel inbound coverage is dark.",

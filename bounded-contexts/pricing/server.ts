@@ -1,4 +1,15 @@
 export { getAccountRecommendation, listAccountRecommendations } from "./features/recommendations/read-model/queries";
+export { evaluateBuyerOfferTarget } from "./features/offer-targets/domain/evaluate";
+export type {
+  BuyerMarketPrice,
+  BuyerOfferTargetEvidence,
+  BuyerOfferTargetHoldReason,
+  BuyerOfferTargetInput,
+  BuyerOfferTargetResult,
+  BuyerOfferTargetSelection,
+} from "./features/offer-targets/domain/evaluate";
+export { loadBuyerOfferMarketPrices, createBuyerOfferPricing } from "./features/offer-targets/read-model/queries";
+export type { BuyerOfferProductKey } from "./features/offer-targets/read-model/queries";
 export { getOwnSaleLows, listOwnSaleObservations } from "./features/own-sale-observations/read-model/queries";
 export type {
   GetOwnSaleLowsParams,
@@ -99,6 +110,7 @@ export {
 } from "./features/market-estimates/domain/estimate-policy";
 export { repricingEnginePolicy, type RepricingEnginePolicyValue } from "./features/repricing-engine/domain/policy";
 export { repricingManagementPolicy } from "./features/repricing-engine/domain/management-policy";
+export { createRepricingAttentionSourceFromReadModel } from "./features/repricing-engine/read-model/seller-attention-source";
 export { priceSignalPolicy, type PriceSignalPolicyValue } from "./features/price-signals/domain/price-signal-policy";
 export {
   providerObservationPolicy,

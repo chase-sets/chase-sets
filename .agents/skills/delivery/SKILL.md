@@ -82,6 +82,10 @@ git -C <worktree> switch -c <branch> --track origin/main
 - External provider contracts (event sets, webhook payloads, API schemas) are verified against the provider's **test-mode surface** (e.g. a Stripe test-mode create), not internal consistency — internal-only validation has passed every internal gate and still been rejected live. Include the test-mode output in Verification.
 - Your verification evidence is input to external validation — you do not self-certify done. Report exactly what you ran and observed.
 
+### Goal-based browser probes
+
+For a new or changed user-facing flow, use `pnpm run ops browser:usability select --base origin/main` to identify advisory goals, then follow `docs/contributing/browser-usability.md`. Dispatch a fresh goal-only `gpt-6-luna/medium` participant without implementation context; use screenshot-grounded navigation, the code-owned timer/action recorder, an isolated preflighted fixture, and a separate moderator outcome check. Do not use the participant's completion label as a pass. Report the adjudicated result and timing in Verification, or explicitly record not-run coverage and why. Unmapped flows need a relevant goal or an explicit coverage note. Hosted gates and independent code review remain authoritative; an unavailable local browser/sandbox is not a publication or readiness gate. Reproduced defects follow existing severity rules and get deterministic regression coverage.
+
 ## Review
 
 - Before the implementation head is dispatched for independent review, complete one bounded author review and its `## Quality Packet` in four steps:

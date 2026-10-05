@@ -135,13 +135,40 @@ describe("platform worker projection wake interest graph", () => {
       )
       .sort();
 
-    // #7673: fulfillment.shipment.cancellation-conflict-recorded was added as a
-    // new handler on the existing fulfillment-shipment-projection:fulfillment:v1
-    // runner (self-subscription), so the runner's handler/event-type set grew
-    // without adding or removing a runner.
+    expect(runtime.subscriptionRunners).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceContextName: "marketplace",
+          targetContextName: "marketplace",
+          projectionName: "marketplace-offer-policy-projection",
+        }),
+        expect.objectContaining({
+          sourceContextName: "marketplace",
+          targetContextName: "marketplace",
+          projectionName: "marketplace-managed-offer-projection",
+          checkpointKey: "marketplace-managed-offer-projection:marketplace:v1",
+        }),
+        expect.objectContaining({
+          sourceContextName: "pricing",
+          targetContextName: "marketplace",
+          projectionName: "marketplace-managed-offer-reaction",
+          checkpointKey: "marketplace-managed-offer-reaction:pricing:v1",
+          eventTypes: ["pricing.market-price.estimated"],
+        }),
+      ]),
+    );
+    expect(runtime.projectionGroups).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          targetContextName: "marketplace",
+          projectionName: "marketplace-managed-offer-projection",
+          projectionRevision: 2,
+        }),
+      ]),
+    );
     expect(fingerprint(runtime.subscriptionRunners.map((runner) => fingerprintObject(runner)))).toEqual({
-      count: 246,
-      sha256: "22f729289ccefa57d3a4803590c3f20977a714c087a766fc46c926c93d11bfb4",
+      count: 250,
+      sha256: "3b0d6b9404360baa199278cb52db3e4a64e9207ca2ee2c7ad0732a5ef1cb302c",
     });
     expect(
       fingerprint(
@@ -151,22 +178,22 @@ describe("platform worker projection wake interest graph", () => {
         })),
       ),
     ).toEqual({
-      count: 153,
-      sha256: "109a0aaaf9f3e4310086afdfab8ff9e21991f275d5ec7df86d66e2071ceb9c20",
+      count: 155,
+      sha256: "9b4461f420d16ed28083dd86a7cd9d90f9ce267d31a74b9c04eb9ddd9699bb0e",
     });
     expect({
       count: rawCheckpointIdentities.length,
       sha256: sha256(JSON.stringify(rawCheckpointIdentities)),
     }).toEqual({
-      count: 153,
-      sha256: "f53828b39f6b59b6dd2ee7e234e2add1a66a2f328a20a1245315ef8af9ce88fc",
+      count: 155,
+      sha256: "6712691e9b494e358c6c69a84215989f43dd2255281196761503eaa0326a05b6",
     });
     expect(fingerprint(runtime.subscriptionRunners.map((runner) => runner.checkpointKey))).toEqual({
-      count: 246,
-      sha256: "a6450695ac9fe88f028441e156262596a2a67b7d9d532a2ea1d8e02683a1fdd1",
+      count: 250,
+      sha256: "8be9d41e4f325089806798f5e4bd17163d07c06eef8374f6ff2f0d5506f2f074",
     });
     expect(sharedNames).toMatchObject({
-      distinctNames: 118,
+      distinctNames: 120,
       distinctSharedNames: 20,
       runnersUsingSharedNames: 55,
     });

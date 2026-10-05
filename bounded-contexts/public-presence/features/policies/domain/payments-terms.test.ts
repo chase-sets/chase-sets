@@ -7,6 +7,7 @@ import {
 } from "./policy-artifact";
 import { paymentsTermsPolicyArtifact, requiredPaymentsTermsSubjectIds } from "./payments-terms";
 import { publicPolicyRegistry } from "./policy-registry";
+import { canonicalClaimRegistry } from "./canonical-claims";
 
 function approvedPaymentsTermsArtifact(): PublicPolicyArtifact {
   return {
@@ -56,6 +57,65 @@ function collectRenderedSurfaces(artifact: PublicPolicyArtifact) {
 }
 
 describe("payments terms artifact", () => {
+  it("reconciles the platform-held fund flow across all four draft subjects", () => {
+    const subjects = [
+      ["payments-terms", "processor-pass-through-and-collection-agent-role"],
+      ["terms-of-service", "wallet-nature-custody-interest"],
+      ["terms-of-service", "marketplace-role-and-limited-payments-agent"],
+      ["seller-agreement", "payouts-holds-and-reserves"],
+    ];
+    for (const [policyKey, sectionId] of subjects) {
+      const section = publicPolicyRegistry
+        .find((entry) => entry.artifact.metadata.policyKey === policyKey)!
+        .artifact.sections.find((candidate) => candidate.id === sectionId)!;
+      expect(section.draftText).toMatch(/platform account/);
+      expect(section.draftText).toMatch(/transfer/);
+      expect(section.draftText).toMatch(/requests?.*payout|payout.*requests?/);
+      expect(section.draftText).not.toMatch(/does not itself hold|does not hold|does not.*custody, or transmit/);
+      expect(section.reviewManifest.productTruthRefs).toEqual(
+        expect.arrayContaining([
+          "infrastructure/stripe-payments/index.ts:1616-1640",
+          "infrastructure/stripe-connect/index.ts:1100-1160",
+        ]),
+      );
+    }
+    const processor = paymentsTermsPolicyArtifact.sections[0]!;
+    expect(processor.reviewManifest.openQuestions.join(" ")).toMatch(/collection.agent.*counsel/i);
+  });
+
+  it("leaves ordinary payment-activity interest unresolved with the canonical disclosure", () => {
+    const section = paymentsTermsPolicyArtifact.sections.find(({ id }) => id === "no-interest")!;
+    expect(section.reviewManifest.productTruthRefs).toEqual([]);
+    expect(section.reviewManifest.canonicalClaims).toEqual([{ claimId: "wallet-no-interest", productTruthRefs: [] }]);
+    expect(section.claimDisclosures).toEqual([{ claimId: "wallet-no-interest" }]);
+    expect(section.reviewManifest.openQuestions.join(" ")).toMatch(/ordinary.*pending payout.*counsel/i);
+    expect(section.draftText).not.toMatch(/does not pay|Stripe's own terms.*interest/i);
+    expect(canonicalClaimRegistry["wallet-no-interest"].status).toBe("unresolved");
+    expect(canonicalClaimRegistry["wallet-no-interest"].productTruthRefs).toEqual([]);
+  });
+
+  it("grounds funding-dispute recovery in the Prepaid Balance ruling, not seller Chargeback Clawback", () => {
+    const section = paymentsTermsPolicyArtifact.sections.find(({ id }) => id === "prepaid-balance")!;
+    expect(section.reviewManifest.canonicalClaims ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ claimId: "payment-chargeback-recovery-mechanism" })]),
+    );
+    expect(section.draftText).not.toContain("consistent with the chargeback and dispute terms above");
+    expect(section.reviewManifest.assumptions).toContainEqual({
+      assertion:
+        "The #7807 product ruling requires recovery of the disputed funding amount plus the processor dispute fee after a lost funding dispute; this is not the seller-exposure Chargeback Clawback mechanism.",
+      evidenceRef: "https://github.com/chase-sets/chase-sets/issues/7807#issuecomment-5625822930",
+    });
+  });
+
+  it("separates Settlement release from Stripe post-request processing", () => {
+    const section = paymentsTermsPolicyArtifact.sections.find(({ id }) => id === "payout-timing-and-clearance")!;
+    expect(section.draftText).toContain("Settlement's Payout Release Hold");
+    expect(section.draftText).toContain("Settlement owns the release decision");
+    expect(section.draftText).toContain("after a payout is requested");
+    expect(section.draftText).not.toContain("timing depends on the connected-account configuration");
+    expect(section.reviewManifest.productTruthRefs).toContain("bounded-contexts/settlement/GLOSSARY.md:117-125");
+  });
+
   it("is structurally valid and registered under the canonical /payments-terms route", () => {
     expect(paymentsTermsPolicyArtifact.metadata.policyKey).toBe("payments-terms");
     expect(paymentsTermsPolicyArtifact.metadata.href).toBe("/payments-terms");
@@ -160,13 +220,39 @@ describe("payments terms artifact", () => {
     );
     const refs = section?.reviewManifest.productTruthRefs.join(" ") ?? "";
     expect(refs).not.toContain("runtime.ts:491-509");
-    expect(refs).toContain("runtime.ts:1890-1943");
+    expect(refs).toContain("runtime.ts:1954-1974");
+  });
+
+  it("distinguishes Order creation, payment requests and recorded capture without promising statement display", () => {
+    const section = paymentsTermsPolicyArtifact.sections.find(
+      (candidate) => candidate.id === "charge-timing-and-statement-descriptor",
+    )!;
+    expect(section.draftText).toContain("creates your Orders before requesting payment");
+    expect(section.draftText).toContain("does not itself establish that funds have been captured");
+    expect(section.draftText).toContain("authorization is distinct from capture");
+    expect(section.draftText).toContain("webhook or reconciliation");
+    expect(section.draftText).toContain("sends a statement descriptor suffix to Stripe");
+    const allClaims = [
+      section.draftText,
+      section.reviewManifest.scopeNote,
+      ...section.reviewManifest.assumptions.map(({ assertion }) => assertion),
+    ].join(" ");
+    expect(allClaims).not.toMatch(
+      /charges your selected payment method when you complete|immediately confirming|before the purchase is recorded|no repository evidence shows|statement will carry|Chase Sets does not control/i,
+    );
+    expect(section.reviewManifest.productTruthRefs).toContain(
+      "bounded-contexts/checkout/features/sessions/api/route.ts:1388-1437",
+    );
+    expect(section.reviewManifest.openQuestions.join(" ")).toMatch(/statement.*display/i);
+    expect(section.reviewManifest.openQuestions.join(" ")).toMatch(/network.*control/i);
+    expect(section.reviewStatus).toBe("counsel-required");
   });
 
   it("does not assert Wallet-balance no-interest as settled while the sibling Terms artifact leaves it unresolved (#6052 finding 2)", () => {
     const section = paymentsTermsPolicyArtifact.sections.find((candidate) => candidate.id === "no-interest");
     expect(section?.draftText).not.toContain("reflected in your Wallet balance under the Terms of Service");
-    expect(section?.reviewManifest.canonicalClaims ?? []).toEqual([]);
+    expect(section?.reviewManifest.canonicalClaims).toEqual([{ claimId: "wallet-no-interest", productTruthRefs: [] }]);
+    expect(section?.claimDisclosures).toEqual([{ claimId: "wallet-no-interest" }]);
   });
 
   it("would pass readiness once every section is counsel-approved and the artifact is published", () => {

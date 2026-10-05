@@ -19,6 +19,30 @@ import { resolveModuleSubscriptions, type MountedContextRuntimeEntry } from "./s
 import type { ContextProjectionGroup } from "./projection-groups";
 
 const NO_API_ENTRIES: readonly BcApiEntry[] = [];
+const realSetTimeout = globalThis.setTimeout;
+const realClearTimeout = globalThis.clearTimeout;
+
+function gate() {
+  let release: () => void = () => undefined;
+  const wait = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { wait, release };
+}
+
+async function boundedSignal<T>(signal: Promise<T>, diagnostic: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      signal,
+      new Promise<never>((_resolve, reject) => {
+        timer = realSetTimeout(() => reject(new Error(diagnostic)), 30_000);
+      }),
+    ]);
+  } finally {
+    realClearTimeout(timer);
+  }
+}
 
 function storedEvent(): StoredEvent {
   return {
@@ -40,17 +64,26 @@ function storedEvent(): StoredEvent {
 function createQueryCaptureGroup(
   handler: NonNullable<ContextProjectionGroup["subscriptionRunners"][number]["handlers"]>[string],
   claimOutcome = "claimed",
-): Readonly<{ group: ContextProjectionGroup; statements: string[] }> {
+  close?: Readonly<{ entered: () => void; wait: Promise<void> }>,
+): Readonly<{ group: ContextProjectionGroup; statements: string[]; end: ReturnType<typeof vi.fn> }> {
   const statements: string[] = [];
+  let closed = false;
   const client = {
     query: vi.fn(async (sql: string) => {
+      if (closed) {
+        throw new Error("query after client close");
+      }
       statements.push(sql.trim());
       if (sql.includes("AS outcome") && sql.includes("event_subscription_applications")) {
         return { rows: [{ outcome: claimOutcome }], rowCount: 1 };
       }
       return { rows: [], rowCount: 1 };
     }),
-    end: vi.fn(async () => undefined),
+    end: vi.fn(async () => {
+      closed = true;
+      close?.entered();
+      await close?.wait;
+    }),
     release: vi.fn(),
   };
   const pool = {
@@ -84,7 +117,7 @@ function createQueryCaptureGroup(
     subscriptionRunners: [runner],
     targetPool: pool,
   } as unknown as ContextProjectionGroup;
-  return { group, statements };
+  return { group, statements, end: client.end };
 }
 
 describe("projection inline apply", () => {
@@ -149,17 +182,92 @@ describe("projection inline apply", () => {
     ).resolves.toEqual({ applied: 0, deferred: 0, failed: 1 });
     expect(failing.statements).toContain("ROLLBACK");
 
-    const slow = createQueryCaptureGroup(vi.fn(async () => new Promise<void>((resolve) => setTimeout(resolve, 30))));
-    const startedAt = Date.now();
-    await expect(
-      applyCommittedProjectionEventsInline({
+    const handlerStarted = gate();
+    const handlerHold = gate();
+    const closeEntered = gate();
+    const closeHold = gate();
+    const handler = vi.fn(async () => {
+      handlerStarted.release();
+      await handlerHold.wait;
+    });
+    const slow = createQueryCaptureGroup(handler, "claimed", { entered: closeEntered.release, wait: closeHold.wait });
+    try {
+      vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+      let settled = false;
+      const attempt = applyCommittedProjectionEventsInline({
         committedEvents: [storedEvent()],
         commitSources: [{ sourceContextName: "checkout", eventIds: ["evt_1"] }],
         projectionGroups: [slow.group],
         budgetMs: 5,
-      }),
-    ).resolves.toEqual({ applied: 0, deferred: 0, failed: 1 });
-    expect(Date.now() - startedAt).toBeLessThan(25);
+      });
+      const settlement = attempt.then((summary) => {
+        settled = true;
+        return summary;
+      });
+      const first = await boundedSignal(
+        Promise.race([
+          handlerStarted.wait.then(() => "handler-started" as const),
+          settlement.then(() => "settled-before-handler-start" as const),
+        ]),
+        "neither handler start nor settlement",
+      );
+      expect(first, "attempt settled before handler start").toBe("handler-started");
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(settled, "started handler settled before expiry").toBe(false);
+      vi.advanceTimersByTime(5);
+      await boundedSignal(closeEntered.wait, "abort did not enter client.end");
+      expect(slow.end).toHaveBeenCalledTimes(1);
+      await new Promise<void>((resolve) => realSetTimeout(resolve, 0));
+      expect(settled, "attempt returned before client close completed").toBe(false);
+      closeHold.release();
+      await expect(boundedSignal(settlement, "attempt did not settle after client close")).resolves.toEqual({
+        applied: 0,
+        deferred: 0,
+        failed: 1,
+      });
+      handlerHold.release();
+      await Promise.resolve();
+      expect(slow.statements.some((statement) => statement.includes("SET status = $3"))).toBe(false);
+      expect(slow.statements).not.toContain("COMMIT");
+    } finally {
+      handlerHold.release();
+      closeHold.release();
+      vi.useRealTimers();
+    }
+  });
+
+  it("applies a started handler before the hard budget expires", async () => {
+    const handlerStarted = gate();
+    const handlerHold = gate();
+    const handler = vi.fn(async () => {
+      handlerStarted.release();
+      await handlerHold.wait;
+    });
+    const withinBudget = createQueryCaptureGroup(handler);
+    try {
+      vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+      const attempt = applyCommittedProjectionEventsInline({
+        committedEvents: [storedEvent()],
+        commitSources: [{ sourceContextName: "checkout", eventIds: ["evt_1"] }],
+        projectionGroups: [withinBudget.group],
+        budgetMs: 5,
+      });
+      await boundedSignal(handlerStarted.wait, "handler did not start before budget expiry");
+      vi.advanceTimersByTime(4);
+      handlerHold.release();
+      await expect(boundedSignal(attempt, "released handler did not settle")).resolves.toEqual({
+        applied: 1,
+        deferred: 0,
+        failed: 0,
+      });
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(withinBudget.statements.some((statement) => statement.includes("SET status = $3"))).toBe(true);
+      expect(withinBudget.statements).toContain("COMMIT");
+      expect(withinBudget.end).not.toHaveBeenCalled();
+    } finally {
+      handlerHold.release();
+      vi.useRealTimers();
+    }
   });
 
   it("executes zero projection statements while the kill switch is off", async () => {

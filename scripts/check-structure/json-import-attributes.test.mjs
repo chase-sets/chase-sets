@@ -700,11 +700,11 @@ describe("real repository execution membership", () => {
 
     expect(result.violations, result.violations.join("\n")).toEqual([]);
     expect(result.inventory.parserVersion).toBe("6.0.3");
-    expect(result.inventory.declarations).toHaveLength(102);
+    expect(result.inventory.declarations).toHaveLength(113);
     expect(result.inventory.partition).toEqual({
-      "node-enforced": 41,
-      "vite-excluded": 49,
-      "vitest-excluded": 12,
+      "node-enforced": 42,
+      "vite-excluded": 51,
+      "vitest-excluded": 20,
       "manifest-only": 0,
       indeterminate: 0,
     });
@@ -719,8 +719,42 @@ describe("real repository execution membership", () => {
       }),
     );
     expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-      "5f165f86cf426be0d94a2bfc6d7dcd91262ca9a201df27b50262392395c0d68c",
+      "bde6a633763aa1701c48ef012eaf162a6f4d43855ebe277d5052492774357de8",
     );
+    expect(
+      normalized.filter((entry) => entry.relativeFile.startsWith("bounded-contexts/pricing/routes/marketplace/")),
+    ).toEqual([
+      {
+        relativeFile: "bounded-contexts/pricing/routes/marketplace/account-desk-repricing-policy.tsx",
+        form: "import",
+        specifier: "../../context.json",
+        attributeText: null,
+        resolved: "bounded-contexts/pricing/context.json",
+        disposition: "vite-excluded",
+      },
+      {
+        relativeFile: "bounded-contexts/pricing/routes/marketplace/account-desk-repricing.tsx",
+        form: "import",
+        specifier: "../../context.json",
+        attributeText: null,
+        resolved: "bounded-contexts/pricing/context.json",
+        disposition: "vite-excluded",
+      },
+    ]);
+    expect(
+      normalized.filter(
+        (entry) => entry.relativeFile === "bounded-contexts/pricing/tests/account-repricing-route.test.ts",
+      ),
+    ).toEqual([
+      {
+        relativeFile: "bounded-contexts/pricing/tests/account-repricing-route.test.ts",
+        form: "import",
+        specifier: "../context.json",
+        attributeText: null,
+        resolved: "bounded-contexts/pricing/context.json",
+        disposition: "vitest-excluded",
+      },
+    ]);
     expect(
       result.inventory.declarations.find(
         (entry) => entry.relativeFile === "bounded-contexts/catalog/support/authoring-support/index.ts",

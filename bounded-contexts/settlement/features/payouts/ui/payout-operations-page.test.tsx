@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { NumericValue } from "@chase-sets/design-system";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { SettlementPayoutReadinessRow } from "../../payout-readiness/read-model/queries";
@@ -64,9 +65,30 @@ function payout(): SettlementPayoutRow {
 }
 
 describe("payout operations page setup signals", () => {
+  it.each([false, true])("renders only authorized operations for canReconcile=%s", (canReconcile) => {
+    const html = renderToStaticMarkup(
+      <SettlementPayoutOperationsPage canReconcile={canReconcile} payouts={[payout()]} payoutReadiness={readiness()} />,
+    );
+    for (const text of [
+      "Run reconciliation",
+      "Recent Provider Attempts",
+      "Payout setup blocked",
+      "Open setup requirements",
+      "Stale payout setup status",
+      "Setup status",
+      "Payout destination",
+      "Setup last updated",
+    ]) {
+      expect(html.includes(text), text).toBe(canReconcile);
+    }
+    expect(html.includes('name="intent"')).toBe(canReconcile);
+    expect(html).toContain("$12.50");
+    expect(html).toContain("Needs Attention");
+  });
   it("renders queued reconciliation state as an outlined entity", () => {
     const html = renderToStaticMarkup(
       <SettlementPayoutOperationsPage
+        canReconcile
         payouts={[]}
         payoutReadiness={readiness()}
         runResult={{
@@ -99,6 +121,7 @@ describe("payout operations page setup signals", () => {
 
     const html = renderToStaticMarkup(
       <SettlementPayoutOperationsPage
+        canReconcile
         payouts={[]}
         payoutReadiness={readiness({
           status: "ready",
@@ -121,7 +144,7 @@ describe("payout operations page setup signals", () => {
   });
 
   it("payout-fee-reader-inventory shows requested, fee, and net amounts to payout operators", () => {
-    const html = renderToStaticMarkup(<SettlementPayoutOperationsPage payouts={[payout()]} />);
+    const html = renderToStaticMarkup(<SettlementPayoutOperationsPage canReconcile payouts={[payout()]} />);
 
     expect(html).toContain("Requested amount");
     expect(html).toContain("Payout fee");
@@ -129,5 +152,51 @@ describe("payout operations page setup signals", () => {
     expect(html).toContain("$12.50");
     expect(html).toContain("$0.29");
     expect(html).toContain("$12.21");
+  });
+});
+
+/**
+ * The role class is derived from a bare design-system render, never written
+ * here, so this suite cannot drift from the primitive it observes.
+ */
+const numericValueClassName = renderToStaticMarkup(<NumericValue>0</NumericValue>).match(/class="([^"]*)"/)?.[1] ?? "";
+const moneyPattern = /^-?\$[\d,]+\.\d{2}$/;
+
+function parse(html: string): HTMLDivElement {
+  const rendered = document.createElement("div");
+  rendered.innerHTML = html;
+  return rendered;
+}
+
+function numericValues(root: ParentNode): HTMLElement[] {
+  return [...root.querySelectorAll("span")].filter((span) => span.className === numericValueClassName);
+}
+
+function textsOf(elements: readonly HTMLElement[]): string[] {
+  return elements.map((element) => element.textContent ?? "").sort();
+}
+
+describe("SettlementPayoutOperationsPage mono market-data role carriers", () => {
+  it("derives the role class from the design system", () => {
+    expect(numericValueClassName).not.toBe("");
+  });
+
+  it("roles the requested, fee, and net columns in both the desktop table and the mobile cards", () => {
+    const rendered = parse(renderToStaticMarkup(<SettlementPayoutOperationsPage canReconcile payouts={[payout()]} />));
+    const carriers = numericValues(rendered);
+
+    expect(textsOf(carriers)).toEqual(["$0.29", "$0.29", "$12.21", "$12.21", "$12.50", "$12.50"]);
+    expect(carriers.map((carrier) => carrier.parentElement?.tagName).sort()).toEqual([
+      "DD",
+      "DD",
+      "DD",
+      "TD",
+      "TD",
+      "TD",
+    ]);
+    for (const carrier of carriers) {
+      expect(carrier.tagName).toBe("SPAN");
+      expect(carrier.textContent).toMatch(moneyPattern);
+    }
   });
 });

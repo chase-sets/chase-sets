@@ -37,6 +37,7 @@
     "@chase-sets/platform-policy": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
+    "@chase-sets/provider-credentials": "workspace:*",
     "@chase-sets/public-docs": "workspace:*",
     "hono": "^4.12.12",
     "react": "^19.2.5",

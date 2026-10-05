@@ -1,10 +1,13 @@
 import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { OrderingServices } from "./support/runtime-support/services";
+import type { OrderingEvidenceWindowSourceAdmissionContext } from "./features/orders/api/runtime";
 import { createAccountPurchaseOrderRoutes, createAccountSaleOrderRoutes } from "./features/orders/api/route";
 import { createPostagePolicyRoutes } from "./features/postage-policies/api/route";
 
-export type OrderingApiEnv = AuthenticatedApiEnv;
+export type OrderingApiEnv = AuthenticatedApiEnv & {
+  Variables: { evidenceWindowSourceAdmission?: OrderingEvidenceWindowSourceAdmissionContext };
+};
 
 export function buildOrderingApi(services: OrderingServices) {
   const app = new Hono<OrderingApiEnv>();

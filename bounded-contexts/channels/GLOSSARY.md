@@ -93,6 +93,14 @@ A **Channel Composition Profile** declares which provider-neutral publication dr
 
 **Channel Publication Settings** are the account-owned title, description, category, and listing-exclusion choices for one Channel Connection.
 
+A **Channel Publish Quantity Cap** on Channel Publication Settings bounds every listing's published quantity on that connection.
+
+## Channel Publish Quantity Cap
+
+**Channel Publish Quantity Cap**: max units per listing, per connection, with the per-item Inventory partition as the only override.
+
+`publishQuantityCap: number | null` — `null` means no cap; otherwise an integer `1..1000`.
+
 ## Channel Publication Eligibility
 
 **Channel Publication Eligibility** is the complete fail-closed decision that a Channel Listing Link can publish, update, or delist from current facts, settings, mappings, references, and profile.

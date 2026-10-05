@@ -9,7 +9,7 @@ import {
   type DecodedPricePoint,
   type DecodedSale,
 } from "./response-decoders";
-import type { TcgplayerMarketTransport } from "./transport-port";
+import type { TcgplayerMarketStageFact, TcgplayerMarketTransport } from "./transport-port";
 import {
   summarizeHistoryResponseAtReceipt,
   summarizeListingsResponseAtReceipt,
@@ -23,12 +23,289 @@ export type ListingsCoverage = "complete" | "ceiling-truncated" | "page-budget-t
 export type HistoryCoverage = "observed" | "inconsistent" | "unknown";
 
 export type SafeHttpStatusClass = "none" | "4xx" | "5xx" | "other";
+export type TcgplayerEndpointFailureClass =
+  | "credential-unavailable"
+  | "auth-rejected"
+  | "forbidden"
+  | "rate-limited"
+  | "client-error"
+  | "server-error"
+  | "other"
+  | "no-response"
+  | "unknown"
+  | null;
 export type EndpointFailurePhase = "transport" | "response-processing" | null;
 export type TcgplayerEndpointFailurePhases = Readonly<{
   sales: EndpointFailurePhase;
   listings: EndpointFailurePhase;
   history: EndpointFailurePhase;
 }>;
+
+export type TcgplayerEndpointStageTrace = Readonly<{
+  entries: readonly (Omit<TcgplayerMarketStageFact, "credential"> & Readonly<{ page: number }>)[];
+  overflow: number;
+  retryCount: number;
+  cooldownCount: number;
+}>;
+
+export type TcgplayerEndpointStageTraces = Readonly<{
+  sales?: TcgplayerEndpointStageTrace;
+  listings?: TcgplayerEndpointStageTrace;
+  history?: TcgplayerEndpointStageTrace;
+}>;
+
+function createStageTrace() {
+  type Entry = TcgplayerEndpointStageTrace["entries"][number];
+  const ordinary: Entry[] = [];
+  let firstHeader: Entry | undefined;
+  let firstAbort: Entry | undefined;
+  let lastTerminal: Entry | undefined;
+  let overflow = 0;
+  let retryCount = 0;
+  let cooldownCount = 0;
+  let sequence = 0;
+  const order = new Map<Entry, number>();
+  return {
+    observe(page: number, fact: TcgplayerMarketStageFact) {
+      // Copy only closed fields. A fake or future transport cannot inject data into the receipt.
+      let entry: Entry | null;
+      try {
+        entry = sanitizeStageFact(page, fact);
+      } catch {
+        return;
+      }
+      if (!entry) return;
+      sequence += 1;
+      if (entry.stage === "retry-start") {
+        retryCount = Math.min(65535, retryCount + 1);
+      }
+      if (entry.stage === "cooldown-start") cooldownCount = Math.min(65535, cooldownCount + 1);
+      if (entry.stage === "headers-received" && !firstHeader) firstHeader = entry;
+      else if (entry.stage === "abort" && !firstAbort) firstAbort = entry;
+      else if (entry.stage === "terminal") {
+        if (lastTerminal) {
+          if (ordinary.length < 61) ordinary.push(lastTerminal);
+          else {
+            order.delete(lastTerminal);
+            overflow = Math.min(65535, overflow + 1);
+          }
+        }
+        lastTerminal = entry;
+      } else if (ordinary.length < 61) ordinary.push(entry);
+      else overflow = Math.min(65535, overflow + 1);
+      if (firstHeader === entry || firstAbort === entry || lastTerminal === entry || ordinary.includes(entry)) {
+        order.set(entry, sequence);
+      }
+    },
+    snapshot(): TcgplayerEndpointStageTrace | undefined {
+      if (sequence === 0) return undefined;
+      const entries = [...ordinary, firstHeader, firstAbort, lastTerminal]
+        .filter((entry): entry is Entry => entry !== undefined)
+        .sort((a, b) => order.get(a)! - order.get(b)!);
+      return { entries, overflow, retryCount, cooldownCount };
+    },
+  };
+}
+
+const STAGES = new Set<string>([
+  "config-wait",
+  "limiter-wait",
+  "throttle-wait",
+  "request-construction",
+  "fetch-start",
+  "headers-received",
+  "error-body-read-start",
+  "error-body-read-end",
+  "parse-start",
+  "parse-end",
+  "parse-failure",
+  "retry-start",
+  "retry-end",
+  "retry-backoff-start",
+  "retry-backoff-end",
+  "cooldown-start",
+  "cooldown-end",
+  "abort",
+  "terminal",
+]);
+
+function hasValidCredentialProvenance(fact: TcgplayerMarketStageFact): boolean {
+  const descriptor = Object.getOwnPropertyDescriptor(fact, "credential");
+  if (!descriptor) return !("credential" in fact);
+  if (!("value" in descriptor)) return false;
+  const credential: unknown = descriptor.value;
+  if (credential === undefined || credential === null) return true;
+  if (typeof credential !== "object" || Array.isArray(credential)) return false;
+  const keys = Reflect.ownKeys(credential);
+  if (keys.length !== 2 || !keys.includes("source") || !keys.includes("revision")) return false;
+  const source = Object.getOwnPropertyDescriptor(credential, "source");
+  const revision = Object.getOwnPropertyDescriptor(credential, "revision");
+  if (!source || !("value" in source) || !revision || !("value" in revision)) return false;
+  return source.value === "environment"
+    ? revision.value === 0
+    : source.value === "operator-session" && Number.isSafeInteger(revision.value) && revision.value >= 1;
+}
+
+function sanitizeStageFact(
+  page: number,
+  fact: TcgplayerMarketStageFact,
+): TcgplayerEndpointStageTrace["entries"][number] | null {
+  if (
+    !fact ||
+    !hasValidCredentialProvenance(fact) ||
+    !Number.isInteger(page) ||
+    page < 1 ||
+    page > 10000 ||
+    !Number.isInteger(fact.attempt) ||
+    fact.attempt < 1 ||
+    fact.attempt > 10000 ||
+    !STAGES.has(fact.stage) ||
+    typeof fact.at !== "string" ||
+    !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(fact.at) ||
+    !Number.isFinite(Date.parse(fact.at)) ||
+    new Date(fact.at).toISOString() !== fact.at ||
+    Object.keys(fact).some(
+      (key) =>
+        ![
+          "stage",
+          "at",
+          "attempt",
+          "statusClass",
+          "httpStatus",
+          "lastHttpStatus",
+          "lastHttpStatusAttempt",
+          "failureCode",
+          "activeStage",
+          "outcome",
+          "credential",
+        ].includes(key),
+    )
+  )
+    return null;
+  if (fact.stage === "headers-received") {
+    if (
+      !["2xx", "3xx", "4xx", "5xx", "other"].includes(fact.statusClass ?? "") ||
+      (fact.httpStatus !== undefined &&
+        (!Number.isInteger(fact.httpStatus) || fact.httpStatus < 100 || fact.httpStatus > 599)) ||
+      fact.activeStage !== undefined ||
+      fact.outcome !== undefined ||
+      fact.lastHttpStatus !== undefined ||
+      fact.lastHttpStatusAttempt !== undefined ||
+      fact.failureCode !== undefined
+    )
+      return null;
+    return {
+      page,
+      attempt: fact.attempt,
+      stage: fact.stage,
+      at: fact.at,
+      statusClass: fact.statusClass,
+      ...(fact.httpStatus === undefined ? {} : { httpStatus: fact.httpStatus }),
+    };
+  }
+  if (fact.stage === "abort") {
+    if (
+      !fact.activeStage ||
+      !STAGES.has(fact.activeStage) ||
+      fact.statusClass !== undefined ||
+      fact.outcome !== undefined ||
+      fact.httpStatus !== undefined ||
+      fact.lastHttpStatus !== undefined ||
+      fact.lastHttpStatusAttempt !== undefined ||
+      fact.failureCode !== undefined
+    )
+      return null;
+    return { page, attempt: fact.attempt, stage: fact.stage, at: fact.at, activeStage: fact.activeStage };
+  }
+  if (fact.stage === "terminal") {
+    if (
+      !["success", "failure", "aborted"].includes(fact.outcome ?? "") ||
+      fact.statusClass !== undefined ||
+      fact.activeStage !== undefined ||
+      fact.httpStatus !== undefined ||
+      (fact.lastHttpStatus !== undefined &&
+        fact.lastHttpStatus !== null &&
+        (!Number.isInteger(fact.lastHttpStatus) || fact.lastHttpStatus < 100 || fact.lastHttpStatus > 599)) ||
+      (fact.lastHttpStatusAttempt !== undefined &&
+        fact.lastHttpStatusAttempt !== null &&
+        (!Number.isInteger(fact.lastHttpStatusAttempt) ||
+          fact.lastHttpStatusAttempt < 1 ||
+          fact.lastHttpStatusAttempt > 10000)) ||
+      (fact.failureCode !== undefined && fact.failureCode !== null && fact.failureCode !== "credential-unavailable") ||
+      (fact.lastHttpStatus === null) !== (fact.lastHttpStatusAttempt === null) ||
+      (fact.lastHttpStatus === undefined) !== (fact.lastHttpStatusAttempt === undefined) ||
+      (fact.lastHttpStatusAttempt != null && fact.lastHttpStatusAttempt > fact.attempt)
+    )
+      return null;
+    return {
+      page,
+      attempt: fact.attempt,
+      stage: fact.stage,
+      at: fact.at,
+      outcome: fact.outcome,
+      ...(fact.lastHttpStatus === undefined ? {} : { lastHttpStatus: fact.lastHttpStatus }),
+      ...(fact.lastHttpStatusAttempt === undefined ? {} : { lastHttpStatusAttempt: fact.lastHttpStatusAttempt }),
+      ...(fact.failureCode === undefined ? {} : { failureCode: fact.failureCode }),
+    };
+  }
+  if (
+    fact.statusClass !== undefined ||
+    fact.activeStage !== undefined ||
+    fact.outcome !== undefined ||
+    fact.httpStatus !== undefined ||
+    fact.lastHttpStatus !== undefined ||
+    fact.lastHttpStatusAttempt !== undefined ||
+    fact.failureCode !== undefined
+  )
+    return null;
+  return { page, attempt: fact.attempt, stage: fact.stage, at: fact.at };
+}
+
+export function sanitizeEndpointStageTrace(
+  trace: TcgplayerEndpointStageTrace | undefined,
+): TcgplayerEndpointStageTrace | undefined {
+  if (!trace) return undefined;
+  if (
+    Object.keys(trace).some((key) => !["entries", "overflow", "retryCount", "cooldownCount"].includes(key)) ||
+    !Array.isArray(trace.entries) ||
+    trace.entries.length > 64 ||
+    ![trace.overflow, trace.retryCount, trace.cooldownCount].every(
+      (count) => Number.isInteger(count) && count >= 0 && count <= 65535,
+    )
+  )
+    return undefined;
+  const entries = trace.entries.map((entry) => {
+    if (
+      !entry ||
+      Object.keys(entry).some(
+        (key) =>
+          ![
+            "page",
+            "attempt",
+            "stage",
+            "at",
+            "statusClass",
+            "httpStatus",
+            "lastHttpStatus",
+            "lastHttpStatusAttempt",
+            "failureCode",
+            "activeStage",
+            "outcome",
+          ].includes(key),
+      )
+    )
+      return null;
+    const { page, ...fact } = entry;
+    return sanitizeStageFact(page, fact);
+  });
+  if (entries.some((entry) => entry === null)) return undefined;
+  return {
+    entries: entries as TcgplayerEndpointStageTrace["entries"],
+    overflow: trace.overflow,
+    retryCount: trace.retryCount,
+    cooldownCount: trace.cooldownCount,
+  };
+}
 
 export type SalesObservation = Readonly<{
   status: EndpointStatus;
@@ -83,6 +360,7 @@ export type TcgplayerSecondaryFetch = Readonly<{
   observation: TcgplayerSecondaryObservation;
   responseFieldSummary: TcgplayerResponseFieldSummaryV1;
   failurePhases: TcgplayerEndpointFailurePhases;
+  stageTraces: TcgplayerEndpointStageTraces;
 }>;
 
 export type TcgplayerMarketClient = Readonly<{
@@ -112,10 +390,13 @@ export function createTcgplayerMarketClient(transport: TcgplayerMarketTransport)
     },
     async fetchSecondary(input) {
       // Endpoints are independent: a timeout/shape failure in one never suppresses another.
+      const salesTrace = createStageTrace();
+      const listingsTrace = createStageTrace();
+      const historyTrace = createStageTrace();
       const [sales, listings, history] = await Promise.all([
-        fetchSales(transport, input),
-        fetchListings(transport, input),
-        fetchHistory(transport, input),
+        fetchSales(transport, input, salesTrace),
+        fetchListings(transport, input, listingsTrace),
+        fetchHistory(transport, input, historyTrace),
       ]);
       return {
         observation: {
@@ -133,6 +414,11 @@ export function createTcgplayerMarketClient(transport: TcgplayerMarketTransport)
           listings: listings.failurePhase,
           history: history.failurePhase,
         },
+        stageTraces: {
+          sales: salesTrace.snapshot(),
+          listings: listingsTrace.snapshot(),
+          history: historyTrace.snapshot(),
+        },
       };
     },
   };
@@ -141,6 +427,7 @@ export function createTcgplayerMarketClient(transport: TcgplayerMarketTransport)
 async function fetchSales(
   transport: TcgplayerMarketTransport,
   input: Parameters<TcgplayerMarketClient["fetchSecondary"]>[0],
+  trace: ReturnType<typeof createStageTrace>,
 ): Promise<
   Readonly<{
     observation: SalesObservation;
@@ -178,7 +465,7 @@ async function fetchSales(
             offset,
             limit,
           },
-          { signal },
+          { signal, onStage: (fact) => trace.observe(page + 1, fact) },
         ),
       );
       failurePhase = "response-processing";
@@ -186,7 +473,7 @@ async function fetchSales(
       const continuationBody = JSON.stringify(raw);
       if (seenContinuationBodies.has(continuationBody)) inconsistent = true;
       seenContinuationBodies.add(continuationBody);
-      const decoded = decodeLatestSales(raw);
+      const decoded = decodeLatestSales(raw, input.policy.sales.listingType);
       const pageRowCount = decoded.data.length + decoded.rejectedRows;
       const expectedPreviousPage = page === 0 ? "" : "Yes";
       if (
@@ -255,6 +542,7 @@ async function fetchSales(
 async function fetchListings(
   transport: TcgplayerMarketTransport,
   input: Parameters<TcgplayerMarketClient["fetchSecondary"]>[0],
+  trace: ReturnType<typeof createStageTrace>,
 ): Promise<
   Readonly<{
     observation: ListingsObservation;
@@ -287,7 +575,7 @@ async function fetchListings(
             size: input.policy.listings.pageSize,
             sort: { field: "price+shipping", order: "asc" },
           },
-          { signal },
+          { signal, onStage: (fact) => trace.observe(page + 1, fact) },
         ),
       );
       failurePhase = "response-processing";
@@ -339,6 +627,7 @@ async function fetchListings(
 async function fetchHistory(
   transport: TcgplayerMarketTransport,
   input: Parameters<TcgplayerMarketClient["fetchSecondary"]>[0],
+  trace: ReturnType<typeof createStageTrace>,
 ): Promise<
   Readonly<{
     observation: HistoryObservation;
@@ -352,7 +641,11 @@ async function fetchHistory(
   try {
     failurePhase = "transport";
     const raw = await timed(input.policy.secondaryTimeoutMs, (signal) =>
-      transport.infiniteApi.get<unknown>(`/price/history/${input.productId}/detailed`, { range: "annual" }, { signal }),
+      transport.infiniteApi.get<unknown>(
+        `/price/history/${input.productId}/detailed`,
+        { range: "annual" },
+        { signal, onStage: (fact) => trace.observe(1, fact) },
+      ),
     );
     failurePhase = "response-processing";
     responseSummary = summarizeHistoryResponseAtReceipt(raw);
