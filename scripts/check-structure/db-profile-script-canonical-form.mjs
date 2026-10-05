@@ -244,12 +244,12 @@ export function discoverDbProfile(workspaceRoot, unitNames = []) {
   }
   if (!aggregate.files.length) violations.push("aggregate DB profile must remain nonempty");
   if (
-    aggregate.config.include.some((glob) => !glob.endsWith(".db.test.ts")) &&
+    aggregate.config.include.some((glob) => !/\.db\.test\.tsx?$/.test(glob)) &&
     JSON.stringify(aggregate.files) !== JSON.stringify(base.files)
   ) {
     violations.push("exceptional non-suffix DB profile must retain every base-config test suite");
   }
-  for (const file of files.filter((file) => file.endsWith(".db.test.ts"))) {
+  for (const file of files.filter((file) => /\.db\.test\.tsx?$/.test(file))) {
     if (!aggregate.files.includes(file))
       violations.push(`${file}: DB glob file omitted or excluded by aggregate config`);
   }
@@ -290,9 +290,9 @@ export function validateDbProfileScripts(workspace) {
       violations.push(`${workspace.name}: ${error.message}`);
     }
   }
-  for (const name of ["test:unit", "test", "test:fast"]) {
+  for (const name of ["test:unit", "test", "test:fast", "test:watch"]) {
     if (name !== "test:unit" && scripts[name] === undefined) continue;
-    const expected = "vitest run --config ./vitest.unit.config.mjs";
+    const expected = `vitest${name === "test:watch" ? "" : " run"} --config ./vitest.unit.config.mjs`;
     if (scripts[name] !== expected) violations.push(`${workspace.name} ${name}: expected canonical form '${expected}'`);
   }
   let inventory = null;

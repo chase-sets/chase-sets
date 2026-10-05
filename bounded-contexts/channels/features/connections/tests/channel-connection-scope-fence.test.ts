@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { discoverDbProfile } from "../../../../../scripts/check-structure/db-profile-script-canonical-form.mjs";
 import manifest from "../../../context.json" with { type: "json" };
 import packageJson from "../../../package.json" with { type: "json" };
 
@@ -30,10 +31,12 @@ describe("channel-connection-scope-fence", () => {
       "features/connections/tests/channel-connection-projection-concurrency.db.test.ts",
     ];
     expect(packageJson.chaseSets).toEqual({ testProfile: "db" });
-    for (const file of dbFiles) {
-      expect(packageJson.scripts["test:db"]).toContain(file);
-      expect(packageJson.scripts["test:unit"]).toContain(`--exclude ${file}`);
-    }
+    const inventory = discoverDbProfile(path.resolve(import.meta.dirname, "../../.."));
+    expect(inventory.violations).toEqual([]);
+    expect(inventory.aggregate.files.filter((file) => file.startsWith("features/connections/"))).toEqual(
+      [...dbFiles].sort(),
+    );
+    for (const file of dbFiles) expect(inventory.unit.files).not.toContain(file);
   });
 });
 

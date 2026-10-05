@@ -810,6 +810,24 @@
       "workspace": "@chase-sets/stripe-appearance",
       "script": "test",
       "observedDurationMs": 5798
+    },
+    {
+      "runId": 37246249099,
+      "runAttempt": 1,
+      "jobId": 111564844471,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/ordering",
+      "script": "test:unit",
+      "observedDurationMs": 71279
+    },
+    {
+      "runId": 37246249099,
+      "runAttempt": 1,
+      "jobId": 111564844471,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/marketplace-seed-testing",
+      "script": "test:unit",
+      "observedDurationMs": 3308
     }
   ]
 }

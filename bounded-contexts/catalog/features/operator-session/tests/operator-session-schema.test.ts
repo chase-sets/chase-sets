@@ -1,5 +1,10 @@
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import {
+  discoverDbProfile,
+  validateDbProfileScripts,
+} from "../../../../../scripts/check-structure/db-profile-script-canonical-form.mjs";
 import { module as catalogModule } from "../../../index";
 import { catalogAuthoringSchemaMigrations, catalogAuthoringSchemaSql } from "../../../support/authoring-support/schema";
 import { catalogOperatorSessionSchemaMigrations, catalogOperatorSessionSchemaSql } from "../read-model/schema";
@@ -56,6 +61,9 @@ END $$;`,
   });
   it("enrolls every DB suite without running it in the database-free profile", () => {
     const manifest = JSON.parse(readFileSync(new URL("../../../package.json", import.meta.url), "utf8"));
+    const dir = fileURLToPath(new URL("../../../", import.meta.url));
+    expect(validateDbProfileScripts({ name: manifest.name, dir, packageJson: manifest }).violations).toEqual([]);
+    const inventory = discoverDbProfile(dir);
     for (const name of [
       "operator-session-store-fence",
       "operator-session-hot-reload",
@@ -63,9 +71,8 @@ END $$;`,
       "tcgplayer-operator-session-readiness",
     ]) {
       const path = `features/operator-session/tests/${name}.db.test.ts`;
-      expect(manifest.scripts["test:db"]).toContain(path);
-      expect(manifest.scripts["test:unit"]).toContain(`--exclude ${path}`);
-      expect(manifest.scripts["test:fast"]).toContain(`--exclude ${path}`);
+      expect(inventory.aggregate.files).toContain(path);
+      expect(inventory.unit.files).not.toContain(path);
     }
   });
 });

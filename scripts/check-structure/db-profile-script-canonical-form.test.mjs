@@ -88,6 +88,13 @@ describe("DB profile construction", () => {
       );
     }
     workspace.packageJson.scripts["test:db"] = canonicalDbProfileCommand("test:db");
+    workspace.packageJson.scripts["test:watch"] = "vitest --config ./vitest.unit.config.mjs";
+    expect(validateDbProfileScripts(workspace).violations).toEqual([]);
+    workspace.packageJson.scripts["test:watch"] = "vitest --config ./vitest.config.mjs";
+    expect(validateDbProfileScripts(workspace).violations.join("\n")).toContain(
+      "test:watch: expected canonical form 'vitest --config ./vitest.unit.config.mjs'",
+    );
+    workspace.packageJson.scripts["test:watch"] = "vitest --config ./vitest.unit.config.mjs";
     workspace.packageJson.chaseSets.testProfile = "unsupported";
     expect(validateDbProfileScripts(workspace).violations.join("\n")).toContain("unsupported testProfile");
     workspace.packageJson.chaseSets.testProfile = "db";
@@ -158,6 +165,37 @@ describe("DB profile construction", () => {
     expect(discoverDbProfile(seed.dir).violations.join("\n")).toContain("retain every base-config test suite");
     rmSync(path.join(seed.dir, "vitest.db.config.mjs"));
     expect(() => discoverDbProfile(seed.dir)).toThrow();
+  });
+
+  it("DB TSX suites cannot be omitted or leak into units", () => {
+    const workspace = fixture({ units: ["test:db:1"] });
+    workspace.write(
+      "vitest.config.mjs",
+      readFileSync(path.join(workspace.dir, "vitest.config.mjs"), "utf8").replace(
+        'include:["**/*.test.ts"]',
+        'include:["**/*.test.ts","**/*.test.tsx"]',
+      ),
+    );
+    const dbFile = "tests/unit-1/rendering.db.test.tsx";
+    workspace.write(dbFile, "");
+    workspace.write("tests/unit-1/runtime.db.test.ts", "");
+    workspace.write("tests/rendering.test.tsx", "");
+    const omitted = discoverDbProfile(workspace.dir, ["test:db:1"]);
+    expect(omitted.violations).toContain(`${dbFile}: DB glob file omitted or excluded by aggregate config`);
+    expect(omitted.unit.files).toContain(dbFile);
+    workspace.write("vitest.db.config.mjs", workspace.db(["**/*.db.test.ts", "**/*.db.test.tsx"]));
+    expect(discoverDbProfile(workspace.dir, ["test:db:1"]).violations.join("\n")).toContain(
+      `${dbFile}: must belong to aggregate and exactly one runner-selected DB unit; found none`,
+    );
+    workspace.write(
+      "vitest.db.1.config.mjs",
+      workspace.db(["tests/unit-1/**/*.db.test.ts", "tests/unit-1/**/*.db.test.tsx"]),
+    );
+    const enrolled = discoverDbProfile(workspace.dir, ["test:db:1"]);
+    expect(enrolled.violations).toEqual([]);
+    expect(enrolled.aggregate.files).toContain(dbFile);
+    expect(enrolled.units[0].files).toContain(dbFile);
+    expect(enrolled.unit.files).toEqual(["tests/rendering.test.tsx"]);
   });
 
   it("unit selection is the DB complement", async () => {
