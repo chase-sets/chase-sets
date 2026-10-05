@@ -27,6 +27,7 @@ import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { MarketplaceOfferAcceptedPayload } from "@chase-sets/event-core";
 import type { PgQueryable, PgTransactionalPool, PostgresEventStore } from "@chase-sets/event-core-postgres";
+import type { PurchaseDetail } from "./contracts";
 import type { SourceCommitPosition } from "@chase-sets/http/responses";
 import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/outbound-messaging";
 import {
@@ -1499,7 +1500,11 @@ function planToPreview(
   };
 }
 
-async function getPurchaseWithDeliverySummary(db: PgQueryable, orderId: string, buyerAccountId: string) {
+async function getPurchaseWithDeliverySummary(
+  db: PgQueryable,
+  orderId: string,
+  buyerAccountId: string,
+): Promise<(NonNullable<Awaited<ReturnType<typeof getPurchase>>> & Pick<PurchaseDetail, "delivery_summary">) | null> {
   const purchase = await getPurchase(db, orderId, buyerAccountId);
   if (!purchase) {
     return null;
