@@ -681,7 +681,8 @@
       "section": "commerce",
       "order": 80,
       "visibility": "signed-in",
-      "requiredPermissions": ["payouts.reconcile"]
+      "requiredPermissions": ["payouts.reconcile", "payouts.platform.view"],
+      "requiredPermissionsMatch": "any"
     },
     {
       "deployable": "admin-web",
@@ -693,7 +694,8 @@
       "section": "commerce",
       "order": 85,
       "visibility": "signed-in",
-      "requiredPermissions": ["payouts.reconcile"]
+      "requiredPermissions": ["payouts.reconcile", "payouts.platform.view"],
+      "requiredPermissionsMatch": "any"
     },
     {
       "deployable": "marketplace-web",

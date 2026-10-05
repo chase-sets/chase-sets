@@ -1,9 +1,21 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { ROLE_PERMISSIONS } from "./constants";
+import { PERMISSION_PRESETS, ROLE_PERMISSIONS } from "./constants";
 import { ROLE_KEYS } from "../../../support/runtime-support/common";
 
 describe("identity role permissions", () => {
+  it("grants platform payout reads once to platform-admin and never through a preset", () => {
+    for (const [role, permissions] of Object.entries(ROLE_PERMISSIONS)) {
+      expect(permissions.filter((permission) => permission === "payouts.platform.view")).toEqual(
+        role === "platform-admin" ? ["payouts.platform.view"] : [],
+      );
+      const grants = new Set<string>(permissions);
+      expect(grants.has("payouts.platform.view") && grants.has("payouts.reconcile")).toBe(false);
+    }
+    for (const permissions of Object.values(PERMISSION_PRESETS)) {
+      expect(permissions).not.toContain("payouts.platform.view");
+    }
+  });
   it("grants commercial agreement management only to platform admins", () => {
     for (const [role, permissions] of Object.entries(ROLE_PERMISSIONS)) {
       expect(permissions.filter((permission) => permission === "commercial-terms.agreements.manage")).toEqual(
@@ -215,9 +227,9 @@ describe("pricing preset contract", () => {
     viewer: ["pricing.view"],
     "platform-admin": [],
   };
-  // Sorted non-pricing sets, including the platform-admin-only #6483 and #7857 grants.
+  // Sorted non-pricing sets, including the platform-admin-only #6483, #7857 and #8725 grants.
   const predecessor = {
-    "platform-admin": "008245f9b9245c74906b6eab76ec184176af57eca1508347d13204c31d7ff88b",
+    "platform-admin": "a5a7d32b1189974400c550422a8e5b1028b004b8205a5aef033bde312864c6d5",
     owner: "8dbce908e11a530780c622e5d633794d41c23357d51ed3054c586c505f2fdd55",
     manager: "4f7bafd3ac8326d8486dcdc7ddeb5c4fe63c76f8615ce4c307f1438af27332c1",
     fulfillment: "968211cfdf02d5d689838226c846197ac9c41fdd96806aa5fe84bfb32b551248",

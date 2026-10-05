@@ -40,6 +40,7 @@ import { validateChannelConnectionContractProvenance } from "./channel-connectio
 import { runSqlExecutionSurfaceGuard } from "./sql-execution-surface.mjs";
 import { listWorkspacePackages, repoRoot, workspaceRoots } from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
+import { checkDbDurationBaseline } from "./db-duration-baseline.mjs";
 
 const roots = workspaceRoots;
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
@@ -1525,6 +1526,14 @@ export function validateShellContributionEntries({ manifest, root }) {
 
     if (!isStringArray(contribution.requiredPermissions)) {
       addViolation(contributionLabel, "requiredPermissions must be an array of strings");
+    }
+
+    if (
+      contribution.requiredPermissionsMatch !== undefined &&
+      contribution.requiredPermissionsMatch !== "all" &&
+      contribution.requiredPermissionsMatch !== "any"
+    ) {
+      addViolation(contributionLabel, "requiredPermissionsMatch must be 'all' or 'any' when provided");
     }
 
     if (contribution.children !== undefined && !Array.isArray(contribution.children)) {
@@ -3631,6 +3640,7 @@ export async function runStructureCheck(options = {}) {
 
   const doksIngressChartVersionResult = await validateDoksIngressChartVersion({ repoRoot });
   violations.push(...doksIngressChartVersionResult.violations);
+  violations.push(...checkDbDurationBaseline({ repoRoot }).map(({ file, message }) => `${file}: ${message}`));
 
   const retentionSweepCoverageResult = await validateRetentionSweepCoverage({ repoRoot });
   violations.push(...retentionSweepCoverageResult.violations);

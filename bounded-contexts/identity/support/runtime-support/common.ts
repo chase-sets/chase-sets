@@ -63,6 +63,7 @@ export type PermissionKey =
   | "orders.view"
   | "payouts.manage"
   | "payouts.reconcile"
+  | "payouts.platform.view"
   | "payouts.request"
   | "payouts.setup"
   | "payouts.view"
