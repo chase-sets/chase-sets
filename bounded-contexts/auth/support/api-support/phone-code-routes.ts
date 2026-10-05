@@ -4,7 +4,7 @@ import { randomInt } from "node:crypto";
 import { authSecurityLifetimesOf, createExpiryTimestamp } from "../../features/sessions/domain/auth-flow";
 import { createAuthRateLimitPair } from "../../features/sign-in/api/rate-limits";
 import { mapPhoneCodeRequestedToNotification } from "../../features/sessions/integrations/notifications/notification-intents";
-import { normalizeAuthPhoneNumber } from "../auth-support/identity-projection";
+import { insertCreatedAuthIdentityAccountMirror, normalizeAuthPhoneNumber } from "../auth-support/identity-projection";
 import { insertPhoneCodeToken, verifyPhoneCodeToken } from "../auth-support/store";
 import { AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import { startInteractiveAuth, type AuthServices } from "../runtime-support/services";
@@ -161,6 +161,13 @@ export function registerPhoneCodeRoutes(app: AuthApiApp, services: AuthServices)
 
         throw error;
       }
+      await insertCreatedAuthIdentityAccountMirror(services.db, {
+        accountId: identity.accountId,
+        displayName:
+          typeof body.displayName === "string" && body.displayName.trim()
+            ? body.displayName.trim()
+            : createOwnedUserDisplayName(record.phone),
+      });
       const authResult = await startInteractiveAuth(services, {
         userId: identity.userId,
         accountId: identity.accountId,
