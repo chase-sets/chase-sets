@@ -7,10 +7,94 @@ import { canonicalClaimRegistry, resolveUnresolvedPublicDisclosureText } from ".
 import { evaluateCanonicalClaimConsistency, projectCanonicalClaimReviewCorpus } from "./canonical-claim-guard";
 import type { PublicPolicyRegistryEntry } from "./policy-registry";
 import { publicPolicyRegistry } from "./policy-registry";
+import { paymentsTermsPolicyArtifact } from "./payments-terms";
 import { readCitedSourceSlice } from "../integrations/privacy-product-truth-inventory.mjs";
 
 const domainDirectory = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(domainDirectory, "../../../../..");
+
+describe("ordinary interest versus the ruled Prepaid Balance term", () => {
+  const prepaid = paymentsTermsPolicyArtifact.sections.find(({ id }) => id === "prepaid-balance")!;
+  const ordinaryAssertions = [
+    "Chase Sets does not pay you interest on funds connected to your Marketplace payment activity, including amounts pending payout.",
+    "Chase Sets does not pay interest on funds connected to your Marketplace payment activity.",
+    "Chase Sets does not pay you interest on Wallet balances.",
+    "Chase Sets does not pay interest on Wallet balances.",
+    "Chase Sets does not pay you interest on ordinary payment activity.",
+    "Chase Sets does not pay interest on ordinary payment activity.",
+    "Chase Sets does not pay you interest on amounts pending payout.",
+    "Chase Sets does not pay interest on amounts pending payout.",
+    "Chase Sets also does not pay interest on your Wallet balance.",
+    "Chase Sets does not pay interest on any Wallet balance or amount pending payout.",
+    ...[
+      "your Wallet balance",
+      "any Wallet balance",
+      "the Wallet balance",
+      "a Wallet balance",
+      "funds in your Wallet",
+      "funds in any Wallet",
+      "funds in the Wallet",
+      "funds in a Wallet",
+      "your Marketplace payment activity",
+      "any Marketplace payment activity",
+      "the Marketplace payment activity",
+      "your ordinary payment activity",
+      "any ordinary payment activity",
+      "the ordinary payment activity",
+      "an ordinary Wallet balance",
+      "pending payouts",
+      "your pending payouts",
+      "any pending payout",
+      "the pending payout",
+      "any amount pending payout",
+      "any amounts pending payout",
+      "your amount pending payout",
+      "your amounts pending payout",
+      "the amount pending payout",
+      "the amounts pending payout",
+    ].flatMap((subject) => [
+      `Chase Sets does not pay interest on ${subject}.`,
+      `Chase Sets does not pay you interest on ${subject}.`,
+    ]),
+  ];
+
+  describe.each([
+    ["standalone", ""],
+    ["appended to the ruled prepaid draft", `${prepaid.draftText} `],
+  ])("%s", (_context, prefix) => {
+    it.each(ordinaryAssertions)("rejects undeclared ordinary assertions under arbitrary ids: %s", (draftText) => {
+      const result = evaluateCanonicalClaimConsistency(
+        isolatedSyntheticCorpus("synthetic-unrelated-8667", `${prefix}${draftText}`),
+        repoRoot,
+      );
+      expect(result).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ claimId: "wallet-no-interest", sectionId: "synthetic-unrelated-8667" }),
+        ]),
+      );
+    });
+  });
+
+  it("accepts the ruled prepaid sentence without section exemptions and retains every prior forbidden phrase", () => {
+    expect(
+      evaluateCanonicalClaimConsistency(
+        isolatedSyntheticCorpus("synthetic-unrelated-8667", prepaid.draftText),
+        repoRoot,
+      ),
+    ).toEqual([]);
+    expect(canonicalClaimRegistry["wallet-no-interest"].forbiddenAssertionPhrases).toEqual(
+      expect.arrayContaining([
+        "do not earn interest",
+        "does not earn interest",
+        "will not earn interest",
+        "no interest is paid",
+      ]),
+    );
+    expect(canonicalClaimRegistry["wallet-no-interest"].forbiddenAssertionPhrases).not.toContain(
+      "does not pay interest",
+    );
+  });
+});
 
 // Claim-specific source-role probes, not a semantic extension of the generic guard.
 const chargeSourceRoles = [

@@ -194,6 +194,7 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
       id: "payouts-holds-and-reserves",
       title: "Payouts, holds, and reserves",
       draftText:
+        "Buyer payments are collected and held on Chase Sets' own platform account with Stripe. After you request and qualify for payout, Chase Sets transfers net proceeds from its platform balance to your connected account and requests an on-demand payout through Stripe.\n\n" +
         "Sale proceeds and any shipping payout post to your Wallet as pending and become available once delivery is recorded and the applicable clearance window described in Chase Sets' Getting paid help article has passed. Open support requests, fraud reviews, and chargebacks hold the affected order's funds beyond that schedule, and a chargeback hold releases only if the dispute is won, all as described in that help article and in the Order protection help article, which this Agreement incorporates by reference.\n\nYou request payouts of your available balance to the payout destination connected during Chase Sets' payout setup process; payout requests are refused while payout setup is incomplete, while support holds cover the requested funds, while your balance is negative, or when the requested amount is unavailable, and additional identity verification applies for a period after you change your payout destination. These bounds and holds are Settlement's Payout Release Hold and Connected Payout Account mechanisms and are not restated here beyond this reference.\n\nThis Agreement does not restate the Wallet's nature, custody, and interest posture, its adjustment authority, setoff rights, negative-balance and restriction rules, or its suspension, closure, dormant-balance, and legal-hold treatment; those are governed by the corresponding Terms of Service subjects, which apply to your account as a Wallet holder in addition to your obligations as a seller under this Agreement. Chase Sets may retain a reasonable reserve against your Wallet balance following suspension, closure, or termination of your selling privileges to cover pending refunds, chargebacks, and other obligations arising from your sales, released once those obligations are resolved or expire under the applicable Wallet rules.",
       reviewStatus: "counsel-required",
       reviewManifest: {
@@ -202,6 +203,8 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
         decisionRefs: [],
         productTruthRefs: [
           "bounded-contexts/public-presence/features/help/domain/articles/getting-paid.en.md",
+          "infrastructure/stripe-payments/index.ts:1616-1640",
+          "infrastructure/stripe-connect/index.ts:1100-1160",
           "bounded-contexts/public-presence/features/help/domain/articles/order-protection.en.md",
           "bounded-contexts/settlement/features/payouts/api/runtime.ts:1498,1600 (payout requests blocked while readiness is not ready)",
           'bounded-contexts/settlement/features/payouts/api/runtime.test.ts:616 ("blocks payout requests until payout readiness is ready")',
@@ -365,23 +368,22 @@ export const sellerAgreementPolicyArtifact: SellerAgreementPolicyArtifact = {
       id: "governing-law",
       title: "Governing law and dispute forum",
       draftText:
-        "This Agreement is between you and [ENTITY], and is governed by the laws of [STATE], without regard to conflict-of-law rules, except that the Dispute resolution subject above governs how disputes are resolved. Any small-claims or court action permitted by that subject must be brought in the state or federal courts located in [STATE].\n\nNotices under this Agreement, including the informal-dispute notice and arbitration opt-out described in the Dispute resolution subject, must be sent in writing to [NOTICE-CONTACT].",
+        "This Agreement is between you and Chase Sets Limited, registered in Wichita, Kansas, and is governed by the laws of the State of Kansas, without regard to conflict-of-law rules, except that the Dispute resolution subject above governs how disputes are resolved. Any small-claims or court action permitted by that subject must be brought in the state and federal courts located in Kansas.\n\nNotices under this Agreement, including the informal-dispute notice and arbitration opt-out described in the Dispute resolution subject, must be sent in writing to Chase Sets Limited, PO Box 164, Maize, KS 67101-0164, US, or to [NOTICE-EMAIL].",
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote:
-          "Carry #5677's entity/governing-law/notice-contact markers forward as explicit [ENTITY]/[STATE]/[NOTICE-CONTACT] placeholders pending final counsel-approved substitution, consistent with this issue's explicit placeholder instruction.",
+          "Align the entity, governing-law state, courts and mailing notice address with the Terms of Service and #5677, retaining [NOTICE-EMAIL] because that fact remains pending.",
         decisionRefs: [5677],
         productTruthRefs: [],
         openQuestions: [
-          "Final [ENTITY]/[STATE]/[NOTICE-CONTACT] substitution awaits counsel-approved final language during the packet review. #5677's decision thread already records directional facts (Chase Sets Limited, registered Wichita, Kansas; notice address in Maize, KS), but this draft intentionally keeps the placeholders per this issue's scope fence.",
+          "#5677 did not supply a dedicated legal-notice email; [NOTICE-EMAIL] remains pending, as in the Terms of Service. Counsel must confirm the final governing-law and forum language before publication.",
           "Initial rollout jurisdictions (#5678: US, all 50 states + DC) are carried in the artifact's rolloutJurisdictionsOrProductLimits metadata field at publication time, not in this subject's prose.",
         ],
         assumptions: [
           {
             assertion:
-              "Placeholders are used here even though #5677's decision thread records directional entity/notice facts, because this issue's scope fence explicitly calls for [ENTITY]/[STATE] placeholders in the draft.",
-            evidenceRef:
-              'Issue #5687 scope fence: "dispute-resolution + governing-law (#5681/#5677 markers, [ENTITY]/[STATE] placeholders)"',
+              "Contracting entity is Chase Sets Limited, registered in Wichita, Kansas, USA; notice address is PO Box 164, Maize, KS 67101-0164, US.",
+            evidenceRef: "issue #5677 (decision recorded 2026-07-18)",
           },
         ],
       },
