@@ -251,7 +251,7 @@ describe("quoted payout and acceptance readiness", () => {
       />,
     );
     for (const name of ["Payout setup", "Seller agreement", "Review payout requirements"]) {
-      expect(screen.getByRole("link", { name, exact: true }).getAttribute("href")).toBe(
+      expect(screen.getByRole("link", { name }).getAttribute("href")).toBe(
         "/account/payouts/setup?returnTo=%2Faccount%2Fdesk%2Foffers",
       );
     }

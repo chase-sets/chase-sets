@@ -1,7 +1,7 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
 import { registerSyntheticAccount, signInWithPassword, syntheticAccountFor } from "./support/auth";
-import { marketplaceBrowserE2eSeedContract, marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
+import { marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
 
 const configuredMarketplaceAccount = {
   email: process.env.MARKETPLACE_E2E_EMAIL?.trim() ?? "",
@@ -400,15 +400,12 @@ test.describe("marketplace critical flows", () => {
         unexpectedSubmissions.push(new URL(request.url()).pathname);
     });
     try {
-      await expectPageOk(
-        page,
-        `${marketplaceBrowserE2eSeedContract.itemDetail.selectedProductRoutePath}&market=sell&offer=${offerId}`,
-      );
+      await expectPageOk(page, "/account/offers/matches");
       const addForm = page
         .locator(`form:has(input[name="offerId"][value="${offerId}"])`)
-        .filter({ has: page.locator('button[value="add-to-sell-list"]') });
+        .filter({ has: page.getByRole("button", { name: "Add selected offer to Sell List", exact: true }) });
       await expect(addForm).toHaveCount(1);
-      await addForm.getByRole("button", { name: "Add offer to Sell List", exact: true }).click();
+      await addForm.getByRole("button", { name: "Add selected offer to Sell List", exact: true }).click();
       await expect(page).toHaveURL(/\/account\/sell-list/);
       await expect.poll(async () => (await read(sellListApi)).items.length).toBe(1);
       const populated = await read(sellListApi);
