@@ -60,3 +60,24 @@ jobs:
             process.exitCode = 1;
           }
           NODE
+
+  reporter:
+    name: Report Merge Queue Posture Failure
+    needs: posture
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Report workflow failure
+        if: ${{ contains(needs.*.result, 'failure') }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Platform Merge Queue Posture
+          alert-status: failure
+          alert-summary: Merge queue posture check failed. See this run's jobs and artifacts.
