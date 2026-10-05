@@ -410,12 +410,30 @@ async function runWorkspace(workspace, options) {
 
 async function runConcurrent(tasks, options) {
   const failures = [];
-  let nextIndex = 0;
+  const pending = tasks.slice();
+  const waitingWorkers = new Set();
+  let seedOrApiDbActive = false;
+
+  function needsSeedApiExclusion(task) {
+    return (
+      (task.workspace.name === "@chase-sets/marketplace-seed-testing" ||
+        task.workspace.name === "@chase-sets/app-platform-api") &&
+      (task.scriptNames ?? [options.scriptName]).some((script) => script === "test:db" || script.startsWith("test:db:"))
+    );
+  }
 
   async function worker() {
-    while (nextIndex < tasks.length) {
-      const task = tasks[nextIndex];
-      nextIndex += 1;
+    while (pending.length > 0) {
+      // Preserve priority among runnable tasks without letting the contending
+      // seed/API pair occupy both DB slots. Unrelated tasks can pass the waiter.
+      const nextIndex = pending.findIndex((task) => !seedOrApiDbActive || !needsSeedApiExclusion(task));
+      if (nextIndex === -1) {
+        await new Promise((resolve) => waitingWorkers.add(resolve));
+        continue;
+      }
+      const [task] = pending.splice(nextIndex, 1);
+      const excludesSeedApi = needsSeedApiExclusion(task);
+      if (excludesSeedApi) seedOrApiDbActive = true;
       const workspace = task.workspace;
       const startedAt = options.now();
       const taskResult = options.taskResults
@@ -448,6 +466,10 @@ async function runConcurrent(tasks, options) {
         if (taskResult) {
           taskResult.actualDurationMs = Math.min(3_600_000, Math.max(0, options.now() - startedAt));
         }
+        // Hold admission across every partition, releasing it on failure too.
+        if (excludesSeedApi) seedOrApiDbActive = false;
+        for (const wake of waitingWorkers) wake();
+        waitingWorkers.clear();
       }
     }
   }
