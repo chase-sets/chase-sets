@@ -110,6 +110,14 @@ describe("DB profile construction", () => {
     workspace.write("tests/unit-1/a.db.test.ts", "");
     workspace.write("tests/unit-2/b.db.test.ts", "");
     expect(discoverDbProfile(workspace.dir, ["test:db:1", "test:db:2"]).violations).toEqual([]);
+    workspace.write("build/unlisted.db.test.ts", "");
+    expect(discoverDbProfile(workspace.dir, ["test:db:1", "test:db:2"]).violations.join("\n")).toContain(
+      "build/unlisted.db.test.ts",
+    );
+    workspace.write("vitest.db.1.config.mjs", workspace.db(["tests/unit-1/**/*.db.test.ts", "build/**/*.db.test.ts"]));
+    expect(discoverDbProfile(workspace.dir, ["test:db:1", "test:db:2"]).violations).toEqual([]);
+    rmSync(path.join(workspace.dir, "build/unlisted.db.test.ts"));
+    workspace.write("vitest.db.1.config.mjs", workspace.db(["tests/unit-1/**/*.db.test.ts"]));
     workspace.write("features/orders/api/purchase-limits.db.test.ts", "");
     expect(discoverDbProfile(workspace.dir, ["test:db:1", "test:db:2"]).violations.join("\n")).toContain(
       "purchase-limits.db.test.ts",
@@ -179,6 +187,31 @@ describe("DB profile construction", () => {
     expect(result).toBeUndefined();
     expect(environments).toEqual([{ includeTestDatabaseUrl: false }]);
     expect(calls.flat()).toContain("test:unit");
+  });
+
+  it("safe directory exclusions match actual Vitest", async () => {
+    const workspace = fixture({ units: ["test:db:1"] });
+    workspace.write("tests/unit-1/enrolled.db.test.ts", "");
+    workspace.write("build/unlisted.db.test.ts", "");
+    workspace.write("dist/derived.db.test.ts", "");
+    const inventory = discoverDbProfile(workspace.dir, ["test:db:1"]);
+    expect(inventory.violations.join("\n")).toContain("build/unlisted.db.test.ts");
+    expect(inventory.aggregate.files).toEqual(["build/unlisted.db.test.ts", "tests/unit-1/enrolled.db.test.ts"]);
+    const context = await createVitest("test", {
+      root: workspace.dir,
+      config: path.join(workspace.dir, "vitest.db.config.mjs"),
+      watch: false,
+    });
+    try {
+      const selected = (await context.globTestSpecifications())
+        .map((spec) => path.relative(workspace.dir, spec.moduleId).replaceAll("\\", "/"))
+        .sort();
+      expect(selected).toEqual(inventory.aggregate.files);
+    } finally {
+      await context.close();
+    }
+    workspace.write("vitest.db.1.config.mjs", workspace.db(["tests/unit-1/**/*.db.test.ts", "build/**/*.db.test.ts"]));
+    expect(discoverDbProfile(workspace.dir, ["test:db:1"]).violations).toEqual([]);
   });
 
   it.each(inventoryCases)("actual Vitest inventory: $name $config", async ({ name, dir, config }) => {

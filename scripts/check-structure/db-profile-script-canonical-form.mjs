@@ -2,7 +2,6 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
 import { defineBoundedContextTestConfig, defineWorkspaceTestConfig } from "../../vitest.shared.mjs";
-import { defaultSkippedDirectories } from "../lib/files.mjs";
 import { listWorkspacePackages, repoRoot as defaultRepoRoot } from "../lib/repo.mjs";
 import { validateDurationHintRegistry } from "../run-workspaces.mjs";
 
@@ -194,9 +193,11 @@ export function readTestSelectionConfig(configPath, active = new Set(), cache = 
 export function listTestFiles(workspaceRoot) {
   const root = path.resolve(workspaceRoot);
   const files = [];
+  const directoryExcludes = defineWorkspaceTestConfig().test.exclude.filter((glob) => glob.endsWith("/**"));
   function visit(directory) {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      if (defaultSkippedDirectories.has(entry.name)) continue;
+      const relativePath = path.relative(root, path.join(directory, entry.name)).replaceAll("\\", "/");
+      if (directoryExcludes.some((glob) => path.matchesGlob(`${relativePath}/__inventory_entry__`, glob))) continue;
       if (entry.isSymbolicLink())
         throw new Error(`${path.join(directory, entry.name)}: symlink prevents complete test inventory`);
       if (entry.isDirectory()) {
