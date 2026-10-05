@@ -114,15 +114,6 @@
       "runAttempt": 1,
       "jobId": 89364607063,
       "invocation": "test--exclude-test-profile=db",
-      "workspace": "@chase-sets/commercial-terms",
-      "script": "test",
-      "observedDurationMs": 24946
-    },
-    {
-      "runId": 30054895589,
-      "runAttempt": 1,
-      "jobId": 89364607063,
-      "invocation": "test--exclude-test-profile=db",
       "workspace": "@chase-sets/design-system",
       "script": "test",
       "observedDurationMs": 86864
@@ -594,15 +585,6 @@
       "workspace": "@chase-sets/authenticity",
       "script": "test",
       "observedDurationMs": 6611
-    },
-    {
-      "runId": 30060154233,
-      "runAttempt": 1,
-      "jobId": 89380059115,
-      "invocation": "test--exclude-test-profile=db",
-      "workspace": "@chase-sets/commercial-terms",
-      "script": "test",
-      "observedDurationMs": 25636
     },
     {
       "runId": 30060154233,
