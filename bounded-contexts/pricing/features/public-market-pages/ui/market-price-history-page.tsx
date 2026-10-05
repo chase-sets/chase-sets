@@ -96,7 +96,7 @@ export function MarketPriceHistoryPage({ page, marketplaceItemUrl }: MarketPrice
                 ) : null}
               </Stack>
 
-              {displays.map((aggregate) => {
+              {displays.map((aggregate, index) => {
                 const currencyCode = aggregate?.currencyCode;
                 const chartSeries = toChartSeries(
                   series.filter((point) => point.currencyCode === currencyCode),
@@ -195,15 +195,23 @@ export function MarketPriceHistoryPage({ page, marketplaceItemUrl }: MarketPrice
                           <Heading level={2} visualSize={4}>
                             {marketState?.activeListingCount ?? 0}
                           </Heading>
-                          <Text size="sm" tone="secondary">
-                            {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.starting.at", {
-                              // Market-state asks are not currency-keyed; never assign a mixed product's ask to a trade currency.
-                              amount: money(
-                                aggregates.length === 1 ? (marketState?.minAskAmount ?? null) : null,
-                                currencyCode,
-                              ),
-                            })}
-                          </Text>
+                          {index === 0 ? (
+                            page.liveAsks.length ? (
+                              page.liveAsks.map((ask) => (
+                                <Text key={ask.currencyCode} size="sm" tone="secondary">
+                                  {t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.starting.at", {
+                                    amount: money(ask.minAskAmount, ask.currencyCode),
+                                  })}
+                                </Text>
+                              ))
+                            ) : (
+                              <Text size="sm" tone="secondary">
+                                {page.unpricedBuyableListingCount > 0
+                                  ? t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.price.unavailable")
+                                  : t("pricing.features.publicMarketPages.ui.marketPriceHistoryPage.no.live.asks")}
+                              </Text>
+                            )
+                          ) : null}
                         </Stack>
                       </Grid>
                       {sellThrough30d ? (

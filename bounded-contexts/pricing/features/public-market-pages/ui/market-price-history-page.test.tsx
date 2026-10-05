@@ -12,6 +12,8 @@ const page = {
   subtitle: "Obsidian Flames",
   slug: "charizard-ex",
   productId: "product_1",
+  liveAsks: [{ currencyCode: "USD", minAskAmount: "24.00", buyableListingCount: 3 }],
+  unpricedBuyableListingCount: 0,
   series: [
     {
       currencyCode: "USD",
@@ -107,7 +109,71 @@ describe("MarketPriceHistoryPage", () => {
     expect(charts[1]?.textContent).toContain("EUR");
     expect(stats[0]?.textContent).toContain("$22.00");
     expect(stats[1]?.textContent).toContain("€25.00");
-    expect(stats[1]?.textContent).toContain("Starting at No data yet");
+    expect(stats[0]?.textContent).toContain("Starting at $24.00");
+    expect(stats[1]?.textContent).not.toContain("Starting at");
+  });
+
+  it.each(["zero trades", "several trade currencies"])(
+    "shows live asks once with %s, not the snapshot ask",
+    (trades) => {
+      const stats = parse(
+        renderToStaticMarkup(
+          <MarketPriceHistoryPage
+            page={{
+              ...page,
+              series: [],
+              aggregates:
+                trades === "zero trades"
+                  ? []
+                  : [
+                      { ...page.aggregates[0]!, currencyCode: "GBP" },
+                      { ...page.aggregates[0]!, currencyCode: "JPY" },
+                    ],
+              liveAsks: [
+                { currencyCode: "EUR", minAskAmount: "5.00", buyableListingCount: 2 },
+                { currencyCode: "USD", minAskAmount: "4.00", buyableListingCount: 3 },
+              ],
+              unpricedBuyableListingCount: 1,
+            }}
+            marketplaceItemUrl="https://example.test/items/charizard-ex"
+          />,
+        ),
+      );
+      expect(stats.textContent?.match(/Starting at \$4\.00/g)).toHaveLength(1);
+      expect(stats.textContent?.match(/Starting at €5\.00/g)).toHaveLength(1);
+      expect(stats.textContent).not.toContain("24.00");
+      expect(stats.textContent).not.toContain("Price unavailable");
+      expect(stats.textContent).not.toContain("No live asks");
+    },
+  );
+
+  it.each([
+    ["exhausted or held supply", 3, 0, "No live asks"],
+    ["no active listings", 0, 0, "No live asks"],
+    ["only unpriced buyable supply", 3, 2, "Price unavailable"],
+  ] as const)("renders %s without changing the snapshot count", (_name, activeListingCount, unpricedCount, text) => {
+    const stats = renderStats({
+      ...page,
+      aggregates: [],
+      series: [],
+      marketState: { ...page.marketState, activeListingCount },
+      liveAsks: [],
+      unpricedBuyableListingCount: unpricedCount,
+    });
+    expect(stats.textContent).toContain(`Active listings${activeListingCount}${text}`);
+    expect(stats.textContent).not.toContain("Starting at");
+    expect(stats.textContent).not.toContain("24.00");
+  });
+
+  it("shows a single USD ask without any trade currency", () => {
+    const stats = renderStats({
+      ...page,
+      aggregates: [],
+      series: [],
+      liveAsks: [{ currencyCode: "USD", minAskAmount: "4.00", buyableListingCount: 3 }],
+    });
+    expect(stats.textContent).toContain("Starting at $4.00");
+    expect(stats.textContent).not.toContain("24.00");
   });
 });
 
