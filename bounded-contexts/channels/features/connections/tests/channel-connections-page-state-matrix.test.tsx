@@ -10,7 +10,11 @@ import AccountChannelsConnectionRoute, {
   loader as detailLoader,
 } from "../../../routes/marketplace/account-channels-connection";
 import { allowedChannelConnectionActions } from "../ui/connection-pages";
-import { channelConnectionStatuses, type ChannelConnectionStatus } from "../domain/contracts";
+import {
+  channelConnectionStatuses,
+  type ChannelConnectionPage,
+  type ChannelConnectionStatus,
+} from "../domain/contracts";
 import { createFakeConnectionServices, mountConnectionRouteHarness, routeAccountId } from "./route-harness";
 
 afterEach(() => {
@@ -35,7 +39,7 @@ function fixtureFor(status: ChannelConnectionStatus) {
 describe("channel-connections-page-state-matrix", () => {
   it("renders a valid API-shaped list through the real client", async () => {
     vi.stubEnv("CHASE_SETS_INTERNAL_API_ORIGIN", "http://localhost:6412");
-    const page = { items: [fixtureFor("active")], nextCursor: null };
+    const page: ChannelConnectionPage = { items: [fixtureFor("active")] };
     const fetch = vi
       .fn()
       .mockResolvedValueOnce(Response.json({ actor: { accountId: routeAccountId, permissions: ["channels.view"] } }))

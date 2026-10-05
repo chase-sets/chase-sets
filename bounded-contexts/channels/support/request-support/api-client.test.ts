@@ -13,7 +13,7 @@ const connection: PublicChannelConnection = {
   status: "active",
   createdAt: "2026-09-01T00:00:00.000Z",
 };
-const page: ChannelConnectionPage = { items: [connection], nextCursor: null };
+const page: ChannelConnectionPage = { items: [connection] };
 const methods = [
   "listConnections",
   "getConnection",
