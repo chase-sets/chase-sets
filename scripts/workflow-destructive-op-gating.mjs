@@ -99,10 +99,17 @@ const supportedShellProductions = new Set([
   "pattern",
   "if_command",
   "for_command",
-  "while_command",
-  "until_command",
   "function_def",
   "function_body",
+  "arith_command",
+  "cond_command",
+  "comsub",
+  "elif_clause",
+  "pattern_list",
+  "word_list",
+  "inputunit",
+  "simple_list_terminator",
+  "nullcmd_terminator",
 ]);
 
 export function deriveAuthoritativeGrammar(grammar = DESTRUCTIVE_GRAMMAR) {
@@ -116,7 +123,7 @@ export function deriveAuthoritativeGrammar(grammar = DESTRUCTIVE_GRAMMAR) {
       "shell",
       { production, rhs },
       supportedShellProductions.has(production) &&
-        !/\b(?:arith_command|arith_for_command|cond_command|select_command|coproc)\b/.test(rhs)
+        !/\b(?:arith_for_command|select_command|coproc|timespec|funsub|error)\b/.test(rhs)
         ? "HANDLED"
         : "INDETERMINATE",
     );
@@ -242,6 +249,31 @@ export function validateGrammarPartition(grammar = DESTRUCTIVE_GRAMMAR) {
       violations.push(`${member.id}: partition differs from authoritative derivation.`);
   }
   for (const id of expected.keys()) if (!seen.has(id)) violations.push(`${id}: missing partition member.`);
+  const benignIds = new Set();
+  for (const entry of grammar.benignForms ?? []) {
+    const { selector, dataOperands, words, input } = entry;
+    const shape = dataOperands ? { selector, dataOperands } : { selector, words, ...(input?.length ? { input } : {}) };
+    const hash = createHash("sha256").update(JSON.stringify(shape)).digest("hex");
+    if (entry.id !== hash || benignIds.has(entry.id)) violations.push(`${entry.id}: changed or duplicate benign form.`);
+    benignIds.add(entry.id);
+    if (
+      !entry.proof?.selector ||
+      !entry.proof?.operands ||
+      !/^[a-f0-9]{40}$/.test(entry.origin?.sha ?? "") ||
+      !entry.origin?.path?.startsWith(".github/workflows/") ||
+      !entry.origin?.job ||
+      !Number.isInteger(entry.origin?.step)
+    )
+      violations.push(`${entry.id}: incomplete benign form proof or corpus identity.`);
+    if (
+      dataOperands &&
+      !["echo", "printf", "[", "[[", "test", "mkdir", "cp", "chmod", "install", "cat"].includes(selector)
+    )
+      violations.push(`${entry.id}: selector or payload hole is not data.`);
+    if (!dataOperands && (!words?.length || words[0].value !== selector || words[0].dynamic))
+      violations.push(`${entry.id}: unresolved benign selector.`);
+    if (!validBenignEntry(entry)) violations.push(`${entry.id}: invalid closed benign proof.`);
+  }
   return { passed: violations.length === 0, members: expected.size, violations };
 }
 
@@ -297,12 +329,31 @@ function shellClosing(run, start, open = "(", close = ")") {
   return run.length;
 }
 
+function boundedArithmetic(expression) {
+  let literal = "";
+  for (let index = 0; index < expression.length; index += 1) {
+    if (expression.startsWith("$(", index)) {
+      const end = shellClosing(expression, index + 1);
+      if (end === expression.length) return false;
+      literal += "VALUE";
+      index = end;
+    } else if (expression.startsWith("${{", index)) {
+      const end = expression.indexOf("}}", index + 3);
+      if (end < 0) return false;
+      literal += "VALUE";
+      index = end + 1;
+    } else literal += expression[index];
+  }
+  return /^\s*(?:\d+#)?[A-Za-z_0-9]+(?:\s*[+-]\s*[A-Za-z_0-9]+)*\s*$/.test(literal);
+}
+
 // Words retain expansion identity; quoting removes syntax, not executable position.
 // Here-document contents are data, except substitutions in an unquoted delimiter.
-export function shellTokens(run) {
+function shellTokens(run) {
   const tokens = [];
   const substitutions = [];
   const errors = [];
+  const productions = new Set();
   const heredocs = [];
   let pendingHeredoc = null;
   for (let index = 0; index < run.length; ) {
@@ -321,9 +372,16 @@ export function shellTokens(run) {
     }
     if (run.startsWith("((", index)) {
       const end = shellClosing(run, index + 1);
-      collectSubstitutions(run.slice(index + 2, end), substitutions, index + 2);
-      tokens.push({ type: "operator", value: "\n", index });
-      index = end + 2;
+      if (run[end + 1] === ")") {
+        productions.add(tokens.at(-1)?.value === "for" ? "arith_for_command" : "arith_command");
+        if (!boundedArithmetic(run.slice(index + 2, end))) errors.push("unlisted arithmetic form");
+        collectSubstitutions(run.slice(index + 2, end), substitutions, index + 2);
+        tokens.push({ type: "operator", value: "\n", index });
+        index = end + 2;
+      } else {
+        tokens.push({ type: "operator", value: "(", index });
+        index += 1;
+      }
       continue;
     }
     if (run.startsWith("<(", index) || run.startsWith(">(", index)) {
@@ -355,6 +413,7 @@ export function shellTokens(run) {
             let line = run.slice(index, lineEnd).replace(/\r$/, "");
             if (document.stripTabs) line = line.replace(/^\t+/, "");
             if (line === document.delimiter) {
+              document.token.body = run.slice(start, index);
               if (!document.quoted) collectSubstitutions(run.slice(start, index), substitutions, start);
               index = end < 0 ? run.length : end + 1;
               found = true;
@@ -403,15 +462,20 @@ export function shellTokens(run) {
       if (quote !== "'" && run.startsWith("$(", index)) {
         if (run.startsWith("$((", index)) {
           const end = shellClosing(run, index + 2);
-          collectSubstitutions(run.slice(index + 3, end), substitutions, index + 3);
-          value += run.slice(index, end + 2);
-          dynamic = true;
-          index = end + 2;
-          continue;
+          if (run[end + 1] === ")") {
+            productions.add("arith_command");
+            if (!boundedArithmetic(run.slice(index + 3, end))) errors.push("unlisted arithmetic form");
+            collectSubstitutions(run.slice(index + 3, end), substitutions, index + 3);
+            value += run.slice(index, end + 2);
+            dynamic = true;
+            index = end + 2;
+            continue;
+          }
         }
         const end = shellClosing(run, index + 1);
         if (end === run.length) errors.push("unterminated command substitution");
         substitutions.push({ run: run.slice(index + 2, end), index });
+        productions.add("comsub");
         value += run.slice(index, end + 1);
         dynamic = true;
         index = end + 1;
@@ -432,6 +496,8 @@ export function shellTokens(run) {
       }
       if (quote !== "'" && character === "$" && run[index + 1] === "{") {
         const end = shellClosing(run, index + 1, "{", "}");
+        if (end === run.length) errors.push("unterminated parameter expansion");
+        if (/^[\s|]/.test(run.slice(index + 2, end))) errors.push("unsupported function substitution");
         collectSubstitutions(run.slice(index + 2, end), substitutions, index + 2);
         value += run.slice(index, end + 1);
         dynamic = true;
@@ -446,11 +512,12 @@ export function shellTokens(run) {
     const token = { type: "word", value, dynamic, quoted: quotedWord, index: start, raw: run.slice(start, index) };
     tokens.push(token);
     if (pendingHeredoc) {
-      heredocs.push({ delimiter: value, quoted: quotedWord, stripTabs: pendingHeredoc === "<<-" });
+      heredocs.push({ delimiter: value, quoted: quotedWord, stripTabs: pendingHeredoc === "<<-", token });
       pendingHeredoc = null;
     }
   }
-  return { tokens, substitutions, errors };
+  if (pendingHeredoc || heredocs.length) errors.push("unterminated here-document");
+  return { tokens, substitutions, errors, productions };
 }
 
 function collectSubstitutions(run, results, offset) {
@@ -463,9 +530,20 @@ function collectSubstitutions(run, results, offset) {
       const end = shellClosing(run, index + 1);
       results.push({ run: run.slice(index + 2, end), index: offset + index });
       index = end;
+    } else if (run[index] === "`") {
+      const end = run.indexOf("`", index + 1);
+      if (end < 0) {
+        results.push({ run: "'", index: offset + index });
+        break;
+      }
+      results.push({ run: run.slice(index + 1, end), index: offset + index });
+      index = end;
     }
   }
 }
+
+const assignmentWord = (value) => /^[A-Za-z_]\w*(?:\[[^\]]*\])?\+?=/.test(value ?? "");
+const emptyAssignment = (value) => assignmentWord(value) && value.endsWith("=");
 
 function commandsFromTokens(tokens) {
   const commands = [];
@@ -515,7 +593,7 @@ function commandsFromTokens(tokens) {
       continue;
     }
     if (token.type === "operator") {
-      if (value === "(" && words.at(-1)?.value.match(/^[A-Za-z_]\w*=$/)) {
+      if (value === "(" && emptyAssignment(words.at(-1)?.value)) {
         words.pop();
         arrayDepth = 1;
       } else if (value === "(" && tokens[index + 1]?.value === ")") {
@@ -527,11 +605,15 @@ function commandsFromTokens(tokens) {
       }
       continue;
     }
-    if (!words.length && /^[A-Za-z_]\w*=/.test(token.raw ?? "")) {
+    if (!words.length && assignmentWord(token.raw)) {
       const separator = token.value.indexOf("=");
       const assignment = { name: token.value.slice(0, separator), value: token.value.slice(separator + 1), token };
-      if (/^[A-Za-z_]\w*=$/.test(token.value) && tokens[index + 1]?.value === "(") {
+      if (emptyAssignment(token.value) && tokens[index + 1]?.value === "(") {
         const end = tokens.findIndex((candidate, tokenIndex) => tokenIndex > index + 1 && candidate.value === ")");
+        assignment.invalidArray =
+          end < 0 ||
+          assignment.name.includes("[") ||
+          tokens.slice(index + 2, end).some((candidate) => candidate.type === "operator" && candidate.value !== "\n");
         assignment.array = tokens.slice(index + 2, end).filter((candidate) => candidate.type === "word");
         arrayDepth = 1;
         index += 1;
@@ -545,7 +627,7 @@ function commandsFromTokens(tokens) {
         caseDepth += 1;
         continue;
       }
-      if (value === "for" || value === "select") {
+      if (value === "for") {
         header = "for";
         continue;
       }
@@ -557,7 +639,7 @@ function commandsFromTokens(tokens) {
         if (value === "esac") caseDepth = Math.max(0, caseDepth - 1);
         continue;
       }
-      if (/^[A-Za-z_]\w*=/.test(value)) continue;
+      if (assignmentWord(value)) continue;
     }
     words.push(token);
   }
@@ -613,40 +695,257 @@ const scriptOperations = new Map([
   ["disable-terraform-prevent-destroy.mjs", "script:disable-terraform-prevent-destroy"],
 ]);
 
+function fixedSelector(word) {
+  if (!word?.dynamic) return word?.value ?? null;
+  if (!word.quoted || /\$\(|`|\$\{\{/.test(word.raw)) return null;
+  return /^(?:\$[A-Za-z_]\w*|\$\{[A-Za-z_]\w*\})\/[A-Za-z0-9_./-]+$/.test(word.value) ? basename(word.value) : null;
+}
+
+function dominatingAssignment(name, command, commands, tokens) {
+  const position = command.words[0]?.index ?? 0;
+  const writes = commands
+    .flatMap((item) => item.assignments.map((assignment) => ({ ...assignment, owner: item })))
+    .filter((assignment) => assignment.token.index < position && assignment.name.replace(/\+|\[.*\]/g, "") === name);
+  const assignment = writes.at(-1);
+  if (!assignment || assignment.name !== name || assignment.owner.words.length) return null;
+  const before = tokens.filter((token) => token.index < assignment.token.index);
+  const between = tokens.filter((token) => token.index > assignment.token.index && token.index < position);
+  const ambiguous = (token) =>
+    !token.quoted &&
+    /^(?:if|then|elif|else|for|while|until|select|case|function|eval|source|\.|read|mapfile|declare|local|export|unset)$/.test(
+      token.value,
+    );
+  if (before.some(ambiguous) || between.some(ambiguous)) return null;
+  if (before.some((token) => !token.quoted && ["(", ")", "{", "}", "&&", "||"].includes(token.value))) return null;
+  const intervening = commands.filter(
+    (item) => item.words[0]?.index > assignment.token.index && item.words[0].index < position,
+  );
+  if (
+    intervening.some(
+      (item) =>
+        !["curl", "echo", "chmod", "sha256sum", "true"].includes(item.words[0].value) &&
+        !(
+          assignment.value === "${RUNNER_TEMP}/kubectl-argo-rollouts" &&
+          item.words[0].raw === '"$binary"' &&
+          item.words.length === 2 &&
+          ["version", "--help"].includes(item.words[1].value)
+        ),
+    )
+  )
+    return null;
+  if (!assignment.array && between.some((token) => !token.quoted && ["(", ")", "{", "}"].includes(token.value)))
+    return null;
+  return assignment;
+}
+
+function resolveCommandWords(command, commands, tokens) {
+  let words = command.words;
+  const variable = words[0]?.raw.match(/^"\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))"$/);
+  if (variable) {
+    const assignment = dominatingAssignment(variable[1] ?? variable[2], command, commands, tokens);
+    if (assignment && !assignment.array) {
+      const value = {
+        ...assignment.token,
+        value: assignment.value,
+        raw: assignment.token.raw.slice(assignment.token.raw.indexOf("=") + 1),
+      };
+      const selector = fixedSelector(value);
+      if (selector)
+        words = [{ ...words[0], value: selector, dynamic: false, quoted: false, raw: selector }, ...words.slice(1)];
+    }
+  }
+  // Only this finite corpus form needs an array in a forwarded script position.
+  if (words[0]?.value === "pnpm" && words[1]?.value === "run" && words[2]?.raw === '"${args[@]}"') {
+    const assignment = dominatingAssignment("args", command, commands, tokens);
+    if (assignment?.array?.[0] && !assignment.array[0].dynamic)
+      words = [...words.slice(0, 2), ...assignment.array, ...words.slice(3)];
+  }
+  return { ...command, words };
+}
+
+function shellSyntaxErrors(tokens, commands, grammar) {
+  const errors = [];
+  const stack = [];
+  const data = new Set(
+    commands.flatMap((command) => [
+      ...command.words.slice(1),
+      ...command.redirects.map(({ target }) => target),
+      ...command.assignments.flatMap((assignment) => [assignment.token, ...(assignment.array ?? [])]),
+    ]),
+  );
+  const handled = (production) =>
+    grammar.partition.some(
+      (member) =>
+        member.surface === "shell" && member.form.production === production && member.disposition === "HANDLED",
+    );
+  const encounter = (production) => {
+    if (!handled(production)) errors.push(`INDETERMINATE shell production ${production}`);
+  };
+  const open = {
+    if: ["fi", "if_command"],
+    case: ["esac", "case_command"],
+    for: ["done", "for_command"],
+    while: ["done", "shell_command"],
+    until: ["done", "shell_command"],
+    "{": ["}", "group_command"],
+  };
+  for (const [index, token] of tokens.entries()) {
+    if (data.has(token) || token.quoted) continue;
+    const value = token.value;
+    if (redirections.has(value) && token.type === "operator") {
+      encounter("redirection");
+      if (tokens[index + 1]?.type !== "word") errors.push("missing redirection operand");
+    } else if (["&&", "||", "|", "|&"].includes(value) && token.type === "operator") {
+      const previous = tokens.slice(0, index).findLast((item) => item.value !== "\n");
+      const next = tokens.slice(index + 1).find((item) => item.value !== "\n");
+      if (
+        !previous ||
+        !next ||
+        (previous.type === "operator" && previous.value !== ")") ||
+        (next.type === "operator" && next.value !== "(") ||
+        ["fi", "done", "esac", "then", "else"].includes(next.value)
+      )
+        errors.push(`missing command around ${value}`);
+    } else if (value === "(" && token.type === "operator") {
+      stack.push(")");
+      encounter("subshell");
+    } else if (value === ")" && token.type === "operator") {
+      if (stack.at(-1) === ")") stack.pop();
+      else if (stack.at(-1) !== "esac") errors.push("unmatched closing parenthesis");
+    } else if (Object.hasOwn(open, value)) {
+      stack.push(open[value][0]);
+      encounter(open[value][1]);
+    } else if (["fi", "done", "esac", "}"].includes(value)) {
+      if (stack.pop() !== value) errors.push(`unmatched ${value}`);
+    } else if (value === "elif") encounter("elif_clause");
+    else if (["then", "else"].includes(value) && stack.at(-1) !== "fi") errors.push(`unmatched ${value}`);
+    else if (value === "do" && stack.at(-1) !== "done") errors.push("unmatched do");
+    else if ([";;", ";&", ";;&"].includes(value) && stack.at(-1) !== "esac")
+      errors.push("case terminator outside case");
+    else if (["select", "coproc", "time"].includes(value)) errors.push(`unsupported ${value} production`);
+  }
+  if (stack.length) errors.push(`unterminated shell group (${stack.join(", ")})`);
+  for (const command of commands) {
+    encounter("simple_command");
+    if (command.assignments.some((assignment) => assignment.invalidArray))
+      errors.push("unlisted array assignment form");
+    const words = command.words;
+    if (words[0]?.value === "[[") {
+      encounter("cond_command");
+      if (words.at(-1)?.value !== "]]") errors.push("unterminated conditional command");
+    }
+  }
+  return [...new Set(errors)];
+}
+
+function validBenignEntry(entry) {
+  const { selector, dataOperands, words, input } = entry;
+  const shape = dataOperands ? { selector, dataOperands } : { selector, words, ...(input?.length ? { input } : {}) };
+  return (
+    entry.id === createHash("sha256").update(JSON.stringify(shape)).digest("hex") &&
+    typeof entry.proof?.selector === "string" &&
+    entry.proof.selector.length > 0 &&
+    typeof entry.proof?.operands === "string" &&
+    entry.proof.operands.length > 0 &&
+    /^[a-f0-9]{40}$/.test(entry.origin?.sha ?? "") &&
+    entry.origin?.path?.startsWith(".github/workflows/") &&
+    typeof entry.origin?.job === "string" &&
+    Number.isInteger(entry.origin?.step) &&
+    entry.origin.step > 0 &&
+    (dataOperands === true
+      ? ["echo", "printf", "[", "[[", "test", "mkdir", "cp", "chmod", "install", "cat"].includes(selector)
+      : words?.length > 0 &&
+        words[0].value === selector &&
+        words.every(
+          (word) =>
+            typeof word.value === "string" && typeof word.dynamic === "boolean" && typeof word.quoted === "boolean",
+        ) &&
+        !words[0].dynamic)
+  );
+}
+
+function benignFormMatches(command, grammar) {
+  const words = command.words;
+  return (grammar.benignForms ?? []).some((entry) => {
+    if (words[0]?.dynamic || entry.selector !== words[0]?.value) return false;
+    if (!validBenignEntry(entry)) return false;
+    if (entry.dataOperands === true) {
+      if (["[", "test"].includes(entry.selector)) {
+        if (entry.selector === "[" && words.at(-1)?.value !== "]") return false;
+        let args = words.slice(1, entry.selector === "[" ? -1 : undefined);
+        if (args[0]?.value === "!" && !args[0].dynamic) args = args.slice(1);
+        if (
+          !(args.length === 2 && !args[0].dynamic && ["-f", "-n", "-z", "-s"].includes(args[0].value)) &&
+          !(
+            args.length === 3 &&
+            !args[1].dynamic &&
+            ["=", "!=", "-eq", "-ne", "-ge", "-gt", "-lt"].includes(args[1].value)
+          )
+        )
+          return false;
+      }
+      if (
+        entry.selector === "install" &&
+        !(words.length === 5 && words[1]?.value === "-m" && /^0?[0-7]{3}$/.test(words[2]?.value))
+      )
+        return false;
+      if (entry.selector === "printf" && (words[1]?.dynamic || words[1]?.value.startsWith("-"))) return false;
+      if (
+        entry.selector === "[[" &&
+        !(
+          words.at(-1)?.value === "]]" &&
+          ((words.length === 5 && ["==", "!=", "=~"].includes(words[2]?.value)) ||
+            (words.length === 6 && words[1]?.value === "!" && ["==", "!=", "=~"].includes(words[3]?.value)))
+        )
+      )
+        return false;
+      return true;
+    }
+    const input = command.redirects.filter(({ target }) => target?.body !== undefined).map(({ target }) => target.body);
+    return (
+      JSON.stringify(entry.input ?? []) === JSON.stringify(input) &&
+      entry.words?.length === words.length &&
+      entry.words.every(
+        (word, index) =>
+          word.value === words[index].value &&
+          word.dynamic === words[index].dynamic &&
+          word.quoted === words[index].quoted,
+      )
+    );
+  });
+}
+
 function classifyCommand(command, grammar) {
   let words = command.words;
-  const wrapper = words[0]?.value;
-  if (["time", "coproc"].includes(wrapper)) {
-    let inner = words.slice(1);
-    while (inner[0]?.value.startsWith("-")) inner = inner.slice(1);
-    const classification = classifyCommand({ ...command, words: inner }, grammar);
-    return classification
-      ? {
-          ...classification,
-          operation: null,
-          disposition: "INDETERMINATE",
-          reason: `unsupported ${wrapper} production`,
-        }
-      : null;
-  }
-  if (["command", "exec"].includes(words[0]?.value)) {
+  if (!words.length) return null;
+  const unknown = (reason) => ({
+    disposition: "INDETERMINATE",
+    tool: words[0]?.value ?? "shell",
+    reason,
+    index: words[0]?.index ?? 0,
+    command,
+  });
+  if (["time", "coproc", "select"].includes(words[0]?.value))
+    return unknown(`unsupported ${words[0].value} production`);
+  while (["command", "exec", "env"].includes(words[0]?.value) && !words[0].dynamic) {
+    const wrapper = words[0].value;
     words = words.slice(1);
     if (wrapper === "command" && ["-v", "-V"].includes(words[0]?.value)) return null;
     if (wrapper === "command" && words[0]?.value === "-p") words = words.slice(1);
-    if (words[0]?.value === "--") words = words.slice(1);
+    if (wrapper === "command" && words[0]?.value === "--") words = words.slice(1);
+    if (words[0]?.value.startsWith("-")) return unknown(`unsupported ${wrapper} option`);
+    if (wrapper === "env") while (assignmentWord(words[0]?.value)) words = words.slice(1);
+    if (!words.length) return unknown(`missing ${wrapper} executable`);
   }
-  if (words[0]?.value === "env") {
-    words = words.slice(1);
-    while (words[0]?.value.match(/^[A-Za-z_]\w*=/)) words = words.slice(1);
-  }
-  const tool = basename(words[0]?.value ?? "");
-  const unknown = (reason) => ({ disposition: "INDETERMINATE", tool, reason, index: words[0]?.index, command });
+  const selector = fixedSelector(words[0]);
+  if (!selector) return unknown("unresolved dynamic executable");
+  const tool = basename(selector);
   const benign = () => ({ disposition: "HANDLED", tool, operation: null, index: words[0]?.index, command });
   const destructive = (operation) => ({ ...benign(), operation });
   const directOperation = scriptOperations.get(tool);
   if (directOperation) return destructive(directOperation);
-  if (!["terraform", "doctl", "node"].includes(tool)) return null;
-  if (words[0].dynamic && !/^[A-Za-z0-9_.-]+$/.test(tool)) return unknown("dynamic executable");
+  if (!["terraform", "doctl", "node"].includes(tool))
+    return benignFormMatches({ ...command, words }, grammar) ? null : unknown("unlisted executable form");
   if (tool === "terraform") {
     const options = consumeOptions(words, 1, forms(grammar, "terraform-option"));
     if (options.reason) return unknown(options.reason);
@@ -721,17 +1020,36 @@ function classifyCommand(command, grammar) {
   return operation ? { ...destructive(operation), scriptIndex: consumed.index, words } : benign();
 }
 
+const defaultGrammarProof = validateGrammarPartition();
+
 export function classifyShellCommands(run, { grammar = DESTRUCTIVE_GRAMMAR } = {}) {
   if (typeof run !== "string") return { invocations: [], operations: [], indeterminate: [] };
+  const proof = grammar === DESTRUCTIVE_GRAMMAR ? defaultGrammarProof : validateGrammarPartition(grammar);
+  if (!proof.passed) {
+    const unknown = { tool: "grammar", index: 0, disposition: "INDETERMINATE", reason: proof.violations.join("; ") };
+    return { invocations: [unknown], operations: [], indeterminate: [unknown] };
+  }
   const lexed = shellTokens(run);
-  const invocations = commandsFromTokens(lexed.tokens)
-    .map((command) => classifyCommand(command, grammar))
+  const commands = commandsFromTokens(lexed.tokens);
+  for (const production of lexed.productions) {
+    if (
+      !grammar.partition.some(
+        (member) =>
+          member.surface === "shell" && member.form.production === production && member.disposition === "HANDLED",
+      )
+    )
+      lexed.errors.push(`INDETERMINATE shell production ${production}`);
+  }
+  lexed.errors.push(...shellSyntaxErrors(lexed.tokens, commands, grammar));
+  const invocations = commands
+    .map((command) => classifyCommand(resolveCommandWords(command, commands, lexed.tokens), grammar))
     .filter(Boolean);
   for (const substitution of lexed.substitutions) {
     for (const invocation of classifyShellCommands(substitution.run, { grammar }).invocations)
       invocations.push({ ...invocation, index: substitution.index + invocation.index });
   }
   if (lexed.errors.length) {
+    if (!invocations.length) invocations.push({ tool: "shell", index: 0 });
     for (const invocation of invocations) {
       invocation.disposition = "INDETERMINATE";
       invocation.reason = lexed.errors.join(", ");
@@ -1116,7 +1434,10 @@ export function checkWorkflowDestructiveOperationGating(
   for (const [jobId, job] of Object.entries(workflow.jobs)) {
     for (const [index, step] of (job?.steps ?? []).entries()) {
       if (typeof step?.run !== "string") continue;
-      const classification = classifyShellCommands(step.run, { grammar });
+      const shell = step.shell ?? job.defaults?.run?.shell ?? workflow.defaults?.run?.shell ?? "bash";
+      const classification = /^(?:bash)(?:\s|$)/.test(shell)
+        ? classifyShellCommands(step.run, { grammar })
+        : { operations: [], indeterminate: [{ tool: shell, reason: "unproved non-Bash run step" }] };
       if (!classification.operations.length && !classification.indeterminate.length) continue;
       const entry = { jobId, job, step, stepIndex: index + 1, classification, operations: classification.operations };
       detected.push(entry);

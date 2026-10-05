@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse, stringify } from "yaml";
@@ -22,6 +22,8 @@ const catalogFile = NAMED_RESET_WORKFLOW_TRIPWIRES[1];
 const stagingFile = NAMED_RESET_WORKFLOW_TRIPWIRES[0];
 const readWorkflow = (file) => readFileSync(join(root, file), "utf8");
 const operations = (run) => classifyShellCommands(run).operations;
+const independentWorkflowTotal = () =>
+  readdirSync(join(root, ".github/workflows")).filter((file) => /\.ya?ml$/.test(file)).length;
 const directories = [];
 
 afterEach(() => {
@@ -143,6 +145,7 @@ for label in terraform destroy doctl; do echo "$label"; done
 case "$label" in terraform|destroy) echo data ;; esac
 labels=("terraform destroy" "doctl registry repository delete-tag")
 tools=(terraform destroy doctl registry repository delete-tag)
+tools+=(terraform destroy)
 echo "$((terraform + destroy))"
 ((terraform + destroy))
 command -v terraform
@@ -159,11 +162,17 @@ command -v terraform
     "{ terraform destroy; }",
     ">result MODE=fixture terraform destroy 2>/dev/null",
     "MODE=fixture terraform destroy",
+    "PATH+=:/opt/bin terraform destroy",
+    "a[0]=x terraform destroy",
+    "((terraform destroy) )",
+    "((terraform destroy);)",
+    'echo "$((terraform destroy) )"',
     'MODE="$VALUE" terraform destroy',
     "{output}>result terraform destroy",
     "env MODE=fixture terraform destroy",
     "command -- terraform destroy",
     "exec terraform destroy",
+    "command -p -- terraform destroy",
     'echo "$(terraform destroy)"',
     'echo "$(echo "$(terraform destroy)")"',
     'echo "${OPTIONAL:-$(terraform destroy)}"',
@@ -185,7 +194,7 @@ command -v terraform
         .indeterminate,
     ).toHaveLength(1);
     expect(classifyShellCommands('terraform "destroy').indeterminate).toHaveLength(1);
-    expect(classifyShellCommands('echo "terraform destroy').indeterminate).toEqual([]);
+    expect(classifyShellCommands('echo "terraform destroy').indeterminate.length).toBeGreaterThan(0);
     expect(classifyShellCommands('node "$SYNTHETIC_6129_SCRIPT"').indeterminate).toHaveLength(1);
     expect(classifyShellCommands("time -p terraform destroy").indeterminate).toHaveLength(1);
     expect(classifyShellCommands("coproc terraform destroy").indeterminate).toHaveLength(1);
@@ -195,13 +204,193 @@ command -v terraform
   });
 });
 
+describe("closed executable admission", () => {
+  it("benign forms have closed admission", () => {
+    expect(DESTRUCTIVE_GRAMMAR.benignForms).toHaveLength(674);
+    for (const entry of DESTRUCTIVE_GRAMMAR.benignForms) {
+      expect(entry.origin.sha).toBe("926050f88aae70a631c117c1e0f002a3160a9278");
+      expect(entry.proof.selector.length).toBeGreaterThan(0);
+      expect(entry.proof.operands.length).toBeGreaterThan(0);
+      expect(classifyShellCommands(entry.example).indeterminate, entry.id).toEqual([]);
+    }
+    const admitted = DESTRUCTIVE_GRAMMAR.benignForms.find((entry) => entry.selector === "timeout");
+    for (const mutation of ["proof", "origin", "selector", "payload", "hole", "missing"]) {
+      const grammar = structuredClone(DESTRUCTIVE_GRAMMAR);
+      const entry = grammar.benignForms.find((candidate) => candidate.id === admitted.id);
+      if (mutation === "proof") delete entry.proof.operands;
+      if (mutation === "origin") delete entry.origin.sha;
+      if (mutation === "selector") entry.selector = "synthetic-unlisted";
+      if (mutation === "payload") entry.words[3].value = "./scripts/production-db-restore-point-cleanup.mjs";
+      if (mutation === "hole") entry.dataOperands = true;
+      if (mutation === "missing") grammar.benignForms = grammar.benignForms.filter((candidate) => candidate !== entry);
+      expect(classifyShellCommands(admitted.example, { grammar }).indeterminate.length, mutation).toBeGreaterThan(0);
+      if (mutation !== "missing") expect(validateGrammarPartition(grammar).passed, mutation).toBe(false);
+    }
+  });
+
+  it("benign forwarding and fixed selectors stay green", () => {
+    for (const selector of ["timeout", "nohup"]) {
+      for (const entry of DESTRUCTIVE_GRAMMAR.benignForms.filter((form) => form.selector === selector)) {
+        expect(classifyShellCommands(entry.example).indeterminate).toEqual([]);
+        const mutant = entry.example.replace(
+          /(?:\.\/scripts\/[^\s]+|docker)/,
+          "./scripts/production-db-restore-point-cleanup.mjs",
+        );
+        expect(mutant).not.toBe(entry.example);
+        expect(classifyShellCommands(mutant).indeterminate.length).toBeGreaterThan(0);
+        expect(classifyShellCommands(entry.example + ' "$(terraform destroy)"').operations).toContain(
+          "terraform:destroy",
+        );
+      }
+    }
+    expect(operations('"$RUNNER_TEMP/doctl" registry repository delete-tag r t')).toEqual([
+      "doctl:registry-repository-delete-tag",
+    ]);
+    expect(
+      classifyShellCommands('binary="${RUNNER_TEMP}/kubectl-argo-rollouts"\n"$binary" version').indeterminate,
+    ).toEqual([]);
+    expect(operations('binary="${RUNNER_TEMP}/kubectl-argo-rollouts"\nbinary=terraform\n"$binary" destroy')).toEqual([
+      "terraform:destroy",
+    ]);
+    for (const run of [
+      'binary="${RUNNER_TEMP}/kubectl-argo-rollouts"\nbinary+=terraform\n"$binary" version',
+      'if true; then binary=terraform; fi\n"$binary" destroy',
+      'binary=terraform\nread binary\n"$binary" destroy',
+      'binary="${RUNNER_TEMP}/kubectl-argo-rollouts" echo data\n"$binary" version',
+      'false && binary="${RUNNER_TEMP}/kubectl-argo-rollouts"\n"$binary" version',
+      '(binary="${RUNNER_TEMP}/kubectl-argo-rollouts")\n"$binary" version',
+      '"$(echo terraform)" destroy',
+    ])
+      expect(classifyShellCommands(run).indeterminate.length).toBeGreaterThan(0);
+    for (const run of [
+      "mkdir -p doctl",
+      "cp doctl other",
+      "chmod +x doctl",
+      "install -m 0755 doctl target",
+      "command -v doctl",
+    ])
+      expect(classifyShellCommands(run)).toMatchObject({ operations: [], indeterminate: [] });
+  });
+
+  it("shell dispositions constrain executable and data positions", () => {
+    for (const run of ["((terraform + destroy))", 'echo "$((terraform + destroy))"', "echo terraform destroy"])
+      expect(classifyShellCommands(run)).toMatchObject({ operations: [], indeterminate: [] });
+    for (const run of [
+      'echo "$(( $(terraform destroy) + 1 ))"',
+      "if true; then terraform destroy; elif true; then echo data; fi",
+    ])
+      expect(operations(run)).toEqual(["terraform:destroy"]);
+    for (const run of [
+      "select item in data; do echo data; done",
+      "for ((i=0;i<1;i++)); do echo data; done",
+      "coproc echo data",
+      "time echo data",
+      "((terraform destroy))",
+      "(echo data",
+      "echo >",
+      "if true; then echo data",
+      "echo ${missing",
+      "echo ${ echo data; }",
+      "echo data &&",
+      "|| echo data",
+      "install --strip-program=terraform -s source target",
+      "printf -v 'a[$(terraform destroy)]' data",
+      "tools=(echo data; terraform destroy)",
+    ])
+      expect(classifyShellCommands(run).indeterminate.length, run).toBeGreaterThan(0);
+    const grammar = structuredClone(DESTRUCTIVE_GRAMMAR);
+    for (const member of grammar.partition.filter(
+      (member) => member.surface === "shell" && member.form.production === "arith_command",
+    ))
+      member.disposition = "INDETERMINATE";
+    expect(classifyShellCommands('echo "$((terraform + destroy))"', { grammar }).indeterminate.length).toBeGreaterThan(
+      0,
+    );
+    const nonBash = parse(violatingWorkflow("Write-Output safe"));
+    nonBash.jobs.anonymous.steps[0].shell = "pwsh";
+    expect(checkWorkflowDestructiveOperationGating(stringify(nonBash)).violations).toContainEqual(
+      expect.stringContaining("unproved non-Bash"),
+    );
+  });
+
+  it("uncertainty cannot disappear from cleanup or exemption inventory", () => {
+    const wrapped = readWorkflow(registryFile).replace(
+      "node ./scripts/digitalocean-registry-cleanup.mjs",
+      "timeout 30m node ./scripts/digitalocean-registry-cleanup.mjs",
+    );
+    expect(wrapped).not.toBe(readWorkflow(registryFile));
+    const result = checkWorkflowDestructiveOperationGating(wrapped, { workflowFile: registryFile });
+    expect(result.passed).toBe(false);
+    expect(result.checkedSteps).toHaveLength(1);
+    expect(result.violations).toContainEqual(expect.stringContaining("INDETERMINATE"));
+    const production = changeWorkflow(".github/workflows/platform-production.yml", (workflow) => {
+      workflow.jobs["deploy-production"].steps.push({
+        run: "timeout 30m node ./scripts/digitalocean-registry-cleanup.mjs --apply",
+      });
+    });
+    expect(
+      checkWorkflowDestructiveOperationGating(production, { workflowFile: ".github/workflows/platform-production.yml" })
+        .violations,
+    ).toContainEqual(expect.stringContaining("exact invocation multiset required"));
+  });
+  it.each([
+    "PATH+=:/opt/bin terraform destroy -auto-approve",
+    "MODE+=x doctl registry repository delete-tag r t",
+    "a[0]=x terraform destroy",
+    "((terraform destroy) )",
+    'env -i doctl -t "$T" registry repository delete-tag r t',
+    "timeout 8m node ./scripts/production-db-restore-point-cleanup.mjs --apply",
+  ])("reviewer ungated push reproduction refuses: %s", (run) => {
+    const result = checkWorkflowDestructiveOperationGating(violatingWorkflow(run));
+    expect(result.passed).toBe(false);
+    expect(result.checkedSteps).toHaveLength(1);
+    expect(result.violations.length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    "env -i terraform destroy",
+    "env -u HOME terraform destroy",
+    "env -- terraform destroy",
+    "env -i PATH=/usr/bin terraform destroy",
+    "exec -a tf terraform destroy",
+    "exec -c terraform destroy",
+    "timeout 600 terraform destroy",
+    "nohup terraform destroy",
+    "nice terraform destroy",
+    "stdbuf -oL terraform destroy",
+    "sudo terraform destroy",
+    "xargs terraform destroy",
+    "eval 'terraform destroy'",
+    "bash -c 'terraform destroy'",
+    "sh -c 'terraform destroy'",
+    "bash <<EOF\nterraform destroy\nEOF",
+    "bash <<< 'terraform destroy'",
+    "builtin eval 'terraform destroy'",
+    "source fixture.sh",
+    ". fixture.sh",
+    "pnpm exec terraform destroy",
+    "npx terraform destroy",
+    "$TF destroy",
+    '"${TERRAFORM_BIN}" destroy',
+    '"$(command -v terraform)" destroy',
+    "${{ inputs.tool }} destroy",
+    "terraform${EMPTY} destroy",
+    "nohup node ./scripts/digitalocean-registry-cleanup.mjs --dry-run=false &",
+    "synthetic-unlisted-selector harmless",
+    "echo 'unterminated",
+  ])("unresolved executable forms fail closed: %s", (run) => {
+    expect(classifyShellCommands(run).indeterminate.length).toBeGreaterThan(0);
+    expect(checkWorkflowDestructiveOperationGating(violatingWorkflow(run)).passed).toBe(false);
+  });
+});
+
 describe("authoritative grammar partition", () => {
   it("partition equals authoritative derivation", () => {
     expect(validateGrammarPartition()).toEqual({ passed: true, members: 503, violations: [] });
     expect(DESTRUCTIVE_GRAMMAR.partition).toEqual(deriveAuthoritativeGrammar());
     expect(new Set(DESTRUCTIVE_GRAMMAR.partition.map((member) => member.id)).size).toBe(503);
-    expect(DESTRUCTIVE_GRAMMAR.partition.filter((member) => member.disposition === "HANDLED")).toHaveLength(421);
-    expect(DESTRUCTIVE_GRAMMAR.partition.filter((member) => member.disposition === "INDETERMINATE")).toHaveLength(82);
+    expect(DESTRUCTIVE_GRAMMAR.partition.filter((member) => member.disposition === "HANDLED")).toHaveLength(442);
+    expect(DESTRUCTIVE_GRAMMAR.partition.filter((member) => member.disposition === "INDETERMINATE")).toHaveLength(61);
     expect(DESTRUCTIVE_GRAMMAR.sources.map(({ id, excerptSha256 }) => [id, excerptSha256])).toEqual([
       ["bash", "79b2d71b111231a093f390e82181428b15523ffe66fb7cc8a893f81da5a0e1b8"],
       ["doctl-global", "138e78ea8ccce848f3f5c1115ae5477934311629769f59e3e51aa79651d7d8ab"],
@@ -278,7 +467,7 @@ describe("semantic cleanup shape contracts and real discovery", () => {
     const result = checkDiscoveredWorkflows({ root });
     expect(result.violations).toEqual([]);
     expect(result.passed).toBe(true);
-    expect(result.total).toBe(57);
+    expect(result.total).toBe(independentWorkflowTotal());
     expect(result.scanned).toBe(result.total);
     expect(
       Object.fromEntries(
@@ -523,8 +712,8 @@ describe("semantic cleanup shape contracts and real discovery", () => {
     const file = ".github/workflows/synthetic-6129-extra.yaml";
     writeFileSync(join(directory, file), violatingWorkflow());
     const result = checkDiscoveredWorkflows({ root: directory });
-    expect(result.total).toBe(58);
-    expect(result.scanned).toBe(58);
+    expect(result.total).toBe(independentWorkflowTotal() + 1);
+    expect(result.scanned).toBe(result.total);
     expect(result.passed).toBe(false);
     expect(result.violations).toContainEqual(expect.stringContaining(`${file}: refuse-unconfirmed-apply`));
   });
@@ -541,7 +730,11 @@ describe("semantic cleanup shape contracts and real discovery", () => {
       ),
     );
     const result = checkDiscoveredWorkflows({ root: directory });
-    expect(result).toMatchObject({ passed: false, scanned: 58, total: 58 });
+    expect(result).toMatchObject({
+      passed: false,
+      scanned: independentWorkflowTotal() + 1,
+      total: independentWorkflowTotal() + 1,
+    });
     expect(result.results.find((entry) => entry.workflowFile === file).checkedSteps).toEqual([
       expect.objectContaining({
         jobId: "ordinary-job",
@@ -561,6 +754,25 @@ describe("semantic cleanup shape contracts and real discovery", () => {
     expect(checkDiscoveredWorkflows({ root: directory }).violations).toContainEqual(
       expect.stringContaining(`${file}: destructive job 'another-job'`),
     );
+    const previousChangedFiles = process.env.CHANGED_FILES;
+    process.env.CHANGED_FILES = "README.md";
+    try {
+      for (const run of [
+        "terraform \\\n destroy",
+        "timeout 8m node ./scripts/production-db-restore-point-cleanup.mjs --apply",
+        "$TF destroy",
+      ]) {
+        writeFileSync(join(directory, file), violatingWorkflow(run, "arbitrary", "arbitrary"));
+        const discovered = checkDiscoveredWorkflows({ root: directory });
+        expect(discovered.passed).toBe(false);
+        expect(discovered.scanned).toBe(independentWorkflowTotal() + 1);
+        expect(discovered.violations).toContainEqual(expect.stringContaining(`${file}:`));
+        expect(discovered.results.find((entry) => entry.workflowFile === file).checkedSteps).toHaveLength(1);
+      }
+    } finally {
+      if (previousChangedFiles === undefined) delete process.env.CHANGED_FILES;
+      else process.env.CHANGED_FILES = previousChangedFiles;
+    }
     const repaired = parse(readWorkflow(restoreFile));
     repaired.jobs["ordinary-job"] = repaired.jobs.cleanup;
     delete repaired.jobs.cleanup;
@@ -569,8 +781,8 @@ describe("semantic cleanup shape contracts and real discovery", () => {
     writeFileSync(join(directory, file), stringify(repaired));
     expect(checkDiscoveredWorkflows({ root: directory })).toMatchObject({
       passed: true,
-      scanned: 58,
-      total: 58,
+      scanned: independentWorkflowTotal() + 1,
+      total: independentWorkflowTotal() + 1,
       violations: [],
     });
   });
