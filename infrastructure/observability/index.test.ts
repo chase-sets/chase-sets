@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { metrics } from "@opentelemetry/api";
+import {
+  AggregationTemporality,
+  InMemoryMetricExporter,
+  MeterProvider,
+  PeriodicExportingMetricReader,
+} from "@opentelemetry/sdk-metrics";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
@@ -32,6 +38,7 @@ import {
   recordProviderWebhookIngestion,
   recordDiscoverySearchQuerySignal,
   recordProjectionInterestIndexLookup,
+  recordProjectionStatus,
   recordProjectionInlineApplyOutcome,
   recordProjectionWakeIntentEnqueueOutcome,
   recordProjectionWakeIntentOutcome,
@@ -41,6 +48,96 @@ import {
   sanitizeLogFields,
   type CheckoutObservabilityEventSignal,
 } from "./index";
+
+describe("durable projection count publication", () => {
+  it("exports active gauges, observation time and isolated bounded identity through the real SDK", async () => {
+    const exporter = new InMemoryMetricExporter(AggregationTemporality.CUMULATIVE);
+    const provider = new MeterProvider({
+      readers: [new PeriodicExportingMetricReader({ exporter, exportIntervalMillis: 3_600_000 })],
+    });
+    metrics.disable();
+    metrics.setGlobalMeterProvider(provider);
+    const now = vi.spyOn(Date, "now").mockReturnValue(180_000);
+    try {
+      for (const environment of ["production", "staging"]) {
+        vi.stubEnv("DEPLOYMENT_ENVIRONMENT", environment);
+        recordProjectionStatus({
+          targetContextName: "synthetic-context",
+          projectionName: "synthetic-projection",
+          blockedStreamCount: 2,
+          poisonEventCount: 1,
+          streamId: "synthetic-private-stream",
+          lastError: "synthetic-private-error",
+        } as Parameters<typeof recordProjectionStatus>[0]);
+      }
+      await provider.forceFlush();
+      const exported = exporter
+        .getMetrics()
+        .at(-1)!
+        .scopeMetrics.flatMap((scope) => scope.metrics);
+      expect(exported.map((metric) => metric.descriptor.name).sort()).toEqual([
+        "chase_sets_projection_blocked_streams",
+        "chase_sets_projection_poison_events",
+        "chase_sets_projection_status_observed_timestamp_seconds",
+      ]);
+      for (const metric of exported) {
+        expect(metric.dataPoints.map((point) => point.value)).toEqual(
+          metric.descriptor.name.endsWith("timestamp_seconds")
+            ? [180, 180]
+            : metric.descriptor.name.endsWith("blocked_streams")
+              ? [2, 2]
+              : [1, 1],
+        );
+        expect(metric.dataPoints.map((point) => point.attributes)).toEqual([
+          { environment: "production", target_context: "synthetic-context", projection: "synthetic-projection" },
+          { environment: "staging", target_context: "synthetic-context", projection: "synthetic-projection" },
+        ]);
+      }
+      expect(JSON.stringify(exported)).not.toContain("synthetic-private");
+      vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "production");
+      recordProjectionStatus({
+        targetContextName: "synthetic-context",
+        projectionName: "synthetic-projection",
+        blockedStreamCount: 0,
+        poisonEventCount: 0,
+      });
+      await provider.forceFlush();
+      const recovered = exporter
+        .getMetrics()
+        .at(-1)!
+        .scopeMetrics.flatMap((scope) => scope.metrics);
+      for (const metric of recovered.filter((metric) => !metric.descriptor.name.endsWith("timestamp_seconds"))) {
+        expect(metric.dataPoints.find((point) => point.attributes.environment === "production")?.value).toBe(0);
+      }
+    } finally {
+      now.mockRestore();
+      vi.unstubAllEnvs();
+      await provider.shutdown();
+      metrics.disable();
+    }
+  });
+
+  it("does not publish invalid counts as healthy zero", () => {
+    const createGauge = vi.fn(() => ({ record: vi.fn() }));
+    const meter = vi.spyOn(metrics, "getMeter").mockReturnValue({ createGauge } as never);
+    try {
+      for (const count of [-1, Number.NaN, Number.POSITIVE_INFINITY, 0.5]) {
+        for (const field of ["blockedStreamCount", "poisonEventCount"]) {
+          recordProjectionStatus({
+            targetContextName: "synthetic-context",
+            projectionName: "synthetic-projection",
+            blockedStreamCount: 0,
+            poisonEventCount: 0,
+            [field]: count,
+          });
+        }
+      }
+      expect(createGauge).not.toHaveBeenCalled();
+    } finally {
+      meter.mockRestore();
+    }
+  });
+});
 
 describe("observability config", () => {
   it("loads low-cost local defaults", () => {
