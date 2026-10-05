@@ -1,10 +1,13 @@
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import orderingContext from "../../../ordering/context.json";
 import {
   createOrderingOpenOrdersApiClient,
   createOrderingOpenOrdersRequestApiClient,
 } from "./ordering-open-orders-api-client";
 
+const orderingContext: { apiMounts: { kind: string; mountPath: string }[] } = JSON.parse(
+  readFileSync(new URL("../../../ordering/context.json", import.meta.url), "utf8"),
+);
 const mountPath = orderingContext.apiMounts.find((mount) => mount.kind === "primary")!.mountPath;
 const orderCapacityPath = `${mountPath}/account/sales/order-capacity`;
 
