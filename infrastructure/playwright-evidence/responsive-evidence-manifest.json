@@ -35,7 +35,7 @@
           "scope": "target",
           "selector": ":scope",
           "property": "height",
-          "assertion": { "minimum": 1 }
+          "assertion": { "minimum": 44 }
         },
         {
           "identity": "document-overflow",
@@ -79,7 +79,7 @@
           "scope": "target",
           "selector": ":scope",
           "property": "height",
-          "assertion": { "minimum": 1 }
+          "assertion": { "minimum": 44 }
         },
         {
           "identity": "document-overflow",
@@ -123,7 +123,7 @@
           "scope": "target",
           "selector": ":scope",
           "property": "height",
-          "assertion": { "minimum": 1 }
+          "assertion": { "minimum": 44 }
         },
         {
           "identity": "document-overflow",
@@ -167,7 +167,7 @@
           "scope": "target",
           "selector": ":scope",
           "property": "height",
-          "assertion": { "minimum": 1 }
+          "assertion": { "minimum": 44 }
         },
         {
           "identity": "document-overflow",

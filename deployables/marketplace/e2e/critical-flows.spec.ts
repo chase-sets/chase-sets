@@ -378,6 +378,7 @@ test.describe("marketplace critical flows", () => {
     await expectPageOk(page, "/sign-in");
     await signInWithPassword(page, new URL(page.url()).origin, marketplaceBrowserE2eSellerCredentials());
     const readinessBefore = await read("/api/settlement/payout-readiness");
+    expect(readinessBefore.account_id).toBe("acc_seed_demo_account");
     expect(readinessBefore.status).toBe("not-started");
     expect(readinessBefore.missing_requirements).toEqual(
       expect.arrayContaining(["provider-onboarding", "seller-agreement"]),
