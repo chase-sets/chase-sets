@@ -154,7 +154,9 @@ export const platformOperationsEnglishTranslations = {
   "platformOperations.opsDashboard.verifiedTradeCount": "Verified trades",
   "platformOperations.projectionOperations.actions": "Actions",
   "platformOperations.projectionOperations.activeWorkers": "Active workers",
-  "platformOperations.projectionOperations.activeWorkerSummary": "{active} / {stale} stale",
+  "platformOperations.projectionOperations.activeWorkerSummary": "{active} active · {stale} stale",
+  "platformOperations.projectionOperations.expiredHeartbeatHistory":
+    "{count} expired heartbeats in the last 7 days: no action needed",
   "platformOperations.projectionOperations.all": "all",
   "platformOperations.projectionOperations.allContexts": "All contexts",
   "platformOperations.projectionOperations.allProjections": "All projections",

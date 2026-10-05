@@ -32,7 +32,6 @@ import type {
 import {
   activeWorkerCount,
   buildAttentionItems,
-  buildBlockedRows,
   buildProjectionRepairQueue,
   staleWorkerCount,
   stateSeverity,
@@ -258,13 +257,30 @@ function ProjectionRepairQueue({
           key: "actions",
           header: t(`${routeKey}.actions`),
           cell: (item) => (
-            <LinkButton
-              href={projectionSelectionHref("/platform/projections", filters, item.targetId)}
-              size="sm"
-              tone="secondary"
-            >
-              {t(`${routeKey}.details`)}
-            </LinkButton>
+            <Inline gap={2}>
+              <LinkButton
+                href={projectionSelectionHref("/platform/projections", filters, item.targetId)}
+                size="sm"
+                tone="secondary"
+              >
+                {t(`${routeKey}.details`)}
+              </LinkButton>
+              {item.kind === "projection-group" ? (
+                <LinkButton
+                  href={projectionSelectionHref("/platform/projections/reference", {
+                    contextName: item.contextName ?? "",
+                    projectionName: item.projectionName ?? "",
+                    search: "",
+                    state: "",
+                    selected: "",
+                  })}
+                  size="sm"
+                  tone="secondary"
+                >
+                  {t(`${routeKey}.reference`)}
+                </LinkButton>
+              ) : null}
+            </Inline>
           ),
         },
       ]}
@@ -368,10 +384,13 @@ function OperationsSummary({
         <StatGrid columns={{ base: 1, md: 4 }}>
           <Stat label={t(`${routeKey}.attention`)} value={attentionItems.length} />
           <Stat label={t(`${routeKey}.sourceLag`)} value={formatDecimalCount(data.summary.outstandingEventCount)} />
-          <Stat label={t(`${routeKey}.blockedStreams`)} value={buildBlockedRows(data).length} />
+          <Stat
+            label={t(`${routeKey}.blockedStreams`)}
+            value={data.projectionGroups.reduce((sum, group) => sum + group.blockedStreamCount, 0)}
+          />
           <Stat
             label={t(`${routeKey}.poisonEvents`)}
-            value={data.blockedProjections.reduce((sum, projection) => sum + projection.poisonEvents.length, 0)}
+            value={data.projectionGroups.reduce((sum, group) => sum + group.poisonEventCount, 0)}
           />
           <Stat
             label={t(`${routeKey}.failedOperations`)}
@@ -393,6 +412,11 @@ function OperationsSummary({
             })}
           />
         </StatGrid>
+        <Text tone="secondary">
+          {t(`${routeKey}.expiredHeartbeatHistory`, {
+            count: data.workerHeartbeatHistory.expiredWithinDiagnosticWindowCount,
+          })}
+        </Text>
       </Stack>
     </Surface>
   );
