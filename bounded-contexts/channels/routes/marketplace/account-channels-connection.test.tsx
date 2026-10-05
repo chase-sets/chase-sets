@@ -23,7 +23,8 @@ describe("Channels account connection route contribution", () => {
     ["array", "[]"],
   ])("rejects a successful %s connection body before any auxiliary read", async (_name, body) => {
     vi.stubEnv("CHASE_SETS_INTERNAL_API_ORIGIN", "http://localhost:6412");
-    const fetch = vi.fn()
+    const fetch = vi
+      .fn()
       .mockResolvedValueOnce(Response.json({ actor: actor() }))
       .mockResolvedValueOnce(new Response(body, { status: 200 }));
     vi.stubGlobal("fetch", fetch);
@@ -35,7 +36,8 @@ describe("Channels account connection route contribution", () => {
   });
 
   it("preserves a missing connection as not-found without auxiliary reads", async () => {
-    const fetch = vi.fn()
+    const fetch = vi
+      .fn()
       .mockResolvedValueOnce(Response.json({ actor: actor() }))
       .mockResolvedValueOnce(Response.json({ error: "Not found" }, { status: 404 }));
     vi.stubGlobal("fetch", fetch);

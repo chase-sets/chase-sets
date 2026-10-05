@@ -17,6 +17,7 @@ import {
   buildPlatformChildEnvironment,
   buildRepresentativeSnapshotCommandEnvironment,
   createBrowserE2eProductionIngressDefinitions,
+  createMarketplaceDevProcessDefinition,
   createPublicWebDevProcessDefinition,
   isBrowserE2eTarget,
 } from "./dev-system-config.mjs";
@@ -223,17 +224,7 @@ const processes = [
     },
     port: sandbox.ports.adminWeb,
   },
-  {
-    name: "marketplace",
-    workspace: "@chase-sets/app-marketplace-web",
-    env: {
-      ...sandboxEnv,
-      PLATFORM_API_URL: sandbox.urls.platformApi,
-      VITE_PLATFORM_API_URL: sandbox.urls.platformApi,
-      PORT: String(sandbox.ports.marketplaceWeb),
-    },
-    port: sandbox.ports.marketplaceWeb,
-  },
+  createMarketplaceDevProcessDefinition(sandbox, sandboxEnv),
   createPublicWebDevProcessDefinition(sandbox, sandboxEnv),
 ];
 
