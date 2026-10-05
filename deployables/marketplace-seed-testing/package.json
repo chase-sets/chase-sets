@@ -7,6 +7,7 @@
     "testProfile": "db"
   },
   "scripts": {
+    "test:db": "pnpm run test:db:1 && pnpm run test:db:2",
     "test:db:1": "vitest run --config ./tests/vitest.config.mjs tests/representative-catalog.test.ts tests/representative-commerce-state.test.ts tests/marketplace-seed.test.ts tests/identity-anchor-representative-reconciliation.test.ts",
     "test:db:2": "vitest run --config ./tests/vitest.config.mjs tests/payments-money-feed-coverage.test.ts"
   },
