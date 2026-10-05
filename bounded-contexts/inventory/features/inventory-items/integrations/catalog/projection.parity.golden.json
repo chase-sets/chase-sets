@@ -276,7 +276,7 @@
       "params": ["bp_unseen", "{\"canonicalDimensionOrder\":[],\"dimensions\":[]}"]
     },
     {
-      "sql": "UPDATE inventory_catalog_blueprints SET status = 'active', updated_at = $2 WHERE blueprint_id = $1",
+      "sql": "UPDATE inventory_catalog_blueprints SET updated_at = $2 WHERE blueprint_id = $1",
       "params": ["bp_main", "2026-06-01T00:14:00.000Z"]
     },
     {
@@ -452,7 +452,7 @@
       "bp_main": {
         "blueprint_id": "bp_main",
         "name": "Graded Card (revised)",
-        "status": "active",
+        "status": "draft",
         "dimension_rules": [
           {
             "dimensionId": "dim_condition",
@@ -471,7 +471,7 @@
           }
         ],
         "canonical_dimension_order": ["dim_condition", "dim_language"],
-        "updated_at": "2026-06-01T00:14:00.000Z"
+        "updated_at": "2026-06-01T00:12:00.000Z"
       },
       "bp_unseen": {
         "blueprint_id": "bp_unseen",
