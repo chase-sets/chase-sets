@@ -443,7 +443,8 @@ export const bootstrapDbScheduleModel = Object.freeze({
 
 // These entries contribute to unit residuals, not the manifested bootstrap
 // case schedule. Membership and provenance must be re-frozen together with the
-// model after measurement; discovery never expands this measured workload.
+// model after measurement; discovery never expands this workload. The current
+// reference binding is pre-capture, not certification of the new topology.
 export const platformApiNonBootstrapDbCensus = Object.freeze({
   referenceRunId: 36141162335,
   referenceJobId: 108091066485,
@@ -776,15 +777,16 @@ function readVitestIncludeGlobs(root) {
 
   const sourceFile = sourceFileFor(configPath, readFileSync(configPath, "utf8"));
   const globs = [];
+  const excludes = [];
   function visit(node) {
     if (
       ts.isPropertyAssignment(node) &&
       (ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name)) &&
-      node.name.text === "include" &&
+      ["include", "exclude"].includes(node.name.text) &&
       ts.isArrayLiteralExpression(node.initializer)
     ) {
       for (const element of node.initializer.elements) {
-        if (ts.isStringLiteralLike(element)) globs.push(element.text);
+        if (ts.isStringLiteralLike(element)) (node.name.text === "include" ? globs : excludes).push(element.text);
       }
     }
     ts.forEachChild(node, visit);
@@ -794,7 +796,7 @@ function readVitestIncludeGlobs(root) {
   if (globs.length === 0) {
     return { globs: [], violation: `${configPath} declares no vitest include globs to derive test entries from` };
   }
-  return { globs, violation: null };
+  return { globs, excludes, violation: null };
 }
 
 function collectSourceFilesUnder(directory) {
@@ -811,41 +813,19 @@ function collectSourceFilesUnder(directory) {
   return found;
 }
 
-function importsBootstrapHarness(filePath, source, testDirectory, cache) {
-  if (cache.has(filePath)) return cache.get(filePath);
-  cache.set(filePath, false);
-
-  const sourceFile = sourceFileFor(filePath, source);
-  const specifiers = [];
-  let declaresFactory = false;
-  function visit(node) {
-    if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier)) {
-      specifiers.push(node.moduleSpecifier.text);
-    }
-    if (ts.isFunctionDeclaration(node) && node.name?.text === bootstrapHarnessFactoryName) {
-      declaresFactory = true;
-    }
-    ts.forEachChild(node, visit);
-  }
-  visit(sourceFile);
-
-  let result = false;
-  for (const specifier of specifiers) {
-    if (!specifier.startsWith(".")) continue;
-    const resolved = resolveLocalTestImport(filePath, specifier, testDirectory);
-    if (!resolved) continue;
-    if (resolved.split(/[\\/]/).at(-1)?.startsWith(bootstrapHarnessModuleBaseName)) {
-      result = true;
-      break;
-    }
-    if (importsBootstrapHarness(resolved, readFileSync(resolved, "utf8"), testDirectory, cache)) {
-      result = true;
-      break;
+function importsBootstrapHarness(filePath, root, cache) {
+  const pending = [filePath];
+  const visited = new Set();
+  while (pending.length) {
+    const next = pending.pop();
+    if (visited.has(next)) continue;
+    visited.add(next);
+    for (const imported of localDbFacts(next, root, cache).imports) {
+      if (imported.split(/[\\/]/).at(-1)?.startsWith(bootstrapHarnessModuleBaseName)) return true;
+      pending.push(imported);
     }
   }
-
-  cache.set(filePath, result && !declaresFactory);
-  return cache.get(filePath);
+  return false;
 }
 
 function accessName(node) {
@@ -867,8 +847,11 @@ function localDbFacts(filePath, root, cache) {
       accessName(node.expression) === "env" &&
       ts.isIdentifier(node.expression.expression) &&
       node.expression.expression.text === "process" &&
-      !(ts.isBinaryExpression(node.parent) && node.parent.left === node &&
-        node.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken)
+      !(
+        ts.isBinaryExpression(node.parent) &&
+        node.parent.left === node &&
+        node.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      )
     ) {
       readsDatabaseUrl = true;
     }
@@ -913,13 +896,12 @@ export function derivePlatformApiDbTestCensus({ platformApiRoot } = {}) {
   const bootstrapEntries = [];
   const dbEntries = [];
   const suffixEntries = [];
-  const harnessCache = new Map();
   const dbCache = new Map();
   for (const filePath of collectSourceFilesUnder(testDirectory).sort()) {
     const entry = relative(root, filePath).replaceAll("\\", "/");
     if (!patterns.some((pattern) => pattern.test(entry))) continue;
     entries.push(entry);
-    const bootstrap = importsBootstrapHarness(filePath, readFileSync(filePath, "utf8"), testDirectory, harnessCache);
+    const bootstrap = importsBootstrapHarness(filePath, root, dbCache);
     const db = bootstrap || reachesDatabaseUrl(filePath, root, dbCache);
     if (bootstrap) bootstrapEntries.push(entry);
     if (db) dbEntries.push(entry);
@@ -1619,6 +1601,7 @@ export function checkBootstrapDbEnrollment({
 
   const partitionFileNames = Object.keys(manifest);
   const census = derivePlatformApiDbTestCensus({ platformApiRoot: root });
+  const configExcludes = readVitestIncludeGlobs(root).excludes ?? [];
   violations.push(...census.violations);
   const manifestedPaths = new Map(partitionFileNames.map((fileName) => [`__tests__/${fileName}`, fileName]));
   const bootstrapEntries = new Set(census.bootstrapEntries);
@@ -1640,8 +1623,24 @@ export function checkBootstrapDbEnrollment({
   }
   for (const [scriptName, command] of partitionScripts) {
     const { filter, options } = readVitestInvocation(command, scriptName, violations);
+    if (
+      (options.config !== undefined && resolve(root, options.config) !== resolve(root, "vitest.config.ts")) ||
+      options.root ||
+      options.dir ||
+      options.project ||
+      options.testNamePattern ||
+      options.shard ||
+      options.changed ||
+      options.related
+    ) {
+      violations.push(
+        `${scriptName} changes the canonical Vitest discovery or case selection; complete DB entry execution is required`,
+      );
+    }
     if (filter.length === 0) violations.push(`${scriptName} must select explicit DB test entry filters`);
-    const excludes = (options.exclude ?? []).map(globToRegExp);
+    const excludes = [...configExcludes, ...(options.exclude ?? [])].map((glob) =>
+      globToRegExp(glob.replaceAll("\\", "/")),
+    );
     for (const value of filter) {
       const normalized = value.replaceAll("\\", "/").replace(/^\.\//, "");
       const matches = census.entries.filter((entry) => entry.toLowerCase().includes(normalized.toLowerCase()));
@@ -1683,13 +1682,20 @@ export function checkBootstrapDbEnrollment({
     (nonBootstrapCensus.referenceRunId !== validatedScheduleModel.referenceRunId ||
       nonBootstrapCensus.referenceJobId !== validatedScheduleModel.referenceJobId)
   ) {
-    violations.push("non-bootstrap DB census reference is stale relative to the schedule model; re-measurement required");
+    violations.push(
+      "non-bootstrap DB census reference is stale relative to the schedule model; re-measurement required",
+    );
   }
   const nonBootstrapEntries = new Set(census.dbEntries.filter((entry) => !bootstrapEntries.has(entry)));
   for (const entry of new Set([...nonBootstrapEntries, ...Object.keys(nonBootstrapCensus.entries)])) {
     const expectedUnit = nonBootstrapCensus.entries[entry];
     const memberships = partitionMemberships.get(entry) ?? [];
-    if (!nonBootstrapEntries.has(entry) || !expectedUnit || memberships.length !== 1 || memberships[0] !== expectedUnit) {
+    if (
+      !nonBootstrapEntries.has(entry) ||
+      !expectedUnit ||
+      memberships.length !== 1 ||
+      memberships[0] !== expectedUnit
+    ) {
       violations.push(`${entry} non-bootstrap DB census changed; re-measurement required`);
     }
   }
@@ -1949,7 +1955,9 @@ if (invokedPath === fileURLToPath(import.meta.url)) {
   const result = checkBootstrapDbEnrollment();
   console.log(formatBootstrapDbEnrollmentResult(result));
   const census = derivePlatformApiDbTestCensus();
-  console.log(`Platform API DB census: ${census.dbEntries.length} entries = ${census.bootstrapEntries.length} bootstrap + ${census.dbEntries.length - census.bootstrapEntries.length} non-bootstrap; ${census.entries.length} include-selected entries scanned.`);
+  console.log(
+    `Platform API DB census: ${census.dbEntries.length} entries = ${census.bootstrapEntries.length} bootstrap + ${census.dbEntries.length - census.bootstrapEntries.length} non-bootstrap; ${census.entries.length} include-selected entries scanned.`,
+  );
   if (result.violations.length > 0) {
     process.exitCode = 1;
   }

@@ -2,7 +2,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import { globSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { createVitest } from "vitest/node";
+import { createVitest, parseCLI } from "vitest/node";
+import { derivePlatformApiDbTestCensus } from "../deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs";
 import { listWorkspacePackages } from "./lib/repo.mjs";
 import {
   DB_TEST_SCRIPT_SELECTOR,
@@ -842,9 +843,13 @@ describe("DB duration scheduling", () => {
       registry: durationRegistry([durationEntry(api.name, "test:db", 1)]),
       argv: ["--db-workspace-group=api"],
     });
-    const onDisk = globSync("__tests__/**/*.db.test.ts", { cwd: api.dir })
-      .map((file) => path.resolve(api.dir, file).replaceAll("\\", "/"))
-      .sort();
+    const census = derivePlatformApiDbTestCensus({ platformApiRoot: api.dir });
+    expect(census.violations).toEqual([]);
+    expect(census.entries).toHaveLength(46);
+    expect(census.dbEntries).toHaveLength(17);
+    expect(census.bootstrapEntries).toHaveLength(11);
+    expect(census.dbEntries).toEqual(census.suffixEntries);
+    const onDisk = census.dbEntries.map((file) => path.resolve(api.dir, file).replaceAll("\\", "/")).sort();
     const vitest = await createVitest("test", { root: api.dir, config: "./vitest.config.ts", watch: false });
     try {
       const groups = [];
@@ -852,21 +857,54 @@ describe("DB duration scheduling", () => {
         const parts = scripts[args[3]].split(" && ");
         expect(parts[0]).toBe("node ./scripts/check-bootstrap-db-enrollment.mjs");
         expect(parts[1]).toContain("--maxWorkers=3");
-        const filters = parts[1].split(/\s+/).filter((arg) => arg.startsWith("__tests__/"));
-        groups.push((await vitest.globTestSpecifications(filters)).map((spec) => spec.moduleId));
+        const { filter } = parseCLI(parts[1]);
+        groups.push((await vitest.globTestSpecifications(filter)).map((spec) => spec.moduleId));
       }
       expect(groups.flat().sort()).toEqual(onDisk);
       expect(groups.map((files) => files.length)).toEqual([7, 10]);
       expect(groups[1].filter((file) => file.includes("/operator-session/"))).toHaveLength(5);
+      expect(groups[1]).toContain(
+        path.resolve(api.dir, "__tests__/seed-command-catalog.db.test.ts").replaceAll("\\", "/"),
+      );
+      const expectedOrdinary = census.entries
+        .filter((entry) => !census.dbEntries.includes(entry))
+        .map((entry) => path.resolve(api.dir, entry).replaceAll("\\", "/"))
+        .sort();
+      const operatorOrdinary = expectedOrdinary.filter((entry) => entry.includes("/operator-session/"));
+      expect(operatorOrdinary).toHaveLength(3);
       for (const name of ["test:unit", "test:fast"]) {
-        const exclude = [...scripts[name].matchAll(/--exclude\s+(\S+)/g)].map((match) => match[1]);
+        const {
+          options: { exclude },
+        } = parseCLI(scripts[name]);
         const unit = await createVitest("test", { root: api.dir, config: "./vitest.config.ts", watch: false, exclude });
         try {
           const discovered = (await unit.globTestSpecifications()).map((spec) => spec.moduleId);
           expect(discovered.length).toBeGreaterThan(0);
           expect(discovered.filter((file) => onDisk.includes(file))).toEqual([]);
+          expect(discovered.sort()).toEqual(expectedOrdinary);
+          expect(discovered).toEqual(expect.arrayContaining(operatorOrdinary));
         } finally {
           await unit.close();
+        }
+        for (const missing of [
+          "__tests__/seed-command-catalog.db.test.ts",
+          "__tests__/operator-session/operator-session-push.db.test.ts",
+        ]) {
+          const leaking = await createVitest("test", {
+            root: api.dir,
+            config: "./vitest.config.ts",
+            watch: false,
+            exclude: exclude.filter((entry) => entry !== missing),
+          });
+          try {
+            const discovered = (await leaking.globTestSpecifications()).map((spec) => spec.moduleId);
+            expect(discovered.filter((file) => onDisk.includes(file))).toEqual([
+              path.resolve(api.dir, missing).replaceAll("\\", "/"),
+            ]);
+            expect(() => expect(discovered.sort()).toEqual(expectedOrdinary)).toThrow();
+          } finally {
+            await leaking.close();
+          }
         }
       }
     } finally {

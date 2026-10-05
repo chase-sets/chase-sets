@@ -1,14 +1,6 @@
-import { afterAll, beforeAll, beforeEach, describe, expect } from "vitest";
+import { expect } from "vitest";
 import type { ResolvedActor } from "@chase-sets/auth-context";
 import { module as catalogModule } from "@chase-sets/catalog";
-import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
-import {
-  closeMultiContextTestPools,
-  createMultiContextTestDatabaseUrls,
-  createMultiContextTestPools,
-  ensureMultiContextTestDatabases,
-  resetMultiContextTestSchemas,
-} from "@chase-sets/bounded-context-runtime/test-support";
 import type { PgPoolClient, PgQueryable, PgQueryResult, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { createApiHost } from "@chase-sets/platform-runtime/api";
 import type { SecretEnvelopeKeyring } from "@chase-sets/platform-runtime/secret-envelope";
@@ -166,23 +158,4 @@ export function transport(pool: PgTransactionalPool) {
       return connects;
     },
   };
-}
-const databaseBaseUrl = process.env.TEST_DATABASE_URL;
-export const describeDb = databaseBaseUrl || process.env.CI ? describe : describe.skip;
-export function database(suffix: string) {
-  let pools: Readonly<Record<"catalog", PgTransactionalPool>>;
-  beforeAll(async () => {
-    if (!databaseBaseUrl) throw new Error("TEST_DATABASE_URL is required for operator-session DB proofs.");
-    const urls = createMultiContextTestDatabaseUrls(databaseBaseUrl, ["catalog"], suffix);
-    await ensureMultiContextTestDatabases(databaseBaseUrl, urls);
-    pools = createMultiContextTestPools(urls);
-  });
-  beforeEach(async () => {
-    await resetMultiContextTestSchemas(pools);
-    await bootstrapContextDatabase(catalogModule, pools.catalog);
-  });
-  afterAll(async () => {
-    if (pools) await closeMultiContextTestPools(pools);
-  });
-  return () => pools.catalog;
 }

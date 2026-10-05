@@ -620,6 +620,15 @@ describe("DB duration collection", () => {
       expect(fetchImpl.mock.calls.some(([url]) => url.endsWith("/logs"))).toBe(false);
   });
 
+  it("rejects a DB job starting before its run was created (F2)", async () => {
+    const data = source();
+    data.jobs[0].started_at = "2026-10-05T11:54:00Z";
+    const result = await collectDbDurationJobs({ ...options, fetchImpl: github(data) });
+    expect(result.status).toBe("unknown");
+    expect(result.jobs).toEqual([]);
+    expect(result.reasons).toContain(`DB execution timestamps contradict job: ${data.jobs[0].id}`);
+  });
+
   it("ignores removed workspaces but never uses summary eligibleCount as census", () => {
     const data = source();
     const result = classifyDbJob({
