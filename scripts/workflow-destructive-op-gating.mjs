@@ -766,6 +766,7 @@ function resolveCommandWords(command, commands, tokens) {
 function shellSyntaxErrors(tokens, commands, grammar) {
   const errors = [];
   const stack = [];
+  const bodyStarted = [];
   const data = new Set(
     commands.flatMap((command) => [
       ...command.words.slice(1),
@@ -808,18 +809,36 @@ function shellSyntaxErrors(tokens, commands, grammar) {
         errors.push(`missing command around ${value}`);
     } else if (value === "(" && token.type === "operator") {
       stack.push(")");
+      bodyStarted.push(true);
       encounter("subshell");
     } else if (value === ")" && token.type === "operator") {
-      if (stack.at(-1) === ")") stack.pop();
-      else if (stack.at(-1) !== "esac") errors.push("unmatched closing parenthesis");
+      if (stack.at(-1) === ")") {
+        stack.pop();
+        bodyStarted.pop();
+      } else if (stack.at(-1) !== "esac") errors.push("unmatched closing parenthesis");
     } else if (Object.hasOwn(open, value)) {
       stack.push(open[value][0]);
+      bodyStarted.push(value === "{");
       encounter(open[value][1]);
     } else if (["fi", "done", "esac", "}"].includes(value)) {
       if (stack.pop() !== value) errors.push(`unmatched ${value}`);
-    } else if (value === "elif") encounter("elif_clause");
-    else if (["then", "else"].includes(value) && stack.at(-1) !== "fi") errors.push(`unmatched ${value}`);
-    else if (value === "do" && stack.at(-1) !== "done") errors.push("unmatched do");
+      if (!bodyStarted.pop()) errors.push(`missing body delimiter before ${value}`);
+    } else if (value === "elif") {
+      encounter("elif_clause");
+      if (stack.at(-1) !== "fi" || !bodyStarted.at(-1)) errors.push("unmatched elif");
+      bodyStarted[bodyStarted.length - 1] = false;
+    } else if (["then", "else"].includes(value)) {
+      if (
+        stack.at(-1) !== "fi" ||
+        (value === "then" && bodyStarted.at(-1)) ||
+        (value === "else" && (!bodyStarted.at(-1) || bodyStarted.at(-1) === "else"))
+      )
+        errors.push(`unmatched ${value}`);
+      else bodyStarted[bodyStarted.length - 1] = value;
+    } else if (value === "do") {
+      if (stack.at(-1) !== "done" || bodyStarted.at(-1)) errors.push("unmatched do");
+      else bodyStarted[bodyStarted.length - 1] = true;
+    } else if (value === "in" && stack.at(-1) === "esac") bodyStarted[bodyStarted.length - 1] = true;
     else if ([";;", ";&", ";;&"].includes(value) && stack.at(-1) !== "esac")
       errors.push("case terminator outside case");
     else if (["select", "coproc", "time"].includes(value)) errors.push(`unsupported ${value} production`);

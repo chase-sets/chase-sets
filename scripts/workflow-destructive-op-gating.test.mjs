@@ -296,6 +296,9 @@ describe("closed executable admission", () => {
       "install --strip-program=terraform -s source target",
       "printf -v 'a[$(terraform destroy)]' data",
       "tools=(echo data; terraform destroy)",
+      "if true; fi",
+      "while true; done",
+      "case data esac",
     ])
       expect(classifyShellCommands(run).indeterminate.length, run).toBeGreaterThan(0);
     const grammar = structuredClone(DESTRUCTIVE_GRAMMAR);
