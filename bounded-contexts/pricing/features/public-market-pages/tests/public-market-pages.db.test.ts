@@ -304,7 +304,7 @@ describeDb("pricing public market pages read model", () => {
     // This is a negative control, not a mocked result or a production bypass.
     let bypassQueries = 0;
     const bypassDb: PgQueryable = {
-      query: (sql, values) => {
+      query: <Row = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
         if (sql.includes("AS buyable_listing_count")) {
           expect(sql).toContain(control.from);
           sql = sql.replace(control.from, control.to);
@@ -313,7 +313,7 @@ describeDb("pricing public market pages read model", () => {
           }
           bypassQueries += 1;
         }
-        return pools.pricing.query(sql, values);
+        return pools.pricing.query<Row>(sql, values);
       },
     };
     const bypass = asks(await getPublicMarketPageData(bypassDb, "cat_1"));
