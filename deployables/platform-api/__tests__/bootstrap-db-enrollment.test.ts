@@ -17,6 +17,7 @@ import {
   deriveBootstrapDbCaseIdentities,
   type BootstrapDbEnrollmentPartition,
   type BootstrapDbScheduleModel,
+  type PlatformApiNonBootstrapDbCensus,
 } from "../scripts/check-bootstrap-db-enrollment.mjs";
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
@@ -66,6 +67,7 @@ type Fixture = Readonly<{
   manifest: FixtureManifest;
   ceilings: Record<string, number>;
   model: BootstrapDbScheduleModel;
+  nonBootstrapCensus: PlatformApiNonBootstrapDbCensus;
 }>;
 
 const syntheticScheduleModelProvenance = Object.freeze({
@@ -200,6 +202,7 @@ async function createFixture(
     manifest: buildManifest(files, (name) => identities.get(name) ?? "0000000000000000"),
     ceilings,
     model,
+    nonBootstrapCensus: { referenceRunId: model.referenceRunId, referenceJobId: model.referenceJobId, entries: {} },
   };
 }
 
@@ -227,6 +230,7 @@ function runFixture(fixture: Fixture) {
     manifest: fixture.manifest,
     executionUnitBootBearingCaseCeilings: fixture.ceilings,
     scheduleModel: fixture.model,
+    nonBootstrapCensus: fixture.nonBootstrapCensus,
   });
 }
 
@@ -608,7 +612,14 @@ describe("Platform API bootstrap DB enrollment", () => {
     process.stdout.write(
       `bootstrap-enrollment-oracle ${JSON.stringify({ durationMs: performance.now() - started, fileCount: oldRepository.fileCount })}\n`,
     );
-    expect(normalize(candidateRepository)).toEqual(normalize(oldRepository));
+    // The historical oracle's top-level path classifier rejects the real Catalog
+    // entry. Preserve its complete output comparison with this exact, intentional
+    // census correction accounted for; every schedule/case field still agrees.
+    expect(oldRepository.violations).toEqual([
+      "test:db:2 references unmanifested bootstrap DB file 'seed-command-catalog.db.test.ts'",
+    ]);
+    expect(candidateRepository.violations).toEqual([]);
+    expect(normalize(candidateRepository)).toEqual(normalize({ ...oldRepository, violations: [] }));
     for (const count of [10, 11, 12, 13]) {
       const files = Array.from({ length: count }, (_, index) => unitFileFor(`oracle-${index}`, "test:db:1", 1_000));
       const fixture = await createFixture(files, { model: { maximumScheduledFileCount: count === 13 ? 12 : 11 } });
@@ -617,6 +628,7 @@ describe("Platform API bootstrap DB enrollment", () => {
         manifest: fixture.manifest,
         executionUnitBootBearingCaseCeilings: fixture.ceilings,
         scheduleModel: fixture.model,
+        nonBootstrapCensus: fixture.nonBootstrapCensus,
       };
       expect(normalize(checkBootstrapDbEnrollment(options))).toEqual(
         normalize(old.checkBootstrapDbEnrollment(options)),
