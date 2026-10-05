@@ -12,6 +12,7 @@ export const PERMISSION_PRESETS = {
 
 export const ROLE_PERMISSIONS = {
   "platform-admin": [
+    "payouts.platform.view",
     "provider-connections.view",
     "accounts.manage",
     "accounts.view",

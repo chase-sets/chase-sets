@@ -40,6 +40,38 @@ const nestedContribution = {
 };
 
 describe("shell contribution manifest validation", () => {
+  it.each(["all", "any"])("accepts permission match mode %s on parents and children", (requiredPermissionsMatch) => {
+    expect(
+      validate([
+        {
+          ...nestedContribution,
+          requiredPermissionsMatch,
+          children: nestedContribution.children.map((child) => ({ ...child, requiredPermissionsMatch })),
+        },
+      ]),
+    ).toEqual([]);
+  });
+
+  it.each(["some", true, null, 1, ""])(
+    "rejects invalid permission match mode %s on each node",
+    (requiredPermissionsMatch) => {
+      expect(
+        validate([
+          {
+            ...nestedContribution,
+            requiredPermissionsMatch,
+            children: nestedContribution.children.map((child) => ({ ...child, requiredPermissionsMatch })),
+          },
+        ]),
+      ).toEqual(
+        ["", ".children[0]"].map((suffix) => ({
+          path: `bounded-contexts/catalog/context.json shellContributions[0]${suffix}`,
+          message: "requiredPermissionsMatch must be 'all' or 'any' when provided",
+        })),
+      );
+    },
+  );
+
   it("accepts same-context nested admin navigation children", () => {
     expect(validate([nestedContribution])).toEqual([]);
   });
