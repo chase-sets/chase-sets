@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
-import { useFetcher, useNavigate } from "react-router";
+import { useFetcher, useSubmit } from "react-router";
 import {
   Badge,
   BadgeCluster,
@@ -66,7 +66,7 @@ export function CatalogIntegrationSourceObservationReviewModule({
   // alias read model.
   aliasVisibility?: ReactNode;
 }>) {
-  const navigate = useNavigate();
+  const submit = useSubmit();
   const surfaceHref = useCatalogIntegrationSurfaceHref(readModel.routeContext, "import-to-promotion");
   const review = readModel.sourceObservationReview;
   const status = review.filters.find((filter) => filter.key === "status")?.value ?? "all";
@@ -106,7 +106,7 @@ export function CatalogIntegrationSourceObservationReviewModule({
     url.searchParams.delete("reviewOffset");
     if (value === "all") url.searchParams.delete("filter.status");
     else url.searchParams.set("filter.status", value);
-    void navigate(`${url.pathname}${url.search}`);
+    void submit(url.searchParams, { method: "get", action: url.pathname, preventScrollReset: true });
   }
   const reviewColumns = useMemo<DataColumn<SourceObservationReviewRow>[]>(
     () => [
