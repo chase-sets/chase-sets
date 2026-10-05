@@ -1,27 +1,84 @@
 import { createHash } from "node:crypto";
-import { expect, type APIResponse, type Page } from "@playwright/test";
-import { CHASE_SETS_COMMIT_RECEIPT_HEADER, decodeCommitReceipt } from "@chase-sets/http/responses";
+import { dirname, posix, resolve, win32 } from "node:path";
+import { fileURLToPath } from "node:url";
+import { expect, type Page, type TestInfo } from "@playwright/test";
+import type { InteractiveAuthResult } from "../../../../bounded-contexts/auth/support/runtime-support/services";
 
-const privilegedRequestTimeoutMs = 15_000;
-const privilegedResponseBodyLimitBytes = 64 * 1024;
-const privilegedSessionTokenLimitCharacters = 8 * 1024;
-// Event-store global positions are non-negative PostgreSQL bigint values. The
-// endpoint emits exactly this object, so the largest valid body is the 19-digit
-// signed-bigint maximum; 64 additional bytes leave explicit encoding headroom.
-const maximumProjectionPosition = "9223372036854775807";
-const projectionCheckpointSchemaMaxBytes = new TextEncoder().encode(
-  JSON.stringify({ lastGlobalPosition: maximumProjectionPosition }),
-).byteLength;
-const projectionCheckpointResponseHeadroomBytes = 64;
-export const projectionCheckpointResponseBodyLimitBytes =
-  projectionCheckpointSchemaMaxBytes + projectionCheckpointResponseHeadroomBytes;
+const marketplaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const registrationTimeoutMs = 15_000;
+const maximumTextCharacters = 320;
+const maximumPermissions = 128;
+const maximumPermissionCharacters = 128;
+// Every bounded string can occupy six JSON bytes per character. Registration
+// creates one personal account/membership; include every SessionRow field,
+// including optional started_at, rather than sizing from a frozen fixture.
+export const registrationResponseBodyLimitBytes = Math.ceil(
+  (2_048 + 18 * maximumTextCharacters * 6 + maximumPermissions * maximumPermissionCharacters * 6) * 1.25,
+);
 
-export type MarketplaceE2EAccount = {
-  email: string;
-  password: string;
-  displayName: string;
-  shouldRegister: boolean;
-};
+export type MarketplaceE2EAccount = { email: string; password: string; displayName: string; shouldRegister: boolean };
+type SyntheticTestIdentity = Pick<TestInfo, "file" | "titlePath"> & { project: Pick<TestInfo["project"], "name"> };
+
+export function syntheticAccountFor(
+  testInfo: SyntheticTestIdentity,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  root = marketplaceRoot,
+): MarketplaceE2EAccount {
+  const namespace =
+    env.GITHUB_RUN_ID?.trim() && env.GITHUB_RUN_ATTEMPT?.trim()
+      ? `${env.GITHUB_RUN_ID.trim()}:${env.GITHUB_RUN_ATTEMPT.trim()}`
+      : env.CHASE_SETS_E2E_INVOCATION_NAMESPACE?.trim();
+  if (!namespace) throw new Error("synthetic identity failed (missing-CHASE_SETS_E2E_INVOCATION_NAMESPACE)");
+  if (!testInfo.project.name || !testInfo.titlePath.length || testInfo.titlePath.some((title) => !title)) {
+    throw new Error("synthetic identity failed (incomplete-test-identity)");
+  }
+  const tuple = [
+    "marketplace-e2e-auth/v1",
+    namespace,
+    testInfo.project.name,
+    canonicalSpecPath(testInfo.file, root),
+    ...testInfo.titlePath,
+  ];
+  const digest = createHash("sha256");
+  for (const part of tuple) {
+    const bytes = Buffer.from(part, "utf8");
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(bytes.byteLength);
+    digest.update(length).update(bytes);
+  }
+  const identity = digest.digest("hex");
+  return {
+    email: `${identity}@chasesets.test`,
+    password: `E2e!${identity}`,
+    displayName: `E2E ${identity}`,
+    shouldRegister: true,
+  };
+}
+
+function canonicalSpecPath(file: string, root: string) {
+  const windows = /^[a-z]:[\\/]/i.test(root);
+  const paths = windows ? win32 : posix;
+  const normalizedRoot = paths.resolve(root.replaceAll("\\", "/"));
+  const normalizedFile = file.replaceAll("\\", "/");
+  if (
+    (!windows && /^[a-z]:/i.test(normalizedFile)) ||
+    (windows && /^[a-z]:/i.test(normalizedFile) && !paths.isAbsolute(normalizedFile))
+  ) {
+    throw new Error("synthetic identity failed (invalid-spec-path)");
+  }
+  const absolute = paths.resolve(normalizedRoot, normalizedFile);
+  const relative = paths.relative(normalizedRoot, absolute).replaceAll("\\", "/");
+  if (
+    !relative ||
+    paths.isAbsolute(relative) ||
+    relative === ".." ||
+    relative.startsWith("../") ||
+    !relative.startsWith("e2e/")
+  ) {
+    throw new Error("synthetic identity failed (spec-outside-marketplace)");
+  }
+  return relative;
+}
 
 export async function addSessionCookie(page: Page, origin: string, sessionToken: string) {
   await page.context().addCookies([
@@ -34,7 +91,6 @@ export async function addSessionCookie(page: Page, origin: string, sessionToken:
       secure: origin.startsWith("https://"),
     },
   ]);
-
   const sessionCookie = (await page.context().cookies(origin)).find((cookie) => cookie.name === "chase_sets_session");
   expect(sessionCookie, "browser context should store the auth session cookie").toBeTruthy();
 }
@@ -44,7 +100,15 @@ export async function signInWithPassword(
   origin: string,
   account: Pick<MarketplaceE2EAccount, "email" | "password">,
 ) {
-  const body = await startPasswordSession(page, origin, account, "password sign-in");
+  const response = await page.request.post(`${origin}/api/auth/password-sign-in`, {
+    data: { email: account.email, password: account.password },
+  });
+  const accountIdentifier = createHash("sha256").update(account.email.trim().toLowerCase()).digest("hex").slice(0, 12);
+  expect(
+    response.status(),
+    `password sign-in should start a session (account=sha256:${accountIdentifier}, status=${response.status()})`,
+  ).toBe(200);
+  const body = (await response.json()) as { sessionToken: string };
   expect(body.sessionToken, "password sign-in should return a session token").toBeTruthy();
   await addSessionCookie(page, origin, body.sessionToken);
   return body.sessionToken;
@@ -58,344 +122,234 @@ export async function signInThroughMarketplaceForm(
   await expect(identifier, "marketplace sign-in form must expose the identifier step").toBeVisible();
   await identifier.fill(account.email);
   await page.getByRole("button", { name: /^Continue$/i }).click();
-
-  const passwordMethod = page.getByRole("radio", { name: /^Password$/i });
-  await passwordMethod.click();
-
+  await page.getByRole("radio", { name: /^Password$/i }).click();
   const password = page.getByLabel(/^Password$/i);
   await expect(password, "marketplace sign-in form must expose the password step").toBeVisible();
   await password.fill(account.password);
   await page.getByRole("button", { name: /^Sign in$/i }).click();
 }
 
-/**
- * Resolve the server-minted registration consent resolution before registering.
- *
- * A synthetic client is still a client: it has to bring a value only the server
- * can mint, exactly like the product path. Omitting this is the shape that took
- * down a hosted CI shard, so it is done here rather than waived as "test
- * support".
- */
 export async function resolveRegistrationConsentSubmission(page: Page, origin: string) {
   const response = await page.request.get(`${origin}/api/auth/registration-consent`);
   expect(response.status(), "registration consent resolution should be readable anonymously").toBe(200);
   return { resolution: await response.json(), affirmed: false };
 }
 
-export async function registerOrSignInSyntheticAccount(
+export async function registerSyntheticAccount(
   page: Page,
   origin: string,
   account: Pick<MarketplaceE2EAccount, "displayName" | "email" | "password">,
 ) {
-  await provisionSyntheticAccountInvitation(origin, account.email);
-
-  const response = await page.request.post(`${origin}/api/auth/register`, {
-    data: {
-      displayName: account.displayName,
-      email: account.email,
-      password: account.password,
-      registrationConsent: await resolveRegistrationConsentSubmission(page, origin),
-    },
-  });
-
-  if (response.status() === 409) {
-    return signInWithPassword(page, origin, account);
-  }
-
-  if (response.status() === 403) {
-    const body = await parseJsonResponse(response);
-    if (body?.error?.code === "registration_admission_required") {
-      return signInWithPassword(page, origin, account);
-    }
-  }
-
-  expect(response.status(), "marketplace registration should start a session").toBe(201);
-  const body = (await response.json()) as { sessionToken?: string };
-  expect(body.sessionToken, "marketplace registration should return a session token").toBeTruthy();
-  await addSessionCookie(page, origin, body.sessionToken!);
-  return body.sessionToken!;
-}
-
-async function startPasswordSession(
-  page: Page,
-  origin: string,
-  account: Pick<MarketplaceE2EAccount, "email" | "password">,
-  label: string,
-) {
-  const response = await page.request.post(`${origin}/api/auth/password-sign-in`, {
-    data: {
-      email: account.email,
-      password: account.password,
-    },
-  });
-
-  const accountIdentifier = createHash("sha256").update(account.email.trim().toLowerCase()).digest("hex").slice(0, 12);
-  expect(
-    response.status(),
-    `${label} should start a session (account=sha256:${accountIdentifier}, status=${response.status()})`,
-  ).toBe(200);
-  return (await response.json()) as { sessionToken: string };
-}
-
-async function provisionSyntheticAccountInvitation(origin: string, email: string) {
-  const adminEmail = firstConfiguredEnvValue("PLATFORM_ADMIN_EMAIL", "TF_VAR_platform_admin_email");
-  const adminPassword = firstConfiguredEnvValue("PLATFORM_ADMIN_PASSWORD", "TF_VAR_platform_admin_password");
-  if (!adminEmail || !adminPassword) {
-    return;
-  }
-
-  const adminSessionResponse = await privilegedRequest(origin, "/api/auth/password-sign-in", {
-    method: "POST",
-    data: { email: adminEmail, password: adminPassword },
-    expectedStatus: 200,
-    operation: "platform-admin password sign-in",
-  });
-  const adminCookie = `chase_sets_session=${readPrivilegedSessionToken(adminSessionResponse.body)}`;
-  const actor = await getCurrentActorDisplay(origin, adminCookie);
-  const invitationResponse = await privilegedRequest(origin, "/api/identity/invitations", {
-    method: "POST",
-    headers: { Cookie: adminCookie },
-    expectedStatus: 201,
-    operation: "platform admin invitation",
-    discardResponseBody: true,
-    data: {
-      invitationId: createSmokeInvitationId(),
-      accountId: actor.account.account_id,
-      email,
-      roleKey: "viewer",
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-    },
-  });
-
-  await waitForAuthInvitationProjection(origin, adminCookie, invitationResponse.headers);
-}
-
-async function getCurrentActorDisplay(origin: string, adminCookie: string) {
-  const response = await privilegedRequest(origin, "/api/identity/current-actor-display", {
-    method: "GET",
-    headers: { Cookie: adminCookie },
-    expectedStatus: 200,
-    operation: "platform admin current actor",
-  });
-  const body = response.body;
-  if (!isRecord(body) || !isRecord(body.account) || typeof body.account.account_id !== "string") {
-    throw new Error("platform admin current actor failed (invalid-response)");
-  }
-
-  return body as { account: { account_id: string } };
-}
-
-async function waitForAuthInvitationProjection(origin: string, adminCookie: string, headers: Headers) {
-  const identityCommit = decodeCommitReceipt(headers.get(CHASE_SETS_COMMIT_RECEIPT_HEADER)).find(
-    (source) => source.sourceContextName === "identity",
-  );
-  if (!identityCommit) {
-    return;
-  }
-
-  let lastObservedPosition = "0";
-  await expect
-    .poll(
-      async () => {
-        const refreshResponse = await privilegedRequest(origin, "/api/platform/projections/refresh-checkpoint", {
-          method: "POST",
-          headers: { Cookie: adminCookie },
-          data: {
-            targetContextName: "auth",
-            projectionName: "auth-identity-invitation-projection",
-            sourceContextName: "identity",
-          },
-          expectedStatus: 200,
-          operation: "platform admin projection refresh",
-          responseBodyLimitBytes: projectionCheckpointResponseBodyLimitBytes,
-        });
-        lastObservedPosition = readProjectionCheckpoint(refreshResponse.body);
-        return BigInt(lastObservedPosition) >= BigInt(identityCommit.maxGlobalPosition);
-      },
-      { intervals: [1_000, 2_000, 5_000], timeout: 90_000 },
-    )
-    .toBe(true);
-}
-
-type PrivilegedRequestOptions = {
-  method: "GET" | "POST";
-  headers?: Readonly<Record<string, string>>;
-  data?: unknown;
-  expectedStatus: number;
-  operation: PrivilegedOperation;
-  discardResponseBody?: boolean;
-  responseBodyLimitBytes?: number;
-  timeoutMs?: number;
-};
-
-type PrivilegedOperation =
-  | "platform-admin password sign-in"
-  | "platform admin current actor"
-  | "platform admin invitation"
-  | "platform admin projection refresh";
-
-export async function privilegedRequest(origin: string, path: string, options: PrivilegedRequestOptions) {
+  const registrationConsent = await resolveRegistrationConsentSubmission(page, origin);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? privilegedRequestTimeoutMs);
-  let response: Response;
+  const timeout = setTimeout(() => controller.abort(), registrationTimeoutMs);
   try {
-    response = await fetch(new URL(path, origin), {
-      method: options.method,
-      headers: {
-        Accept: "application/json",
-        ...(options.data === undefined ? {} : { "Content-Type": "application/json" }),
-        ...options.headers,
-      },
-      body: options.data === undefined ? undefined : JSON.stringify(options.data),
-      credentials: "omit",
-      redirect: "error",
-      signal: controller.signal,
-    });
-  } catch {
-    clearTimeout(timeout);
-    const classification = controller.signal.aborted ? "timeout" : "network";
-    throw new Error(`${options.operation} failed (${classification})`);
-  }
-
-  try {
-    if (response.status !== options.expectedStatus) {
-      try {
-        await response.body?.cancel();
-      } catch {
-        // The fixed status classification remains authoritative when cleanup fails.
-      }
-      throw new Error(`${options.operation} failed (unexpected-status)`);
+    let response: Response;
+    try {
+      response = await fetch(new URL("/api/auth/register", origin), {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({
+          displayName: account.displayName,
+          email: account.email,
+          password: account.password,
+          registrationConsent,
+        }),
+        credentials: "omit",
+        redirect: "error",
+        signal: controller.signal,
+      });
+    } catch {
+      throw registrationFailure(controller.signal.aborted ? "timeout" : "network");
     }
-    const body = options.discardResponseBody
-      ? await discardPrivilegedBody(response, options.operation, controller.signal)
-      : await readPrivilegedJson(
-          response,
-          options.operation,
-          controller.signal,
-          options.responseBodyLimitBytes ?? privilegedResponseBodyLimitBytes,
-        );
-    return { body, headers: response.headers };
+    const { sessionToken, bytes } = await consumeSyntheticRegistrationResponse(response, controller.signal);
+    console.log(
+      `synthetic registration status=201 bytes=${bytes} cap=${registrationResponseBodyLimitBytes} headroom-percent=${Math.floor((registrationResponseBodyLimitBytes / bytes - 1) * 100)}`,
+    );
+    await addSessionCookie(page, origin, sessionToken);
+    return sessionToken;
   } finally {
     clearTimeout(timeout);
   }
 }
 
-async function discardPrivilegedBody(response: Response, operation: PrivilegedOperation, signal: AbortSignal) {
-  try {
-    await response.body?.cancel();
-    return undefined;
-  } catch {
-    const classification = signal.aborted ? "timeout" : "response-read";
-    throw new Error(`${operation} failed (${classification})`);
+type RegistrationStarted = Extract<InteractiveAuthResult, { type: "session-started" }> & { accountId: string };
+
+export async function consumeSyntheticRegistrationResponse(response: Response, signal: AbortSignal) {
+  const body = await readRegistrationJson(response, signal);
+  if (response.status !== 201) {
+    const allowedCodes = [
+      "registration_admission_required",
+      "display_name_already_taken",
+      "identity_mutation_conflict",
+      "email_already_taken",
+    ];
+    const error = isRecord(body.value) && isRecord(body.value.error) ? body.value.error : null;
+    const code =
+      (response.status === 403 || response.status === 409) &&
+      error &&
+      typeof error.code === "string" &&
+      allowedCodes.includes(error.code)
+        ? error.code
+        : "unclassified-refusal";
+    throw registrationFailure(`status=${response.status}, code=${code}`);
   }
+  if (!isRegistrationStarted(body.value)) throw registrationFailure("invalid-response");
+  if (registrationResponseBodyLimitBytes < Math.ceil(body.bytes * 1.25))
+    throw registrationFailure("insufficient-live-headroom");
+  return { sessionToken: body.value.sessionToken, bytes: body.bytes };
 }
 
-async function readPrivilegedJson(
+async function readRegistrationJson(
   response: Response,
-  operation: PrivilegedOperation,
   signal: AbortSignal,
-  responseBodyLimitBytes: number,
-): Promise<unknown> {
-  if (!response.headers.get("content-type")?.toLowerCase().includes("application/json")) {
-    try {
-      await response.body?.cancel();
-    } catch {
-      // The bounded content-type classification remains authoritative when cleanup fails.
-    }
-    throw new Error(`${operation} failed (unexpected-content-type)`);
-  }
-
+): Promise<{ value: unknown; bytes: number }> {
   const reader = response.body?.getReader();
-  if (!reader) {
-    throw new Error(`${operation} failed (empty-response)`);
+  const cancel = () => {
+    void reader?.cancel().catch(() => undefined);
+  };
+  if (
+    !/^(application\/json|application\/[a-z0-9.+-]+\+json)(?:\s*;|$)/i.test(response.headers.get("content-type") ?? "")
+  ) {
+    cancel();
+    throw registrationFailure("unexpected-content-type");
   }
-
+  if (!reader) throw registrationFailure("empty-response");
+  let rejectAbort: (error: Error) => void = () => undefined;
+  const aborted = new Promise<never>((_, reject) => {
+    rejectAbort = reject;
+  });
+  const onAbort = () => {
+    rejectAbort(registrationFailure("timeout"));
+    cancel();
+  };
+  signal.addEventListener("abort", onAbort, { once: true });
   const chunks: Uint8Array[] = [];
-  let totalBytes = 0;
+  let bytes = 0;
   try {
+    if (signal.aborted) throw registrationFailure("timeout");
     while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
+      const chunk = await Promise.race([reader.read(), aborted]);
+      if (signal.aborted) throw registrationFailure("timeout");
+      if (chunk.done) break;
+      bytes += chunk.value.byteLength;
+      if (bytes > registrationResponseBodyLimitBytes) {
+        cancel();
+        throw registrationFailure("response-too-large");
       }
-      totalBytes += value.byteLength;
-      if (totalBytes > responseBodyLimitBytes) {
-        await reader.cancel();
-        throw new Error(`${operation} failed (response-too-large)`);
-      }
-      chunks.push(value);
+      chunks.push(chunk.value);
+    }
+    const content = new Uint8Array(bytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      content.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    try {
+      return { value: JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(content)) as unknown, bytes };
+    } catch {
+      throw registrationFailure("invalid-json");
     }
   } catch (error) {
-    if (error instanceof Error && error.message === `${operation} failed (response-too-large)`) {
-      throw error;
-    }
-    const classification = signal.aborted ? "timeout" : "response-read";
-    throw new Error(`${operation} failed (${classification})`);
-  }
-
-  const bytes = new Uint8Array(totalBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-
-  try {
-    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as unknown;
-  } catch {
-    throw new Error(`${operation} failed (invalid-json)`);
+    cancel();
+    if (error instanceof RegistrationFailure) throw error;
+    throw registrationFailure(signal.aborted ? "timeout" : "response-read");
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+    reader.releaseLock();
   }
 }
 
-function readPrivilegedSessionToken(body: unknown) {
-  if (
-    !isRecord(body) ||
-    typeof body.sessionToken !== "string" ||
-    body.sessionToken.length === 0 ||
-    body.sessionToken.length > privilegedSessionTokenLimitCharacters
-  ) {
-    throw new Error("platform-admin password sign-in failed (invalid-response)");
-  }
-
-  return body.sessionToken;
+class RegistrationFailure extends Error {}
+function registrationFailure(classification: string) {
+  return new RegistrationFailure(`synthetic registration failed (${classification})`);
 }
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+function exactKeys(value: Record<string, unknown>, keys: readonly string[], optional: readonly string[] = []) {
+  return (
+    keys.every((key) => Object.hasOwn(value, key)) &&
+    Object.keys(value).every((key) => keys.includes(key) || optional.includes(key))
+  );
+}
+function boundedString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= maximumTextCharacters;
+}
+function nullableString(value: unknown) {
+  return value === null || boundedString(value);
+}
+function timestamp(value: unknown) {
+  return (
+    boundedString(value) && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(value) && Number.isFinite(Date.parse(value))
+  );
+}
 
-function readProjectionCheckpoint(body: unknown) {
-  const position = isRecord(body) ? body.lastGlobalPosition : undefined;
+function isRegistrationStarted(value: unknown): value is RegistrationStarted {
   if (
-    typeof position !== "string" ||
-    !/^(0|[1-9]\d{0,18})$/.test(position) ||
-    BigInt(position) > BigInt(maximumProjectionPosition)
-  ) {
-    throw new Error("platform admin projection refresh failed (invalid-response)");
-  }
-
-  return position;
-}
-
-function createSmokeInvitationId() {
-  return `ivt_smoke_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function firstConfiguredEnvValue(...names: readonly string[]) {
-  for (const name of names) {
-    const value = process.env[name]?.trim() ?? "";
-    if (value) {
-      return value;
-    }
-  }
-
-  return "";
-}
-
-async function parseJsonResponse(response: APIResponse) {
-  try {
-    return (await response.json()) as { error?: { code?: string } };
-  } catch {
-    return null;
-  }
+    !isRecord(value) ||
+    !exactKeys(value, ["type", "userId", "accountId", "sessionId", "sessionToken", "session", "memberships"]) ||
+    value.type !== "session-started" ||
+    !boundedString(value.userId) ||
+    !boundedString(value.accountId) ||
+    !boundedString(value.sessionId) ||
+    typeof value.sessionToken !== "string" ||
+    !/^session_[0-9a-f]{36}$/.test(value.sessionToken)
+  )
+    return false;
+  const session = value.session;
+  if (
+    !isRecord(session) ||
+    !exactKeys(
+      session,
+      [
+        "session_id",
+        "user_id",
+        "user_display_name",
+        "user_primary_email",
+        "account_id",
+        "account_display_name",
+        "account_name",
+        "available_account_ids",
+        "authentication_method",
+        "status",
+        "expires_at",
+        "updated_at",
+      ],
+      ["started_at"],
+    ) ||
+    session.session_id !== value.sessionId ||
+    session.user_id !== value.userId ||
+    session.account_id !== value.accountId ||
+    ![session.user_display_name, session.user_primary_email, session.account_display_name, session.account_name].every(
+      nullableString,
+    ) ||
+    !Array.isArray(session.available_account_ids) ||
+    session.available_account_ids.length !== 1 ||
+    session.available_account_ids[0] !== value.accountId ||
+    session.authentication_method !== "password" ||
+    session.status !== "active" ||
+    !timestamp(session.expires_at) ||
+    !timestamp(session.updated_at) ||
+    (Object.hasOwn(session, "started_at") && !timestamp(session.started_at))
+  )
+    return false;
+  if (!Array.isArray(value.memberships) || value.memberships.length !== 1) return false;
+  const member: unknown = value.memberships[0];
+  return (
+    isRecord(member) &&
+    exactKeys(member, ["membershipId", "accountId", "roleKey", "status", "rolePermissions"]) &&
+    boundedString(member.membershipId) &&
+    member.accountId === value.accountId &&
+    member.roleKey === "owner" &&
+    member.status === "active" &&
+    Array.isArray(member.rolePermissions) &&
+    member.rolePermissions.length > 0 &&
+    member.rolePermissions.length <= maximumPermissions &&
+    member.rolePermissions.every(
+      (permission: unknown) =>
+        typeof permission === "string" && permission.length > 0 && permission.length <= maximumPermissionCharacters,
+    ) &&
+    new Set(member.rolePermissions).size === member.rolePermissions.length
+  );
 }
