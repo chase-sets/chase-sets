@@ -18,23 +18,17 @@
       return { ok: false, code: "wrong_origin" };
     if (invoked) return { ok: false, code: "repeat_invocation" };
     invoked = true;
+    let orderNumber = null;
     try {
-      const begun = await chrome.runtime.sendMessage({ kind: "begin" });
-      if (!begun?.ok) return { ok: false, code: "preparation_refused" };
-      let orderNumber = null;
       if (confirm("One read-only capture in the host-created isolated profile? No retries or raw network recording.")) {
         orderNumber = prompt(
           "Enter one known order number. This input is transient and must not be entered in the console.",
         );
       }
-      let response;
-      try {
-        response = await chrome.runtime.sendMessage(
-          orderNumber?.trim() ? { kind: "capture", orderNumber } : { kind: "cancel" },
-        );
-      } finally {
-        orderNumber = null;
-      }
+      if (!orderNumber?.trim()) return { ok: false, code: "canceled" };
+      const begun = await chrome.runtime.sendMessage({ kind: "begin" });
+      if (!begun?.ok) return { ok: false, code: "preparation_refused" };
+      const response = await chrome.runtime.sendMessage({ kind: "capture", orderNumber });
       if (!response?.ok || !response.receipt) return { ok: false, code: "capture_refused" };
       const text = JSON.stringify(response.receipt, null, 2) + "\n";
       const inventory = {
@@ -52,6 +46,8 @@
       return { ok: true, code: "scrubbed_export_created" };
     } catch {
       return { ok: false, code: "capture_refused" };
+    } finally {
+      orderNumber = null;
     }
   }
   Object.defineProperty(globalThis, "orderAuthorityCapture", { value: Object.freeze({ run }) });
