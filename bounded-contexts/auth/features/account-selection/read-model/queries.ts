@@ -40,6 +40,7 @@ export async function listAccountSelectionMemberships(
        ON accounts.account_id = memberships.account_id
      WHERE memberships.user_id = $1
        AND memberships.status = 'active'
+       AND accounts.status = 'active'
      ORDER BY memberships.updated_at DESC`,
     [userId],
   );

@@ -1,8 +1,47 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { resolveRecentAuthenticationStatus } from "@chase-sets/auth-context";
 import type { AuthenticatedSessionRead } from "../../features/sessions/api/runtime";
 import type { AuthServices } from "./services";
 import { resolveActorFromSessionId } from "./services";
+
+describe("Account lifecycle proof enrollment", () => {
+  it("enrolls the real DB proof, excludes it from unit CI, and rejects a deleted proof file", () => {
+    const proof = "support/runtime-support/account-lifecycle-authorization.db.test.ts";
+    const manifest = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
+    expect(manifest.scripts["test:db"].split(/\s+/)).toContain(proof);
+    expect(manifest.scripts["test:unit"]).toContain(`--exclude ${proof}`);
+    expect(manifest.scripts["test:db"]).not.toContain("passWithNoTests");
+    expect(existsSync(new URL("./account-lifecycle-authorization.db.test.ts", import.meta.url))).toBe(true);
+  });
+
+  it("classifies every current interactive caller and all seven overrides", () => {
+    const routes = new URL("../api-support/", import.meta.url);
+    const files = readdirSync(routes).filter((name) => name.endsWith("-routes.ts"));
+    const matching = (pattern: RegExp) =>
+      files.filter((name) => pattern.test(readFileSync(new URL(name, routes), "utf8"))).sort();
+    expect(matching(/startInteractiveAuth\(/)).toEqual([
+      "account-selection-routes.ts",
+      "guest-checkout-routes.ts",
+      "invitation-routes.ts",
+      "magic-link-routes.ts",
+      "passkey-routes.ts",
+      "password-routes.ts",
+      "phone-code-routes.ts",
+      "register-routes.ts",
+      "social-login-routes.ts",
+    ]);
+    expect(matching(/membershipsOverride[,:]/)).toEqual([
+      "guest-checkout-routes.ts",
+      "invitation-routes.ts",
+      "magic-link-routes.ts",
+      "passkey-routes.ts",
+      "phone-code-routes.ts",
+      "register-routes.ts",
+      "social-login-routes.ts",
+    ]);
+  });
+});
 
 /**
  * Every identity below is SYNTHETIC and exists only inside this file. None of

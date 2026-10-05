@@ -67,6 +67,7 @@ function createServices(
       status: string;
       rolePermissions: readonly string[];
     }[];
+    accounts?: Readonly<Record<string, string>>;
   }>,
 ) {
   const states = new Map<
@@ -100,6 +101,18 @@ function createServices(
         }
         state.consumed_at = "2026-05-14T00:00:00.000Z";
         return { rows: [state] };
+      }
+      if (sql.includes("SELECT account_id FROM auth_identity_accounts")) {
+        const accounts =
+          options.accounts ??
+          Object.fromEntries(
+            (options.memberships ?? [{ accountId: "acc_existing" }]).map(({ accountId }) => [accountId, "active"]),
+          );
+        return {
+          rows: (params[0] as readonly string[])
+            .filter((accountId) => accounts[accountId] === "active")
+            .map((account_id) => ({ account_id })),
+        };
       }
       return { rows: [] };
     }),
@@ -597,6 +610,29 @@ describe("social login routes", () => {
     expect(response.headers.get("Location")).toContain("/access/sign-in?socialLoginError=");
     expect(mockIdentityMutations.createPersonalIdentity).not.toHaveBeenCalled();
     expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it.each(["suspended", "closed", "missing"])("denies admin social login for a %s Account", async (status) => {
+    const services = createServices({
+      existingUser: { user_id: "usr_existing", status: "active" },
+      profile: { email: "operator@chasesets.com", emailVerified: true, hostedDomain: "chasesets.com" },
+      memberships: [
+        {
+          membershipId: "mbr_admin",
+          accountId: "acc_admin",
+          roleKey: "platform-admin",
+          status: "active",
+          rolePermissions: ["accounts.view", "security.manage"],
+        },
+      ],
+      accounts: status === "missing" ? {} : { acc_admin: status },
+    });
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+    const app = buildApp(services);
+    await app.request("/social/google/start?journey=admin&returnTo=/access/accounts");
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+    expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+    expect(response.headers.getSetCookie().join(";")).not.toContain("chase_sets_session=");
   });
 
   it("filters admin account selection to memberships that can access the admin surface", async () => {
