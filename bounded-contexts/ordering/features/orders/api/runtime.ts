@@ -82,7 +82,10 @@ import {
 } from "../read-model/queries";
 import { buildOrderingOrderProjectionHandlers } from "../read-model/projection";
 import { buildOrderingReputationProjectionHandlers } from "../integrations/reputation/reputation-projection";
-import { getOrderingOrderReviewOpportunity } from "../integrations/reputation/reputation-queries";
+import {
+  getOrderingOrderDeliverySummary,
+  getOrderingOrderReviewOpportunity,
+} from "../integrations/reputation/reputation-queries";
 import {
   buildOrderingTransactionalEmailProjectionHandlers,
   ORDERING_TRANSACTIONAL_EMAIL_PROJECTION,
@@ -616,7 +619,7 @@ export type OrderingOrderServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<{ checked: number; cancelled: number; progressed: number; failed: number }>;
   listPurchases: (params: Parameters<typeof listPurchases>[1]) => ReturnType<typeof listPurchases>;
-  getPurchase: (orderId: string, buyerAccountId: string) => ReturnType<typeof getPurchase>;
+  getPurchase: (orderId: string, buyerAccountId: string) => ReturnType<typeof getPurchaseWithDeliverySummary>;
   getPurchaseListSummary: (buyerAccountId: string) => ReturnType<typeof getPurchaseListSummary>;
   listSales: (params: Parameters<typeof listSales>[1]) => ReturnType<typeof listSales>;
   getSale: (orderId: string, sellerAccountId: string) => ReturnType<typeof getSale>;
@@ -1494,6 +1497,14 @@ function planToPreview(
     ...withoutRevision,
     revision: previewRevision(withoutRevision),
   };
+}
+
+async function getPurchaseWithDeliverySummary(db: PgQueryable, orderId: string, buyerAccountId: string) {
+  const purchase = await getPurchase(db, orderId, buyerAccountId);
+  if (!purchase) {
+    return null;
+  }
+  return { ...purchase, delivery_summary: await getOrderingOrderDeliverySummary(db, orderId) };
 }
 
 export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrderServices {
@@ -2861,7 +2872,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       return { checked: candidates.length, cancelled, progressed, failed };
     },
     listPurchases: (params) => listPurchases(deps.db, params),
-    getPurchase: (orderId, buyerAccountId) => getPurchase(deps.db, orderId, buyerAccountId),
+    getPurchase: (orderId, buyerAccountId) => getPurchaseWithDeliverySummary(deps.db, orderId, buyerAccountId),
     getPurchaseListSummary: (buyerAccountId) => getPurchaseListSummary(deps.db, buyerAccountId),
     listSales: (params) => listSales(deps.db, params),
     getSale: (orderId, sellerAccountId) => getSale(deps.db, orderId, sellerAccountId),

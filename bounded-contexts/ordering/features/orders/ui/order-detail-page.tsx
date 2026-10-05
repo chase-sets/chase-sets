@@ -103,7 +103,13 @@ export function OrderingOrderDetailPage({
       ? (order.seller_display_name ?? order.seller_account_id)
       : (order.buyer_display_name ?? order.buyer_account_id);
   const canPay = order.status === "pending-payment" && paymentHref;
-  const canCancel = canSelfServiceCancel(order);
+  const deliverySummary = role === "buyer" && "delivery_summary" in order ? order.delivery_summary : undefined;
+  const fullyDelivered = Boolean(
+    deliverySummary &&
+    deliverySummary.shipment_count > 0 &&
+    deliverySummary.delivered_count === deliverySummary.shipment_count,
+  );
+  const canCancel = !fullyDelivered && canSelfServiceCancel(order);
   const sellerCancellationIntentRef = useRef<HTMLInputElement>(null);
   const projectionLabel =
     role === "buyer"
@@ -115,7 +121,7 @@ export function OrderingOrderDetailPage({
     Boolean(fulfillmentHref) && order.status !== "pending-payment" && order.status !== "pending-reservation";
   const paymentDeadlineAt = order.status === "pending-payment" ? order.payment_deadline_at : null;
   const cancellationWindowStatus =
-    order.status === "ready-for-fulfillment"
+    !fullyDelivered && order.status === "ready-for-fulfillment"
       ? order.self_service_cancellation_available
         ? t("ordering.features.orders.ui.orderDetailPage.cancellation.window.open", {
             projectionLabel: projectionLabel.toLowerCase(),
@@ -142,7 +148,11 @@ export function OrderingOrderDetailPage({
       : t("ordering.features.orders.ui.orderDetailPage.open.support");
   const statusLine = {
     label: t("ordering.features.orders.ui.orderDetailPage.status"),
-    value: <Badge tone={statusTone(order.status)}>{order.status}</Badge>,
+    value: (
+      <Badge tone={fullyDelivered ? "success" : statusTone(order.status)}>
+        {fullyDelivered ? t("ordering.features.orders.ui.orderDetailPage.delivered") : order.status}
+      </Badge>
+    ),
   };
   const itemSubtotalLine = {
     label: t("ordering.features.orders.ui.orderDetailPage.item.subtotal"),
@@ -155,6 +165,14 @@ export function OrderingOrderDetailPage({
     role === "buyer"
       ? [
           statusLine,
+          ...(fullyDelivered && deliverySummary?.latest_delivered_at
+            ? [
+                {
+                  label: t("ordering.features.orders.ui.orderDetailPage.delivered.at"),
+                  value: formatDateTime(deliverySummary.latest_delivered_at),
+                },
+              ]
+            : []),
           itemSubtotalLine,
           {
             label: t("ordering.features.orders.ui.orderDetailPage.shipping"),
@@ -323,7 +341,7 @@ export function OrderingOrderDetailPage({
                 {canPay ? (
                   <LinkButton href={paymentHref}>{t("ordering.features.orders.ui.orderDetailPage.pay.now")}</LinkButton>
                 ) : null}
-                {supportHref ? (
+                {supportHref && !(fullyDelivered && order.cancellation_unavailable_reason === "fulfillment-started") ? (
                   <LinkButton href={supportHref} tone="secondary">
                     {supportLabel}
                   </LinkButton>

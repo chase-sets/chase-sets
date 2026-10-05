@@ -117,6 +117,79 @@ describe("ordering purchase routes", () => {
     inventory_holds: [],
   };
 
+  it("returns delivery only for the authorized purchase and preserves foreign, missing, and sale responses", async () => {
+    const delivery_summary = {
+      shipment_count: 2,
+      delivered_count: 2,
+      latest_delivered_at: "2026-04-09T17:42:00.000Z",
+    };
+    const address = {
+      name: "Test",
+      company: null,
+      line1: "1 Main St",
+      line2: null,
+      city: "Chicago",
+      state: "IL",
+      postalCode: "60601",
+      country: "US",
+      phone: null,
+      email: null,
+    };
+    const sale: NonNullable<Awaited<ReturnType<OrderingOrderServices["getSale"]>>> = {
+      ...order,
+      display_reference: "ORD-TESTREF1",
+      protection_amount: "0.20",
+      protection_allowance_amount: "0.20",
+      protection_overage_amount: "0.00",
+      pending_payment_at: null,
+      payment_deadline_at: null,
+      payment_deadline_policy: null,
+      shipping_destination_snapshot: address,
+      shipping_origin_snapshot: address,
+      item_titles: [],
+      money_timeline: { refunds: [], support_cases: [], refunded_amount: "0.00", currency_code: "USD" },
+    };
+    const getPurchase = vi.fn<OrderingOrderServices["getPurchase"]>(async (orderId, buyerAccountId) =>
+      orderId === sale.order_id && buyerAccountId === sale.buyer_account_id ? { ...sale, delivery_summary } : null,
+    );
+    const services: OrderingOrderServices = {
+      ...createServices(),
+      getPurchase,
+      getSale: vi.fn(async (orderId, sellerAccountId) =>
+        orderId === sale.order_id && sellerAccountId === sale.seller_account_id ? sale : null,
+      ),
+    };
+    const actor = {
+      sessionId: "ses_1",
+      tenantId: "tnt_identity",
+      userId: "usr_buyer",
+      accountId: "acc_buyer",
+      membershipId: "mbr_1",
+      roleKey: "owner",
+      permissions: ["orders.view"],
+    };
+    const buyerApp = buildApp({ actor, services });
+    const response = await buyerApp.request("/account/purchases/ord_1");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ delivery_summary, status: "ready-for-fulfillment" });
+    expect(getPurchase).toHaveBeenLastCalledWith("ord_1", "acc_buyer");
+
+    const foreignApp = buildApp({ actor: { ...actor, accountId: "acc_foreign" }, services });
+    expect((await foreignApp.request("/account/purchases/ord_1")).status).toBe(404);
+    expect(getPurchase).toHaveBeenLastCalledWith("ord_1", "acc_foreign");
+    expect((await buyerApp.request("/account/purchases/ord_missing")).status).toBe(404);
+    expect(getPurchase).toHaveBeenLastCalledWith("ord_missing", "acc_buyer");
+
+    const sellerApp = buildApp({ actor: { ...actor, accountId: "acc_seller" }, services });
+    sellerApp.route("/account", createAccountSaleOrderRoutes(services));
+    const saleResponse = await sellerApp.request("/account/sales/ord_1");
+    expect(saleResponse.status).toBe(200);
+    const saleBody = await saleResponse.json();
+    expect(saleBody.status).toBe("ready-for-fulfillment");
+    expect(saleBody).not.toHaveProperty("delivery_summary");
+    expect((await sellerApp.request("/account/purchases/ord_1")).status).toBe(404);
+  });
+
   it("adds a local Ordering review opportunity to purchase details when the actor can manage reviews", async () => {
     const services = {
       ...createServices(),

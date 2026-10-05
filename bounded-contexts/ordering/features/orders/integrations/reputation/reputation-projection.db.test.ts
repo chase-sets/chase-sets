@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import {
@@ -11,6 +11,8 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as orderingModule } from "../../../../index";
 import { buildOrderingReputationProjectionHandlers } from "./reputation-projection";
+import { getOrderingOrderDeliverySummary } from "./reputation-queries";
+import { createCheckpointStore, createOrderingOrderRuntimeForTest } from "../../api/runtime-test-harness";
 
 const databaseBaseUrl = process.env.TEST_DATABASE_URL;
 if (!databaseBaseUrl && process.env.CI) {
@@ -71,6 +73,68 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
 
   afterAll(async () => {
     await closeMultiContextTestPools(pools);
+  });
+
+  it("composes buyer delivery from only this order's mirrored shipments without changing stored status", async () => {
+    const pool = pools.ordering;
+    const handlers = buildOrderingReputationProjectionHandlers(pool);
+    const runtime = createOrderingOrderRuntimeForTest({
+      db: pool,
+      eventStore: createPostgresEventStore({ pool }),
+      checkpointStore: createCheckpointStore(),
+      shippingQuotePolicy: {
+        quote: () => ({ shippingOption: "standard", baseAmount: "0.00", discountAmount: "0.00", chargeAmount: "0.00" }),
+      },
+    });
+    await insertOrderPage(pool, "ord_delivery");
+    await pool.query("UPDATE ordering_order_pages SET status = 'ready-for-fulfillment' WHERE order_id = $1", [
+      "ord_delivery",
+    ]);
+    await insertOrderPage(pool, "ord_unrelated");
+    const created = async (shipmentId: string, orderId = "ord_delivery") =>
+      handlers["fulfillment.shipment.created"]!(
+        event("fulfillment.shipment.created", { shipmentId, orderId, createdAt: "2026-04-02T00:00:00.000Z" }),
+      );
+    const delivered = async (shipmentId: string, deliveredAt: string) =>
+      handlers["fulfillment.shipment.delivered"]!(event("fulfillment.shipment.delivered", { shipmentId, deliveredAt }));
+    const firstTime = "2026-04-03T10:15:00.000Z";
+    const latestTime = "2026-04-09T17:42:00.000Z";
+    // A later unrelated delivery exposes a missing order predicate in either COUNT or MAX.
+    await created("shp_unrelated", "ord_unrelated");
+    await delivered("shp_unrelated", "2026-04-20T22:30:00.000Z");
+
+    async function expectSummary(shipment_count: number, delivered_count: number, latest: string | null) {
+      const summary = await getOrderingOrderDeliverySummary(pool, "ord_delivery");
+      expect(summary.shipment_count).toBe(shipment_count);
+      expect(summary.delivered_count).toBe(delivered_count);
+      expect(summary.latest_delivered_at === null ? null : new Date(summary.latest_delivered_at).toISOString()).toBe(
+        latest,
+      );
+      const purchase = await runtime.getPurchase("ord_delivery", "acc_buyer");
+      expect(purchase?.delivery_summary).toEqual(summary);
+      expect(purchase?.status).toBe("ready-for-fulfillment");
+    }
+
+    await expectSummary(0, 0, null);
+    await created("shp_first");
+    await expectSummary(1, 0, null);
+    await delivered("shp_first", firstTime);
+    await expectSummary(1, 1, firstTime);
+    await delivered("shp_first", firstTime);
+    await expectSummary(1, 1, firstTime);
+    await created("shp_second");
+    await expectSummary(2, 1, firstTime);
+    await delivered("shp_second", latestTime);
+    await expectSummary(2, 2, latestTime);
+    expect(await runtime.getPurchase("ord_delivery", "acc_foreign")).toBeNull();
+    expect(await runtime.getPurchase("ord_missing", "acc_buyer")).toBeNull();
+    const sale = await runtime.getSale("ord_delivery", "acc_seller");
+    expect(sale?.status).toBe("ready-for-fulfillment");
+    expect(sale).not.toHaveProperty("delivery_summary");
+    const stored = await pool.query<{ status: string }>("SELECT status FROM ordering_order_pages WHERE order_id = $1", [
+      "ord_delivery",
+    ]);
+    expect(stored.rows).toEqual([{ status: "ready-for-fulfillment" }]);
   });
 
   it("applies the refund-class eligibility matrix against the live schema", async () => {
