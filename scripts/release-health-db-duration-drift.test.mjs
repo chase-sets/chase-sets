@@ -912,6 +912,9 @@ describe("bootstrap and ratified lifecycle", () => {
     data.jobs.forEach((job) => {
       job.started_at = "2026-10-05T11:54:00Z";
     });
+    data.runs.forEach((run) => {
+      run.created_at = "2026-10-05T11:53:00Z";
+    });
     let writes = 0;
     const fetchImpl = github(data, (suffix, _url, request) => {
       if (suffix.endsWith("search/issues"))

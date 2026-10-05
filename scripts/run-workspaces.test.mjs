@@ -856,7 +856,7 @@ describe("DB duration scheduling", () => {
         groups.push((await vitest.globTestSpecifications(filters)).map((spec) => spec.moduleId));
       }
       expect(groups.flat().sort()).toEqual(onDisk);
-      expect(groups.map((files) => files.length)).toEqual([7, 9]);
+      expect(groups.map((files) => files.length)).toEqual([7, 10]);
       expect(groups[1].filter((file) => file.includes("/operator-session/"))).toHaveLength(5);
       for (const name of ["test:unit", "test:fast"]) {
         const exclude = [...scripts[name].matchAll(/--exclude\s+(\S+)/g)].map((match) => match[1]);
