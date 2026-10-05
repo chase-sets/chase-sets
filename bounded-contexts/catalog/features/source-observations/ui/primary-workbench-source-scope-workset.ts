@@ -103,7 +103,7 @@ function sourceScopeWorksetStatus(
   return "ready";
 }
 
-function selectedSourceScope(
+export function selectedSourceScope(
   input: Pick<SourceScopeWorksetInput, "profiles" | "routeContext" | "scopes" | "sourceOptions">,
 ) {
   const routeContext = input.routeContext;
@@ -936,7 +936,7 @@ function productFormFromProfile(profile: CatalogProviderProfileVersionReview | n
   return unitSegment ?? profile?.supportedScopes[0]?.split("/")[1] ?? null;
 }
 
-function providerScopeMatchesSelectedScope(
+export function providerScopeMatchesSelectedScope(
   selectedScope: CatalogPrimaryWorkbenchScopeContext,
   scope: SourceObservationIntegrationScope,
 ): boolean {

@@ -1,4 +1,13 @@
 export const catalogSourceObservationsWorkbenchOperationsEnglishTranslations = {
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.status.all": "All",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.status.observed": "Observed",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.status.eligible": "Eligible",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.status.promoted": "Promoted",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.status.rejected": "Rejected",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.empty.filtered":
+    "No {status} observations in {scope} ({total} in this scope)",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.empty.filteredDescription":
+    "Choose All to see observations with other statuses in this scope.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.action.aria": "{action}: {label}",
   "catalog.features.sourceObservations.ui.primaryWorkbench.applied": "Applied",
   "catalog.features.sourceObservations.ui.primaryWorkbench.banner.blocked.description":
