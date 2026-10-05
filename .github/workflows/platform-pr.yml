@@ -187,6 +187,9 @@ jobs:
     timeout-minutes: 20
     needs: change-scope
     if: needs['change-scope'].outputs.unit_tests_required == 'true'
+    env:
+      CHASE_SETS_TEST_RESULTS_DIR: artifacts/workspace-test-results
+      CHASE_SETS_TEST_RESULTS_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -197,9 +200,24 @@ jobs:
           install: true
 
       - name: Run non-DB tests
+        id: vitest-producer
         run: |
           node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
           node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
+
+      - name: Prepare workspace test results
+        id: vitest-results
+        if: ${{ !cancelled() && (steps.vitest-producer.outcome == 'success' || steps.vitest-producer.outcome == 'failure') }}
+        run: node ./scripts/lib/workspace-test-results.mjs
+
+      - name: Upload workspace test results
+        if: ${{ !cancelled() && steps.vitest-results.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: workspace-test-results-unit-tests-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/workspace-test-results/workspace-test-results.json
+          retention-days: 7
+          if-no-files-found: error
 
   db-tests:
     name: DB Profile Tests
@@ -223,6 +241,8 @@ jobs:
           --health-retries 5
     env:
       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      CHASE_SETS_TEST_RESULTS_DIR: artifacts/workspace-test-results
+      CHASE_SETS_TEST_RESULTS_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
@@ -293,7 +313,22 @@ jobs:
             'SHOW max_connections; SHOW max_locks_per_transaction; SHOW shared_buffers; SHOW work_mem; SHOW maintenance_work_mem; SHOW superuser_reserved_connections; SHOW reserved_connections;'
 
       - name: Run DB-profile tests
+        id: vitest-producer
         run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
+
+      - name: Prepare workspace test results
+        id: vitest-results
+        if: ${{ !cancelled() && (steps.vitest-producer.outcome == 'success' || steps.vitest-producer.outcome == 'failure') }}
+        run: node ./scripts/lib/workspace-test-results.mjs
+
+      - name: Upload workspace test results
+        if: ${{ !cancelled() && steps.vitest-results.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: workspace-test-results-db-tests-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/workspace-test-results/workspace-test-results.json
+          retention-days: 7
+          if-no-files-found: error
 
       - name: Capture post-failure PostgreSQL state
         if: failure()

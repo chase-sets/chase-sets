@@ -4,8 +4,14 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { inflateRawSync } from "node:zlib";
 import { readEnv, readOption } from "./lib/cli-options.mjs";
 import { parseCircuitMarker } from "./release-health-merge-group-failure-signatures.mjs";
+import {
+  MAX_TEST_RESULTS_BYTES,
+  WORKSPACE_TEST_RESULTS_FILE,
+  validateWorkspaceTestResults,
+} from "./lib/workspace-test-results.mjs";
 
 export const RELEASE_HEALTH_FLAKE_DIGEST_VERSION = "release-health-flake-digest/v1";
 export const CI_FLAKE_DIGEST_MARKER_VERSION = "ci-flake-digest-breach/v1";
@@ -73,6 +79,10 @@ export async function collectReleaseHealthFlakeDigest(options) {
     collectSource("delivery-signatures", () => fetchDeliverySignatureFlakes(options, windows.current)),
   ]);
   const [currentSource, previousSource, signatureSource] = sources;
+  const vitestSource = await collectSource("vitest-current", () =>
+    collectVitestResults(options, windows.current, currentSource),
+  );
+  sources.push(vitestSource);
   const reasons = sources.flatMap((source) =>
     source.status === "complete" ? [] : source.reasons.map((reason) => `${source.source}:${reason}`),
   );
@@ -84,6 +94,7 @@ export async function collectReleaseHealthFlakeDigest(options) {
     currentRuns: currentSource.values,
     previousRuns: previousSource.values,
     signatureFlakes: signatureSource.values,
+    vitestCandidates: vitestSource.values,
     collection: {
       status: reasons.length === 0 ? "complete" : "unknown",
       reasons,
@@ -135,7 +146,16 @@ export function buildFlakeDigest(input) {
     .slice(0, 10);
   const collection = input.collection ?? { status: "complete", reasons: [], sources: {} };
   const breaches = jobs.filter((job) => job.breached);
-  const classification = collection.status === "complete" ? (breaches.length > 0 ? "breaching" : "clear") : "unknown";
+  const vitestCandidates = input.vitestCandidates ?? [];
+  const vitestBreaches = vitestCandidates.filter(
+    (candidate) => candidate.transitionCount >= input.thresholds.flakyFailureCount,
+  );
+  const classification =
+    collection.status === "complete"
+      ? breaches.length + vitestBreaches.length > 0
+        ? "breaching"
+        : "clear"
+      : "unknown";
   const digest = {
     schemaVersion: RELEASE_HEALTH_FLAKE_DIGEST_VERSION,
     checkedAt: input.checkedAt,
@@ -145,10 +165,14 @@ export function buildFlakeDigest(input) {
     collection,
     classification,
     retryCount: current.retryCount,
-    flakyFailureCount: current.flakyFailureCount,
+    flakyFailureCount:
+      current.flakyFailureCount +
+      vitestCandidates.reduce((sum, candidate) => sum + candidate.additionalFlakyFailureCount, 0),
     previousRetryCount: previous.retryCount,
     previousFlakyFailureCount: previous.flakyFailureCount,
-    breachCount: breaches.length,
+    breachCount: breaches.length + vitestBreaches.length,
+    vitestCandidateCount: vitestCandidates.length,
+    vitestCandidates,
     topFlakyJobs: jobs,
     signatureFlakeCount: (input.signatureFlakes ?? []).length,
     deliverySignatureFlakes: input.signatureFlakes ?? [],
@@ -198,10 +222,28 @@ export function renderFlakeDigestMarkdown(digest) {
     `Retries: ${digest.retryCount} (${formatSignedDelta(digest.retryCount - digest.previousRetryCount)} vs previous window). Flaky successful retries: ${digest.flakyFailureCount} (${formatSignedDelta(digest.flakyFailureCount - digest.previousFlakyFailureCount)}).`,
     `Thresholds: job retries >= ${digest.thresholds.retryCount}; job flaky successful retries >= ${digest.thresholds.flakyFailureCount}.`,
     `Delivery signature retry-pass evidence: ${digest.signatureFlakeCount ?? 0}.`,
+    `Vitest same-head/tested-commit fail-to-pass candidates: ${digest.vitestCandidateCount ?? 0} (visibility only, not defect exoneration).`,
+    "Vitest covers the current window only; expired boundary evidence is unknown, not clear.",
     "",
   );
+  if (digest.vitestCandidates?.length) {
+    lines.push(
+      "| Vitest test id | Transitions | Head | Failed execution | Passed execution |",
+      "| --- | ---: | --- | --- | --- |",
+    );
+    for (const candidate of digest.vitestCandidates) {
+      lines.push(
+        `| ${escapeMarkdownCell(candidate.testId)} | ${candidate.transitionCount} | ${candidate.headSha} | ${candidate.failedRunId}/${candidate.failedAttempt} | ${candidate.passedRunId}/${candidate.passedAttempt} |`,
+      );
+    }
+    lines.push("");
+  }
   if (digest.topFlakyJobs.length === 0) {
-    lines.push("Clean: no retried workflow runs in the current or previous window.");
+    lines.push(
+      digest.vitestCandidateCount > 0
+        ? "No workflow retry signals; Vitest candidates above use the existing flaky-failure threshold."
+        : "Clean: no retried workflow runs or Vitest transitions in the collected corpus.",
+    );
     return lines.join("\n");
   }
   lines.push("| Job | Retries | Trend | Flaky successful retries | Trend | Breach |");
@@ -323,6 +365,298 @@ async function fetchWorkflowRunsForWindow(options, window) {
       status: "complete",
     },
   };
+}
+
+// Additive v1 digest fields are consumed by the same-run frozen publisher.
+// Seven-day artifacts cannot support previous-window Vitest comparisons.
+async function collectVitestResults(options, window, actionsSource) {
+  const authority = { window, requestCount: 0, producers: [] };
+  if (actionsSource.status !== "complete") return unknownSource("actions-current-incomplete", authority);
+  const runs = actionsSource.values.filter(
+    (run) =>
+      run.path === ".github/workflows/platform-pr.yml" &&
+      run.status === "completed" &&
+      ["success", "failure"].includes(run.conclusion),
+  );
+  const observations = [];
+  const reasons = [];
+  const request = async (url) => {
+    if (++authority.requestCount > 1500) throw new Error("vitest-request-budget-exhausted");
+    const response = await options.fetchImpl(url, { headers: githubHeaders(options.token) });
+    if (!response?.ok) throw new Error(`vitest-github-${response?.status ?? "unavailable"}`);
+    return response;
+  };
+  const pages = async (pathname, field, repositoryId) => {
+    const values = [];
+    let total;
+    for (let page = 1; page <= 20; page++) {
+      const url = new URL(`${API_BASE_URL}/repos/${options.repository}${pathname}`);
+      url.searchParams.set("per_page", "100");
+      url.searchParams.set("page", String(page));
+      const response = await request(url);
+      const payload = await response.json();
+      if (
+        !nonNegativeInteger(payload.total_count) ||
+        !Array.isArray(payload[field]) ||
+        (total !== undefined && total !== payload.total_count)
+      )
+        throw new Error("vitest-moving-or-malformed-page");
+      total = payload.total_count;
+      if (total > 2000) throw new Error("vitest-pagination-cap");
+      values.push(...payload[field]);
+      const unique = uniqueByIdentity(values, `vitest-${field}`);
+      if (unique.error || unique.values.length !== values.length)
+        throw new Error(unique.error ?? "vitest-duplicate-page-record");
+      const canonicalPath =
+        Number.isSafeInteger(repositoryId) && repositoryId > 0 ? `/repositories/${repositoryId}${pathname}` : null;
+      const next = safeNextLink(response, url, page, canonicalPath);
+      if (next.error) throw new Error(next.error);
+      if (values.length === total && !next.url) return values;
+      if (values.length >= total || !next.url) throw new Error("vitest-pagination-incomplete");
+    }
+    throw new Error("vitest-pagination-cap");
+  };
+  for (const run of runs) {
+    try {
+      if (!/^[a-f0-9]{40}$/.test(run.head_sha) || run.run_attempt > 100) throw new Error("vitest-run-identity-invalid");
+      let artifacts;
+      for (let attempt = 1; attempt <= run.run_attempt; attempt++) {
+        const jobs = await pages(`/actions/runs/${run.id}/attempts/${attempt}/jobs`, "jobs", run.repository?.id);
+        for (const job of jobs) {
+          const jobKey = job.name === "Unit Tests" ? "unit-tests" : job.name === "DB Profile Tests" ? "db-tests" : null;
+          if (!jobKey || job.status !== "completed" || !["success", "failure"].includes(job.conclusion)) continue;
+          const steps = job.steps ?? [];
+          // The prepare step is the rollout marker, including when skipped after setup failure.
+          // Only an actually started test step makes a post-feature producer eligible.
+          if (!steps.some((step) => step.name === "Prepare workspace test results")) continue;
+          const executed = steps.filter(
+            (step) => step.name === (jobKey === "unit-tests" ? "Run non-DB tests" : "Run DB-profile tests"),
+          );
+          if (executed.length !== 1) throw new Error("vitest-producer-step-ambiguous");
+          const step = executed[0];
+          if (["skipped", "cancelled"].includes(step.conclusion)) continue;
+          if (
+            step.status !== "completed" ||
+            !["success", "failure"].includes(step.conclusion) ||
+            !validIso(step.started_at) ||
+            !validIso(step.completed_at) ||
+            Date.parse(step.completed_at) < Date.parse(step.started_at) ||
+            !Number.isSafeInteger(job.id) ||
+            job.run_id !== run.id ||
+            job.run_attempt !== attempt
+          ) {
+            throw new Error("vitest-producer-execution-invalid");
+          }
+          artifacts ??= await pages(`/actions/runs/${run.id}/artifacts`, "artifacts", run.repository?.id);
+          const name = `workspace-test-results-${jobKey}-${run.id}-${attempt}`;
+          const matches = artifacts.filter((artifact) => artifact.name === name);
+          if (matches.length !== 1) throw new Error(`vitest-artifact-missing-or-ambiguous:${name}`);
+          const artifact = matches[0];
+          if (!Number.isSafeInteger(artifact.id) || artifact.id < 1)
+            throw new Error("vitest-artifact-identity-invalid");
+          if (
+            artifact.expired ||
+            !validIso(artifact.expires_at) ||
+            Date.parse(artifact.expires_at) <= Date.parse(options.checkedAt)
+          ) {
+            throw new Error(`vitest-artifact-expired:${artifact.id}`);
+          }
+          if (
+            !Number.isSafeInteger(artifact.size_in_bytes) ||
+            artifact.size_in_bytes < 1 ||
+            artifact.size_in_bytes > 64 * 1024 * 1024
+          ) {
+            throw new Error("vitest-archive-byte-bound");
+          }
+          authority.producers.push({
+            runId: String(run.id),
+            attempt,
+            jobId: String(job.id),
+            job: jobKey,
+            artifactId: String(artifact.id),
+            status: "available",
+          });
+          const response = await request(
+            `${API_BASE_URL}/repos/${options.repository}/actions/artifacts/${artifact.id}/zip`,
+          );
+          const bytes = await boundedArchiveBytes(response);
+          const payload = validateWorkspaceTestResults(JSON.parse(readVitestArchive(bytes).toString("utf8")));
+          const producer = payload.producer;
+          if (
+            producer.repository !== options.repository ||
+            producer.headSha !== run.head_sha ||
+            producer.runId !== String(run.id) ||
+            producer.runAttempt !== attempt ||
+            producer.job !== jobKey
+          ) {
+            throw new Error("vitest-artifact-producer-mismatch");
+          }
+          for (const invocation of payload.invocations) {
+            if (
+              Date.parse(invocation.startedAt) < Date.parse(step.started_at) ||
+              // Actions timestamps have second precision; Vitest has milliseconds.
+              Date.parse(invocation.completedAt) >= Date.parse(step.completed_at) + 1000
+            )
+              throw new Error("vitest-invocation-outside-producer");
+            for (const task of invocation.tasks) {
+              if (task.status === "unknown") throw new Error(`vitest-started-report-unavailable:${invocation.id}`);
+              if (task.status === "not-started") continue;
+              for (const row of task.rows)
+                observations.push({
+                  ...producer,
+                  ...row,
+                  script: task.script,
+                  workspace: task.workspace,
+                  startedAt: invocation.startedAt,
+                  completedAt: invocation.completedAt,
+                  successfulWorkflowRetry:
+                    run.id === Number(producer.runId) && attempt > 1 && run.conclusion === "success",
+                });
+            }
+          }
+        }
+      }
+    } catch (error) {
+      reasons.push(`${run.id}:${boundedReason(error)}`);
+      if (authority.requestCount > 1500) break;
+    }
+  }
+  let candidates;
+  if (!reasons.length) {
+    try {
+      candidates = findVitestTransitions(observations);
+    } catch (error) {
+      reasons.push(boundedReason(error));
+    }
+  }
+  if (reasons.length)
+    return {
+      ...unknownSource(reasons[0], authority),
+      reasons,
+      authority: { ...authority, status: "unknown", reasons },
+    };
+  return {
+    status: "complete",
+    reasons: [],
+    values: candidates,
+    authority: { ...authority, status: "complete" },
+  };
+}
+
+async function boundedArchiveBytes(response) {
+  const limit = 64 * 1024 * 1024;
+  if (response.body?.getReader) {
+    const reader = response.body.getReader();
+    const chunks = [];
+    let length = 0;
+    try {
+      while (true) {
+        const part = await reader.read();
+        if (part.done) break;
+        length += part.value.length;
+        if (length > limit) throw new Error("vitest-archive-byte-bound");
+        chunks.push(Buffer.from(part.value));
+      }
+    } finally {
+      await reader.cancel();
+    }
+    return Buffer.concat(chunks);
+  }
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.length > limit) throw new Error("vitest-archive-byte-bound");
+  return bytes;
+}
+
+// Select only the canonical root payload; diagnostics/other entries do not
+// satisfy the contract. Archive and expanded payload limits are independent.
+export function readVitestArchive(buffer) {
+  if (buffer.length > 64 * 1024 * 1024) throw new Error("Vitest archive byte bound.");
+  let eocd = -1;
+  for (let offset = buffer.length - 22; offset >= Math.max(0, buffer.length - 65_557); offset--) {
+    if (buffer.readUInt32LE(offset) === 0x06054b50) {
+      eocd = offset;
+      break;
+    }
+  }
+  if (eocd < 0) throw new Error("Vitest archive ZIP invalid.");
+  const count = buffer.readUInt16LE(eocd + 10);
+  if (count > 1000) throw new Error("Vitest archive entry bound.");
+  let offset = buffer.readUInt32LE(eocd + 16);
+  let result;
+  for (let index = 0; index < count; index++) {
+    if (buffer.readUInt32LE(offset) !== 0x02014b50) throw new Error("Vitest ZIP directory invalid.");
+    const nameLength = buffer.readUInt16LE(offset + 28);
+    const name = buffer.subarray(offset + 46, offset + 46 + nameLength).toString("utf8");
+    if (name === WORKSPACE_TEST_RESULTS_FILE) {
+      if (result) throw new Error("Vitest canonical payload duplicated.");
+      const compressedSize = buffer.readUInt32LE(offset + 20);
+      const size = buffer.readUInt32LE(offset + 24);
+      if (size > MAX_TEST_RESULTS_BYTES) throw new Error("Vitest payload byte bound.");
+      const local = buffer.readUInt32LE(offset + 42);
+      if (buffer.readUInt32LE(local) !== 0x04034b50) throw new Error("Vitest ZIP local header invalid.");
+      const start = local + 30 + buffer.readUInt16LE(local + 26) + buffer.readUInt16LE(local + 28);
+      const compressed = buffer.subarray(start, start + compressedSize);
+      const method = buffer.readUInt16LE(offset + 10);
+      if (![0, 8].includes(method)) throw new Error("Vitest ZIP compression unsupported.");
+      result = method === 0 ? compressed : inflateRawSync(compressed, { maxOutputLength: MAX_TEST_RESULTS_BYTES });
+      if (result.length !== size) throw new Error("Vitest ZIP expanded size invalid.");
+    }
+    offset += 46 + nameLength + buffer.readUInt16LE(offset + 30) + buffer.readUInt16LE(offset + 32);
+  }
+  if (!result) throw new Error("Vitest canonical payload missing.");
+  return result;
+}
+
+export function findVitestTransitions(observations) {
+  const groups = new Map();
+  const seen = new Set();
+  for (const observation of observations) {
+    if (!observation.fullName.trim()) throw new Error("Vitest execution identity unresolved.");
+    const testId = JSON.stringify([
+      observation.job,
+      observation.workspace,
+      observation.script,
+      observation.file,
+      observation.fullName,
+    ]);
+    const key = `${observation.headSha}\0${observation.testedSha}\0${testId}`;
+    const execution = `${key}\0${observation.runId}\0${observation.runAttempt}`;
+    if (seen.has(execution)) throw new Error("Vitest execution identity ambiguous.");
+    seen.add(execution);
+    if (!["passed", "failed"].includes(observation.state)) continue;
+    const group = groups.get(key) ?? [];
+    group.push({ ...observation, testId });
+    groups.set(key, group);
+  }
+  const candidates = [];
+  for (const values of groups.values()) {
+    values.sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
+    let failed;
+    let candidate;
+    for (const value of values) {
+      if (value.state === "failed") {
+        failed = value;
+        continue;
+      }
+      if (!failed || Date.parse(failed.completedAt) >= Date.parse(value.startedAt)) continue;
+      candidate ??= {
+        testId: value.testId,
+        headSha: value.headSha,
+        testedSha: value.testedSha,
+        transitionCount: 0,
+        additionalFlakyFailureCount: 0,
+        failedRunId: failed.runId,
+        failedAttempt: failed.runAttempt,
+        passedRunId: value.runId,
+        passedAttempt: value.runAttempt,
+      };
+      candidate.transitionCount++;
+      if (!(failed.runId === value.runId && value.successfulWorkflowRetry)) candidate.additionalFlakyFailureCount++;
+      failed = undefined;
+    }
+    if (candidate) candidates.push(candidate);
+  }
+  return candidates.sort((a, b) => a.testId.localeCompare(b.testId) || a.headSha.localeCompare(b.headSha));
 }
 
 async function collectActionsShard(options, window, depth) {
@@ -803,18 +1137,67 @@ function validateFrozenDigest(digest, options, markdownBytes, issueBodyBytes) {
   const expectedClassification =
     digest.collection?.status === "complete" ? (digest.breachCount > 0 ? "breaching" : "clear") : "unknown";
   if (digest.classification !== expectedClassification) reasons.push("digest-classification-conflict");
+  if (!validVitestCandidates(digest)) reasons.push("digest-vitest-candidates-invalid");
   return reasons;
+}
+
+function validVitestCandidates(digest) {
+  if (!Array.isArray(digest.vitestCandidates) || digest.vitestCandidateCount !== digest.vitestCandidates.length)
+    return false;
+  const keys = [
+    "testId",
+    "headSha",
+    "testedSha",
+    "transitionCount",
+    "additionalFlakyFailureCount",
+    "failedRunId",
+    "failedAttempt",
+    "passedRunId",
+    "passedAttempt",
+  ];
+  const seen = new Set();
+  for (const candidate of digest.vitestCandidates) {
+    if (
+      !candidate ||
+      Object.keys(candidate).length !== keys.length ||
+      keys.some((key) => !Object.hasOwn(candidate, key)) ||
+      typeof candidate.testId !== "string" ||
+      !candidate.testId ||
+      candidate.testId.length > 16384 ||
+      !/^[a-f0-9]{40}$/.test(candidate.headSha) ||
+      !/^[a-f0-9]{40}$/.test(candidate.testedSha) ||
+      !positiveIntegerValue(candidate.transitionCount) ||
+      !nonNegativeInteger(candidate.additionalFlakyFailureCount) ||
+      candidate.additionalFlakyFailureCount > candidate.transitionCount ||
+      !/^[1-9]\d*$/.test(candidate.failedRunId) ||
+      !/^[1-9]\d*$/.test(candidate.passedRunId) ||
+      !positiveIntegerValue(candidate.failedAttempt) ||
+      !positiveIntegerValue(candidate.passedAttempt)
+    )
+      return false;
+    const key = `${candidate.headSha}\0${candidate.testedSha}\0${candidate.testId}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+  }
+  return (
+    digest.breachCount ===
+    digest.topFlakyJobs.filter((job) => job.breached).length +
+      digest.vitestCandidates.filter((candidate) => candidate.transitionCount >= digest.thresholds.flakyFailureCount)
+        .length
+  );
 }
 
 function validCollectionEvidence(collection, windows) {
   const current = collection.sources?.["actions-current"];
   const previous = collection.sources?.["actions-previous"];
   const signatures = collection.sources?.["delivery-signatures"];
-  if (!current || !previous || !signatures) return false;
+  const vitest = collection.sources?.["vitest-current"];
+  if (!current || !previous || !signatures || !vitest || !sameWindow(vitest.window, windows?.current)) return false;
   if (!sameWindow(current.window, windows?.current) || !sameWindow(previous.window, windows?.previous)) return false;
   if (collection.status === "unknown") {
     return (
-      collection.reasons.length > 0 && [current, previous, signatures].some((source) => source.status === "unknown")
+      collection.reasons.length > 0 &&
+      [current, previous, signatures, vitest].some((source) => source.status === "unknown")
     );
   }
   return (
@@ -825,7 +1208,11 @@ function validCollectionEvidence(collection, windows) {
     signatures.query === "delivery-failure-signature/v1" &&
     nonNegativeInteger(signatures.reportedTotal) &&
     signatures.uniqueCollectedCount === signatures.reportedTotal &&
-    positiveIntegerValue(signatures.pageCount)
+    positiveIntegerValue(signatures.pageCount) &&
+    vitest.status === "complete" &&
+    nonNegativeInteger(vitest.requestCount) &&
+    vitest.requestCount <= 1500 &&
+    Array.isArray(vitest.producers)
   );
 }
 

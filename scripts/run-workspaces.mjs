@@ -8,6 +8,7 @@ import { buildPackageManagerInvocation, runCommand } from "./lib/process.mjs";
 import { listWorkspacePackages } from "./lib/repo.mjs";
 import { ensureWorktreeSandboxEnvironment } from "./lib/sandbox.mjs";
 import { syncLocalEnvFiles } from "./local-env.mjs";
+import { createTestResultsInvocation } from "./lib/workspace-test-results.mjs";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 const inheritedEnvKeys = new Set(Object.keys(process.env));
@@ -396,10 +397,16 @@ async function runWorkspace(workspace, options) {
 
   console.log(`Running ${scriptName} in ${workspace.name}...`);
   const invocation = buildInvocation(["--filter", workspace.name, "run", scriptName, ...passthroughArgs]);
-  await run(invocation.command, invocation.args, {
-    ...(usePrefixedLogs ? { prefix: workspace.name } : { stdio: "inherit" }),
-    ...(commandTimeoutMs ? { timeoutMs: commandTimeoutMs } : {}),
-  });
+  const started = options.testResults?.start(workspace, scriptName);
+  try {
+    await run(invocation.command, invocation.args, {
+      ...(usePrefixedLogs ? { prefix: workspace.name } : { stdio: "inherit" }),
+      ...(commandTimeoutMs ? { timeoutMs: commandTimeoutMs } : {}),
+      ...(started ? { env: started.env } : {}),
+    });
+  } finally {
+    if (started) options.testResults.complete(workspace, started);
+  }
 }
 
 async function runConcurrent(tasks, options) {
@@ -584,6 +591,9 @@ export async function runWorkspaceScripts(options) {
   }
 
   const taskResults = [];
+  const testResults = parsed.scriptName.startsWith("test")
+    ? createTestResultsInvocation(env, tasks, parsed.scriptName)
+    : undefined;
   const startedAt = now();
   try {
     await runConcurrent(tasks, {
@@ -592,10 +602,12 @@ export async function runWorkspaceScripts(options) {
       commandTimeoutMs: parsed.commandTimeoutMs ?? defaultCommandTimeoutMs(parsed.scriptName),
       now,
       run,
+      testResults,
       taskResults: durationScheduled ? taskResults : undefined,
       usePrefixedLogs: parsed.concurrency > 1,
     });
   } finally {
+    testResults?.finish();
     if (durationScheduled) {
       const summary = buildRunWorkspacesSummary({
         concurrency: parsed.concurrency,

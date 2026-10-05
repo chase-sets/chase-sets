@@ -1,5 +1,6 @@
 import { configDefaults, defineConfig } from "vitest/config";
 import { heavySlotVitestGlobalSetupPath } from "./scripts/lib/heavy-slot.mjs";
+import { resolveVitestResultsProfile } from "./scripts/lib/workspace-test-results.mjs";
 
 // Canonical vitest shape for every workspace (issue #1420). Workspace configs
 // import one of these factories with a small override object instead of
@@ -44,6 +45,7 @@ export function defineWorkspaceTestConfig(overrides = {}) {
       testTimeout: 120_000,
       ...resolveVitestLaneProfile(),
       ...testOverrides,
+      ...resolveVitestResultsProfile(),
       globalSetup: [heavySlotVitestGlobalSetupPath, ...[testOverrides.globalSetup ?? []].flat()],
       exclude: [...configDefaults.exclude, "**/dist/**", ...(testOverrides.exclude ?? [])],
     },

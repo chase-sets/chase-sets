@@ -1,6 +1,7 @@
 import { defineConfig } from "vitest/config";
 import { heavySlotScriptBatteryGlobalSetupPath } from "./scripts/lib/heavy-slot-script-battery.mjs";
 import { resolveVitestLaneProfile } from "./vitest.shared.mjs";
+import { resolveVitestResultsProfile } from "./scripts/lib/workspace-test-results.mjs";
 
 // Single vitest configuration for every script-level test under scripts/.
 // verify:static invokes this once instead of spawning one vitest process per
@@ -11,6 +12,7 @@ export function defineScriptsTestConfig(env = process.env) {
   return defineConfig({
     test: {
       ...resolveVitestLaneProfile(env),
+      ...resolveVitestResultsProfile(env),
       globalSetup: [heavySlotScriptBatteryGlobalSetupPath],
       setupFiles: ["./scripts/lib/tracked-checkout-write-guard.mjs"],
       include: ["scripts/**/*.test.mjs"],
