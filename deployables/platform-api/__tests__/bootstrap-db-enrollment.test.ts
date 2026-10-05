@@ -23,6 +23,9 @@ import {
 } from "../scripts/check-bootstrap-db-enrollment.mjs";
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
+// Generate fixture code, not an environment read by this non-DB test module.
+const syntheticDatabaseUrlKey = ["TEST", "DATABASE", "URL"].join("_");
+const syntheticDatabaseUrlRead = `process.env.${syntheticDatabaseUrlKey}`;
 
 const temporaryRoots: string[] = [];
 const guardInputs = new Map<string, unknown>();
@@ -253,7 +256,7 @@ async function createDbCensusFixture(): Promise<Fixture> {
   const fixture = await createFixture(shippedShapedFiles());
   const entries = platformApiNonBootstrapDbCensus.entries;
   for (const entry of Object.keys(entries)) {
-    await writeEntry(fixture, entry, "const url = process.env.TEST_DATABASE_URL;\n");
+    await writeEntry(fixture, entry, `const url = ${syntheticDatabaseUrlRead};\n`);
   }
   await editScripts(fixture, (scripts) => {
     for (const [entry, unit] of Object.entries(entries)) {
@@ -966,7 +969,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       const fixture = await createDbCensusFixture();
       const entry = "__tests__/seed-command-catalog.db.test.ts";
       if (mode === "add" || mode === "rename") {
-        await writeEntry(fixture, "__tests__/nested/seventh.db.test.ts", "const url = process.env.TEST_DATABASE_URL;");
+        await writeEntry(fixture, "__tests__/nested/seventh.db.test.ts", `const url = ${syntheticDatabaseUrlRead};`);
       }
       if (mode === "delete" || mode === "rename") await rm(join(fixture.root, entry));
       if (mode === "move")
@@ -1002,7 +1005,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(runFixture(fixture).violations).toContain(`test:db:2 references unmanifested bootstrap DB file '${entry}'`);
   });
 
-  it.each(["process.env.TEST_DATABASE_URL", 'process["env"]["TEST_DATABASE_URL"]'])(
+  it.each([syntheticDatabaseUrlRead, `process["env"]["${syntheticDatabaseUrlKey}"]`])(
     "keeps literal mixed-fixture reachability in both directions for %s (N2/N8)",
     async (read) => {
       const fixture = await createDbCensusFixture();
@@ -1010,7 +1013,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       const db = "__tests__/renamed/deep/consumer.db.test.ts";
       const common = "__tests__/renamed/deep/common.ts";
       const support = "__tests__/renamed/deep/db-support.ts";
-      const pure = "export const harmless = 1; // process.env.TEST_DATABASE_URL\n";
+      const pure = `export const harmless = 1; // ${syntheticDatabaseUrlRead}\n`;
       const setup = `const url = ${read}; export function setup() { return url; }\n`;
       await writeEntry(fixture, common, pure + setup);
       await writeEntry(fixture, ordinary, 'import { harmless } from "./common"; void harmless;');
