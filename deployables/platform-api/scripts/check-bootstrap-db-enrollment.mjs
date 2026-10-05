@@ -27,12 +27,8 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     bootBearingCases: "all",
     cases: Object.freeze([
       Object.freeze({
-        name: "retains source history through full drains and reconciliation until worker activation",
-        identity: "d7e3e2aabb0ff14b",
-      }),
-      Object.freeze({
-        name: "retains source history through context drains and reconciliation until worker activation",
-        identity: "ea1e17e4d8755651",
+        name: "retains fresh full-drain source history through true-mode re-entry and reconciliation until worker activation",
+        identity: "38773b537b7dab08",
       }),
     ]),
   }),
@@ -451,7 +447,7 @@ export const bootstrapDbScheduleModel = Object.freeze({
   executionUnitCeilingMs: 420000,
   aggregateCeilingMs: 1080000,
   maximumCaseReferenceDurationMs: 600000,
-  maximumScheduledFileCount: 11,
+  maximumScheduledFileCount: 12,
   maximumEnumeratedUnitCount: 4,
 });
 

@@ -602,9 +602,16 @@ describe("Platform API bootstrap DB enrollment", () => {
     const candidateRepository = checkBootstrapDbEnrollment({
       platformApiRoot,
       manifest: bootstrapDbEnrollmentManifest,
+      executionUnitBootBearingCaseCeilings: bootstrapDbExecutionUnitBootBearingCaseCeilings,
+      scheduleModel: bootstrapDbScheduleModel,
     });
     const started = performance.now();
-    const oldRepository = old.checkBootstrapDbEnrollment({ platformApiRoot, manifest: bootstrapDbEnrollmentManifest });
+    const oldRepository = old.checkBootstrapDbEnrollment({
+      platformApiRoot,
+      manifest: bootstrapDbEnrollmentManifest,
+      executionUnitBootBearingCaseCeilings: bootstrapDbExecutionUnitBootBearingCaseCeilings,
+      scheduleModel: bootstrapDbScheduleModel,
+    });
     process.stdout.write(
       `bootstrap-enrollment-oracle ${JSON.stringify({ durationMs: performance.now() - started, fileCount: oldRepository.fileCount })}\n`,
     );
@@ -1293,7 +1300,7 @@ describe("Platform API bootstrap DB enrollment", () => {
       executionUnitCeilingMs: 419_999,
       aggregateCeilingMs: 1_079_999,
       maximumCaseReferenceDurationMs: 599_999,
-      maximumScheduledFileCount: 12,
+      maximumScheduledFileCount: 13,
       maximumEnumeratedUnitCount: 5,
     };
     const fixture = await createFixture([unitFileFor("synthetic-provenance", "test:db:1", 1_000)], {
@@ -2329,7 +2336,9 @@ describe("Platform API bootstrap DB enrollment", () => {
   });
 
   it("evaluates an unmistakably synthetic twelve-file 62-case shipped-shaped enrollment without changing main", async () => {
-    const files = shippedShapedFiles();
+    const files = shippedShapedFiles().filter(
+      (file) => file.fileName !== "settlement-label-postage-deferral.db.test.ts",
+    );
     files.push({
       fileName: "synthetic-twelfth-enrollment.db.test.ts",
       databaseSuffix: "synthetic_twelfth_enrollment",
@@ -2347,7 +2356,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(result.fileCount).toBe(12);
     expect(result.caseCount).toBe(62);
     expect(result.schedule.minimumUnitCount).toBe(2);
-    expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(11);
+    expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(12);
   });
 });
 
