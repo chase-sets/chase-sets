@@ -373,7 +373,7 @@ describeDb("auth seed reconciliation", () => {
     });
     const adminList = await adminApp.request("/sessions?limit=50&offset=0");
     expect(adminList.status).toBe(200);
-    const adminData = await adminList.json<{ items: SessionRow[]; total: number; count: number }>();
+    const adminData = (await adminList.json()) as { items: SessionRow[]; total: number; count: number };
     expect(adminData.total).toBe(3);
     expect(adminData.count).toBe(3);
     expect(
