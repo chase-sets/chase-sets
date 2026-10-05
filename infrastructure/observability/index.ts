@@ -16,6 +16,7 @@ import {
   type Attributes,
   type Counter,
   type Histogram,
+  type Gauge,
   type UpDownCounter,
 } from "@opentelemetry/api";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -90,6 +91,9 @@ const eventStoreAppendAdvisoryLockHoldDuration = lazyHistogram(
   },
 );
 const projectorCounter = lazyCounter("chase_sets_projection_runs_total");
+const projectionBlockedStreams = lazyGauge("chase_sets_projection_blocked_streams");
+const projectionPoisonEvents = lazyGauge("chase_sets_projection_poison_events");
+const projectionStatusObservedTimestamp = lazyGauge("chase_sets_projection_status_observed_timestamp_seconds");
 const projectorDuration = lazyHistogram("chase_sets_projection_run_duration_ms", {
   unit: "ms",
 });
@@ -533,6 +537,44 @@ type Meter = ReturnType<typeof metrics.getMeter>;
 type CounterOptions = Parameters<Meter["createCounter"]>[1];
 type HistogramOptions = Parameters<Meter["createHistogram"]>[1];
 type UpDownCounterOptions = Parameters<Meter["createUpDownCounter"]>[1];
+
+function lazyGauge(name: string): Gauge {
+  let instrument: Gauge | undefined;
+  return {
+    record(value, attributes, activeContext) {
+      const gauge = runtime?.config.enabled
+        ? (instrument ??= metrics.getMeter(OBSERVABILITY_SCOPE_NAME).createGauge(name))
+        : metrics.getMeter(OBSERVABILITY_SCOPE_NAME).createGauge(name);
+      gauge.record(value, attributes, activeContext);
+    },
+  };
+}
+
+export function recordProjectionStatus(
+  status: Readonly<{
+    targetContextName: string;
+    projectionName: string;
+    blockedStreamCount: number;
+    poisonEventCount: number;
+  }>,
+): void {
+  if (
+    !Number.isSafeInteger(status.blockedStreamCount) ||
+    status.blockedStreamCount < 0 ||
+    !Number.isSafeInteger(status.poisonEventCount) ||
+    status.poisonEventCount < 0
+  ) {
+    return;
+  }
+  const attributes = {
+    environment: runtime?.config.deploymentEnvironment ?? loadObservabilityConfig().deploymentEnvironment,
+    target_context: boundedMetricLabel(status.targetContextName),
+    projection: boundedMetricLabel(status.projectionName),
+  };
+  projectionBlockedStreams.record(status.blockedStreamCount, attributes);
+  projectionPoisonEvents.record(status.poisonEventCount, attributes);
+  projectionStatusObservedTimestamp.record(Date.now() / 1_000, attributes);
+}
 
 function lazyCounter(name: string, options?: CounterOptions): Counter {
   let instrument: Counter | undefined;
