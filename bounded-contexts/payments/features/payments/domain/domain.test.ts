@@ -15,6 +15,24 @@ const commercialAmounts = {
 } as const;
 
 describe("payments canonical domain money", () => {
+  it("adds refund deltas without a provider cumulative amount through the canonical fallback", () => {
+    const partial = partiallyRefundedPaymentState();
+    const events = decidePayment(partial, {
+      type: "RecordPaymentRefund",
+      refundId: "rfd_synthetic_delta" as never,
+      orderIds: ["ord_1" as never],
+      processorStatus: "succeeded",
+      processorRefundReference: "re_synthetic_delta",
+      amount: "0.50",
+      refundedAt: "2026-10-04T12:00:00.000Z",
+    });
+    expect(events[0]).toMatchObject({
+      type: "payments.payment-refunded",
+      data: { amount: "0.50", refundedAmount: "4.50" },
+    });
+    expect(events.reduce(evolvePayment, partial).refundedAmount).toBe("4.50");
+  });
+
   it("rejects overflow in the default seller payout component sum before emitting a payment", () => {
     const component = createdPaymentState().sellerPayouts[0]!;
     const command: Extract<PaymentCommand, { type: "CreatePayment" }> = {
