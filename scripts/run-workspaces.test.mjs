@@ -45,7 +45,7 @@ function readJson(path) {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
-async function captureDbRun({ workspaces, registry, run = async () => {}, now = () => 0, argv = [] }) {
+async function captureDbRun({ workspaces, registry, run = async () => {}, now = () => 0, argv = [], readDbBaseline }) {
   const invocations = [];
   const appended = [];
   const output = await captureConsole(() =>
@@ -58,6 +58,7 @@ async function captureDbRun({ workspaces, registry, run = async () => {}, now = 
       env: { GITHUB_STEP_SUMMARY: "summary.md" },
       appendSummary: (...args) => appended.push(args),
       now,
+      readDbBaseline,
       run: async (_command, args, options) => {
         invocations.push(args);
         await run(args, options);
@@ -71,6 +72,82 @@ async function captureDbRun({ workspaces, registry, run = async () => {}, now = 
   expect(appended).toHaveLength(1);
   return { ...output, summary, appended, invocations };
 }
+
+describe("DB duration drift annotation", () => {
+  it("DB drift annotation never changes exit status", async () => {
+    const name = "@chase-sets/synthetic-db";
+    const other = "@chase-sets/new-db";
+    const empty = { schemaVersion: "db-duration-baseline/v1", recomputes: [] };
+    const baseline = {
+      ...empty,
+      recomputes: [
+        {
+          recomputedAt: "2026-10-05T00:00:00Z",
+          sampleJobIds: Array.from({ length: 20 }, (_, i) => i + 1),
+          workspaces: { [name]: 240000 },
+          jobWallMs: 240000,
+          cause: "initial (#6660 split)",
+        },
+      ],
+    };
+    for (const failure of [false, true]) {
+      for (const mode of ["empty", "valid", "unreadable", "malformed"]) {
+        for (const elapsed of [299999, 300000, 300001]) {
+          let clock = 0;
+          const result = await captureDbRun({
+            workspaces: [
+              workspace(name, { "test:db": "vitest" }, "db"),
+              workspace(other, { "test:db": "vitest" }, "db"),
+            ],
+            registry: durationRegistry([durationEntry(name, "test:db", 240)]),
+            now: () => clock,
+            readDbBaseline: () => {
+              if (mode === "unreadable") throw new Error("EACCES");
+              return mode === "valid" ? baseline : mode === "empty" ? empty : {};
+            },
+            run: async () => {
+              clock += elapsed;
+              if (failure) throw new Error("original failure");
+            },
+          });
+          expect(result.result instanceof Error).toBe(failure);
+          if (failure) expect(result.result.message).toContain("workspace script run(s) failed");
+          const warnings = result.stdout.filter((line) => line.startsWith("::warning title=DB duration drift::"));
+          expect(warnings).toEqual(
+            mode === "valid" && elapsed > 300000
+              ? [
+                  `::warning title=DB duration drift::${name} test:db 300001 ms > drift bound 300000 ms (ratified 240000 ms)`,
+                ]
+              : [],
+          );
+          const unbaselined = result.stdout.filter((line) => line.includes("unbaselined:"));
+          expect(unbaselined).toEqual(
+            mode === "empty"
+              ? [`DB duration drift: unbaselined: ${other}, ${name}`]
+              : mode === "valid"
+                ? [`DB duration drift: unbaselined: ${other}`]
+                : [],
+          );
+          if (["unreadable", "malformed"].includes(mode))
+            expect(result.stderr.some((line) => line.includes("unknown baseline"))).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("does not read the DB baseline for non-DB invocations", async () => {
+    await captureConsole(() =>
+      runWorkspaceScripts({
+        argv: ["lint"],
+        listWorkspaces: () => [],
+        run: async () => {},
+        readDbBaseline: () => {
+          throw new Error("must not read");
+        },
+      }),
+    );
+  });
+});
 
 async function captureConsole(action) {
   const stdout = [];
@@ -684,6 +761,7 @@ describe("DB duration scheduling", () => {
       `Running test:db in ${unhinted.name}...`,
       `Running test:db:1 in ${db.name}...`,
       `Running test:db:2 in ${db.name}...`,
+      `DB duration drift: unbaselined: ${unhinted.name}, ${db.name}`,
       `RUN_WORKSPACES_SUMMARY ${JSON.stringify(summary)}`,
     ]);
     expect(output.stderr).toEqual([
@@ -1024,7 +1102,7 @@ describe("closed duration scheduling contracts", () => {
     expect(stdout.at(-1)).toBe(summaryLines[0]);
   });
 
-  it("DB admission leaves other invocation behavior unchanged", async () => {
+  it("DB admission preserves selection and summaries while adding DB-only telemetry", async () => {
     const cases = [
       ["build", "--concurrency=2"],
       ["test:db", "--concurrency=2"],
@@ -1069,7 +1147,12 @@ describe("closed duration scheduling contracts", () => {
       expect(stdout).toEqual(
         excluded
           ? [`No workspaces matched ${scriptName}.`]
-          : workspaces.map(({ name }) => `Running ${invokedScript} in ${name}...`),
+          : [
+              ...workspaces.map(({ name }) => `Running ${invokedScript} in ${name}...`),
+              ...(scriptName.startsWith("test:db")
+                ? ["DB duration drift: unbaselined: @test/z, @test/a, @test/m"]
+                : []),
+            ],
       );
       expect(stdout.some((line) => line.startsWith("RUN_WORKSPACES_SUMMARY "))).toBe(false);
     }

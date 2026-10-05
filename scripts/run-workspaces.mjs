@@ -8,6 +8,7 @@ import { buildPackageManagerInvocation, runCommand } from "./lib/process.mjs";
 import { listWorkspacePackages } from "./lib/repo.mjs";
 import { ensureWorktreeSandboxEnvironment } from "./lib/sandbox.mjs";
 import { syncLocalEnvFiles } from "./local-env.mjs";
+import { driftBound, validateDbDurationBaseline } from "./check-structure/db-duration-baseline.mjs";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 const inheritedEnvKeys = new Set(Object.keys(process.env));
@@ -381,7 +382,7 @@ function filterWorkspaces(workspaces, options) {
   });
 }
 
-function workspaceScriptNames(workspace, scriptName) {
+export function workspaceScriptNames(workspace, scriptName) {
   const scripts = workspace.packageJson.scripts ?? {};
   if (scriptName !== DB_TEST_SCRIPT_SELECTOR) {
     return typeof scripts[scriptName] === "string" ? [scriptName] : [];
@@ -544,6 +545,7 @@ export async function runWorkspaceScripts(options) {
     loadEnvironment = loadTestEnvironment,
     now = Date.now,
     run = runCommand,
+    readDbBaseline = () => JSON.parse(readFileSync(new URL("./db-duration-baseline-v1.json", import.meta.url), "utf8")),
   } = options;
   const parsed = parseRunWorkspacesArgs(argv);
 
@@ -560,6 +562,7 @@ export async function runWorkspaceScripts(options) {
   const allWorkspaces = listWorkspaces();
   const durationScheduled = isDurationScheduledInvocation(parsed);
   const summaryScriptName = parsed.scriptName === DB_TEST_SCRIPT_SELECTOR ? "test:db" : parsed.scriptName;
+  const dbExecution = summaryScriptName === "test:db" || summaryScriptName.startsWith("test:db:");
   const registry = durationScheduled
     ? validateDurationHintRegistry(
         durationHintRegistry ?? JSON.parse(readFileSync(durationHintRegistryUrl, "utf8")),
@@ -602,10 +605,11 @@ export async function runWorkspaceScripts(options) {
       commandTimeoutMs: parsed.commandTimeoutMs ?? defaultCommandTimeoutMs(parsed.scriptName),
       now,
       run,
-      taskResults: durationScheduled ? taskResults : undefined,
+      taskResults: durationScheduled || dbExecution ? taskResults : undefined,
       usePrefixedLogs: parsed.concurrency > 1,
     });
   } finally {
+    if (dbExecution) annotateDbDurationDrift({ tasks: taskResults }, readDbBaseline);
     if (durationScheduled) {
       const summary = buildRunWorkspacesSummary({
         concurrency: parsed.concurrency,
@@ -620,6 +624,25 @@ export async function runWorkspaceScripts(options) {
         appendSummary(env.GITHUB_STEP_SUMMARY, renderRunWorkspacesSummaryMarkdown(summary), "utf8");
       }
     }
+  }
+}
+
+function annotateDbDurationDrift(summary, readBaseline) {
+  try {
+    const baseline = validateDbDurationBaseline(readBaseline()).recomputes.at(-1);
+    const unbaselined = [];
+    for (const task of summary.tasks) {
+      const ratified = baseline?.workspaces[task.workspace];
+      if (ratified === undefined) unbaselined.push(task.workspace);
+      else if (task.actualDurationMs > driftBound(ratified)) {
+        console.log(
+          `::warning title=DB duration drift::${task.workspace} test:db ${task.actualDurationMs} ms > drift bound ${driftBound(ratified)} ms (ratified ${ratified} ms)`,
+        );
+      }
+    }
+    if (unbaselined.length) console.log(`DB duration drift: unbaselined: ${unbaselined.join(", ")}`);
+  } catch (error) {
+    console.error(`DB duration drift: unknown baseline: ${error.message}`);
   }
 }
 

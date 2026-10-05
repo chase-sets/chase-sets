@@ -40,6 +40,7 @@ import { validateChannelConnectionContractProvenance } from "./channel-connectio
 import { runSqlExecutionSurfaceGuard } from "./sql-execution-surface.mjs";
 import { listWorkspacePackages, repoRoot, workspaceRoots } from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
+import { checkDbDurationBaseline } from "./db-duration-baseline.mjs";
 
 const roots = workspaceRoots;
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
@@ -3631,6 +3632,7 @@ export async function runStructureCheck(options = {}) {
 
   const doksIngressChartVersionResult = await validateDoksIngressChartVersion({ repoRoot });
   violations.push(...doksIngressChartVersionResult.violations);
+  violations.push(...checkDbDurationBaseline({ repoRoot }).map(({ file, message }) => `${file}: ${message}`));
 
   const retentionSweepCoverageResult = await validateRetentionSweepCoverage({ repoRoot });
   violations.push(...retentionSweepCoverageResult.violations);
