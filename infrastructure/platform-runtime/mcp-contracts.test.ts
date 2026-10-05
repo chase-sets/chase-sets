@@ -156,6 +156,7 @@ describe("MCP service catalog", () => {
       "fulfillment.advance-shipment",
       "fulfillment.cancel-shipment",
       "fulfillment.dispatch-shipment",
+      "fulfillment.elect-separate-dispatch",
       "fulfillment.get-tracking",
       "fulfillment.list-shipments",
       "fulfillment.purchase-label",
@@ -778,6 +779,16 @@ describe("MCP tool authorization", () => {
         amount: "25.00",
         reason: "Seller requested payout.",
         idempotencyKey: "idem_payout_1",
+      },
+    },
+    {
+      toolName: "fulfillment.elect-separate-dispatch",
+      expectedValue: "Ship separately at my expense.",
+      input: {
+        accountId: "acct_1",
+        shipmentId: "ship_1",
+        reason: "Seller accepts the separate label cost.",
+        idempotencyKey: "018f47d2-9d2a-4d68-8f33-6fb718c3f001",
       },
     },
     {

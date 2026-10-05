@@ -1,4 +1,16 @@
 export const fulfillmentEnglishTranslations = {
+  "fulfillment.features.shipments.separate.action": "Ship separately",
+  "fulfillment.features.shipments.separate.confirmation": "Ship separately at my expense.",
+  "fulfillment.features.shipments.separate.confirmationRequired": "Confirm that you will pay for separate labels.",
+  "fulfillment.features.shipments.separate.explanation":
+    "This cannot be undone. The orders stay linked, but you will pack each order separately and pay for each label.",
+  "fulfillment.features.shipments.separate.reason": "Separate dispatch requested by seller",
+  "fulfillment.features.shipments.group.mismatch":
+    "These orders have different delivery addresses. Combined packing and shipping are on hold. Ship separately, or wait for the buyer to correct each order independently.",
+  "fulfillment.features.shipments.group.waiting": "Waiting for both orders to be ready for combined shipping.",
+  "fulfillment.features.shipments.group.ambiguous":
+    "A postage operation needs reconciliation. Do not buy another label or change how these orders will ship. Contact Support.",
+  "fulfillment.features.shipments.group.order": "Order {orderId}",
   "fulfillment.features.shipments.api.notificationRoutes.authentication.required": "Authentication required.",
   "fulfillment.features.shipments.api.notificationRoutes.forbidden": "Forbidden.",
   "fulfillment.features.shipments.api.route.packing.slips.require.shipments":

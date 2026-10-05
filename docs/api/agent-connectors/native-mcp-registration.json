@@ -5655,6 +5655,63 @@
       ]
     },
     {
+      "name": "fulfillment.elect-separate-dispatch",
+      "title": "Ship separately at my expense",
+      "description": "Irreversibly elect separate packing and seller-funded labels for the two linked orders. Confirm with: Ship separately at my expense.",
+      "service_id": "fulfillment",
+      "risk": "destructive",
+      "access_scope": "account",
+      "required_permissions": [
+        "fulfillment.manage"
+      ],
+      "required_scopes": [
+        "fulfillment:write"
+      ],
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accountId",
+          "shipmentId",
+          "reason",
+          "idempotencyKey",
+          "confirmationText"
+        ],
+        "properties": {
+          "accountId": {
+            "type": "string",
+            "description": "Authenticated account scope."
+          },
+          "shipmentId": {
+            "type": "string",
+            "description": "Anchor Shipment whose linked orders will ship separately."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Business reason for the action."
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "description": "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it."
+          },
+          "confirmationText": {
+            "type": "string",
+            "description": "Exact user or policy confirmation text."
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Validate the action without committing it."
+          }
+        }
+      },
+      "confirmation_required": true,
+      "idempotency_key": "required",
+      "dry_run_supported": true,
+      "expected_usage": [
+        "Use only for an explicit seller election. Reconcile or void any shared label before repacking; dispatched shipments require Support."
+      ]
+    },
+    {
       "name": "fulfillment.cancel-shipment",
       "title": "Cancel Shipment",
       "description": "Cancel a shipment whose order was cancelled after packing started.",

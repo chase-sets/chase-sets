@@ -414,3 +414,89 @@ export interface ShipmentGroupAdmissionAuthority {
   commit(input: AdmissionIdentity & { anchorOrderVersion: number }, context: EventStoreContext): Promise<CommitResult>;
   abort(input: AdmissionIdentity & { reason: AbortReason }, context: EventStoreContext): Promise<AbortResult>;
 }
+
+export const orderGroupCombinedPlanContractVersion = "order-group-combined-plan/v1";
+
+const boolean = (value: unknown): boolean => {
+  if (typeof value !== "boolean") throw new Error("Expected a boolean.");
+  return value;
+};
+const strings = (value: unknown): readonly string[] => {
+  if (!Array.isArray(value)) throw new Error("Expected an array.");
+  return value.map(text);
+};
+const measure = (value: unknown): number => {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > Number.MAX_SAFE_INTEGER)
+    throw new Error("Expected a positive finite measure within safe numeric bounds.");
+  return value;
+};
+const insuredValue = (value: unknown): string | null => {
+  if (value === null) return null;
+  const amount = text(value);
+  if (!/^(0|[1-9]\d*)\.\d{2}$/.test(amount) || !Number.isSafeInteger(Number(amount.replace(".", ""))))
+    throw new Error("Expected a non-negative monetary amount in whole cents.");
+  return amount;
+};
+const combinedPackage = closedObject({
+  packageId: text,
+  mailpieceClass: oneOf(["letter", "parcel"]),
+  lengthInches: measure,
+  widthInches: measure,
+  heightInches: measure,
+  weightOunces: measure,
+  billableWeightOunces: measure,
+  serviceLevel: oneOf(["letter", "standard-parcel", "expedited-parcel", "priority-parcel"]),
+  productMeasureVersions: strings,
+});
+const combinedPackagePlan = closedObject({
+  packagePlanVersion: text,
+  packageCount: (value: unknown): 1 => {
+    if (value !== 1) throw new Error("Combined dispatch requires one package.");
+    return 1;
+  },
+  packages: (value: unknown) => {
+    if (!Array.isArray(value) || value.length !== 1) throw new Error("Expected exactly one package.");
+    return [combinedPackage.parse(value[0])] as const;
+  },
+  letterEligibility: closedObject({ eligible: boolean, reasons: strings }).parse,
+  postagePolicySnapshot: closedObject({
+    policyVersion: text,
+    parcelRequired: boolean,
+    parcelReasons: strings,
+    signatureRequired: boolean,
+    signatureReasons: strings,
+    insuranceRequired: boolean,
+    insuranceReasons: strings,
+    insuredValueAmount: insuredValue,
+    shippingEvidenceTier: oneOf(["letter-untracked", "tracked-parcel", "signature-confirmed", "carrier-insured"]),
+  }).parse,
+  missingProductIds: (value: unknown): readonly string[] => {
+    if (!Array.isArray(value) || value.length !== 0) throw new Error("Combined measures must be complete.");
+    return [];
+  },
+});
+
+const combinedPlanAcceptedSchema = closedObject({
+  contractVersion: oneOf([orderGroupCombinedPlanContractVersion]),
+  ...identityFields,
+  combinedPackagePlan: combinedPackagePlan.parse,
+});
+export function parseOrderGroupCombinedPlanAccepted(value: unknown) {
+  const fact = combinedPlanAcceptedSchema.parse(value);
+  distinctOrders(fact);
+  return fact;
+}
+export type OrderGroupCombinedPlanAccepted = ReturnType<typeof parseOrderGroupCombinedPlanAccepted>;
+export const orderGroupCombinedPlanAcceptedCodec: DomainEventCodec<{
+  type: "ordering.order.combined-plan-accepted";
+  data: OrderGroupCombinedPlanAccepted;
+}> = {
+  encode: (event) => {
+    if (event.type !== "ordering.order.combined-plan-accepted") throw new Error("Unexpected combined plan event.");
+    return { eventType: event.type, payload: parseOrderGroupCombinedPlanAccepted(event.data) };
+  },
+  decode: (event) => {
+    if (event.eventType !== "ordering.order.combined-plan-accepted") throw new Error("Unexpected combined plan event.");
+    return { type: event.eventType, data: parseOrderGroupCombinedPlanAccepted(event.payload) };
+  },
+};

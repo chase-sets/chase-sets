@@ -311,6 +311,7 @@ describe("MCP runtime routes", () => {
       "fulfillment.advance-shipment",
       "fulfillment.cancel-shipment",
       "fulfillment.dispatch-shipment",
+      "fulfillment.elect-separate-dispatch",
       "fulfillment.get-tracking",
       "fulfillment.list-shipments",
       "fulfillment.purchase-label",

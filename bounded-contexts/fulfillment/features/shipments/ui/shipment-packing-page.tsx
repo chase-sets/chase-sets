@@ -240,7 +240,13 @@ function PackingLine({
   return (
     <TaskLineItem
       title={line.item_title}
-      subtitle={line.item_subtitle}
+      subtitle={
+        line.order_id
+          ? t("fulfillment.features.shipments.group.order", {
+              orderId: deriveDisplayReferenceOrRaw(line.order_id as OrderId),
+            })
+          : line.item_subtitle
+      }
       quantity={line.quantity}
       quantityDetail={t("fulfillment.features.shipments.ui.shipmentPackingPage.line.quantity.detail", {
         packed: confirmedQuantity,
@@ -370,10 +376,10 @@ export function FulfillmentShipmentPackingPage({
     try {
       const result = await submitPackingLineQuantity({
         recoveryScope,
-        shipmentId: shipment.shipment_id,
+        shipmentId: line.shipment_id ?? shipment.shipment_id,
         lineId,
         confirmedQuantity: nextQuantity,
-        action: window.location.pathname,
+        action: line.shipment_id ? `/account/sales/shipments/${line.shipment_id}/packing` : window.location.pathname,
       });
       if (lineRequestSequences.current[lineId] !== requestSequence) {
         return;

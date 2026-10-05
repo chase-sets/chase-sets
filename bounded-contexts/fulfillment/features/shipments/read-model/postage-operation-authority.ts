@@ -204,10 +204,12 @@ export async function reservePostageOperation(
     providerMode: string;
     request: unknown;
     now?: string;
+    operationKey?: string;
   }>,
 ): Promise<Readonly<{ operation: PostageOperationAuthority; created: boolean; targetConflict: boolean }>> {
   const now = input.now ?? new Date().toISOString();
-  const operationKey = `postage-operation/v1:${input.tenantId}:${input.sellerAccountId}:${input.keyDigest}`;
+  const operationKey =
+    input.operationKey ?? `postage-operation/v1:${input.tenantId}:${input.sellerAccountId}:${input.keyDigest}`;
   const operationId = `pop_${randomUUID()}`;
   const inserted = await db.query<PostageOperationAuthority>(
     `INSERT INTO fulfillment_postage_label_operations (

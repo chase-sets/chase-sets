@@ -13,6 +13,8 @@ import {
   type ReserveResult,
   type CommitResult,
   type AbortResult,
+  parseOrderGroupCombinedPlanAccepted,
+  type OrderGroupCombinedPlanAccepted,
 } from "@chase-sets/order-groups";
 import {
   createFulfillmentCsatOutcomeFact,
@@ -85,6 +87,8 @@ export type FulfillmentAddressOverrideAudit = Readonly<{
 }>;
 
 export type FulfillmentShipmentState = Readonly<{
+  physicalGroup: ShipmentPhysicalGroup | null;
+  groupPostageIntent: Readonly<{ operationKey: string; requestHash: string }> | null;
   admission: ShipmentAdmissionEvent | null;
   admissionHistory: readonly ShipmentAdmissionEvent[];
   shipmentId: ShipmentId | null;
@@ -95,6 +99,8 @@ export type FulfillmentShipmentState = Readonly<{
   shippingDestinationSnapshot: AddressSnapshot | null;
   shippingOriginSnapshot: AddressSnapshot | null;
   shippingPlanSnapshot: PackagePlan | null;
+  combinedPlanAccepted: OrderGroupCombinedPlanAccepted | null;
+  itemSubtotalAmount: string | null;
   shippingMethod: ShippingMethod | null;
   carrierName: string | null;
   labelReference: string | null;
@@ -137,6 +143,8 @@ export type FulfillmentShipmentState = Readonly<{
 }>;
 
 export const initialFulfillmentShipmentState: FulfillmentShipmentState = {
+  physicalGroup: null,
+  groupPostageIntent: null,
   admission: null,
   admissionHistory: [],
   shipmentId: null,
@@ -147,6 +155,8 @@ export const initialFulfillmentShipmentState: FulfillmentShipmentState = {
   shippingDestinationSnapshot: null,
   shippingOriginSnapshot: null,
   shippingPlanSnapshot: null,
+  combinedPlanAccepted: null,
+  itemSubtotalAmount: null,
   shippingMethod: null,
   carrierName: null,
   labelReference: null,
@@ -212,6 +222,8 @@ export type CreateShipmentCommand = Readonly<{
   shippingDestinationSnapshot: AddressSnapshot;
   shippingOriginSnapshot: AddressSnapshot;
   shippingPlanSnapshot?: PackagePlan | null;
+  combinedPlanAccepted?: OrderGroupCombinedPlanAccepted | null;
+  itemSubtotalAmount?: string | null;
   lines: readonly FulfillmentShipmentLineInput[];
   createdAt: string;
 }>;
@@ -323,7 +335,7 @@ export type RaiseShipmentExceptionCommand = Readonly<{
   raisedAt: string;
 }>;
 
-export type FulfillmentShipmentCommand =
+type IndividualFulfillmentShipmentCommand =
   | CreateShipmentCommand
   | StartShipmentPackingCommand
   | ConfirmShipmentPackingLineCommand
@@ -340,6 +352,48 @@ export type FulfillmentShipmentCommand =
   | ReturnShipmentCommand
   | RaiseShipmentExceptionCommand;
 
+export type ShipmentPhysicalGroup = Readonly<{
+  shipmentGroupId: string;
+  identity: AdmissionIdentity;
+  memberShipmentId: string;
+  committedVersion: number;
+  disposition: "combined" | "separate";
+  dispositionVersion: number;
+}>;
+
+export type FulfillmentShipmentCommand = (
+  | IndividualFulfillmentShipmentCommand
+  | Readonly<{ type: "ElectSeparateShipmentDispatch"; electedAt: string }>
+  | Readonly<{
+      type: "RecordShipmentGroupPostageIntent";
+      operationKey: string;
+      requestHash: string;
+      operationKind?: "purchase-usps-label" | "void-label";
+    }>
+) &
+  Readonly<{ groupExecution?: AdmissionIdentity }>;
+
+export type ShipmentPhysicalGroupRecordedEvent = DomainEvent<
+  "fulfillment.shipment.physical-group-recorded",
+  Readonly<{ shipmentId: ShipmentId; group: ShipmentPhysicalGroup }>
+>;
+export type ShipmentGroupTrackingAttachedEvent = DomainEvent<
+  "fulfillment.shipment.group-tracking-attached",
+  ShipmentLabelAttachedEvent["data"]
+>;
+export type ShipmentGroupRefundRecordedEvent = DomainEvent<
+  "fulfillment.shipment.group-refund-status-recorded",
+  ShipmentLabelRefundStatusRecordedEvent["data"]
+>;
+export type ShipmentGroupPostageIntentEvent = DomainEvent<
+  "fulfillment.shipment.group-postage-intent-recorded",
+  Readonly<{ shipmentId: ShipmentId; operationKey: string; requestHash: string }>
+>;
+export type ShipmentSeparatePackingRequiredEvent = DomainEvent<
+  "fulfillment.shipment.separate-packing-required",
+  Readonly<{ shipmentId: ShipmentId; electedAt: string }>
+>;
+
 export type ShipmentCreatedEvent = DomainEvent<
   "fulfillment.shipment.created",
   Readonly<{
@@ -351,6 +405,8 @@ export type ShipmentCreatedEvent = DomainEvent<
     shippingDestinationSnapshot: AddressSnapshot;
     shippingOriginSnapshot: AddressSnapshot;
     shippingPlanSnapshot: PackagePlan | null;
+    combinedPlanAccepted?: OrderGroupCombinedPlanAccepted | null;
+    itemSubtotalAmount?: string | null;
     lines: FulfillmentShipmentLine[];
     createdAt: string;
   }>
@@ -579,6 +635,11 @@ export type ShipmentAdmissionEvent = {
 }[keyof OrderGroupEventPayloads & `fulfillment.${string}`];
 
 export type FulfillmentShipmentEvent =
+  | ShipmentPhysicalGroupRecordedEvent
+  | ShipmentGroupTrackingAttachedEvent
+  | ShipmentGroupRefundRecordedEvent
+  | ShipmentGroupPostageIntentEvent
+  | ShipmentSeparatePackingRequiredEvent
   | ShipmentAdmissionEvent
   | ShipmentCreatedEvent
   | ShipmentPackingStartedEvent
@@ -772,7 +833,8 @@ export const decideFulfillmentShipment: AggregateDecider<
 > = (state, command) => {
   const admissionBusy =
     state.admission?.type === "fulfillment.shipment-group.admission-reserved" ||
-    state.admission?.type === "fulfillment.shipment-group.admission-committed";
+    (state.admission?.type === "fulfillment.shipment-group.admission-committed" &&
+      (!command.groupExecution || !sameAdmissionIdentity(state.admission.data, command.groupExecution)));
   if (
     admissionBusy &&
     (command.type === "StartShipmentPacking" ||
@@ -785,8 +847,69 @@ export const decideFulfillmentShipment: AggregateDecider<
   )
     throw new ShipmentAdmissionBusyError();
   switch (command.type) {
+    case "RecordShipmentGroupPostageIntent":
+      assert(
+        state.shipmentId &&
+          state.status === (command.operationKind === "void-label" ? "label-attached" : "awaiting-label") &&
+          state.packageStatus === "packed",
+        "Shared postage requires a packed Shipment awaiting its label.",
+      );
+      assert(
+        command.groupExecution &&
+          state.physicalGroup &&
+          sameAdmissionIdentity(state.physicalGroup.identity, command.groupExecution),
+        "Shared postage requires committed group authority.",
+      );
+      if (state.groupPostageIntent) {
+        assert(
+          state.groupPostageIntent.operationKey === command.operationKey &&
+            state.groupPostageIntent.requestHash === command.requestHash,
+          "Shared postage already has a different immutable invocation.",
+        );
+        return [];
+      }
+      return [
+        {
+          type: "fulfillment.shipment.group-postage-intent-recorded",
+          data: {
+            shipmentId: state.shipmentId,
+            operationKey: command.operationKey,
+            requestHash: command.requestHash,
+          },
+        },
+      ];
+    case "ElectSeparateShipmentDispatch":
+      assert(state.physicalGroup, "Separate dispatch requires a physical Shipment Group.");
+      assert(
+        command.groupExecution && sameAdmissionIdentity(state.physicalGroup.identity, command.groupExecution),
+        "Separate dispatch requires committed group authority.",
+      );
+      if (state.physicalGroup.disposition === "separate") return [];
+      assert(
+        !state.groupPostageIntent &&
+          !state.dispatchedAt &&
+          state.status !== "label-attached" &&
+          !state.conflicts.length,
+        "Packing or postage must be reconciled before separate dispatch.",
+      );
+      return [
+        {
+          type: "fulfillment.shipment.separate-packing-required",
+          data: {
+            shipmentId: state.shipmentId!,
+            electedAt: ensureIsoTimestamp(command.electedAt, "Separate dispatch requires a timestamp."),
+          },
+        },
+      ];
     case "CreateShipment":
       assert(state.shipmentId === null, "Shipment has already been created.");
+      if (command.combinedPlanAccepted) {
+        const accepted = parseOrderGroupCombinedPlanAccepted(command.combinedPlanAccepted);
+        assert(
+          accepted.proposedMemberOrderId === command.orderId,
+          "Combined plan must belong to this follow-on Order.",
+        );
+      }
       return [
         {
           type: "fulfillment.shipment.created",
@@ -802,6 +925,10 @@ export const decideFulfillmentShipment: AggregateDecider<
             ),
             shippingOriginSnapshot: normalizeAddressSnapshot(command.shippingOriginSnapshot, "Shipping origin"),
             shippingPlanSnapshot: command.shippingPlanSnapshot ?? null,
+            combinedPlanAccepted: command.combinedPlanAccepted
+              ? parseOrderGroupCombinedPlanAccepted(command.combinedPlanAccepted)
+              : null,
+            itemSubtotalAmount: command.itemSubtotalAmount ?? null,
             lines: normalizeShipmentLines(command.lines),
             createdAt: ensureIsoTimestamp(command.createdAt, "Shipment creation must record a timestamp."),
           },
@@ -1136,6 +1263,7 @@ export const decideFulfillmentShipment: AggregateDecider<
         },
       ];
     case "DispatchShipment":
+      assert(!state.groupPostageIntent, "Pending grouped postage must be reconciled before dispatch.");
       assert(state.shipmentId !== null, "Shipment must be created first.");
       assert(state.orderId !== null, "Shipment must reference an order before dispatch.");
       assert(state.buyerAccountId !== null, "Shipment must reference a buyer before dispatch.");
@@ -1241,6 +1369,30 @@ export const evolveFulfillmentShipment: AggregateEvolver<FulfillmentShipmentStat
   event,
 ) => {
   switch (event.type) {
+    case "fulfillment.shipment.separate-packing-required":
+      return {
+        ...state,
+        status: "awaiting-package",
+        packageStatus: "awaiting-package",
+        packageCount: null,
+        packagePreparedAt: null,
+        lines: state.lines.map((line) => ({ ...line, packingConfirmedQuantity: 0, packingConfirmedAt: null })),
+      };
+    case "fulfillment.shipment.group-postage-intent-recorded":
+      return {
+        ...state,
+        groupPostageIntent: { operationKey: event.data.operationKey, requestHash: event.data.requestHash },
+      };
+    case "fulfillment.shipment.group-refund-status-recorded":
+      return evolveFulfillmentShipment(state, {
+        type: "fulfillment.shipment.label-refund-status-recorded",
+        data: event.data,
+      });
+    case "fulfillment.shipment.physical-group-recorded":
+      assert(event.data.shipmentId === state.shipmentId, "Physical group belongs to another Shipment.");
+      return { ...state, physicalGroup: event.data.group };
+    case "fulfillment.shipment.group-tracking-attached":
+      return evolveFulfillmentShipment(state, { type: "fulfillment.shipment.label-attached", data: event.data });
     case "fulfillment.shipment-group.admission-reserved":
     case "fulfillment.shipment-group.admission-rejected":
     case "fulfillment.shipment-group.admission-committed":
@@ -1286,6 +1438,8 @@ export const evolveFulfillmentShipment: AggregateEvolver<FulfillmentShipmentStat
     }
     case "fulfillment.shipment.created":
       return {
+        physicalGroup: null,
+        groupPostageIntent: null,
         admission: null,
         admissionHistory: [],
         shipmentId: event.data.shipmentId,
@@ -1296,6 +1450,8 @@ export const evolveFulfillmentShipment: AggregateEvolver<FulfillmentShipmentStat
         shippingDestinationSnapshot: event.data.shippingDestinationSnapshot,
         shippingOriginSnapshot: event.data.shippingOriginSnapshot,
         shippingPlanSnapshot: event.data.shippingPlanSnapshot,
+        combinedPlanAccepted: event.data.combinedPlanAccepted ?? null,
+        itemSubtotalAmount: event.data.itemSubtotalAmount ?? null,
         shippingMethod: null,
         carrierName: null,
         labelReference: null,
@@ -1383,6 +1539,7 @@ export const evolveFulfillmentShipment: AggregateEvolver<FulfillmentShipmentStat
     case "fulfillment.shipment.label-attached":
       return {
         ...state,
+        groupPostageIntent: null,
         status: "label-attached",
         shippingMethod: event.data.shippingMethod,
         carrierName: event.data.carrierName,
@@ -1425,6 +1582,7 @@ export const evolveFulfillmentShipment: AggregateEvolver<FulfillmentShipmentStat
     case "fulfillment.shipment.label-voided":
       return {
         ...state,
+        groupPostageIntent: null,
         status: shipmentStatusFromRefundStatus(event.data.refundStatus),
         labelStatus: labelStatusFromRefundStatus(event.data.refundStatus),
         labelRefundStatus: event.data.refundStatus,

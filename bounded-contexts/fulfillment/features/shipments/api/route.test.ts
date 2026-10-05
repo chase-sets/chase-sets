@@ -21,6 +21,96 @@ const MUTATION_HEADERS = {
   "Idempotency-Key": "018f47d2-9d2a-4d68-8f33-6fb718c3f001",
 };
 
+describe("caller authority parity: explicit separate-dispatch HTTP", () => {
+  const actor = {
+    sessionId: "sess_1",
+    tenantId: "tnt_identity",
+    userId: "usr_1",
+    accountId: "acc_seller",
+    membershipId: "mem_1",
+    roleKey: "manager",
+    permissions: ["fulfillment.manage"],
+  };
+  const body = { reason: "Explicit seller election", confirmationText: "Ship separately at my expense." };
+  it.each(["subjectId", "insuranceAmount", "requestHash", "package"])(
+    "caller authority parity: purchase refuses extra %s before owner invocation",
+    async (field) => {
+      const services = createServices();
+      const response = await buildSellerApp({ actor, services }).request(
+        "/account/sales/shipments/shp_1/label/purchase",
+        {
+          method: "POST",
+          headers: MUTATION_HEADERS,
+          body: JSON.stringify({ serviceLevel: "GroundAdvantage", [field]: "synthetic-tamper" }),
+        },
+      );
+      expect(response.status).toBe(400);
+      expect(services.purchaseUspsLabel).not.toHaveBeenCalled();
+    },
+  );
+  it("routes the explicit request and dry-run to the same owner command", async () => {
+    const services = createServices();
+    const app = buildSellerApp({ actor, services });
+    const response = await app.request("/account/sales/shipments/shp_1/separate-dispatch", {
+      method: "POST",
+      headers: MUTATION_HEADERS,
+      body: JSON.stringify({ ...body, dryRun: true }),
+    });
+    expect(response.status).toBe(200);
+    expect(services.electSeparateDispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ ...body, shipmentId: "shp_1", sellerAccountId: actor.accountId, dryRun: true }),
+      expect.objectContaining({ tenantId: actor.tenantId }),
+    );
+  });
+  it.each([
+    { confirmationText: "yes" },
+    { confirmationText: null },
+    { reason: "" },
+    { groupId: "ogr_other" },
+    { dryRun: "true" },
+  ])("refuses changed authority or confirmation %#", async (change) => {
+    const services = createServices();
+    const response = await buildSellerApp({ actor, services }).request(
+      "/account/sales/shipments/shp_1/separate-dispatch",
+      {
+        method: "POST",
+        headers: MUTATION_HEADERS,
+        body: JSON.stringify({ ...body, ...change }),
+      },
+    );
+    expect(response.status).toBe(400);
+    expect(services.electSeparateDispatch).not.toHaveBeenCalled();
+  });
+  it.each(["", "malformed"])("refuses missing/malformed owner key %s", async (key) => {
+    const services = createServices();
+    const response = await buildSellerApp({ actor, services }).request(
+      "/account/sales/shipments/shp_1/separate-dispatch",
+      {
+        method: "POST",
+        headers: { ...MUTATION_HEADERS, "Idempotency-Key": key },
+        body: JSON.stringify(body),
+      },
+    );
+    expect(response.status).toBe(400);
+    expect(services.electSeparateDispatch).not.toHaveBeenCalled();
+  });
+  it("refuses unauthenticated and view-only actors", async () => {
+    for (const denied of [null, { ...actor, permissions: ["fulfillment.view"] }]) {
+      const services = createServices();
+      const response = await buildSellerApp({ actor: denied, services }).request(
+        "/account/sales/shipments/shp_1/separate-dispatch",
+        {
+          method: "POST",
+          headers: MUTATION_HEADERS,
+          body: JSON.stringify(body),
+        },
+      );
+      expect(response.status).toBe(denied ? 403 : 401);
+      expect(services.electSeparateDispatch).not.toHaveBeenCalled();
+    }
+  });
+});
+
 function buildSellerApp(
   options: Readonly<{
     actor: FulfillmentApiEnv["Variables"]["actor"];
@@ -54,6 +144,7 @@ function buildSellerApp(
 
 function createServices(): FulfillmentShipmentServices {
   return {
+    electSeparateDispatch: vi.fn(async () => ({ shipmentId: "shp_1", version: 2 })),
     commandHandler: vi.fn(async () => ({
       state: {} as never,
       version: 1,

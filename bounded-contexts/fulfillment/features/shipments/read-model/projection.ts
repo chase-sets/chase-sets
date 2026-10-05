@@ -3,6 +3,7 @@ import { defineProjectorHandlers, type ProjectorHandlerMap } from "@chase-sets/e
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { ShipmentId } from "@chase-sets/primitives/typed-ids";
 import { withShipmentDisplayReference } from "./display-reference";
+import type { ShipmentPhysicalGroupRecordedEvent, ShipmentGroupTrackingAttachedEvent } from "../domain/domain";
 
 type PostageSubjectAuthorityInput = Readonly<{
   subjectKind: "shipment" | "channel-fulfillment-record";
@@ -61,7 +62,102 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
     return refundStatus === "rejected" ? "label-attached" : "awaiting-label";
   }
 
-  return {
+  const handlers: ProjectorHandlerMap = {
+    "fulfillment.shipment-group.admission-reserved": async (event) => {
+      await db.query(
+        `UPDATE fulfillment_shipment_pages SET shipment_group_admission = $2::jsonb,
+        shipment_group_admission_revision = $3 WHERE shipment_id = $1 AND shipment_group_admission_revision < $3`,
+        [event.data.anchorShipmentId, JSON.stringify(event.data), event.streamVersion],
+      );
+    },
+    "fulfillment.shipment-group.admission-committed": async (event, invocation) => {
+      await handlers["fulfillment.shipment-group.admission-reserved"]!(event, invocation);
+    },
+    "fulfillment.shipment-group.admission-released": async (event) => {
+      await db.query(
+        `UPDATE fulfillment_shipment_pages SET shipment_group_admission = NULL,
+        shipment_group_admission_revision = $3 WHERE shipment_id = $1 AND shipment_group_admission ->> 'requestId' = $2
+          AND shipment_group_admission_revision < $3`,
+        [event.data.anchorShipmentId, event.data.requestId, event.streamVersion],
+      );
+      await db.query(
+        `UPDATE fulfillment_shipment_pages SET physical_group = NULL, physical_group_authority_revision = $3
+         WHERE physical_group #>> '{identity,anchorShipmentId}' = $1
+           AND physical_group #>> '{identity,requestId}' = $2 AND physical_group_authority_revision < $3`,
+        [event.data.anchorShipmentId, event.data.requestId, event.streamVersion],
+      );
+    },
+    "fulfillment.shipment.separate-packing-required": async (event) => {
+      const data = event.data as { shipmentId: string; electedAt: string };
+      await db.query(
+        `WITH reset AS (
+           UPDATE fulfillment_shipment_pages
+           SET status = 'awaiting-package', package_status = 'awaiting-package', package_count = NULL,
+               package_prepared_at = NULL, physical_group_revision = $3, updated_at = $2
+           WHERE shipment_id = $1 AND physical_group_revision < $3
+           RETURNING shipment_id
+         ) UPDATE fulfillment_shipment_line_pages
+           SET packing_confirmed_quantity = 0, packing_confirmed_at = NULL
+           WHERE shipment_id IN (SELECT shipment_id FROM reset)`,
+        [data.shipmentId, data.electedAt, event.streamVersion],
+      );
+    },
+    "fulfillment.shipment.physical-group-recorded": async (event) => {
+      const data = event.data as ShipmentPhysicalGroupRecordedEvent["data"];
+      await db.query(
+        `UPDATE fulfillment_shipment_pages SET physical_group = $2::jsonb, physical_group_authority_revision = $3
+         WHERE shipment_id = $1 AND physical_group_authority_revision < $3`,
+        [data.shipmentId, JSON.stringify(data.group), data.group.dispositionVersion],
+      );
+    },
+    "fulfillment.shipment.group-tracking-attached": async (event) => {
+      const data = event.data as ShipmentGroupTrackingAttachedEvent["data"];
+      await db.query(
+        `UPDATE fulfillment_shipment_pages SET status = 'label-attached', label_status = 'purchased',
+           shipping_method = $2, carrier_name = $3, label_reference = $4, label_document_url = $5,
+           tracking_identifier = $6, postage_service_level = $7, shared_postage_label_id = $8,
+           postage_provider_name = NULL, postage_provider_mode = NULL, postage_provider_shipment_id = NULL,
+           postage_provider_label_id = NULL, postage_rate_id = NULL, postage_amount_cents = NULL, postage_currency = NULL,
+           label_error_code = NULL, label_error_message = NULL, label_refund_status = NULL, label_refund_reference = NULL,
+           label_attached_at = $9, label_voided_at = NULL, updated_at = $9, physical_group_revision = $10
+         WHERE shipment_id = $1 AND physical_group_revision < $10`,
+        [
+          data.shipmentId,
+          data.shippingMethod,
+          data.carrierName,
+          data.labelReference,
+          data.labelDocumentUrl,
+          data.trackingIdentifier,
+          data.postageServiceLevel,
+          data.postageProviderLabelId,
+          data.attachedAt,
+          event.streamVersion,
+        ],
+      );
+    },
+    "fulfillment.shipment.group-refund-status-recorded": async (event) => {
+      const data = event.data as {
+        shipmentId: string;
+        postageProviderLabelId: string;
+        refundStatus: string;
+        refundReference: string | null;
+        resolvedAt: string;
+      };
+      await db.query(
+        `UPDATE fulfillment_shipment_pages SET label_refund_status = $2, label_refund_reference = $3,
+           label_status = $4, status = $5, updated_at = $6
+         WHERE shipment_id = $1 AND shared_postage_label_id = $7`,
+        [
+          data.shipmentId,
+          data.refundStatus,
+          data.refundReference,
+          labelStatusFromRefundStatus(data.refundStatus),
+          shipmentStatusFromRefundStatus(data.refundStatus),
+          data.resolvedAt,
+          data.postageProviderLabelId,
+        ],
+      );
+    },
     "fulfillment.channel-fulfillment-record.created": async (event) => {
       const data = event.data as {
         channelFulfillmentRecordId: string;
@@ -333,8 +429,9 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
              label_refund_reference = NULL,
              label_attached_at = $15,
              label_voided_at = NULL,
-             updated_at = $15
-         WHERE shipment_id = $1`,
+             updated_at = $15,
+             physical_group_revision = GREATEST(physical_group_revision, $16)
+         WHERE shipment_id = $1 AND (physical_group IS NULL OR physical_group_revision < $16)`,
           [
             data.shipmentId,
             data.shippingMethod,
@@ -351,6 +448,7 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
             data.postageAmountCents,
             data.postageCurrency,
             data.attachedAt,
+            event.streamVersion,
           ],
         );
 
@@ -436,9 +534,18 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
               label_refund_status = $4,
               label_refund_reference = $5,
               label_voided_at = $6,
-              updated_at = $6
-          WHERE shipment_id = $1`,
-        [data.shipmentId, shipmentStatus, labelStatus, data.refundStatus, data.refundReference, data.voidedAt],
+              updated_at = $6,
+              physical_group_revision = GREATEST(physical_group_revision, $7)
+          WHERE shipment_id = $1 AND (physical_group IS NULL OR physical_group_revision < $7)`,
+        [
+          data.shipmentId,
+          shipmentStatus,
+          labelStatus,
+          data.refundStatus,
+          data.refundReference,
+          data.voidedAt,
+          event.streamVersion,
+        ],
       );
     },
     "fulfillment.shipment.label-refund-status-recorded": async (event) => {
@@ -600,4 +707,5 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
       );
     },
   };
+  return handlers;
 }

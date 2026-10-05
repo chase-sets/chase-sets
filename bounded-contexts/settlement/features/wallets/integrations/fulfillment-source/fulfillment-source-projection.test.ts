@@ -25,6 +25,45 @@ function event(type: string, data: Record<string, unknown>, streamVersion = 1): 
 }
 
 describe("settlement fulfillment source projection", () => {
+  it("one label money lineage: shared tracking has no debit and a second monetary attachment would double debit", async () => {
+    const db = {
+      query: vi.fn(async (sql: string, values?: readonly unknown[]) => {
+        if (sql.includes("FROM settlement_order_fulfillment_sources"))
+          return { rows: [{ order_id: `ord_${values?.[0]}`, seller_account_id: "acc_seller" }], rowCount: 1 };
+        if (sql.includes("INSERT INTO settlement_marketplace_label_postage"))
+          return { rows: [{ shipment_id: values?.[0] }], rowCount: 1 };
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    const wallets = {
+      loadWalletState: vi.fn(async () => ({ currencyCode: "usd", entries: [] })),
+      postEntry: vi.fn(async (_input: unknown) => ({ accountId: "acc_seller", version: 2, entry: {} })),
+    };
+    const handlers = buildSettlementFulfillmentSourceProjectionHandlers(db as never, {
+      wallets: wallets as never,
+      activation: syntheticActivation,
+    });
+    const label = {
+      shipmentId: "shp_anchor",
+      postageProviderLabelId: "synthetic-shared-label",
+      postageAmountCents: 568,
+      postageCurrency: "USD",
+      attachedAt: "2026-10-05T00:00:00.000Z",
+    };
+    await handlers["fulfillment.shipment.label-attached"]!(event("fulfillment.shipment.label-attached", label, 2), {
+      db: db as never,
+    });
+    expect(handlers["fulfillment.shipment.group-tracking-attached"]).toBeUndefined();
+    expect(handlers["fulfillment.shipment.group-refund-status-recorded"]).toBeUndefined();
+    expect(wallets.postEntry).toHaveBeenCalledTimes(1);
+    // Negative control: existing Settlement identity includes Shipment, not only provider label.
+    await handlers["fulfillment.shipment.label-attached"]!(
+      event("fulfillment.shipment.label-attached", { ...label, shipmentId: "shp_member" }, 3),
+      { db: db as never },
+    );
+    expect(wallets.postEntry).toHaveBeenCalledTimes(2);
+    expect(wallets.postEntry.mock.calls[0]?.[0]).not.toEqual(wallets.postEntry.mock.calls[1]?.[0]);
+  });
   it("projects shipment creation and delivery as payout release inputs", async () => {
     const db = {
       query: vi.fn(async () => ({ rows: [] })),

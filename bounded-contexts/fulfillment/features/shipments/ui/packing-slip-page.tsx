@@ -29,7 +29,11 @@ function mapPackingSlip(slip: FulfillmentPackingSlip): PackingSlipPrintSlip {
     lines: slip.lines.map((line) => ({
       id: line.line_id,
       title: line.item_title,
-      subtitle: line.item_subtitle,
+      subtitle: line.order_id
+        ? t("fulfillment.features.shipments.group.order", {
+            orderId: deriveDisplayReferenceOrRaw(line.order_id as OrderId),
+          })
+        : line.item_subtitle,
       summary: line.product_summary,
       quantity: line.quantity,
     })),

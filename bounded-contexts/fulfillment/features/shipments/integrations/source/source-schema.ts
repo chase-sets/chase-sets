@@ -30,7 +30,10 @@ CREATE INDEX IF NOT EXISTS fulfillment_order_sources_status_idx
 ALTER TABLE fulfillment_order_sources
   ADD COLUMN IF NOT EXISTS shipping_destination_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
   ADD COLUMN IF NOT EXISTS shipping_origin_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
-  ADD COLUMN IF NOT EXISTS shipping_plan_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb;
+  ADD COLUMN IF NOT EXISTS shipping_plan_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS combined_plan_accepted jsonb NULL,
+  ADD COLUMN IF NOT EXISTS source_tenant_id text NULL,
+  ADD COLUMN IF NOT EXISTS item_subtotal_amount text NULL;
 
 CREATE TABLE IF NOT EXISTS fulfillment_order_source_lines (
   order_id text NOT NULL REFERENCES fulfillment_order_sources (order_id) ON DELETE CASCADE,
@@ -65,3 +68,16 @@ CREATE INDEX IF NOT EXISTS fulfillment_payment_fraud_review_holds_active_order_i
   ON fulfillment_payment_fraud_review_holds USING gin (order_ids)
   WHERE status = 'opened';
 `;
+
+export const fulfillmentCombinedPlanSchemaMigrations = [
+  {
+    migrationId: "20261005_fulfillment_combined_plan_source",
+    description: "Retain the accepted combined plan separately from each member's standalone plan and subtotal.",
+    statements: [
+      `ALTER TABLE fulfillment_order_sources
+         ADD COLUMN IF NOT EXISTS combined_plan_accepted jsonb NULL,
+         ADD COLUMN IF NOT EXISTS source_tenant_id text NULL,
+         ADD COLUMN IF NOT EXISTS item_subtotal_amount text NULL`,
+    ],
+  },
+] as const;

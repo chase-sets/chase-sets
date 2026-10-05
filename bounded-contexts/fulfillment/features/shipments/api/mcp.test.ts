@@ -125,6 +125,7 @@ function shipmentRow(overrides: Record<string, unknown> = {}) {
 
 function services(): FulfillmentShipmentServices {
   return {
+    electSeparateDispatch: vi.fn(async (params) => ({ shipmentId: params.shipmentId, version: 11 })),
     listBuyerShipments: vi.fn(async () => ({ items: [shipmentRow({ shipping_origin_snapshot: null })], total: 1 })),
     getBuyerShipment: vi.fn(async (shipmentId, buyerAccountId) =>
       buyerAccountId === "acc_buyer"
@@ -150,6 +151,58 @@ function services(): FulfillmentShipmentServices {
     packShipment: vi.fn(async (params) => ({ shipmentId: params.shipmentId, version: 10 })),
   } as unknown as FulfillmentShipmentServices;
 }
+
+describe("caller authority parity: explicit separate-dispatch MCP", () => {
+  const input = {
+    accountId: "acc_seller",
+    shipmentId: "shp_01ARYZ6S41TSV4RRFFQ69G5FAV",
+    reason: "Explicit seller election",
+    confirmationText: "Ship separately at my expense.",
+  };
+  it("uses the owner command for explicit intent, including an inert dry-run, not advance", async () => {
+    const service = services();
+    const handlers = createFulfillmentShipmentMcpHandlers(service).toolHandlers;
+    await handlers["fulfillment.elect-separate-dispatch"]!(mcpRequest({ ...input, dryRun: true }));
+    expect(service.electSeparateDispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sellerAccountId: actor.accountId,
+        shipmentId: input.shipmentId,
+        dryRun: true,
+        mutationAttemptId: "018f47d2-9d2a-4d68-8f33-6fb718c3f001",
+        confirmationText: input.confirmationText,
+      }),
+      expect.objectContaining({ tenantId: actor.tenantId }),
+    );
+    vi.mocked(service.electSeparateDispatch).mockClear();
+    await handlers["fulfillment.advance-shipment"]!(mcpRequest(input));
+    expect(service.electSeparateDispatch).not.toHaveBeenCalled();
+  });
+  it.each([
+    { confirmationText: "" },
+    { confirmationText: "yes" },
+    { idempotencyKey: "" },
+    { idempotencyKey: "bad" },
+    { shipmentId: "bad" },
+    { accountId: "acc_other" },
+    { parcel: {} },
+    { dryRun: "true" },
+    { reason: "" },
+  ])("rejects malformed or implicit election %# before calling the command", async (change) => {
+    const service = services();
+    const handler = createFulfillmentShipmentMcpHandlers(service).toolHandlers["fulfillment.elect-separate-dispatch"]!;
+    await expect(handler(mcpRequest({ ...input, ...change }))).rejects.toThrow();
+    expect(service.electSeparateDispatch).not.toHaveBeenCalled();
+  });
+  it("requires fulfillment.manage", async () => {
+    const service = services();
+    await expect(
+      createFulfillmentShipmentMcpHandlers(service).toolHandlers["fulfillment.elect-separate-dispatch"]!(
+        mcpRequest(input, { ...actor, permissions: ["fulfillment.view"] }),
+      ),
+    ).rejects.toThrow();
+    expect(service.electSeparateDispatch).not.toHaveBeenCalled();
+  });
+});
 
 describe("fulfillment shipment MCP handlers", () => {
   it("cancels only when the read model presents a matching order-cancelled conflict", async () => {

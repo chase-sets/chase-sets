@@ -2,6 +2,8 @@ import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { extractIdFromStreamId } from "@chase-sets/event-core";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { orderGroupCombinedPlanAcceptedCodec } from "@chase-sets/order-groups";
+import { ShipmentHistoryPoisonedError } from "../../domain/mutation-attempt";
 
 export function buildFulfillmentAccountProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
@@ -102,6 +104,23 @@ export function buildFulfillmentOrderProjectionHandlers(
   }> = {},
 ): ProjectorHandlerMap {
   return {
+    "ordering.order.combined-plan-accepted": async (event) => {
+      const fact = orderGroupCombinedPlanAcceptedCodec.decode({ eventType: event.type, payload: event.data }).data;
+      if (event.streamId !== `ordering.order-${fact.proposedMemberOrderId}`)
+        throw new ShipmentHistoryPoisonedError("Combined plan does not belong to the follow-on Order stream.");
+      const result = await db.query(
+        `UPDATE fulfillment_order_sources SET combined_plan_accepted = $2::jsonb
+         WHERE order_id = $1
+           AND source_tenant_id = $3
+           AND (combined_plan_accepted IS NULL OR combined_plan_accepted = $2::jsonb)
+         RETURNING order_id`,
+        [fact.proposedMemberOrderId, JSON.stringify(fact), event.tenantId],
+      );
+      if (result.rows.length !== 1)
+        throw new ShipmentHistoryPoisonedError(
+          "Combined plan has a missing Order or conflicting immutable identity/plan.",
+        );
+    },
     "ordering.order.created": async (event) => {
       const data = event.data as {
         orderId: string;
@@ -111,6 +130,7 @@ export function buildFulfillmentOrderProjectionHandlers(
         shippingDestinationSnapshot: unknown;
         shippingOriginSnapshot: unknown;
         shippingPlanSnapshot?: unknown;
+        itemSubtotalAmount?: string;
         lines: Array<{
           lineId: string;
           catalogItemId: string;
@@ -122,7 +142,7 @@ export function buildFulfillmentOrderProjectionHandlers(
         }>;
       };
 
-      await db.query(
+      const inserted = await db.query(
         `INSERT INTO fulfillment_order_sources (
            order_id,
            buyer_account_id,
@@ -131,12 +151,14 @@ export function buildFulfillmentOrderProjectionHandlers(
            shipping_destination_snapshot,
            shipping_origin_snapshot,
            shipping_plan_snapshot,
+           item_subtotal_amount,
+           source_tenant_id,
            status,
            created_at,
            updated_at,
            ready_for_fulfillment_at,
            cancelled_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending-reservation', $8, $8, NULL, NULL)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $9, $10, 'pending-reservation', $8, $8, NULL, NULL)
          ON CONFLICT (order_id) DO UPDATE SET
            buyer_account_id = EXCLUDED.buyer_account_id,
            seller_account_id = EXCLUDED.seller_account_id,
@@ -144,9 +166,14 @@ export function buildFulfillmentOrderProjectionHandlers(
            shipping_destination_snapshot = EXCLUDED.shipping_destination_snapshot,
            shipping_origin_snapshot = EXCLUDED.shipping_origin_snapshot,
            shipping_plan_snapshot = EXCLUDED.shipping_plan_snapshot,
+           item_subtotal_amount = EXCLUDED.item_subtotal_amount,
+           source_tenant_id = EXCLUDED.source_tenant_id,
            status = EXCLUDED.status,
            updated_at = EXCLUDED.updated_at,
-           cancelled_at = EXCLUDED.cancelled_at`,
+           cancelled_at = EXCLUDED.cancelled_at
+         WHERE fulfillment_order_sources.source_tenant_id IS NULL
+            OR fulfillment_order_sources.source_tenant_id = EXCLUDED.source_tenant_id
+         RETURNING order_id`,
         [
           data.orderId,
           data.buyerAccountId,
@@ -156,9 +183,12 @@ export function buildFulfillmentOrderProjectionHandlers(
           JSON.stringify(data.shippingOriginSnapshot),
           JSON.stringify(data.shippingPlanSnapshot ?? {}),
           event.timing.recordedAt,
+          data.itemSubtotalAmount ?? null,
+          event.tenantId,
         ],
       );
 
+      if (inserted.rows.length !== 1) throw new ShipmentHistoryPoisonedError("Order source belongs to another tenant.");
       await db.query(`DELETE FROM fulfillment_order_source_lines WHERE order_id = $1`, [data.orderId]);
 
       for (const [index, line] of data.lines.entries()) {

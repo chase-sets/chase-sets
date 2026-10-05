@@ -1,5 +1,6 @@
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { PackagePlan } from "@chase-sets/product-measures";
+import type { ShipmentPhysicalGroup } from "../domain/domain";
 
 export interface FulfillmentLabelAddressOverrideAudit {
   recorded_at: string;
@@ -65,6 +66,8 @@ export interface FulfillmentShipmentConflict {
 }
 
 export interface FulfillmentShipmentListItem {
+  physical_group?: ShipmentPhysicalGroup | null;
+  group_hold?: "destination-mismatch" | "waiting" | "ambiguous" | null;
   shipment_id: string;
   order_id: string;
   buyer_account_id: string;
@@ -116,6 +119,8 @@ export interface FulfillmentShipmentListItem {
 }
 
 export interface FulfillmentShipmentLine {
+  shipment_id?: string;
+  order_id?: string;
   line_id: string;
   order_line_id: string;
   catalog_catalog_item_id: string;

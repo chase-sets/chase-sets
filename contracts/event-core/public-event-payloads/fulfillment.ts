@@ -3,6 +3,7 @@ import type { AddressSnapshot } from "../../primitives/address-snapshot";
 import type { ProductKey } from "../../primitives/catalog-identity";
 import type { AccountId, CatalogItemId, OrderId, ShipmentId, TypedUlid } from "../../primitives/typed-ids";
 import type { PackagePlan } from "../../product-measures";
+import type { OrderGroupCombinedPlanAccepted } from "../../order-groups";
 
 export type FulfillmentShipmentLinePayload = Readonly<{
   lineId: TypedUlid<"spl">;
@@ -37,6 +38,8 @@ export type FulfillmentShipmentCreatedPayload = Readonly<{
   shippingDestinationSnapshot: AddressSnapshot;
   shippingOriginSnapshot: AddressSnapshot;
   shippingPlanSnapshot: PackagePlan | null;
+  itemSubtotalAmount?: string | null;
+  combinedPlanAccepted?: OrderGroupCombinedPlanAccepted | null;
   lines: readonly FulfillmentShipmentLinePayload[];
   createdAt: string;
 }>;

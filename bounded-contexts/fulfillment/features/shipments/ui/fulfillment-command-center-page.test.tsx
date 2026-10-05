@@ -43,6 +43,42 @@ function render(shipments: readonly FulfillmentCommandCenterShipmentInput[]) {
 }
 
 describe("FulfillmentCommandCenterPage", () => {
+  it("caller authority parity: localized mismatch hold exposes an explicit seller-funded election, never implicit packing", () => {
+    const identity = {
+      requestId: "synthetic",
+      sourceGeneration: 0,
+      draftKey: "synthetic",
+      anchorShipmentId: "shp_anchor",
+      anchorOrderId: "ord_anchor",
+      proposedMemberOrderId: "ord_member",
+      groupId: "ogr_synthetic",
+      quoteFingerprint: "synthetic",
+    } as never;
+    const physical_group = {
+      identity,
+      shipmentGroupId: "shg_synthetic",
+      memberShipmentId: "shp_member",
+      committedVersion: 3,
+      disposition: "combined" as const,
+      dispositionVersion: 4,
+    };
+    const item = shipment({
+      shipment_id: "shp_anchor",
+      status: "awaiting-package",
+      physical_group,
+      group_hold: "destination-mismatch",
+    });
+    const html = render([item]);
+    expect(html).toContain("different delivery addresses");
+    expect(html).toContain("This cannot be undone");
+    expect(html).toContain('value="elect-separate-dispatch"');
+    expect(html).toContain("Ship separately at my expense");
+    expect(html).not.toContain("/shp_anchor/packing");
+    expect(render([{ ...item, group_hold: "ambiguous" }])).not.toContain('value="elect-separate-dispatch"');
+    expect(
+      render([{ ...item, physical_group: { ...physical_group, disposition: "separate" }, group_hold: null }]),
+    ).not.toContain('value="elect-separate-dispatch"');
+  });
   it("renders the context-aware primary action for each work state", () => {
     const html = render([
       shipment({ shipment_id: "1", status: "awaiting-label" }),

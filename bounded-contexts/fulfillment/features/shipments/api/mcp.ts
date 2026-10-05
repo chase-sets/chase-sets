@@ -18,6 +18,7 @@ import {
   type ShipmentLifecycleDispatcher,
 } from "../domain/shipment-action";
 import type { FulfillmentShipmentServices } from "./runtime";
+import { assertSeparateDispatchInput } from "../domain/separate-dispatch";
 
 export type FulfillmentShipmentMcpHandlers = Readonly<{
   toolHandlers: Readonly<Record<string, McpToolHandler>>;
@@ -219,7 +220,9 @@ async function runSellerShipmentAction(
       {
         shipmentId: input.shipmentId,
         sellerAccountId: input.sellerAccountId,
-        serviceLevel: input.serviceLevel ?? "USPS_GROUND_ADVANTAGE",
+        serviceLevel:
+          input.serviceLevel ??
+          (shipment.physical_group?.disposition === "combined" ? "GroundAdvantage" : "USPS_GROUND_ADVANTAGE"),
         sender: input.sender,
         recipient: input.recipient,
         overrideReason: input.overrideReason,
@@ -356,7 +359,7 @@ export function createFulfillmentShipmentMcpHandlers(
         action: "buy-label",
         shipmentId: readMcpTypedIdArgument(args, "shipmentId", "shp"),
         sellerAccountId: scopedActor.accountId,
-        serviceLevel: readMcpStringArgument(args, "serviceLevel") ?? "USPS_GROUND_ADVANTAGE",
+        serviceLevel: readMcpStringArgument(args, "serviceLevel") ?? undefined,
         sender: readAddress(args.sender, "sender"),
         recipient: readAddress(args.recipient, "recipient"),
         overrideReason: readMcpStringArgument(args, "overrideReason"),
@@ -405,7 +408,7 @@ export function createFulfillmentShipmentMcpHandlers(
           shipmentId: readMcpTypedIdArgument(args, "shipmentId", "shp"),
           sellerAccountId: scopedActor.accountId,
           packageCount: readOptionalPositiveInteger(args, "packageCount", 1),
-          serviceLevel: readMcpStringArgument(args, "serviceLevel") ?? "USPS_GROUND_ADVANTAGE",
+          serviceLevel: readMcpStringArgument(args, "serviceLevel") ?? undefined,
           sender: readAddress(args.sender, "sender"),
           recipient: readAddress(args.recipient, "recipient"),
           overrideReason: readMcpStringArgument(args, "overrideReason"),
@@ -422,6 +425,28 @@ export function createFulfillmentShipmentMcpHandlers(
         ...(result.trackingIdentifier ? { trackingIdentifier: result.trackingIdentifier } : {}),
       });
     };
+
+  const electSeparateDispatch: McpToolHandler = async ({ actor, arguments: args }) => {
+    const permitted = new Set(["accountId", "shipmentId", "reason", "idempotencyKey", "confirmationText", "dryRun"]);
+    if (
+      Object.keys(args).some((key) => !permitted.has(key)) ||
+      (args.dryRun !== undefined && typeof args.dryRun !== "boolean")
+    )
+      throw new Error("Unexpected separate-dispatch input.");
+    const scopedActor = ensureMcpActorAccount(actor, readRequiredString(args, "accountId"));
+    requirePermission(scopedActor, "fulfillment.manage");
+    const input = {
+      shipmentId: readMcpTypedIdArgument(args, "shipmentId", "shp"),
+      sellerAccountId: scopedActor.accountId,
+      mutationAttemptId: readRequiredString(args, "idempotencyKey"),
+      reason: readRequiredString(args, "reason"),
+      confirmationText: readRequiredString(args, "confirmationText"),
+      dryRun: args.dryRun === true,
+    };
+    assertSeparateDispatchInput(input);
+    const result = await services.electSeparateDispatch(input, createActorEventStoreContext(scopedActor));
+    return shipmentReceipt(scopedActor.accountId, result, input.dryRun ? "validated" : "separate");
+  };
 
   const getTracking: McpToolHandler = async ({ actor, arguments: args }) => {
     const accountId = readRequiredString(args, "accountId");
@@ -481,6 +506,7 @@ export function createFulfillmentShipmentMcpHandlers(
       "fulfillment.void-label": voidLabel,
       "fulfillment.cancel-shipment": runSellerAction("cancel-shipment"),
       "fulfillment.advance-shipment": runSellerAction("advance"),
+      "fulfillment.elect-separate-dispatch": electSeparateDispatch,
       "fulfillment.dispatch-shipment": runSellerAction("dispatch"),
       "fulfillment.raise-shipment-exception": runSellerAction("raise-exception"),
     },

@@ -378,6 +378,14 @@ const fulfillmentShipmentConflictPagesTableSql = `CREATE UNLOGGED TABLE IF NOT E
 const fulfillmentShipmentConflictPagesShipmentIndexSql = `CREATE INDEX IF NOT EXISTS fulfillment_shipment_conflict_pages_shipment_idx
   ON fulfillment_shipment_conflict_pages (shipment_id, conflict_kind, origin);`;
 
+const fulfillmentPhysicalGroupColumnsSql = `ALTER TABLE fulfillment_shipment_pages
+  ADD COLUMN IF NOT EXISTS physical_group jsonb NULL,
+  ADD COLUMN IF NOT EXISTS physical_group_authority_revision integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS shipment_group_admission jsonb NULL,
+  ADD COLUMN IF NOT EXISTS shipment_group_admission_revision integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS shared_postage_label_id text NULL,
+  ADD COLUMN IF NOT EXISTS physical_group_revision integer NOT NULL DEFAULT 0;`;
+
 export const fulfillmentShipmentSchemaSql = `
 CREATE TABLE IF NOT EXISTS fulfillment_shipment_pages (
   shipment_id text PRIMARY KEY,
@@ -589,11 +597,18 @@ ALTER TABLE fulfillment_postage_provider_events
   ADD COLUMN IF NOT EXISTS subject_kind text NULL,
   ADD COLUMN IF NOT EXISTS subject_id text NULL;
 
+${fulfillmentPhysicalGroupColumnsSql}
+
 CREATE INDEX IF NOT EXISTS fulfillment_postage_provider_events_received_idx
   ON fulfillment_postage_provider_events (received_at DESC);
 `;
 
 export const fulfillmentShipmentSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261005_fulfillment_physical_group",
+    description: "Project exact-two physical membership without making the read model an execution authority.",
+    statements: [fulfillmentPhysicalGroupColumnsSql],
+  },
   {
     migrationId: "20260703_fulfillment_shipment_line_packing_confirmed_quantity",
     description: "Backfill packing-confirmed quantities for existing shipment line read models.",

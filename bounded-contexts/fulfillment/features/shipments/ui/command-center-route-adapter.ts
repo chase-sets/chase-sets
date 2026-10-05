@@ -5,6 +5,7 @@
 // state machine through the same `executeShipmentAction` module wrapped here.
 
 import type { createFulfillmentRequestApiClient } from "../../../support/request-support/api-client";
+import { t } from "@chase-sets/localization";
 import type { PostageLabelStatus, ShipmentStatus } from "../domain/common";
 import {
   assertShipmentActionAllowed,
@@ -45,7 +46,7 @@ function shipmentResult(response: unknown, shipmentId: string) {
 // check first, so an illegal transition is rejected here rather than in the UI.
 export async function runShipmentCommandCenterAction(
   api: FulfillmentRequestApi,
-  action: ShipmentActionName,
+  action: ShipmentActionName | "elect-separate-dispatch",
   formData: FormData,
 ): Promise<ShipmentCommandCenterActionOutcome> {
   const shipmentId = String(formData.get("shipmentId") ?? "");
@@ -54,10 +55,25 @@ export async function runShipmentCommandCenterAction(
   const current = currentStateFrom(formData);
 
   try {
+    if (action === "elect-separate-dispatch") {
+      await api.electSeparateDispatch(
+        shipmentId,
+        {
+          confirmationText: String(formData.get("confirmationText") ?? ""),
+          reason: t("fulfillment.features.shipments.separate.reason"),
+        },
+        mutationAttemptId,
+      );
+      return { ok: true };
+    }
     if (action === "buy-label" || action === "void-label") {
       assertShipmentActionAllowed(action, current);
       if (action === "buy-label") {
-        await api.purchaseUspsLabel(shipmentId, { serviceLevel: "USPS_GROUND_ADVANTAGE" }, mutationAttemptId);
+        await api.purchaseUspsLabel(
+          shipmentId,
+          { serviceLevel: String(formData.get("serviceLevel") || "USPS_GROUND_ADVANTAGE") },
+          mutationAttemptId,
+        );
       } else {
         await api.voidLabel(shipmentId, mutationAttemptId);
       }

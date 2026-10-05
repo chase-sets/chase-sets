@@ -40,7 +40,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
 // The single web transport for the consolidated shipment action module: each intent is a
 // named shipment action dispatched through the shared state machine. On success the queue
 // re-derives from the authoritative command snapshots on reload.
-async function runAction(action: ShipmentActionName, { request, formData }: FormActionContext) {
+async function runAction(
+  action: ShipmentActionName | "elect-separate-dispatch",
+  { request, formData }: FormActionContext,
+) {
   const api = createFulfillmentRequestApiClient(request);
   const outcome = await runShipmentCommandCenterAction(api, action, formData);
   if (outcome.ok) {
@@ -52,6 +55,7 @@ async function runAction(action: ShipmentActionName, { request, formData }: Form
 export const action = defineFormAction({
   authorization: { permission: "fulfillment.manage" },
   intents: {
+    "elect-separate-dispatch": (context) => runAction("elect-separate-dispatch", context),
     "buy-label": (context) => runAction("buy-label", context),
     "void-label": (context) => runAction("void-label", context),
     "cancel-shipment": (context) => runAction("cancel-shipment", context),

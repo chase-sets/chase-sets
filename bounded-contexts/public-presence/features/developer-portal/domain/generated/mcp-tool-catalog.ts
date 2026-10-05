@@ -1764,6 +1764,68 @@ export const mcpToolCatalog = [
     expectedUsage: ["Use only after the shipment state confirms its label is attached."],
   },
   {
+    name: "fulfillment.elect-separate-dispatch",
+    title: "Ship separately at my expense",
+    description:
+      "Irreversibly elect separate packing and seller-funded labels for the two linked orders. Confirm with: Ship separately at my expense.",
+    availability: "available",
+    serviceId: "fulfillment",
+    risk: "destructive",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["accountId", "shipmentId", "reason", "idempotencyKey", "confirmationText"],
+      properties: {
+        accountId: {
+          type: "string",
+          description: "Authenticated account scope.",
+        },
+        shipmentId: {
+          type: "string",
+          description: "Anchor Shipment whose linked orders will ship separately.",
+        },
+        reason: {
+          type: "string",
+          description: "Business reason for the action.",
+        },
+        idempotencyKey: {
+          type: "string",
+          description:
+            "Stable unique string supplied by the agent host (for example, a UUID). Retried calls must reuse the same key so the action is applied at most once instead of repeating it.",
+        },
+        confirmationText: {
+          type: "string",
+          description: "Exact user or policy confirmation text.",
+        },
+        dryRun: {
+          type: "boolean",
+          description: "Validate the action without committing it.",
+        },
+      },
+    },
+    permissionBoundary: {
+      scope: "account",
+      requiredPermissions: ["fulfillment.manage"],
+      requiredScopes: ["fulfillment:write"],
+      accountScoped: true,
+      auditPrincipal: "actor",
+    },
+    guardrails: {
+      confirmation: {
+        required: true,
+        prompt: "Confirm the exact business action before invoking this tool.",
+        matchInputField: "confirmationText",
+      },
+      idempotencyKey: "required",
+      idempotencyAuthority: "owner",
+      dryRunSupported: true,
+      notes: ["Write through the owning bounded context and emit normal domain events."],
+    },
+    expectedUsage: [
+      "Use only for an explicit seller election. Reconcile or void any shared label before repacking; dispatched shipments require Support.",
+    ],
+  },
+  {
     name: "fulfillment.get-tracking",
     title: "Get Tracking",
     description: "Read tracking and delivery status for a purchase or sale shipment.",

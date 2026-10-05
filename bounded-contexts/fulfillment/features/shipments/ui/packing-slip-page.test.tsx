@@ -149,6 +149,21 @@ describe("fulfillment packing slip UI", () => {
     expect(thermal).not.toContain("@page fulfillment-packing-slip-thermal");
   });
 
+  it("one committed job prints both orders on one slip without money", () => {
+    const combined = {
+      ...slip,
+      lines: [
+        { ...slip.lines[0]!, line_id: "spl_anchor", order_id: "ord_anchor", shipment_id: "shp_anchor" },
+        { ...slip.lines[0]!, line_id: "spl_member", order_id: "ord_member", shipment_id: "shp_member" },
+      ],
+    };
+    const html = renderToString(<FulfillmentPackingSlipPrintPage slips={[combined]} format="letter" />);
+    expect(html).toContain("Order ord_anchor");
+    expect(html).toContain("Order ord_member");
+    expect(html).toContain("1 packing slips ready to print");
+    expect(html).not.toContain("$");
+  });
+
   it("adds a seller detail print action for the current shipment", () => {
     const markup = renderToString(
       <FulfillmentShipmentDetailPage role="seller" backHref="/account/sales/shipments" shipment={slip} />,

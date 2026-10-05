@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
 import type { LoadedAggregate } from "@chase-sets/event-core/aggregate-repository";
 import type { EventStore } from "@chase-sets/event-core/event-store";
-import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
+import type { AppendToStreamInput, EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { PostageOperationSubjectKind } from "@chase-sets/postage-labels";
 import { FulfillmentDomainError } from "./common";
 import {
@@ -220,6 +220,13 @@ export async function executeFulfillmentMutationAttempt(
     request: Readonly<Record<string, unknown>>;
     createCommand: () => FulfillmentShipmentCommand;
     successStatus: string;
+    prepare?: (
+      loaded: Awaited<ReturnType<ShipmentLoader>>,
+      command: FulfillmentShipmentCommand,
+    ) => Promise<{
+      events: readonly FulfillmentShipmentEvent[];
+      additionalAppends: readonly AppendToStreamInput[];
+    }>;
   }>,
 ): Promise<FulfillmentMutationAttemptReceipt & Readonly<{ replayed: boolean }>> {
   assertCanonicalFulfillmentMutationId(input.mutationAttemptId);
@@ -265,10 +272,16 @@ export async function executeFulfillmentMutationAttempt(
     if (replay) return { ...replay, replayed: true };
 
     let shipmentEvents: readonly FulfillmentShipmentEvent[] = [];
+    let additionalAppends: readonly AppendToStreamInput[] = [];
     let resultClass: FulfillmentMutationResultClass = "succeeded";
     let reason = "applied";
     try {
-      shipmentEvents = decideFulfillmentShipment(loaded.state, input.createCommand());
+      const command = input.createCommand();
+      if (input.prepare) {
+        const prepared = await input.prepare(loaded, command);
+        shipmentEvents = prepared.events;
+        additionalAppends = prepared.additionalAppends;
+      } else shipmentEvents = decideFulfillmentShipment(loaded.state, command);
       if (shipmentEvents.length === 0) {
         resultClass = "unchanged";
         reason = "already-equivalent";
@@ -300,6 +313,7 @@ export async function executeFulfillmentMutationAttempt(
 
     try {
       await input.eventStore.appendToStreams([
+        ...additionalAppends,
         {
           streamId: shipmentStreamId,
           expectedVersion: loaded.version,

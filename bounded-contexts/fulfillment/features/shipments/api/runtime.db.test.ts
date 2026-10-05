@@ -3,6 +3,8 @@ import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { toTransportEvent } from "@chase-sets/event-core/transport";
+import { buildTransportEvent } from "@chase-sets/event-core/test-support";
+import { buildFulfillmentOrderProjectionHandlers } from "../integrations/source/source-projection";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PostageOperationSubjectKind, PostageProviderWebhookEvent } from "@chase-sets/postage-labels";
@@ -38,6 +40,11 @@ import {
 } from "../read-model/postage-operation-authority";
 import { buildFulfillmentShipmentProjectionHandlers } from "../read-model/projection";
 import { createFulfillmentShipmentRuntime } from "./runtime";
+import { createId } from "@chase-sets/primitives/typed-ids";
+import { parseAdmissionIdentity, parseOrderGroupCombinedPlanAccepted } from "@chase-sets/order-groups";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import { randomUUID } from "node:crypto";
+import type { PostageLabelProvider } from "@chase-sets/postage-labels";
 
 const adminDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!adminDatabaseUrl && process.env.CI)
@@ -88,6 +95,413 @@ describeDb("Shipment mutation authority (issue #7171)", () => {
       request: { serviceLevel: "USPS_GROUND_ADVANTAGE" },
     });
   }
+
+  async function combinedHarness(
+    options: {
+      mismatch?: boolean;
+      loseAppend?: boolean;
+      ambiguous?: boolean;
+      values?: readonly [string, string];
+      uninsuredMember?: boolean;
+    } = {},
+  ) {
+    const store = createPostgresEventStore({ pool });
+    let loseAppend = options.loseAppend;
+    const eventStore: EventStore = {
+      ...store,
+      appendToStreams: async (inputs) => {
+        if (
+          loseAppend &&
+          inputs.some((input) =>
+            input.events.some((event) => event.eventType === "fulfillment.shipment.label-attached"),
+          )
+        ) {
+          loseAppend = false;
+          throw new Error("synthetic lost local append after provider success");
+        }
+        return store.appendToStreams!(inputs);
+      },
+    };
+    const identity = parseAdmissionIdentity({
+      requestId: randomUUID(),
+      sourceGeneration: 0,
+      draftKey: "synthetic-db",
+      anchorShipmentId: createId("shp"),
+      anchorOrderId: createId("ord"),
+      proposedMemberOrderId: createId("ord"),
+      groupId: createId("ogr"),
+      quoteFingerprint: "synthetic-db-quote",
+    });
+    const memberId = createId("shp");
+    const plan = {
+      packagePlanVersion: "synthetic-db/v1",
+      packageCount: 1,
+      missingProductIds: [],
+      packages: [
+        {
+          packageId: "synthetic-package",
+          mailpieceClass: "parcel" as const,
+          serviceLevel: "standard-parcel" as const,
+          lengthInches: 7,
+          widthInches: 5,
+          heightInches: 2,
+          weightOunces: 8,
+          billableWeightOunces: 8,
+          productMeasureVersions: ["synthetic/v1"],
+        },
+      ],
+      letterEligibility: { eligible: false, reasons: [] },
+      postagePolicySnapshot: {
+        policyVersion: "synthetic/v1",
+        parcelRequired: true,
+        parcelReasons: [],
+        signatureRequired: false,
+        signatureReasons: [],
+        insuranceRequired: true,
+        insuranceReasons: [],
+        insuredValueAmount: "300.00",
+        shippingEvidenceTier: "carrier-insured" as const,
+      },
+    };
+    let purchases = 0;
+    const provider: PostageLabelProvider = {
+      providerName: "synthetic-db",
+      providerMode: "test",
+      purchaseUspsLabel: vi.fn(async () => {
+        purchases += 1;
+        if (options.ambiguous) throw new Error("synthetic provider response lost");
+        return {
+          providerName: "synthetic-db",
+          providerMode: "test" as const,
+          providerShipmentId: `synthetic-shipment-${purchases}`,
+          providerLabelId: `synthetic-label-${purchases}`,
+          providerRateId: `synthetic-rate-${purchases}`,
+          carrierName: "USPS",
+          serviceLevel: "GroundAdvantage",
+          labelReference: `synthetic-label-${purchases}`,
+          labelDocumentUrl: "https://synthetic.invalid/label",
+          trackingIdentifier: `synthetic-tracking-${purchases}`,
+          postageAmountCents: 568,
+          postageCurrency: "USD",
+          purchasedAt: "2026-10-05T00:00:00.000Z",
+        };
+      }),
+      recoverPurchasedUspsLabel: vi.fn(async () => null),
+      voidLabel: vi.fn(async () => ({
+        providerName: "synthetic-db",
+        providerMode: "test" as const,
+        refundStatus: "submitted",
+        refundReference: "synthetic-refund",
+        voidedAt: "2026-10-05T00:01:00.000Z",
+      })),
+    };
+    const runtime = createFulfillmentShipmentRuntime({
+      eventStore,
+      db: pool,
+      postageLabelProvider: provider,
+      checkpointStore: { loadCheckpoint: async () => 0n as never, saveCheckpoint: async () => undefined },
+    });
+    const ids = [identity.anchorShipmentId, memberId];
+    const address = {
+      name: "Synthetic buyer",
+      line1: "1 Main",
+      city: "Austin",
+      state: "TX",
+      postalCode: "78701",
+      country: "US",
+    };
+    for (const [index, id] of ids.entries()) {
+      if (index === 1) {
+        await runtime.shipmentGroupAdmissionAuthority.reserve(identity, context);
+        await runtime.shipmentGroupAdmissionAuthority.commit({ ...identity, anchorOrderVersion: 2 }, context);
+      }
+      await runtime.commandHandler({
+        streamId: `fulfillment.shipment-${id}`,
+        context,
+        command: {
+          type: "CreateShipment",
+          shipmentId: id,
+          orderId: index === 0 ? identity.anchorOrderId : identity.proposedMemberOrderId,
+          buyerAccountId: "acc_buyer" as never,
+          sellerAccountId: "acc_seller" as never,
+          shippingOption: "standard",
+          shippingDestinationSnapshot: {
+            ...address,
+            line1: options.mismatch && index === 1 ? "2 Main" : address.line1,
+          },
+          shippingOriginSnapshot: address,
+          shippingPlanSnapshot: {
+            ...plan,
+            postagePolicySnapshot: {
+              ...plan.postagePolicySnapshot,
+              insuranceRequired: !(index === 1 && options.uninsuredMember),
+              insuredValueAmount: index === 1 && options.uninsuredMember ? null : (options.values?.[index] ?? "300.00"),
+            },
+          },
+          itemSubtotalAmount: options.values?.[index] ?? "300.00",
+          combinedPlanAccepted:
+            index === 1
+              ? parseOrderGroupCombinedPlanAccepted({
+                  ...identity,
+                  contractVersion: "order-group-combined-plan/v1",
+                  combinedPackagePlan: plan,
+                })
+              : null,
+          lines: [
+            {
+              lineId: `spl_${index}` as never,
+              orderLineId: `line-${index}`,
+              catalogItemId: "cat_test",
+              productId: "cat_test::",
+              itemTitle: "Synthetic card",
+              itemSubtitle: null,
+              productSummary: null,
+              quantity: 1,
+            },
+          ],
+          createdAt: "2026-10-05T00:00:00.000Z",
+        },
+      });
+    }
+    const events = async () =>
+      (
+        await Promise.all(ids.map((id) => readCompleteStream(store, { streamId: `fulfillment.shipment-${id}` })))
+      ).flat();
+    const projected = new Set<string>();
+    const project = async () => {
+      const handlers = buildFulfillmentShipmentProjectionHandlers(pool);
+      for (const event of await events()) {
+        if (projected.has(event.eventId)) continue;
+        await handlers[event.eventType]?.(toTransportEvent(event));
+        projected.add(event.eventId);
+      }
+    };
+    await project();
+    const params = (shipmentId = ids[0]) => ({
+      shipmentId,
+      sellerAccountId: "acc_seller",
+      mutationAttemptId: randomUUID(),
+    });
+    const pack = async () => {
+      await runtime.startPackingShipment(params(), context);
+      for (const [index, id] of ids.entries())
+        await runtime.confirmPackingLine({ ...params(id), lineId: `spl_${index}` }, context);
+      await runtime.packShipment({ ...params(), packageCount: 1 }, context);
+      await project();
+    };
+    return { runtime, eventStore, identity, memberId, provider, ids, params, pack, project, events };
+  }
+
+  it.each([
+    { values: ["200.00", "400.00"] as const, uninsuredMember: false },
+    { values: ["300.00", "300.00"] as const, uninsuredMember: true },
+  ])("no underinsurance: runtime freezes both values in the sole provider request %#", async (options) => {
+    const f = await combinedHarness(options);
+    await f.pack();
+    await f.runtime.purchaseUspsLabel({ ...f.params(), serviceLevel: "GroundAdvantage" }, context);
+    expect(f.provider.purchaseUspsLabel).toHaveBeenCalledTimes(1);
+    expect(f.provider.purchaseUspsLabel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subjectId: f.ids[0],
+        insuranceAmount: "600.00",
+        serviceLevel: "GroundAdvantage",
+        package: { mailpieceClass: "parcel", lengthInches: 7, widthInches: 5, heightInches: 2, weightOunces: 8 },
+      }),
+    );
+  });
+
+  it("accepted plan handoff binds tenant and follow-on stream, preserves standalone plan, and rejects immutable poison", async () => {
+    const f = await combinedHarness();
+    const created = (await f.events()).find(
+      (event) => event.eventType === "fulfillment.shipment.created" && event.payload.shipmentId === f.memberId,
+    )!;
+    const accepted = parseOrderGroupCombinedPlanAccepted(created.payload.combinedPlanAccepted);
+    const standalone = { ...accepted.combinedPackagePlan, packagePlanVersion: "synthetic-standalone/v1" };
+    const handlers = buildFulfillmentOrderProjectionHandlers(pool);
+    const sourceEvent = (
+      type: string,
+      data: Record<string, unknown>,
+      streamId = `ordering.order-${f.identity.proposedMemberOrderId}`,
+      tenantId = context.tenantId,
+    ) => buildTransportEvent(type, data, { streamId, tenantId });
+    await handlers["ordering.order.created"]!(
+      sourceEvent("ordering.order.created", {
+        ...created.payload,
+        orderId: f.identity.proposedMemberOrderId,
+        shippingPlanSnapshot: standalone,
+      }),
+    );
+    const consume = (data = accepted, streamId?: string, tenantId?: typeof context.tenantId) =>
+      handlers["ordering.order.combined-plan-accepted"]!(
+        sourceEvent("ordering.order.combined-plan-accepted", data, streamId, tenantId),
+      );
+    await consume();
+    await consume();
+    await expect(consume({ ...accepted, quoteFingerprint: "synthetic-poison" })).rejects.toThrow();
+    await expect(consume(accepted, `ordering.order-${f.identity.anchorOrderId}`)).rejects.toThrow();
+    await expect(consume(accepted, undefined, "tnt_other")).rejects.toThrow();
+    const row = (
+      await pool.query(
+        "SELECT shipping_plan_snapshot, combined_plan_accepted FROM fulfillment_order_sources WHERE order_id = $1",
+        [f.identity.proposedMemberOrderId],
+      )
+    ).rows[0];
+    expect(row).toEqual({ shipping_plan_snapshot: standalone, combined_plan_accepted: accepted });
+  });
+
+  it("void retains lineage: real DB recovers lost append, replays exact outcome, voids both, and keeps late refund on original label", async () => {
+    const f = await combinedHarness({ loseAppend: true });
+    await f.pack();
+    const purchase = { ...f.params(), serviceLevel: "GroundAdvantage" };
+    await expect(f.runtime.purchaseUspsLabel(purchase, context)).rejects.toThrow("synthetic lost local append");
+    expect(f.provider.purchaseUspsLabel).toHaveBeenCalledTimes(1);
+    await pool.query(
+      "UPDATE fulfillment_postage_label_operations SET claim_expires_at = now() - interval '1 minute' WHERE subject_id = $1",
+      [f.ids[0]],
+    );
+    const bought = await f.runtime.purchaseUspsLabel(purchase, context);
+    await f.project();
+    expect(
+      (await f.events()).filter((event) => event.eventType === "fulfillment.shipment.label-attached"),
+    ).toHaveLength(1);
+    expect(
+      (await f.events()).filter((event) => event.eventType === "fulfillment.shipment.group-tracking-attached"),
+    ).toHaveLength(1);
+    await expect(
+      f.runtime.purchaseUspsLabel(
+        {
+          ...purchase,
+          sender: {
+            name: "Changed",
+            street1: "2 Main",
+            city: "Austin",
+            state: "TX",
+            postalCode: "78701",
+            country: "US",
+          },
+        },
+        context,
+      ),
+    ).rejects.toThrow(/frozen request/);
+    const voidInput = f.params();
+    const voided = await f.runtime.voidLabel(voidInput, context);
+    await f.project();
+    expect(await f.runtime.purchaseUspsLabel(purchase, context)).toEqual(bought);
+    const pages = await pool.query(
+      "SELECT status FROM fulfillment_shipment_pages WHERE shipment_id = ANY($1::text[])",
+      [f.ids],
+    );
+    expect(pages.rows.map((row) => row.status)).toEqual(["awaiting-label", "awaiting-label"]);
+    await f.runtime.purchaseUspsLabel({ ...f.params(), serviceLevel: "GroundAdvantage" }, context);
+    expect(await f.runtime.voidLabel(voidInput, context)).toEqual(voided);
+    await f.runtime.commandHandler({
+      streamId: `fulfillment.shipment-${f.ids[0]}`,
+      context,
+      command: {
+        type: "RecordShipmentLabelRefundStatus",
+        postageProviderLabelId: "synthetic-label-1",
+        refundStatus: "refunded",
+        resolvedAt: "2026-10-05T00:02:00.000Z",
+      },
+    });
+    await f.project();
+    const refundFacts = (await f.events()).filter(
+      (event) => event.eventType === "fulfillment.shipment.label-refund-status-recorded",
+    );
+    expect(refundFacts).toHaveLength(1);
+    expect(refundFacts[0]?.payload.postageProviderLabelId).toBe("synthetic-label-1");
+    expect(await f.runtime.voidLabel(voidInput, context)).toEqual(voided);
+    expect(f.provider.purchaseUspsLabel).toHaveBeenCalledTimes(2);
+    expect(f.provider.voidLabel).toHaveBeenCalledTimes(1);
+    const handlers = buildFulfillmentShipmentProjectionHandlers(pool);
+    const stale = (await f.events()).filter(
+      (event) =>
+        event.eventType === "fulfillment.shipment.label-voided" ||
+        (event.eventType === "fulfillment.shipment.group-tracking-attached" &&
+          event.payload.postageProviderLabelId === "synthetic-label-1"),
+    );
+    for (const event of stale) await handlers[event.eventType]!(toTransportEvent(event));
+    const afterReplay = await pool.query(
+      "SELECT status, tracking_identifier FROM fulfillment_shipment_pages WHERE shipment_id = ANY($1::text[])",
+      [f.ids],
+    );
+    expect(afterReplay.rows).toEqual([
+      { status: "label-attached", tracking_identifier: "synthetic-tracking-2" },
+      { status: "label-attached", tracking_identifier: "synthetic-tracking-2" },
+    ]);
+  });
+
+  it("no mismatch bypass: DB stale presentation cannot authorize packing; separate election wins atomically and is replayable", async () => {
+    const f = await combinedHarness({ mismatch: true });
+    await pool.query(
+      "UPDATE fulfillment_shipment_pages SET shipping_destination_snapshot = $2::jsonb WHERE shipment_id = $1",
+      [
+        f.memberId,
+        JSON.stringify({
+          name: "Synthetic buyer",
+          line1: "1 Main",
+          city: "Austin",
+          state: "TX",
+          postalCode: "78701",
+          country: "US",
+        }),
+      ],
+    );
+    await expect(f.runtime.startPackingShipment(f.params(), context)).rejects.toThrow();
+    const election = {
+      ...f.params(),
+      reason: "Synthetic explicit election",
+      confirmationText: "Ship separately at my expense.",
+    };
+    const [left, right] = await Promise.all([
+      f.runtime.electSeparateDispatch(election, context),
+      f.runtime.electSeparateDispatch(election, context),
+    ]);
+    expect(left).toEqual(right);
+    expect(
+      (await f.events()).filter((event) => event.eventType === "fulfillment.shipment.separate-packing-required"),
+    ).toHaveLength(2);
+    await bootstrapContextDatabase(fulfillmentModule, pool);
+    expect(await f.runtime.electSeparateDispatch(election, context)).toEqual(left);
+    expect(f.provider.purchaseUspsLabel).not.toHaveBeenCalled();
+  });
+
+  it("void retains lineage: ambiguous provider and null recovery cannot consume another key or escape to separate dispatch", async () => {
+    const f = await combinedHarness({ ambiguous: true });
+    await f.pack();
+    const purchase = { ...f.params(), serviceLevel: "GroundAdvantage" };
+    await expect(f.runtime.purchaseUspsLabel(purchase, context)).rejects.toThrow(/ambiguous/);
+    await expect(
+      f.runtime.purchaseUspsLabel({ ...f.params(), serviceLevel: "GroundAdvantage" }, context),
+    ).rejects.toThrow();
+    await expect(
+      f.runtime.electSeparateDispatch(
+        { ...f.params(), reason: "Synthetic election", confirmationText: "Ship separately at my expense." },
+        context,
+      ),
+    ).rejects.toThrow();
+    const operations = await pool.query<{
+      operation_id: string;
+      tenant_id: string;
+      subject_id: string;
+      subject_kind: "shipment";
+    }>(
+      "SELECT operation_id, tenant_id, subject_id, subject_kind FROM fulfillment_postage_label_operations WHERE subject_id = $1",
+      [f.ids[0]],
+    );
+    const operation = operations.rows[0]!;
+    await f.runtime.reconcilePostageOperationLocator({
+      operationId: operation.operation_id,
+      tenantId: operation.tenant_id,
+      subjectKind: operation.subject_kind,
+      subjectId: operation.subject_id,
+    });
+    await expect(f.runtime.purchaseUspsLabel(purchase, context)).rejects.toThrow();
+    expect(f.provider.purchaseUspsLabel).toHaveBeenCalledTimes(1);
+    expect(
+      (await f.events()).filter((event) => event.eventType === "fulfillment.shipment.label-attached"),
+    ).toHaveLength(0);
+  });
 
   async function atomicHarness(shipmentId: string) {
     const eventStore = createPostgresEventStore({ pool });

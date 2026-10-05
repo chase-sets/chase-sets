@@ -5,6 +5,7 @@ import type { FulfillmentApiEnv } from "../../../api";
 import type { FulfillmentShipmentServices } from "./runtime";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import { assertCanonicalFulfillmentMutationId } from "../domain/mutation-attempt";
+import { assertSeparateDispatchInput } from "../domain/separate-dispatch";
 
 const providerWebhookContext = {
   tenantId: "tnt_identity" as TenantId,
@@ -411,6 +412,47 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
     }
   });
 
+  app.post("/sales/shipments/:id/separate-dispatch", async (c) => {
+    const access = requireShipmentAccess(c, "fulfillment.manage");
+    if (access.response) return access.response;
+    const context = c.get("context");
+    if (!context) return c.json({ error: { code: "authentication_required" } }, 401);
+    try {
+      const body: unknown = await c.req.json();
+      if (
+        !body ||
+        typeof body !== "object" ||
+        Array.isArray(body) ||
+        Object.keys(body).some((key) => !["reason", "confirmationText", "dryRun"].includes(key))
+      )
+        throw new Error("Unexpected separate-dispatch input.");
+      const input = body as Record<string, unknown>;
+      if (
+        typeof input.reason !== "string" ||
+        typeof input.confirmationText !== "string" ||
+        (input.dryRun !== undefined && typeof input.dryRun !== "boolean")
+      )
+        throw new Error(t("fulfillment.features.shipments.separate.confirmationRequired"));
+      const params = {
+        shipmentId: c.req.param("id"),
+        sellerAccountId: access.actor.accountId,
+        mutationAttemptId: readMutationAttemptId(c),
+        reason: input.reason,
+        confirmationText: input.confirmationText,
+        dryRun: input.dryRun === true,
+      };
+      assertSeparateDispatchInput(params);
+      const result = await services.electSeparateDispatch(params, context);
+      return c.json({
+        id: result.shipmentId,
+        version: result.version,
+        status: params.dryRun ? "validated" : "separate",
+      });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
   app.post("/sales/shipments/:id/pack", async (c) => {
     let mutationAttemptId: string;
     try {
@@ -552,11 +594,26 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
     const body = (await c.req.json()) as Record<string, unknown>;
 
     try {
+      const allowed = new Set([
+        "serviceLevel",
+        "overrideReason",
+        "packageLengthInches",
+        "packageWidthInches",
+        "packageHeightInches",
+        "packageWeightOunces",
+        ...["sender", "recipient"].flatMap((prefix) =>
+          ["Name", "Company", "Street1", "Street2", "City", "State", "PostalCode", "Country", "Phone", "Email"].map(
+            (field) => `${prefix}${field}`,
+          ),
+        ),
+      ]);
+      if (!body || Array.isArray(body) || Object.keys(body).some((key) => !allowed.has(key)))
+        throw new Error("Unexpected label purchase input.");
       const result = await services.purchaseUspsLabel(
         {
           shipmentId: c.req.param("id"),
           sellerAccountId: access.actor.accountId,
-          serviceLevel: String(body.serviceLevel ?? "USPS_GROUND_ADVANTAGE"),
+          serviceLevel: typeof body.serviceLevel === "string" ? body.serviceLevel : "USPS_GROUND_ADVANTAGE",
           sender: hasAddressInput(body, "sender") ? readAddress(body, "sender") : null,
           recipient: hasAddressInput(body, "recipient") ? readAddress(body, "recipient") : null,
           overrideReason: typeof body.overrideReason === "string" ? body.overrideReason : null,

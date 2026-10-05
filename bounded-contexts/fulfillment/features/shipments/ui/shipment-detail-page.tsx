@@ -167,7 +167,7 @@ export function FulfillmentShipmentDetailPage({
   const orderReference = deriveDisplayReferenceOrRaw(shipment.order_id as OrderId);
   const packingSlipHref = `/account/sales/shipments/packing-slips?shipmentIds=${encodeURIComponent(shipment.shipment_id)}&format=letter`;
   const packingFlowHref = `/account/sales/shipments/${shipment.shipment_id}/packing`;
-  const letterMailpiece = isLetterMailpiece(shipment);
+  const letterMailpiece = shipment.physical_group?.disposition !== "combined" && isLetterMailpiece(shipment);
   const postagePolicySnapshot = shipment.shipping_plan_snapshot?.postagePolicySnapshot;
   const canResolveOrderCancellation =
     (shipment.status === "packing" || shipment.status === "awaiting-label") &&
@@ -676,54 +676,60 @@ export function FulfillmentShipmentDetailPage({
               <Card elevation="tinted" data-elevation-role="furniture">
                 <Form spacing="none" method="post">
                   <Stack gap={3}>
-                    <NativeSelect
-                      label={t("fulfillment.features.shipments.ui.shipmentDetailPage.usps.service")}
-                      name="serviceLevel"
-                      required
-                      defaultValue={shipment.postage_service_level ?? "USPS_GROUND_ADVANTAGE"}
-                      items={uspsServiceLevels}
-                    />
-                    {senderSnapshot ? (
-                      <AddressFields prefix="sender" address={senderSnapshot} labelPrefix="sender" />
-                    ) : null}
-                    <AddressFields prefix="recipient" address={recipientSnapshot} labelPrefix="recipient" />
-                    <Textarea
-                      label={t("fulfillment.features.shipments.ui.shipmentDetailPage.override.reason")}
-                      name="overrideReason"
-                      rows={3}
-                    />
-                    <NumberField
-                      label={t("fulfillment.features.shipments.ui.shipmentDetailPage.length.in")}
-                      name="packageLengthInches"
-                      min={0.1}
-                      step={0.1}
-                      required
-                      defaultValue={7}
-                    />
-                    <NumberField
-                      label={t("fulfillment.features.shipments.ui.shipmentDetailPage.width.in")}
-                      name="packageWidthInches"
-                      min={0.1}
-                      step={0.1}
-                      required
-                      defaultValue={5}
-                    />
-                    <NumberField
-                      label={t("fulfillment.features.shipments.ui.shipmentDetailPage.height.in")}
-                      name="packageHeightInches"
-                      min={0.1}
-                      step={0.1}
-                      required
-                      defaultValue={1}
-                    />
-                    <NumberField
-                      label={t("fulfillment.features.shipments.ui.shipmentDetailPage.weight.oz")}
-                      name="packageWeightOunces"
-                      min={0.1}
-                      step={0.1}
-                      required
-                      defaultValue={4}
-                    />
+                    {shipment.physical_group?.disposition === "combined" ? (
+                      <HiddenInput name="serviceLevel" value="GroundAdvantage" readOnly />
+                    ) : (
+                      <>
+                        <NativeSelect
+                          label={t("fulfillment.features.shipments.ui.shipmentDetailPage.usps.service")}
+                          name="serviceLevel"
+                          required
+                          defaultValue={shipment.postage_service_level ?? "USPS_GROUND_ADVANTAGE"}
+                          items={uspsServiceLevels}
+                        />
+                        {senderSnapshot ? (
+                          <AddressFields prefix="sender" address={senderSnapshot} labelPrefix="sender" />
+                        ) : null}
+                        <AddressFields prefix="recipient" address={recipientSnapshot} labelPrefix="recipient" />
+                        <Textarea
+                          label={t("fulfillment.features.shipments.ui.shipmentDetailPage.override.reason")}
+                          name="overrideReason"
+                          rows={3}
+                        />
+                        <NumberField
+                          label={t("fulfillment.features.shipments.ui.shipmentDetailPage.length.in")}
+                          name="packageLengthInches"
+                          min={0.1}
+                          step={0.1}
+                          required
+                          defaultValue={7}
+                        />
+                        <NumberField
+                          label={t("fulfillment.features.shipments.ui.shipmentDetailPage.width.in")}
+                          name="packageWidthInches"
+                          min={0.1}
+                          step={0.1}
+                          required
+                          defaultValue={5}
+                        />
+                        <NumberField
+                          label={t("fulfillment.features.shipments.ui.shipmentDetailPage.height.in")}
+                          name="packageHeightInches"
+                          min={0.1}
+                          step={0.1}
+                          required
+                          defaultValue={1}
+                        />
+                        <NumberField
+                          label={t("fulfillment.features.shipments.ui.shipmentDetailPage.weight.oz")}
+                          name="packageWeightOunces"
+                          min={0.1}
+                          step={0.1}
+                          required
+                          defaultValue={4}
+                        />
+                      </>
+                    )}
                     <Button type="submit" name="intent" value="purchase-label">
                       {t("fulfillment.features.shipments.ui.shipmentDetailPage.purchase.usps.label")}
                     </Button>

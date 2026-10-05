@@ -2,8 +2,12 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { PostageOperationSubjectKind } from "@chase-sets/postage-labels";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { PackagePlan } from "@chase-sets/product-measures";
+import type { ShipmentPhysicalGroup } from "../domain/domain";
+import { physicalDestinationsEqual } from "../domain/combined-plan";
 
 export type FulfillmentShipmentLineRow = Readonly<{
+  shipment_id?: string;
+  order_id?: string;
   line_id: string;
   order_line_id: string;
   catalog_catalog_item_id: string;
@@ -110,6 +114,8 @@ export type FulfillmentShipmentConflictRow = Readonly<{
 }>;
 
 export type FulfillmentShipmentListRow = Readonly<{
+  physical_group?: ShipmentPhysicalGroup | null;
+  group_hold?: "destination-mismatch" | "waiting" | "ambiguous" | null;
   shipment_id: string;
   order_id: string;
   buyer_account_id: string;
@@ -445,11 +451,41 @@ export async function listStaleFulfillmentPostageLabelVoidOperations(
   return result.rows;
 }
 
-type BaseShipmentPageRow = FulfillmentShipmentListRow;
+type BaseShipmentPageRow = FulfillmentShipmentListRow &
+  Readonly<{
+    group_peer_destination?: AddressSnapshot | null;
+    group_peer_status?: string | null;
+    group_postage_pending?: boolean;
+    shipment_group_admission?: unknown;
+  }>;
+
+function withGroupHold(row: BaseShipmentPageRow): FulfillmentShipmentListRow {
+  const { group_peer_destination, group_peer_status, group_postage_pending, shipment_group_admission, ...shipment } =
+    row;
+  if (!row.physical_group && shipment_group_admission) return { ...shipment, group_hold: "waiting" };
+  if (row.physical_group?.disposition !== "combined") return shipment;
+  return {
+    ...shipment,
+    group_hold: group_postage_pending
+      ? "ambiguous"
+      : !group_peer_status || group_peer_status === "cancelled"
+        ? "waiting"
+        : !physicalDestinationsEqual(row.shipping_destination_snapshot, group_peer_destination ?? null)
+          ? "destination-mismatch"
+          : null,
+  };
+}
 
 const baseShipmentSelect = `
   SELECT
     page.shipment_id,
+    page.physical_group,
+    page.shipment_group_admission,
+    peer.shipping_destination_snapshot AS group_peer_destination,
+    peer.status AS group_peer_status,
+    EXISTS (SELECT 1 FROM fulfillment_postage_label_operations AS operation
+      WHERE operation.subject_id = page.physical_group #>> '{identity,anchorShipmentId}'
+        AND operation.status IN ('reserved', 'invoking', 'ambiguous', 'provider-succeeded')) AS group_postage_pending,
     page.order_id,
     page.buyer_account_id,
     buyer.display_name AS buyer_display_name,
@@ -498,6 +534,10 @@ const baseShipmentSelect = `
     COALESCE(line_stats.total_quantity, 0) AS total_quantity,
     COALESCE(conflict_stats.conflicts, '[]'::jsonb) AS conflicts
   FROM fulfillment_shipment_pages AS page
+  LEFT JOIN fulfillment_shipment_pages AS peer
+    ON peer.shipment_id = CASE WHEN page.shipment_id = page.physical_group #>> '{identity,anchorShipmentId}'
+      THEN page.physical_group ->> 'memberShipmentId' ELSE page.physical_group #>> '{identity,anchorShipmentId}' END
+    AND peer.seller_account_id = page.seller_account_id AND peer.buyer_account_id = page.buyer_account_id
   LEFT JOIN fulfillment_account_pages AS buyer
     ON buyer.account_id = page.buyer_account_id
   LEFT JOIN fulfillment_account_pages AS seller
@@ -555,7 +595,9 @@ export async function listBuyerShipments(
 
   return {
     items: itemsResult.rows.map((row) => ({
-      ...row,
+      ...withGroupHold(row),
+      physical_group: null,
+      group_hold: null,
       shipping_origin_snapshot: null,
       conflicts: [],
     })),
@@ -698,7 +740,9 @@ export async function getBuyerShipment(
   const detailCollections = await loadShipmentDetailCollections(db, shipmentId);
 
   return {
-    ...row,
+    ...withGroupHold(row),
+    physical_group: null,
+    group_hold: null,
     shipping_origin_snapshot: null,
     conflicts: [],
     ...detailCollections,
@@ -716,12 +760,15 @@ export async function listSellerShipments(
     db.query<{ count: string }>(
       `SELECT COUNT(*) AS count
        FROM fulfillment_shipment_pages
-       WHERE seller_account_id = $1`,
+       WHERE seller_account_id = $1 AND (physical_group IS NULL OR physical_group ->> 'disposition' <> 'combined'
+         OR shipment_id = physical_group #>> '{identity,anchorShipmentId}')`,
       [params.sellerAccountId],
     ),
     db.query<BaseShipmentPageRow>(
       `${baseShipmentSelect}
        WHERE page.seller_account_id = $1
+         AND (page.physical_group IS NULL OR page.physical_group ->> 'disposition' <> 'combined'
+           OR page.shipment_id = page.physical_group #>> '{identity,anchorShipmentId}')
        ORDER BY page.updated_at DESC, page.shipment_id DESC
        LIMIT $2 OFFSET $3`,
       [params.sellerAccountId, limit, offset],
@@ -729,7 +776,7 @@ export async function listSellerShipments(
   ]);
 
   return {
-    items: itemsResult.rows,
+    items: itemsResult.rows.map(withGroupHold),
     total: Number(countResult.rows[0]?.count ?? 0),
   };
 }
@@ -785,8 +832,44 @@ export async function listSellerPackingSlips(
   params: Readonly<{ sellerAccountId: string; shipmentIds: readonly string[] }>,
 ): Promise<FulfillmentShipmentDetailRow[]> {
   const shipments = await Promise.all(
-    params.shipmentIds.map((shipmentId) => getSellerShipment(db, shipmentId, params.sellerAccountId)),
+    params.shipmentIds.map((shipmentId) => getSellerShipmentJob(db, shipmentId, params.sellerAccountId)),
   );
+  return [
+    ...new Map(
+      shipments
+        .filter((shipment): shipment is FulfillmentShipmentDetailRow => shipment !== null)
+        .map((shipment) => [shipment.shipment_id, shipment]),
+    ).values(),
+  ];
+}
 
-  return shipments.filter((shipment): shipment is FulfillmentShipmentDetailRow => shipment !== null);
+export async function getSellerShipmentJob(
+  db: PgQueryable,
+  shipmentId: string,
+  sellerAccountId: string,
+): Promise<FulfillmentShipmentDetailRow | null> {
+  const selected = await getSellerShipment(db, shipmentId, sellerAccountId);
+  if (!selected) return null;
+  if (selected.physical_group?.disposition !== "combined") return selected;
+  const group = selected.physical_group;
+  const peerId =
+    selected.shipment_id === group.identity.anchorShipmentId ? group.memberShipmentId : group.identity.anchorShipmentId;
+  const peer = await getSellerShipment(db, peerId, sellerAccountId);
+  if (
+    !peer ||
+    peer.buyer_account_id !== selected.buyer_account_id ||
+    peer.physical_group?.shipmentGroupId !== group.shipmentGroupId ||
+    peer.physical_group.disposition !== "combined"
+  )
+    return { ...selected, group_hold: "waiting" };
+  const members = selected.shipment_id === group.identity.anchorShipmentId ? [selected, peer] : [peer, selected];
+  return {
+    ...members[0],
+    group_hold: withGroupHold(members[0]).group_hold,
+    line_count: members.reduce((sum, member) => sum + member.line_count, 0),
+    total_quantity: members.reduce((sum, member) => sum + member.total_quantity, 0),
+    lines: members.flatMap((member) =>
+      member.lines.map((line) => ({ ...line, shipment_id: member.shipment_id, order_id: member.order_id })),
+    ),
+  };
 }

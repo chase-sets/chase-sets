@@ -139,6 +139,15 @@ export function createFulfillmentApiClient({
         }),
       );
     },
+    async electSeparateDispatch(shipmentId: string, body: Record<string, unknown>, mutationAttemptId: string) {
+      return parseJsonResponse(
+        await client.account.sales.shipments[":id"]["separate-dispatch"].$post({
+          param: { id: shipmentId },
+          json: body,
+          header: mutationHeaders(mutationAttemptId),
+        }),
+      );
+    },
     async packShipment(shipmentId: string, body: Record<string, unknown>, mutationAttemptId: string) {
       return parseJsonResponse(
         await client.account.sales.shipments[":id"].pack.$post({

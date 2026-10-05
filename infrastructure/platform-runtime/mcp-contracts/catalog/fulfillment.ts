@@ -205,6 +205,22 @@ export const fulfillmentService = {
       {
         ...writeTool(
           "fulfillment",
+          "elect-separate-dispatch",
+          "Ship separately at my expense",
+          "Irreversibly elect separate packing and seller-funded labels for the two linked orders. Confirm with: Ship separately at my expense.",
+          "fulfillment.manage",
+          mutationInput("shipmentId", "Anchor Shipment whose linked orders will ship separately."),
+          "shipment",
+          [
+            "Use only for an explicit seller election. Reconcile or void any shared label before repacking; dispatched shipments require Support.",
+          ],
+          "destructive",
+        ),
+        availability: "available",
+      },
+      {
+        ...writeTool(
+          "fulfillment",
           "cancel-shipment",
           "Cancel Shipment",
           "Cancel a shipment whose order was cancelled after packing started.",

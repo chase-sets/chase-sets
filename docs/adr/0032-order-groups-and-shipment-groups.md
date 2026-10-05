@@ -462,6 +462,19 @@ Decision: a checkout carrying an evidence-window source is formation-ineligible,
 
 As a guard, Ordering refuses any CancelOrder on a current group member (formed or committed, not dissolved; membership read from the aggregate stream) whose reason is outside R. An unlisted producer therefore fails closed instead of cancelling without removal or being cast into R.
 
+### Accepted combined plan handoff
+
+Decision [6464-handoff-decision-r1](https://github.com/chase-sets/chase-sets/issues/6464#issuecomment-5986413081) (FINAL). Ordering owns the accepted combined plan: #7200 builds it from current measures at quote, freezes it in the follow-on's snapshot and binds it into `quoteFingerprint`. Fulfillment never rebuilds it from member parcels or seller input and never re-evaluates policy. It crosses once, as an additive Ordering fact on the follow-on Order stream:
+
+| Fact | Required fields | Publisher | Consumers |
+| --- | --- | --- | --- |
+| `ordering.order.combined-plan-accepted` | `contractVersion: "order-group-combined-plan/v1"`, I, `combinedPackagePlan` | Ordering: `ActivateStagedGroupedOrder`, same append as the ordinary created effects, once; replay returns the recorded fact | Fulfillment order-source projection; follow-on Shipment state; anchor combined gates |
+
+- `combinedPackagePlan` is a closed `PackagePlan`: `packageCount` 1, exactly one `packages` entry, `postagePolicySnapshot` present, `missingProductIds` empty; the codec rejects missing, extra or malformed fields recursively. Transport `streamId` is `ordering.order-<proposedMemberOrderId>`. No money fields beyond the plan's existing `insuredValueAmount`.
+- The follow-on's own `ordering.order.created.shippingPlanSnapshot` remains its standalone member plan, never the combined plan, so the survivor, separate-dispatch and individual rows above keep the member's own plan.
+- Fulfillment records I and the plan on the follow-on's order-source row (same Order with a different I or plan is a poison conflict, not an overwrite) and carries them through the follow-on `CreateShipment` into that Shipment's aggregate state, as `shippingPlanSnapshot` flows today. Combined packing, label purchase and dispatch read the plan at command time from the follow-on member Shipment aggregate and require its I to equal the anchor's committed admission. The anchored request's parcel and service derive from this plan; a differing caller parcel is refused. An absent, unbound, malformed or multi-package plan fails closed: zero buys, no disposition escape, Support conflict.
+- The nine `order-group-admission/v1` facts, `ShipmentGroupAdmissionAuthority` and the shipped admission source are unchanged.
+
 ## Alternatives and consequences
 
 | Alternative | Decision / tradeoff |

@@ -1,5 +1,6 @@
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createHash, randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { CommandHandler } from "@chase-sets/event-core/command-handler";
 import type { EventStore } from "@chase-sets/event-core/event-store";
@@ -14,9 +15,13 @@ import {
   parseCommitResult,
   parseAbortResult,
   type ShipmentGroupAdmissionAuthority,
+  type OrderGroupCombinedPlanAccepted,
 } from "@chase-sets/order-groups";
 import { buildShipmentGroupAdmissionSourceHandlers } from "../integrations/source/shipment-group-admission-source";
 import { ShipmentAdmissionBusyError } from "../domain/common";
+import { assertSeparateDispatchInput } from "../domain/separate-dispatch";
+import { createShipmentGroupExecution } from "./group-execution";
+import { combinedPostagePlan, shipmentGroupPostageKey, shipmentLabelGeneration } from "../domain/combined-plan";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
@@ -54,6 +59,7 @@ import {
 import {
   getBuyerShipment,
   getSellerShipment,
+  getSellerShipmentJob,
   getShipmentForPostageRecovery,
   listStaleFulfillmentPostageLabelOperations,
   listStaleFulfillmentPostageLabelVoidOperations,
@@ -189,6 +195,8 @@ type ReadyOrderSnapshot = Readonly<{
   shipping_destination_snapshot: AddressSnapshot;
   shipping_origin_snapshot: AddressSnapshot;
   shipping_plan_snapshot: PackagePlan | null;
+  combined_plan_accepted: OrderGroupCombinedPlanAccepted | null;
+  item_subtotal_amount: string | null;
   lines: readonly ReadyOrderLineSnapshot[];
 }>;
 
@@ -204,6 +212,17 @@ const FULFILLMENT_SYSTEM_CONTEXT: EventStoreContext = {
 };
 
 export type FulfillmentShipmentServices = Readonly<{
+  electSeparateDispatch: (
+    params: Readonly<{
+      shipmentId: string;
+      sellerAccountId: string;
+      mutationAttemptId: string;
+      confirmationText: string;
+      reason: string;
+      dryRun?: boolean;
+    }>,
+    context: EventStoreContext,
+  ) => Promise<{ shipmentId: string; version: number }>;
   commandHandler: CommandHandler<FulfillmentShipmentCommand, FulfillmentShipmentState, FulfillmentShipmentEvent>;
   packShipment: (
     params: Readonly<{
@@ -393,6 +412,8 @@ async function loadReadyOrderSnapshot(db: PgQueryable, orderId: string): Promise
     shipping_destination_snapshot: AddressSnapshot;
     shipping_origin_snapshot: AddressSnapshot;
     shipping_plan_snapshot: PackagePlan | null;
+    combined_plan_accepted: OrderGroupCombinedPlanAccepted | null;
+    item_subtotal_amount: string | null;
     status: string;
   }>(
     `SELECT
@@ -403,6 +424,8 @@ async function loadReadyOrderSnapshot(db: PgQueryable, orderId: string): Promise
        shipping_destination_snapshot,
        shipping_origin_snapshot,
        shipping_plan_snapshot,
+       combined_plan_accepted,
+       item_subtotal_amount,
        status
      FROM fulfillment_order_sources
      WHERE order_id = $1`,
@@ -437,6 +460,8 @@ async function loadReadyOrderSnapshot(db: PgQueryable, orderId: string): Promise
     shipping_destination_snapshot: order.shipping_destination_snapshot,
     shipping_origin_snapshot: order.shipping_origin_snapshot,
     shipping_plan_snapshot: normalizePackagePlanSnapshot(order.shipping_plan_snapshot),
+    combined_plan_accepted: order.combined_plan_accepted ?? null,
+    item_subtotal_amount: order.item_subtotal_amount ?? null,
     lines: linesResult.rows,
   };
 }
@@ -1140,13 +1165,44 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
   const postageLabelProvider = deps.postageLabelProvider ?? createUnconfiguredPostageLabelProvider();
   const postageWebhookGateway = deps.postageWebhookGateway ?? createNoopPostageProviderWebhookGateway();
   const notificationOutbox = deps.notificationOutbox ?? createNoopNotificationOutbox();
-  const { commandHandler, repository } = createAggregateCommandHandler({
+  const { commandHandler: individualCommandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<FulfillmentShipmentEvent>(),
     initialState: () => initialFulfillmentShipmentState,
     evolve: evolveFulfillmentShipment,
     decide: decideFulfillmentShipment,
   });
+  const groupExecution = createShipmentGroupExecution({ eventStore: deps.eventStore, loadShipment: repository.load });
+  const commandHandler: FulfillmentShipmentServices["commandHandler"] = async (input) => {
+    const loaded = await repository.load(input.streamId);
+    assertCompleteHistoryTenant(loaded.storedEvents, String(input.context.tenantId), {
+      allowEmpty: input.command.type === "CreateShipment",
+    });
+    const prepared = await groupExecution.prepare(loaded, input.command, input.context);
+    if (prepared.additionalAppends.length === 0) return individualCommandHandler(input);
+    if (!deps.eventStore.appendToStreams)
+      throw new Error("Shipment Group execution requires atomic multi-stream append.");
+    const result = await deps.eventStore.appendToStreams([
+      ...prepared.additionalAppends,
+      {
+        streamId: input.streamId,
+        expectedVersion: input.expectedVersion ?? loaded.version,
+        context: input.context,
+        events: prepared.events.map((event) => ({ eventType: event.type, payload: event.data })),
+      },
+    ]);
+    const storedEvents = result.find((entry) => entry.streamId === input.streamId)!.storedEvents;
+    recordCommittedEvents(
+      result.flatMap((entry) => entry.storedEvents),
+      "fulfillment",
+    );
+    return {
+      state: [...prepared.events].reduce<FulfillmentShipmentState>(evolveFulfillmentShipment, loaded.state),
+      version: loaded.version + prepared.events.length,
+      newEvents: prepared.events,
+      storedEvents,
+    };
+  };
 
   async function loadAdmissionShipment(shipmentId: string, context: EventStoreContext) {
     const streamId = `fulfillment.shipment-${shipmentId}`;
@@ -1193,14 +1249,32 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       if (!decision.event) return decision.result;
       invocation?.throwIfLeaseLost?.();
       try {
-        const stored = await repository.append({
-          streamId: `fulfillment.shipment-${command.input.anchorShipmentId}`,
-          expectedVersion: loaded.version,
-          context,
-          events: [decision.event],
-          metadata: { causationId },
-          wakeSourceContextName: "fulfillment",
-        });
+        const membership =
+          command.kind === "commit" && decision.event.type === "fulfillment.shipment-group.admission-committed"
+            ? await groupExecution.locateMember(command.input, context)
+            : null;
+        if (membership && !deps.eventStore.appendToStreams)
+          throw new Error("Shipment admission membership requires atomic multi-stream append.");
+        const stored = membership
+          ? (
+              await deps.eventStore.appendToStreams!([
+                membership,
+                {
+                  streamId: `fulfillment.shipment-${command.input.anchorShipmentId}`,
+                  expectedVersion: loaded.version,
+                  context,
+                  events: [{ eventType: decision.event.type, payload: decision.event.data, metadata: { causationId } }],
+                },
+              ])
+            ).flatMap((entry) => entry.storedEvents)
+          : await repository.append({
+              streamId: `fulfillment.shipment-${command.input.anchorShipmentId}`,
+              expectedVersion: loaded.version,
+              context,
+              events: [decision.event],
+              metadata: { causationId },
+              wakeSourceContextName: "fulfillment",
+            });
         recordCommittedEvents(stored, "fulfillment");
         invocation?.throwIfLeaseLost?.();
         return decision.result;
@@ -1227,6 +1301,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         const loaded = await loadAdmissionShipment(shipmentId, context);
         if (
           loaded.state.status === "cancelled" ||
+          loaded.state.packingStartedAt !== null ||
           loaded.state.admission?.type !== "fulfillment.shipment-group.admission-released" ||
           !sameAdmissionIdentity(loaded.state.admission.data, identity)
         )
@@ -1289,6 +1364,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       request: params.request ?? {},
       createCommand: params.command,
       successStatus: params.successStatus,
+      prepare: (loaded, command) => groupExecution.prepare(loaded, command, context),
     });
     if (receipt.resultClass === "failed-safe") {
       throw new FulfillmentDomainError(`Shipment mutation was refused safely (${receipt.reason}).`);
@@ -1443,6 +1519,87 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
     return postageProviderLabelId;
   }
 
+  type GroupPostageCommand = "purchase-usps-label" | "void-label";
+  async function groupedPostageVersion(operation: PostageOperationAuthority) {
+    const events = (await repository.load(`fulfillment.shipment-${operation.subject_id}`)).storedEvents;
+    assertCompleteHistoryTenant(events, operation.tenant_id);
+    const intent = events.findIndex(
+      (event) =>
+        event.eventType === "fulfillment.shipment.group-postage-intent-recorded" &&
+        event.payload.operationKey === operation.operation_key &&
+        event.payload.requestHash === operation.request_hash,
+    );
+    if (intent < 0) throw new ShipmentHistoryPoisonedError("Grouped postage receipt has no matching invocation.");
+    const effect = events.findIndex(
+      (event, index) =>
+        index > intent &&
+        (operation.operation_kind === "purchase-usps-label"
+          ? event.eventType === "fulfillment.shipment.label-attached" &&
+            event.payload.postageProviderLabelId === operation.provider_label_id
+          : event.eventType === "fulfillment.shipment.label-voided"),
+    );
+    if (effect < 0) throw new ShipmentHistoryPoisonedError("Grouped postage receipt has no matching effect.");
+    const terminal = events[effect + 1];
+    const providerResult = operation.provider_result_json as { refundStatus?: string } | null;
+    return operation.operation_kind === "void-label" &&
+      providerResult?.refundStatus !== "submitted" &&
+      terminal?.eventType === "fulfillment.shipment.label-refund-status-recorded" &&
+      terminal.payload.postageProviderLabelId === operation.provider_label_id
+      ? terminal.streamVersion
+      : events[effect]!.streamVersion;
+  }
+  async function replayGroupedPostage(
+    params: { shipmentId: string; sellerAccountId: string; mutationAttemptId?: string },
+    context: EventStoreContext,
+    commandKind: GroupPostageCommand,
+    callerRequest: Readonly<Record<string, unknown>>,
+  ) {
+    if (!params.mutationAttemptId) return null;
+    const tenantId = String(context.tenantId);
+    const operation = await findPostageOperationByDigest(deps.db, {
+      tenantId,
+      sellerAccountId: params.sellerAccountId,
+      subjectKind: "shipment",
+      subjectId: params.shipmentId,
+      keyDigest: fulfillmentMutationKeyDigest({
+        tenantId,
+        sellerAccountId: params.sellerAccountId,
+        subjectKind: "shipment",
+        key: params.mutationAttemptId,
+      }),
+    });
+    if (!operation || !operation.operation_key.startsWith("shipment-group-postage:v1:")) return null;
+    const request = postageOperationRequestRecord(operation);
+    if (
+      operation.operation_kind !== commandKind ||
+      !isDeepStrictEqual(request.callerRequest, callerRequest) ||
+      operation.request_hash !==
+        fulfillmentMutationRequestHash({
+          commandKind,
+          tenantId,
+          sellerAccountId: params.sellerAccountId,
+          shipmentId: params.shipmentId,
+          target: operation.target_key,
+          request,
+        })
+    )
+      throw new FulfillmentDomainError("Grouped postage retry differs from its frozen request.");
+    if (operation.status === "provider-succeeded") {
+      const claim = await claimPostageOperationForFinalization(deps.db, operation);
+      if (!claim || !(await finalizeAuthoritativePostageOperation(operation, claim)))
+        throw new FulfillmentDomainError("Grouped postage is pending durable reconciliation.");
+    } else if (operation.status !== "effect-applied" && operation.closed_reason !== "provider-refund-rejected") {
+      throw new FulfillmentDomainError(
+        "Grouped postage is pending durable reconciliation; no new invocation is authorized.",
+      );
+    }
+    return {
+      shipmentId: params.shipmentId,
+      version: await groupedPostageVersion(operation),
+      trackingIdentifier: operation.tracking_identifier,
+    };
+  }
+
   async function finalizeAuthoritativePostageOperation(
     operation: PostageOperationAuthority,
     claim: NonNullable<Awaited<ReturnType<typeof claimPostageOperationForFinalization>>>,
@@ -1471,10 +1628,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       ) {
         throw new ShipmentHistoryPoisonedError("postage-provider-result-invalid");
       }
-      if (
-        loaded.state.postageProviderLabelId !== label.providerLabelId &&
-        loaded.state.trackingIdentifier !== label.trackingIdentifier
-      ) {
+      if (!loaded.state.postageProviderLabelIds.includes(label.providerLabelId)) {
         const request = postageOperationRequestRecord(operation);
         const addressOverride = request.addressOverride;
         const addressOverrideAudit =
@@ -1523,7 +1677,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       if (!refundStatus && result.refundStatus !== "submitted") {
         throw new ShipmentHistoryPoisonedError("postage-provider-result-invalid");
       }
-      if (loaded.state.labelStatus !== "voided" && loaded.state.labelStatus !== "void-rejected") {
+      if (!loaded.state.labelRefundStatusesByPostageProviderLabelId[postageProviderLabelIdForOperation(operation)]) {
         await commandHandler({
           streamId: `fulfillment.shipment-${operation.subject_id}`,
           command: {
@@ -1556,6 +1710,23 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
   }
 
   async function invokeReservedPostageOperation(operation: PostageOperationAuthority) {
+    if (operation.operation_key.startsWith("shipment-group-postage:v1:")) {
+      if (operation.operation_kind !== "purchase-usps-label" && operation.operation_kind !== "void-label")
+        throw new ShipmentHistoryPoisonedError("Unexpected grouped postage operation kind.");
+      const request = postageOperationRequestRecord(operation);
+      await commandHandler({
+        streamId: `fulfillment.shipment-${operation.subject_id}`,
+        context: systemContextForOperation(operation),
+        command: {
+          type: "RecordShipmentGroupPostageIntent",
+          operationKey: operation.operation_key,
+          requestHash: operation.request_hash,
+          operationKind: operation.operation_kind,
+        },
+      });
+      if (operation.operation_kind === "purchase-usps-label" && !request.package)
+        throw new ShipmentHistoryPoisonedError("Grouped postage has no frozen parcel.");
+    }
     const claim = await claimReservedPostageOperation(deps.db, operation);
     if (!claim) return null;
     const invoking = await transitionPostageOperation(deps.db, {
@@ -1834,6 +2005,8 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           shippingDestinationSnapshot: order.shipping_destination_snapshot,
           shippingOriginSnapshot: order.shipping_origin_snapshot,
           shippingPlanSnapshot: order.shipping_plan_snapshot,
+          combinedPlanAccepted: order.combined_plan_accepted,
+          itemSubtotalAmount: order.item_subtotal_amount,
           lines: order.lines.map((line) => ({
             lineId: createId("spl"),
             orderLineId: line.order_line_id,
@@ -1933,6 +2106,31 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         context,
       });
       return { shipmentId: params.shipmentId, version: result.version };
+    },
+    electSeparateDispatch: async (params, context) => {
+      assertSeparateDispatchInput(params);
+      if (params.dryRun) {
+        const loaded = await repository.load(`fulfillment.shipment-${params.shipmentId}`);
+        assertCompleteHistoryTenant(loaded.storedEvents, String(context.tenantId));
+        if (loaded.state.sellerAccountId !== params.sellerAccountId)
+          throw new FulfillmentDomainError("Shipment not found.");
+        await groupExecution.prepare(
+          loaded,
+          { type: "ElectSeparateShipmentDispatch", electedAt: new Date().toISOString() },
+          context,
+        );
+        return { shipmentId: params.shipmentId, version: loaded.version };
+      }
+      return executeAttempt(
+        {
+          ...params,
+          commandKind: "elect-separate-dispatch",
+          request: { reason: params.reason, confirmationText: params.confirmationText },
+          command: () => ({ type: "ElectSeparateShipmentDispatch", electedAt: new Date().toISOString() }),
+          successStatus: "separate",
+        },
+        context,
+      );
     },
     packShipment: async (params, context) => {
       if (params.mutationAttemptId) {
@@ -2135,12 +2333,65 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       return { shipmentId: params.shipmentId, version: result.version };
     },
     purchaseUspsLabel: async (params, context) => {
-      const shipment = await requireSellerShipment(
+      const authority = await repository.load(`fulfillment.shipment-${params.shipmentId}`);
+      assertCompleteHistoryTenant(authority.storedEvents, String(context.tenantId));
+      if (authority.state.sellerAccountId !== params.sellerAccountId)
+        throw new FulfillmentDomainError("Shipment not found.");
+      const callerRequest = {
+        serviceLevel: params.serviceLevel,
+        package: params.package ?? null,
+        sender: params.sender ?? null,
+        recipient: params.recipient ?? null,
+        overrideReason: params.overrideReason?.trim() ?? "",
+      };
+      if (authority.state.physicalGroup) {
+        const replay = await replayGroupedPostage(params, context, "purchase-usps-label", callerRequest);
+        if (replay) {
+          if (!replay.trackingIdentifier)
+            throw new ShipmentHistoryPoisonedError("Grouped purchase receipt has no tracking identity.");
+          return { ...replay, trackingIdentifier: replay.trackingIdentifier };
+        }
+      }
+      const physicalGroup = await groupExecution.groupFor(authority, context);
+      if (physicalGroup && !params.mutationAttemptId)
+        throw new FulfillmentDomainError("Grouped postage requires an Idempotency-Key.");
+      const combined = physicalGroup?.group.disposition === "combined" ? physicalGroup : null;
+      if (combined && params.shipmentId !== combined.identity.anchorShipmentId)
+        throw new FulfillmentDomainError("Only the anchor Shipment can buy the shared label.");
+      if (combined && params.recipient)
+        throw new FulfillmentDomainError("Combined dispatch does not allow a recipient override.");
+      const combinedPlan = combined
+        ? combinedPostagePlan(
+            combined.anchor.state,
+            combined.member.state,
+            combined.identity,
+            params.package,
+            params.serviceLevel,
+          )
+        : null;
+      const groupOperationKey = physicalGroup
+        ? shipmentGroupPostageKey({
+            tenantId: String(context.tenantId),
+            group: physicalGroup.group,
+            subjectId: params.shipmentId,
+            operationKind: "purchase-usps-label",
+            labelGeneration: shipmentLabelGeneration(authority.storedEvents),
+          })
+        : null;
+      const projectedShipment = await requireSellerShipment(
         params.shipmentId,
         params.sellerAccountId,
         params.mutationAttemptId ? context : undefined,
       );
-      if (shipment.status !== "awaiting-label" || shipment.package_status !== "packed") {
+      const shipment = combined
+        ? {
+            ...projectedShipment,
+            shipping_origin_snapshot: authority.state.shippingOriginSnapshot,
+            shipping_destination_snapshot: authority.state.shippingDestinationSnapshot!,
+            shipping_plan_snapshot: authority.state.shippingPlanSnapshot,
+          }
+        : projectedShipment;
+      if (!combined && (shipment.status !== "awaiting-label" || shipment.package_status !== "packed")) {
         throw new FulfillmentDomainError(
           "Shipment must be packed and awaiting a label before postage can be purchased.",
         );
@@ -2181,14 +2432,19 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
             changedSide,
             reason: overrideReason,
             actor: context.audit.performedByUserId,
-            timestamp: purchasedAt,
+            timestamp: combined ? combined.anchor.state.packingStartedAt! : purchasedAt,
           }
         : null;
       const sender = postageAddressFromSnapshot(submittedSender);
       const recipient = postageAddressFromSnapshot(submittedRecipient);
-      const labelPackage = params.package ?? postagePackageFromShippingPlan(shipment.shipping_plan_snapshot);
-      const deliveryConfirmation = postageDeliveryConfirmationFromShippingPlan(shipment.shipping_plan_snapshot);
-      const insuranceAmount = postageInsuranceAmountFromShippingPlan(shipment.shipping_plan_snapshot);
+      const labelPackage =
+        combinedPlan?.parcel ?? params.package ?? postagePackageFromShippingPlan(shipment.shipping_plan_snapshot);
+      const deliveryConfirmation = combinedPlan
+        ? combinedPlan.deliveryConfirmation
+        : postageDeliveryConfirmationFromShippingPlan(shipment.shipping_plan_snapshot);
+      const insuranceAmount = combinedPlan
+        ? combinedPlan.insuranceAmount
+        : postageInsuranceAmountFromShippingPlan(shipment.shipping_plan_snapshot);
       const labelSize = postageLabelSizeFromPackage(labelPackage);
       try {
         assertPostagePolicyCompliance(shipment.shipping_plan_snapshot, labelPackage, params.serviceLevel);
@@ -2207,29 +2463,32 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         });
         throw new FulfillmentDomainError(error instanceof Error ? error.message : "Label purchase failed.");
       }
-      const authoritativeRequest = postageLabelOperationRequest({
-        subjectKind: "shipment",
-        subjectId: params.shipmentId,
-        serviceLevel: params.serviceLevel,
-        deliveryConfirmation,
-        insuranceAmount,
-        labelSize,
-        sender,
-        recipient,
-        labelPackage,
-        addressOverrideAudit,
-        shippingPlanSnapshot: shipment.shipping_plan_snapshot,
-      });
+      const authoritativeRequest = {
+        ...postageLabelOperationRequest({
+          subjectKind: "shipment",
+          subjectId: params.shipmentId,
+          serviceLevel: params.serviceLevel,
+          deliveryConfirmation,
+          insuranceAmount,
+          labelSize,
+          sender,
+          recipient,
+          labelPackage,
+          addressOverrideAudit,
+          shippingPlanSnapshot: combinedPlan?.plan ?? shipment.shipping_plan_snapshot,
+        }),
+        ...(physicalGroup ? { callerRequest } : {}),
+      };
 
-      if (params.mutationAttemptId) {
+      if (params.mutationAttemptId || groupOperationKey) {
         const tenantId = String(context.tenantId);
         const keyDigest = fulfillmentMutationKeyDigest({
           tenantId,
           sellerAccountId: params.sellerAccountId,
           subjectKind: "shipment",
-          key: params.mutationAttemptId,
+          key: params.mutationAttemptId!,
         });
-        const targetKey = `purchase:${params.shipmentId}:${shipment.label_voided_at ?? "initial"}`;
+        const targetKey = groupOperationKey ?? `purchase:${params.shipmentId}:${shipment.label_voided_at ?? "initial"}`;
         const requestHash = fulfillmentMutationRequestHash({
           commandKind: "purchase-usps-label",
           tenantId,
@@ -2251,6 +2510,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           providerMode: postageLabelProvider.providerMode,
           request: authoritativeRequest,
           now: purchasedAt,
+          ...(groupOperationKey ? { operationKey: groupOperationKey } : {}),
         });
         let operation = reservation.operation;
         if (reservation.targetConflict) {
@@ -2321,6 +2581,12 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           );
         }
 
+        if (physicalGroup)
+          await commandHandler({
+            streamId: `fulfillment.shipment-${params.shipmentId}`,
+            context,
+            command: { type: "RecordShipmentGroupPostageIntent", operationKey: groupOperationKey!, requestHash },
+          });
         const claim = await claimReservedPostageOperation(deps.db, operation);
         if (!claim) throw new FulfillmentDomainError("Postage label purchase is already claimed.");
         const invoking = await transitionPostageOperation(deps.db, {
@@ -2353,6 +2619,13 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
             providerInvoked: true,
             closedReason: "invocation-outcome-unknown",
           });
+          console.warn(
+            JSON.stringify({
+              event: "fulfillment.postage.ambiguous",
+              shipmentId: params.shipmentId,
+              operationKey: operation.operation_key,
+            }),
+          );
           throw new FulfillmentDomainError("Postage label purchase outcome is ambiguous; reconciliation is required.");
         }
         const providerSucceeded = await transitionPostageOperation(deps.db, {
@@ -2408,7 +2681,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         if (!completed) throw new FulfillmentDomainError("Postage label finalization requires reconciliation.");
         return {
           shipmentId: params.shipmentId,
-          version: await getShipmentVersion(params.shipmentId),
+          version: physicalGroup ? await groupedPostageVersion(completed) : await getShipmentVersion(params.shipmentId),
           trackingIdentifier: purchasedLabel.trackingIdentifier,
         };
       }
@@ -2646,12 +2919,44 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       return result;
     },
     voidLabel: async (params, context) => {
-      const shipment = await requireSellerShipment(
+      const loaded = await repository.load(`fulfillment.shipment-${params.shipmentId}`);
+      assertCompleteHistoryTenant(loaded.storedEvents, String(context.tenantId));
+      if (loaded.state.sellerAccountId !== params.sellerAccountId)
+        throw new FulfillmentDomainError("Shipment not found.");
+      if (loaded.state.physicalGroup) {
+        const replay = await replayGroupedPostage(params, context, "void-label", {});
+        if (replay) return { shipmentId: replay.shipmentId, version: replay.version };
+      }
+      const physicalGroup = await groupExecution.groupFor(loaded, context, true);
+      if (physicalGroup && !params.mutationAttemptId)
+        throw new FulfillmentDomainError("Grouped postage requires an Idempotency-Key.");
+      if (
+        physicalGroup?.group.disposition === "combined" &&
+        params.shipmentId !== physicalGroup.identity.anchorShipmentId
+      )
+        throw new FulfillmentDomainError("Only the anchor Shipment can void the shared label.");
+      const projectedShipment = await requireSellerShipment(
         params.shipmentId,
         params.sellerAccountId,
         params.mutationAttemptId ? context : undefined,
       );
-      const loaded = await repository.load(`fulfillment.shipment-${params.shipmentId}`);
+      const shipment = physicalGroup
+        ? {
+            ...projectedShipment,
+            postage_provider_shipment_id: loaded.state.postageProviderShipmentId,
+            postage_provider_label_id: loaded.state.postageProviderLabelId,
+            tracking_identifier: loaded.state.trackingIdentifier,
+          }
+        : projectedShipment;
+      const groupOperationKey = physicalGroup
+        ? shipmentGroupPostageKey({
+            tenantId: String(context.tenantId),
+            group: physicalGroup.group,
+            subjectId: params.shipmentId,
+            operationKind: "void-label",
+            labelGeneration: shipmentLabelGeneration(loaded.storedEvents),
+          })
+        : null;
       if (
         !shipment.postage_provider_shipment_id ||
         !shipment.postage_provider_label_id ||
@@ -2676,11 +2981,12 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           subjectKind: "shipment",
           key: params.mutationAttemptId,
         });
-        const targetKey = `void:${params.shipmentId}:${shipment.postage_provider_label_id}`;
+        const targetKey = groupOperationKey ?? `void:${params.shipmentId}:${shipment.postage_provider_label_id}`;
         const request = {
           providerShipmentId: shipment.postage_provider_shipment_id,
           providerLabelId: shipment.postage_provider_label_id,
           trackingIdentifier: shipment.tracking_identifier,
+          ...(physicalGroup ? { callerRequest: {} } : {}),
         };
         const requestHash = fulfillmentMutationRequestHash({
           commandKind: "void-label",
@@ -2703,6 +3009,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           providerMode: postageLabelProvider.providerMode,
           request,
           now: voidRequestedAt,
+          ...(groupOperationKey ? { operationKey: groupOperationKey } : {}),
         });
         if (reservation.targetConflict) {
           throw new FulfillmentDomainError("Another immutable postage operation already owns this label target.");
@@ -2735,6 +3042,20 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
               ? "Postage label void outcome is ambiguous; reconciliation is required."
               : "Postage label void is pending durable reconciliation.",
           );
+        }
+        let voidExpectedVersion = loaded.version;
+        if (groupOperationKey) {
+          const intent = await commandHandler({
+            streamId: `fulfillment.shipment-${params.shipmentId}`,
+            context,
+            command: {
+              type: "RecordShipmentGroupPostageIntent",
+              operationKind: "void-label",
+              operationKey: groupOperationKey,
+              requestHash,
+            },
+          });
+          voidExpectedVersion = intent.version;
         }
         const claim = await claimReservedPostageOperation(deps.db, operation);
         if (!claim) throw new FulfillmentDomainError("Postage label void is already claimed.");
@@ -2785,7 +3106,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
             voidedAt: voidedLabel.voidedAt,
           },
           context,
-          expectedVersion: loaded.version,
+          expectedVersion: voidExpectedVersion,
         });
         if (
           !(await transitionPostageOperation(deps.db, {
@@ -2875,7 +3196,15 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         params.sellerAccountId,
         params.mutationAttemptId ? context : undefined,
       );
-      if (await hasActivePaymentFraudReviewHold(deps.db, shipment.order_id)) {
+      const loaded = await repository.load(`fulfillment.shipment-${params.shipmentId}`);
+      const group = await groupExecution.groupFor(loaded, context);
+      const orderIds =
+        group?.group.disposition === "combined"
+          ? [group.identity.anchorOrderId, group.identity.proposedMemberOrderId]
+          : [shipment.order_id];
+      if (
+        (await Promise.all(orderIds.map((orderId) => hasActivePaymentFraudReviewHold(deps.db, orderId)))).some(Boolean)
+      ) {
         throw new FulfillmentDomainError("Shipment dispatch is blocked while Stripe reviews the payment.");
       }
 
@@ -3069,7 +3398,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
     listBuyerShipments: (params) => listBuyerShipments(deps.db, params),
     getBuyerShipment: (shipmentId, buyerAccountId) => getBuyerShipment(deps.db, shipmentId, buyerAccountId),
     listSellerShipments: (params) => listSellerShipments(deps.db, params),
-    getSellerShipment: (shipmentId, sellerAccountId) => getSellerShipment(deps.db, shipmentId, sellerAccountId),
+    getSellerShipment: (shipmentId, sellerAccountId) => getSellerShipmentJob(deps.db, shipmentId, sellerAccountId),
     listSellerPackingSlips: (params) => listSellerPackingSlips(deps.db, params),
     projectors: [
       createProjectionHandlerSet({

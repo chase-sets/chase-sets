@@ -29,6 +29,30 @@ function shipment(
 }
 
 describe("fulfillment command center", () => {
+  it("one committed job has one anchor queue entry; mismatch and ambiguity use the conflict bucket", () => {
+    const group = {
+      shipmentGroupId: "shg_synthetic",
+      memberShipmentId: "member",
+      committedVersion: 3,
+      dispositionVersion: 4,
+      disposition: "combined" as const,
+      identity: { anchorShipmentId: "anchor" } as never,
+    };
+    const rows = [
+      shipment({ shipment_id: "anchor", status: "awaiting-package", physical_group: group }),
+      shipment({ shipment_id: "member", status: "awaiting-package", physical_group: group }),
+    ];
+    expect(buildFulfillmentCommandCenter(rows).queue.map((item) => item.shipmentId)).toEqual(["anchor"]);
+    for (const group_hold of ["destination-mismatch", "ambiguous", "waiting"] as const) {
+      const held = buildFulfillmentCommandCenter([{ ...rows[0]!, group_hold }, rows[1]!]);
+      expect(held.queue[0]).toMatchObject({ bucket: "exceptions", plan: { primary: null } });
+    }
+    expect(
+      buildFulfillmentCommandCenter(
+        rows.map((row) => ({ ...row, physical_group: { ...group, disposition: "separate" } })),
+      ).queue,
+    ).toHaveLength(2);
+  });
   it("buckets actionable shipments by work state and excludes terminal / in-transit ones", () => {
     const center = buildFulfillmentCommandCenter([
       shipment({ shipment_id: "1", status: "awaiting-package" }),

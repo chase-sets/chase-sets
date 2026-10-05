@@ -77,9 +77,10 @@ export type {
   OrderingOrderGroupMemberRemovedPayload,
   OrderingOrderGroupDissolvedPayload,
 } from "../../order-groups/index";
-import type { OrderGroupEventPayloads } from "../../order-groups/index";
+import type { OrderGroupEventPayloads, OrderGroupCombinedPlanAccepted } from "../../order-groups/index";
 
 export type OrderingEventPayloads = Readonly<{
+  "ordering.order.combined-plan-accepted": OrderGroupCombinedPlanAccepted;
   "ordering.order.created": OrderingOrderCreatedPayload;
   "ordering.order.cancelled": OrderingOrderCancelledPayload;
   "ordering.order-group.admission-requested": OrderGroupEventPayloads["ordering.order-group.admission-requested"];

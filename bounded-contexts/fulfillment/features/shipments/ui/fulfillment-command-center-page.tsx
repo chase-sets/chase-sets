@@ -86,6 +86,9 @@ function HiddenState({ item }: { item: FulfillmentCommandCenterItem }) {
   return (
     <>
       <HiddenInput type="hidden" name="shipmentId" value={item.shipmentId} readOnly />
+      {item.physicalGroup?.disposition === "combined" ? (
+        <HiddenInput name="serviceLevel" value="GroundAdvantage" readOnly />
+      ) : null}
       <HiddenInput type="hidden" name="status" value={item.status} readOnly />
       <HiddenInput type="hidden" name="labelStatus" value={item.labelStatus} readOnly />
       <HiddenInput
@@ -228,6 +231,37 @@ function CommandCenterItemCard({
               item.currentExceptionNotes ?? t("fulfillment.features.shipments.ui.commandCenter.exception.noNotes")
             }
           />
+        ) : null}
+        {item.groupHold ? (
+          <MarketplaceNotice
+            tone="warning"
+            title={t(
+              item.groupHold === "destination-mismatch"
+                ? "fulfillment.features.shipments.group.mismatch"
+                : item.groupHold === "ambiguous"
+                  ? "fulfillment.features.shipments.group.ambiguous"
+                  : "fulfillment.features.shipments.group.waiting",
+            )}
+          />
+        ) : null}
+        {item.physicalGroup?.disposition === "combined" &&
+        item.groupHold !== "ambiguous" &&
+        item.status !== "label-attached" ? (
+          <ProgressiveDisclosure title={t("fulfillment.features.shipments.separate.action")} tone="neutral">
+            <Form method="post" action={actionBasePath} spacing="sm">
+              <HiddenState item={item} />
+              <Text>{t("fulfillment.features.shipments.separate.explanation")}</Text>
+              <HiddenInput name="intent" value="elect-separate-dispatch" readOnly />
+              <Button
+                type="submit"
+                name="confirmationText"
+                value={t("fulfillment.features.shipments.separate.confirmation")}
+                tone="secondary"
+              >
+                {t("fulfillment.features.shipments.separate.confirmation")}
+              </Button>
+            </Form>
+          </ProgressiveDisclosure>
         ) : null}
         <PrimaryAction item={item} actionBasePath={actionBasePath} packingFlowBasePath={packingFlowBasePath} />
         {item.plan.disclosed.length > 0 ? (

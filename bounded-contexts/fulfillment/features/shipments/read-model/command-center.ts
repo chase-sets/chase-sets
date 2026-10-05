@@ -16,6 +16,7 @@ import {
 } from "@chase-sets/seller-attention-queue";
 import type { PostageLabelStatus, ShipmentStatus } from "../domain/common";
 import { resolveShipmentActionPlan, type ShipmentActionPlan } from "../domain/shipment-action";
+import type { FulfillmentShipmentListRow } from "./queries";
 
 // The fulfillment source in the Seller Desk attention contract. Resolved from the shared
 // registry so this read model and the contract can never disagree about the source id.
@@ -39,6 +40,8 @@ export const FULFILLMENT_COMMAND_CENTER_BUCKET_ORDER: readonly FulfillmentComman
 // The minimal shipment shape the command center reads. Compatible with the seller
 // shipment list row; only these fields drive work ordering and the action plan.
 export type FulfillmentCommandCenterShipmentInput = Readonly<{
+  physical_group?: FulfillmentShipmentListRow["physical_group"];
+  group_hold?: FulfillmentShipmentListRow["group_hold"];
   shipment_id: string;
   order_id: string;
   display_reference: string;
@@ -64,6 +67,8 @@ export type FulfillmentCommandCenterShipmentInput = Readonly<{
 }>;
 
 export type FulfillmentCommandCenterItem = Readonly<{
+  physicalGroup?: FulfillmentShipmentListRow["physical_group"];
+  groupHold?: FulfillmentShipmentListRow["group_hold"];
   shipmentId: string;
   orderId: string;
   displayReference: string;
@@ -150,12 +155,17 @@ function severityForConflicts(
 }
 
 function toCommandCenterItem(shipment: FulfillmentCommandCenterShipmentInput): FulfillmentCommandCenterItem | null {
+  if (
+    shipment.physical_group?.disposition === "combined" &&
+    shipment.shipment_id !== shipment.physical_group.identity.anchorShipmentId
+  )
+    return null;
   const status = shipment.status as ShipmentStatus;
   const conflicts = [...shipment.conflicts].sort(
     (left, right) =>
       left.conflict_kind.localeCompare(right.conflict_kind, "en") || left.origin.localeCompare(right.origin, "en"),
   );
-  const bucket = bucketForStatus(status, conflicts.length > 0);
+  const bucket = bucketForStatus(status, conflicts.length > 0 || Boolean(shipment.group_hold));
   if (!bucket) {
     return null;
   }
@@ -165,6 +175,8 @@ function toCommandCenterItem(shipment: FulfillmentCommandCenterShipmentInput): F
   const plan = resolveShipmentActionPlan({ status, labelStatus, conflicts });
 
   return {
+    physicalGroup: shipment.physical_group,
+    groupHold: shipment.group_hold,
     shipmentId: shipment.shipment_id,
     orderId: shipment.order_id,
     displayReference: shipment.display_reference,
@@ -181,7 +193,7 @@ function toCommandCenterItem(shipment: FulfillmentCommandCenterShipmentInput): F
     severity,
     observedAt,
     conflicts,
-    plan,
+    plan: shipment.group_hold ? { ...plan, primary: null } : plan,
     attention: buildSellerAttentionItem({
       source: FULFILLMENT_ATTENTION_SOURCE,
       entityId: shipment.shipment_id,

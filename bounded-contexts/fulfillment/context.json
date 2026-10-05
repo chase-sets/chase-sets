@@ -47,6 +47,7 @@
       "filterToEventTypes": true,
       "eventTypes": [
         "ordering.order.created",
+        "ordering.order.combined-plan-accepted",
         "ordering.order.pending-payment-recorded",
         "ordering.order.cancelled",
         "ordering.order.ready-for-fulfillment-recorded"
@@ -174,6 +175,7 @@
       { "name": "fulfillment.purchase-label", "ownerSlice": "shipments" },
       { "name": "fulfillment.cancel-shipment", "ownerSlice": "shipments" },
       { "name": "fulfillment.advance-shipment", "ownerSlice": "shipments" },
+      { "name": "fulfillment.elect-separate-dispatch", "ownerSlice": "shipments" },
       { "name": "fulfillment.dispatch-shipment", "ownerSlice": "shipments" },
       { "name": "fulfillment.raise-shipment-exception", "ownerSlice": "shipments" },
       { "name": "fulfillment.void-label", "ownerSlice": "shipments" }
@@ -325,6 +327,7 @@
         "api-route:bounded-contexts/fulfillment/features/shipments/api/route.ts:POST /sales/shipments/:id/label/purchase",
         "api-route:bounded-contexts/fulfillment/features/shipments/api/route.ts:POST /sales/shipments/:id/label/void",
         "api-route:bounded-contexts/fulfillment/features/shipments/api/route.ts:POST /sales/shipments/:id/pack",
+        "api-route:bounded-contexts/fulfillment/features/shipments/api/route.ts:POST /sales/shipments/:id/separate-dispatch",
         "api-route:bounded-contexts/fulfillment/features/shipments/api/route.ts:POST /sales/shipments/:id/packing/lines/:lineId",
         "api-route:bounded-contexts/fulfillment/features/shipments/api/route.ts:POST /sales/shipments/:id/packing/start",
         "api-route:bounded-contexts/fulfillment/features/shipments/api/route.ts:POST /sales/shipments/:id/return"
