@@ -2,6 +2,7 @@ import process from "node:process";
 import { appendFileSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import { readEnvFile } from "./lib/env.mjs";
 import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
 import { buildPackageManagerInvocation, runCommand } from "./lib/process.mjs";
@@ -417,10 +418,33 @@ async function runWorkspace(workspace, options) {
 
   console.log(`Running ${scriptName} in ${workspace.name}...`);
   const invocation = buildInvocation(["--filter", workspace.name, "run", scriptName, ...passthroughArgs]);
-  await run(invocation.command, invocation.args, {
-    ...(usePrefixedLogs ? { prefix: workspace.name } : { stdio: "inherit" }),
-    ...(commandTimeoutMs ? { timeoutMs: commandTimeoutMs } : {}),
-  });
+  const measured = options.dbWorkspaceGroup === "api";
+  const startedAt = new Date().toISOString();
+  const started = performance.now();
+  let outcome = "failed";
+  if (measured)
+    console.log(
+      `RUN_WORKSPACES_COMMAND_START ${JSON.stringify({ workspace: workspace.name, script: scriptName, startedAt })}`,
+    );
+  try {
+    await run(invocation.command, invocation.args, {
+      ...(usePrefixedLogs ? { prefix: workspace.name } : { stdio: "inherit" }),
+      ...(commandTimeoutMs ? { timeoutMs: commandTimeoutMs } : {}),
+    });
+    outcome = "passed";
+  } finally {
+    if (measured)
+      console.log(
+        `RUN_WORKSPACES_COMMAND_END ${JSON.stringify({
+          workspace: workspace.name,
+          script: scriptName,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          elapsedMs: Math.ceil(performance.now() - started),
+          outcome,
+        })}`,
+      );
+  }
 }
 
 async function runConcurrent(tasks, options) {
