@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import type { ReactNode } from "react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GoogleShoppingOperationsPage } from "./google-shopping-operations-page";
@@ -70,7 +70,7 @@ describe("GoogleShoppingOperationsPage", () => {
     expect(markup).toContain("Google Shopping");
     expect(markup).toContain("Search: lst_1");
     expect(markup).toContain("Filter: Failed syncs");
-    expect(markup).toContain("missing-title, not-crawlable, missing-image");
+    expect(markup).toContain("Missing title, Listing cannot be crawled, Missing image");
     expect(markup).toContain("Catalog, Public Presence, Platform Runtime, Ops / Google Merchant Center");
     expect(markup).toContain("/access/accounts/acc_1");
     expect(markup).toContain("/catalog/catalog-items/cit_1");
@@ -173,6 +173,88 @@ describe("GoogleShoppingOperationsPage", () => {
     expect(markup).not.toContain("/catalog/catalog-items/cit_1");
   });
 
+  it.each([
+    { state: "all excluded", total: 23, eligible: 0, excluded: 23, failed: 0, disapproved: 0, attention: 23 },
+    { state: "all eligible", total: 23, eligible: 23, excluded: 0, failed: 0, disapproved: 0, attention: 0 },
+    { state: "mixed with overlap", total: 4, eligible: 3, excluded: 1, failed: 2, disapproved: 2, attention: 3 },
+    { state: "empty", total: 0, eligible: 0, excluded: 0, failed: 0, disapproved: 0, attention: 0 },
+  ])("states eligible, excluded and distinct attention counts for $state", (counts) => {
+    const data = feedRows();
+    render(
+      <GoogleShoppingOperationsPage
+        data={{
+          ...data,
+          rows: [],
+          summary: {
+            ...data.summary,
+            totalRows: counts.total,
+            eligibleRows: counts.eligible,
+            excludedRows: counts.excluded,
+            failedRows: counts.failed,
+            disapprovedRows: counts.disapproved,
+            attentionRows: counts.attention,
+          },
+        }}
+        filters={defaultFilters}
+      />,
+    );
+    const headline = screen.getByText(
+      `${counts.eligible} of ${counts.total} rows eligible; ${counts.excluded} excluded`,
+    );
+    expect(headline.className.includes("warning")).toBe(counts.total > 0 && counts.eligible === 0);
+    expect(screen.getByText(`${counts.attention} row(s) need attention`)).toBeTruthy();
+  });
+
+  it("deduplicates readable exclusion reasons and safely formats unknown codes", () => {
+    const data = feedRows();
+    render(
+      <GoogleShoppingOperationsPage
+        data={{
+          ...data,
+          rows: [
+            {
+              ...data.rows[0]!,
+              exclusionReasons: ["invalid-image-url", "missing-title", "future-reason", "unsafe_<value>"],
+              imageExclusionReasons: ["invalid-image-url"],
+            },
+          ],
+        }}
+        filters={defaultFilters}
+      />,
+    );
+    const cells = screen.getAllByText(
+      "Invalid image URL, Missing title, Unrecognized exclusion reason (Future Reason), Unrecognized exclusion reason",
+    );
+    for (const cell of cells) {
+      expect(cell.textContent?.match(/Invalid image URL/g)).toHaveLength(1);
+      expect(cell.textContent).not.toContain("unsafe_");
+    }
+  });
+
+  it.each(["Charizard", null, undefined])(
+    "leads the default-open detail with title %s and keeps raw identifiers copyable",
+    async (title) => {
+      const data = feedRows();
+      const row = { ...data.rows[0]!, title };
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+      render(<GoogleShoppingOperationsPage data={{ ...data, rows: [row] }} filters={defaultFilters} />);
+      const heading = screen.getByRole("heading", { name: title ?? "Untitled listing lst_1" });
+      expect(heading.textContent).not.toContain(row.productId);
+      expect(heading.textContent).not.toContain(row.rowId);
+      const detail = heading.closest<HTMLElement>('[data-card-emitter="detail-panel"]')!;
+      expect(within(detail).getByRole("link", { name: "Public listing" }).getAttribute("href")).toBe(row.canonicalUrl);
+      for (const [label, value] of [
+        ["Row ID", row.rowId],
+        ["Product", row.productId],
+      ]) {
+        const copy = screen.getByRole("button", { name: `Copy ${label}` });
+        fireEvent.click(copy);
+        expect(writeText).toHaveBeenLastCalledWith(value);
+      }
+    },
+  );
+
   const tintedSurfaceClassName = "min-w-0 max-w-full rounded-tokenLg bg-surface-2 p-4";
   const elevatedSurfaceClassName =
     "surface-border min-w-0 max-w-full rounded-tokenLg ds-glass bg-elevated p-4 shadow-tokenLg";
@@ -243,6 +325,8 @@ describe("GoogleShoppingOperationsPage", () => {
   });
 });
 
+const defaultFilters = { filter: "all", search: "", limit: 25, refreshWindowDays: 30, selected: "" } as const;
+
 function feedRows(): GoogleShoppingFeedRowList {
   return {
     generatedAt: "2026-06-03T12:00:00.000Z",
@@ -253,6 +337,7 @@ function feedRows(): GoogleShoppingFeedRowList {
     refreshCutoff: "2026-05-04T12:00:00.000Z",
     summary: {
       totalRows: 3,
+      attentionRows: 2,
       eligibleRows: 1,
       excludedRows: 2,
       failedRows: 1,

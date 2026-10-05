@@ -1,4 +1,4 @@
-import { formatDateTime, t } from "@chase-sets/localization";
+import { formatDateTime, formatMachineValue, t } from "@chase-sets/localization";
 import { subscribeDurableJobStatus } from "@chase-sets/platform-runtime/durable-job-web";
 import { useEffect, useState } from "react";
 import { RouterForm } from "@chase-sets/design-system/react-router";
@@ -9,6 +9,7 @@ import {
   Badge,
   Button,
   Cluster,
+  CopyButton,
   DataTable,
   DetailPanel,
   FilterArea,
@@ -36,10 +37,43 @@ import type {
   GoogleShoppingOperationsFilters,
   GoogleShoppingOperationsNotice,
 } from "./contracts";
+import type { GoogleShoppingExclusionReason } from "../api/export-row";
 
 const routeKey = "discovery.googleShoppingOperations";
 const routePath = "/growth/google-shopping";
 const liveGateIssueHref = "https://github.com/chase-sets/chase-sets/issues/3032";
+
+const exclusionReasonKeys = {
+  "listing-not-active": `${routeKey}.exclusionReason.listing-not-active`,
+  "seller-unavailable": `${routeKey}.exclusionReason.seller-unavailable`,
+  "seller-not-active": `${routeKey}.exclusionReason.seller-not-active`,
+  "sold-out": `${routeKey}.exclusionReason.sold-out`,
+  "missing-link": `${routeKey}.exclusionReason.missing-link`,
+  "missing-title": `${routeKey}.exclusionReason.missing-title`,
+  "missing-description": `${routeKey}.exclusionReason.missing-description`,
+  "missing-image": `${routeKey}.exclusionReason.missing-image`,
+  "invalid-image-url": `${routeKey}.exclusionReason.invalid-image-url`,
+  "image-not-public": `${routeKey}.exclusionReason.image-not-public`,
+  "image-too-small": `${routeKey}.exclusionReason.image-too-small`,
+  "fallback-image-not-approved": `${routeKey}.exclusionReason.fallback-image-not-approved`,
+  "missing-price": `${routeKey}.exclusionReason.missing-price`,
+  "missing-condition": `${routeKey}.exclusionReason.missing-condition`,
+  "ambiguous-condition": `${routeKey}.exclusionReason.ambiguous-condition`,
+  "missing-shipping-policy": `${routeKey}.exclusionReason.missing-shipping-policy`,
+  "missing-returns-policy": `${routeKey}.exclusionReason.missing-returns-policy`,
+  "missing-product-measure": `${routeKey}.exclusionReason.missing-product-measure`,
+  "not-crawlable": `${routeKey}.exclusionReason.not-crawlable`,
+} satisfies Record<GoogleShoppingExclusionReason, string>;
+
+function exclusionReasonLabel(reason: string) {
+  return formatMachineValue(reason, {
+    knownValueTranslationKeys: exclusionReasonKeys,
+    family: t(`${routeKey}.exclusionReasonFamily`),
+    translate: t,
+    unrecognizedTranslationKey: `${routeKey}.unrecognizedReason`,
+    unrecognizedWithValueTranslationKey: `${routeKey}.unrecognizedReasonWithValue`,
+  });
+}
 
 type Tone = "neutral" | "accent" | "success" | "warning" | "danger" | "info";
 
@@ -156,11 +190,18 @@ export function GoogleShoppingOperationsPage({
 
       <Surface elevation="tinted" data-testid="google-shopping-readiness-summary-surface">
         <Stack gap={4}>
+          <Badge tone={data.summary.totalRows > 0 && data.summary.eligibleRows === 0 ? "warning" : "neutral"}>
+            {t(`${routeKey}.eligibilityHeadline`, {
+              eligible: data.summary.eligibleRows,
+              total: data.summary.totalRows,
+              excluded: data.summary.excludedRows,
+            })}
+          </Badge>
           <Cluster align="center" justify="between">
             <Inline gap={2}>
-              <Badge tone={summaryTone(data.summary.failedRows + data.summary.disapprovedRows)}>
+              <Badge tone={summaryTone(data.summary.attentionRows)}>
                 {t(`${routeKey}.readiness`, {
-                  count: data.summary.failedRows + data.summary.disapprovedRows,
+                  count: data.summary.attentionRows,
                 })}
               </Badge>
               <Badge tone="info">
@@ -407,7 +448,7 @@ function hasPermission(actorPermissions: readonly string[], permission: string) 
 }
 
 function EligibilityCell({ row }: Readonly<{ row: GoogleShoppingFeedRowListItem }>) {
-  const reasons = [...row.exclusionReasons, ...row.imageExclusionReasons];
+  const reasons = [...new Set([...row.exclusionReasons, ...row.imageExclusionReasons])];
   return (
     <Stack gap={1}>
       <Inline gap={1}>
@@ -416,7 +457,7 @@ function EligibilityCell({ row }: Readonly<{ row: GoogleShoppingFeedRowListItem 
         {row.stale ? <Badge tone="info">{t(`${routeKey}.stale`)}</Badge> : null}
       </Inline>
       <Text size="xs" tone="secondary">
-        {reasons.length > 0 ? reasons.join(", ") : t(`${routeKey}.noExclusions`)}
+        {reasons.length > 0 ? reasons.map(exclusionReasonLabel).join(", ") : t(`${routeKey}.noExclusions`)}
       </Text>
     </Stack>
   );
@@ -450,7 +491,11 @@ function DiagnosticsCell({ row }: Readonly<{ row: GoogleShoppingFeedRowListItem 
 function SelectedRowDetail({ row }: Readonly<{ row: GoogleShoppingFeedRowListItem }>) {
   return (
     <DetailPanel
-      title={t(`${routeKey}.selectedRow`, { listingId: row.listingId })}
+      title={
+        <Text element="h2" size="lg" weight="semibold">
+          {row.title || t(`${routeKey}.untitledListing`, { listingId: row.listingId })}
+        </Text>
+      }
       actions={
         <Inline>
           <Button type="button" tone="secondary" size="sm" disabled>
@@ -466,13 +511,16 @@ function SelectedRowDetail({ row }: Readonly<{ row: GoogleShoppingFeedRowListIte
       }
     >
       <Stack gap={4}>
+        <LinkText href={row.canonicalUrl} target="_blank" rel="noreferrer">
+          {t(`${routeKey}.publicListing`)}
+        </LinkText>
         <KeyValueList
           density="compact"
           items={[
-            { key: t(`${routeKey}.rowId`), value: breakable(row.rowId) },
+            { key: t(`${routeKey}.rowId`), value: copyableIdentifier(row.rowId, t(`${routeKey}.rowId`)) },
             { key: t(`${routeKey}.listing`), value: breakable(row.listingId) },
             { key: t(`${routeKey}.account`), value: breakable(row.accountId) },
-            { key: t(`${routeKey}.product`), value: breakable(row.productId) },
+            { key: t(`${routeKey}.product`), value: copyableIdentifier(row.productId, t(`${routeKey}.product`)) },
             { key: t(`${routeKey}.catalogItem`), value: breakable(row.catalogItemId) },
             { key: t(`${routeKey}.merchantOfferId`), value: breakable(row.merchantOfferId) },
             { key: t(`${routeKey}.externalSellerId`), value: breakable(row.externalSellerId) },
@@ -521,6 +569,17 @@ function SelectedRowDetail({ row }: Readonly<{ row: GoogleShoppingFeedRowListIte
         />
       </Stack>
     </DetailPanel>
+  );
+}
+
+function copyableIdentifier(value: string, label: string) {
+  return (
+    <Inline gap={2}>
+      <Text size="xs" tone="secondary" wrap="anywhere">
+        {value}
+      </Text>
+      <CopyButton value={value} aria-label={t(`${routeKey}.copyIdentifier`, { label })} />
+    </Inline>
   );
 }
 

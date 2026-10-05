@@ -162,6 +162,7 @@ export type GoogleShoppingFeedRowFilter =
 export type GoogleShoppingFeedRowListItem = Readonly<{
   rowId: string;
   listingId: string;
+  title?: string | null;
   accountId: string;
   catalogItemId: string;
   productId: string;
@@ -211,6 +212,7 @@ export type GoogleShoppingFeedRowList = Readonly<{
     totalRows: number;
     eligibleRows: number;
     excludedRows: number;
+    attentionRows: number;
     failedRows: number;
     disapprovedRows: number;
     pendingDeleteRows: number;
@@ -399,6 +401,7 @@ type GoogleShoppingMaintenanceCandidateRow = Readonly<{
 type GoogleShoppingFeedRowListDbRow = Readonly<{
   row_id: string;
   listing_id: string;
+  title: string | null;
   account_id: string;
   catalog_catalog_item_id: string;
   product_id: string;
@@ -434,6 +437,7 @@ type GoogleShoppingFeedRowListDbRow = Readonly<{
 
 type GoogleShoppingFeedRowSummaryDbRow = Readonly<{
   total_rows: number | string;
+  attention_rows: number | string;
   eligible_rows: number | string;
   excluded_rows: number | string;
   failed_rows: number | string;
@@ -1683,6 +1687,9 @@ async function listGoogleShoppingFeedRows(
             COUNT(*) FILTER (WHERE sync_status = 'failed')::integer AS failed_rows,
             COUNT(*) FILTER (WHERE diagnostic_status = 'disapproved')::integer AS disapproved_rows,
             COUNT(*) FILTER (
+              WHERE eligibility_status <> 'eligible' OR sync_status = 'failed' OR diagnostic_status = 'disapproved'
+            )::integer AS attention_rows,
+            COUNT(*) FILTER (
               WHERE last_submitted_payload_hash IS NOT NULL
                 AND delete_submitted_at IS NULL
                 AND (tombstone_status <> 'live' OR eligibility_status <> 'eligible')
@@ -1708,7 +1715,10 @@ async function listGoogleShoppingFeedRows(
     [refreshCutoff],
   );
   const rowResult = await db.query<GoogleShoppingFeedRowListDbRow>(
-    `SELECT row_id,
+    `SELECT page.*, COALESCE(item.title, listing.item_title) AS title
+     FROM (
+       SELECT ROW_NUMBER() OVER (ORDER BY ${googleShoppingFeedRowOrder(filter)}) AS page_order,
+            row_id,
             listing_id,
             account_id,
             catalog_catalog_item_id,
@@ -1744,11 +1754,18 @@ async function listGoogleShoppingFeedRows(
      FROM discovery_google_shopping_feed_rows
      ${where.sql}
      ORDER BY ${googleShoppingFeedRowOrder(filter)}
-     LIMIT $${where.values.length + 1}`,
+     LIMIT $${where.values.length + 1}
+     ) AS page
+     LEFT JOIN discovery_item_detail_pages AS item
+       ON item.catalog_item_id = page.catalog_catalog_item_id
+     LEFT JOIN discovery_market_listings AS listing
+       ON listing.listing_id = page.listing_id
+     ORDER BY page.page_order`,
     [...where.values, limit],
   );
   const summary = summaryResult.rows[0] ?? {
     total_rows: 0,
+    attention_rows: 0,
     eligible_rows: 0,
     excluded_rows: 0,
     failed_rows: 0,
@@ -1768,6 +1785,7 @@ async function listGoogleShoppingFeedRows(
     refreshCutoff,
     summary: {
       totalRows: Number(summary.total_rows),
+      attentionRows: Number(summary.attention_rows),
       eligibleRows: Number(summary.eligible_rows),
       excludedRows: Number(summary.excluded_rows),
       failedRows: Number(summary.failed_rows),
@@ -1895,6 +1913,7 @@ function toGoogleShoppingFeedRowListItem(
   return {
     rowId: row.row_id,
     listingId: row.listing_id,
+    title: row.title,
     accountId: row.account_id,
     catalogItemId: row.catalog_catalog_item_id,
     productId: row.product_id,
