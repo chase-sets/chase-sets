@@ -119,6 +119,7 @@ export type WorkerRuntimeObserver = Readonly<{
   leaseMissed?: (event: WorkerLeaseEvent) => void;
   leaseRenewFailed?: (event: WorkerLeaseEvent & Readonly<{ error?: unknown }>) => void;
   runnerCompleted?: (event: WorkerRunnerCompletedEvent) => void;
+  projectionStatusObserved?: (status: ContextProjectionGroupStatus) => void;
   runnerFailed?: (event: WorkerRunnerFailedEvent) => void;
   projectionOperationStarted?: (event: WorkerProjectionOperationEvent) => void;
   projectionOperationCompleted?: (event: WorkerProjectionOperationEvent) => void;
@@ -1257,6 +1258,13 @@ async function runLeasedRunner(
     }
     throwIfLeaseLost();
     const projectionStatusSnapshot = runner.projectionStatusSnapshot?.();
+    if (projectionStatusSnapshot) {
+      try {
+        options.observer?.projectionStatusObserved?.(projectionStatusSnapshot);
+      } catch {
+        // Telemetry must not fail an already-completed projection pass.
+      }
+    }
     options.observer?.runnerCompleted?.({
       ...leaseEvent(options.workerId, runner, lease),
       processed: result.processed,

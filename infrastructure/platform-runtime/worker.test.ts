@@ -1871,6 +1871,86 @@ describe("worker runner loop", () => {
     });
   });
 
+  it.each(["degraded", "caught-up"] as const)(
+    "observes durable %s counts on idle passes, after restart and without snapshot-write heartbeat",
+    async (state) => {
+      const observed = vi.fn();
+      const status = {
+        ...createProjectionGroup().getStatus(),
+        state,
+        blockedStreamCount: state === "degraded" ? 1 : 0,
+        poisonEventCount: state === "degraded" ? 2 : 0,
+      } as ReturnType<ContextProjectionGroup["getStatus"]>;
+      const snapshots = vi.fn(async () => undefined);
+      const runner: WorkerRunner = {
+        name: "synthetic-context.synthetic-projection",
+        kind: "projection-group",
+        projectionStatusSnapshot: () => status,
+        runOnce: async () => ({ processed: 0, lastGlobalPosition: "0" as never, state }),
+      };
+      for (let restart = 0; restart < 2; restart += 1) {
+        const before = observed.mock.calls.length;
+        const loop = createWorkerRunnerLoop({
+          workerId: "synthetic-worker",
+          runners: [runner],
+          controlPlane: createAlwaysLeasedControlPlane({ recordProjectionStatusSnapshot: snapshots }),
+          maxConcurrentRunners: 1,
+          leaseTtlMs: 1_000,
+          leaseRenewIntervalMs: 100,
+          pollIntervalMs: 5,
+          statusHeartbeatIntervalMs: 60_000,
+          observer: { projectionStatusObserved: observed },
+        });
+        loop.start();
+        try {
+          await vi.waitFor(() => expect(observed.mock.calls.length).toBeGreaterThanOrEqual(before + 3));
+        } finally {
+          await loop.stop();
+        }
+      }
+      expect(observed.mock.calls.every(([snapshot]) => snapshot === status)).toBe(true);
+      expect(observed.mock.calls.length).toBeGreaterThanOrEqual(6);
+      expect(snapshots).toHaveBeenCalled();
+    },
+  );
+
+  it("does not change projection outcomes when count publication throws", async () => {
+    const statuses: unknown[] = [];
+    const loop = createWorkerRunnerLoop({
+      workerId: "synthetic-worker",
+      controlPlane: createAlwaysLeasedControlPlane({
+        recordRunnerStatus: async (status) => {
+          statuses.push(status);
+        },
+      }),
+      runners: [
+        {
+          name: "synthetic.projection",
+          kind: "projection-group",
+          projectionStatusSnapshot: () =>
+            createProjectionGroup().getStatus() as ReturnType<ContextProjectionGroup["getStatus"]>,
+          runOnce: async () => ({ processed: 0, lastGlobalPosition: "0" as never }),
+        },
+      ],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+      observer: {
+        projectionStatusObserved: () => {
+          throw new Error("synthetic exporter unavailable");
+        },
+      },
+    });
+    loop.start();
+    try {
+      await vi.waitFor(() => expect(statuses).toContainEqual(expect.objectContaining({ state: "caught-up" })));
+    } finally {
+      await loop.stop();
+    }
+    expect(statuses).not.toContainEqual(expect.objectContaining({ state: "error" }));
+  });
+
   it("skips unchanged idle runner status and projection snapshot writes before heartbeat", async () => {
     let runs = 0;
     const statuses: unknown[] = [];

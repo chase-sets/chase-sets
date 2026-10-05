@@ -402,6 +402,45 @@ groups:
         labels:
           severity: warning
           route: checkout-session
+      - uid: projection-durable-stream-attention
+        title: Projection durably blocked streams or active poison events
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: Prometheus
+            relativeTimeRange:
+              from: 300
+              to: 0
+            model:
+              expr: max by (environment, target_context, projection) ((chase_sets_projection_blocked_streams{environment=~"production|staging"} + chase_sets_projection_poison_events) and (chase_sets_projection_status_observed_timestamp_seconds > time() - 120))
+              instant: true
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              expression: A
+              reducer: last
+              type: reduce
+              refId: B
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              expression: B
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+              type: threshold
+              refId: C
+        for: 2m
+        noDataState: Alerting
+        execErrState: Alerting
+        annotations:
+          summary: Durable projection attention in {{ $labels.environment }} for {{ $labels.target_context }}.{{ $labels.projection }}
+          description: Active blocked-stream or poison-event counts stayed positive for two minutes. Missing or stale telemetry is not healthy recovery. See Projection Operations, Durable Stream Alert.
+        labels:
+          severity: warning
+          runbook: projection-operations
       - uid: projection-freshness-pending-error
         title: Projection freshness pending rows with projection errors
         condition: C
