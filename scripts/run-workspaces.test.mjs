@@ -630,6 +630,23 @@ describe("DB duration scheduling", () => {
       expect(peak).toBe(group === "api" ? 1 : 2);
       expect(output.result).toBeInstanceOf(Error);
       expect(output.summary.failedCount).toBe(1);
+      const walls = output.stdout
+        .filter((line) => line.startsWith("RUN_WORKSPACES_COMMAND_END "))
+        .map((line) => JSON.parse(line.slice("RUN_WORKSPACES_COMMAND_END ".length)));
+      if (group === "api") {
+        expect(walls.map((wall) => [wall.script, wall.outcome])).toEqual([
+          ["test:db:1", "passed"],
+          ["test:db:2", "failed"],
+        ]);
+        expect(
+          walls.every(
+            (wall) =>
+              Number.isSafeInteger(wall.elapsedMs) &&
+              wall.elapsedMs >= 0 &&
+              Date.parse(wall.completedAt) >= Date.parse(wall.startedAt),
+          ),
+        ).toBe(true);
+      } else expect(walls).toEqual([]);
       expect(
         output.invocations
           .filter((args) => args[1] === (group === "api" ? api.name : future.name))
