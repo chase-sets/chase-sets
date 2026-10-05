@@ -3,6 +3,182 @@
   "schemaVersion": 1,
   "claims": [
     {
+      "kind": "claim",
+      "id": "sell-list-review-closed-mobile",
+      "file": "deployables/marketplace/e2e/critical-flows.spec.ts",
+      "testTitle": "records hydrated Sell List review on the Desk offers route @marketplace-checkout",
+      "route": { "name": "Desk offers", "path": "/account/desk/offers" },
+      "fixture": { "identity": "demo-seller:not-started:off_seed_charizard_base_set_high_roller" },
+      "viewport": { "width": 390, "height": 844 },
+      "target": {
+        "identity": "populated-charizard-review-card",
+        "selector": "button[aria-label=\"Review Charizard offers and terms\"]",
+        "populatedSelector": ":scope > div"
+      },
+      "measurements": [
+        {
+          "identity": "visible-card",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": { "equals": true }
+        },
+        {
+          "identity": "card-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1 }
+        },
+        {
+          "identity": "card-height",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "height",
+          "assertion": { "minimum": 1 }
+        },
+        {
+          "identity": "document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 0 }
+        }
+      ],
+      "artifact": "sell-list-review-closed-mobile"
+    },
+    {
+      "kind": "claim",
+      "id": "sell-list-review-open-mobile",
+      "file": "deployables/marketplace/e2e/critical-flows.spec.ts",
+      "testTitle": "records hydrated Sell List review on the Desk offers route @marketplace-checkout",
+      "route": { "name": "Desk offers", "path": "/account/desk/offers" },
+      "fixture": { "identity": "demo-seller:not-started:off_seed_charizard_base_set_high_roller" },
+      "viewport": { "width": 390, "height": 844 },
+      "target": {
+        "identity": "charizard-offers-and-terms-dialog",
+        "selector": "[role=\"dialog\"]:has(h2:text-is(\"Charizard offers and terms\"))",
+        "populatedSelector": "button[value=\"review-sell-list-checkout\"]"
+      },
+      "measurements": [
+        {
+          "identity": "visible-sheet",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": { "equals": true }
+        },
+        {
+          "identity": "sheet-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1 }
+        },
+        {
+          "identity": "sheet-height",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "height",
+          "assertion": { "minimum": 1 }
+        },
+        {
+          "identity": "document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 0 }
+        }
+      ],
+      "artifact": "sell-list-review-open-mobile"
+    },
+    {
+      "kind": "claim",
+      "id": "sell-list-review-closed-desktop",
+      "file": "deployables/marketplace/e2e/critical-flows.spec.ts",
+      "testTitle": "records hydrated Sell List review on the Desk offers route @marketplace-checkout",
+      "route": { "name": "Desk offers", "path": "/account/desk/offers" },
+      "fixture": { "identity": "demo-seller:not-started:off_seed_charizard_base_set_high_roller" },
+      "viewport": { "width": 1280, "height": 900 },
+      "target": {
+        "identity": "populated-charizard-review-card",
+        "selector": "button[aria-label=\"Review Charizard offers and terms\"]",
+        "populatedSelector": ":scope > div"
+      },
+      "measurements": [
+        {
+          "identity": "visible-card",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": { "equals": true }
+        },
+        {
+          "identity": "card-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1 }
+        },
+        {
+          "identity": "card-height",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "height",
+          "assertion": { "minimum": 1 }
+        },
+        {
+          "identity": "document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 0 }
+        }
+      ],
+      "artifact": "sell-list-review-closed-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "sell-list-review-open-desktop",
+      "file": "deployables/marketplace/e2e/critical-flows.spec.ts",
+      "testTitle": "records hydrated Sell List review on the Desk offers route @marketplace-checkout",
+      "route": { "name": "Desk offers", "path": "/account/desk/offers" },
+      "fixture": { "identity": "demo-seller:not-started:off_seed_charizard_base_set_high_roller" },
+      "viewport": { "width": 1280, "height": 900 },
+      "target": {
+        "identity": "charizard-offers-and-terms-dialog",
+        "selector": "[role=\"dialog\"]:has(h2:text-is(\"Charizard offers and terms\"))",
+        "populatedSelector": "button[value=\"review-sell-list-checkout\"]"
+      },
+      "measurements": [
+        {
+          "identity": "visible-sheet",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "visible",
+          "assertion": { "equals": true }
+        },
+        {
+          "identity": "sheet-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": { "minimum": 1 }
+        },
+        {
+          "identity": "sheet-height",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "height",
+          "assertion": { "minimum": 1 }
+        },
+        {
+          "identity": "document-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": { "maximum": 0 }
+        }
+      ],
+      "artifact": "sell-list-review-open-desktop"
+    },
+    {
       "kind": "negative-control",
       "id": "hidden-accordion-target",
       "file": "deployables/marketplace/e2e/responsive-evidence-contract.spec.ts",
