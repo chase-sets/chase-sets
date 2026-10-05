@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProjectionOperationsPage } from "./projection-operations-page";
@@ -47,6 +47,124 @@ describe("ProjectionOperationsPage", () => {
       value: originalEventSource,
       configurable: true,
     });
+  });
+
+  it.each([
+    {
+      name: "aggregate-only",
+      counts: [
+        [8, 8],
+        [6, 6],
+      ],
+      poison: 14,
+      blocked: 14,
+    },
+    { name: "unequal poison and stream counts", counts: [[2, 1]], poison: 2, blocked: 1 },
+    { name: "recovered", counts: [[0, 0]], poison: 0, blocked: 0 },
+  ])("shows $name group totals with no detailed rows", ({ counts, poison, blocked }) => {
+    const data = normalizeProjectionOperationsSnapshot({
+      projectionStatusSource: "worker-snapshot",
+      projectionGroups: counts.map(([poisonEventCount, blockedStreamCount], index) => ({
+        targetContextName: `context-${index}`,
+        projectionName: `projection-${index}`,
+        state: poisonEventCount ? "degraded" : "caught-up",
+        poisonEventCount,
+        blockedStreamCount,
+      })),
+      blockedProjections: [],
+    });
+
+    render(<ProjectionOperationsPage data={data} filters={emptyFilters} />);
+
+    for (const [label, count] of [
+      ["Poison events", poison],
+      ["Blocked streams", blocked],
+    ] as const) {
+      const tileLabel = screen.getByText(label, { selector: "div" });
+      expect(tileLabel.parentElement?.nextElementSibling?.textContent).toBe(String(count));
+    }
+    for (const [index, [poisons, streams]] of counts.entries()) {
+      if (!poisons) continue;
+      const row = screen.getByRole("row", { name: new RegExp(`projection-${index} projection-group`) });
+      expect(
+        within(row).getByText(
+          `context-${index} projection group; poison events: ${poisons}; blocked streams: ${streams}`,
+        ),
+      ).toBeTruthy();
+      expect(within(row).getByRole("link", { name: "View group in reference" }).getAttribute("href")).toBe(
+        `/platform/projections/reference?contextName=context-${index}&projectionName=projection-${index}`,
+      );
+      expect(within(row).getByRole("link", { name: "Details" })).toBeTruthy();
+    }
+    if (!poison) expect(screen.getByText("No attention signals")).toBeTruthy();
+  });
+
+  it("opens the target reference group without inheriting search, state, or selection", () => {
+    const data = normalizeProjectionOperationsSnapshot({
+      projectionGroups: [
+        {
+          targetContextName: "catalog",
+          projectionName: "catalog-item-projection",
+          state: "degraded",
+          revisionStale: true,
+          poisonEventCount: 2,
+          blockedStreamCount: 1,
+        },
+      ],
+    });
+    const { rerender } = render(
+      <ProjectionOperationsPage
+        data={data}
+        filters={{
+          ...emptyFilters,
+          search: "projection group",
+          state: "stale",
+          selected: "unrelated-operation",
+        }}
+      />,
+    );
+    const row = screen.getByRole("row", { name: /catalog-item-projection projection-group/ });
+    const href = within(row).getByRole("link", { name: "View group in reference" }).getAttribute("href");
+    expect(href).toBe("/platform/projections/reference?contextName=catalog&projectionName=catalog-item-projection");
+    const params = new URL(href!, "http://localhost").searchParams;
+
+    rerender(
+      <ProjectionOperationsReferencePage
+        data={data}
+        filters={{
+          ...emptyFilters,
+          ...Object.fromEntries(params),
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("row", { name: /catalog-item-projection catalog degraded/ })).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it.each([0, 6])("keeps %i expired heartbeats informational with one active worker", (count) => {
+    const data = normalizeProjectionOperationsSnapshot({
+      projectionStatusSource: "worker-snapshot",
+      workers: [
+        { worker_id: "active", worker_state: "active" },
+        ...Array.from({ length: count }, (_, index) => ({ worker_id: `expired-${index}`, worker_state: "expired" })),
+      ],
+      workerHeartbeatHistory: {
+        activeOrStaleCount: 1,
+        expiredTotalCount: count,
+        expiredWithinDiagnosticWindowCount: count,
+        expiredReturnedCount: count,
+      },
+    });
+
+    render(<ProjectionOperationsPage data={data} filters={emptyFilters} />);
+
+    expect(screen.getByText("1 active · 0 stale")).toBeTruthy();
+    expect(screen.getByText(`${count} expired heartbeats in the last 7 days: no action needed`)).toBeTruthy();
+    expect(screen.getByText("Healthy")).toBeTruthy();
+    expect(screen.getByText("No attention signals")).toBeTruthy();
+    expect(screen.queryByText("Stale workers")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Details" })).toBeNull();
   });
 
   it("renders an attention-first console for failed operations and blocked streams", () => {
@@ -402,7 +520,7 @@ describe("ProjectionOperationsPage", () => {
         failedCount: "0",
         cancelRequestedCount: "1",
       },
-      workers: [{ worker_id: "worker_1", worker_state: "expired" }],
+      workers: [{ worker_id: "worker_1", worker_state: "stale" }],
       operations: [
         {
           operationId: "op_cancel",
@@ -420,9 +538,11 @@ describe("ProjectionOperationsPage", () => {
     expect(screen.getByText("Stale")).toBeTruthy();
     expect(screen.getAllByText("Cancel requested").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Stale workers").length).toBeGreaterThan(0);
+    expect(screen.getByText("0 active · 1 stale")).toBeTruthy();
+    expect(screen.getByRole("row", { name: /worker_1 worker/ })).toBeTruthy();
   });
 
-  it("server-renders a 20,000-row heartbeat history as only the capped diagnostic repair queue", () => {
+  it("uses the seven-day count for truncated history and retains reference worker diagnostics", () => {
     const expiredWorkers = Array.from({ length: 100 }, (_, index) => ({
       worker_id: `expired-${String(index).padStart(3, "0")}`,
       worker_kind: "platform-worker",
@@ -435,7 +555,7 @@ describe("ProjectionOperationsPage", () => {
       workerHeartbeatHistory: {
         activeOrStaleCount: 1,
         expiredTotalCount: 20_000,
-        expiredWithinDiagnosticWindowCount: 20_000,
+        expiredWithinDiagnosticWindowCount: 150,
         expiredReturnedCount: expiredWorkers.length,
         expiredTruncated: true,
         expiredDiagnosticLimit: expiredWorkers.length,
@@ -443,14 +563,19 @@ describe("ProjectionOperationsPage", () => {
       },
     });
 
-    const { container } = render(<ProjectionOperationsPage data={data} filters={emptyFilters} />);
+    const { container, rerender } = render(<ProjectionOperationsPage data={data} filters={emptyFilters} />);
 
-    expect(screen.getByText("1 / 20000 stale")).toBeTruthy();
-    const detailTargets = new Set(
-      screen.getAllByRole("link", { name: "Details" }).map((link) => link.getAttribute("href")),
-    );
-    expect(detailTargets.size).toBe(100);
+    expect(screen.getByText("1 active · 0 stale")).toBeTruthy();
+    expect(screen.getByText("150 expired heartbeats in the last 7 days: no action needed")).toBeTruthy();
+    expect(screen.getByText("Healthy")).toBeTruthy();
+    expect(screen.queryByText("Stale workers")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Details" })).toBeNull();
     expect(Buffer.byteLength(container.innerHTML, "utf8")).toBeLessThan(2 * 1024 * 1024);
+
+    rerender(<ProjectionOperationsReferencePage data={data} filters={emptyFilters} />);
+    expect(screen.getAllByRole("row", { name: /expired-\d+ platform-worker expired/ })).toHaveLength(100);
+    expect(screen.getByRole("row", { name: /expired-000 platform-worker expired/ })).toBeTruthy();
+    expect(screen.getByRole("row", { name: /expired-099 platform-worker expired/ })).toBeTruthy();
   });
 
   it("renders the push-wake handoff without duplicating Grafana telemetry sections", () => {

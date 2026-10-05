@@ -3762,6 +3762,178 @@
     },
     {
       "kind": "claim",
+      "id": "sign-in-methods-mobile",
+      "file": "deployables/marketplace/e2e/critical-flows.spec.ts",
+      "testTitle": "records sign-in method list and email option at 390x844 @marketplace-account",
+      "route": {
+        "name": "marketplace sign-in",
+        "path": "/sign-in"
+      },
+      "fixture": {
+        "identity": "critical-flows:signed-out-sign-in:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "sign-in-methods",
+        "selector": "main [role=\"list\"]",
+        "populatedSelector": "[role=\"listitem\"]"
+      },
+      "measurements": [
+        {
+          "identity": "target-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "sign-in-methods-mobile"
+    },
+    {
+      "kind": "claim",
+      "id": "sign-in-email-option-mobile",
+      "file": "deployables/marketplace/e2e/critical-flows.spec.ts",
+      "testTitle": "records sign-in method list and email option at 390x844 @marketplace-account",
+      "route": {
+        "name": "marketplace sign-in",
+        "path": "/sign-in"
+      },
+      "fixture": {
+        "identity": "critical-flows:signed-out-sign-in:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "sign-in-email-option",
+        "selector": "form:has(input[name=\"intent\"][value=\"magic-link-request\"])",
+        "populatedSelector": "button[type=\"submit\"]"
+      },
+      "measurements": [
+        {
+          "identity": "target-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "sign-in-email-option-mobile"
+    },
+    {
+      "kind": "claim",
+      "id": "sign-in-methods-desktop",
+      "file": "deployables/marketplace/e2e/critical-flows.spec.ts",
+      "testTitle": "records sign-in method list and email option at 1280x900 @marketplace-account",
+      "route": {
+        "name": "marketplace sign-in",
+        "path": "/sign-in"
+      },
+      "fixture": {
+        "identity": "critical-flows:signed-out-sign-in:v1"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "sign-in-methods",
+        "selector": "main [role=\"list\"]",
+        "populatedSelector": "[role=\"listitem\"]"
+      },
+      "measurements": [
+        {
+          "identity": "target-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "sign-in-methods-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "sign-in-email-option-desktop",
+      "file": "deployables/marketplace/e2e/critical-flows.spec.ts",
+      "testTitle": "records sign-in method list and email option at 1280x900 @marketplace-account",
+      "route": {
+        "name": "marketplace sign-in",
+        "path": "/sign-in"
+      },
+      "fixture": {
+        "identity": "critical-flows:signed-out-sign-in:v1"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "sign-in-email-option",
+        "selector": "form:has(input[name=\"intent\"][value=\"magic-link-request\"])",
+        "populatedSelector": "button[type=\"submit\"]"
+      },
+      "measurements": [
+        {
+          "identity": "target-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "sign-in-email-option-desktop"
+    },
+    {
+      "kind": "claim",
       "id": "search-price-max-typeable-1280x720",
       "file": "deployables/marketplace/e2e/search-price-filter-layout.spec.ts",
       "testTitle": "Maximum price stays typeable at 1280x720 @marketplace-browse",
