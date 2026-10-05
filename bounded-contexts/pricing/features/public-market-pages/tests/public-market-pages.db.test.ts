@@ -326,6 +326,38 @@ describeDb("pricing public market pages read model", () => {
     console.info(`BYPASS_CONTROL_RED: ${control.name}; candidate=6.00/count 2; bypass=2.00/count 3`);
   });
 
+  it("excludes released holds: candidate green and named bypass control red", async () => {
+    await seedCatalogItem(pools.pricing);
+    await seedSupply("baseline", "6.00");
+    const inventoryId = await seedSupply("cheaper", "2.00", { total: 5 });
+    await seedHold("released", inventoryId, 5, "released");
+    const expected = {
+      liveAsks: [{ currencyCode: "USD", minAskAmount: "2.00", buyableListingCount: 2 }],
+      unpricedBuyableListingCount: 0,
+    };
+    expect(asks(await getPublicMarketPageData(pools.pricing, "cat_1"))).toEqual(expected);
+
+    let bypassQueries = 0;
+    const bypassDb: PgQueryable = {
+      query: <Row = Record<string, unknown>>(sql: string, values?: readonly unknown[]) => {
+        if (sql.includes("AS buyable_listing_count")) {
+          expect(sql).toContain("hold.status = 'active'");
+          sql = sql.replace("hold.status = 'active'", "TRUE");
+          bypassQueries += 1;
+        }
+        return pools.pricing.query<Row>(sql, values);
+      },
+    };
+    const bypass = asks(await getPublicMarketPageData(bypassDb, "cat_1"));
+    expect(bypassQueries).toBe(1);
+    expect(bypass).toEqual({
+      liveAsks: [{ currencyCode: "USD", minAskAmount: "6.00", buyableListingCount: 1 }],
+      unpricedBuyableListingCount: 0,
+    });
+    expect(() => expect(bypass).toEqual(expected)).toThrow();
+    console.info("BYPASS_CONTROL_RED: released holds; candidate=2.00/count 2; bypass=6.00/count 1");
+  });
+
   it("counts listings rather than holds or units and releasing active holds restores the cheaper ask", async () => {
     await seedCatalogItem(pools.pricing);
     await seedSupply("baseline", "6.00");
