@@ -135,6 +135,29 @@ Workers also run `projection-generation-retention` as maintenance. It clears exp
 - Platform-worker `/internal/workers/status` and worker heartbeat metadata include `databasePoolPressure`; the worker endpoint also includes `projectionWakeIntentBreakdown` by lane/origin/state. Use `waitingClients > 0`, `waitingPoolCount > 0`, or saturated pools to attribute freshness lag to DB-pool pressure instead of hot-lane queueing or projection-group lease contention.
 - For a first, live attribution during an incident, call `GET /internal/workers/hot-lag-evidence` on the platform worker. It answers the same "is this hot-lane queueing, projection-group lease contention, DB pool pressure, projection repair, or background work" question in-process, from current status, with no manual capture step. Escalate to the fuller offline evidence below when its `attribution.confidence` is `low` or its cause needs wake-outcome or background-workload-control detail it cannot see live.
 - To make an incident handoff repeatable, capture `GET /internal/workers/status` and `GET /api/platform/projections` JSON during the lag window, then run `pnpm run ops projection:hot-lag-evidence -- --worker-status <worker-status.json> --projection-status <projection-status.json> --out artifacts/projection-hot-lag-evidence.json`. Optional `--wake-outcomes <wake-outcomes.json>` can include redacted Grafana/log outcome counts such as `{ "priorityLane": "hot", "origin": "api-wait", "outcome": "deferred", "count": 2 }` to distinguish projection-group lease contention from generic hot-lane queueing.
-- Alert when the oldest queued projection operation is older than the claim TTL, when source lag grows while no worker heartbeat is fresh, or when poison/blocked-stream counts increase.
+- Alert when the oldest queued projection operation is older than the claim TTL, when source lag grows while no worker heartbeat is fresh, or when durable poison/blocked-stream counts remain nonzero, including flat counts without customer traffic.
 - During DigitalOcean shared-resource incidents, reduce projection/job/dispatch concurrency before increasing app size so the database pool remains the first-class capacity budget.
 - For critical read-after-write routes, use the [Projection Freshness Worker Capacity](../architecture/projection-freshness-worker-capacity.md) audit to verify worker heartbeat, runner status, exact dependency mode, source lag, applicable lag, and route-level freshness timeout evidence before changing route code.
+
+## Durable Stream Alert
+
+Grafana rule UID `projection-durable-stream-attention` evaluates every minute, with threshold `> 0` sustained for `2m`. The checked-in query is:
+
+```promql
+max by (environment, target_context, projection) ((chase_sets_projection_blocked_streams{environment=~"production|staging"} + chase_sets_projection_poison_events) and (chase_sets_projection_status_observed_timestamp_seconds > time() - 120))
+```
+
+Workers publish existing durable group counts after each successful leased pass, including idle/degraded passes and the first pass after restart. Counts include only active `blocked`/`retrying` rows, not resolved historical poison. The explicit `environment` metric label comes from the application's deployment configuration, not the shared stack's scrape environment; staging and production remain separate alert instances. Context and projection labels identify registered owners, never individual streams/events or customer data. The timestamp is observation time, not the last event/checkpoint change.
+
+The reduce/threshold expressions retain environment/context/projection labels. The existing root notification policy routes to `chase-sets-platform-alert-email` and groups by environment. Terraform generates that contact/policy only when SMTP is enabled. This configuration proves wiring, not actual delivery. Verify the deployed active policy and actual operator inbox receipt in the approved observation window.
+
+Triage the matching environment/context/projection in Projection Operations and inspect active Blocked Streams and Poison Events. Distinguish transient handler errors with zero durable counts from repair-required streams. Use the owning context's authorized retry/repair/rebuild workflow; this alert grants no new repair authority. A fresh zero count resolves the alert and must stay silent across repeated evaluations. Samples older than 120 seconds are excluded, and missing-data/evaluation-error states are `Alerting`, not healthy zero. An individual series disappearing is missing telemetry (Grafana may evict its instance as `MissingSeries`), not proof of recovery; inspect heartbeat and export health before claiming resolution.
+
+### Approved Observation Packet
+
+Live production firing/routing and the original staging simulation remain **TODD_GATED** until an approved post-deployment host window. Agent-executable synthetic tests cannot close these acceptance legs.
+
+- Capture the complete active rule/query and contact-policy inventory in bounded pages, plus UTC window, environment, deployed revision, UID and immutable artifact location. Partial or stale inventory is unknown.
+- In production, use natural qualifying state or a separately approved telemetry-only synthetic series. Never inject poison or alter production projection data. Bind count evaluation, sustained firing and the actual received notification to the same rule instance/window; redact addresses, credentials, payloads and individual stream/event/customer identifiers.
+- In staging, approve a bounded simulated blocked condition isolated from customer streams. Record its synthetic identity, expiry, same-lifecycle counts/firing, actual receipt, cleanup and fresh-zero recovery followed by repeated healthy evaluations.
+- Link the redacted artifacts from the implementation PR. If rule, policy, firing, receipt or staging cleanup/recovery evidence is missing, report `INCOMPLETE` naming that leg. SMTP enablement, checked-in config and synthetic PASS are not live delivery evidence.

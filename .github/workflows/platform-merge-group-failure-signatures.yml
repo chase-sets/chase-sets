@@ -63,3 +63,24 @@ jobs:
           path: artifacts/release-health/delivery-failure-signatures.*
           if-no-files-found: ignore
           retention-days: 30
+
+  reporter:
+    name: Report Delivery Failure Signatures Failure
+    needs: evaluate
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Report workflow failure
+        if: ${{ contains(needs.*.result, 'failure') }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Platform Delivery Failure Signatures
+          alert-status: failure
+          alert-summary: Delivery failure signature evaluation failed. See this run's jobs and artifacts.
