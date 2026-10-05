@@ -489,9 +489,11 @@ describe("public policy corpus compiler", () => {
         baseline.find(({ relativePath }) => relativePath === "agent-connector-terms-publication.ts")?.content,
       ),
     ).toBe("sha256:c527cca70b8e0f5055e8fc480f2deefc61629a422af3249dd452a192b06c5c98");
+    // Baseline: current Terms with the electronic-agents-and-automated-access developer-manifest ref reverted.
+    // Re-derived for #8667, the first Terms content edit since #7429; prior pin was on-disk Terms at bb85cc7a24^.
     expect(
       fingerprint(baseline.find(({ relativePath }) => relativePath === "terms-of-service-publication.ts")?.content),
-    ).toBe("sha256:3f2930714f2f58cf68df0948999bb7d61e73b96e2b79af6719fcb15997ecea04");
+    ).toBe("sha256:c0cd736b87c12444ea15b3bea16cf88f097968d1eb8272dc9a01dce4154a42ad");
 
     for (const module of changed) {
       const before = baseline.find((candidate) => candidate.relativePath === module.relativePath)?.content;
