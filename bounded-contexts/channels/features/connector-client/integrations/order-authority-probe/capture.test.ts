@@ -248,10 +248,34 @@ function harness(
   };
 }
 
-function helper(worker: ReturnType<typeof harness>, input: string | null = ORDER, consent = true) {
+function helper(
+  worker: ReturnType<typeof harness>,
+  input: string | null = ORDER,
+  consent = true,
+  options: {
+    source?: string;
+    onDialog?: (dialog: "confirm" | "prompt") => void;
+    sendMessage?: (message: { kind: string; orderNumber?: string }) => Promise<Reply>;
+  } = {},
+) {
   const exports = new Map<string, string>();
   const blobs = new Map<string, Blob>();
   const diagnostics: unknown[] = [];
+  const messages: { kind: string; orderNumber?: string }[] = [];
+  const events: string[] = [];
+  const dialogs: unknown[] = [];
+  const location = { href: worker.sender.url };
+  function dialog(kind: "confirm" | "prompt") {
+    events.push(kind);
+    options.onDialog?.(kind);
+    dialogs.push({
+      kind,
+      messages: messages.length,
+      storage: structuredClone(worker.storage),
+      requests: worker.observations.length,
+      exports: exports.size,
+    });
+  }
   let nextBlob = 0;
   const downloads: Promise<void>[] = [];
   const api = createContext({
@@ -259,15 +283,25 @@ function helper(worker: ReturnType<typeof harness>, input: string | null = ORDER
       runtime: {
         id: preparation.extensionId,
         getURL: (file: string) => `chrome-extension://${preparation.extensionId}/${file}`,
-        sendMessage: worker.send,
+        sendMessage: (message: { kind: string; orderNumber?: string }) => {
+          messages.push(structuredClone(message));
+          events.push(message.kind);
+          return (options.sendMessage ?? worker.send)(message);
+        },
       },
     },
-    location: { href: worker.sender.url },
+    location,
     crypto: webcrypto,
     TextEncoder,
     Blob,
-    confirm: () => consent,
-    prompt: () => input,
+    confirm: () => {
+      dialog("confirm");
+      return consent;
+    },
+    prompt: () => {
+      dialog("prompt");
+      return input;
+    },
     console: {
       log: (...values: unknown[]) => diagnostics.push(values),
       error: (...values: unknown[]) => diagnostics.push(values),
@@ -302,7 +336,7 @@ function helper(worker: ReturnType<typeof harness>, input: string | null = ORDER
       queueMicrotask(callback);
     },
   });
-  new Script(readFileSync(path.join(preparation.packageDirectory, "helper.js"), "utf8"), {
+  new Script(options.source ?? readFileSync(path.join(preparation.packageDirectory, "helper.js"), "utf8"), {
     filename: "synthetic-packaged-helper.js",
   }).runInContext(api);
   const run = async () => {
@@ -310,7 +344,7 @@ function helper(worker: ReturnType<typeof harness>, input: string | null = ORDER
     await Promise.all(downloads);
     return result;
   };
-  return { run, exports, diagnostics, blobs };
+  return { run, exports, diagnostics, blobs, messages, events, dialogs, location };
 }
 
 function receipt(reply: Reply) {
@@ -671,10 +705,13 @@ describe("order-authority emitted package controls (synthetic, not browser/provi
     for (const consent of [false, true]) {
       const worker = harness();
       const page = helper(worker, null, consent);
-      expect(await page.run()).toEqual({ ok: true, code: "scrubbed_export_created" });
-      expect(JSON.parse(page.exports.get("8607-receipt.json")!).failures).toEqual(["canceled"]);
+      expect(await page.run()).toEqual({ ok: false, code: "canceled" });
+      expect(page.messages).toEqual([]);
+      expect(worker.storage).toEqual({});
+      expect(page.exports.size).toBe(0);
       expect(worker.observations).toEqual([]);
       expect(encode([...page.exports])).not.toContain(SENTINEL);
+      expect(await helper(worker).run()).toEqual({ ok: true, code: "scrubbed_export_created" });
     }
     for (const file of readdirSync(preparation.packageDirectory)) {
       expect(readFileSync(path.join(preparation.packageDirectory, file), "utf8")).not.toContain(SENTINEL);
@@ -694,6 +731,147 @@ describe("order-authority emitted package controls (synthetic, not browser/provi
       }
     }
     scan(out);
+  });
+
+  it("dialog-order: emitted helper waits for both inputs before begin and capture, including synthetic dialog idles", async () => {
+    for (const idleAt of [undefined, "confirm", "prompt"]) {
+      const worker = harness();
+      const page = helper(worker, ORDER, true, {
+        onDialog: (stage) => {
+          if (stage === idleAt) {
+            worker.advance(45000);
+            worker.restart();
+          }
+        },
+      });
+      expect(await page.run()).toEqual({ ok: true, code: "scrubbed_export_created" });
+      expect(page.events).toEqual(["confirm", "prompt", "begin", "capture"]);
+      expect(page.dialogs).toEqual(
+        ["confirm", "prompt"].map((kind) => ({ kind, messages: 0, storage: {}, requests: 0, exports: 0 })),
+      );
+      expect(page.messages).toEqual([{ kind: "begin" }, { kind: "capture", orderNumber: ORDER }]);
+      expect(await page.run()).toEqual({ ok: false, code: "repeat_invocation" });
+      expect(await helper(worker).run()).toEqual({ ok: false, code: "preparation_refused" });
+      worker.restart();
+      expect(await helper(worker).run()).toEqual({ ok: false, code: "preparation_refused" });
+      expect(worker.observations).toHaveLength(3);
+    }
+  });
+
+  it("dialog-order-mutant: the same ordering assertion rejects begin-before-dialog with valid origin, inventory and input", async () => {
+    const emitted = readFileSync(path.join(preparation.packageDirectory, "helper.js"), "utf8");
+    const begin = /^      const begun = await chrome\.runtime\.sendMessage\(\{ kind: "begin" \}\);\r?\n/gm;
+    const matches = emitted.match(begin);
+    expect(matches).toHaveLength(1);
+    const mutant = emitted.replace(begin, "").replace(/    try \{\r?\n/, (start) => start + matches![0]);
+    expect(mutant).not.toBe(emitted);
+    const assertOrdering = (page: ReturnType<typeof helper>) =>
+      expect(page.events).toEqual(["confirm", "prompt", "begin", "capture"]);
+    const candidate = helper(harness(), ORDER, true, { source: emitted });
+    const reverted = helper(harness(), ORDER, true, { source: mutant });
+    expect(await candidate.run()).toEqual({ ok: true, code: "scrubbed_export_created" });
+    expect(await reverted.run()).toEqual({ ok: true, code: "scrubbed_export_created" });
+    assertOrdering(candidate);
+    expect(() => assertOrdering(reverted)).toThrow();
+    expect(reverted.events).toEqual(["begin", "confirm", "prompt", "capture"]);
+  });
+
+  it("dialog-cancel: confirm false and null, empty or whitespace orders send nothing and cannot rerun the same helper", async () => {
+    for (const [input, consent] of [
+      [ORDER, false],
+      [null, true],
+      ["", true],
+      [" \t\n", true],
+    ] as const) {
+      const worker = harness();
+      const page = helper(worker, input, consent);
+      expect(await page.run()).toEqual({ ok: false, code: "canceled" });
+      expect(page.events).toEqual(consent ? ["confirm", "prompt"] : ["confirm"]);
+      expect(page.messages).toEqual([]);
+      expect(worker.storage).toEqual({});
+      expect(worker.observations).toEqual([]);
+      expect(page.exports.size).toBe(0);
+      expect(await page.run()).toEqual({ ok: false, code: "repeat_invocation" });
+      expect(page.messages).toEqual([]);
+      worker.restart();
+      expect(await helper(worker).run()).toEqual({ ok: true, code: "scrubbed_export_created" });
+    }
+  });
+
+  it("cancel-message: worker begin then cancel returns canceled receipt, keeps latch, refuses repeat and never dispatches", async () => {
+    const idle = harness();
+    expect(await idle.send({ kind: "cancel" })).toEqual({ ok: false, code: "repeat_invocation" });
+    expect(idle.storage).toEqual({});
+    const worker = harness();
+    expect(await worker.send({ kind: "begin" })).toEqual({ ok: true });
+    const canceled = receipt(await worker.send({ kind: "cancel" }));
+    expect(canceled.failures).toEqual(["canceled"]);
+    expect(canceled.counts).toEqual({ lookup: 0, list: 0, detail: 0 });
+    expect(worker.storage).toHaveProperty("orderAuthorityLatch");
+    expect(await worker.send({ kind: "capture", orderNumber: ORDER })).toEqual({
+      ok: false,
+      code: "repeat_invocation",
+    });
+    expect(await worker.send({ kind: "begin" })).toEqual({ ok: false, code: "repeat_invocation" });
+    expect(await harness({ storage: worker.storage }).send({ kind: "begin" })).toEqual({
+      ok: false,
+      code: "repeat_invocation",
+    });
+    expect(worker.observations).toEqual([]);
+    expect(encode(canceled)).not.toContain(SENTINEL);
+  });
+
+  it("transient-input: success, begin refusal and messaging failures retain no order outside the message boundary", async () => {
+    for (const failure of [undefined, "begin-refused", "begin-error", "capture-refused", "capture-error"]) {
+      const worker = harness();
+      const page = helper(worker, ORDER, true, {
+        sendMessage: async (message) => {
+          if (failure === `${message.kind}-error`) throw new Error(SENTINEL);
+          if (failure === `${message.kind}-refused`) return { ok: false };
+          return worker.send(message);
+        },
+      });
+      expect(await page.run()).toEqual(
+        failure
+          ? { ok: false, code: failure === "begin-refused" ? "preparation_refused" : "capture_refused" }
+          : { ok: true, code: "scrubbed_export_created" },
+      );
+      expect(page.messages.map(({ kind }) => kind)).toEqual(
+        failure?.startsWith("begin") ? ["begin"] : ["begin", "capture"],
+      );
+      expect(
+        encode({
+          storage: worker.storage,
+          retained: worker.retained,
+          exports: [...page.exports],
+          diagnostics: page.diagnostics,
+          location: page.location,
+        }),
+      ).not.toContain(SENTINEL);
+      expect(page.location.href).toBe(worker.sender.url);
+      if (failure) expect(page.exports.size).toBe(0);
+      expect(await page.run()).toEqual({ ok: false, code: "repeat_invocation" });
+    }
+  });
+
+  it("runbook: deadline starts after input and removal requires observed exact-ID absence with CDP limitation", () => {
+    const instructions = readFileSync(path.join(out, "RUNBOOK.md"), "utf8");
+    const assertInstructions = (text: string) => {
+      expect(text).toContain("The 15-minute deadline starts at begin, after both prompts have completed.");
+      expect(text).not.toContain("deadline includes prompts");
+      expect(text).toContain(`Remove extension ${preparation.extensionId} at chrome://extensions in this profile`);
+      expect(text).toContain(`Verify that extension ${preparation.extensionId} is absent at chrome://extensions`);
+      expect(text).toContain(
+        "Qualification's CDP Extensions.loadUnpacked is session-scoped; manual Load-unpacked persistence was not exercised.",
+      );
+      expect(text).toContain("Closing the inspector is not removal.");
+    };
+    assertInstructions(instructions);
+    for (const removed of [
+      `Verify that extension ${preparation.extensionId} is absent at chrome://extensions`,
+      "Qualification's CDP Extensions.loadUnpacked is session-scoped; manual Load-unpacked persistence was not exercised.",
+    ])
+      expect(() => assertInstructions(instructions.replace(removed, ""))).toThrow();
   });
 
   it("temporary-extension-removal: emitted walkthrough, exact inventory, explicit absence attestation and profile disposal", async () => {
