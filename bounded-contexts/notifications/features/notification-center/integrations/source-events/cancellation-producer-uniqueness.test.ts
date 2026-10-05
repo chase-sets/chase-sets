@@ -394,10 +394,14 @@ describe("cancellation delivery ownership", () => {
     });
     const notifications = workspaces.find((workspace) => workspace.name === "@chase-sets/notifications");
     if (!notifications) throw new Error("Notifications workspace absent");
-    async function assertEnrollment(candidates: typeof workspaces) {
+    const durationHintRegistry = JSON.parse(
+      readFileSync(path.join(repoRoot, "scripts/workspace-test-duration-hints-v1.json"), "utf8"),
+    );
+    async function assertEnrollment(candidates: typeof workspaces, registry = durationHintRegistry) {
       const invocations: string[][] = [];
       await runWorkspaceScripts({
         argv: [DB_TEST_SCRIPT_SELECTOR, "--workspace=@chase-sets/notifications"],
+        durationHintRegistry: registry,
         listWorkspaces: () => candidates,
         loadEnvironment: () => undefined,
         appendSummary: () => undefined,
@@ -418,7 +422,16 @@ describe("cancellation delivery ownership", () => {
     await assertEnrollment(workspaces);
     const withoutScript = structuredClone(workspaces);
     delete withoutScript.find((workspace) => workspace.name === notifications.name)!.packageJson.scripts["test:db"];
-    await expect(assertEnrollment(withoutScript)).rejects.toThrow("exactly one Notifications DB script invocation");
+    const withoutHint = {
+      ...durationHintRegistry,
+      entries: durationHintRegistry.entries.filter(
+        (entry: { workspace: string; script: string }) =>
+          entry.workspace !== notifications.name || entry.script !== "test:db",
+      ),
+    };
+    await expect(assertEnrollment(withoutScript, withoutHint)).rejects.toThrow(
+      "exactly one Notifications DB script invocation",
+    );
     const withoutExclusion = structuredClone(workspaces);
     const scripts = withoutExclusion.find((workspace) => workspace.name === notifications.name)!.packageJson.scripts;
     scripts["test:unit"] = scripts["test:unit"]!.replace(" --exclude **/*.db.test.ts", "");
