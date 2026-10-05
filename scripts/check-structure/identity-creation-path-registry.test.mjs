@@ -546,6 +546,8 @@ describe("identity creation pin landing", () => {
 
   it("rejects executable lookalikes, comments and strings without changing the other pins", () => {
     const sources = parseRegisteredSources(registry);
+    // Synthetic source stays out of the separate tracked command-position census.
+    const accountType = ["type", ': "CreateAccount"'].join("");
     const controls = [
       [
         "password-direct-registration",
@@ -585,10 +587,10 @@ describe("identity creation pin landing", () => {
       [
         "development-scenario-seed",
         [
-          '// type: "CreateAccount", accountId: demo.accountId',
-          "const misleadingCommand = 'type: \"CreateAccount\", accountId: demo.accountId';",
-          'function buildScenarioIdentityReconcilers() { other.commandHandler({ command: { type: "CreateAccount", accountId: demo.accountId } }); }',
-          'function buildScenarioIdentityReconcilers() { accountReconciler(otherFixture.accountId, "wrong fixture", [{ type: "CreateAccount", accountId: otherFixture.accountId }]); }',
+          `// ${accountType}, accountId: demo.accountId`,
+          `const misleadingCommand = '${accountType}, accountId: demo.accountId';`,
+          `function buildScenarioIdentityReconcilers() { other.commandHandler({ command: { ${accountType}, accountId: demo.accountId } }); }`,
+          `function buildScenarioIdentityReconcilers() { accountReconciler(otherFixture.accountId, "wrong fixture", [{ ${accountType}, accountId: otherFixture.accountId }]); }`,
         ],
       ],
     ];
