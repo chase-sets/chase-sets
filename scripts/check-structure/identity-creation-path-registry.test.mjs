@@ -357,7 +357,7 @@ const landingSelectors = {
   "passkey-registration": [personalIdentity("registerPasskeyRoutes", "post", "/passkeys/register")],
   "phone-code-registration": [personalIdentity("registerPhoneCodeRoutes", "post", "/phone-code/consume")],
   "social-login-first-use": [personalIdentity("registerSocialLoginRoutes", "get", "/social/:provider/callback")],
-  "marketplace-register-route-action": [call("api.register", "createSignInAction")],
+  "marketplace-register-route-action": [call("api.register", "createRegisterAction")],
   "marketplace-e2e-auth-helper": [
     call("fetch", "registerSyntheticAccount", (node) => registrationEndpoint(node.arguments[0]) && postOptions(node)),
   ],
@@ -582,7 +582,7 @@ describe("identity creation pin landing", () => {
       ],
       [
         "marketplace-register-route-action",
-        ["function createSignInAction() { other.register<InteractiveAuthResult>({}); }"],
+        ["function createRegisterAction() { other.register<InteractiveAuthResult>({}); }"],
       ],
       [
         "development-scenario-seed",
