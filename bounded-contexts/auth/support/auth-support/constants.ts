@@ -15,6 +15,7 @@ export const AUTH_ROLE_PERMISSIONS = {
     "accounts.view",
     "catalog.manage",
     "catalog.view",
+    "commercial-terms.agreements.manage",
     "commercial-terms.manage",
     "commercial-terms.view",
     "google-shopping.manage",

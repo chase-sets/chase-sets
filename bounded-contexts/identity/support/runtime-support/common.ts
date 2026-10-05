@@ -37,6 +37,7 @@ export type PermissionKey =
   | "catalog.view"
   | "channels.manage"
   | "channels.view"
+  | "commercial-terms.agreements.manage"
   | "commercial-terms.manage"
   | "commercial-terms.view"
   | "fulfillment.manage"
