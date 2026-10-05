@@ -68,6 +68,6 @@ handler so the domain reason is visible.
 
 For migrations, replay a representative event sequence against the migrated projection and compare final projected rows to
 hand-computed rows from the old SQL. The auth pilot uses this in
-`bounded-contexts/auth/support/auth-support/projection-row-identity.test.ts`: it replays account, user, membership,
+`bounded-contexts/auth/support/auth-support/projection-row-identity.db.test.ts`: it replays account, user, membership,
 invitation, and session events into Postgres, then snapshots all affected read-model and lookup tables. This catches
 parameter-order mistakes, JSONB serialization changes, mirror drift, and status timestamp regressions.

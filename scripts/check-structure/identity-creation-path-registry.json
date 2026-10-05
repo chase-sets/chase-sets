@@ -135,8 +135,14 @@
       "disposition": "exempt-permanent",
       "reason": "Seeds pre-existing aggregate state directly through the command handlers so the bootstrap reconciliation it exercises has something to reconcile; no transport and no shipping surface.",
       "sites": [
-        { "file": "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts", "line": 182 },
-        { "file": "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts", "line": 903 }
+        {
+          "file": "deployables/platform-api/__tests__/db/unit-1/bootstrap-production-reconciliation.db.test.ts",
+          "line": 184
+        },
+        {
+          "file": "deployables/platform-api/__tests__/db/unit-1/bootstrap-production-reconciliation.db.test.ts",
+          "line": 1027
+        }
       ]
     },
     {

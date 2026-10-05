@@ -13,6 +13,7 @@ import {
   summarizeSourceContextWakeRegistry,
 } from "../../infrastructure/platform-runtime/source-context-wake-registry.ts";
 import { isAllowedDeployableBoundedContextImport } from "./run.mjs";
+import { discoverDbProfile, validateDbProfileScripts } from "./db-profile-script-canonical-form.mjs";
 
 const channelsRoot = path.join(repoRoot, "bounded-contexts/channels");
 const manifestPath = path.join(channelsRoot, "context.json");
@@ -269,11 +270,12 @@ afterEach(() => {
 
 describe("channels-context-foundation", () => {
   it("enrols credential DB proofs and guards their boot/migration parity", () => {
-    const scripts = readJson(packagePath).scripts;
+    const inventory = discoverDbProfile(channelsRoot);
+    expect(inventory.violations).toEqual([]);
     for (const name of ["store", "rotation", "schema"]) {
       const test = `features/credentials/tests/channel-credential-${name}.db.test.ts`;
-      expect(scripts["test:db"].split(/\s+/).filter((argument) => argument === test)).toHaveLength(1);
-      expect(scripts["test:unit"]).toContain(`--exclude ${test}`);
+      expect(inventory.aggregate.files.filter((file) => file === test)).toHaveLength(1);
+      expect(inventory.unit.files).not.toContain(test);
     }
     const source = readFileSync(path.join(channelsRoot, "features/credentials/read-model/schema.ts"), "utf8");
     expect(findSchemaMigrationDdlSafetyViolationsInSource(source)).toEqual([]);
@@ -295,15 +297,16 @@ describe("channels-context-foundation", () => {
     ).toHaveLength(2);
   });
   it("enrols every attention DB proof and refuses a missing production slice", () => {
-    const scripts = readJson(packagePath).scripts;
+    const inventory = discoverDbProfile(channelsRoot);
+    expect(inventory.violations).toEqual([]);
     for (const name of [
       "channel-attention-lifecycle",
       "channel-action-source-contract",
       "channel-attention-schema-upgrade",
     ]) {
       const test = `features/connection-attention/tests/${name}.db.test.ts`;
-      expect(scripts["test:db"].split(/\s+/).filter((argument) => argument === test)).toHaveLength(1);
-      expect(scripts["test:unit"]).toContain(`--exclude ${test}`);
+      expect(inventory.aggregate.files.filter((file) => file === test)).toHaveLength(1);
+      expect(inventory.unit.files).not.toContain(test);
     }
     expect(
       collectChannelsSurfaceViolations(
@@ -313,11 +316,12 @@ describe("channels-context-foundation", () => {
     ).toEqual(["connection-attention-files"]);
   });
   it("enrols all connection-health DB proofs and refuses a missing production slice", () => {
-    const scripts = readJson(packagePath).scripts;
+    const inventory = discoverDbProfile(channelsRoot);
+    expect(inventory.violations).toEqual([]);
     for (const name of ["observation-idempotency", "policy-revision", "generation-interleavings"]) {
       const test = `features/connection-health/tests/channel-health-${name}.db.test.ts`;
-      expect(scripts["test:db"].split(/\s+/).filter((argument) => argument === test)).toHaveLength(1);
-      expect(scripts["test:unit"]).toContain(`--exclude ${test}`);
+      expect(inventory.aggregate.files.filter((file) => file === test)).toHaveLength(1);
+      expect(inventory.unit.files).not.toContain(test);
     }
     expect(
       collectChannelsSurfaceViolations(
@@ -327,10 +331,12 @@ describe("channels-context-foundation", () => {
     ).toEqual(["connection-health-files"]);
   });
   it("enrols real service composition in the DB profile and excludes it from unit runs", () => {
-    const scripts = readJson(packagePath).scripts;
+    const packageJson = readJson(packagePath);
+    expect(validateDbProfileScripts({ name: packageJson.name, dir: channelsRoot, packageJson }).violations).toEqual([]);
+    const inventory = discoverDbProfile(channelsRoot);
     const test = "tests/channels-services-composition.db.test.ts";
-    expect(scripts["test:db"].split(/\s+/).filter((argument) => argument === test)).toHaveLength(1);
-    expect(scripts["test:unit"]).toContain(`--exclude ${test}`);
+    expect(inventory.aggregate.files.filter((file) => file === test)).toHaveLength(1);
+    expect(inventory.unit.files).not.toContain(test);
   });
 
   it("supersedes the foundation with the exact connection slice, module, finite tests, and README contract", () => {
@@ -574,6 +580,8 @@ describe("channels-context-foundation", () => {
     expect(files.filter((file) => !file.includes("/")).sort()).toEqual([...requiredRootFiles].sort());
     expect(files).toEqual(
       expect.arrayContaining([
+        "tests/vitest.db.config.mjs",
+        "tests/vitest.unit.config.mjs",
         "features/connections/domain/domain.ts",
         "features/connections/api/route.ts",
         "features/connector-client/domain/identity.ts",

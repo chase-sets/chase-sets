@@ -834,10 +834,10 @@
       "proof": {
         "authoritativeResponse": "Mint and unpair respond only after grant COMMIT acknowledgement. PUT returns its existing CAS outcome/revision only after atomic custody-plus-renewal COMMIT acknowledgement. Disconnect acknowledges irrevocable revoke before fresh metadata and fenced clear, returning only after clear COMMIT acknowledgement. Indeterminate commits return 503, never a success snapshot or a no-write promise. Real-app tests pause COMMIT, inspect complete rows through an independent connection, and discriminate committed-but-ack-dropped from killed-before-commit effects.",
         "tests": [
-          "deployables/platform-api/__tests__/operator-session/operator-session-grant-mint.db.test.ts",
-          "deployables/platform-api/__tests__/operator-session/operator-session-grant-lifecycle.db.test.ts",
-          "deployables/platform-api/__tests__/operator-session/operator-session-grant-scope.db.test.ts",
-          "deployables/platform-api/__tests__/operator-session/operator-session-push.db.test.ts"
+          "deployables/platform-api/__tests__/db/unit-2/operator-session/operator-session-grant-mint.db.test.ts",
+          "deployables/platform-api/__tests__/db/unit-2/operator-session/operator-session-grant-lifecycle.db.test.ts",
+          "deployables/platform-api/__tests__/db/unit-2/operator-session/operator-session-grant-scope.db.test.ts",
+          "deployables/platform-api/__tests__/db/unit-2/operator-session/operator-session-push.db.test.ts"
         ]
       }
     },

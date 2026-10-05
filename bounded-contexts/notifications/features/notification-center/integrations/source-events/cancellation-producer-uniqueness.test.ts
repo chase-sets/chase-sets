@@ -5,6 +5,11 @@ import { fileURLToPath } from "node:url";
 import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it } from "vitest";
 import { DB_TEST_SCRIPT_SELECTOR, runWorkspaceScripts } from "../../../../../../scripts/run-workspaces.mjs";
+import {
+  canonicalDbProfileCommand,
+  discoverDbProfile,
+  unitProfileConfigPath,
+} from "../../../../../../scripts/check-structure/db-profile-script-canonical-form.mjs";
 
 const repoRoot = fileURLToPath(new URL("../../../../../../", import.meta.url));
 const roots = ["bounded-contexts", "contracts", "deployables", "infrastructure", "packages"];
@@ -412,11 +417,16 @@ describe("cancellation delivery ownership", () => {
       expect(invocations, "exactly one Notifications DB script invocation").toHaveLength(1);
       expect(invocations[0]?.slice(-4)).toEqual(["--filter", "@chase-sets/notifications", "run", "test:db"]);
       const selected = candidates.find((workspace) => workspace.name === notifications!.name)!;
+      const workspaceRoot = path.join(repoRoot, "bounded-contexts/notifications");
       expect(selected.packageJson.chaseSets?.testProfile).toBe("db");
-      expect(selected.packageJson.scripts["test:db"]).toBe(`vitest run --config ./tests/vitest.config.mjs ${dbFile}`);
+      expect(selected.packageJson.scripts["test:db"]).toBe(canonicalDbProfileCommand("test:db", workspaceRoot));
+      const inventory = discoverDbProfile(workspaceRoot);
+      expect(inventory.violations).toEqual([]);
+      expect(inventory.aggregate.files).toContain(dbFile);
+      expect(inventory.unit.files).not.toContain(dbFile);
       for (const script of ["test", "test:unit", "test:fast", "test:watch"])
-        expect(selected.packageJson.scripts[script], `${script} excludes DB tests`).toContain(
-          "--exclude **/*.db.test.ts",
+        expect(selected.packageJson.scripts[script], `${script} excludes DB tests`).toBe(
+          `vitest${script === "test:watch" ? "" : " run"} --config ./${unitProfileConfigPath(workspaceRoot)}`,
         );
     }
     await assertEnrollment(workspaces);
@@ -434,7 +444,7 @@ describe("cancellation delivery ownership", () => {
     );
     const withoutExclusion = structuredClone(workspaces);
     const scripts = withoutExclusion.find((workspace) => workspace.name === notifications.name)!.packageJson.scripts;
-    scripts["test:unit"] = scripts["test:unit"]!.replace(" --exclude **/*.db.test.ts", "");
+    scripts["test:unit"] = "vitest run --config ./tests/vitest.config.mjs";
     await expect(assertEnrollment(withoutExclusion)).rejects.toThrow("test:unit excludes DB tests");
   });
 });

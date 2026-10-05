@@ -40,7 +40,7 @@ import {
 // so it cannot drift from production behavior. The resolver fold and the
 // publishable filter are re-expressed here as pure functions over candidates so
 // the proof needs no database; the DB-backed acceptance suite
-// (`tests/catalog-authoring/acceptance/alias-persistence.test.ts`) proves the
+// (`tests/catalog-authoring/acceptance/alias-persistence.db.test.ts`) proves the
 // same hops against Postgres, and the Discovery acceptance suite
 // (`discovery/tests/acceptance/marketplace-search.test.ts`) proves the search
 // half against the real HTTP API. This packet is the connective tissue between

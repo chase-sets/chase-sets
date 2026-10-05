@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "@chase-sets/typescript-compiler-api";
 import { listWorkspacePackages, repoRoot } from "../lib/repo.mjs";
+import { discoverConfigTests } from "./db-profile-script-canonical-form.mjs";
 
 const sourceExtensions = [".ts", ".tsx", ".mts", ".cts"];
 const sourceExtensionSet = new Set(sourceExtensions);
@@ -366,105 +367,35 @@ function viteExecution({ packages, paths, readContent, readRecords, contextByMan
   return { files, apps };
 }
 
-function vitestConfigPath(workspace, paths) {
-  const script = workspace.packageJson.scripts?.test;
-  if (typeof script !== "string" || !/(?:^|\s)vitest(?:\s|$)/.test(script)) return null;
-  const match = /(?:^|\s)--config\s+(?:"([^"]+)"|'([^']+)'|(\S+))/.exec(script);
-  if (!match) return null;
-  const configured = match[1] ?? match[2] ?? match[3];
-  const relativeFile = normalizePath(path.posix.join(workspace.root, workspace.dirName, configured));
-  return paths.has(relativeFile) ? relativeFile : null;
-}
-
-function importedModuleForBinding(configFile, source, bindingName, paths) {
-  for (const statement of source.statements) {
-    if (!ts.isImportDeclaration(statement) || !statement.importClause?.namedBindings) continue;
-    if (!ts.isNamedImports(statement.importClause.namedBindings) || !ts.isStringLiteral(statement.moduleSpecifier))
-      continue;
-    if (!statement.importClause.namedBindings.elements.some((element) => element.name.text === bindingName)) continue;
-    return resolveRelative(configFile, statement.moduleSpecifier.text, paths);
-  }
-  return null;
-}
-
-function stringArrayVariable(source, variableName) {
-  for (const statement of source.statements) {
-    if (!ts.isVariableStatement(statement)) continue;
-    for (const declaration of statement.declarationList.declarations) {
-      if (!ts.isIdentifier(declaration.name) || declaration.name.text !== variableName) continue;
-      if (!declaration.initializer || !ts.isArrayLiteralExpression(declaration.initializer)) return [];
-      return declaration.initializer.elements.filter(ts.isStringLiteral).map((element) => element.text);
-    }
-  }
-  return [];
-}
-
-function directIncludePatterns(source) {
-  const patterns = [];
-  const visit = (node) => {
-    if (
-      ts.isPropertyAssignment(node) &&
-      ((ts.isIdentifier(node.name) && node.name.text === "include") ||
-        (ts.isStringLiteral(node.name) && node.name.text === "include")) &&
-      ts.isArrayLiteralExpression(node.initializer)
-    ) {
-      patterns.push(...node.initializer.elements.filter(ts.isStringLiteral).map((element) => element.text));
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(source);
-  return patterns;
-}
-
-function vitestIncludePatterns(configFile, readContent, paths) {
-  const source = sourceFile(configFile, readContent(configFile));
-  const boundedFactoryModule = importedModuleForBinding(configFile, source, "defineBoundedContextTestConfig", paths);
-  if (boundedFactoryModule) {
-    const shared = sourceFile(boundedFactoryModule, readContent(boundedFactoryModule));
-    return stringArrayVariable(shared, "boundedContextTestInclude");
-  }
-  return directIncludePatterns(source);
-}
-
-function globPattern(pattern) {
-  let result = "^";
-  for (let index = 0; index < pattern.length; index += 1) {
-    const character = pattern[index];
-    if (character === "*" && pattern[index + 1] === "*") {
-      index += 1;
-      if (pattern[index + 1] === "/") {
-        index += 1;
-        result += "(?:.*/)?";
-      } else {
-        result += ".*";
-      }
-    } else if (character === "*") {
-      result += "[^/]*";
-    } else if (character === "?") {
-      result += "[^/]";
-    } else {
-      result += character.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
-    }
-  }
-  return new RegExp(`${result}$`);
-}
-
-function vitestExecution({ packages, paths, readContent }) {
+function vitestExecution({ packages, paths }) {
   const files = new Set();
+  const violations = [];
+  const cache = new Map();
   for (const workspace of packages) {
-    const configFile = vitestConfigPath(workspace, paths);
-    if (!configFile) continue;
-    const patterns = vitestIncludePatterns(configFile, readContent, paths).map(globPattern);
-    if (patterns.length === 0) continue;
     const workspacePath = normalizePath(path.posix.join(workspace.root, workspace.dirName));
     const prefix = `${workspacePath}/`;
-    for (const relativeFile of paths) {
-      if (!relativeFile.startsWith(prefix)) continue;
-      const workspaceRelative = relativeFile.slice(prefix.length);
-      if (patterns.some((pattern) => pattern.test(workspaceRelative))) files.add(relativeFile);
+    const workspaceFiles = [...paths]
+      .filter((file) => file.startsWith(prefix))
+      .map((file) => file.slice(prefix.length));
+    const configs = new Set();
+    for (const [name, script] of Object.entries(workspace.packageJson.scripts ?? {})) {
+      if (!/^(?:test|test:unit|test:db(?::[1-9]\d*)?)$/.test(name)) continue;
+      // Admit the canonical command grammar, not shell expressions or inferred membership.
+      const match = /^vitest run --config ((?:\.\/)?[\w./-]+\.(?:mjs|ts))$/.exec(script);
+      if (match) configs.add(match[1]);
+      else if (/(?:^|\s)vitest(?:\s|$)/.test(script))
+        violations.push(`${workspace.name} ${name}: cannot derive Vitest execution from a noncanonical command`);
+    }
+    for (const configPath of configs) {
+      try {
+        const selected = discoverConfigTests(workspace.dir, configPath, workspaceFiles, cache);
+        for (const file of selected.files) files.add(`${prefix}${file}`);
+      } catch (error) {
+        violations.push(`${workspace.name} ${configPath}: cannot derive Vitest execution; ${error.message}`);
+      }
     }
   }
-  return files;
+  return { files, violations };
 }
 
 function hasNoHostRegistration(manifest) {
@@ -511,7 +442,7 @@ export function inspectJsonImportAttributes(options = {}) {
     contextByManifest,
     contextManifests: contextManifestResult.manifests,
   });
-  const vitestFiles = vitestExecution({ packages, paths, readContent });
+  const vitest = vitestExecution({ packages, paths });
   const manifestSpecifiers = contextManifestSpecifiers(packages);
   const declarations = [];
 
@@ -536,7 +467,7 @@ export function inspectJsonImportAttributes(options = {}) {
           resolved,
           nodeFiles,
           viteFiles: vite.files,
-          vitestFiles,
+          vitestFiles: vitest.files,
           contextByManifest,
           contextManifests: contextManifestResult.manifests,
         }),
@@ -555,7 +486,7 @@ export function inspectJsonImportAttributes(options = {}) {
       declarations.filter((entry) => entry.disposition === name).length,
     ]),
   );
-  const discoveryViolations = [...contextManifestResult.violations];
+  const discoveryViolations = [...contextManifestResult.violations, ...vitest.violations];
   if (contexts.length > 0 && declarations.length === 0) {
     discoveryViolations.push(
       `JSON import-attribute discovery collapsed despite ${contexts.length} implemented context manifest(s)`,

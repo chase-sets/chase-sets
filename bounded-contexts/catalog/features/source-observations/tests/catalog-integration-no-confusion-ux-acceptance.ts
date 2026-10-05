@@ -448,7 +448,7 @@ const catalogNoConfusionUxNewIaProofTests = [
   "scripts/check-structure/catalog-integration-alias-equivalence-e2e-proof.test.mjs",
   // The DB-backed alias persistence acceptance suite that proves the same hops
   // against Postgres, including the full-milestone-flow test.
-  "tests/catalog-authoring/acceptance/alias-persistence.test.ts",
+  "tests/catalog-authoring/acceptance/alias-persistence.db.test.ts",
 ] as const;
 
 function buildDefaultWorkflowEvidence(evidenceBase: string): readonly CatalogNoConfusionUxWorkflowEvidence[] {

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { discoverDbProfile } from "../../../../../scripts/check-structure/db-profile-script-canonical-form.mjs";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "../../../../..");
 const source = (relativePath: string) => readFileSync(path.join(repositoryRoot, relativePath), "utf8");
@@ -83,12 +84,11 @@ describe("external channel sale caller and generated-surface inventory", () => {
     expect(registry).toContain("createInventoryExternalChannelSaleRuntime(deps, holdCollisions).bind(context)");
     expect(registry).not.toMatch(/RecordExternalChannelSale[\s\S]{0,80}\bas\s*\{/);
 
-    const packageManifest = JSON.parse(source("bounded-contexts/inventory/package.json")) as {
-      scripts: Record<string, string>;
-    };
+    const inventory = discoverDbProfile(path.join(repositoryRoot, "bounded-contexts/inventory"));
+    expect(inventory.violations).toEqual([]);
     const dbTest = "features/channel-sales/api/external-channel-sale-runtime.db.test.ts";
-    expect(packageManifest.scripts["test:db"]).toContain(dbTest);
-    expect(packageManifest.scripts["test:unit"]).toContain(`--exclude ${dbTest}`);
+    expect(inventory.aggregate.files).toContain(dbTest);
+    expect(inventory.unit.files).not.toContain(dbTest);
     expect(source("bounded-contexts/inventory/support/runtime-support/schema.ts")).not.toMatch(
       /external[_-]channel[_-]sale/i,
     );

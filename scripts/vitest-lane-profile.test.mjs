@@ -14,6 +14,7 @@ import { defineScriptsTestConfig } from "../vitest.scripts.config.mjs";
 import { heavySlotVitestGlobalSetupPath } from "./lib/heavy-slot.mjs";
 import { heavySlotScriptBatteryGlobalSetupPath } from "./lib/heavy-slot-script-battery.mjs";
 import { repoRoot } from "./lib/repo.mjs";
+import { readTestSelectionConfig } from "./check-structure/db-profile-script-canonical-form.mjs";
 
 const originalLaneMode = process.env.CHASE_SETS_LANE_MODE;
 
@@ -88,7 +89,7 @@ test("preserves explicit workspace overrides in lane mode", () => {
   assert.equal(config.test.maxWorkers, 1);
 });
 
-test("keeps the exact 67+1 tracked Vitest config topology on the shared lane resolver", () => {
+test("keeps the exact 67 base + 50 derived + 1 scripts config topology on the shared lane resolver", () => {
   const trackedConfigs = execFileSync("git", ["ls-files", "--", "*vitest*.config.*"], {
     cwd: repoRoot,
     encoding: "utf8",
@@ -99,8 +100,16 @@ test("keeps the exact 67+1 tracked Vitest config topology on the shared lane res
   const scriptsConfig = "vitest.scripts.config.mjs";
   const workspaceConfigs = trackedConfigs.filter((configPath) => configPath !== scriptsConfig);
 
-  assert.equal(trackedConfigs.length, 68);
-  assert.equal(workspaceConfigs.length, 67);
+  const derivedConfigs = workspaceConfigs.filter((configPath) =>
+    /\/vitest\.(?:db(?:\.\d+)?|unit)\.config\.mjs$/.test(configPath),
+  );
+  assert.equal(trackedConfigs.length, 118);
+  assert.equal(workspaceConfigs.length, 117);
+  assert.equal(workspaceConfigs.length - derivedConfigs.length, 67);
+  assert.equal(derivedConfigs.length, 50);
+  assert.equal(derivedConfigs.filter((configPath) => configPath.endsWith("/vitest.unit.config.mjs")).length, 24);
+  assert.equal(derivedConfigs.filter((configPath) => configPath.endsWith("/vitest.db.config.mjs")).length, 24);
+  assert.equal(derivedConfigs.filter((configPath) => /\/vitest\.db\.\d+\.config\.mjs$/.test(configPath)).length, 2);
   assert.ok(workspaceConfigs.includes("contracts/order-groups/vitest.config.ts"));
   assert.deepEqual(
     trackedConfigs.filter((configPath) => configPath === scriptsConfig),
@@ -110,7 +119,14 @@ test("keeps the exact 67+1 tracked Vitest config topology on the shared lane res
   for (const configPath of workspaceConfigs) {
     const source = readFileSync(path.join(repoRoot, configPath), "utf8");
     assert.match(source, /from ["'][^"']*vitest\.shared\.mjs["']/, configPath);
-    assert.match(source, /export default define(?:BoundedContext|Workspace)TestConfig\(/, configPath);
+    if (derivedConfigs.includes(configPath)) {
+      const selection = readTestSelectionConfig(path.join(repoRoot, configPath));
+      assert.equal(selection.kind, configPath.endsWith("/vitest.unit.config.mjs") ? "unit" : "db");
+      assert.ok(selection.globalSetup.includes(heavySlotVitestGlobalSetupPath), configPath);
+      assert.match(source, /export default define(?:Db|Unit)TestConfig\(/, configPath);
+    } else {
+      assert.match(source, /export default define(?:BoundedContext|Workspace)TestConfig\(/, configPath);
+    }
     assert.doesNotMatch(source, /from ["']vitest\/config["']/, configPath);
   }
 
