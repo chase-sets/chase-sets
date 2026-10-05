@@ -1,9 +1,15 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SignInPage } from "./sign-in-page";
 import { defineAuthHost } from "../../../support/route-support/auth-host";
+import { adminAuthHostConfig, marketplaceAuthHostConfig } from "../../../support/route-support/host-config";
+import { getPasskeyCredential } from "../../../support/ui-support/passkey-browser";
+
+vi.mock("../../../support/ui-support/passkey-browser", () => ({
+  getPasskeyCredential: vi.fn(),
+}));
 
 function continueWithIdentifier(identifier: string) {
   fireEvent.change(screen.getByLabelText(/Email or phone/), {
@@ -26,10 +32,54 @@ function containingCard(element: HTMLElement) {
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
+  vi.clearAllMocks();
   vi.unstubAllGlobals();
 });
 
 describe("sign-in page two-step journey", () => {
+  it.each([
+    ["marketplace", marketplaceAuthHostConfig.signInMethods],
+    ["access-admin", adminAuthHostConfig.signInMethods],
+    ["password-only", ["password"] as const],
+    ["empty", [] as const],
+  ])("lists only configured %s methods before Continue without looking up an account", (_host, signInMethods) => {
+    const fetchMock = vi.fn(() => {
+      throw new Error("The identifier step must not look up an account.");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<SignInPage signInMethods={signInMethods} />);
+
+    const labels = {
+      password: "Password",
+      "phone-code": "Phone Code",
+      "magic-link": "Email me a sign-in link",
+      passkey: "Passkey",
+    };
+    function expectConfiguredList() {
+      expect(Boolean(screen.queryByText("You can sign in with"))).toBe(signInMethods.length > 0);
+      for (const [method, label] of Object.entries(labels)) {
+        const text = screen.queryByText(label, { exact: true });
+        expect(Boolean(text)).toBe(signInMethods.some((configured) => configured === method));
+        expect(text?.closest('button, a, input, [role="radio"], [role="tab"]') ?? null).toBeNull();
+      }
+      expect(screen.queryByRole("radiogroup")).toBeNull();
+      expect(document.querySelector('input[name="intent"]')).toBeNull();
+      expect(screen.queryByText("No sign-in method available")).toBeNull();
+    }
+
+    expectConfiguredList();
+    continueWithIdentifier("buyer@example.com");
+    expect(screen.queryByText("You can sign in with")).toBeNull();
+    if (signInMethods.length === 0) {
+      expect(screen.getByText("No sign-in method available")).toBeTruthy();
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Change" }));
+    expectConfiguredList();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(getPasskeyCredential).not.toHaveBeenCalled();
+  });
+
   it("starts with social login and one sign-in identifier field", () => {
     render(<SignInPage />);
 
@@ -172,7 +222,7 @@ describe("sign-in page two-step journey", () => {
     expect(screen.getByText("Signing in with buyer@example.com")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Use Passkey" })).toBeTruthy();
     expect(screen.getByRole("radio", { name: "Passkey" }).getAttribute("aria-checked")).toBe("true");
-    expect(screen.getByRole("radio", { name: "Magic Link" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Email me a sign-in link" })).toBeTruthy();
     expect(screen.getByRole("radio", { name: "Password" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Continue with Google" })).toBeNull();
     expect(elevatedCardCount()).toBe(1);
@@ -210,12 +260,12 @@ describe("sign-in page two-step journey", () => {
   it("keeps secondary options behind the identifier step", () => {
     render(<SignInPage />);
 
-    expect(screen.queryByRole("radio", { name: "Magic Link" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: "Email me a sign-in link" })).toBeNull();
 
     continueWithIdentifier("buyer@example.com");
-    fireEvent.click(screen.getByRole("radio", { name: "Magic Link" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Email me a sign-in link" }));
 
-    expect(screen.getByRole("button", { name: "Send Magic Link" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Email me a sign-in link" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Send Phone Code" })).toBeNull();
     expect(elevatedCardCount()).toBe(1);
   });
@@ -228,6 +278,154 @@ describe("sign-in page two-step journey", () => {
     expect(screen.getByText("No sign-in method available")).toBeTruthy();
     expect(elevatedCardCount()).toBe(0);
     expect(document.querySelectorAll(".rounded-tokenLg.overflow-hidden")).toHaveLength(0);
+  });
+});
+
+describe("sign-in method presentation and native submissions", () => {
+  const action = "/access/sign-in?returnTo=%2Faccess%2Faccounts";
+  const hiddenFields = [{ name: "returnTo", value: "/access/accounts" }];
+
+  function formFor(intent: string) {
+    const form = document.querySelector(`input[name="intent"][value="${intent}"]`)?.closest("form");
+    if (!form) throw new Error(`Missing form for ${intent}`);
+    expect(form.getAttribute("action")).toBe(action);
+    expect(form.getAttribute("method")).toBe("post");
+    const submit = vi.fn((event: Event) => event.preventDefault());
+    form.addEventListener("submit", submit);
+    fireEvent.submit(form);
+    expect(submit).toHaveBeenCalledOnce();
+    return Object.fromEntries(new FormData(form));
+  }
+
+  it.each([
+    ["multiple email methods", ["passkey", "magic-link", "password"] as const],
+    ["email link alone", ["magic-link"] as const],
+  ])("explains email links with the mail glyph and preserves the request for %s", (_name, signInMethods) => {
+    render(<SignInPage action={action} hiddenFields={hiddenFields} signInMethods={signInMethods} />);
+    continueWithIdentifier("buyer@example.com");
+
+    if (signInMethods.length > 1) {
+      const option = screen.getByRole("radio", { name: "Email me a sign-in link" }) as HTMLButtonElement;
+      expect(option.disabled).toBe(false);
+      expect(option.querySelector("svg.lucide-mail")).not.toBeNull();
+      expect(option.querySelector("svg.lucide-message-square")).toBeNull();
+      fireEvent.click(option);
+      expect(option.getAttribute("aria-checked")).toBe("true");
+    } else {
+      expect(screen.queryByRole("radiogroup")).toBeNull();
+    }
+
+    expect(screen.getByText("We'll email you a one-time link.")).toBeTruthy();
+    const button = screen.getByRole("button", { name: "Email me a sign-in link" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    expect(button.querySelector("svg.lucide-mail")).not.toBeNull();
+    expect(formFor("magic-link-request")).toEqual({
+      returnTo: "/access/accounts",
+      intent: "magic-link-request",
+      email: "buyer@example.com",
+    });
+    expect(screen.queryByLabelText("Magic Link Token")).toBeNull();
+    expect(document.querySelector('input[name="intent"][value="magic-link-consume"]')).toBeNull();
+  });
+
+  it("preserves password POST fields", () => {
+    render(<SignInPage action={action} hiddenFields={hiddenFields} />);
+    continueWithIdentifier("buyer@example.com");
+    fireEvent.click(screen.getByRole("radio", { name: "Password" }));
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "synthetic-password" } });
+    expect(formFor("password")).toEqual({
+      returnTo: "/access/accounts",
+      intent: "password",
+      email: "buyer@example.com",
+      password: "synthetic-password",
+    });
+  });
+
+  it("keeps phone-only requests on the message glyph and consumes the rehydrated challenge", () => {
+    const { rerender } = render(
+      <SignInPage action={action} hiddenFields={hiddenFields} signInMethods={["phone-code"]} />,
+    );
+    continueWithIdentifier("+13125550100");
+    expect(screen.queryByRole("radiogroup")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Send Phone Code" }).querySelector("svg.lucide-message-square"),
+    ).not.toBeNull();
+    expect(formFor("phone-code-request")).toEqual({
+      returnTo: "/access/accounts",
+      intent: "phone-code-request",
+      phone: "+13125550100",
+    });
+    rerender(
+      <SignInPage
+        action={action}
+        hiddenFields={hiddenFields}
+        signInMethods={["phone-code"]}
+        notice={{
+          status: "phone-code-sent",
+          tokenId: "synthetic-phone-token",
+          phone: "+13125550100",
+          expiresAt: "2099-01-01T00:00:00Z",
+        }}
+      />,
+    );
+    expect(screen.getByText("Phone code sent")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Phone Code"), { target: { value: "123456" } });
+    expect(formFor("phone-code-consume")).toEqual({
+      returnTo: "/access/accounts",
+      intent: "phone-code-consume",
+      phone: "+13125550100",
+      tokenId: "synthetic-phone-token",
+      code: "123456",
+    });
+  });
+
+  it("posts the existing passkey credential payload after the browser ceremony", async () => {
+    const payload = {
+      challengeId: "synthetic-challenge-id",
+      challenge: "synthetic-challenge",
+      externalCredentialId: "synthetic-credential",
+      label: "Synthetic passkey",
+      webauthnResponse: "{}",
+    };
+    vi.mocked(getPasskeyCredential).mockResolvedValueOnce(payload);
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, "requestSubmit").mockImplementation(() => {});
+    render(<SignInPage action={action} hiddenFields={hiddenFields} />);
+    continueWithIdentifier("buyer@example.com");
+    fireEvent.submit(screen.getByRole("button", { name: "Use Passkey" }).closest("form")!);
+    await waitFor(() => expect(requestSubmit).toHaveBeenCalledOnce());
+    expect(getPasskeyCredential).toHaveBeenCalledExactlyOnceWith("buyer@example.com");
+    expect(formFor("passkey-sign-in")).toEqual({
+      returnTo: "/access/accounts",
+      intent: "passkey-sign-in",
+      email: "buyer@example.com",
+      ...payload,
+    });
+  });
+
+  it("rehydrates the email notice and error without enabling manual token entry", () => {
+    render(
+      <SignInPage
+        action={action}
+        hiddenFields={hiddenFields}
+        signInMethods={["magic-link"]}
+        errorMessage="The previous link expired."
+        allowManualMagicLinkTokenEntry={false}
+        notice={{
+          status: "magic-link-sent",
+          tokenId: "synthetic-email-token",
+          email: "buyer@example.com",
+          expiresAt: "2099-01-01T00:00:00Z",
+        }}
+      />,
+    );
+    expect(screen.getByRole("alert").textContent).toContain("The previous link expired.");
+    expect(document.activeElement).toBe(screen.getByRole("alert"));
+    expect(screen.getByText("Magic link sent")).toBeTruthy();
+    expect(screen.getByText("Signing in with buyer@example.com")).toBeTruthy();
+    expect(screen.getByText("We'll email you a one-time link.")).toBeTruthy();
+    expect(screen.queryByRole("radiogroup")).toBeNull();
+    expect(screen.queryByLabelText("Magic Link Token")).toBeNull();
+    expect(formFor("magic-link-request").email).toBe("buyer@example.com");
   });
 });
 
@@ -253,9 +451,9 @@ describe("sign-in page magic link recovery", () => {
     render(<SignInPage allowManualMagicLinkTokenEntry={false} />);
 
     continueWithIdentifier("buyer@example.com");
-    fireEvent.click(screen.getByRole("radio", { name: /Magic Link/ }));
+    fireEvent.click(screen.getByRole("radio", { name: "Email me a sign-in link" }));
 
-    expect(screen.getByRole("button", { name: "Send Magic Link" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Email me a sign-in link" })).toBeTruthy();
     expect(screen.queryByLabelText("Magic Link Token")).toBeNull();
     expect(screen.queryByRole("button", { name: "Continue With Token" })).toBeNull();
     expect(document.querySelector('input[name="intent"][value="magic-link-consume"]')).toBeNull();
