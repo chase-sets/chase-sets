@@ -235,7 +235,13 @@ describe("fulfillment shipment read model queries", () => {
     const shipmentSql = queries.find((sql) => sql.includes("FROM fulfillment_shipment_pages AS page")) ?? "";
     expect(shipmentSql).toContain("fulfillment_shipment_conflict_pages AS conflict");
     expect(shipmentSql).toContain("ORDER BY conflict.conflict_kind, conflict.origin");
-    const operationSql = queries.find((sql) => sql.includes("FROM fulfillment_postage_label_operations")) ?? "";
+    const operationQueries = queries.filter(
+      (sql) =>
+        sql.includes("FROM fulfillment_postage_label_operations") &&
+        sql.includes("ORDER BY created_at DESC, operation_key DESC"),
+    );
+    expect(operationQueries).toHaveLength(1);
+    const operationSql = operationQueries[0]!;
     expect(operationSql).toContain("request_json #>>");
     expect(operationSql).not.toContain("sender");
     expect(operationSql).not.toContain("recipient");

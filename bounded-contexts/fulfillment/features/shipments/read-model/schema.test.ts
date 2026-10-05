@@ -20,6 +20,10 @@ describe("fulfillment shipment schema", () => {
   it("ledgers shipment backfills and active postage-operation uniqueness", () => {
     expect(fulfillmentShipmentSchemaMigrations).toEqual([
       expect.objectContaining({
+        migrationId: "20261005_fulfillment_physical_group",
+        statements: [expect.stringContaining("ALTER TABLE fulfillment_shipment_pages")],
+      }),
+      expect.objectContaining({
         migrationId: "20260703_fulfillment_shipment_line_packing_confirmed_quantity",
         statements: [expect.stringContaining("UPDATE fulfillment_shipment_line_pages")],
       }),
@@ -91,6 +95,25 @@ describe("fulfillment shipment schema", () => {
         ],
       }),
     ]);
+  });
+
+  it("pairs physical group boot columns with the ledgered upgrade", () => {
+    const migration = fulfillmentShipmentSchemaMigrations.find(
+      (entry) => entry.migrationId === "20261005_fulfillment_physical_group",
+    )!;
+    expect(migration.statements).toHaveLength(1);
+    const statement = migration.statements[0]!;
+    expect(fulfillmentShipmentSchemaSql).toContain(statement);
+    for (const column of [
+      "physical_group jsonb NULL",
+      "physical_group_authority_revision integer NOT NULL DEFAULT 0",
+      "shipment_group_admission jsonb NULL",
+      "shipment_group_admission_revision integer NOT NULL DEFAULT 0",
+      "shared_postage_label_id text NULL",
+      "physical_group_revision integer NOT NULL DEFAULT 0",
+    ]) {
+      expect(statement).toContain(`ADD COLUMN IF NOT EXISTS ${column}`);
+    }
   });
 
   it("scopes the purchased postage label uniqueness index by provider so ids never collide across providers", () => {

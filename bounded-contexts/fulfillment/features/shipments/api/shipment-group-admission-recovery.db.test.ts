@@ -68,6 +68,8 @@ describe("Shipment Group admission real-store recovery", () => {
     });
     const source = createPostgresEventStore({ pool: pools.ordering });
     const target = createPostgresEventStore({ pool: pools.fulfillment });
+    const appendToStreams = target.appendToStreams;
+    if (!appendToStreams) throw new Error("Admission recovery requires atomic multi-stream append.");
     const checkpointStore = createPostgresProjectionStore({ db: pools.fulfillment });
     let crashed = false;
     let outage = false;
@@ -89,6 +91,16 @@ describe("Shipment Group admission real-store recovery", () => {
         throwIfOutage();
         const result = await target.appendToStream(input);
         if (!crashed && input.events.some((event) => event.eventType === crashAfter)) {
+          crashed = true;
+          outage = true;
+          throwIfOutage();
+        }
+        return result;
+      },
+      appendToStreams: async (input) => {
+        throwIfOutage();
+        const result = await appendToStreams(input);
+        if (!crashed && input.some((append) => append.events.some((event) => event.eventType === crashAfter))) {
           crashed = true;
           outage = true;
           throwIfOutage();

@@ -115,7 +115,13 @@ describeDb("shipment cancellation conflict steady state", () => {
     )!.statements[0]!;
     const indexSql = `CREATE INDEX IF NOT EXISTS fulfillment_shipment_conflict_pages_shipment_idx
   ON fulfillment_shipment_conflict_pages (shipment_id, conflict_kind, origin);`;
-    const retainedSchemaSql = fulfillmentShipmentSchemaSql.replace(`\n\n${tableSql}\n\n${indexSql}`, "");
+    const physicalGroupMigrationId = "20261005_fulfillment_physical_group";
+    const physicalGroupSql = fulfillmentShipmentSchemaMigrations.find(
+      (migration) => migration.migrationId === physicalGroupMigrationId,
+    )!.statements[0]!;
+    const retainedSchemaSql = fulfillmentShipmentSchemaSql
+      .replace(`\n\n${tableSql}\n\n${indexSql}`, "")
+      .replace(`\n\n${physicalGroupSql}`, "");
     // Exact exported SQL at merge-base 8a423dc955640fbd7f5075c8ea7de196a21da524.
     expect(createHash("sha256").update(retainedSchemaSql).digest("hex")).toBe(
       "3e533f865f898ab267589cf3cfd600874756dd12d365a6720c5bb2baca347065",
@@ -125,7 +131,7 @@ describeDb("shipment cancellation conflict steady state", () => {
         ...fulfillmentModule,
         schemaSql: fulfillmentModule.schemaSql.replace(fulfillmentShipmentSchemaSql, retainedSchemaSql),
         schemaMigrations: fulfillmentModule.schemaMigrations!.filter(
-          (migration) => migration.migrationId !== conflictMigrationId,
+          (migration) => ![conflictMigrationId, physicalGroupMigrationId].includes(migration.migrationId),
         ),
       },
       pool,

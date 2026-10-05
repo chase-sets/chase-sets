@@ -168,6 +168,13 @@ describe("platform worker projection wake interest graph", () => {
     );
     expect(fingerprint(runtime.subscriptionRunners.map((runner) => fingerprintObject(runner)))).toEqual({
       count: 250,
+      sha256: "7ff799cc71fbd89ce32cda0bcc17e755c2ff0d568b7188b85978ced94cc526de",
+    });
+    // Removing only this slice's new subscriptions must reproduce the prior complete graph.
+    expect(
+      fingerprint(runtime.subscriptionRunners.map((runner) => fingerprintObject(beforePhysicalGrouping(runner)))),
+    ).toEqual({
+      count: 250,
       sha256: "3b0d6b9404360baa199278cb52db3e4a64e9207ca2ee2c7ad0732a5ef1cb302c",
     });
     expect(
@@ -175,6 +182,17 @@ describe("platform worker projection wake interest graph", () => {
         rawSubscriptions.map(({ targetContextName, subscription }) => ({
           targetContextName,
           subscription: fingerprintObject(subscription),
+        })),
+      ),
+    ).toEqual({
+      count: 155,
+      sha256: "86adb4e2b58b4191b6871355c38e9f8124331da5e7ff7c47d403bffa9ec896ea",
+    });
+    expect(
+      fingerprint(
+        rawSubscriptions.map(({ targetContextName, subscription }) => ({
+          targetContextName,
+          subscription: fingerprintObject(beforePhysicalGrouping(subscription)),
         })),
       ),
     ).toEqual({
@@ -483,6 +501,35 @@ function createUnusedPool() {
 }
 
 type FingerprintRecord = Readonly<Record<string, unknown>>;
+
+function beforePhysicalGrouping(value: FingerprintRecord): FingerprintRecord {
+  const addedEventTypes =
+    value.sourceContextName === "ordering" && value.projectionName === "fulfillment-order-source-projection"
+      ? ["ordering.order.combined-plan-accepted"]
+      : value.sourceContextName === "fulfillment" && value.projectionName === "fulfillment-shipment-projection"
+        ? [
+            "fulfillment.shipment-group.admission-reserved",
+            "fulfillment.shipment-group.admission-committed",
+            "fulfillment.shipment-group.admission-released",
+            "fulfillment.shipment.separate-packing-required",
+            "fulfillment.shipment.physical-group-recorded",
+            "fulfillment.shipment.group-tracking-attached",
+            "fulfillment.shipment.group-refund-status-recorded",
+          ]
+        : [];
+  if (addedEventTypes.length === 0) return value;
+  for (const eventType of addedEventTypes) {
+    expect(value.eventTypes).toContain(eventType);
+    expect(Object.keys(value.handlers as object)).toContain(eventType);
+  }
+  return {
+    ...value,
+    eventTypes: (value.eventTypes as readonly string[]).filter((type) => !addedEventTypes.includes(type)),
+    handlers: Object.fromEntries(
+      Object.entries(value.handlers as object).filter(([type]) => !addedEventTypes.includes(type)),
+    ),
+  };
+}
 
 function fingerprintObject(value: FingerprintRecord) {
   const fieldNames = Object.keys(value)

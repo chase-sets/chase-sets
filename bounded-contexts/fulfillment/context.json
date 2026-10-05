@@ -492,15 +492,18 @@
         "post-form:bounded-contexts/fulfillment/features/shipments/ui/fulfillment-command-center-page.tsx:H1abed2c1c746#1",
         "post-form:bounded-contexts/fulfillment/features/shipments/ui/fulfillment-command-center-page.tsx:H1abed2c1c746#2",
         "post-form:bounded-contexts/fulfillment/features/shipments/ui/fulfillment-command-center-page.tsx:H1abed2c1c746#3",
+        "post-form:bounded-contexts/fulfillment/features/shipments/ui/fulfillment-command-center-page.tsx:H1abed2c1c746#4",
         "route-action:bounded-contexts/fulfillment/routes/marketplace/account-sale-shipments.tsx"
       ],
       "visibleDestination": {
         "description": "The fulfillment command center dispatches each named shipment action to the seller shipment command endpoints, which return authoritative command snapshots with shipment id and aggregate version. The work-ordered queue re-derives from those snapshots on reload and is treated as refreshable operational context, not a claimed inline read."
       },
       "proof": {
-        "authoritativeResponse": "runShipmentCommandCenterAction gates each action through the shipment-action state machine, then calls the seller shipment command endpoints whose responses are built from the Fulfillment command result before any projection read; the route redirects only after those authoritative responses succeed and surfaces command errors without claiming completion.",
+        "authoritativeResponse": "runShipmentCommandCenterAction uses the shipment-action state machine for lifecycle actions and the owner-authoritative electSeparateDispatch service for explicit separation. Both call seller shipment command endpoints with the Mutation Attempt key and return Fulfillment aggregate command snapshots before any projection read; the route redirects only after success and surfaces command errors without claiming completion. Separation confirmation, immutable request identity, replay and aggregate gates are enforced by the owner, not the form.",
         "tests": [
           "bounded-contexts/fulfillment/features/shipments/domain/shipment-action.test.ts",
+          "bounded-contexts/fulfillment/features/shipments/api/runtime.test.ts",
+          "bounded-contexts/fulfillment/features/shipments/api/route.test.ts",
           "bounded-contexts/fulfillment/features/shipments/ui/fulfillment-command-center-page.test.tsx"
         ]
       }

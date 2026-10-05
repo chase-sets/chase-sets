@@ -430,7 +430,6 @@ describe("Shipment Group physical execution", () => {
       }),
     ).rejects.toThrow(/immutable/);
     const g = await fixture();
-    await pack(g);
     const oldKey = shipmentGroupPostageKey({
       tenantId: String(context.tenantId),
       group: g.state(g.identity.anchorShipmentId).physicalGroup!,
@@ -443,6 +442,8 @@ describe("Shipment Group physical execution", () => {
       context,
       command: { type: "ElectSeparateShipmentDispatch", electedAt: now },
     });
+    expect(g.state(g.identity.anchorShipmentId).physicalGroup?.disposition).toBe("separate");
+    expect(g.state(g.memberId).physicalGroup?.disposition).toBe("separate");
     await expect(
       g.runtime.commandHandler({
         streamId: `fulfillment.shipment-${g.identity.anchorShipmentId}`,
