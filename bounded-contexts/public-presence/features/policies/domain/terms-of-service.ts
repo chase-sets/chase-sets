@@ -122,13 +122,13 @@ export const termsOfServicePolicyArtifact: TermsOfServicePolicyArtifact = {
       id: "cash-equivalent-and-marketplace-credit",
       title: "Cash-equivalent balance and Marketplace Credit",
       draftText:
-        "Amounts credited to your Wallet as ordinary available balance are cash-equivalent: spendable toward marketplace purchases and eligible for payout under the same readiness and clearance rules that apply to any other available balance. Prepaid Balance is value you add by card, governed separately by the Payments Terms, including its spending and refund-to-source rules; it is not Marketplace Credit. Marketplace Credit is a separate promotional, non-withdrawable form of value. If Chase Sets offers Marketplace Credit, it will be governed by its own terms, will never be summed into your spendable, payoutable Wallet balance, and will be clearly labeled as distinct from cash-equivalent Wallet funds and Prepaid Balance.",
+        "Amounts credited to your Wallet as ordinary available balance are cash-equivalent: spendable toward marketplace purchases and eligible for payout under the same readiness and clearance rules that apply to any other available balance. Prepaid Balance is value you add by card, governed separately by the Payments Terms, including its spending and refund-to-source rules; it is not Marketplace Credit. Chase Sets does not currently offer Marketplace Credit, a separate promotional, non-withdrawable form of value. If Chase Sets offers Marketplace Credit, it will be governed by its own terms, will never be summed into your spendable, payoutable Wallet balance, and will be clearly labeled as distinct from cash-equivalent Wallet funds and Prepaid Balance.",
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote: "Distinguish Wallet funds, Prepaid Balance and Marketplace Credit without asserting activation.",
         decisionRefs: [5004, 7807],
         productTruthRefs: [
-          "docs/adr/0020-wallet-adjustment-authority-and-balance-types.md:25,27",
+          "docs/adr/0020-wallet-adjustment-authority-and-balance-types.md:25,27-35",
           "https://github.com/chase-sets/chase-sets/issues/7807#issuecomment-5625822930",
         ],
         openQuestions: [],
