@@ -93,11 +93,11 @@ describe("marketplace route layout", () => {
       for (const destination of destinations) {
         if (destination.key === "security" && !canManageSecurity) {
           expect(items.some((item) => item.href === destination.href)).toBe(false);
-          expect(within(menu).queryByRole("menuitem", { name: destination.label, exact: true })).toBeNull();
+          expect(within(menu).queryByRole("menuitem", { name: destination.label })).toBeNull();
           continue;
         }
         expect(items.filter((item) => item.href === destination.href)).toEqual([expect.objectContaining(destination)]);
-        const links = within(menu).getAllByRole("menuitem", { name: destination.label, exact: true });
+        const links = within(menu).getAllByRole("menuitem", { name: destination.label });
         expect(links).toHaveLength(1);
         expect(links[0].tagName).toBe("A");
         expect(links[0].getAttribute("href")).toBe(destination.href);
@@ -237,68 +237,100 @@ describe("marketplace route layout", () => {
     expect(html).not.toContain('href="/sign-in"');
   });
 
-  it("opens a combined account menu with user context, theme controls, account links, and sign out", async () => {
-    const user = userEvent.setup({ document });
-    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const request = input instanceof Request ? input : null;
-      const url = new URL(input instanceof Request ? input.url : String(input), "http://localhost");
-      if (url.pathname === "/api/identity/preferences") {
-        expect(init?.method ?? request?.method).toBe("PUT");
-        expect(JSON.parse(String(init?.body ?? (request ? await request.clone().text() : "")))).toEqual({
-          colorMode: "dark",
-        });
-        return Response.json({
-          preferences: {
+  it.each(["desktop", "mobile"] as const)(
+    "opens the %s account menu with user context, theme controls, account links, and sign out",
+    async (viewport) => {
+      vi.stubGlobal(
+        "matchMedia",
+        vi.fn((query: string) => ({
+          matches: viewport === "desktop" && query.includes("min-width"),
+          media: query,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        })),
+      );
+      const linkRole = viewport === "desktop" ? "menuitem" : "link";
+      const user = userEvent.setup({ document });
+      const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = input instanceof Request ? input : null;
+        const url = new URL(input instanceof Request ? input.url : String(input), "http://localhost");
+        if (url.pathname === "/api/identity/preferences") {
+          expect(init?.method ?? request?.method).toBe("PUT");
+          expect(JSON.parse(String(init?.body ?? (request ? await request.clone().text() : "")))).toEqual({
             colorMode: "dark",
-          },
-        });
-      }
+          });
+          return Response.json({
+            preferences: {
+              colorMode: "dark",
+            },
+          });
+        }
 
-      return Response.json({});
-    });
-    const actor = {
-      permissions: ["accounts.view", "offers.view", "orders.view", "orders.manage", "payouts.view", "reputation.view"],
-    };
-    vi.stubGlobal("fetch", fetch);
-    mockUseRouteLoaderData.mockReturnValue({
-      actor,
-      actorDisplay,
-      colorMode: "system",
-      viewer: {
+        return Response.json({});
+      });
+      const actor = {
+        permissions: [
+          "accounts.view",
+          "offers.view",
+          "orders.view",
+          "orders.manage",
+          "payouts.view",
+          "reputation.view",
+          "security.manage",
+        ],
+      };
+      vi.stubGlobal("fetch", fetch);
+      mockUseRouteLoaderData.mockReturnValue({
         actor,
-        preferences: { colorMode: "system", reducedMotion: "user" },
-      },
-    });
+        actorDisplay,
+        colorMode: "system",
+        viewer: {
+          actor,
+          preferences: { colorMode: "system", reducedMotion: "user" },
+        },
+      });
 
-    render(<MarketplaceLayoutRoute />);
+      render(<MarketplaceLayoutRoute />);
 
-    await user.click(screen.getByRole("button", { name: "Account menu" }));
+      await user.click(screen.getByRole("button", { name: "Account menu" }));
 
-    const accountMenu = await screen.findByRole("menu", { name: "Account menu" });
+      const accountMenu = await screen.findByRole(viewport === "desktop" ? "menu" : "dialog", { name: "Account menu" });
 
-    expect(within(accountMenu).getByText("Alex Clerk")).toBeTruthy();
-    expect(within(accountMenu).getByRole("menuitem", { name: "Account" }).getAttribute("href")).toBe("/account");
-    expect(within(accountMenu).getByRole("menuitem", { name: "Submitted Offers" }).getAttribute("href")).toBe(
-      "/account/offers/submitted",
-    );
-    expect(within(accountMenu).getByRole("menuitem", { name: "Reviews" }).getAttribute("href")).toBe(
-      "/account/reviews",
-    );
-    expect(within(accountMenu).getByRole("group", { name: "Color theme" })).toBeTruthy();
-    expect(within(accountMenu).getByRole("radio", { name: "System" })).toBeTruthy();
-    await user.click(within(accountMenu).getByRole("radio", { name: "Dark" }));
-    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
-    expect(document.querySelector('[data-color-mode="dark"]')).toBeTruthy();
-    expect(within(accountMenu).getByRole("menuitem", { name: "Sign Out" }).getAttribute("form")).toBe(
-      "marketplace-account-menu-sign-out",
-    );
-    const signOutForm = document.getElementById("marketplace-account-menu-sign-out");
-    expect(signOutForm?.tagName).toBe("FORM");
-    expect(signOutForm?.getAttribute("method")).toBe("post");
-    expect(signOutForm?.getAttribute("action")).toBe("/sign-out");
-    expect(screen.queryByText("Acting as")).toBeNull();
-    expect(screen.queryByText("Signed in as")).toBeNull();
-  });
+      expect(within(accountMenu).getByText("Alex Clerk")).toBeTruthy();
+      expect(within(accountMenu).getByRole(linkRole, { name: "Account" }).getAttribute("href")).toBe("/account");
+      expect(within(accountMenu).getByRole(linkRole, { name: "Submitted Offers" }).getAttribute("href")).toBe(
+        "/account/offers/submitted",
+      );
+      expect(within(accountMenu).getByRole(linkRole, { name: "Reviews" }).getAttribute("href")).toBe(
+        "/account/reviews",
+      );
+      for (const [label, href] of [
+        ["Payment methods", "/account/payment-methods"],
+        ["Security", "/account/security"],
+        ["Consent History", "/account/consents"],
+      ]) {
+        const links = within(accountMenu).getAllByRole(linkRole, { name: label });
+        expect(links).toHaveLength(1);
+        expect(links[0].getAttribute("href")).toBe(href);
+      }
+      expect(within(accountMenu).getByRole("group", { name: "Color theme" })).toBeTruthy();
+      expect(within(accountMenu).getByRole("radio", { name: "System" })).toBeTruthy();
+      await user.click(within(accountMenu).getByRole("radio", { name: "Dark" }));
+      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      expect(document.querySelector('[data-color-mode="dark"]')).toBeTruthy();
+      expect(
+        within(accountMenu)
+          .getByRole(viewport === "desktop" ? "menuitem" : "button", { name: "Sign Out" })
+          .getAttribute("form"),
+      ).toBe("marketplace-account-menu-sign-out");
+      const signOutForm = document.getElementById("marketplace-account-menu-sign-out");
+      expect(signOutForm?.tagName).toBe("FORM");
+      expect(signOutForm?.getAttribute("method")).toBe("post");
+      expect(signOutForm?.getAttribute("action")).toBe("/sign-out");
+      expect(screen.queryByText("Acting as")).toBeNull();
+      expect(screen.queryByText("Signed in as")).toBeNull();
+    },
+  );
 
   it("keeps account access for signed-in actors without selling workflow permissions", () => {
     const actor = {
