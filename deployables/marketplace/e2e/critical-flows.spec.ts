@@ -1,5 +1,5 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
-import { registerOrSignInSyntheticAccount, signInWithPassword } from "./support/auth";
+import { registerSyntheticAccount, signInWithPassword, syntheticAccountFor } from "./support/auth";
 import { marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
 
 const configuredMarketplaceAccount = {
@@ -8,11 +8,6 @@ const configuredMarketplaceAccount = {
 };
 
 const searchQuery = process.env.MARKETPLACE_E2E_SEARCH_QUERY ?? "charizard";
-const syntheticAccountRunId = (process.env.GITHUB_RUN_ID ?? `${Date.now()}-${process.pid}`)
-  .toLowerCase()
-  .replace(/[^a-z0-9]+/g, "-")
-  .slice(0, 12);
-const syntheticAccountNonce = Math.random().toString(36).slice(2, 8);
 const authProjectionTimeoutMs = 90_000;
 
 const accountCriticalRoutes = [
@@ -82,18 +77,7 @@ function marketplaceAccountFor(testInfo: TestInfo) {
     };
   }
 
-  const titleSlug = testInfo.title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 20);
-
-  return {
-    email: `critical-flow-${syntheticAccountRunId}-${syntheticAccountNonce}-${testInfo.workerIndex}-${testInfo.retry}-${titleSlug}@chasesets.test`,
-    password: `critical-flow-${syntheticAccountRunId}-${testInfo.workerIndex}-${testInfo.retry}`,
-    displayName: `Critical Flow ${syntheticAccountRunId} ${syntheticAccountNonce} ${testInfo.workerIndex} ${testInfo.retry} ${titleSlug}`,
-    shouldRegister: true,
-  };
+  return syntheticAccountFor(testInfo);
 }
 
 async function authenticateAccount(page: Page, testInfo: TestInfo) {
@@ -104,7 +88,7 @@ async function authenticateAccount(page: Page, testInfo: TestInfo) {
   if (credentials.shouldRegister) {
     return {
       ...credentials,
-      sessionToken: await registerOrSignInSyntheticAccount(page, origin, credentials),
+      sessionToken: await registerSyntheticAccount(page, origin, credentials),
     };
   }
 

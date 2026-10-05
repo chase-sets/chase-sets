@@ -18,6 +18,7 @@ export function createWorkerObserver(
   logger: WorkerObserverLogger,
   workerKind: string,
   runnerGroup?: string,
+  observeProjectionStatus?: WorkerRuntimeObserver["projectionStatusObserved"],
 ): WorkerRuntimeObserver {
   const fields = (event: object): Readonly<Record<string, unknown>> => ({
     workerKind,
@@ -26,6 +27,7 @@ export function createWorkerObserver(
   });
 
   return {
+    projectionStatusObserved: observeProjectionStatus,
     leaseMissed: (event: WorkerLeaseEvent) =>
       logger.debug("Worker runner lease missed.", {
         type: "worker.runner.lease_missed",
