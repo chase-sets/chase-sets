@@ -145,7 +145,7 @@ function LoadedReview() {
 const selectedScopeUrl =
   "/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&languageCode=en&expansionId=base2";
 
-function mockReviewApi({ empty = false, unavailable = false } = {}) {
+function mockReviewApi({ empty = false, unavailable = false, noPromoted = false } = {}) {
   const observations = (["observed", "changed", "promoted", "rejected"] as const).map((status) =>
     sourceObservationListItem({
       observation_id: `synthetic-${status}`,
@@ -166,7 +166,8 @@ function mockReviewApi({ empty = false, unavailable = false } = {}) {
       ? []
       : observations.filter(
           (row) =>
-            !status || (status === "eligible" ? ["observed", "changed"].includes(row.status) : row.status === status),
+            (!noPromoted || row.status !== "promoted") &&
+            (!status || (status === "eligible" ? ["observed", "changed"].includes(row.status) : row.status === status)),
         );
     const offset = Number(params.get("offset"));
     return { items: rows.slice(offset, offset + Number(params.get("limit"))), total: rows.length, count: rows.length };
@@ -179,8 +180,8 @@ function mockReviewApi({ empty = false, unavailable = false } = {}) {
           expansion_name: "Jungle",
           observed_observations: empty ? 0 : 3,
           changed_observations: empty ? 0 : 4,
-          promoted_observations: empty ? 0 : 1,
-          rejected_observations: empty ? 0 : 4,
+          promoted_observations: empty || noPromoted ? 0 : 1,
+          rejected_observations: empty ? 0 : noPromoted ? 5 : 4,
           total_observations: empty ? 0 : 12,
         }),
       ],
@@ -222,6 +223,22 @@ function renderLoadedReview(url: string) {
   return { router, view };
 }
 
+async function selectStatus(router: ReturnType<typeof createMemoryRouter>, label: string) {
+  await act(async () => {
+    const settled = new Promise<void>((resolve) => {
+      const unsubscribe = router.subscribe((state) => {
+        if (state.navigation.state === "idle") {
+          unsubscribe();
+          resolve();
+        }
+      });
+    });
+    fireEvent.click(screen.getByRole("radio", { name: label }));
+    await settled;
+  });
+  expect(screen.getByRole("radio", { name: label, checked: true })).not.toBeNull();
+}
+
 describe("Source Observation status navigation through the daily loader", () => {
   it("defaults to All and keeps every status, count, scope and reset offset through reload and history", async () => {
     const list = mockReviewApi();
@@ -235,8 +252,7 @@ describe("Source Observation status navigation through the daily loader", () => 
       ["Rejected (4)", "rejected", ["Synthetic rejected"]],
       ["All (12)", null, ["Synthetic observed", "Synthetic changed", "Pikachu", "Synthetic rejected"]],
     ] as const) {
-      fireEvent.click(screen.getByRole("radio", { name: label }));
-      await waitFor(() => expect(screen.getByRole("radio", { name: label, checked: true })).not.toBeNull());
+      await selectStatus(router, label);
       const params = new URLSearchParams(router.state.location.search);
       expect(params.get("filter.status")).toBe(status);
       expect(params.has("reviewOffset")).toBe(false);
@@ -253,8 +269,7 @@ describe("Source Observation status navigation through the daily loader", () => 
     await screen.findByRole("radio", { name: "Rejected (4)", checked: true });
     await act(() => router.navigate(1));
     await screen.findByRole("radio", { name: "All (12)", checked: true });
-    fireEvent.click(screen.getByRole("radio", { name: "Promoted (1)" }));
-    await screen.findByRole("radio", { name: "Promoted (1)", checked: true });
+    await selectStatus(router, "Promoted (1)");
     const reloadedUrl = router.state.location.pathname + router.state.location.search;
     view.unmount();
     router.dispose();
@@ -265,11 +280,11 @@ describe("Source Observation status navigation through the daily loader", () => 
   });
 
   it.each(["narrowed", "empty", "unavailable"] as const)("distinguishes the %s empty state", async (state) => {
-    const list = mockReviewApi({ empty: state === "empty", unavailable: state === "unavailable" });
-    if (state === "narrowed") list.mockResolvedValue({ items: [], total: 0, count: 0 });
+    mockReviewApi({ empty: state === "empty", unavailable: state === "unavailable", noPromoted: state === "narrowed" });
     const { router } = renderLoadedReview(`${selectedScopeUrl}&filter.status=promoted`);
     await screen.findByRole("radio", { name: /^Promoted/ });
     if (state === "narrowed") {
+      expect(screen.getByRole("radio", { name: "Promoted (0)", checked: true })).not.toBeNull();
       expect(screen.getByText(/No promoted observations in .*Jungle.*\(12 in this scope\)/)).not.toBeNull();
       expect(screen.queryByText("No Source Observations in this context")).toBeNull();
     } else {

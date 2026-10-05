@@ -270,7 +270,9 @@ export function CatalogIntegrationSourceObservationReviewModule({
           narrowed
             ? t("catalog.features.sourceObservations.ui.primaryWorkbench.review.empty.filtered", {
                 status,
-                scope: readModel.sourceScopeWorkset.selectedScope.label,
+                scope:
+                  readModel.sourceScopeWorkset.selectedScope.scope.expansionName ??
+                  readModel.sourceScopeWorkset.selectedScope.label,
                 total,
               })
             : t("catalog.features.sourceObservations.ui.primaryWorkbench.review.empty.title")
