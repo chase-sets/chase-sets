@@ -104,7 +104,7 @@ export function combinedPostagePlan(
     sum,
     plan.postagePolicySnapshot.insuredValueAmount === null ? 0 : cents(plan.postagePolicySnapshot.insuredValueAmount),
   );
-  // #6461 captured this exact TEST envelope, not a broader carrier capability.
+  // Captured this exact TEST envelope, not a broader carrier capability.
   if (
     pkg.mailpieceClass !== "parcel" ||
     pkg.serviceLevel !== "standard-parcel" ||

@@ -951,6 +951,7 @@
 ["candidate","edges",{"from":"contracts/event-core/public-event-payloads/auth.ts","specifier":"../../primitives/typed-ids","resolved":"repo:/contracts/primitives/typed-ids.ts"}]
 ["candidate","edges",{"from":"contracts/event-core/public-event-payloads/auth.ts","specifier":"./event-core","resolved":"repo:/contracts/event-core/public-event-payloads/event-core.ts"}]
 ["candidate","edges",{"from":"contracts/event-core/public-event-payloads/checkout.ts","specifier":"../../primitives/typed-ids","resolved":"repo:/contracts/primitives/typed-ids.ts"}]
+["candidate","edges",{"from":"contracts/event-core/public-event-payloads/fulfillment.ts","specifier":"../../order-groups","resolved":"repo:/contracts/order-groups/index.ts"}]
 ["candidate","edges",{"from":"contracts/event-core/public-event-payloads/fulfillment.ts","specifier":"../../order-groups/index","resolved":"repo:/contracts/order-groups/index.ts"}]
 ["candidate","edges",{"from":"contracts/event-core/public-event-payloads/fulfillment.ts","specifier":"../../primitives/address-snapshot","resolved":"repo:/contracts/primitives/address-snapshot.ts"}]
 ["candidate","edges",{"from":"contracts/event-core/public-event-payloads/fulfillment.ts","specifier":"../../primitives/catalog-identity","resolved":"repo:/contracts/primitives/catalog-identity.ts"}]
