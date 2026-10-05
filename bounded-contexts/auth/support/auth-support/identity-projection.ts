@@ -1077,16 +1077,41 @@ export async function getAuthIdentityUserBySocialLogin(
   return result.rows[0] ?? null;
 }
 
+export async function insertCreatedAuthIdentityAccountMirror(
+  db: PgQueryable,
+  params: Readonly<{ accountId: string; displayName: string }>,
+) {
+  // Only called after successful personal-identity creation. A lifecycle fact
+  // already projected by the worker must never be replaced by this mirror.
+  await db.query(
+    `INSERT INTO auth_identity_accounts (account_id, name, display_name, account_type, status, updated_at)
+     VALUES ($1, '', $2, 'personal', 'active', now())
+     ON CONFLICT (account_id) DO NOTHING`,
+    [params.accountId, params.displayName],
+  );
+}
+
+export async function listActiveAuthAccountIds(db: PgQueryable, accountIds: readonly string[]) {
+  const result = await db.query<{ account_id: string }>(
+    `SELECT account_id FROM auth_identity_accounts
+     WHERE account_id = ANY($1::text[]) AND status = 'active'`,
+    [accountIds],
+  );
+  return new Set(result.rows.map((account) => account.account_id));
+}
+
 export async function listActiveAuthMembershipsForUser(
   db: PgQueryable,
   userId: string,
 ): Promise<readonly AuthIdentitySessionMembership[]> {
   const result = await db.query<AuthIdentityMembershipRow>(
-    `SELECT *
-     FROM auth_identity_user_memberships
-     WHERE user_id = $1
-       AND status = 'active'
-     ORDER BY updated_at DESC`,
+    `SELECT memberships.*
+     FROM auth_identity_user_memberships AS memberships
+     INNER JOIN auth_identity_accounts AS accounts ON accounts.account_id = memberships.account_id
+     WHERE memberships.user_id = $1
+       AND memberships.status = 'active'
+       AND accounts.status = 'active'
+     ORDER BY memberships.updated_at DESC`,
     [userId],
   );
 
@@ -1101,12 +1126,14 @@ export async function listActiveAuthMembershipsForUser(
 
 export async function getActiveAuthMembershipForUserAccount(db: PgQueryable, userId: string, accountId: string) {
   const userMembership = await db.query<AuthIdentityMembershipRow>(
-    `SELECT *
-     FROM auth_identity_user_memberships
-     WHERE user_id = $1
-       AND account_id = $2
-       AND status = 'active'
-     ORDER BY updated_at DESC
+    `SELECT memberships.*
+     FROM auth_identity_user_memberships AS memberships
+     INNER JOIN auth_identity_accounts AS accounts ON accounts.account_id = memberships.account_id
+     WHERE memberships.user_id = $1
+       AND memberships.account_id = $2
+       AND memberships.status = 'active'
+       AND accounts.status = 'active'
+     ORDER BY memberships.updated_at DESC
      LIMIT 1`,
     [userId, accountId],
   );
@@ -1115,12 +1142,14 @@ export async function getActiveAuthMembershipForUserAccount(db: PgQueryable, use
   }
 
   const result = await db.query<AuthIdentityMembershipRow>(
-    `SELECT *
-     FROM auth_identity_memberships
-     WHERE user_id = $1
-       AND account_id = $2
-       AND status = 'active'
-     ORDER BY updated_at DESC
+    `SELECT memberships.*
+     FROM auth_identity_memberships AS memberships
+     INNER JOIN auth_identity_accounts AS accounts ON accounts.account_id = memberships.account_id
+     WHERE memberships.user_id = $1
+       AND memberships.account_id = $2
+       AND memberships.status = 'active'
+       AND accounts.status = 'active'
+     ORDER BY memberships.updated_at DESC
      LIMIT 1`,
     [userId, accountId],
   );
