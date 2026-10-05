@@ -521,6 +521,14 @@ async function collectVitestResults(options, window, actionsSource) {
       if (authority.requestCount > 1500) break;
     }
   }
+  let candidates;
+  if (!reasons.length) {
+    try {
+      candidates = findVitestTransitions(observations);
+    } catch (error) {
+      reasons.push(boundedReason(error));
+    }
+  }
   if (reasons.length)
     return {
       ...unknownSource(reasons[0], authority),
@@ -530,7 +538,7 @@ async function collectVitestResults(options, window, actionsSource) {
   return {
     status: "complete",
     reasons: [],
-    values: findVitestTransitions(observations),
+    values: candidates,
     authority: { ...authority, status: "complete" },
   };
 }
@@ -603,6 +611,7 @@ export function findVitestTransitions(observations) {
   const groups = new Map();
   const seen = new Set();
   for (const observation of observations) {
+    if (!observation.fullName.trim()) throw new Error("Vitest execution identity unresolved.");
     const testId = JSON.stringify([
       observation.job,
       observation.workspace,

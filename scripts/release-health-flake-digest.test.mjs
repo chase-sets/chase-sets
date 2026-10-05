@@ -126,6 +126,42 @@ describe("release health flake digest", () => {
     expect(digest.vitestCandidateCount).toBe(1);
   });
 
+  it("keeps retained duplicate or unnamed observations unknown without inferring by order, state or duration", async () => {
+    for (const scenario of [
+      { duplicateNames: true },
+      { duplicateNames: true, reverseDuplicates: true },
+      { duplicateNames: true, secondState: "failed" },
+      { duplicateNames: true, firstState: "skipped" },
+      { duplicateInvocation: true },
+      { emptyName: true },
+      { emptyName: true, firstState: "passed" },
+    ]) {
+      const dir = await mkdtemp(join(tmpdir(), "vitest-ambiguous-synthetic-"));
+      try {
+        const paths = artifactPaths(dir);
+        const digest = await writeReleaseHealthFlakeDigest({
+          ...collectorOptions(vitestCollectorFetch(scenario)),
+          ...paths,
+        });
+        expect(digest.collection.status, JSON.stringify(scenario)).toBe("unknown");
+        expect(digest.classification).toBe("unknown");
+        expect(digest.vitestCandidateCount).toBe(0);
+        expect(digest.collection.sources["vitest-current"].reasons.join(" ")).toMatch(
+          /identity (ambiguous|unresolved)/,
+        );
+        const github = issueAuthority();
+        const result = await publishReleaseHealthFlakeDigest({
+          ...publicationOptions(paths),
+          fetchImpl: github.fetchImpl,
+        });
+        expect(result.status).toBe("unknown");
+        expect(github.calls.filter((call) => call.method !== "GET")).toHaveLength(0);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    }
+  });
+
   it("reconciles second-page producer/artifact authority and counts an attempt only once", async () => {
     const digest = await collectReleaseHealthFlakeDigest(collectorOptions(vitestCollectorFetch({ secondPage: true })));
     expect(digest.collection.status, JSON.stringify(digest.collection)).toBe("complete");
@@ -180,6 +216,7 @@ describe("release health flake digest", () => {
       completedAt: "2026-07-06T00:01:00Z",
     };
     expect(() => findVitestTransitions([observation, observation])).toThrow(/ambiguous/);
+    expect(() => findVitestTransitions([{ ...observation, fullName: "" }])).toThrow(/unresolved/);
   });
   it("traces the scheduled writer, exact artifact payloads, and direct canonical publisher", async () => {
     const workflow = await readFile(
@@ -966,7 +1003,7 @@ function syntheticVitestPayload(runId, attempt, options = {}) {
       : "2026-07-07";
   const first = runId === 101 && attempt === 1;
   const state = first ? (options.firstState ?? "failed") : (options.secondState ?? "passed");
-  return {
+  const payload = {
     schemaVersion: "workspace-test-results/v1",
     producer: {
       repository: REPOSITORY,
@@ -995,7 +1032,11 @@ function syntheticVitestPayload(runId, attempt, options = {}) {
               : [
                   {
                     file: "bounded-contexts/synthetic/test.test.ts",
-                    fullName: !first && options.changedName ? "different test" : "suite synthetic test",
+                    fullName: options.emptyName
+                      ? ""
+                      : !first && options.changedName
+                        ? "different test"
+                        : "suite synthetic test",
                     state,
                     durationMs: options.malformed ? -1 : 1.25,
                     retryCount: 0,
@@ -1019,6 +1060,18 @@ function syntheticVitestPayload(runId, attempt, options = {}) {
       },
     ],
   };
+  const task = payload.invocations[0].tasks[0];
+  if (options.duplicateNames) {
+    task.rows.push({ ...task.rows[0], state: first ? "passed" : "failed", durationMs: 25 });
+    task.assertionCount++;
+    if (!first && options.reverseDuplicates) task.rows.reverse();
+  }
+  if (options.duplicateInvocation) {
+    const invocation = structuredClone(payload.invocations[0]);
+    invocation.id = "f".repeat(36);
+    payload.invocations.push(invocation);
+  }
+  return payload;
 }
 
 function vitestCollectorFetch(options = {}) {
@@ -1060,7 +1113,7 @@ function vitestCollectorFetch(options = {}) {
         ],
       };
       if (options.secondPage) {
-        const dummy = Array.from({ length: 100 }, (_, i) => ({ id: 1000 + i, name: "unrelated" }));
+        const dummy = Array.from({ length: 100 }, (_, i) => ({ id: 20000 + i, name: "unrelated" }));
         if (url.searchParams.get("page") === "1")
           return jsonResponse(
             { total_count: 101, jobs: dummy },

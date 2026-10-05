@@ -107,7 +107,96 @@ describe("workspace test results contract", () => {
     expect(normalizeVitestReport(zeroAssertionFailure)).toMatchObject({ fileFailureCount: 1, assertionCount: 0 });
   });
 
-  it("recursively closes the normalized schema and rejects invalid fields and ambiguous identities", () =>
+  it("preserves duplicate and empty reporter names through invocation aggregation without dropping rows", () =>
+    withDirectory((directory) => {
+      const source = report("failed");
+      const assertion = source.testResults[0].assertionResults[0];
+      source.testResults[0].assertionResults.push(
+        { ...assertion, status: "passed", duration: 2.5 },
+        { ...assertion, title: "", fullName: "suite", duration: 3.75 },
+        { ...assertion, ancestorTitles: [], title: "", fullName: "", status: "todo", duration: undefined },
+      );
+      source.numTotalTests = 4;
+      const normalized = normalizeVitestReport(source);
+      expect(normalized.rows).toEqual([
+        {
+          file: "bounded-contexts/synthetic/example.test.ts",
+          fullName: "suite test",
+          state: "failed",
+          durationMs: 1.25,
+          retryCount: 0,
+        },
+        {
+          file: "bounded-contexts/synthetic/example.test.ts",
+          fullName: "suite test",
+          state: "passed",
+          durationMs: 2.5,
+          retryCount: 0,
+        },
+        {
+          file: "bounded-contexts/synthetic/example.test.ts",
+          fullName: "suite",
+          state: "failed",
+          durationMs: 3.75,
+          retryCount: 0,
+        },
+        {
+          file: "bounded-contexts/synthetic/example.test.ts",
+          fullName: "",
+          state: "todo",
+          durationMs: 0,
+          retryCount: 0,
+        },
+      ]);
+      const workspace = { name: "@chase-sets/synthetic" };
+      const paths = [];
+      for (let index = 0; index < 2; index++) {
+        const collector = createTestResultsInvocation(env(directory), [{ workspace }], "test");
+        const started = collector.start(workspace, "test");
+        paths.push(started.output);
+        writeFileSync(started.output, JSON.stringify(source));
+        collector.complete(workspace, started);
+        collector.finish();
+      }
+      expect(new Set(paths).size).toBe(2);
+      const result = finalizeWorkspaceTestResults(directory);
+      expect(result.invocations).toHaveLength(2);
+      for (const invocation of result.invocations) {
+        expect(invocation.tasks[0]).toMatchObject({ status: "complete", reason: "", assertionCount: 4 });
+        expect(invocation.tasks[0].rows).toEqual(normalized.rows);
+      }
+      expect(result.invocations.flatMap((invocation) => invocation.tasks[0].rows)).toHaveLength(8);
+    }));
+
+  it("rejects malformed reporter names without relaxing non-name fields", () => {
+    for (const change of [
+      (assertion) => {
+        assertion.title = null;
+      },
+      (assertion) => {
+        assertion.title = "x".repeat(4097);
+      },
+      (assertion) => {
+        assertion.title = "\0";
+      },
+      (assertion) => {
+        assertion.ancestorTitles = [null];
+      },
+      (assertion) => {
+        assertion.ancestorTitles = ["\0"];
+      },
+      (assertion) => {
+        assertion.title = "";
+        assertion.fullName = "suite ";
+      },
+    ]) {
+      const invalid = report();
+      change(invalid.testResults[0].assertionResults[0]);
+      expect(() => normalizeVitestReport(invalid)).toThrow();
+    }
+  });
+
+  it("recursively closes the normalized schema and rejects invalid fields and ambiguous structural identities", () =>
     withDirectory((directory) => {
       const valid = payload(directory);
       const invalid = [
@@ -142,7 +231,7 @@ describe("workspace test results contract", () => {
           p.invocations[0].tasks[0].rows[0].file = "../escape.test.ts";
         },
         (p) => {
-          p.invocations[0].tasks[0].rows[0].fullName = "";
+          p.invocations[0].tasks[0].rows[0].fullName = "\0";
         },
         (p) => {
           p.invocations[0].tasks[0].rows[0].state = "unknown";
@@ -157,8 +246,7 @@ describe("workspace test results contract", () => {
           p.invocations[0].tasks.push(structuredClone(p.invocations[0].tasks[0]));
         },
         (p) => {
-          p.invocations[0].tasks[0].rows.push(structuredClone(p.invocations[0].tasks[0].rows[0]));
-          p.invocations[0].tasks[0].assertionCount++;
+          p.invocations[0].tasks[0].rows[0].fullName = "x".repeat(4097);
         },
       ];
       for (const change of invalid) {

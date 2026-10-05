@@ -39,6 +39,12 @@ function text(value, label, max = 4096) {
   }
 }
 
+function displayName(value, label) {
+  if (typeof value !== "string" || value.length > 4096 || value.includes("\0")) {
+    throw new Error(`${label} must be a bounded string.`);
+  }
+}
+
 function integer(value, label, max = Number.MAX_SAFE_INTEGER) {
   if (!Number.isSafeInteger(value) || value < 0 || value > max) throw new Error(`${label} is out of bounds.`);
 }
@@ -82,7 +88,6 @@ export function validateWorkspaceTestResults(payload) {
     throw new Error("Invocation count invalid.");
   }
   const ids = new Set();
-  const testIds = new Set();
   for (const invocation of payload.invocations) {
     exact(invocation, ["id", "script", "startedAt", "completedAt", "tasks"], "Invocation");
     if (!/^[a-f0-9-]{36}$/.test(invocation.id) || ids.has(invocation.id))
@@ -118,16 +123,14 @@ export function validateWorkspaceTestResults(payload) {
       for (const row of task.rows) {
         exact(row, ["file", "fullName", "state", "durationMs", "retryCount"], "Test row");
         relativeFile(row.file);
-        text(row.fullName, "Test name");
+        displayName(row.fullName, "Test name");
         if (!states.has(row.state)) throw new Error("Test state invalid.");
         if (!Number.isFinite(row.durationMs) || row.durationMs < 0 || row.durationMs > 86_400_000) {
           throw new Error("Test duration invalid.");
         }
         // Built-in Vitest JSON has no retry telemetry; this repository enables no retries.
         if (row.retryCount !== 0) throw new Error("Unproven retry telemetry.");
-        const key = `${taskKey}\0${row.file}\0${row.fullName}`;
-        if (testIds.has(key)) throw new Error("Test identity ambiguous across invocations.");
-        testIds.add(key);
+        // Reporter display names are observations, not unique cross-execution identities.
       }
     }
   }
@@ -155,14 +158,15 @@ export function normalizeVitestReport(report, { repoDir = rootDir, workspaceDir 
       ) {
         throw new Error("Vitest ancestor titles invalid.");
       }
-      text(assertion.title, "Vitest title");
-      const fullName = [...assertion.ancestorTitles, assertion.title].join(" ");
+      for (const title of assertion.ancestorTitles) displayName(title, "Vitest ancestor title");
+      displayName(assertion.title, "Vitest title");
+      const fullName = [...assertion.ancestorTitles, ...(assertion.title ? [assertion.title] : [])].join(" ");
       if (assertion.fullName !== fullName) throw new Error("Vitest full name mismatch.");
       const durationMs =
         assertion.duration ?? (assertion.status === "passed" || assertion.status === "failed" ? NaN : 0);
       if (!Number.isFinite(durationMs) || durationMs < 0 || durationMs > 86_400_000)
         throw new Error("Vitest duration invalid.");
-      text(fullName, "Vitest full name");
+      displayName(fullName, "Vitest full name");
       rows.push({ file: relative, fullName, state: assertion.status, durationMs, retryCount: 0 });
     }
   }
