@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { compileFunction } from "node:vm";
 import ts from "@chase-sets/typescript-compiler-api";
 import { describe, expect, it } from "vitest";
 import { repoRoot } from "../lib/repo.mjs";
@@ -537,11 +538,28 @@ describe("identity creation pin landing", () => {
       ],
     };
     expect(collectPinLandingViolations(registry, sources)).toEqual([]);
-    for (const slot of registrySlots(registry).filter(({ entry }) => Object.hasOwn(oldLines, entry.id))) {
-      const errors = collectPinLandingViolations(movePin(registry, slot, oldLines[slot.entry.id][slot.index]), sources);
-      expect(errors, `${slot.label} historical main drift must fail`).toHaveLength(1);
-      expect(errors[0]).toContain(`${slot.label} ${slot.site.file}:`);
+    function assertHistoricalDriftRejected(validate) {
+      for (const slot of registrySlots(registry).filter(({ entry }) => Object.hasOwn(oldLines, entry.id))) {
+        const errors = validate(movePin(registry, slot, oldLines[slot.entry.id][slot.index]), sources);
+        expect(errors, `${slot.label} historical main drift must fail`).toHaveLength(1);
+        expect(errors[0]).toContain(`${slot.label} ${slot.site.file}:`);
+      }
     }
+    assertHistoricalDriftRejected(collectPinLandingViolations);
+
+    const validatorSource = collectPinLandingViolations.toString();
+    const comparison = /site\.line\s*!==\s*landing\.line/g;
+    expect(validatorSource.match(comparison)).toHaveLength(1);
+    const mutant = compileFunction(`return (${validatorSource.replace(comparison, "false")})(candidate, sources);`, [
+      "candidate",
+      "sources",
+      "discoverLandingTargets",
+    ]);
+    const bypassedValidator = (candidate, fixedSources) => mutant(candidate, fixedSources, discoverLandingTargets);
+    expect(bypassedValidator(registry, sources)).toEqual([]);
+    expect(() => assertHistoricalDriftRejected(bypassedValidator)).toThrow(
+      "marketplace-e2e-auth-helper[0] historical main drift must fail",
+    );
   });
 
   it("rejects executable lookalikes, comments and strings without changing the other pins", () => {
