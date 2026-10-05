@@ -431,11 +431,7 @@ test.describe("marketplace critical flows", () => {
       const card = page.getByRole("button", { name: `Review ${line.item_title} offers and terms`, exact: true });
       await expect(card).toContainText(`Best offer net ${expectedNet}`);
       const dialog = page.getByRole("dialog", { name: `${line.item_title} offers and terms`, exact: true });
-      for (const viewport of [
-        { width: 390, height: 844, suffix: "mobile" },
-        { width: 1280, height: 900, suffix: "desktop" },
-      ]) {
-        await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      const exerciseReview = async () => {
         for (const activation of ["pointer", "Enter", "Space"]) {
           if (activation === "pointer") await card.click();
           else {
@@ -450,11 +446,8 @@ test.describe("marketplace critical flows", () => {
           await dialog.getByRole("button", { name: "Close", exact: true }).click();
           await expect(dialog).toHaveCount(0);
         }
-        if (viewport.suffix === "mobile") {
-          await captureResponsiveEvidence({ page, testInfo, claimId: "sell-list-review-closed-mobile" });
-        } else {
-          await captureResponsiveEvidence({ page, testInfo, claimId: "sell-list-review-closed-desktop" });
-        }
+      };
+      const selectOffer = async () => {
         await card.click();
         await expect(dialog).toBeVisible();
         await dialog.getByRole("checkbox", { name: /^Select .+ offer$/ }).check();
@@ -463,14 +456,23 @@ test.describe("marketplace critical flows", () => {
           "form",
           "sell-list-checkout-form",
         );
-        if (viewport.suffix === "mobile") {
-          await captureResponsiveEvidence({ page, testInfo, claimId: "sell-list-review-open-mobile" });
-        } else {
-          await captureResponsiveEvidence({ page, testInfo, claimId: "sell-list-review-open-desktop" });
-        }
+      };
+      const closeReview = async () => {
         await dialog.getByRole("button", { name: "Clear selection", exact: true }).click();
         await dialog.getByRole("button", { name: "Close", exact: true }).click();
-      }
+      };
+      await page.setViewportSize({ width: 390, height: 844 });
+      await exerciseReview();
+      await captureResponsiveEvidence({ page, testInfo, claimId: "sell-list-review-closed-mobile" });
+      await selectOffer();
+      await captureResponsiveEvidence({ page, testInfo, claimId: "sell-list-review-open-mobile" });
+      await closeReview();
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await exerciseReview();
+      await captureResponsiveEvidence({ page, testInfo, claimId: "sell-list-review-closed-desktop" });
+      await selectOffer();
+      await captureResponsiveEvidence({ page, testInfo, claimId: "sell-list-review-open-desktop" });
+      await closeReview();
     } finally {
       const current = await read(sellListApi);
       const added = current.items.find((line: { offer_id: string }) => line.offer_id === offerId);
