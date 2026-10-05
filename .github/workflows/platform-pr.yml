@@ -202,11 +202,16 @@ jobs:
           node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
 
   db-tests:
-    name: DB Profile Tests
+    name: DB Profile Tests (${{ matrix.db-workspace-group }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: change-scope
     if: needs['change-scope'].outputs.db_tests_required == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        db-workspace-group: [api, other]
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -293,7 +298,7 @@ jobs:
             'SHOW max_connections; SHOW max_locks_per_transaction; SHOW shared_buffers; SHOW work_mem; SHOW maintenance_work_mem; SHOW superuser_reserved_connections; SHOW reserved_connections;'
 
       - name: Run DB-profile tests
-        run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
+        run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}" --db-workspace-group=${{ matrix.db-workspace-group }}
 
       - name: Capture post-failure PostgreSQL state
         if: failure()
@@ -316,7 +321,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: db-profile-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          name: db-profile-diagnostics-${{ matrix.db-workspace-group }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/db-profile-diagnostics/post-failure.txt
           retention-days: 7
           if-no-files-found: warn

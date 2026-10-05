@@ -568,6 +568,94 @@ describe("run-workspaces", () => {
 });
 
 describe("DB duration scheduling", () => {
+  it.each(
+    [
+      [],
+      ["--workspace=@chase-sets/app-platform-api"],
+      ["--workspace=@chase-sets/marketplace-seed-testing"],
+      ["--workspace=@chase-sets/not-present"],
+    ].map((scope) => [scope]),
+  )("partitions the actual eligible census without overlap or empty-to-all fallback: %j", async (scope) => {
+    const workspaces = listWorkspacePackages();
+    const registry = readJson("scripts/workspace-test-duration-hints-v1.json");
+    const run = (group) =>
+      captureDbRun({
+        workspaces,
+        registry,
+        argv: ["--concurrency=2", ...scope, ...(group ? [`--db-workspace-group=${group}`] : [])],
+      });
+    const whole = await run();
+    const api = await run("api");
+    const other = await run("other");
+    const calls = (output) => output.invocations.map((args) => `${args[1]} ${args[3]}`).sort();
+    expect([...calls(api), ...calls(other)].sort()).toEqual(calls(whole));
+    expect(api.invocations.every((args) => args[1] === "@chase-sets/app-platform-api")).toBe(true);
+    expect(other.invocations.every((args) => args[1] !== "@chase-sets/app-platform-api")).toBe(true);
+    expect(api.summary.eligibleCount + other.summary.eligibleCount).toBe(whole.summary.eligibleCount);
+    expect(api.result).toBeUndefined();
+    expect(other.result).toBeUndefined();
+  });
+
+  it("intersects grouping after profile eligibility", async () => {
+    const calls = [];
+    await runWorkspaceScripts({
+      argv: ["test:db*", "--db-workspace-group=api", "--exclude-test-profile=db"],
+      listWorkspaces: () => [workspace("@chase-sets/app-platform-api", { "test:db": "db" }, "db")],
+      loadEnvironment: () => {},
+      run: async (...args) => calls.push(args),
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it.each(["api", "other"])(
+    "preserves serial partitions, deadlines, failures and future enrollment in %s",
+    async (group) => {
+      const api = workspace("@chase-sets/app-platform-api", { "test:db:1": "one", "test:db:2": "two" }, "db");
+      const future = workspace("@chase-sets/future-db", { "test:db:1": "one", "test:db:2": "two" }, "db");
+      const registered = workspace("@chase-sets/registered-db", { "test:db": "db" }, "db");
+      let active = 0;
+      let peak = 0;
+      const output = await captureDbRun({
+        workspaces: [api, future, registered],
+        registry: durationRegistry([durationEntry(registered.name, "test:db", 1)]),
+        argv: ["--concurrency=2", `--db-workspace-group=${group}`],
+        run: async (args, options) => {
+          expect(options.timeoutMs).toBe(600_000);
+          peak = Math.max(peak, ++active);
+          await delay(0);
+          active--;
+          if (args[3] === "test:db:2") throw new Error("synthetic second-unit failure");
+        },
+      });
+      expect(peak).toBe(group === "api" ? 1 : 2);
+      expect(output.result).toBeInstanceOf(Error);
+      expect(output.summary.failedCount).toBe(1);
+      expect(
+        output.invocations
+          .filter((args) => args[1] === (group === "api" ? api.name : future.name))
+          .map((args) => args[3]),
+      ).toEqual(["test:db:1", "test:db:2"]);
+    },
+  );
+
+  it.each([
+    ["test", "--db-workspace-group=api"],
+    ["test:db", "--db-workspace-group=api"],
+    ["test:db:1", "--db-workspace-group=other"],
+    ["test:db*", "--db-workspace-group=unknown"],
+    ["test:db*", "--db-workspace-group"],
+    ["test:db*", "--db-workspace-group="],
+    ["test:db*", "--db-workspace-group=api", "--db-workspace-group=api"],
+    ["test:db*", "--db-workspace-group=api", "--db-workspace-group=other"],
+  ])("rejects noncanonical group arguments before loading or execution: %j", async (...argv) => {
+    const unexpected = () => {
+      throw new Error("must not execute");
+    };
+    await expect(
+      runWorkspaceScripts({ argv, loadEnvironment: unexpected, listWorkspaces: unexpected, run: unexpected }),
+    ).rejects.toThrow("--db-workspace-group");
+  });
+
   const db = workspace("@chase-sets/db", { "test:db": "aggregate", "test:db:2": "two", "test:db:1": "one" }, "db");
   const registry = durationRegistry([durationEntry(db.name, "test:db", 2)]);
 
@@ -724,6 +812,46 @@ describe("DB duration scheduling", () => {
       const omittedFile = await discover(scripts["test:db:2"].split(/\s+/).slice(0, -1).join(" "));
       expect(() => assertCompleteDisjoint([partitions[0], omittedFile])).toThrow();
       expect(() => assertCompleteDisjoint([...partitions, partitions[0]])).toThrow();
+    } finally {
+      await vitest.close();
+    }
+  });
+
+  it("keeps all real API DB entries in the API cell and out of unit and fast discovery", async () => {
+    const api = listWorkspacePackages().find((entry) => entry.name === "@chase-sets/app-platform-api");
+    const scripts = api.packageJson.scripts;
+    const output = await captureDbRun({
+      workspaces: [api],
+      registry: durationRegistry([durationEntry(api.name, "test:db", 1)]),
+      argv: ["--db-workspace-group=api"],
+    });
+    const onDisk = globSync("__tests__/**/*.db.test.ts", { cwd: api.dir })
+      .map((file) => path.resolve(api.dir, file).replaceAll("\\", "/"))
+      .sort();
+    const vitest = await createVitest("test", { root: api.dir, config: "./vitest.config.ts", watch: false });
+    try {
+      const groups = [];
+      for (const args of output.invocations) {
+        const parts = scripts[args[3]].split(" && ");
+        expect(parts[0]).toBe("node ./scripts/check-bootstrap-db-enrollment.mjs");
+        expect(parts[1]).toContain("--maxWorkers=3");
+        const filters = parts[1].split(/\s+/).filter((arg) => arg.startsWith("__tests__/"));
+        groups.push((await vitest.globTestSpecifications(filters)).map((spec) => spec.moduleId));
+      }
+      expect(groups.flat().sort()).toEqual(onDisk);
+      expect(groups.map((files) => files.length)).toEqual([7, 9]);
+      expect(groups[1].filter((file) => file.includes("/operator-session/"))).toHaveLength(5);
+      for (const name of ["test:unit", "test:fast"]) {
+        const exclude = [...scripts[name].matchAll(/--exclude\s+(\S+)/g)].map((match) => match[1]);
+        const unit = await createVitest("test", { root: api.dir, config: "./vitest.config.ts", watch: false, exclude });
+        try {
+          const discovered = (await unit.globTestSpecifications()).map((spec) => spec.moduleId);
+          expect(discovered.length).toBeGreaterThan(0);
+          expect(discovered.filter((file) => onDisk.includes(file))).toEqual([]);
+        } finally {
+          await unit.close();
+        }
+      }
     } finally {
       await vitest.close();
     }
