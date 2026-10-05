@@ -373,6 +373,14 @@ describe("payments money subscription DB proof (synthetic isolated fixtures)", (
       expect(await readUnrelatedEffect(controlOrder)).toEqual(expectedUnrelated);
       expect((await runner.refreshStatus()).lastGlobalPosition).toBe(checkpointWithFault);
       expect(await errors(key)).toEqual(errorsBeforeControl);
+      if (index === 0) {
+        await append("ordering", "ordering.order-synthetic_cancellation_after_control", "ordering.order.cancelled", {
+          orderId: goodOrder,
+          reason: "seller-cannot-fulfill",
+          cancelledAt: now,
+        });
+        await drainSubscriptionRunners(runners);
+      }
       receipt = await errors(key);
       expect(receipt.poison).toHaveLength(1);
       expect(receipt.blocked).toEqual([

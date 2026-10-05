@@ -82,6 +82,7 @@ describeWithMarketplaceSeedDatabase("payments real money feed coverage", () => {
           : null;
       const before = feedSource ? await sourceHead(feedSource) : null;
       await seedMountedContextTestRuntimeIfEmpty(runtime, [contextName]);
+      if (contextName === "ordering") await seedMountedContextTestRuntimeIfEmpty(runtime, [contextName]);
       if (feedSource) await proveFeed(`seed:${contextName}`, feedSource, before!);
     }
 
