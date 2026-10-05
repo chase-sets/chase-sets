@@ -11,9 +11,9 @@ import {
   sourceObservationListItem,
   sourceObservationScope,
 } from "../../primary-workbench-test-fixtures";
-import { loadSourceObservationEvidence } from "../../../../../support/route-support/admin-integrations/observation-evidence-loader";
+import { loader as loadSourceObservationEvidence } from "../../../../../routes/admin/integrations-observation-evidence";
 import { ApiError } from "../../../../../support/shell-support/api/client";
-import { loadDailySurfaceForRequest } from "../../../../../support/route-support/admin-integrations/integrations-loader-support";
+import { loader as loadDailySurface } from "../../../../../routes/admin/integrations";
 
 const { createApi } = vi.hoisted(() => ({ createApi: vi.fn() }));
 vi.mock("../../../../../support/request-support/api-client", () => ({ createCatalogRequestApiClient: createApi }));
@@ -130,7 +130,7 @@ describe("Source Observation review evidence data router", () => {
 });
 
 function LoadedReview() {
-  const { readModel } = useLoaderData<Awaited<ReturnType<typeof loadDailySurfaceForRequest>>>();
+  const { readModel } = useLoaderData<Awaited<ReturnType<typeof loadDailySurface>>>();
   return (
     <CatalogIntegrationSourceObservationReviewModule
       readModel={readModel}
@@ -209,7 +209,7 @@ function renderLoadedReview(url: string) {
     [
       {
         path: "/catalog/integrations",
-        loader: ({ request }) => loadDailySurfaceForRequest(request),
+        loader: loadDailySurface,
         element: <LoadedReview />,
       },
     ],
@@ -291,7 +291,7 @@ describe("Source Observation status navigation through the daily loader", () => 
       expect(screen.getByText("No Source Observations in this context")).not.toBeNull();
       expect(screen.queryByText(/No promoted observations in/)).toBeNull();
     }
-    const data = Object.values(router.state.loaderData)[0] as Awaited<ReturnType<typeof loadDailySurfaceForRequest>>;
+    const data = Object.values(router.state.loaderData)[0] as Awaited<ReturnType<typeof loadDailySurface>>;
     expect(data.readModel.sourceObservationReview.freshness).toBe(state === "unavailable" ? "unavailable" : "fresh");
     router.dispose();
   });
