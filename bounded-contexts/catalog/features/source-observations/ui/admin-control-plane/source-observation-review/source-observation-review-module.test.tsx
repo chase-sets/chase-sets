@@ -107,14 +107,23 @@ describe("Source Observation review evidence data router", () => {
         expect(document.querySelector('[data-catalog-observation-evidence="loading"]')).not.toBeNull(),
       );
       expect(screen.getByRole("dialog").textContent).toContain("Pikachu");
-      settle();
-      await waitFor(() =>
-        expect(
-          document.querySelector(
-            '[data-catalog-observation-evidence="loaded"], [data-catalog-observation-evidence="error"], [data-testid="escaped-evidence-error"]',
-          ),
-        ).not.toBeNull(),
-      );
+      await act(async () => {
+        const settled = new Promise<void>((resolve) => {
+          const unsubscribe = router.subscribe((state) => {
+            if ([...state.fetchers.values()].every((fetcher) => fetcher.state === "idle")) {
+              unsubscribe();
+              resolve();
+            }
+          });
+        });
+        settle();
+        await settled;
+      });
+      expect(
+        document.querySelector(
+          '[data-catalog-observation-evidence="loaded"], [data-catalog-observation-evidence="error"], [data-testid="escaped-evidence-error"]',
+        ),
+      ).not.toBeNull();
       expect(requests).toEqual(["http://localhost/catalog/integrations/observation-evidence/synthetic-jungle-pikachu"]);
       expect(getObservation).toHaveBeenCalledWith("synthetic-jungle-pikachu");
       expect(getObservation).toHaveBeenCalledTimes(1);
