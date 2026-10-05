@@ -1152,7 +1152,7 @@ describe("change-scope", () => {
             chaseSets: { testProfile: "db" },
             scripts: {
               "test:unit": "test:unit",
-              "test:db": "vitest run tests/catalog-authoring/acceptance/admin-page-projections.test.ts",
+              "test:db": "vitest run --config ./vitest.db.config.mjs",
             },
           },
         },
