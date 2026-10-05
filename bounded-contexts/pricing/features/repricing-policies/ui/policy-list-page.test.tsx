@@ -38,6 +38,23 @@ function renderList(props: Partial<Parameters<typeof PricingRepricingPolicyListP
 }
 
 describe("PricingRepricingPolicyListPage", () => {
+  it("repricing policies header links to recommendations", () => {
+    renderList({
+      createAction: <button type="button">Create policy</button>,
+      loading: false,
+      loadFailed: false,
+      catchingUpHref: null,
+      errorMessage: null,
+      busyPolicyId: null,
+    });
+    const heading = screen.getByRole("heading", { level: 1 });
+    expect(heading.textContent).toBe("Repricing policies");
+    const link = screen.getByRole("link", { name: "Recommendations" });
+    expect(link.getAttribute("href")).toBe("/account/repricing");
+    expect(heading.textContent).not.toBe(link.textContent);
+    expect(screen.getByRole("button", { name: "Create policy" })).toBeTruthy();
+  });
+
   it("lists each policy with its status, scope kind, cap and account-wide changes used today", () => {
     renderList({
       policies: [
