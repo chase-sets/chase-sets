@@ -4,6 +4,7 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ts from "@chase-sets/typescript-compiler-api";
+import { FoundersOfferTermsRouteAdapter } from "../../policies/ui/policy-artifact-route-adapter";
 import { helpCategories, listHelpArticlesByCategory, publicHelpArticles } from "../domain/article-catalog";
 import { resolveArticlePolicyValues } from "../domain/resolve-article-policy-values";
 import {
@@ -70,6 +71,26 @@ function resolvedArticle(slug: string) {
     propagationSeconds: 360,
     changeCalloutDays: 30,
   });
+}
+
+function expectSalesFoundersRule(text: string) {
+  expect(text).toContain("Every account admitted to beta");
+  expect(text).toContain("0% marketplace sales fee for 60 days from the start of its beta access");
+  expect(text).toContain("500 cap applies only to numbered founder badges");
+  expect(text).toContain("first listing or submitted offer claims a badge while numbers remain");
+}
+
+function foundersPromise(article: (typeof publicHelpArticles)[number]) {
+  const promises = article.promiseTable.filter((promise) => promise.issues.includes("#4068"));
+  expect(promises).toHaveLength(1);
+  return promises[0]!;
+}
+
+function renderedFoundersParagraph(container: HTMLElement, heading: string) {
+  const article = container.querySelector("article")!;
+  const paragraph = within(article).getByRole("heading", { name: heading, level: 2 }).nextElementSibling;
+  expect(paragraph?.tagName).toBe("P");
+  return paragraph!.textContent!;
 }
 
 describe("public help pages", () => {
@@ -219,6 +240,88 @@ describe("public help pages", () => {
     expect(screen.getByRole("navigation", { name: "On this page" })).toBeTruthy();
     expect(screen.getByText("Last reviewed July 15, 2026")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Related articles" })).toBeTruthy();
+  });
+
+  it("states the beta-access window and badge-only cap in the compiled Sales fees promise", () => {
+    expectSalesFoundersRule(foundersPromise(resolvedArticle("sales-fees")).claim);
+  });
+
+  it("states the beta-access window and badge-only cap in the rendered Sales fees paragraph", () => {
+    const article = resolvedArticle("sales-fees");
+    const { container } = render(<HelpArticlePage article={article} related={[]} />, { wrapper: MemoryRouter });
+    const paragraph = renderedFoundersParagraph(container, "Founders window");
+    expectSalesFoundersRule(paragraph);
+    expect(paragraph).toContain(
+      "Listings confirmed inside the window lock the 0% rate exactly like any other locked rate",
+    );
+    expect(paragraph).toContain("After the window ends, new listings lock at the standard schedule.");
+  });
+
+  it.each(["promise", "paragraph"] as const)("rejects the old Sales fees %s independently", (surface) => {
+    const source = resolvedArticle("sales-fees");
+    const headingIndex = source.blocks.findIndex((block) => block.type === "heading" && block.id === "founders-window");
+    expect(headingIndex).toBeGreaterThanOrEqual(0);
+    expect(source.blocks[headingIndex + 1]?.type).toBe("paragraph");
+    const article: typeof source = {
+      ...source,
+      promiseTable: source.promiseTable.map((promise) =>
+        surface === "promise" && promise.issues.includes("#4068")
+          ? {
+              ...promise,
+              claim: "The founders window applies a 0% sales-fee agreement for 60 days, capped at 500 founders.",
+            }
+          : promise,
+      ),
+      blocks: source.blocks.map((block, index) =>
+        surface === "paragraph" && index === headingIndex + 1
+          ? {
+              type: "paragraph",
+              content: [
+                {
+                  type: "text",
+                  value:
+                    "The first 500 accounts to list an item or submit an offer after receiving beta access claim a founders place. A founders account pays a 0% marketplace sales fee for 60 days from the start of its beta access; listings confirmed inside the window lock the 0% rate exactly like any other locked rate. After the window ends, new listings lock at the standard schedule.",
+                },
+              ],
+            }
+          : block,
+      ),
+    };
+    const { container } = render(<HelpArticlePage article={article} related={[]} />, { wrapper: MemoryRouter });
+    const claim = foundersPromise(article).claim;
+    const paragraph = renderedFoundersParagraph(container, "Founders window");
+    expectSalesFoundersRule(surface === "promise" ? paragraph : claim);
+    expect(() => expectSalesFoundersRule(surface === "promise" ? claim : paragraph)).toThrow();
+  });
+
+  it("keeps the real press article aligned on the beta-access window and numbered badges", () => {
+    const article = resolvedArticle("creators-and-press");
+    expect(article.href).toBe("/press");
+    const { container } = render(<HelpArticlePage article={article} related={[]} />, { wrapper: MemoryRouter });
+    const paragraph = renderedFoundersParagraph(container, "The founders offer");
+    expect(paragraph).toContain("The first 500 accounts to list or make an offer claim a numbered founder badge");
+    expect(paragraph).toContain("Beta access also opens a 60-day 0% seller-fee window");
+    expect(paragraph).toContain("every listing created in that window locks 0% seller fees until it sells");
+  });
+
+  it("keeps the default Founders terms aligned without changing their counsel-pending posture", () => {
+    const { container } = render(<FoundersOfferTermsRouteAdapter />, { wrapper: MemoryRouter });
+    const article = container.querySelector("article")!;
+    const eligibility = within(article).getByRole("region", { name: "Eligibility and the founder cap" });
+    expect(eligibility.textContent).toContain(
+      "The first 500 accounts to list or make an offer claim a numbered founder badge",
+    );
+    expect(eligibility.textContent).toContain(
+      "its first listing or offer claims a number in activation order, while numbers remain available",
+    );
+    expect(eligibility.textContent).toContain(
+      "The cap applies to claimed Founder Numbers, not invitations or the number of accounts whose beta access opens a fee window.",
+    );
+    const window = within(article).getByRole("region", { name: "The offer window and listing fee locks" });
+    expect(window.textContent).toContain("Beta access opens a 60-day 0% seller-fee window");
+    expect(window.textContent).toContain("The window starts at beta access, independently of badge claim");
+    expect(window.textContent).toContain("Listings you locked at 0% keep that rate until they sell.");
+    expect(container.querySelector('[data-policy-publication-status="counsel-review-required"]')).not.toBeNull();
   });
 
   it("raises only the tiles a visitor opens and keeps reading furniture flush or tinted", () => {
