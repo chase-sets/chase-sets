@@ -1,6 +1,8 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { readFileSync } from "node:fs";
+import { globSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { createVitest } from "vitest/node";
 import { listWorkspacePackages } from "./lib/repo.mjs";
 import {
   DB_TEST_SCRIPT_SELECTOR,
@@ -599,7 +601,7 @@ describe("DB duration scheduling", () => {
     },
   );
 
-  it("retains the real DB sweep membership and invokes seed once and API partitions only", async () => {
+  it("retains the real DB sweep membership and invokes seed and API partitions only", async () => {
     const workspaces = listWorkspacePackages();
     const output = await captureDbRun({
       workspaces,
@@ -612,10 +614,41 @@ describe("DB duration scheduling", () => {
       eligible.map((entry) => entry.name).sort(),
     );
     for (const [name, scripts] of [
-      ["@chase-sets/marketplace-seed-testing", ["test:db"]],
+      ["@chase-sets/marketplace-seed-testing", ["test:db:1", "test:db:2"]],
       ["@chase-sets/app-platform-api", ["test:db:1", "test:db:2"]],
     ]) {
       expect(output.invocations.filter((args) => args[1] === name).map((args) => args[3])).toEqual(scripts);
+    }
+  });
+
+  it("discovers every seed DB file exactly once through the commands selected by the runner", async () => {
+    const seed = listWorkspacePackages().find((entry) => entry.name === "@chase-sets/marketplace-seed-testing");
+    const scripts = seed.packageJson.scripts;
+    const output = await captureDbRun({
+      workspaces: [seed],
+      registry: durationRegistry([durationEntry(seed.name, "test:db", 346)]),
+    });
+    const vitest = await createVitest("test", { root: seed.dir, config: "./tests/vitest.config.mjs", watch: false });
+    try {
+      const discover = async (command) => {
+        const args = command.split(/\s+/);
+        expect(args.slice(0, 4)).toEqual(["vitest", "run", "--config", "./tests/vitest.config.mjs"]);
+        return (await vitest.globTestSpecifications(args.slice(4))).map((spec) => spec.moduleId).sort();
+      };
+      const aggregate = await discover(scripts["test:db"]);
+      const onDisk = globSync("tests/**/*.test.ts", { cwd: seed.dir })
+        .map((file) => path.resolve(seed.dir, file).replaceAll("\\", "/"))
+        .sort();
+      expect(aggregate).toEqual(onDisk);
+      const partitions = await Promise.all(output.invocations.map((args) => discover(scripts[args[3]])));
+      const assertCompleteDisjoint = (groups) => expect(groups.flat().sort()).toEqual(aggregate);
+      assertCompleteDisjoint(partitions);
+      expect(partitions.map((files) => files.length)).toEqual([1, 3]);
+      const omittedFile = await discover(scripts["test:db:2"].split(/\s+/).slice(0, -1).join(" "));
+      expect(() => assertCompleteDisjoint([partitions[0], omittedFile])).toThrow();
+      expect(() => assertCompleteDisjoint([...partitions, partitions[0]])).toThrow();
+    } finally {
+      await vitest.close();
     }
   });
 
