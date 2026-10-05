@@ -5,6 +5,7 @@ import {
   createSubscriptionRunner,
   drainLocalProjectionHandlerSets,
   drainSubscriptionRunners,
+  retryProjectionBlockedStream,
 } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
@@ -18,6 +19,7 @@ import { toTransportEvent } from "@chase-sets/event-core/transport";
 import type { EventRecordToStore } from "@chase-sets/event-core/storage";
 import { module as fulfillmentModule } from "@chase-sets/fulfillment";
 import { module as settlementModule } from "../../../../index";
+import { buildSettlementFulfillmentSourceProjectionHandlers } from "./fulfillment-source-projection";
 import type { SettlementServices } from "../../../../support/runtime-support/services";
 import {
   activateMarketplaceLabelPostage,
@@ -403,6 +405,21 @@ describeDb("marketplace label postage Settlement integration", () => {
     return result.rows;
   }
 
+  async function immutableFacts() {
+    const source = await pools.fulfillment.query("SELECT * FROM event_store_events ORDER BY global_position");
+    const wallet = await pools.settlement.query("SELECT * FROM event_store_events ORDER BY global_position");
+    const postage = await pools.settlement.query(
+      "SELECT * FROM settlement_marketplace_label_postage ORDER BY source_event_id",
+    );
+    return {
+      source: source.rows,
+      wallet: wallet.rows,
+      postage: postage.rows,
+      ledger: await ledgerRows(),
+      activation: await readMarketplaceLabelPostageActivation(pools.settlement),
+    };
+  }
+
   it("retains validated activation from createServices through the registered equality-time handler", async () => {
     const activation = validateMarketplaceLabelPostageActivation({
       policyVersion: MARKETPLACE_LABEL_POSTAGE_POLICY_VERSION,
@@ -458,9 +475,12 @@ describeDb("marketplace label postage Settlement integration", () => {
     expect(await postageRows()).toHaveLength(1);
 
     const activatedAt = (await readMarketplaceLabelPostageActivation(pools.settlement)).activatedAt;
+    const beforeReplay = await immutableFacts();
+    expect(beforeReplay.wallet.length).toBeGreaterThan(0);
     await first.fulfillmentRunner.reset(projectionRunContext("postage-reset"));
     await drain(first.fulfillmentRunner, "postage-reset-replay");
     await projectWallet(first);
+    expect(await immutableFacts()).toEqual(beforeReplay);
     expect((await ledgerRows()).filter((row) => row.direction === "debit")).toHaveLength(1);
     expect((await readMarketplaceLabelPostageActivation(pools.settlement)).activatedAt).toBe(activatedAt);
 
@@ -478,6 +498,79 @@ describeDb("marketplace label postage Settlement integration", () => {
     await projectWallet(rebooted);
     expect((await ledgerRows()).filter((row) => row.direction === "debit")).toHaveLength(1);
     expect((await readMarketplaceLabelPostageActivation(pools.settlement)).activatedAt).toBe(activatedAt);
+  });
+
+  it("recovers retained activation poison through targeted retry without rewriting cutover or financial history", async () => {
+    const streamId = "fulfillment.shipment-shp_retained";
+    const historical = await appendEvents(
+      streamId,
+      [created("shp_retained"), labelAttached("shp_retained", "pl_retained", 425)],
+      null,
+    );
+    const services = settlementModule.createServices(createProjectionAwarePool(pools.settlement), {});
+    // Reproduce the former unconditional runner, not a forged checkpoint or poison row.
+    const oldRunner = createSubscriptionRunner("settlement", pools.settlement, pools.fulfillment, {
+      subscriptionName: "settlement.settlement-fulfillment-source-projection",
+      sourceContextName: "fulfillment",
+      projectionName: "settlement-fulfillment-source-projection",
+      subscriptionVersion: 2,
+      handlers: buildSettlementFulfillmentSourceProjectionHandlers(services.db, { wallets: services.wallets }),
+      eventTypes: ["fulfillment.shipment.created", "fulfillment.shipment.label-attached"],
+    });
+    await drain(oldRunner, "retained-missing-activation");
+    const poisoned = await pools.settlement.query<{ event_id: string; state: string; error_message: string }>(
+      "SELECT event_id, state, error_message FROM event_projection_poison_events WHERE projection_key = $1",
+      [oldRunner.checkpointKey],
+    );
+    expect(poisoned.rows).toEqual([
+      { event_id: historical[1]!.eventId, state: "blocked", error_message: expect.stringContaining("activation") },
+    ]);
+    expect(await postageRows()).toEqual([]);
+    const runtime = await createRuntime();
+    await appendEvents("fulfillment.shipment-shp_healthy", [
+      created("shp_healthy"),
+      labelAttached("shp_healthy", "pl_healthy", 625),
+    ]);
+    await drain(runtime.fulfillmentRunner, "healthy-catchup");
+    await projectWallet(runtime);
+    const before = await immutableFacts();
+    expect(before.ledger).toEqual([expect.objectContaining({ direction: "debit", amount: "6.25" })]);
+    expect(await postageRows()).toHaveLength(1);
+    expect((await runtime.fulfillmentRunner.refreshStatus()).blockedStreamCount).toBe(1);
+    await expect(
+      retryProjectionBlockedStream(
+        { subscriptionRunners: [runtime.fulfillmentRunner] },
+        oldRunner.checkpointKey,
+        streamId,
+        projectionRunContext("retained-targeted-retry"),
+      ),
+    ).resolves.toMatchObject({ state: "resolved", appliedEvents: 1 });
+    await projectWallet(runtime);
+    const after = await immutableFacts();
+    expect(after.source).toEqual(before.source);
+    expect(after.wallet).toEqual(before.wallet);
+    expect(after.ledger).toEqual(before.ledger);
+    expect(after.activation).toEqual(before.activation);
+    expect(after.postage).toEqual(expect.arrayContaining(before.postage));
+    expect(await postageRows()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          shipment_id: "shp_retained",
+          outcome: "skipped-historical",
+          debit_ledger_entry_id: null,
+        }),
+      ]),
+    );
+    expect(await postageRows()).toHaveLength(2);
+    const retained = await pools.settlement.query(
+      "SELECT event_id, state FROM event_projection_poison_events WHERE projection_key = $1",
+      [oldRunner.checkpointKey],
+    );
+    expect(retained.rows).toEqual([{ event_id: historical[1]!.eventId, state: "resolved" }]);
+    await runtime.fulfillmentRunner.reset(projectionRunContext("recovered-replay"));
+    await drain(runtime.fulfillmentRunner, "recovered-replay");
+    await projectWallet(runtime);
+    expect(await immutableFacts()).toEqual(after);
   });
 
   it("label-postage-negative-offset: allows the debit and offsets it before release hold", async () => {
@@ -568,9 +661,11 @@ describeDb("marketplace label postage Settlement integration", () => {
     expect(rejectedRow.refund_ledger_entry_id).toBeNull();
 
     const activatedAt = (await readMarketplaceLabelPostageActivation(pools.settlement)).activatedAt;
+    const refundFactsBeforeReplay = await immutableFacts();
     await runtime.fulfillmentRunner.reset(projectionRunContext("postage-refund-reset"));
     await drain(runtime.fulfillmentRunner, "postage-refund-replay");
     await projectWallet(runtime);
+    expect(await immutableFacts()).toEqual(refundFactsBeforeReplay);
     expect((await ledgerRows()).filter((row) => row.direction === "debit")).toHaveLength(5);
     expect((await ledgerRows()).filter((row) => row.direction === "credit")).toHaveLength(3);
 

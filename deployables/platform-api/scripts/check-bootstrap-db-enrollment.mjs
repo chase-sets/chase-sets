@@ -21,6 +21,21 @@ import ts from "@chase-sets/typescript-compiler-api";
  * feeds the digest.
  */
 export const bootstrapDbEnrollmentManifest = Object.freeze({
+  "settlement-label-postage-deferral.db.test.ts": Object.freeze({
+    executionUnit: "test:db:2",
+    databaseSuffix: "platform_api_settlement_postage_deferral",
+    bootBearingCases: "all",
+    cases: Object.freeze([
+      Object.freeze({
+        name: "retains source history through full drains and reconciliation until worker activation",
+        identity: "d7e3e2aabb0ff14b",
+      }),
+      Object.freeze({
+        name: "retains source history through context drains and reconciliation until worker activation",
+        identity: "ea1e17e4d8755651",
+      }),
+    ]),
+  }),
   "bootstrap-shared-seed-command.db.test.ts": Object.freeze({
     executionUnit: "test:db:1",
     databaseSuffix: "platform_api_bootstrap_shared_seed_command",

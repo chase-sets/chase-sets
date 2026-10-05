@@ -102,6 +102,7 @@
     {
       "sourceContextName": "fulfillment",
       "projectionName": "settlement-fulfillment-source-projection",
+      "deferUntilHostPort": "marketplaceLabelPostageActivation",
       "subscriptionVersion": 2,
       "eventTypes": [
         "fulfillment.shipment.created",

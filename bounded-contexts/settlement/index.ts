@@ -50,6 +50,12 @@ export const module = defineBoundedContextModule<SettlementServices, PgTransacti
     ...settlementRetentionSchemaMigrations,
   ],
   createServices: (pool, ports) => createSettlementServices(pool, ports),
+  hasHostPort: (services, portName) => {
+    if (portName !== "marketplaceLabelPostageActivation") {
+      throw new Error(`Settlement cannot resolve host port '${portName}'.`);
+    }
+    return services.marketplaceLabelPostageActivation !== undefined;
+  },
   buildApis: (services) => [
     { mountPath: "/api/settlement", contextMountOrdinal: 1, router: buildSettlementApi(services) },
     {
@@ -92,11 +98,15 @@ export const module = defineBoundedContextModule<SettlementServices, PgTransacti
           buildSettlementCoverageReservationHandlers(services.protectionCoverage),
         "platform-operations.settlement-support-hold-lifecycle-projection": () =>
           buildSupportHoldLifecycleReactionHandlers(services.supportHoldLifecycle),
-        "fulfillment.settlement-fulfillment-source-projection": () =>
-          buildSettlementFulfillmentSourceProjectionHandlers(services.db, {
-            wallets: services.wallets,
-            activation: services.marketplaceLabelPostageActivation,
-          }),
+        ...(services.marketplaceLabelPostageActivation === undefined
+          ? {}
+          : {
+              "fulfillment.settlement-fulfillment-source-projection": () =>
+                buildSettlementFulfillmentSourceProjectionHandlers(services.db, {
+                  wallets: services.wallets,
+                  activation: services.marketplaceLabelPostageActivation,
+                }),
+            }),
         "inventory.settlement-inventory-recovery-workflow": () => ({
           "inventory.recovered-item.value-reported.v1": async (event: Parameters<BcEventSubscriptionHandler>[0]) => {
             const data = event.data as InventoryRecoveredItemValueReportedPayload;

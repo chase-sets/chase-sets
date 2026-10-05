@@ -1656,6 +1656,32 @@ describe("Platform API bootstrap DB enrollment", () => {
     );
   });
 
+  it("exhausts all 700075 twelve-file assignments before refusing all four unit counts", async () => {
+    const files = Array.from({ length: 12 }, (_, index) =>
+      unitFileFor(`exhaustive-twelve-no-fit-${index}`, `test:db:${Math.floor(index / 3) + 1}`, 250_000),
+    );
+    const fixture = await createFixture(files, { model: { maximumScheduledFileCount: 12, testFileFixedCostMs: 0 } });
+    const result = runFixture(fixture);
+    expect(result.schedule.files).toHaveLength(12);
+    expect(250_000 + fixture.model.executionUnitFixedCostMs).toBeLessThanOrEqual(fixture.model.executionUnitCeilingMs);
+    expect(
+      Math.ceil((12 * 250_000) / fixture.model.maxWorkersPerExecutionUnit) +
+        fixture.model.executionUnitFixedCostMs +
+        fixture.model.jobOverheadMs,
+    ).toBeLessThanOrEqual(fixture.model.aggregateCeilingMs);
+    expect(result.schedule.minimumUnitCount).toBeNull();
+    expect(result.violations).toContain(
+      "no execution-unit count up to the model's declared bound of 4 units satisfies both the " +
+        "420000ms per-unit ceiling and the 1080000ms aggregate",
+    );
+    const probe = exhaustiveScheduleProbe();
+    let assignments = 0;
+    for (let count = 1; count <= 4; count++) {
+      for (const _assignment of probe.canonicalAssignments(12, count)) assignments++;
+    }
+    expect(assignments).toBe(700_075);
+  });
+
   it("computes a minimumUnitCount of 2 for the shipped manifest and ships exactly that", () => {
     const { schedule } = checkBootstrapDbEnrollment();
 
