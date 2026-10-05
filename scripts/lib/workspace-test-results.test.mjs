@@ -1,6 +1,8 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   createTestResultsInvocation,
@@ -43,6 +45,17 @@ function env(directory) {
     GITHUB_RUN_ATTEMPT: "1",
     GITHUB_JOB: "unit-tests",
   };
+}
+
+function rejectedTitleReport() {
+  const source = report("failed");
+  const assertion = source.testResults[0].assertionResults[0];
+  source.testResults[0].assertionResults.push(
+    { ...assertion, title: "x".repeat(4097), fullName: `suite ${"x".repeat(4097)}`, duration: 2.5 },
+    { ...assertion, title: "sibling", fullName: "suite sibling", status: "passed", duration: 3.75 },
+  );
+  source.numTotalTests = 3;
+  return source;
 }
 
 function withDirectory(action) {
@@ -168,7 +181,71 @@ describe("workspace test results contract", () => {
       expect(result.invocations.flatMap((invocation) => invocation.tasks[0].rows)).toHaveLength(8);
     }));
 
-  it("rejects malformed reporter names without relaxing non-name fields", () => {
+  it("proves the e038deb1 negative control rejects the same multi-row fixture the repaired normalizer retains", async () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "workspace-test-results-baseline-"));
+    try {
+      const baselineFile = path.join(directory, "baseline.mjs");
+      writeFileSync(
+        baselineFile,
+        execFileSync("git", [
+          "show",
+          "e038deb152c4a698f82f90e04376fc66ce883328:scripts/lib/workspace-test-results.mjs",
+        ]),
+      );
+      const baseline = await import(pathToFileURL(baselineFile).href);
+      const source = rejectedTitleReport();
+      const options = { repoDir: process.cwd() };
+      expect(() => baseline.normalizeVitestReport(source, options)).toThrow("Vitest title must be a bounded string.");
+      expect(normalizeVitestReport(source, options).rows).toHaveLength(source.numTotalTests);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("retains every assertion when one title in a multi-row report is rejected", () =>
+    withDirectory((directory) => {
+      const source = rejectedTitleReport();
+      const workspace = { name: "@chase-sets/synthetic" };
+      const collector = createTestResultsInvocation(env(directory), [{ workspace }], "test");
+      const started = collector.start(workspace, "test");
+      writeFileSync(started.output, JSON.stringify(source));
+      collector.complete(workspace, started);
+      collector.finish();
+      const result = finalizeWorkspaceTestResults(directory);
+      expect(result.invocations[0].tasks[0]).toEqual({
+        workspace: workspace.name,
+        script: "test",
+        status: "complete",
+        reason: "",
+        assertionCount: source.numTotalTests,
+        fileFailureCount: 0,
+        rows: [
+          {
+            file: "bounded-contexts/synthetic/example.test.ts",
+            fullName: "suite test",
+            state: "failed",
+            durationMs: 1.25,
+            retryCount: 0,
+          },
+          {
+            file: "bounded-contexts/synthetic/example.test.ts",
+            fullName: "",
+            state: "failed",
+            durationMs: 2.5,
+            retryCount: 0,
+          },
+          {
+            file: "bounded-contexts/synthetic/example.test.ts",
+            fullName: "suite sibling",
+            state: "passed",
+            durationMs: 3.75,
+            retryCount: 0,
+          },
+        ],
+      });
+    }));
+
+  it("retains rejected reporter names as unresolved identities without relaxing non-name fields", () => {
     for (const change of [
       (assertion) => {
         assertion.title = null;
@@ -186,13 +263,26 @@ describe("workspace test results contract", () => {
         assertion.ancestorTitles = ["\0"];
       },
       (assertion) => {
+        assertion.ancestorTitles = ["x".repeat(4097)];
+      },
+      (assertion) => {
+        assertion.ancestorTitles = ["x".repeat(4096)];
+        assertion.title = "y";
+        assertion.fullName = `${assertion.ancestorTitles[0]} y`;
+      },
+      (assertion) => {
         assertion.title = "";
         assertion.fullName = "suite ";
       },
     ]) {
       const invalid = report();
       change(invalid.testResults[0].assertionResults[0]);
-      expect(() => normalizeVitestReport(invalid)).toThrow();
+      expect(normalizeVitestReport(invalid)).toMatchObject({
+        assertionCount: 1,
+        rows: [{ fullName: "", state: "passed", durationMs: 1.25, retryCount: 0 }],
+      });
+      invalid.testResults[0].assertionResults[0].duration = -1;
+      expect(() => normalizeVitestReport(invalid)).toThrow(/duration/);
     }
   });
 

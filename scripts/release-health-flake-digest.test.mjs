@@ -17,6 +17,7 @@ import {
   writeReleaseHealthFlakeDigest,
 } from "./release-health-flake-digest.mjs";
 import { renderCircuitMarker } from "./release-health-merge-group-failure-signatures.mjs";
+import { normalizeVitestReport } from "./lib/workspace-test-results.mjs";
 
 const REPOSITORY = "chase-sets/chase-sets";
 const CHECKED_AT = "2026-07-08T00:00:00.000Z";
@@ -135,6 +136,8 @@ describe("release health flake digest", () => {
       { duplicateInvocation: true },
       { emptyName: true },
       { emptyName: true, firstState: "passed" },
+      { rejectedTitle: true },
+      { rejectedTitle: true, firstState: "skipped" },
     ]) {
       const dir = await mkdtemp(join(tmpdir(), "vitest-ambiguous-synthetic-"));
       try {
@@ -1061,6 +1064,34 @@ function syntheticVitestPayload(runId, attempt, options = {}) {
     ],
   };
   const task = payload.invocations[0].tasks[0];
+  if (options.rejectedTitle) {
+    const assertion = {
+      ancestorTitles: ["suite"],
+      title: "synthetic test",
+      fullName: "suite synthetic test",
+      status: state,
+      duration: 1.25,
+    };
+    Object.assign(
+      task,
+      normalizeVitestReport({
+        numTotalTests: 3,
+        testResults: [
+          {
+            name: join(process.cwd(), task.rows[0].file),
+            status: state === "failed" ? "failed" : "passed",
+            assertionResults: [
+              assertion,
+              { ...assertion, title: "x".repeat(4097), fullName: `suite ${"x".repeat(4097)}`, duration: 2.5 },
+              { ...assertion, title: "sibling", fullName: "suite sibling", duration: 3.75 },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(task.rows).toHaveLength(3);
+    expect(task.rows[1]).toMatchObject({ fullName: "", state, durationMs: 2.5, retryCount: 0 });
+  }
   if (options.duplicateNames) {
     task.rows.push({ ...task.rows[0], state: first ? "passed" : "failed", durationMs: 25 });
     task.assertionCount++;

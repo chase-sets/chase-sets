@@ -152,21 +152,23 @@ export function normalizeVitestReport(report, { repoDir = rootDir, workspaceDir 
     if (file.status === "failed" && !file.assertionResults.some((row) => row.status === "failed")) fileFailureCount++;
     for (const assertion of file.assertionResults) {
       if (!states.has(assertion.status)) throw new Error("Vitest assertion state invalid.");
-      if (
-        !Array.isArray(assertion.ancestorTitles) ||
-        assertion.ancestorTitles.some((title) => typeof title !== "string")
-      ) {
-        throw new Error("Vitest ancestor titles invalid.");
+      let fullName = "";
+      try {
+        if (!Array.isArray(assertion.ancestorTitles)) throw new Error("Vitest ancestor titles invalid.");
+        for (const title of assertion.ancestorTitles) displayName(title, "Vitest ancestor title");
+        displayName(assertion.title, "Vitest title");
+        const name = [...assertion.ancestorTitles, ...(assertion.title ? [assertion.title] : [])].join(" ");
+        if (assertion.fullName !== name) throw new Error("Vitest full name mismatch.");
+        displayName(name, "Vitest full name");
+        fullName = name;
+      } catch {
+        // Retain the assertion, but reject its identity. The digest treats an
+        // empty name as unknown, never a transition or a complete-clear signal.
       }
-      for (const title of assertion.ancestorTitles) displayName(title, "Vitest ancestor title");
-      displayName(assertion.title, "Vitest title");
-      const fullName = [...assertion.ancestorTitles, ...(assertion.title ? [assertion.title] : [])].join(" ");
-      if (assertion.fullName !== fullName) throw new Error("Vitest full name mismatch.");
       const durationMs =
         assertion.duration ?? (assertion.status === "passed" || assertion.status === "failed" ? NaN : 0);
       if (!Number.isFinite(durationMs) || durationMs < 0 || durationMs > 86_400_000)
         throw new Error("Vitest duration invalid.");
-      displayName(fullName, "Vitest full name");
       rows.push({ file: relative, fullName, state: assertion.status, durationMs, retryCount: 0 });
     }
   }
