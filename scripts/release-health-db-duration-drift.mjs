@@ -316,31 +316,39 @@ export async function collectDbDurationJobs(options) {
       ) {
         throw new Error(`Run identity mismatch: ${run.id}`);
       }
-      const inventory = await collectPages(request, `actions/runs/${run.id}/attempts/${run.run_attempt}/jobs`, "jobs");
+      const inventory = await collectPages(request, `actions/runs/${run.id}/jobs?filter=all`, "jobs");
       const candidates = inventory.filter((job) => job.name === "DB Profile Tests");
-      if (candidates.length !== 1) throw new Error(`Missing or duplicate DB job: ${run.id}`);
-      const job = candidates[0];
-      if (job.run_id !== run.id || job.head_sha !== run.head_sha || job.run_attempt !== run.run_attempt)
-        throw new Error(`Job identity mismatch: ${job.id}`);
-      if (job.status !== "completed" || job.conclusion !== "success") {
-        excluded.push({ runId: run.id, jobId: job.id, reason: `job-${job.conclusion ?? job.status}` });
-        continue;
+      if (!candidates.length || new Set(candidates.map((job) => job.run_attempt)).size !== candidates.length)
+        throw new Error(`Missing or duplicate DB job: ${run.id}`);
+      for (const job of candidates) {
+        if (
+          job.run_id !== run.id ||
+          job.head_sha !== run.head_sha ||
+          !Number.isSafeInteger(job.run_attempt) ||
+          job.run_attempt < 1 ||
+          job.run_attempt > run.run_attempt
+        )
+          throw new Error(`Job identity mismatch: ${job.id}`);
+        if (job.status !== "completed" || job.conclusion !== "success") {
+          excluded.push({ runId: run.id, jobId: job.id, reason: `job-${job.conclusion ?? job.status}` });
+          continue;
+        }
+        const execution = job.steps?.filter((step) => step.name === "Run DB-profile tests");
+        if (execution?.length !== 1 || execution[0].status !== "completed" || execution[0].conclusion !== "success")
+          throw new Error(`DB execution step authority missing: ${job.id}`);
+        const stepStart = parseBaselineInstant(execution[0].started_at);
+        const stepEnd = parseBaselineInstant(execution[0].completed_at);
+        if (
+          stepStart < parseBaselineInstant(job.started_at) ||
+          stepEnd > parseBaselineInstant(job.completed_at) ||
+          stepEnd < stepStart
+        )
+          throw new Error(`DB execution timestamps contradict job: ${job.id}`);
+        const { payload: log } = await request(`actions/jobs/${job.id}/logs`, { log: true });
+        const result = classifyDbJob({ run, job, log, workspaceNames: options.workspaceNames });
+        if (result.eligible) jobs.push(result);
+        else excluded.push(result);
       }
-      const execution = job.steps?.filter((step) => step.name === "Run DB-profile tests");
-      if (execution?.length !== 1 || execution[0].status !== "completed" || execution[0].conclusion !== "success")
-        throw new Error(`DB execution step authority missing: ${job.id}`);
-      const stepStart = parseBaselineInstant(execution[0].started_at);
-      const stepEnd = parseBaselineInstant(execution[0].completed_at);
-      if (
-        stepStart < parseBaselineInstant(job.started_at) ||
-        stepEnd > parseBaselineInstant(job.completed_at) ||
-        stepEnd < stepStart
-      )
-        throw new Error(`DB execution timestamps contradict job: ${job.id}`);
-      const { payload: log } = await request(`actions/jobs/${job.id}/logs`, { log: true });
-      const result = classifyDbJob({ run, job, log, workspaceNames: options.workspaceNames });
-      if (result.eligible) jobs.push(result);
-      else excluded.push(result);
     }
     latestUniqueJobs(jobs);
     return { status: "complete", reasons: [], jobs, excluded };
@@ -377,7 +385,7 @@ export async function reconcileDbDurationIssues(digest, options) {
         throw new Error(`Ambiguous canonical drift issue: ${verdict.key}`);
       return { verdict, title, marker, issue: matches[0] };
     });
-  const actions = [];
+  const actions = (digest.issueActions = []);
   for (const { verdict, title, marker, issue } of plans) {
     const body = `${marker}\n\n${verdict.key}: median ${verdict.observedMs} ms; drift bound ${verdict.boundMs} ms; ratified ${verdict.baselineMs} ms (${digest.ratifiedAt}).\n\nChecked ${digest.checkedAt}; head ${digest.headSha}.\nSample jobs: ${digest.includedJobIds.join(", ")}.\n`;
     if (verdict.state === "breach") {
@@ -425,7 +433,7 @@ export async function runDbDurationDrift(options) {
       state: error.message.startsWith("insufficient-cohort") ? "insufficient-cohort" : "unknown",
       cohortReady: false,
       error: error.message,
-      issueActions: [],
+      issueActions: digest?.issueActions ?? [],
     };
   }
   await mkdir(path.dirname(options.outPath), { recursive: true });

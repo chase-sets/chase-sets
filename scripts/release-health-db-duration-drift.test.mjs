@@ -133,7 +133,8 @@ function github(data, alter = () => undefined) {
     if (suffix.endsWith("/runs")) return Response.json({ total_count: data.runs.length, workflow_runs: data.runs });
     if (suffix.endsWith("/jobs")) {
       const runId = Number(suffix.split("/")[2]);
-      return Response.json({ total_count: 1, jobs: data.jobs.filter((job) => job.run_id === runId) });
+      const jobs = data.jobs.filter((job) => job.run_id === runId);
+      return Response.json({ total_count: jobs.length, jobs });
     }
     if (suffix.endsWith("/logs")) return new Response(data.logs[Number(suffix.split("/")[2]) - 1]);
     throw new Error(`Unexpected synthetic API request: ${suffix}`);
@@ -319,8 +320,8 @@ describe("DB duration collection", () => {
       "actions/workflows/platform-pr.yml/runs",
       { total_count: 2, workflow_runs: [...source().runs, ...source().runs] },
     ],
-    ["omitted job source", "actions/runs/101/attempts/1/jobs", { total_count: 0, jobs: [] }],
-    ["incomplete job pagination", "actions/runs/101/attempts/1/jobs", { total_count: 2, jobs: source().jobs }],
+    ["omitted job source", "actions/runs/101/jobs", { total_count: 0, jobs: [] }],
+    ["incomplete job pagination", "actions/runs/101/jobs", { total_count: 2, jobs: source().jobs }],
   ])("%s is unknown and cannot be ready or publish", async (_name, suffix, payload) => {
     const fetchImpl = github(source(), (actual) => (actual === suffix ? Response.json(payload) : undefined));
     const result = await collectDbDurationJobs({ ...options, fetchImpl });
@@ -394,6 +395,39 @@ describe("DB duration collection", () => {
       expect(result.status).toBe(changedTotal ? "unknown" : "complete");
       if (!changedTotal) expect(result.jobs).toHaveLength(2);
     }
+  });
+
+  it("retains unique eligible jobs from all run attempts, not only the latest attempt", async () => {
+    const data = source(2);
+    data.runs = [{ ...data.runs[0], run_attempt: 2 }];
+    data.jobs[1] = { ...data.jobs[1], run_id: data.runs[0].id, run_attempt: 2 };
+    const fetchImpl = github(data);
+    const result = await collectDbDurationJobs({ ...options, fetchImpl });
+    expect(result.status).toBe("complete");
+    expect(result.jobs.map((job) => job.jobId)).toEqual([1, 2]);
+    expect(fetchImpl.mock.calls.some(([url]) => new URL(url).searchParams.get("filter") === "all")).toBe(true);
+    data.jobs[1].run_attempt = 1;
+    expect((await collectDbDurationJobs({ ...options, fetchImpl: github(data) })).status).toBe("unknown");
+  });
+
+  it.each([0, -1, 1.5, "1", undefined, 3])("rejects invalid all-attempt job identity %s", async (attempt) => {
+    const data = source(2);
+    data.runs = [{ ...data.runs[0], run_attempt: 2 }];
+    data.jobs[0].run_attempt = attempt;
+    data.jobs[1] = { ...data.jobs[1], run_id: data.runs[0].id, run_attempt: 2 };
+    const result = await collectDbDurationJobs({ ...options, fetchImpl: github(data) });
+    expect(result.status).toBe("unknown");
+    expect(result.reasons).toEqual(["Job identity mismatch: 1"]);
+  });
+
+  it("does not let the latest successful attempt hide missing earlier execution authority", async () => {
+    const data = source(2);
+    data.runs = [{ ...data.runs[0], run_attempt: 2 }];
+    data.jobs[0].steps = [];
+    data.jobs[1] = { ...data.jobs[1], run_id: data.runs[0].id, run_attempt: 2 };
+    const result = await collectDbDurationJobs({ ...options, fetchImpl: github(data) });
+    expect(result.status).toBe("unknown");
+    expect(result.reasons).toEqual(["DB execution step authority missing: 1"]);
   });
 
   it("wires the ops command and daily registered workflow to the exact state/cohort artifact", async () => {
@@ -517,5 +551,35 @@ describe("bootstrap and ratified lifecycle", () => {
       "Ambiguous",
     );
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("retains successful issue actions when later publication fails", async () => {
+    const paths = await scratch(baseline());
+    const data = source(10);
+    data.logs = data.logs.map(() => `RUN_WORKSPACES_SUMMARY ${JSON.stringify(summary(workspaceNames, 300001))}`);
+    data.jobs.forEach((job) => {
+      job.started_at = "2026-10-05T11:54:00Z";
+    });
+    let writes = 0;
+    const fetchImpl = github(data, (suffix, _url, request) => {
+      if (suffix.endsWith("search/issues"))
+        return Response.json({ total_count: 0, incomplete_results: false, items: [] });
+      if (request.method === "POST")
+        return ++writes === 1 ? Response.json({ id: 1 }) : new Response("", { status: 503 });
+      return undefined;
+    });
+    const digest = await runDbDurationDrift({
+      ...options,
+      ...paths,
+      workspaces,
+      fetchImpl,
+      publishIssues: true,
+      env: workflowEnv,
+    });
+    expect(digest.state).toBe("unknown");
+    expect(digest.error).toBe("GitHub 503: issues");
+    expect(writes).toBe(2);
+    expect(digest.issueActions).toEqual([{ key: workspaceName, action: "opened" }]);
+    expect(JSON.parse(await readFile(paths.outPath, "utf8")).issueActions).toEqual(digest.issueActions);
   });
 });
