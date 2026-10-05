@@ -2,6 +2,21 @@ import path from "node:path";
 import { buildMinimalProcessEnvironment } from "./lib/process.mjs";
 import { browserE2eLifecyclePathEnv } from "./browser-e2e-evidence.mjs";
 
+export function createMarketplaceDevProcessDefinition(sandbox, sandboxEnvironment) {
+  return {
+    name: "marketplace",
+    workspace: "@chase-sets/app-marketplace-web",
+    env: {
+      ...sandboxEnvironment,
+      PLATFORM_API_URL: sandbox.urls.platformApi,
+      VITE_PLATFORM_API_URL: sandbox.urls.platformApi,
+      CHASE_SETS_INTERNAL_API_ORIGIN: sandbox.urls.platformApi,
+      PORT: String(sandbox.ports.marketplaceWeb),
+    },
+    port: sandbox.ports.marketplaceWeb,
+  };
+}
+
 export function createPublicWebDevProcessDefinition(sandbox, sandboxEnvironment) {
   return {
     name: "public-web",
