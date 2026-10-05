@@ -191,6 +191,13 @@ test.describe("marketplace critical flows", () => {
     await page.getByLabel(/Email or phone/).fill("evidence@example.com");
     await page.getByRole("button", { name: "Continue", exact: true }).click();
     await page.getByRole("radio", { name: "Email me a sign-in link", exact: true }).click();
+    await expect(page.getByRole("radio", { name: "Email me a sign-in link", exact: true })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await page.getByRole("radiogroup").evaluate(async (group) => {
+      await Promise.all(group.getAnimations({ subtree: true }).map((animation) => animation.finished));
+    });
     await expect(page.getByText("We'll email you a one-time link.", { exact: true })).toBeVisible();
     const emailButton = page.getByRole("button", { name: "Email me a sign-in link", exact: true });
     await expect(emailButton).toBeEnabled();
@@ -214,6 +221,13 @@ test.describe("marketplace critical flows", () => {
     await page.getByLabel(/Email or phone/).fill("evidence@example.com");
     await page.getByRole("button", { name: "Continue", exact: true }).click();
     await page.getByRole("radio", { name: "Email me a sign-in link", exact: true }).click();
+    await expect(page.getByRole("radio", { name: "Email me a sign-in link", exact: true })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await page.getByRole("radiogroup").evaluate(async (group) => {
+      await Promise.all(group.getAnimations({ subtree: true }).map((animation) => animation.finished));
+    });
     await expect(page.getByText("We'll email you a one-time link.", { exact: true })).toBeVisible();
     const emailButton = page.getByRole("button", { name: "Email me a sign-in link", exact: true });
     await expect(emailButton).toBeEnabled();
