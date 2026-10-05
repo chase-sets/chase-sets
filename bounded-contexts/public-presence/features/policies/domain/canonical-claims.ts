@@ -107,9 +107,11 @@ export const canonicalClaimRegistry: Readonly<Record<CanonicalClaimId, Canonical
   "wallet-no-interest": {
     status: "unresolved",
     description:
-      "Whether Chase Sets pays no interest on Wallet-balance funds is not yet supported by any ratified " +
+      "Whether Chase Sets pays no interest on ordinary Wallet balances or Marketplace payment activity, " +
+      "including amounts pending payout, is not yet supported by any ratified " +
       "product-truth source; it remains an explicit open question pending qualified counsel confirmation " +
-      "before publication, not a productTruthRef-backed fact.",
+      "before publication, not a productTruthRef-backed fact. This ordinary-interest proposition is distinct " +
+      "from #7808's specifically ruled Prepaid Balance no-interest product term, which remains counsel-required.",
     productTruthRefs: [],
     requiredEvidenceKeywords: [],
     unresolvedPublicDisclosure:
@@ -120,6 +122,16 @@ export const canonicalClaimRegistry: Readonly<Record<CanonicalClaimId, Canonical
       "does not earn interest",
       "will not earn interest",
       "no interest is paid",
+      "does not pay you interest on funds connected to your marketplace payment activity",
+      "does not pay interest on funds connected to your marketplace payment activity",
+      "does not pay you interest on wallet",
+      "does not pay interest on wallet",
+      "does not pay you interest on ordinary",
+      "does not pay interest on ordinary",
+      "does not pay you interest on marketplace payment activity",
+      "does not pay interest on marketplace payment activity",
+      "does not pay you interest on amounts pending payout",
+      "does not pay interest on amounts pending payout",
     ],
   },
   "wallet-deposit-and-fdic-posture": {

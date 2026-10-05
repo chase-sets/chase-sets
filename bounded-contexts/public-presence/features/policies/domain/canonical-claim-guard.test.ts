@@ -7,10 +7,59 @@ import { canonicalClaimRegistry, resolveUnresolvedPublicDisclosureText } from ".
 import { evaluateCanonicalClaimConsistency, projectCanonicalClaimReviewCorpus } from "./canonical-claim-guard";
 import type { PublicPolicyRegistryEntry } from "./policy-registry";
 import { publicPolicyRegistry } from "./policy-registry";
+import { paymentsTermsPolicyArtifact } from "./payments-terms";
 import { readCitedSourceSlice } from "../integrations/privacy-product-truth-inventory.mjs";
 
 const domainDirectory = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(domainDirectory, "../../../../..");
+
+describe("ordinary interest versus the ruled Prepaid Balance term", () => {
+  const prepaid = paymentsTermsPolicyArtifact.sections.find(({ id }) => id === "prepaid-balance")!;
+  const ordinaryAssertions = [
+    "Chase Sets does not pay you interest on funds connected to your Marketplace payment activity, including amounts pending payout.",
+    "Chase Sets does not pay interest on funds connected to your Marketplace payment activity.",
+    "Chase Sets does not pay you interest on Wallet balances.",
+    "Chase Sets does not pay interest on Wallet balances.",
+    "Chase Sets does not pay you interest on ordinary payment activity.",
+    "Chase Sets does not pay interest on ordinary payment activity.",
+    "Chase Sets does not pay you interest on amounts pending payout.",
+    "Chase Sets does not pay interest on amounts pending payout.",
+  ];
+
+  it.each(ordinaryAssertions)("rejects undeclared ordinary assertions under arbitrary ids: %s", (draftText) => {
+    for (const text of [draftText, `${prepaid.draftText} ${draftText}`]) {
+      const result = evaluateCanonicalClaimConsistency(
+        isolatedSyntheticCorpus("synthetic-unrelated-8667", text),
+        repoRoot,
+      );
+      expect(result).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ claimId: "wallet-no-interest", sectionId: "synthetic-unrelated-8667" }),
+        ]),
+      );
+    }
+  });
+
+  it("accepts the ruled prepaid sentence without section exemptions and retains every prior forbidden phrase", () => {
+    expect(
+      evaluateCanonicalClaimConsistency(
+        isolatedSyntheticCorpus("synthetic-unrelated-8667", prepaid.draftText),
+        repoRoot,
+      ),
+    ).toEqual([]);
+    expect(canonicalClaimRegistry["wallet-no-interest"].forbiddenAssertionPhrases).toEqual(
+      expect.arrayContaining([
+        "do not earn interest",
+        "does not earn interest",
+        "will not earn interest",
+        "no interest is paid",
+      ]),
+    );
+    expect(canonicalClaimRegistry["wallet-no-interest"].forbiddenAssertionPhrases).not.toContain(
+      "does not pay interest",
+    );
+  });
+});
 
 // Claim-specific source-role probes, not a semantic extension of the generic guard.
 const chargeSourceRoles = [
