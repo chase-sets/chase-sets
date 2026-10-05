@@ -318,12 +318,9 @@ export function RegisterPage(props: RegistrationPageProps) {
 
       <Card elevation="flush">
         <Stack gap={3}>
-          <Inline>
-            <Badge tone="accent">{t("auth.features.registration.ui.registerPage.fastest")}</Badge>
-            <Text size="sm" tone="secondary">
-              {t("auth.features.registration.ui.registerPage.use.an.account.you.already.have")}
-            </Text>
-          </Inline>
+          <Text size="sm" tone="secondary">
+            {t("auth.features.registration.ui.registerPage.use.an.account.you.already.have")}
+          </Text>
           <Inline>
             <LinkButton
               href={`/api/auth/social/google/start?journey=registration&returnTo=${encodeURIComponent(props.returnTo ?? "/account")}`}
