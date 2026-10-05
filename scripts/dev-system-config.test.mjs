@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -20,11 +20,73 @@ import {
   buildPlatformChildEnvironment,
   buildRepresentativeSnapshotCommandEnvironment,
   createBrowserE2eProductionIngressDefinitions,
+  createMarketplaceDevProcessDefinition,
   isBrowserE2eTarget,
   resolveBrowserE2eSystemTarget,
 } from "./dev-system-config.mjs";
 
 const temporaryDirectories = [];
+
+const marketplaceSandbox = {
+  urls: { platformApi: "http://localhost:6412", marketplaceWeb: "http://localhost:6403" },
+  ports: { marketplaceWeb: 6403 },
+};
+
+function expectMarketplaceCliBinding(source) {
+  expect(source).toContain("createMarketplaceDevProcessDefinition,");
+  expect(source).toContain("createMarketplaceDevProcessDefinition(sandbox, sandboxEnv),");
+  expect(source).toContain('"browser-e2e": ["platform-api", "platform-worker", "admin-web", "marketplace"]');
+  expect(source).toContain('marketplace: ["marketplace"]');
+  expect(source).toContain("all: processes.map(({ name }) => name)");
+  expect(source).toContain("applyDevTargetEnvOverrides(targetName, resolveProcessesForTarget(targetName))");
+  expect(source).toContain("env: buildPlatformChildEnvironment(process.env, definition.env)");
+}
+
+function expectMarketplaceOrigin(environment) {
+  expect(environment.CHASE_SETS_INTERNAL_API_ORIGIN).toBe(marketplaceSandbox.urls.platformApi);
+}
+
+describe("marketplace dev sandbox origin", () => {
+  it("binds the shared definition into the CLI process table and all three targets", () => {
+    const source = readFileSync(new URL("./dev-system.mjs", import.meta.url), "utf8");
+    expectMarketplaceCliBinding(source);
+    expect(() => expectMarketplaceCliBinding(source.replace("createMarketplaceDevProcessDefinition(sandbox, sandboxEnv),", ""))).toThrow();
+  });
+
+  it.each(["browser-e2e", "marketplace", "all"])("resolves the sandbox API origin in the sanitized %s child", (target) => {
+    const definition = createMarketplaceDevProcessDefinition(marketplaceSandbox, {
+      CHASE_SETS_SANDBOX_ID: "synthetic-marketplace-test",
+      CHASE_SETS_INTERNAL_API_ORIGIN: "https://synthetic-inherited-api.invalid",
+    });
+    const [resolved] = applyDevTargetEnvOverrides(target, [definition]);
+    const environment = buildPlatformChildEnvironment({
+      PATH: "C:\\tools",
+      CHASE_SETS_INTERNAL_API_ORIGIN: "https://synthetic-ambient-api.invalid",
+      PGHOSTADDR: "203.0.113.42",
+      SEED_PACKS_SPACES_SECRET_KEY: "synthetic-secret",
+    }, resolved.env);
+    expectMarketplaceOrigin(environment);
+    expect(resolved).toMatchObject({
+      name: "marketplace",
+      workspace: "@chase-sets/app-marketplace-web",
+      port: marketplaceSandbox.ports.marketplaceWeb,
+      env: {
+        CHASE_SETS_SANDBOX_ID: "synthetic-marketplace-test",
+        PLATFORM_API_URL: marketplaceSandbox.urls.platformApi,
+        VITE_PLATFORM_API_URL: marketplaceSandbox.urls.platformApi,
+        PORT: String(marketplaceSandbox.ports.marketplaceWeb),
+      },
+    });
+    expect(environment).not.toHaveProperty("PGHOSTADDR");
+    expect(environment).not.toHaveProperty("SEED_PACKS_SPACES_SECRET_KEY");
+    const missing = { ...environment };
+    delete missing.CHASE_SETS_INTERNAL_API_ORIGIN;
+    expect(() => expectMarketplaceOrigin(missing)).toThrow();
+    for (const origin of [marketplaceSandbox.urls.marketplaceWeb, "https://synthetic-wrong-origin.invalid"]) {
+      expect(() => expectMarketplaceOrigin({ ...environment, CHASE_SETS_INTERNAL_API_ORIGIN: origin })).toThrow();
+    }
+  });
+});
 
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
