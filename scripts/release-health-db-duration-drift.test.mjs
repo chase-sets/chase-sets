@@ -10,6 +10,8 @@ import {
   classifyDbJob,
   collectDbDurationJobs,
   dbWorkspaceCensus,
+  dbDurationExitCode,
+  parseDbDurationArgs,
   readBoundedBody,
   recomputeDbDurationBaseline,
   reconcileDbDurationIssues,
@@ -99,6 +101,7 @@ function source(count = 1) {
     path: ".github/workflows/platform-pr.yml",
     head_sha: headSha,
     run_attempt: 1,
+    created_at: "2026-10-05T11:55:00Z",
   }));
   const jobs = runs.map((run, index) => ({
     id: index + 1,
@@ -130,7 +133,16 @@ function github(data, alter = () => undefined) {
     const suffix = parsed.pathname.replace("/repos/synthetic/repository/", "");
     const override = alter(suffix, parsed, request);
     if (override) return override;
-    if (suffix.endsWith("/runs")) return Response.json({ total_count: data.runs.length, workflow_runs: data.runs });
+    if (suffix.endsWith("/runs")) {
+      const [from, to] = parsed.searchParams.get("created").split("..").map(Date.parse);
+      const runs = data.runs.filter((run) => Date.parse(run.created_at) >= from && Date.parse(run.created_at) <= to);
+      const page = Number(parsed.searchParams.get("page"));
+      const size = Number(parsed.searchParams.get("per_page"));
+      return Response.json(
+        { total_count: runs.length, workflow_runs: runs.slice((page - 1) * size, page * size) },
+        { headers: page * size < runs.length ? { link: `<${url}>; rel="next"` } : {} },
+      );
+    }
     if (suffix.endsWith("/jobs")) {
       const runId = Number(suffix.split("/")[2]);
       const jobs = data.jobs.filter((job) => job.run_id === runId);
@@ -140,6 +152,162 @@ function github(data, alter = () => undefined) {
     throw new Error(`Unexpected synthetic API request: ${suffix}`);
   });
 }
+
+// Synthetic history: recent candidates followed by runs beyond the re-run horizon.
+function wideSource(recent = 20) {
+  const data = source(2500);
+  data.runs.forEach((run, i) => {
+    run.created_at = i < recent ? "2026-12-07T11:55:00Z" : "2026-11-01T11:55:00Z";
+    const date = i < recent ? "2026-12-07" : "2026-11-01";
+    const job = data.jobs[i];
+    job.started_at = `${date}T11:56:00Z`;
+    job.completed_at = `${date}T12:00:00Z`;
+    job.steps[0].started_at = `${date}T11:56:01Z`;
+    job.steps[0].completed_at = `${date}T11:59:59Z`;
+  });
+  return data;
+}
+
+describe("bounded collection proof", () => {
+  const later = "2026-12-08T00:00:00Z";
+  it("ratified detection reads only its bounded window", async () => {
+    const paths = await scratch(baseline());
+    const data = wideSource();
+    const fetchImpl = github(data);
+    const digest = await runDbDurationDrift({ ...options, ...paths, workspaces, checkedAt: later, fetchImpl });
+    expect(digest.state).toBe("ratified");
+    expect(digest.verdicts).toHaveLength(2);
+    expect(digest.includedJobIds).toEqual(Array.from({ length: 10 }, (_, i) => 20 - i));
+    expect(new URL(fetchImpl.mock.calls[0][0]).searchParams.get("created")).toBe(
+      "2026-10-24T00:00:00.000Z..2026-12-08T00:00:00Z",
+    );
+    expect(fetchImpl.mock.calls.filter(([url]) => url.endsWith("/logs"))).toHaveLength(10);
+    expect(fetchImpl.mock.calls.filter(([url]) => new URL(url).pathname.endsWith("/jobs"))).toHaveLength(20);
+  });
+
+  it("recompute proves the latest 20 without exhausting the window total", async () => {
+    const paths = await scratch();
+    const fetchImpl = github(wideSource());
+    const digest = await runDbDurationDrift({
+      ...options,
+      ...paths,
+      workspaces,
+      checkedAt: later,
+      fetchImpl,
+      recompute: true,
+      cause: "initial (#6660 split)",
+      env: {},
+    });
+    const ids = Array.from({ length: 20 }, (_, i) => 20 - i);
+    expect(digest.recompute?.sampleJobIds).toEqual(ids);
+    expect(JSON.parse(await readFile(paths.baselinePath, "utf8")).recomputes).toEqual([digest.recompute]);
+    expect(new URL(fetchImpl.mock.calls[0][0]).searchParams.get("created")).toBe(
+      "2026-10-05T04:44:41Z..2026-12-08T00:00:00Z",
+    );
+    expect(fetchImpl.mock.calls.filter(([url]) => url.endsWith("/logs"))).toHaveLength(20);
+  });
+
+  it("late re-run inside the proof horizon is still selected", async () => {
+    const paths = await scratch(baseline());
+    const data = wideSource(100);
+    data.runs[100].created_at = "2026-11-08T13:00:00Z";
+    data.jobs[100].started_at = "2026-12-07T12:56:00Z";
+    data.jobs[100].completed_at = "2026-12-07T13:00:00Z";
+    data.jobs[100].steps[0].started_at = "2026-12-07T12:56:01Z";
+    data.jobs[100].steps[0].completed_at = "2026-12-07T12:59:59Z";
+    data.runs[100].run_attempt = data.jobs[100].run_attempt = 2;
+    const fetchImpl = github(data);
+    const digest = await runDbDurationDrift({ ...options, ...paths, workspaces, checkedAt: later, fetchImpl });
+    expect(digest.state).toBe("ratified");
+    expect(digest.includedJobIds).toEqual([101, ...Array.from({ length: 9 }, (_, i) => 100 - i)]);
+    expect(fetchImpl.mock.calls.filter(([url]) => url.endsWith("/logs"))).toHaveLength(10);
+    expect(fetchImpl.mock.calls.filter(([url]) => new URL(url).pathname.endsWith("/runs"))).toHaveLength(2);
+  });
+
+  it("1000 runs scanned without proof is unknown", async () => {
+    const data = wideSource(2500);
+    data.jobs.forEach((job) => {
+      job.conclusion = "skipped";
+    });
+    const fetchImpl = github(data);
+    const result = await collectDbDurationJobs({ ...options, checkedAt: later, fetchImpl });
+    expect(result.status).toBe("unknown");
+    expect(result.reasons).toEqual(["Collection cap exhausted."]);
+    expect(fetchImpl.mock.calls.filter(([url]) => new URL(url).pathname.endsWith("/jobs"))).toHaveLength(1000);
+    expect(fetchImpl.mock.calls.filter(([url]) => new URL(url).pathname.endsWith("/runs"))).toHaveLength(10);
+    expect(
+      buildDbDurationDigest({ ...options, checkedAt: later, baseline: empty(), collection: result }).cohortReady,
+    ).toBe(false);
+  });
+});
+
+describe("DB duration command", () => {
+  it("recompute command reports insufficient-cohort without writes", async () => {
+    const paths = await scratch();
+    const before = await readFile(paths.baselinePath, "utf8");
+    const digest = await runDbDurationDrift({
+      ...options,
+      ...paths,
+      workspaces,
+      fetchImpl: github(source(19)),
+      recompute: true,
+      cause: "initial (#6660 split)",
+      env: {},
+    });
+    expect(digest.state).toBe("insufficient-cohort");
+    expect(await readFile(paths.baselinePath, "utf8")).toBe(before);
+  });
+
+  it("recompute is refused in CI and with publish", async () => {
+    for (const mode of [{ env: { GITHUB_ACTIONS: "true" } }, { env: {}, publishIssues: true }]) {
+      const paths = await scratch();
+      const before = await readFile(paths.baselinePath, "utf8");
+      const fetchImpl = github(source(20));
+      const digest = await runDbDurationDrift({
+        ...options,
+        ...paths,
+        workspaces,
+        fetchImpl,
+        recompute: true,
+        cause: "initial (#6660 split)",
+        ...mode,
+      });
+      expect(digest.state).toBe("unknown");
+      expect(digest.error).toBe("Recompute is local-only and cannot publish issues.");
+      expect(await readFile(paths.baselinePath, "utf8")).toBe(before);
+      expect(fetchImpl.mock.calls.every(([, request]) => request.method === "GET")).toBe(true);
+    }
+  });
+
+  it("parses CLI flags and cause without enabling absent or false modes", () => {
+    expect(parseDbDurationArgs([])).toEqual({ recompute: false, publishIssues: false, cause: null });
+    expect(parseDbDurationArgs(["--recompute", "--cause", "initial (#6660 split)"])).toEqual({
+      recompute: true,
+      publishIssues: false,
+      cause: "initial (#6660 split)",
+    });
+    expect(parseDbDurationArgs(["--recompute", "false", "--publish-issues", "true"])).toEqual({
+      recompute: false,
+      publishIssues: true,
+      cause: null,
+    });
+    expect(parseDbDurationArgs(["--recompute", "true", "--publish-issues", "false"])).toEqual({
+      recompute: true,
+      publishIssues: false,
+      cause: null,
+    });
+  });
+
+  it.each([
+    ["unknown", 1],
+    ["insufficient-cohort", 1],
+    ["baseline-pending", 0],
+    ["ratified", 0],
+    ["insufficient-sample", 0],
+  ])("maps CLI state %s to exit %s", (state, code) => {
+    expect(dbDurationExitCode(state)).toBe(code);
+  });
+});
 
 describe("DB duration recompute", () => {
   it("uses the observed upper middle integer", () => {
@@ -404,7 +572,7 @@ describe("DB duration collection", () => {
     const fetchImpl = github(data);
     const result = await collectDbDurationJobs({ ...options, fetchImpl });
     expect(result.status).toBe("complete");
-    expect(result.jobs.map((job) => job.jobId)).toEqual([1, 2]);
+    expect(result.jobs.map((job) => job.jobId)).toEqual([2, 1]);
     expect(fetchImpl.mock.calls.some(([url]) => new URL(url).searchParams.get("filter") === "all")).toBe(true);
     data.jobs[1].run_attempt = 1;
     expect((await collectDbDurationJobs({ ...options, fetchImpl: github(data) })).status).toBe("unknown");
@@ -446,6 +614,25 @@ describe("DB duration collection", () => {
     expect(upload.if).toBe("always()");
     expect(upload.with.path).toBe("artifacts/release-health/db-duration-drift.json");
     expect(upload.with["if-no-files-found"]).toBe("error");
+    expect(workflow.jobs.reporter).toMatchObject({
+      needs: "digest",
+      if: "${{ always() }}",
+      "runs-on": "ubuntu-latest",
+      "timeout-minutes": 5,
+      permissions: { contents: "read", issues: "write" },
+      steps: [
+        { uses: "actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10" },
+        {
+          if: "${{ contains(needs.*.result, 'failure') }}",
+          uses: "./.github/actions/report-scheduled-workflow-alert",
+          with: {
+            "github-token": "${{ github.token }}",
+            "workflow-name": "Platform DB Duration Drift",
+            "alert-status": "failure",
+          },
+        },
+      ],
+    });
   });
 });
 

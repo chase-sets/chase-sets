@@ -24,6 +24,7 @@ const PAGE_SIZE = 100;
 const MAX_ITEMS = 1000;
 const DETECTION_SAMPLE_SIZE = 10;
 const DAY_MS = 86_400_000;
+const RERUN_HORIZON_MS = 30 * DAY_MS + DAY_MS;
 
 export function upperMedian(values) {
   if (!values.length || values.some((value) => !Number.isSafeInteger(value) || value <= 0)) {
@@ -259,8 +260,7 @@ function apiClient(options) {
   };
 }
 
-async function collectPages(request, suffix, field) {
-  const items = [];
+async function* collectionPages(request, suffix, field) {
   const ids = new Set();
   let total;
   for (let page = 1; page <= MAX_ITEMS / PAGE_SIZE; page++) {
@@ -275,25 +275,30 @@ async function collectPages(request, suffix, field) {
         throw new Error("Missing pagination total.");
       if (total !== undefined && total !== payload.total_count) throw new Error("Pagination total changed.");
       total = payload.total_count;
-      if (total > MAX_ITEMS) throw new Error("Collection cap exhausted.");
+      if (field !== "workflow_runs" && total > MAX_ITEMS) throw new Error("Collection cap exhausted.");
     }
     for (const value of values) {
       if (!Number.isSafeInteger(value.id) || value.id <= 0 || ids.has(value.id))
         throw new Error("Duplicate or invalid page identity.");
       ids.add(value.id);
-      items.push(value);
     }
     const hasNext = /;\s*rel="next"/.test(link ?? "");
-    if (field && (items.length > total || (items.length === total && hasNext)))
-      throw new Error("Contradictory pagination.");
+    if (field && (ids.size > total || (ids.size === total && hasNext))) throw new Error("Contradictory pagination.");
     if (!hasNext) {
-      if (field && items.length !== total) throw new Error("Incomplete pagination.");
+      if (field && ids.size !== total) throw new Error("Incomplete pagination.");
       if (!field && values.length === PAGE_SIZE) throw new Error("Issue pagination omitted next link.");
-      return items;
     }
-    if (!values.length) throw new Error("Empty page with next link.");
+    if (hasNext && !values.length) throw new Error("Empty page with next link.");
+    yield values;
+    if (!hasNext) return;
   }
   throw new Error("Collection cap exhausted.");
+}
+
+async function collectPages(request, suffix, field) {
+  const items = [];
+  for await (const page of collectionPages(request, suffix, field)) items.push(...page);
+  return items;
 }
 
 export async function collectDbDurationJobs(options) {
@@ -301,55 +306,96 @@ export async function collectDbDurationJobs(options) {
   const excluded = [];
   try {
     const request = apiClient(options);
-    const runs = await collectPages(
-      request,
-      `actions/workflows/platform-pr.yml/runs?event=merge_group&created=${encodeURIComponent(`${PRODUCER_CREATED_AT}..${options.checkedAt}`)}`,
-      "workflow_runs",
-    );
-    for (const run of runs) {
-      if (
-        run.event !== "merge_group" ||
-        run.path !== ".github/workflows/platform-pr.yml" ||
-        !/^[a-f0-9]{40}$/.test(run.head_sha) ||
-        !Number.isSafeInteger(run.run_attempt) ||
-        run.run_attempt < 1
-      ) {
-        throw new Error(`Run identity mismatch: ${run.id}`);
-      }
-      const inventory = await collectPages(request, `actions/runs/${run.id}/jobs?filter=all`, "jobs");
-      const candidates = inventory.filter((job) => job.name === "DB Profile Tests");
-      if (!candidates.length || new Set(candidates.map((job) => job.run_attempt)).size !== candidates.length)
-        throw new Error(`Missing or duplicate DB job: ${run.id}`);
-      for (const job of candidates) {
-        if (
-          job.run_id !== run.id ||
-          job.head_sha !== run.head_sha ||
-          !Number.isSafeInteger(job.run_attempt) ||
-          job.run_attempt < 1 ||
-          job.run_attempt > run.run_attempt
-        )
-          throw new Error(`Job identity mismatch: ${job.id}`);
-        if (job.status !== "completed" || job.conclusion !== "success") {
-          excluded.push({ runId: run.id, jobId: job.id, reason: `job-${job.conclusion ?? job.status}` });
-          continue;
-        }
-        const execution = job.steps?.filter((step) => step.name === "Run DB-profile tests");
-        if (execution?.length !== 1 || execution[0].status !== "completed" || execution[0].conclusion !== "success")
-          throw new Error(`DB execution step authority missing: ${job.id}`);
-        const stepStart = parseBaselineInstant(execution[0].started_at);
-        const stepEnd = parseBaselineInstant(execution[0].completed_at);
-        if (
-          stepStart < parseBaselineInstant(job.started_at) ||
-          stepEnd > parseBaselineInstant(job.completed_at) ||
-          stepEnd < stepStart
-        )
-          throw new Error(`DB execution timestamps contradict job: ${job.id}`);
+    const required = options.required ?? RECOMPUTE_SAMPLE_SIZE;
+    const createdAfter = options.createdAfter ?? PRODUCER_CREATED_AT;
+    const pending = [];
+    const jobIds = new Set();
+    // GitHub permits re-runs for 30 days after creation; jobs last at most one
+    // day. Hold metadata until the next run cannot outrank it, then fetch logs
+    // in completion/ID order. A large window total is not a scanned-run cap.
+    const drain = async (unscannedCompletionBound) => {
+      pending.sort((a, b) => b.completed - a.completed || b.job.id - a.job.id);
+      while (pending.length && pending[0].completed > unscannedCompletionBound && jobs.length < required) {
+        const { run, job } = pending.shift();
         const { payload: log } = await request(`actions/jobs/${job.id}/logs`, { log: true });
         const result = classifyDbJob({ run, job, log, workspaceNames: options.workspaceNames });
         if (result.eligible) jobs.push(result);
         else excluded.push(result);
       }
+      return jobs.length === required;
+    };
+    let previousCreated = Infinity;
+    let scanned = 0;
+    const pages = collectionPages(
+      request,
+      `actions/workflows/platform-pr.yml/runs?event=merge_group&created=${encodeURIComponent(`${createdAfter}..${options.checkedAt}`)}`,
+      "workflow_runs",
+    );
+    for await (const runs of pages) {
+      for (const run of runs) {
+        const created = parseBaselineInstant(run.created_at);
+        if (
+          created > previousCreated ||
+          created < parseBaselineInstant(createdAfter) ||
+          created > parseBaselineInstant(options.checkedAt)
+        )
+          throw new Error(`Run creation ordering or window mismatch: ${run.id}`);
+        previousCreated = created;
+        if (await drain(created + RERUN_HORIZON_MS)) return { status: "complete", reasons: [], jobs, excluded };
+        scanned++;
+        if (
+          run.event !== "merge_group" ||
+          run.path !== ".github/workflows/platform-pr.yml" ||
+          !/^[a-f0-9]{40}$/.test(run.head_sha) ||
+          !Number.isSafeInteger(run.run_attempt) ||
+          run.run_attempt < 1
+        ) {
+          throw new Error(`Run identity mismatch: ${run.id}`);
+        }
+        const inventory = await collectPages(request, `actions/runs/${run.id}/jobs?filter=all`, "jobs");
+        const candidates = inventory.filter((job) => job.name === "DB Profile Tests");
+        if (!candidates.length || new Set(candidates.map((job) => job.run_attempt)).size !== candidates.length)
+          throw new Error(`Missing or duplicate DB job: ${run.id}`);
+        for (const job of candidates) {
+          if (
+            jobIds.has(job.id) ||
+            job.run_id !== run.id ||
+            job.head_sha !== run.head_sha ||
+            !Number.isSafeInteger(job.run_attempt) ||
+            job.run_attempt < 1 ||
+            job.run_attempt > run.run_attempt
+          )
+            throw new Error(`Job identity mismatch: ${job.id}`);
+          jobIds.add(job.id);
+          if (job.status !== "completed" || job.conclusion !== "success") {
+            excluded.push({ runId: run.id, jobId: job.id, reason: `job-${job.conclusion ?? job.status}` });
+            continue;
+          }
+          const execution = job.steps?.filter((step) => step.name === "Run DB-profile tests");
+          if (execution?.length !== 1 || execution[0].status !== "completed" || execution[0].conclusion !== "success")
+            throw new Error(`DB execution step authority missing: ${job.id}`);
+          const stepStart = parseBaselineInstant(execution[0].started_at);
+          const stepEnd = parseBaselineInstant(execution[0].completed_at);
+          const started = parseBaselineInstant(job.started_at);
+          const completed = parseBaselineInstant(job.completed_at);
+          if (completed <= started || completed - started > DAY_MS) throw new Error(`Invalid job wall time: ${job.id}`);
+          if (
+            stepStart < parseBaselineInstant(job.started_at) ||
+            stepEnd > parseBaselineInstant(job.completed_at) ||
+            stepEnd < stepStart
+          )
+            throw new Error(`DB execution timestamps contradict job: ${job.id}`);
+          if (options.completedAfter !== undefined && completed < options.completedAfter) {
+            excluded.push({ runId: run.id, jobId: job.id, reason: "outside-detection-window" });
+            continue;
+          }
+          pending.push({ run, job, completed });
+        }
+        if (scanned === MAX_ITEMS && (await drain(created + RERUN_HORIZON_MS)))
+          return { status: "complete", reasons: [], jobs, excluded };
+      }
     }
+    await drain(-Infinity);
     latestUniqueJobs(jobs);
     return { status: "complete", reasons: [], jobs, excluded };
   } catch (error) {
@@ -416,7 +462,18 @@ export async function runDbDurationDrift(options) {
     parseBaselineInstant(options.checkedAt);
     const baseline = validateDbDurationBaseline(JSON.parse(await readFile(options.baselinePath, "utf8")));
     const workspaceNames = dbWorkspaceCensus(options.workspaces);
-    const collection = await collectDbDurationJobs({ ...options, workspaceNames });
+    const detecting = baseline.recomputes.length > 0 && !options.recompute;
+    const completedAfter = detecting ? parseBaselineInstant(options.checkedAt) - 14 * DAY_MS : undefined;
+    const createdAfter = detecting
+      ? new Date(Math.max(parseBaselineInstant(PRODUCER_CREATED_AT), completedAfter - RERUN_HORIZON_MS)).toISOString()
+      : PRODUCER_CREATED_AT;
+    const collection = await collectDbDurationJobs({
+      ...options,
+      workspaceNames,
+      createdAfter,
+      completedAfter,
+      required: detecting ? DETECTION_SAMPLE_SIZE : RECOMPUTE_SAMPLE_SIZE,
+    });
     digest = buildDbDurationDigest({ ...options, baseline, collection, workspaceNames });
     if (options.recompute) {
       if ((options.env ?? process.env).GITHUB_ACTIONS === "true" || options.publishIssues)
@@ -441,9 +498,21 @@ export async function runDbDurationDrift(options) {
   return digest;
 }
 
+export function parseDbDurationArgs(argv) {
+  const flag = (name) => argv.includes(name) && readOption(argv, name) !== "false";
+  return {
+    recompute: flag("--recompute"),
+    publishIssues: flag("--publish-issues"),
+    cause: readOption(argv, "--cause"),
+  };
+}
+
+export function dbDurationExitCode(state) {
+  return ["unknown", "insufficient-cohort"].includes(state) ? 1 : 0;
+}
+
 async function main() {
   const argv = process.argv.slice(2);
-  const flag = (name) => argv.includes(name) && readOption(argv, name) !== "false";
   const outPath = readOption(argv, "--out") ?? "artifacts/release-health/db-duration-drift.json";
   const result = await runDbDurationDrift({
     repository: readOption(argv, "--repository") ?? process.env.GITHUB_REPOSITORY,
@@ -453,14 +522,12 @@ async function main() {
     baselinePath: path.join(repoRoot, DB_DURATION_BASELINE_PATH),
     outPath,
     evidenceDir: `${outPath}.evidence`,
-    recompute: flag("--recompute"),
-    publishIssues: flag("--publish-issues"),
-    cause: readOption(argv, "--cause"),
+    ...parseDbDurationArgs(argv),
   });
   console.log(
     `DB duration drift: ${result.state}; eligible=${result.eligibleCount ?? "unknown"}; cohortReady=${result.cohortReady}; artifact=${outPath}`,
   );
-  if (["unknown", "insufficient-cohort"].includes(result.state)) process.exitCode = 1;
+  process.exitCode = dbDurationExitCode(result.state);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
