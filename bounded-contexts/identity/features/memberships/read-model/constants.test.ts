@@ -9,7 +9,8 @@ describe("identity role permissions", () => {
       expect(permissions.filter((permission) => permission === "payouts.platform.view")).toEqual(
         role === "platform-admin" ? ["payouts.platform.view"] : [],
       );
-      expect(permissions.includes("payouts.platform.view") && permissions.includes("payouts.reconcile")).toBe(false);
+      const grants = new Set<string>(permissions);
+      expect(grants.has("payouts.platform.view") && grants.has("payouts.reconcile")).toBe(false);
     }
     for (const permissions of Object.values(PERMISSION_PRESETS)) {
       expect(permissions).not.toContain("payouts.platform.view");
