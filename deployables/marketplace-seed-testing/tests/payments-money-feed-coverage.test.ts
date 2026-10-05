@@ -54,7 +54,7 @@ describeWithMarketplaceSeedDatabase("payments real money feed coverage", () => {
       ).rows[0]!.position;
 
     const proveFeed = async (feed: string, source: (typeof subscriptions)[number]["source"], before: string) => {
-      await drainContextRuntime(runtime);
+      await drainContextRuntime(runtime, { settleIdleCheckpoints: true });
       for (const subscription of subscriptions.filter((candidate) => candidate.source === source)) {
         const events = await pools[source].query<{ event_id: string; global_position: string }>(
           `SELECT event_id, global_position::text AS global_position FROM event_store_events
