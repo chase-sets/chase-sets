@@ -6,7 +6,7 @@
       "kind": "public-first-use",
       "disposition": "bound",
       "reason": "Public first-use path; creates a personal identity through createPersonalIdentityForAuth and carries the registration consent submission its caller supplied.",
-      "sites": [{ "file": "bounded-contexts/auth/support/api-support/register-routes.ts", "line": 52 }]
+      "sites": [{ "file": "bounded-contexts/auth/support/api-support/register-routes.ts", "line": 53 }]
     },
     {
       "id": "invitation-registration",
@@ -22,7 +22,7 @@
       "kind": "public-first-use",
       "disposition": "bound",
       "reason": "Public first-use path; a consumed magic link for an unknown email creates a personal identity.",
-      "sites": [{ "file": "bounded-contexts/auth/support/api-support/magic-link-routes.ts", "line": 136 }]
+      "sites": [{ "file": "bounded-contexts/auth/support/api-support/magic-link-routes.ts", "line": 137 }]
     },
     {
       "id": "passkey-registration",
@@ -30,7 +30,7 @@
       "kind": "public-first-use",
       "disposition": "bound",
       "reason": "Public first-use path; a passkey ceremony for an unknown email creates a personal identity.",
-      "sites": [{ "file": "bounded-contexts/auth/support/api-support/passkey-routes.ts", "line": 117 }]
+      "sites": [{ "file": "bounded-contexts/auth/support/api-support/passkey-routes.ts", "line": 118 }]
     },
     {
       "id": "phone-code-registration",
@@ -86,7 +86,7 @@
       "kind": "protected-administration",
       "disposition": "exempt-permanent",
       "reason": "Permission-guarded operator action; the operator creating the account is not the consenting subject, so there is no registration moment to bind.",
-      "sites": [{ "file": "bounded-contexts/identity/features/accounts/api/route.ts", "line": 42 }]
+      "sites": [{ "file": "bounded-contexts/identity/features/accounts/api/route.ts", "line": 112 }]
     },
     {
       "id": "protected-user-administration",
