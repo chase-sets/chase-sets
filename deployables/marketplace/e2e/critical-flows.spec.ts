@@ -1,4 +1,5 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
 import { registerSyntheticAccount, signInWithPassword, syntheticAccountFor } from "./support/auth";
 import { marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
 
@@ -170,8 +171,54 @@ test.describe("marketplace critical flows", () => {
 
     await page.getByRole("link", { name: "Register" }).first().click();
     await expect(page).toHaveURL(/\/register/);
-    await expect(page.getByText(/Create an account with a passkey/i)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Create your account", exact: true })).toBeVisible();
     await expect(page.getByText("Passkey").first()).toBeVisible();
+  });
+
+  test("records sign-in method list and email option at 390x844 @marketplace-account", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expectPageOk(page, "/sign-in");
+    await expect(page.getByLabel(/Email or phone/)).toHaveValue("");
+    await expect(page.locator('main [role="listitem"]')).toHaveText([
+      "Password",
+      "Phone Code",
+      "Email me a sign-in link",
+      "Passkey",
+    ]);
+    await expect(page.getByRole("radiogroup")).toHaveCount(0);
+    await captureResponsiveEvidence({ page, testInfo, claimId: "sign-in-methods-mobile" });
+
+    await page.getByLabel(/Email or phone/).fill("evidence@example.com");
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await page.getByRole("radio", { name: "Email me a sign-in link", exact: true }).click();
+    await expect(page.getByText("We'll email you a one-time link.", { exact: true })).toBeVisible();
+    const emailButton = page.getByRole("button", { name: "Email me a sign-in link", exact: true });
+    await expect(emailButton).toBeEnabled();
+    await expect(emailButton.locator("svg.lucide-mail")).toBeVisible();
+    await captureResponsiveEvidence({ page, testInfo, claimId: "sign-in-email-option-mobile" });
+  });
+
+  test("records sign-in method list and email option at 1280x900 @marketplace-account", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await expectPageOk(page, "/sign-in");
+    await expect(page.getByLabel(/Email or phone/)).toHaveValue("");
+    await expect(page.locator('main [role="listitem"]')).toHaveText([
+      "Password",
+      "Phone Code",
+      "Email me a sign-in link",
+      "Passkey",
+    ]);
+    await expect(page.getByRole("radiogroup")).toHaveCount(0);
+    await captureResponsiveEvidence({ page, testInfo, claimId: "sign-in-methods-desktop" });
+
+    await page.getByLabel(/Email or phone/).fill("evidence@example.com");
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
+    await page.getByRole("radio", { name: "Email me a sign-in link", exact: true }).click();
+    await expect(page.getByText("We'll email you a one-time link.", { exact: true })).toBeVisible();
+    const emailButton = page.getByRole("button", { name: "Email me a sign-in link", exact: true });
+    await expect(emailButton).toBeEnabled();
+    await expect(emailButton.locator("svg.lucide-mail")).toBeVisible();
+    await captureResponsiveEvidence({ page, testInfo, claimId: "sign-in-email-option-desktop" });
   });
 
   test("protected account routes preserve the requested return path @marketplace-account", async ({ page }) => {
