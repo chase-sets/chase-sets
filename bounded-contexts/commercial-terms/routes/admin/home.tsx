@@ -9,6 +9,7 @@ import {
 import {
   CommercialTermsApiError,
   createCommercialTermsRequestApiClient,
+  createCommercialTermsPublicRequestApiClient,
 } from "../../features/home/integrations/admin-api-client";
 import { commercialTermsApiErrorAdapter } from "../../features/home/integrations/admin-api-error";
 import { normalizeAgreementAccountIdText } from "../../features/agreements/api/account-id";
@@ -41,6 +42,7 @@ function homeQueryState(request: Request) {
 
 function unavailableHome(request: Request, error: unknown) {
   return {
+    publishedSchedule: null,
     schedules: [],
     agreements: [],
     accounts: [],
@@ -60,14 +62,17 @@ export const loader = defineResourceRoute({
     const api = createCommercialTermsRequestApiClient(request);
     const scheduleId = url.searchParams.get("schedule");
     const agreementId = url.searchParams.get("agreement");
-    const [scheduleList, agreementList, accounts, selectedSchedule, selectedAgreement] = await Promise.all([
-      api.listSchedules("limit=250&offset=0"),
-      api.listAgreements("limit=250&offset=0"),
-      api.listAccountOptions(),
-      scheduleId ? api.getSchedule(scheduleId) : null,
-      agreementId ? api.getAgreement(agreementId) : null,
-    ]);
+    const [scheduleList, agreementList, accounts, selectedSchedule, selectedAgreement, publishedSchedule] =
+      await Promise.all([
+        api.listSchedules("limit=250&offset=0"),
+        api.listAgreements("limit=250&offset=0"),
+        api.listAccountOptions(),
+        scheduleId ? api.getSchedule(scheduleId) : null,
+        agreementId ? api.getAgreement(agreementId) : null,
+        createCommercialTermsPublicRequestApiClient(request).getMarketplaceSalesFeeSchedule(),
+      ]);
     return {
+      publishedSchedule,
       schedules: scheduleList.items,
       agreements: agreementList.items,
       accounts,
@@ -125,6 +130,7 @@ export default function CommercialTermsHomeRoute() {
   const actionData = useActionData<typeof action>();
   return (
     <CommercialTermsHomePage
+      publishedSchedule={data.publishedSchedule}
       schedules={data.schedules}
       agreements={data.agreements}
       accounts={data.accounts}
