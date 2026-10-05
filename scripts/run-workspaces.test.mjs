@@ -492,6 +492,133 @@ describe("DB duration scheduling", () => {
   const db = workspace("@chase-sets/db", { "test:db": "aggregate", "test:db:2": "two", "test:db:1": "one" }, "db");
   const registry = durationRegistry([durationEntry(db.name, "test:db", 2)]);
 
+  it.each([
+    ["API first", 927, 346, undefined, "api"],
+    ["seed first", 346, 927, undefined, "seed"],
+    ["unhinted API", undefined, 346, undefined, "api"],
+    ["unhinted seed", 927, undefined, undefined, "seed"],
+    ["both unhinted", undefined, undefined, undefined, "api"],
+    ["failed API first partition", 927, 346, "test:db:1", "api"],
+    ["failed API second partition", 927, 346, "test:db:2", "api"],
+    ["failed seed", 346, 927, "test:db", "seed"],
+  ])(
+    "excludes seed/API DB overlap with %s while filling unrelated slots",
+    async (_label, apiHint, seedHint, failure, firstName) => {
+      const api = workspace(
+        "@chase-sets/app-platform-api",
+        { "test:db": "aggregate", "test:db:1": "one", "test:db:2": "two" },
+        "db",
+      );
+      const seed = workspace("@chase-sets/marketplace-seed-testing", { "test:db": "seed" }, "db");
+      const peers = ["other-one", "other-two"].map((name) =>
+        workspace(`@chase-sets/${name}`, { "test:db": "db" }, "db"),
+      );
+      const first = firstName === "api" ? api : seed;
+      const held = Promise.withResolvers();
+      const peersFinished = Promise.withResolvers();
+      const active = new Set();
+      const overlaps = [];
+      const starts = [];
+      let maxActive = 0;
+      let completedPeers = 0;
+      const outputPromise = captureDbRun({
+        workspaces: [seed, ...peers, api],
+        registry: durationRegistry([
+          ...[durationEntry(api.name, "test:db", apiHint), durationEntry(seed.name, "test:db", seedHint)].filter(
+            (entry) => entry.estimatedDurationSeconds !== undefined,
+          ),
+          ...peers.map((peer) => durationEntry(peer.name, "test:db", 1)),
+        ]),
+        argv: ["--concurrency=2"],
+        run: async (args, options) => {
+          const [, name, , script] = args;
+          starts.push([name, script]);
+          active.add(name);
+          maxActive = Math.max(maxActive, active.size);
+          if (active.has(api.name) && active.has(seed.name)) overlaps.push([name, script]);
+          try {
+            expect(options.timeoutMs).toBe(600_000);
+            if (name === first.name) await held.promise;
+            if (name === first.name && script === failure) throw new Error("synthetic DB failure");
+          } finally {
+            active.delete(name);
+            if (peers.some((peer) => peer.name === name) && ++completedPeers === peers.length) peersFinished.resolve();
+          }
+        },
+      });
+      // Keep the first DB owner active after every unrelated task has drained.
+      // The idle worker must wait, then wake on either success or failure.
+      await peersFinished.promise;
+      await delay(0);
+      const startsWhileHeld = starts.slice();
+      held.resolve();
+      const output = await outputPromise;
+
+      expect(overlaps).toEqual([]);
+      expect(maxActive).toBe(2);
+      expect(startsWhileHeld.map(([name]) => name)).toEqual([first.name, ...peers.map((peer) => peer.name)]);
+      expect(output.result instanceof Error).toBe(failure !== undefined);
+      expect(output.summary).toMatchObject({ eligibleCount: 4, completedCount: 4, failedCount: failure ? 1 : 0 });
+      expect(output.summary.tasks.map((task) => task.workspace).sort()).toEqual(
+        [api, seed, ...peers].map((task) => task.name).sort(),
+      );
+      expect(starts.filter(([name]) => name === api.name).map(([, script]) => script)).toEqual(
+        failure === "test:db:1" ? ["test:db:1"] : ["test:db:1", "test:db:2"],
+      );
+      expect(starts.filter(([name]) => name === seed.name)).toEqual([[seed.name, "test:db"]]);
+      if (failure) {
+        expect(output.result.message).toBe("1 workspace script run(s) failed.");
+        expect(output.stderr.join("\n")).toContain("synthetic DB failure");
+        expect(output.summary.tasks.find((task) => task.workspace === first.name).outcome).toBe("failed");
+      }
+    },
+  );
+
+  it.each(["test:db", "test:db:1", "test:unit", "test", "build"])(
+    "limits exclusion to DB commands for exact selector %s",
+    async (script) => {
+      const active = new Set();
+      let maxActive = 0;
+      const names = ["@chase-sets/marketplace-seed-testing", "@chase-sets/app-platform-api"];
+      const invocations = [];
+      await runWorkspaceScripts({
+        argv: [script, "--concurrency=4"],
+        buildInvocation,
+        listWorkspaces: () => names.map((name) => workspace(name, { [script]: "command" }, "db")),
+        loadEnvironment: () => {},
+        run: async (_command, args) => {
+          invocations.push(args[1]);
+          active.add(args[1]);
+          maxActive = Math.max(maxActive, active.size);
+          await delay(0);
+          active.delete(args[1]);
+        },
+      });
+      expect(invocations).toEqual(names);
+      expect(maxActive).toBe(script.startsWith("test:db") ? 1 : 2);
+    },
+  );
+
+  it("retains the real DB sweep membership and invokes seed once and API partitions only", async () => {
+    const workspaces = listWorkspacePackages();
+    const output = await captureDbRun({
+      workspaces,
+      registry: readJson("scripts/workspace-test-duration-hints-v1.json"),
+      argv: ["--concurrency=2"],
+    });
+    const eligible = workspaces.filter((entry) => typeof entry.packageJson.scripts?.["test:db"] === "string");
+    expect(output.result).toBeUndefined();
+    expect(output.summary.tasks.map((task) => task.workspace).sort()).toEqual(
+      eligible.map((entry) => entry.name).sort(),
+    );
+    for (const [name, scripts] of [
+      ["@chase-sets/marketplace-seed-testing", ["test:db"]],
+      ["@chase-sets/app-platform-api", ["test:db:1", "test:db:2"]],
+    ]) {
+      expect(output.invocations.filter((args) => args[1] === name).map((args) => args[3])).toEqual(scripts);
+    }
+  });
+
   it("DB selector preserves LPT order and serialized partition invocations", async () => {
     const candidates = [
       workspace("@chase-sets/z-short", { "test:db": "db" }, "db"),
