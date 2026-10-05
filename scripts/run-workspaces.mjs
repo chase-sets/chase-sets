@@ -14,7 +14,7 @@ const inheritedEnvKeys = new Set(Object.keys(process.env));
 const testEnvFiles = [".env", ".env.local", ".env.test", ".env.test.local"];
 const durationHintRegistryUrl = new URL("./workspace-test-duration-hints-v1.json", import.meta.url);
 const workspacePattern = /^@chase-sets\/[a-z0-9-]+$/;
-const durationHintScripts = new Set(["test", "test:unit"]);
+const durationHintScripts = new Set(["test", "test:unit", "test:db"]);
 const durationInvocations = new Map([
   ["test--exclude-test-profile=db", "test"],
   ["test:unit--test-profile=db", "test:unit"],
@@ -67,7 +67,7 @@ function assertWorkspaceIdentity(value, label) {
 
 function assertDurationHintScript(value, label) {
   if (typeof value !== "string" || !durationHintScripts.has(value)) {
-    throw new Error(`${label} must be test or test:unit.`);
+    throw new Error(`${label} must be test, test:unit or test:db.`);
   }
 }
 
@@ -148,7 +148,9 @@ export function validateWorkspaceDurationReplay(fixture, registry) {
       throw new Error(`${label}.invocation is invalid.`);
     }
     assertWorkspaceIdentity(observation.workspace, `${label}.workspace`);
-    assertDurationHintScript(observation.script, `${label}.script`);
+    if (observation.script !== "test" && observation.script !== "test:unit") {
+      throw new Error(`${label}.script must be test or test:unit.`);
+    }
     assertBoundedInteger(observation.observedDurationMs, 0, 600_000, `${label}.observedDurationMs`);
     if (durationInvocations.get(observation.invocation) !== observation.script) {
       throw new Error(`${label}.invocation does not match its script.`);
@@ -224,7 +226,7 @@ export function validateRunWorkspacesSummary(summary) {
     if (typeof task.usedFallback !== "boolean") {
       throw new Error(`${label}.usedFallback must be a boolean.`);
     }
-    assertBoundedInteger(task.actualDurationMs, 0, 600_000, `${label}.actualDurationMs`);
+    assertBoundedInteger(task.actualDurationMs, 0, 3_600_000, `${label}.actualDurationMs`);
     if (task.outcome !== "passed" && task.outcome !== "failed") {
       throw new Error(`${label}.outcome must be passed or failed.`);
     }
@@ -347,6 +349,9 @@ function isDurationScheduledInvocation(options) {
       options.includeTestProfile === undefined) ||
     (options.scriptName === "test:unit" &&
       options.includeTestProfile === "db" &&
+      options.excludeTestProfile === undefined) ||
+    (options.scriptName === DB_TEST_SCRIPT_SELECTOR &&
+      options.includeTestProfile === undefined &&
       options.excludeTestProfile === undefined)
   );
 }
@@ -440,7 +445,7 @@ async function runConcurrent(tasks, options) {
         });
       } finally {
         if (taskResult) {
-          taskResult.actualDurationMs = Math.min(600_000, Math.max(0, options.now() - startedAt));
+          taskResult.actualDurationMs = Math.min(3_600_000, Math.max(0, options.now() - startedAt));
         }
       }
     }
@@ -554,6 +559,7 @@ export async function runWorkspaceScripts(options) {
 
   const allWorkspaces = listWorkspaces();
   const durationScheduled = isDurationScheduledInvocation(parsed);
+  const summaryScriptName = parsed.scriptName === DB_TEST_SCRIPT_SELECTOR ? "test:db" : parsed.scriptName;
   const registry = durationScheduled
     ? validateDurationHintRegistry(
         durationHintRegistry ?? JSON.parse(readFileSync(durationHintRegistryUrl, "utf8")),
@@ -562,7 +568,10 @@ export async function runWorkspaceScripts(options) {
     : undefined;
   const workspaces = filterWorkspaces(allWorkspaces, parsed);
   const tasks = durationScheduled
-    ? scheduleEligibleWorkspaces(workspaces, registry, parsed.scriptName)
+    ? scheduleEligibleWorkspaces(workspaces, registry, summaryScriptName).map((task) => ({
+        ...task,
+        scriptNames: workspaceScriptNames(task.workspace, parsed.scriptName),
+      }))
     : workspaces.map((workspace) => ({
         workspace,
         scriptNames: workspaceScriptNames(workspace, parsed.scriptName),
@@ -575,7 +584,7 @@ export async function runWorkspaceScripts(options) {
   const unhintedTasks = durationScheduled
     ? tasks
         .filter((task) => task.usedFallback)
-        .map((task) => ({ workspace: task.workspace.name, script: parsed.scriptName }))
+        .map((task) => ({ workspace: task.workspace.name, script: summaryScriptName }))
     : [];
   if (unhintedTasks.length > 0) {
     console.error(
@@ -588,6 +597,7 @@ export async function runWorkspaceScripts(options) {
   try {
     await runConcurrent(tasks, {
       ...parsed,
+      scriptName: durationScheduled ? summaryScriptName : parsed.scriptName,
       buildInvocation,
       commandTimeoutMs: parsed.commandTimeoutMs ?? defaultCommandTimeoutMs(parsed.scriptName),
       now,
@@ -600,7 +610,7 @@ export async function runWorkspaceScripts(options) {
       const summary = buildRunWorkspacesSummary({
         concurrency: parsed.concurrency,
         elapsedMs: now() - startedAt,
-        scriptName: parsed.scriptName,
+        scriptName: summaryScriptName,
         taskResults,
         unhintedTasks,
       });
