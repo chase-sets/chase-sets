@@ -314,6 +314,16 @@ export function parseRunWorkspacesArgs(argv) {
     : undefined;
   const includeTestProfile = runnerArgs.find((arg) => arg.startsWith("--test-profile="))?.split("=")[1];
   const excludeTestProfile = runnerArgs.find((arg) => arg.startsWith("--exclude-test-profile="))?.split("=")[1];
+  const groupArgs = runnerArgs.filter(
+    (arg) => arg === "--db-workspace-group" || arg.startsWith("--db-workspace-group="),
+  );
+  const dbWorkspaceGroup = groupArgs[0]?.slice("--db-workspace-group=".length);
+  if (
+    groupArgs.length > 1 ||
+    (groupArgs.length === 1 && (scriptName !== DB_TEST_SCRIPT_SELECTOR || !["api", "other"].includes(dbWorkspaceGroup)))
+  ) {
+    throw new Error("--db-workspace-group requires exactly one api|other value with test:db*.");
+  }
   const workspaceNames = new Set(
     runnerArgs
       .filter((arg) => arg.startsWith("--workspace="))
@@ -333,6 +343,7 @@ export function parseRunWorkspacesArgs(argv) {
     passthroughArgs,
     includeTestProfile,
     excludeTestProfile,
+    ...(dbWorkspaceGroup === undefined ? {} : { dbWorkspaceGroup }),
     workspaceNames,
     concurrency,
     commandTimeoutMs,
@@ -378,7 +389,11 @@ function filterWorkspaces(workspaces, options) {
       return false;
     }
 
-    return true;
+    // Intersect the eligible set, never turn an empty group into all workspaces.
+    return (
+      options.dbWorkspaceGroup === undefined ||
+      (workspace.name === "@chase-sets/app-platform-api") === (options.dbWorkspaceGroup === "api")
+    );
   });
 }
 

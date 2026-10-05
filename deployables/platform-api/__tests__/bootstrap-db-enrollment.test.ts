@@ -805,6 +805,25 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(runFixture(fixture).violations).toEqual([]);
   });
 
+  it("rejects a bootstrap importer at the real operator-session path when no DB unit executes it", async () => {
+    const fixture = await createFixture(shippedShapedFiles());
+    const directory = join(fixture.root, "__tests__", "operator-session");
+    await mkdir(directory);
+    await writeFile(
+      join(directory, "operator-session-push.db.test.ts"),
+      [
+        'import { it } from "vitest";',
+        'import { createPlatformApiBootstrapTestHarness } from "../bootstrap-db-test-support";',
+        'createPlatformApiBootstrapTestHarness("synthetic_operator_boot");',
+        'it("undiscovered bootstrap importer", async () => {});',
+      ].join("\n"),
+    );
+    expect(runFixture(fixture).violations).toContain(
+      "__tests__/operator-session/operator-session-push.db.test.ts is an executable test entry that stands up a bootstrap database " +
+        "but is not manifested in any numbered test:db:* execution unit",
+    );
+  });
+
   // -- schedule model boundaries -------------------------------------------
 
   it("never under-states the reference job's own observed per-unit durations", async () => {
