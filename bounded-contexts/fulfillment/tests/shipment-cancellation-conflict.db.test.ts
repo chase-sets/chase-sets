@@ -158,7 +158,17 @@ describeDb("shipment cancellation conflict steady state", () => {
     expect(await readConflictSchema()).toEqual(ledger);
     expect(
       (await pool.query("SELECT * FROM fulfillment_shipment_pages WHERE shipment_id = 'shp_retained'")).rows,
-    ).toEqual(retained.rows);
+    ).toEqual(
+      retained.rows.map((row) => ({
+        ...row,
+        physical_group: null,
+        physical_group_authority_revision: 0,
+        shipment_group_admission: null,
+        shipment_group_admission_revision: 0,
+        shared_postage_label_id: null,
+        physical_group_revision: 0,
+      })),
+    );
   });
 
   it("projects idempotently, admits flagged post-dispatch work, and excludes the cancelled steady state", async () => {

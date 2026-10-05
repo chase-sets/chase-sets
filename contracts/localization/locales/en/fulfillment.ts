@@ -6,7 +6,7 @@ export const fulfillmentEnglishTranslations = {
     "This cannot be undone. The orders stay linked, but you will pack each order separately and pay for each label.",
   "fulfillment.features.shipments.separate.reason": "Separate dispatch requested by seller",
   "fulfillment.features.shipments.group.mismatch":
-    "These orders have different delivery addresses. Combined packing and shipping are on hold. Ship separately, or wait for the buyer to correct each order independently.",
+    "These orders have different delivery addresses. The delivery addresses need review before combined packing and shipping. Ship separately, or wait for the buyer to correct each order independently.",
   "fulfillment.features.shipments.group.waiting": "Waiting for both orders to be ready for combined shipping.",
   "fulfillment.features.shipments.group.ambiguous":
     "A postage operation needs reconciliation. Do not buy another label or change how these orders will ship. Contact Support.",
