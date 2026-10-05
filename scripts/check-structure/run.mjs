@@ -1527,6 +1527,14 @@ export function validateShellContributionEntries({ manifest, root }) {
       addViolation(contributionLabel, "requiredPermissions must be an array of strings");
     }
 
+    if (
+      contribution.requiredPermissionsMatch !== undefined &&
+      contribution.requiredPermissionsMatch !== "all" &&
+      contribution.requiredPermissionsMatch !== "any"
+    ) {
+      addViolation(contributionLabel, "requiredPermissionsMatch must be 'all' or 'any' when provided");
+    }
+
     if (contribution.children !== undefined && !Array.isArray(contribution.children)) {
       addViolation(contributionLabel, "children must be an array when provided");
     }

@@ -37,6 +37,15 @@ function createApp(services: unknown, permissions: readonly string[] | null) {
 }
 
 describe("settlement account-facing Wallet Adjustment detail route", () => {
+  it("denies platform payout readers collection evaluation without invoking the service", async () => {
+    const evaluateNegativeBalanceCollections = vi.fn();
+    const response = await createApp({ evaluateNegativeBalanceCollections }, ["payouts.platform.view"]).request(
+      "/wallet/negative-balances/evaluate-collections",
+      { method: "POST", body: "{}" },
+    );
+    expect(response.status).toBe(403);
+    expect(evaluateNegativeBalanceCollections).not.toHaveBeenCalled();
+  });
   it("returns the negative-balance collection evaluation's service-owned count snapshot", async () => {
     const evaluateNegativeBalanceCollections = vi.fn(async () => ({ escalated: 3, skipped: 2 }));
     const app = createApp({ evaluateNegativeBalanceCollections }, ["payouts.reconcile"]);
