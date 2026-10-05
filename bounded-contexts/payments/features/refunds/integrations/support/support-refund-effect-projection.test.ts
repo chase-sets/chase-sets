@@ -486,6 +486,81 @@ describe("payments support refund effect projection", () => {
     };
   }
 
+  it("rejects negative captured operands in refund-released.v1 after validating the remedy fact", async () => {
+    for (const field of ["cap", "refunded"] as const) {
+      const issueRefund = vi.fn();
+      const db = {
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("SELECT order_id, payment_id, status"))
+            return { rows: [{ order_id: "ord_1", payment_id: "pay_1", status: "awaiting-return" }] };
+          if (sql.includes("FROM payments_payment_pages"))
+            return {
+              rows: [
+                {
+                  payment_id: "pay_1",
+                  order_refund_caps: [{ orderId: "ord_1", amount: field === "cap" ? "-1.00" : "12.00" }],
+                  order_refunded_amounts: [{ orderId: "ord_1", amount: field === "refunded" ? "-1.00" : "0.00" }],
+                },
+              ],
+            };
+          if (sql.includes("FROM payments_order_inputs")) return { rows: [{ total_amount: "12.00" }] };
+          return { rows: [], rowCount: 0 };
+        }),
+      };
+      await expect(
+        buildPaymentsSupportRefundEffectHandlers(db, { issueRefund } as never)[
+          "support.support-request.refund-released.v1"
+        ]!(platformCoverageReleasedFact() as never),
+      ).rejects.toThrow();
+      expect(db.query.mock.calls.some(([sql]) => sql.includes("FROM payments_order_inputs"))).toBe(true);
+      expect(db.query.mock.calls.some(([sql]) => /INSERT|UPDATE/.test(sql))).toBe(false);
+      expect(issueRefund).not.toHaveBeenCalled();
+    }
+  });
+
+  it("rejects negative pending and shipping operands in return-refund-released before any money write", async () => {
+    for (const field of ["requested", "cap", "refunded", "shipping"] as const) {
+      const issueRefund = vi.fn();
+      const db = {
+        query: vi.fn(async (sql: string) => {
+          if (sql.includes("SELECT requested_amount::text"))
+            return {
+              rows: [
+                {
+                  requested_amount: field === "requested" ? "-1.00" : "12.00",
+                  return_shipping_deduction_amount: field === "shipping" ? "-1.00" : "0.00",
+                  resolution_type: "return-and-refund",
+                },
+              ],
+            };
+          if (sql.includes("FROM payments_payment_pages"))
+            return {
+              rows: [
+                {
+                  payment_id: "pay_1",
+                  order_refund_caps: [{ orderId: "ord_1", amount: field === "cap" ? "-1.00" : "12.00" }],
+                  order_refunded_amounts: [{ orderId: "ord_1", amount: field === "refunded" ? "-1.00" : "0.00" }],
+                },
+              ],
+            };
+          if (sql.includes("FROM payments_order_inputs")) return { rows: [{ total_amount: "12.00" }] };
+          return { rows: [], rowCount: 0 };
+        }),
+      };
+      await expect(
+        buildPaymentsSupportRefundEffectHandlers(db, { issueRefund } as never)[
+          "support.support-request.return-refund-released"
+        ]!({
+          ...baseEvent(),
+          data: { supportRequestId: "sup_01ABC", orderId: "ord_1", releasedAt: "2026-10-04T12:00:00.000Z" },
+        } as never),
+      ).rejects.toThrow();
+      expect(db.query.mock.calls.some(([sql]) => sql.includes("FROM payments_order_inputs"))).toBe(true);
+      expect(db.query.mock.calls.some(([sql]) => /INSERT|UPDATE/.test(sql))).toBe(false);
+      expect(issueRefund).not.toHaveBeenCalled();
+    }
+  });
+
   it("executes a platform-coverage remedy refund carrying remedy and allocation causation", async () => {
     const issueRefund = vi.fn(async () => ({
       outcome: "requested",

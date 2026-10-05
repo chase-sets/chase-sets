@@ -70,6 +70,8 @@ describe("payments money subscription DB proof (synthetic isolated fixtures)", (
     version: 1,
     amount: input.amount,
   }));
+  let noApplyStream: string | undefined;
+  let restoreSkippedEffect: (() => Promise<unknown>) | undefined;
 
   beforeAll(async () => {
     if (!databaseUrl) throw new Error("TEST_DATABASE_URL is required; skipped tests are not subscription proof.");
@@ -79,6 +81,8 @@ describe("payments money subscription DB proof (synthetic isolated fixtures)", (
   });
   beforeEach(async () => {
     issueRefund.mockClear();
+    noApplyStream = undefined;
+    restoreSkippedEffect = undefined;
     await resetMultiContextTestSchemas(pools);
     await bootstrapContextDatabase(paymentsModule, pools.payments);
     for (const name of contextNames.filter((name) => name !== "payments")) {
@@ -92,6 +96,22 @@ describe("payments money subscription DB proof (synthetic isolated fixtures)", (
   function mount() {
     const module = {
       ...paymentsModule,
+      buildSubscriptions: (services: ReturnType<typeof paymentsModule.createServices>) =>
+        paymentsModule.buildSubscriptions!(services).map((subscription) => ({
+          ...subscription,
+          handlers: Object.fromEntries(
+            Object.entries(subscription.handlers).map(([type, handler]) => [
+              type,
+              async (event: Parameters<NonNullable<typeof handler>>[0]) => {
+                if (event.streamId === noApplyStream) {
+                  restoreSkippedEffect = () => handler!(event);
+                  return;
+                }
+                return handler!(event);
+              },
+            ]),
+          ),
+        })),
       createServices: (pool: PgTransactionalPool) => {
         const services = paymentsModule.createServices(pool, { processorGateway: createFakePaymentProcessorGateway() });
         return { ...services, refunds: { ...services.refunds, issueRefund: issueRefund as never } };
@@ -205,8 +225,22 @@ describe("payments money subscription DB proof (synthetic isolated fixtures)", (
       ][index]!;
       const badOrder = `ord_synthetic_bad_${index}`;
       const goodOrder = `ord_synthetic_good_${index}`;
+      const unrelatedOrder = `ord_synthetic_unrelated_${index}`;
+      const controlOrder = `ord_synthetic_no_apply_${index}`;
       await prepareOrder(badOrder, index === 4);
       await prepareOrder(goodOrder, index === 4);
+      if (index !== 0) await prepareOrder(unrelatedOrder, index === 4);
+      if (index !== 0) await prepareOrder(controlOrder, index === 4);
+      if (index === 2) {
+        for (const orderId of [badOrder, goodOrder, unrelatedOrder, controlOrder]) {
+          await pools.payments.query(
+            `INSERT INTO payments_return_label_sources
+             (return_shipment_id, support_request_id, cost_payer, updated_at)
+             VALUES ($1, $2, 'platform', $3)`,
+            [`rsh_synthetic_${orderId}`, `sup_synthetic_${orderId}`, now],
+          );
+        }
+      }
       const payloadFor = (orderId: string, corrupt: boolean): JsonObject => {
         if (index === 0) return orderData(orderId, corrupt ? "1.001" : "1.00");
         if (index === 1)
@@ -277,6 +311,33 @@ describe("payments money subscription DB proof (synthetic isolated fixtures)", (
 
       const later = await append(source, badStream, eventType, payloadFor(badOrder, false));
       await append(source, `${prefix}synthetic_unrelated`, eventType, payloadFor(goodOrder, false));
+      const readUnrelatedEffect = async (orderId = unrelatedOrder) => {
+        if (index === 0)
+          return (
+            await pools.payments.query(
+              "SELECT seller_net_amount::text AS amount FROM payments_order_inputs WHERE order_id = $1",
+              [orderId],
+            )
+          ).rows;
+        if (index === 2)
+          return (
+            await pools.payments.query(
+              "SELECT postage_amount::text AS amount, label_status AS status FROM payments_return_label_sources WHERE return_shipment_id = $1",
+              [`rsh_synthetic_${orderId}`],
+            )
+          ).rows;
+        const table = index === 1 ? "payments_support_refund_effects" : "payments_order_cancellation_refund_effects";
+        return (
+          await pools.payments.query(
+            `SELECT requested_amount::text AS amount, status FROM ${table} WHERE order_id = $1`,
+            [orderId],
+          )
+        ).rows;
+      };
+      const beforeUnrelated = await readUnrelatedEffect();
+      if (index === 2) expect(beforeUnrelated).toEqual([{ amount: "0.00", status: "requested" }]);
+      else expect(beforeUnrelated).toEqual([]);
+      await append(source, `${prefix}synthetic_distinct_unrelated`, eventType, payloadFor(unrelatedOrder, false));
       if (index === 0) {
         await append("ordering", "ordering.order-synthetic_cancellation_sibling", "ordering.order.cancelled", {
           orderId: goodOrder,
@@ -285,6 +346,33 @@ describe("payments money subscription DB proof (synthetic isolated fixtures)", (
         });
       }
       await drainSubscriptionRunners(runners);
+      const expectedUnrelated =
+        index === 0
+          ? [{ amount: "1.00" }]
+          : index === 2
+            ? [{ amount: "12.99", status: "ready" }]
+            : [{ amount: "1.00", status: "refund-requested" }];
+      expect(await readUnrelatedEffect()).toEqual(expectedUnrelated);
+      expect(await readUnrelatedEffect()).not.toEqual(beforeUnrelated);
+      if (index === 1 || index === 3 || index === 4)
+        expect(issueRefund).toHaveBeenCalledWith(
+          expect.objectContaining({ orderIds: [unrelatedOrder], amount: "1.00" }),
+          expect.anything(),
+        );
+      const errorsBeforeControl = await errors(key);
+      noApplyStream = `${prefix}synthetic_no_apply`;
+      await append(source, noApplyStream, eventType, payloadFor(controlOrder, false));
+      await drainSubscriptionRunners(runners);
+      expect(restoreSkippedEffect).toBeDefined();
+      const noApplyRows = await readUnrelatedEffect(controlOrder);
+      expect(() => expect(noApplyRows).toEqual(expectedUnrelated)).toThrow();
+      const checkpointWithFault = (await runner.refreshStatus()).lastGlobalPosition;
+      expect(await errors(key)).toEqual(errorsBeforeControl);
+      noApplyStream = undefined;
+      await restoreSkippedEffect!();
+      expect(await readUnrelatedEffect(controlOrder)).toEqual(expectedUnrelated);
+      expect((await runner.refreshStatus()).lastGlobalPosition).toBe(checkpointWithFault);
+      expect(await errors(key)).toEqual(errorsBeforeControl);
       receipt = await errors(key);
       expect(receipt.poison).toHaveLength(1);
       expect(receipt.blocked).toEqual([

@@ -22,6 +22,7 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import ts from "@chase-sets/typescript-compiler-api";
 import * as money from "@chase-sets/primitives/money";
+import { normalizeMoneyAmount as normalizeDomainMoneyAmount } from "../../../support/runtime-support/common";
 
 // The high-value allocation witness cannot enter checkout: its combined payment
 // exceeds the payment maximum even though each resulting order cap is in range.
@@ -59,17 +60,53 @@ describe("payments money consolidation", () => {
       "refundableCapsForState",
       "requestedAmountForOrder",
       "remainingRefundableAmountForOrder",
+      "remainingRefundableAmountForOrders",
       "allocateRefundAmountToOrders",
       "normalizeOrderMoneyAmounts",
       "mergeRefundedOrderAmounts",
     ],
     {
+      normalizeMoneyAmount: normalizeDomainMoneyAmount,
       normalizeRequiredText: (value: string) => value,
       assert: (condition: boolean, message: string) => {
         if (!condition) throw new Error(message);
       },
     },
   );
+
+  it("maps every domain sum, merge, allocation and unsigned comparison to an in-range value witness", () => {
+    const state = {
+      orderRefundCaps: [
+        { orderId: "ord_synthetic_a", amount: "1.00" },
+        { orderId: "ord_synthetic_b", amount: "0.30" },
+      ],
+      refundedOrderAmounts: [{ orderId: "ord_synthetic_a", amount: "0.10" }],
+      refundRequests: [
+        { refundId: "rfd_synthetic_a", orderIds: ["ord_synthetic_a"], amount: "0.20" },
+        { refundId: "rfd_synthetic_b", orderIds: ["ord_synthetic_a"], amount: "0.30" },
+      ],
+    };
+    expect(domain.requestedAmountForOrder!(state, "ord_synthetic_a")).toBe("0.50");
+    expect(domain.remainingRefundableAmountForOrder!(state, "ord_synthetic_a")).toBe("0.40");
+    expect(domain.remainingRefundableAmountForOrders!(state, ["ord_synthetic_a", "ord_synthetic_b"])).toBe("0.70");
+    expect(domain.allocateRefundAmountToOrders!(state, ["ord_synthetic_a", "ord_synthetic_b"], "1.20")).toEqual([
+      { orderId: "ord_synthetic_a", amount: "0.90" },
+      { orderId: "ord_synthetic_b", amount: "0.30" },
+    ]);
+    expect(() =>
+      domain.mergeRefundedOrderAmounts!(
+        [{ orderId: "ord_synthetic_a", amount: "9999999999.99" }],
+        [{ orderId: "ord_synthetic_a", amount: "0.01" }],
+      ),
+    ).toThrow();
+    expect(domain.normalizeOrderMoneyAmounts!([{ orderId: "ord_synthetic_a", amount: " 01.00 " }], "cap")).toEqual([
+      { orderId: "ord_synthetic_a", amount: "1.00" },
+    ]);
+    expect(support.compareMoney!("01.00", "1.00")).toBe(0);
+    expect(support.compareMoney!("1.00", "2.00")).toBe(-1);
+    expect(support.compareMoney!("2.00", "1.00")).toBe(1);
+    expect(support.minMoney!("01.00", "2.00")).toBe("1.00");
+  });
 
   it("payments money consolidation preserves in-range results, clamps every subtraction schedule at zero, and preserves both proportional allocation schedules", () => {
     const orders = [
