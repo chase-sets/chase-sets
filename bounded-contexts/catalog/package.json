@@ -7,12 +7,12 @@
     "testProfile": "db"
   },
   "scripts": {
-    "test": "vitest run --config ./vitest.unit.config.mjs",
-    "test:watch": "vitest --config ./vitest.unit.config.mjs",
-    "test:fast": "vitest run --config ./vitest.unit.config.mjs",
+    "test": "vitest run --config ./tests/vitest.unit.config.mjs",
+    "test:watch": "vitest --config ./tests/vitest.unit.config.mjs",
+    "test:fast": "vitest run --config ./tests/vitest.unit.config.mjs",
     "test:provider-contracts": "vitest run --config ./tests/vitest.config.mjs features/source-observations/api/providers/provider-profile-contract-harness.test.ts",
-    "test:unit": "vitest run --config ./vitest.unit.config.mjs",
-    "test:db": "vitest run --config ./vitest.db.config.mjs"
+    "test:unit": "vitest run --config ./tests/vitest.unit.config.mjs",
+    "test:db": "vitest run --config ./tests/vitest.db.config.mjs"
   },
   "exports": {
     ".": "./index.ts",

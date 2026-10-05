@@ -695,6 +695,74 @@ describe("manifest host-registration predicate parity", () => {
 });
 
 describe("real repository execution membership", () => {
+  it("json-import execution reuses DB discovery", async () => {
+    const shared = JSON.stringify(
+      fileURLToPath(new URL("../../vitest.shared.mjs", import.meta.url)).replaceAll("\\", "/"),
+    );
+    const packagePath = "bounded-contexts/example/package.json";
+    const configPath = "bounded-contexts/example/tests/";
+    const scripts = {
+      test: "vitest run --config ./tests/vitest.unit.config.mjs",
+      "test:unit": "vitest run --config ./tests/vitest.unit.config.mjs",
+      "test:db": "vitest run --config ./tests/vitest.db.config.mjs",
+      "test:db:1": "vitest run --config ./tests/vitest.db.1.config.mjs",
+    };
+    const importer = 'import manifest from "../context.json";';
+    const files = contextFiles("export const marker = true;", {
+      [packagePath]: JSON.stringify({
+        name: "@chase-sets/example",
+        exports: { ".": "./index.ts", "./context": "./context.json" },
+        scripts,
+      }),
+      [`${configPath}vitest.config.mjs`]: `import { defineBoundedContextTestConfig } from ${shared}; export default defineBoundedContextTestConfig({test:{include:["tests/**/*.test.ts"],exclude:["tests/excluded.test.ts"]}});`,
+      [`${configPath}vitest.db.config.mjs`]: `import base from "./vitest.config.mjs"; import { defineDbTestConfig } from ${shared}; export default defineDbTestConfig(base,["tests/**/*.db.test.ts"]);`,
+      [`${configPath}vitest.db.1.config.mjs`]: `import base from "./vitest.config.mjs"; import { defineDbTestConfig } from ${shared}; export default defineDbTestConfig(base,["tests/selected.db.test.ts"]);`,
+      [`${configPath}vitest.unit.config.mjs`]: `import base from "./vitest.config.mjs"; import db from "./vitest.db.config.mjs"; import { defineUnitTestConfig } from ${shared}; export default defineUnitTestConfig(base,db);`,
+      [`${configPath}selected.test.ts`]: importer,
+      [`${configPath}selected.db.test.ts`]: importer,
+      [`${configPath}excluded.test.ts`]: importer,
+      "bounded-contexts/example/unselected/hidden.test.ts": importer,
+    });
+    const dispositions = (result) =>
+      Object.fromEntries(result.inventory.declarations.map((entry) => [entry.relativeFile, entry.disposition]));
+    const selected = await validateFixture(files);
+    expect(selected.inventory.discoveryViolations).toEqual([]);
+    expect(dispositions(selected)).toEqual({
+      [`${configPath}selected.test.ts`]: "vitest-excluded",
+      [`${configPath}selected.db.test.ts`]: "vitest-excluded",
+      [`${configPath}excluded.test.ts`]: "indeterminate",
+      "bounded-contexts/example/unselected/hidden.test.ts": "indeterminate",
+    });
+    expect(selected.violations).toHaveLength(2);
+    for (const scriptName of ["test", "test:unit", "test:db", "test:db:1"]) {
+      const isolated = {
+        ...files,
+        [packagePath]: JSON.stringify({
+          ...JSON.parse(files[packagePath]),
+          scripts: { [scriptName]: scripts[scriptName] },
+        }),
+      };
+      const result = await validateFixture(isolated);
+      expect(result.inventory.discoveryViolations).toEqual([]);
+      expect(dispositions(result)[`${configPath}selected.db.test.ts`]).toBe(
+        scriptName.startsWith("test:db") ? "vitest-excluded" : "indeterminate",
+      );
+      expect(dispositions(result)[`${configPath}selected.test.ts`]).toBe(
+        scriptName.startsWith("test:db") ? "indeterminate" : "vitest-excluded",
+      );
+      expect(dispositions(result)[`${configPath}excluded.test.ts`]).toBe("indeterminate");
+      expect(dispositions(result)["bounded-contexts/example/unselected/hidden.test.ts"]).toBe("indeterminate");
+    }
+    for (const unreadable of [undefined, "export default {"]) {
+      const broken = { ...files };
+      if (unreadable === undefined) delete broken[`${configPath}vitest.db.config.mjs`];
+      else broken[`${configPath}vitest.db.config.mjs`] = unreadable;
+      const result = await validateFixture(broken);
+      expect(result.violations.join("\n")).toContain("cannot derive Vitest execution");
+      expect(result.inventory.discoveryViolations.length).toBeGreaterThan(0);
+    }
+  });
+
   it("derives the exact real census and execution partition within the default timeout", async () => {
     const result = await validateJsonImportAttributes();
 
@@ -719,7 +787,7 @@ describe("real repository execution membership", () => {
       }),
     );
     expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-      "bde6a633763aa1701c48ef012eaf162a6f4d43855ebe277d5052492774357de8",
+      "b4f8748dd9dd810bc5c3a8c1a857796f8c034cdca78f2955984645a534491c5f",
     );
     expect(
       normalized.filter((entry) => entry.relativeFile.startsWith("bounded-contexts/pricing/routes/marketplace/")),

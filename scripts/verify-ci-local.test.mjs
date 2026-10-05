@@ -136,6 +136,7 @@ process.on('exit', nativeExit => appendFileSync('../fixture-execution.jsonl', JS
         scripts: {
           "verify:metadata": "node ./scripts/inert.mjs metadata",
           "verify:static": "node ./scripts/inert.mjs static",
+          "verify:static:scoped": "node ./scripts/inert.mjs static",
           "verify:typecheck": "node ./scripts/inert.mjs typecheck",
         },
       }),

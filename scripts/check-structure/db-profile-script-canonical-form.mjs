@@ -5,14 +5,25 @@ import { defineBoundedContextTestConfig, defineWorkspaceTestConfig } from "../..
 import { listWorkspacePackages, repoRoot as defaultRepoRoot } from "../lib/repo.mjs";
 import { validateDurationHintRegistry } from "../run-workspaces.mjs";
 
-export function dbProfileConfigPath(scriptName) {
-  if (scriptName === "test:db") return "vitest.db.config.mjs";
-  if (/^test:db:[1-9]\d*$/.test(scriptName)) return `vitest.db.${scriptName.split(":").at(-1)}.config.mjs`;
+function profileConfigPath(fileName, workspaceRoot) {
+  const directory =
+    workspaceRoot && path.basename(path.dirname(path.resolve(workspaceRoot))) === "bounded-contexts" ? "tests/" : "";
+  return `${directory}${fileName}`;
+}
+
+export function unitProfileConfigPath(workspaceRoot) {
+  return profileConfigPath("vitest.unit.config.mjs", workspaceRoot);
+}
+
+export function dbProfileConfigPath(scriptName, workspaceRoot) {
+  if (scriptName === "test:db") return profileConfigPath("vitest.db.config.mjs", workspaceRoot);
+  if (/^test:db:[1-9]\d*$/.test(scriptName))
+    return profileConfigPath(`vitest.db.${scriptName.split(":").at(-1)}.config.mjs`, workspaceRoot);
   throw new Error(`unsupported DB execution unit ${scriptName}; expected test:db or test:db:<number>`);
 }
 
-export function canonicalDbProfileCommand(scriptName) {
-  return `vitest run --config ./${dbProfileConfigPath(scriptName)}`;
+export function canonicalDbProfileCommand(scriptName, workspaceRoot) {
+  return `vitest run --config ./${dbProfileConfigPath(scriptName, workspaceRoot)}`;
 }
 
 function literal(node, label) {
@@ -170,6 +181,7 @@ export function readTestSelectionConfig(configPath, active = new Set(), cache = 
             "globals",
             "pool",
             "maxWorkers",
+            "css",
           ].includes(key),
       )
     )
@@ -227,12 +239,12 @@ export function discoverDbProfile(workspaceRoot, unitNames = []) {
   const files = listTestFiles(workspaceRoot);
   const cache = new Map();
   const discover = (configPath) => discoverConfigTests(workspaceRoot, configPath, files, cache);
-  const aggregate = discover(dbProfileConfigPath("test:db"));
+  const aggregate = discover(dbProfileConfigPath("test:db", workspaceRoot));
   if (aggregate.config.kind !== "db") throw new Error("aggregate must use defineDbTestConfig");
   const base = discover(aggregate.config.baseConfigPath);
   const units = (unitNames.length ? unitNames : ["test:db"]).map((name) => ({
     name,
-    ...discover(dbProfileConfigPath(name)),
+    ...discover(dbProfileConfigPath(name, workspaceRoot)),
   }));
   const violations = [];
   const membership = new Map();
@@ -260,7 +272,7 @@ export function discoverDbProfile(workspaceRoot, unitNames = []) {
         `${file}: must belong to aggregate and exactly one runner-selected DB unit; found ${owners.join(", ") || "none"}`,
       );
   }
-  const unit = discover("vitest.unit.config.mjs");
+  const unit = discover(unitProfileConfigPath(workspaceRoot));
   const expected = base.files.filter((file) => !aggregate.files.includes(file));
   if (unit.config.kind !== "unit") violations.push("unit config must use defineUnitTestConfig");
   for (const file of unit.files)
@@ -283,7 +295,7 @@ export function validateDbProfileScripts(workspace) {
   }
   for (const name of new Set(["test:db", ...names])) {
     try {
-      const expected = canonicalDbProfileCommand(name);
+      const expected = canonicalDbProfileCommand(name, workspace.dir);
       if (scripts[name] !== expected)
         violations.push(`${workspace.name} ${name}: expected canonical form '${expected}'`);
     } catch (error) {
@@ -292,7 +304,7 @@ export function validateDbProfileScripts(workspace) {
   }
   for (const name of ["test:unit", "test", "test:fast", "test:watch"]) {
     if (name !== "test:unit" && scripts[name] === undefined) continue;
-    const expected = `vitest${name === "test:watch" ? "" : " run"} --config ./vitest.unit.config.mjs`;
+    const expected = `vitest${name === "test:watch" ? "" : " run"} --config ./${unitProfileConfigPath(workspace.dir)}`;
     if (scripts[name] !== expected) violations.push(`${workspace.name} ${name}: expected canonical form '${expected}'`);
   }
   let inventory = null;
@@ -304,7 +316,7 @@ export function validateDbProfileScripts(workspace) {
     violations.push(...inventory.violations.map((violation) => `${workspace.name}: ${violation}`));
   } catch (error) {
     violations.push(
-      `${workspace.name}: cannot derive DB execution; ${error.message}; expected canonical config '${dbProfileConfigPath("test:db")}'`,
+      `${workspace.name}: cannot derive DB execution; ${error.message}; expected canonical config '${dbProfileConfigPath("test:db", workspace.dir)}'`,
     );
   }
   return { violations, inventory };

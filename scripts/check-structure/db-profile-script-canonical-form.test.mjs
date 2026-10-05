@@ -8,8 +8,10 @@ import { listWorkspacePackages, repoRoot } from "../lib/repo.mjs";
 import { runWorkspaceScripts, validateDurationHintRegistry } from "../run-workspaces.mjs";
 import {
   canonicalDbProfileCommand,
+  dbProfileConfigPath,
   discoverConfigTests,
   discoverDbProfile,
+  unitProfileConfigPath,
   validateDbProfileScripts,
   validateDbProfiles,
 } from "./db-profile-script-canonical-form.mjs";
@@ -23,45 +25,46 @@ const inventoryCases = dbWorkspaces.flatMap((workspace) => {
   const inventory = discoverDbProfile(workspace.dir, units);
   return [
     inventory.aggregate.config.baseConfigPath,
-    "vitest.db.config.mjs",
-    "vitest.unit.config.mjs",
-    ...units.map((name) => `vitest.db.${name.split(":").at(-1)}.config.mjs`),
+    dbProfileConfigPath("test:db", workspace.dir),
+    unitProfileConfigPath(workspace.dir),
+    ...units.map((name) => dbProfileConfigPath(name, workspace.dir)),
   ].map((config) => ({ name: workspace.name, dir: workspace.dir, config }));
 });
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function fixture({ exceptional = false, units = [] } = {}) {
-  const dir = mkdtempSync(path.join(tmpdir(), "db-profile-construction-"));
-  roots.push(dir);
-  const shared = path.relative(dir, path.join(repoRoot, "vitest.shared.mjs")).replaceAll("\\", "/");
+function fixture({ exceptional = false, units = [], boundedContext = false } = {}) {
+  const root = mkdtempSync(path.join(tmpdir(), "db-profile-construction-"));
+  roots.push(root);
+  const dir = boundedContext ? path.join(root, "bounded-contexts/example") : root;
+  const configDirectory = boundedContext ? "tests/" : "";
+  const shared = path
+    .relative(path.join(dir, configDirectory), path.join(repoRoot, "vitest.shared.mjs"))
+    .replaceAll("\\", "/");
   const write = (name, source) => {
     const file = path.join(dir, name);
     mkdirSync(path.dirname(file), { recursive: true });
     writeFileSync(file, source);
   };
   write(
-    "vitest.config.mjs",
+    `${configDirectory}vitest.config.mjs`,
     `import { defineWorkspaceTestConfig } from ${JSON.stringify(shared)}; export default defineWorkspaceTestConfig({test:{include:["**/*.test.ts"]}});`,
   );
   const db = (include, options = "") =>
     `import base from "./vitest.config.mjs"; import { defineDbTestConfig } from ${JSON.stringify(shared)}; export default defineDbTestConfig(base,${JSON.stringify(include)}${options});`;
-  write("vitest.db.config.mjs", db(exceptional ? ["**/*.test.ts"] : ["**/*.db.test.ts"]));
+  write(dbProfileConfigPath("test:db", dir), db(exceptional ? ["**/*.test.ts"] : ["**/*.db.test.ts"]));
   write(
-    "vitest.unit.config.mjs",
+    unitProfileConfigPath(dir),
     `import base from "./vitest.config.mjs"; import db from "./vitest.db.config.mjs"; import { defineUnitTestConfig } from ${JSON.stringify(shared)}; export default defineUnitTestConfig(base,db);`,
   );
   const scripts = {
-    "test:db": canonicalDbProfileCommand("test:db"),
-    "test:unit": "vitest run --config ./vitest.unit.config.mjs",
+    "test:db": canonicalDbProfileCommand("test:db", dir),
+    "test:unit": `vitest run --config ./${unitProfileConfigPath(dir)}`,
   };
   for (const unit of units) {
-    scripts[unit] = canonicalDbProfileCommand(unit);
-    write(
-      `vitest.db.${unit.split(":").at(-1)}.config.mjs`,
-      db([`tests/unit-${unit.split(":").at(-1)}/**/*.db.test.ts`]),
-    );
+    scripts[unit] = canonicalDbProfileCommand(unit, dir);
+    write(dbProfileConfigPath(unit, dir), db([`tests/unit-${unit.split(":").at(-1)}/**/*.db.test.ts`]));
   }
   return {
     dir,
@@ -110,6 +113,20 @@ describe("DB profile construction", () => {
     }
     workspace.write("vitest.db.config.mjs", workspace.db(["**/*.db.test.ts"]));
     expect(validateDbProfileScripts(workspace).violations).toEqual([]);
+    const context = fixture({ boundedContext: true, units: ["test:db:1"] });
+    context.write("tests/unit-1/a.db.test.ts", "");
+    expect(validateDbProfileScripts(context).violations).toEqual([]);
+    expect(context.packageJson.scripts["test:db:1"]).toBe("vitest run --config ./tests/vitest.db.1.config.mjs");
+    context.write("vitest.db.config.mjs", context.db(["**/*.db.test.ts"]));
+    context.packageJson.scripts["test:db"] = canonicalDbProfileCommand("test:db");
+    expect(validateDbProfileScripts(context).violations).toContain(
+      `${context.name} test:db: expected canonical form 'vitest run --config ./tests/vitest.db.config.mjs'`,
+    );
+    context.packageJson.scripts["test:db"] = canonicalDbProfileCommand("test:db", context.dir);
+    context.packageJson.scripts["test:unit"] = "vitest run --config ./vitest.unit.config.mjs";
+    expect(validateDbProfileScripts(context).violations).toContain(
+      `${context.name} test:unit: expected canonical form 'vitest run --config ./tests/vitest.unit.config.mjs'`,
+    );
   });
 
   it("config and disk define the executed DB set", () => {

@@ -35,8 +35,6 @@ const requiredRootFiles = [
   "index.ts",
   "package.json",
   "server.ts",
-  "vitest.db.config.mjs",
-  "vitest.unit.config.mjs",
 ];
 const requiredReadmeSections = [
   "## Purpose",
@@ -582,6 +580,8 @@ describe("channels-context-foundation", () => {
     expect(files.filter((file) => !file.includes("/")).sort()).toEqual([...requiredRootFiles].sort());
     expect(files).toEqual(
       expect.arrayContaining([
+        "tests/vitest.db.config.mjs",
+        "tests/vitest.unit.config.mjs",
         "features/connections/domain/domain.ts",
         "features/connections/api/route.ts",
         "features/connector-client/domain/identity.ts",

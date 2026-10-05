@@ -1152,7 +1152,7 @@ describe("change-scope", () => {
             chaseSets: { testProfile: "db" },
             scripts: {
               "test:unit": "test:unit",
-              "test:db": "vitest run --config ./vitest.db.config.mjs",
+              "test:db": "vitest run --config ./tests/vitest.db.config.mjs",
             },
           },
         },
@@ -1168,6 +1168,39 @@ describe("change-scope", () => {
     expect(scope.dbTestsRequired).toBe(true);
     expect(scope.buildRequired).toBe(false);
     expect(scope.e2eTestsRequired).toBe(false);
+  });
+
+  it("admits declarative DB-profile test changes without a dependency-installed config interpreter", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const dbWorkspace = workspaceWithScripts(baseDir, "deployables", "marketplace-seed-testing", "@test/seed", {
+      "test:unit": "vitest run --config ./vitest.unit.config.mjs",
+      "test:db": "vitest run --config ./vitest.db.config.mjs",
+    });
+    dbWorkspace.packageJson.chaseSets = { testProfile: "db" };
+    for (const file of [
+      "tests/identity-anchor-representative-reconciliation.test.ts",
+      "tests/new.db.test.tsx",
+      "tests/unit.test.ts",
+    ]) {
+      const scope = classifyChanges({
+        baseDir,
+        changedFiles: [`deployables/marketplace-seed-testing/${file}`],
+        workspaces: [dbWorkspace],
+      });
+      expect(scope.dbTestsRequired).toBe(true);
+      expect(scope.runtimeAffectedWorkspaces).toEqual([]);
+      expect(scope.affectedWorkspaces).toEqual(["@test/seed"]);
+      expect(scope.buildRequired).toBe(false);
+    }
+    const noDbCommand = structuredClone(dbWorkspace);
+    delete noDbCommand.packageJson.scripts["test:db"];
+    expect(
+      classifyChanges({
+        baseDir,
+        changedFiles: ["deployables/marketplace-seed-testing/tests/new.db.test.tsx"],
+        workspaces: [noDbCommand],
+      }).dbTestsRequired,
+    ).toBe(false);
   });
 
   it("routes a test-only change enrolled only in a non-default DB partition", () => {

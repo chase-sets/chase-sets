@@ -402,6 +402,11 @@ export function classifyChanges({
       return false;
     }
 
+    // Scope runs before dependency installation, so it cannot interpret Vitest
+    // configs. A declarative DB profile is conservative admission authority;
+    // the shared config/disk discovery still owns actual execution membership.
+    if (workspace.packageJson.chaseSets?.testProfile === "db") return true;
+
     const hasNonDbTestScript = typeof scripts.test === "string" || typeof scripts["test:unit"] === "string";
     if (!hasNonDbTestScript) {
       return true;
@@ -421,7 +426,7 @@ export function classifyChanges({
   // boolean rather than re-testing any path, and stays gated on the same
   // DB-capability rule so it can never require a job with nothing to run.
   const schedulerOwnedChangeRequiresDbTests =
-    schedulerOwnedArtifactChanged &&
+    (schedulerOwnedArtifactChanged || rootTestConfigChanged) &&
     affectedWorkspaces.some((workspaceName) => dbTestScripts(workspaceByName.get(workspaceName)).length > 0);
   const dbTestsRequired =
     normalizedFiles.includes(".github/workflows/platform-pr.yml") ||

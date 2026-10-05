@@ -3674,6 +3674,7 @@ export async function runStructureCheck(options = {}) {
   const result = {
     ok,
     metrics: structureMetrics,
+    jsonImportInventory: jsonImportAttributesResult.inventory,
     violations: [...violations],
     warnings: [...warnings],
   };

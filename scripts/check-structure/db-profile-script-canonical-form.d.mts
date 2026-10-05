@@ -30,8 +30,9 @@ export interface DbProfileWorkspace {
   };
 }
 
-export function dbProfileConfigPath(scriptName: string): string;
-export function canonicalDbProfileCommand(scriptName: string): string;
+export function unitProfileConfigPath(workspaceRoot: string): string;
+export function dbProfileConfigPath(scriptName: string, workspaceRoot?: string): string;
+export function canonicalDbProfileCommand(scriptName: string, workspaceRoot?: string): string;
 export function readTestSelectionConfig(
   configPath: string,
   active?: Set<string>,
