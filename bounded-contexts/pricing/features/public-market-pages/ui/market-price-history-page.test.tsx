@@ -2,7 +2,7 @@
 
 import { Heading, NumericValue } from "@chase-sets/design-system";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PublicMarketPageData } from "../read-model/queries";
 import { MarketPriceHistoryPage } from "./market-price-history-page";
 
@@ -63,6 +63,18 @@ const page = {
     spreadAmount: "5.00",
   },
 } satisfies PublicMarketPageData;
+
+beforeEach(() => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+});
+
+afterEach(() => {
+  try {
+    expect(console.error).not.toHaveBeenCalled();
+  } finally {
+    vi.restoreAllMocks();
+  }
+});
 
 describe("MarketPriceHistoryPage", () => {
   it("renders populated chart and market-stat furniture without legacy surface chrome", () => {

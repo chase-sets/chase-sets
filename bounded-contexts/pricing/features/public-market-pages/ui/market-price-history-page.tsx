@@ -105,7 +105,7 @@ export function MarketPriceHistoryPage({ page, marketplaceItemUrl }: MarketPrice
                 );
                 const sellThrough30d = percent(aggregate?.sellThroughRate ?? null);
                 return (
-                  <Fragment key={currencyCode}>
+                  <Fragment key={currencyCode ?? "no-trades"}>
                     <PageSection
                       data-testid="market-price-history-chart-furniture"
                       title={
