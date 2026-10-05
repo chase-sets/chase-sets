@@ -947,6 +947,7 @@ describe("DB duration scheduling", () => {
   it("DB hints equal the named hosted sweep", () => {
     // Green merge-group run 36392844721, job 108832742783, attempt 1.
     // Each row records the immutable log line(s) and observed seconds, not lane timings.
+    // commercial-terms: Platform PR run 37353357078, job 111909665450, attempt 1, head a2be85f750267106cc7d30a595841d7c2d272702 (first DB sweep after its profile registration, #8723).
     const source = [
       ["app-platform-api", [24616, 42321], [516.11, 410.29]],
       ["app-platform-worker", [999], [30.37]],
@@ -956,6 +957,7 @@ describe("DB duration scheduling", () => {
       ["channels", [20802], [189.07]],
       ["checkout", [22038], [26.03]],
       ["collections", [22163], [4.55]],
+      ["commercial-terms", [555], [2.32]],
       ["customer-feedback", [22385], [3.66]],
       ["discovery", [24665], [104.08]],
       ["event-core-postgres", [24688], [7.34]],
@@ -1045,8 +1047,8 @@ describe("closed duration scheduling contracts", () => {
     expect(validateDurationHintRegistry(registry, workspaces)).toBe(registry);
     expect(validateWorkspaceDurationReplay(replay, registry)).toBe(replay);
     expect(new Set(registryKeys)).toEqual(new Set(eligibleKeys));
-    expect(unitEntries).toHaveLength(64);
-    expect(replay.observations).toHaveLength(88);
+    expect(unitEntries).toHaveLength(65);
+    expect(replay.observations).toHaveLength(89);
   });
 
   it("derives every checked-in duration hint from the authoritative observations", () => {
