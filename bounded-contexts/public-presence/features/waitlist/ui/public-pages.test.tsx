@@ -1,6 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { act, cleanup, fireEvent, render as renderWithoutRouter, type RenderOptions } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render as renderWithoutRouter,
+  within,
+  type RenderOptions,
+} from "@testing-library/react";
 import { Children, type ComponentProps, type ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { renderToString } from "react-dom/server";
@@ -2102,6 +2109,35 @@ describe("public shell single content gutter (#8499)", () => {
 
     expect(renderSites).toBe(10);
     expect(shellConsumers).toHaveLength(renderSites);
+  });
+
+  it.each(shellConsumers)("keeps all public destinations discoverable in the %s footer", (_name, renderConsumer) => {
+    stubPromoMessages([]);
+    const { container } = render(renderConsumer());
+    const { footer } = shellParts(container);
+    const destinations = [
+      ["Help", "/help"],
+      ["Terms", "/terms"],
+      ["Privacy", "/privacy"],
+      ["Refunds and returns", "/refunds-and-returns"],
+      ["Order Protection", "/order-protection"],
+      ["Marketplace sales fees", "/sales-fees"],
+      ["Founders offer terms", "/founders"],
+      ["Contact", "/contact"],
+      ["Seller agreement", "/seller-agreement"],
+      ["Payments terms", "/payments-terms"],
+      ["Authenticity service terms", "/authenticity-terms"],
+      ["Agent connector terms", "/agent-terms"],
+      ["Creator and press fact sheet", "/press"],
+    ] as const;
+
+    expect(within(footer).getAllByRole("link")).toHaveLength(destinations.length);
+    for (const [name, href] of destinations) {
+      const links = within(footer).getAllByRole("link", { name });
+      expect(links).toHaveLength(1);
+      expect(links[0]!.getAttribute("href")).toBe(href);
+      expect(footer.querySelectorAll(`a[href="${href}"]`)).toHaveLength(1);
+    }
   });
 
   it.each(shellConsumers)(
