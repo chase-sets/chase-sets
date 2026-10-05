@@ -1715,10 +1715,8 @@ async function listGoogleShoppingFeedRows(
     [refreshCutoff],
   );
   const rowResult = await db.query<GoogleShoppingFeedRowListDbRow>(
-    `SELECT page.*, COALESCE(item.title, listing.item_title) AS title
-     FROM (
-       SELECT ROW_NUMBER() OVER (ORDER BY ${googleShoppingFeedRowOrder(filter)}) AS page_order,
-            row_id,
+    `WITH limited_page AS (
+       SELECT row_id,
             listing_id,
             account_id,
             catalog_catalog_item_id,
@@ -1755,6 +1753,11 @@ async function listGoogleShoppingFeedRows(
      ${where.sql}
      ORDER BY ${googleShoppingFeedRowOrder(filter)}
      LIMIT $${where.values.length + 1}
+     )
+     SELECT page.*, COALESCE(item.title, listing.item_title) AS title
+     FROM (
+       SELECT limited_page.*, ROW_NUMBER() OVER (ORDER BY ${googleShoppingFeedRowOrder(filter)}) AS page_order
+       FROM limited_page
      ) AS page
      LEFT JOIN discovery_item_detail_pages AS item
        ON item.catalog_item_id = page.catalog_catalog_item_id

@@ -14,6 +14,7 @@ import {
   DetailPanel,
   FilterArea,
   Form,
+  Heading,
   Inline,
   KeyValueList,
   LinkButton,
@@ -492,9 +493,9 @@ function SelectedRowDetail({ row }: Readonly<{ row: GoogleShoppingFeedRowListIte
   return (
     <DetailPanel
       title={
-        <Text element="h2" size="lg" weight="semibold">
+        <Heading level={2} visualSize={5}>
           {row.title || t(`${routeKey}.untitledListing`, { listingId: row.listingId })}
-        </Text>
+        </Heading>
       }
       actions={
         <Inline>

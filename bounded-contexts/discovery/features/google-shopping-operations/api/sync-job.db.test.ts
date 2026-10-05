@@ -158,14 +158,14 @@ async function seedRow(id: string, options: { eligibility?: string; sync?: strin
   await pool.query(
     `INSERT INTO discovery_google_shopping_feed_rows
     (row_id, listing_id, account_id, catalog_catalog_item_id, product_id, merchant_offer_id,
-     external_seller_id, canonical_url, target_country, content_language, eligibility_status,
+     external_seller_id, canonical_url, target_country, content_language, eligibility_status, image_eligibility_status,
      sync_status, diagnostic_status, exclusion_reasons, image_exclusion_reasons, updated_at)
-    VALUES ($1, $1, 'feed-account', $1, 'feed-product', $1, 'seller', $2, 'US', 'en', $3, $4, $5, $6, $6, $7)`,
+    VALUES ($1, $1, 'feed-account', $1, 'feed-product', $1, 'seller', $2, 'US', 'en', $3, $3, $4, $5, $6, $6, $7)`,
     [
       id,
       `https://marketplace.chasesets.test/listings/${id}`,
       options.eligibility ?? "eligible",
-      options.sync ?? "accepted",
+      options.sync ?? "submitted",
       options.diagnostics ?? "approved",
       JSON.stringify(options.eligibility === "excluded" ? ["invalid-image-url"] : []),
       now,
