@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -207,6 +208,7 @@ command -v terraform
 describe("closed executable admission", () => {
   it("benign forms have closed admission", () => {
     expect(DESTRUCTIVE_GRAMMAR.benignForms).toHaveLength(674);
+    expect(validateGrammarPartition().violations).toEqual([]);
     for (const entry of DESTRUCTIVE_GRAMMAR.benignForms) {
       expect(entry.origin.sha).toBe("926050f88aae70a631c117c1e0f002a3160a9278");
       expect(entry.proof.selector.length).toBeGreaterThan(0);
@@ -225,6 +227,72 @@ describe("closed executable admission", () => {
       if (mutation === "missing") grammar.benignForms = grammar.benignForms.filter((candidate) => candidate !== entry);
       expect(classifyShellCommands(admitted.example, { grammar }).indeterminate.length, mutation).toBeGreaterThan(0);
       if (mutation !== "missing") expect(validateGrammarPartition(grammar).passed, mutation).toBe(false);
+    }
+    const grammar = structuredClone(DESTRUCTIVE_GRAMMAR);
+    const entry = grammar.benignForms.find((candidate) => candidate.id === admitted.id);
+    entry.words[3].value = "./scripts/production-db-restore-point-cleanup.mjs";
+    entry.example = entry.words.map((word) => word.value).join(" ");
+    entry.id = createHash("sha256")
+      .update(JSON.stringify({ selector: entry.selector, words: entry.words }))
+      .digest("hex");
+    expect(validateGrammarPartition(grammar)).toMatchObject({
+      passed: false,
+      violations: expect.arrayContaining([`${entry.id}: benign payload contains a covered invocation.`]),
+    });
+    expect(classifyShellCommands(entry.example, { grammar }).indeterminate.length).toBeGreaterThan(0);
+  });
+
+  it("benign payload cannot suppress exempt inventory", () => {
+    const grammar = structuredClone(DESTRUCTIVE_GRAMMAR);
+    const entry = structuredClone(grammar.benignForms.find((candidate) => candidate.selector === "timeout"));
+    entry.words = "timeout 30m node ./scripts/digitalocean-registry-cleanup.mjs --apply"
+      .split(" ")
+      .map((value) => ({ value, dynamic: false, quoted: false }));
+    entry.example = entry.words.map((word) => word.value).join(" ");
+    entry.id = createHash("sha256")
+      .update(JSON.stringify({ selector: entry.selector, words: entry.words }))
+      .digest("hex");
+    grammar.benignForms.push(entry);
+    const workflowFile = ".github/workflows/platform-production.yml";
+    const source = changeWorkflow(workflowFile, (workflow) => {
+      workflow.jobs["deploy-production"].steps.push({ name: "Synthetic covered payload", run: entry.example });
+    });
+    const result = checkWorkflowDestructiveOperationGating(source, { workflowFile, grammar });
+    expect(result.passed).toBe(false);
+    expect(result.violations).toContainEqual(expect.stringContaining("benign payload contains a covered invocation"));
+  });
+
+  it.each([
+    ["/usr/bin/terraform", "destroy"],
+    ["/usr/bin/doctl", "registry", "repository", "delete-tag", "r", "t"],
+    ["/usr/bin/node", "--synthetic-6129-unknown-option", "harmless.mjs"],
+    ["/usr/bin/node", "${SYNTHETIC_6129_SCRIPT}"],
+  ])("rejects re-hashed forwarded payload: %s", (...payload) => {
+    const grammar = structuredClone(DESTRUCTIVE_GRAMMAR);
+    const entry = grammar.benignForms.find((candidate) => candidate.selector === "timeout");
+    entry.words = ["timeout", "8m", ...payload].map((value) => ({
+      value,
+      dynamic: value.includes("$"),
+      quoted: value.includes("$"),
+    }));
+    entry.example = entry.words.map((word) => word.value).join(" ");
+    entry.id = createHash("sha256")
+      .update(JSON.stringify({ selector: entry.selector, words: entry.words }))
+      .digest("hex");
+    expect(validateGrammarPartition(grammar).violations).toContain(
+      `${entry.id}: benign payload contains a covered invocation.`,
+    );
+    expect(classifyShellCommands(entry.example, { grammar }).indeterminate.length).toBeGreaterThan(0);
+  });
+
+  it("Bash word whitespace terminates and unknown forms fail closed", () => {
+    for (const run of ["echo hello world", "echo hello\u00a0world", "echo a\vb", "echo a\fb"]) {
+      expect(classifyShellCommands(run), JSON.stringify(run)).toMatchObject({ operations: [], indeterminate: [] });
+    }
+    for (const run of ["\uFEFFecho a", "terraform\u00a0destroy", "terraform\vdestroy", "terraform\fdestroy"]) {
+      expect(classifyShellCommands(run).indeterminate, JSON.stringify(run)).toContainEqual(
+        expect.objectContaining({ disposition: "INDETERMINATE", reason: "unlisted executable form" }),
+      );
     }
   });
 

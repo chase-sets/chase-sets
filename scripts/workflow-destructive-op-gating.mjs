@@ -272,7 +272,7 @@ export function validateGrammarPartition(grammar = DESTRUCTIVE_GRAMMAR) {
       violations.push(`${entry.id}: selector or payload hole is not data.`);
     if (!dataOperands && (!words?.length || words[0].value !== selector || words[0].dynamic))
       violations.push(`${entry.id}: unresolved benign selector.`);
-    if (!validBenignEntry(entry)) violations.push(`${entry.id}: invalid closed benign proof.`);
+    if (!validBenignEntry(entry, grammar, violations)) violations.push(`${entry.id}: invalid closed benign proof.`);
   }
   return { passed: violations.length === 0, members: expected.size, violations };
 }
@@ -433,7 +433,8 @@ function shellTokens(run) {
     let dynamic = false;
     while (index < run.length) {
       const character = run[index];
-      if (!quote && (/\s/.test(character) || operators.some((candidate) => run.startsWith(candidate, index)))) break;
+      if (!quote && (/[ \t\r\n]/.test(character) || operators.some((candidate) => run.startsWith(candidate, index))))
+        break;
       if (character === "\\" && quote !== "'") {
         const next = run[index + 1];
         if (next === "\n" || (next === "\r" && run[index + 2] === "\n")) index += next === "\r" ? 3 : 2;
@@ -507,6 +508,11 @@ function shellTokens(run) {
       if (quote !== "'" && character === "$") dynamic = true;
       value += character;
       index += 1;
+    }
+    if (index === start) {
+      errors.push(`unsupported character U+${run.charCodeAt(index).toString(16).toUpperCase().padStart(4, "0")}`);
+      index += 1;
+      continue;
     }
     if (quote) errors.push("unterminated quoted word");
     const token = { type: "word", value, dynamic, quoted: quotedWord, index: start, raw: run.slice(start, index) };
@@ -857,10 +863,10 @@ function shellSyntaxErrors(tokens, commands, grammar) {
   return [...new Set(errors)];
 }
 
-function validBenignEntry(entry) {
+function validBenignEntry(entry, grammar, violations) {
   const { selector, dataOperands, words, input } = entry;
   const shape = dataOperands ? { selector, dataOperands } : { selector, words, ...(input?.length ? { input } : {}) };
-  return (
+  const validShape =
     entry.id === createHash("sha256").update(JSON.stringify(shape)).digest("hex") &&
     typeof entry.proof?.selector === "string" &&
     entry.proof.selector.length > 0 &&
@@ -879,15 +885,29 @@ function validBenignEntry(entry) {
           (word) =>
             typeof word.value === "string" && typeof word.dynamic === "boolean" && typeof word.quoted === "boolean",
         ) &&
-        !words[0].dynamic)
-  );
+        !words[0].dynamic);
+  if (!validShape) return false;
+  if (
+    !dataOperands &&
+    words.some((word, index) => {
+      const tool = basename(word.value);
+      if (!word.dynamic && (["terraform", "doctl"].includes(tool) || scriptOperations.has(tool))) return true;
+      if (tool !== "node") return false;
+      const result = classifyCommand({ words: words.slice(index), redirects: [], assignments: [] }, grammar);
+      return result?.operation || result?.disposition === "INDETERMINATE";
+    })
+  ) {
+    violations?.push(`${entry.id}: benign payload contains a covered invocation.`);
+    return false;
+  }
+  return true;
 }
 
 function benignFormMatches(command, grammar) {
   const words = command.words;
   return (grammar.benignForms ?? []).some((entry) => {
     if (words[0]?.dynamic || entry.selector !== words[0]?.value) return false;
-    if (!validBenignEntry(entry)) return false;
+    if (!validBenignEntry(entry, grammar)) return false;
     if (entry.dataOperands === true) {
       if (["[", "test"].includes(entry.selector)) {
         if (entry.selector === "[" && words.at(-1)?.value !== "]") return false;
