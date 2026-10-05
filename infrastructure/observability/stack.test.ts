@@ -264,6 +264,8 @@ describe("durable projection stream alert proof", () => {
         "--rm",
         "--network",
         "none",
+        "--user",
+        `${process.getuid?.() ?? 0}:${process.getgid?.() ?? 0}`,
         "--entrypoint",
         "/bin/promtool",
         "--volume",
