@@ -2133,7 +2133,7 @@ describe("public shell single content gutter (#8499)", () => {
 
     expect(within(footer).getAllByRole("link")).toHaveLength(destinations.length);
     for (const [name, href] of destinations) {
-      const links = within(footer).getAllByRole("link", { name, exact: true });
+      const links = within(footer).getAllByRole("link", { name });
       expect(links).toHaveLength(1);
       expect(links[0]!.getAttribute("href")).toBe(href);
       expect(footer.querySelectorAll(`a[href="${href}"]`)).toHaveLength(1);
