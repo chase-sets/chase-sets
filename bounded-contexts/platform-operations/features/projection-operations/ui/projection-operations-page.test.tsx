@@ -91,7 +91,7 @@ describe("ProjectionOperationsPage", () => {
           `context-${index} projection group; poison events: ${poisons}; blocked streams: ${streams}`,
         ),
       ).toBeTruthy();
-      expect(within(row).getByRole("link", { name: "Settings and reference" }).getAttribute("href")).toBe(
+      expect(within(row).getByRole("link", { name: "View group in reference" }).getAttribute("href")).toBe(
         `/platform/projections/reference?contextName=context-${index}&projectionName=projection-${index}`,
       );
       expect(within(row).getByRole("link", { name: "Details" })).toBeTruthy();
@@ -124,7 +124,7 @@ describe("ProjectionOperationsPage", () => {
       />,
     );
     const row = screen.getByRole("row", { name: /catalog-item-projection projection-group/ });
-    const href = within(row).getByRole("link", { name: "Settings and reference" }).getAttribute("href");
+    const href = within(row).getByRole("link", { name: "View group in reference" }).getAttribute("href");
     expect(href).toBe("/platform/projections/reference?contextName=catalog&projectionName=catalog-item-projection");
     const params = new URL(href!, "http://localhost").searchParams;
 
@@ -244,9 +244,9 @@ describe("ProjectionOperationsPage", () => {
     expect(screen.getAllByText("Blocked streams").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Poison events").length).toBeGreaterThan(0);
     expect(screen.queryByRole("tablist")).toBeNull();
-    expect(
-      screen.getAllByRole("link", { name: "Settings and reference" }).map((link) => link.getAttribute("href")),
-    ).toContain("/platform/projections/reference");
+    expect(screen.getByRole("link", { name: "Settings and reference" }).getAttribute("href")).toBe(
+      "/platform/projections/reference",
+    );
   });
 
   it("opens poison-event evidence in a drawer with the stream retry action", () => {

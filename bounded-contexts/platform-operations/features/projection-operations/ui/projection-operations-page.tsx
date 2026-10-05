@@ -277,7 +277,7 @@ function ProjectionRepairQueue({
                   size="sm"
                   tone="secondary"
                 >
-                  {t(`${routeKey}.reference`)}
+                  {t(`${routeKey}.groupReference`)}
                 </LinkButton>
               ) : null}
             </Inline>

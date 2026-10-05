@@ -282,6 +282,7 @@ export const platformOperationsEnglishTranslations = {
   "platformOperations.projectionOperations.recentOperationsDescription":
     "Open an operation to follow live progress or request cancellation at the next safe boundary.",
   "platformOperations.projectionOperations.reference": "Settings and reference",
+  "platformOperations.projectionOperations.groupReference": "View group in reference",
   "platformOperations.projectionOperations.referenceDescription":
     "Read-only projection groups, subscription wiring, worker state, diagnostics, and push-wake operational references.",
   "platformOperations.projectionOperations.referenceMetaTitle": "Projection Settings and Reference | Chase Sets Admin",
