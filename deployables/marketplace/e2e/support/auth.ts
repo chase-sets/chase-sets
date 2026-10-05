@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { dirname, posix, resolve, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Page, type TestInfo } from "@playwright/test";
-import type { InteractiveAuthResult } from "../../../../bounded-contexts/auth/support/runtime-support/services";
 
 const marketplaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const registrationTimeoutMs = 15_000;
@@ -173,8 +172,6 @@ export async function registerSyntheticAccount(
   }
 }
 
-type RegistrationStarted = Extract<InteractiveAuthResult, { type: "session-started" }> & { accountId: string };
-
 export async function consumeSyntheticRegistrationResponse(response: Response, signal: AbortSignal) {
   const body = await readRegistrationJson(response, signal);
   if (response.status !== 201) {
@@ -256,7 +253,6 @@ async function readRegistrationJson(
     throw registrationFailure(signal.aborted ? "timeout" : "response-read");
   } finally {
     signal.removeEventListener("abort", onAbort);
-    reader.releaseLock();
   }
 }
 
@@ -285,7 +281,7 @@ function timestamp(value: unknown) {
   );
 }
 
-function isRegistrationStarted(value: unknown): value is RegistrationStarted {
+function isRegistrationStarted(value: unknown): value is { sessionToken: string } {
   if (
     !isRecord(value) ||
     !exactKeys(value, ["type", "userId", "accountId", "sessionId", "sessionToken", "session", "memberships"]) ||

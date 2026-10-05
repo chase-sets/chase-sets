@@ -994,6 +994,7 @@ async function executeConfiguredSpec(file: string, env: Record<string, string>) 
   runInNewContext(output, {
     exports: {},
     process: { env },
+    URL,
     require: (name: string) => {
       if (name === "@playwright/test") return { test, expect: () => assertions };
       if (name === "./support/auth")
