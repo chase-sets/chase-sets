@@ -22,7 +22,10 @@ import type { MoneyMovementGateway } from "@chase-sets/money-movement";
 import { createNoopSettlementOperationsRecorder, type SettlementOperationsRecorder } from "./operations";
 import type { PayoutDestinationFrictionPolicy, SensitiveActionVerifier } from "../../features/payouts/api/runtime";
 import type { ProviderWebhookTelemetry } from "@chase-sets/http/provider-errors";
-import type { MarketplaceLabelPostageActivation } from "../../features/wallets/integrations/fulfillment-source/label-postage-policy";
+import {
+  validateMarketplaceLabelPostageActivation,
+  type MarketplaceLabelPostageActivation,
+} from "../../features/wallets/integrations/fulfillment-source/label-postage-policy";
 
 export type SettlementHostPorts = Readonly<{
   evidenceWindowCorrelation?: import("@chase-sets/evidence-window-provider-write").ProviderWriteCorrelation;
@@ -88,6 +91,10 @@ export function createSettlementServices(
   pool: PgTransactionalPool,
   ports: SettlementHostPorts = {},
 ): SettlementServices {
+  const activation =
+    ports.marketplaceLabelPostageActivation === undefined
+      ? undefined
+      : validateMarketplaceLabelPostageActivation(ports.marketplaceLabelPostageActivation);
   const eventStore = createPostgresEventStore({
     pool,
     wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "settlement" }),
@@ -146,9 +153,7 @@ export function createSettlementServices(
     liabilityReconciliation,
     accountLinkage,
     policies,
-    ...(ports.marketplaceLabelPostageActivation
-      ? { marketplaceLabelPostageActivation: ports.marketplaceLabelPostageActivation }
-      : {}),
+    ...(activation !== undefined ? { marketplaceLabelPostageActivation: activation } : {}),
     projectors: [
       ...wallets.projectors,
       ...protectionCoverage.projectors,

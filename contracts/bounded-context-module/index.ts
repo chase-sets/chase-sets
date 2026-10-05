@@ -324,6 +324,7 @@ export type BcAnonymousRoute = Readonly<{
 }>;
 
 export type BcEventSubscriptionDeclaration = Readonly<{
+  readonly deferUntilHostPort?: string;
   readonly sourceContextName: string;
   readonly projectionName: string;
   readonly subscriptionVersion: number;
@@ -449,6 +450,7 @@ export type BcEventSubscription = Readonly<{
 }>;
 
 export type BcContextManifest = Readonly<{
+  readonly hostPorts?: readonly BcHostPort[];
   readonly contextName: string;
   readonly apiBasePath: string;
   readonly streamPrefix: string;
@@ -745,6 +747,8 @@ export interface BcApiModule<
   TProjectionHandlerSet extends BcProjectionHandlerSet = BcProjectionHandlerSet,
 > {
   readonly contextName: string;
+  readonly hostPorts?: readonly BcHostPort[];
+  hasHostPort?(services: TServices, portName: string): boolean;
   readonly routePrefix: string;
   readonly streamPrefix: string;
   readonly schemaSql: string;
@@ -796,6 +800,7 @@ export type DefineBoundedContextModuleInput<
 > = Readonly<{
   manifest: BcContextManifestInput;
   schemaSql: string;
+  hasHostPort?: BcApiModule<TServices, TPool, THostPorts, TRouter, TProjectionHandlerSet>["hasHostPort"];
   schemaMigrations?: readonly BcSchemaMigration[];
   retentionSweeps?: readonly BcRetentionSweep[];
   retentionExemptions?: readonly BcRetentionExemption[];
@@ -840,8 +845,17 @@ export function defineBoundedContextModule<
 ): BcApiModule<TServices, TPool, THostPorts, TRouter, TProjectionHandlerSet> {
   const manifest = normalizeContextManifest(input.manifest);
 
+  if (
+    manifest.eventSubscriptions?.some((declaration) => declaration.deferUntilHostPort !== undefined) &&
+    !input.hasHostPort
+  ) {
+    throw new Error(`Context '${manifest.contextName}' declares deferUntilHostPort but has no hasHostPort resolver.`);
+  }
+
   return {
     contextName: manifest.contextName,
+    ...(manifest.hostPorts ? { hostPorts: manifest.hostPorts } : {}),
+    ...(input.hasHostPort ? { hasHostPort: input.hasHostPort } : {}),
     routePrefix: manifest.apiBasePath,
     streamPrefix: manifest.streamPrefix,
     schemaSql: input.schemaSql,
@@ -869,8 +883,15 @@ export function defineBoundedContextModule<
 }
 
 export function normalizeContextManifest(manifest: BcContextManifestInput): BcContextManifest {
+  for (const declaration of manifest.eventSubscriptions ?? []) {
+    const portName = declaration.deferUntilHostPort;
+    if (portName !== undefined && !manifest.hostPorts?.some((port) => port.portName === portName)) {
+      throw new Error(`Context '${manifest.contextName}' declares unknown deferUntilHostPort '${portName}'.`);
+    }
+  }
   return {
     contextName: manifest.contextName,
+    ...(manifest.hostPorts ? { hostPorts: manifest.hostPorts } : {}),
     apiBasePath: manifest.apiBasePath,
     streamPrefix: manifest.streamPrefix,
     ...(manifest.apiMounts ? { apiMounts: manifest.apiMounts as readonly BcApiMount[] } : {}),
@@ -1028,6 +1049,13 @@ function normalizeEventSubscriptionDeclaration(
   contextName: string,
   declaration: BcEventSubscriptionManifestDeclaration,
 ): BcEventSubscriptionDeclaration {
+  const portName = declaration.deferUntilHostPort;
+  if (
+    portName !== undefined &&
+    (typeof portName !== "string" || portName.trim().length === 0 || portName !== portName.trim())
+  ) {
+    throw new Error(`Context '${contextName}' declares an invalid deferUntilHostPort.`);
+  }
   const { sourceContextMount: rawSourceContextMount, ...rest } = declaration;
   const sourceContextMount = normalizeOptionalSourceContextMount(
     contextName,
