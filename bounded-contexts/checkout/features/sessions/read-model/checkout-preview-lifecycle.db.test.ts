@@ -49,6 +49,7 @@ const actor = createAccountUserTestActor({
 const context = createTestEventStoreContext(actor);
 const catalogItemId = createId("cat");
 const listingId = createId("lst");
+const unresolvedListingId = createId("lst");
 const inventoryItemId = createId("inv");
 const sellerAccountId = createId("acc");
 const productId = `${catalogItemId}::`;
@@ -85,6 +86,8 @@ type Observation = Readonly<{
   projectionPreview: boolean;
   projectionRevision: string | null;
   loaderPreview: boolean;
+  totalAmount: string | null;
+  unavailableReasons: readonly string[];
   priced: boolean;
   previewError: boolean;
   generation: string | null;
@@ -220,6 +223,8 @@ async function observe(step: string, options: Pick<Observation, "refresh" | "ela
     projectionPreview: row?.fulfillment_preview_snapshot != null,
     projectionRevision: row?.fulfillment_preview_revision ?? null,
     loaderPreview: data.fulfillmentPreview !== null,
+    totalAmount: data.fulfillmentPreview?.totals.totalAmount ?? null,
+    unavailableReasons: data.fulfillmentPreview?.unavailableLines.map((line) => line.reason) ?? [],
     priced: priced(data),
     previewError: data.previewError !== null,
     generation: generation?.state ?? null,
@@ -315,7 +320,7 @@ async function seedSourceHistory() {
         sellerNetUnitAmount: "19.00",
         termsScheduleId: null,
         termsAgreementId: null,
-        termsResolvedAt: null,
+        termsResolvedAt: "2026-10-05T00:00:00.000Z",
         productMeasureSnapshot: {
           catalogItemId,
           productId,
@@ -331,6 +336,16 @@ async function seedSourceHistory() {
           confidence: "measured",
         },
       },
+    },
+    { eventType: "marketplace.listing.published", payload: {} },
+  ]);
+  const listingEvents = await readCompleteStream(createPostgresEventStore({ pool: pools!.marketplace }), {
+    streamId: `marketplace.listing-${listingId}`,
+  });
+  await appendSource("marketplace", `marketplace.listing-${unresolvedListingId}`, [
+    {
+      eventType: "marketplace.listing.created",
+      payload: { ...listingEvents[0]!.payload, listingId: unresolvedListingId, termsResolvedAt: null },
     },
     { eventType: "marketplace.listing.published", payload: {} },
   ]);
@@ -513,6 +528,59 @@ describeDb("checkout preview lifecycle on unchanged product code", () => {
 
   afterAll(async () => {
     if (pools) await closeMultiContextTestPools(pools);
+  });
+
+  it("discriminates unresolved source terms from the priced source fixture through real Ordering", async () => {
+    activeStep = "source-terms-fixture-control";
+    const api = createOrderingRequestApiClient(request());
+    const checkoutSessionId = createId("chk");
+    const cartLineId = createId("cli");
+    const preview = (lockedListingId: string) =>
+      api.previewCheckoutFulfillment({
+        checkoutSessionId,
+        sourceType: "cart-checkout",
+        shippingOption: "standard",
+        lines: [
+          {
+            listingId: lockedListingId,
+            lockedListingId,
+            fulfillmentMode: "locked-listing",
+            cartLineId,
+            catalogItemId,
+            productId,
+            itemTitle: "Synthetic card",
+            itemSubtitle: null,
+            selectedOptions: [],
+            productSummary: null,
+            quantity: 1,
+          },
+        ],
+      });
+    const unresolved = await preview(unresolvedListingId);
+    const resolved = await preview(listingId);
+    console.info(
+      "CHECKOUT_PREVIEW_FIXTURE_CONTROL " +
+        JSON.stringify({
+          case: caseName,
+          syntheticSourceHistory: true,
+          unresolved: {
+            totalAmount: unresolved.totals.totalAmount,
+            readyLines: unresolved.readyLineKeys.length,
+            unavailableReasons: unresolved.unavailableLines.map((line) => line.reason),
+          },
+          resolved: {
+            totalAmount: resolved.totals.totalAmount,
+            readyLines: resolved.readyLineKeys.length,
+            unavailableReasons: resolved.unavailableLines.map((line) => line.reason),
+          },
+        }),
+    );
+    expect(unresolved.readyLineKeys).toEqual([]);
+    expect(unresolved.totals.totalAmount).toBe("0.00");
+    expect(unresolved.unavailableLines.map((line) => line.reason)).toEqual(["Locked listing is unavailable."]);
+    expect(resolved.readyLineKeys).toHaveLength(1);
+    expect(resolved.unavailableLines).toEqual([]);
+    expect(Number(resolved.totals.totalAmount)).toBeGreaterThan(0);
   });
 
   it.each(candidates)("independent priced baseline: %s", async (candidate) => {
