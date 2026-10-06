@@ -501,6 +501,9 @@ describe("closed executable admission", () => {
       ["psql", "-c", Q("\\! sh")],
       ["kubectl", "exec", D("$POD"), "--", D("$TOOL")],
       ["kubectl", "synthetic-plugin", "x"],
+      ["kubectl", "-n", D("${namespaces[@]}"), "get", "pods"],
+      ["kubectl", "exec", "--namespace", D("${namespaces[@]}"), D("$POD"), "--", "rm", "-f", "x"],
+      ["docker", "compose", "-f", U("$FILES"), "ps"],
       ["git", "-c", "core.sshCommand=x", "fetch"],
       ["docker", "compose", "-f", "compose.yml", "exec", "app", "sh"],
     ]) {

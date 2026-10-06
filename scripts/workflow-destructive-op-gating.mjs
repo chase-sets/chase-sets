@@ -866,8 +866,9 @@ function terminal({ commands = null, optionalCommand = false, global = {}, optio
   return (words, at) => {
     let index = at + 1;
     while (literalOption(words[index]) && Object.hasOwn(global, words[index].value)) {
-      index += 1 + global[words[index].value];
-      if (index > words.length) return false;
+      const values = words.slice(index + 1, index + 1 + global[words[index].value]);
+      if (values.length !== global[words[index].value] || !values.every(singleArgument)) return false;
+      index += 1 + values.length;
     }
     let path = [];
     if (paths.length) {
@@ -1082,8 +1083,10 @@ function kubectlRoles(words, at, next) {
     while (index < words.length && !literal(words[index], "--")) {
       const word = words[index];
       const name = word.value.split("=")[0];
-      if (word.value.startsWith("-") && !name.includes("$") && valued.has(name)) {
-        index += word.value.includes("=") ? 1 : 2;
+      if (word.value.startsWith("-") && !name.includes("$") && valued.has(name) && singleArgument(word)) {
+        if (word.value.includes("=")) index += 1;
+        else if (singleArgument(words[index + 1]) && !literal(words[index + 1], "--")) index += 2;
+        else return { index };
         continue;
       }
       return { resource: word, index };
