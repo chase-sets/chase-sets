@@ -1,11 +1,20 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
 import { createRoutesStub } from "react-router";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DiscoveryBrowseSetPage } from "../features/browse/api/contracts";
-import DiscoverySetRoute from "./set";
+
+const { getSetBySlug } = vi.hoisted(() => ({ getSetBySlug: vi.fn() }));
+
+vi.mock("../support/request-support/api-client", async (importOriginal) => ({
+  ...(await importOriginal()),
+  createDiscoveryRequestApiClient: vi.fn(() => ({ getSetBySlug })),
+}));
+
+import DiscoverySetRoute, { loader as setLoader } from "./set";
 
 afterEach(cleanup);
+beforeEach(() => getSetBySlug.mockReset());
 
 function page(overrides: Partial<DiscoveryBrowseSetPage> = {}): DiscoveryBrowseSetPage {
   return {
@@ -36,11 +45,12 @@ function page(overrides: Partial<DiscoveryBrowseSetPage> = {}): DiscoveryBrowseS
 }
 
 function renderSet(setPage: DiscoveryBrowseSetPage) {
+  getSetBySlug.mockResolvedValue(setPage);
   const Stub = createRoutesStub([
     {
       path: "/sets/:setSlug",
       Component: DiscoverySetRoute,
-      loader: () => ({ setPage, notFound: false, canonicalUrl: "http://localhost/sets/base-set" }),
+      loader: setLoader,
     },
   ]);
   return render(<Stub initialEntries={["/sets/base-set"]} />);
@@ -52,6 +62,7 @@ describe("Discovery set route card count", () => {
 
     expect(await screen.findByText(/3 of 102 cards cataloged · set code base · released January 9, 1999/)).toBeTruthy();
     expect(screen.getByRole("link", { name: "Browse all 3 cards in this set" })).toBeTruthy();
+    expect(getSetBySlug).toHaveBeenCalledWith("base-set");
   });
 
   it("renders the existing not-found state", async () => {
