@@ -167,7 +167,7 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
       expect(match.can_fulfill).toBe(false);
       expect(["unavailable", "held", "refresh_required"]).toContain(match.managed_status);
       await seller.goto(`/account/offers/matches/${fixture.heldOfferId}`);
-      await expect(seller.getByRole("button", { name: "Accept Offer Match", exact: true }).first()).toBeDisabled();
+      await expect(seller.getByRole("button", { name: "Accept offer match", exact: true }).first()).toBeDisabled();
       const sellerMarkup = await seller.content();
       for (const field of [
         "buyerOfferPolicyId",
