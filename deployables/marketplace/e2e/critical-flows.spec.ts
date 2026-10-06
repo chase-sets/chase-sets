@@ -1,7 +1,7 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
 import { registerSyntheticAccount, signInWithPassword, syntheticAccountFor } from "./support/auth";
-import { marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
+import { marketplaceBrowserE2eSeedContract, marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
 
 const configuredMarketplaceAccount = {
   email: process.env.MARKETPLACE_E2E_EMAIL?.trim() ?? "",
@@ -294,6 +294,99 @@ test.describe("marketplace critical flows", () => {
 
     await expectAccountRouteReady(page, accountCriticalRoutes[0]);
     await expectAccountRouteReady(page, accountCriticalRoutes[2]);
+  });
+
+  test("seller add/remove receipt redirects keep Sell List and Desk current @marketplace-checkout", async ({
+    page,
+  }, testInfo) => {
+    await authenticateAccount(page, testInfo);
+    await expectPageOk(page, "/account/sell-list");
+    await expect(page.getByText("Your Sell List is empty", { exact: true })).toBeVisible();
+    const itemPath = marketplaceBrowserE2eSeedContract.itemDetail.selectedProductRoutePath;
+    let lineId: string | null = null;
+
+    const submitAndFollow = async (path: string, fields: Record<string, string>, destination: string) => {
+      const commandPromise = page.waitForResponse(
+        (response) =>
+          response.request().isNavigationRequest() &&
+          response.request().method() === "POST" &&
+          new URL(response.url()).pathname === new URL(path, page.url()).pathname,
+      );
+      const documentPromise = page.waitForNavigation({ waitUntil: "domcontentloaded" });
+      // Native document submission exposes the command and its followed redirect separately.
+      await page.evaluate(
+        ({ path, fields }) => {
+          const form = document.createElement("form");
+          form.method = "post";
+          form.action = path;
+          for (const [name, value] of Object.entries(fields)) {
+            const input = document.createElement("input");
+            input.type = "hidden";
+            input.name = name;
+            input.value = value;
+            form.append(input);
+          }
+          document.body.append(form);
+          form.submit();
+        },
+        { path, fields },
+      );
+      const command = await commandPromise;
+      const documentResponse = await documentPromise;
+      expect(command.status(), "mutation command must redirect successfully").toBe(302);
+      const location = new URL(command.headers().location, page.url());
+      expect(location.pathname).toBe(destination);
+      expect(
+        location.searchParams.get("postWriteToken"),
+        "the receipt-bearing redirect must not be stripped",
+      ).toBeTruthy();
+      expect(documentResponse, "redirect must return a document").not.toBeNull();
+      expect(documentResponse!.status(), "receipt-bearing destination must succeed").toBe(200);
+      expect(new URL(documentResponse!.url()).pathname).toBe(destination);
+    };
+
+    try {
+      for (const destination of ["/account/sell-list", "/account/desk/offers"]) {
+        await expectPageOk(page, itemPath);
+        const productId = await page.locator('input[name="productId"][value]:not([value=""])').first().inputValue();
+        await submitAndFollow(
+          itemPath,
+          {
+            intent: "add-product-to-sell-list",
+            productId,
+            quantity: "1",
+            selectedOptions: "[]",
+          },
+          "/account/sell-list",
+        );
+        const removal = page.locator('form:has(input[name="intent"][value="remove-sell-list-line"])');
+        await expect(removal).toHaveCount(1);
+        lineId = await removal.locator('input[name="lineId"]').inputValue();
+        await expect(page.getByText("Your Sell List is empty", { exact: true })).toHaveCount(0);
+        await expect(page.getByRole("heading", { name: "Review items", exact: true })).toBeVisible();
+        if (destination === "/account/desk/offers") {
+          await expectPageOk(page, destination);
+          await expect(removal.locator('input[name="lineId"]')).toHaveValue(lineId);
+        }
+        await submitAndFollow(destination, { intent: "remove-sell-list-line", lineId }, destination);
+        lineId = null;
+        await expect(page.getByText("Your Sell List is empty", { exact: true })).toBeVisible();
+        await expect(removal).toHaveCount(0);
+      }
+    } finally {
+      // Read back and remove only this journey's line, including after a failed destination.
+      await expectPageOk(page, "/account/sell-list");
+      const removal = page.locator('form:has(input[name="intent"][value="remove-sell-list-line"])');
+      if (lineId === null && (await removal.count()) === 1) {
+        lineId = await removal.locator('input[name="lineId"]').inputValue();
+      }
+      if (lineId !== null) {
+        await submitAndFollow("/account/sell-list", { intent: "remove-sell-list-line", lineId }, "/account/sell-list");
+      }
+      await expect(page.getByText("Your Sell List is empty", { exact: true })).toBeVisible();
+      await expectPageOk(page, "/account/desk/offers");
+      await expect(page.getByText("Your Sell List is empty", { exact: true })).toBeVisible();
+    }
   });
 
   test("signed-in presentation preferences persist across reloads and converge across sessions @marketplace-account", async ({
