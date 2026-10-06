@@ -54,10 +54,17 @@ export function MarketingImageHero({
   const isCompact = resolveDensityMode(density) === "compact";
 
   // Surface-diet law: the hero is furniture, so its root carries no border,
-  // fill or shadow. The image and scrim layers are clipped to the token radius
-  // on their own; only the `conversionPanel` slot may render raised.
+  // fill or shadow. Below `lg` the root bleeds by exactly the `Page` gutter
+  // (`px-4 md:px-6` in page-layouts.tsx; `Page` clips at its padding box, so
+  // the bleed reaches its outer edge) and the image and scrim run edge to edge
+  // with square corners; from `lg` up they are clipped to the token radius on
+  // their own. The copy grid pads by the same gutter so the eyebrow, title and
+  // panel sit back on the page gutter. Only the `conversionPanel` slot may
+  // render raised.
   return (
-    <section className={cx("relative", isCompact ? "min-h-[18rem] sm:min-h-[20rem]" : "min-h-[22rem]")}>
+    <section
+      className={cx("relative -mx-4 md:-mx-6 lg:mx-0", isCompact ? "min-h-[18rem] sm:min-h-[20rem]" : "min-h-[22rem]")}
+    >
       <img
         src={imageSrc}
         srcSet={imageSrcSet}
@@ -68,15 +75,13 @@ export function MarketingImageHero({
         fetchPriority={imageFetchPriority}
         width={imageWidth}
         height={imageHeight}
-        className={cx("absolute inset-0 h-full w-full rounded-tokenLg object-cover", imagePositionClass)}
+        className={cx("absolute inset-0 h-full w-full object-cover lg:rounded-tokenLg", imagePositionClass)}
       />
-      <div className="absolute inset-0 rounded-tokenLg bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,transparent)_0%,color-mix(in_srgb,var(--background)_78%,transparent)_48%,color-mix(in_srgb,var(--background)_46%,transparent)_100%)] lg:bg-[linear-gradient(90deg,color-mix(in_srgb,var(--background)_94%,transparent)_0%,color-mix(in_srgb,var(--background)_76%,transparent)_44%,color-mix(in_srgb,var(--background)_14%,transparent)_100%)]" />
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,transparent)_0%,color-mix(in_srgb,var(--background)_78%,transparent)_48%,color-mix(in_srgb,var(--background)_46%,transparent)_100%)] lg:rounded-tokenLg lg:bg-[linear-gradient(90deg,color-mix(in_srgb,var(--background)_94%,transparent)_0%,color-mix(in_srgb,var(--background)_76%,transparent)_44%,color-mix(in_srgb,var(--background)_14%,transparent)_100%)]" />
       <div
         className={cx(
-          "relative grid lg:grid-cols-[minmax(0,0.9fr)_minmax(18rem,0.55fr)]",
-          isCompact
-            ? "min-h-[18rem] gap-3 p-3 sm:min-h-[20rem] sm:p-5 lg:p-6"
-            : "min-h-[22rem] gap-4 p-4 sm:gap-5 sm:p-6 lg:p-6",
+          "relative grid px-4 md:px-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(18rem,0.55fr)] lg:p-6",
+          isCompact ? "min-h-[18rem] gap-3 py-3 sm:min-h-[20rem] sm:py-5" : "min-h-[22rem] gap-4 py-4 sm:gap-5 sm:py-6",
         )}
       >
         <div className={cx("flex max-w-3xl flex-col justify-start lg:justify-center", isCompact ? "gap-3" : "gap-4")}>

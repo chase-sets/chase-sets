@@ -73,3 +73,24 @@ jobs:
         run: |
           echo "${P0_BREACH_COUNT} P0 delivery-health SLI breach(es) are active; canonical issues were updated." >&2
           exit 1
+
+  reporter:
+    name: Report Delivery Health Failure
+    needs: publish
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Report workflow failure
+        if: ${{ contains(needs.*.result, 'failure') }}
+        uses: ./.github/actions/report-scheduled-workflow-alert
+        with:
+          github-token: ${{ github.token }}
+          workflow-name: Platform Delivery Health
+          alert-status: failure
+          alert-summary: Delivery health publication failed. See this run's jobs and artifacts.

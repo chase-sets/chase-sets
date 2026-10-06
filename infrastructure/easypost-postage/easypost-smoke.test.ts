@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { createEasyPostPostageLabelProvider } from ".";
+import { easyPostTestMemberParcel, easyPostTestRecipient, easyPostTestSender } from "./tests/easypost-test-fixtures";
 
 const easyPostApiKey = process.env.EASYPOST_API_KEY;
 const canRunEasyPostSmoke = easyPostApiKey?.startsWith("EZTK");
@@ -20,32 +21,9 @@ describeWithEasyPostTestKey("EasyPost USPS sandbox smoke", () => {
       subjectId: `smoke-${Date.now()}`,
       idempotencyKey: `smoke:${Date.now()}:purchase-usps-label:initial`,
       serviceLevel: "GroundAdvantage",
-      sender: {
-        name: "Chase Sets Seller",
-        street1: "417 Montgomery St",
-        city: "San Francisco",
-        state: "CA",
-        postalCode: "94104",
-        country: "US",
-        phone: "4155550100",
-        email: "seller@example.com",
-      },
-      recipient: {
-        name: "Chase Sets Buyer",
-        street1: "388 Townsend St",
-        city: "San Francisco",
-        state: "CA",
-        postalCode: "94107",
-        country: "US",
-        phone: "4155550101",
-        email: "buyer@example.com",
-      },
-      package: {
-        lengthInches: 7,
-        widthInches: 5,
-        heightInches: 1,
-        weightOunces: 4,
-      },
+      sender: easyPostTestSender,
+      recipient: easyPostTestRecipient,
+      package: easyPostTestMemberParcel,
     });
 
     expect(label.providerName).toBe("easypost");

@@ -12,6 +12,7 @@ import {
   type ChannelPublicationListPageState,
 } from "../ui/publication-pages";
 import type { ChannelPublicationConnectionDetail } from "../domain/contracts";
+import { assertChannelPublicationSettingsPayload } from "../domain/codecs";
 import AccountChannelsPublicationConnectionRoute, {
   action,
   loader,
@@ -24,6 +25,66 @@ afterEach(() => {
 });
 
 describe("channel-publication-settings-route", () => {
+  it("publish quantity cap field renders saved values, submits empty as null, and shows the existing error for zero", async () => {
+    let projected = detail({
+      settings: {
+        titlePrefix: "",
+        titleSuffix: "",
+        descriptionFooter: "",
+        categoryAllowlist: [],
+        excludedListingIds: [],
+        publishQuantityCap: 2,
+      },
+    });
+    const saved: Array<NonNullable<ChannelPublicationConnectionDetail["settings"]>> = [];
+    stubPublicationRouteFetch({
+      readDetail: () => projected,
+      replaceSettings: (_connectionId, settings) => {
+        saved.push(settings);
+        assertChannelPublicationSettingsPayload(settings);
+        projected = detail({ settings, configurationStreamVersion: saved.length });
+        return saved.length;
+      },
+    });
+    const router = renderPublicationRoute();
+    expect(
+      ((await screen.findByRole("spinbutton", { name: "Channel Publish Quantity Cap" })) as HTMLInputElement).value,
+    ).toBe("2");
+    const empty = settingsForm();
+    empty.set("publishQuantityCap", "");
+    await act(async () => {
+      await router.navigate(PUBLICATION_PATH, { formMethod: "post", formData: empty });
+    });
+    expect(saved[0]?.publishQuantityCap).toBeNull();
+    expect((screen.getByRole("spinbutton", { name: "Channel Publish Quantity Cap" }) as HTMLInputElement).value).toBe(
+      "",
+    );
+    const capped = settingsForm("1");
+    capped.set("publishQuantityCap", "5");
+    await act(async () => {
+      await router.navigate(PUBLICATION_PATH, { formMethod: "post", formData: capped });
+    });
+    expect(saved[1]?.publishQuantityCap).toBe(5);
+    expect((screen.getByRole("spinbutton", { name: "Channel Publish Quantity Cap" }) as HTMLInputElement).value).toBe(
+      "5",
+    );
+    const invalid = settingsForm("2");
+    invalid.set("publishQuantityCap", "0");
+    await act(async () => {
+      await router.navigate(PUBLICATION_PATH, { formMethod: "post", formData: invalid });
+    });
+    expect(screen.getByText("Invalid closed Channels desired-state event.")).toBeTruthy();
+    expect(Object.values(router.state.actionData ?? {})[0]).toMatchObject({ kind: "command-error" });
+    for (const invalidCap of ["1001", "1.5", "not-a-number", "Infinity"]) {
+      invalid.set("publishQuantityCap", invalidCap);
+      await act(async () => {
+        await router.navigate(PUBLICATION_PATH, { formMethod: "post", formData: invalid });
+      });
+      expect(Object.values(router.state.actionData ?? {})[0]).toMatchObject({ kind: "command-error" });
+    }
+    expect(saved).toHaveLength(2);
+  });
+
   it("settings-write-visible", async () => {
     let projected = detail();
     stubPublicationRouteFetch({
@@ -150,6 +211,7 @@ describe("channel-publication-settings-route", () => {
       descriptionFooter: "stale footer",
       categoryAllowlist: [],
       excludedListingIds: [],
+      publishQuantityCap: null,
     };
     const stub = stubPublicationRouteFetch({
       readDetail: () => detail({ settings: stale, configurationStreamVersion: version }),
@@ -184,6 +246,7 @@ describe("channel-publication-settings-route", () => {
       descriptionFooter: "stale footer",
       categoryAllowlist: [],
       excludedListingIds: [],
+      publishQuantityCap: null,
     };
     const candidate = {
       connectionId: "connection-1",

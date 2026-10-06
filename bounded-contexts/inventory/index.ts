@@ -3,10 +3,12 @@ export { default as contextManifest } from "./context.json" with { type: "json" 
 import {
   buildEventSubscriptionsFromManifest,
   defineBoundedContextModule,
+  defineBcProjectionGroupReset,
+  type BcProjectionGroup,
   type BcContextManifest,
   type BcEventSubscriptionHandler,
 } from "@chase-sets/bounded-context-module";
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type {
   OrderingOrderCancelledPayload,
   OrderingOrderCreatedPayload,
@@ -30,10 +32,14 @@ import { inventoryUnloggedProjectionSchemaMigrations } from "./support/runtime-s
 import { inspectInventorySeedState, seedInventoryDatabase } from "./support/runtime-support/seed";
 import { createInventoryImportBatchMcpHandlers } from "./features/import-batches/api/mcp";
 import { createInventoryItemMcpHandlers } from "./features/inventory-items/api/mcp";
+import { resetInventoryItemProjection } from "./features/inventory-items/read-model/projection";
+import { resetStorageLocationProjection } from "./features/storage-locations/read-model/projection";
+import { resetInventoryHoldProjection } from "./features/holds/read-model/projection";
+import { resetInventoryRestockDecisionProjection } from "./features/restock-decisions/read-model/projection";
 
 const inventoryContextManifest = contextManifest as BcContextManifest;
 
-export const module = defineBoundedContextModule<InventoryServices, PgTransactionalPool, InventoryHostPorts>({
+const baseModule = defineBoundedContextModule<InventoryServices, PgTransactionalPool, InventoryHostPorts>({
   manifest: inventoryContextManifest,
   schemaSql: inventorySchemaSql,
   retentionSweeps: inventoryRetentionSweeps,
@@ -228,3 +234,27 @@ export const module = defineBoundedContextModule<InventoryServices, PgTransactio
   seed: seedInventoryDatabase,
   inspectSeedState: (pool) => inspectInventorySeedState(pool),
 });
+
+const linkedReadModelResets: Readonly<Record<string, (db: PgQueryable) => Promise<void>>> = {
+  "inventory-storage-location-projection": resetStorageLocationProjection,
+  "inventory-item-projection": resetInventoryItemProjection,
+  "inventory-hold-projection": resetInventoryHoldProjection,
+  "inventory-restock-decision-projection": resetInventoryRestockDecisionProjection,
+};
+
+function buildInventoryProjectionGroups(): readonly BcProjectionGroup[] {
+  return (baseModule.projectionGroups ?? []).map((group) => {
+    const reset = linkedReadModelResets[group.projectionName];
+    if (!reset) return group;
+    return {
+      ...group,
+      reset: defineBcProjectionGroupReset(async (db: PgQueryable) => {
+        await db.query(`LOCK TABLE inventory_storage_locations, inventory_items,
+          inventory_holds, inventory_restock_decisions IN SHARE ROW EXCLUSIVE MODE`);
+        await reset(db);
+      }),
+    };
+  });
+}
+
+export const module = { ...baseModule, buildProjectionGroups: buildInventoryProjectionGroups };

@@ -203,8 +203,13 @@ describe("resolve release commit", () => {
     expect(production).toContain(
       "TF_VAR_platform_image_digest: ${{ needs.deploy-staging.outputs.platform_image_digest }}",
     );
-    expect(production).toContain(
-      'docker buildx imagetools create --tag "$release_image" "${promoted_image}@${promoted_digest}"',
+    const markerStep = workflowStep(production, "Mark production release");
+    expect(markerStep).toContain("run: node ./scripts/production-release-marker.mjs publish");
+    expect(markerStep).toContain("RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}");
+    expect(markerStep).toContain("RELEASE_IMAGE: ${{ steps.image.outputs.image }}");
+    expect(markerStep).toContain("RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}");
+    expect(readFileSync(resolve("scripts/production-release-marker.mjs"), "utf8")).toMatch(
+      /"docker",\s*\["buildx",\s*"imagetools",\s*"create",\s*"--tag",\s*image,\s*`\$\{identity\.image\}@\$\{identity\.digest\}`\]/,
     );
     expect(production).toContain("group: platform-deploy-production");
     expect(production).toContain("cancel-in-progress: false");

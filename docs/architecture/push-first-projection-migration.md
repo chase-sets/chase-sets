@@ -93,6 +93,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `discovery:discovery-search-item-projection` | Discovery | **catalog** | push-enabled | 1/1 |
 | `fulfillment:fulfillment-account-projection` | Fulfillment | **identity** | push-enabled | 1/1 |
 | `fulfillment:fulfillment-order-source-projection` | Fulfillment | **ordering** | push-enabled | 1/1 |
+| `fulfillment:fulfillment-order-group-admission-subscription` | Fulfillment | **ordering** | push-enabled | 1/1 |
 | `fulfillment:fulfillment-payment-fraud-source-projection` | Fulfillment | **payments** | push-enabled | 1/1 |
 | `fulfillment:fulfillment-shipment-projection` | Fulfillment | fulfillment | push-eligible | 0/1 |
 | `fulfillment:fulfillment-return-shipment-projection` | Fulfillment | fulfillment | push-eligible | 0/1 |

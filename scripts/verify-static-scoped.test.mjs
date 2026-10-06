@@ -330,6 +330,20 @@ describe("changed-path discovery", () => {
 });
 
 describe("soundness corpus", () => {
+  it.each([
+    "A\0.github/authority/new-owner/job.json\0",
+    "M\0.github/authority/new-owner/job.json\0",
+    "D\0.github/authority/new-owner/job.json\0",
+    "R100\0.github/authority/new-owner/job.json\0.github/authority/moved-owner/job.json\0",
+    "R100\0.github/authority/new-owner/job.json\0elsewhere/job.json\0",
+  ])("retains authority freshness and independent reconciliation for source-only change %s", (diff) => {
+    expect(VERIFY_STATIC_SURFACES["check:managed-postgres-authority"].classification).toBe(ALWAYS_RUN);
+    expect(selectedNames(parseNameStatusZ(diff))).toContain("check:managed-postgres-authority");
+    expect(packageJson().scripts["check:managed-postgres-authority"]).toBe(
+      "node ./scripts/managed-postgres-authority-guard.mjs",
+    );
+  });
+
   const alwaysRun = Object.entries(VERIFY_STATIC_SURFACES)
     .filter(([name, entry]) => name !== "test:scripts" && entry.classification === ALWAYS_RUN)
     .map(([name]) => name);

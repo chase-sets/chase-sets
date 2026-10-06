@@ -7,6 +7,7 @@ import {
   DEFAULT_TCGPLAYER_AUTOMATION_ADAPTIVE_CONFIG,
   DEFAULT_TCGPLAYER_AUTOMATION_DOMAIN_CONFIG,
   TCGPLAYER_AUTOMATION_DOMAIN_KEYS,
+  TcgplayerAutomationAuthorityError,
   TcgplayerAutomationDomainHttpClient,
   TcgplayerAutomationHttpError,
   redactTcgplayerAutomationProviderDiagnostic,
@@ -15,6 +16,98 @@ import {
 } from "./tcgplayer-automation-client";
 
 describe("TCGplayer automation HTTP client", () => {
+  it("matches only an own credential refusal code without reading exception text or getters", async () => {
+    const message = vi.fn(() => {
+      throw new Error("synthetic-private-exception-text");
+    });
+    const own = Object.defineProperty({ code: "credential-unavailable" }, "message", { get: message });
+    const inherited = Object.create({ code: "credential-unavailable" });
+    const codeGetter = vi.fn(() => "credential-unavailable");
+    const accessor = Object.defineProperty({}, "code", { get: codeGetter });
+    for (const [error, failureCode] of [
+      [own, "credential-unavailable"],
+      [inherited, null],
+      [accessor, null],
+    ] as const) {
+      const store = createInMemoryTcgplayerAutomationHttpConfigStore();
+      vi.spyOn(store, "loadConfig").mockRejectedValue(error);
+      const facts: TcgplayerAutomationStageFact[] = [];
+      const client = new TcgplayerAutomationDomainHttpClient(
+        TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MPAPI,
+        "https://synthetic-provider.invalid",
+        store,
+      );
+      await expect(client.get("/refusal", {}, { onStage: (fact) => facts.push(fact) })).rejects.toBe(error);
+      expect(facts.at(-1)).toMatchObject({
+        stage: "terminal",
+        outcome: "failure",
+        failureCode,
+        lastHttpStatus: null,
+        lastHttpStatusAttempt: null,
+      });
+      expect(JSON.stringify(facts)).not.toContain("synthetic-private-exception-text");
+    }
+    expect(message).not.toHaveBeenCalled();
+    expect(codeGetter).not.toHaveBeenCalled();
+  });
+
+  it.each([403, 429])(
+    "characterizes the unchanged %i retry, cooldown, learning and terminal outcome",
+    async (status) => {
+      const sequence: unknown[] = [];
+      const store = createInMemoryTcgplayerAutomationHttpConfigStore({
+        maxRetries: 1,
+        adaptiveConfig: { ...DEFAULT_TCGPLAYER_AUTOMATION_ADAPTIVE_CONFIG, successThreshold: 1 },
+      });
+      const persist = store.persistDomainDelays;
+      vi.spyOn(store, "persistDomainDelays").mockImplementation(async (domain, delays) => {
+        sequence.push(["write", domain, delays]);
+        await persist(domain, delays);
+      });
+      let fetches = 0;
+      let clock = Date.parse("2026-09-01T00:00:00.000Z");
+      const client = new TcgplayerAutomationDomainHttpClient(
+        TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MPAPI,
+        "https://synthetic-provider.invalid",
+        store,
+        {
+          now: () => clock,
+          fetch: async () => {
+            sequence.push(["fetch", ++fetches]);
+            return fetches === 1 ? textResponse("private", { status }) : jsonResponse({ recovered: true });
+          },
+          sleep: async (ms) => {
+            sequence.push(["sleep", ms]);
+            clock += ms;
+          },
+        },
+      );
+      const result = await client.get(
+        "/synthetic",
+        {},
+        {
+          onStage: (fact) => {
+            if (["retry-start", "cooldown-start", "cooldown-end", "retry-end", "terminal"].includes(fact.stage))
+              sequence.push([fact.stage, fact.attempt, fact.outcome ?? null]);
+          },
+        },
+      );
+      expect(result).toEqual({ recovered: true });
+      expect(sequence).toEqual([
+        ["fetch", 1],
+        ["retry-start", 1, null],
+        ["cooldown-start", 1, null],
+        ["write", "mpApi", { requestDelayMs: 200, learnedMinDelayMs: 100 }],
+        ["sleep", 10000],
+        ["cooldown-end", 1, null],
+        ["retry-end", 1, null],
+        ["fetch", 2],
+        ["write", "mpApi", { requestDelayMs: 100, learnedMinDelayMs: 100 }],
+        ["terminal", 2, "success"],
+      ]);
+    },
+  );
+
   it("records pre-fetch abort and pending-fetch abort without requiring fetch to settle", async () => {
     const facts: TcgplayerAutomationStageFact[] = [];
     const slowStore = createInMemoryTcgplayerAutomationHttpConfigStore({ maxRetries: 0 });
@@ -95,6 +188,21 @@ describe("TCGplayer automation HTTP client", () => {
     ]);
     expect(JSON.stringify(facts)).not.toContain("secret-body");
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("retains a terminal for an out-of-range response status without emitting httpStatus", async () => {
+    const facts: TcgplayerAutomationStageFact[] = [];
+    const response = { status: 600, ok: false, text: async () => "synthetic" } as Response;
+    const client = clientWithConfig({ maxRetries: 0 }, { fetch: vi.fn().mockResolvedValue(response) });
+    await expect(client.get("/out-of-range", {}, { onStage: (fact) => facts.push(fact) })).rejects.toThrow();
+    expect(facts.find((fact) => fact.stage === "headers-received")).toMatchObject({ statusClass: "other" });
+    expect(facts.find((fact) => fact.stage === "headers-received")).not.toHaveProperty("httpStatus");
+    expect(facts.at(-1)).toMatchObject({
+      stage: "terminal",
+      outcome: "failure",
+      lastHttpStatus: null,
+      lastHttpStatusAttempt: null,
+    });
   });
 
   it("records status before backoff and abort within a rate-limit cooldown", async () => {
@@ -287,7 +395,12 @@ describe("TCGplayer automation HTTP client", () => {
     });
     const client = clientWithConfig(
       {
-        auth: { tcgAuthCookie: "secret-cookie", userAgent: "Catalog Test Agent" },
+        auth: {
+          tcgAuthCookie: "secret-cookie",
+          userAgent: "Catalog Test Agent",
+          credential: { source: "environment", revision: 0 },
+          custodyRevision: null,
+        },
         maxRetries: 0,
       },
       { fetch: fetchMock },
@@ -312,7 +425,7 @@ describe("TCGplayer automation HTTP client", () => {
     });
     const client = clientWithConfig(
       {
-        auth: { tcgAuthCookie: null, userAgent: "Catalog Test Agent" },
+        auth: { tcgAuthCookie: null, userAgent: "Catalog Test Agent", credential: null, custodyRevision: null },
         maxRetries: 0,
       },
       { fetch: fetchMock },
@@ -522,6 +635,33 @@ describe("TCGplayer automation HTTP client", () => {
     expect(queries.at(-1)).toMatchObject({
       values: [TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MPAPI, 300, 100],
     });
+  });
+
+  it("fails closed when durable config loading is unmigrated and never calls the provider", async () => {
+    const fetchMock = vi.fn();
+    const failure = Object.assign(new Error("column effective_request_delay_ms does not exist; secret driver detail"), {
+      code: "42703",
+    });
+    const db = {
+      query: vi.fn(async () => {
+        throw failure;
+      }),
+    } as unknown as PgQueryable;
+    const store = createPostgresTcgplayerAutomationHttpConfigStore(db);
+    const client = new TcgplayerAutomationDomainHttpClient(
+      TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MP_SEARCH_API,
+      "https://synthetic-provider.invalid",
+      store,
+      { fetch: fetchMock },
+    );
+
+    await expect(client.get("/blocked")).rejects.toBeInstanceOf(TcgplayerAutomationAuthorityError);
+    await expect(client.get("/blocked-again")).rejects.toMatchObject({
+      name: "TcgplayerAutomationAuthorityError",
+      message: expect.stringMatching(/42703/),
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toContain("secret driver detail");
   });
 
   it("redacts provider diagnostics and caps retained body length", () => {

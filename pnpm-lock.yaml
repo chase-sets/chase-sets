@@ -177,6 +177,9 @@ importers:
 
   bounded-contexts/catalog:
     dependencies:
+      '@chase-sets/auth-context':
+        specifier: workspace:*
+        version: link:../../contracts/auth-context
       '@chase-sets/bounded-context-module':
         specifier: workspace:*
         version: link:../../contracts/bounded-context-module
@@ -210,9 +213,18 @@ importers:
       '@chase-sets/product-measures':
         specifier: workspace:*
         version: link:../../contracts/product-measures
+      '@chase-sets/provider-credentials':
+        specifier: workspace:*
+        version: link:../../contracts/provider-credentials
       hono:
         specifier: ^4.12.12
         version: 4.12.18
+      react:
+        specifier: ^19.2.6
+        version: 19.2.6
+      react-dom:
+        specifier: ^19.2.6
+        version: 19.2.6(react@19.2.6)
       sharp:
         specifier: ^0.34.5
         version: 0.34.5
@@ -407,6 +419,9 @@ importers:
       '@chase-sets/bounded-context-module':
         specifier: workspace:*
         version: link:../../contracts/bounded-context-module
+      '@chase-sets/bounded-context-runtime':
+        specifier: workspace:*
+        version: link:../../infrastructure/bounded-context-runtime
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
@@ -607,6 +622,9 @@ importers:
       '@chase-sets/object-storage':
         specifier: workspace:*
         version: link:../../infrastructure/object-storage
+      '@chase-sets/order-groups':
+        specifier: workspace:*
+        version: link:../../contracts/order-groups
       '@chase-sets/outbound-messaging':
         specifier: workspace:*
         version: link:../../contracts/outbound-messaging
@@ -1100,6 +1118,9 @@ importers:
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
+      '@chase-sets/provider-credentials':
+        specifier: workspace:*
+        version: link:../../contracts/provider-credentials
       '@chase-sets/public-docs':
         specifier: workspace:*
         version: link:../../contracts/public-docs
@@ -1450,6 +1471,18 @@ importers:
         specifier: ^4.1.4
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
 
+  contracts/order-groups:
+    devDependencies:
+      '@chase-sets/event-core':
+        specifier: workspace:*
+        version: link:../event-core
+      '@chase-sets/primitives':
+        specifier: workspace:*
+        version: link:../primitives
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
+
   contracts/outbound-messaging:
     dependencies:
       '@chase-sets/event-core':
@@ -1500,6 +1533,19 @@ importers:
 
   contracts/product-selection:
     devDependencies:
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
+
+  contracts/provider-credentials:
+    dependencies:
+      '@chase-sets/primitives':
+        specifier: workspace:*
+        version: link:../primitives
+    devDependencies:
+      typescript:
+        specifier: ^7.0.0
+        version: 7.0.2
       vitest:
         specifier: ^4.1.4
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
@@ -1603,6 +1649,12 @@ importers:
         specifier: ^7.14.0
         version: 7.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
     devDependencies:
+      '@chase-sets/bounded-context-runtime':
+        specifier: workspace:*
+        version: link:../../infrastructure/bounded-context-runtime
+      '@chase-sets/channels':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/channels
       '@chase-sets/playwright-evidence':
         specifier: workspace:*
         version: link:../../infrastructure/playwright-evidence
@@ -1860,6 +1912,9 @@ importers:
       '@chase-sets/observability':
         specifier: workspace:*
         version: link:../../infrastructure/observability
+      '@chase-sets/order-groups':
+        specifier: workspace:*
+        version: link:../../contracts/order-groups
       '@chase-sets/ordering':
         specifier: workspace:*
         version: link:../../bounded-contexts/ordering
@@ -2119,6 +2174,37 @@ importers:
       '@playwright/test':
         specifier: ^1.60.0
         version: 1.60.0
+      '@types/chrome':
+        specifier: ^0.1.36
+        version: 0.1.43
+      '@types/node':
+        specifier: ^25.3.3
+        version: 25.6.2
+      typescript:
+        specifier: ^7.0.0
+        version: 7.0.2
+      vite:
+        specifier: ^8.0.0
+        version: 8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4)
+      vitest:
+        specifier: ^4.0.18
+        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
+
+  deployables/tcgplayer-operator-extension:
+    dependencies:
+      '@chase-sets/catalog':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/catalog
+      '@chase-sets/design-system':
+        specifier: workspace:*
+        version: link:../../packages/design-system
+    devDependencies:
+      '@playwright/test':
+        specifier: ^1.60.0
+        version: 1.60.0
+      '@tailwindcss/vite':
+        specifier: ^4.3.0
+        version: 4.3.0(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
       '@types/chrome':
         specifier: ^0.1.36
         version: 0.1.43

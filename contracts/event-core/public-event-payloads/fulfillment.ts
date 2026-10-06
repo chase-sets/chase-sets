@@ -139,7 +139,19 @@ export type FulfillmentShipmentCancelledPayload = Readonly<{
   cancelledAt: string;
 }>;
 
+export type {
+  FulfillmentShipmentGroupAdmissionReservedPayload,
+  FulfillmentShipmentGroupAdmissionRejectedPayload,
+  FulfillmentShipmentGroupAdmissionCommittedPayload,
+  FulfillmentShipmentGroupAdmissionReleasedPayload,
+} from "../../order-groups/index";
+import type { OrderGroupEventPayloads } from "../../order-groups/index";
+
 export type FulfillmentEventPayloads = Readonly<{
+  "fulfillment.shipment-group.admission-reserved": OrderGroupEventPayloads["fulfillment.shipment-group.admission-reserved"];
+  "fulfillment.shipment-group.admission-rejected": OrderGroupEventPayloads["fulfillment.shipment-group.admission-rejected"];
+  "fulfillment.shipment-group.admission-committed": OrderGroupEventPayloads["fulfillment.shipment-group.admission-committed"];
+  "fulfillment.shipment-group.admission-released": OrderGroupEventPayloads["fulfillment.shipment-group.admission-released"];
   "fulfillment.shipment.created": FulfillmentShipmentCreatedPayload;
   "fulfillment.shipment.packing-started": FulfillmentShipmentPackingStartedPayload;
   "fulfillment.shipment.package-prepared": FulfillmentShipmentPackagePreparedPayload;

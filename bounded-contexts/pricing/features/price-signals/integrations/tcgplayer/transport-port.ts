@@ -28,7 +28,12 @@ export type TcgplayerMarketStageFact = Readonly<{
   stage: TcgplayerMarketStage;
   at: string;
   attempt: number;
+  credential?: null | Readonly<{ source: "environment" | "operator-session"; revision: number }>;
   statusClass?: "2xx" | "3xx" | "4xx" | "5xx" | "other";
+  httpStatus?: number;
+  lastHttpStatus?: number | null;
+  lastHttpStatusAttempt?: number | null;
+  failureCode?: "credential-unavailable" | null;
   activeStage?: TcgplayerMarketStage;
   outcome?: "success" | "failure" | "aborted";
 }>;

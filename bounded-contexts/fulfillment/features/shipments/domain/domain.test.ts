@@ -1,11 +1,256 @@
 import { describe, expect, it } from "vitest";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import { createId } from "@chase-sets/primitives/typed-ids";
+import { orderGroupContractVersion, parseAdmissionIdentity } from "@chase-sets/order-groups";
+import { ShipmentAdmissionBusyError } from "./common";
 import {
   decideFulfillmentShipment,
   evolveFulfillmentShipment,
   initialFulfillmentShipmentState,
+  decideShipmentAdmission,
+  type ShipmentAdmissionCommand,
+  type FulfillmentShipmentCommand,
   type FulfillmentShipmentEvent,
 } from "./domain";
+
+describe("Shipment Group admission matrix", () => {
+  const identity = parseAdmissionIdentity({
+    requestId: "request-1",
+    sourceGeneration: 1,
+    draftKey: "draft-1",
+    anchorShipmentId: createId("shp"),
+    anchorOrderId: createId("ord"),
+    proposedMemberOrderId: createId("ord"),
+    groupId: createId("ogr"),
+    quoteFingerprint: "quote-1",
+  });
+  const other = {
+    ...identity,
+    requestId: "request-2",
+    sourceGeneration: 2,
+    groupId: createId("ogr"),
+    quoteFingerprint: "quote-2",
+  };
+  const now = "2026-10-04T00:00:00.000Z";
+  const available = {
+    ...initialFulfillmentShipmentState,
+    shipmentId: identity.anchorShipmentId,
+    orderId: identity.anchorOrderId,
+    sellerAccountId: "acc_seller" as never,
+    buyerAccountId: "acc_buyer" as never,
+    status: "awaiting-package" as const,
+  };
+  const reserve = decideShipmentAdmission(available, { kind: "reserve", input: identity }, 2, now).event!;
+  const reserved = evolveFulfillmentShipment(available, reserve);
+  const commit = decideShipmentAdmission(
+    reserved,
+    { kind: "commit", input: { ...identity, anchorOrderVersion: 3 } },
+    3,
+    now,
+  ).event!;
+  const committed = evolveFulfillmentShipment(reserved, commit);
+  const release = decideShipmentAdmission(
+    reserved,
+    { kind: "abort", input: { ...identity, reason: "cancelled" } },
+    3,
+    now,
+  ).event!;
+  const released = evolveFulfillmentShipment(reserved, release);
+  const commands: readonly ShipmentAdmissionCommand[] = [
+    { kind: "reserve", input: identity },
+    { kind: "reserve", input: other },
+    { kind: "commit", input: { ...identity, anchorOrderVersion: 3 } },
+    { kind: "commit", input: { ...other, anchorOrderVersion: 3 } },
+    { kind: "abort", input: { ...identity, reason: "cancelled" } },
+    { kind: "abort", input: { ...other, reason: "cancelled" } },
+    { kind: "commit", input: { ...identity, anchorOrderVersion: 3 } },
+    { kind: "abort", input: { ...identity, reason: "cancelled" } },
+    { kind: "dissolve", input: { ...identity, anchorOrderVersion: 3 } },
+  ];
+  const rows = [
+    {
+      phase: "available",
+      state: available,
+      statuses: [
+        "accepted",
+        "accepted",
+        "not-reserved",
+        "not-reserved",
+        "not-reserved",
+        "not-reserved",
+        "not-reserved",
+        "not-reserved",
+        "not-reserved",
+      ],
+      events: ["reserved", "reserved", null, null, null, null, null, null, null],
+    },
+    {
+      phase: "reserved",
+      state: reserved,
+      statuses: [
+        "replayed",
+        "identity-conflict",
+        "accepted",
+        "identity-conflict",
+        "accepted",
+        "identity-conflict",
+        "accepted",
+        "accepted",
+        "not-reserved",
+      ],
+      events: [null, "rejected", "committed", null, "released", null, "committed", "released", null],
+    },
+    {
+      phase: "committed",
+      state: committed,
+      statuses: [
+        "replayed",
+        "identity-conflict",
+        "replayed",
+        "identity-conflict",
+        "already-grouped",
+        "identity-conflict",
+        "replayed",
+        "already-grouped",
+        "accepted",
+      ],
+      events: [null, "rejected", null, null, null, null, null, null, "released"],
+    },
+    {
+      phase: "released",
+      state: released,
+      statuses: [
+        "released",
+        "accepted",
+        "released",
+        "identity-conflict",
+        "replayed",
+        "identity-conflict",
+        "released",
+        "replayed",
+        "released",
+      ],
+      events: [null, "reserved", null, null, null, null, null, null, null],
+    },
+  ];
+  for (const row of rows) {
+    it.each(commands.map((command, index) => ({ command, index })))(
+      `${row.phase} matrix column $index`,
+      ({ command, index }) => {
+        const result = decideShipmentAdmission(row.state, command, 4, now);
+        expect(result.result.status).toBe(row.statuses[index]);
+        expect(result.event?.type ?? null).toBe(
+          row.events[index] ? `fulfillment.shipment-group.admission-${row.events[index]}` : null,
+        );
+        if (result.event) expect(result.event.data.shipmentVersion).toBe(4);
+      },
+    );
+  }
+  for (const state of [reserved, committed]) {
+    it.each<FulfillmentShipmentCommand>([
+      { type: "StartShipmentPacking", startedAt: now },
+      { type: "PrepareShipmentPackage", preparedAt: now, packageCount: 1 },
+      { type: "CancelShipment", cancelledAt: now },
+      { type: "RaiseShipmentException", exceptionType: "other", notes: null, raisedAt: now },
+    ])(`blocks physical commands in ${state.admission!.type}: $type`, (command) => {
+      expect(() => decideFulfillmentShipment(state, command)).toThrow(ShipmentAdmissionBusyError);
+    });
+    it(`records fraud once without cancelling in ${state.admission!.type}`, () => {
+      const command: FulfillmentShipmentCommand = {
+        type: "CancelShipment",
+        cancelledAt: now,
+        cancellationSignal: { orderId: identity.anchorOrderId, origin: "payment-fraud-warning", reason: null },
+      };
+      const events = decideFulfillmentShipment(state, command);
+      expect(events.map((event) => event.type)).toEqual(["fulfillment.shipment.cancellation-conflict-recorded"]);
+      expect(decideFulfillmentShipment(events.reduce(evolveFulfillmentShipment, state), command)).toEqual([]);
+    });
+  }
+  it("raw cancellation is busy before Form and a conflict after Form", () => {
+    const command: FulfillmentShipmentCommand = {
+      type: "CancelShipment",
+      cancelledAt: now,
+      cancellationSignal: { orderId: identity.anchorOrderId, origin: "order-cancelled", reason: "buyer-cancelled" },
+    };
+    expect(() => decideFulfillmentShipment(reserved, command)).toThrow(ShipmentAdmissionBusyError);
+    expect(decideFulfillmentShipment(committed, command)[0]?.type).toBe(
+      "fulfillment.shipment.cancellation-conflict-recorded",
+    );
+  });
+  it("pins Form version and leaves old I isolated from N+1", () => {
+    expect(
+      decideShipmentAdmission(committed, { kind: "commit", input: { ...identity, anchorOrderVersion: 4 } }, 4, now)
+        .result.status,
+    ).toBe("identity-conflict");
+    const next = evolveFulfillmentShipment(
+      released,
+      decideShipmentAdmission(released, { kind: "reserve", input: other }, 4, now).event!,
+    );
+    for (const command of [commands[0]!, commands[2]!, commands[4]!]) {
+      expect(decideShipmentAdmission(next, command, 5, "2026-10-05T00:00:00.000Z").event).toBeUndefined();
+    }
+  });
+  it.each(["cancelled", "packing", "awaiting-label", "exception"] as const)(
+    "durably rejects %s and replays its rejection",
+    (status) => {
+      const state = { ...available, status };
+      const decision = decideShipmentAdmission(state, commands[0]!, 2, now);
+      expect(decision.result.status).toBe(status === "cancelled" ? "cancelled" : "packing-started");
+      const rejectedState = evolveFulfillmentShipment(state, decision.event!);
+      expect(decideShipmentAdmission(rejectedState, commands[0]!, 3, now)).toEqual({ result: decision.result });
+    },
+  );
+  it.each([
+    { status: "awaiting-package", reason: "identity-conflict" },
+    { status: "cancelled", reason: "cancelled" },
+    { status: "packing", reason: "identity-conflict" },
+  ] as const)("rejects a recorded conflict in $status as $reason", ({ status, reason }) => {
+    const conflicted = evolveFulfillmentShipment(available, {
+      type: "fulfillment.shipment.cancellation-conflict-recorded",
+      data: {
+        shipmentId: identity.anchorShipmentId,
+        orderId: identity.anchorOrderId,
+        shipmentStatus: available.status,
+        origin: "payment-fraud-warning",
+        reason: null,
+      },
+    });
+    const decision = decideShipmentAdmission({ ...conflicted, status }, commands[0]!, 3, now);
+    expect(decision.result).toEqual({ status: reason });
+    expect(decision.event).toEqual({
+      type: "fulfillment.shipment-group.admission-rejected",
+      data: { contractVersion: orderGroupContractVersion, ...identity, shipmentVersion: 3, reason, rejectedAt: now },
+    });
+  });
+  it.each(["requestId", "sourceGeneration", "groupId", "quoteFingerprint"] as const)(
+    "rejects reacquisition that reuses only %s from a released identity",
+    (field) => {
+      const reused = { ...other, [field]: identity[field] };
+      const decision = decideShipmentAdmission(released, { kind: "reserve", input: reused }, 4, now);
+      expect(decision.result).toEqual({ status: "identity-conflict" });
+      expect(decision.event).toEqual({
+        type: "fulfillment.shipment-group.admission-rejected",
+        data: {
+          contractVersion: orderGroupContractVersion,
+          ...reused,
+          shipmentVersion: 4,
+          reason: "identity-conflict",
+          rejectedAt: now,
+        },
+      });
+    },
+  );
+  it("does not replay dissolution at a different Form version after release", () => {
+    const dissolved = evolveFulfillmentShipment(
+      committed,
+      decideShipmentAdmission(committed, commands[8]!, 4, now).event!,
+    );
+    expect(decideShipmentAdmission(dissolved, commands[8]!, 5, now).result.status).toBe("replayed");
+    expect(
+      decideShipmentAdmission(dissolved, { kind: "dissolve", input: { ...identity, anchorOrderVersion: 4 } }, 5, now),
+    ).toEqual({ result: { status: "released" } });
+  });
+});
 
 const shipmentAddressSnapshots = {
   shippingDestinationSnapshot: {

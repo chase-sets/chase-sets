@@ -19,8 +19,20 @@ on:
         default: "300000"
         type: string
       confirm:
-        description: Type "seed staging commerce" to generate representative staging usage, or "verify sandbox providers" to run Stripe/EasyPost sandbox evidence.
+        description: Type "seed staging commerce", "verify sandbox providers", or "execute combined-parcel probe 6461" exactly.
         required: true
+        type: string
+      combined_parcel_probe_resume_run_id:
+        description: Exact prior combined-parcel probe run id; blank for a fresh probe.
+        required: false
+        type: string
+      combined_parcel_probe_resume_run_attempt:
+        description: Exact prior run attempt; required with either other resume input.
+        required: false
+        type: string
+      combined_parcel_probe_resume_checkpoint:
+        description: Exact private checkpoint (pre-a, post-a, pre-b, final); required with resume.
+        required: false
         type: string
 
 permissions:
@@ -34,11 +46,11 @@ jobs:
   refuse-unconfirmed:
     name: Refuse Unconfirmed Representative Commerce State
     runs-on: ubuntu-latest
-    if: inputs.confirm != 'seed staging commerce' && inputs.confirm != 'verify sandbox providers'
+    if: inputs.confirm != 'seed staging commerce' && inputs.confirm != 'verify sandbox providers' && inputs.confirm != 'execute combined-parcel probe 6461'
     steps:
       - name: Refuse unconfirmed representative commerce state
         run: |
-          echo 'Confirmation text did not match exactly; expected "seed staging commerce" or "verify sandbox providers".' >&2
+          echo 'Confirmation text did not match exactly; expected "seed staging commerce", "verify sandbox providers", or "execute combined-parcel probe 6461".' >&2
           exit 1
 
   refresh-representative-commerce-state:
@@ -307,5 +319,213 @@ jobs:
         with:
           name: sandbox-provider-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: artifacts/sandbox-provider-evidence
+          if-no-files-found: error
+          retention-days: 30
+
+  combined-parcel-probe:
+    name: Combined Parcel Probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: staging
+    permissions:
+      contents: read
+      actions: read
+    needs: refuse-unconfirmed
+    if: always() && needs.refuse-unconfirmed.result == 'skipped' && inputs.confirm == 'execute combined-parcel probe 6461'
+    env:
+      EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
+      EASYPOST_MODE: test
+      COMBINED_PARCEL_PROBE_CONFIRM: ${{ inputs.confirm }}
+      COMBINED_PARCEL_PROBE_WORKFLOW_CONFIRM: ${{ inputs.confirm }}
+      COMBINED_PARCEL_PROBE_ENVIRONMENT: staging
+      COMBINED_PARCEL_PROBE_SOURCE_SHA: ${{ inputs.release_ref }}
+      COMBINED_PARCEL_PROBE_RESUME_RUN_ID: ${{ inputs.combined_parcel_probe_resume_run_id }}
+      COMBINED_PARCEL_PROBE_RESUME_RUN_ATTEMPT: ${{ inputs.combined_parcel_probe_resume_run_attempt }}
+      COMBINED_PARCEL_PROBE_RESUME_CHECKPOINT: ${{ inputs.combined_parcel_probe_resume_checkpoint }}
+    steps:
+      - name: Require immutable dispatch source
+        env:
+          EASYPOST_API_KEY: ""
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$COMBINED_PARCEL_PROBE_SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$COMBINED_PARCEL_PROBE_SOURCE_SHA" == "$GITHUB_SHA" ]]
+          [[ "$GITHUB_REF" == "refs/heads/main" ]]
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        env:
+          EASYPOST_API_KEY: ""
+        with:
+          ref: ${{ inputs.release_ref }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-pnpm-workspace
+        env:
+          EASYPOST_API_KEY: ""
+        with:
+          install: true
+      - name: Bind checked out source
+        env:
+          EASYPOST_API_KEY: ""
+        run: echo "COMBINED_PARCEL_PROBE_CHECKED_OUT_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Download explicit resume checkpoint
+        id: download-resume
+        if: inputs.combined_parcel_probe_resume_run_id != ''
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        env:
+          EASYPOST_API_KEY: ""
+        with:
+          run-id: ${{ inputs.combined_parcel_probe_resume_run_id }}
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          name: combined-parcel-probe-private-${{ inputs.combined_parcel_probe_resume_run_id }}-${{ inputs.combined_parcel_probe_resume_run_attempt }}-${{ inputs.combined_parcel_probe_resume_checkpoint }}
+          path: artifacts/combined-parcel-probe/download-resume
+      - name: Validate explicit resume authority
+        id: validate-resume
+        if: inputs.combined_parcel_probe_resume_run_id != ''
+        env:
+          EASYPOST_API_KEY: ""
+          GH_TOKEN: ${{ github.token }}
+        run: pnpm exec tsx infrastructure/easypost-postage/tests/combined-parcel-probe.ts resume
+
+      - name: Execute pre-a
+        id: pre-a
+        env:
+          COMBINED_PARCEL_PROBE_PHASE: pre-a
+        run: pnpm --filter @chase-sets/easypost-postage run test tests/combined-parcel-probe.test.ts
+
+      - name: Upload pre-a private checkpoint
+        id: upload-pre-a
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        env:
+          EASYPOST_API_KEY: ""
+        with:
+          name: combined-parcel-probe-private-${{ github.run_id }}-${{ github.run_attempt }}-pre-a
+          path: artifacts/combined-parcel-probe/pre-a/combined-parcel-probe-private-state.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Download uploaded pre-a
+        id: download-pre-a
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        env:
+          EASYPOST_API_KEY: ""
+        with:
+          name: combined-parcel-probe-private-${{ github.run_id }}-${{ github.run_attempt }}-pre-a
+          path: artifacts/combined-parcel-probe/download-pre-a
+      - name: Validate uploaded pre-a
+        id: validate-pre-a
+        env:
+          EASYPOST_API_KEY: ""
+          GH_TOKEN: ${{ github.token }}
+          COMBINED_PARCEL_PROBE_ARTIFACT_ID: ${{ steps.upload-pre-a.outputs.artifact-id }}
+          COMBINED_PARCEL_PROBE_ARTIFACT_DIGEST: ${{ steps.upload-pre-a.outputs.artifact-digest }}
+        run: pnpm exec tsx infrastructure/easypost-postage/tests/combined-parcel-probe.ts pre-a
+
+      - name: Execute case-a-pre-b
+        id: case-a-pre-b
+        env:
+          COMBINED_PARCEL_PROBE_PHASE: case-a-pre-b
+        run: pnpm --filter @chase-sets/easypost-postage run test tests/combined-parcel-probe.test.ts
+
+      - name: Upload post-a private checkpoint
+        id: upload-post-a
+        if: ${{ !cancelled() && hashFiles('artifacts/combined-parcel-probe/post-a/combined-parcel-probe-private-state.json') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        env:
+          EASYPOST_API_KEY: ""
+        with:
+          name: combined-parcel-probe-private-${{ github.run_id }}-${{ github.run_attempt }}-post-a
+          path: artifacts/combined-parcel-probe/post-a/combined-parcel-probe-private-state.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload pre-b private checkpoint
+        id: upload-pre-b
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        env:
+          EASYPOST_API_KEY: ""
+        with:
+          name: combined-parcel-probe-private-${{ github.run_id }}-${{ github.run_attempt }}-pre-b
+          path: artifacts/combined-parcel-probe/pre-b/combined-parcel-probe-private-state.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Download uploaded post-a
+        id: download-post-a
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        env:
+          EASYPOST_API_KEY: ""
+        with:
+          name: combined-parcel-probe-private-${{ github.run_id }}-${{ github.run_attempt }}-post-a
+          path: artifacts/combined-parcel-probe/download-post-a
+      - name: Validate uploaded post-a
+        id: validate-post-a
+        env:
+          EASYPOST_API_KEY: ""
+          GH_TOKEN: ${{ github.token }}
+          COMBINED_PARCEL_PROBE_ARTIFACT_ID: ${{ steps.upload-post-a.outputs.artifact-id }}
+          COMBINED_PARCEL_PROBE_ARTIFACT_DIGEST: ${{ steps.upload-post-a.outputs.artifact-digest }}
+        run: pnpm exec tsx infrastructure/easypost-postage/tests/combined-parcel-probe.ts post-a
+
+      - name: Download uploaded pre-b
+        id: download-pre-b
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        env:
+          EASYPOST_API_KEY: ""
+        with:
+          name: combined-parcel-probe-private-${{ github.run_id }}-${{ github.run_attempt }}-pre-b
+          path: artifacts/combined-parcel-probe/download-pre-b
+      - name: Validate uploaded pre-b
+        id: validate-pre-b
+        env:
+          EASYPOST_API_KEY: ""
+          GH_TOKEN: ${{ github.token }}
+          COMBINED_PARCEL_PROBE_ARTIFACT_ID: ${{ steps.upload-pre-b.outputs.artifact-id }}
+          COMBINED_PARCEL_PROBE_ARTIFACT_DIGEST: ${{ steps.upload-pre-b.outputs.artifact-digest }}
+        run: pnpm exec tsx infrastructure/easypost-postage/tests/combined-parcel-probe.ts pre-b
+
+      - name: Execute case-b
+        id: case-b
+        env:
+          COMBINED_PARCEL_PROBE_PHASE: case-b
+        run: pnpm --filter @chase-sets/easypost-postage run test tests/combined-parcel-probe.test.ts
+
+      - name: Upload final private checkpoint
+        id: upload-final
+        if: ${{ !cancelled() && hashFiles('artifacts/combined-parcel-probe/final/combined-parcel-probe-private-state.json') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        env:
+          EASYPOST_API_KEY: ""
+        with:
+          name: combined-parcel-probe-private-${{ github.run_id }}-${{ github.run_attempt }}-final
+          path: artifacts/combined-parcel-probe/final/combined-parcel-probe-private-state.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Download uploaded final
+        id: download-final
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        env:
+          EASYPOST_API_KEY: ""
+        with:
+          name: combined-parcel-probe-private-${{ github.run_id }}-${{ github.run_attempt }}-final
+          path: artifacts/combined-parcel-probe/download-final
+      - name: Validate uploaded final
+        id: validate-final
+        env:
+          EASYPOST_API_KEY: ""
+          GH_TOKEN: ${{ github.token }}
+          COMBINED_PARCEL_PROBE_ARTIFACT_ID: ${{ steps.upload-final.outputs.artifact-id }}
+          COMBINED_PARCEL_PROBE_ARTIFACT_DIGEST: ${{ steps.upload-final.outputs.artifact-digest }}
+        run: pnpm exec tsx infrastructure/easypost-postage/tests/combined-parcel-probe.ts final
+
+      - name: Upload validated public evidence
+        id: upload-public
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        env:
+          EASYPOST_API_KEY: ""
+        with:
+          name: combined-parcel-probe-public-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/combined-parcel-probe/public/combined-parcel-probe-evidence.json
           if-no-files-found: error
           retention-days: 30

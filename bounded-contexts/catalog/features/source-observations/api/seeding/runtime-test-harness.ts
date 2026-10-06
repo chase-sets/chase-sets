@@ -1,10 +1,12 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { createInMemoryEventStore } from "@chase-sets/event-core/test-support";
 import type { JsonValue } from "@chase-sets/primitives/json";
 import type { AccountId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogRuntimeDeps } from "../../../../support/authoring-support/runtime-support";
 import type { CatalogItemServices } from "../../../catalog-items/api/runtime";
 import type { ReferenceDataServices } from "../../../reference-data/api/runtime";
-import type { ReferenceRecordCommand, ReferenceTypeCommand } from "../../../reference-data/domain/domain";
+import { createReferenceDataRuntime } from "../../../reference-data/api/runtime";
+import type { ReferenceRecordCommand } from "../../../reference-data/domain/domain";
 import type {
   SourceObservationMagicCardPrintNormalized,
   SourceObservationMagicSetReferenceNormalized,
@@ -1265,6 +1267,7 @@ export function createIntegrationJobClaimHandoffHarness(
     tcgplayerAutomationCatalogClient?: TcgplayerAutomationCatalogClient;
   } = {},
 ) {
+  const referenceHistories = new Map<string, ReturnType<typeof storedEvent>[]>();
   const appendedSourceEvents: Array<{ eventType: string; payload: Record<string, unknown> }> = [];
   let renewAttempts = 0;
   const job = {
@@ -1413,6 +1416,22 @@ export function createIntegrationJobClaimHandoffHarness(
         }
 
         if (sql.includes("FROM catalog_reference_records")) {
+          const typeKey = String(values[0]);
+          const key = String(values[1] ?? "existing");
+          const id = `ref_${key}`;
+          const referenceStream = `catalog.reference-record-${id}`;
+          referenceHistories.set(referenceStream, [
+            storedEvent(1, referenceStream, "catalog.reference-record.created", {
+              referenceRecordId: id,
+              typeKey,
+              key,
+              name: { defaultLocale: "en", values: { en: key } },
+              description: { defaultLocale: "en", values: { en: "" } },
+              attributes: {},
+              relationships: [],
+            }),
+            storedEvent(2, referenceStream, "catalog.reference-record.published", {}),
+          ]);
           return { rowCount: 1, rows: [{ reference_record_id: `ref_${String(values[1] ?? "existing")}` }] as T[] };
         }
 
@@ -1420,7 +1439,7 @@ export function createIntegrationJobClaimHandoffHarness(
       },
     },
     eventStore: {
-      readStream: async () => [],
+      readStream: async ({ streamId }: { streamId: string }) => referenceHistories.get(streamId) ?? [],
       appendToStream: async (input: {
         events: ReadonlyArray<{ eventType: string; payload: Record<string, unknown> }>;
       }) => {
@@ -1456,12 +1475,14 @@ export function createIntegrationJobClaimHandoffHarness(
 }
 
 export function createReferencePreloadHarness() {
+  const { eventStore } = createInMemoryEventStore();
   const referenceTypes = new Map<string, ReferenceTypeRow>();
   const referenceRecords = new Map<string, ReferenceRecordRow>();
   const referenceRecordCreateCommands: Extract<ReferenceRecordCommand, { type: "CreateReferenceRecord" }>[] = [];
   let projectorRuns = 0;
 
   const deps = {
+    eventStore,
     db: {
       query: async <T>(sql: string, values: readonly unknown[] = []) => {
         if (sql.includes("FROM catalog_reference_types")) {
@@ -1503,16 +1524,22 @@ export function createReferencePreloadHarness() {
     },
   } as object as CatalogRuntimeDeps;
 
+  const runtime = createReferenceDataRuntime(deps);
   const referenceData = {
-    referenceTypeCommandHandler: async (input: { command: ReferenceTypeCommand }) => {
+    referenceTypeCommandHandler: async (input: Parameters<ReferenceDataServices["referenceTypeCommandHandler"]>[0]) => {
+      const result = await runtime.referenceTypeCommandHandler(input);
       if (input.command.type === "CreateReferenceType") {
         referenceTypes.set(input.command.referenceTypeId, {
           reference_type_id: input.command.referenceTypeId,
           key: input.command.key,
         });
       }
+      return result;
     },
-    referenceRecordCommandHandler: async (input: { command: ReferenceRecordCommand }) => {
+    referenceRecordCommandHandler: async (
+      input: Parameters<ReferenceDataServices["referenceRecordCommandHandler"]>[0],
+    ) => {
+      const result = await runtime.referenceRecordCommandHandler(input);
       if (input.command.type === "CreateReferenceRecord") {
         referenceRecordCreateCommands.push(input.command);
         referenceRecords.set(input.command.referenceRecordId, {
@@ -1522,6 +1549,7 @@ export function createReferencePreloadHarness() {
           attributes: input.command.attributes ?? {},
         });
       }
+      return result;
     },
     projectors: [
       {
@@ -1570,6 +1598,9 @@ export function createChangedObservationRefreshHarness(
      * Defaults to a resolving global title template plus a draft current item
      * for every reusable/promoted Catalog Item id the harness knows. */
     displayIdentity?: SyntheticDisplayIdentityFixture;
+    /** SYNTHETIC poison: every discovered Reference Record history carries a
+     * second contiguous published event, a transition the decider never emits. */
+    referenceHistoryPoison?: "repeated-publish";
   } = {},
 ) {
   const itemCommands: Array<{ streamId: string; command: { type: string } & Record<string, unknown> }> = [];
@@ -1666,6 +1697,7 @@ export function createChangedObservationRefreshHarness(
       : []),
   ];
 
+  const referenceHistories = new Map<string, ReturnType<typeof storedEvent>[]>();
   const harnessDb = {
     query: async <T>(sql: string, values: readonly unknown[] = []) => {
       if (sql.includes("FROM catalog_source_observations")) {
@@ -1728,6 +1760,25 @@ export function createChangedObservationRefreshHarness(
       }
 
       if (sql.includes("FROM catalog_reference_records")) {
+        const typeKey = String(values[0]);
+        const key = String(values[1] ?? "existing");
+        const id = `ref_${key}`;
+        const referenceStream = `catalog.reference-record-${id}`;
+        referenceHistories.set(referenceStream, [
+          storedEvent(1, referenceStream, "catalog.reference-record.created", {
+            referenceRecordId: id,
+            typeKey,
+            key,
+            name: { defaultLocale: "en", values: { en: key } },
+            description: { defaultLocale: "en", values: { en: "" } },
+            attributes: {},
+            relationships: [],
+          }),
+          storedEvent(2, referenceStream, "catalog.reference-record.published", {}),
+          ...(input.referenceHistoryPoison === "repeated-publish"
+            ? [storedEvent(3, referenceStream, "catalog.reference-record.published", {})]
+            : []),
+        ]);
         return {
           rowCount: 1,
           rows: [{ reference_record_id: `ref_${String(values[1] ?? "existing")}` }] as T[],
@@ -1771,7 +1822,8 @@ export function createChangedObservationRefreshHarness(
   const deps = {
     db: displayIdentityDb,
     eventStore: {
-      readStream: async () => sourceEvents,
+      readStream: async ({ streamId: requestedStream }: { streamId: string }) =>
+        requestedStream === streamId ? sourceEvents : (referenceHistories.get(requestedStream) ?? []),
       appendToStream: async (input: {
         events: ReadonlyArray<{ eventType: string; payload: Record<string, unknown> }>;
       }) => {

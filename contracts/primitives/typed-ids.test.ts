@@ -1,5 +1,13 @@
-import { describe, expect, it } from "vitest";
-import { createId, createInternalId, parseStrictTypedUlid } from "./typed-ids";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import {
+  createId,
+  createInternalId,
+  parseStrictTypedUlid,
+  type OrderGroupId,
+  type OrderId,
+  type ShipmentGroupId,
+  type ShipmentId,
+} from "./typed-ids";
 
 describe("createInternalId", () => {
   it("creates distinct, prefixed UUIDs", () => {
@@ -9,6 +17,50 @@ describe("createInternalId", () => {
     expect(first).toMatch(/^job_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(second).toMatch(/^job_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(second).not.toBe(first);
+  });
+});
+
+describe("group ids", () => {
+  it.each(["ogr", "shg"] as const)("round-trips a generated %s_ id", (prefix) => {
+    const id = createId(prefix);
+    expect(parseStrictTypedUlid(id, prefix)).toBe(id);
+  });
+
+  it.each(["ogr", "shg"] as const)("rejects malformed %s_ ids", (prefix) => {
+    for (const body of [
+      "",
+      "01ARYZ6S41TSV4RRFFQ69G5FA",
+      "01ARYZ6S41TSV4RRFFQ69G5FAI",
+      "81ARYZ6S41TSV4RRFFQ69G5FAV",
+      "01aryz6s41tsv4rrffq69g5fav",
+      "01ARYZ6S41TSV4RRFFQ69G5FAV0",
+    ]) {
+      expect(() => parseStrictTypedUlid(`${prefix}_${body}`, prefix)).toThrow();
+    }
+  });
+
+  it.each([
+    ["ogr", "shg"],
+    ["shg", "ogr"],
+    ["ogr", "ord"],
+    ["shg", "shp"],
+    ["ord", "ogr"],
+    ["shp", "shg"],
+  ] as const)("rejects %s_ ids at a %s_ boundary", (source, target) => {
+    expect(() => parseStrictTypedUlid(createId(source), target)).toThrow();
+  });
+
+  it("keeps group and member types distinct", () => {
+    expectTypeOf(createId("ogr")).toEqualTypeOf<OrderGroupId>();
+    expectTypeOf(parseStrictTypedUlid(createId("ogr"), "ogr")).toEqualTypeOf<OrderGroupId>();
+    expectTypeOf(createId("shg")).toEqualTypeOf<ShipmentGroupId>();
+    expectTypeOf(parseStrictTypedUlid(createId("shg"), "shg")).toEqualTypeOf<ShipmentGroupId>();
+    expectTypeOf<OrderGroupId>().not.toMatchTypeOf<ShipmentGroupId>();
+    expectTypeOf<ShipmentGroupId>().not.toMatchTypeOf<OrderGroupId>();
+    expectTypeOf<OrderGroupId>().not.toMatchTypeOf<OrderId>();
+    expectTypeOf<OrderId>().not.toMatchTypeOf<OrderGroupId>();
+    expectTypeOf<ShipmentGroupId>().not.toMatchTypeOf<ShipmentId>();
+    expectTypeOf<ShipmentId>().not.toMatchTypeOf<ShipmentGroupId>();
   });
 });
 

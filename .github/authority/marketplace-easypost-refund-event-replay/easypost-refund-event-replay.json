@@ -1,0 +1,18 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/marketplace-easypost-refund-event-replay.yml",
+      "jobId": "easypost-refund-event-replay",
+      "stepAnchor": "job",
+      "secretName": "EASYPOST_API_KEY",
+      "purpose": "marketplace-ops"
+    },
+    {
+      "file": ".github/workflows/marketplace-easypost-refund-event-replay.yml",
+      "jobId": "easypost-refund-event-replay",
+      "stepAnchor": "job",
+      "secretName": "EASYPOST_WEBHOOK_SECRET",
+      "purpose": "marketplace-ops"
+    }
+  ]
+}

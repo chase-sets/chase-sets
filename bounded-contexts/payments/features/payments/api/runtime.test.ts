@@ -10,7 +10,33 @@ import type {
   StoredEvent,
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
-import { PaymentsRateLimitExceededError, createPaymentRuntime } from "./runtime";
+import {
+  PaymentDeclineLimitUnavailableError,
+  PaymentsRateLimitExceededError,
+  createPaymentRuntime as createRuntime,
+} from "./runtime";
+import { createPaymentWebhookRunner } from "./webhook-transaction";
+import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import { ProviderWebhookError, type ProviderWebhookTelemetryEvent } from "@chase-sets/http/provider-errors";
+
+function createPaymentRuntime(
+  deps: Omit<Parameters<typeof createRuntime>[0], "runWebhookTransaction" | "cardDeclineStore"> &
+    Partial<Pick<Parameters<typeof createRuntime>[0], "cardDeclineStore">>,
+) {
+  const pool: PgTransactionalPool = {
+    query: deps.db.query,
+    connect: async () => ({ query: deps.db.query, release: () => undefined }),
+  };
+  return createRuntime({
+    cardDeclineStore: { check: vi.fn(async () => null), record: vi.fn(async () => undefined) },
+    ...deps,
+    runWebhookTransaction: createPaymentWebhookRunner(pool, {
+      ...deps.eventStore,
+      readStreamInTransaction: (_client, input) => deps.eventStore.readStream(input),
+      appendToStreamInTransaction: (_client, input) => deps.eventStore.appendToStream(input),
+    }),
+  });
+}
 
 function createDeferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -493,6 +519,7 @@ function createReconciliationDb(options: {
       }
 
       if (sql.includes("INSERT INTO payments_provider_webhook_events")) {
+        if (processedWebhookEventIds.has(String(params?.[0]))) return { rows: [], rowCount: 0 };
         (webhookEvents as unknown[][]).push([...(params ?? [])]);
         processedWebhookEventIds.add(String(params?.[0] ?? ""));
         return { rows: [], rowCount: 1 };
@@ -566,6 +593,115 @@ const context = {
 };
 
 describe("payment runtime", () => {
+  it("invariant violations are acknowledged as ignored", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const { db, webhookEvents } = createReconciliationDb({ paymentById: () => existingPaymentRow() });
+    const gateway = createProcessorGateway();
+    gateway.parseWebhook.mockResolvedValue({
+      eventId: "evt_invariant",
+      kind: "payment-failed",
+      processorName: "stripe",
+      processorPaymentKind: "payment-intent",
+      processorPaymentReference: "pi_existing",
+      internalPaymentId: "pay_existing",
+      processorStatus: "failed",
+      failureCode: null,
+      failureMessage: "SECRET_SYNTHETIC",
+      occurredAt: "2026-09-29T00:00:00.000Z",
+    } as never);
+    const signals: ProviderWebhookTelemetryEvent[] = [];
+    const runtime = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      processorGateway: gateway,
+      webhookTelemetry: {
+        record: (signal) => {
+          signals.push(signal);
+        },
+      },
+    });
+    // Empty authoritative history rejects the command inside decidePayment, not in read/decode.
+    expect(await runtime.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context)).toEqual({
+      received: true,
+      ignored: true,
+      failure_class: "handler-failure",
+    });
+    expect(signals).toEqual([
+      expect.objectContaining({
+        failureClass: "handler-failure",
+        outcome: "ignored",
+        statusCode: 200,
+        retryable: false,
+        invariantCode: "RecordPaymentFailure:validation_failed",
+      }),
+    ]);
+    await runtime.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context);
+    expect(signals.filter((signal) => signal.invariantCode)).toHaveLength(1);
+    expect(webhookEvents).toHaveLength(1);
+    expect(readAllEvents()).toEqual([]);
+    expect(JSON.stringify(signals)).not.toContain("SECRET_SYNTHETIC");
+  });
+
+  it("signature failures stay retryable without claiming an inbox row", async () => {
+    const gateway = createProcessorGateway();
+    gateway.parseWebhook.mockRejectedValueOnce(new ProviderWebhookError("signature-invalid", "Invalid signature."));
+    const db = { query: vi.fn(async () => ({ rows: [], rowCount: 1 })) };
+    const runtime = createPaymentRuntime({
+      eventStore: createUnusedEventStore(),
+      checkpointStore: createCheckpointStore(),
+      db,
+      processorGateway: gateway,
+    });
+    await expect(runtime.processWebhook({ rawBody: "{}", signatureHeader: "wrong" }, context)).rejects.toMatchObject({
+      failureClass: "signature-invalid",
+      retryable: true,
+    });
+    expect(db.query).not.toHaveBeenCalled();
+    gateway.parseWebhook.mockResolvedValueOnce({
+      eventId: "evt_corrected",
+      kind: "shared-payment-token-used",
+      processorName: "stripe",
+      processorPaymentReference: "pi_corrected",
+    } as never);
+    expect(await runtime.processWebhook({ rawBody: "{}", signatureHeader: "corrected" }, context)).toEqual({
+      received: true,
+      ignored: true,
+    });
+    expect(db.query).toHaveBeenCalled();
+  });
+
+  it("classification ignores message text and telemetry failures cannot alter acknowledgements", async () => {
+    const gateway = createProcessorGateway();
+    gateway.parseWebhook.mockRejectedValueOnce(new Error("signature webhook secret SECRET_SYNTHETIC"));
+    const runtime = createPaymentRuntime({
+      eventStore: createUnusedEventStore(),
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [], rowCount: 1 })) },
+      processorGateway: gateway,
+      webhookTelemetry: {
+        record: () => {
+          throw new Error("telemetry unavailable");
+        },
+      },
+    });
+    await expect(runtime.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context)).rejects.toMatchObject({
+      failureClass: "handler-failure",
+      retryable: true,
+      message: "Provider webhook handler failed.",
+    });
+    gateway.parseWebhook.mockResolvedValueOnce({
+      eventId: "evt_telemetry",
+      kind: "shared-payment-token-used",
+      processorName: "stripe",
+      processorPaymentReference: "pi_telemetry",
+    } as never);
+    expect(await runtime.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context)).toEqual({
+      received: true,
+      ignored: true,
+    });
+  });
+
   it("turns a duplicate command with a stale expected version into a typed conflict", async () => {
     const { eventStore } = createInMemoryEventStore();
     const input = {
@@ -627,7 +763,7 @@ describe("payment runtime", () => {
           return { rows: [], rowCount: 0 };
         }
         if (sql.includes("INSERT INTO payments_provider_webhook_events")) {
-          throw new Error("Provider event should not be marked processed before payment effects commit.");
+          return { rows: [], rowCount: 1 };
         }
         return { rows: [], rowCount: 0 };
       }),
@@ -640,11 +776,9 @@ describe("payment runtime", () => {
     });
 
     await expect(services.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context)).rejects.toThrow(
-      "Payment webhook target was not found.",
+      "Provider webhook handler failed.",
     );
-    expect(
-      db.query.mock.calls.some(([sql]) => String(sql).includes("INSERT INTO payments_provider_webhook_events")),
-    ).toBe(false);
+    expect(db.query.mock.calls.some(([sql]) => String(sql) === "ROLLBACK")).toBe(true);
   });
 
   it("records Shared Payment Token provider events as acknowledged ignored inbox rows", async () => {
@@ -699,20 +833,11 @@ describe("payment runtime", () => {
     const { db, webhookEvents } = createReconciliationDb({
       paymentById: (paymentId) => paymentsById.get(paymentId) ?? null,
     });
-    const refunds = {
-      issueRefund: vi.fn(async () => ({
-        outcome: "requested" as const,
-        refundId: "rfd_fraud_issfr_123" as never,
-        version: 1,
-        amount: "10.00",
-      })),
-    };
     const services = createPaymentRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
       db: db as never,
       processorGateway,
-      refunds,
     });
     const status = await services.getCheckoutStatus({
       accountId: "acc_buyer" as never,
@@ -785,15 +910,14 @@ describe("payment runtime", () => {
     expect(
       readAllEvents().filter((event) => event.eventType === "payments.payment-fraud-warning-received"),
     ).toHaveLength(1);
-    expect(refunds.issueRefund).toHaveBeenCalledTimes(1);
-    expect(refunds.issueRefund).toHaveBeenCalledWith(
+    expect(processorGateway.createRefund).toHaveBeenCalledTimes(1);
+    expect(processorGateway.createRefund).toHaveBeenCalledWith(
       expect.objectContaining({
         refundId: "rfd_fraud_issfr_123",
         paymentId: payment.payment_id,
         orderIds: ["ord_1"],
         amount: "26.05",
       }),
-      context,
     );
     expect(webhookEvents).toHaveLength(1);
   });
@@ -1889,100 +2013,68 @@ describe("payment runtime", () => {
     );
   });
 
-  it("blocks saved-card payment creation after repeated declines for the same card fingerprint", async () => {
-    const processorGateway = createProcessorGateway();
-    const declinedPayment = {
-      ...existingPaymentRow(),
-      payment_id: "pay_declined",
-      processor_payment_reference: "pi_declined",
-      status: "pending-confirmation",
-    };
-    const { db } = createReconciliationDb({
-      paymentById: (paymentId) => (paymentId === "pay_declined" ? declinedPayment : null),
-    });
-    const declineRuntime = createPaymentRuntime({
-      eventStore: createInMemoryEventStore().eventStore,
-      checkpointStore: createCheckpointStore(),
-      db: db as never,
-      processorGateway,
-    });
+  it.each(["limited", "unavailable"] as const)(
+    "prevents saved-card gateway calls when the shared decline store is %s",
+    async (outcome) => {
+      const check = vi.fn(async () => {
+        if (outcome === "unavailable") throw new Error("synthetic private database detail");
+        return { retryAfterSeconds: 42 };
+      });
+      const creationGateway = createProcessorGateway();
+      const creationRuntime = createPaymentRuntime({
+        cardDeclineStore: { check, record: vi.fn(async () => undefined) },
+        eventStore: createInMemoryEventStore().eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: createOrderInputDb({
+          savedCheckoutInstrumentRows: [
+            {
+              instrument_id: "sci_declined_card",
+              account_id: "acc_buyer",
+              payment_method_category: "card",
+              provider: "stripe",
+              provider_customer_reference: "cus_buyer",
+              provider_reference: "pm_declined_saved",
+              provider_fingerprint: "fp_declined_card",
+              display_label: "Visa ending in 0002",
+              confirmation_experience: "off-session-token",
+              readiness: "ready",
+              allow_redisplay: "always",
+              consent_id: "consent_declined",
+              consent_text: "Save for future checkout.",
+              removed_at: null,
+              is_default: true,
+              created_at: "2026-04-29T00:00:00.000Z",
+              updated_at: "2026-04-29T00:00:00.000Z",
+            },
+          ],
+        }) as never,
+        processorGateway: creationGateway,
+      });
+      const status = await creationRuntime.getCheckoutStatus({
+        accountId: "acc_buyer" as never,
+        orderIds: ["ord_1" as never],
+        paymentMethodCategory: "card",
+      });
 
-    for (let attempt = 1; attempt <= 5; attempt += 1) {
-      processorGateway.parseWebhook.mockResolvedValueOnce({
-        eventId: `evt_decline_${attempt}`,
-        kind: "payment-failed",
-        processorName: "stripe",
-        processorPaymentKind: "payment-intent",
-        processorPaymentReference: "pi_declined",
-        internalPaymentId: "pay_declined",
-        processorStatus: "requires_payment_method",
-        failureCode: "card_declined",
-        failureMessage: "Card was declined.",
-        occurredAt: `2026-04-29T00:0${attempt}:00.000Z`,
-        savedPaymentMethod: {
-          processorName: "stripe",
-          providerCustomerReference: "cus_buyer",
-          providerReference: `pm_declined_${attempt}`,
-          paymentMethodFingerprint: "fp_declined_card",
-          paymentMethodCategory: "card",
-          displayLabel: "Visa ending in 0002",
-          readiness: "ready",
-          allowRedisplay: "always",
-          removed: false,
-        },
-      } as never);
-      await declineRuntime.processWebhook({ rawBody: "{}", signatureHeader: "sig" }, context).catch(() => undefined);
-    }
-
-    const creationGateway = createProcessorGateway();
-    const creationRuntime = createPaymentRuntime({
-      eventStore: createInMemoryEventStore().eventStore,
-      checkpointStore: createCheckpointStore(),
-      db: createOrderInputDb({
-        savedCheckoutInstrumentRows: [
+      await expect(
+        creationRuntime.createAccountPayment(
           {
-            instrument_id: "sci_declined_card",
-            account_id: "acc_buyer",
-            payment_method_category: "card",
-            provider: "stripe",
-            provider_customer_reference: "cus_buyer",
-            provider_reference: "pm_declined_saved",
-            provider_fingerprint: "fp_declined_card",
-            display_label: "Visa ending in 0002",
-            confirmation_experience: "off-session-token",
-            readiness: "ready",
-            allow_redisplay: "always",
-            consent_id: "consent_declined",
-            consent_text: "Save for future checkout.",
-            removed_at: null,
-            is_default: true,
-            created_at: "2026-04-29T00:00:00.000Z",
-            updated_at: "2026-04-29T00:00:00.000Z",
+            accountId: "acc_buyer" as never,
+            orderIds: ["ord_1" as never],
+            paymentMethodCategory: "card",
+            marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+            savedCheckoutInstrumentId: "sci_declined_card",
           },
-        ],
-      }) as never,
-      processorGateway: creationGateway,
-    });
-    const status = await creationRuntime.getCheckoutStatus({
-      accountId: "acc_buyer" as never,
-      orderIds: ["ord_1" as never],
-      paymentMethodCategory: "card",
-    });
-
-    await expect(
-      creationRuntime.createAccountPayment(
-        {
-          accountId: "acc_buyer" as never,
-          orderIds: ["ord_1" as never],
-          paymentMethodCategory: "card",
-          marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
-          savedCheckoutInstrumentId: "sci_declined_card",
-        },
-        context,
-      ),
-    ).rejects.toBeInstanceOf(PaymentsRateLimitExceededError);
-    expect(creationGateway.createPaymentSession).not.toHaveBeenCalled();
-  });
+          context,
+        ),
+      ).rejects.toBeInstanceOf(
+        outcome === "limited" ? PaymentsRateLimitExceededError : PaymentDeclineLimitUnavailableError,
+      );
+      expect(check).toHaveBeenCalledWith("fp_declined_card");
+      expect(creationGateway.createPaymentSession).not.toHaveBeenCalled();
+      expect(creationGateway.createCustomer).not.toHaveBeenCalled();
+    },
+  );
 
   it("makes the first consent-saved checkout instrument default", async () => {
     const { eventStore } = createInMemoryEventStore();

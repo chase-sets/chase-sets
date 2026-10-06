@@ -80,3 +80,22 @@ export function catalogPrimaryWorkbenchSourceOptionForcesRefresh(
   }
   return false;
 }
+
+// A Card force-refresh intent is single-use: the click's own navigation
+// serves the one counted forced request, and the import bar strips the intent
+// once that slice resolves. Until then, a same-URL revalidation (live import-job
+// polling, post-action revalidation) must not replay the intent as another
+// forced provider request.
+export function catalogPrimaryWorkbenchSourceOptionShouldRevalidate(
+  input: Readonly<{ currentUrl: URL; nextUrl: URL; defaultShouldRevalidate: boolean }>,
+): boolean {
+  const intent = parseCatalogPrimaryWorkbenchSourceOptionIntent(input.nextUrl);
+  if (
+    input.currentUrl.href === input.nextUrl.href &&
+    intent?.action === "force-refresh" &&
+    intent.queryKind === "cards"
+  ) {
+    return false;
+  }
+  return input.defaultShouldRevalidate;
+}

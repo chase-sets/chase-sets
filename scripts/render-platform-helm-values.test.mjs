@@ -43,23 +43,217 @@ function mebibytes(memory) {
 }
 
 describe("render platform Helm values", () => {
-  it("renders the Channels keyring only as a shared API/worker Secret reference", () => {
+  it("declares the non-secret default-off Catalog send-window key once on both consumers only", () => {
+    const key = "CATALOG_PROVIDER_SEND_WINDOW_ENABLED";
+    const baseline = buildPlatformHelmValues({ repoRoot });
+    for (const [name, component] of Object.entries(baseline.components)) {
+      expect(component.env.filter((entry) => entry.name === key)).toEqual(
+        ["platform-api", "platform-worker"].includes(name) ? [{ name: key, value: "false" }] : [],
+      );
+    }
+    for (const values of [
+      baseline,
+      buildPlatformHelmStagingValues({ repoRoot }),
+      buildPlatformHelmProductionValues({ repoRoot }),
+    ]) {
+      expect(values.global?.envOverrides?.[key]).toBeUndefined();
+      for (const component of Object.values(values.components)) expect(component.envOverrides?.[key]).toBeUndefined();
+    }
+    const [helper] = readChartFiles(["templates/_helpers.tpl"]);
+    expect(helper).toContain("range .component.env");
+    expect(helper.indexOf("hasKey $componentEnvOverrides .name")).toBeLessThan(
+      helper.indexOf("hasKey $envOverrides .name"),
+    );
+    expect(helper.indexOf("hasKey $envOverrides .name")).toBeLessThan(
+      helper.indexOf('value: {{ default "" .value | quote }}'),
+    );
+  });
+
+  // Offline Helm v4.2.3 captures for #8477, projected from the actual Pod
+  // templates; not a JS imitation of Helm. Full YAML and exact command argv:
+  // .orchestrator/logs/8477-g1-render-{case}.yaml and
+  // .orchestrator/logs/8477-g1-render-commands.json (container root).
+  // Reproduce: helm template chase-sets-platform infrastructure/helm/platform
+  //   -f infrastructure/helm/platform/values.yaml --set doksIngress.enabled=true
+  // staging adds --values infrastructure/helm/platform/values.staging.yaml
+  //   --set-string global.envOverrides.DEPLOYMENT_ENVIRONMENT=staging
+  // on/off adds --set-string global.envOverrides.CATALOG_PROVIDER_SEND_WINDOW_ENABLED=true/false
+  // production substitutes values.production.yaml and environment=production.
+  // API-only/worker-only append -f JSON replacing the other component's env
+  // array with its real declared entries minus this key. test:scripts has no
+  // Helm binary, following the platform-helm-local-boot pinned-render convention.
+  it.each([
+    ["baseline", "Deployment/platform-api", "false", "false"],
+    ["staging-omitted", "Rollout/platform-api", "false", "false"],
+    ["staging-on", "Rollout/platform-api", "true", "true"],
+    ["staging-off", "Rollout/platform-api", "false", "false"],
+    ["production", "Deployment/platform-api", "false", "false"],
+    ["api-only", "Rollout/platform-api", "true", null],
+    ["worker-only", "Rollout/platform-api", null, "true"],
+  ])("pins the actual %s Helm Pod env capture", (name, apiKind, apiFlag, workerFlag) => {
+    const captures = {
+      baseline: {
+        "Deployment/admin-web": [],
+        "Deployment/marketplace": [],
+        "Deployment/platform-api": [
+          {
+            name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+            value: "false",
+          },
+        ],
+        "Deployment/platform-worker": [
+          {
+            name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+            value: "false",
+          },
+        ],
+        "Deployment/public-web": [],
+        "Job/platform-bootstrap": [],
+      },
+      "staging-omitted": {
+        "DaemonSet/otel-agent": [],
+        "Deployment/admin-web": [],
+        "Deployment/platform-worker": [
+          {
+            name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+            value: "false",
+          },
+        ],
+        "Deployment/otel-cluster": [],
+        "Deployment/kube-state-metrics": [],
+        "Rollout/marketplace": [],
+        "Rollout/platform-api": [
+          {
+            name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+            value: "false",
+          },
+        ],
+        "Rollout/public-web": [],
+        "Job/platform-bootstrap": [],
+      },
+      "staging-on": {
+        "DaemonSet/otel-agent": [],
+        "Deployment/admin-web": [],
+        "Deployment/platform-worker": [
+          {
+            name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+            value: "true",
+          },
+        ],
+        "Deployment/otel-cluster": [],
+        "Deployment/kube-state-metrics": [],
+        "Rollout/marketplace": [],
+        "Rollout/platform-api": [
+          {
+            name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+            value: "true",
+          },
+        ],
+        "Rollout/public-web": [],
+        "Job/platform-bootstrap": [],
+      },
+      "staging-off": {
+        "DaemonSet/otel-agent": [],
+        "Deployment/admin-web": [],
+        "Deployment/platform-worker": [
+          {
+            name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+            value: "false",
+          },
+        ],
+        "Deployment/otel-cluster": [],
+        "Deployment/kube-state-metrics": [],
+        "Rollout/marketplace": [],
+        "Rollout/platform-api": [
+          {
+            name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+            value: "false",
+          },
+        ],
+        "Rollout/public-web": [],
+        "Job/platform-bootstrap": [],
+      },
+      production: {
+        "DaemonSet/otel-agent": [],
+        "Deployment/admin-web": [],
+        "Deployment/marketplace": [],
+        "Deployment/platform-api": [
+          {
+            name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+            value: "false",
+          },
+        ],
+        "Deployment/platform-worker": [
+          {
+            name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+            value: "false",
+          },
+        ],
+        "Deployment/public-web": [],
+        "Deployment/otel-cluster": [],
+        "Deployment/kube-state-metrics": [],
+        "Job/platform-bootstrap": [],
+      },
+      "api-only": {
+        "DaemonSet/otel-agent": [],
+        "Deployment/admin-web": [],
+        "Deployment/platform-worker": [],
+        "Deployment/otel-cluster": [],
+        "Deployment/kube-state-metrics": [],
+        "Rollout/marketplace": [],
+        "Rollout/platform-api": [
+          {
+            name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+            value: "true",
+          },
+        ],
+        "Rollout/public-web": [],
+        "Job/platform-bootstrap": [],
+      },
+      "worker-only": {
+        "DaemonSet/otel-agent": [],
+        "Deployment/admin-web": [],
+        "Deployment/platform-worker": [
+          {
+            name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+            value: "true",
+          },
+        ],
+        "Deployment/otel-cluster": [],
+        "Deployment/kube-state-metrics": [],
+        "Rollout/marketplace": [],
+        "Rollout/platform-api": [],
+        "Rollout/public-web": [],
+        "Job/platform-bootstrap": [],
+      },
+    };
+    const capture = captures[name];
+    expect(capture[apiKind]).toEqual(
+      apiFlag === null ? [] : [{ name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED", value: apiFlag }],
+    );
+    expect(capture["Deployment/platform-worker"]).toEqual(
+      workerFlag === null ? [] : [{ name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED", value: workerFlag }],
+    );
+    for (const [workload, entries] of Object.entries(capture)) {
+      if (![apiKind, "Deployment/platform-worker"].includes(workload)) expect(entries).toEqual([]);
+    }
+  });
+
+  it("renders both keyrings only as shared API/worker Secret references", () => {
     const base = buildPlatformHelmValues({ repoRoot });
     for (const build of [buildPlatformHelmValues, buildPlatformHelmStagingValues, buildPlatformHelmProductionValues]) {
       const values = build({ repoRoot });
       for (const host of ["platform-api", "platform-worker"]) {
         const effective = values.components[host].env ?? base.components[host].env;
-        expect(effective.find((entry) => entry.name === "CHANNELS_CREDENTIAL_KEYRING_JSON")).toEqual({
-          name: "CHANNELS_CREDENTIAL_KEYRING_JSON",
-          secret: true,
-          secretKey: "CHANNELS_CREDENTIAL_KEYRING_JSON",
-        });
+        for (const name of ["CHANNELS_CREDENTIAL_KEYRING_JSON", "CATALOG_OPERATOR_SESSION_KEYRING_JSON"])
+          expect(effective.find((entry) => entry.name === name)).toEqual({ name, secret: true, secretKey: name });
       }
       for (const [name, component] of Object.entries(values.components)) {
         if (!["platform-api", "platform-worker"].includes(name))
-          expect(componentEnvKeys({ env: component.env ?? base.components[name]?.env ?? [] })).not.toContain(
-            "CHANNELS_CREDENTIAL_KEYRING_JSON",
-          );
+          for (const secretName of ["CHANNELS_CREDENTIAL_KEYRING_JSON", "CATALOG_OPERATOR_SESSION_KEYRING_JSON"])
+            expect(componentEnvKeys({ env: component.env ?? base.components[name]?.env ?? [] })).not.toContain(
+              secretName,
+            );
       }
     }
   });
@@ -854,9 +1048,9 @@ describe("render platform Helm values", () => {
     ).toEqual({
       "admin-web": 5,
       marketplace: 12,
-      "platform-api": 123,
+      "platform-api": 125,
       "platform-bootstrap": 57,
-      "platform-worker": 123,
+      "platform-worker": 125,
       "public-web": 13,
     });
     expect(componentEnvKeys(values.components["platform-api"])).toContain("CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX");

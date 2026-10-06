@@ -70,28 +70,31 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
       id: "processor-pass-through-and-collection-agent-role",
       title: "Processor pass-through and limited collection-agent role",
       draftText:
-        "Chase Sets is not a bank and does not itself hold, custody, or transmit the money that moves through " +
-        "the Marketplace's payment features. Stripe, our payment processor, provides the infrastructure that " +
-        "accepts a buyer's payment method, verifies sellers who want to receive payouts, and moves funds " +
-        "toward a seller's payout destination. When you buy something on the Marketplace, Chase Sets acts " +
-        "only as a limited collection agent for the seller: the amount you pay is collected on the seller's " +
-        "behalf and passed through Stripe's systems toward the seller, net of any amounts Chase Sets is " +
-        "authorized to retain under the Terms of Service and this document. If you want to receive payouts as " +
+        "Chase Sets is not a bank. Buyer payments are processed through Stripe and collected on Chase Sets' " +
+        "own platform account, where funds are held until payout. After a seller requests and qualifies for " +
+        "payout, Chase Sets transfers the net proceeds from its platform balance to the seller's connected " +
+        "account and requests an on-demand payout through Stripe to the seller's payout destination. " +
+        "Amounts retained are governed by the Terms of Service and this document. If you want to receive payouts as " +
         "a seller, Stripe requires you to review and accept the Connected Account Agreement it presents during " +
         "its own onboarding flow before your account can receive funds.",
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote:
-          "State that Stripe processes and moves payment funds, that Chase Sets' role is a limited " +
-          "collection-agent pass-through, and that Stripe — not Chase Sets — presents and captures the " +
+          "Describe the platform-held charge, separate transfer and on-demand payout flow, leaving its " +
+          "collection-agent classification to counsel, and state that Stripe presents and captures the " +
           "Connected Account Agreement, without naming the selected agreement type or its mechanics.",
         decisionRefs: [5685, 5924, 5923],
         productTruthRefs: [
+          "infrastructure/stripe-payments/index.ts:1616-1640",
+          "infrastructure/stripe-connect/index.ts:1100-1160",
           "infrastructure/stripe-connect/index.ts:879-917 (embedded Account Session onboarding surface)",
           "infrastructure/stripe-connect/index.ts:991-1010 (hosted Account Link onboarding surface)",
           "bounded-contexts/settlement/features/payout-readiness/ui/payout-setup-page.tsx:62-109",
         ],
-        openQuestions: [agreementSpecificGateOpenQuestion],
+        openQuestions: [
+          agreementSpecificGateOpenQuestion,
+          "Whether the platform-held flow should be characterized as a limited collection-agent relationship, and its legal custody implications, requires counsel review; the technical fund flow does not settle that framing.",
+        ],
         assumptions: [
           agreementSpecificGateAssumption,
           {
@@ -140,7 +143,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
             assertion:
               "Checkout creates and records Orders before requesting Payment; neither Order creation nor Payment creation proves nonzero capture.",
             evidenceRef:
-              "bounded-contexts/checkout/features/sessions/api/route.ts:1388-1437; bounded-contexts/payments/features/payments/api/runtime.ts:2108-2115",
+              "bounded-contexts/checkout/features/sessions/api/route.ts:1388-1437; bounded-contexts/payments/features/payments/api/runtime.ts:2097-2104",
           },
         ],
         canonicalClaims: [
@@ -155,20 +158,23 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
       id: "payout-timing-and-clearance",
       title: "Payout timing and clearance",
       draftText:
-        "Once Stripe has cleared your account for payouts and you have a payout destination on file, Chase " +
+        "Settlement's Payout Release Hold keeps sale proceeds and shipping allowances pending until delivery, " +
+        "risk, support, and aging rules clear. Settlement owns the release decision even when Stripe payment " +
+        "risk checks pass. Once the funds are available, your account is cleared for payouts, you have a " +
+        "payout destination on file, and you request a payout, Chase " +
         "Sets requests payouts to that destination through Stripe's payout systems. Stripe controls the " +
         "mechanics and processing path funds follow after a payout is requested. This document does not state " +
-        "a fixed number of days for a payout to clear or become available, because that timing depends on the " +
-        "connected-account configuration Stripe confirms for the Marketplace. Your payout-readiness status " +
+        "a fixed number of days for release or payout processing. Your payout-readiness status " +
         "reflects whether your account is cleared, whether Stripe still needs information from you, and " +
         "whether a hold described elsewhere in this document is active.",
       reviewStatus: "counsel-required",
       reviewManifest: {
         scopeNote:
-          "Describe payout initiation and Stripe's control over payout mechanics without asserting a numeric " +
+          "Distinguish Settlement-owned availability from payout initiation and Stripe's post-request mechanics without asserting a numeric " +
           "clearance SLA or the agreement-specific timing that depends on the #5924/#5923 gate.",
         decisionRefs: [5685, 5924, 5923],
         productTruthRefs: [
+          "bounded-contexts/settlement/GLOSSARY.md:117-125",
           "bounded-contexts/settlement/features/payouts/domain/reason-codes.ts",
           "bounded-contexts/settlement/features/payout-readiness/api/runtime.ts:609-634",
         ],
@@ -354,31 +360,30 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
     },
     {
       id: "no-interest",
-      title: "No interest",
+      title: "Ordinary payment-activity interest",
       draftText:
-        "Chase Sets does not pay you interest on funds connected to your Marketplace payment activity, " +
-        "including amounts pending payout. Stripe's own terms, which you accept separately during its " +
-        "onboarding, govern whether any interest applies to funds Stripe processes or holds on Chase Sets' " +
-        "behalf. Any interest posture for amounts reflected in your Wallet balance is addressed by the Terms " +
-        "of Service, not by this document.",
+        "Ordinary Marketplace payment activity, including amounts pending payout, shares the Wallet interest " +
+        "question described below. The separate Prepaid Balance product term appears in the Prepaid Balance section.",
       reviewStatus: "counsel-required",
+      claimDisclosures: [{ claimId: "wallet-no-interest" }],
       reviewManifest: {
         scopeNote:
-          "State Chase Sets' no-interest position on payment-processing funds and defer any Stripe-side " +
-          "interest question to Stripe's own terms, without restating or resolving the sibling Wallet " +
-          "interest posture, which the Terms of Service artifact leaves an unresolved open question.",
+          "Preserve one unresolved interest posture for ordinary Wallet and Marketplace payment activity, " +
+          "distinct from #7808's ruled Prepaid Balance term, using the canonical public disclosure.",
         decisionRefs: [],
         productTruthRefs: [],
-        openQuestions: [],
+        openQuestions: [
+          "Whether Chase Sets pays interest on ordinary Wallet balances or Marketplace payment activity, including amounts pending payout, requires qualified counsel confirmation before publication; no ratified product-truth source settles that ordinary proposition.",
+        ],
         assumptions: [
           {
             assertion:
-              "The Terms of Service's sibling wallet-nature-custody-interest subject already reserves the " +
-              "Wallet's own interest posture, so this document limits itself to payment-processing funds " +
-              "rather than restating the Wallet's terms.",
-            evidenceRef: "bounded-contexts/public-presence/features/policies/domain/terms-of-service.ts",
+              "Ordinary Wallet and payment-activity interest share the unresolved wallet-no-interest claim; the distinct Prepaid Balance term does not resolve it.",
+            evidenceRef:
+              "bounded-contexts/public-presence/features/policies/domain/canonical-claims.ts (wallet-no-interest)",
           },
         ],
+        canonicalClaims: [{ claimId: "wallet-no-interest", productTruthRefs: [] }],
       },
     },
     {
@@ -488,7 +493,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
         "Sets discloses when that option becomes available, and an amount that remains past the refund-to-card " +
         "window stays spendable in the meantime. If a card charge that added funds is later disputed and the " +
         "dispute is resolved against your account, Chase Sets recovers the disputed amount and the processor's " +
-        "dispute fee from your account, consistent with the chargeback and dispute terms above; if a " +
+        "dispute fee from your account; if a " +
         "bank-withdrawal option is enabled, a withdrawal carries the processor's payout cost as a fee. Chase " +
         "Sets does not pay interest on a Prepaid Balance, and a Prepaid Balance does not expire in this " +
         "version. Adding funds is available only to accounts in the " +
@@ -521,7 +526,7 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
           "The exact duration of the processor refund window Stripe permits for a card is not yet confirmed by " +
             "repository evidence; this draft states only that a refund is available within whatever window the " +
             "processor's own rules allow, pending the wallet funding lifecycle probe's confirmed value.",
-          "ADR 0020:29, terms-of-service.ts cash-equivalent-and-marketplace-credit, and settlement/GLOSSARY.md:144 " +
+          "ADR 0020:29 and settlement/GLOSSARY.md:144 " +
             "still define Marketplace Credit as 'promotional or prepaid'; #7807 rules 'prepaid' struck by a " +
             "separate Prepaid Balance ADR that has not yet landed. This draft does not restate Marketplace " +
             "Credit's definition.",
@@ -532,6 +537,11 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
             "only.",
         ],
         assumptions: [
+          {
+            assertion:
+              "The #7807 product ruling requires recovery of the disputed funding amount plus the processor dispute fee after a lost funding dispute; this is not the seller-exposure Chargeback Clawback mechanism.",
+            evidenceRef: "https://github.com/chase-sets/chase-sets/issues/7807#issuecomment-5625822930",
+          },
           {
             assertion:
               "The ruled Prepaid Balance decision and the ruled terms/consent-key decision together establish " +
@@ -548,12 +558,6 @@ export const paymentsTermsPolicyArtifact: PublicPolicyArtifact<"payments-terms",
               "incurs under the Commercial Terms checkout-processing-fee policy, not a separately invented " +
               "rate.",
             evidenceRef: "bounded-contexts/commercial-terms/features/checkout-processing-fee/domain/policy.ts:42-53",
-          },
-        ],
-        canonicalClaims: [
-          {
-            claimId: "payment-chargeback-recovery-mechanism",
-            productTruthRefs: paymentChargebackRecoveryProductTruthRefs,
           },
         ],
       },

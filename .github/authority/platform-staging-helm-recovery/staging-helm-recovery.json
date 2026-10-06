@@ -1,0 +1,32 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-staging-helm-recovery.yml",
+      "jobId": "staging-helm-recovery",
+      "stepAnchor": "name:Configure staging Kubernetes context#6",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    },
+    {
+      "file": ".github/workflows/platform-staging-helm-recovery.yml",
+      "jobId": "staging-helm-recovery",
+      "stepAnchor": "name:Configure staging Kubernetes context#6",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-helm-recovery.yml",
+      "jobId": "staging-helm-recovery",
+      "stepAnchor": "name:Configure staging Kubernetes context#6",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "spaces-evidence"
+    },
+    {
+      "file": ".github/workflows/platform-staging-helm-recovery.yml",
+      "jobId": "staging-helm-recovery",
+      "stepAnchor": "uses:digitalocean/action-doctl@3cb3953159719656269e044e0e24ca16dd2a690f",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "digitalocean-ops"
+    }
+  ]
+}

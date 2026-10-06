@@ -61,6 +61,31 @@ export const marketplaceEnglishTranslations = {
     "This Offer is held and cannot currently be accepted. Check again for current terms.",
   "marketplace.marketFollowing.seller.refresh_required":
     "Offer terms need refreshing. Review the current price, fees and evidence in Sell List before accepting.",
+  "marketplace.features.listings.api.route.error.unknownField": "Remove unrecognized fields and try again.",
+  "marketplace.features.listings.api.route.error.priceCurrencyInvalid": "Choose a valid three-letter currency code.",
+  "marketplace.features.listings.api.route.error.availabilityReasonInvalid": "Choose a valid availability reason.",
+  "marketplace.features.listings.api.route.error.awayWindowReasonRequired": "Choose a reason for the away window.",
+  "marketplace.features.listings.api.route.error.awayWindowInstantRequired": "Choose a start time for the away window.",
+  "marketplace.features.listings.api.route.error.orderCapacityInvalid":
+    "Enter a whole-number order capacity of at least 1.",
+  "marketplace.features.listings.api.route.error.photoMultipartRequired": "Upload listing photos using the photo form.",
+  "marketplace.features.listings.api.route.error.photoReplacementRequired": "Choose a replacement photo.",
+  "marketplace.features.listings.api.route.error.idInvalid": "Check the ID and try again.",
+  "marketplace.features.listings.api.route.error.inventorySnapshotInvalid":
+    "Check the inventory details and try again.",
+  "marketplace.features.listings.api.route.error.listingNotFound": "Listing not found.",
+  "marketplace.features.listings.api.route.error.inventoryItemNotFound": "Inventory item not found.",
+  "marketplace.features.listings.api.route.error.commandRejected":
+    "This listing change is not available. Check the listing details and try again.",
+  "marketplace.features.listings.api.route.error.bulkPriceUpdateInvalid":
+    "Bulk price updates are not available with the current settings.",
+  "marketplace.features.listings.api.route.error.evidenceInvalid": "Check the listing photos and try again.",
+  "marketplace.features.listings.api.listingGatePolicyRoute.error.invalid":
+    "Check the listing policy settings and try again.",
+  "marketplace.features.listings.api.route.error.evidenceIncomplete":
+    "Listing evidence requirements changed or remain incomplete. Follow the current readiness actions before publishing.",
+  "marketplace.features.listings.api.route.error.feeQuoteStale":
+    "Fee quote is stale. Refresh the fee preview before continuing.",
   "marketplace.features.listings.api.route.evidence.incomplete":
     "Listing evidence requirements changed or remain incomplete. Follow the current readiness actions before publishing.",
   "marketplace.app.host.inventory": "Inventory",
@@ -71,6 +96,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.app.host.purchases": "Purchases",
   "marketplace.app.host.reviews": "Reviews",
   "marketplace.app.host.sales": "Sales",
+  "marketplace.app.host.seller.money": "Seller money",
   "marketplace.app.host.sell": "Sell",
   "marketplace.app.host.sell.2": "Sell",
   "marketplace.app.host.cart": "Buy Cart",

@@ -122,6 +122,7 @@ export function cleanVerificationReport(
     profileSectionDiagnostics: 0,
     providerOptionQueryCacheEntries: 0,
     providerOptionRateLimits: 0,
+    providerOptionRateLimitsAboveFloor: 0,
     ...overrides,
   };
 }

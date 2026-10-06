@@ -22,6 +22,7 @@ Current event names:
 - `referral_link_copied`
 - `referral_share_clicked`
 - `section_viewed`
+- `disclosure_opened`
 - `policy_link_clicked`
 
 Event details include:
@@ -30,7 +31,7 @@ Event details include:
 - bounded-cardinality metric details such as `section`, `target`, `field`, `role`, `interest`, `status`, and `variant`
 - sanitized log-only source details such as `checked`, `page_path`, `utm_source`, `utm_medium`, and `utm_campaign`
 
-The current public landing experiment variants are `seller_first_v1` (the unchanged seller-first default) and `seller_first_v2` (the buyer-intent hero). The assignment is deterministic and first-party: an explicit `?intent=buy` or buyer-oriented UTM signal selects v2, while sell, both, invalid, or absent signals remain on v1. The selected key is included in the landing, section, form, and signup events so campaign funnel metrics can split by variant. Treat variants as durable public experiment keys, not remediation, audit, branch, or implementation labels.
+The current public landing experiment variants are `seller_first_v1` (the unchanged seller-first default) and `seller_first_v2` (the buyer-intent hero). The assignment is deterministic and first-party: an explicit `?intent=buy` or buyer-oriented UTM signal selects v2, while sell, both, invalid, or absent signals remain on v1. The selected key is included in the landing, section, disclosure, form, and signup events so campaign funnel metrics can split by variant. Treat variants as durable public experiment keys, not remediation, audit, branch, or implementation labels.
 
 Keep event properties free of email addresses, account identifiers, user identifiers, raw URLs, and unbounded text. The public-web bridge may forward only bounded source fields for funnel analysis: `page_path`, `utm_source`, `utm_medium`, and `utm_campaign`. UTM values may contain normal campaign text such as spaces, percent signs, plus signs, periods, or hyphens, but must still reject emails, URLs, and long arbitrary strings. Referrer, `utm_content`, and `utm_term` remain durable waitlist source fields rather than operational analytics labels.
 
@@ -38,7 +39,7 @@ Primary funnel metrics:
 
 - Landing page view to hero form start.
 - Hero intent tab selection to form submission.
-- Seller-tools early-access CTA click to final form start.
+- Fee-comparison compare-page link click (`cta_clicked` with `section=fee_comparison`, `target=compare_tcgplayer`).
 - Mobile sticky CTA click to form submission.
 - Desktop sticky CTA click to form submission.
 - Optional marketing consent checked to submitted signup (final-CTA variant only; early-access consent is implied and untracked as a discrete opt-in).
@@ -50,8 +51,16 @@ First experiments to run:
 
 - Hero promise: seller margin headline versus buyer-total clarity headline.
 - CTA framing: "Request early access" with seller-beta context versus seller-beta-only access wording.
-- Founder proof: eligibility language in final CTA versus a dedicated status panel.
 - Mobile sticky CTA enabled versus hidden.
+
+Landing identities on `/` (#8503):
+
+- `section_viewed` fires for the seven sections, in order: `hero`, `game_roster`, `open_offers`, `fee_comparison`, `founders_offer`, `final_cta`
+  and the closing questions section.
+- `disclosure_opened` fires only for `fee_comparison_source_note`; the collapsed questions group emits nothing, like `compare_faq`.
+- `waitlist_form_started` field values on `/` are `email`, `role`, `interests` and `marketingConsent`. The seller cohort-quality fields (games, inventory size, store link) are collected on `/welcome`, not the landing forms.
+- The `fee_calculator` section and its `copy_share_link` / `compare_<competitor>` CTA tuples live on the `/compare/*` pages only.
+- The seller-tools, launch-timeline, product-preview and founder-story identities are retired and no longer emitted.
 
 The OpenTelemetry bridge is directional funnel observability, not transactional truth. It may duplicate client events and must never block the landing page or waitlist submission. Durable signup truth remains the Public Presence waitlist domain and read model.
 

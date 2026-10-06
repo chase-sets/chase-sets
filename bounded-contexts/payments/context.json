@@ -610,7 +610,19 @@
       ]
     }
   ],
-  "shellContributions": [],
+  "shellContributions": [
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "key": "payment-methods",
+      "label": "Payment methods",
+      "icon": "creditCard",
+      "href": "/account/payment-methods",
+      "order": 210,
+      "visibility": "signed-in",
+      "requiredPermissions": []
+    }
+  ],
   "directoryIntent": {
     "payments": {
       "classification": "slice",

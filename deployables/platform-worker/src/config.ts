@@ -30,6 +30,7 @@ import {
 } from "@chase-sets/platform-runtime/runtime-profiles";
 import { workerContextRegistry } from "./generated/worker-context-registry";
 import { parseChannelCredentialKeyring, type ChannelCredentialKeyring } from "@chase-sets/channels/server";
+import { parseSecretEnvelopeKeyring, type SecretEnvelopeKeyring } from "@chase-sets/platform-runtime/secret-envelope";
 
 export type PlatformWorkerContextName = WorkerHostContextName<typeof workerContextRegistry>;
 
@@ -37,6 +38,7 @@ export type PlatformWorkerPoolConfig = PlatformPoolConfig;
 
 export type PlatformWorkerConfig = Readonly<{
   channelCredentialKeyring: ChannelCredentialKeyring | null;
+  catalogOperatorSessionKeyring: SecretEnvelopeKeyring | null;
   runtimeProfile: PlatformWorkerRuntimeProfile;
   deploymentEnvironment: DeploymentEnvironment;
   sharedDatabaseUrl: string | null;
@@ -244,6 +246,8 @@ export function getContextListenerDatabaseEnvName(contextName: PlatformWorkerCon
 }
 
 export function loadConfig(): PlatformWorkerConfig {
+  const catalogOperatorSessionKeyring = parseSecretEnvelopeKeyring(process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON);
+  loadCatalogProviderSendWindowEnabled(process.env);
   const runtimeProfile = loadRuntimeProfile();
   const deploymentEnvironment = loadDeploymentEnvironment();
   const productionLike = deploymentEnvironment === "production";
@@ -590,8 +594,9 @@ export function loadConfig(): PlatformWorkerConfig {
         "EASYPOST_API_KEY is required for platform worker postage label work in production.",
       includeWebhookSecret: false,
     }),
-    tcgplayerAutomation: loadTcgplayerAutomationConfig(),
+    tcgplayerAutomation: loadTcgplayerAutomationConfig(catalogOperatorSessionKeyring !== null),
     channelCredentialKeyring: parseChannelCredentialKeyring(process.env.CHANNELS_CREDENTIAL_KEYRING_JSON),
+    catalogOperatorSessionKeyring,
     googleMerchant: loadGoogleMerchantConfig({
       syncEnabled: googleMerchantSyncEnabled,
       dryRun: googleMerchantDryRun,
@@ -786,3 +791,4 @@ function getUserIdListEnv(name: string): readonly string[] {
   }
   return userIds.sort((left, right) => left.localeCompare(right));
 }
+import { loadCatalogProviderSendWindowEnabled } from "@chase-sets/platform-runtime/config-schema";

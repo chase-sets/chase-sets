@@ -42,6 +42,7 @@
     "./pwa": "./pwa.ts",
     "./runtime-profiles": "./runtime-profiles.ts",
     "./signed-payload": "./signed-payload.ts",
+    "./secret-envelope": "./secret-envelope.ts",
     "./runtime-lifecycle": "./runtime-lifecycle.ts",
     "./retention-sweep": "./retention-sweep.ts",
     "./source-context-wake-registry": "./source-context-wake-registry.ts",
@@ -56,6 +57,7 @@
     "./web-route-config": "./web-route-config.ts",
     "./work-signal-store": "./work-signal-store.ts",
     "./worker": "./worker.ts",
+    "./worker-observer": "./worker-observer.ts",
     "./worker-capacity": "./worker-capacity.ts"
   },
   "scripts": {
