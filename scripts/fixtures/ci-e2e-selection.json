@@ -2169,6 +2169,11 @@
       ],
       "suiteIds": ["marketplace_browse", "marketplace_seller", "catalog_admin_integrations"],
       "batches": ["catalog_admin_integrations", "marketplace_browse,marketplace_seller"]
+    },
+    {
+      "changedFiles": ["bounded-contexts/auth/support/runtime-support/seed.ts"],
+      "suiteIds": ["marketplace_account", "admin_auth"],
+      "batches": ["marketplace_account,admin_auth"]
     }
   ]
 }
