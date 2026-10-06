@@ -722,6 +722,10 @@ export function e2eSuiteIdsForChangedFile(filePath) {
     return isDesignSystemNavigationFile(normalized) ? allBrowserSuiteIds : allMarketplaceSuiteIds;
   }
 
+  if (normalized === "bounded-contexts/auth/support/runtime-support/seed.ts") {
+    return boundedContextSuiteIdsForChangedFile(normalized, "auth");
+  }
+
   const boundedContextMatch = normalized.match(
     /^bounded-contexts\/([^/]+)\/(?:(?:routes\/)|(?:features\/[^/]+\/(?:api|ui)\/)|(?:support\/shell-support\/))/,
   );

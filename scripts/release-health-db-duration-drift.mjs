@@ -25,6 +25,10 @@ const MAX_ITEMS = 1000;
 const DETECTION_SAMPLE_SIZE = 10;
 const DAY_MS = 86_400_000;
 const RERUN_HORIZON_MS = 30 * DAY_MS + DAY_MS;
+const SPLIT_TOPOLOGY = "api-other/v1";
+const LEGACY_TOPOLOGY = "monolithic/v1";
+const API_WORKSPACE = "@chase-sets/app-platform-api";
+const splitJobNames = ["DB Profile Tests (api)", "DB Profile Tests (other)"];
 
 export function upperMedian(values) {
   if (!values.length || values.some((value) => !Number.isSafeInteger(value) || value <= 0)) {
@@ -43,7 +47,7 @@ export function dbWorkspaceCensus(workspaces = listWorkspacePackages()) {
   return names;
 }
 
-export function classifyDbJob({ run, job, log, workspaceNames }) {
+export function classifyDbJob({ run, job, log, workspaceNames, exactCensus = false }) {
   const exclude = (reason) => ({ eligible: false, runId: run.id, jobId: job.id, reason });
   if (run.event !== "merge_group") return exclude("not-merge-group");
   if (job.status !== "completed" || job.conclusion !== "success") return exclude(`job-${job.conclusion ?? job.status}`);
@@ -67,6 +71,7 @@ export function classifyDbJob({ run, job, log, workspaceNames }) {
   const tasks = new Map(summary.tasks.map((task) => [task.workspace, task]));
   if (tasks.size !== summary.tasks.length) return exclude("duplicate-workspace");
   if (workspaceNames.some((name) => !tasks.has(name))) return exclude("scoped-summary");
+  if (exactCensus && tasks.size !== workspaceNames.length) return exclude("unexpected-workspace");
   const workspaces = Object.fromEntries(workspaceNames.map((name) => [name, tasks.get(name).actualDurationMs]));
   if (Object.values(workspaces).some((ms) => ms <= 0)) return exclude("nonpositive-duration");
   const started = parseBaselineInstant(job.started_at);
@@ -82,6 +87,87 @@ export function classifyDbJob({ run, job, log, workspaceNames }) {
     jobWallMs: completed - started,
     reason: "complete-green-summary-validated",
   };
+}
+
+// One observation is a causal pair, not two samples or a synthetic job.
+export function classifyDbJobPair({ run, members, workspaceNames }) {
+  if (members.length !== 2 || new Set(members.map(({ job }) => job.id)).size !== 2)
+    throw new Error("Missing or duplicate DB pair.");
+  const ordered = splitJobNames.map((name) => {
+    const matches = members.filter(({ job }) => job.name === name);
+    if (matches.length !== 1) throw new Error(`Missing or duplicate DB pair member: ${name}`);
+    return matches[0];
+  });
+  if (!workspaceNames.includes(API_WORKSPACE) || new Set(workspaceNames).size !== workspaceNames.length)
+    throw new Error("Invalid split workspace census.");
+  const results = ordered.map(({ job, log }, index) => {
+    validateDbJobAuthority(run, job);
+    if (job.run_attempt !== ordered[0].job.run_attempt) throw new Error("Cross-attempt DB pair.");
+    return classifyDbJob({
+      run,
+      job,
+      log,
+      exactCensus: true,
+      workspaceNames: workspaceNames.filter((name) => (name === API_WORKSPACE) === (index === 0)),
+    });
+  });
+  const rejected = results.find((result) => !result.eligible);
+  if (rejected) return rejected;
+  const started = Math.min(...ordered.map(({ job }) => parseBaselineInstant(job.started_at)));
+  const completed = Math.max(...ordered.map(({ job }) => parseBaselineInstant(job.completed_at)));
+  if (completed - started > DAY_MS) throw new Error("Invalid DB pair span.");
+  return {
+    ...results[0],
+    topology: SPLIT_TOPOLOGY,
+    runAttempt: ordered[0].job.run_attempt,
+    workflowPath: run.path,
+    completedAt: new Date(completed).toISOString(),
+    workspaces: Object.assign({}, ...results.map((result) => result.workspaces)),
+    jobWallMs: completed - started,
+    sources: ordered.map(({ job }) => ({
+      jobId: job.id,
+      name: job.name,
+      startedAt: job.started_at,
+      completedAt: job.completed_at,
+    })),
+    reason: "complete-green-pair-validated",
+  };
+}
+
+function validateDbJobAuthority(run, job) {
+  if (
+    run.event !== "merge_group" ||
+    run.path !== ".github/workflows/platform-pr.yml" ||
+    !/^[a-f0-9]{40}$/.test(run.head_sha) ||
+    !Number.isSafeInteger(run.id) ||
+    run.id < 1 ||
+    !Number.isSafeInteger(run.run_attempt) ||
+    run.run_attempt < 1 ||
+    !Number.isSafeInteger(job.id) ||
+    job.id < 1 ||
+    job.run_id !== run.id ||
+    job.head_sha !== run.head_sha ||
+    !Number.isSafeInteger(job.run_attempt) ||
+    job.run_attempt < 1 ||
+    job.run_attempt > run.run_attempt
+  )
+    throw new Error(`Job identity mismatch: ${job.id}`);
+  if (job.status !== "completed" || job.conclusion !== "success") return;
+  const execution = job.steps?.filter((step) => step.name === "Run DB-profile tests");
+  if (execution?.length !== 1 || execution[0].status !== "completed" || execution[0].conclusion !== "success")
+    throw new Error(`DB execution step authority missing: ${job.id}`);
+  const stepStart = parseBaselineInstant(execution[0].started_at);
+  const stepEnd = parseBaselineInstant(execution[0].completed_at);
+  const started = parseBaselineInstant(job.started_at);
+  const completed = parseBaselineInstant(job.completed_at);
+  if (completed <= started || completed - started > DAY_MS) throw new Error(`Invalid job wall time: ${job.id}`);
+  if (
+    started < parseBaselineInstant(run.created_at) ||
+    stepStart < started ||
+    stepEnd > completed ||
+    stepEnd < stepStart
+  )
+    throw new Error(`DB execution timestamps contradict job: ${job.id}`);
 }
 
 function latestUniqueJobs(jobs) {
@@ -115,7 +201,9 @@ export function buildDbDurationDigest({
   recompute = false,
 }) {
   validateDbDurationBaseline(baseline);
-  const ratified = baseline.recomputes.at(-1);
+  const previous = baseline.recomputes.at(-1);
+  const topologyChanged = previous && collection.topology && collection.baselineTopology !== collection.topology;
+  const ratified = topologyChanged ? undefined : previous;
   const result = {
     schemaVersion: "db-duration-drift/v1",
     checkedAt,
@@ -132,6 +220,15 @@ export function buildDbDurationDigest({
     excluded: collection.excluded,
     workspaceNames,
     collection: { status: collection.status, reasons: collection.reasons },
+    ...(collection.topology
+      ? {
+          topology: collection.topology,
+          baselineTopology: collection.baselineTopology ?? null,
+          topologyChanged: Boolean(topologyChanged),
+          observations: collection.jobs,
+          baselineSources: collection.baselineSources ?? [],
+        }
+      : {}),
   };
   if (collection.status !== "complete") return result;
   const now = parseBaselineInstant(checkedAt);
@@ -186,6 +283,8 @@ export async function recomputeDbDurationBaseline({
 }) {
   if (collection.status !== "complete") throw new Error("unknown: incomplete collection; record unchanged.");
   const jobs = latestUniqueJobs(collection.jobs).slice(0, RECOMPUTE_SAMPLE_SIZE);
+  if (new Set(jobs.map((job) => job.topology ?? LEGACY_TOPOLOGY)).size > 1)
+    throw new Error("Mixed observation topologies; record unchanged.");
   if (jobs.length < RECOMPUTE_SAMPLE_SIZE)
     throw new Error("insufficient-cohort: exactly 20 eligible jobs required; record unchanged.");
   const original = await read(baselinePath, "utf8");
@@ -304,9 +403,67 @@ async function collectPages(request, suffix, field) {
 export async function collectDbDurationJobs(options) {
   const jobs = [];
   const excluded = [];
+  const topology = options.topology ?? SPLIT_TOPOLOGY;
+  const baselineSources = [];
+  let baselineTopology = topology === LEGACY_TOPOLOGY ? LEGACY_TOPOLOGY : undefined;
+  const finish = (status = "complete", reasons = []) => ({
+    status,
+    reasons,
+    jobs,
+    excluded,
+    topology,
+    baselineTopology,
+    baselineSources,
+  });
   try {
+    if (![SPLIT_TOPOLOGY, LEGACY_TOPOLOGY].includes(topology)) throw new Error("Unknown DB topology.");
     const request = apiClient(options);
-    const required = options.required ?? RECOMPUTE_SAMPLE_SIZE;
+    const readObservation = async (run, members) => {
+      const evidence = [];
+      for (const job of members) {
+        const { payload: log } = await request(`actions/jobs/${job.id}/logs`, { log: true });
+        evidence.push({ job, log });
+      }
+      return members.length === 2
+        ? classifyDbJobPair({ run, members: evidence, workspaceNames: options.workspaceNames })
+        : {
+            ...classifyDbJob({ run, ...evidence[0], workspaceNames: options.workspaceNames }),
+            topology: LEGACY_TOPOLOGY,
+          };
+    };
+    // Resolve schema-v1 anchors through their actual owning run/attempt. No new
+    // baseline schema, guessed cutover timestamp, or cross-topology wall comparison.
+    for (const id of options.baselineJobIds ?? []) {
+      const { payload: anchor } = await request(`actions/jobs/${id}`);
+      if (anchor.id !== id) throw new Error("Baseline anchor identity mismatch.");
+      const { payload: run } = await request(`actions/runs/${anchor.run_id}`);
+      const inventory = await collectPages(request, `actions/runs/${run.id}/jobs?filter=all`, "jobs");
+      const members = inventory.filter(
+        (job) => job.run_attempt === anchor.run_attempt && ["DB Profile Tests", ...splitJobNames].includes(job.name),
+      );
+      const sourceTopology = anchor.name === "DB Profile Tests" ? LEGACY_TOPOLOGY : SPLIT_TOPOLOGY;
+      if (
+        members.length !== (sourceTopology === LEGACY_TOPOLOGY ? 1 : 2) ||
+        !members.some((job) => job.id === id) ||
+        (sourceTopology === SPLIT_TOPOLOGY && anchor.name !== splitJobNames[0])
+      )
+        throw new Error("Baseline anchor has no complete owning observation.");
+      members.forEach((job) => validateDbJobAuthority(run, job));
+      const observation = await readObservation(run, members);
+      if (
+        !observation.eligible ||
+        observation.jobId !== id ||
+        parseBaselineInstant(observation.completedAt) > parseBaselineInstant(options.checkedAt)
+      )
+        throw new Error("Baseline source is not an eligible owning observation.");
+      if (baselineTopology && baselineTopology !== sourceTopology) throw new Error("Mixed baseline topologies.");
+      baselineTopology = sourceTopology;
+      baselineSources.push(observation);
+    }
+    const required =
+      baselineTopology && baselineTopology !== topology
+        ? RECOMPUTE_SAMPLE_SIZE
+        : (options.required ?? RECOMPUTE_SAMPLE_SIZE);
     const createdAfter = options.createdAfter ?? PRODUCER_CREATED_AT;
     const pending = [];
     const jobIds = new Set();
@@ -316,9 +473,8 @@ export async function collectDbDurationJobs(options) {
     const drain = async (unscannedCompletionBound) => {
       pending.sort((a, b) => b.completed - a.completed || b.job.id - a.job.id);
       while (pending.length && pending[0].completed > unscannedCompletionBound && jobs.length < required) {
-        const { run, job } = pending.shift();
-        const { payload: log } = await request(`actions/jobs/${job.id}/logs`, { log: true });
-        const result = classifyDbJob({ run, job, log, workspaceNames: options.workspaceNames });
+        const { run, members } = pending.shift();
+        const result = await readObservation(run, members);
         if (result.eligible) jobs.push(result);
         else excluded.push(result);
       }
@@ -341,7 +497,7 @@ export async function collectDbDurationJobs(options) {
         )
           throw new Error(`Run creation ordering or window mismatch: ${run.id}`);
         previousCreated = created;
-        if (await drain(created + RERUN_HORIZON_MS)) return { status: "complete", reasons: [], jobs, excluded };
+        if (await drain(created + RERUN_HORIZON_MS)) return finish();
         scanned++;
         if (
           run.event !== "merge_group" ||
@@ -353,53 +509,48 @@ export async function collectDbDurationJobs(options) {
           throw new Error(`Run identity mismatch: ${run.id}`);
         }
         const inventory = await collectPages(request, `actions/runs/${run.id}/jobs?filter=all`, "jobs");
-        const candidates = inventory.filter((job) => job.name === "DB Profile Tests");
-        if (!candidates.length || new Set(candidates.map((job) => job.run_attempt)).size !== candidates.length)
-          throw new Error(`Missing or duplicate DB job: ${run.id}`);
+        const candidates = inventory.filter((job) => ["DB Profile Tests", ...splitJobNames].includes(job.name));
+        if (!candidates.length) throw new Error(`Missing or duplicate DB job: ${run.id}`);
         for (const job of candidates) {
-          if (
-            jobIds.has(job.id) ||
-            job.run_id !== run.id ||
-            job.head_sha !== run.head_sha ||
-            !Number.isSafeInteger(job.run_attempt) ||
-            job.run_attempt < 1 ||
-            job.run_attempt > run.run_attempt
-          )
-            throw new Error(`Job identity mismatch: ${job.id}`);
+          if (jobIds.has(job.id)) throw new Error(`Job identity mismatch: ${job.id}`);
           jobIds.add(job.id);
-          if (job.status !== "completed" || job.conclusion !== "success") {
-            excluded.push({ runId: run.id, jobId: job.id, reason: `job-${job.conclusion ?? job.status}` });
+          validateDbJobAuthority(run, job);
+        }
+        for (const attempt of new Set(candidates.map((job) => job.run_attempt))) {
+          const members = candidates.filter((job) => job.run_attempt === attempt);
+          const legacy = members.length === 1 && members[0].name === "DB Profile Tests";
+          if (
+            !legacy &&
+            (members.length !== 2 ||
+              splitJobNames.some((name) => members.filter((job) => job.name === name).length !== 1))
+          )
+            throw new Error(`Missing or duplicate DB pair: ${run.id}/${attempt}`);
+          if ((legacy ? LEGACY_TOPOLOGY : SPLIT_TOPOLOGY) !== topology) {
+            excluded.push({ runId: run.id, runAttempt: attempt, reason: "different-topology" });
             continue;
           }
-          const execution = job.steps?.filter((step) => step.name === "Run DB-profile tests");
-          if (execution?.length !== 1 || execution[0].status !== "completed" || execution[0].conclusion !== "success")
-            throw new Error(`DB execution step authority missing: ${job.id}`);
-          const stepStart = parseBaselineInstant(execution[0].started_at);
-          const stepEnd = parseBaselineInstant(execution[0].completed_at);
-          const started = parseBaselineInstant(job.started_at);
-          const completed = parseBaselineInstant(job.completed_at);
-          if (completed <= started || completed - started > DAY_MS) throw new Error(`Invalid job wall time: ${job.id}`);
-          if (
-            stepStart < parseBaselineInstant(job.started_at) ||
-            stepEnd > parseBaselineInstant(job.completed_at) ||
-            stepEnd < stepStart
-          )
-            throw new Error(`DB execution timestamps contradict job: ${job.id}`);
+          const job = members.find((member) => member.name === splitJobNames[0]) ?? members[0];
+          const red = members.find((member) => member.status !== "completed" || member.conclusion !== "success");
+          if (red) {
+            excluded.push({ runId: run.id, jobId: red.id, reason: `job-${red.conclusion ?? red.status}` });
+            continue;
+          }
+          const completed = Math.max(...members.map((member) => parseBaselineInstant(member.completed_at)));
+          if (completed > parseBaselineInstant(options.checkedAt)) throw new Error("Future job completion.");
           if (options.completedAfter !== undefined && completed < options.completedAfter) {
             excluded.push({ runId: run.id, jobId: job.id, reason: "outside-detection-window" });
             continue;
           }
-          pending.push({ run, job, completed });
+          pending.push({ run, job, members, completed });
         }
-        if (scanned === MAX_ITEMS && (await drain(created + RERUN_HORIZON_MS)))
-          return { status: "complete", reasons: [], jobs, excluded };
+        if (scanned === MAX_ITEMS && (await drain(created + RERUN_HORIZON_MS))) return finish();
       }
     }
     await drain(-Infinity);
     latestUniqueJobs(jobs);
-    return { status: "complete", reasons: [], jobs, excluded };
+    return finish();
   } catch (error) {
-    return { status: "unknown", reasons: [error.message], jobs, excluded };
+    return finish("unknown", [error.message]);
   }
 }
 
@@ -473,6 +624,9 @@ export async function runDbDurationDrift(options) {
       createdAfter,
       completedAfter,
       required: detecting ? DETECTION_SAMPLE_SIZE : RECOMPUTE_SAMPLE_SIZE,
+      ...((options.topology ?? SPLIT_TOPOLOGY) === SPLIT_TOPOLOGY
+        ? { baselineJobIds: baseline.recomputes.at(-1)?.sampleJobIds ?? [] }
+        : {}),
     });
     digest = buildDbDurationDigest({ ...options, baseline, collection, workspaceNames });
     if (options.recompute) {

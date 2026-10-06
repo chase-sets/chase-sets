@@ -2,6 +2,15 @@
   "schemaVersion": "workspace-unit-duration-replay/v1",
   "observations": [
     {
+      "runId": 37353357078,
+      "runAttempt": 1,
+      "jobId": 111909665235,
+      "invocation": "test:unit--test-profile=db",
+      "workspace": "@chase-sets/commercial-terms",
+      "script": "test:unit",
+      "observedDurationMs": 14600
+    },
+    {
       "runId": 37166190361,
       "runAttempt": 1,
       "jobId": 111329590581,
@@ -108,15 +117,6 @@
       "workspace": "@chase-sets/checkout-order-source",
       "script": "test",
       "observedDurationMs": 3849
-    },
-    {
-      "runId": 30054895589,
-      "runAttempt": 1,
-      "jobId": 89364607063,
-      "invocation": "test--exclude-test-profile=db",
-      "workspace": "@chase-sets/commercial-terms",
-      "script": "test",
-      "observedDurationMs": 24946
     },
     {
       "runId": 30054895589,
@@ -594,15 +594,6 @@
       "workspace": "@chase-sets/authenticity",
       "script": "test",
       "observedDurationMs": 6611
-    },
-    {
-      "runId": 30060154233,
-      "runAttempt": 1,
-      "jobId": 89380059115,
-      "invocation": "test--exclude-test-profile=db",
-      "workspace": "@chase-sets/commercial-terms",
-      "script": "test",
-      "observedDurationMs": 25636
     },
     {
       "runId": 30060154233,

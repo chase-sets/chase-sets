@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
-import { createMemoryRouter, RouterProvider } from "react-router";
+import { act, cleanup, render, screen } from "@testing-library/react";
+import { createMemoryRouter, RouterProvider, useLoaderData } from "react-router";
 import { SupportOperationsPage } from "./support-operations-page";
 import type { SupportRequestDetail, SupportRequestListItem } from "./contracts";
 
@@ -76,6 +76,98 @@ function renderPage(props: Partial<Parameters<typeof SupportOperationsPage>[0]> 
 describe("SupportOperationsPage", () => {
   afterEach(() => {
     cleanup();
+  });
+
+  it("AC1 renders the Unresolved chip, returned rows and selected-view count", () => {
+    renderPage({
+      queue: { items: [buildQueueItem({ status: "waiting-on-seller" })], total: 5, count: 1 },
+      filters: { status: "unresolved", priority: "all", search: "", flowType: "all", contested: false, overdue: false },
+      pagination: { limit: 2, offset: 2 },
+    });
+    expect(screen.getByRole("button", { name: "Unresolved" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText("Status: Unresolved")).toBeTruthy();
+    expect(screen.getByText("Showing 1 of 5")).toBeTruthy();
+    expect(screen.getAllByText("SUP-TEST1234")).toHaveLength(2);
+    expect(screen.getByRole("navigation", { name: "Pagination" })).toBeTruthy();
+  });
+
+  it("AC1 shows the decided unresolved empty state without triage-only description", () => {
+    renderPage({
+      filters: { status: "unresolved", priority: "all", search: "", flowType: "all", contested: false, overdue: false },
+    });
+    expect(screen.getByText("No unresolved support requests")).toBeTruthy();
+    expect(screen.queryByText("No requests need support review")).toBeNull();
+    expect(
+      screen.queryByText(
+        "Urgent, overdue, and ready-for-support requests appear here when marketplace support needs operator attention.",
+      ),
+    ).toBeNull();
+  });
+
+  it.each(["resolved", "closed", "cancelled"])("AC2 renders selected %s cases and search", (status) => {
+    renderPage({
+      queue: { items: [buildQueueItem({ status })], total: 1, count: 1 },
+      filters: { status, priority: "all", search: "SUP-TEST1234", flowType: "all", contested: false, overdue: false },
+    });
+    const label = status[0]!.toUpperCase() + status.slice(1);
+    expect(screen.getByRole("button", { name: label }).getAttribute("aria-pressed")).toBe("true");
+    expect((screen.getByLabelText("Search") as HTMLInputElement).value).toBe("SUP-TEST1234");
+    expect(screen.getAllByText("SUP-TEST1234")).toHaveLength(2);
+    expect(screen.getByText("Showing 1 of 1")).toBeTruthy();
+  });
+
+  it("AC3 labels the selected default chip Needs attention", () => {
+    renderPage();
+    expect(screen.getByRole("button", { name: "Needs attention" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByRole("button", { name: "All statuses" })).toBeNull();
+  });
+
+  it("AC5 retains unresolved selection, count, rows and links after reload and browser back", async () => {
+    const filters = {
+      status: "unresolved",
+      priority: "all",
+      search: "",
+      flowType: "all",
+      contested: false,
+      overdue: false,
+    };
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/support/requests",
+          loader: ({ request }) => ({ status: new URL(request.url).searchParams.get("status") ?? "all" }),
+          Component: function QueuePage() {
+            const { status } = useLoaderData<{ status: string }>();
+            return (
+              <SupportOperationsPage
+                filters={{ ...filters, status }}
+                pagination={{ limit: 2, offset: 2 }}
+                queue={{ items: [buildQueueItem({ status: "waiting-on-seller" })], total: 5, count: 1 }}
+              />
+            );
+          },
+        },
+      ],
+      { initialEntries: ["/support/requests?status=unresolved&limit=2&offset=2"] },
+    );
+    render(<RouterProvider router={router} />);
+    expect((await screen.findByRole("button", { name: "Unresolved" })).getAttribute("aria-pressed")).toBe("true");
+    await act(async () => {
+      await router.revalidate();
+    });
+    await act(async () => {
+      await router.navigate("/support/requests?status=resolved");
+    });
+    expect(screen.getByRole("button", { name: "Resolved" }).getAttribute("aria-pressed")).toBe("true");
+    await act(async () => {
+      await router.navigate(-1);
+    });
+    expect(screen.getByRole("button", { name: "Unresolved" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText("Showing 1 of 5")).toBeTruthy();
+    expect(screen.getAllByText("SUP-TEST1234")).toHaveLength(2);
+    for (const link of screen.getAllByRole("link", { name: "Open" })) {
+      expect(link.getAttribute("href")).toContain("status=unresolved&limit=2&offset=2");
+    }
   });
 
   it("renders URL-persisted status, priority, and search filters as applied filter chips", () => {

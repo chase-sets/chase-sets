@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
 import { ADMIN_WEB_API_DEPENDENCIES } from "./admin-shell-smoke-matrix.mjs";
 import { classifyChanges } from "./change-scope.mjs";
 import { parseReleaseDeploymentScopeArgs, resolveReleaseDeploymentScope } from "./release-deployment-scope.mjs";
@@ -1613,8 +1614,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformStagingResetWorkflow).toContain("group: platform-registry-mutation");
     expect(platformStagingResetWorkflow).toContain("group: platform-deploy-staging");
     expect(platformRegistryCleanupWorkflow).toContain("DOCR garbage collection makes the registry read-only");
-    expect(platformProductionWorkflow).toContain(
-      'docker buildx imagetools create --tag "$release_image" "${promoted_image}@${promoted_digest}"',
+    expect(
+      workflowStep(workflowJob(platformProductionWorkflow, "deploy-production"), "Mark production release"),
+    ).toContain("node ./scripts/production-release-marker.mjs publish");
+    expect(readFileSync(resolve("scripts/production-release-marker.mjs"), "utf8")).toMatch(
+      /"docker",\s*\["buildx",\s*"imagetools",\s*"create",\s*"--tag",\s*image,/,
     );
     expect(platformStagingResetWorkflow).toContain("Staging reset rebuilds and pushes the platform image");
     expect(deployLaneStep).toContain('const workflows = ["platform-production.yml", "platform-staging-reset.yml"];');
@@ -1938,11 +1942,48 @@ describe("DigitalOcean platform configuration", () => {
     expect(dbProfileJob).toContain("path: deployables/platform-api/artifacts/bootstrap-db-evidence");
     expect(dbProfileJob).toContain("if-no-files-found: error");
     expect(dbProfileJob).toContain(
-      'run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2 --workspace-list="${{ needs[\'change-scope\'].outputs.affected_workspaces }}"',
+      'run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2 --workspace-list="${{ needs[\'change-scope\'].outputs.affected_workspaces }}" --db-workspace-group=${{ matrix.db-workspace-group }}',
     );
     expect(readFileSync(resolve("package.json"), "utf8")).toContain(
       '"verify:test-db": "node ./scripts/db-test-preflight.mjs && node ./scripts/run-workspaces.mjs \\"test:db*\\" --concurrency=2"',
     );
+  });
+
+  it("requires both isolated DB cells, including empty-group success, before aggregation or preview", () => {
+    const job = parse(platformPrWorkflow).jobs["db-tests"];
+    expect(job.name).toBe("DB Profile Tests (${{ matrix.db-workspace-group }})");
+    expect(job.strategy).toEqual({
+      "fail-fast": false,
+      "max-parallel": 2,
+      matrix: { "db-workspace-group": ["api", "other"] },
+    });
+    expect(job["continue-on-error"]).toBeUndefined();
+    expect(job["timeout-minutes"]).toBe(30);
+    const execution = job.steps.filter((step) => step.name === "Run DB-profile tests");
+    expect(execution).toHaveLength(1);
+    expect(execution[0].if).toBeUndefined();
+    expect(execution[0]["continue-on-error"]).toBeUndefined();
+    const prerequisite = workflowPrerequisite(
+      workflowJobCondition(platformPrWorkflow, "preview-deploy-smoke"),
+      "db_tests_required",
+      "db-tests",
+    );
+    const call = workflowRequiredCall(workflowJob(platformPrWorkflow, "pr-required"), "DB Profile Tests");
+    for (const api of ["success", "failure", "cancelled", "skipped", ""]) {
+      for (const other of ["success", "failure", "cancelled", "skipped", ""]) {
+        // Actions aggregates a non-optional matrix dependency; only a complete
+        // all-success pair may supply success. A zero-task cell still executes.
+        const aggregate = [api, other].every((result) => result === "success") ? "success" : "failure";
+        const values = {
+          "needs['db-tests'].result": aggregate,
+          "needs['change-scope'].outputs.db_tests_required": "true",
+        };
+        expect(evaluateWorkflowBooleanExpression(prerequisite, values)).toBe(api === "success" && other === "success");
+        expect(evaluateRequiredWorkflowCall(call, { targetedHeavyRequired: false, templateValues: values })).toBe(
+          api === "success" && other === "success",
+        );
+      }
+    }
   });
 
   it("evaluates the preview DB prerequisite truth table and retained-bypass mutant from workflow text", () => {
@@ -2991,6 +3032,39 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(releaseHealthStep).toContain(
       "ROLLBACK_WORKLOAD_IDENTITIES: ${{ steps.production_rollback.outputs.rollback_workload_identities || '[]' }}",
+    );
+  });
+
+  it("binds production marker recovery callers and handoff outputs to the verified producer", () => {
+    const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const recoveryStep = workflowStep(productionJob, "Capture production rollback target");
+    const markerStep = workflowStep(productionJob, "Mark production release");
+    const transitionStep = workflowStep(productionJob, "Verify production Kubernetes deployment transition");
+    for (const step of [recoveryStep, markerStep, transitionStep]) {
+      expect(step).toContain("GITHUB_TOKEN: ${{ github.token }}");
+      expect(step).toContain("RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}");
+      expect(step).toContain("RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}");
+    }
+    expect(recoveryStep).toContain("production-release-marker.mjs reconcile");
+    expect(recoveryStep.indexOf("production-release-marker.mjs reconcile")).toBeLessThan(
+      recoveryStep.indexOf("git fetch origin production --tags"),
+    );
+    expect(markerStep).toContain("production-release-marker.mjs publish");
+    expect(transitionStep).toContain("production-release-marker.mjs retain-identity");
+    expect(recoveryStep).not.toContain("id: production_marker");
+    for (const name of ["Write promoted release handoff", "Upload promoted release handoff"]) {
+      expect(workflowStep(productionJob, name)).toContain(
+        "if: steps.production_marker.outputs.marker_updated == 'true'",
+      );
+    }
+    expect(workflowStep(productionJob, "Write promoted release handoff")).toContain(
+      '--producer-run-attempt "${{ github.run_attempt }}"',
+    );
+    expect(workflowStep(productionJob, "Resolve terminal release state")).toContain(
+      "steps.production_marker.outputs.marker_updated || 'false'",
+    );
+    expect(workflowStep(productionJob, "Write release health summary")).toContain(
+      "steps.production_marker.outputs.marker_mismatch == 'true'",
     );
   });
 

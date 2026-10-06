@@ -1,19 +1,8 @@
 import catalogManifest from "@chase-sets/catalog/context";
 import { createHash } from "node:crypto";
 import { afterEach, expect, it, vi } from "vitest";
-import {
-  admin,
-  adminPath,
-  deniedOrigins,
-  database,
-  describeDb,
-  mint,
-  mounted,
-  operator,
-  snapshot,
-  transport,
-  unpair,
-} from "./fixture";
+import { admin, adminPath, deniedOrigins, mint, mounted, operator, snapshot, transport, unpair } from "./fixture";
+import { database, describeDb } from "./db-fixture";
 
 afterEach(() => vi.useRealTimers());
 describeDb("mounted operator grant mint authority", () => {
