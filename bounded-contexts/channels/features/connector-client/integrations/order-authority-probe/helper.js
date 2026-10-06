@@ -36,7 +36,7 @@
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  function countRecord(searchRange, after = false) {
+  function countRecord(searchRange) {
     const portalLabel = searchRange === "LastTwoYears" ? "Last 2 years" : "Last 90 days";
     let dateFilter = prompt(
       `Expected date filter: ${portalLabel} (${searchRange}). Confirm the visible filter as LastTwoYears or LastThreeMonths before reading the count. No identifiers; Cancel stops.`,
@@ -44,10 +44,11 @@
     if (dateFilter === null) throw new Error("canceled");
     const reprompted = dateFilter !== searchRange;
     if (reprompted) {
-      dateFilter = prompt(`Re-select ${portalLabel} in the portal, then confirm the visible filter`);
+      dateFilter = prompt(
+        `Re-select ${portalLabel} in the portal, wait for the count to update, then confirm the visible filter`,
+      );
       if (dateFilter === null) throw new Error("canceled");
       if (dateFilter !== searchRange) {
-        if (!after) throw new Error("date_filter_mismatch");
         return {
           count: null,
           dateFilter: ["LastTwoYears", "LastThreeMonths"].includes(dateFilter) ? dateFilter : null,
@@ -121,7 +122,7 @@
           finished = true;
           return exportReceipt(search.receipt);
         }
-        const after = countRecord(searchRange, true);
+        const after = countRecord(searchRange);
         qualification = await send({
           kind: "counts",
           ...after,

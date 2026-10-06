@@ -129,6 +129,7 @@ This preparation itself is PENDING_HOST_VERIFIER, not a qualification PASS.
    Confirm extension ID ${id}. Open ${preparation.captureUrl}.
    Before run(), privately pre-select one order number for each available Shipped - In Transit,
    Shipped - Delivered, Completed - Paid and Canceled bucket; declare unavailable buckets absent.
+   Keep pre-selected order numbers only in the open portal view, not in notes, files or a retained clipboard; clear the clipboard after entry.
    In that helper's console invoke only: await orderAuthorityCapture.run()
    No arguments. Use native prompts only; never enter identifiers in console/URL/logs.
    Keep the complete operator session, including sign-in, prompts and removal, within 15 minutes; use an operator timer.
@@ -138,8 +139,9 @@ This preparation itself is PENDING_HOST_VERIFIER, not a qualification PASS.
    After one lookup and the cadence wait, confirm the visible date filter first, then read the Ready to Ship count once immediately before search.
    Immediately after search, confirm the visible filter first, then read the count once and confirm unchanged seller/session.
    The helper refuses a filter other than the current worker range and offers exactly one re-prompt per bracket.
-   A second mismatch stops that search: before the bracket no search is dispatched; after it the selector is unknown/date_filter_mismatch with no count read.
-   Do not change the portal date filter between the two reads.
+   After re-selecting, wait for the count to update before the single count read.
+   A second mismatch stops that search: before the bracket the run ends as date_filter_mismatch with no search dispatched and no bucket prompts; after it the selector is unknown/date_filter_mismatch with no count read.
+   Keep the worker range selected: never move the portal filter off the worker range between the two reads.
    LastTwoYears is first; only eligible non-200/validation failure offers one LastThreeMonths fallback with fresh brackets.
    Set the portal date filter to Last 2 years (LastTwoYears) first, or Last 90 days (LastThreeMonths) only on fallback.
    Qualification requires both recorded filters to equal the current worker search range; equal counts under another range remain unknown.

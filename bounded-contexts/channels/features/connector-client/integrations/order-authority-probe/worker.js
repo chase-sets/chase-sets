@@ -42,6 +42,7 @@
     "custody_failure",
     "identity_mismatch",
     "selector_unknown",
+    "date_filter_mismatch",
     "aborted",
     "completeness_unproven",
     "page_ceiling_exceeded",
@@ -497,6 +498,7 @@
 
   async function search(state, message) {
     if (state.phase !== "search") fail("invalid_message");
+    if (message.count === null) fail("date_filter_mismatch");
     const range = state.latch.list === 0 ? "LastTwoYears" : "LastThreeMonths";
     state.fallback = false;
     try {
@@ -703,11 +705,15 @@
       ((Number.isSafeInteger(message.count) &&
         message.count >= 0 &&
         ["LastTwoYears", "LastThreeMonths"].includes(message.dateFilter)) ||
-        (message.kind === "counts" &&
-          message.count === null &&
+        (message.count === null &&
           message.reprompted &&
           [null, "LastTwoYears", "LastThreeMonths"].includes(message.dateFilter) &&
-          message.dateFilter !== active?.searches.at(-1)?.searchRange)) &&
+          message.dateFilter !==
+            (message.kind === "search"
+              ? active?.latch.list === 0
+                ? "LastTwoYears"
+                : "LastThreeMonths"
+              : active?.searches.at(-1)?.searchRange))) &&
       (message.kind !== "counts" || typeof message.sameSession === "boolean");
     const selected =
       closed(message, ["kind", "selections"]) &&

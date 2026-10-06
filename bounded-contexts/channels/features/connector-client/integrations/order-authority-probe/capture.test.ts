@@ -808,10 +808,10 @@ describe("order-authority emitted package controls (synthetic, not provider auth
     );
     expect(prompts.slice(0, 6).map((dialog) => dialog.text.split(":")[0])).toEqual([
       "Expected date filter",
-      "Re-select Last 2 years in the portal, then confirm the visible filter",
+      "Re-select Last 2 years in the portal, wait for the count to update, then confirm the visible filter",
       "Confirmed date filter",
       "Expected date filter",
-      "Re-select Last 2 years in the portal, then confirm the visible filter",
+      "Re-select Last 2 years in the portal, wait for the count to update, then confirm the visible filter",
       "Confirmed date filter",
     ]);
     expect(prompts.slice(0, 6).map((dialog) => dialog.requests)).toEqual([1, 1, 1, 2, 2, 2]);
@@ -845,14 +845,102 @@ describe("order-authority emitted package controls (synthetic, not provider auth
           });
         } else {
           expect(value.selector.searches).toEqual([]);
-          expect(value.failures).toEqual(["aborted"]);
+          expect(value.failures).toEqual(["date_filter_mismatch"]);
+          expect(dialogs.some((dialog) => dialog.text.startsWith("Is a privately selected "))).toBe(false);
         }
         retain(page);
         expect(packaging.verifyExport(out).head).toBe(preparation.head);
-        custody({ exports: [...page.exports], storage: worker.storage, retained: worker.retained });
+        custody({
+          exports: [...page.exports],
+          storage: worker.storage,
+          retained: worker.retained,
+        });
+        custody(after ? page.messages.filter((message) => ["search", "counts"].includes(message.kind)) : page.messages);
       }
     },
   );
+
+  it.each(["LastTwoYears", SENTINEL])(
+    "filter-first fallback before refusal %s: no second search, buckets or details",
+    async (mismatch) => {
+      const worker = harness({ responses: { list: { status: 422 } } });
+      const page = helper(worker, ORDER, true, {
+        prompts: ["LastTwoYears", "1", "LastTwoYears", "1", mismatch, mismatch, "1", ORDER],
+      });
+      expect(await page.run()).toEqual({ ok: true, code: "scrubbed_export_created" });
+      const value = JSON.parse(page.exports.get("8838-receipt.json")!);
+      expect(value.failures).toEqual(["date_filter_mismatch"]);
+      expect(value.selector.searches).toHaveLength(1);
+      expect(value.selector.searches[0]).toMatchObject({ searchRange: "LastTwoYears", reason: "http_status" });
+      expect(value.counts).toEqual({ lookup: 1, list: 1, detail: 0 });
+      expect(worker.observations.map((item) => item.kind)).toEqual(["lookup", "list"]);
+      expect(page.messages.some((message) => message.kind === "capture")).toBe(false);
+      const dialogs = page.dialogs as { text: string }[];
+      expect(dialogs.filter((dialog) => dialog.text.startsWith("Re-select "))).toHaveLength(1);
+      expect(dialogs.filter((dialog) => dialog.text.startsWith("Confirmed date filter:"))).toHaveLength(2);
+      expect(dialogs.some((dialog) => dialog.text.startsWith("Is a privately selected "))).toBe(false);
+      retain(page);
+      expect(packaging.verifyExport(out).head).toBe(preparation.head);
+      custody({
+        exports: [...page.exports],
+        messages: page.messages,
+        storage: worker.storage,
+        retained: worker.retained,
+      });
+    },
+  );
+
+  it("filter-first frozen refusal inputs: second-prompt Cancel, pagehide and abort retain distinct safety labels", async () => {
+    for (const mismatch of ["LastThreeMonths", SENTINEL]) {
+      for (const stop of ["cancel", "pagehide", "abort"]) {
+        const worker = harness();
+        const abortReplies: Reply[] = [];
+        const page = helper(worker, ORDER, true, {
+          prompts: [mismatch, stop === "cancel" ? null : mismatch, "1", ORDER],
+          sendMessage: async (message) => {
+            const reply = await worker.send(message);
+            if (message.kind === "abort" && reply.receipt) abortReplies.push(reply);
+            return reply;
+          },
+          onDialog: (_kind, text) => {
+            if (!text.startsWith("Re-select ")) return;
+            if (stop === "pagehide") page.pagehide();
+            if (stop === "abort") void page.api.orderAuthorityCapture.abort();
+          },
+        });
+        await page.run();
+        const value = stop === "cancel" ? JSON.parse(page.exports.get("8838-receipt.json")!) : receipt(abortReplies[0]);
+        expect(value.failures, stop).toEqual([stop === "cancel" ? "canceled" : "aborted"]);
+        expect(value.selector.searches).toEqual([]);
+        expect(value.counts).toEqual({ lookup: 1, list: 0, detail: 0 });
+        expect(page.messages.some((message) => message.kind === "capture")).toBe(false);
+        expect(
+          (page.dialogs as { text: string }[]).some((dialog) => dialog.text.startsWith("Is a privately selected ")),
+        ).toBe(false);
+        custody({
+          exports: [...page.exports],
+          messages: page.messages,
+          abortReplies,
+          storage: worker.storage,
+          retained: worker.retained,
+        });
+      }
+    }
+  });
+
+  it("worker admission: synthetic unread search requires a re-prompt and a scrubbed non-current range", async () => {
+    for (const message of [
+      { kind: "search", count: null, dateFilter: "LastThreeMonths", reprompted: false },
+      { kind: "search", count: null, dateFilter: "LastTwoYears", reprompted: true },
+      { kind: "search", count: null, dateFilter: SENTINEL, reprompted: true },
+    ]) {
+      const worker = harness();
+      expect(await worker.send({ kind: "begin" })).toEqual({ ok: true });
+      expect(await worker.send(message)).toEqual({ ok: false, code: "invalid_message" });
+      expect(worker.observations).toEqual([]);
+      custody({ storage: worker.storage, retained: worker.retained });
+    }
+  });
 
   it("filter-first mismatch stops fallback instead of dispatching another search", async () => {
     const worker = harness({ responses: { list: { status: 422 } } });
@@ -899,8 +987,8 @@ describe("order-authority emitted package controls (synthetic, not provider auth
         .filter((dialog) => dialog.text.startsWith("Re-select "))
         .map((dialog) => dialog.text),
     ).toEqual([
-      "Re-select Last 90 days in the portal, then confirm the visible filter",
-      "Re-select Last 90 days in the portal, then confirm the visible filter",
+      "Re-select Last 90 days in the portal, wait for the count to update, then confirm the visible filter",
+      "Re-select Last 90 days in the portal, wait for the count to update, then confirm the visible filter",
     ]);
     expect(value.counts).toEqual({ lookup: 1, list: 2, detail: 1 });
     retain(page);
@@ -1132,7 +1220,10 @@ describe("order-authority emitted package controls (synthetic, not provider auth
       "Immediately after search",
       "Before run(), privately pre-select",
       "confirm the visible date filter first",
-      "Do not change the portal date filter between the two reads",
+      "never move the portal filter off the worker range between the two reads",
+      "wait for the count to update before the single count read",
+      "the run ends as date_filter_mismatch with no search dispatched and no bucket prompts",
+      "only in the open portal view, not in notes, files or a retained clipboard; clear the clipboard after entry",
       "exactly one re-prompt per bracket",
       "Bucket prompts run whether or not the selector qualified",
       "All four absent still closes and exports",
