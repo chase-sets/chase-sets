@@ -305,6 +305,12 @@ test.describe("marketplace critical flows", () => {
     const itemPath = marketplaceBrowserE2eSeedContract.itemDetail.selectedProductRoutePath;
     let lineId: string | null = null;
     const failures: unknown[] = [];
+    const readLines = async () => {
+      const response = await page.request.get("/api/marketplace/account/sell-list");
+      expect(response.status(), "Sell List readback must succeed").toBe(200);
+      const result: { items: Array<{ line_id: string }> } = await response.json();
+      return result.items;
+    };
 
     const submitAndFollow = async (path: string, fields: Record<string, string>, destination: string) => {
       const commandPromise = page.waitForResponse(
@@ -313,7 +319,15 @@ test.describe("marketplace critical flows", () => {
           response.request().method() === "POST" &&
           new URL(response.url()).pathname === new URL(path, page.url()).pathname,
       );
-      const documentPromise = page.waitForNavigation({ waitUntil: "domcontentloaded" });
+      const documentPromise = page.waitForResponse((response) => {
+        const request = response.request();
+        if (!request.isNavigationRequest()) return false;
+        const pathname = new URL(response.url()).pathname;
+        return (
+          (request.method() === "GET" && request.redirectedFrom()?.method() === "POST" && pathname === destination) ||
+          (request.method() === "POST" && pathname === new URL(path, page.url()).pathname && response.status() !== 302)
+        );
+      });
       // Native document submission exposes the command and its followed redirect separately.
       await page.evaluate(
         ({ path, fields }) => {
@@ -332,8 +346,7 @@ test.describe("marketplace critical flows", () => {
         },
         { path, fields },
       );
-      const command = await commandPromise;
-      const documentResponse = await documentPromise;
+      const [command, documentResponse] = await Promise.all([commandPromise, documentPromise]);
       expect(command.status(), "mutation command must redirect successfully").toBe(302);
       const location = new URL(command.headers().location, page.url());
       expect(location.pathname).toBe(destination);
@@ -349,30 +362,36 @@ test.describe("marketplace critical flows", () => {
     try {
       for (const destination of ["/account/sell-list", "/account/desk/offers"]) {
         await expectPageOk(page, itemPath);
-        const productId = await page.locator('input[name="productId"][value]:not([value=""])').first().inputValue();
+        const productForm = page
+          .locator('form:has(input[name="selectedOptions"]):has(input[name="productId"][value]:not([value=""]))')
+          .first();
+        const productId = await productForm.locator('input[name="productId"]').inputValue();
+        const selectedOptions = await productForm.locator('input[name="selectedOptions"]').inputValue();
+        const productSummary = await productForm.locator('input[name="productSummary"]').inputValue();
         await submitAndFollow(
           itemPath,
           {
             intent: "add-product-to-sell-list",
             productId,
             quantity: "1",
-            selectedOptions: "[]",
+            selectedOptions,
+            productSummary,
           },
           "/account/sell-list",
         );
-        const productLines = page.locator('input[name^="fallbackMode:"]');
-        await expect(productLines).toHaveCount(1);
-        lineId = (await productLines.getAttribute("name"))!.slice("fallbackMode:".length);
+        const productLines = await readLines();
+        expect(productLines).toHaveLength(1);
+        lineId = productLines[0].line_id;
         await expect(page.getByText("Your Sell List is empty", { exact: true })).toHaveCount(0);
         await expect(page.getByRole("heading", { name: "Review items", exact: true })).toBeVisible();
         if (destination === "/account/desk/offers") {
           await expectPageOk(page, destination);
-          await expect(productLines).toHaveAttribute("name", `fallbackMode:${lineId}`);
+          expect(await readLines()).toEqual(productLines);
         }
         await submitAndFollow(destination, { intent: "remove-sell-list-line", lineId }, destination);
         lineId = null;
         await expect(page.getByText("Your Sell List is empty", { exact: true })).toBeVisible();
-        await expect(productLines).toHaveCount(0);
+        expect(await readLines()).toEqual([]);
       }
     } catch (error) {
       failures.push(error);
@@ -380,20 +399,28 @@ test.describe("marketplace critical flows", () => {
     try {
       // Read back and remove only this journey's line, including after a failed destination.
       await expectPageOk(page, "/account/sell-list");
-      const productLines = page.locator('input[name^="fallbackMode:"]');
-      if (lineId === null && (await productLines.count()) === 1) {
-        lineId = (await productLines.getAttribute("name"))!.slice("fallbackMode:".length);
+      const productLines = await readLines();
+      if (lineId === null && productLines.length === 1) {
+        lineId = productLines[0].line_id;
       }
       if (lineId !== null) {
         await submitAndFollow("/account/sell-list", { intent: "remove-sell-list-line", lineId }, "/account/sell-list");
       }
       await expect(page.getByText("Your Sell List is empty", { exact: true })).toBeVisible();
+      expect(await readLines()).toEqual([]);
       await expectPageOk(page, "/account/desk/offers");
       await expect(page.getByText("Your Sell List is empty", { exact: true })).toBeVisible();
     } catch (error) {
       failures.push(error);
     }
-    if (failures.length > 0) throw new AggregateError(failures, "Sell List receipt journey or cleanup failed");
+    if (failures.length > 0) {
+      throw new AggregateError(
+        failures,
+        `Sell List receipt journey or cleanup failed:\n${failures
+          .map((error) => (error instanceof Error ? error.message : String(error)))
+          .join("\n")}`,
+      );
+    }
   });
 
   test("signed-in presentation preferences persist across reloads and converge across sessions @marketplace-account", async ({
