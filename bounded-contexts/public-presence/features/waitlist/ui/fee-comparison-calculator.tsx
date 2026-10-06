@@ -6,7 +6,6 @@ import {
   Inline,
   LinkButton,
   PageSection,
-  ProgressiveDisclosure,
   Stack,
   Surface,
   Table,
@@ -242,9 +241,18 @@ function money(cents: bigint): string {
   return formatMoney(centsToSignedMoneyAmount(cents), "USD");
 }
 
-function buildShareLink(priceCents: bigint, cardCount: number): string {
+/** The compare page the calculator shares: its own, so a pasted link reopens the same comparison in place. */
+export function feeCalculatorSharePath(competitor: FeeComparisonCompetitor) {
+  return `/compare/${competitor}`;
+}
+
+function otherCompetitor(competitor: FeeComparisonCompetitor): FeeComparisonCompetitor {
+  return competitor === "tcgplayer" ? "ebay" : "tcgplayer";
+}
+
+function buildShareLink(competitor: FeeComparisonCompetitor, priceCents: bigint, cardCount: number): string {
   const origin = typeof window === "undefined" ? "https://chasesets.com" : window.location.origin;
-  const url = new URL("/", origin);
+  const url = new URL(feeCalculatorSharePath(competitor), origin);
   url.searchParams.set("price", centsToMoneyAmount(priceCents));
   url.searchParams.set("cards", String(cardCount));
   url.searchParams.set("utm_source", "fee-calculator");
@@ -255,36 +263,32 @@ function buildShareLink(priceCents: bigint, cardCount: number): string {
 }
 
 /**
- * The interactive "what you actually keep" comparison: a seller
- * enters a sale price (and optionally a card count, which is what makes the
- * per-item cap visible), and sees the seller-side fees and kept amount on
- * Chase Sets, TCGplayer, and eBay. Renders nothing without a live schedule.
+ * The interactive "what you actually keep" comparison on a /compare page: a
+ * seller enters a sale price (and optionally a card count, which is what
+ * makes the per-item cap visible), and sees the seller-side fees and kept
+ * amount on Chase Sets, TCGplayer, and eBay. Renders nothing without a live
+ * schedule.
  */
 export function FeeCalculatorSection({
   schedule,
-  compareLinks = ["tcgplayer", "ebay"],
-  onDisclosureOpen,
+  competitor,
 }: {
   schedule?: PublicMarketplaceFeeSchedule | null;
-  /** Which /compare pages to link; a compare page passes only the other competitor. */
-  compareLinks?: readonly FeeComparisonCompetitor[];
-  /** Landing-only opt-in; compare pages retain the visible source note. */
-  onDisclosureOpen?: (section: string, target: string) => void;
+  /** The hosting compare page: share links target it and the cross-link goes to the other competitor. */
+  competitor: FeeComparisonCompetitor;
 }) {
   if (!schedule) {
     return null;
   }
-  return <FeeCalculatorWorkbench schedule={schedule} compareLinks={compareLinks} onDisclosureOpen={onDisclosureOpen} />;
+  return <FeeCalculatorWorkbench schedule={schedule} competitor={competitor} />;
 }
 
 function FeeCalculatorWorkbench({
   schedule,
-  compareLinks,
-  onDisclosureOpen,
+  competitor,
 }: {
   schedule: PublicMarketplaceFeeSchedule;
-  compareLinks: readonly FeeComparisonCompetitor[];
-  onDisclosureOpen?: (section: string, target: string) => void;
+  competitor: FeeComparisonCompetitor;
 }) {
   const [priceInput, setPriceInput] = useState("50.00");
   const [cardCountInput, setCardCountInput] = useState("1");
@@ -335,7 +339,7 @@ function FeeCalculatorWorkbench({
     if (priceCents === null || cardCount === null) {
       return;
     }
-    const link = buildShareLink(priceCents, cardCount);
+    const link = buildShareLink(competitor, priceCents, cardCount);
     if (typeof navigator !== "undefined" && navigator.clipboard) {
       navigator.clipboard.writeText(link).catch(() => undefined);
     }
@@ -454,38 +458,24 @@ function FeeCalculatorWorkbench({
             </Text>
           </Stack>
         </Surface>
-        {onDisclosureOpen ? (
-          <ProgressiveDisclosure
-            data-landing-disclosure="fee_calculator_source_note"
-            title={t("publicPresence.home.disclosure.howCalculated")}
-            onOpenChange={(open) => open && onDisclosureOpen("fee_calculator", "fee_calculator_source_note")}
+        <Text size="sm" tone="tertiary">
+          {t("publicPresence.home.feeCalculator.sourceNote")}
+        </Text>
+        <Inline gap={2}>
+          <LinkButton
+            href={feeCalculatorSharePath(otherCompetitor(competitor))}
+            tone="secondary"
+            size="sm"
+            onClick={() =>
+              trackWaitlistEvent("cta_clicked", {
+                section: "fee_calculator",
+                target: `compare_${otherCompetitor(competitor)}`,
+              })
+            }
           >
-            <Text size="sm" tone="tertiary">
-              {t("publicPresence.home.feeCalculator.sourceNote")}
-            </Text>
-          </ProgressiveDisclosure>
-        ) : (
-          <Text size="sm" tone="tertiary">
-            {t("publicPresence.home.feeCalculator.sourceNote")}
-          </Text>
-        )}
-        {compareLinks.length > 0 ? (
-          <Inline gap={2}>
-            {compareLinks.map((competitor) => (
-              <LinkButton
-                key={competitor}
-                href={`/compare/${competitor}`}
-                tone="secondary"
-                size="sm"
-                onClick={() =>
-                  trackWaitlistEvent("cta_clicked", { section: "fee_calculator", target: `compare_${competitor}` })
-                }
-              >
-                {t(compareLinkLabelKeys[competitor])}
-              </LinkButton>
-            ))}
-          </Inline>
-        ) : null}
+            {t(compareLinkLabelKeys[otherCompetitor(competitor)])}
+          </LinkButton>
+        </Inline>
       </Stack>
     </PageSection>
   );

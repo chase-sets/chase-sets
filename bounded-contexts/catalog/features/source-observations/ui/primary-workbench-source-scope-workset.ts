@@ -137,14 +137,18 @@ function enrichedSetNameSelectedScope(
   if (!sourceOptionKindsForProfile(profile).some((kind) => kind.scope === "set-name")) {
     return scope;
   }
-  const selectedValue = scope.expansionName ?? scope.expansionId;
+  const selectedValue = scope.expansionId ?? scope.expansionName;
   if (!selectedValue) {
     return scope;
   }
   const page = sourceOptions.pages.find(
     (candidatePage) => candidatePage.request.providerKey === providerKey && candidatePage.scope === "set-name",
   );
-  const option = page?.items.find((item) => item.value === selectedValue || item.label === selectedValue);
+  const option = page?.items.find((item) =>
+    scope.expansionId
+      ? String(item.value) === scope.expansionId
+      : item.value === selectedValue || item.label === selectedValue,
+  );
   if (!option?.label || option.label === selectedValue) {
     const productDomain = normalizeProductDomain(productDomainFromProfile(profile));
     const siblingScope = scopes.find((candidateScope) => {
@@ -152,7 +156,12 @@ function enrichedSetNameSelectedScope(
       const candidateDomain = normalizeProductDomain(productDomainFromScope(candidateContext));
       return (
         Boolean(productDomain && candidateDomain && productDomainsMatch(productDomain, candidateDomain)) &&
-        selectedScopeFieldMatches(selectedValue, [candidateScope.expansion_id, candidateScope.expansion_name]) &&
+        selectedScopeFieldMatches(
+          scope.expansionId ?? selectedValue,
+          scope.expansionId
+            ? [candidateScope.expansion_id]
+            : [candidateScope.expansion_id, candidateScope.expansion_name],
+        ) &&
         Boolean(candidateScope.expansion_name) &&
         comparableText(candidateScope.expansion_name) !== comparableText(selectedValue)
       );
@@ -162,7 +171,8 @@ function enrichedSetNameSelectedScope(
           ...scope,
           productLineName:
             scope.productLineName ??
-            (siblingScope.product_line_name || productLineDisplayNameFromDomain(productDomainFromProfile(profile))),
+            (siblingScope.product_line_name ||
+              (scope.expansionName ? null : productLineDisplayNameFromDomain(productDomainFromProfile(profile)))),
           expansionName: siblingScope.expansion_name,
         }
       : scope;
@@ -170,7 +180,9 @@ function enrichedSetNameSelectedScope(
 
   return {
     ...scope,
-    productLineName: scope.productLineName ?? productLineDisplayNameFromDomain(productDomainFromProfile(profile)),
+    productLineName:
+      scope.productLineName ??
+      (scope.expansionName ? null : productLineDisplayNameFromDomain(productDomainFromProfile(profile))),
     expansionName: option.label,
   };
 }
@@ -525,7 +537,7 @@ function selectedSetNameOption(
     return null;
   }
 
-  const selectedValue = selectedScope.expansionName ?? selectedScope.expansionId;
+  const selectedValue = selectedScope.expansionId ?? selectedScope.expansionName;
   if (!selectedValue) {
     return null;
   }
@@ -534,12 +546,21 @@ function selectedSetNameOption(
     (candidatePage) =>
       candidatePage.request.providerKey === candidate.providerKey && candidatePage.scope === "set-name",
   );
-  const option = page?.items.find((item) => item.value === selectedValue || item.label === selectedValue);
+  const option = page?.items.find((item) =>
+    selectedScope.expansionId
+      ? String(item.value) === selectedScope.expansionId
+      : item.value === selectedValue || item.label === selectedValue,
+  );
   if (!option?.label || option.label === selectedValue) {
     const scope = scopes.find(
       (candidateScope) =>
         sourceScopeMatchesCandidateProductDomain(candidate, scopeContextFromProviderScope(candidateScope)) &&
-        selectedScopeFieldMatches(selectedValue, [candidateScope.expansion_id, candidateScope.expansion_name]) &&
+        selectedScopeFieldMatches(
+          selectedScope.expansionId ?? selectedValue,
+          selectedScope.expansionId
+            ? [candidateScope.expansion_id]
+            : [candidateScope.expansion_id, candidateScope.expansion_name],
+        ) &&
         Boolean(candidateScope.expansion_name) &&
         comparableText(candidateScope.expansion_name) !== comparableText(selectedValue),
     );

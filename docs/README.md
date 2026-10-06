@@ -226,6 +226,8 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [ADR 0027: Representative Catalog Observation Packs](./adr/0027-representative-catalog-observation-packs.md)
 - [ADR 0029: My Collection Composition And Saved List Ownership](./adr/0029-my-collection-composition-and-saved-list-ownership.md)
 - [ADR 0031: Card Identification Authority And Provider Boundary](./adr/0031-card-identification-authority-and-provider-boundary.md)
+- [ADR 0032: Order Groups And Shipment Groups](./adr/0032-order-groups-and-shipment-groups.md)
+- [ADR 0033: Capability-First Provider Integrations](./adr/0033-capability-first-provider-integrations.md)
 
 ## Generated Markdown
 

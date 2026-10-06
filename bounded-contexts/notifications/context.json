@@ -11,7 +11,7 @@
   "streamPrefix": "notifications.",
   "apiBasePath": "/api/notifications",
   "slices": ["notification-center", "preferences"],
-  "allowedSupportDirectories": ["runtime-support", "shell-support"],
+  "allowedSupportDirectories": ["request-support", "runtime-support", "shell-support"],
   "publicExports": [".", "./context", "./routes/*", "./server", "./web"],
   "allowedContextDependencies": [],
   "seedRequirements": [],
@@ -201,14 +201,33 @@
         "api-route:bounded-contexts/notifications/api.ts:POST /preferences/:key"
       ],
       "visibleDestination": {
-        "description": "Notification Center account sheet and notification settings controls receive the committed feed read-state snapshot or saved preference item directly from the Notifications command response."
+        "description": "The account notification-center route's feed and notification settings controls receive the committed feed read-state snapshot or saved preference item directly from the Notifications command response."
       },
       "proof": {
         "authoritativeResponse": "Read-state commands return the same-context feed snapshot and unread count after the write commits; preference commands return the saved Notification Preference item for the account and key that was just written.",
         "tests": [
           "bounded-contexts/notifications/features/notification-center/api/api.test.ts proves mark-read, mark-all-read, and preference writes return committed snapshots.",
           "bounded-contexts/notifications/features/notification-center/api/client.test.ts proves the API client exposes the mutation snapshots to UI callers.",
-          "bounded-contexts/notifications/features/notification-center/ui/notification-center-shell.test.tsx proves the account sheet reconciles from committed snapshots and preserves current state when write calls fail."
+          "bounded-contexts/notifications/features/notification-center/ui/notification-center.test.tsx proves the account notification-center route reconciles from committed snapshots and preserves current state when write calls fail."
+        ]
+      }
+    },
+    {
+      "id": "notifications.notification-center-product-alert-controls",
+      "owner": "notifications",
+      "risk": "important",
+      "strategy": "snapshot-return",
+      "surfaces": [
+        "fetcher-submit:bounded-contexts/notifications/features/notification-center/ui/notification-center-page.tsx:H236bacc57616#1"
+      ],
+      "visibleDestination": {
+        "description": "Notification settings Product Alert pause, resume, and delete controls submit the alert id and intent to Discovery's existing account Product Alert route action, which redirects back to the Product alerts settings view and its route loader rereads the summary."
+      },
+      "proof": {
+        "authoritativeResponse": "Discovery's account Product Alert action runs the Discovery pause, resume, or delete command, whose response carries the committed alert snapshot, before redirecting; Notifications adds no Product Alert command of its own.",
+        "tests": [
+          "bounded-contexts/notifications/features/notification-center/ui/notification-center.test.tsx proves each control submits its intent and alert id to the account Product Alert action and follows its return to the refreshed settings view.",
+          "deployables/marketplace/app/routes/notification-center-compatibility.test.tsx proves a pause through the real Discovery action returns to the Product alerts settings section with the paused alert."
         ]
       }
     },
@@ -256,15 +275,17 @@
   "directoryIntent": {
     "notification-center": {
       "classification": "slice",
-      "purpose": "Own notification-center feed behavior, read state, APIs, and marketplace shell UI contracts.",
-      "expectedConsumers": [
-        "Internal notifications module composition",
-        "Marketplace shell notification side sheet and bottom sheet"
-      ]
+      "purpose": "Own notification-center feed behavior, read state, APIs, and the account notification-center page UI.",
+      "expectedConsumers": ["Internal notifications module composition", "Account notification-center route"]
     },
     "preferences": {
       "classification": "slice",
       "purpose": "Own account notification preferences and settings behavior.",
+      "expectedConsumers": ["notification-center"]
+    },
+    "request-support": {
+      "classification": "support",
+      "purpose": "Provide request-scoped HTTP adapters that forward the signed-in request to the Notifications API and to Discovery's Marketplace-mounted Product Alert summary for the notification-center route loader.",
       "expectedConsumers": ["notification-center"]
     },
     "runtime-support": {
@@ -274,13 +295,13 @@
     },
     "shell-support": {
       "classification": "support",
-      "purpose": "Provide Notifications marketplace-web Notification Center shell composition outside feature route modules.",
+      "purpose": "Provide marketplace-web the mapping from retired notification-sheet links to the account notification-center route.",
       "expectedConsumers": ["marketplace-web"]
     },
     "routes": {
       "classification": "routes",
-      "purpose": "Reserve Notifications route metadata for future deployable page route contributions.",
-      "expectedConsumers": ["Future generated deployable route adapters"]
+      "purpose": "Provide the account notification-center page route contributed to marketplace-web.",
+      "expectedConsumers": ["marketplace-web"]
     }
   },
   "runtimeDeployables": ["platform-worker"],

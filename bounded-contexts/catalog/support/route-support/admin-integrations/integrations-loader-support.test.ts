@@ -1,9 +1,30 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { CatalogPrimaryWorkbenchRouteContext } from "../../../features/source-observations/api/primary-workbench-admin-contracts";
-import { buildDailyMergeCandidateQuery, importPreviewMatchesSelectedScope } from "./integrations-loader-support";
+import {
+  buildDailyMergeCandidateQuery,
+  importPreviewMatchesSelectedScope,
+  loadDailySurfaceForRequest,
+} from "./integrations-loader-support";
+import {
+  profileReview,
+  sourceObservationScope,
+} from "../../../features/source-observations/ui/primary-workbench-test-fixtures";
+import {
+  queryCatalogProviderIntegrationOptionsWithCache,
+  type CatalogProviderOptionQueryCacheRecord,
+} from "../../../features/source-observations/api/providers/provider-option-query-cache";
 import { importPreviewMatchesRouteContext } from "../../../features/source-observations/ui/admin-control-plane/import-jobs/import-jobs-module";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "../../../features/source-observations/ui/primary-workbench-route-context";
 import type { SourceObservationIntegrationImportPreview } from "../../../features/source-observations/ui/contracts";
+
+const { mockCreateCatalogRequestApiClient } = vi.hoisted(() => ({ mockCreateCatalogRequestApiClient: vi.fn() }));
+vi.mock("../../request-support/api-client", () => ({
+  createCatalogRequestApiClient: mockCreateCatalogRequestApiClient,
+}));
+vi.mock("@chase-sets/platform-runtime/auth", () => ({
+  resolveActorFromAuthApi: async () => ({ permissions: ["catalog.manage"] }),
+  isTransientAuthResolutionError: () => false,
+}));
 
 const baseContext: CatalogPrimaryWorkbenchRouteContext = {
   section: "import-to-promotion",
@@ -33,6 +54,68 @@ const baseContext: CatalogPrimaryWorkbenchRouteContext = {
 };
 
 describe("admin integrations loader support", () => {
+  it.each(["missing", "stale"])("keeps selection-driven %s cache degraded without provider calls", async (state) => {
+    const providerQuery = vi.fn(async () => []);
+    const queries: URLSearchParams[] = [];
+    const stale: CatalogProviderOptionQueryCacheRecord = {
+      cacheKey: "synthetic-cache-key",
+      providerKey: "tcgdex",
+      profileKey: "",
+      profileVersion: "2026.06.04",
+      ingestionUnitKey: "tcgdex:pokemon:card:import",
+      queryKind: "languages",
+      languageCode: "",
+      parentValue: "",
+      items: [],
+      fetchedAt: "2026-06-09T00:00:00.000Z",
+      expiresAt: "2026-06-09T00:15:00.000Z",
+      staleUntil: "2026-06-10T00:00:00.000Z",
+      diagnosticCode: null,
+      diagnosticText: null,
+    };
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi
+        .fn()
+        .mockResolvedValue({ items: [sourceObservationScope()], total: 1, count: 1 }),
+      listSourceObservationProviderProfiles: vi
+        .fn()
+        .mockResolvedValue({ items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 }),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      listCatalogMergeCandidates: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      recordCatalogControlPlaneEvent: vi.fn().mockResolvedValue({ status: "recorded" }),
+      listSourceObservationIntegrationOptions: async (query: string) => {
+        const params = new URLSearchParams(query);
+        queries.push(params);
+        return queryCatalogProviderIntegrationOptionsWithCache({
+          request: {
+            providerKey: "tcgdex",
+            profileVersion: "2026.06.04",
+            queryKind: params.get("queryKind") ?? "languages",
+            cacheOnly: params.get("cacheOnly") === "true",
+            forceRefresh: params.get("forceRefresh") === "true",
+          },
+          cacheStore: { read: async () => (state === "stale" ? stale : null), write: async () => undefined },
+          loadLive: providerQuery,
+          now: new Date("2026-06-09T01:00:00.000Z"),
+        });
+      },
+    });
+    const loaded = await loadDailySurfaceForRequest(
+      new Request(
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&languageCode=ja&profileVersion=2026.06.04",
+      ),
+    );
+    const options = await loaded.deferredSourceOptions;
+    expect(queries.length).toBeGreaterThan(0);
+    for (const query of queries) {
+      expect(query.get("cacheOnly")).toBe("true");
+      expect(query.get("forceRefresh")).not.toBe("true");
+    }
+    expect(providerQuery).not.toHaveBeenCalled();
+    expect(["degraded", "unavailable"]).toContain(options.status);
+    expect(options.pages.some((page) => page.degraded)).toBe(true);
+  });
   it("binds loader and rendered preview identity to the exact selected product, including deselection", () => {
     const context = parseCatalogPrimaryWorkbenchRouteContext(
       "https://admin.example/catalog/integrations?providerKey=ygojson&unitKey=ygojson:yugioh:sealed-product:reference-data&languageCode=en&productId=synthetic-product-A",

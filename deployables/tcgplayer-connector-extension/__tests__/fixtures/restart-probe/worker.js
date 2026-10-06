@@ -3,6 +3,39 @@ import { options } from "./options.js";
 
 const hold = createTransport(chrome.runtime.getManifest(), options.registry);
 const state = { pendingFetch: false, pendingTransaction: false, transactionCompleted: false, refusal: null };
+const startedAt = new Date().toISOString();
+const ensures = [];
+let inFlightEnsure;
+let prepared;
+const initialPreparation = new Promise((resolve) => {
+  prepared = resolve;
+});
+
+function ensureAlarm(entrypoint) {
+  const invocation = { entrypoint, startedAt: new Date().toISOString(), coalesced: !!inFlightEnsure };
+  ensures.push(invocation);
+  if (!inFlightEnsure) {
+    inFlightEnsure = (async () => {
+      const { localCanary } = await chrome.storage.local.get("localCanary");
+      if (!localCanary) await initialPreparation;
+      const existing = await chrome.alarms.get("probe-work");
+      const createStartedAt = existing ? null : new Date().toISOString();
+      if (!existing) await chrome.alarms.create("probe-work", { periodInMinutes: 0.5 });
+      return {
+        getResult: existing ?? null,
+        created: !existing,
+        createStartedAt,
+        alarm: await chrome.alarms.get("probe-work"),
+      };
+    })().finally(() => {
+      inFlightEnsure = undefined;
+    });
+  }
+  return inFlightEnsure.then((result) => {
+    Object.assign(invocation, result, { settledAt: new Date().toISOString() });
+    return invocation;
+  });
+}
 
 function requestResult(request) {
   return new Promise((resolve, reject) => {
@@ -29,10 +62,11 @@ async function write(records) {
 }
 
 async function work() {
-  const { fires = [], scheduledAt } = await chrome.storage.local.get(["fires", "scheduledAt"]);
+  const { localCanary, fires = [] } = await chrome.storage.local.get(["localCanary", "fires"]);
+  if (!localCanary) await initialPreparation;
   if (fires.length >= 2) return;
   const at = new Date().toISOString();
-  await chrome.storage.local.set({ fires: [...fires, at], scheduledAt });
+  await chrome.storage.local.set({ fires: [...fires, at] });
   if (!options.orderingMutant && fires.length === 0) await write([{ id: "op-1", state: "dispatched", at }]);
   try {
     state.pendingFetch = true;
@@ -72,14 +106,28 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "probe-work") void work();
   if (alarm.name === "probe-two") void two();
 });
+chrome.runtime.onStartup.addListener(() => {
+  if (!options.omitAlarmReensure) void ensureAlarm("onStartup");
+});
+chrome.runtime.onInstalled.addListener((details) => {
+  if (!options.omitAlarmReensure) void ensureAlarm(`onInstalled:${details.reason}`);
+});
+const startupReady = options.omitAlarmReensure ? Promise.resolve() : ensureAlarm("top-level");
 
 globalThis.restartProbe = {
   state,
+  ensures,
+  startedAt,
+  startupReady,
+  ensureAlarm,
   async prepare() {
     await ready;
-    await chrome.storage.local.set({ localCanary: "SYNTHETIC_LOCAL_CANARY", fires: [], scheduledAt: Date.now() });
+    await chrome.storage.local.set({ localCanary: "SYNTHETIC_LOCAL_CANARY", fires: [] });
     await chrome.storage.session.set({ sessionCanary: "SYNTHETIC_SESSION_CANARY" });
-    await chrome.alarms.create("probe-work", { periodInMinutes: 0.5 });
+    prepared();
+    if (options.omitAlarmReensure) await ensureAlarm("prepare");
+    await startupReady;
+    return { preparedAt: new Date().toISOString(), alarm: await chrome.alarms.get("probe-work"), ensures };
   },
   async startTwo() {
     await chrome.alarms.create("probe-two", { when: Date.now() });

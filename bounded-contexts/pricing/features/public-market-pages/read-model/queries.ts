@@ -112,7 +112,54 @@ export type PublicMarketPageData = Readonly<{
   series: readonly ProductRollupSeriesPoint[];
   aggregates: readonly ProductMarketAggregate[];
   marketState: MarketStateSnapshotPoint | null;
+  /** Buyable means positive projected, capped, unheld supply, not checkout or seller availability. */
+  liveAsks: readonly Readonly<{ currencyCode: string; minAskAmount: string; buyableListingCount: number }>[];
+  unpricedBuyableListingCount: number;
 }>;
+
+async function getLiveAsks(
+  db: PgQueryable,
+  catalogItemId: string,
+  productId: string,
+): Promise<Pick<PublicMarketPageData, "liveAsks" | "unpricedBuyableListingCount">> {
+  const result = await db.query<{
+    currency_code: string | null;
+    min_ask_amount: string;
+    buyable_listing_count: number;
+  }>(
+    `SELECT listing.price_currency_code AS currency_code,
+            MIN(listing.price_amount)::text AS min_ask_amount,
+            COUNT(*)::integer AS buyable_listing_count
+     FROM pricing_market_listing_inputs AS listing
+     INNER JOIN pricing_inventory_item_inputs AS inventory ON inventory.item_id = listing.inventory_item_id
+     LEFT JOIN LATERAL (
+       SELECT SUM(hold.quantity) AS quantity
+       FROM pricing_inventory_hold_inputs AS hold
+       WHERE hold.item_id = inventory.item_id AND hold.status = 'active'
+     ) AS held ON TRUE
+     WHERE listing.catalog_catalog_item_id = $1 AND listing.product_id = $2
+       AND listing.status = 'active' AND listing.last_stream_version > 0
+       AND LEAST(listing.quantity_cap, GREATEST(inventory.total_quantity - COALESCE(held.quantity, 0), 0)) > 0
+     GROUP BY listing.price_currency_code
+     ORDER BY listing.price_currency_code`,
+    [catalogItemId, productId],
+  );
+
+  return {
+    liveAsks: result.rows.flatMap((row) =>
+      row.currency_code === null
+        ? []
+        : [
+            {
+              currencyCode: row.currency_code,
+              minAskAmount: row.min_ask_amount,
+              buyableListingCount: row.buyable_listing_count,
+            },
+          ],
+    ),
+    unpricedBuyableListingCount: result.rows.find((row) => row.currency_code === null)?.buyable_listing_count ?? 0,
+  };
+}
 
 function isoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
@@ -146,7 +193,15 @@ export async function getPublicMarketPageData(
 
   const productId = await getPrimaryTradedProductId(db, catalogItem.catalogItemId);
   if (!productId) {
-    return { ...catalogItem, productId: null, series: [], aggregates: [], marketState: null };
+    return {
+      ...catalogItem,
+      productId: null,
+      series: [],
+      aggregates: [],
+      marketState: null,
+      liveAsks: [],
+      unpricedBuyableListingCount: 0,
+    };
   }
 
   const now = options.now ?? new Date();
@@ -157,6 +212,7 @@ export async function getPublicMarketPageData(
   const from = isoDate(new Date(now.getTime() - historyWindowDays * 24 * 60 * 60 * 1000));
 
   const stats = await getProductMarketStatsSnapshot(db, { catalogItemId: catalogItem.catalogItemId, productId });
+  const liveAsks = await getLiveAsks(db, catalogItem.catalogItemId, productId);
   const series = (
     await Promise.all(
       stats.aggregates.map((aggregate) =>
@@ -175,6 +231,7 @@ export async function getPublicMarketPageData(
     series,
     aggregates: stats.aggregates,
     marketState: stats.marketState,
+    ...liveAsks,
   };
 }
 

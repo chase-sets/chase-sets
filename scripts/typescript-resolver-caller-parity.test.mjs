@@ -1,128 +1,40 @@
-import { execFile, execFileSync } from "node:child_process";
-import { access, mkdtemp, mkdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
-import { constants as fsConstants } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
+import { mkdtemp, mkdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-
-const execFileAsync = promisify(execFile);
+import {
+  createHarness,
+  discoverDirectCallers,
+  exists,
+  runNode,
+  walkClosure as walk,
+} from "./lib/typescript-resolver-caller-harness.mjs";
+import {
+  loadManifests,
+  checkCaller,
+  processManifests,
+  serializeManifest,
+  normalizeGraph,
+  dependencyDirectoryMap,
+  validateParity,
+  manifestDirectory,
+} from "./typescript-resolver-caller-manifest.mjs";
 const repositoryRoot = path.resolve(".");
-const candidateHookUrl = pathToFileURL(
-  path.join(repositoryRoot, "infrastructure/platform-runtime/typescript-resolver.mjs"),
-).href;
-const expectedCallers = Object.freeze([
-  ["scripts/generate-agent-connector-packaging.mjs", "extension", 151, 297],
-  ["scripts/representative-snapshot.mjs", "extension", 406, 1582],
-  ["scripts/run-catalog-observation-pack-capture.mjs", "extension", 166, 387],
-  ["scripts/run-catalog-production-completion-report.mjs", "extension", 8, 12],
-  ["scripts/run-catalog-real-provider-proof.mjs", "extension", 204, 530],
-  ["scripts/verify-observation-pack.mjs", "extension", 403, 1572],
-  ["scripts/discovery-search-embedding-backfill.mjs", "source", 110, 209],
-  ["scripts/discovery-search-relevance-embeddings.mjs", "source", 2, 1],
-  ["scripts/discovery-search-relevance.mjs", "source", 12, 14],
-]);
-const byteIdenticalCallers = expectedCallers.filter(
-  ([caller]) => caller !== "scripts/discovery-search-embedding-backfill.mjs",
-);
-const PINNED_EXTENSION_LOADER_SOURCE = `import { extname } from "node:path";
-export async function resolve(specifier, context, nextResolve) {
-  try { return await nextResolve(specifier, context); } catch (error) {
-    const cleanSpecifier = specifier.split(/[?#]/, 1)[0] ?? specifier;
-    const eligible = !extname(cleanSpecifier) &&
-      (specifier.startsWith(".") || specifier.startsWith("/") || /^[A-Za-z]:[\\\\/]/.test(specifier)) &&
-      (error?.code === "ERR_MODULE_NOT_FOUND" || error?.code === "ERR_UNSUPPORTED_DIR_IMPORT");
-    if (!eligible) throw error;
-    for (const extension of [".ts", ".tsx", ".js", ".mjs", "/index.ts", "/index.tsx", "/index.js", "/index.mjs"]) {
-      try { return await nextResolve(\`\${specifier}\${extension}\`, context); }
-      catch (nextError) {
-        if (nextError?.code !== "ERR_MODULE_NOT_FOUND" && nextError?.code !== "ERR_UNSUPPORTED_DIR_IMPORT") throw nextError;
-      }
-    }
-    throw error;
-  }
-}
-`;
-const PINNED_SOURCE_LOADER_SOURCE = `export async function resolve(specifier, context, nextResolve) {
-  try { return await nextResolve(specifier, context); } catch (error) {
-    if ((specifier.startsWith("./") || specifier.startsWith("../")) && !/\\.[a-z0-9]+$/iu.test(specifier)) {
-      return nextResolve(\`\${specifier}.ts\`, context);
-    }
-    throw error;
-  }
-}
-`;
-const walkerSource = `import { readFile } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-
-const repositoryRoot = path.resolve(process.argv[2]);
-const traversalRoot = path.resolve(process.argv[3]);
-const rootUrl = pathToFileURL(traversalRoot + path.sep).href;
-const entryUrl = pathToFileURL(path.resolve(process.argv[4])).href;
-const queue = [entryUrl];
-const seen = new Set(queue);
-const edges = [];
-const errors = [];
-
-while (queue.length > 0) {
-  const moduleUrl = queue.shift();
-  let source;
-  try {
-    source = await readFile(fileURLToPath(moduleUrl), "utf8");
-  } catch {
-    continue;
-  }
-  for (const specifier of literalSpecifiers(source)) {
-    if (specifier.startsWith("node:") || specifier.startsWith("data:")) continue;
-    try {
-      const resolved = import.meta.resolve(specifier, moduleUrl);
-      edges.push({ from: moduleUrl.slice(rootUrl.length), specifier, resolved });
-      if (resolved.startsWith(rootUrl) && !resolved.includes("/node_modules/") && !seen.has(resolved)) {
-        seen.add(resolved);
-        queue.push(resolved);
-      }
-    } catch (error) {
-      const code = error?.code ?? error?.name ?? null;
-      edges.push({ from: moduleUrl.slice(rootUrl.length), specifier, resolved: null, code });
-      errors.push({ from: moduleUrl.slice(rootUrl.length), specifier, code });
-    }
-  }
-}
-
-edges.sort(compareRecords);
-errors.sort(compareRecords);
-console.log(JSON.stringify({
-  modules: [...seen].map((url) => url.slice(rootUrl.length)).sort(),
-  edges,
-  errors,
-}));
-
-function literalSpecifiers(source) {
-  const specifiers = new Set();
-  for (const match of source.matchAll(/(?:^|[\\s;{(])(?:import|export)\\s[^'"();]*?from\\s*["']([^"']+)["']/gmu)) specifiers.add(match[1]);
-  for (const match of source.matchAll(/(?:^|[^.\\w])import\\s*\\(\\s*["']([^"']+)["']/gmu)) specifiers.add(match[1]);
-  for (const match of source.matchAll(/^\\s*(?:import|export)\\s+["']([^"']+)["']/gmu)) specifiers.add(match[1]);
-  for (const match of source.matchAll(/^\\s*export\\s+\\*\\s+from\\s*["']([^"']+)["']/gmu)) specifiers.add(match[1]);
-  return [...specifiers];
-}
-
-function compareRecords(left, right) {
-  return JSON.stringify(left).localeCompare(JSON.stringify(right));
-}
-`;
-
 const temporaryRoots = [];
+const manifests = await loadManifests(repositoryRoot);
 let harness;
 let porcelainBefore;
-
+const walkClosure = (shim, caller, root) => walk(harness, shim, caller, root);
 beforeAll(async () => {
   porcelainBefore = gitPorcelain();
   expect(porcelainBefore).toBe("");
-  const discovered = await discoverDirectCallers();
-  expect(discovered).toEqual(expectedCallers.map(([file]) => file).sort());
-  harness = await createHarness();
+  const discovered = await discoverDirectCallers(repositoryRoot);
+  expect(discovered).toEqual(manifests.map(({ caller }) => caller).sort());
+  harness = await createHarness(repositoryRoot);
+  temporaryRoots.push(harness.root);
 });
 
 afterAll(async () => {
@@ -184,63 +96,8 @@ describe("TypeScript resolver caller parity", () => {
     expect(await readFile(fixture.staticSentinel, "utf8")).toBe("SENTINEL-7043-STATIC-IMPORT-EXECUTED");
   });
 
-  it.each(byteIdenticalCallers)(
-    "keeps the %s transitive resolved-URL map byte-identical",
-    async (caller, predecessor, expectedModules, expectedEdges) => {
-      const [before, after] = await Promise.all([
-        walkClosure(harness.predecessorShims[predecessor], path.join(repositoryRoot, caller)),
-        walkClosure(harness.candidateShim, path.join(repositoryRoot, caller)),
-      ]);
-      expect(before.errors, `${caller} predecessor errors`).toEqual([]);
-      expect(after.errors, `${caller} consolidated errors`).toEqual([]);
-      expect(JSON.stringify(after), caller).toBe(JSON.stringify(before));
-      expect(after.modules, `${caller} module count`).toHaveLength(expectedModules);
-      expect(after.edges, `${caller} edge count`).toHaveLength(expectedEdges);
-    },
-  );
-
-  it("widens only the backfill closure from the source-only negative control", async () => {
-    const caller = path.join(repositoryRoot, "scripts/discovery-search-embedding-backfill.mjs");
-    const [sourceOnly, union] = await Promise.all([
-      walkClosure(harness.predecessorShims.source, caller),
-      walkClosure(harness.candidateShim, caller),
-    ]);
-    const sourceEdges = new Map(sourceOnly.edges.map((edge) => [edgeKey(edge), edge]));
-    const unionEdges = new Map(union.edges.map((edge) => [edgeKey(edge), edge]));
-    const changedEdges = [...sourceEdges]
-      .filter(([key, edge]) => unionEdges.has(key) && !sameEdge(edge, unionEdges.get(key)))
-      .map(([key]) => key)
-      .sort();
-    const gainedEdges = [...unionEdges.keys()].filter((key) => !sourceEdges.has(key));
-    const lostEdges = [...sourceEdges.keys()].filter((key) => !unionEdges.has(key));
-    const gainedModules = union.modules.length - sourceOnly.modules.length;
-    const changedSpecifierEdges = [
-      "contracts/event-core/index.ts|./public-event-payloads",
-      "contracts/event-core/test-support.ts|./public-event-payloads",
-    ];
-    const absentSiblingUrl = pathToFileURL(
-      path.join(repositoryRoot, "contracts/event-core/public-event-payloads.ts"),
-    ).href;
-    const directoryIndexUrl = pathToFileURL(
-      path.join(repositoryRoot, "contracts/event-core/public-event-payloads/index.ts"),
-    ).href;
-
-    expect(sourceOnly.errors, "source-only errors").toEqual([]);
-    expect(union.errors, "union errors").toEqual([]);
-    expect(sourceOnly.modules, "source-only module count").toHaveLength(99);
-    expect(sourceOnly.edges, "source-only edge count").toHaveLength(180);
-    expect(union.modules, "union module count").toHaveLength(115);
-    expect(union.edges, "union edge count").toHaveLength(220);
-    expect(JSON.stringify(union), "source-only equality must stay red").not.toBe(JSON.stringify(sourceOnly));
-    expect(changedEdges).toEqual(changedSpecifierEdges);
-    expect(gainedEdges).toHaveLength(40);
-    expect(gainedModules).toBe(16);
-    expect(lostEdges).toEqual([]);
-    for (const key of changedSpecifierEdges) {
-      expect(sourceEdges.get(key)?.resolved, `${key} source-only target`).toBe(absentSiblingUrl);
-      expect(unionEdges.get(key)?.resolved, `${key} union target`).toBe(directoryIndexUrl);
-    }
-    expect(await exists(path.join(repositoryRoot, "contracts/event-core/public-event-payloads.ts"))).toBe(false);
+  it.each(manifests)("keeps $caller exact against its manifest and independent predecessor", async (manifest) => {
+    await checkCaller(harness, manifest);
   });
 
   it("retains the extension-loader failure identity and leaves the exact-head worktree clean", async () => {
@@ -257,80 +114,450 @@ describe("TypeScript resolver caller parity", () => {
   });
 });
 
-async function discoverDirectCallers() {
-  const directRegistration = [
-    "reg",
-    'ister("../infrastructure/platform-runtime/typescript-resolver.mjs", import.meta.url)',
-  ].join("");
-  const tracked = execFileSync("git", ["ls-files", "*.mjs"], { cwd: repositoryRoot, encoding: "utf8" })
-    .split(/\r?\n/u)
-    .filter(Boolean);
-  const matches = [];
-  for (const file of tracked) {
-    const source = await readFile(path.join(repositoryRoot, file), "utf8");
-    if (source.includes(directRegistration)) {
-      matches.push(file.replaceAll("\\", "/"));
-    }
-  }
-  return matches.sort();
-}
+describe("Resolver caller manifest detection", () => {
+  let fixture;
+  beforeAll(async () => {
+    fixture = await createGraphRepository("shared");
+  });
 
-async function createHarness() {
-  const root = await mkdtemp(path.join(tmpdir(), "typescript-resolver-parity-"));
-  temporaryRoots.push(root);
-  const extensionHook = path.join(root, "pinned-extension-loader.mjs");
-  const sourceHook = path.join(root, "pinned-source-loader.mjs");
-  const candidateShim = path.join(root, "candidate-register.mjs");
-  const extensionShim = path.join(root, "extension-register.mjs");
-  const sourceShim = path.join(root, "source-register.mjs");
-  const walker = path.join(root, "walker.mjs");
-  const parentProbe = path.join(root, "parent-probe.mjs");
-  await writeFile(extensionHook, PINNED_EXTENSION_LOADER_SOURCE);
-  await writeFile(sourceHook, PINNED_SOURCE_LOADER_SOURCE);
-  await writeFile(candidateShim, registerShim(candidateHookUrl));
-  await writeFile(extensionShim, registerShim(pathToFileURL(extensionHook).href));
-  await writeFile(sourceShim, registerShim(pathToFileURL(sourceHook).href));
-  await writeFile(walker, walkerSource);
-  await writeFile(
-    parentProbe,
-    `import { pathToFileURL } from "node:url";
-const parentUrl = pathToFileURL(process.argv[2]).href;
-console.log(JSON.stringify({
-  relative: import.meta.resolve("./plain", parentUrl),
-  missing: import.meta.resolve("./definitely-does-not-exist-xyz.ts", parentUrl),
-}));
-`,
-  );
-  return {
-    root,
-    walker,
-    parentProbe,
-    candidateShim: pathToFileURL(candidateShim).href,
-    predecessorShims: {
-      extension: pathToFileURL(extensionShim).href,
-      source: pathToFileURL(sourceShim).href,
+  it.each(["dropped module", "extra edge", "stale manifest target with unchanged counts"])(
+    "rejects the %s mutant through the real read-only check and restores green",
+    async (name) => {
+      const file =
+        name === "dropped module"
+          ? path.join(fixture, "graph/hub.ts")
+          : name === "extra edge"
+            ? path.join(fixture, "scripts/left.mjs")
+            : path.join(fixture, manifestDirectory, "left.manifest");
+      const original = await readFile(file, "utf8");
+      if (name === "dropped module") await writeFile(file, original.replace('import "./z";\n', ""));
+      else if (name === "extra edge") await writeFile(file, original + 'import "../graph/a";\n');
+      else {
+        const manifest = (await loadManifests(fixture))[0];
+        manifest.graphs.candidate.edges[0].resolved = "repo:/stale.ts";
+        await writeFile(file, serializeManifest(manifest));
+      }
+      try {
+        const result = await runNode(
+          [path.join(repositoryRoot, "scripts/typescript-resolver-caller-manifest.mjs"), "--check", "--root", fixture],
+          repositoryRoot,
+          false,
+        );
+        expect(result.status).not.toBe(0);
+        expect(result.stderr).toContain("scripts/left.mjs: stale manifest");
+        retainEvidence(`mutant-${name.replaceAll(" ", "-")}.txt`, JSON.stringify(result));
+      } finally {
+        await writeFile(file, original);
+      }
+      await processManifests(fixture, "--check");
     },
-  };
+  );
+
+  it("rejects missing, unknown and duplicate manifests in both modes", async () => {
+    const file = path.join(fixture, manifestDirectory, "left.manifest");
+    const original = await readFile(file, "utf8");
+    await unlink(file);
+    for (const mode of ["--check", "--write"])
+      await expect(processManifests(fixture, mode)).rejects.toThrow("coverage");
+    await writeFile(file, original);
+    const unknown = path.join(fixture, manifestDirectory, "unknown.manifest");
+    const unknownManifest = (await loadManifests(fixture))[0];
+    unknownManifest.caller = "scripts/unknown.mjs";
+    await writeFile(unknown, serializeManifest(unknownManifest));
+    for (const mode of ["--check", "--write"])
+      await expect(processManifests(fixture, mode)).rejects.toThrow("coverage");
+    await unlink(unknown);
+    await writeFile(file, original + '["caller","scripts/left.mjs"]\n');
+    for (const mode of ["--check", "--write"])
+      await expect(processManifests(fixture, mode)).rejects.toThrow("duplicate");
+    await writeFile(file, original);
+  });
+
+  it("requires caller-owned predecessor and check metadata even in write mode", async () => {
+    const file = path.join(fixture, manifestDirectory, "left.manifest");
+    const original = await readFile(file, "utf8");
+    for (const key of ["predecessor", "check"]) {
+      const withoutMetadata =
+        original
+          .trimEnd()
+          .split("\n")
+          .filter((line) => JSON.parse(line)[0] !== key)
+          .join("\n") + "\n";
+      await writeFile(file, withoutMetadata);
+      for (const mode of ["--check", "--write"])
+        await expect(processManifests(fixture, mode)).rejects.toThrow(`missing/invalid ${key}`);
+      await writeFile(file, original);
+    }
+  });
+
+  it("discovers a realistically named new sibling and never invents its metadata", async () => {
+    const sibling = "scripts/run-catalog-new-proof.mjs";
+    await writeFile(path.join(fixture, sibling), callerSource("../graph/hub"));
+    git(fixture, "add", sibling);
+    expect(await discoverDirectCallers(fixture)).toContain(sibling);
+    for (const mode of ["--check", "--write"])
+      await expect(processManifests(fixture, mode)).rejects.toThrow("coverage");
+    git(fixture, "rm", "-f", sibling);
+    await processManifests(fixture, "--check");
+  });
+
+  it("write mode cannot bless candidate-only predecessor divergence", async () => {
+    const file = path.join(fixture, "scripts/left.mjs");
+    const original = await readFile(file, "utf8");
+    const manifestFile = path.join(fixture, manifestDirectory, "left.manifest");
+    const manifest = (await loadManifests(fixture))[0];
+    manifest.predecessor = "source";
+    const saved = await readFile(manifestFile, "utf8");
+    await writeFile(manifestFile, serializeManifest(manifest));
+    await mkdir(path.join(fixture, "graph/directory"));
+    await writeFile(path.join(fixture, "graph/directory/index.ts"), "export {};\n");
+    await writeFile(file, original + 'import "../graph/directory";\n');
+    for (const mode of ["--check", "--write"])
+      await expect(processManifests(fixture, mode)).rejects.toThrow(
+        "scripts/left.mjs: predecessor/consolidated divergence",
+      );
+    expect(await readFile(manifestFile, "utf8")).toBe(serializeManifest(manifest));
+    await writeFile(file, original);
+    await writeFile(manifestFile, saved);
+    await processManifests(fixture, "--check");
+  });
+
+  it("rejects forbidden backfill target changes and a newly present absent sibling", async () => {
+    const manifest = manifests.find(({ check }) => check === "backfill-widening");
+    const caller = path.join(repositoryRoot, manifest.caller);
+    const before = await walkClosure(harness.predecessorShims.source, caller);
+    const after = await walkClosure(harness.candidateShim, caller);
+    const mutated = structuredClone(after);
+    mutated.edges.find((edge) => edge.specifier === "./public-event-payloads").resolved = "file:///forbidden.ts";
+    await expect(validateParity(repositoryRoot, manifest, before, mutated)).rejects.toThrow("target");
+    const fakeRoot = await temporaryDirectory();
+    await mkdir(path.join(fakeRoot, "contracts/event-core"), { recursive: true });
+    const sibling = path.join(fakeRoot, "contracts/event-core/public-event-payloads.ts");
+    const relocated = (graph) => ({
+      ...graph,
+      edges: graph.edges.map((edge) => ({
+        ...edge,
+        resolved: edge.resolved.replace(
+          pathToFileURL(repositoryRoot + path.sep).href,
+          pathToFileURL(fakeRoot + path.sep).href,
+        ),
+      })),
+    });
+    await writeFile(sibling, "export {};\n");
+    await expect(validateParity(fakeRoot, manifest, relocated(before), relocated(after))).rejects.toThrow(
+      "forbidden backfill sibling",
+    );
+  });
+
+  it("normalizes Windows and POSIX checkout URLs without losing records or multiplicity", () => {
+    const graph = (root) => ({
+      modules: ["scripts/a.mjs"],
+      edges: [
+        { from: "scripts/a.mjs", specifier: "../a?x#y", resolved: `${root}a.ts?x#y` },
+        { from: "scripts/a.mjs", specifier: "../a?x#y", resolved: `${root}a.ts?x#y` },
+        { from: "scripts/a.mjs", specifier: "pkg", resolved: "node:fs" },
+      ],
+      errors: [{ from: "scripts/a.mjs", specifier: "missing", code: "ERR_MODULE_NOT_FOUND" }],
+    });
+    const win = "file:///D:/a%20checkout/";
+    const posix = "file:///tmp/a%20checkout/";
+    const normalized = normalizeGraph(graph(win), win);
+    expect(normalized).toEqual(normalizeGraph(graph(posix), posix));
+    expect(normalized.edges).toHaveLength(3);
+    expect(normalized.edges[0].resolved).toBe("repo:/a.ts?x#y");
+    expect(normalized.errors[0].code).toBe("ERR_MODULE_NOT_FOUND");
+  });
+
+  it("preserves full dependency identities and target suffixes across pnpm Windows/POSIX directories", () => {
+    const snapshots = [
+      "@opentelemetry/exporter-metrics-otlp-http@0.216.0(@opentelemetry/api@1.9.1)",
+      "@opentelemetry/auto-instrumentations-node@0.74.0(@opentelemetry/api@1.9.1)(@opentelemetry/core@2.7.1(@opentelemetry/api@1.9.1))",
+      "@opentelemetry/exporter-trace-otlp-http@0.216.0(@opentelemetry/api@1.9.1)",
+    ];
+    const windows = dependencyDirectoryMap(snapshots, 60);
+    const posix = dependencyDirectoryMap(snapshots, 120);
+    expect([...windows.keys()]).toEqual([
+      "@opentelemetry+exporter-met_1d51d053619801c595b7979a3569362a",
+      "@opentelemetry+auto-instrum_10b0eca79c1e4ba39bededdbb57f8bac",
+      "@opentelemetry+exporter-tra_59980fb8abe3270bad77f21f260ffaeb",
+    ]);
+    expect([...posix.keys()]).toEqual([
+      "@opentelemetry+exporter-metrics-otlp-http@0.216.0_@opentelemetry+api@1.9.1",
+      "@opentelemetry+auto-instrumentations-node@0.74.0_@opentelemetry+api@1.9.1_@opentelemetr_10b0eca79c1e4ba39bededdbb57f8bac",
+      "@opentelemetry+exporter-trace-otlp-http@0.216.0_@opentelemetry+api@1.9.1",
+    ]);
+    const root = "file:///checkout/";
+    const graph = (directories) => ({
+      modules: ["scripts/a.mjs"],
+      errors: [],
+      edges: [...directories.keys()].map((directory, index) => ({
+        from: "scripts/a.mjs",
+        specifier: snapshots[index].split("@0.")[0],
+        resolved: `${root}node_modules/.pnpm/${directory}/node_modules/${snapshots[index].split("@0.")[0]}/build/src/index.js?x#y`,
+      })),
+    });
+    const normalized = normalizeGraph(graph(windows), root, windows);
+    expect(normalized).toEqual(normalizeGraph(graph(posix), root, posix));
+    for (const snapshot of snapshots)
+      expect(normalized.edges.some((edge) => edge.resolved.includes(encodeURIComponent(snapshot)))).toBe(true);
+    expect(normalized.edges.every((edge) => edge.resolved.endsWith("/build/src/index.js?x#y"))).toBe(true);
+    const changedTarget = graph(windows);
+    changedTarget.edges[0].resolved = changedTarget.edges[0].resolved.replace("index.js?x#y", "other.js?x#y");
+    expect(normalizeGraph(changedTarget, root, windows)).not.toEqual(normalized);
+    const changedIdentity = dependencyDirectoryMap(
+      [snapshots[0].replace("0.216.0", "0.217.0"), ...snapshots.slice(1)],
+      60,
+    );
+    expect(normalizeGraph(graph(changedIdentity), root, changedIdentity)).not.toEqual(normalized);
+    const changedPeers = dependencyDirectoryMap([snapshots[0].replace("1.9.1", "1.9.2"), ...snapshots.slice(1)], 60);
+    expect(normalizeGraph(graph(changedPeers), root, changedPeers)).not.toEqual(normalized);
+    expect(() => normalizeGraph(graph(windows), root)).toThrow("unknown pnpm dependency directory");
+    expect(() => dependencyDirectoryMap([snapshots[0], snapshots[0]], 60)).toThrow("ambiguous");
+  });
+
+  it("write mode refuses a forbidden additional backfill target change without writing", async () => {
+    const root = await temporaryDirectory();
+    for (const directory of [
+      manifestDirectory,
+      "infrastructure/platform-runtime",
+      "contracts/event-core/public-event-payloads",
+      "contracts/event-core/forbidden",
+    ]) {
+      await mkdir(path.join(root, directory), { recursive: true });
+    }
+    await writeFile(
+      path.join(root, "infrastructure/platform-runtime/typescript-resolver.mjs"),
+      await readFile(path.join(repositoryRoot, "infrastructure/platform-runtime/typescript-resolver.mjs")),
+    );
+    await writeFile(
+      path.join(root, "scripts/discovery-search-embedding-backfill.mjs"),
+      callerSource("../contracts/event-core/index"),
+    );
+    await writeFile(
+      path.join(root, "contracts/event-core/index.ts"),
+      'import "./public-event-payloads";\nimport "./test-support";\n',
+    );
+    await writeFile(path.join(root, "contracts/event-core/test-support.ts"), 'import "./public-event-payloads";\n');
+    for (const directory of ["public-event-payloads", "forbidden"])
+      await writeFile(path.join(root, `contracts/event-core/${directory}/index.ts`), "export {};\n");
+    const file = path.join(root, manifestDirectory, "discovery-search-embedding-backfill.manifest");
+    await writeFile(
+      file,
+      serializeManifest({
+        caller: "scripts/discovery-search-embedding-backfill.mjs",
+        predecessor: "source",
+        check: "backfill-widening",
+        graphs: {},
+      }),
+    );
+    git(root, "init", "-b", "baseline");
+    git(root, "add", ".");
+    await manifestCli(root, "--write");
+    const before = await readFile(file, "utf8");
+    await writeFile(
+      path.join(root, "contracts/event-core/test-support.ts"),
+      'import "./public-event-payloads";\nimport "./forbidden";\n',
+    );
+    for (const mode of ["--check", "--write"])
+      await expect(processManifests(root, mode)).rejects.toThrow("forbidden backfill target changes");
+    expect(await readFile(file, "utf8")).toBe(before);
+    await writeFile(path.join(root, "contracts/event-core/test-support.ts"), 'import "./public-event-payloads";\n');
+    await processManifests(root, "--check");
+  });
+
+  it("writes deterministically twice and repeated checks leave tracked bytes unchanged", async () => {
+    const before = await manifestBytes(fixture);
+    await processManifests(fixture, "--write");
+    const first = await manifestBytes(fixture);
+    await processManifests(fixture, "--write");
+    expect(await manifestBytes(fixture)).toEqual(first);
+    expect(first).toEqual(before);
+    await processManifests(fixture, "--check");
+    await processManifests(fixture, "--check");
+    expect(await manifestBytes(fixture)).toEqual(before);
+    expect(git(fixture, "diff", "--exit-code")).toBe("");
+  });
+});
+
+describe("Baseline shared-row collision red control", () => {
+  let fixture;
+  let baseline;
+  beforeAll(async () => {
+    fixture = await createGraphRepository("shared");
+    await writeLegacyPins(fixture);
+    git(fixture, "add", ".");
+    git(fixture, "commit", "-m", "baseline rows");
+    baseline = git(fixture, "rev-parse", "HEAD").trim();
+  });
+  it.each(["b", "v"])("recounts the old row format for independent addition %s", async (addition) => {
+    git(fixture, "switch", "-c", addition, baseline);
+    await addGraphModule(fixture, "shared", addition);
+    await manifestCli(fixture, "--write");
+    await writeLegacyPins(fixture);
+    git(fixture, "add", ".");
+    git(fixture, "commit", "-m", addition);
+    retainEvidence(`baseline-${addition}.patch`, git(fixture, "show", "--format=", "HEAD"));
+  });
+  it("reproduces a textual conflict in the baseline parity rows", () => {
+    const result = gitResult(fixture, "merge", "--no-edit", "b");
+    retainEvidence("baseline-conflict.txt", JSON.stringify(result));
+    expect(result.status).not.toBe(0);
+    expect(git(fixture, "diff", "--name-only", "--diff-filter=U")).toContain(
+      "scripts/typescript-resolver-caller-parity.test.mjs",
+    );
+    retainEvidence(
+      "baseline-conflict.patch",
+      git(fixture, "diff", "--", "scripts/typescript-resolver-caller-parity.test.mjs"),
+    );
+    git(fixture, "merge", "--abort");
+  });
+});
+
+for (const shape of ["shared", "disjoint"]) {
+  describe(`Independent ${shape} caller additions`, () => {
+    let fixture;
+    let baseline;
+    beforeAll(async () => {
+      fixture = await createGraphRepository(shape);
+      baseline = git(fixture, "rev-parse", "HEAD").trim();
+    });
+    it.each(["b", "v"])("generates the %s branch with the real write mode", async (addition) => {
+      git(fixture, "switch", "-c", addition, baseline);
+      await addGraphModule(fixture, shape, addition);
+      await manifestCli(fixture, "--write");
+      const touched = git(fixture, "diff", "--name-only").trim().split(/\r?\n/u);
+      expect(touched).not.toContain("scripts/typescript-resolver-caller-parity.test.mjs");
+      expect(touched.filter((file) => file.endsWith(".manifest"))).toEqual(
+        shape === "shared"
+          ? [
+              "scripts/typescript-resolver-caller-manifests/left.manifest",
+              "scripts/typescript-resolver-caller-manifests/right.manifest",
+            ]
+          : [`scripts/typescript-resolver-caller-manifests/${addition === "b" ? "left" : "right"}.manifest`],
+      );
+      git(fixture, "add", ".");
+      git(fixture, "commit", "-m", addition);
+      retainEvidence(`${shape}-${addition}.patch`, git(fixture, "show", "--format=", "HEAD"));
+    });
+    it.each([
+      ["b", "v"],
+      ["v", "b"],
+    ])("merges %s then %s without conflict and checks the final graphs", async (first, second) => {
+      git(fixture, "switch", "-c", `merge-${first}`, first);
+      const result = gitResult(fixture, "merge", "--no-edit", second);
+      retainEvidence(`${shape}-${first}-${second}-merge.txt`, JSON.stringify(result));
+      expect(result.status).toBe(0);
+      await manifestCli(fixture, "--check");
+      const final = await manifestBytes(fixture);
+      retainEvidence(`${shape}-${first}-${second}-checked.json`, JSON.stringify(final));
+      expect(git(fixture, "status", "--porcelain")).toBe("");
+    });
+  });
 }
 
-function registerShim(hookUrl) {
-  return `import { register } from "node:module";\nregister(${JSON.stringify(hookUrl)}, import.meta.url);\n`;
+async function temporaryDirectory() {
+  const root = await mkdtemp(path.join(tmpdir(), "resolver-caller-manifests-"));
+  temporaryRoots.push(root);
+  return root;
 }
 
-async function walkClosure(registerShimPath, callerPath, traversalRoot = repositoryRoot) {
-  const result = await runNode(
-    [
-      "--experimental-import-meta-resolve",
-      "--import",
-      registerShimPath,
-      harness.walker,
-      repositoryRoot,
-      traversalRoot,
-      callerPath,
-    ],
+function git(root, ...args) {
+  return execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+}
+
+function gitResult(root, ...args) {
+  try {
+    return { status: 0, stdout: git(root, ...args) };
+  } catch (error) {
+    return { status: error.status, stdout: String(error.stdout), stderr: String(error.stderr) };
+  }
+}
+
+function callerSource(target) {
+  const registration = [
+    "reg",
+    'ister("../infrastructure/platform-runtime/typescript-resolver.mjs", import.meta.url);',
+  ].join("");
+  return `import { register } from "node:module";\n${registration}\nawait import(${JSON.stringify(target)});\n`;
+}
+
+const anchors = ["a", "c", "e", "g", "i", "m", "q", "u", "w", "z"];
+async function createGraphRepository(shape) {
+  const root = await temporaryDirectory();
+  for (const directory of ["scripts", manifestDirectory, "graph", "infrastructure/platform-runtime"])
+    await mkdir(path.join(root, directory), { recursive: true });
+  await writeFile(
+    path.join(root, "infrastructure/platform-runtime/typescript-resolver.mjs"),
+    await readFile(path.join(repositoryRoot, "infrastructure/platform-runtime/typescript-resolver.mjs")),
+  );
+  for (const anchor of anchors) await writeFile(path.join(root, `graph/${anchor}.ts`), "export {};\n");
+  const source = anchors.map((anchor) => `import "./${anchor}";`).join("\n") + "\n";
+  await writeFile(path.join(root, "graph/hub.ts"), source);
+  if (shape === "disjoint") await writeFile(path.join(root, "graph/other-hub.ts"), source);
+  for (const caller of ["left", "right"]) {
+    await writeFile(
+      path.join(root, `scripts/${caller}.mjs`),
+      callerSource(`../graph/${shape === "disjoint" && caller === "right" ? "other-hub" : "hub"}`),
+    );
+    await writeFile(
+      path.join(root, manifestDirectory, `${caller}.manifest`),
+      serializeManifest({
+        caller: `scripts/${caller}.mjs`,
+        predecessor: "extension",
+        check: "byte-identical",
+        graphs: {},
+      }),
+    );
+  }
+  git(root, "init", "-b", "baseline");
+  git(root, "config", "user.name", "Resolver parity fixture");
+  git(root, "config", "user.email", "resolver-parity@example.invalid");
+  git(root, "config", "core.autocrlf", "false");
+  git(root, "config", "commit.gpgsign", "false");
+  git(root, "add", ".");
+  await manifestCli(root, "--write");
+  git(root, "add", ".");
+  git(root, "commit", "-m", "baseline");
+  return root;
+}
+
+async function addGraphModule(root, shape, addition) {
+  const hub = path.join(root, `graph/${shape === "disjoint" && addition === "v" ? "other-hub" : "hub"}.ts`);
+  const specifiers = (await readFile(hub, "utf8")).trim().split("\n");
+  specifiers.push(`import "./${addition}";`);
+  await writeFile(hub, specifiers.sort().join("\n") + "\n");
+  await writeFile(path.join(root, `graph/${addition}.ts`), addition === "v" ? 'import "./a";\n' : "export {};\n");
+}
+
+async function manifestCli(root, mode) {
+  return runNode(
+    [path.join(repositoryRoot, "scripts/typescript-resolver-caller-manifest.mjs"), mode, "--root", root],
     repositoryRoot,
   );
-  return JSON.parse(result.stdout.trim());
+}
+
+async function manifestBytes(root) {
+  const result = {};
+  for (const manifest of await loadManifests(root))
+    result[manifest.file] = await readFile(path.join(root, manifestDirectory, manifest.file), "utf8");
+  return result;
+}
+
+async function writeLegacyPins(root) {
+  const manifests = await loadManifests(root);
+  const rows = manifests.map(
+    (manifest) =>
+      `  [${JSON.stringify(manifest.caller)}, ${JSON.stringify(manifest.predecessor)}, ${manifest.graphs.candidate.modules.length}, ${manifest.graphs.candidate.edges.length}],`,
+  );
+  await writeFile(
+    path.join(root, "scripts/typescript-resolver-caller-parity.test.mjs"),
+    `const expectedCallers = Object.freeze([\n${rows.join("\n")}\n]);\n`,
+  );
+}
+
+function retainEvidence(file, text) {
+  const directory = process.env.CHASE_SETS_RESOLVER_PARITY_EVIDENCE;
+  if (directory) writeFileSync(path.join(directory, file), text);
 }
 
 async function createSentinelFixture(root) {
@@ -357,43 +584,9 @@ async function createSentinelFixture(root) {
   return { conditionalCaller, staticCaller, dynamicSentinel, staticSentinel };
 }
 
-async function exists(filePath) {
-  try {
-    await access(filePath, fsConstants.F_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function runNode(arguments_, cwd, expectSuccess = true) {
-  try {
-    const { stdout, stderr } = await execFileAsync(process.execPath, arguments_, {
-      cwd,
-      encoding: "utf8",
-      env: process.env,
-    });
-    const result = { status: 0, stdout, stderr };
-    if (expectSuccess) expect(stderr).toBe("");
-    return result;
-  } catch (error) {
-    const result = { status: error.code, stdout: error.stdout ?? "", stderr: error.stderr ?? "" };
-    if (expectSuccess) throw new Error(`Node child failed (${arguments_.join(" ")}):\n${result.stderr}`);
-    return result;
-  }
-}
-
 function gitPorcelain() {
   return execFileSync("git", ["status", "--porcelain=v1", "--untracked-files=normal"], {
     cwd: repositoryRoot,
     encoding: "utf8",
   }).trim();
-}
-
-function edgeKey(edge) {
-  return `${edge.from}|${edge.specifier}`;
-}
-
-function sameEdge(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
 }

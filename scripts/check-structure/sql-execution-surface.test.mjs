@@ -421,11 +421,11 @@ describe("SQL execution fixture matrix through the real guard entrypoint", () =>
       "not-sql",
     );
     expect(callAt(result, "bounded-contexts/identity/features/api-keys/api/route.ts", 154)?.outcome).toBe("not-sql");
-    expect(callAt(result, "contracts/event-core/projector.ts", 128)).toBeUndefined();
+    expect(callAt(result, "contracts/event-core/projector.ts", 130)).toBeUndefined();
     const projectorLines = readFileSync(path.join(repoRoot, "contracts/event-core/projector.ts"), "utf8").split(
       /\r?\n/,
     );
-    expect(projectorLines[127]).toContain('NonNullable<ProjectorHandlerContext["db"]>');
+    expect(projectorLines[129]).toContain('NonNullable<ProjectorHandlerContext["db"]>');
   });
 
   it("reports complete unprovable-form messages and only the sanctioned resolution", () => {
@@ -976,7 +976,7 @@ describe("repository-wide SQL execution partition", () => {
         "bounded-contexts/channels/features/credentials/domain/codecs.ts",
         "bounded-contexts/channels/features/credentials/domain/contracts.ts",
         "bounded-contexts/channels/features/credentials/read-model/schema.ts",
-        "bounded-contexts/channels/support/runtime-support/secret-envelope.ts",
+        "infrastructure/platform-runtime/secret-envelope.ts",
         "bounded-contexts/pricing/features/repricing-policies/ui/policy-controls.ts",
         "bounded-contexts/pricing/features/repricing-policies/ui/presets.ts",
       ]),

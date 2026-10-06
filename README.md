@@ -65,7 +65,7 @@ Each context has its own `README.md` and `GLOSSARY.md` where useful. Treat those
 
 - `auth` ([README](bounded-contexts/auth/README.md), `@chase-sets/auth`): owned nouns `authentication`, `session-journey`, `account-selection`.
 - `authenticity` ([README](bounded-contexts/authenticity/README.md), `@chase-sets/authenticity`): owned nouns `authenticity-case`.
-- `catalog` ([README](bounded-contexts/catalog/README.md), `@chase-sets/catalog`): owned nouns `catalog-item`, `category`, `blueprint`, `field`, `component`, `dimension`, `display-template`, `product-contents`, `product-measure-profile`, `provider-scope-observation`, `provider-scope-mapping`, `reference-type`, `reference-record`, `scope-record`, `scope-sync-batch`.
+- `catalog` ([README](bounded-contexts/catalog/README.md), `@chase-sets/catalog`): owned nouns `catalog-item`, `category`, `blueprint`, `field`, `operator-session`, `component`, `dimension`, `display-template`, `product-contents`, `product-measure-profile`, `provider-scope-observation`, `provider-scope-mapping`, `reference-type`, `reference-record`, `scope-record`, `scope-sync-batch`.
 - `channels` ([README](bounded-contexts/channels/README.md), `@chase-sets/channels`): owned nouns `channel-connection`, `channel-health`, `channel-publication-facts`, `channel-composition-profile`, `channel-publication-settings`, `channel-publication-eligibility`, `channel-listing-desired-state`, `channel-listing-reconciliation-run`, `channel-inventory-snapshot`, `channel-sync-run`, `channel-drift`, `channel-drift-decision`, `channel-reconciliation-run`, `missed-sale-gap`, `channel-outbound-hold`.
 - `checkout` ([README](bounded-contexts/checkout/README.md), `@chase-sets/checkout`): owned nouns `cart`, `sell list`, `checkout session`.
 - `collections` ([README](bounded-contexts/collections/README.md), `@chase-sets/collections`): owned nouns `saved-list`, `saved-list-line`, `tracked-quantity`, `saved-list-visibility`, `saved-list-cover`, `saved-list-sharing`, `anonymous-saved-list-intent`.
@@ -92,11 +92,12 @@ Deployables are thin composition roots. Business behavior should not live in dep
 
 - `deployables/admin-web` (`@chase-sets/app-admin-web`): package scripts `build`, `dev`, `start`, `test`, `typecheck`.
 - `deployables/marketplace` (`@chase-sets/app-marketplace-web`): package scripts `build`, `dev`, `start`, `test`, `typecheck`.
-- `deployables/marketplace-seed-testing` (`@chase-sets/marketplace-seed-testing`): package scripts `test:db`.
+- `deployables/marketplace-seed-testing` (`@chase-sets/marketplace-seed-testing`): package scripts `test:db`, `test:db:1`, `test:db:2`.
 - `deployables/platform-api` (`@chase-sets/app-platform-api`): package scripts `admin-qa-actor-fixtures`, `admin-qa-actor-fixtures:production`, `bootstrap`, `bootstrap:production`, `dev`, `representative-commerce-state`, `representative-commerce-state:production`, `start`, `start:production`, `test`, `test:db`, `test:db:1`, `test:db:2`, `test:fast`, `test:unit`, `test:watch`, `typecheck`.
 - `deployables/platform-worker` (`@chase-sets/app-platform-worker`): package scripts `bootstrap`, `bootstrap:production`, `dev`, `dev:ci`, `start`, `start:production`, `test`, `test:db`, `test:fast`, `test:unit`, `test:watch`, `typecheck`.
 - `deployables/public-web` (`@chase-sets/app-public-web`): package scripts `build`, `dev`, `prebuild`, `start`, `test`, `typecheck`.
 - `deployables/tcgplayer-connector-extension` (`@chase-sets/app-tcgplayer-connector-extension`): package scripts `build`, `test`, `test:chromium`, `test:watch`, `typecheck`.
+- `deployables/tcgplayer-operator-extension` (`@chase-sets/app-tcgplayer-operator-extension`): package scripts `build`, `test`, `test:chromium`, `test:watch`, `typecheck`.
 
 Default local ports are sandbox-aware. Each worktree receives a stable
 port block derived from its path so multiple worktrees can run at the same

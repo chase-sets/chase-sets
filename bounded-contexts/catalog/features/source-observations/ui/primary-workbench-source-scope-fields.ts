@@ -83,8 +83,15 @@ export function guidedSourceScopeFields(
     const selectedValue = selectedScopeValue.value;
     const parentSelectedValue = parent?.scope ? (selectedScopeValues.get(parent.scope)?.value ?? null) : null;
     const options = scopeOptions(page, selectedValue, parentSelectedValue);
+    const loadedExpansionLabel =
+      fieldMapping.fieldName === "expansionId" && selectedValue !== selectedScopeValue.label
+        ? page.items.find((item) => item.value === selectedValue)?.label
+        : undefined;
     const selectedLabel =
-      selectedScopeValue.label || options.find((option) => option.value === selectedValue)?.label || selectedValue;
+      loadedExpansionLabel ||
+      selectedScopeValue.label ||
+      options.find((option) => option.value === selectedValue)?.label ||
+      selectedValue;
 
     return [
       {

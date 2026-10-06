@@ -17,12 +17,15 @@ import {
   buildPlatformChildEnvironment,
   buildRepresentativeSnapshotCommandEnvironment,
   createBrowserE2eProductionIngressDefinitions,
+  createMarketplaceDevProcessDefinition,
+  createPublicWebDevProcessDefinition,
   isBrowserE2eTarget,
 } from "./dev-system-config.mjs";
 import { readEnvFile } from "./lib/env.mjs";
+import { completeDevSystemStartupFailure, createDevSystemLauncher } from "./dev-system-launch.mjs";
 import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
 import { stopComposePostgresCleanly } from "./lib/postgres-compose-lifecycle.mjs";
-import { buildPackageManagerInvocation, runCommand, spawnCommand, terminateProcessTree } from "./lib/process.mjs";
+import { buildPackageManagerInvocation, runCommand, terminateProcessTree } from "./lib/process.mjs";
 import { runObservedBrowserE2eBootstrap } from "./browser-e2e-bootstrap-observation.mjs";
 import {
   applySandboxEnv,
@@ -222,28 +225,8 @@ const processes = [
     },
     port: sandbox.ports.adminWeb,
   },
-  {
-    name: "marketplace",
-    workspace: "@chase-sets/app-marketplace-web",
-    env: {
-      ...sandboxEnv,
-      PLATFORM_API_URL: sandbox.urls.platformApi,
-      VITE_PLATFORM_API_URL: sandbox.urls.platformApi,
-      PORT: String(sandbox.ports.marketplaceWeb),
-    },
-    port: sandbox.ports.marketplaceWeb,
-  },
-  {
-    name: "public-web",
-    workspace: "@chase-sets/app-public-web",
-    env: {
-      ...sandboxEnv,
-      PLATFORM_API_URL: sandbox.urls.platformApi,
-      VITE_PLATFORM_API_URL: sandbox.urls.platformApi,
-      PORT: String(sandbox.ports.publicWeb),
-    },
-    port: sandbox.ports.publicWeb,
-  },
+  createMarketplaceDevProcessDefinition(sandbox, sandboxEnv),
+  createPublicWebDevProcessDefinition(sandbox, sandboxEnv),
 ];
 
 const devTargets = {
@@ -584,6 +567,13 @@ async function runDev(targetName = "all") {
 
   const children = [];
   let shuttingDown = false;
+  const launcher = createDevSystemLauncher({
+    children,
+    onFailure: () => {
+      shuttingDown = true;
+      completeDevSystemStartupFailure();
+    },
+  });
 
   const shutdown = (signal, exitCode = 0) => {
     if (shuttingDown) {
@@ -623,12 +613,16 @@ async function runDev(targetName = "all") {
 
     if (stripeConfig.secretKey && stripeConfig.publishableKey) {
       const readyFilePath = path.join(os.tmpdir(), `chase-sets-stripe-ready-${process.pid}-${Date.now()}.txt`);
-      const stripeListener = spawnCommand("node", [stripeCliScript, "listen"], {
-        env: {
-          STRIPE_READY_FILE: readyFilePath,
+      const stripeListener = launcher.launch(
+        { name: "stripe", command: "node", args: [stripeCliScript, "listen"] },
+        {
+          env: {
+            STRIPE_READY_FILE: readyFilePath,
+          },
+          prefix: "stripe",
         },
-        prefix: "stripe",
-      });
+      );
+      if (!stripeListener) return;
 
       stripeListener.on("error", (error) => {
         if (!shuttingDown) {
@@ -673,13 +667,17 @@ async function runDev(targetName = "all") {
   if (targetName === "all") {
     await assertSandboxPortAvailable(sandbox.ports.portal, "portal");
     const portalScript = fileURLToPath(new URL("./dev-portal.mjs", import.meta.url));
-    const portal = spawnCommand("node", [portalScript], {
-      env: {
-        ...sandboxEnv,
-        PORT: String(sandbox.ports.portal),
+    const portal = launcher.launch(
+      { name: "portal", command: "node", args: [portalScript] },
+      {
+        env: {
+          ...sandboxEnv,
+          PORT: String(sandbox.ports.portal),
+        },
+        prefix: "portal",
       },
-      prefix: "portal",
-    });
+    );
+    if (!portal) return;
     children.push(portal);
   }
 
@@ -688,15 +686,13 @@ async function runDev(targetName = "all") {
       await assertSandboxPortAvailable(definition.port, definition.name);
     }
 
-    const invocation = definition.command
-      ? { command: definition.command, args: definition.args ?? [] }
-      : buildPackageManagerInvocation(["--filter", definition.workspace, "run", definition.script ?? "dev"]);
-    const child = spawnCommand(invocation.command, invocation.args, {
+    const child = launcher.launch(definition, {
       cwd: definition.cwd ? path.resolve(rootDir, definition.cwd) : undefined,
       env: buildPlatformChildEnvironment(process.env, definition.env),
       inheritEnv: false,
       prefix: definition.name,
     });
+    if (!child) return;
     lifecycleRecorder?.observe(definition.name, child);
 
     child.on("error", (error) => {

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { mapProviderObservationCapture } from "../domain/provider-observation-mapper";
 import { PROVIDER_OBSERVATION_LAUNCH_POLICY_VALUE } from "../domain/provider-observation-policy";
 import {
@@ -8,10 +8,55 @@ import {
 } from "../integrations/tcgplayer/capture-sanitizer";
 import type { TcgplayerSecondaryObservation } from "../integrations/tcgplayer/market-client";
 import type { TcgplayerEndpointStageTrace } from "../integrations/tcgplayer/market-client";
+import { sanitizeEndpointStageTrace } from "../integrations/tcgplayer/market-client";
 import { emptyTcgplayerResponseFieldSummary } from "../integrations/tcgplayer/response-receipt";
 import { pricingProviderObservationsSchemaSql } from "../read-model/provider-observations-schema";
 
 describe("provider observation privacy boundary", () => {
+  it("recursively accepts closed status fields and refuses malformed or wrong-stage fields", () => {
+    expectTypeOf<TcgplayerEndpointStageTrace["entries"][number]>().not.toHaveProperty("credential");
+    const entry = {
+      page: 1,
+      attempt: 2,
+      stage: "terminal" as const,
+      at: "2026-09-01T15:00:00.000Z",
+      outcome: "aborted" as const,
+      lastHttpStatus: 403,
+      lastHttpStatusAttempt: 1,
+      failureCode: null,
+    };
+    const trace = { entries: [entry], overflow: 9, retryCount: 1, cooldownCount: 1 };
+    expect(sanitizeEndpointStageTrace(trace)).toEqual(trace);
+    for (const invalid of [
+      { ...entry, lastHttpStatus: 403.5 },
+      { ...entry, lastHttpStatus: 99 },
+      { ...entry, lastHttpStatus: 600 },
+      { ...entry, lastHttpStatusAttempt: 0 },
+      { ...entry, lastHttpStatusAttempt: 1.5 },
+      { ...entry, failureCode: "secret" },
+      { ...entry, headers: { cookie: "C12_SECRET_COOKIE" } },
+      { ...entry, credential: { source: "environment", revision: 0 } },
+      { ...entry, credential: { source: "operator-session", revision: 1 } },
+      { ...entry, credential: null },
+      { ...entry, httpStatus: 403 },
+      { ...entry, stage: "cooldown-start" },
+      { ...entry, lastHttpStatus: null },
+    ])
+      expect(
+        sanitizeEndpointStageTrace({ ...trace, entries: [invalid] } as TcgplayerEndpointStageTrace),
+      ).toBeUndefined();
+    for (const status of [99, 600, 403.5, "403"]) {
+      expect(
+        sanitizeEndpointStageTrace({
+          ...trace,
+          entries: [
+            { page: 1, attempt: 1, stage: "headers-received", at: entry.at, statusClass: "4xx", httpStatus: status },
+          ],
+        } as TcgplayerEndpointStageTrace),
+      ).toBeUndefined();
+    }
+  });
+
   it("discards every C12 value before capture, receipt, and private artifact construction", async () => {
     const observation = secondary([
       listing("external-seller-secret", "Near Mint", 10),
@@ -36,9 +81,9 @@ describe("provider observation privacy boundary", () => {
     const phases = { sales: null, listings: null, history: null };
     const receipt = sanitizeTcgplayerMarketCaptureReceipt(capture, emptyTcgplayerResponseFieldSummary(), phases);
     expect(receipt.responseSummary.endpointDiagnostics).toEqual({
-      sales: { failurePhase: null, httpStatusClass: "none" },
-      listings: { failurePhase: null, httpStatusClass: "none" },
-      history: { failurePhase: null, httpStatusClass: "none" },
+      sales: { failurePhase: null, httpStatusClass: "none", lastHttpStatus: null, failureClass: "unknown" },
+      listings: { failurePhase: null, httpStatusClass: "none", lastHttpStatus: null, failureClass: "unknown" },
+      history: { failurePhase: null, httpStatusClass: "none", lastHttpStatus: null, failureClass: "unknown" },
     });
     const durable = JSON.stringify({ capture, receipt });
     assertNoC12Values(durable);
@@ -70,9 +115,9 @@ describe("provider observation privacy boundary", () => {
       phases,
     );
     expect(absent.responseSummary.endpointDiagnostics).toEqual({
-      sales: { failurePhase: null, httpStatusClass: null },
-      listings: { failurePhase: null, httpStatusClass: null },
-      history: { failurePhase: null, httpStatusClass: null },
+      sales: { failurePhase: null, httpStatusClass: null, lastHttpStatus: null, failureClass: "unknown" },
+      listings: { failurePhase: null, httpStatusClass: null, lastHttpStatus: null, failureClass: "unknown" },
+      history: { failurePhase: null, httpStatusClass: null, lastHttpStatus: null, failureClass: "unknown" },
     });
     expect(absent.responseSummary).toMatchObject({
       salesStatus: "not-requested",
@@ -91,6 +136,7 @@ describe("provider observation privacy boundary", () => {
     expect(safe.responseSummary.endpointDiagnostics?.sales.stageTrace).toEqual(safeTrace);
     for (const entry of [
       { ...safeTrace.entries[0], body: "C12_SECRET_COOKIE" },
+      { ...safeTrace.entries[0], credential: { source: "operator-session", revision: 1 } },
       { ...safeTrace.entries[0], at: "2026-09-01" },
       { ...safeTrace.entries[0], attempt: 10001 },
       { ...safeTrace.entries[0], statusClass: "403" },

@@ -15,7 +15,11 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   // stay read-free.
   const article =
     source.policyValueKeys.length > 0 ? await resolvePublicPolicyArticle(request, source, source.href) : source;
-  return { article, related: listRelatedHelpArticles(source) };
+  return {
+    article,
+    related: listRelatedHelpArticles(source),
+    marketplaceOrigin: process.env.CHASE_SETS_MARKETPLACE_ORIGIN?.trim() || undefined,
+  };
 }
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => {

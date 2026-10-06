@@ -12,6 +12,7 @@ export function defineScriptsTestConfig(env = process.env) {
     test: {
       ...resolveVitestLaneProfile(env),
       globalSetup: [heavySlotScriptBatteryGlobalSetupPath],
+      setupFiles: ["./scripts/lib/tracked-checkout-write-guard.mjs"],
       include: ["scripts/**/*.test.mjs"],
     },
   });

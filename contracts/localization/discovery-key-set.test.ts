@@ -1,15 +1,35 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { discoveryEnglishTranslations } from "./locales/en/discovery";
 
 const englishDiscoveryKeySet = {
-  count: 1019,
-  sha256: "6c0d0367179138882e3860846ed428c5966f9dbb2c6b7e86e402809c66c10ddf",
+  count: 1044,
+  sha256: "1ed7d4b0fbe7e25b2bf8fa0df49eb0e989922b70c88c193f9f40b07aafe355b5",
 } as const;
 
 describe("discovery locale key set", () => {
   it("matches the committed English discovery key set", () => {
     expect(keySetFingerprint(Object.keys(discoveryEnglishTranslations))).toEqual(englishDiscoveryKeySet);
+  });
+
+  it("labels every GoogleShoppingExclusionReason union member", () => {
+    const source = readFileSync(
+      new URL(
+        "../../bounded-contexts/discovery/features/google-shopping-operations/api/export-row.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const union = source.match(/export type GoogleShoppingExclusionReason =([^;]+);/)?.[1];
+    expect(union).toBeDefined();
+    const reasons = [...union!.matchAll(/"([a-z-]+)"/g)].map((match) => match[1]!);
+    expect(reasons.length).toBeGreaterThan(0);
+    for (const reason of reasons) {
+      const key = `discovery.googleShoppingOperations.exclusionReason.${reason}`;
+      expect(Object.hasOwn(discoveryEnglishTranslations, key), reason).toBe(true);
+      expect(Reflect.get(discoveryEnglishTranslations, key), reason).toEqual(expect.any(String));
+    }
   });
 });
 

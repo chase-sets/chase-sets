@@ -1,4 +1,5 @@
 import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
+import { providerSendSchemaSql } from "./provider-send-schema";
 import { durableJobSchemaMigrations, durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
 import { durableJobWorkUnitSchemaSql } from "@chase-sets/platform-runtime/durable-job-work-units";
 import {
@@ -105,6 +106,10 @@ const catalogProviderOptionQueryCacheProfileBackfillSql = `UPDATE catalog_provid
       ingestion_unit_key = COALESCE(ingestion_unit_key, '')
   WHERE profile_key IS NULL OR ingestion_unit_key IS NULL;`;
 
+const catalogProviderOptionQueryCacheCardCountColumnsSql = `ALTER TABLE catalog_provider_option_query_cache
+  ADD COLUMN IF NOT EXISTS total_count integer NULL,
+  ADD COLUMN IF NOT EXISTS page_size integer NULL;`;
+
 const catalogProviderOptionQueryCacheRequiredProfileColumnsSql = `DO $$
 BEGIN
   IF NOT EXISTS (
@@ -186,7 +191,8 @@ ALTER TABLE catalog_merge_candidates
 const catalogMergeCandidateScopeIdentityV2IndexSql = `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_merge_candidates_scope_record_idx
   ON catalog_merge_candidates (scope_record_id, status, updated_at DESC);`;
 
-export const catalogSourceObservationSchemaSql = `CREATE TABLE IF NOT EXISTS catalog_source_observations (
+export const catalogSourceObservationSchemaSql = `${providerSendSchemaSql.join("\n")}
+CREATE TABLE IF NOT EXISTS catalog_source_observations (
   observation_id text PRIMARY KEY,
   sync_run_id text NULL,
   provider_key text NOT NULL,
@@ -484,8 +490,35 @@ CREATE TABLE IF NOT EXISTS catalog_tcgplayer_automation_domain_rate_limits (
   domain_key text PRIMARY KEY,
   request_delay_ms integer NOT NULL,
   learned_min_delay_ms integer NOT NULL,
+  min_request_delay_ms integer NOT NULL DEFAULT 0,
+  max_request_delay_ms integer NOT NULL DEFAULT 10000,
+  max_concurrent_requests integer NOT NULL DEFAULT 2,
+  cooldown_until timestamptz NULL,
+  last_request_started_at timestamptz NULL,
+  shared_success_streak integer NOT NULL DEFAULT 0,
+  epoch bigint NOT NULL DEFAULT 0,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE catalog_tcgplayer_automation_domain_rate_limits
+  ADD COLUMN IF NOT EXISTS min_request_delay_ms integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS max_request_delay_ms integer NOT NULL DEFAULT 10000,
+  ADD COLUMN IF NOT EXISTS max_concurrent_requests integer NOT NULL DEFAULT 2,
+  ADD COLUMN IF NOT EXISTS cooldown_until timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS last_request_started_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS shared_success_streak integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS epoch bigint NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS catalog_tcgplayer_automation_domain_rate_limit_leases (
+  lease_id text PRIMARY KEY,
+  domain_key text NOT NULL REFERENCES catalog_tcgplayer_automation_domain_rate_limits(domain_key) ON DELETE CASCADE,
+  owner_id text NOT NULL,
+  acquired_at timestamptz NOT NULL,
+  expires_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS catalog_tcgplayer_automation_domain_rate_limit_leases_live_idx
+  ON catalog_tcgplayer_automation_domain_rate_limit_leases (domain_key, expires_at);
 
 CREATE TABLE IF NOT EXISTS catalog_provider_option_query_cache (
   cache_key text PRIMARY KEY,
@@ -498,6 +531,8 @@ CREATE TABLE IF NOT EXISTS catalog_provider_option_query_cache (
   parent_value text NOT NULL,
   items_json jsonb NOT NULL,
   item_count integer NOT NULL,
+  total_count integer NULL,
+  page_size integer NULL,
   fetched_at timestamptz NOT NULL,
   expires_at timestamptz NOT NULL,
   stale_until timestamptz NOT NULL,
@@ -509,6 +544,10 @@ CREATE TABLE IF NOT EXISTS catalog_provider_option_query_cache (
 ALTER TABLE catalog_provider_option_query_cache
   ADD COLUMN IF NOT EXISTS profile_key text DEFAULT '',
   ADD COLUMN IF NOT EXISTS ingestion_unit_key text DEFAULT '';
+
+ALTER TABLE catalog_provider_option_query_cache
+  ADD COLUMN IF NOT EXISTS total_count integer NULL,
+  ADD COLUMN IF NOT EXISTS page_size integer NULL;
 
 ALTER TABLE catalog_provider_option_query_cache
   ALTER COLUMN profile_key SET DEFAULT '',
@@ -593,6 +632,11 @@ export const catalogSourceObservationSchemaMigrations: readonly BcSchemaMigratio
     ],
   },
   {
+    migrationId: "20261001_catalog_provider_option_query_cache_card_count",
+    description: "Retain validated Scrydex count pagination on the existing option-query cache row.",
+    statements: ["SET LOCAL lock_timeout = '5s';", catalogProviderOptionQueryCacheCardCountColumnsSql],
+  },
+  {
     migrationId: "20260713_catalog_source_observation_compatibility_indexes",
     description: "Create indexes for compatibility columns outside repeatable boot schema.",
     statements: [
@@ -634,5 +678,61 @@ export const catalogSourceObservationSchemaMigrations: readonly BcSchemaMigratio
       catalogMergeCandidateScopeIdentityV2ForeignKeySql,
       catalogMergeCandidateScopeIdentityV2IndexSql,
     ],
+  },
+  {
+    migrationId: "20261001_catalog_tcgplayer_shared_domain_budget",
+    description:
+      "Fence process-local TCGplayer limiter SQL and add shared Postgres admission, leases, cooldown and atomic learning.",
+    statements: [
+      "SET LOCAL lock_timeout = '5s';",
+      `DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'catalog_tcgplayer_automation_domain_rate_limits'
+       AND column_name = 'request_delay_ms'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'catalog_tcgplayer_automation_domain_rate_limits'
+       AND column_name = 'effective_request_delay_ms'
+  ) THEN
+    ALTER TABLE catalog_tcgplayer_automation_domain_rate_limits
+      RENAME COLUMN request_delay_ms TO effective_request_delay_ms;
+    ALTER TABLE catalog_tcgplayer_automation_domain_rate_limits
+      RENAME COLUMN learned_min_delay_ms TO effective_learned_min_delay_ms;
+  END IF;
+END $$;`,
+      `ALTER TABLE catalog_tcgplayer_automation_domain_rate_limits
+        ADD COLUMN IF NOT EXISTS min_request_delay_ms integer NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS max_request_delay_ms integer NOT NULL DEFAULT 10000,
+        ADD COLUMN IF NOT EXISTS max_concurrent_requests integer NOT NULL DEFAULT 2,
+        ADD COLUMN IF NOT EXISTS cooldown_until timestamptz NULL,
+        ADD COLUMN IF NOT EXISTS last_request_started_at timestamptz NULL,
+        ADD COLUMN IF NOT EXISTS shared_success_streak integer NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS epoch bigint NOT NULL DEFAULT 0;`,
+      `CREATE TABLE IF NOT EXISTS catalog_tcgplayer_automation_domain_rate_limit_leases (
+  lease_id text PRIMARY KEY,
+  domain_key text NOT NULL REFERENCES catalog_tcgplayer_automation_domain_rate_limits(domain_key) ON DELETE CASCADE,
+  owner_id text NOT NULL,
+  acquired_at timestamptz NOT NULL,
+  expires_at timestamptz NOT NULL
+);`,
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS catalog_tcgplayer_automation_domain_rate_limit_leases_live_idx
+  ON catalog_tcgplayer_automation_domain_rate_limit_leases (domain_key, expires_at);`,
+      `INSERT INTO catalog_tcgplayer_automation_domain_rate_limits
+        (domain_key, effective_request_delay_ms, effective_learned_min_delay_ms, min_request_delay_ms,
+         max_request_delay_ms, max_concurrent_requests)
+      VALUES
+        ('mpSearchApi', 200, 200, 200, 30000, 2),
+        ('mpApi', 10000, 10000, 10000, 30000, 2),
+        ('infiniteApi', 200, 200, 200, 30000, 2),
+        ('mpGateway', 200, 200, 200, 30000, 2)
+      ON CONFLICT (domain_key) DO NOTHING;`,
+    ],
+  },
+  {
+    migrationId: "20261002_catalog_provider_send_window",
+    description: "Install retained Catalog staging provider-send authority, quotas, attempts and job bindings.",
+    statements: [...providerSendSchemaSql],
   },
 ];

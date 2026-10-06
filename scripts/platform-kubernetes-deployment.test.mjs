@@ -1,10 +1,12 @@
 import { EventEmitter } from "node:events";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { parse as parseYaml } from "yaml";
 import { describe, expect, it, vi } from "vitest";
 import {
   PLATFORM_KUBERNETES_SCENARIO_SEED_VERSION,
   abortPlatformRollouts,
+  assertExclusiveProductionHelmWriter,
   assertOciIndexPlatformManifestMembership,
   buildDeploymentEvidence,
   buildDiagnosticsCommands,
@@ -291,6 +293,35 @@ function completedSpawn(calls, completions) {
 }
 
 describe("platform Kubernetes deployment", () => {
+  it.each([undefined, "true", "false"])(
+    "threads Catalog send-window %s through real CLI parsing and Helm arguments",
+    (flag) => {
+      const argv = ["deploy", "--image", rollbackImageRef, "--runtime-env", "DEPLOYMENT_ENVIRONMENT=staging"];
+      if (flag !== undefined) argv.push("--runtime-env", `CATALOG_PROVIDER_SEND_WINDOW_ENABLED=${flag}`);
+      const parsed = parseArgs(argv, {});
+      expect(parsed.envOverrides.CATALOG_PROVIDER_SEND_WINDOW_ENABLED).toBe(flag);
+      const args = buildHelmUpgradeArgs(parsed);
+      expect(args).toContain("infrastructure/helm/platform/values.staging.yaml");
+      const index = args.indexOf(`global.envOverrides.CATALOG_PROVIDER_SEND_WINDOW_ENABLED=${flag}`);
+      if (flag === undefined) {
+        expect(args.some((arg) => arg.includes("CATALOG_PROVIDER_SEND_WINDOW_ENABLED"))).toBe(false);
+      } else {
+        expect(index).toBeGreaterThan(0);
+        expect(args[index - 1]).toBe("--set-string");
+      }
+    },
+  );
+
+  it("does not introduce the Catalog send-window override into production Helm arguments", () => {
+    const parsed = parseArgs(
+      ["deploy", "--image", rollbackImageRef, "--runtime-env", "DEPLOYMENT_ENVIRONMENT=production"],
+      {},
+    );
+    const args = buildHelmUpgradeArgs(parsed);
+    expect(args).toContain("infrastructure/helm/platform/values.production.yaml");
+    expect(args.some((arg) => arg.includes("CATALOG_PROVIDER_SEND_WINDOW_ENABLED"))).toBe(false);
+  });
+
   it("parses DigitalOcean platform image refs with tags or digests", () => {
     expect(parsePlatformImageRef("registry.digitalocean.com/chase-sets/chase-sets-platform:abc123")).toEqual({
       registry: "registry.digitalocean.com",
@@ -1785,6 +1816,171 @@ describe("platform Kubernetes deployment", () => {
       historyHeadRevision: 701,
       terminalFailedSuffix: [history[1]],
       preDeployHistory: history,
+    });
+  });
+
+  describe("concurrency-queued production writer census", () => {
+    const deployPath = ".github/workflows/platform-production.yml";
+    const recoveryPath = ".github/workflows/platform-production-stale-helm-recovery.yml";
+    const workflowSource = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+
+    async function collect(overrides = {}) {
+      // Synthetic identities; reproduces #8910's run/job states, not its live evidence.
+      const current = {
+        id: 91001,
+        workflow_id: 910,
+        name: "Platform Deploy",
+        path: deployPath,
+        status: "in_progress",
+        event: "workflow_dispatch",
+        head_sha: "a".repeat(40),
+        head_branch: "main",
+        run_attempt: 1,
+        ...overrides.current,
+      };
+      const successor = {
+        ...current,
+        id: 91002,
+        head_sha: "b".repeat(40),
+        status: "pending",
+        ...overrides.successor,
+      };
+      const fetch = vi.fn(async (url) => {
+        const request = new URL(url);
+        let body;
+        if (request.pathname.endsWith("/actions/runs")) {
+          const workflow_runs = [current, successor].filter(
+            (run) =>
+              (run === successor ? (overrides.listStatus ?? run.status) : run.status) ===
+              request.searchParams.get("status"),
+          );
+          body = overrides.runsBody ?? { total_count: workflow_runs.length, workflow_runs };
+        } else if (request.pathname.includes("/contents/")) {
+          if (overrides.sourceFailure) return { ok: false, status: 403 };
+          const path = request.pathname.split("/contents/")[1];
+          const source =
+            request.searchParams.get("ref") === successor.head_sha
+              ? (overrides.source ?? workflowSource(path))
+              : (overrides.currentSource ?? workflowSource(path));
+          body = overrides.sourceBody ?? {
+            type: "file",
+            encoding: "base64",
+            content: Buffer.from(source).toString("base64"),
+          };
+        } else if (
+          request.pathname ===
+          `/repos/synthetic/repository/actions/runs/${successor.id}/attempts/${successor.run_attempt}/jobs`
+        ) {
+          if (overrides.jobsFailure) return { ok: false, status: 503 };
+          body = overrides.jobs ?? { total_count: 0, jobs: [] };
+        } else {
+          throw new Error(`Unexpected synthetic request: ${url}`);
+        }
+        return { ok: true, status: 200, json: async () => body };
+      });
+      const census = await readGitHubProductionWriterCensus({
+        fetch,
+        env: {
+          GITHUB_TOKEN: "synthetic-token",
+          GITHUB_REPOSITORY: "synthetic/repository",
+          GITHUB_RUN_ID: String(current.id),
+          GITHUB_API_URL: "https://api.example.invalid",
+        },
+      });
+      return { census, fetch };
+    }
+
+    it("pins the whole-workflow non-cancelling concurrency contract", () => {
+      expect(parseYaml(workflowSource(deployPath)).concurrency).toEqual({
+        group:
+          "${{ inputs.decommission_plan_only && format('platform-production-decommission-plan-{0}', github.ref) || 'platform-registry-mutation' }}",
+        "cancel-in-progress": false,
+      });
+      expect(parseYaml(workflowSource(recoveryPath)).concurrency).toEqual({
+        group: "platform-registry-mutation",
+        "cancel-in-progress": false,
+      });
+    });
+
+    it.each(["pending", "queued"])(
+      "admits the current deploy with a %s same-workflow successor and zero jobs",
+      async (status) => {
+        const { census, fetch } = await collect({ successor: { status } });
+        expect(census.writerRuns.map(({ id }) => id)).toEqual([91001]);
+        expect(census.runs.map(({ id }) => id)).toEqual([91001, 91002]);
+        expect(census.concurrencyQueuedRuns).toEqual([expect.objectContaining({ id: 91002 })]);
+        expect(fetch.mock.calls.map(([url]) => url)).toContain(
+          "https://api.example.invalid/repos/synthetic/repository/actions/runs/91002/attempts/1/jobs?per_page=100&page=1",
+        );
+      },
+    );
+
+    it("applies the same predicate to the stale Helm recovery caller", async () => {
+      const { census } = await collect({
+        current: { name: "Platform Production Stale Helm Recovery", path: recoveryPath },
+      });
+      expect(assertExclusiveProductionHelmWriter(census, { currentRunId: "91001" }).id).toBe(91001);
+    });
+
+    it.each([
+      [
+        "started job",
+        { jobs: { total_count: 1, jobs: [{ status: "in_progress", started_at: "2026-10-06T18:00:00Z" }] } },
+      ],
+      [
+        "completed job",
+        { jobs: { total_count: 1, jobs: [{ status: "completed", started_at: "2026-10-06T18:00:00Z" }] } },
+      ],
+      ["queued job (conservative)", { jobs: { total_count: 1, jobs: [{ status: "queued", started_at: null }] } }],
+      [
+        "other writer workflow",
+        { successor: { name: "Platform Production Stale Helm Recovery", path: recoveryPath, workflow_id: 911 } },
+      ],
+      ["environment wait", { successor: { status: "waiting" } }],
+      ["unknown status", { successor: { status: "unknown" }, listStatus: "pending" }],
+      ["requested status", { successor: { status: "requested" } }],
+      ["active peer", { successor: { status: "in_progress" } }],
+      ["missing workflow id", { successor: { workflow_id: undefined } }],
+      ["different workflow id", { successor: { workflow_id: 911 } }],
+      ["different workflow path", { successor: { path: recoveryPath } }],
+      ["missing attempt", { successor: { run_attempt: undefined } }],
+      ["rerun with prior-attempt jobs unknown", { successor: { run_attempt: 2 } }],
+      ["missing head", { successor: { head_sha: undefined } }],
+      ["non-main peer", { successor: { head_branch: "untrusted" } }],
+      ["inactive current run", { current: { status: "waiting" } }],
+      ["changed current workflow", { currentSource: "name: Platform Deploy\n" }],
+      [
+        "changed concurrency",
+        { source: workflowSource(deployPath).replace("cancel-in-progress: false", "cancel-in-progress: true") },
+      ],
+      [
+        "job-level concurrency only",
+        { source: "name: Platform Deploy\njobs:\n  deploy:\n    concurrency: platform-registry-mutation\n" },
+      ],
+    ])("retains a conflicting writer for %s", async (_label, overrides) => {
+      const { census } = await collect(overrides);
+      expect(census.writerRuns).toHaveLength(2);
+    });
+
+    it.each([
+      { jobs: [] },
+      { total_count: 0 },
+      { total_count: 0, jobs: [{ status: "in_progress" }] },
+      { total_count: 1, jobs: [] },
+      { total_count: -1, jobs: [] },
+    ])("refuses malformed or incomplete job evidence: %j", async (jobs) => {
+      await expect(collect({ jobs })).rejects.toThrow(/job census/);
+    });
+
+    it.each([
+      ["unavailable workflow", { sourceFailure: true }, /workflow source.*HTTP 403/],
+      ["unavailable jobs", { jobsFailure: true }, /job census.*HTTP 503/],
+      ["malformed workflow response", { sourceBody: { type: "file", encoding: "none" } }, /workflow source census/],
+      ["malformed runs response", { runsBody: { total_count: 0 } }, /run census.*invalid response/],
+      ["missing run identity", { successor: { id: undefined } }, /malformed run identity/],
+      ["duplicate run identity", { successor: { id: 91001 } }, /duplicate or moving run/],
+    ])("fails closed for %s", async (_label, overrides, error) => {
+      await expect(collect(overrides)).rejects.toThrow(error);
     });
   });
 

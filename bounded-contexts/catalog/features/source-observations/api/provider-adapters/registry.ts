@@ -1,4 +1,5 @@
 import type { ProviderAdapter } from "./provider-adapter";
+import { bindProviderAdapter } from "../providers/provider-send-runtime";
 
 export class ProviderAdapterRegistry {
   readonly #adaptersByProviderKey: ReadonlyMap<string, ProviderAdapter>;
@@ -13,7 +14,7 @@ export class ProviderAdapterRegistry {
         throw new Error(`Duplicate provider adapter registered for '${providerKey}'.`);
       }
 
-      next.set(providerKey, adapter);
+      next.set(providerKey, bindProviderAdapter(adapter));
     }
 
     this.#adaptersByProviderKey = next;

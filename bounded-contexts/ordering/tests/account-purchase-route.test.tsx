@@ -2,6 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
+import { formatDateTime } from "@chase-sets/localization";
 import {
   appendFreshWriteToken,
   CHASE_SETS_COMMIT_RECEIPT_HEADER,
@@ -138,6 +139,31 @@ describe("marketplace account purchase route", () => {
     vi.clearAllMocks();
   });
 
+  it.each(["ready", "unavailable"] as const)(
+    "retains the order and local %s outcome with zero Marketplace review requests",
+    async (status) => {
+      const calls: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | URL | Request) => {
+          const url = requestUrl(input);
+          calls.push(url);
+          if (!url.includes("/account/purchases/ord_1")) throw new Error("Foreign review request forbidden");
+          return jsonResponse({ ...order, reviewOutcome: { status, opportunity: null } });
+        }),
+      );
+      const result = await loader({
+        request: new Request("http://localhost/account/purchases/ord_1"),
+        params: { purchaseId: "ord_1" },
+        context: undefined,
+      } as never);
+      expect(result.purchase.order_id).toBe("ord_1");
+      expect(result.reviewOutcome).toEqual({ status, opportunity: null });
+      expect(calls).toEqual([expect.stringContaining("/account/purchases/ord_1")]);
+      expect(calls.some((url) => url.includes("/reviews/"))).toBe(false);
+    },
+  );
+
   it("loads the purchase and matching review opportunity", async () => {
     const fetchCalls: string[] = [];
     vi.stubGlobal(
@@ -150,16 +176,18 @@ describe("marketplace account purchase route", () => {
           return Promise.resolve(
             jsonResponse({
               ...order,
-              reviewOpportunity: {
-                order_id: "ord_1",
-                subject_account_id: "acc_seller",
-                subject_display_name: "Seller",
-                author_role: "buyer",
-                eligible_at: "2026-04-02T00:00:00.000Z",
-                active_review_id: "rev_1",
-                response: "Thank you for sharing this.",
-                revealed: true,
-                scoring_disposition: "context-only",
+              reviewOutcome: {
+                status: "ready",
+                opportunity: {
+                  order_id: "ord_1",
+                  subject_account_id: "acc_seller",
+                  subject_display_name: "Seller",
+                  author_role: "buyer",
+                  eligible_at: "2026-04-02T00:00:00.000Z",
+                  active_review_id: "rev_1",
+                  revealed: true,
+                  active_review_revealed_at: "2026-04-03T00:00:00.000Z",
+                },
               },
             }),
           );
@@ -177,10 +205,47 @@ describe("marketplace account purchase route", () => {
 
     expect(result.purchase.order_id).toBe("ord_1");
     expect(result.reviewOutcome.opportunity?.subject_account_id).toBe("acc_seller");
-    expect(result.reviewOutcome.opportunity?.response).toBe("Thank you for sharing this.");
+    expect(result.reviewOutcome.opportunity).not.toHaveProperty("response");
     expect(result.reviewOutcome.opportunity?.revealed).toBe(true);
-    expect(result.reviewOutcome.opportunity?.scoring_disposition).toBe("context-only");
+    expect(result.reviewOutcome.opportunity?.active_review_revealed_at).toBe("2026-04-03T00:00:00.000Z");
     expect(fetchCalls).toEqual([expect.stringContaining("/account/purchases/ord_1")]);
+  });
+
+  it("renders recorded delivery through the HTTP request client and real purchase loader", async () => {
+    const deliveredAt = "2026-04-09T17:42:00.000Z";
+    const delivery_summary = { shipment_count: 2, delivered_count: 2, latest_delivered_at: deliveredAt };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        expect(requestUrl(input)).toContain("/api/marketplace/account/purchases/ord_1");
+        return Promise.resolve(
+          jsonResponse({
+            ...order,
+            status: "ready-for-fulfillment",
+            self_service_cancellation_available: false,
+            cancellation_unavailable_reason: "fulfillment-started",
+            delivery_summary,
+          }),
+        );
+      }),
+    );
+    const result = await loader({
+      request: new Request("http://localhost/account/purchases/ord_1"),
+      params: { purchaseId: "ord_1" },
+      context: undefined,
+    } as never);
+    expect(result.purchase.delivery_summary).toEqual(delivery_summary);
+    mockUseLoaderData.mockReturnValue(result);
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPurchaseRoute />
+      </ChaseRoot>,
+    );
+    expect(screen.getByText("Delivered")).toBeTruthy();
+    expect(screen.getByText(formatDateTime(deliveredAt))).toBeTruthy();
+    expect(screen.queryByText(/The seller has started packing/)).toBeNull();
+    expect(screen.queryByRole("link", { name: "Ask to cancel" })).toBeNull();
+    expect(document.querySelector('a[href*="flow=buyer-cancel-request"]')).toBeNull();
   });
 
   it("forwards fresh-write metadata and retries a temporarily missing purchase", async () => {

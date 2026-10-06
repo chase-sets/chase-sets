@@ -4,6 +4,7 @@ import {
   type EndpointFailurePhase,
   type SafeHttpStatusClass,
   type TcgplayerEndpointFailurePhases,
+  type TcgplayerEndpointFailureClass,
   type TcgplayerEndpointStageTrace,
   type TcgplayerEndpointStageTraces,
 } from "./market-client";
@@ -12,6 +13,8 @@ import type { TcgplayerResponseFieldSummaryV1 } from "./response-receipt";
 type EndpointDiagnostic = Readonly<{
   failurePhase: EndpointFailurePhase;
   httpStatusClass: SafeHttpStatusClass | null;
+  lastHttpStatus?: number | null;
+  failureClass?: TcgplayerEndpointFailureClass;
   stageTrace?: TcgplayerEndpointStageTrace;
 }>;
 
@@ -108,7 +111,15 @@ export function sanitizeTcgplayerMarketCaptureReceipt(
     trace: TcgplayerEndpointStageTrace | undefined,
   ): EndpointDiagnostic => {
     const stageTrace = sanitizeEndpointStageTrace(trace);
-    return { failurePhase, httpStatusClass, ...(stageTrace ? { stageTrace } : {}) };
+    const terminal = lastTerminal(stageTrace);
+    const lastHttpStatus = terminal?.lastHttpStatus ?? null;
+    return {
+      failurePhase,
+      httpStatusClass,
+      lastHttpStatus,
+      failureClass: classifyTerminal(stageTrace),
+      ...(stageTrace ? { stageTrace } : {}),
+    };
   };
   return {
     kind: "tcgplayer-market-capture-v1",
@@ -146,4 +157,62 @@ export function sanitizeTcgplayerMarketCaptureReceipt(
       typedRows: capture.sales.length + capture.weekly.length + capture.snapshots.length + capture.askDepth.length,
     },
   };
+}
+
+export function readTcgplayerEndpointFailureClass(
+  diagnostic: Readonly<{ lastHttpStatus?: unknown; failureClass?: unknown }> | null | undefined,
+): TcgplayerEndpointFailureClass {
+  if (!diagnostic) return "unknown";
+  if (
+    diagnostic.lastHttpStatus !== null &&
+    (!Number.isInteger(diagnostic.lastHttpStatus) ||
+      (diagnostic.lastHttpStatus as number) < 100 ||
+      (diagnostic.lastHttpStatus as number) > 599)
+  )
+    return "unknown";
+  if (diagnostic.failureClass === null) return null;
+  if (
+    typeof diagnostic.failureClass === "string" &&
+    [
+      "credential-unavailable",
+      "auth-rejected",
+      "forbidden",
+      "rate-limited",
+      "client-error",
+      "server-error",
+      "other",
+      "no-response",
+      "unknown",
+    ].includes(diagnostic.failureClass)
+  )
+    return diagnostic.failureClass as TcgplayerEndpointFailureClass;
+  return "unknown";
+}
+
+function classifyTerminal(trace: TcgplayerEndpointStageTrace | undefined): TcgplayerEndpointFailureClass {
+  const terminal = lastTerminal(trace);
+  if (
+    !terminal ||
+    terminal.lastHttpStatus === undefined ||
+    terminal.lastHttpStatusAttempt === undefined ||
+    terminal.failureCode === undefined
+  )
+    return "unknown";
+  if (terminal.outcome === "success") return null;
+  if (terminal.failureCode === "credential-unavailable") return "credential-unavailable";
+  if (terminal.lastHttpStatus === null) return "no-response";
+  if (terminal.lastHttpStatus === 401) return "auth-rejected";
+  if (terminal.lastHttpStatus === 403) return "forbidden";
+  if (terminal.lastHttpStatus === 429) return "rate-limited";
+  if (terminal.lastHttpStatus >= 400 && terminal.lastHttpStatus < 500) return "client-error";
+  if (terminal.lastHttpStatus >= 500 && terminal.lastHttpStatus < 600) return "server-error";
+  return "other";
+}
+
+function lastTerminal(trace: TcgplayerEndpointStageTrace | undefined) {
+  for (let index = (trace?.entries.length ?? 0) - 1; index >= 0; index -= 1) {
+    const entry = trace?.entries[index];
+    if (entry?.stage === "terminal") return entry;
+  }
+  return undefined;
 }

@@ -79,9 +79,254 @@ describe("representative catalog Observation Pack replay", () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     delete process.env.REPRESENTATIVE_CATALOG_PACK_SOURCE;
+    delete process.env.REPRESENTATIVE_CATALOG_REPLAY_EVIDENCE_OUT;
     await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+  });
+
+  it("synthetic seeded-Set Lorcana pack publishes required ink through the real seed and converges only for seeded state", async () => {
+    // This positive covers seeded-state ink publication/convergence, not source 03's pack-provisioned Set.
+    const packDir = await writeSyntheticLorcanaPack();
+    process.env.REPRESENTATIVE_CATALOG_PACK_SOURCE = packDir;
+    vi.stubGlobal("fetch", async () => {
+      throw new Error("synthetic Lorcana replay must never call provider transport");
+    });
+
+    await seedRuntime.seed();
+    const rows = await seedRuntime.pools.catalog.query<{
+      observation_id: string;
+      observation_status: string;
+      status: string;
+      subtitle: string;
+      display_identity_hash: string;
+      ink: string;
+    }>(
+      `SELECT observation.observation_id, observation.status AS observation_status,
+         item.status, identity.subtitle, identity.display_identity_hash, value->>'value' AS ink
+       FROM catalog_source_observations AS observation
+       JOIN catalog_items AS item ON item.catalog_item_id = observation.promoted_catalog_item_id
+       JOIN catalog_item_display_identities AS identity
+         ON identity.catalog_item_id = item.catalog_item_id AND identity.language_code = item.language_code
+       CROSS JOIN LATERAL jsonb_array_elements(item.field_values) AS value
+       JOIN catalog_fields AS field ON field.field_id = value->>'fieldId'
+       WHERE observation.provider_key = 'lorcanajson' AND field.key = 'ink-color'
+       ORDER BY observation.observation_id`,
+    );
+    expect(rows.rows).toHaveLength(2);
+    for (const [index, ink] of ["Amethyst", "Amber"].entries()) {
+      expect(rows.rows[index]).toMatchObject({ observation_status: "promoted", status: "active", ink });
+      expect(rows.rows[index]?.subtitle).toContain(ink);
+      expect(rows.rows[index]?.display_identity_hash).toBeTruthy();
+    }
+    const observationCount = await seedRuntime.pools.catalog.query<{ count: string }>(
+      "SELECT COUNT(*) AS count FROM catalog_source_observations WHERE provider_key = 'lorcanajson'",
+    );
+    expect(Number(observationCount.rows[0]?.count)).toBe(2);
+    const firstEventCount = await countRows(seedRuntime.pools.catalog, "event_store_events");
+    const firstAssetCount = storedAssets.size;
+    await seedRuntime.seed();
+    expect(await countRows(seedRuntime.pools.catalog, "event_store_events")).toBe(firstEventCount);
+    expect(storedAssets.size).toBe(firstAssetCount);
+  });
+
+  it("synthetic source-03-shaped Lorcana pack publishes truthful identities and converges on repeated boots", async () => {
+    process.env.REPRESENTATIVE_CATALOG_PACK_SOURCE = await writeSyntheticLorcanaPack(["Amethyst"], "1");
+    const evidenceRoot = await mkdtemp(path.join(tmpdir(), "representative-catalog-synthetic-repeat-"));
+    temporaryRoots.push(evidenceRoot);
+    const receiptPath = path.join(evidenceRoot, "receipt.json");
+    process.env.REPRESENTATIVE_CATALOG_REPLAY_EVIDENCE_OUT = receiptPath;
+    vi.stubGlobal("fetch", async () => {
+      throw new Error("synthetic Lorcana replay must never call provider transport");
+    });
+
+    // Source 03's key "1" is provisioned by the pack, unlike the seeded "the-first-chapter" positive.
+    await seedRuntime.seed();
+    const observations = await seedRuntime.pools.catalog.query<{
+      status: string;
+      promoted_catalog_item_id: string;
+      item_status: string;
+      publication_count: number;
+    }>(
+      `SELECT observation.status, observation.promoted_catalog_item_id, item.status AS item_status,
+         (SELECT COUNT(*)::integer FROM event_store_events AS publication
+          WHERE publication.stream_id = 'catalog.item-' || item.catalog_item_id
+            AND publication.event_type = 'catalog.catalog-item.published') AS publication_count
+       FROM catalog_source_observations AS observation
+       JOIN catalog_items AS item ON item.catalog_item_id = observation.promoted_catalog_item_id
+       WHERE observation.provider_key = 'lorcanajson'`,
+    );
+    expect(observations.rows).toHaveLength(1);
+    expect(observations.rows[0]).toMatchObject({ status: "promoted", item_status: "active", publication_count: 1 });
+    const provisionedSet = await seedRuntime.pools.catalog.query<{ reference_record_id: string; key: string }>(
+      "SELECT reference_record_id, key FROM catalog_reference_records WHERE reference_record_id = $1",
+      ["ref_lorcanajson_lorcana_set_1"],
+    );
+    expect(provisionedSet.rows).toEqual([{ reference_record_id: "ref_lorcanajson_lorcana_set_1", key: "1" }]);
+    const firstReceipt = JSON.parse(await readFile(receiptPath, "utf8"));
+    expect(firstReceipt).toMatchObject({
+      schemaVersion: "representative-catalog-replay.receipt/v1",
+      type: "representative-catalog-replay.complete",
+      packs: [{ envelopeCount: 1, observationCount: 1, catalogItemCount: 1, assetSetCount: 1 }],
+    });
+    const firstEventCount = await countRows(seedRuntime.pools.catalog, "event_store_events");
+    const firstAssetCount = storedAssets.size;
+    await unlink(receiptPath);
+
+    const identities = await seedRuntime.pools.catalog.query<{ subtitle: string; resolution_status: string }>(
+      "SELECT subtitle, resolution_status FROM catalog_item_display_identities WHERE catalog_item_id = $1",
+      [observations.rows[0]!.promoted_catalog_item_id],
+    );
+    expect(identities.rows).toHaveLength(1);
+    expect(identities.rows[0]).toMatchObject({ resolution_status: "resolved" });
+    expect(identities.rows[0]?.subtitle).toContain("The First Chapter");
+    expect(identities.rows[0]?.subtitle).toContain("Amethyst");
+    await seedRuntime.seed();
+    expect(await countRows(seedRuntime.pools.catalog, "event_store_events")).toBe(firstEventCount);
+    expect(storedAssets.size).toBe(firstAssetCount);
+    expect(JSON.parse(await readFile(receiptPath, "utf8"))).toMatchObject({
+      type: "representative-catalog-replay.complete",
+      totals: { appendedEventCount: 0, appendedAssetSetCount: 0 },
+    });
+    await seedRuntime.seed();
+    expect(await countRows(seedRuntime.pools.catalog, "event_store_events")).toBe(firstEventCount);
+    expect(storedAssets.size).toBe(firstAssetCount);
+    const retainedObservations = await seedRuntime.pools.catalog.query<{
+      status: string;
+      promoted_catalog_item_id: string;
+      item_status: string;
+      publication_count: number;
+    }>(
+      `SELECT observation.status, observation.promoted_catalog_item_id, item.status AS item_status,
+         (SELECT COUNT(*)::integer FROM event_store_events AS publication
+          WHERE publication.stream_id = 'catalog.item-' || item.catalog_item_id
+            AND publication.event_type = 'catalog.catalog-item.published') AS publication_count
+       FROM catalog_source_observations AS observation
+       JOIN catalog_items AS item ON item.catalog_item_id = observation.promoted_catalog_item_id
+       WHERE observation.provider_key = 'lorcanajson'`,
+    );
+    expect(retainedObservations.rows).toEqual(observations.rows);
+    const services = catalogModule.createServices(seedRuntime.pools.catalog, { catalogAssetStorage });
+    await services.referenceData.referenceRecordCommandHandler({
+      streamId: "catalog.reference-record-ref_lorcanajson_lorcana_set_1",
+      command: { type: "DeprecateReferenceRecord" },
+      context: { tenantId: "tnt_system", audit: { performedByUserId: "usr_system", forAccountId: "acc_system" } },
+    });
+    await services.referenceData.referenceRecordCommandHandler({
+      streamId: "catalog.reference-record-ref_lorcanajson_lorcana_set_1",
+      command: { type: "ArchiveReferenceRecord" },
+      context: { tenantId: "tnt_system", audit: { performedByUserId: "usr_system", forAccountId: "acc_system" } },
+    });
+    await unlink(receiptPath);
+    const terminalEventCount = await countRows(seedRuntime.pools.catalog, "event_store_events");
+    await expect(seedRuntime.seed()).rejects.toMatchObject({
+      name: "RepresentativeCatalogReplayError",
+      code: "representative-catalog-history-invalid",
+    });
+    expect(await countRows(seedRuntime.pools.catalog, "event_store_events")).toBe(terminalEventCount);
+    expect(storedAssets.size).toBe(firstAssetCount);
+    await expect(readFile(receiptPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it.each(["CreateCatalogItem", "SetCatalogItemProductAssetSets"])(
+    "resumes a synthetic promotion interrupted after %s without reauthoring its stream",
+    async (interruptedCommand) => {
+      await seedRuntime.bootstrap();
+      process.env.REPRESENTATIVE_CATALOG_PACK_SOURCE = await writeSyntheticLorcanaPack(["Amethyst"], "1");
+      vi.stubGlobal("fetch", async () => {
+        throw new Error("synthetic replay must stay offline");
+      });
+      const createServices = catalogModule.createServices;
+      let interruptedItemId: string | null = null;
+      const spy = vi.spyOn(catalogModule, "createServices").mockImplementation((...args) => {
+        const services = createServices(...args);
+        const handler = services.items.commandHandler;
+        vi.spyOn(services.items, "commandHandler").mockImplementation(async (input) => {
+          const result = await handler(input);
+          if (input.command.type === interruptedCommand && interruptedItemId === null) {
+            interruptedItemId = input.streamId.slice("catalog.item-".length);
+            throw new Error("synthetic crash after durable item creation");
+          }
+          return result;
+        });
+        return services;
+      });
+      await expect(seedRuntime.seed()).rejects.toThrow("representative-catalog-promotion-failed");
+      spy.mockRestore();
+      expect(interruptedItemId).not.toBeNull();
+      const recorded = await seedRuntime.pools.catalog.query<{ count: number }>(
+        "SELECT COUNT(*)::integer AS count FROM event_store_events WHERE event_type = 'catalog.source-observation.recorded'",
+      );
+      expect(recorded.rows[0]?.count).toBe(1);
+      await seedRuntime.seed();
+      const created = await seedRuntime.pools.catalog.query<{ count: number }>(
+        "SELECT COUNT(*)::integer AS count FROM event_store_events WHERE stream_id = $1 AND event_type = 'catalog.catalog-item.created'",
+        [`catalog.item-${interruptedItemId}`],
+      );
+      expect(created.rows[0]?.count).toBe(1);
+      const duplicateEvents = await seedRuntime.pools.catalog.query(
+        "SELECT event_type FROM event_store_events WHERE stream_id = $1 GROUP BY event_type, payload HAVING COUNT(*) > 1",
+        [`catalog.item-${interruptedItemId}`],
+      );
+      expect(duplicateEvents.rows).toEqual([]);
+      const promoted = await seedRuntime.pools.catalog.query<{ promoted_catalog_item_id: string; status: string }>(
+        "SELECT promoted_catalog_item_id, status FROM catalog_source_observations WHERE provider_key = 'lorcanajson'",
+      );
+      expect(promoted.rows).toEqual([{ promoted_catalog_item_id: interruptedItemId, status: "promoted" }]);
+      const events = await countRows(seedRuntime.pools.catalog, "event_store_events");
+      const assets = storedAssets.size;
+      await seedRuntime.seed();
+      expect(await countRows(seedRuntime.pools.catalog, "event_store_events")).toBe(events);
+      expect(storedAssets.size).toBe(assets);
+    },
+  );
+
+  it("refuses synthetic pre-fix fingerprints without rewriting history or issuing a completion receipt", async () => {
+    await seedRuntime.bootstrap();
+    process.env.REPRESENTATIVE_CATALOG_PACK_SOURCE = await writeSyntheticLorcanaPack(["Amethyst"], "1");
+    const root = await mkdtemp(path.join(tmpdir(), "representative-catalog-old-fingerprint-"));
+    temporaryRoots.push(root);
+    const receiptPath = path.join(root, "receipt.json");
+    process.env.REPRESENTATIVE_CATALOG_REPLAY_EVIDENCE_OUT = receiptPath;
+    vi.stubGlobal("fetch", async () => {
+      throw new Error("synthetic replay must stay offline");
+    });
+    const query = seedRuntime.pools.catalog.query.bind(seedRuntime.pools.catalog);
+    const spy = vi
+      .spyOn(seedRuntime.pools.catalog, "query")
+      .mockImplementation(async (sql, values) =>
+        sql.includes("AS reference_event") ? { rows: [], rowCount: 0 } : query(sql, values),
+      );
+    // Synthetic #8470 history: the real planner sees no Set name before projection.
+    await seedRuntime.seed();
+    spy.mockRestore();
+    vi.restoreAllMocks();
+    await unlink(receiptPath);
+    const events = await countRows(seedRuntime.pools.catalog, "event_store_events");
+    const assets = storedAssets.size;
+    await expect(seedRuntime.seed()).rejects.toMatchObject({
+      name: "RepresentativeCatalogReplayError",
+      code: "representative-catalog-history-invalid-plan",
+    });
+    expect(await countRows(seedRuntime.pools.catalog, "event_store_events")).toBe(events);
+    expect(storedAssets.size).toBe(assets);
+    await expect(readFile(receiptPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("synthetic Lorcana pack without ink cannot take ordinary promotion or publication", async () => {
+    process.env.REPRESENTATIVE_CATALOG_PACK_SOURCE = await writeSyntheticLorcanaPack([null]);
+    vi.stubGlobal("fetch", async () => {
+      throw new Error("synthetic Lorcana replay must never call provider transport");
+    });
+    await expect(seedRuntime.seed()).rejects.toThrow("representative-catalog-promotion-failed");
+    const observations = await seedRuntime.pools.catalog.query<{
+      status: string;
+      promoted_catalog_item_id: string | null;
+    }>("SELECT status, promoted_catalog_item_id FROM catalog_source_observations WHERE provider_key = 'lorcanajson'");
+    expect(observations.rows).toHaveLength(1);
+    expect(observations.rows[0]?.status).not.toBe("promoted");
+    expect(observations.rows[0]?.promoted_catalog_item_id).toBeNull();
   });
 
   it("replays through mapping, promotion, asset normalization, publication, downstream projections, and converges on boot two", async () => {
@@ -433,6 +678,9 @@ function useRepresentativeCatalogRuntime() {
          )`,
       );
     },
+    async bootstrap() {
+      return seedWithOptions({ enabledDataProfiles: ["catalog-integration-bootstrap"], environmentName: "test" });
+    },
     async seed() {
       return seedWithOptions({
         enabledDataProfiles: ["representative-catalog"],
@@ -558,6 +806,118 @@ async function writeSyntheticScrydexPack(conflictingCoordinate = false): Promise
         envelopeContentHashes: [observationPackEnvelopeContentHash(envelope)],
       },
     ],
+  });
+  const manifest = recordObservationPackAcceptance(bundle.manifest, {
+    acceptedBy: "Todd",
+    acceptedAt: "2026-07-22T18:30:00-05:00",
+    decisionLink: OBSERVATION_PACK_DECISION_LINK,
+  });
+  for (const file of bundle.files) {
+    const target = path.join(root, ...file.path.split("/"));
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, file.path === "manifest.json" ? serializeObservationPackManifest(manifest) : file.body);
+  }
+  return root;
+}
+
+async function writeSyntheticLorcanaPack(
+  inkColors: readonly (string | null)[] = ["Amethyst", "Amber"],
+  setCode = "the-first-chapter",
+): Promise<string> {
+  const root = await mkdtemp(path.join(tmpdir(), "representative-catalog-synthetic-lorcana-"));
+  temporaryRoots.push(root);
+  const fixture = JSON.parse(
+    await readFile(
+      new URL(
+        "../../../bounded-contexts/catalog/features/source-observations/api/__fixtures__/lorcanajson-card-reference/normal.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  // Default to seeded-state ink coverage; the separately named #8475 control uses pack-provisioned key "1".
+  const envelopes = inkColors.map((inkColor, index) => {
+    const cardId = `synthetic-ink-${index}`;
+    const imageUrl = `https://images.example.invalid/synthetic/lorcana-${index}.png`;
+    const payload = {
+      ...fixture,
+      observationId: `lorcanajson_card_en_${cardId}`,
+      externalKey: `card:${cardId}`,
+      cardId,
+      name: `Synthetic Lorcana ${index}`,
+      cardNumber: String(index + 1),
+      setId: setCode,
+      setCode,
+      inkColor,
+      imageUrls: [imageUrl],
+      externalCatalogItemReferences: [],
+      tcgplayerProductId: null,
+      sourcePayload: {
+        ...fixture.sourcePayload,
+        set: { ...fixture.sourcePayload.set, setId: setCode, setCode },
+        card: {
+          ...fixture.sourcePayload.card,
+          id: cardId,
+          name: `Synthetic Lorcana ${index}`,
+          cardNumber: String(index + 1),
+          inkColor,
+          imageUrls: [imageUrl],
+          tcgplayerProductId: null,
+        },
+      },
+      catalogHashMaterial: {
+        ...fixture.catalogHashMaterial,
+        setId: setCode,
+        setCode,
+        cardId,
+        cardNumber: String(index + 1),
+        name: `Synthetic Lorcana ${index}`,
+        inkColor,
+        tcgplayerProductId: null,
+      },
+      mergeIdentity: {
+        ...fixture.mergeIdentity,
+        printedProductName: `Synthetic Lorcana ${index}`,
+        collectorNumber: String(index + 1),
+      },
+    };
+    return {
+      unitKey: "lorcanajson:lorcana:single-card:reference-data",
+      providerKey: "lorcanajson",
+      externalKey: payload.externalKey,
+      payload,
+      provenance: {
+        sourceUrl: payload.sourceUrl,
+        sourceUpdatedAt: payload.sourceUpdatedAt,
+        fetchedAt: "2026-06-23T00:00:00.000Z",
+      },
+    };
+  });
+  const bundle = buildObservationPack({
+    packId: "synthetic-lorcanajson-lorcana-ink-en",
+    packVersion: "v1-synthetic",
+    capturedAt: "2026-07-22T18:00:00-05:00",
+    identity: {
+      productLineKey: "disney-lorcana",
+      productLineDisplayName: "Disney Lorcana",
+      setKind: "set",
+      setExternalId: setCode,
+      setDisplayName: "The First Chapter",
+      providerKey: "lorcanajson",
+      integrationProfileKey: "lorcana-card-reference-data",
+      integrationProfileVersion: "2026.06.23",
+      ingestionUnit: envelopes[0]!.unitKey,
+      language: "en",
+      scopeKey: "set",
+      scopeCoordinates: { languageCode: "en", setCode },
+    },
+    envelopes,
+    assets: envelopes.map((envelope) => ({
+      bytes: sourceImage,
+      mediaType: "image/png",
+      sourceReference: envelope.payload.imageUrls[0]!,
+      envelopeContentHashes: [observationPackEnvelopeContentHash(envelope)],
+    })),
   });
   const manifest = recordObservationPackAcceptance(bundle.manifest, {
     acceptedBy: "Todd",
@@ -766,6 +1126,24 @@ async function expectPoisonedHistoriesToFail(input: {
       payload: { ...promoted!.payload, promotionPlanFingerprint: "f".repeat(64) },
     },
     {
+      label: "mismatched-promotion-profile",
+      eventId: promoted!.event_id,
+      eventType: promoted!.event_type,
+      payload: { ...promoted!.payload, promotionProfileVersion: "synthetic-poisoned-profile" },
+    },
+    {
+      label: "mismatched-source-facts",
+      eventId: recorded!.event_id,
+      eventType: recorded!.event_type,
+      payload: { ...recorded!.payload, normalized: { kind: "synthetic-poisoned-facts" } },
+    },
+    {
+      label: "unexpected-event",
+      eventId: promoted!.event_id,
+      eventType: "catalog.synthetic-unexpected",
+      payload: {},
+    },
+    {
       label: "repeated",
       eventId: promoted!.event_id,
       eventType: "catalog.source-observation.recorded",
@@ -774,6 +1152,7 @@ async function expectPoisonedHistoriesToFail(input: {
   ] as const;
 
   for (const poison of cases) {
+    const assets = storedAssets.size;
     const original = poison.eventId === recorded!.event_id ? recorded! : promoted!;
     await input.pool.query("UPDATE event_store_events SET event_type = $2, payload = $3::jsonb WHERE event_id = $1", [
       poison.eventId,
@@ -796,6 +1175,7 @@ async function expectPoisonedHistoriesToFail(input: {
         poison.label,
       ).rejects.toThrow("representative-catalog-history-invalid");
       expect(await countRows(input.pool, "event_store_events")).toBe(input.eventCount);
+      expect(storedAssets.size).toBe(assets);
     } finally {
       await input.pool.query("UPDATE event_store_events SET event_type = $2, payload = $3::jsonb WHERE event_id = $1", [
         original.event_id,

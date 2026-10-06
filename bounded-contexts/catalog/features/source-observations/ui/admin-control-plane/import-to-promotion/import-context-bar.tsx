@@ -31,6 +31,7 @@ import {
   CATALOG_SOURCE_OPTION_ACTION_PARAM,
   CATALOG_SOURCE_OPTION_QUERY_KIND_PARAM,
   catalogPrimaryWorkbenchSourceOptionHref,
+  parseCatalogPrimaryWorkbenchSourceOptionIntent,
 } from "../../primary-workbench-source-option-refresh";
 import { catalogPrimaryWorkbenchScopeQueryKeys } from "../../primary-workbench-scope-context";
 import {
@@ -65,6 +66,7 @@ export function CatalogImportContextBar({
   readModel: CatalogPrimaryWorkbenchReadModel;
   deferredSourceOptions?: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null;
 }>) {
+  useSingleUseCardForceRefreshIntent(deferredSourceOptions);
   const summary = importContextSummary(readModel);
   // Open by default until a scope is chosen; once one is, the operator lands on the
   // collapsed summary and expands deliberately to edit. State, not navigation, so
@@ -95,6 +97,35 @@ export function CatalogImportContextBar({
       </WorkbenchStack>
     </ProgressiveDisclosure>
   );
+}
+
+function useSingleUseCardForceRefreshIntent(
+  deferredSourceOptions: Promise<CatalogPrimaryWorkbenchReadModel["sourceOptions"]> | null | undefined,
+): void {
+  const submit = useSubmit();
+
+  useEffect(() => {
+    const currentUrl = new URL(window.location.href);
+    const intent = parseCatalogPrimaryWorkbenchSourceOptionIntent(currentUrl);
+    if (intent?.action !== "force-refresh" || intent.queryKind !== "cards" || !deferredSourceOptions) {
+      return;
+    }
+
+    let cancelled = false;
+    void deferredSourceOptions.then(() => {
+      if (cancelled) {
+        return;
+      }
+      const params = new URLSearchParams(window.location.search);
+      params.delete(CATALOG_SOURCE_OPTION_ACTION_PARAM);
+      params.delete(CATALOG_SOURCE_OPTION_QUERY_KIND_PARAM);
+      submit(params, { ...importContextSubmitOptions, action: currentUrl.pathname });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [deferredSourceOptions, submit]);
 }
 
 // Build the collapsed one-line import-context summary from the route context:
@@ -414,7 +445,6 @@ function GuidedSourceScopeFields({
                 submitSourceScopeFilter(event, submit, fields.slice(0, index), field, fields.slice(index + 1))
               }
             />
-            {field.labelFieldName ? <HiddenInput name={field.labelFieldName} value={field.selectedLabel} /> : null}
           </Fragment>
         ))}
       </WorkbenchFormGrid>
@@ -450,25 +480,37 @@ function RouteControlledGuidedScopeSelect({
   }, [field.selectedValue]);
 
   return (
-    <NativeSelect
-      name={field.fieldName}
-      label={field.label}
-      placeholder={t("catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.scope.select", {
-        label: field.label,
-      })}
-      description={field.parentMissing ? (field.parentDiagnostic ?? undefined) : undefined}
-      items={field.options.map((option) => ({
-        value: option.value,
-        label: option.label,
-        description: option.description ?? undefined,
-      }))}
-      value={value}
-      disabled={field.parentMissing}
-      onChange={(event) => {
-        setValue(event.currentTarget.value);
-        onChange(event);
-      }}
-    />
+    <>
+      <NativeSelect
+        name={field.fieldName}
+        label={field.label}
+        placeholder={t("catalog.features.sourceObservations.ui.primaryWorkbench.sourceOptions.scope.select", {
+          label: field.label,
+        })}
+        description={field.parentMissing ? (field.parentDiagnostic ?? undefined) : undefined}
+        items={field.options.map((option) => ({
+          value: option.value,
+          label: option.label,
+          description: option.description ?? undefined,
+        }))}
+        value={value}
+        disabled={field.parentMissing}
+        onChange={(event) => {
+          setValue(event.currentTarget.value);
+          onChange(event);
+        }}
+      />
+      {field.labelFieldName ? (
+        <HiddenInput
+          name={field.labelFieldName}
+          value={
+            value === field.selectedValue
+              ? field.selectedLabel
+              : (findSourceScopeOption(field.options, value)?.label ?? "")
+          }
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -494,7 +536,7 @@ function submitSourceScopeFilter(
     setScopeLabelFieldValue(form, field, "");
   }
 
-  forceRefreshAllSourceOptions(form);
+  clearSourceOptionRefreshIntent(form);
 
   // Client GET navigation (not form.requestSubmit()): a parent scope change
   // refreshes the streamed source-options slice in place without reloading the
@@ -561,29 +603,6 @@ function findSourceScopeOption(
   }
   const comparableValue = value.trim().toLowerCase();
   return options.find((option) => option.value.trim().toLowerCase() === comparableValue);
-}
-
-// Stamp the GET form with the refresh-all source-option intent so the workbench
-// loader force-refreshes every option group. Any stale per-group query-kind hint
-// (left from a prior reload/force-refresh link the operator followed) is dropped,
-// since refresh-all fans across every group and carries no single query kind.
-function forceRefreshAllSourceOptions(form: HTMLFormElement): void {
-  const staleQueryKind = form.elements.namedItem(CATALOG_SOURCE_OPTION_QUERY_KIND_PARAM);
-  if (staleQueryKind instanceof HTMLInputElement) {
-    staleQueryKind.remove();
-  }
-
-  const existingAction = form.elements.namedItem(CATALOG_SOURCE_OPTION_ACTION_PARAM);
-  if (existingAction instanceof HTMLInputElement) {
-    existingAction.value = "force-refresh-all";
-    return;
-  }
-
-  const action = document.createElement("input");
-  action.type = "hidden";
-  action.name = CATALOG_SOURCE_OPTION_ACTION_PARAM;
-  action.value = "force-refresh-all";
-  form.appendChild(action);
 }
 
 // Stream the source-options status panel. The option fan-out only feeds

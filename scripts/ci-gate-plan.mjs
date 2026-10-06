@@ -38,7 +38,7 @@ export const CI_GATE_DEFINITIONS = Object.freeze([
   gate("typecheck", "Typecheck", "always-required", "REPOSITORY_LOCAL"),
   gate("unit-tests", "Unit Tests", "scope-gated", "REPOSITORY_LOCAL", "unitTestsRequired"),
   gate("db-tests", "DB Profile Tests", "scope-gated", "REPOSITORY_LOCAL", "dbTestsRequired"),
-  gate("e2e-tests", "E2E Tests", "targeted-heavy", "REPOSITORY_LOCAL", "e2eTestsRequired"),
+  gate("e2e-tests", "E2E Tests", "scope-gated", "REPOSITORY_LOCAL", "e2eTestsRequired"),
   gate("build", "Build", "full-battery-only", "REPOSITORY_LOCAL", "buildRequired"),
   gate("docker-image", "Docker Image Build", "full-battery-only", "HOSTED_ONLY", "dockerImageRequired"),
   gate("workflow-lint", "Workflow Lint", "scope-gated", "HOSTED_ONLY", "workflowLintRequired"),

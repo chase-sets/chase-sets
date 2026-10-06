@@ -254,7 +254,7 @@ export async function releaseCheckoutInventoryReservations(
     }
 
     const release = (await inventoryApi.releaseCheckoutReservation(reservation.holdId, {
-      sellerAccountId: reservation.sellerAccountId,
+      checkoutSessionId: session.session_id,
       lineKey: reservation.lineKey,
     })) as Partial<CheckoutInventoryReservation>;
 

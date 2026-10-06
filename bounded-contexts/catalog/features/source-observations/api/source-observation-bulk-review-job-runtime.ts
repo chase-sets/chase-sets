@@ -1,3 +1,4 @@
+import { retainProviderSendJobBinding, runProviderSendJob } from "./providers/provider-send-runtime";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { isDurableJobHandoffError } from "@chase-sets/platform-runtime/durable-job-store";
 import { type DurableJobWorkUnitRecord } from "@chase-sets/platform-runtime/durable-job-work-units";
@@ -131,6 +132,7 @@ export function createSourceObservationBulkReviewJobRuntime({
     // The explicit draft choice binds only to promote jobs; it is never inferred.
     const promoteAsDraft = input.action === "promote" && input.promoteAsDraft === true;
     const progress = bulkProgress(0, unitObservationIds.length, null, null, "queued");
+    await retainProviderSendJobBinding(deps, jobId);
     const job = await bulkReviewJobStore.enqueue({
       jobId,
       jobKind: input.action,
@@ -230,7 +232,7 @@ export function createSourceObservationBulkReviewJobRuntime({
       const context = claimed.eventContext;
 
       const observationId = claim.unit.payload.observationId;
-      const itemResult =
+      const itemResult = await runProviderSendJob(deps, claimed.jobId, async () =>
         claimed.action === "reapply"
           ? await reapplyObservationIds({
               observationIds: [observationId],
@@ -261,7 +263,8 @@ export function createSourceObservationBulkReviewJobRuntime({
                   reason: claimed.reason ?? "Rejected during review.",
                   context,
                   runRejectObservation: runBulkReviewSideEffect,
-                });
+                }),
+      );
       const outcome = itemResult.outcomes[0] ?? failedBulkWorkUnitOutcome(claimed.action, observationId, "No outcome.");
       const terminalState = workUnitTerminalState(outcome);
       throwIfJobRunCancelled(input);

@@ -69,6 +69,19 @@ function mockIdentityCurrentActorDisplay(email: string | null) {
 }
 
 describe("settlement payout setup routes", () => {
+  it.each([
+    ["GET", "/payout-readiness", "getPayoutReadiness"],
+    ["GET", "/payout-setup/progress", "getPayoutSetupProgress"],
+    ["POST", "/payout-setup/embedded-session", "createPayoutSetupSession"],
+    ["POST", "/payout-setup/account-management-embedded-session", "createPayoutAccountManagementSession"],
+    ["POST", "/payout-setup/notification-banner-session", "createPayoutNotificationBannerSession"],
+    ["POST", "/payout-setup/refresh", "refreshProviderReadiness"],
+  ])("denies platform-only readers %s %s before calling %s", async (method, path, serviceName) => {
+    const service = vi.fn();
+    const response = await createApp({ [serviceName]: service }, ["payouts.platform.view"]).request(path, { method });
+    expect(response.status).toBe(403);
+    expect(service).not.toHaveBeenCalled();
+  });
   afterEach(() => {
     globalThis.fetch = originalFetch;
     vi.restoreAllMocks();

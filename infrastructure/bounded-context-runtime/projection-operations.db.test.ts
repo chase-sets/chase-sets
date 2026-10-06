@@ -20,6 +20,7 @@ import { parseGlobalPosition, type EventStoreContext } from "@chase-sets/event-c
 import {
   bootstrapContextDatabase,
   createSubscriptionRunner,
+  drainContextRuntime,
   loadProjectionGroupGeneration,
   rebuildProjectionGroup,
   rebuildAllContextProjectionGroups,
@@ -1174,6 +1175,42 @@ describeDb("projection operations Postgres integration", () => {
     await expect(
       loadProjectionGroupGeneration(pools.target, { targetContextName: "target", projectionName: "items" }),
     ).resolves.toEqual({ activeGeneration: "2", rebuildingGeneration: null, state: "active" });
+  });
+
+  it("R2 retained-checkpoint direct drain requires a committed group reset before re-arming recovery", async () => {
+    const runtime = createMountedContextTestRuntime([
+      { contextName: "source", module: sourceModule, pool: pools.source, ports: {} },
+      { contextName: "target", module: createTargetModule(), pool: pools.target, ports: targetPorts },
+    ]);
+    const runner = runtime.subscriptionRunners[0];
+    await createPostgresEventStore({ pool: pools.source }).appendToStream({
+      streamId: "source.item-recovery",
+      expectedVersion: "no_stream",
+      context: createEventStoreContext(),
+      events: [{ eventType: "source.item-recorded", payload: { itemId: "item-recovery" } }],
+    });
+    await rebuildContextProjectionGroup(runtime, "target", "items", createProjectionRunContext());
+    const before = await readCheckpointState(pools.target, runner.checkpointKey);
+    await pools.target.query("TRUNCATE projected_items");
+    await pools.target.query(
+      "DELETE FROM event_projection_recovery_markers WHERE projection_kind = 'subscription' AND projection_key = $1",
+      [runner.checkpointKey],
+    );
+    let failure: unknown;
+    try {
+      await drainContextRuntime(runtime, { settleIdleCheckpoints: true });
+    } catch (error) {
+      failure = error;
+    }
+    const after = await readCheckpointState(pools.target, runner.checkpointKey);
+    console.info("R2 shared persisted recovery evidence", JSON.stringify({ before, after, failure: String(failure) }));
+    expect(after).toEqual({ ...before, recoveryMarker: null });
+    expect(String(failure)).toMatch(/recovery.*reset/i);
+    expect(runtime.projectionGroups[0].getStatus()).toMatchObject({ recoveryRequired: true, caughtUp: false });
+    await expect(countSubscriptionApplicationRows(runner.checkpointKey)).resolves.toBe(1);
+    await expect(readProjectedItems()).resolves.toEqual([]);
+    await rebuildContextProjectionGroup(runtime, "target", "items", createProjectionRunContext());
+    await expect(readProjectedItems()).resolves.toEqual([{ item_id: "item-recovery", seen_count: 1 }]);
   });
 
   it.each(["truncate", "custom"])(

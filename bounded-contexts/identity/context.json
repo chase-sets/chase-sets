@@ -1846,6 +1846,28 @@
       "order": 200,
       "visibility": "signed-in",
       "requiredPermissions": ["accounts.view"]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "key": "security",
+      "label": "Security",
+      "icon": "settings",
+      "href": "/account/security",
+      "order": 220,
+      "visibility": "signed-in",
+      "requiredPermissions": ["security.manage"]
+    },
+    {
+      "deployable": "marketplace-web",
+      "slot": "top-nav",
+      "key": "consents",
+      "label": "Consent History",
+      "icon": "clock",
+      "href": "/account/consents",
+      "order": 230,
+      "visibility": "signed-in",
+      "requiredPermissions": []
     }
   ],
   "directoryIntent": {

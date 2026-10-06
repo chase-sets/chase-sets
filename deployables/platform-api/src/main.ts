@@ -2,11 +2,7 @@ import "./observability-prelude";
 import { serve } from "@hono/node-server";
 import { createClient } from "redis";
 import { refreshProjectionReplaySummary } from "@chase-sets/bounded-context-runtime";
-import {
-  createPostgresTcgplayerAutomationHttpConfigStore,
-  createTcgplayerAutomationCatalogClient,
-  createTcgplayerAutomationHttpClients,
-} from "@chase-sets/catalog/server";
+import { createTcgplayerAutomationRuntime } from "@chase-sets/catalog/server";
 import { createFacebookSocialLoginProvider, createGoogleSocialLoginProvider } from "@chase-sets/auth/server";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
 import { createRemoteUcpAp2MandateVerifier } from "@chase-sets/payments/server";
@@ -234,13 +230,12 @@ const mobileMessageWebhookGateway =
     : undefined;
 const emailWebhookGateway = createSesEmailWebhookGateway();
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
-const tcgplayerAutomationCatalogClient = config.tcgplayerAutomation
-  ? createTcgplayerAutomationCatalogClient(
-      createTcgplayerAutomationHttpClients(
-        createPostgresTcgplayerAutomationHttpConfigStore(pools.catalog, config.tcgplayerAutomation),
-      ),
-    )
-  : undefined;
+const tcgplayerAutomationRuntime = createTcgplayerAutomationRuntime({
+  pool: pools.catalog,
+  config: config.tcgplayerAutomation,
+  keyring: config.catalogOperatorSessionKeyring,
+});
+const tcgplayerAutomationCatalogClient = tcgplayerAutomationRuntime?.catalogClient;
 const sourceObservationTelemetry = createSourceObservationTelemetry();
 const checkoutObservabilityTelemetry = createCheckoutObservabilityTelemetry();
 const waitlistAnalyticsRecorder = {
@@ -327,6 +322,10 @@ const runtime = createPlatformApiHost({
     addressVerificationProvider: postageLabelProvider,
     ...(postageWebhookGateway ? { postageWebhookGateway } : {}),
     catalogAssetStorage,
+    catalogOperatorSessionConfiguration: {
+      config: config.tcgplayerAutomation,
+      keyring: config.catalogOperatorSessionKeyring,
+    },
     ...(tcgplayerAutomationCatalogClient ? { tcgplayerAutomationCatalogClient } : {}),
     sourceObservationTelemetry,
     checkoutObservabilityTelemetry,

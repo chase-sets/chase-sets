@@ -16,6 +16,7 @@ import { commercialTermsAgreementPolicyKey } from "../../../support/runtime-supp
 export type CommercialAgreementRow = Readonly<{
   agreement_id: string;
   account_id: string;
+  account_name: string | null;
   account_display_name: string | null;
   account_type: string | null;
   label: string;
@@ -54,6 +55,7 @@ const agreementSelect = `
   SELECT
     agreement.document_id AS agreement_id,
     agreement.value->>'accountId' AS account_id,
+    account.name AS account_name,
     account.display_name AS account_display_name,
     account.account_type,
     agreement.value->>'label' AS label,
@@ -157,16 +159,17 @@ export async function getCommercialTermsAccountReference(db: PgQueryable, accoun
 
 export type CommercialTermsAccountOption = Readonly<{
   account_id: string;
+  account_name: string;
   display_name: string;
   account_type: string;
 }>;
 
 export async function listCommercialTermsAccountOptions(db: PgQueryable) {
   const result = await db.query<CommercialTermsAccountOption>(
-    `SELECT account_id, display_name, account_type
-     FROM commercial_terms_account_pages
-     WHERE status = 'active'
-     ORDER BY display_name ASC, account_id ASC
+    `SELECT account.account_id, account.name AS account_name, account.display_name, account.account_type
+     FROM commercial_terms_account_pages AS account
+     WHERE account.status = 'active'
+     ORDER BY account.display_name ASC, account.account_id ASC
      LIMIT 250`,
   );
   return result.rows;

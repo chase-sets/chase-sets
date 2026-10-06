@@ -195,8 +195,8 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 10,
-      authoritativeSites: 10,
+      discoveredCallCandidates: 11,
+      authoritativeSites: 11,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
@@ -219,10 +219,10 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(detachment.totals.detachmentEscapeSites).toBe(detachment.diagnostics.length);
   });
 
-  it("derives the fifteen green grammar instances across fourteen live locations without a registry", () => {
+  it("derives the sixteen green grammar instances across fifteen live locations without a registry", () => {
     const green = deriveGreenGrammarInstances(production);
-    expect(green).toHaveLength(15);
-    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(14);
+    expect(green).toHaveLength(16);
+    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(15);
     expect(green).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

@@ -69,6 +69,9 @@
       "@chase-sets/catalog-seed": [
         "./contracts/catalog-seed/index.ts"
       ],
+      "@chase-sets/catalog/client": [
+        "./bounded-contexts/catalog/client.ts"
+      ],
       "@chase-sets/catalog/context": [
         "./bounded-contexts/catalog/context.json"
       ],
@@ -429,6 +432,9 @@
       "@chase-sets/event-core/public-event-payloads/inventory": [
         "./contracts/event-core/public-event-payloads/inventory.ts"
       ],
+      "@chase-sets/event-core/review-opportunity-facts": [
+        "./contracts/event-core/review-opportunity-facts.ts"
+      ],
       "@chase-sets/event-core/review-scoring-facts": [
         "./contracts/event-core/review-scoring-facts.ts"
       ],
@@ -569,6 +575,9 @@
       ],
       "@chase-sets/observability": [
         "./infrastructure/observability/index.ts"
+      ],
+      "@chase-sets/order-groups": [
+        "./contracts/order-groups/index.ts"
       ],
       "@chase-sets/ordering": [
         "./bounded-contexts/ordering/index.ts"
@@ -795,6 +804,9 @@
       "@chase-sets/platform-runtime/runtime-profiles": [
         "./infrastructure/platform-runtime/runtime-profiles.ts"
       ],
+      "@chase-sets/platform-runtime/secret-envelope": [
+        "./infrastructure/platform-runtime/secret-envelope.ts"
+      ],
       "@chase-sets/platform-runtime/seo": [
         "./infrastructure/platform-runtime/seo.ts"
       ],
@@ -824,6 +836,9 @@
       ],
       "@chase-sets/platform-runtime/worker-capacity": [
         "./infrastructure/platform-runtime/worker-capacity.ts"
+      ],
+      "@chase-sets/platform-runtime/worker-observer": [
+        "./infrastructure/platform-runtime/worker-observer.ts"
       ],
       "@chase-sets/playwright-evidence": [
         "./infrastructure/playwright-evidence/index.ts"

@@ -114,7 +114,18 @@ function DeferredAliasReviewSlot({
         />
       }
     >
-      <Await resolve={deferredAliasReview}>
+      <Await
+        resolve={deferredAliasReview}
+        errorElement={
+          <OperationalStatusBanner
+            tone="warning"
+            role="status"
+            data-catalog-deferred-panel="unavailable"
+            title={t("catalog.features.sourceObservations.ui.aliasReview.title")}
+            description={t("catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.unavailable")}
+          />
+        }
+      >
         {(aliasReview) =>
           aliasReview ? (
             // Language-edition equivalence review lives on Scope Detail, scoped
@@ -166,7 +177,18 @@ function DeferredAttentionQueueSlot({
         />
       }
     >
-      <Await resolve={deferredAttentionQueue}>
+      <Await
+        resolve={deferredAttentionQueue}
+        errorElement={
+          <OperationalStatusBanner
+            tone="warning"
+            role="status"
+            data-catalog-attention-queue="unavailable"
+            title={t("catalog.features.attentionQueue.unavailable.title")}
+            description={t("catalog.features.attentionQueue.unavailable.description")}
+          />
+        }
+      >
         {(attentionQueue) =>
           attentionQueue.status === "ready" ? (
             <CatalogAttentionQueuePanel

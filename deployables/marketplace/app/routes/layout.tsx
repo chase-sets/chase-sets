@@ -1,11 +1,11 @@
 import { t } from "@chase-sets/localization";
 import { useEffect, useState } from "react";
-import { Outlet, useLocation, useNavigate, useRouteLoaderData } from "react-router";
+import { Outlet, redirect, useLocation, useRouteLoaderData, type LoaderFunctionArgs } from "react-router";
 import { AccountMenu, Banner, Button, Form, LinkButton, Stack, type ColorMode } from "@chase-sets/design-system";
 import { DiscoveryShellLayout } from "@chase-sets/discovery/web";
 import type { CurrentActorDisplay } from "@chase-sets/identity/server";
 import { useUserPreferencesAccountMenu } from "@chase-sets/identity/web";
-import { NotificationCenterShell } from "@chase-sets/notifications/web";
+import { resolveLegacyNotificationCenterHref } from "@chase-sets/notifications/web";
 import { resolveMarketplaceAccountMenuItems, resolveMarketplaceNavItems } from "../host";
 
 const signOutFormId = "marketplace-account-menu-sign-out";
@@ -14,6 +14,13 @@ type MarketplaceActor = {
   permissions?: readonly string[];
   roleKey?: string | null;
 } | null;
+
+// Retired notification-sheet links (`?notifications=feed|settings`) on any page in this
+// layout now resolve to the Notifications-owned account route.
+export function loader({ request }: LoaderFunctionArgs) {
+  const notificationCenterHref = resolveLegacyNotificationCenterHref(new URL(request.url));
+  return notificationCenterHref ? redirect(notificationCenterHref) : null;
+}
 
 function getActiveKey(pathname: string) {
   if (pathname.startsWith("/account/offers/matches")) {
@@ -42,6 +49,10 @@ function getActiveKey(pathname: string) {
 
   if (pathname.startsWith("/account/purchases")) {
     return "purchases";
+  }
+
+  if (pathname.startsWith("/account/notifications")) {
+    return "notifications";
   }
 
   if (pathname.startsWith("/account/product-alerts")) {
@@ -96,7 +107,6 @@ function displayRole(value: string) {
 
 export default function MarketplaceLayoutRoute() {
   const location = useLocation();
-  const navigate = useNavigate();
   const rootData = useRouteLoaderData("root") as
     | {
         actor?: MarketplaceActor;
@@ -144,42 +154,14 @@ export default function MarketplaceLayoutRoute() {
   const bottomNavItems = resolveMarketplaceNavItems("bottom-nav", actor, { cartCount });
   const accountMenuItems = resolveMarketplaceAccountMenuItems(actor);
   const prompt = new URLSearchParams(location.search).get("authPrompt");
-  const notificationParams = new URLSearchParams(location.search);
-  const notificationState = notificationParams.get("notifications");
-  const notificationView = notificationState === "settings" ? "settings" : "feed";
-  const notificationSheetOpen =
-    !isGuestCheckoutActor && (notificationState === "feed" || notificationState === "settings");
   const showAddPasskeyPrompt = Boolean(actor && !isGuestCheckoutActor && prompt === "add-passkey");
-  const setNotificationRouteState = (nextOpen: boolean, nextView: "feed" | "settings" = notificationView) => {
-    const params = new URLSearchParams(location.search);
-
-    if (nextOpen) {
-      params.set("notifications", nextView);
-      if (nextView === "settings" && !params.has("notificationSection")) {
-        params.set("notificationSection", "preferences");
-      }
-    } else {
-      params.delete("notifications");
-      params.delete("notificationSection");
-    }
-
-    const query = params.toString();
-    navigate(`${location.pathname}${query ? `?${query}` : ""}`, { replace: !nextOpen });
-  };
-  const handleNavSelect = (key: string) => {
-    if (key === "notifications") {
-      setNotificationRouteState(true, "feed");
-    }
-  };
-
   return (
     <DiscoveryShellLayout
-      activeKey={notificationSheetOpen ? "notifications" : getActiveKey(location.pathname)}
+      activeKey={getActiveKey(location.pathname)}
       colorMode={colorMode}
       reducedMotion={rootData?.viewer?.preferences?.reducedMotion}
       topNavItems={topNavItems}
       bottomNavItems={bottomNavItems}
-      onNavSelect={handleNavSelect}
       actions={
         rootData?.actor ? (
           <>
@@ -232,14 +214,6 @@ export default function MarketplaceLayoutRoute() {
         ) : null}
         <Outlet />
       </Stack>
-      {actor && !isGuestCheckoutActor ? (
-        <NotificationCenterShell
-          open={notificationSheetOpen}
-          view={notificationView}
-          onOpenChange={(open) => setNotificationRouteState(open)}
-          onViewChange={(view) => setNotificationRouteState(true, view)}
-        />
-      ) : null}
     </DiscoveryShellLayout>
   );
 }

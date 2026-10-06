@@ -38,37 +38,16 @@ describe("checkout fee preview", () => {
     expect(fallbackCheckoutFeePreview.balanceTotalAmount).toBe("$83.88");
   });
 
-  it("keeps the static sample copy consistent with the sample-order constants", () => {
-    const { itemCents, shippingCents } = checkoutFeePreviewSampleOrderCents;
-    const itemAmount = formatMoney(centsToMoneyAmount(itemCents), "USD");
-    const shippingAmount = formatMoney(centsToMoneyAmount(shippingCents), "USD");
-
-    expect(t("publicPresence.preview.total.item.value")).toBe(itemAmount);
-    expect(t("publicPresence.preview.listing.price.value")).toBe(itemAmount);
-    expect(t("publicPresence.preview.total.shipping.net")).toContain(shippingAmount);
-    expect(t("publicPresence.preview.total.tax.value")).toContain("$0.00");
-  });
-
-  it("states every checkout-fee line concretely -- no fee is only 'quoted before payment' (#3951)", () => {
+  // The product-preview sample order left the landing page with #8503; the
+  // FAQ fees answer is the surviving public surface these values interpolate.
+  it("states the checkout-fee answer concretely -- no fee is only 'quoted before payment' (#3951)", () => {
     const values = checkoutFeeTranslationValues(fallbackCheckoutFeePreview);
-    const interpolated = [
-      "publicPresence.preview.total.cardProcessing",
-      "publicPresence.preview.total.cardProcessing.value",
-      "publicPresence.preview.total.due.value",
-      "publicPresence.preview.total.description",
-      "publicPresence.preview.total.reassurance",
-      "publicPresence.preview.trust.payment.description",
-      "publicPresence.faq.fees.answer",
-    ].map((key) => t(key, values));
+    const copy = t("publicPresence.faq.fees.answer", values);
 
-    for (const copy of interpolated) {
-      expect(copy).not.toContain("{checkout");
-      expect(copy.toLowerCase()).not.toContain("quoted before payment");
-    }
-    expect(t("publicPresence.preview.total.cardProcessing", values)).toBe("Card processing (2.9% + $0.30)");
-    expect(t("publicPresence.preview.total.due.value", values)).toBe("$86.70");
-    expect(t("publicPresence.faq.fees.answer", values)).toContain("2.9% + $0.30 by card");
-    expect(t("publicPresence.faq.fees.answer", values)).toContain("0.5% by bank account");
+    expect(copy).not.toContain("{checkout");
+    expect(copy.toLowerCase()).not.toContain("quoted before payment");
+    expect(copy).toContain("2.9% + $0.30 by card");
+    expect(copy).toContain("0.5% by bank account");
   });
 
   it("selects the whitelisted checkout processing terms and rejects malformed reads", () => {
