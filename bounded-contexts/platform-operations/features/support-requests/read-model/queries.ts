@@ -314,6 +314,7 @@ export async function listSellerSupportRequests(
 }
 
 const SUPPORT_OPERATIONS_QUEUE_STATUSES = new Set([
+  "unresolved",
   "open",
   "waiting-on-buyer",
   "waiting-on-seller",
@@ -364,7 +365,9 @@ export async function listSupportOperationsQueue(
   }
 
   const status = params.status && SUPPORT_OPERATIONS_QUEUE_STATUSES.has(params.status) ? params.status : null;
-  if (status) {
+  if (status === "unresolved") {
+    conditions.push("status IN ('open', 'waiting-on-buyer', 'waiting-on-seller', 'ready-for-support')");
+  } else if (status) {
     values.push(status);
     conditions.push(`status = $${values.length}`);
   }
@@ -426,17 +429,20 @@ export async function listSupportOperationsQueue(
     OR return_refund_gate_status = 'return-condition-disputed'
     OR case_presentation = 'action-required'
   )`;
+  // Keep the clock parameter typed in both views; PostgreSQL can fold the
+  // explicit-view TRUE branch without applying triage admission.
+  const admissionPredicate = `(${status || search ? "TRUE" : "FALSE"} OR ${activeStatusPredicate})`;
   const [countResult, itemsResult] = await Promise.all([
     db.query<{ count: string }>(
       `SELECT COUNT(*) AS count
        FROM support_request_pages
-       WHERE ${activeStatusPredicate}
+       WHERE ${admissionPredicate}
          ${extraFilterSql}`,
       values,
     ),
     db.query<SupportRequestListRow>(
       `${listSelect}
-       WHERE ${activeStatusPredicate}
+       WHERE ${admissionPredicate}
          ${extraFilterSql}
        ORDER BY
          CASE WHEN ${contestedCaseSql} THEN 0 ELSE 1 END,
