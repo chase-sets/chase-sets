@@ -3564,9 +3564,14 @@ jobs:
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          RELEASE_IMAGE: ${{ steps.image.outputs.image }}
+          RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         run: |
           set -euo pipefail
 
+          node ./scripts/production-release-marker.mjs reconcile
           git fetch origin production --tags
           last_known_good_commit="$(git rev-parse origin/production)"
           release_tag="$(
@@ -4188,6 +4193,11 @@ jobs:
 
       - name: Verify production Kubernetes deployment transition
         if: env.SHOULD_DEPLOY != 'false'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          RELEASE_IMAGE: ${{ steps.image.outputs.image }}
+          RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         run: |
           set -euo pipefail
           pnpm run platform:kubernetes-deployment -- verify-deployment-transition \
@@ -4195,6 +4205,7 @@ jobs:
             --release "$CHASE_SETS_HELM_RELEASE" \
             --rollback-target "artifacts/release-health/production-rollback-target.json" \
             --out "artifacts/release-health/production-kubernetes-deployment-transition.json"
+          node ./scripts/production-release-marker.mjs retain-identity
 
       - name: Upload production Kubernetes deployment transition
         if: env.SHOULD_DEPLOY != 'false'
@@ -4320,81 +4331,13 @@ jobs:
           TF_VAR_digitalocean_token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          RELEASE_IMAGE: ${{ steps.image.outputs.image }}
+          RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         id: production_marker
         if: env.SHOULD_DEPLOY != 'false'
-        run: |
-          set -euo pipefail
-          release_commit="${{ needs.resolve-release.outputs.release_commit }}"
-          release_tag="release-$(date -u +%Y%m%d%H%M%S)-$(printf '%s' "$release_commit" | cut -c1-8)"
-          promoted_image="${{ steps.image.outputs.image }}"
-          promoted_digest="${{ steps.image.outputs.digest }}"
-          release_image="${promoted_image%:*}:${release_tag}"
-
-          docker buildx imagetools create --tag "$release_image" "${promoted_image}@${promoted_digest}"
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin production || true
-          git fetch origin --tags || true
-
-          if ! git rev-parse --verify --quiet "refs/tags/${release_tag}^{commit}" >/dev/null; then
-            git tag -a "$release_tag" "$release_commit" -m "Production release ${release_tag}"
-            git push origin "refs/tags/${release_tag}"
-          fi
-
-          if git show-ref --verify --quiet refs/remotes/origin/production; then
-            production_marker_commit="$(git rev-parse origin/production)"
-            git checkout -B production origin/production
-            if ! git merge --ff-only "$release_commit"; then
-              {
-                echo "marker_updated=false"
-                echo "marker_mismatch=true"
-                echo "production_marker_commit=${production_marker_commit}"
-                echo "marker_error=production-marker-non-fast-forward"
-              } >> "$GITHUB_OUTPUT"
-              {
-                echo "## Production marker mismatch"
-                echo
-                echo "Production deployed successfully, but the smoke-verified production marker could not fast-forward."
-                echo
-                echo "- Deployed commit: ${release_commit}"
-                echo "- Current production marker: ${production_marker_commit}"
-                echo "- Error: production-marker-non-fast-forward"
-              } >> "$GITHUB_STEP_SUMMARY"
-              exit 1
-            fi
-          else
-            production_marker_commit=""
-            git checkout -B production "$release_commit"
-          fi
-
-          if ! git push origin production; then
-            git fetch origin production || true
-            production_marker_commit="$(git rev-parse origin/production 2>/dev/null || printf '%s' "${production_marker_commit}")"
-            {
-              echo "marker_updated=false"
-              echo "marker_mismatch=true"
-              echo "production_marker_commit=${production_marker_commit}"
-              echo "marker_error=production-marker-push-failed"
-            } >> "$GITHUB_OUTPUT"
-            {
-              echo "## Production marker mismatch"
-              echo
-              echo "Production deployed successfully, but the smoke-verified production marker push failed."
-              echo
-              echo "- Deployed commit: ${release_commit}"
-              echo "- Current production marker: ${production_marker_commit:-unknown}"
-              echo "- Error: production-marker-push-failed"
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-
-          {
-            echo "marker_updated=true"
-            echo "marker_mismatch=false"
-            echo "production_marker_commit=${release_commit}"
-            echo "marker_error="
-          } >> "$GITHUB_OUTPUT"
+        run: node ./scripts/production-release-marker.mjs publish
 
       - name: Write promoted release handoff
         if: steps.production_marker.outputs.marker_updated == 'true'
