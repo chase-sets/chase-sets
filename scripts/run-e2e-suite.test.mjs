@@ -278,6 +278,32 @@ describe("run e2e suite", () => {
     ]);
   });
 
+  it("routes the Auth seed to its owning suites without widening runtime support", () => {
+    const seedPath = "bounded-contexts/auth/support/runtime-support/seed.ts";
+    const owningSuites = ["marketplace_account", "admin_auth"];
+    expect(e2eSuiteIdsForChangedFile(seedPath)).toEqual(owningSuites);
+    expect(e2eSuiteIdsForChangedFile(seedPath.replaceAll("/", "\\"))).toEqual(owningSuites);
+
+    for (const filePath of [
+      "bounded-contexts/auth/support/runtime-support/seed.db.test.ts",
+      "bounded-contexts/auth/support/runtime-support/seed.test.ts",
+      "bounded-contexts/auth/support/runtime-support/seed.ts.bak",
+      "bounded-contexts/auth/support/runtime-support/retention-policy.ts",
+      "bounded-contexts/unknown/support/runtime-support/seed.ts",
+      "bounded-contexts/auth/features/sessions/ui/session-list-page.test.tsx",
+      "bounded-contexts/auth/routes/access-admin/sessions.test.ts",
+      "bounded-contexts/auth/routes/access-admin/sessions-detail.test.ts",
+    ]) {
+      expect(e2eSuiteIdsForChangedFile(filePath), filePath).toEqual([]);
+    }
+
+    expect(e2eSuiteIdsForChangedFile("scripts/e2e-suites.mjs")).toEqual(
+      e2eSuites
+        .filter((suite) => suite.deployable === "marketplace" || suite.deployable === "admin-web")
+        .map((suite) => suite.id),
+    );
+  });
+
   it("routes shared responsive evidence contract changes to every browser suite", () => {
     const expected = [
       "marketplace_browse",
