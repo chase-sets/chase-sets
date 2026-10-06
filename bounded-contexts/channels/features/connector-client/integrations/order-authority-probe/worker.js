@@ -386,9 +386,31 @@
   }
 
   function clear(state) {
+    clearInterval(state.heartbeat);
+    clearTimeout(state.residencyDeadline);
+    state.cancelWait?.();
+    state.controller?.abort();
     state.sellerKey = null;
     state.privateValues.length = 0;
     active = undefined;
+  }
+
+  function keepResident(state) {
+    const expire = () => {
+      state.expired = true;
+      clear(state);
+    };
+    state.heartbeat = setInterval(() => {
+      if (Date.now() >= state.latch.deadline) {
+        expire();
+        return;
+      }
+      void chrome.runtime.getPlatformInfo().catch(() => {
+        state.aborted = true;
+        clear(state);
+      });
+    }, 20000);
+    state.residencyDeadline = setTimeout(expire, state.latch.deadline - Date.now());
   }
 
   // Status values are captured, not translated. Other strings are private and
@@ -591,6 +613,7 @@
           qualification: "unqualified",
         })),
       };
+      keepResident(active);
       return { ok: true };
     }
     if (!active) fail("repeat_invocation");
@@ -627,11 +650,11 @@
         }
         if (current.reason === "counts_pending") {
           current.reason =
-            current.before.count === current.totalOrders &&
-            message.count === current.totalOrders &&
-            current.before.dateFilter === message.dateFilter
-              ? "qualified"
-              : "count_mismatch";
+            current.before.dateFilter !== message.dateFilter || message.dateFilter !== current.searchRange
+              ? "date_filter_mismatch"
+              : current.before.count === current.totalOrders && message.count === current.totalOrders
+                ? "qualified"
+                : "count_mismatch";
           current.qualification = current.reason === "qualified" ? "qualified" : "unknown";
         }
         state.phase = current.qualification === "qualified" ? "details" : "unknown";
@@ -640,7 +663,7 @@
       if (message.kind === "capture") return await capture(state, message.selections);
       fail("invalid_message");
     } catch (error) {
-      state.failures.push(failureCode(error));
+      state.failures.push(state.expired ? "deadline" : failureCode(error));
       const output = { ok: true, receipt: receipt(state) };
       clear(state);
       return output;

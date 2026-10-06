@@ -36,11 +36,14 @@
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  function countRecord() {
-    const input = prompt("Record the visible Orders Ready to Ship quick-filter count now. Digits only; Cancel stops.");
+  function countRecord(searchRange) {
+    const portalLabel = searchRange === "LastTwoYears" ? "Last 2 years" : "Last 90 days";
+    const input = prompt(
+      `Set the portal date filter to ${portalLabel} (${searchRange}), then record the visible Orders Ready to Ship quick-filter count now. Digits only; Cancel stops.`,
+    );
     if (input === null || !/^\d{1,9}$/.test(input)) throw new Error("canceled");
     const dateFilter = prompt(
-      "Record the visible date filter: LastTwoYears or LastThreeMonths. Any other filter stops. No identifiers.",
+      `Expected date filter: ${portalLabel} (${searchRange}). Record the visible filter as LastTwoYears or LastThreeMonths. Any other filter stops. No identifiers.`,
     );
     if (!["LastTwoYears", "LastThreeMonths"].includes(dateFilter)) throw new Error("canceled");
     return { count: Number(input), dateFilter };
@@ -98,13 +101,14 @@
       }
       let qualification;
       for (let index = 0; index < 2; index += 1) {
-        const before = countRecord();
+        const searchRange = index === 0 ? "LastTwoYears" : "LastThreeMonths";
+        const before = countRecord(searchRange);
         const search = await send({ kind: "search", ...before });
         if (search.receipt) {
           finished = true;
           return exportReceipt(search.receipt);
         }
-        const after = countRecord();
+        const after = countRecord(searchRange);
         qualification = await send({
           kind: "counts",
           ...after,

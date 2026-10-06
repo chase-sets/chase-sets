@@ -123,6 +123,7 @@ This preparation itself is PENDING_HOST_VERIFIER, not a qualification PASS.
 2. Host supplies this exact PowerShell command to open only the newly created profile:
    ${preparation.launchCommand}
    Never use work/Pokebash TCG or sign in/out of a shared profile. Todd signs into the approved seller session himself; no cookie/credential copying/import, HAR, trace, screenshots or raw network recording.
+   Set this profile's Downloads directory to ${receiptDirectory} and allow the two fixed-name exports there.
 3. In that profile only, open chrome://extensions, enable Developer mode, Load unpacked:
    ${packageDirectory}
    Confirm extension ID ${id}. Open ${preparation.captureUrl}.
@@ -130,9 +131,13 @@ This preparation itself is PENDING_HOST_VERIFIER, not a qualification PASS.
    No arguments. Use native prompts only; never enter identifiers in console/URL/logs.
    Keep the complete operator session, including sign-in, prompts and removal, within 15 minutes; use an operator timer.
    Helper elapsed time starts at invocation. The durable worker deadline starts at begin and is never extended.
+   A permission-free worker heartbeat keeps the active run resident during native dialogs, without provider traffic or persistence.
+   It stops on every terminal path and at the unchanged deadline. Browser/profile closure or worker termination still loses transient custody and refuses restart; never reinstall to retry.
    After one lookup and the cadence wait, record the visible Ready to Ship count and date filter immediately before search.
    Record the same count/date filter immediately after search, then confirm unchanged seller/session.
    LastTwoYears is first; only eligible non-200/validation failure offers one LastThreeMonths fallback with fresh brackets.
+   Set the portal date filter to Last 2 years (LastTwoYears) first, or Last 90 days (LastThreeMonths) only on fallback.
+   Both recorded filters must equal the current worker search range; equal counts under another range remain unknown.
    Count/filter/closure mismatch is unknown, not fallback authority. No repeat to force agreement.
    To stop a pending read, invoke only await orderAuthorityCapture.abort(), with no arguments. Closing the capture page aborts.
    For each available Shipped - In Transit, Shipped - Delivered, Completed - Paid and Canceled bucket, privately choose
@@ -154,6 +159,7 @@ This preparation itself is PENDING_HOST_VERIFIER, not a qualification PASS.
    node "${cli}" --record-removal --extension-absent --out "${out}"
    This checks profile absence and records operator-attested extension absence, not an automated browser proof.
    Retain only the inventory-listed package, preparation/runbook and two scrubbed exports. The inventory does not recursively hash itself.
+   Host preserves this implementation seat, or re-homes and re-verifies the complete package and paths before relay.
 `;
   writeFileSync(path.join(out, "RUNBOOK.md"), runbook, { flag: "wx" });
   writeFileSync(path.join(out, "preparation.json"), json(preparation), { flag: "wx" });
@@ -279,6 +285,7 @@ function assertReceipt(receipt, preparation) {
     "duplicate_order",
     "filter_not_honored",
     "count_mismatch",
+    "date_filter_mismatch",
     "identity_mismatch",
     "selector_unknown",
     "aborted",
@@ -577,6 +584,7 @@ function assertReceipt(receipt, preparation) {
         search.before.count !== search.totalOrders ||
         search.after?.count !== search.totalOrders ||
         search.before.dateFilter !== search.after.dateFilter ||
+        search.before.dateFilter !== search.searchRange ||
         search.listStatuses.some((item) => item.key !== "Ready to Ship") ||
         search.listStatuses.reduce((sum, item) => sum + item.count, 0) !== search.rowCount)
     )
