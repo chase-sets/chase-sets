@@ -97,16 +97,18 @@ describe("getDiscoveryBrowseSetPageBySlug", () => {
     ["missing candidates", {}, null],
   ])("returns the expected reference total for %s", async (_label, attributes, expected) => {
     const db = queryDbSequence([
-      [{
-        reference_record_id: "ref_1",
-        type_key: "expansion",
-        key: "base-set",
-        slug: "base-set",
-        name: "Base Set",
-        attributes,
-        status: "active",
-        updated_at: "2026-07-01T00:00:00.000Z",
-      }],
+      [
+        {
+          reference_record_id: "ref_1",
+          type_key: "expansion",
+          key: "base-set",
+          slug: "base-set",
+          name: "Base Set",
+          attributes,
+          status: "active",
+          updated_at: "2026-07-01T00:00:00.000Z",
+        },
+      ],
     ]);
 
     const result = await getDiscoveryBrowseSetPageBySlug(db, "base-set");

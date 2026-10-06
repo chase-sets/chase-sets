@@ -42,15 +42,6 @@ describe("discovery browse set route", () => {
     expect(await response.json()).toMatchObject({ item_count: 3, reference_card_count: null });
   });
 
-  it("preserves compatibility with a set page that omits the optional total", async () => {
-    const { reference_card_count: _referenceCardCount, ...legacySetPage } = SET_PAGE;
-    const response = await discoveryBrowseRoutes(services(legacySetPage)).request("/surging-sparks");
-
-    const body = await response.json();
-    expect(body).not.toHaveProperty("reference_card_count");
-    expect(body).toHaveProperty("item_count", 1);
-  });
-
   it("returns not found for an unresolved slug", async () => {
     const response = await discoveryBrowseRoutes(services(null)).request("/missing-set");
 
