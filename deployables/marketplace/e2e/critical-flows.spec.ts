@@ -304,6 +304,7 @@ test.describe("marketplace critical flows", () => {
     await expect(page.getByText("Your Sell List is empty", { exact: true })).toBeVisible();
     const itemPath = marketplaceBrowserE2eSeedContract.itemDetail.selectedProductRoutePath;
     let lineId: string | null = null;
+    const failures: unknown[] = [];
 
     const submitAndFollow = async (path: string, fields: Record<string, string>, destination: string) => {
       const commandPromise = page.waitForResponse(
@@ -373,7 +374,10 @@ test.describe("marketplace critical flows", () => {
         await expect(page.getByText("Your Sell List is empty", { exact: true })).toBeVisible();
         await expect(productLines).toHaveCount(0);
       }
-    } finally {
+    } catch (error) {
+      failures.push(error);
+    }
+    try {
       // Read back and remove only this journey's line, including after a failed destination.
       await expectPageOk(page, "/account/sell-list");
       const productLines = page.locator('input[name^="fallbackMode:"]');
@@ -386,7 +390,10 @@ test.describe("marketplace critical flows", () => {
       await expect(page.getByText("Your Sell List is empty", { exact: true })).toBeVisible();
       await expectPageOk(page, "/account/desk/offers");
       await expect(page.getByText("Your Sell List is empty", { exact: true })).toBeVisible();
+    } catch (error) {
+      failures.push(error);
     }
+    if (failures.length > 0) throw new AggregateError(failures, "Sell List receipt journey or cleanup failed");
   });
 
   test("signed-in presentation preferences persist across reloads and converge across sessions @marketplace-account", async ({
