@@ -2,12 +2,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  OrderOutcomePanel,
-  OrderReviewOpportunityCallout,
-  mapOrderReviewOpportunity,
-} from "./order-review-opportunity-callout";
-import type { ReviewOpportunity } from "@chase-sets/marketplace/server";
+import { OrderOutcomePanel, OrderReviewOpportunityCallout } from "./order-review-opportunity-callout";
 
 afterEach(cleanup);
 
@@ -56,7 +51,7 @@ describe("order review opportunity callout", () => {
     expect(markup).toContain("This verified sale is ready for your buyer counterparty review.");
     expect(markup).toContain("Leave account review");
     expect(markup).toContain("/account/sales/ord_1/review");
-    expect(markup).not.toContain("Reviews open only after delivery verifies both accounts in the transaction.");
+    expect(markup).toContain("Reviews open only after delivery verifies both accounts in the transaction.");
   });
 
   it("links to the active review when one already exists", () => {
@@ -98,128 +93,6 @@ describe("order review opportunity callout", () => {
 });
 
 describe("order outcome panel", () => {
-  const opportunity: ReviewOpportunity = {
-    order_id: "ord_1",
-    subject_account_id: "acc_seller",
-    subject_display_name: "Seller",
-    author_role: "buyer",
-    eligible_at: "2026-04-02T00:00:00.000Z",
-    active_review_id: null,
-    active_review_revealed_at: null,
-    window_expired: false,
-    window_expires_at: "2026-06-01T00:00:00.000Z",
-    submission_state: "allowed",
-    hold_reason: null,
-  };
-  const states: ReadonlyArray<{
-    name: string;
-    override: Partial<ReviewOpportunity> | null;
-    status?: "ready" | "unavailable";
-    label: string;
-    link?: string;
-  }> = [
-    { name: "allowed", override: {}, label: "Leave account review", link: "/account/purchases/ord_1/review" },
-    {
-      name: "active pending",
-      override: { active_review_id: "rev_1" },
-      label: "Awaiting publication",
-      link: "/account/reviews/rev_1",
-    },
-    {
-      name: "active revealed",
-      override: { active_review_id: "rev_1", active_review_revealed_at: "2026-04-05" },
-      label: "Published",
-      link: "/account/reviews/rev_1",
-    },
-    {
-      name: "revealed after expiry",
-      override: {
-        active_review_id: "rev_1",
-        active_review_revealed_at: "2026-04-05",
-        submission_state: "expired",
-        window_expired: true,
-      },
-      label: "Published",
-      link: "/account/reviews/rev_1",
-    },
-    { name: "held", override: { submission_state: "held", hold_reason: "feedback-on-hold" }, label: "Review paused" },
-    {
-      name: "held revealed",
-      override: {
-        submission_state: "held",
-        hold_reason: "feedback-on-hold",
-        active_review_id: "rev_1",
-        active_review_revealed_at: "2026-04-05",
-        window_expired: true,
-      },
-      label: "Review paused",
-    },
-    {
-      name: "expired without review",
-      override: { submission_state: "expired", window_expired: true },
-      label: "Review window closed",
-    },
-    {
-      name: "withdrawn with open window",
-      override: { active_review_id: null, window_expired: false },
-      label: "Leave account review",
-      link: "/account/purchases/ord_1/review",
-    },
-    { name: "not eligible yet", override: null, label: "Review not available yet" },
-    { name: "unavailable", override: null, status: "unavailable", label: "Review status is temporarily unavailable" },
-  ];
-
-  it.each(states)(
-    "renders $name through the mapper and composed panel without contradictions",
-    ({ override, status, label, link }) => {
-      render(
-        <OrderOutcomePanel
-          orderStatus="ready-for-fulfillment"
-          opportunity={
-            override === null
-              ? null
-              : mapOrderReviewOpportunity(
-                  { ...opportunity, ...override },
-                  {
-                    author_role: "buyer",
-                    active_review_id: "rev_1",
-                    response: "Response sentinel",
-                    scoring_disposition: "context-only",
-                  },
-                )
-          }
-          reviewReadStatus={status ?? "ready"}
-          reviewHref="/account/purchases/ord_1/review"
-          supportHref="/account/support?orderId=ord_1"
-          transactionLabel="purchase"
-        />,
-      );
-      expect(screen.getByText(label === "Published" ? "Published, context only" : label)).toBeTruthy();
-      for (const other of new Set(states.map((state) => state.label))) {
-        if (other !== label && other !== "Published") expect(screen.queryByText(other)).toBeNull();
-      }
-      if (label !== "Published") expect(screen.queryByText(/Published/)).toBeNull();
-      const reviewLinks = [...document.querySelectorAll<HTMLAnchorElement>('a[href*="/review"]')];
-      expect(reviewLinks.map((anchor) => anchor.getAttribute("href"))).toEqual(link ? [link] : []);
-      expect(screen.queryByText(/Reviews open only after delivery/)).toBeNull();
-      if (label !== "Published") expect(screen.queryByText("Response sentinel")).toBeNull();
-    },
-  );
-
-  it("does not attach a different projected review's response", () => {
-    expect(
-      mapOrderReviewOpportunity(
-        { ...opportunity, active_review_id: "rev_new" },
-        {
-          author_role: "buyer",
-          active_review_id: "rev_old",
-          response: "Old response",
-          scoring_disposition: "context-only",
-        },
-      ),
-    ).toMatchObject({ response: null, scoring_disposition: null, revealed: false });
-  });
-
   it("renders the order outcome as tinted furniture", () => {
     render(
       <OrderOutcomePanel
@@ -307,7 +180,7 @@ describe("order outcome panel", () => {
       />,
     );
 
-    expect(expired).toContain("Review window closed");
+    expect(expired).toContain("Review window expired");
     expect(ineligible).toContain("Review unavailable for this order");
   });
 

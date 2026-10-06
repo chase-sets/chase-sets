@@ -63,8 +63,6 @@ export const reputationEnglishTranslations = {
   "reputation.features.reviews.ui.reviewDetailPage.review.author": "Review author: ",
   "reputation.features.reviews.ui.reviewDetailPage.review.details": "Review details",
   "reputation.features.reviews.ui.reviewDetailPage.review.pending.title": "A review is pending",
-  "reputation.features.reviews.ui.reviewDetailPage.review.withdrawn.title": "Review withdrawn",
-  "reputation.features.reviews.ui.reviewDetailPage.review.withdrawn.description": "This review is no longer visible.",
   "reputation.features.reviews.ui.reviewDetailPage.review.pending.description":
     "This review is hidden until both sides have reviewed or the submission window closes. Content will appear once revealed.",
   "reputation.features.reviews.ui.reviewDetailPage.verified.order.feedback":
@@ -88,8 +86,6 @@ export const reputationEnglishTranslations = {
   "reputation.features.reviews.ui.reviewListPage.resolved.via.refund": "Resolved via refund",
   "reputation.features.reviews.ui.reviewListPage.review.author": "Review author: ",
   "reputation.features.reviews.ui.reviewListPage.review.pending.title": "A review is pending",
-  "reputation.features.reviews.ui.reviewListPage.review.withdrawn.title": "Review withdrawn",
-  "reputation.features.reviews.ui.reviewListPage.review.withdrawn.description": "This review is no longer visible.",
   "reputation.features.reviews.ui.reviewListPage.review.pending.description":
     "This review is hidden until both sides have reviewed or the submission window closes.",
   "reputation.features.reviews.ui.reviewListPage.reviewed.account": "Reviewed account: ",

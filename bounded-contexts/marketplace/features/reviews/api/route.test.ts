@@ -106,62 +106,50 @@ describe("marketplace review routes", () => {
     });
   });
 
-  it.each([
-    { role: "buyer", activeReviewId: null, revealedAt: null },
-    { role: "buyer", activeReviewId: "rev_1", revealedAt: null },
-    { role: "buyer", activeReviewId: "rev_1", revealedAt: "2026-04-05T00:00:00.000Z" },
-    { role: "seller", activeReviewId: null, revealedAt: null },
-    { role: "seller", activeReviewId: "rev_1", revealedAt: null },
-    { role: "seller", activeReviewId: "rev_1", revealedAt: "2026-04-05T00:00:00.000Z" },
-  ])(
-    "returns the $role opportunity with active=$activeReviewId revealed=$revealedAt",
-    async ({ role, activeReviewId, revealedAt }) => {
-      const services = createServices();
-      vi.mocked(services.getOrderReviewOpportunity).mockResolvedValue({
-        order_id: "ord_1",
-        subject_account_id: role === "buyer" ? "acc_seller" : "acc_buyer",
-        subject_display_name: null,
-        author_role: role,
-        eligible_at: "2026-04-02T00:00:00.000Z",
-        active_review_id: activeReviewId,
-        active_review_revealed_at: revealedAt,
-        window_expired: false,
-        window_expires_at: "2026-06-01T00:00:00.000Z",
-        submission_state: "allowed",
-        hold_reason: null,
-      });
-      const app = buildApp({
-        actor: {
-          sessionId: "ses_1",
-          tenantId: "tnt_identity",
-          userId: "usr_1",
-          accountId: `acc_${role}`,
-          membershipId: "mbr_1",
-          roleKey: "owner",
-          permissions: ["reputation.view", "reputation.manage"],
-        },
-        services,
-      });
+  it("returns a review opportunity for a verified order", async () => {
+    const services = createServices();
+    vi.mocked(services.getOrderReviewOpportunity).mockResolvedValue({
+      order_id: "ord_1",
+      subject_account_id: "acc_seller",
+      subject_display_name: "Seller",
+      author_role: "buyer",
+      eligible_at: "2026-04-02T00:00:00.000Z",
+      active_review_id: null,
+      window_expired: false,
+      window_expires_at: "2026-06-01T00:00:00.000Z",
+      submission_state: "allowed",
+      hold_reason: null,
+    });
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["reputation.view", "reputation.manage"],
+      },
+      services,
+    });
 
-      const response = await app.fetch(new Request("http://reputation.test/reviews/opportunities/orders/ord_1"));
+    const response = await app.fetch(new Request("http://reputation.test/reviews/opportunities/orders/ord_1"));
 
-      expect(response.status).toBe(200);
-      await expect(response.json()).resolves.toEqual({
-        order_id: "ord_1",
-        subject_account_id: role === "buyer" ? "acc_seller" : "acc_buyer",
-        subject_display_name: null,
-        author_role: role,
-        eligible_at: "2026-04-02T00:00:00.000Z",
-        active_review_id: activeReviewId,
-        active_review_revealed_at: revealedAt,
-        window_expired: false,
-        window_expires_at: "2026-06-01T00:00:00.000Z",
-        submission_state: "allowed",
-        hold_reason: null,
-      });
-      expect(services.getOrderReviewOpportunity).toHaveBeenCalledWith("ord_1", `acc_${role}`);
-    },
-  );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      order_id: "ord_1",
+      subject_account_id: "acc_seller",
+      subject_display_name: "Seller",
+      author_role: "buyer",
+      eligible_at: "2026-04-02T00:00:00.000Z",
+      active_review_id: null,
+      window_expired: false,
+      window_expires_at: "2026-06-01T00:00:00.000Z",
+      submission_state: "allowed",
+      hold_reason: null,
+    });
+    expect(services.getOrderReviewOpportunity).toHaveBeenCalledWith("ord_1", "acc_buyer");
+  });
 
   it("lets a seller submit an account review for the buyer on a verified order", async () => {
     const services = createServices();
@@ -172,7 +160,6 @@ describe("marketplace review routes", () => {
       author_role: "seller",
       eligible_at: "2026-04-02T00:00:00.000Z",
       active_review_id: null,
-      active_review_revealed_at: null,
       window_expired: false,
       window_expires_at: "2026-06-01T00:00:00.000Z",
       submission_state: "allowed",
