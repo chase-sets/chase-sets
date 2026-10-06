@@ -1194,6 +1194,7 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.set.browse.marketplace": "Browse marketplace",
   "discovery.routes.set.card.list.meta.title": "{name} card list | Marketplace",
   "discovery.routes.set.cards.count": "{count} cards",
+  "discovery.routes.set.cards.cataloged.count": "{count} of {total} cards cataloged",
   "discovery.routes.set.marketplace": "Marketplace",
   "discovery.routes.set.no.cards.yet": "No cards yet",
   "discovery.routes.set.released.on": "released {date}",

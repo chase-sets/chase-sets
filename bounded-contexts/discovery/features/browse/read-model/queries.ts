@@ -30,6 +30,7 @@ export type DiscoveryBrowseSetPageRow = Readonly<{
   code: string | null;
   game: string | null;
   release_date: string | null;
+  reference_card_count: number | null;
   status: string;
   item_count: number;
   items: readonly DiscoverySearchItemRow[];
@@ -86,6 +87,7 @@ export async function getDiscoveryBrowseSetPageBySlug(
   const game = reference ? gameNameForReference(reference) : null;
   const code = setCodeFromReferenceAttributes(row.attributes);
   const releaseDate = releaseDateFromAttributes(row.attributes);
+  const referenceCardCount = referenceCardCountFromAttributes(row.attributes);
 
   const searchResult = await searchDiscoveryItems(
     db,
@@ -107,11 +109,34 @@ export async function getDiscoveryBrowseSetPageBySlug(
     code,
     game,
     release_date: releaseDate,
+    reference_card_count: referenceCardCount,
     status: row.status,
     item_count: searchResult.total ?? searchResult.items.length,
     items: searchResult.items,
     updated_at: row.updated_at,
   };
+}
+
+function referenceCardCountFromAttributes(attributes: unknown): number | null {
+  if (!attributes || typeof attributes !== "object" || Array.isArray(attributes)) {
+    return null;
+  }
+
+  const values = attributes as Record<string, unknown>;
+  for (const key of ["printed-card-count", "card-count"] as const) {
+    const value = values[key];
+    if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+      return value;
+    }
+    if (typeof value === "string" && /^\d+$/.test(value.trim())) {
+      const parsed = Number(value.trim());
+      if (Number.isSafeInteger(parsed) && parsed > 0) {
+        return parsed;
+      }
+    }
+  }
+
+  return null;
 }
 
 function gameNameForReference(reference: ReferenceRecordRef): string | null {
