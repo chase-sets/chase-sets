@@ -100,12 +100,12 @@ describe("ordinary interest versus the ruled Prepaid Balance term", () => {
 const chargeSourceRoles = [
   {
     role: "request",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1954-1974",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1956-1976",
     markers: ["createPaymentSession", "amount: processorAmount"],
   },
   {
     role: "saved request",
-    ref: "infrastructure/stripe-payments/index.ts:1616-1670",
+    ref: "infrastructure/stripe-payments/index.ts:1670-1724",
     markers: [
       'confirm: "true"',
       "paymentIntentAuthenticationUrl(body)",
@@ -115,7 +115,7 @@ const chargeSourceRoles = [
   },
   {
     role: "new session request",
-    ref: "infrastructure/stripe-payments/index.ts:1672-1761",
+    ref: "infrastructure/stripe-payments/index.ts:1726-1815",
     markers: [
       'mode: "payment"',
       '"/v1/checkout/sessions"',
@@ -125,12 +125,12 @@ const chargeSourceRoles = [
   },
   {
     role: "nonzero pending",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2082-2089",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2084-2091",
     markers: ['compareMoney(processorAmount, "0.00")', '"pending-confirmation"', "captured_at:"],
   },
   {
     role: "session outcomes",
-    ref: "infrastructure/stripe-payments/index.ts:920-1002",
+    ref: "infrastructure/stripe-payments/index.ts:930-1012",
     markers: [
       'case "checkout.session.completed"',
       'paymentObject.mode === "setup"',
@@ -142,7 +142,7 @@ const chargeSourceRoles = [
   },
   {
     role: "intent outcomes",
-    ref: "infrastructure/stripe-payments/index.ts:1047-1073",
+    ref: "infrastructure/stripe-payments/index.ts:1057-1083",
     markers: [
       'case "payment_intent.processing"',
       'case "payment_intent.amount_capturable_updated"',
@@ -153,7 +153,7 @@ const chargeSourceRoles = [
   },
   {
     role: "webhook capture recording",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2527-2568",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2532-2573",
     markers: [
       'case "payment-authorized"',
       'type: "RecordPaymentAuthorization"',
@@ -164,7 +164,7 @@ const chargeSourceRoles = [
   },
   {
     role: "reconciliation outcomes",
-    ref: "infrastructure/stripe-payments/index.ts:401-476",
+    ref: "infrastructure/stripe-payments/index.ts:411-486",
     markers: [
       'processorStatus === "succeeded"',
       'processorStatus === "requires_capture"',
@@ -175,12 +175,12 @@ const chargeSourceRoles = [
   },
   {
     role: "reconciliation capture command",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:265-295",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:267-297",
     markers: ['case "captured"', 'type: "RecordPaymentCapture"', "capturedAt: result.occurredAt", 'case "authorized"'],
   },
   {
     role: "reconciliation recording",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1227-1269",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1229-1271",
     markers: [
       "providerResultMismatch(payment, result)",
       "paymentCommandFromProviderResult(result)",
@@ -960,7 +960,7 @@ describe("canonical claim consistency guard", () => {
         "reconciliation recording",
         "capture fact",
       ],
-      extra: ["bounded-contexts/payments/features/payments/api/runtime.ts:2038-2049"],
+      extra: ["bounded-contexts/payments/features/payments/api/runtime.ts:2040-2051"],
     },
     ...chargeSourceRoles.slice(3).map(({ role }) => ({ name: `missing ${role}`, omitted: [role], extra: [] })),
   ])(
@@ -1048,7 +1048,7 @@ describe("canonical claim consistency guard", () => {
     const registry = withPaymentsTermsCanonicalClaims("charge-timing-and-statement-descriptor", [
       {
         claimId: "payment-charge-timing-and-capture",
-        productTruthRefs: ["bounded-contexts/payments/features/payments/api/runtime.ts:491-509"],
+        productTruthRefs: ["bounded-contexts/payments/features/payments/api/runtime.ts:493-511"],
       },
     ]);
 

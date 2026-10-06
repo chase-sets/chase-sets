@@ -74,7 +74,7 @@ describe("payments terms artifact", () => {
       expect(section.draftText).not.toMatch(/does not itself hold|does not hold|does not.*custody, or transmit/);
       expect(section.reviewManifest.productTruthRefs).toEqual(
         expect.arrayContaining([
-          "infrastructure/stripe-payments/index.ts:1616-1640",
+          "infrastructure/stripe-payments/index.ts:1670-1694",
           "infrastructure/stripe-connect/index.ts:1100-1160",
         ]),
       );

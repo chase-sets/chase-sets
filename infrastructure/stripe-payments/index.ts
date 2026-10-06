@@ -21,6 +21,7 @@ import type {
   ProcessorSavedPaymentMethod,
   ProcessorSetupSessionCancellationResult,
   ProcessorSetupSessionResult,
+  ProcessorRefundResult,
 } from "@chase-sets/payment-processing";
 import {
   ProviderAdapterError,
@@ -148,6 +149,10 @@ type StripePaymentMethodResponse = Readonly<{
 type StripeRefundResponse = Readonly<{
   id: string;
   status?: string | null;
+  payment_intent?: string | null;
+  amount?: number;
+  currency?: string;
+  metadata?: Readonly<Record<string, string>>;
 }>;
 
 type StripeDisputeResponse = Readonly<{
@@ -169,6 +174,7 @@ type StripeEventEnvelope = Readonly<{
       setup_intent?: string | null;
       amount?: number | null;
       amount_refunded?: number | null;
+      balance_transactions?: readonly Readonly<{ fee?: number; currency?: string }>[];
       currency?: string | null;
       mode?: string | null;
       customer?: string | null;
@@ -311,13 +317,17 @@ function boundedOrderIdsMetadataValue(orderIds: readonly string[]) {
 }
 
 function paymentMetadataEntries(
-  input: Pick<CreateProcessorPaymentInput, "paymentId" | "buyerAccountId" | "orderIds" | "paymentMethodCategory">,
+  input: Pick<
+    CreateProcessorPaymentInput,
+    "paymentId" | "buyerAccountId" | "orderIds" | "paymentMethodCategory" | "purpose"
+  >,
   extra: Readonly<Record<string, string | null | undefined>> = {},
   prefix = "metadata",
 ) {
   const orderIdsMetadata = boundedOrderIdsMetadataValue(input.orderIds);
   return {
     [`${prefix}[payment_id]`]: input.paymentId,
+    ...(input.purpose ? { [`${prefix}[purpose]`]: input.purpose } : {}),
     [`${prefix}[buyer_account_id]`]: input.buyerAccountId,
     [`${prefix}[order_ids]`]: orderIdsMetadata.orderIds,
     [`${prefix}[order_count]`]: String(input.orderIds.length),
@@ -1153,7 +1163,10 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
       return null;
     case "refund.created":
     case "refund.updated": {
-      if (processorStatus === "failed" || processorStatus === "canceled" || processorStatus === "cancelled") {
+      if (
+        (processorStatus === "failed" || processorStatus === "canceled" || processorStatus === "cancelled") &&
+        !internalPaymentId?.startsWith("wfp_")
+      ) {
         return null;
       }
       const refundPaymentReference =
@@ -1206,6 +1219,14 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
         disputeLifecycleState: disputeLifecycleState(event.type, disputeStatus),
         disputeStatus,
         disputeReason,
+        ...(Array.isArray(paymentObject.balance_transactions) &&
+        paymentObject.balance_transactions.every((t) => Number.isSafeInteger(t.fee) && t.currency === "usd")
+          ? {
+              disputeFeeAmount: centsToMoneyAmount(
+                BigInt(paymentObject.balance_transactions.reduce((sum, t) => sum + t.fee!, 0)),
+              ),
+            }
+          : {}),
         disputeEvidenceDueAt: stripeTimestampToIso(paymentObject.evidence_details?.due_by),
         occurredAt,
       };
@@ -1613,6 +1634,39 @@ export function createStripePaymentProcessorGateway(
         throw new ProviderWriteRefused("unsafe-material");
       }
       const amount = moneyToMinorUnits(normalizeMoneyAmount(input.amount, "Payment amount"));
+      if (input.purpose === "wallet-funding") {
+        const body = await stripeRequest<StripePaymentIntentResponse>(
+          "/v1/payment_intents",
+          {
+            method: "POST",
+            body: toFormBody({
+              amount: String(amount),
+              currency: input.currencyCode,
+              "payment_method_types[0]": "card",
+              description: input.description,
+              ...stripeCustomerEntry(
+                input.savedCheckoutInstrument?.providerCustomerReference ?? input.providerCustomerReference,
+              ),
+              ...(input.savedCheckoutInstrument
+                ? { payment_method: input.savedCheckoutInstrument.providerReference }
+                : {}),
+              ...paymentMetadataEntries(input),
+              ...cardAuthenticationEntries(input),
+              ...marketplaceRiskMetadataEntries(input),
+            }),
+          },
+          { idempotencyKey: input.idempotencyKey ?? `payments:wallet-funding:${input.paymentId}:create` },
+        );
+        if (!body.id?.trim()) throw new Error("wallet_funding_provider_identity_missing");
+        return {
+          processorName: "stripe",
+          processorPaymentKind: "payment-intent",
+          processorPaymentReference: body.id,
+          processorClientSecret: body.client_secret?.trim() ?? null,
+          processorRedirectUrl: null,
+          processorStatus: body.status?.trim() ?? "unknown",
+        };
+      }
       if (input.savedCheckoutInstrument?.providerReference) {
         const body = await stripeRequest<StripePaymentIntentResponse>(
           "/v1/payment_intents",
@@ -1757,6 +1811,26 @@ export function createStripePaymentProcessorGateway(
         processorClientSecret: body.client_secret?.trim() ?? null,
         processorRedirectUrl: body.url?.trim() ?? null,
         processorStatus: body.payment_status?.trim() ?? body.status?.trim() ?? "open",
+      };
+    },
+    async retrieveWalletFundingConfirmation(fundingId, processorPaymentReference) {
+      const intent = await stripeRequest<StripePaymentIntentResponse>(
+        `/v1/payment_intents/${encodeURIComponent(processorPaymentReference)}`,
+        { method: "GET" },
+      );
+      if (
+        intent.id !== processorPaymentReference ||
+        intent.metadata?.payment_id !== fundingId ||
+        intent.metadata?.purpose !== "wallet-funding"
+      )
+        return null;
+      return {
+        processorName: "stripe",
+        processorPaymentKind: "payment-intent",
+        processorPaymentReference,
+        processorClientSecret: intent.client_secret?.trim() ?? null,
+        processorRedirectUrl: null,
+        processorStatus: intent.status ?? "unknown",
       };
     },
     async createAgenticPaymentSession(input: AgenticProcessorPaymentInput): Promise<CreatedProcessorPayment> {
@@ -2009,10 +2083,11 @@ export function createStripePaymentProcessorGateway(
             "metadata[refund_id]": input.refundId,
             "metadata[order_ids]": input.orderIds.join(","),
             "metadata[refund_reason]": input.reason,
+            ...(input.purpose ? { "metadata[purpose]": input.purpose } : {}),
           }),
         },
         {
-          idempotencyKey: `payments:refund:${input.refundId}`,
+          idempotencyKey: input.idempotencyKey ?? `payments:refund:${input.refundId}`,
         },
       );
 
@@ -2024,6 +2099,60 @@ export function createStripePaymentProcessorGateway(
         processorName: "stripe",
         processorRefundReference: body.id,
         processorStatus: body.status?.trim() ?? "pending",
+      };
+    },
+    async retrieveWalletFundingRefund(input) {
+      const matches: StripeRefundResponse[] = [];
+      if (input.processorRefundReference) {
+        matches.push(
+          await stripeRequest<StripeRefundResponse>(
+            `/v1/refunds/${encodeURIComponent(input.processorRefundReference)}`,
+            { method: "GET" },
+          ),
+        );
+      } else {
+        let cursor: string | undefined;
+        for (let page = 0; page < 10; page += 1) {
+          const query = new URLSearchParams({ payment_intent: input.processorPaymentReference, limit: "100" });
+          if (cursor) query.set("starting_after", cursor);
+          const result = await stripeRequest<Readonly<{ data: readonly StripeRefundResponse[]; has_more: boolean }>>(
+            `/v1/refunds?${query}`,
+            { method: "GET" },
+          );
+          if (!Array.isArray(result.data) || typeof result.has_more !== "boolean") return null;
+          matches.push(...result.data.filter((r) => r.metadata?.refund_id === input.refundId));
+          if (matches.length > 1) return null;
+          if (!result.has_more) break;
+          const last = result.data.at(-1)?.id;
+          if (!last || last === cursor || page === 9) return null;
+          cursor = last;
+        }
+      }
+      if (matches.length !== 1) return null;
+      const refund = matches[0];
+      if (
+        refund.metadata?.payment_id !== input.fundingId ||
+        refund.metadata?.refund_id !== input.refundId ||
+        refund.metadata?.purpose !== "wallet-funding" ||
+        refund.payment_intent !== input.processorPaymentReference ||
+        refund.currency !== "usd" ||
+        !Number.isSafeInteger(refund.amount) ||
+        refund.amount! <= 0 ||
+        !refund.id
+      )
+        return null;
+      const status: ProcessorRefundResult["status"] =
+        refund.status === "succeeded" || refund.status === "failed" || refund.status === "pending"
+          ? refund.status
+          : refund.status === "canceled" || refund.status === "cancelled"
+            ? "cancelled"
+            : "unknown";
+      return {
+        ...input,
+        processorRefundReference: refund.id,
+        amount: centsToMoneyAmount(BigInt(refund.amount!)),
+        currencyCode: "usd",
+        status,
       };
     },
     async submitDisputeEvidence(input) {
