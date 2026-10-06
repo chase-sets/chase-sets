@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const source = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(source, "../../../../../..");
-export const AUTHORITY = "https://github.com/chase-sets/chase-sets/issues/7791#issuecomment-5621442291";
+export const AUTHORITY = "https://github.com/chase-sets/chase-sets/issues/8607#issuecomment-5983720229";
 const packageFiles = ["capture-config.json", "capture.html", "helper.js", "manifest.json", "worker.js"];
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const json = (value) => JSON.stringify(value, null, 2) + "\n";
@@ -43,12 +43,18 @@ function inventory(directory) {
 }
 
 export function prepare({ out, cadenceMs, cadenceSource, synthetic = false }) {
-  if (!Number.isSafeInteger(cadenceMs) || cadenceMs <= 0 || cadenceSource !== AUTHORITY) fail("authority_missing");
+  if (
+    !Number.isSafeInteger(cadenceMs) ||
+    cadenceMs <= 0 ||
+    (!synthetic && cadenceMs !== 30000) ||
+    cadenceSource !== AUTHORITY
+  )
+    fail("authority_missing");
   if (typeof out !== "string" || !path.isAbsolute(out) || path.resolve(out) !== out)
     fail("absolute_run_directory_required");
   assertRealDirectory(out);
   if (existsSync(out)) fail("new_run_directory_required");
-  const parent = path.resolve("D:/Users/ToddS/Source/Repos/chase-sets/.orchestrator/artifacts/8607");
+  const parent = path.join(repo, "artifacts", "8838");
   if (!synthetic && (process.platform !== "win32" || path.dirname(out) !== parent || git("status", "--porcelain"))) {
     fail("clean_reviewed_seat_and_destination_required");
   }
@@ -69,7 +75,7 @@ export function prepare({ out, cadenceMs, cadenceSource, synthetic = false }) {
     writeFileSync(path.join(packageDirectory, name), readFileSync(path.join(source, name)), { flag: "wx" });
   }
   const config = {
-    format: "order-authority-package/v1",
+    format: "order-authority-package/v2",
     head,
     cadenceMs,
     cadenceSource,
@@ -79,7 +85,7 @@ export function prepare({ out, cadenceMs, cadenceSource, synthetic = false }) {
   };
   writeFileSync(path.join(packageDirectory, "capture-config.json"), json(config), { flag: "wx" });
   const preparation = {
-    format: "order-authority-preparation/v1",
+    format: "order-authority-preparation/v2",
     evidence: config.evidence,
     head,
     extensionId: id,
@@ -97,17 +103,17 @@ export function prepare({ out, cadenceMs, cadenceSource, synthetic = false }) {
       "preparation.json",
       "preparation-inventory.json",
       ...packageFiles.map((file) => `package/${file}`),
-      "receipt/8607-receipt.json",
-      "receipt/8607-inventory.json",
+      "receipt/8838-receipt.json",
+      "receipt/8838-inventory.json",
     ],
     qualification: "PENDING_HOST_VERIFIER",
   };
   const cli = path.join(source, "package.mjs");
-  const runbook = `# One isolated order authority capture for #8607
+  const runbook = `# One isolated selector/status capture for #8838
 
 Evidence mode: ${config.evidence}. Head: ${head}. Extension: ${id}.
-Cadence: ${cadenceMs} ms, host binding from ${cadenceSource}.
-This value is not inferred by this package. Synthetic preparation is never live authority.
+Cadence: ${cadenceMs} ms, probe-only authority from ${cadenceSource}, not a production cadence ruling.
+Synthetic preparation is never live authority. No provider call or session is authorized before independent host review.
 Do not relay until the host has exact-head review and attributed hermetic/browser-origin controls.
 This preparation itself is PENDING_HOST_VERIFIER, not a qualification PASS.
 
@@ -121,15 +127,22 @@ This preparation itself is PENDING_HOST_VERIFIER, not a qualification PASS.
    ${packageDirectory}
    Confirm extension ID ${id}. Open ${preparation.captureUrl}.
    In that helper's console invoke only: await orderAuthorityCapture.run()
-   No arguments. Consent and one known order are browser-native prompts, never console/URL input.
-   Consent and order input complete before begin; cancel or blank input sends nothing and creates no export.
-   The worker counts and latches before dispatch. The 15-minute deadline starts at begin, after both prompts have completed.
+   No arguments. Use native prompts only; never enter identifiers in console/URL/logs.
+   Keep the complete operator session, including sign-in, prompts and removal, within 15 minutes; use an operator timer.
+   Helper elapsed time starts at invocation. The durable worker deadline starts at begin and is never extended.
+   After one lookup and the cadence wait, record the visible Ready to Ship count and date filter immediately before search.
+   Record the same count/date filter immediately after search, then confirm unchanged seller/session.
+   LastTwoYears is first; only eligible non-200/validation failure offers one LastThreeMonths fallback with fresh brackets.
+   Count/filter/closure mismatch is unknown, not fallback authority. No repeat to force agreement.
+   To stop a pending read, invoke only await orderAuthorityCapture.abort(), with no arguments. Closing the capture page aborts.
+   For each available Shipped - In Transit, Shipped - Delivered, Completed - Paid and Canceled bucket, privately choose
+   and enter one order number. No means absent/unqualified; Cancel/blank stops. Inputs are never echoed or exported.
    Installation, opening and reloading make no provider request. After begin, reopens/restarts never authorize another run.
-4. Save exactly 8607-receipt.json and 8607-inventory.json under:
+4. Retain exactly 8838-receipt.json and 8838-inventory.json under:
    ${receiptDirectory}
-   Only the worker fetches: one session lookup, one first-page search, one selected-order detail. No retries, pagination or undocumented discovery.
+   Only the worker fetches: one session lookup, at most two searches and four details, serial. No pagination or other retry.
    Stop on authority/session/custody failure, unexpected request, redirect/login, 401/403/429, deadline, canceled prompt, or repeat. Do not borrow a session or reinstall to retry.
-   Operational ceilings (not provider-size authority): request 8 KiB; lookup 64 KiB; list 1 MiB at size 25; detail 512 KiB; session 8 MiB; request wall time 30 s.
+   Operational ceilings (not provider-size authority): request 8 KiB; lookup 64 KiB; list 1 MiB at size 500; detail 512 KiB; session 8 MiB; request wall time 30 s.
    Overflow/endless body/timeout has no partial projection. Unknown/negative is legitimate and never census/completeness proof.
    Host validates the two exports and scans before posting:
    node "${cli}" --verify-export --out "${out}"
@@ -140,7 +153,7 @@ This preparation itself is PENDING_HOST_VERIFIER, not a qualification PASS.
    After observing extension absence and profile disposal, host records the attestation:
    node "${cli}" --record-removal --extension-absent --out "${out}"
    This checks profile absence and records operator-attested extension absence, not an automated browser proof.
-   Retain only the inventory-listed package, preparation/runbook and two scrubbed exports. The inventory does not recursively hash itself. Live removal belongs to #8607.
+   Retain only the inventory-listed package, preparation/runbook and two scrubbed exports. The inventory does not recursively hash itself.
 `;
   writeFileSync(path.join(out, "RUNBOOK.md"), runbook, { flag: "wx" });
   writeFileSync(path.join(out, "preparation.json"), json(preparation), { flag: "wx" });
@@ -175,6 +188,10 @@ export function verifyPackage(out) {
   const manifest = readJson(path.join(directory, "manifest.json"));
   const config = readJson(path.join(directory, "capture-config.json"));
   if (
+    config.format !== "order-authority-package/v2" ||
+    preparation.format !== "order-authority-preparation/v2" ||
+    !["synthetic", "operator"].includes(config.evidence) ||
+    config.evidence !== preparation.evidence ||
     config.extensionId !== extensionId(manifest.key) ||
     preparation.extensionId !== config.extensionId ||
     config.head !== preparation.head ||
@@ -182,6 +199,7 @@ export function verifyPackage(out) {
     config.cadenceMs !== preparation.cadenceMs ||
     !Number.isSafeInteger(config.cadenceMs) ||
     config.cadenceMs <= 0 ||
+    (config.evidence === "operator" && config.cadenceMs !== 30000) ||
     config.cadenceSource !== AUTHORITY ||
     preparation.cadenceSource !== AUTHORITY ||
     preparation.packageDirectory !== directory ||
@@ -205,7 +223,7 @@ export function verifyPackage(out) {
 // same export. No arbitrary string, field name, exception or input is admitted.
 function assertReceipt(receipt, preparation) {
   const strings = new Set([
-    "order-authority-receipt/v1",
+    "order-authority-receipt/v2",
     preparation.evidence,
     "extension-service-worker",
     preparation.extensionId,
@@ -238,8 +256,32 @@ function assertReceipt(receipt, preparation) {
     "object",
     "array",
     "null",
-    "SYNTHETIC/order ?#",
-    "SYNTHETIC%2Forder%20%3F%23",
+    "tcgplayer-ready-to-ship-selector/v1",
+    "search-filter",
+    "list-display",
+    "order-detail",
+    "ReadyToShip",
+    "LastTwoYears",
+    "LastThreeMonths",
+    "empty",
+    "0-90-days",
+    "91-730-days",
+    "over-730-days",
+    "qualified",
+    "captured",
+    "unqualified",
+    "absent",
+    "counts_pending",
+    "length_mismatch",
+    "page_not_closed",
+    "duplicate_order",
+    "filter_not_honored",
+    "count_mismatch",
+    "identity_mismatch",
+    "selector_unknown",
+    "aborted",
+    "completeness_unproven",
+    "page_ceiling_exceeded",
     "package_mismatch",
     "authority_missing",
     "repeat_invocation",
@@ -327,16 +369,43 @@ function assertReceipt(receipt, preparation) {
     "totalBytes",
     "requests",
     "failures",
-    "listDetailEquality",
+    "selector",
+    "identity",
+    "searches",
+    "searchRange",
+    "filter",
+    "surface",
+    "key",
+    "sortBy",
+    "from",
+    "pageSize",
+    "before",
+    "after",
+    "count",
+    "dateFilter",
+    "sameSession",
+    "topLevelKeys",
+    "totalOrders",
+    "rowCount",
+    "distinctCount",
+    "listStatuses",
+    "oldestRowAgeBucket",
+    "qualification",
+    "reason",
+    "vocabulary",
+    "listStatus",
+    "detailStatus",
+    "refundStatus",
+    "present",
+    "type",
+    "identityEquality",
+    "requestIndex",
     "completeness",
     "consistency",
     "snapshot",
     "closedDateRange",
     "immutableTieBreaker",
     "terminalProof",
-    "syntheticEncodingExample",
-    "input",
-    "encoded",
     "kind",
     "method",
     "host",
@@ -372,6 +441,8 @@ function assertReceipt(receipt, preparation) {
         Number.isFinite(Date.parse(value))
       )
         return;
+      if (key === "key" && value.length <= 64 && /^[A-Za-z]+(?:[ -]+[A-Za-z]+)*$/.test(value)) return;
+      if (key === "topLevelKeys" && ["totalOrders", "orders"].includes(value)) return;
       if (key === "field" ? fields.has(value) : strings.has(value)) return;
       fail("export_schema_refused");
     }
@@ -412,23 +483,141 @@ function assertReceipt(receipt, preparation) {
     "totalBytes",
     "requests",
     "failures",
-    "listDetailEquality",
+    "selector",
+    "vocabulary",
     "completeness",
     "consistency",
-    "syntheticEncodingExample",
   ]);
   closed(receipt.counts, ["lookup", "list", "detail"]);
   closed(receipt.consistency, ["snapshot", "closedDateRange", "immutableTieBreaker", "terminalProof"]);
-  closed(receipt.syntheticEncodingExample, ["input", "encoded"]);
+  closed(receipt.selector, ["identity", "searches"]);
+  if (
+    receipt.selector.identity !== "tcgplayer-ready-to-ship-selector/v1" ||
+    !Array.isArray(receipt.selector.searches) ||
+    receipt.selector.searches.length > 2 ||
+    !Array.isArray(receipt.vocabulary) ||
+    receipt.vocabulary.length !== 4
+  )
+    fail("export_schema_refused");
+  const buckets = ["Shipped - In Transit", "Shipped - Delivered", "Completed - Paid", "Canceled"];
+  const status = (value, surface) => {
+    closed(value, ["surface", "key"]);
+    if (
+      value.surface !== surface ||
+      typeof value.key !== "string" ||
+      value.key.length > 64 ||
+      !/^[A-Za-z]+(?:[ -]+[A-Za-z]+)*$/.test(value.key)
+    )
+      fail("export_schema_refused");
+  };
+  for (const [index, search] of receipt.selector.searches.entries()) {
+    closed(search, [
+      "searchRange",
+      "filter",
+      "sortBy",
+      "from",
+      "pageSize",
+      "before",
+      "after",
+      "sameSession",
+      "topLevelKeys",
+      "totalOrders",
+      "rowCount",
+      "distinctCount",
+      "listStatuses",
+      "oldestRowAgeBucket",
+      "qualification",
+      "reason",
+    ]);
+    status(search.filter, "search-filter");
+    if (
+      search.searchRange !== (index === 0 ? "LastTwoYears" : "LastThreeMonths") ||
+      search.filter.key !== "ReadyToShip" ||
+      !Array.isArray(search.sortBy) ||
+      search.sortBy.length ||
+      search.from !== 0 ||
+      search.pageSize !== 500 ||
+      typeof search.sameSession !== "boolean" ||
+      !Array.isArray(search.topLevelKeys) ||
+      search.topLevelKeys.some((key) => !["totalOrders", "orders"].includes(key)) ||
+      !Array.isArray(search.listStatuses) ||
+      !["qualified", "unknown"].includes(search.qualification)
+    )
+      fail("export_schema_refused");
+    for (const bracket of [search.before, search.after]) {
+      if (bracket === null && bracket === search.after) continue;
+      closed(bracket, ["count", "dateFilter"]);
+      if (
+        !Number.isSafeInteger(bracket.count) ||
+        bracket.count < 0 ||
+        !["LastTwoYears", "LastThreeMonths"].includes(bracket.dateFilter)
+      )
+        fail("export_schema_refused");
+    }
+    for (const item of search.listStatuses) {
+      closed(item, ["surface", "key", "count"]);
+      status({ surface: item.surface, key: item.key }, "list-display");
+      if (!Number.isSafeInteger(item.count) || item.count < 1 || item.count > 500) fail("export_schema_refused");
+    }
+    const request = receipt.requests.filter((item) => item.kind === "list")[index];
+    if (
+      search.qualification === "qualified" &&
+      (request?.status !== 200 ||
+        !request.responseComplete ||
+        request.failure !== null ||
+        search.topLevelKeys.slice().sort().join() !== "orders,totalOrders" ||
+        search.reason !== "qualified" ||
+        !search.sameSession ||
+        search.totalOrders !== search.rowCount ||
+        search.distinctCount !== search.rowCount ||
+        search.totalOrders >= 500 ||
+        search.before.count !== search.totalOrders ||
+        search.after?.count !== search.totalOrders ||
+        search.before.dateFilter !== search.after.dateFilter ||
+        search.listStatuses.some((item) => item.key !== "Ready to Ship") ||
+        search.listStatuses.reduce((sum, item) => sum + item.count, 0) !== search.rowCount)
+    )
+      fail("export_schema_refused");
+  }
+  for (const [index, bucket] of receipt.vocabulary.entries()) {
+    closed(bucket, ["listStatus", "detailStatus", "refundStatus", "identityEquality", "requestIndex", "qualification"]);
+    status(bucket.listStatus, "list-display");
+    if (
+      bucket.listStatus.key !== buckets[index] ||
+      !["captured", "unqualified"].includes(bucket.qualification) ||
+      ![null, true, false].includes(bucket.identityEquality)
+    )
+      fail("export_schema_refused");
+    if (bucket.detailStatus !== null) status(bucket.detailStatus, "order-detail");
+    if (bucket.refundStatus !== null) {
+      closed(bucket.refundStatus, ["present", "type"]);
+      if (
+        typeof bucket.refundStatus.present !== "boolean" ||
+        !["absent", "null", "array", "object", "string", "number", "boolean"].includes(bucket.refundStatus.type)
+      )
+        fail("export_schema_refused");
+    }
+    if (
+      bucket.qualification === "captured" &&
+      (bucket.identityEquality !== true ||
+        bucket.detailStatus === null ||
+        bucket.refundStatus === null ||
+        !Number.isSafeInteger(bucket.requestIndex) ||
+        receipt.requests[bucket.requestIndex]?.kind !== "detail" ||
+        receipt.requests[bucket.requestIndex]?.status !== 200 ||
+        !receipt.requests[bucket.requestIndex]?.responseComplete ||
+        receipt.requests[bucket.requestIndex]?.failure !== null)
+    )
+      fail("export_schema_refused");
+  }
   if (
     !Array.isArray(receipt.failures) ||
     receipt.failures.some((code) => !strings.has(code)) ||
-    ![null, true, false].includes(receipt.listDetailEquality) ||
     Date.parse(receipt.deadlineAt) - Date.parse(receipt.startedAt) !== 900000
   )
     fail("export_schema_refused");
   if (
-    receipt.format !== "order-authority-receipt/v1" ||
+    receipt.format !== "order-authority-receipt/v2" ||
     receipt.head !== preparation.head ||
     receipt.extensionId !== preparation.extensionId ||
     receipt.evidence !== preparation.evidence ||
@@ -508,7 +697,7 @@ function assertReceipt(receipt, preparation) {
     if (
       !Number.isSafeInteger(receipt.counts[kind]) ||
       receipt.counts[kind] < counts[kind] ||
-      receipt.counts[kind] > (kind === "lookup" ? 1 : 3)
+      receipt.counts[kind] > { lookup: 1, list: 2, detail: 4 }[kind]
     )
       fail("export_schema_refused");
   }
@@ -518,12 +707,12 @@ export function verifyExport(out) {
   const preparation = verifyPackage(out);
   const directory = path.join(out, "receipt");
   const files = inventory(directory);
-  if (Object.keys(files).join() !== "8607-inventory.json,8607-receipt.json") fail("inventory_mismatch");
+  if (Object.keys(files).join() !== "8838-inventory.json,8838-receipt.json") fail("inventory_mismatch");
   for (const file of Object.keys(files))
     if (lstatSync(path.join(directory, file)).size > 65536) fail("export_schema_refused");
-  const receipt = readJson(path.join(directory, "8607-receipt.json"));
+  const receipt = readJson(path.join(directory, "8838-receipt.json"));
   assertReceipt(receipt, preparation);
-  const index = readJson(path.join(directory, "8607-inventory.json"));
+  const index = readJson(path.join(directory, "8838-inventory.json"));
   const pending = { extensionAbsent: false, profileDisposed: false, confirmation: "pending-operator-removal" };
   const removed = {
     extensionAbsent: true,
@@ -532,14 +721,14 @@ export function verifyExport(out) {
   };
   if (json(index.removal) !== json(pending) && json(index.removal) !== json(removed)) fail("removal_not_confirmed");
   const expected = {
-    format: "order-authority-inventory/v1",
+    format: "order-authority-inventory/v2",
     evidence: preparation.evidence,
     head: preparation.head,
     extensionId: preparation.extensionId,
-    files: { "8607-receipt.json": files["8607-receipt.json"] },
+    files: { "8838-receipt.json": files["8838-receipt.json"] },
     packageDigests: receipt.digests,
     removal: index.removal,
-    retainedFiles: ["8607-receipt.json", "8607-inventory.json"],
+    retainedFiles: ["8838-receipt.json", "8838-inventory.json"],
   };
   if (json(index) !== json(expected)) fail("export_schema_refused");
   return index;
@@ -553,7 +742,7 @@ export function recordRemoval(out, extensionAbsent) {
     profileDisposed: true,
     confirmation: "operator-attested-extension-absence-and-profile-disposal",
   };
-  writeFileSync(path.join(out, "receipt", "8607-inventory.json"), json(index));
+  writeFileSync(path.join(out, "receipt", "8838-inventory.json"), json(index));
   return index;
 }
 
