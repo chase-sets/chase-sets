@@ -2,7 +2,8 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { FulfillmentShipmentPackingPage } from "./shipment-packing-page";
+import { FulfillmentShipmentPackingPage, submitPackingLineQuantity } from "./shipment-packing-page";
+import * as recovery from "./mutation-recovery";
 import type { FulfillmentShipmentDetail } from "./contracts";
 
 vi.mock("./mutation-recovery", () => ({
@@ -23,6 +24,7 @@ vi.mock("./mutation-recovery", () => ({
     automaticRecoveryReadAt: null,
   })),
   updateShipmentMutationDescriptor: vi.fn(async (descriptor) => descriptor),
+  completeShipmentMutationDescriptor: vi.fn(),
 }));
 
 function shipment(): FulfillmentShipmentDetail {
@@ -112,6 +114,109 @@ describe("fulfillment packing optimistic correction", () => {
     cleanup();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it.each(["shp_first", "shp_second & extra"])(
+    "keeps both print links on %s after clicks and packing completion",
+    (shipmentId) => {
+      const value = { ...shipment(), shipment_id: shipmentId };
+      const props = {
+        shipment: value,
+        backHref: "/account/sales/shipments",
+        recoveryScope: { tenantId: "tnt_1", sellerAccountId: "acc_seller" },
+      };
+      const view = render(<FulfillmentShipmentPackingPage {...props} />);
+      function assertLinks(count: number) {
+        const links = screen.getAllByRole<HTMLAnchorElement>("link", {
+          name: /Print packing slip.*\(opens in a new tab\)/,
+        });
+        expect(links).toHaveLength(count);
+        for (const link of links) {
+          const target = new URL(link.href);
+          expect(target.pathname).toBe("/account/sales/shipments/packing-slips");
+          expect(target.searchParams.getAll("shipmentIds")).toEqual([shipmentId]);
+          expect(target.searchParams.getAll("format")).toEqual(["letter"]);
+          expect(link.target).toBe("_blank");
+          expect(link.querySelectorAll("svg")).toHaveLength(1);
+          expect(link.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+          expect(link.querySelector("title")).toBeNull();
+          expect(link.getAttribute("aria-label")?.match(/opens in a new tab/g)).toHaveLength(1);
+        }
+        return links;
+      }
+      // WorkstationLayout renders the summary in both desktop and mobile containers.
+      const links = assertLinks(3);
+      fireEvent.click(links[0]!);
+      assertLinks(3);
+      expect(screen.getAllByText("Packing slip opened in a new tab.")).toHaveLength(2);
+      expect(screen.getAllByRole("link", { name: "Print packing slip again (opens in a new tab)" })).toHaveLength(2);
+      fireEvent.click(links[1]!);
+      assertLinks(3);
+      view.rerender(
+        <FulfillmentShipmentPackingPage
+          {...props}
+          shipment={{ ...value, status: "awaiting-label", package_status: "packed" }}
+        />,
+      );
+      assertLinks(2);
+    },
+  );
+
+  it("waits for durable descriptor and sent-marker writes before the direct quantity POST", async () => {
+    let releaseDescriptor!: () => void;
+    let releaseMarker!: () => void;
+    const existing = await recovery.persistShipmentMutationDescriptor({
+      tenantId: "tnt_1",
+      sellerAccountId: "acc_seller",
+      shipmentId: "shp_1",
+      command: "set-line-confirmed",
+      intentHash: "intent-hash",
+    });
+    vi.mocked(recovery.persistShipmentMutationDescriptor).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseDescriptor = () => resolve(existing);
+        }),
+    );
+    vi.mocked(recovery.updateShipmentMutationDescriptor).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseMarker = () => resolve(existing);
+        }),
+    );
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ lineId: "spl_1", confirmedQuantity: 1 })));
+    vi.stubGlobal("fetch", fetchMock);
+    const pending = submitPackingLineQuantity({
+      recoveryScope: { tenantId: "tnt_1", sellerAccountId: "acc_seller" },
+      shipmentId: "shp_1",
+      lineId: "spl_1",
+      confirmedQuantity: 1,
+      action: "/packing",
+    });
+    await waitFor(() => expect(releaseDescriptor).toBeTypeOf("function"));
+    expect(fetchMock).not.toHaveBeenCalled();
+    releaseDescriptor();
+    await waitFor(() => expect(releaseMarker).toBeTypeOf("function"));
+    expect(fetchMock).not.toHaveBeenCalled();
+    releaseMarker();
+    await expect(pending).resolves.toEqual({ lineId: "spl_1", confirmedQuantity: 1 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("never directly POSTs when descriptor storage rejects, independent of the boundary fence", async () => {
+    vi.mocked(recovery.persistShipmentMutationDescriptor).mockRejectedValueOnce(new Error("storage rejected"));
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(
+      submitPackingLineQuantity({
+        recoveryScope: { tenantId: "tnt_1", sellerAccountId: "acc_seller" },
+        shipmentId: "shp_1",
+        lineId: "spl_1",
+        confirmedQuantity: 1,
+        action: "/packing",
+      }),
+    ).rejects.toThrow("storage rejected");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("applies a line quantity optimistically, serializes in-flight writes, and rolls back failed latest writes", async () => {

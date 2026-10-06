@@ -73,19 +73,34 @@ export function ShipmentMutationBoundary({
   const [hydrated, setHydrated] = useState(false);
   const [state, setState] = useState<ShipmentMutationClientState>("editing");
   const [message, setMessage] = useState<string | null>(null);
+  const unresolved = !["editing", "submitting", "succeeded", "failed-safe", "conflict"].includes(state);
+  const mutationsDisabled = !hydrated || unresolved;
 
   useEffect(() => {
-    setHydrated(true);
+    setHydrated(false);
     let cancelled = false;
     void listShipmentMutationDescriptors(tenantId, sellerAccountId)
       .then(async (descriptors) => {
+        let outstandingState: ShipmentMutationClientState = "editing";
         for (const descriptor of descriptors) {
-          if (cancelled || descriptor.automaticRecoveryReadAt || !descriptor.sentAt) continue;
-          const recoveryState = await readShipmentMutationRecovery(descriptor);
-          if (recoveryState && !cancelled) setState(recoveryState);
+          if (cancelled) return;
+          if (["succeeded", "failed-safe", "conflict"].includes(descriptor.state)) continue;
+          const recoveryState =
+            descriptor.automaticRecoveryReadAt || !descriptor.sentAt
+              ? descriptor.state
+              : ((await readShipmentMutationRecovery(descriptor)) ?? descriptor.state);
+          if (!["editing", "succeeded", "failed-safe", "conflict"].includes(recoveryState)) {
+            outstandingState = recoveryState === "submitting" ? "confirming" : recoveryState;
+          }
         }
+        if (!cancelled) setState(outstandingState);
       })
-      .catch(() => setState("recovery-storage-required"));
+      .catch(() => {
+        if (!cancelled) setState("recovery-storage-required");
+      })
+      .finally(() => {
+        if (!cancelled) setHydrated(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -96,6 +111,7 @@ export function ShipmentMutationBoundary({
     const form = event.target as HTMLFormElement;
     if (!(form instanceof HTMLFormElement) || form.method.toLowerCase() !== "post") return;
     event.preventDefault();
+    if (mutationsDisabled) return;
     setMessage(null);
     const submitter = nativeEvent.submitter as HTMLButtonElement | HTMLInputElement | null;
     const formData = new FormData(form);
@@ -131,30 +147,32 @@ export function ShipmentMutationBoundary({
 
   return (
     <Stack gap={3}>
-      {!hydrated || state === "recovery-storage-required" ? (
+      {!hydrated ? (
         <MarketplaceNotice
-          tone={state === "recovery-storage-required" ? "danger" : "info"}
+          tone="info"
+          title={t("fulfillment.features.shipments.ui.shipmentMutationBoundary.preparing.title")}
+          description={t("fulfillment.features.shipments.ui.shipmentMutationBoundary.preparing.description")}
+        />
+      ) : state === "recovery-storage-required" ? (
+        <MarketplaceNotice
+          tone="danger"
           title={t("fulfillment.features.shipments.ui.shipmentMutationBoundary.secure.recovery.required")}
           description={
             message ?? t("fulfillment.features.shipments.ui.shipmentMutationBoundary.secure.recovery.description")
           }
         />
       ) : null}
-      {state !== "editing" && state !== "submitting" && state !== "recovery-storage-required" ? (
+      {hydrated && state !== "editing" && state !== "submitting" && state !== "recovery-storage-required" ? (
         <MarketplaceNotice
           tone={state === "ambiguous" || state === "partial" ? "warning" : "info"}
           title={t("fulfillment.features.shipments.ui.shipmentMutationBoundary.action.recovery")}
           description={t("fulfillment.features.shipments.ui.shipmentMutationBoundary.recovery.state", { state })}
         />
       ) : null}
-      <Stack
-        gap={0}
-        onSubmitCapture={onSubmitCapture}
-        aria-busy={state === "submitting" || undefined}
-        aria-disabled={!hydrated || state === "recovery-storage-required" || undefined}
-        inert={!hydrated || state === "recovery-storage-required" ? true : undefined}
-      >
-        {children}
+      <Stack gap={0} onSubmitCapture={onSubmitCapture} aria-busy={state === "submitting" || undefined}>
+        <Stack as="fieldset" gap={0} disabled={mutationsDisabled}>
+          {children}
+        </Stack>
       </Stack>
     </Stack>
   );

@@ -193,7 +193,13 @@ export function FulfillmentShipmentDetailPage({
         actions={
           <Stack gap={2}>
             {role === "seller" ? (
-              <LinkButton href={packingSlipHref} tone="primary" target="_blank">
+              <LinkButton
+                href={packingSlipHref}
+                tone="primary"
+                target="_blank"
+                leadingIcon="externalLink"
+                aria-label={t("fulfillment.features.shipments.ui.shipmentDetailPage.print.packing.slip.new.tab")}
+              >
                 {t("fulfillment.features.shipments.ui.shipmentDetailPage.print.packing.slip")}
               </LinkButton>
             ) : null}
