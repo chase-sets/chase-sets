@@ -150,9 +150,19 @@ describe("dev system target env overrides", () => {
   });
 
   it("starts the CI worker through its declared non-watch script", () => {
-    expect(browserE2ePlatformWorkerCiCommand).toMatchObject({
-      args: ["--filter", "@chase-sets/app-platform-worker", "run", "dev:ci"],
-    });
+    const definition = { name: "platform-worker", workspace: "@chase-sets/app-platform-worker", env: {} };
+    for (const platform of ["win32", "linux", "darwin"]) {
+      const [selected] = applyDevTargetEnvOverrides("browser-e2e", [definition], {
+        ci: true,
+        platform,
+        environment: {},
+      });
+      expect(selected).toMatchObject(
+        platform === "win32"
+          ? { command: undefined, args: undefined, script: "dev:ci" }
+          : { command: "pnpm", args: ["--filter", definition.workspace, "run", "dev:ci"] },
+      );
+    }
   });
 
   it("keeps the watch-based worker loop for local browser development", () => {
