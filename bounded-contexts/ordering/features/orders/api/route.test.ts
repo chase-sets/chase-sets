@@ -322,6 +322,27 @@ describe("ordering purchase routes", () => {
     expect(services.getOrderReviewOpportunity).not.toHaveBeenCalled();
   });
 
+  it("never reads or exposes review outcomes to a guest checkout actor", async () => {
+    const services = { ...createServices(), getPurchase: vi.fn(async () => order) } as unknown as OrderingOrderServices;
+    const app = buildApp({
+      services,
+      actor: {
+        sessionId: "guest:tok_1",
+        tenantId: "tnt_identity",
+        userId: "usr_guest_checkout",
+        accountId: "acc_guest",
+        membershipId: "guest:tok_1",
+        roleKey: "guest-buyer",
+        permissions: ["guest-checkout.manage"],
+      },
+    });
+    const response = await app.request("/account/purchases/ord_1");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ reviewOutcome: { status: "unavailable", opportunity: null } });
+    expect(services.getOrderReviewOpportunity).not.toHaveBeenCalled();
+    expect((await app.request("/account/sales/ord_1")).status).toBe(403);
+  });
+
   it("cancels a buyer purchase through the documented API action", async () => {
     const services = createServices();
     const app = buildApp({

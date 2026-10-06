@@ -22,7 +22,11 @@ import { buildReviewProjectionHandlers } from "../read-model/projection";
 import { buildReviewApi, type ReputationApiEnv } from "../api/http";
 import { createReviewOpportunityPublication } from "../integrations/opportunity-publication/publication";
 import { opportunitySourceProjections } from "../integrations/opportunity-publication/source-proof";
-import { reviewOpportunityPublicationMigrations } from "../integrations/opportunity-publication/schema";
+import {
+  reviewOpportunityPublicationMigrations,
+  reviewOpportunityPublicationSchemaSql,
+  reviewOpportunityPublicationTriggersSql,
+} from "../integrations/opportunity-publication/schema";
 import { reviewOpportunityFactType } from "@chase-sets/event-core/review-opportunity-facts";
 
 const url = process.env.TEST_DATABASE_URL;
@@ -256,5 +260,26 @@ describeDb("canonical opportunity publication persistence", () => {
     for (const migration of reviewOpportunityPublicationMigrations)
       for (const sql of migration.statements) await pool.query(sql);
     expect(await publication().run(context)).toBe(1);
+  });
+
+  it("upgrades a populated pre-publication schema and backfills it without another source event", async () => {
+    await resetMultiContextTestSchemas(pools);
+    const previousSchema = marketplaceModule.schemaSql
+      .replace(reviewOpportunityPublicationSchemaSql, "")
+      .replace(reviewOpportunityPublicationTriggersSql, "");
+    expect(previousSchema).not.toContain("CREATE TABLE IF NOT EXISTS marketplace_review_opportunity_work");
+    await pool.query(previousSchema);
+    await pool.query(eventSubscriptionSchemaSql);
+    await order("ord_historical", false);
+    for (const migration of reviewOpportunityPublicationMigrations)
+      for (const sql of migration.statements) await pool.query(sql);
+    await caughtUp();
+    expect(await publication().backfill()).toBe(1);
+    expect(await publication().run(context)).toBe(1);
+    expect((await facts())[0]!.payload).toMatchObject({
+      orderId: "ord_historical",
+      buyerToSeller: null,
+      sellerToBuyer: null,
+    });
   });
 });

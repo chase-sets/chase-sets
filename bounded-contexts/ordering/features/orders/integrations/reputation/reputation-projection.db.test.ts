@@ -22,6 +22,7 @@ import {
 } from "@chase-sets/bounded-context-runtime/test-support";
 import { module as orderingModule } from "../../../../index";
 import { buildOrderingReputationProjectionHandlers } from "./reputation-projection";
+import { orderingOpportunitySchemaSql, orderingOpportunitySchemaMigrations } from "./opportunity-schema";
 import { getOrderingOrderDeliverySummary, getOrderingOrderReviewOpportunity } from "./reputation-queries";
 import { createCheckpointStore, createOrderingOrderRuntimeForTest } from "../../api/runtime-test-harness";
 
@@ -374,6 +375,23 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
       delivery_summary: { shipment_count: 0 },
       reviewOutcome: { status: "ready", opportunity: { author_role: "buyer", active_review_revealed_at: null } },
     });
+  });
+
+  it("upgrades a populated Ordering schema without deriving an opportunity from old eligibility rows", async () => {
+    await resetMultiContextTestSchemas(pools);
+    const previousSchema = orderingModule.schemaSql.replace(orderingOpportunitySchemaSql, "");
+    expect(previousSchema).not.toContain("CREATE TABLE IF NOT EXISTS ordering_order_review_opportunity_pages");
+    await pools.ordering.query(previousSchema);
+    await pools.ordering.query(eventSubscriptionSchemaSql);
+    await insertOrderPage(pools.ordering, "ord_1");
+    for (const migration of orderingOpportunitySchemaMigrations)
+      for (const sql of migration.statements) await pools.ordering.query(sql);
+    await current();
+    expect(await read()).toEqual({ status: "unavailable", opportunity: null });
+    await buildOrderingReputationProjectionHandlers(pools.ordering)[reviewOpportunityFactType]!(
+      event(reviewOpportunityFactType, fact()),
+    );
+    expect((await read()).status).toBe("ready");
   });
 
   it("evaluates deadline passage without new events and keeps an old quiescent snapshot current", async () => {
