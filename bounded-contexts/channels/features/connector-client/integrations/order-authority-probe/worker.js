@@ -181,7 +181,7 @@
 
   function receipt(state) {
     return {
-      format: "order-authority-receipt/v2",
+      format: "order-authority-receipt/v3",
       evidence: state.config.evidence,
       origin: "extension-service-worker",
       extensionId: chrome.runtime.id,
@@ -501,7 +501,13 @@
     state.fallback = false;
     try {
       const list = await dispatch(state, "list", undefined, range);
-      state.searches.push(searchSummary(state, list, range, { count: message.count, dateFilter: message.dateFilter }));
+      state.searches.push(
+        searchSummary(state, list, range, {
+          count: message.count,
+          dateFilter: message.dateFilter,
+          reprompted: message.reprompted,
+        }),
+      );
     } catch (error) {
       const code = failureCode(error);
       const request = state.requests.at(-1);
@@ -512,7 +518,7 @@
         sortBy: [],
         from: 0,
         pageSize: 500,
-        before: { count: message.count, dateFilter: message.dateFilter },
+        before: { count: message.count, dateFilter: message.dateFilter, reprompted: message.reprompted },
         after: null,
         sameSession: false,
         topLevelKeys: [],
@@ -640,9 +646,13 @@
       if (message.kind === "search") return await search(state, message);
       if (message.kind === "counts" && state.phase === "counts") {
         const current = state.searches.at(-1);
-        current.after = { count: message.count, dateFilter: message.dateFilter };
+        current.after = { count: message.count, dateFilter: message.dateFilter, reprompted: message.reprompted };
         current.sameSession = message.sameSession;
         if (!message.sameSession) fail("session_missing");
+        if (message.count === null) {
+          current.reason = "date_filter_mismatch";
+          state.fallback = false;
+        }
         if (state.fallback) {
           state.phase = "search";
           await waitForCadence(state);
@@ -657,8 +667,8 @@
                 : "count_mismatch";
           current.qualification = current.reason === "qualified" ? "qualified" : "unknown";
         }
-        state.phase = current.qualification === "qualified" ? "details" : "unknown";
-        return { ok: true, code: state.phase === "details" ? "selector_qualified" : "selector_unknown" };
+        state.phase = "details";
+        return { ok: true, code: current.qualification === "qualified" ? "selector_qualified" : "selector_unknown" };
       }
       if (message.kind === "capture") return await capture(state, message.selections);
       fail("invalid_message");
@@ -684,12 +694,20 @@
     const count =
       closed(
         message,
-        message?.kind === "counts" ? ["kind", "count", "dateFilter", "sameSession"] : ["kind", "count", "dateFilter"],
+        message?.kind === "counts"
+          ? ["kind", "count", "dateFilter", "reprompted", "sameSession"]
+          : ["kind", "count", "dateFilter", "reprompted"],
       ) &&
       ["search", "counts"].includes(message.kind) &&
-      Number.isSafeInteger(message.count) &&
-      message.count >= 0 &&
-      ["LastTwoYears", "LastThreeMonths"].includes(message.dateFilter) &&
+      typeof message.reprompted === "boolean" &&
+      ((Number.isSafeInteger(message.count) &&
+        message.count >= 0 &&
+        ["LastTwoYears", "LastThreeMonths"].includes(message.dateFilter)) ||
+        (message.kind === "counts" &&
+          message.count === null &&
+          message.reprompted &&
+          [null, "LastTwoYears", "LastThreeMonths"].includes(message.dateFilter) &&
+          message.dateFilter !== active?.searches.at(-1)?.searchRange)) &&
       (message.kind !== "counts" || typeof message.sameSession === "boolean");
     const selected =
       closed(message, ["kind", "selections"]) &&

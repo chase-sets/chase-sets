@@ -1,4 +1,5 @@
 import { createHash, webcrypto } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -279,17 +280,17 @@ function harness(
     if (session.receipt) return session;
     for (let index = 0; index < 2; index += 1) {
       const dateFilter = index === 0 ? "LastTwoYears" : "LastThreeMonths";
-      const search = await send({ kind: "search", count: brackets.before, dateFilter });
+      const search = await send({ kind: "search", count: brackets.before, dateFilter, reprompted: false });
       if (search.receipt) return search;
       const counts = await send({
         kind: "counts",
         count: brackets.after,
         dateFilter,
+        reprompted: false,
         sameSession: true,
       });
       if (counts.receipt) return counts;
       if (counts.code === "fallback_available") continue;
-      if (counts.code !== "selector_qualified") return send({ kind: "finish" });
       return send({
         kind: "capture",
         selections: BUCKETS.map((listStatus, index) => ({ listStatus, orderNumber: index === 0 ? orderNumber : null })),
@@ -333,7 +334,7 @@ function helper(
   const messages: { kind: string; orderNumber?: string }[] = [];
   const events: string[] = [];
   const dialogs: unknown[] = [];
-  const prompts = [...(options.prompts ?? ["1", "LastTwoYears", "1", "LastTwoYears", input])];
+  const prompts = [...(options.prompts ?? ["LastTwoYears", "1", "LastTwoYears", "1", input])];
   const confirms = [...(options.confirms ?? [consent, true, true, false, false, false])];
   const location = { href: worker.sender.url };
   function dialog(kind: "confirm" | "prompt", text: string) {
@@ -476,11 +477,13 @@ function selections(orderNumber: string | null = ORDER) {
 async function qualified(worker: ReturnType<typeof harness>) {
   expect(await worker.send({ kind: "begin" })).toEqual({ ok: true });
   expect(await worker.send({ kind: "lookup" })).toEqual({ ok: true });
-  expect(await worker.send({ kind: "search", count: 1, dateFilter: "LastTwoYears" })).toEqual({
+  expect(await worker.send({ kind: "search", count: 1, dateFilter: "LastTwoYears", reprompted: false })).toEqual({
     ok: true,
     code: "search_observed",
   });
-  expect(await worker.send({ kind: "counts", count: 1, dateFilter: "LastTwoYears", sameSession: true })).toEqual({
+  expect(
+    await worker.send({ kind: "counts", count: 1, dateFilter: "LastTwoYears", reprompted: false, sameSession: true }),
+  ).toEqual({
     ok: true,
     code: "selector_qualified",
   });
@@ -546,10 +549,10 @@ describe("order-authority emitted package controls (synthetic, not provider auth
     await worker.send({ kind: "lookup" });
     for (let index = 0; index < 2; index += 1) {
       const dateFilter = index === 0 ? "LastTwoYears" : "LastThreeMonths";
-      await worker.send({ kind: "search", count: 1, dateFilter });
-      expect((await worker.send({ kind: "counts", count: 1, dateFilter, sameSession: true })).code).toBe(
-        index ? "selector_qualified" : "fallback_available",
-      );
+      await worker.send({ kind: "search", count: 1, dateFilter, reprompted: false });
+      expect(
+        (await worker.send({ kind: "counts", count: 1, dateFilter, reprompted: false, sameSession: true })).code,
+      ).toBe(index ? "selector_qualified" : "fallback_available");
     }
     const result = receipt(
       await worker.send({
@@ -637,7 +640,7 @@ describe("order-authority emitted package controls (synthetic, not provider auth
       persisted: boolean;
     }[] = [];
     const page = helper(worker, ORDER, true, {
-      prompts: ["1", "LastTwoYears", "1", "LastTwoYears", ...BUCKETS.map((_, index) => `${ORDER}-${index}`)],
+      prompts: ["LastTwoYears", "1", "LastTwoYears", "1", ...BUCKETS.map((_, index) => `${ORDER}-${index}`)],
       confirms: [true, true, true, true, true, true],
       onDialog: () => {
         const requests = worker.observations.length;
@@ -724,26 +727,33 @@ describe("order-authority emitted package controls (synthetic, not provider auth
     }
   });
 
-  it("date-filter binding: equal counts under the other range remain unknown with zero detail reads", async () => {
+  it("date-filter binding: equal counts under the other range remain unknown with four detail reads and closed export", async () => {
     const worker = harness();
-    await worker.send({ kind: "begin" });
-    await worker.send({ kind: "lookup" });
-    await worker.send({ kind: "search", count: 1, dateFilter: "LastThreeMonths" });
-    expect(await worker.send({ kind: "counts", count: 1, dateFilter: "LastThreeMonths", sameSession: true })).toEqual({
-      ok: true,
-      code: "selector_unknown",
+    const page = helper(worker, ORDER, true, {
+      prompts: ["LastTwoYears", "1", "LastTwoYears", "1", ...BUCKETS.map((_, index) => `${ORDER}-${index}`)],
+      confirms: [true, true, true, true, true, true],
+      sendMessage: (message) =>
+        worker.send(
+          ["search", "counts"].includes(message.kind) ? { ...message, dateFilter: "LastThreeMonths" } : message,
+        ),
     });
-    expect(receipt(await worker.send({ kind: "finish" })).selector.searches[0]).toMatchObject({
+    expect(await page.run()).toEqual({ ok: true, code: "scrubbed_export_created" });
+    const value = JSON.parse(page.exports.get("8838-receipt.json")!);
+    expect(value.selector.searches[0]).toMatchObject({
       qualification: "unknown",
       reason: "date_filter_mismatch",
     });
-    expect(worker.observations.map((item) => item.kind)).toEqual(["lookup", "list"]);
-    const page = helper(harness(), ORDER, true, {
-      prompts: ["1", "LastThreeMonths", "1", "LastThreeMonths"],
-    });
-    expect(await page.run()).toEqual({ ok: true, code: "scrubbed_export_created" });
+    expect(value.counts.detail).toBe(4);
     retain(page);
     expect(packaging.verifyExport(out).head).toBe(preparation.head);
+    const verification = spawnSync(
+      process.execPath,
+      [path.join(source, "package.mjs"), "--verify-export", "--out", out],
+      {
+        encoding: "utf8",
+      },
+    );
+    expect(verification.status, verification.stderr).toBe(0);
   });
 
   it("date-filter binding: verify-export refuses a qualified receipt bracketed under another range", async () => {
@@ -767,12 +777,313 @@ describe("order-authority emitted package controls (synthetic, not provider auth
     const control = async (worker: ReturnType<typeof harness>) => {
       await worker.send({ kind: "begin" });
       await worker.send({ kind: "lookup" });
-      await worker.send({ kind: "search", count: 1, dateFilter: "LastThreeMonths" });
-      const result = await worker.send({ kind: "counts", count: 1, dateFilter: "LastThreeMonths", sameSession: true });
+      await worker.send({ kind: "search", count: 1, dateFilter: "LastThreeMonths", reprompted: false });
+      const result = await worker.send({
+        kind: "counts",
+        count: 1,
+        dateFilter: "LastThreeMonths",
+        reprompted: false,
+        sameSession: true,
+      });
       expect(result.code).toBe("selector_unknown");
     };
     await control(harness());
     await expect(control(harness({ workerSource: mutant }))).rejects.toThrow();
+  });
+
+  it("filter-first re-prompt: exactly one correction per bracket, then one count read", async () => {
+    const worker = harness();
+    const page = helper(worker, ORDER, true, {
+      prompts: ["LastThreeMonths", "LastTwoYears", "1", "LastThreeMonths", "LastTwoYears", "1", ORDER],
+    });
+    expect(await page.run()).toEqual({ ok: true, code: "scrubbed_export_created" });
+    const value = JSON.parse(page.exports.get("8838-receipt.json")!);
+    expect(value.selector.searches[0]).toMatchObject({
+      before: { count: 1, dateFilter: "LastTwoYears", reprompted: true },
+      after: { count: 1, dateFilter: "LastTwoYears", reprompted: true },
+      qualification: "qualified",
+    });
+    const prompts = (page.dialogs as { kind: string; text: string; requests: number }[]).filter(
+      (dialog) => dialog.kind === "prompt",
+    );
+    expect(prompts.slice(0, 6).map((dialog) => dialog.text.split(":")[0])).toEqual([
+      "Expected date filter",
+      "Re-select Last 2 years in the portal, then confirm the visible filter",
+      "Confirmed date filter",
+      "Expected date filter",
+      "Re-select Last 2 years in the portal, then confirm the visible filter",
+      "Confirmed date filter",
+    ]);
+    expect(prompts.slice(0, 6).map((dialog) => dialog.requests)).toEqual([1, 1, 1, 2, 2, 2]);
+    retain(page);
+    expect(packaging.verifyExport(out).head).toBe(preparation.head);
+  });
+
+  it.each(["LastThreeMonths", SENTINEL])(
+    "filter-first second mismatch %s: before dispatch stops, after records unread unknown and reaches buckets",
+    async (mismatch) => {
+      for (const after of [false, true]) {
+        const worker = harness();
+        const page = helper(worker, ORDER, true, {
+          prompts: after ? ["LastTwoYears", "1", mismatch, mismatch, ORDER] : [mismatch, mismatch, "1", ORDER],
+        });
+        expect(await page.run()).toEqual({ ok: true, code: "scrubbed_export_created" });
+        const value = JSON.parse(page.exports.get("8838-receipt.json")!);
+        const dialogs = page.dialogs as { kind: string; text: string }[];
+        expect(dialogs.filter((dialog) => dialog.text.startsWith("Re-select "))).toHaveLength(1);
+        expect(dialogs.filter((dialog) => dialog.text.startsWith("Confirmed date filter:"))).toHaveLength(
+          after ? 1 : 0,
+        );
+        expect(value.counts).toEqual({ lookup: 1, list: after ? 1 : 0, detail: after ? 1 : 0 });
+        expect(page.messages.some((message) => message.kind === "capture")).toBe(after);
+        if (after) {
+          expect(value.failures).toEqual([]);
+          expect(value.selector.searches[0]).toMatchObject({
+            qualification: "unknown",
+            reason: "date_filter_mismatch",
+            after: { count: null, dateFilter: mismatch === SENTINEL ? null : mismatch, reprompted: true },
+          });
+        } else {
+          expect(value.selector.searches).toEqual([]);
+          expect(value.failures).toEqual(["aborted"]);
+        }
+        retain(page);
+        expect(packaging.verifyExport(out).head).toBe(preparation.head);
+        custody({ exports: [...page.exports], storage: worker.storage, retained: worker.retained });
+      }
+    },
+  );
+
+  it("filter-first mismatch stops fallback instead of dispatching another search", async () => {
+    const worker = harness({ responses: { list: { status: 422 } } });
+    const page = helper(worker, ORDER, true, {
+      prompts: ["LastTwoYears", "1", "LastThreeMonths", "LastThreeMonths", ORDER],
+    });
+    await page.run();
+    const value = JSON.parse(page.exports.get("8838-receipt.json")!);
+    expect(value.selector.searches[0].reason).toBe("date_filter_mismatch");
+    expect(value.counts).toEqual({ lookup: 1, list: 1, detail: 1 });
+    expect(value.failures).toEqual([]);
+    retain(page);
+    expect(packaging.verifyExport(out).head).toBe(preparation.head);
+  });
+
+  it("filter-first fallback re-prompt uses Last 90 days and records correction on both brackets", async () => {
+    const worker = harness({ responses: { list: [{ status: 422 }, { body: encode(list) }] } });
+    const page = helper(worker, ORDER, true, {
+      prompts: [
+        "LastTwoYears",
+        "1",
+        "LastTwoYears",
+        "1",
+        "LastTwoYears",
+        "LastThreeMonths",
+        "1",
+        "LastTwoYears",
+        "LastThreeMonths",
+        "1",
+        ORDER,
+      ],
+      confirms: [true, true, true, true, false, false, false],
+    });
+    await page.run();
+    const value = JSON.parse(page.exports.get("8838-receipt.json")!);
+    expect(value.selector.searches[1]).toMatchObject({
+      searchRange: "LastThreeMonths",
+      qualification: "qualified",
+      before: { count: 1, dateFilter: "LastThreeMonths", reprompted: true },
+      after: { count: 1, dateFilter: "LastThreeMonths", reprompted: true },
+    });
+    expect(
+      (page.dialogs as { text: string }[])
+        .filter((dialog) => dialog.text.startsWith("Re-select "))
+        .map((dialog) => dialog.text),
+    ).toEqual([
+      "Re-select Last 90 days in the portal, then confirm the visible filter",
+      "Re-select Last 90 days in the portal, then confirm the visible filter",
+    ]);
+    expect(value.counts).toEqual({ lookup: 1, list: 2, detail: 1 });
+    retain(page);
+    expect(packaging.verifyExport(out).head).toBe(preparation.head);
+  });
+
+  const unknownCases = [
+    { reason: "date_filter_mismatch", body: list, after: ["LastThreeMonths", "LastThreeMonths"] },
+    { reason: "count_mismatch", body: list, after: ["LastTwoYears", "2"] },
+    { reason: "length_mismatch", body: { ...list, totalOrders: 2 }, after: ["LastTwoYears", "1"] },
+    {
+      reason: "page_not_closed",
+      body: {
+        totalOrders: 500,
+        orders: Array.from({ length: 500 }, (_, index) => ({
+          orderNumber: `SYNTHETIC-${index}`,
+          orderStatus: "Ready to Ship",
+        })),
+      },
+      after: ["LastTwoYears", "1"],
+    },
+    {
+      reason: "duplicate_order",
+      body: { totalOrders: 2, orders: [list.orders[0], list.orders[0]] },
+      after: ["LastTwoYears", "1"],
+    },
+    {
+      reason: "filter_not_honored",
+      body: { ...list, orders: [{ ...list.orders[0], orderStatus: "Canceled" }] },
+      after: ["LastTwoYears", "1"],
+    },
+  ];
+  async function assertUnknownBuckets(worker: ReturnType<typeof harness>, reason: string, after: string[]) {
+    const page = helper(worker, ORDER, true, {
+      prompts: ["LastTwoYears", "1", ...after, ...BUCKETS.map((_, index) => `${ORDER}-${index}`)],
+      confirms: [true, true, true, true, true, true],
+    });
+    expect(await page.run()).toEqual({ ok: true, code: "scrubbed_export_created" });
+    const value = JSON.parse(page.exports.get("8838-receipt.json")!);
+    expect(value.selector.searches[0]).toMatchObject({ qualification: "unknown", reason });
+    expect(value.failures).toEqual([]);
+    expect(value.counts).toEqual({ lookup: 1, list: 1, detail: 4 });
+    expect(value.vocabulary.every((bucket: { qualification: string }) => bucket.qualification === "captured")).toBe(
+      true,
+    );
+    expect(page.messages.filter((message) => message.kind === "capture")).toHaveLength(1);
+    expect(
+      (page.dialogs as { text: string }[]).filter((dialog) => dialog.text.startsWith("Is a privately selected ")),
+    ).toHaveLength(4);
+    retain(page);
+    expect(packaging.verifyExport(out).head).toBe(preparation.head);
+    custody({ exports: [...page.exports], retained: worker.retained, storage: worker.storage });
+  }
+  it.each(unknownCases)(
+    "selector/bucket decoupling: $reason reaches four buckets and details",
+    async ({ reason, body, after }) => {
+      await assertUnknownBuckets(harness({ responses: { list: { body: encode(body) } } }), reason, after);
+    },
+  );
+
+  it("selector/bucket coupling-restoration mutant fails the same control with other inputs frozen", async () => {
+    const emitted = readFileSync(path.join(preparation.packageDirectory, "worker.js"), "utf8");
+    const mutant = emitted.replace(
+      'state.phase = "details";',
+      'state.phase = current.qualification === "qualified" ? "details" : "unknown";',
+    );
+    expect(mutant).not.toBe(emitted);
+    const control = unknownCases.find((candidate) => candidate.reason === "count_mismatch")!;
+    const options = { responses: { list: { body: encode(control.body) } } };
+    await assertUnknownBuckets(harness(options), control.reason, control.after);
+    await expect(
+      assertUnknownBuckets(harness({ ...options, workerSource: mutant }), control.reason, control.after),
+    ).rejects.toThrow();
+  });
+
+  it.each([false, true])("all-absent closes export with zero detail reads, unknown selector=%s", async (unknown) => {
+    const worker = harness();
+    const page = helper(worker, ORDER, true, {
+      prompts: ["LastTwoYears", "1", "LastTwoYears", unknown ? "2" : "1"],
+      confirms: [true, true, false, false, false, false],
+    });
+    await page.run();
+    const value = JSON.parse(page.exports.get("8838-receipt.json")!);
+    expect(value.selector.searches[0].qualification).toBe(unknown ? "unknown" : "qualified");
+    expect(value.counts).toEqual({ lookup: 1, list: 1, detail: 0 });
+    expect(value.failures).toEqual([]);
+    expect(value.vocabulary).toEqual(
+      BUCKETS.map((key) => ({
+        listStatus: { surface: "list-display", key },
+        detailStatus: null,
+        refundStatus: null,
+        identityEquality: null,
+        requestIndex: null,
+        availability: "absent",
+        qualification: "unqualified",
+      })),
+    );
+    expect(page.messages.filter((message) => message.kind === "capture")).toHaveLength(1);
+    retain(page);
+    expect(packaging.verifyExport(out).head).toBe(preparation.head);
+  });
+
+  it("selector/bucket safety stops: session, transport, custody, timeout, overflow, deadline, cancel and abort never reach buckets", async () => {
+    const cases: { name: string; fixture?: Fixture; failure?: string }[] = [
+      ...[401, 403, 429].map((status) => ({ name: `HTTP ${status}`, fixture: { status }, failure: "session_missing" })),
+      { name: "redirect", fixture: { status: 302 }, failure: "redirect" },
+      { name: "opaque redirect", fixture: { opaque: true }, failure: "redirect" },
+      { name: "login", fixture: { contentType: "text/html" }, failure: "session_missing" },
+      { name: "transport", fixture: { error: true }, failure: "transport_failure" },
+      {
+        name: "custody",
+        fixture: { body: encode({ ...list, orders: [{ ...list.orders[0], orderStatus: SENTINEL }] }) },
+        failure: "custody_failure",
+      },
+      { name: "overflow", fixture: { body: " ".repeat(1048577) }, failure: "response_ceiling_exceeded" },
+      { name: "timeout", fixture: { stall: true }, failure: "response_timeout" },
+      { name: "sameSession:false", failure: "session_missing" },
+      { name: "deadline" },
+      { name: "custody loss" },
+      { name: "cancel", failure: "canceled" },
+      { name: "abort" },
+    ];
+    for (const { name, fixture, failure } of cases) {
+      const worker = harness({ responses: fixture ? { list: fixture } : undefined });
+      const page = helper(worker, ORDER, true, {
+        prompts: name === "cancel" ? [null] : undefined,
+        confirms: name === "sameSession:false" ? [true, false] : undefined,
+        onDialog: (_kind, text) => {
+          if (!text.startsWith("Expected date filter:")) return;
+          if (name === "deadline") worker.advance(900000);
+          if (name === "custody loss") worker.restart();
+          if (name === "abort") page.pagehide();
+        },
+      });
+      const pending = page.run();
+      if (name === "timeout") {
+        for (let index = 0; index < 100 && !worker.observations.some((item) => item.kind === "list"); index += 1)
+          await new Promise((resolve) => setTimeout(resolve, 1));
+        expect(worker.observations.at(-1)?.kind).toBe("list");
+        worker.expireRequest();
+      }
+      await pending;
+      expect(
+        page.messages.some((message) => message.kind === "capture"),
+        name,
+      ).toBe(false);
+      expect(
+        worker.observations.some((item) => item.kind === "detail"),
+        name,
+      ).toBe(false);
+      expect(
+        (page.dialogs as { text: string }[]).some((dialog) => dialog.text.startsWith("Is a privately selected ")),
+        name,
+      ).toBe(false);
+      if (failure) {
+        expect(page.exports.has("8838-receipt.json"), name).toBe(true);
+        expect(JSON.parse(page.exports.get("8838-receipt.json")!).failures, name).toEqual([failure]);
+      }
+      custody({ exports: [...page.exports], storage: worker.storage, retained: worker.retained });
+    }
+  });
+
+  it("receipt v3: v2, missing/non-boolean re-prompt and fabricated unread count refuse export", async () => {
+    const page = helper(harness());
+    await page.run();
+    const original = JSON.parse(page.exports.get("8838-receipt.json")!);
+    const originalIndex = JSON.parse(page.exports.get("8838-inventory.json")!);
+    expect(original.format).toBe("order-authority-receipt/v3");
+    expect(originalIndex.format).toBe("order-authority-inventory/v3");
+    for (const mutation of ["receipt-v2", "inventory-v2", "missing", "non-boolean", "unread-count"]) {
+      const value = structuredClone(original);
+      const index = structuredClone(originalIndex);
+      if (mutation === "receipt-v2") value.format = "order-authority-receipt/v2";
+      if (mutation === "inventory-v2") index.format = "order-authority-inventory/v2";
+      if (mutation === "missing") delete value.selector.searches[0].before.reprompted;
+      if (mutation === "non-boolean") value.selector.searches[0].after.reprompted = "true";
+      if (mutation === "unread-count") value.selector.searches[0].after.count = null;
+      const text = encode(value);
+      index.files["8838-receipt.json"] = hash(text);
+      writeFileSync(path.join(out, "receipt", "8838-receipt.json"), text);
+      writeFileSync(path.join(out, "receipt", "8838-inventory.json"), encode(index));
+      expect(() => packaging.verifyExport(out), mutation).toThrow();
+    }
   });
 
   it("count prompts name the expected worker range and its actual portal label, including fallback", async () => {
@@ -781,7 +1092,7 @@ describe("order-authority emitted package controls (synthetic, not provider auth
       const prompts: string[] = [];
       const page = helper(worker, ORDER, true, {
         prompts: fallback
-          ? ["1", "LastTwoYears", "1", "LastTwoYears", "1", "LastThreeMonths", "1", "LastThreeMonths", ORDER]
+          ? ["LastTwoYears", "1", "LastTwoYears", "1", "LastThreeMonths", "1", "LastThreeMonths", "1", ORDER]
           : undefined,
         confirms: fallback ? [true, true, true, true, false, false, false] : undefined,
         onDialog: (kind, text) => {
@@ -818,7 +1129,13 @@ describe("order-authority emitted package controls (synthetic, not provider auth
       preparation.launchCommand,
       "including sign-in, prompts and removal",
       "immediately before search",
-      "immediately after search",
+      "Immediately after search",
+      "Before run(), privately pre-select",
+      "confirm the visible date filter first",
+      "Do not change the portal date filter between the two reads",
+      "exactly one re-prompt per bracket",
+      "Bucket prompts run whether or not the selector qualified",
+      "All four absent still closes and exports",
       "absent/unqualified",
       "Closing the inspector is not removal.",
       "CDP Extensions.loadUnpacked is session-scoped",
@@ -831,6 +1148,7 @@ describe("order-authority emitted package controls (synthetic, not provider auth
     ])
       expect(runbook).toContain(text);
     expect(runbook).not.toMatch(/<actual-id>|<run-id>|<governed-ms>/);
+    expect(runbook).not.toContain("the Seller Portal resets the date filter");
   });
 
   it("package-inventory: cadence and digest authority refuse before output/lookup", async () => {
@@ -876,8 +1194,8 @@ describe("order-authority emitted package controls (synthetic, not provider auth
       distinctCount: 1,
       listStatuses: [{ surface: "list-display", key: "Ready to Ship", count: 1 }],
       oldestRowAgeBucket: "0-90-days",
-      before: { count: 1, dateFilter: "LastTwoYears" },
-      after: { count: 1, dateFilter: "LastTwoYears" },
+      before: { count: 1, dateFilter: "LastTwoYears", reprompted: false },
+      after: { count: 1, dateFilter: "LastTwoYears", reprompted: false },
     });
     expect(result.vocabulary[0]).toMatchObject({
       identityEquality: true,
@@ -973,19 +1291,25 @@ describe("order-authority emitted package controls (synthetic, not provider auth
       const worker = harness({ responses: { list: { body: encode(body) } } });
       const result = receipt(await worker.run());
       expect(result.selector.searches[0]).toMatchObject({ qualification: "unknown", reason });
-      expect(worker.observations).toHaveLength(2);
+      expect(worker.observations.map((item) => item.kind)).toEqual(["lookup", "list", "detail"]);
     }
     const counts = harness();
     expect(receipt(await counts.run(ORDER, { before: 1, after: 2 })).selector.searches[0].reason).toBe(
       "count_mismatch",
     );
-    expect(counts.observations).toHaveLength(2);
+    expect(counts.observations.map((item) => item.kind)).toEqual(["lookup", "list", "detail"]);
     for (const sameSession of [true, false]) {
       const worker = harness();
       await worker.send({ kind: "begin" });
       await worker.send({ kind: "lookup" });
-      await worker.send({ kind: "search", count: 1, dateFilter: "LastTwoYears" });
-      const result = await worker.send({ kind: "counts", count: 1, dateFilter: "LastThreeMonths", sameSession });
+      await worker.send({ kind: "search", count: 1, dateFilter: "LastTwoYears", reprompted: false });
+      const result = await worker.send({
+        kind: "counts",
+        count: 1,
+        dateFilter: "LastThreeMonths",
+        reprompted: false,
+        sameSession,
+      });
       if (sameSession) expect(result.code).toBe("selector_unknown");
       else expect(receipt(result).failures).toEqual(["session_missing"]);
       expect(worker.observations).toHaveLength(2);
@@ -1123,7 +1447,7 @@ describe("order-authority emitted package controls (synthetic, not provider auth
       },
       { kind: "capture", selections: selections("x\n") },
       { kind: "capture", selections: selections("x".repeat(8193)) },
-      { kind: "counts", count: 1, dateFilter: "LastTwoYears", sameSession: true, session: SENTINEL },
+      { kind: "counts", count: 1, dateFilter: "LastTwoYears", reprompted: false, sameSession: true, session: SENTINEL },
     ]) {
       const negative = harness();
       expect(await negative.send(message)).toEqual({ ok: false, code: "invalid_message" });

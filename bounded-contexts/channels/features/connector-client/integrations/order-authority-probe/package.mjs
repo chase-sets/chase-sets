@@ -127,21 +127,27 @@ This preparation itself is PENDING_HOST_VERIFIER, not a qualification PASS.
 3. In that profile only, open chrome://extensions, enable Developer mode, Load unpacked:
    ${packageDirectory}
    Confirm extension ID ${id}. Open ${preparation.captureUrl}.
+   Before run(), privately pre-select one order number for each available Shipped - In Transit,
+   Shipped - Delivered, Completed - Paid and Canceled bucket; declare unavailable buckets absent.
    In that helper's console invoke only: await orderAuthorityCapture.run()
    No arguments. Use native prompts only; never enter identifiers in console/URL/logs.
    Keep the complete operator session, including sign-in, prompts and removal, within 15 minutes; use an operator timer.
    Helper elapsed time starts at invocation. The durable worker deadline starts at begin and is never extended.
    A permission-free worker heartbeat keeps the active run resident during native dialogs, without provider traffic or persistence.
    It stops on every terminal path and at the unchanged deadline. Browser/profile closure or worker termination still loses transient custody and refuses restart; never reinstall to retry.
-   After one lookup and the cadence wait, record the visible Ready to Ship count and date filter immediately before search.
-   Record the same count/date filter immediately after search, then confirm unchanged seller/session.
+   After one lookup and the cadence wait, confirm the visible date filter first, then read the Ready to Ship count once immediately before search.
+   Immediately after search, confirm the visible filter first, then read the count once and confirm unchanged seller/session.
+   The helper refuses a filter other than the current worker range and offers exactly one re-prompt per bracket.
+   A second mismatch stops that search: before the bracket no search is dispatched; after it the selector is unknown/date_filter_mismatch with no count read.
+   Do not change the portal date filter between the two reads.
    LastTwoYears is first; only eligible non-200/validation failure offers one LastThreeMonths fallback with fresh brackets.
    Set the portal date filter to Last 2 years (LastTwoYears) first, or Last 90 days (LastThreeMonths) only on fallback.
-   Both recorded filters must equal the current worker search range; equal counts under another range remain unknown.
+   Qualification requires both recorded filters to equal the current worker search range; equal counts under another range remain unknown.
    Count/filter/closure mismatch is unknown, not fallback authority. No repeat to force agreement.
    To stop a pending read, invoke only await orderAuthorityCapture.abort(), with no arguments. Closing the capture page aborts.
-   For each available Shipped - In Transit, Shipped - Delivered, Completed - Paid and Canceled bucket, privately choose
-   and enter one order number. No means absent/unqualified; Cancel/blank stops. Inputs are never echoed or exported.
+   Bucket prompts run whether or not the selector qualified; an unknown selector still permits vocabulary capture unless a safety failure stopped the run.
+   Privately enter the pre-selected order number for each available bucket. No means absent/unqualified; Cancel/blank stops.
+   All four absent still closes and exports the receipt with zero detail reads. Inputs are never echoed or exported.
    Installation, opening and reloading make no provider request. After begin, reopens/restarts never authorize another run.
 4. Retain exactly 8838-receipt.json and 8838-inventory.json under:
    ${receiptDirectory}
@@ -229,7 +235,7 @@ export function verifyPackage(out) {
 // same export. No arbitrary string, field name, exception or input is admitted.
 function assertReceipt(receipt, preparation) {
   const strings = new Set([
-    "order-authority-receipt/v2",
+    "order-authority-receipt/v3",
     preparation.evidence,
     "extension-service-worker",
     preparation.extensionId,
@@ -392,6 +398,7 @@ function assertReceipt(receipt, preparation) {
     "after",
     "count",
     "dateFilter",
+    "reprompted",
     "sameSession",
     "topLevelKeys",
     "totalOrders",
@@ -556,11 +563,21 @@ function assertReceipt(receipt, preparation) {
       fail("export_schema_refused");
     for (const bracket of [search.before, search.after]) {
       if (bracket === null && bracket === search.after) continue;
-      closed(bracket, ["count", "dateFilter"]);
+      closed(bracket, ["count", "dateFilter", "reprompted"]);
+      const unreadMismatch =
+        bracket === search.after &&
+        bracket.count === null &&
+        bracket.reprompted === true &&
+        bracket.dateFilter !== search.searchRange &&
+        [null, "LastTwoYears", "LastThreeMonths"].includes(bracket.dateFilter) &&
+        search.qualification === "unknown" &&
+        search.reason === "date_filter_mismatch";
       if (
-        !Number.isSafeInteger(bracket.count) ||
-        bracket.count < 0 ||
-        !["LastTwoYears", "LastThreeMonths"].includes(bracket.dateFilter)
+        typeof bracket.reprompted !== "boolean" ||
+        (!unreadMismatch &&
+          (!Number.isSafeInteger(bracket.count) ||
+            bracket.count < 0 ||
+            !["LastTwoYears", "LastThreeMonths"].includes(bracket.dateFilter)))
       )
         fail("export_schema_refused");
     }
@@ -647,7 +664,7 @@ function assertReceipt(receipt, preparation) {
   )
     fail("export_schema_refused");
   if (
-    receipt.format !== "order-authority-receipt/v2" ||
+    receipt.format !== "order-authority-receipt/v3" ||
     receipt.head !== preparation.head ||
     receipt.extensionId !== preparation.extensionId ||
     receipt.evidence !== preparation.evidence ||
@@ -751,7 +768,7 @@ export function verifyExport(out) {
   };
   if (json(index.removal) !== json(pending) && json(index.removal) !== json(removed)) fail("removal_not_confirmed");
   const expected = {
-    format: "order-authority-inventory/v2",
+    format: "order-authority-inventory/v3",
     evidence: preparation.evidence,
     head: preparation.head,
     extensionId: preparation.extensionId,
