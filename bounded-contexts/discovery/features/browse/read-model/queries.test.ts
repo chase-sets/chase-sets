@@ -126,6 +126,7 @@ describe("getDiscoveryBrowseSetPageBySlug", () => {
       { "printed-card-count": 110, "card-count": "invalid" },
       null,
     ],
+    ["both candidates invalid", { "printed-card-count": 0, "card-count": "abc" }, null],
     ["unsafe number", { "card-count": Number.MAX_SAFE_INTEGER + 1 }, null],
     ["unsafe string", { "card-count": "9007199254740992" }, null],
     ["invalid card count", { "card-count": 0 }, null],
