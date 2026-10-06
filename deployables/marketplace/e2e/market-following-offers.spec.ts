@@ -133,8 +133,13 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
       [1440, 1000],
     ]) {
       await page.setViewportSize({ width: width!, height: height! });
-      await page.getByLabel("Lifetime Item Commitment Allowance", { exact: false }).scrollIntoViewIfNeeded();
-      await expect(page.getByLabel("Lifetime Item Commitment Allowance", { exact: false })).toBeVisible();
+      await page.getByLabel("Lifetime Item Commitment Allowance", { exact: true }).scrollIntoViewIfNeeded();
+      await expect(page.getByLabel("Lifetime Item Commitment Allowance", { exact: true })).toBeVisible();
+      await expect(page.getByLabel("Lifetime Item Commitment Allowance", { exact: true })).toHaveCount(1);
+      await expect(page.getByLabel("Lifetime Item Commitment Allowance", { exact: true })).toHaveValue("400.00");
+      await expect(page.getByRole("checkbox", { name: /^I authorize/ })).toBeVisible();
+      await expect(page.getByRole("checkbox", { name: /^I authorize/ })).not.toBeChecked();
+      await expect(page.getByRole("button", { name: "Authorize reviewed Offers" })).toBeDisabled();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       await page.screenshot({ path: testInfo.outputPath(`market-following-review-${width}.png`), fullPage: true });
     }
