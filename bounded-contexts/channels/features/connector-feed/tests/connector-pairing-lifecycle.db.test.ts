@@ -138,6 +138,12 @@ describeDb("connector-pairing-lifecycle", () => {
       channelSaleRecorder: createInventoryExternalChannelSaleRecorderForPool(pools.inventory, testContext),
     });
     await pools.auth.query(
+      `INSERT INTO auth_identity_accounts (account_id, name, display_name, account_type, status, updated_at)
+       VALUES ($1, '', $2, 'personal', 'active', now())
+       ON CONFLICT (account_id) DO NOTHING`,
+      [seller.accountId, "Connector test seller"],
+    );
+    await pools.auth.query(
       `INSERT INTO auth_identity_user_memberships (membership_id, user_id, account_id, role_key, role_permissions, status)
       VALUES ('membership_connector', $1, $2, 'seller', '["channels.manage","channels.view"]', 'active')`,
       [seller.userId, seller.accountId],
