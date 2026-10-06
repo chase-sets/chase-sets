@@ -7,13 +7,14 @@ import { runWorkspaceScripts } from "./run-workspaces.mjs";
 
 describe("Ordering hosted unit/DB partition", () => {
   it("selects Ordering test:unit without DB environment and discovers every non-DB test", async () => {
-    const ordering = listWorkspacePackages().find((entry) => entry.name === "@chase-sets/ordering");
+    const workspaces = listWorkspacePackages();
+    const ordering = workspaces.find((entry) => entry.name === "@chase-sets/ordering");
     expect(ordering.packageJson.chaseSets.testProfile).toBe("db");
     const invocations = [];
     const environment = [];
     await runWorkspaceScripts({
-      argv: ["test:unit", "--test-profile=db"],
-      listWorkspaces: () => [ordering],
+      argv: ["test:unit", "--test-profile=db", "--workspace=@chase-sets/ordering"],
+      listWorkspaces: () => workspaces,
       buildInvocation: (args) => ({ command: "pnpm", args }),
       loadEnvironment: (options) => environment.push(options),
       run: async (_command, args) => {
