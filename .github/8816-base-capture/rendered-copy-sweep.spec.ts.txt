@@ -1,0 +1,70 @@
+import { readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { expect, test } from "@playwright/test";
+import { authenticateAdmin, expectAdminPageReady } from "./support/admin-e2e";
+
+const evidenceRoot = new URL("../../../.tmp/8816-capture/", import.meta.url);
+const baseHead = "9f8cda509fc269dcec4b1715f59e26b6cf9afd0d";
+const tree = "c640f6be11f7d80e91fa099db56d4fe096a21169";
+const patterns = {
+  "typed-id": /\b[a-z]{2,4}_[0-9A-HJKMNP-TV-Z]{26}\b/g,
+  "seed-id": /\b[a-z]{2,4}_seed_[a-z0-9_]+\b/g,
+  "object-string": /(?<![A-Za-z0-9_])(?:\[object Object\]|NaN|undefined)(?![A-Za-z0-9_])/g,
+  "template-placeholder": /\{[A-Za-z_][A-Za-z0-9_]*\}/g,
+  "hedged-plural": /\b[A-Za-z]+\(s\)/g,
+  "iso-instant": /\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/g,
+};
+const pages = [
+  { key: "/access/accounts/acc_seed_demo_account?tab=audit", tag: "@admin-access", selector: '[role="tabpanel"]', text: "account · created" },
+  { key: "/catalog/scopes/ref_seed_expansion_base_set", tag: "@catalog-admin-integrations", selector: 'role=region[name="Catalog scope sync"] >> dl', text: "tcgdex / pokemon / ref_seed_series_base / Base Set" },
+  { key: "/commerce/postage-policies", tag: "@admin-commerce", selector: "table tbody tr", text: "Default postage policy" },
+];
+
+for (const entry of pages) {
+  test(`rendered copy owner ${entry.key} ${entry.tag} @browser-e2e-seed`, async ({ page }, info) => {
+    await authenticateAdmin(page, entry.key);
+    const response = await page.goto(entry.key, { waitUntil: "domcontentloaded" });
+    expect(response?.status(), `${entry.key}: navigation HTTP status`).toBe(200);
+    await expect(page, entry.key).toHaveURL(new URL(entry.key, info.project.use.baseURL).href);
+    const heading = page.getByRole("heading", { level: 1 }).first();
+    await expect(heading, entry.key).toBeVisible();
+    await expectAdminPageReady(page, { heading: await heading.innerText() });
+    if (entry.key.startsWith("/catalog/scopes/")) {
+      const trigger = page.locator('[data-catalog-import-workflow-stage="run-sync"]');
+      await expect(trigger, entry.key).toBeVisible();
+      if (await trigger.getAttribute("aria-expanded") !== "true") await trigger.click();
+      await expect(trigger, entry.key).toHaveAttribute("aria-expanded", "true");
+    }
+    const root = page.locator("main").first();
+    await expect(root, entry.key).toBeVisible();
+    await expect(page.getByRole("heading", { name: /^(?:Admin Error|Marketplace error|Application error|Unexpected application error!?|.*not found|.*unavailable|.*access required|Loading.*)$/i }), entry.key).toHaveCount(0);
+    await expect(root.locator('[aria-busy="true"], [role="progressbar"], [role="status"][aria-label*="loading" i]'), entry.key).toHaveCount(0);
+    const witness = root.locator(entry.selector);
+    await expect(witness.first(), entry.key).toBeVisible();
+    await expect(witness.getByText(entry.text, { exact: true }).first(), entry.key).toBeVisible();
+    const html = await page.locator("body").innerHTML();
+    const fullText = await page.locator("body").innerText();
+    const text = await page.evaluate(() => {
+      const excluded = [...document.querySelectorAll<HTMLElement>("code, pre, [data-raw-identifier]")];
+      const styles = excluded.map(element => element.getAttribute("style"));
+      try {
+        excluded.forEach(element => element.style.setProperty("display", "none", "important"));
+        return document.body.innerText;
+      } finally {
+        excluded.forEach((element, index) => {
+          element.setAttribute("style", styles[index] ?? "");
+          if (styles[index] === null) element.removeAttribute("style");
+        });
+      }
+    });
+    const counts = Object.fromEntries(Object.entries(patterns).map(([kind, pattern]) => [kind, [...text.matchAll(pattern)].length]));
+    const matches = Object.fromEntries(Object.entries(patterns).map(([kind, pattern]) => [kind, [...text.matchAll(pattern)].map(match => match[0])]));
+    const timestampRows = await page.locator("table tbody tr").evaluateAll(rows => rows.map(row => (row as HTMLElement).innerText).filter(text => /\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(text)));
+    const execution = readFileSync(new URL("execution.jsonl", evidenceRoot), "utf8");
+    const predecessors = execution.trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
+    const capture = { baseHead, tree, persona: "owner", route: entry.key, url: page.url(), status: response?.status(), capturedAt: new Date().toISOString(), witness: entry, counts, matches, timestampRows, text, fullText, html, textSha256: createHash("sha256").update(text).digest("hex"), predecessors };
+    const filename = `owner-${entry.key.replace(/[^a-z0-9]/gi, "_")}.json`;
+    writeFileSync(new URL(filename, evidenceRoot), `${JSON.stringify(capture, null, 2)}\n`);
+    console.log(`ORIGINAL_BASE_LIFECYCLE_CAPTURE ${JSON.stringify({ baseHead, tree, persona: "owner", key: entry.key, counts, filename })}`);
+  });
+}
