@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
 import { ADMIN_WEB_API_DEPENDENCIES } from "./admin-shell-smoke-matrix.mjs";
 import { classifyChanges } from "./change-scope.mjs";
 import { parseReleaseDeploymentScopeArgs, resolveReleaseDeploymentScope } from "./release-deployment-scope.mjs";
@@ -1938,11 +1939,48 @@ describe("DigitalOcean platform configuration", () => {
     expect(dbProfileJob).toContain("path: deployables/platform-api/artifacts/bootstrap-db-evidence");
     expect(dbProfileJob).toContain("if-no-files-found: error");
     expect(dbProfileJob).toContain(
-      'run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2 --workspace-list="${{ needs[\'change-scope\'].outputs.affected_workspaces }}"',
+      'run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2 --workspace-list="${{ needs[\'change-scope\'].outputs.affected_workspaces }}" --db-workspace-group=${{ matrix.db-workspace-group }}',
     );
     expect(readFileSync(resolve("package.json"), "utf8")).toContain(
       '"verify:test-db": "node ./scripts/db-test-preflight.mjs && node ./scripts/run-workspaces.mjs \\"test:db*\\" --concurrency=2"',
     );
+  });
+
+  it("requires both isolated DB cells, including empty-group success, before aggregation or preview", () => {
+    const job = parse(platformPrWorkflow).jobs["db-tests"];
+    expect(job.name).toBe("DB Profile Tests (${{ matrix.db-workspace-group }})");
+    expect(job.strategy).toEqual({
+      "fail-fast": false,
+      "max-parallel": 2,
+      matrix: { "db-workspace-group": ["api", "other"] },
+    });
+    expect(job["continue-on-error"]).toBeUndefined();
+    expect(job["timeout-minutes"]).toBe(30);
+    const execution = job.steps.filter((step) => step.name === "Run DB-profile tests");
+    expect(execution).toHaveLength(1);
+    expect(execution[0].if).toBeUndefined();
+    expect(execution[0]["continue-on-error"]).toBeUndefined();
+    const prerequisite = workflowPrerequisite(
+      workflowJobCondition(platformPrWorkflow, "preview-deploy-smoke"),
+      "db_tests_required",
+      "db-tests",
+    );
+    const call = workflowRequiredCall(workflowJob(platformPrWorkflow, "pr-required"), "DB Profile Tests");
+    for (const api of ["success", "failure", "cancelled", "skipped", ""]) {
+      for (const other of ["success", "failure", "cancelled", "skipped", ""]) {
+        // Actions aggregates a non-optional matrix dependency; only a complete
+        // all-success pair may supply success. A zero-task cell still executes.
+        const aggregate = [api, other].every((result) => result === "success") ? "success" : "failure";
+        const values = {
+          "needs['db-tests'].result": aggregate,
+          "needs['change-scope'].outputs.db_tests_required": "true",
+        };
+        expect(evaluateWorkflowBooleanExpression(prerequisite, values)).toBe(api === "success" && other === "success");
+        expect(evaluateRequiredWorkflowCall(call, { targetedHeavyRequired: false, templateValues: values })).toBe(
+          api === "success" && other === "success",
+        );
+      }
+    }
   });
 
   it("evaluates the preview DB prerequisite truth table and retained-bypass mutant from workflow text", () => {

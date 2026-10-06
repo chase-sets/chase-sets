@@ -2,6 +2,7 @@ import process from "node:process";
 import { appendFileSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import { readEnvFile } from "./lib/env.mjs";
 import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
 import { buildPackageManagerInvocation, runCommand } from "./lib/process.mjs";
@@ -314,6 +315,16 @@ export function parseRunWorkspacesArgs(argv) {
     : undefined;
   const includeTestProfile = runnerArgs.find((arg) => arg.startsWith("--test-profile="))?.split("=")[1];
   const excludeTestProfile = runnerArgs.find((arg) => arg.startsWith("--exclude-test-profile="))?.split("=")[1];
+  const groupArgs = runnerArgs.filter(
+    (arg) => arg === "--db-workspace-group" || arg.startsWith("--db-workspace-group="),
+  );
+  const dbWorkspaceGroup = groupArgs[0]?.slice("--db-workspace-group=".length);
+  if (
+    groupArgs.length > 1 ||
+    (groupArgs.length === 1 && (scriptName !== DB_TEST_SCRIPT_SELECTOR || !["api", "other"].includes(dbWorkspaceGroup)))
+  ) {
+    throw new Error("--db-workspace-group requires exactly one api|other value with test:db*.");
+  }
   const workspaceNames = new Set(
     runnerArgs
       .filter((arg) => arg.startsWith("--workspace="))
@@ -333,6 +344,7 @@ export function parseRunWorkspacesArgs(argv) {
     passthroughArgs,
     includeTestProfile,
     excludeTestProfile,
+    ...(dbWorkspaceGroup === undefined ? {} : { dbWorkspaceGroup }),
     workspaceNames,
     concurrency,
     commandTimeoutMs,
@@ -378,7 +390,11 @@ function filterWorkspaces(workspaces, options) {
       return false;
     }
 
-    return true;
+    // Intersect the eligible set, never turn an empty group into all workspaces.
+    return (
+      options.dbWorkspaceGroup === undefined ||
+      (workspace.name === "@chase-sets/app-platform-api") === (options.dbWorkspaceGroup === "api")
+    );
   });
 }
 
@@ -402,10 +418,33 @@ async function runWorkspace(workspace, options) {
 
   console.log(`Running ${scriptName} in ${workspace.name}...`);
   const invocation = buildInvocation(["--filter", workspace.name, "run", scriptName, ...passthroughArgs]);
-  await run(invocation.command, invocation.args, {
-    ...(usePrefixedLogs ? { prefix: workspace.name } : { stdio: "inherit" }),
-    ...(commandTimeoutMs ? { timeoutMs: commandTimeoutMs } : {}),
-  });
+  const measured = options.dbWorkspaceGroup === "api";
+  const startedAt = new Date().toISOString();
+  const started = performance.now();
+  let outcome = "failed";
+  if (measured)
+    console.log(
+      `RUN_WORKSPACES_COMMAND_START ${JSON.stringify({ workspace: workspace.name, script: scriptName, startedAt })}`,
+    );
+  try {
+    await run(invocation.command, invocation.args, {
+      ...(usePrefixedLogs ? { prefix: workspace.name } : { stdio: "inherit" }),
+      ...(commandTimeoutMs ? { timeoutMs: commandTimeoutMs } : {}),
+    });
+    outcome = "passed";
+  } finally {
+    if (measured)
+      console.log(
+        `RUN_WORKSPACES_COMMAND_END ${JSON.stringify({
+          workspace: workspace.name,
+          script: scriptName,
+          startedAt,
+          completedAt: new Date().toISOString(),
+          elapsedMs: Math.ceil(performance.now() - started),
+          outcome,
+        })}`,
+      );
+  }
 }
 
 async function runConcurrent(tasks, options) {

@@ -8,6 +8,7 @@ import {
   MAX_LOG_BYTES,
   buildDbDurationDigest,
   classifyDbJob,
+  classifyDbJobPair,
   collectDbDurationJobs,
   dbWorkspaceCensus,
   dbDurationExitCode,
@@ -46,6 +47,7 @@ const baseline = () => ({
   ],
 });
 const options = {
+  topology: "monolithic/v1",
   checkedAt,
   headSha,
   repository: "synthetic/repository",
@@ -133,6 +135,10 @@ function github(data, alter = () => undefined) {
     const suffix = parsed.pathname.replace("/repos/synthetic/repository/", "");
     const override = alter(suffix, parsed, request);
     if (override) return override;
+    if (/^actions\/jobs\/\d+$/.test(suffix))
+      return Response.json(data.jobs.find((job) => job.id === Number(suffix.split("/")[2])));
+    if (/^actions\/runs\/\d+$/.test(suffix))
+      return Response.json(data.runs.find((run) => run.id === Number(suffix.split("/")[2])));
     if (suffix.endsWith("/runs")) {
       const [from, to] = parsed.searchParams.get("created").split("..").map(Date.parse);
       const runs = data.runs.filter((run) => Date.parse(run.created_at) >= from && Date.parse(run.created_at) <= to);
@@ -152,6 +158,165 @@ function github(data, alter = () => undefined) {
     throw new Error(`Unexpected synthetic API request: ${suffix}`);
   });
 }
+
+function splitSource(count = 1) {
+  const data = source(count);
+  data.jobs = data.runs.flatMap((run, index) =>
+    ["api", "other"].map((group, cell) => ({
+      ...structuredClone(data.jobs[index]),
+      id: index * 2 + cell + 1,
+      name: `DB Profile Tests (${group})`,
+      started_at: cell === 0 ? "2026-10-05T11:55:30Z" : "2026-10-05T11:56:00Z",
+    })),
+  );
+  data.logs = data.jobs.map(
+    (job) =>
+      `RUN_WORKSPACES_SUMMARY ${JSON.stringify(
+        summary(job.name.endsWith("(api)") ? ["@chase-sets/app-platform-api"] : workspaceNames),
+      )}`,
+  );
+  return data;
+}
+
+describe("isolated DB pair observation", () => {
+  const splitOptions = {
+    ...options,
+    topology: "api-other/v1",
+    workspaceNames: ["@chase-sets/app-platform-api", workspaceName],
+  };
+
+  it("joins two real jobs into one API-anchored span and keeps 20 observations, not 20 shards", async () => {
+    const data = splitSource(20);
+    const result = await collectDbDurationJobs({ ...splitOptions, fetchImpl: github(data) });
+    expect(result.status).toBe("complete");
+    expect(result.jobs).toHaveLength(20);
+    expect(result.jobs[0]).toMatchObject({
+      jobId: 39,
+      runId: 120,
+      runAttempt: 1,
+      headSha,
+      jobWallMs: 270000,
+      topology: "api-other/v1",
+      sources: [{ jobId: 39 }, { jobId: 40 }],
+    });
+    expect(Object.keys(result.jobs[0].workspaces).sort()).toEqual(splitOptions.workspaceNames.sort());
+    expect(buildDbDurationDigest({ ...splitOptions, baseline: empty(), collection: result }).cohortReady).toBe(true);
+    const ten = await collectDbDurationJobs({ ...splitOptions, fetchImpl: github(splitSource(10)) });
+    expect(buildDbDurationDigest({ ...splitOptions, baseline: empty(), collection: ten }).cohortReady).toBe(false);
+  });
+
+  it.each([
+    ["missing", (d) => d.jobs.pop()],
+    ["duplicate", (d) => d.jobs.push({ ...d.jobs[1], id: 3 })],
+    [
+      "cross-head",
+      (d) => {
+        d.jobs[1].head_sha = "b".repeat(40);
+      },
+    ],
+    [
+      "cross-run",
+      (d) => {
+        d.jobs[1].run_id = 999;
+      },
+    ],
+    [
+      "cross-attempt",
+      (d) => {
+        d.runs[0].run_attempt = 2;
+        d.jobs[1].run_attempt = 2;
+      },
+    ],
+    [
+      "missing step",
+      (d) => {
+        d.jobs[1].steps = [];
+      },
+    ],
+    [
+      "skipped step",
+      (d) => {
+        d.jobs[1].steps[0].conclusion = "skipped";
+      },
+    ],
+    [
+      "before creation",
+      (d) => {
+        d.jobs[0].started_at = "2026-10-05T11:54:00Z";
+      },
+    ],
+    [
+      "future",
+      (d) => {
+        d.jobs[1].completed_at = "2026-10-06T00:01:00Z";
+      },
+    ],
+  ])("refuses %s pair authority", async (_name, mutate) => {
+    const data = splitSource();
+    mutate(data);
+    const result = await collectDbDurationJobs({ ...splitOptions, fetchImpl: github(data) });
+    expect(result.status).toBe("unknown");
+    expect(buildDbDurationDigest({ ...splitOptions, baseline: empty(), collection: result }).cohortReady).toBe(false);
+  });
+
+  it.each([0, 1])("excludes every red, skipped or incomplete summary in cell %s", async (cell) => {
+    for (const state of [
+      "failure",
+      "cancelled",
+      "skipped",
+      "missing-summary",
+      "duplicate-summary",
+      "overlap",
+      "empty",
+    ]) {
+      const data = splitSource();
+      if (["failure", "cancelled", "skipped"].includes(state)) data.jobs[cell].conclusion = state;
+      if (state === "missing-summary") data.logs[cell] = "";
+      if (state === "duplicate-summary") data.logs[cell] += `\n${data.logs[cell]}`;
+      if (state === "overlap")
+        data.logs[cell] = `RUN_WORKSPACES_SUMMARY ${JSON.stringify(summary(splitOptions.workspaceNames))}`;
+      if (state === "empty") data.logs[cell] = `RUN_WORKSPACES_SUMMARY ${JSON.stringify(summary([]))}`;
+      const result = await collectDbDurationJobs({ ...splitOptions, fetchImpl: github(data) });
+      expect(result.jobs).toEqual([]);
+      expect(result.excluded).toHaveLength(1);
+    }
+  });
+
+  it("never joins attempts by timing proximity or inherits a monolithic cohort", async () => {
+    const data = splitSource();
+    const pair = data.jobs.map((job, index) => ({ job, log: data.logs[index] }));
+    pair[1].job.run_attempt = 2;
+    data.runs[0].run_attempt = 2;
+    expect(() =>
+      classifyDbJobPair({ run: data.runs[0], members: pair, workspaceNames: splitOptions.workspaceNames }),
+    ).toThrow("Cross-attempt");
+    const historical = await collectDbDurationJobs({ ...splitOptions, fetchImpl: github(source(20)) });
+    expect(historical.jobs).toEqual([]);
+    expect(historical.excluded.every((item) => item.reason === "different-topology")).toBe(true);
+  });
+
+  it("resolves each schema-v1 baseline anchor to the complete same-attempt pair", async () => {
+    const data = splitSource(20);
+    const baselineJobIds = data.jobs.filter((job) => job.name.endsWith("(api)")).map((job) => job.id);
+    const result = await collectDbDurationJobs({ ...splitOptions, baselineJobIds, fetchImpl: github(data) });
+    expect(result.status).toBe("complete");
+    expect(result.baselineTopology).toBe("api-other/v1");
+    expect(result.baselineSources.map((entry) => entry.jobId)).toEqual(baselineJobIds);
+    expect(result.baselineSources.every((entry) => entry.sources.length === 2)).toBe(true);
+    data.jobs[1].conclusion = "cancelled";
+    expect((await collectDbDurationJobs({ ...splitOptions, baselineJobIds, fetchImpl: github(data) })).status).toBe(
+      "unknown",
+    );
+  });
+
+  it("leaves an old wall definition pending instead of comparing split spans to monolithic walls", () => {
+    const result = { ...collection(20), topology: "api-other/v1", baselineTopology: "monolithic/v1" };
+    const digest = buildDbDurationDigest({ ...splitOptions, baseline: baseline(), collection: result });
+    expect(digest.state).toBe("baseline-pending");
+    expect(digest.topologyChanged).toBe(true);
+    expect(digest.verdicts).toBeUndefined();
+  });
+});
 
 // Synthetic history: recent candidates followed by runs beyond the re-run horizon.
 function wideSource(recent = 20) {
@@ -455,6 +620,15 @@ describe("DB duration collection", () => {
       expect(fetchImpl.mock.calls.some(([url]) => url.endsWith("/logs"))).toBe(false);
   });
 
+  it("rejects a DB job starting before its run was created (F2)", async () => {
+    const data = source();
+    data.jobs[0].started_at = "2026-10-05T11:54:00Z";
+    const result = await collectDbDurationJobs({ ...options, fetchImpl: github(data) });
+    expect(result.status).toBe("unknown");
+    expect(result.jobs).toEqual([]);
+    expect(result.reasons).toContain(`DB execution timestamps contradict job: ${data.jobs[0].id}`);
+  });
+
   it("ignores removed workspaces but never uses summary eligibleCount as census", () => {
     const data = source();
     const result = classifyDbJob({
@@ -746,6 +920,9 @@ describe("bootstrap and ratified lifecycle", () => {
     data.logs = data.logs.map(() => `RUN_WORKSPACES_SUMMARY ${JSON.stringify(summary(workspaceNames, 300001))}`);
     data.jobs.forEach((job) => {
       job.started_at = "2026-10-05T11:54:00Z";
+    });
+    data.runs.forEach((run) => {
+      run.created_at = "2026-10-05T11:53:00Z";
     });
     let writes = 0;
     const fetchImpl = github(data, (suffix, _url, request) => {

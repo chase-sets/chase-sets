@@ -2,7 +2,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import { globSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { createVitest } from "vitest/node";
+import { createVitest, parseCLI } from "vitest/node";
+import { derivePlatformApiDbTestCensus } from "../deployables/platform-api/scripts/check-bootstrap-db-enrollment.mjs";
 import { listWorkspacePackages } from "./lib/repo.mjs";
 import {
   DB_TEST_SCRIPT_SELECTOR,
@@ -568,6 +569,111 @@ describe("run-workspaces", () => {
 });
 
 describe("DB duration scheduling", () => {
+  it.each(
+    [
+      [],
+      ["--workspace=@chase-sets/app-platform-api"],
+      ["--workspace=@chase-sets/marketplace-seed-testing"],
+      ["--workspace=@chase-sets/not-present"],
+    ].map((scope) => [scope]),
+  )("partitions the actual eligible census without overlap or empty-to-all fallback: %j", async (scope) => {
+    const workspaces = listWorkspacePackages();
+    const registry = readJson("scripts/workspace-test-duration-hints-v1.json");
+    const run = (group) =>
+      captureDbRun({
+        workspaces,
+        registry,
+        argv: ["--concurrency=2", ...scope, ...(group ? [`--db-workspace-group=${group}`] : [])],
+      });
+    const whole = await run();
+    const api = await run("api");
+    const other = await run("other");
+    const calls = (output) => output.invocations.map((args) => `${args[1]} ${args[3]}`).sort();
+    expect([...calls(api), ...calls(other)].sort()).toEqual(calls(whole));
+    expect(api.invocations.every((args) => args[1] === "@chase-sets/app-platform-api")).toBe(true);
+    expect(other.invocations.every((args) => args[1] !== "@chase-sets/app-platform-api")).toBe(true);
+    expect(api.summary.eligibleCount + other.summary.eligibleCount).toBe(whole.summary.eligibleCount);
+    expect(api.result).toBeUndefined();
+    expect(other.result).toBeUndefined();
+  });
+
+  it("intersects grouping after profile eligibility", async () => {
+    const calls = [];
+    await runWorkspaceScripts({
+      argv: ["test:db*", "--db-workspace-group=api", "--exclude-test-profile=db"],
+      listWorkspaces: () => [workspace("@chase-sets/app-platform-api", { "test:db": "db" }, "db")],
+      loadEnvironment: () => {},
+      run: async (...args) => calls.push(args),
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it.each(["api", "other"])(
+    "preserves serial partitions, deadlines, failures and future enrollment in %s",
+    async (group) => {
+      const api = workspace("@chase-sets/app-platform-api", { "test:db:1": "one", "test:db:2": "two" }, "db");
+      const future = workspace("@chase-sets/future-db", { "test:db:1": "one", "test:db:2": "two" }, "db");
+      const registered = workspace("@chase-sets/registered-db", { "test:db": "db" }, "db");
+      let active = 0;
+      let peak = 0;
+      const output = await captureDbRun({
+        workspaces: [api, future, registered],
+        registry: durationRegistry([durationEntry(registered.name, "test:db", 1)]),
+        argv: ["--concurrency=2", `--db-workspace-group=${group}`],
+        run: async (args, options) => {
+          expect(options.timeoutMs).toBe(600_000);
+          peak = Math.max(peak, ++active);
+          await delay(0);
+          active--;
+          if (args[3] === "test:db:2") throw new Error("synthetic second-unit failure");
+        },
+      });
+      expect(peak).toBe(group === "api" ? 1 : 2);
+      expect(output.result).toBeInstanceOf(Error);
+      expect(output.summary.failedCount).toBe(1);
+      const walls = output.stdout
+        .filter((line) => line.startsWith("RUN_WORKSPACES_COMMAND_END "))
+        .map((line) => JSON.parse(line.slice("RUN_WORKSPACES_COMMAND_END ".length)));
+      if (group === "api") {
+        expect(walls.map((wall) => [wall.script, wall.outcome])).toEqual([
+          ["test:db:1", "passed"],
+          ["test:db:2", "failed"],
+        ]);
+        expect(
+          walls.every(
+            (wall) =>
+              Number.isSafeInteger(wall.elapsedMs) &&
+              wall.elapsedMs >= 0 &&
+              Date.parse(wall.completedAt) >= Date.parse(wall.startedAt),
+          ),
+        ).toBe(true);
+      } else expect(walls).toEqual([]);
+      expect(
+        output.invocations
+          .filter((args) => args[1] === (group === "api" ? api.name : future.name))
+          .map((args) => args[3]),
+      ).toEqual(["test:db:1", "test:db:2"]);
+    },
+  );
+
+  it.each([
+    ["test", "--db-workspace-group=api"],
+    ["test:db", "--db-workspace-group=api"],
+    ["test:db:1", "--db-workspace-group=other"],
+    ["test:db*", "--db-workspace-group=unknown"],
+    ["test:db*", "--db-workspace-group"],
+    ["test:db*", "--db-workspace-group="],
+    ["test:db*", "--db-workspace-group=api", "--db-workspace-group=api"],
+    ["test:db*", "--db-workspace-group=api", "--db-workspace-group=other"],
+  ])("rejects noncanonical group arguments before loading or execution: %j", async (...argv) => {
+    const unexpected = () => {
+      throw new Error("must not execute");
+    };
+    await expect(
+      runWorkspaceScripts({ argv, loadEnvironment: unexpected, listWorkspaces: unexpected, run: unexpected }),
+    ).rejects.toThrow("--db-workspace-group");
+  });
+
   const db = workspace("@chase-sets/db", { "test:db": "aggregate", "test:db:2": "two", "test:db:1": "one" }, "db");
   const registry = durationRegistry([durationEntry(db.name, "test:db", 2)]);
 
@@ -724,6 +830,83 @@ describe("DB duration scheduling", () => {
       const omittedFile = await discover(scripts["test:db:2"].split(/\s+/).slice(0, -1).join(" "));
       expect(() => assertCompleteDisjoint([partitions[0], omittedFile])).toThrow();
       expect(() => assertCompleteDisjoint([...partitions, partitions[0]])).toThrow();
+    } finally {
+      await vitest.close();
+    }
+  });
+
+  it("keeps all real API DB entries in the API cell and out of unit and fast discovery", async () => {
+    const api = listWorkspacePackages().find((entry) => entry.name === "@chase-sets/app-platform-api");
+    const scripts = api.packageJson.scripts;
+    const output = await captureDbRun({
+      workspaces: [api],
+      registry: durationRegistry([durationEntry(api.name, "test:db", 1)]),
+      argv: ["--db-workspace-group=api"],
+    });
+    const census = derivePlatformApiDbTestCensus({ platformApiRoot: api.dir });
+    expect(census.violations).toEqual([]);
+    expect(census.entries).toHaveLength(46);
+    expect(census.dbEntries).toHaveLength(17);
+    expect(census.bootstrapEntries).toHaveLength(11);
+    expect(census.dbEntries).toEqual(census.suffixEntries);
+    const onDisk = census.dbEntries.map((file) => path.resolve(api.dir, file).replaceAll("\\", "/")).sort();
+    const vitest = await createVitest("test", { root: api.dir, config: "./vitest.config.ts", watch: false });
+    try {
+      const groups = [];
+      for (const args of output.invocations) {
+        const parts = scripts[args[3]].split(" && ");
+        expect(parts[0]).toBe("node ./scripts/check-bootstrap-db-enrollment.mjs");
+        expect(parts[1]).toContain("--maxWorkers=3");
+        const { filter } = parseCLI(parts[1]);
+        groups.push((await vitest.globTestSpecifications(filter)).map((spec) => spec.moduleId));
+      }
+      expect(groups.flat().sort()).toEqual(onDisk);
+      expect(groups.map((files) => files.length)).toEqual([7, 10]);
+      expect(groups[1].filter((file) => file.includes("/operator-session/"))).toHaveLength(5);
+      expect(groups[1]).toContain(
+        path.resolve(api.dir, "__tests__/seed-command-catalog.db.test.ts").replaceAll("\\", "/"),
+      );
+      const expectedOrdinary = census.entries
+        .filter((entry) => !census.dbEntries.includes(entry))
+        .map((entry) => path.resolve(api.dir, entry).replaceAll("\\", "/"))
+        .sort();
+      const operatorOrdinary = expectedOrdinary.filter((entry) => entry.includes("/operator-session/"));
+      expect(operatorOrdinary).toHaveLength(3);
+      for (const name of ["test:unit", "test:fast"]) {
+        const {
+          options: { exclude },
+        } = parseCLI(scripts[name]);
+        const unit = await createVitest("test", { root: api.dir, config: "./vitest.config.ts", watch: false, exclude });
+        try {
+          const discovered = (await unit.globTestSpecifications()).map((spec) => spec.moduleId);
+          expect(discovered.length).toBeGreaterThan(0);
+          expect(discovered.filter((file) => onDisk.includes(file))).toEqual([]);
+          expect(discovered.sort()).toEqual(expectedOrdinary);
+          expect(discovered).toEqual(expect.arrayContaining(operatorOrdinary));
+        } finally {
+          await unit.close();
+        }
+        for (const missing of [
+          "__tests__/seed-command-catalog.db.test.ts",
+          "__tests__/operator-session/operator-session-push.db.test.ts",
+        ]) {
+          const leaking = await createVitest("test", {
+            root: api.dir,
+            config: "./vitest.config.ts",
+            watch: false,
+            exclude: exclude.filter((entry) => entry !== missing),
+          });
+          try {
+            const discovered = (await leaking.globTestSpecifications()).map((spec) => spec.moduleId);
+            expect(discovered.filter((file) => onDisk.includes(file))).toEqual([
+              path.resolve(api.dir, missing).replaceAll("\\", "/"),
+            ]);
+            expect(() => expect(discovered.sort()).toEqual(expectedOrdinary)).toThrow();
+          } finally {
+            await leaking.close();
+          }
+        }
+      }
     } finally {
       await vitest.close();
     }
@@ -947,6 +1130,7 @@ describe("DB duration scheduling", () => {
   it("DB hints equal the named hosted sweep", () => {
     // Green merge-group run 36392844721, job 108832742783, attempt 1.
     // Each row records the immutable log line(s) and observed seconds, not lane timings.
+    // commercial-terms: Platform PR run 37353357078, job 111909665450, attempt 1, head a2be85f750267106cc7d30a595841d7c2d272702 (first DB sweep after its profile registration, #8723).
     const source = [
       ["app-platform-api", [24616, 42321], [516.11, 410.29]],
       ["app-platform-worker", [999], [30.37]],
@@ -956,6 +1140,7 @@ describe("DB duration scheduling", () => {
       ["channels", [20802], [189.07]],
       ["checkout", [22038], [26.03]],
       ["collections", [22163], [4.55]],
+      ["commercial-terms", [555], [2.32]],
       ["customer-feedback", [22385], [3.66]],
       ["discovery", [24665], [104.08]],
       ["event-core-postgres", [24688], [7.34]],
@@ -1046,7 +1231,7 @@ describe("closed duration scheduling contracts", () => {
     expect(validateWorkspaceDurationReplay(replay, registry)).toBe(replay);
     expect(new Set(registryKeys)).toEqual(new Set(eligibleKeys));
     expect(unitEntries).toHaveLength(65);
-    expect(replay.observations).toHaveLength(90);
+    expect(replay.observations).toHaveLength(89);
   });
 
   it("derives every checked-in duration hint from the authoritative observations", () => {
@@ -1553,7 +1738,7 @@ describe("closed duration scheduling contracts", () => {
     ]);
     expect([...phases.keys()]).toEqual([...observedPhaseBoundaries.keys()]);
     expect(fifoMs).toBe(984_200);
-    expect(lptMs).toBe(794_800);
-    expect(reduction).toBe("19.2");
+    expect(lptMs).toBe(787_400);
+    expect(reduction).toBe("20.0");
   });
 });
