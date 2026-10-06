@@ -158,8 +158,18 @@ describe("dev system launcher", () => {
     const spawn = vi.fn(() => fakeChild());
     const logError = vi.fn();
     const launcher = createDevSystemLauncher({ children: [], resolveInvocation: resolver, spawn, logError });
-    const env = buildPlatformChildEnvironment({ PATH: "synthetic-path", PROVIDER_SECRET: secretMarker }, watch.env);
-    expect(env).not.toHaveProperty("PROVIDER_SECRET");
+    const env = buildPlatformChildEnvironment(
+      {
+        PATH: "synthetic-path",
+        PROVIDER_SECRET: secretMarker,
+        SEED_PACKS_SPACES_SECRET_KEY: secretMarker,
+        PGHOSTADDR: "203.0.113.42",
+      },
+      watch.env,
+    );
+    expect(env).toMatchObject({ PATH: "synthetic-path", PROVIDER_SECRET: secretMarker, PORT: "6183" });
+    expect(env).not.toHaveProperty("SEED_PACKS_SPACES_SECRET_KEY");
+    expect(env).not.toHaveProperty("PGHOSTADDR");
     launcher.launch(watch, { env, inheritEnv: false, prefix: watch.name });
     expect(resolver).toHaveBeenCalledExactlyOnceWith(["--filter", worker.workspace, "run", "dev"]);
     const direct = { name: "direct", command: "node", args: ["inert.cjs"] };
