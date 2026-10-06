@@ -302,7 +302,7 @@ jobs:
         env:
           AFFECTED_WORKSPACES: ${{ needs['change-scope'].outputs.affected_workspaces }}
         run: |
-          if [[ -z "$AFFECTED_WORKSPACES" || ",$AFFECTED_WORKSPACES," == *",@chase-sets/app-platform-api,"* ]]; then
+          if [[ "${{ matrix.db-workspace-group }}" == "api" && ( -z "$AFFECTED_WORKSPACES" || ",$AFFECTED_WORKSPACES," == *",@chase-sets/app-platform-api,"* ) ]]; then
             echo "selected=true" >> "$GITHUB_OUTPUT"
           else
             echo "selected=false" >> "$GITHUB_OUTPUT"

@@ -26,10 +26,7 @@ export const loader = defineResourceRoute({
   load: ({ request, params }) => createOrderingRequestApiClient(request).getSale(params.orderId!),
   map: (sale) => ({
     sale,
-    reviewOutcome: {
-      status: "ready" as const,
-      opportunity: sale.reviewOpportunity ?? null,
-    },
+    reviewOutcome: sale.reviewOutcome ?? { status: "unavailable" as const, opportunity: null },
   }),
   messages: {
     pending: "We are preparing your sale. Refresh in a moment and it should appear.",

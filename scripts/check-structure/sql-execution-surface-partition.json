@@ -280,6 +280,8 @@
     "bounded-contexts/marketplace/features/offers/read-model/seller-attention-source.ts",
     "bounded-contexts/marketplace/features/reviews/api/runtime.ts",
     "bounded-contexts/marketplace/features/reviews/integrations/notifications/notification-projector.ts",
+    "bounded-contexts/marketplace/features/reviews/integrations/opportunity-publication/publication.ts",
+    "bounded-contexts/marketplace/features/reviews/integrations/opportunity-publication/source-proof.ts",
     "bounded-contexts/marketplace/features/reviews/integrations/source/eligibility-sync.ts",
     "bounded-contexts/marketplace/features/reviews/integrations/source/source-projection.ts",
     "bounded-contexts/marketplace/features/reviews/read-model/hold-projection.ts",

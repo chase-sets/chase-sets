@@ -798,7 +798,7 @@ describe("DB duration scheduling", () => {
     );
     for (const [name, scripts] of [
       ["@chase-sets/marketplace-seed-testing", ["test:db:1", "test:db:2"]],
-      ["@chase-sets/app-platform-api", ["test:db:1", "test:db:2"]],
+      ["@chase-sets/app-platform-api", ["test:db:1", "test:db:2", "test:db:3"]],
     ]) {
       expect(output.invocations.filter((args) => args[1] === name).map((args) => args[3])).toEqual(scripts);
     }
@@ -845,9 +845,9 @@ describe("DB duration scheduling", () => {
     });
     const census = derivePlatformApiDbTestCensus({ platformApiRoot: api.dir });
     expect(census.violations).toEqual([]);
-    expect(census.entries).toHaveLength(46);
-    expect(census.dbEntries).toHaveLength(17);
-    expect(census.bootstrapEntries).toHaveLength(11);
+    expect(census.entries).toHaveLength(47);
+    expect(census.dbEntries).toHaveLength(18);
+    expect(census.bootstrapEntries).toHaveLength(12);
     expect(census.dbEntries).toEqual(census.suffixEntries);
     const onDisk = census.dbEntries.map((file) => path.resolve(api.dir, file).replaceAll("\\", "/")).sort();
     const vitest = await createVitest("test", { root: api.dir, config: "./vitest.config.ts", watch: false });
@@ -861,7 +861,7 @@ describe("DB duration scheduling", () => {
         groups.push((await vitest.globTestSpecifications(filter)).map((spec) => spec.moduleId));
       }
       expect(groups.flat().sort()).toEqual(onDisk);
-      expect(groups.map((files) => files.length)).toEqual([7, 10]);
+      expect(groups.map((files) => files.length)).toEqual([7, 9, 2]);
       expect(groups[1].filter((file) => file.includes("/operator-session/"))).toHaveLength(5);
       expect(groups[1]).toContain(
         path.resolve(api.dir, "__tests__/seed-command-catalog.db.test.ts").replaceAll("\\", "/"),
@@ -1230,8 +1230,8 @@ describe("closed duration scheduling contracts", () => {
     expect(validateDurationHintRegistry(registry, workspaces)).toBe(registry);
     expect(validateWorkspaceDurationReplay(replay, registry)).toBe(replay);
     expect(new Set(registryKeys)).toEqual(new Set(eligibleKeys));
-    expect(unitEntries).toHaveLength(65);
-    expect(replay.observations).toHaveLength(89);
+    expect(unitEntries).toHaveLength(66);
+    expect(replay.observations).toHaveLength(90);
   });
 
   it("derives every checked-in duration hint from the authoritative observations", () => {

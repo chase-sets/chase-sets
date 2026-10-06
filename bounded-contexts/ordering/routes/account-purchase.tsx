@@ -19,10 +19,7 @@ export const loader = defineResourceRoute({
   load: ({ request, params }) => createOrderingRequestApiClient(request).getPurchase(params.purchaseId!),
   map: (purchase) => ({
     purchase,
-    reviewOutcome: {
-      status: "ready" as const,
-      opportunity: purchase.reviewOpportunity ?? null,
-    },
+    reviewOutcome: purchase.reviewOutcome ?? { status: "unavailable" as const, opportunity: null },
   }),
   messages: {
     pending: "We are preparing your purchase. Refresh in a moment and it should appear.",

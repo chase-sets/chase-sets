@@ -7,6 +7,7 @@ import type { AddressSnapshot } from "../../primitives/address-snapshot";
 import type { JsonValue } from "../../primitives/json";
 import type { AccountId } from "../../primitives/typed-ids";
 import type { MarketplaceReviewScoringDispositionProjectedV1Payload } from "../review-scoring-facts";
+import type { ReviewOpportunityChangedV1 } from "../review-opportunity-facts";
 import type { EmptyEventPayload } from "./event-core";
 import type {
   PlatformOperationsReportedContentActionRecordedPayload,
@@ -225,6 +226,7 @@ export type MarketplaceReportSubmittedPayload = Readonly<{
 }>;
 
 export type MarketplaceEventPayloads = Readonly<{
+  "marketplace.review-opportunity.changed.v1": ReviewOpportunityChangedV1;
   "marketplace.listing.created": MarketplaceListingCreatedPayload;
   "marketplace.listing.price-updated": MarketplaceListingPriceUpdatedPayload;
   "marketplace.listing.quantity-cap-updated": MarketplaceListingQuantityCapUpdatedPayload;
