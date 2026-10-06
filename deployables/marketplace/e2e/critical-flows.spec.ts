@@ -359,26 +359,26 @@ test.describe("marketplace critical flows", () => {
           },
           "/account/sell-list",
         );
-        const removal = page.locator('form:has(input[name="intent"][value="remove-sell-list-line"])');
-        await expect(removal).toHaveCount(1);
-        lineId = await removal.locator('input[name="lineId"]').inputValue();
+        const productLines = page.locator('input[name^="fallbackMode:"]');
+        await expect(productLines).toHaveCount(1);
+        lineId = (await productLines.getAttribute("name"))!.slice("fallbackMode:".length);
         await expect(page.getByText("Your Sell List is empty", { exact: true })).toHaveCount(0);
         await expect(page.getByRole("heading", { name: "Review items", exact: true })).toBeVisible();
         if (destination === "/account/desk/offers") {
           await expectPageOk(page, destination);
-          await expect(removal.locator('input[name="lineId"]')).toHaveValue(lineId);
+          await expect(productLines).toHaveAttribute("name", `fallbackMode:${lineId}`);
         }
         await submitAndFollow(destination, { intent: "remove-sell-list-line", lineId }, destination);
         lineId = null;
         await expect(page.getByText("Your Sell List is empty", { exact: true })).toBeVisible();
-        await expect(removal).toHaveCount(0);
+        await expect(productLines).toHaveCount(0);
       }
     } finally {
       // Read back and remove only this journey's line, including after a failed destination.
       await expectPageOk(page, "/account/sell-list");
-      const removal = page.locator('form:has(input[name="intent"][value="remove-sell-list-line"])');
-      if (lineId === null && (await removal.count()) === 1) {
-        lineId = await removal.locator('input[name="lineId"]').inputValue();
+      const productLines = page.locator('input[name^="fallbackMode:"]');
+      if (lineId === null && (await productLines.count()) === 1) {
+        lineId = (await productLines.getAttribute("name"))!.slice("fallbackMode:".length);
       }
       if (lineId !== null) {
         await submitAndFollow("/account/sell-list", { intent: "remove-sell-list-line", lineId }, "/account/sell-list");
