@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readdir } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { expect, test, type APIRequestContext } from "@playwright/test";
 import ts from "@chase-sets/typescript-compiler-api";
@@ -11,10 +11,27 @@ const routes = [
 ] as const;
 
 async function builtRouteAsset(entry: string) {
-  const assets = await readdir(resolve("deployables/marketplace/build/client/assets"));
-  const matches = assets.filter((name) => name.startsWith(`${entry}-`) && name.endsWith(".js"));
+  const directory = resolve("deployables/marketplace/build/client/assets");
+  const assets = await readdir(directory);
+  const matches: string[] = [];
+  for (const filename of assets.filter((name) => /^manifest-.*\.js$/.test(name))) {
+    const source = await readFile(resolve(directory, filename), "utf8");
+    const ast = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+    for (const statement of ast.statements) {
+      if (!ts.isExpressionStatement(statement) || !ts.isBinaryExpression(statement.expression)) continue;
+      const assignment = statement.expression;
+      if (assignment.left.getText(ast) !== "window.__reactRouterManifest") continue;
+      const manifest: { routes: Record<string, { id: string; module: string }> } = JSON.parse(
+        assignment.right.getText(ast),
+      );
+      for (const route of Object.values(manifest.routes)) {
+        if (route.id === `checkout/${entry}`) matches.push(route.module);
+      }
+    }
+  }
   expect(matches, `${entry} must resolve to exactly one production-built hashed asset`).toHaveLength(1);
-  return `/assets/${matches[0]}`;
+  expect(matches[0]).toMatch(new RegExp(`^/assets/${entry}-[^/]+\\.js$`));
+  return matches[0];
 }
 
 async function builtClientGraph(request: APIRequestContext, entry: string, origin: string) {
@@ -141,12 +158,12 @@ for (const route of routes) {
       });
       expect(readback.status()).toBe(200);
       const saved: {
-        items: Array<{ line_id: string; catalog_item_id: string; item_title: string; quantity: number }>;
+        items: Array<{ line_id: string; catalog_catalog_item_id: string; item_title: string; quantity: number }>;
       } = await readback.json();
       expect(saved.items).toHaveLength(1);
       lineId = saved.items[0].line_id;
       expect(saved.items[0]).toMatchObject({
-        catalog_item_id: marketplaceBrowserE2eSeedContract.itemDetail.catalogItemId,
+        catalog_catalog_item_id: marketplaceBrowserE2eSeedContract.itemDetail.catalogItemId,
         item_title: "Charizard",
         quantity: 1,
       });
