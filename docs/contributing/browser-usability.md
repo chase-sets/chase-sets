@@ -10,7 +10,7 @@ This first version is **moderator-driven**, using the desktop browser tool and a
 
 ## Audit a surface
 
-Run `pnpm run ops browser:usability audit` to inspect advisory route coverage, or add `--surface guest`, `buyer`, `seller`, `operator-catalog`, or `operator-workspaces` to show one surface. The read-only command reads tracked files once with `git ls-files`. `unscoped` lists routes without an owner; `invalid` lists routes with multiple scopes or conflicting claims and exclusions. Each surface reports `inScope`, `claimed`, `excluded`, and the `unclaimed` route paths. An unclaimed route is work to consider, not a failed gate. This audit does not visit routes or adjudicate outcomes.
+Run `pnpm run ops browser:usability audit` to inspect advisory route coverage, or add `--surface guest`, `buyer`, `seller`, `operator-catalog`, or `operator-workspaces` to show one surface. The read-only command reads tracked files once with `git ls-files`. `unscoped` lists routes without an owner; `invalid` lists routes with multiple scopes or conflicting claims and exclusions. Each surface reports `inScope`, `claimed`, `excluded`, and the `unclaimed` route paths. Route coverage is a CI guard: hosted Static Checks fails for any unscoped, invalid or unclaimed route, while the audit command remains advisory. This audit does not visit routes or adjudicate outcomes.
 
 After a sweep, run `pnpm run ops browser:usability audit --root artifacts/browser-usability/<sweep> --surface buyer [--not-run FILE]` for its read-only summary. Each immediate subdirectory with `manifest.json` is an attempt; other entries are ignored. All attempts must name one head and a catalog goal belonging to the surface. Receipts must still match their run and manifest bytes. `--not-run` accepts `[{"goalId":"<goal>","reason":"<fixture gap>"}]`; unknown goals and goals with both a not-run entry and an adjudicated attempt are rejected.
 
@@ -29,7 +29,7 @@ Five modules in `scripts/browser-usability-goals/` own the route scopes; `script
 - `permits`: an optional exception to the participant's read-only default. The moderator restores permitted changes afterwards. The payment, postage, external-channel, message, and credential boundary always applies.
 - `startSignedIn`: the moderator's starting authentication state; defaults to `false` for guest and `true` otherwise. The moderator signs in, not the participant.
 
-Goal intent must not contain URL path tokens. The participant receives intent, starting URL, task context, and permissions, never `oracle` or `routes`. Exclusions use `{ path, reason }`, must match scope, and cannot also be claimed. Reasons are `layout-only`, `redirect-only`, `error-page`, `provider-step-only`, or `fixture-gap: <missing state>`. `validateBrowserUsabilityGoalModules` is exercised by the focused script tests; coverage itself is not a CI guard. No new goals are introduced by this organization.
+Goal intent must not contain URL path tokens. The participant receives intent, starting URL, task context, and permissions, never `oracle` or `routes`. Exclusions use `{ path, reason }`, must match scope, and cannot also be claimed. Reasons are `layout-only`, `redirect-only`, `error-page`, `provider-step-only`, or `fixture-gap: <missing state>`. Satisfy the route coverage CI guard by claiming each in-scope route in a goal's `routes` map or recording it in `excludedRoutes` with one of these reasons. No new goals are introduced by this organization.
 
 ## Prepare privately
 
