@@ -181,7 +181,7 @@ async function openPreview() {
 
 let y = 0;
 let fetchSentinel: ReturnType<typeof vi.fn>;
-let cartDelta: ReturnType<typeof vi.fn>;
+const cartDelta = vi.fn<(event: Event) => void>();
 beforeEach(() => {
   vi.resetAllMocks();
   previewQuery.mockResolvedValue(preview());
@@ -195,7 +195,6 @@ beforeEach(() => {
   vi.spyOn(window, "scrollTo").mockImplementation((...args: unknown[]) => {
     y = typeof args[0] === "object" ? ((args[0] as ScrollToOptions).top ?? y) : Number(args[1]);
   });
-  cartDelta = vi.fn();
   window.addEventListener("chase-sets:cart-count-changed", cartDelta);
 });
 afterEach(() => {
@@ -285,7 +284,7 @@ describe("Search bulk route data transport", () => {
       expect(addGuestCartLines).not.toHaveBeenCalled();
     }
     expect(cartDelta).toHaveBeenCalledTimes(1);
-    expect(cartDelta.mock.calls[0][0].detail).toEqual({ countDelta: 1 });
+    expect(cartDelta).toHaveBeenCalledWith(expect.objectContaining({ detail: { countDelta: 1 } }));
     expect(within(screen.getByRole("dialog")).getByText("1 added, 0 merged")).toBeTruthy();
     expect(within(screen.getByRole("dialog")).getByText("0 products could not be added.")).toBeTruthy();
   });
