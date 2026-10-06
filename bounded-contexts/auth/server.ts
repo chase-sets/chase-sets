@@ -1,5 +1,16 @@
 export * from "./support/route-support/auth-host";
 export {
+  createConnectorOAuthService,
+  ConnectorOAuthError,
+  connectorRecord,
+  connectorString,
+  compareConnectorSecret,
+  connectorSecretDigest,
+  type ConnectorOAuthService,
+  type ConnectorGrant,
+  type ConnectorGrantBinding,
+} from "./support/ucp-support/connector-oauth";
+export {
   bootstrapPlatformAdminPassword,
   type PlatformAdminPasswordBootstrapConfig,
 } from "./support/runtime-support/production-bootstrap";
