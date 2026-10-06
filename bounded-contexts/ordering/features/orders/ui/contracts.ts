@@ -3,6 +3,8 @@ import type { MarketplaceListingPublicGalleryImage } from "../../../support/requ
 import type { OrderingOrderDeliverySummary } from "../integrations/reputation/reputation-queries";
 import type { OrderingOrderReviewOutcome } from "../integrations/reputation/reputation-queries";
 
+export type { OrderingOrderReviewOpportunity } from "../integrations/reputation/reputation-queries";
+
 export interface OrderingOrderProjection {
   order_id: string;
   display_reference: string;
@@ -116,21 +118,6 @@ export interface OrderingOrderMoneyTimeline {
   support_cases: readonly OrderingOrderSupportMoneyItem[];
   refunded_amount: string;
   currency_code: string;
-}
-
-export interface OrderingOrderReviewOpportunity {
-  order_id: string;
-  subject_account_id: string;
-  subject_display_name: string | null;
-  author_role: string;
-  eligible_at: string;
-  active_review_id: string | null;
-  submission_state?: "allowed" | "held" | "expired";
-  hold_reason?: "feedback-on-hold" | null;
-  window_expired?: boolean;
-  response?: string | null;
-  revealed?: boolean;
-  scoring_disposition?: "included" | "context-only" | null;
 }
 
 export interface OrderingOrderProjectionDetail extends OrderingOrderProjection {

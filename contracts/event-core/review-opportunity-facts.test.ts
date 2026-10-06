@@ -33,6 +33,25 @@ describe("closed review opportunity fact", () => {
   it.each([0, "0", "-1", "01", "9223372036854775808", "1.5", null])("rejects generation %s", (generation) => {
     expect(isReviewOpportunityChangedV1({ ...fact, generation })).toBe(false);
   });
+  describe.each([
+    { direction: "buyerToSeller", authorRole: "buyer" },
+    { direction: "sellerToBuyer", authorRole: "seller" },
+  ])("$direction submission state", ({ direction, authorRole }) => {
+    it.each(["allowed", "held", "expired"])("accepts the string enum %s", (submissionState) => {
+      expect(isReviewOpportunityChangedV1({ ...fact, [direction]: { ...slot, authorRole, submissionState } })).toBe(
+        true,
+      );
+    });
+    it.each(
+      [["allowed"], ["held"], ["expired"], [], ["held", "expired"], 0, 1, true, false, null, undefined, {}].map(
+        (submissionState) => ({ submissionState }),
+      ),
+    )("rejects non-string submission state $submissionState", ({ submissionState }) => {
+      expect(isReviewOpportunityChangedV1({ ...fact, [direction]: { ...slot, authorRole, submissionState } })).toBe(
+        false,
+      );
+    });
+  });
   it.each([
     { ...fact, factSchemaVersion: 2 },
     { ...fact, rating: 5 },

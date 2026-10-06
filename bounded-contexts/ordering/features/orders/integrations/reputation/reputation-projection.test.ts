@@ -88,6 +88,27 @@ describe("canonical Ordering review outcomes", () => {
       opportunity: null,
     });
   });
+  it.each([
+    { direction: "buyerToSeller", authorRole: "buyer", accountId: "acc_buyer" },
+    { direction: "sellerToBuyer", authorRole: "seller", accountId: "acc_seller" },
+  ])(
+    "rejects malformed $direction admission instead of rendering allowed",
+    async ({ direction, authorRole, accountId }) => {
+      const malformed = {
+        ...fact,
+        [direction]: { ...fact.buyerToSeller!, authorRole, submissionState: ["held"] },
+      };
+      const db = { query: vi.fn(async () => ({ rows: [] })) };
+      await buildOrderingReputationProjectionHandlers(db)[reviewOpportunityFactType]!(
+        buildTransportEvent(reviewOpportunityFactType, malformed),
+      );
+      expect(db.query).toHaveBeenCalledWith(expect.any(String), ["ord_1", "1", expect.any(String), null, false]);
+      expect(orderReviewOutcome({ ...row, fact: malformed }, accountId, beforeDeadline)).toEqual({
+        status: "unavailable",
+        opportunity: null,
+      });
+    },
+  );
   it("wires exactly the declared source events and versions, without a local eligibility engine", async () => {
     const db = { query: vi.fn(async () => ({ rows: [] })) };
     const handlers = buildOrderingReputationProjectionHandlers(db);
@@ -114,5 +135,13 @@ describe("canonical Ordering review outcomes", () => {
       expect.stringContaining("ordering_order_review_opportunity_sources"),
       expect.any(Array),
     );
+  });
+  it("declares canonical opportunity freshness for both detail routes", () => {
+    const routes = manifest.apiMounts.flatMap((entry) => entry.readFreshnessRoutes ?? []);
+    for (const routePath of ["/purchases/:id", "/sales/:id"]) {
+      const dependencies = routes.find((route) => route.routePath === routePath)!.dependencies;
+      expect(dependencies).toContainEqual({ readModelTable: "ordering_order_review_opportunity_pages" });
+      expect(dependencies).not.toContainEqual({ readModelTable: "ordering_order_review_eligibility_pages" });
+    }
   });
 });

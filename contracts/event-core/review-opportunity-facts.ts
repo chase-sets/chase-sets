@@ -71,7 +71,8 @@ function slot(value: unknown, role: "buyer" | "seller"): value is ReviewOpportun
     value.authorRole === role &&
     instant(value.eligibleAt) &&
     instant(value.effectiveDeadlineAt) &&
-    ["allowed", "held", "expired"].includes(String(value.submissionState)) &&
+    typeof value.submissionState === "string" &&
+    ["allowed", "held", "expired"].includes(value.submissionState) &&
     typeof value.held === "boolean" &&
     (value.activeReviewId === null || text(value.activeReviewId)) &&
     (value.activeReviewRevealedAt === null || (value.activeReviewId !== null && instant(value.activeReviewRevealedAt)))

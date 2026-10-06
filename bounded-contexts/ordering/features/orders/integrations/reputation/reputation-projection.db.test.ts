@@ -3,12 +3,17 @@ import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/
 import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
 import { toTransportEvent } from "@chase-sets/event-core";
-import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { parseGlobalPosition, type EventStoreContext } from "@chase-sets/event-core/storage";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
 import { Hono } from "hono";
 import type { OrderingApiEnv } from "../../../../api";
 import { createAccountPurchaseOrderRoutes } from "../../api/route";
 import { eventSubscriptionSchemaSql } from "@chase-sets/bounded-context-runtime";
+import {
+  markProjectionBlockedStreamRetrying,
+  recordProjectionPoisonEvent,
+  resolveProjectionBlockedStream,
+} from "../../../../../../infrastructure/bounded-context-runtime/subscription-store";
 import {
   reviewOpportunityFactType,
   type ReviewOpportunityChangedV1,
@@ -256,6 +261,75 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
     );
     expect((await read()).status).toBe("unavailable");
   });
+
+  it.each(["buyer", "seller"] as const)(
+    "recovers %s opportunity and opposite absence after retained blocks resolve",
+    async (authorRole) => {
+      const pool = pools.ordering;
+      await insertOrderPage(pool, "ord_1");
+      await current();
+      const snapshot = fact();
+      const slot = { ...snapshot.buyerToSeller!, authorRole };
+      await buildOrderingReputationProjectionHandlers(pool)[reviewOpportunityFactType]!(
+        event(reviewOpportunityFactType, {
+          ...snapshot,
+          buyerToSeller: authorRole === "buyer" ? slot : null,
+          sellerToBuyer: authorRole === "seller" ? slot : null,
+        }),
+      );
+      const author = authorRole === "buyer" ? "acc_buyer" : "acc_seller";
+      const opposite = authorRole === "buyer" ? "acc_seller" : "acc_buyer";
+      const expectReady = async () => {
+        expect(await read(author)).toMatchObject({
+          status: "ready",
+          opportunity: { author_role: authorRole, submission_state: "allowed" },
+        });
+        expect(await read(opposite)).toEqual({ status: "ready", opportunity: null });
+        expect(await read("acc_foreign")).toEqual({ status: "unavailable", opportunity: null });
+      };
+      const expectUnavailable = async () => {
+        for (const account of [author, opposite])
+          expect(await read(account)).toEqual({ status: "unavailable", opportunity: null });
+      };
+      await expectReady();
+      const projectionName = "ordering-order-review-opportunity-projection";
+      for (const sourceContextName of ["ordering", "fulfillment", "platform-operations", "marketplace"]) {
+        const projectionKey = `${projectionName}:${sourceContextName}:v2`;
+        for (const streamId of ["stream_recovery", "stream_unresolved_control"]) {
+          await recordProjectionPoisonEvent(pool, {
+            projectionKey,
+            projectionName,
+            targetContextName: "ordering",
+            sourceContextName,
+            subscriptionVersion: 2,
+            streamId,
+            streamVersion: 1,
+            eventId: `evt_${sourceContextName}_${streamId}`,
+            eventType: reviewOpportunityFactType,
+            globalPosition: parseGlobalPosition("1"),
+            error: new Error("Synthetic recovery fixture"),
+          });
+        }
+        await expectUnavailable();
+        await markProjectionBlockedStreamRetrying(pool, projectionKey, "stream_recovery");
+        await expectUnavailable();
+        await resolveProjectionBlockedStream(pool, projectionKey, "stream_recovery");
+        await expectUnavailable();
+        await markProjectionBlockedStreamRetrying(pool, projectionKey, "stream_unresolved_control");
+        await expectUnavailable();
+        await resolveProjectionBlockedStream(pool, projectionKey, "stream_unresolved_control");
+        const history = await pool.query<{ stream_id: string; state: string }>(
+          "SELECT stream_id, state FROM event_projection_blocked_streams WHERE projection_key = $1 ORDER BY stream_id",
+          [projectionKey],
+        );
+        expect(history.rows).toEqual([
+          { stream_id: "stream_recovery", state: "resolved" },
+          { stream_id: "stream_unresolved_control", state: "resolved" },
+        ]);
+        await expectReady();
+      }
+    },
+  );
 
   it("carries a real Marketplace publication through persistent Ordering projection and the authorized HTTP DTO", async () => {
     await insertOrderPage(pools.ordering, "ord_1");

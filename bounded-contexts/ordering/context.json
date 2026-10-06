@@ -382,7 +382,7 @@
               "readModelTable": "ordering_order_hold_pages"
             },
             {
-              "readModelTable": "ordering_order_review_eligibility_pages"
+              "readModelTable": "ordering_order_review_opportunity_pages"
             },
             {
               "readModelTable": "ordering_order_review_pages"
@@ -403,7 +403,7 @@
               "readModelTable": "ordering_order_hold_pages"
             },
             {
-              "readModelTable": "ordering_order_review_eligibility_pages"
+              "readModelTable": "ordering_order_review_opportunity_pages"
             },
             {
               "readModelTable": "ordering_order_review_pages"

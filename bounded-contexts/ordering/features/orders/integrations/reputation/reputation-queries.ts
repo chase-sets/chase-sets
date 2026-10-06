@@ -126,7 +126,8 @@ export async function getOrderingOrderReviewOpportunity(
             AND checkpoint.source_context_name IN ('ordering', 'fulfillment', 'platform-operations', 'marketplace')
             AND (checkpoint.source_context_name <> 'marketplace' OR checkpoint.last_global_position >= opportunity.source_position)
             AND NOT EXISTS (SELECT 1 FROM event_projection_blocked_streams AS blocked
-              WHERE blocked.projection_key = checkpoint.checkpoint_key))) AS current
+              WHERE blocked.projection_key = checkpoint.checkpoint_key
+                AND blocked.state <> 'resolved'))) AS current
      FROM ordering_order_pages AS order_page
      JOIN ordering_order_review_opportunity_pages AS opportunity ON opportunity.order_id = order_page.order_id
      LEFT JOIN ordering_account_pages AS subject ON subject.account_id = CASE
