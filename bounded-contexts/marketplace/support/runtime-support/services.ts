@@ -16,6 +16,7 @@ import { createMarketplaceListingRuntime } from "../../features/listings/api/run
 import { createMarketplaceOfferRuntime } from "../../features/offers/api/runtime";
 import { createMarketplaceReportRuntime } from "../../features/reports/api/runtime";
 import { createReviewRuntime } from "../../features/reviews/api/runtime";
+import { createReviewOpportunityPublication } from "../../features/reviews/integrations/opportunity-publication/publication";
 import { createSellerMetricsRuntime } from "../../features/seller-metrics/api/runtime";
 import { createListingEvidencePolicyRuntime } from "../../features/listing-evidence-policy/api/runtime";
 import type { SellerAttentionSource } from "@chase-sets/seller-attention-queue";
@@ -40,6 +41,7 @@ export type MarketplaceServiceOptions = Readonly<{
 }>;
 
 export type MarketplaceServices = Readonly<{
+  reviewOpportunityPublication: ReturnType<typeof createReviewOpportunityPublication>;
   managedOfferWork: ReturnType<typeof createManagedOfferWork>;
   listings: ReturnType<typeof createMarketplaceListingRuntime>;
   offers: ReturnType<typeof createMarketplaceOfferRuntime>;
@@ -124,6 +126,7 @@ export function createMarketplaceServices(
     buyerOfferPolicies,
     reports,
     reviews,
+    reviewOpportunityPublication: createReviewOpportunityPublication({ pool, eventStore }),
     sellerMetrics,
     listingEvidencePolicies,
     policies,

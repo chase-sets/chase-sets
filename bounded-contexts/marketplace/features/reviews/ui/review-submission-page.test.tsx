@@ -12,6 +12,7 @@ const opportunity = {
   author_role: "seller",
   eligible_at: "2026-04-02T00:00:00.000Z",
   active_review_id: null,
+  active_review_revealed_at: null,
   window_expired: false,
   window_expires_at: "2026-06-01T00:00:00.000Z",
   submission_state: "allowed" as const,
