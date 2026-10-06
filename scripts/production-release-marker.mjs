@@ -128,10 +128,12 @@ export function validateTransitionAuthority(transition, artifact, job, identity)
       transition.namespace === identity.namespace,
     "mismatched retained deployment transition",
   );
+  const verification = step(job, transitionStepName, "success");
+  // The end timestamp names the whole final second, not its first millisecond.
   requireThat(
-    instant(transition.checkedAt) >= instant(job.started_at) &&
-      instant(transition.checkedAt) <= instant(upload.completed_at),
-    "transition timestamp is outside source job",
+    instant(transition.checkedAt) >= instant(verification.started_at) &&
+      instant(transition.checkedAt) < instant(verification.completed_at) + 1_000,
+    "transition timestamp is outside the exact verification step",
   );
   requireThat(
     Number.isSafeInteger(transition.resultingHeadRevision) &&

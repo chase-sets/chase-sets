@@ -229,6 +229,19 @@ describe("same-release retry admission", () => {
         .resultingHeadRevision,
     ).toBe(21);
   });
+  it("binds millisecond transition time to the verification step's second-precision interval", () => {
+    const job = syntheticJob();
+    const transition = syntheticTransition();
+    const artifact = syntheticArtifact();
+    const upload = job.steps.find((item) => item.name === "Upload production Kubernetes deployment transition");
+    upload.started_at = timestamp(15);
+    upload.completed_at = timestamp(15);
+    artifact.created_at = timestamp(15);
+    transition.checkedAt = "2030-01-01T00:00:15.635Z";
+    expect(validateTransitionAuthority(transition, artifact, job, identity)).toBe(transition);
+    transition.checkedAt = timestamp(16);
+    expect(() => validateTransitionAuthority(transition, artifact, job, identity)).toThrow("verification step");
+  });
   it.each(["missing", "skipped", "duplicate", "failed", "late"])("refuses %s smoke authority", (defect) => {
     const job = syntheticJob();
     const smoke = job.steps.find((item) => item.name === "Smoke check");
