@@ -29,7 +29,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     cases: Object.freeze([
       Object.freeze({
         name: "boots every non-production profile on one shared max-one seed command pool",
-        referenceDurationMs: 102470,
+        referenceDurationMs: 95443,
         identity: "c809c18f34f0e0c6",
       }),
     ]),
@@ -41,17 +41,17 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     cases: Object.freeze([
       Object.freeze({
         name: "boots with context-owned pools and replays cross-context projections",
-        referenceDurationMs: 105620,
+        referenceDurationMs: 110964,
         identity: "ea12b6d3f3a538ba",
       }),
       Object.freeze({
         name: "revokes agent-owned saved instruments through the composed OAuth route with a valid audit context",
-        referenceDurationMs: 1493,
+        referenceDurationMs: 1480,
         identity: "fa0e6fbbe051d0fe",
       }),
       Object.freeze({
         name: "records context schema migrations once during concurrent bootstrap",
-        referenceDurationMs: 1688,
+        referenceDurationMs: 1698,
         identity: "5765a6ba4a890be6",
       }),
     ]),
@@ -63,57 +63,57 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     cases: Object.freeze([
       Object.freeze({
         name: "payout-fee-console-and-resolve bootstraps every whitelisted value in the production landing profile",
-        referenceDurationMs: 8804,
+        referenceDurationMs: 9034,
         identity: "638e411899544781",
       }),
       Object.freeze({
         name: "reconciles a queued active public bootstrap after its predecessor fails with partial Commercial Terms history",
-        referenceDurationMs: 16933,
+        referenceDurationMs: 17862,
         identity: "b04028e2169c8633",
       }),
       Object.freeze({
         name: "serializes two concurrent full production-like API host bootstraps with a database advisory lock",
-        referenceDurationMs: 17458,
+        referenceDurationMs: 17473,
         identity: "c9351aa5fd10ecb6",
       }),
       Object.freeze({
         name: "limits and reconciles every production-like seed context against current-code state",
-        referenceDurationMs: 22623,
+        referenceDurationMs: 24450,
         identity: "6b7c87db7e1a0d46",
       }),
       Object.freeze({
         name: "upgrades legacy published Display Templates through the not-empty Catalog reconciliation path",
-        referenceDurationMs: 22622,
+        referenceDurationMs: 25134,
         identity: "170dd2ca3aa2dca2",
       }),
       Object.freeze({
         name: "proves the reviewed projection guard fails at User, then resumes a full retained Identity seed",
-        referenceDurationMs: 1318,
+        referenceDurationMs: 1330,
         identity: "ab68f4b84303d9ef",
       }),
       Object.freeze({
         name: "keeps every representative Identity creation event count stable on an ordinary day-after bootstrap",
-        referenceDurationMs: 647,
+        referenceDurationMs: 708,
         identity: "ec6d52932ca711b2",
       }),
       Object.freeze({
         name: "rejects a conflicting retained representative Account profile with actionable detail",
-        referenceDurationMs: 333,
+        referenceDurationMs: 371,
         identity: "22153693f009807d",
       }),
       Object.freeze({
         name: "rejects a conflicting retained representative User profile with actionable detail",
-        referenceDurationMs: 481,
+        referenceDurationMs: 578,
         identity: "d76b1ce3679034a0",
       }),
       Object.freeze({
         name: "rejects a conflicting retained representative Shipping Address profile with actionable detail",
-        referenceDurationMs: 528,
+        referenceDurationMs: 535,
         identity: "de799f65824dcee1",
       }),
       Object.freeze({
         name: "resumes the real representative commerce command after offer acceptance without duplicate creation events",
-        referenceDurationMs: 42356,
+        referenceDurationMs: 36939,
         identity: "4994a619e1d95849",
       }),
     ]),
@@ -125,80 +125,67 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     cases: Object.freeze([
       Object.freeze({
         name: "recovers when bootstrap-touched table locks release within the retry budget",
-        referenceDurationMs: 1287,
+        referenceDurationMs: 1166,
         identity: "bf6e839e420caad8",
       }),
       Object.freeze({
         name: "fails closed when bootstrap-touched table locks exhaust the retry budget",
-        referenceDurationMs: 1346,
+        referenceDurationMs: 1246,
         identity: "d18b9e8333f5c0e7",
       }),
       Object.freeze({
         name: "isolates partition databases and bootstrap advisory locks",
-        referenceDurationMs: 2499,
+        referenceDurationMs: 2142,
         identity: "c31f3a59baae1188",
       }),
     ]),
   }),
-  "authoritative-seed-resume-core.db.test.ts": Object.freeze({
-    executionUnit: "test:db:2",
-    databaseSuffix: "platform_api_authoritative_seed_resume_core",
-    bootBearingCases: Object.freeze([
-      "retained-state phase one: completes the first scenario-seed boot and proves all three same-boot repeats append nothing",
-      "retained-state phase two: proves ordinary boot two appends nothing on the retained phase-one database",
-      "does not re-author Settlement while its payout projection lags the stream",
-    ]),
+  "seed-command-full-pools.db.test.ts": Object.freeze({
+    executionUnit: "test:db:1",
+    databaseSuffix: "platform_api_seed_command_full_pools",
+    bootBearingCases: "all",
     cases: Object.freeze([
       Object.freeze({
-        name: "derives the exact active and source-only seed universe for every host profile",
-        referenceDurationMs: 621,
-        identity: "d81e26884f288aba",
+        name: "completes representative commerce seeds, projections, fan-outs and post-state",
+        referenceDurationMs: 28470,
+        identity: "68dfd0998ec22c33",
       }),
       Object.freeze({
-        name: "retained-state phase one: completes the first scenario-seed boot and proves all three same-boot repeats append nothing",
-        referenceDurationMs: 107843,
-        identity: "9e25aef167dc384f",
-      }),
-      Object.freeze({
-        name: "retained-state phase two: proves ordinary boot two appends nothing on the retained phase-one database",
-        referenceDurationMs: 41996,
-        identity: "b8a98c6398a79ad2",
-      }),
-      Object.freeze({
-        name: "does not re-author Settlement while its payout projection lags the stream",
-        referenceDurationMs: 112137,
-        identity: "7be95cff42705d0f",
+        name: "completes admin-QA fixtures and retains their seeded identity post-state",
+        referenceDurationMs: 11617,
+        identity: "9e7b99abfd2756ab",
       }),
     ]),
   }),
-  "authoritative-seed-resume-reconciliation.db.test.ts": Object.freeze({
-    executionUnit: "test:db:2",
-    databaseSuffix: "platform_api_authoritative_seed_resume_reconciliation",
-    bootBearingCases: Object.freeze([
-      "reconciles every inspecting scenario-seed context to its frozen identity corpus and active state",
-      "resumes every converted context after its UNLOGGED guard projections are truncated",
-      "accepts a seeded resolution after the real deadline sweep advances it to closed",
-    ]),
+  "connector-mount-gate-isolation.db.test.ts": Object.freeze({
+    executionUnit: "test:db:1",
+    databaseSuffix: "connector_composed_7993",
+    bootBearingCases: "all",
     cases: Object.freeze([
       Object.freeze({
-        name: "reconciles every inspecting scenario-seed context to its frozen identity corpus and active state",
-        referenceDurationMs: 105020,
-        identity: "3bd4154a13acf332",
+        name: "runs public registration, seller pairing, credential exchange and denies both principal substitutions",
+        referenceDurationMs: 2149,
+        identity: "36f0d73f246065b7",
       }),
       Object.freeze({
-        name: "enumerates stream-sourced seed-state coverage from the runtime mount list",
-        referenceDurationMs: 1226,
-        identity: "944a32d056bf4f61",
+        name: "connector-feed-audit-completeness: one safe row per success/refusal, verified identities only",
+        referenceDurationMs: 1237,
+        identity: "1c52c83b94b7148c",
       }),
       Object.freeze({
-        name: "resumes every converted context after its UNLOGGED guard projections are truncated",
-        referenceDurationMs: 103023,
-        identity: "97c0a8c137819d55",
+        name: "classifies raw exceptions without leaking their sentinel into responses, audit, logs or events",
+        referenceDurationMs: 1095,
+        identity: "c32e8f3114e13a9f",
       }),
       Object.freeze({
-        name: "accepts a seeded resolution after the real deadline sweep advances it to closed",
-        referenceDurationMs: 85235,
-        identity: "0efa7d5e61dc8603",
+        name: "audits every OAuth refusal and malformed transport once with unresolved identity",
+        referenceDurationMs: 1105,
+        identity: "9a78de43c07008e1",
+      }),
+      Object.freeze({
+        name: "audits detail, unpair, repeat cleanup and refused authorize/revoke without trusting route identity",
+        referenceDurationMs: 1967,
+        identity: "f78ba9796f83882a",
       }),
     ]),
   }),
@@ -209,117 +196,179 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     cases: Object.freeze([
       Object.freeze({
         name: "keeps a cancelled resolution-bearing seed request incomplete and does not silently repair it",
-        referenceDurationMs: 104979,
+        referenceDurationMs: 102210,
         identity: "3bd5ce2166de99ce",
       }),
       Object.freeze({
         name: "recreates only a missing review-eligible payment after a sibling payment has completed",
-        referenceDurationMs: 86218,
+        referenceDurationMs: 89821,
         identity: "68188141fd171819",
       }),
     ]),
   }),
   "inventory-seed-resume.db.test.ts": Object.freeze({
-    executionUnit: "test:db:1",
+    executionUnit: "test:db:2",
     databaseSuffix: "platform_api_inventory_seed_resume",
     bootBearingCases: "all",
     cases: Object.freeze([
       Object.freeze({
         name: "reseeds inventory after its truncated UNLOGGED projections without duplicate creation",
-        referenceDurationMs: 24893,
+        referenceDurationMs: 23942,
         identity: "0b053db039f00b7d",
       }),
       Object.freeze({
         name: "appends events only on the first of three same-boot inventory and checkout seed invocations",
-        referenceDurationMs: 21821,
+        referenceDurationMs: 22465,
         identity: "9f9a50a07958feca",
       }),
       Object.freeze({
         name: "resumes inventory after only its first storage-location create commits",
-        referenceDurationMs: 28698,
+        referenceDurationMs: 24946,
         identity: "0d059da8303ae139",
       }),
       Object.freeze({
         name: "resumes an archived storage location committed before its archive step",
-        referenceDurationMs: 28601,
+        referenceDurationMs: 28702,
         identity: "8c5dc773de3c8363",
       }),
       Object.freeze({
         name: "resumes a checkout cart holding only one of its two seeded lines",
-        referenceDurationMs: 28783,
+        referenceDurationMs: 28697,
         identity: "6dd2f79404be0d62",
       }),
       Object.freeze({
         name: "fails closed on conflicting retained inventory identity metadata",
-        referenceDurationMs: 24791,
+        referenceDurationMs: 24643,
         identity: "c54552620ac0570c",
       }),
       Object.freeze({
         name: "fails closed on a terminal retained inventory aggregate",
-        referenceDurationMs: 24228,
+        referenceDurationMs: 24913,
         identity: "5883b8dd80d4e395",
       }),
       Object.freeze({
         name: "keeps ordinary duplicate-create rejection unchanged for non-seed commands",
-        referenceDurationMs: 18943,
+        referenceDurationMs: 19879,
         identity: "35debe29ef133878",
       }),
     ]),
   }),
   "catalog-seed-aggregate-state.db.test.ts": Object.freeze({
-    executionUnit: "test:db:1",
+    executionUnit: "test:db:2",
     databaseSuffix: "platform_api_catalog_seed_aggregate_state",
     bootBearingCases: "all",
     cases: Object.freeze([
       Object.freeze({
         name: "reconciles all required aggregates for a clean scenario-seed-only module seed",
-        referenceDurationMs: 12948,
+        referenceDurationMs: 12863,
         identity: "f78d626bdd98a1c4",
       }),
       Object.freeze({
         name: "does not re-author unchanged Product Measures facts on scenario-seed repeat",
-        referenceDurationMs: 23719,
+        referenceDurationMs: 23791,
         identity: "a0661cfb08a350b5",
       }),
       Object.freeze({
         name: "NC-1 resumes an undrained Dimension seed without duplicate creation",
-        referenceDurationMs: 16693,
+        referenceDurationMs: 17062,
         identity: "ddeee7bac7384389",
       }),
       Object.freeze({
         name: "NC-2 resumes a Component committed at created version one across two ordinary boots",
-        referenceDurationMs: 19712,
+        referenceDurationMs: 19849,
         identity: "d6b487fe4780b81f",
       }),
       Object.freeze({
         name: "NC-3 restores lagging projections without re-authoring active aggregates",
-        referenceDurationMs: 7381,
+        referenceDurationMs: 7389,
         identity: "5370dfdb151548b6",
       }),
       Object.freeze({
         name: "rebuilds lost Catalog Item projections from retained streams without appending item events",
-        referenceDurationMs: 29261,
+        referenceDurationMs: 28486,
         identity: "f7c024ac13659525",
       }),
       Object.freeze({
         name: "NC-4 ignores populated containers when required aggregates have zero events",
-        referenceDurationMs: 31325,
+        referenceDurationMs: 31563,
         identity: "31ea7ebe99c1ec04",
       }),
       Object.freeze({
         name: "NC-5a repairs a draft partial aggregate rather than skipping it",
-        referenceDurationMs: 19463,
+        referenceDurationMs: 20435,
         identity: "da4c8d1fc71a5c6b",
       }),
       Object.freeze({
         name: "NC-5b rejects conflicting retained identity metadata on both boots",
-        referenceDurationMs: 3963,
+        referenceDurationMs: 4054,
         identity: "220cd5f763d298b2",
       }),
       Object.freeze({
         name: "NC-5c rejects a terminal retained aggregate on both boots",
-        referenceDurationMs: 17067,
+        referenceDurationMs: 17662,
         identity: "547ba56539985bfc",
+      }),
+    ]),
+  }),
+  "authoritative-seed-resume-core.db.test.ts": Object.freeze({
+    executionUnit: "test:db:3",
+    databaseSuffix: "platform_api_authoritative_seed_resume_core",
+    bootBearingCases: Object.freeze([
+      "retained-state phase one: completes the first scenario-seed boot and proves all three same-boot repeats append nothing",
+      "retained-state phase two: proves ordinary boot two appends nothing on the retained phase-one database",
+      "does not re-author Settlement while its payout projection lags the stream",
+    ]),
+    cases: Object.freeze([
+      Object.freeze({
+        name: "derives the exact active and source-only seed universe for every host profile",
+        referenceDurationMs: 565,
+        identity: "d81e26884f288aba",
+      }),
+      Object.freeze({
+        name: "retained-state phase one: completes the first scenario-seed boot and proves all three same-boot repeats append nothing",
+        referenceDurationMs: 108023,
+        identity: "9e25aef167dc384f",
+      }),
+      Object.freeze({
+        name: "retained-state phase two: proves ordinary boot two appends nothing on the retained phase-one database",
+        referenceDurationMs: 43918,
+        identity: "b8a98c6398a79ad2",
+      }),
+      Object.freeze({
+        name: "does not re-author Settlement while its payout projection lags the stream",
+        referenceDurationMs: 103906,
+        identity: "7be95cff42705d0f",
+      }),
+    ]),
+  }),
+  "authoritative-seed-resume-reconciliation.db.test.ts": Object.freeze({
+    executionUnit: "test:db:3",
+    databaseSuffix: "platform_api_authoritative_seed_resume_reconciliation",
+    bootBearingCases: Object.freeze([
+      "reconciles every inspecting scenario-seed context to its frozen identity corpus and active state",
+      "resumes every converted context after its UNLOGGED guard projections are truncated",
+      "accepts a seeded resolution after the real deadline sweep advances it to closed",
+    ]),
+    cases: Object.freeze([
+      Object.freeze({
+        name: "reconciles every inspecting scenario-seed context to its frozen identity corpus and active state",
+        referenceDurationMs: 104512,
+        identity: "3bd4154a13acf332",
+      }),
+      Object.freeze({
+        name: "enumerates stream-sourced seed-state coverage from the runtime mount list",
+        referenceDurationMs: 1155,
+        identity: "944a32d056bf4f61",
+      }),
+      Object.freeze({
+        name: "resumes every converted context after its UNLOGGED guard projections are truncated",
+        referenceDurationMs: 103490,
+        identity: "97c0a8c137819d55",
+      }),
+      Object.freeze({
+        name: "accepts a seeded resolution after the real deadline sweep advances it to closed",
+        referenceDurationMs: 78001,
+        identity: "0efa7d5e61dc8603",
       }),
     ]),
   }),
@@ -330,97 +379,48 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     cases: Object.freeze([
       Object.freeze({
         name: "resumes after Dimensions under scenario-seed and production-like profiles",
-        referenceDurationMs: 26324,
+        referenceDurationMs: 27688,
         identity: "b006b495c2b4a662",
       }),
       Object.freeze({
         name: "resumes after Fields under scenario-seed and production-like profiles",
-        referenceDurationMs: 25036,
+        referenceDurationMs: 25979,
         identity: "13b82872bb3ba0b8",
       }),
       Object.freeze({
         name: "resumes after Reference Data under scenario-seed and production-like profiles",
-        referenceDurationMs: 25423,
+        referenceDurationMs: 25411,
         identity: "3cfe7d19f03127f2",
       }),
       Object.freeze({
         name: "resumes after Components under scenario-seed and production-like profiles",
-        referenceDurationMs: 25690,
+        referenceDurationMs: 26256,
         identity: "7ef841ec166b46d3",
       }),
       Object.freeze({
         name: "resumes after Blueprints under scenario-seed and production-like profiles",
-        referenceDurationMs: 26237,
+        referenceDurationMs: 28183,
         identity: "9a1c524b0483b012",
       }),
       Object.freeze({
         name: "resumes after the final Category under scenario-seed and production-like profiles",
-        referenceDurationMs: 25163,
+        referenceDurationMs: 26024,
         identity: "cb5ecec3a418a82a",
       }),
       Object.freeze({
         name: "resumes mid catalog.component.created under scenario-seed and production-like profiles",
-        referenceDurationMs: 25318,
+        referenceDurationMs: 25585,
         identity: "ea939096e104ab7e",
       }),
       Object.freeze({
         name: "keeps the required aggregate set equal to the base aggregate streams authored by the seed",
-        referenceDurationMs: 16000,
+        referenceDurationMs: 16708,
         identity: "2be8f4782fdbd9eb",
       }),
       Object.freeze({
         name: "preserves duplicate CreateDimension rejection through the non-seed command handler",
-        referenceDurationMs: 15687,
+        referenceDurationMs: 16419,
         identity: "b21990765232df57",
-      }),
-    ]),
-  }),
-  "seed-command-full-pools.db.test.ts": Object.freeze({
-    databaseSuffix: "platform_api_seed_command_full_pools",
-    bootBearingCases: "all",
-    cases: Object.freeze([
-      Object.freeze({
-        name: "completes representative commerce seeds, projections, fan-outs and post-state",
-        referenceDurationMs: 27886,
-        identity: "68dfd0998ec22c33",
-      }),
-      Object.freeze({
-        name: "completes admin-QA fixtures and retains their seeded identity post-state",
-        referenceDurationMs: 11398,
-        identity: "9e7b99abfd2756ab",
-      }),
-    ]),
-    executionUnit: "test:db:2",
-  }),
-  "connector-mount-gate-isolation.db.test.ts": Object.freeze({
-    executionUnit: "test:db:2",
-    databaseSuffix: "connector_composed_7993",
-    bootBearingCases: "all",
-    cases: Object.freeze([
-      Object.freeze({
-        name: "runs public registration, seller pairing, credential exchange and denies both principal substitutions",
-        referenceDurationMs: 1518,
-        identity: "36f0d73f246065b7",
-      }),
-      Object.freeze({
-        name: "connector-feed-audit-completeness: one safe row per success/refusal, verified identities only",
-        referenceDurationMs: 1332,
-        identity: "1c52c83b94b7148c",
-      }),
-      Object.freeze({
-        name: "classifies raw exceptions without leaking their sentinel into responses, audit, logs or events",
-        referenceDurationMs: 1213,
-        identity: "c32e8f3114e13a9f",
-      }),
-      Object.freeze({
-        name: "audits every OAuth refusal and malformed transport once with unresolved identity",
-        referenceDurationMs: 1273,
-        identity: "9a78de43c07008e1",
-      }),
-      Object.freeze({
-        name: "audits detail, unpair, repeat cleanup and refused authorize/revoke without trusting route identity",
-        referenceDurationMs: 1419,
-        identity: "f78ba9796f83882a",
       }),
     ]),
   }),
@@ -434,17 +434,21 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
  * unit — or newly classified as boot-bearing — fails closed and forces the
  * schedule model to be re-derived rather than silently absorbing the load.
  */
-export const bootstrapDbExecutionUnitBootBearingCaseCeilings = Object.freeze({ "test:db:1": 38, "test:db:2": 22 });
+export const bootstrapDbExecutionUnitBootBearingCaseCeilings = Object.freeze({
+  "test:db:1": 27,
+  "test:db:2": 27,
+  "test:db:3": 6,
+});
 
 /**
  * The deterministic, host-independent execution-unit schedule model.
  *
- * Timing inputs come from the accepted twelve-file measurement run 36251671283,
- * attempt 1, job 108430738687, artifact 10909547458, SHA256
- * 22f46b1295f7af34d765c72057091bc1294eaa42ffb81c2081954c175a102ad2.
+ * Timing inputs come from the accepted twelve-file measurement run 37467774999,
+ * attempt 1, job 112283047125, artifact 11416067313, SHA256
+ * bde370829ec7936fe72c723168c0aee5a959effcc19a34195fe9fb87944bd781.
  * All 62 upward-rounded observations and the fixed costs share this owner.
- * The first minimal witness in declaration order yields 416403/359955ms,
- * aggregate 823710ms; capture walls are not guarded product qualification.
+ * The first minimal witness in declaration order yields 376859/271549/340454ms,
+ * aggregate 1043928ms; capture walls are not guarded product qualification.
  *
  * `testFileFixedCostMs` and `executionUnitFixedCostMs` are the largest
  * per-file and per-unit residuals observed in that job (file duration minus the
@@ -456,15 +460,15 @@ export const bootstrapDbExecutionUnitBootBearingCaseCeilings = Object.freeze({ "
  * the projection holds whatever order the runner happens to start files in.
  */
 export const bootstrapDbScheduleModel = Object.freeze({
-  referenceRunId: 36251671283,
-  referenceJobId: 108430738687,
+  referenceRunId: 37467774999,
+  referenceJobId: 112283047125,
   referenceJobName: "Diagnostic API Bootstrap Measurement Only",
-  referenceHeadSha: "ac3daf58a6ccbb4100abd72ff97f0d0c9ff654c7",
+  referenceHeadSha: "07596de363a9d5d557923010ce46be986307782d",
   referenceEvent: "push",
   maxWorkersPerExecutionUnit: 3,
-  testFileFixedCostMs: 1289,
-  executionUnitFixedCostMs: 15545,
-  jobOverheadMs: 47352,
+  testFileFixedCostMs: 1761,
+  executionUnitFixedCostMs: 51535,
+  jobOverheadMs: 55066,
   executionUnitCeilingMs: 420000,
   aggregateCeilingMs: 1080000,
   maximumCaseReferenceDurationMs: 600000,
@@ -474,11 +478,11 @@ export const bootstrapDbScheduleModel = Object.freeze({
 
 // These entries contribute to unit residuals, not the manifested bootstrap
 // case schedule. Membership and provenance must be re-frozen together with the
-// model after measurement; discovery never expands this workload. The current
-// reference binding is pre-capture, not certification of the new topology.
+// model after measurement; discovery never expands this workload. The accepted
+// capture binding is not hosted qualification of the shipping topology.
 export const platformApiNonBootstrapDbCensus = Object.freeze({
-  referenceRunId: 36141162335,
-  referenceJobId: 108091066485,
+  referenceRunId: 37467774999,
+  referenceJobId: 112283047125,
   entries: Object.freeze({
     "__tests__/operator-session/operator-session-grant-mint.db.test.ts": "test:db:2",
     "__tests__/operator-session/operator-session-grant-lifecycle.db.test.ts": "test:db:2",
