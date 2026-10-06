@@ -110,24 +110,34 @@ describe("dev system launcher", () => {
     expect(options).not.toHaveProperty("shell");
   });
 
-  it.runIf(process.platform === "win32")("launches the resolved Windows CI worker at the real spawn boundary", async () => {
-    const directory = fixtureDirectory();
-    const cli = path.join(directory, "pnpm.cjs");
-    writeFileSync(cli, "process.stdout.write(JSON.stringify(process.argv.slice(2)));\n");
-    const children = [];
-    const launcher = createDevSystemLauncher({
-      children,
-      resolveInvocation: (args) => buildPackageManagerInvocation(args, { platform: "win32", env: { PNPM_HOME: directory } }),
-    });
-    const [definition] = applyDevTargetEnvOverrides("browser-e2e", [worker], { ci: true, platform: "win32", environment: {} });
-    const child = launcher.launch(definition, { cwd: directory, env: {}, inheritEnv: false });
-    expect(child).not.toBeNull();
-    realChildren.push(child);
-    let output = "";
-    child.stdout.on("data", (chunk) => { output += chunk; });
-    expect(await closedWithin(child, 5_000)).toBe(0);
-    expect(JSON.parse(output)).toEqual(workerArgs);
-  });
+  it.runIf(process.platform === "win32")(
+    "launches the resolved Windows CI worker at the real spawn boundary",
+    async () => {
+      const directory = fixtureDirectory();
+      const cli = path.join(directory, "pnpm.cjs");
+      writeFileSync(cli, "process.stdout.write(JSON.stringify(process.argv.slice(2)));\n");
+      const children = [];
+      const launcher = createDevSystemLauncher({
+        children,
+        resolveInvocation: (args) =>
+          buildPackageManagerInvocation(args, { platform: "win32", env: { PNPM_HOME: directory } }),
+      });
+      const [definition] = applyDevTargetEnvOverrides("browser-e2e", [worker], {
+        ci: true,
+        platform: "win32",
+        environment: {},
+      });
+      const child = launcher.launch(definition, { cwd: directory, env: {}, inheritEnv: false });
+      expect(child).not.toBeNull();
+      realChildren.push(child);
+      let output = "";
+      child.stdout.on("data", (chunk) => {
+        output += chunk;
+      });
+      expect(await closedWithin(child, 5_000)).toBe(0);
+      expect(JSON.parse(output)).toEqual(workerArgs);
+    },
+  );
 
   it.each(["linux", "darwin", "freebsd"])("preserves the exact non-Windows CI worker invocation on %s", (platform) => {
     const [definition] = applyDevTargetEnvOverrides("browser-e2e", [worker], { ci: true, platform, environment: {} });
@@ -158,49 +168,90 @@ describe("dev system launcher", () => {
     expect(logError).not.toHaveBeenCalled();
   });
 
-  it.each(["owned", "no-owned-child", "already-exited"])("handles synchronous throws and repeated cleanup: %s", (state) => {
-    const owned = fakeChild({ exited: state === "already-exited" });
-    const children = state === "no-owned-child" ? [] : [owned];
-    const errors = [];
-    let exitCode = 0;
-    const onFailure = vi.fn(() => { exitCode = 1; });
-    const spawn = vi.fn(() => { throw spawnFailure(); });
+  it.each(["owned", "no-owned-child", "already-exited"])(
+    "handles synchronous throws and repeated cleanup: %s",
+    (state) => {
+      const owned = fakeChild({ exited: state === "already-exited" });
+      const children = state === "no-owned-child" ? [] : [owned];
+      const errors = [];
+      let exitCode = 0;
+      const onFailure = vi.fn(() => {
+        exitCode = 1;
+      });
+      const spawn = vi.fn(() => {
+        throw spawnFailure();
+      });
+      const launcher = createDevSystemLauncher({
+        children,
+        onFailure,
+        spawn,
+        logError: (line) => errors.push(line),
+        terminate: (child) => terminateProcessTree(child, "SIGTERM", { platform: "linux" }),
+      });
+      const definition = { name: "platform-worker", command: process.execPath, args: ["inert.cjs", secretMarker] };
+      const options = { cwd: path.resolve("."), env: { PROVIDER_SECRET: secretMarker }, inheritEnv: false };
+      expect(startWithOuterCatch(launcher, definition, options, errors, onFailure)).toBeNull();
+      expect(exitCode).toBe(1);
+      expect(owned.kill).toHaveBeenCalledTimes(state === "owned" ? 1 : 0);
+      expect(launcher.launch({ name: "later", command: "node" }, {})).toBeNull();
+      expect(spawn).toHaveBeenCalledTimes(1);
+      expect(onFailure).toHaveBeenCalledTimes(1);
+      const diagnostics = errors.join("\n");
+      const context = JSON.parse(errors[0].slice(errors[0].indexOf("{")));
+      expect(diagnostics).toContain("platform-worker");
+      expect(context).toMatchObject({ command: process.execPath, args: ["inert.cjs", "[redacted]"], cwd: options.cwd });
+      expect(diagnostics).toContain("EINVAL");
+      expect(diagnostics).toContain("spawn");
+      expect(diagnostics).toContain("at ");
+      expect(diagnostics).not.toContain(secretMarker);
+    },
+  );
+
+  it("continues owned cleanup and reports nonzero without leaking a cleanup exception", () => {
+    const children = [fakeChild(), fakeChild()];
+    const terminate = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error(secretMarker);
+      })
+      .mockReturnValue(true);
+    const logError = vi.fn();
+    const onFailure = vi.fn();
     const launcher = createDevSystemLauncher({
-      children, onFailure, spawn, logError: (line) => errors.push(line),
-      terminate: (child) => terminateProcessTree(child, "SIGTERM", { platform: "linux" }),
+      children,
+      terminate,
+      logError,
+      onFailure,
+      spawn: () => {
+        throw spawnFailure();
+      },
     });
-    const definition = { name: "platform-worker", command: process.execPath, args: ["inert.cjs", secretMarker] };
-    const options = { cwd: path.resolve("."), env: { PROVIDER_SECRET: secretMarker }, inheritEnv: false };
-    expect(startWithOuterCatch(launcher, definition, options, errors, onFailure)).toBeNull();
-    expect(exitCode).toBe(1);
-    expect(owned.kill).toHaveBeenCalledTimes(state === "owned" ? 1 : 0);
-    expect(launcher.launch({ name: "later", command: "node" }, {})).toBeNull();
-    expect(spawn).toHaveBeenCalledTimes(1);
-    expect(onFailure).toHaveBeenCalledTimes(1);
-    const diagnostics = errors.join("\n");
-    expect(diagnostics).toContain("platform-worker");
-    expect(diagnostics).toContain(process.execPath);
-    expect(diagnostics).toContain("inert.cjs");
-    expect(diagnostics).toContain(options.cwd);
-    expect(diagnostics).toContain("EINVAL");
-    expect(diagnostics).toContain("spawn");
-    expect(diagnostics).toContain("at ");
-    expect(diagnostics).not.toContain(secretMarker);
+    expect(launcher.launch({ name: "worker", command: "node" }, { env: { SECRET: secretMarker } })).toBeNull();
+    expect(terminate.mock.calls).toEqual(children.map((child) => [child, "SIGTERM"]));
+    expect(onFailure).toHaveBeenCalledOnce();
+    expect(logError.mock.calls.flat().join("\n")).not.toContain(secretMarker);
+    expect(logError).toHaveBeenCalledWith("[dev] Failed to stop an owned child after startup failure.");
   });
 
-  it.runIf(process.platform === "win32")("fails fast and cleans up only owned children after a synchronous spawn failure", async () => {
-    const directory = fixtureDirectory();
-    const shim = path.join(directory, "inert.cmd");
-    writeFileSync(shim, "@echo off\r\nexit /b 0\r\n");
-    const sentinel = spawnCommand(process.execPath, ["-e", "process.send({ready:true}); setInterval(()=>{},1000)"], {
-      env: {}, inheritEnv: false, stdio: ["ignore", "pipe", "pipe", "ipc"],
-    });
-    realChildren.push(sentinel);
-    await messageFrom(sentinel);
-    const fixture = path.join(directory, "launcher.mjs");
-    const launcherUrl = new URL("./dev-system-launch.mjs", import.meta.url).href;
-    const processUrl = new URL("./lib/process.mjs", import.meta.url).href;
-    writeFileSync(fixture, `
+  it.runIf(process.platform === "win32")(
+    "fails fast and cleans up only owned children after a synchronous spawn failure",
+    async () => {
+      const directory = fixtureDirectory();
+      const shim = path.join(directory, "inert.cmd");
+      writeFileSync(shim, "@echo off\r\nexit /b 0\r\n");
+      const sentinel = spawnCommand(process.execPath, ["-e", "process.send({ready:true}); setInterval(()=>{},1000)"], {
+        env: {},
+        inheritEnv: false,
+        stdio: ["ignore", "pipe", "pipe", "ipc"],
+      });
+      realChildren.push(sentinel);
+      await messageFrom(sentinel);
+      const fixture = path.join(directory, "launcher.mjs");
+      const launcherUrl = new URL("./dev-system-launch.mjs", import.meta.url).href;
+      const processUrl = new URL("./lib/process.mjs", import.meta.url).href;
+      writeFileSync(
+        fixture,
+        `
 import { createDevSystemLauncher } from ${JSON.stringify(launcherUrl)};
 import { spawnCommand } from ${JSON.stringify(processUrl)};
 const children = [];
@@ -225,37 +276,47 @@ process.once("message", () => {
   process.send({stoppedBeforeExit,elapsed:performance.now()-threwAt,laterStarted:Boolean(later),errors});
   process.disconnect();
 });
-`);
-    const fixtureChild = spawnCommand(process.execPath, [fixture], {
-      cwd: directory, env: {}, inheritEnv: false, stdio: ["ignore", "pipe", "pipe", "ipc"],
-    });
-    realChildren.push(fixtureChild);
-    const owned = await messageFrom(fixtureChild);
-    expect(isAlive(owned.rootPid)).toBe(true);
-    expect(isAlive(owned.descendantPid)).toBe(true);
-    const resultPromise = messageFrom(fixtureChild);
-    const start = performance.now();
-    const closed = closedWithin(fixtureChild, 5_000);
-    fixtureChild.send({ fail: true });
-    const result = await resultPromise;
-    const code = await closed;
-    expect({ code, stoppedBeforeExit: result.stoppedBeforeExit, laterStarted: result.laterStarted }).toEqual({
-      code: 1, stoppedBeforeExit: true, laterStarted: false,
-    });
-    expect(performance.now() - start).toBeLessThan(5_000);
-    expect(result.elapsed).toBeLessThan(5_000);
-    expect(isAlive(owned.rootPid)).toBe(false);
-    expect(isAlive(owned.descendantPid)).toBe(false);
-    expect(isAlive(sentinel.pid)).toBe(true);
-    const diagnostics = result.errors.join("\n");
-    for (const value of ["platform-worker", shim, directory, "EINVAL", "spawn", "at "]) expect(diagnostics).toContain(value);
-    expect(diagnostics).not.toContain(secretMarker);
-  });
+`,
+      );
+      const fixtureChild = spawnCommand(process.execPath, [fixture], {
+        cwd: directory,
+        env: {},
+        inheritEnv: false,
+        stdio: ["ignore", "pipe", "pipe", "ipc"],
+      });
+      realChildren.push(fixtureChild);
+      const owned = await messageFrom(fixtureChild);
+      expect(isAlive(owned.rootPid)).toBe(true);
+      expect(isAlive(owned.descendantPid)).toBe(true);
+      const resultPromise = messageFrom(fixtureChild);
+      const start = performance.now();
+      const closed = closedWithin(fixtureChild, 5_000);
+      fixtureChild.send({ fail: true });
+      const result = await resultPromise;
+      const code = await closed;
+      expect({ code, stoppedBeforeExit: result.stoppedBeforeExit, laterStarted: result.laterStarted }).toEqual({
+        code: 1,
+        stoppedBeforeExit: true,
+        laterStarted: false,
+      });
+      expect(performance.now() - start).toBeLessThan(5_000);
+      expect(result.elapsed).toBeLessThan(5_000);
+      expect(isAlive(owned.rootPid)).toBe(false);
+      expect(isAlive(owned.descendantPid)).toBe(false);
+      expect(isAlive(sentinel.pid)).toBe(true);
+      const diagnostics = result.errors.join("\n");
+      const context = JSON.parse(result.errors[0].slice(result.errors[0].indexOf("{")));
+      expect(context).toMatchObject({ command: shim, args: [], cwd: directory, code: "EINVAL", syscall: "spawn" });
+      for (const value of ["platform-worker", "EINVAL", "spawn", "at "]) expect(diagnostics).toContain(value);
+      expect(diagnostics).not.toContain(secretMarker);
+    },
+  );
 
   it("preserves launcher admission, normal shutdown and readiness deadlines", () => {
     const source = readFileSync(new URL("./dev-system.mjs", import.meta.url), "utf8");
     expect(source).toContain("acquireDevSystemHeavySlot(mode, target, acquireHeavySlot);");
-    for (const signal of ["SIGINT", "SIGTERM"]) expect(source).toContain(`process.once("${signal}", () => shutdown("${signal}", 0))`);
+    for (const signal of ["SIGINT", "SIGTERM"])
+      expect(source).toContain(`process.once("${signal}", () => shutdown("${signal}", 0))`);
     expect(source).toContain('message.type === "browser-e2e-probe-shutdown"');
     expect(source).toContain("setTimeout(() => process.exit(exitCode), 100).unref()");
     expect(source).toContain("lifecycleRecorder?.observe(definition.name, child)");

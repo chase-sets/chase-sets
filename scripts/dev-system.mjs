@@ -613,12 +613,15 @@ async function runDev(targetName = "all") {
 
     if (stripeConfig.secretKey && stripeConfig.publishableKey) {
       const readyFilePath = path.join(os.tmpdir(), `chase-sets-stripe-ready-${process.pid}-${Date.now()}.txt`);
-      const stripeListener = launcher.launch({ name: "stripe", command: "node", args: [stripeCliScript, "listen"] }, {
-        env: {
-          STRIPE_READY_FILE: readyFilePath,
+      const stripeListener = launcher.launch(
+        { name: "stripe", command: "node", args: [stripeCliScript, "listen"] },
+        {
+          env: {
+            STRIPE_READY_FILE: readyFilePath,
+          },
+          prefix: "stripe",
         },
-        prefix: "stripe",
-      });
+      );
       if (!stripeListener) return;
 
       stripeListener.on("error", (error) => {
@@ -664,13 +667,16 @@ async function runDev(targetName = "all") {
   if (targetName === "all") {
     await assertSandboxPortAvailable(sandbox.ports.portal, "portal");
     const portalScript = fileURLToPath(new URL("./dev-portal.mjs", import.meta.url));
-    const portal = launcher.launch({ name: "portal", command: "node", args: [portalScript] }, {
-      env: {
-        ...sandboxEnv,
-        PORT: String(sandbox.ports.portal),
+    const portal = launcher.launch(
+      { name: "portal", command: "node", args: [portalScript] },
+      {
+        env: {
+          ...sandboxEnv,
+          PORT: String(sandbox.ports.portal),
+        },
+        prefix: "portal",
       },
-      prefix: "portal",
-    });
+    );
     if (!portal) return;
     children.push(portal);
   }
