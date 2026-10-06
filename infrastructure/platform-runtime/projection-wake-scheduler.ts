@@ -425,6 +425,8 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
           const runAndParentSignal = mergeAbortSignals(runContext.signal, context?.signal);
           const wakeRunContext: ProjectionRunContext = {
             ...runContext,
+            // Claimed wakes must durably reach their position, including filtered idle tails.
+            settleIdleCheckpoints: true,
             signal: mergeAbortSignals(runAndParentSignal, wakeClaimAbortController.signal),
             throwIfLeaseLost: () => {
               runContext.throwIfLeaseLost?.();
