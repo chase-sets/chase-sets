@@ -3021,7 +3021,7 @@ describe("DigitalOcean platform configuration", () => {
 
   it("binds production marker recovery callers and handoff outputs to the verified producer", () => {
     const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
-    const recoveryStep = workflowStep(productionJob, "Reconcile interrupted production release marker");
+    const recoveryStep = workflowStep(productionJob, "Capture production rollback target");
     const markerStep = workflowStep(productionJob, "Mark production release");
     const transitionStep = workflowStep(productionJob, "Verify production Kubernetes deployment transition");
     for (const step of [recoveryStep, markerStep, transitionStep]) {
@@ -3030,8 +3030,8 @@ describe("DigitalOcean platform configuration", () => {
       expect(step).toContain("RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}");
     }
     expect(recoveryStep).toContain("production-release-marker.mjs reconcile");
-    expect(productionJob.indexOf(recoveryStep)).toBeLessThan(
-      productionJob.indexOf("- name: Capture production rollback target"),
+    expect(recoveryStep.indexOf("production-release-marker.mjs reconcile")).toBeLessThan(
+      recoveryStep.indexOf("git fetch origin production --tags"),
     );
     expect(markerStep).toContain("production-release-marker.mjs publish");
     expect(transitionStep).toContain("production-release-marker.mjs retain-identity");

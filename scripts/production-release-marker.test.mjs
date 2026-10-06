@@ -537,7 +537,7 @@ describe("production workflow marker recovery wiring", () => {
   it("uses the shared marker implementation before capture and for normal publication", () => {
     expect(production).toContain("node ./scripts/production-release-marker.mjs reconcile");
     expect(production.indexOf("production-release-marker.mjs reconcile")).toBeLessThan(
-      production.indexOf("- name: Capture production rollback target"),
+      production.indexOf("platform-kubernetes-deployment.mjs capture-rollback-target"),
     );
     expect(production).toContain("node ./scripts/production-release-marker.mjs publish");
     expect(production).not.toContain("release-$(date -u +%Y%m%d%H%M%S)");

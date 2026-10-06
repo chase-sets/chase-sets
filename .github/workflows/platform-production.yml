@@ -3556,15 +3556,6 @@ jobs:
             kubectl -n keda rollout status deployment/keda-operator --timeout=300s
           fi
 
-      - name: Reconcile interrupted production release marker
-        if: env.SHOULD_DEPLOY != 'false'
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
-          RELEASE_IMAGE: ${{ steps.image.outputs.image }}
-          RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
-        run: node ./scripts/production-release-marker.mjs reconcile
-
       - name: Capture production rollback target
         if: env.SHOULD_DEPLOY != 'false'
         id: rollback_target
@@ -3573,9 +3564,14 @@ jobs:
           TF_VAR_spaces_access_id: ${{ secrets.SPACES_ACCESS_ID }}
           TF_VAR_spaces_secret_key: ${{ secrets.SPACES_SECRET_KEY }}
           DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          RELEASE_IMAGE: ${{ steps.image.outputs.image }}
+          RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         run: |
           set -euo pipefail
 
+          node ./scripts/production-release-marker.mjs reconcile
           git fetch origin production --tags
           last_known_good_commit="$(git rev-parse origin/production)"
           release_tag="$(
