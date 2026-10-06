@@ -1396,20 +1396,24 @@ function dataOperandsMatch(selector, words) {
 function benignFormMatches(command, grammar) {
   const { words } = command;
   if (words[0]?.dynamic) return false;
-  return (grammar.benignForms ?? []).some((entry) => {
-    if (entry.selector !== words[0]?.value || benignAdmissionViolations(entry, grammar).length) return false;
-    if (entry.dataOperands === true) return dataOperandsMatch(entry.selector, words);
-    const input = command.redirects.filter(({ target }) => target?.body !== undefined).map(({ target }) => target.body);
-    return (
-      JSON.stringify(entry.input ?? []) === JSON.stringify(input) &&
-      entry.words.length === words.length &&
-      entry.words.every(
-        (word, index) =>
-          word.value === words[index].value &&
-          word.dynamic === words[index].dynamic &&
-          word.quoted === words[index].quoted,
-      )
+  const input = JSON.stringify(
+    command.redirects.filter(({ target }) => target?.body !== undefined).map(({ target }) => target.body),
+  );
+  const exactMatch = (entry) =>
+    Array.isArray(entry.words) &&
+    entry.words.length === words.length &&
+    JSON.stringify(entry.input ?? []) === input &&
+    entry.words.every(
+      (word, index) =>
+        word?.value === words[index].value &&
+        word.dynamic === words[index].dynamic &&
+        word.quoted === words[index].quoted,
     );
+  // The cheap shape match runs first; admission still decides every match.
+  return (grammar.benignForms ?? []).some((entry) => {
+    if (entry.selector !== words[0]?.value) return false;
+    const matches = entry.dataOperands === true ? dataOperandsMatch(entry.selector, words) : exactMatch(entry);
+    return matches && benignAdmissionViolations(entry, grammar).length === 0;
   });
 }
 
@@ -1532,10 +1536,16 @@ function classifyCommand(command, grammar) {
 }
 
 const defaultGrammarProof = validateGrammarPartition();
+const grammarProof = (grammar) =>
+  grammar === DESTRUCTIVE_GRAMMAR ? defaultGrammarProof : validateGrammarPartition(grammar);
 
 export function classifyShellCommands(run, { grammar = DESTRUCTIVE_GRAMMAR } = {}) {
   if (typeof run !== "string") return { invocations: [], operations: [], indeterminate: [] };
-  const proof = grammar === DESTRUCTIVE_GRAMMAR ? defaultGrammarProof : validateGrammarPartition(grammar);
+  return classifyProvedRun(run, grammar, grammarProof(grammar));
+}
+
+// One grammar proof covers a run and every substitution nested in it.
+function classifyProvedRun(run, grammar, proof) {
   if (!proof.passed) {
     const unknown = { tool: "grammar", index: 0, disposition: "INDETERMINATE", reason: proof.violations.join("; ") };
     return { invocations: [unknown], operations: [], indeterminate: [unknown] };
@@ -1554,7 +1564,7 @@ export function classifyShellCommands(run, { grammar = DESTRUCTIVE_GRAMMAR } = {
     .map((command) => classifyCommand(resolveCommandWords(command, commands, lexed.tokens), grammar))
     .filter(Boolean);
   for (const substitution of lexed.substitutions) {
-    for (const invocation of classifyShellCommands(substitution.run, { grammar }).invocations)
+    for (const invocation of classifyProvedRun(substitution.run, grammar, proof).invocations)
       invocations.push({ ...invocation, index: substitution.index + invocation.index });
   }
   if (lexed.errors.length) {
@@ -1886,9 +1896,9 @@ function parseWorkflow(source) {
   return workflow;
 }
 
-function classifyStep(workflow, job, step, grammar) {
+function classifyStep(workflow, job, step, grammar, proof) {
   const shell = step.shell ?? job.defaults?.run?.shell ?? workflow.defaults?.run?.shell ?? "bash";
-  if (/^bash(?:\s|$)/.test(shell)) return classifyShellCommands(step.run, { grammar });
+  if (/^bash(?:\s|$)/.test(shell)) return classifyProvedRun(step.run, grammar, proof);
   return { operations: [], indeterminate: [{ tool: shell, reason: "unproved non-Bash run step" }] };
 }
 
@@ -1921,6 +1931,11 @@ export function checkWorkflowDestructiveOperationGating(
   source,
   { workflowFile = "workflow", grammar = DESTRUCTIVE_GRAMMAR } = {},
 ) {
+  return checkWorkflow(source, workflowFile, grammar);
+}
+
+// `proof` lets discovery prove a grammar once for every workflow it inspects.
+function checkWorkflow(source, workflowFile, grammar, proof) {
   const violations = [];
   let workflow;
   try {
@@ -1933,10 +1948,11 @@ export function checkWorkflowDestructiveOperationGating(
     };
   }
   const detected = [];
+  const stepProof = proof ?? grammarProof(grammar);
   for (const [jobId, job] of Object.entries(workflow.jobs)) {
     for (const [index, step] of (job.steps ?? []).entries()) {
       if (typeof step?.run !== "string") continue;
-      const classification = classifyStep(workflow, job, step, grammar);
+      const classification = classifyStep(workflow, job, step, grammar, stepProof);
       if (!classification.operations.length && !classification.indeterminate.length) continue;
       detected.push({ jobId, job, step, stepIndex: index + 1, classification, operations: classification.operations });
       for (const unknown of classification.indeterminate)
@@ -1974,12 +1990,14 @@ export function checkWorkflowDestructiveOperationGating(
   });
   const gated = detected.filter((entry) => !exempt.has(entry));
   if (gated.length) violations.push(...gateViolations(workflow, workflowFile));
+  const resolversByJob = new Map();
   for (const entry of gated) {
     if (!safeDependency(entry.job))
       violations.push(
         `${workflowFile}: destructive job '${entry.jobId}' must be cancellation-safe, need refuse-unconfirmed-apply, and accept only skipped or success.`,
       );
-    const resolvers = safeResolvers(workflow, entry.job);
+    if (!resolversByJob.has(entry.jobId)) resolversByJob.set(entry.jobId, safeResolvers(workflow, entry.job));
+    const resolvers = resolversByJob.get(entry.jobId);
     if (!resolvers.length)
       violations.push(
         `${workflowFile}: job '${entry.jobId}' requires a single fail-closed shell resolver with a distinct resolved name.`,
@@ -2062,10 +2080,11 @@ export function checkDiscoveredWorkflows({ root = process.cwd(), grammar = DESTR
   const sources = {};
   const results = [];
   const violations = [...validateGrammarPartition(grammar).violations];
+  const proof = grammarProof(grammar);
   for (const workflowFile of workflowFiles) {
     try {
       sources[workflowFile] = readFileSync(resolve(root, workflowFile), "utf8");
-      const result = checkWorkflowDestructiveOperationGating(sources[workflowFile], { workflowFile, grammar });
+      const result = checkWorkflow(sources[workflowFile], workflowFile, grammar, proof);
       results.push({ workflowFile, ...result });
       violations.push(...result.violations);
     } catch (error) {

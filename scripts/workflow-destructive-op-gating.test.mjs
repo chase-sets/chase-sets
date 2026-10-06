@@ -512,13 +512,15 @@ describe("closed executable admission", () => {
     }
   });
 
-  it("benign payload cannot suppress exempt inventory or ungated workflows", () => {
-    const negatives = [
-      syntheticEntry(["bash", "-c", Q("terraform destroy")]),
-      syntheticEntry(["timeout", "5m", D("$TOOL"), "destroy", "-auto-approve"]),
-      ...Object.values(c3Rows).map((items) => syntheticEntry(items)),
-    ];
-    for (const entry of negatives) {
+  const suppressionNegatives = {
+    "AC2 shell payload": ["bash", "-c", Q("terraform destroy")],
+    E1: ["timeout", "5m", D("$TOOL"), "destroy", "-auto-approve"],
+    ...c3Rows,
+  };
+  it.each(Object.entries(suppressionNegatives))(
+    "benign payload cannot suppress exempt inventory or ungated workflows: %s",
+    (_label, items) => {
+      const entry = syntheticEntry(items);
       const grammar = withEntry(entry);
       const [violation] = validateGrammarPartition(grammar).violations;
       expect(violation).toMatch(/: benign payload (?:contains a covered invocation|admits an unpinned program)\.$/);
@@ -537,9 +539,12 @@ describe("closed executable admission", () => {
       );
       expect(exempt.violations).toContainEqual(expect.stringContaining(violation));
       expect(exempt.violations).toContainEqual(expect.stringContaining("exact invocation multiset required"));
-    }
-    // Corpus positive under the same harness: the rejection above is the
-    // governing difference, not the fixture.
+    },
+  );
+
+  it("the suppression harness passes a corpus-shaped positive", () => {
+    // Same harness as above: the named rejection is the governing difference,
+    // not the fixture.
     const positive = syntheticEntry(["timeout", "5m", "jq", "-r", Q(".x")]);
     const grammar = withEntry(positive);
     expect(checkWorkflowDestructiveOperationGating(pushWorkflow(positive.example), { grammar })).toEqual({
@@ -1069,12 +1074,17 @@ describe("semantic cleanup shape contracts and real discovery", () => {
     expect(result.violations).toContainEqual(expect.stringContaining(`${file}: refuse-unconfirmed-apply`));
   });
 
-  it("arbitrary workflow sibling discovered", () => {
+  const siblingFile = ".github/workflows/nested/synthetic-8709-ordinary-task.yaml";
+  function siblingRoot(source) {
     const directory = fixtureRoot();
-    const file = ".github/workflows/nested/synthetic-8709-ordinary-task.yaml";
-    mkdirSync(dirname(join(directory, file)), { recursive: true });
-    writeFileSync(
-      join(directory, file),
+    mkdirSync(dirname(join(directory, siblingFile)), { recursive: true });
+    writeFileSync(join(directory, siblingFile), source);
+    return directory;
+  }
+
+  it("arbitrary workflow sibling discovered", () => {
+    const file = siblingFile;
+    const directory = siblingRoot(
       pushWorkflow('MODE=fixture >output doctl -t "$TOKEN" reg repo dt app old', "ordinary-job", "ordinary step"),
     );
     const result = checkDiscoveredWorkflows({ root: directory });
@@ -1091,31 +1101,34 @@ describe("semantic cleanup shape contracts and real discovery", () => {
       }),
     ]);
     expect(result.violations).toContainEqual(expect.stringContaining(`${file}: destructive job 'ordinary-job'`));
+  });
+
+  it.each([
+    "terraform \\\n destroy",
+    "timeout 8m node ./scripts/production-db-restore-point-cleanup.mjs --apply",
+    "$TF destroy",
+    'timeout 5m "$TOOL" destroy -auto-approve',
+  ])("arbitrary sibling refuses continued, wrapped and dynamic forms despite ambient input: %s", (run) => {
+    const directory = siblingRoot(pushWorkflow(run, "arbitrary", "arbitrary"));
     const previousChangedFiles = process.env.CHANGED_FILES;
     process.env.CHANGED_FILES = "README.md";
     try {
-      for (const run of [
-        "terraform \\\n destroy",
-        "timeout 8m node ./scripts/production-db-restore-point-cleanup.mjs --apply",
-        "$TF destroy",
-        'timeout 5m "$TOOL" destroy -auto-approve',
-      ]) {
-        writeFileSync(join(directory, file), pushWorkflow(run, "arbitrary", "arbitrary"));
-        const discovered = checkDiscoveredWorkflows({ root: directory });
-        expect(discovered.passed, run).toBe(false);
-        expect(discovered.scanned).toBe(independentWorkflowTotal() + 1);
-        expect(discovered.violations).toContainEqual(expect.stringContaining(`${file}:`));
-        expect(discovered.results.find((entry) => entry.workflowFile === file).checkedSteps).toHaveLength(1);
-      }
+      const discovered = checkDiscoveredWorkflows({ root: directory });
+      expect(discovered.passed).toBe(false);
+      expect(discovered.scanned).toBe(independentWorkflowTotal() + 1);
+      expect(discovered.violations).toContainEqual(expect.stringContaining(`${siblingFile}:`));
+      expect(discovered.results.find((entry) => entry.workflowFile === siblingFile).checkedSteps).toHaveLength(1);
     } finally {
       if (previousChangedFiles === undefined) delete process.env.CHANGED_FILES;
       else process.env.CHANGED_FILES = previousChangedFiles;
     }
+  });
+
+  it("arbitrary sibling with a repaired supported gate passes", () => {
     const repaired = parse(readWorkflow(restoreFile));
     repaired.jobs["ordinary-job"] = repaired.jobs.cleanup;
     delete repaired.jobs.cleanup;
-    writeFileSync(join(directory, file), stringify(repaired));
-    expect(checkDiscoveredWorkflows({ root: directory })).toMatchObject({
+    expect(checkDiscoveredWorkflows({ root: siblingRoot(stringify(repaired)) })).toMatchObject({
       passed: true,
       scanned: independentWorkflowTotal() + 1,
       total: independentWorkflowTotal() + 1,
