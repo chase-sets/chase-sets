@@ -1,6 +1,7 @@
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { MarketplaceListingPublicGalleryImage } from "../../../support/request-support/listing-evidence";
 import type { OrderingOrderDeliverySummary } from "../integrations/reputation/reputation-queries";
+import type { OrderingOrderReviewOutcome } from "../integrations/reputation/reputation-queries";
 
 export interface OrderingOrderProjection {
   order_id: string;
@@ -141,11 +142,11 @@ export interface OrderingOrderProjectionDetail extends OrderingOrderProjection {
 export interface PurchaseListItem extends OrderingOrderProjection {}
 export interface PurchaseDetail extends OrderingOrderProjectionDetail {
   delivery_summary?: OrderingOrderDeliverySummary;
-  reviewOpportunity?: OrderingOrderReviewOpportunity | null;
+  reviewOutcome?: OrderingOrderReviewOutcome;
 }
 export interface SaleListItem extends OrderingOrderProjection {}
 export interface SaleDetail extends OrderingOrderProjectionDetail {
-  reviewOpportunity?: OrderingOrderReviewOpportunity | null;
+  reviewOutcome?: OrderingOrderReviewOutcome;
 }
 
 export interface OrderListSummary {

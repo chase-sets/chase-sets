@@ -1,5 +1,11 @@
 # Marketplace Domain Glossary
 
+## Review Opportunity Fact
+
+A **Review Opportunity Fact** is Marketplace's versioned, content-free snapshot of both review directions for one Order. Each slot is explicitly absent or carries the canonical eligibility instant, effective deadline, submission and hold state, active Review id, and nullable active reveal instant. The active reveal instant records publication of the active Review; a hold still suppresses its visibility. No rating, feedback, response or private Support reason crosses this contract.
+
+Durable publication generations, source checkpoints and rebuild generations identify the snapshot's provenance. Publication and acknowledgement commit together; historical backfill and later canonical writes use the same publication path. Consumers compare the published absolute deadline to server time, without owning review-window or hold policy.
+
 This glossary defines the canonical terminology for the Marketplace bounded context.
 
 Browse, search, filters, and item detail terminology are owned by the Discovery bounded context.

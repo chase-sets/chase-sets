@@ -139,6 +139,31 @@ describe("marketplace account purchase route", () => {
     vi.clearAllMocks();
   });
 
+  it.each(["ready", "unavailable"] as const)(
+    "retains the order and local %s outcome with zero Marketplace review requests",
+    async (status) => {
+      const calls: string[] = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | URL | Request) => {
+          const url = requestUrl(input);
+          calls.push(url);
+          if (!url.includes("/account/purchases/ord_1")) throw new Error("Foreign review request forbidden");
+          return jsonResponse({ ...order, reviewOutcome: { status, opportunity: null } });
+        }),
+      );
+      const result = await loader({
+        request: new Request("http://localhost/account/purchases/ord_1"),
+        params: { purchaseId: "ord_1" },
+        context: undefined,
+      } as never);
+      expect(result.purchase.order_id).toBe("ord_1");
+      expect(result.reviewOutcome).toEqual({ status, opportunity: null });
+      expect(calls).toEqual([expect.stringContaining("/account/purchases/ord_1")]);
+      expect(calls.some((url) => url.includes("/reviews/"))).toBe(false);
+    },
+  );
+
   it("loads the purchase and matching review opportunity", async () => {
     const fetchCalls: string[] = [];
     vi.stubGlobal(
@@ -151,16 +176,18 @@ describe("marketplace account purchase route", () => {
           return Promise.resolve(
             jsonResponse({
               ...order,
-              reviewOpportunity: {
-                order_id: "ord_1",
-                subject_account_id: "acc_seller",
-                subject_display_name: "Seller",
-                author_role: "buyer",
-                eligible_at: "2026-04-02T00:00:00.000Z",
-                active_review_id: "rev_1",
-                response: "Thank you for sharing this.",
-                revealed: true,
-                scoring_disposition: "context-only",
+              reviewOutcome: {
+                status: "ready",
+                opportunity: {
+                  order_id: "ord_1",
+                  subject_account_id: "acc_seller",
+                  subject_display_name: "Seller",
+                  author_role: "buyer",
+                  eligible_at: "2026-04-02T00:00:00.000Z",
+                  active_review_id: "rev_1",
+                  revealed: true,
+                  active_review_revealed_at: "2026-04-03T00:00:00.000Z",
+                },
               },
             }),
           );
@@ -178,9 +205,9 @@ describe("marketplace account purchase route", () => {
 
     expect(result.purchase.order_id).toBe("ord_1");
     expect(result.reviewOutcome.opportunity?.subject_account_id).toBe("acc_seller");
-    expect(result.reviewOutcome.opportunity?.response).toBe("Thank you for sharing this.");
+    expect(result.reviewOutcome.opportunity).not.toHaveProperty("response");
     expect(result.reviewOutcome.opportunity?.revealed).toBe(true);
-    expect(result.reviewOutcome.opportunity?.scoring_disposition).toBe("context-only");
+    expect(result.reviewOutcome.opportunity?.active_review_revealed_at).toBe("2026-04-03T00:00:00.000Z");
     expect(fetchCalls).toEqual([expect.stringContaining("/account/purchases/ord_1")]);
   });
 

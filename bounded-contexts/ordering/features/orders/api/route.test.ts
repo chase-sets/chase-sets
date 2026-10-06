@@ -34,6 +34,7 @@ function buildApp(
   });
 
   app.route("/account", createAccountPurchaseOrderRoutes(options.services));
+  app.route("/account", createAccountSaleOrderRoutes(options.services));
 
   return app;
 }
@@ -62,7 +63,7 @@ function createServices(): OrderingOrderServices {
     getPurchase: vi.fn(async () => null),
     listSales: vi.fn(async () => ({ items: [], total: 0 })),
     getSale: vi.fn(async () => null),
-    getOrderReviewOpportunity: vi.fn(async () => null),
+    getOrderReviewOpportunity: vi.fn(async () => ({ status: "unavailable" as const, opportunity: null })),
     cleanupAuthority: { kind: "not-mounted" },
     projectors: [],
   } as unknown as OrderingOrderServices;
@@ -190,17 +191,75 @@ describe("ordering purchase routes", () => {
     expect((await sellerApp.request("/account/purchases/ord_1")).status).toBe(404);
   });
 
+  it.each(["purchases", "sales"])(
+    "isolates local review failure and proven absence on %s without retry or foreign requests",
+    async (route) => {
+      const accountId = route === "purchases" ? "acc_buyer" : "acc_seller";
+      const review: OrderingOrderServices["getOrderReviewOpportunity"] = vi.fn(async () => {
+        throw new Error("local read failure");
+      });
+      const services = {
+        ...createServices(),
+        getPurchase: vi.fn(async () => order),
+        getSale: vi.fn(async () => order),
+        getOrderReviewOpportunity: review,
+      } as unknown as OrderingOrderServices;
+      const app = buildApp({
+        services,
+        actor: {
+          sessionId: "ses_1",
+          tenantId: "tnt_identity",
+          userId: "usr_1",
+          accountId,
+          membershipId: "mbr_1",
+          roleKey: "owner",
+          permissions: ["orders.view", "reputation.view", "reputation.manage"],
+        },
+      });
+      const foreign = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("foreign request forbidden"));
+      try {
+        const response = await app.request(`/account/${route}/ord_1`);
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({
+          order_id: "ord_1",
+          reviewOutcome: { status: "unavailable", opportunity: null },
+        });
+        expect(review).toHaveBeenCalledTimes(1);
+        vi.mocked(review).mockResolvedValue({ status: "ready", opportunity: null });
+        expect(await (await app.request(`/account/${route}/ord_1`)).json()).toMatchObject({
+          reviewOutcome: { status: "ready", opportunity: null },
+        });
+        vi.mocked(services.getPurchase).mockResolvedValue(null);
+        vi.mocked(services.getSale).mockResolvedValue(null);
+        expect((await app.request(`/account/${route}/missing`)).status).toBe(404);
+        expect(review).toHaveBeenCalledTimes(2);
+        expect(foreign).not.toHaveBeenCalled();
+      } finally {
+        foreign.mockRestore();
+      }
+    },
+  );
+
   it("adds a local Ordering review opportunity to purchase details when the actor can manage reviews", async () => {
     const services = {
       ...createServices(),
       getPurchase: vi.fn(async () => order),
       getOrderReviewOpportunity: vi.fn(async () => ({
-        order_id: "ord_1",
-        subject_account_id: "acc_seller",
-        subject_display_name: "Seller",
-        author_role: "buyer",
-        eligible_at: "2026-04-02T00:00:00.000Z",
-        active_review_id: null,
+        status: "ready" as const,
+        opportunity: {
+          order_id: "ord_1",
+          subject_account_id: "acc_seller",
+          subject_display_name: "Seller",
+          author_role: "buyer",
+          eligible_at: "2026-04-02T00:00:00.000Z",
+          active_review_id: null,
+          active_review_revealed_at: null,
+          window_expires_at: "2026-06-01T00:00:00.000Z",
+          submission_state: "allowed" as const,
+          hold_reason: null,
+          window_expired: false,
+          revealed: false,
+        },
       })),
     } as unknown as OrderingOrderServices;
     const app = buildApp({
@@ -221,9 +280,12 @@ describe("ordering purchase routes", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       order_id: "ord_1",
-      reviewOpportunity: {
-        subject_account_id: "acc_seller",
-        author_role: "buyer",
+      reviewOutcome: {
+        status: "ready",
+        opportunity: {
+          subject_account_id: "acc_seller",
+          author_role: "buyer",
+        },
       },
     });
     expect(services.getOrderReviewOpportunity).toHaveBeenCalledWith("ord_1", "acc_buyer");
@@ -255,7 +317,7 @@ describe("ordering purchase routes", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       order_id: "ord_1",
-      reviewOpportunity: null,
+      reviewOutcome: { status: "unavailable", opportunity: null },
     });
     expect(services.getOrderReviewOpportunity).not.toHaveBeenCalled();
   });
@@ -359,12 +421,21 @@ describe("ordering purchase routes", () => {
       ...createServices(),
       getSale: vi.fn(async () => order),
       getOrderReviewOpportunity: vi.fn(async () => ({
-        order_id: "ord_1",
-        subject_account_id: "acc_buyer",
-        subject_display_name: "Buyer",
-        author_role: "seller",
-        eligible_at: "2026-04-02T00:00:00.000Z",
-        active_review_id: "rev_1",
+        status: "ready" as const,
+        opportunity: {
+          order_id: "ord_1",
+          subject_account_id: "acc_buyer",
+          subject_display_name: "Buyer",
+          author_role: "seller",
+          eligible_at: "2026-04-02T00:00:00.000Z",
+          active_review_id: "rev_1",
+          active_review_revealed_at: null,
+          window_expires_at: "2026-06-01T00:00:00.000Z",
+          submission_state: "allowed" as const,
+          hold_reason: null,
+          window_expired: false,
+          revealed: false,
+        },
       })),
     } as unknown as OrderingOrderServices;
     const app = new Hono<OrderingApiEnv>();
@@ -387,10 +458,13 @@ describe("ordering purchase routes", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       order_id: "ord_1",
-      reviewOpportunity: {
-        subject_account_id: "acc_buyer",
-        author_role: "seller",
-        active_review_id: "rev_1",
+      reviewOutcome: {
+        status: "ready",
+        opportunity: {
+          subject_account_id: "acc_buyer",
+          author_role: "seller",
+          active_review_id: "rev_1",
+        },
       },
     });
     expect(services.getOrderReviewOpportunity).toHaveBeenCalledWith("ord_1", "acc_seller");

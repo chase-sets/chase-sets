@@ -4,6 +4,10 @@ This glossary defines the canonical terminology for the Ordering bounded context
 
 Aggregate language and projection language may differ. `Order` is the aggregate and event-stream term; buyer read models and routes use `Purchase`, while seller read models and routes use `Sale`.
 
+## Order Review Outcome
+
+An **Order Review Outcome** is the authorized account's local view of a Marketplace Review Opportunity Fact. Ready with an absent opportunity means proven absence; unavailable means missing, malformed, lagging or rebuilding evidence, or a failed local read. Ordering never reconstructs Marketplace eligibility policy or fetches it during an order request. Held feedback outranks expiry, revealed feedback remains published after its deadline, and unsubmitted opportunities can expire without a new event.
+
 ## Order
 
 An **Order** is the commercial commitment between a buyer account and a seller account created from a listing purchase or accepted offer.
