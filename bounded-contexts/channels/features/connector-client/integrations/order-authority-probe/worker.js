@@ -669,6 +669,7 @@
       message.kind === "capture" &&
       Array.isArray(message.selections) &&
       message.selections.length === 4 &&
+      Object.keys(message.selections).join(",") === "0,1,2,3" &&
       message.selections.every(
         (item, index) =>
           closed(item, ["listStatus", "orderNumber"]) &&
@@ -680,6 +681,8 @@
               encoder.encode(item.orderNumber).byteLength <= LIMITS.request &&
               !/[\u0000-\u001f\u007f]/.test(item.orderNumber))),
       ) &&
+      new Set(message.selections.filter((item) => item.orderNumber !== null).map((item) => item.orderNumber)).size ===
+        message.selections.filter((item) => item.orderNumber !== null).length &&
       encoder.encode(JSON.stringify(message)).byteLength <= LIMITS.request;
     if (!simple && !selected && !count) {
       if (active && !busy) clear(active);

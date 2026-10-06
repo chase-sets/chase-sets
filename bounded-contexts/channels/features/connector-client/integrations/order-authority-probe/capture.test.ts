@@ -900,6 +900,12 @@ describe("order-authority emitted package controls (synthetic, not provider auth
       { kind: "capture", selections: [{ ...selections()[0], extra: SENTINEL }, ...selections().slice(1)] },
       { kind: "capture", selections: selections(".") },
       { kind: "capture", selections: selections("..") },
+      { kind: "capture", selections: Array(4) },
+      { kind: "capture", selections: Object.assign(selections(), { extra: { buyer: SENTINEL } }) },
+      {
+        kind: "capture",
+        selections: selections().map((item, index) => ({ ...item, orderNumber: index < 2 ? ORDER : null })),
+      },
       { kind: "capture", selections: selections("x\n") },
       { kind: "capture", selections: selections("x".repeat(8193)) },
       { kind: "counts", count: 1, dateFilter: "LastTwoYears", sameSession: true, session: SENTINEL },
