@@ -606,6 +606,7 @@ describe("google shopping diagnostics", () => {
       refreshWindowDays: 25,
       summary: {
         totalRows: 3,
+        attentionRows: 2,
         failedRows: 1,
         disapprovedRows: 1,
         pendingDeleteRows: 1,
@@ -615,6 +616,7 @@ describe("google shopping diagnostics", () => {
         {
           rowId: "google-shopping:listing:lst_1",
           listingId: "lst_1",
+          title: "Catalog Charizard",
           accountId: "acc_1",
           catalogItemId: "cit_1",
           productId: "prd_1",
@@ -637,6 +639,15 @@ describe("google shopping diagnostics", () => {
     expect(db.queries[1]?.sql).toContain("lower(listing_id)");
     expect(db.queries[1]?.sql).toContain("LIKE $1 ESCAPE '\\'");
     expect(db.queries[1]?.values).toContain("%lst\\_1%");
+  });
+});
+
+describe("google shopping feed row title mapper", () => {
+  it.each(["Catalog title", "Listing title", null])("preserves the joined title %s", async (title) => {
+    const runtime = createGoogleShoppingSyncRuntime({ db: feedRowListDb(title) });
+    const list = await runtime.listFeedRows({ now });
+    expect(list.rows[0]?.title).toBe(title);
+    expect(list.summary.attentionRows).toBe(2);
   });
 });
 
@@ -997,7 +1008,9 @@ function diagnosticsSnapshotDb(): PgQueryable {
   };
 }
 
-function feedRowListDb(): PgQueryable & { queries: Array<{ sql: string; values: readonly unknown[] }> } {
+function feedRowListDb(
+  title: string | null = "Catalog Charizard",
+): PgQueryable & { queries: Array<{ sql: string; values: readonly unknown[] }> } {
   const queries: Array<{ sql: string; values: readonly unknown[] }> = [];
   return {
     queries,
@@ -1008,6 +1021,7 @@ function feedRowListDb(): PgQueryable & { queries: Array<{ sql: string; values: 
           rows: [
             {
               total_rows: 3,
+              attention_rows: "2",
               eligible_rows: 1,
               excluded_rows: 2,
               failed_rows: 1,
@@ -1023,7 +1037,7 @@ function feedRowListDb(): PgQueryable & { queries: Array<{ sql: string; values: 
       }
 
       return {
-        rows: [feedRowListDbRow()],
+        rows: [feedRowListDbRow({ title })],
         rowCount: 1,
       };
     },
@@ -1239,6 +1253,7 @@ function feedRowListResponse() {
     refreshCutoff: "2026-05-14T12:00:00.000Z",
     summary: {
       totalRows: 1,
+      attentionRows: 1,
       eligibleRows: 1,
       excludedRows: 0,
       failedRows: 0,
