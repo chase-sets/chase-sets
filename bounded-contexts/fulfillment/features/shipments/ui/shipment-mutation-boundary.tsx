@@ -170,7 +170,7 @@ export function ShipmentMutationBoundary({
         />
       ) : null}
       <Stack gap={0} onSubmitCapture={onSubmitCapture} aria-busy={state === "submitting" || undefined}>
-        <Stack as="fieldset" gap={0} disabled={mutationsDisabled}>
+        <Stack as="fieldset" gap={0} minWidth="0" disabled={mutationsDisabled}>
           {children}
         </Stack>
       </Stack>

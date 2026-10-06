@@ -205,6 +205,7 @@ describe("ShipmentMutationBoundary", () => {
     expect(container.textContent).toContain("Preparing shipment actions");
     expect(container.textContent).not.toContain("Secure recovery");
     expect(container.querySelector("button")?.matches(":disabled")).toBe(true);
+    expect(container.querySelector("fieldset")?.classList.contains("min-w-0")).toBe(true);
     expect(container.querySelector("a")?.closest("[inert], [aria-disabled=true]")).toBeNull();
   });
 
