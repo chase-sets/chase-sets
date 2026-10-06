@@ -136,6 +136,20 @@ for (const route of routes) {
     await expect(page).toHaveURL(/\/account\/sell-list/);
     let lineId: string | null = null;
     try {
+      const readback = await context.request.get("/api/marketplace/guest/sell-list", {
+        headers: { "x-checkout-anonymous-sell-list-id": guest },
+      });
+      expect(readback.status()).toBe(200);
+      const saved: {
+        items: Array<{ line_id: string; catalog_item_id: string; item_title: string; quantity: number }>;
+      } = await readback.json();
+      expect(saved.items).toHaveLength(1);
+      lineId = saved.items[0].line_id;
+      expect(saved.items[0]).toMatchObject({
+        catalog_item_id: marketplaceBrowserE2eSeedContract.itemDetail.catalogItemId,
+        item_title: "Charizard",
+        quantity: 1,
+      });
       const response = await page.goto(route.path);
       expect(response?.status()).toBe(200);
       expect(new URL(page.url()).pathname).toBe(route.path);
@@ -160,8 +174,7 @@ for (const route of routes) {
       ).toHaveText("1");
       const identity = dialog.locator('input[name="lineId"]');
       await expect(identity).toHaveCount(1);
-      lineId = await identity.inputValue();
-      expect(lineId).toBeTruthy();
+      await expect(identity).toHaveValue(lineId);
       await testInfo.attach("hydrated-populated-review", {
         body: JSON.stringify({
           sourceHead: process.env.OPERATOR_EVIDENCE_SOURCE_HEAD ?? null,
