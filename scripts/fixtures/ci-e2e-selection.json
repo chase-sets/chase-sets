@@ -124,7 +124,7 @@
     },
     {
       "family": "browserRuntimePatterns:11",
-      "pattern": "/^infrastructure\\/playwright-evidence\\/(?:index\\.ts|package\\.json|responsive-evidence-manifest\\.json)$/",
+      "pattern": "/^infrastructure\\/playwright-evidence\\/(?:index\\.ts|package\\.json|responsive-evidence-manifest\\.json|rendered-copy\\.ts|rendered-copy-baseline\\.json)$/",
       "suites": null,
       "path": "infrastructure/playwright-evidence/index.ts",
       "trackedCandidates": 3,
@@ -584,6 +584,29 @@
       "suites": ["admin_platform"],
       "path": "deployables/admin-web/e2e/admin-cross-cutting-topology.spec.ts",
       "trackedCandidates": 2,
+      "synthetic": false
+    },
+    {
+      "family": "e2eSpecSuiteOwnership:15",
+      "pattern": "/^deployables\\/marketplace\\/e2e\\/rendered-copy-sweep\\.spec\\.ts$/",
+      "suites": ["marketplace_account", "marketplace_seller"],
+      "path": "deployables/marketplace/e2e/rendered-copy-sweep.spec.ts",
+      "trackedCandidates": 1,
+      "synthetic": false
+    },
+    {
+      "family": "e2eSpecSuiteOwnership:16",
+      "pattern": "/^deployables\\/admin-web\\/e2e\\/rendered-copy-sweep\\.spec\\.ts$/",
+      "suites": [
+        "catalog_admin_integrations",
+        "catalog_admin_modeling",
+        "admin_growth",
+        "admin_commerce",
+        "admin_support",
+        "admin_access"
+      ],
+      "path": "deployables/admin-web/e2e/rendered-copy-sweep.spec.ts",
+      "trackedCandidates": 1,
       "synthetic": false
     },
     {
@@ -2169,6 +2192,77 @@
       ],
       "suiteIds": ["marketplace_browse", "marketplace_seller", "catalog_admin_integrations"],
       "batches": ["catalog_admin_integrations", "marketplace_browse,marketplace_seller"]
+    },
+    {
+      "changedFiles": ["deployables/marketplace/e2e/rendered-copy-sweep.spec.ts"],
+      "suiteIds": ["marketplace_account", "marketplace_seller"],
+      "batches": ["marketplace_account,marketplace_seller"]
+    },
+    {
+      "changedFiles": ["deployables/admin-web/e2e/rendered-copy-sweep.spec.ts"],
+      "suiteIds": [
+        "catalog_admin_integrations",
+        "catalog_admin_modeling",
+        "admin_growth",
+        "admin_commerce",
+        "admin_support",
+        "admin_access"
+      ],
+      "batches": [
+        "catalog_admin_integrations,admin_support",
+        "catalog_admin_modeling,admin_access",
+        "admin_growth,admin_commerce"
+      ]
+    },
+    {
+      "changedFiles": ["infrastructure/playwright-evidence/rendered-copy.ts"],
+      "suiteIds": [
+        "marketplace_browse",
+        "marketplace_account",
+        "marketplace_checkout",
+        "marketplace_seller",
+        "catalog_admin_integrations",
+        "catalog_admin_modeling",
+        "admin_growth",
+        "admin_commerce",
+        "admin_support",
+        "admin_platform",
+        "admin_auth",
+        "admin_access"
+      ],
+      "batches": [
+        "catalog_admin_integrations,admin_auth",
+        "catalog_admin_modeling,admin_platform",
+        "marketplace_checkout,admin_support",
+        "marketplace_browse,marketplace_account",
+        "admin_commerce,admin_access",
+        "marketplace_seller,admin_growth"
+      ]
+    },
+    {
+      "changedFiles": ["infrastructure/playwright-evidence/rendered-copy-baseline.json"],
+      "suiteIds": [
+        "marketplace_browse",
+        "marketplace_account",
+        "marketplace_checkout",
+        "marketplace_seller",
+        "catalog_admin_integrations",
+        "catalog_admin_modeling",
+        "admin_growth",
+        "admin_commerce",
+        "admin_support",
+        "admin_platform",
+        "admin_auth",
+        "admin_access"
+      ],
+      "batches": [
+        "catalog_admin_integrations,admin_auth",
+        "catalog_admin_modeling,admin_platform",
+        "marketplace_checkout,admin_support",
+        "marketplace_browse,marketplace_account",
+        "admin_commerce,admin_access",
+        "marketplace_seller,admin_growth"
+      ]
     }
   ]
 }

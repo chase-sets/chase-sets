@@ -159,7 +159,7 @@ const browserRuntimePatterns = [
   /^react-router\.config\.[cm]?[tj]s$/,
   /^playwright\.config\.ts$/,
   /^scripts\/e2e-suites\.mjs$/,
-  /^infrastructure\/playwright-evidence\/(?:index\.ts|package\.json|responsive-evidence-manifest\.json)$/,
+  /^infrastructure\/playwright-evidence\/(?:index\.ts|package\.json|responsive-evidence-manifest\.json|rendered-copy\.ts|rendered-copy-baseline\.json)$/,
   /^scripts\/validate-responsive-evidence-artifacts\.mjs$/,
   /^scripts\/run-e2e-suite\.mjs$/,
 ];
@@ -241,6 +241,21 @@ const e2eSpecSuiteOwnership = [
   {
     pattern: /^deployables\/admin-web\/e2e\/(?:admin-cross-cutting-topology|platform-projection-operations)\.spec\.ts$/,
     suites: ["admin_platform"],
+  },
+  {
+    pattern: /^deployables\/marketplace\/e2e\/rendered-copy-sweep\.spec\.ts$/,
+    suites: ["marketplace_account", "marketplace_seller"],
+  },
+  {
+    pattern: /^deployables\/admin-web\/e2e\/rendered-copy-sweep\.spec\.ts$/,
+    suites: [
+      "catalog_admin_integrations",
+      "catalog_admin_modeling",
+      "admin_growth",
+      "admin_commerce",
+      "admin_support",
+      "admin_access",
+    ],
   },
 ];
 

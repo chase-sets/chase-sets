@@ -302,6 +302,27 @@ describe("run e2e suite", () => {
     expect(e2eSuiteIdsForChangedFile("scripts/validate-responsive-evidence-artifacts.mjs")).toEqual(expected);
   });
 
+  it("routes rendered-copy sweep specs to their complete owning suites", () => {
+    expect(e2eSuiteIdsForChangedFile("deployables/marketplace/e2e/rendered-copy-sweep.spec.ts")).toEqual([
+      "marketplace_account",
+      "marketplace_seller",
+    ]);
+    expect(e2eSuiteIdsForChangedFile("deployables/admin-web/e2e/rendered-copy-sweep.spec.ts")).toEqual([
+      "catalog_admin_integrations",
+      "catalog_admin_modeling",
+      "admin_growth",
+      "admin_commerce",
+      "admin_support",
+      "admin_access",
+    ]);
+  });
+
+  it.each(["rendered-copy.ts", "rendered-copy-baseline.json"])("routes shared %s to every browser suite", (file) => {
+    expect(e2eSuiteIdsForChangedFile(`infrastructure/playwright-evidence/${file}`)).toEqual(
+      e2eSuiteIdsForChangedFile("infrastructure/playwright-evidence/index.ts"),
+    );
+  });
+
   it("routes catalog admin integration routes to admin coverage", () => {
     expect(e2eSuiteIdsForChangedFile("bounded-contexts/catalog/routes/admin/integrations.tsx")).toEqual([
       "catalog_admin_integrations",
