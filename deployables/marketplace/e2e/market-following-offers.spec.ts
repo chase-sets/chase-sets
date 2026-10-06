@@ -151,11 +151,10 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
     await expect(page.getByText("Active", { exact: true }).first()).toBeVisible();
     expect(authorizations).toHaveLength(1);
     expect(authorizations[0]).toMatchObject({ consent: true });
-    const policies = await (
-      await page.request.get(`/api/marketplace/account/offer-policies?offerId=${fixture.offerId}`)
-    ).json();
-    policyId = policies.items.find((policy: { status: string }) => policy.status === "active")?.policyId;
     expect(policyId).toBeTruthy();
+    const policy = await page.request.get(`/api/marketplace/account/offer-policies/${policyId}`);
+    expect(policy.ok(), "authoritative policy detail after Authorize").toBe(true);
+    expect(await policy.json()).toMatchObject({ policyId, status: "active" });
     await page.getByRole("button", { name: "Pause market following" }).click();
     await expect(page.getByText("Paused", { exact: true }).first()).toBeVisible();
     const sellerContext = await browser.newContext({ baseURL: String(testInfo.project.use.baseURL) });
