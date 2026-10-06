@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { searchDiscoveryItems as searchDiscoveryItemsContract } from "../../search/read-model/queries";
 
 const { loadReferenceRecordMap, searchDiscoveryItems } = vi.hoisted(() => ({
   loadReferenceRecordMap: vi.fn(async () => new Map()),
-  searchDiscoveryItems: vi.fn(async () => ({ items: [], total: 3 })),
+  searchDiscoveryItems: vi.fn<typeof searchDiscoveryItemsContract>(async () => ({ items: [], total: 3 })),
 }));
 
 vi.mock("../../../support/item-support/reference-records", async (importOriginal) => ({
