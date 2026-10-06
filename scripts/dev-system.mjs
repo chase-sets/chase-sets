@@ -22,7 +22,7 @@ import {
   isBrowserE2eTarget,
 } from "./dev-system-config.mjs";
 import { readEnvFile } from "./lib/env.mjs";
-import { createDevSystemLauncher } from "./dev-system-launch.mjs";
+import { completeDevSystemStartupFailure, createDevSystemLauncher } from "./dev-system-launch.mjs";
 import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
 import { stopComposePostgresCleanly } from "./lib/postgres-compose-lifecycle.mjs";
 import { buildPackageManagerInvocation, runCommand, terminateProcessTree } from "./lib/process.mjs";
@@ -571,7 +571,7 @@ async function runDev(targetName = "all") {
     children,
     onFailure: () => {
       shuttingDown = true;
-      process.exitCode = 1;
+      completeDevSystemStartupFailure();
     },
   });
 

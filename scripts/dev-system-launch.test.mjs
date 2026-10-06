@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { applyDevTargetEnvOverrides, buildPlatformChildEnvironment } from "./dev-system-config.mjs";
-import { createDevSystemLauncher } from "./dev-system-launch.mjs";
+import { completeDevSystemStartupFailure, createDevSystemLauncher } from "./dev-system-launch.mjs";
 import { buildPackageManagerInvocation, spawnCommand, terminateProcessTree } from "./lib/process.mjs";
 
 const directories = [];
@@ -217,6 +217,80 @@ describe("dev system launcher", () => {
     },
   );
 
+  it.each([false, true])(
+    "excludes the entire multiline message before accepting frames (unseparable=%s)",
+    (unseparable) => {
+      const marker = "synthetic-message-only-multiline-marker";
+      const error = new Error(`synthetic failure\n    at ${marker}`);
+      error.name = "SyntheticError";
+      if (unseparable) error.stack = `untrusted header\n    at ${marker}`;
+      const logError = vi.fn();
+      createDevSystemLauncher({
+        spawn: () => {
+          throw error;
+        },
+        onFailure: vi.fn(),
+        logError,
+      }).launch({ name: "worker", command: "node" }, { env: {} });
+      const diagnostics = logError.mock.calls.flat().join("\n");
+      expect(diagnostics).not.toContain(marker);
+      expect(diagnostics).not.toContain("synthetic failure");
+      expect(diagnostics).toContain(unseparable ? "dev-system-launch.mjs" : "dev-system-launch.test.mjs");
+      expect(logError.mock.calls.length).toBeLessThanOrEqual(7);
+      for (const [frame] of logError.mock.calls.slice(1)) expect(frame.length).toBeLessThanOrEqual(256);
+    },
+  );
+
+  it.each([false, true])("completes startup failure with connected=%s", (connected) => {
+    const runtime = { connected, exitCode: 0, disconnect: vi.fn(() => expect(runtime.exitCode).toBe(1)) };
+    completeDevSystemStartupFailure(runtime);
+    expect(runtime.exitCode).toBe(1);
+    expect(runtime.disconnect).toHaveBeenCalledTimes(connected ? 1 : 0);
+  });
+
+  it.each([false, true])("exits 1 within five seconds with a connected parent (owned=%s)", async (owned) => {
+    const directory = fixtureDirectory();
+    const fixture = path.join(directory, "ipc-launcher.mjs");
+    const launcherUrl = new URL("./dev-system-launch.mjs", import.meta.url).href;
+    writeFileSync(
+      fixture,
+      `
+import { completeDevSystemStartupFailure, createDevSystemLauncher } from ${JSON.stringify(launcherUrl)};
+let ownedCleaned = false;
+const launcher = createDevSystemLauncher({
+  children: ${owned ? "[{synthetic:true}]" : "[]"},
+  terminate() { ownedCleaned = true; },
+  spawn() { throw Object.assign(new Error("inert launch failure"), {code:"EINVAL",syscall:"spawn"}); },
+  logError() {},
+  onFailure: () => {
+    process.stdout.write(JSON.stringify({ownedCleaned,connected:process.connected}) + "\\n");
+    completeDevSystemStartupFailure();
+  },
+});
+process.once("message", () => launcher.launch({name:"worker",command:"synthetic-node"}, {env:{}}));
+process.send({ready:true});
+`,
+    );
+    const child = spawnCommand(process.execPath, [fixture], {
+      env: {},
+      inheritEnv: false,
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
+    });
+    realChildren.push(child);
+    let output = "";
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    await messageFrom(child);
+    expect(child.connected).toBe(true);
+    const start = performance.now();
+    const closed = closedWithin(child, 5_000);
+    child.send({ fail: true });
+    expect(await closed).toBe(1);
+    expect(performance.now() - start).toBeLessThan(5_000);
+    expect(JSON.parse(output)).toEqual({ ownedCleaned: owned, connected: true });
+  });
+
   it("continues owned cleanup and reports nonzero without leaking a cleanup exception", () => {
     const children = [fakeChild(), fakeChild()];
     const terminate = vi
@@ -262,7 +336,7 @@ describe("dev system launcher", () => {
       writeFileSync(
         fixture,
         `
-import { createDevSystemLauncher } from ${JSON.stringify(launcherUrl)};
+import { completeDevSystemStartupFailure, createDevSystemLauncher } from ${JSON.stringify(launcherUrl)};
 import { spawnCommand } from ${JSON.stringify(processUrl)};
 const children = [];
 const errors = [];
@@ -271,7 +345,7 @@ let descendantPid;
 let stoppedBeforeExit = false;
 const launcher = createDevSystemLauncher({ children, logError: line => errors.push(line), onFailure: () => {
   stoppedBeforeExit = children.every(child => !alive(child.pid)) && !alive(descendantPid);
-  process.exitCode = 1;
+  completeDevSystemStartupFailure();
 } });
 const rootCode = 'const {spawn}=require("node:child_process"); const c=spawn(process.execPath,["-e","process.send({ready:true});setInterval(()=>{},1000)"],{env:{},windowsHide:true,stdio:["ignore","ignore","ignore","ipc"]}); c.once("message",()=>process.send({descendantPid:c.pid})); setInterval(()=>{},1000)';
 const root = launcher.launch({name:"platform-api",command:process.execPath,args:["-e",rootCode]}, {env:{},inheritEnv:false,stdio:["ignore","ignore","ignore","ipc"]});
@@ -283,8 +357,7 @@ process.once("message", () => {
   catch(error) { errors.push(error.message); process.exitCode=1; }
   const later = launcher.launch({name:"later",command:process.execPath,args:["-e","setInterval(()=>{},1000)"]}, {env:{},inheritEnv:false});
   if(later) children.push(later);
-  process.send({stoppedBeforeExit,elapsed:performance.now()-threwAt,laterStarted:Boolean(later),errors});
-  process.disconnect();
+  process.stdout.write(JSON.stringify({stoppedBeforeExit,elapsed:performance.now()-threwAt,laterStarted:Boolean(later),errors}) + "\\n");
 });
 `,
       );
@@ -298,12 +371,15 @@ process.once("message", () => {
       const owned = await messageFrom(fixtureChild);
       expect(isAlive(owned.rootPid)).toBe(true);
       expect(isAlive(owned.descendantPid)).toBe(true);
-      const resultPromise = messageFrom(fixtureChild);
+      let output = "";
+      fixtureChild.stdout.on("data", (chunk) => {
+        output += chunk;
+      });
       const start = performance.now();
       const closed = closedWithin(fixtureChild, 5_000);
       fixtureChild.send({ fail: true });
-      const result = await resultPromise;
       const code = await closed;
+      const result = JSON.parse(output);
       expect({ code, stoppedBeforeExit: result.stoppedBeforeExit, laterStarted: result.laterStarted }).toEqual({
         code: 1,
         stoppedBeforeExit: true,
@@ -325,6 +401,7 @@ process.once("message", () => {
   it("preserves launcher admission, normal shutdown and readiness deadlines", () => {
     const source = readFileSync(new URL("./dev-system.mjs", import.meta.url), "utf8");
     expect(source).toContain("acquireDevSystemHeavySlot(mode, target, acquireHeavySlot);");
+    expect(source).toContain("shuttingDown = true;\n      completeDevSystemStartupFailure();");
     for (const signal of ["SIGINT", "SIGTERM"])
       expect(source).toContain(`process.once("${signal}", () => shutdown("${signal}", 0))`);
     expect(source).toContain('message.type === "browser-e2e-probe-shutdown"');

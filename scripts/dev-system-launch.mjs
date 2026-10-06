@@ -1,6 +1,11 @@
 import { buildPackageManagerInvocation, spawnCommand, terminateProcessTree } from "./lib/process.mjs";
 import { repoRoot } from "./lib/repo.mjs";
 
+export function completeDevSystemStartupFailure(runtime = process) {
+  runtime.exitCode = 1;
+  if (runtime.connected) runtime.disconnect();
+}
+
 export function createDevSystemLauncher({
   children = [],
   onFailure = () => {
@@ -44,7 +49,15 @@ export function createDevSystemLauncher({
             syscall,
           })}`,
         );
-        for (const frame of String(error?.stack ?? "")
+        const name = typeof error?.name === "string" ? error.name : "Error";
+        const message = typeof error?.message === "string" ? error.message : "";
+        const header = name && message ? `${name}: ${message}` : name || message;
+        const stack = typeof error?.stack === "string" ? error.stack : "";
+        const frames =
+          header && stack.startsWith(`${header}\n`)
+            ? stack.slice(header.length + 1)
+            : new Error().stack.split("\n").slice(1).join("\n");
+        for (const frame of frames
           .split("\n")
           .filter((line) => /^\s+at /.test(line))
           .slice(0, 6)) {
