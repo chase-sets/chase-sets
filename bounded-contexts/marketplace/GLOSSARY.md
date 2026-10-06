@@ -275,6 +275,10 @@ A **Review Response** is the single public response the reviewed account may att
 
 **Review Eligibility** is the order-lifecycle fact that determines whether a transaction can support directional feedback. Delivery establishes eligibility by default. A seller-responsible cancellation can establish buyer-to-seller eligibility without delivery once the cancellation is recorded; a buyer-caused, mutually agreed, external, or indeterminate cancellation does not automatically establish it.
 
+## Review Opportunity
+
+A **Review Opportunity** is Marketplace's canonical state for one direction of feedback on an Order. It combines Review Eligibility, the effective submission deadline, submission and hold state, and the active Review and its reveal instant when present. A Review Opportunity Fact publishes both directions without transferring ownership of eligibility, clock, hold, or reveal policy to consumers.
+
 ## Review Hold
 
 A **Review Hold** is Marketplace's order-scoped record that one or more review-affecting Support requests are open. Each request is identified by its stable Support request id and holds both review directions unless Support explicitly identifies narrower directions. The first open request places the affected directions on hold; further concurrent requests extend that hold without pausing time again; the final terminal request releases it. Duplicate, reordered, and replayed facts converge, including a terminal fact that arrives before its open fact. Reopening a terminal request with a later open timestamp starts a new hold.
