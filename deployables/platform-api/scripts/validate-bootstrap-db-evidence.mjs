@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 import { bootstrapDbEnrollmentManifest } from "./check-bootstrap-db-enrollment.mjs";
+import { captureCensusFiles } from "./b3-capture-census.mjs";
 
 const workspace = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const duration = (value) => Number.isFinite(value) && value >= 0;
@@ -15,6 +16,22 @@ export function validateBootstrapDbEvidence({ directory, manifest = bootstrapDbE
   const units = [];
   const reject = (message) => violations.push(message);
   if (Object.keys(manifest).length === 0) reject("evidence manifest is empty");
+  const censusEntries = Object.entries(manifest).filter(([, entry]) => "censusCaseNames" in entry);
+  if (censusEntries.length > 0) {
+    const expectedCensusNames = captureCensusFiles.map((file) => file.split("/").at(-1)).sort();
+    if (JSON.stringify(censusEntries.map(([file]) => file).sort()) !== JSON.stringify(expectedCensusNames))
+      reject("capture census must contain exactly the six admitted modules");
+    for (const [file, entry] of censusEntries) {
+      if (
+        entry.executionUnit !== "test:db:2" ||
+        !Array.isArray(entry.censusCaseNames) ||
+        entry.censusCaseNames.length === 0 ||
+        entry.censusCaseNames.some((name) => typeof name !== "string") ||
+        new Set(entry.censusCaseNames).size !== entry.censusCaseNames.length
+      )
+        reject(`${file}: invalid capture census cases or unit`);
+    }
+  }
   if (typeof expectedHead !== "string" || !/^[a-f0-9]{40}$/.test(expectedHead)) reject("expected head is invalid");
   const expectedUnits = [...new Set(Object.values(manifest).map((entry) => entry.executionUnit))];
   let names;
@@ -101,14 +118,19 @@ export function validateBootstrapDbEvidence({ directory, manifest = bootstrapDbE
       if (row.state !== "passed" || !Array.isArray(row.errors) || row.errors.length !== 0)
         reject(`${file}: module did not pass`);
       if (!duration(row.diagnostic?.duration)) reject(`${file}: module duration is missing`);
-      if (!Array.isArray(row.cases) || row.cases.length !== entry.cases.length) {
+      const expectedCaseNames = entry.censusCaseNames ?? entry.cases.map(({ name }) => name);
+      if (
+        !Array.isArray(expectedCaseNames) ||
+        !Array.isArray(row.cases) ||
+        row.cases.length !== expectedCaseNames.length
+      ) {
         reject(`${file}: case count differs`);
         continue;
       }
       for (const [index, test] of row.cases.entries()) {
         if (
           !test ||
-          test.name !== entry.cases[index].name ||
+          test.name !== expectedCaseNames[index] ||
           typeof test.fullName !== "string" ||
           test.result?.state !== "passed" ||
           !duration(test.durationMs) ||
