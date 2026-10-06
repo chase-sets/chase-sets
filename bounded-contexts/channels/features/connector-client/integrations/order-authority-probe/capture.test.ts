@@ -422,6 +422,7 @@ function receipt(reply: Reply) {
       }[];
     };
     vocabulary: {
+      availability: string;
       listStatus: { surface: string; key: string };
       detailStatus: { surface: string; key: string } | null;
       refundStatus: { present: boolean; type: string } | null;
@@ -804,6 +805,7 @@ describe("order-authority emitted package controls (synthetic, not provider auth
     }
     const assertAbsent = (result: ReturnType<typeof receipt>) =>
       expect(result.vocabulary[1]).toMatchObject({
+        availability: "absent",
         qualification: "unqualified",
         detailStatus: null,
         identityEquality: null,

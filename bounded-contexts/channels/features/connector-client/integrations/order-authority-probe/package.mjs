@@ -271,6 +271,8 @@ function assertReceipt(receipt, preparation) {
     "captured",
     "unqualified",
     "absent",
+    "selected",
+    "not-selected",
     "counts_pending",
     "length_mismatch",
     "page_not_closed",
@@ -400,6 +402,7 @@ function assertReceipt(receipt, preparation) {
     "type",
     "identityEquality",
     "requestIndex",
+    "availability",
     "completeness",
     "consistency",
     "snapshot",
@@ -580,10 +583,19 @@ function assertReceipt(receipt, preparation) {
       fail("export_schema_refused");
   }
   for (const [index, bucket] of receipt.vocabulary.entries()) {
-    closed(bucket, ["listStatus", "detailStatus", "refundStatus", "identityEquality", "requestIndex", "qualification"]);
+    closed(bucket, [
+      "listStatus",
+      "detailStatus",
+      "refundStatus",
+      "identityEquality",
+      "requestIndex",
+      "availability",
+      "qualification",
+    ]);
     status(bucket.listStatus, "list-display");
     if (
       bucket.listStatus.key !== buckets[index] ||
+      !["selected", "absent", "not-selected"].includes(bucket.availability) ||
       !["captured", "unqualified"].includes(bucket.qualification) ||
       ![null, true, false].includes(bucket.identityEquality)
     )
@@ -599,7 +611,8 @@ function assertReceipt(receipt, preparation) {
     }
     if (
       bucket.qualification === "captured" &&
-      (bucket.identityEquality !== true ||
+      (bucket.availability !== "selected" ||
+        bucket.identityEquality !== true ||
         bucket.detailStatus === null ||
         bucket.refundStatus === null ||
         !Number.isSafeInteger(bucket.requestIndex) ||
@@ -607,6 +620,15 @@ function assertReceipt(receipt, preparation) {
         receipt.requests[bucket.requestIndex]?.status !== 200 ||
         !receipt.requests[bucket.requestIndex]?.responseComplete ||
         receipt.requests[bucket.requestIndex]?.failure !== null)
+    )
+      fail("export_schema_refused");
+    if (
+      bucket.availability !== "selected" &&
+      (bucket.qualification !== "unqualified" ||
+        bucket.detailStatus !== null ||
+        bucket.identityEquality !== null ||
+        bucket.refundStatus !== null ||
+        bucket.requestIndex !== null)
     )
       fail("export_schema_refused");
   }

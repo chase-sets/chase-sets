@@ -512,6 +512,9 @@
 
   async function capture(state, selections) {
     if (state.phase !== "details") fail("invalid_message");
+    selections.forEach((selection, index) => {
+      state.vocabulary[index].availability = selection.orderNumber === null ? "absent" : "selected";
+    });
     selections.forEach((selection) => {
       if (selection.orderNumber !== null) state.privateValues.push(selection.orderNumber);
     });
@@ -584,6 +587,7 @@
           refundStatus: null,
           identityEquality: null,
           requestIndex: null,
+          availability: "not-selected",
           qualification: "unqualified",
         })),
       };
