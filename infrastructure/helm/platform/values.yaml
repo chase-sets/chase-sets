@@ -317,6 +317,8 @@ components:
         value: "open"
       - name: "CATALOG_INTEGRATION_REAPPLY_DISABLED"
         value: ""
+      - name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED"
+        value: "false"
       - name: "CHASE_SETS_INTERNAL_API_ORIGIN"
         value: "http://chase-sets-platform-chase-sets-platform-platform-api:8080"
       - name: "CHASE_SETS_RATE_LIMIT_AUTH_REGISTER_IP_MAX"
@@ -385,6 +387,9 @@ components:
       - name: "CHANNELS_CREDENTIAL_KEYRING_JSON"
         secret: true
         secretKey: "CHANNELS_CREDENTIAL_KEYRING_JSON"
+      - name: "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
+        secret: true
+        secretKey: "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
       - name: "DATABASE_URL_CHANNELS"
         secret: true
         secretKey: "DATABASE_URL_CHANNELS"
@@ -676,6 +681,8 @@ components:
         value: "open"
       - name: "CATALOG_INTEGRATION_REAPPLY_DISABLED"
         value: ""
+      - name: "CATALOG_PROVIDER_SEND_WINDOW_ENABLED"
+        value: "false"
       - name: "CHASE_SETS_MARKETPLACE_INDEXING"
         value: "false"
       - name: "CHASE_SETS_RUNTIME_PROFILE"
@@ -698,6 +705,9 @@ components:
       - name: "CHANNELS_CREDENTIAL_KEYRING_JSON"
         secret: true
         secretKey: "CHANNELS_CREDENTIAL_KEYRING_JSON"
+      - name: "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
+        secret: true
+        secretKey: "CATALOG_OPERATOR_SESSION_KEYRING_JSON"
       - name: "DATABASE_URL_CHANNELS"
         secret: true
         secretKey: "DATABASE_URL_CHANNELS"

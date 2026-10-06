@@ -6,6 +6,10 @@ import type { ReferenceDataServices } from "../../reference-data/api/runtime";
 import { createCatalogIntegrationRolloutControlPolicy } from "./governance/catalog-integration-rollout-controls";
 import { TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY } from "./provider-adapters/tcgplayer";
 import { createSourceObservationRuntime } from "./runtime";
+import { createSourceObservationProviderImportRuntime } from "./source-observation-provider-import-runtime";
+import { createSourceObservationMergeCandidateRuntime } from "./source-observation-merge-candidate-runtime";
+import { listCatalogProviderIntegrationOptionsFromProfiles } from "./providers/provider-option-query-resolver";
+import * as providerOptionQueries from "./providers/provider-option-queries";
 import {
   context,
   createActiveTcgplayerProfileVersions,
@@ -1130,6 +1134,217 @@ describe("source observation runtime: provider integration jobs", () => {
     });
   });
 
+  it("enumerates unscoped TCGplayer set-name import targets from the provider set list", async () => {
+    const tcgplayerHarness = createTcgplayerImportHarness();
+    const listCatalogSetNames = vi.fn(
+      async (input: Parameters<typeof tcgplayerHarness.client.listCatalogSetNames>[0]) => {
+        const response = await tcgplayerHarness.client.listCatalogSetNames(input);
+        const first = response.results[0]!;
+        return {
+          ...response,
+          results: [
+            first,
+            { ...first, setNameId: 7002, name: "Synthetic Second Set (Display)", cleanSetName: "Synthetic Second Set" },
+            {
+              ...first,
+              setNameId: 7003,
+              name: "Synthetic Inactive Set",
+              cleanSetName: "Synthetic Inactive Set",
+              active: false,
+            },
+          ],
+        };
+      },
+    );
+    const listAllProducts = vi.fn(tcgplayerHarness.client.listAllProducts);
+    const harness = createIntegrationJobClaimHandoffHarness({
+      scope: { provider: "tcgplayer", productLineId: "3" },
+      renewSucceeds: true,
+      tcgplayerAutomationCatalogClient: { ...tcgplayerHarness.client, listCatalogSetNames, listAllProducts },
+    });
+    const profileVersions = createActiveTcgplayerProfileVersions();
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      harness.referenceData,
+      profileVersions,
+    );
+
+    const preview = await services.previewIntegrationImport({
+      scope: { provider: "tcgplayer", productLineId: "3" },
+      context,
+    });
+    expect(preview.targetCount).toBe(2);
+    expect(preview.targets.map(({ targetId, name }) => ({ targetId, name }))).toEqual([
+      { targetId: "set:3:Prismatic Evolutions", name: "Prismatic Evolutions" },
+      { targetId: "set:3:Synthetic Second Set", name: "Synthetic Second Set (Display)" },
+    ]);
+    expect(listCatalogSetNames).toHaveBeenCalledTimes(1);
+    expect(listCatalogSetNames).toHaveBeenCalledWith({ categoryId: 3 });
+    expect(listAllProducts).not.toHaveBeenCalled();
+    const options = await services.listIntegrationOptions({
+      providerKey: "tcgplayer",
+      queryKind: "set-names",
+      parentValue: "3",
+    });
+    expect(options.map((option) => option.value)).toEqual(
+      preview.targets.map((target) => target.targetId.slice("set:3:".length)),
+    );
+    expect(options.map((option) => option.metadata.active)).toEqual([true, true]);
+    expect(options.map((option) => option.metadata.setNameId)).toEqual([7001, 7002]);
+
+    await expect(services.processNextIntegrationJob({ claimOwnerId: "worker-1", claimTtlMs: 120_000 })).resolves.toBe(
+      1,
+    );
+    expect(harness.job.result).toMatchObject({ requested: 2, imported: 1, observed: 2, failed: 0 });
+    expect(harness.job.progress).toMatchObject({ completed: 1, total: 2 });
+    expect(harness.appendedSourceEvents).toHaveLength(2);
+    expect(listAllProducts).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filters: { term: { productLineName: ["Pokemon"], setName: ["Prismatic Evolutions"] } },
+      }),
+    );
+
+    listCatalogSetNames.mockClear();
+    const scopedPreview = await services.previewIntegrationImport({
+      scope: { provider: "tcgplayer", productLineId: "3", setName: "Prismatic Evolutions" },
+      context,
+    });
+    expect(scopedPreview.targetCount).toBe(1);
+    expect(scopedPreview.targets[0]?.targetId).toBe("set:3:Prismatic Evolutions");
+    expect(listCatalogSetNames).not.toHaveBeenCalled();
+    const profileVersion = await profileVersions.getActiveProfileVersion("tcgplayer");
+    expect(
+      await listCatalogProviderIntegrationOptionsFromProfiles({
+        profiles: [profileVersion!.profile],
+        providerKey: "tcgplayer",
+        defaultProviderKey: "tcgplayer",
+        queryKind: "set-names",
+        parentValue: "3",
+        transports: { listTcgplayerSetNames: async () => [{ cleanSetName: "Synthetic Missing Name", active: true }] },
+      }),
+    ).toEqual([]);
+
+    const normalizedRefeed = vi
+      .spyOn(providerOptionQueries, "tcgplayerSetNameOptionRecord")
+      .mockImplementation((item) => ({
+        value: item.value,
+        label: item.label,
+        parentValue: item.parentValue ?? "3",
+        aliases: providerOptionQueries.providerOptionAliasesToJson(item.aliases),
+        ...item.metadata,
+      }));
+    try {
+      const mutantPreview = await services.previewIntegrationImport({
+        scope: { provider: "tcgplayer", productLineId: "3" },
+        context,
+      });
+      expect(normalizedRefeed).toHaveBeenCalledTimes(2);
+      expect(mutantPreview.targetCount).toBe(0);
+      expect(mutantPreview.targetCount).not.toBe(preview.targetCount);
+    } finally {
+      normalizedRefeed.mockRestore();
+    }
+  });
+
+  it("enumerates unscoped TCGdex expansion import targets from the provider expansion list", async () => {
+    const originalFetch = globalThis.fetch;
+    let seriesId = "synthetic-series";
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) !== "https://api.tcgdex.net/v2/en/series/synthetic-series") {
+        throw new Error(`Unexpected synthetic TCGdex request: ${String(input)}`);
+      }
+      return jsonResponse({
+        id: seriesId,
+        name: "Synthetic Series",
+        sets: [
+          { id: "synthetic-set-a", name: "Synthetic Expansion A" },
+          { id: "synthetic-set-b", name: "Synthetic Expansion B" },
+        ],
+      });
+    });
+    globalThis.fetch = fetch as typeof globalThis.fetch;
+    try {
+      const harness = createIntegrationJobClaimHandoffHarness();
+      const profileVersions = createActiveTcgplayerProfileVersions();
+      const items = {} as CatalogItemServices;
+      const services = createSourceObservationRuntime(harness.deps, items, harness.referenceData, profileVersions);
+      const scope = { provider: "tcgdex", language: "en", seriesId: "synthetic-series" } as const;
+      const preview = await services.previewIntegrationImport({ scope, context });
+      expect(preview.targetCount).toBe(2);
+      expect(preview.targets.map(({ targetId, name, languageCode }) => ({ targetId, name, languageCode }))).toEqual([
+        { targetId: "synthetic-set-a", name: "Synthetic Expansion A", languageCode: "en" },
+        { targetId: "synthetic-set-b", name: "Synthetic Expansion B", languageCode: "en" },
+      ]);
+      expect(fetch).toHaveBeenCalledTimes(1);
+
+      const providerImport = createSourceObservationProviderImportRuntime({
+        deps: harness.deps,
+        items,
+        referenceData: harness.referenceData,
+        aliasCandidateSink: vi.fn(async () => undefined),
+        commandHandler: services.commandHandler,
+        providerAdapterRegistry: services.providerAdapterRegistry,
+        mergeCandidates: createSourceObservationMergeCandidateRuntime({ deps: harness.deps, profileVersions }),
+      });
+      const profileVersion = currentTcgdexProfileVersion();
+      const targets = await providerImport.resolveProviderAdapterImportTargets(scope, profileVersion);
+      expect(targets.map((target) => target.values)).toEqual([
+        { languageCode: "en", setId: "synthetic-set-a", expansionId: "synthetic-set-a", seriesId: "synthetic-series" },
+        { languageCode: "en", setId: "synthetic-set-b", expansionId: "synthetic-set-b", seriesId: "synthetic-series" },
+      ]);
+      seriesId = "synthetic-wrong-series";
+      const wrongParentTargets = await providerImport.resolveProviderAdapterImportTargets(scope, profileVersion);
+      expect(wrongParentTargets.map((target) => target.values.seriesId)).toEqual([
+        "synthetic-wrong-series",
+        "synthetic-wrong-series",
+      ]);
+      expect(wrongParentTargets.map((target) => target.values)).not.toEqual(targets.map((target) => target.values));
+
+      fetch.mockClear();
+      const scopedPreview = await services.previewIntegrationImport({
+        scope: { ...scope, setId: "synthetic-set-a" },
+        context,
+      });
+      expect(scopedPreview.targetCount).toBe(1);
+      expect(scopedPreview.targets[0]?.targetId).toBe("synthetic-set-a");
+      expect(fetch).not.toHaveBeenCalled();
+      expect(
+        await listCatalogProviderIntegrationOptionsFromProfiles({
+          profiles: [profileVersion.profile],
+          providerKey: "tcgdex",
+          defaultProviderKey: "tcgdex",
+          queryKind: "expansions",
+          languageCode: "en",
+          parentValue: "synthetic-series",
+          transports: {
+            listTcgdexExpansions: async () => [{ expansionId: "synthetic-missing-name", seriesId: "synthetic-series" }],
+          },
+        }),
+      ).toEqual([]);
+
+      const normalizedRefeed = vi
+        .spyOn(providerOptionQueries, "tcgdexExpansionOptionRecord")
+        .mockImplementation((item) => ({
+          value: item.value,
+          label: item.label,
+          parentValue: item.parentValue ?? "synthetic-series",
+          aliases: providerOptionQueries.providerOptionAliasesToJson(item.aliases),
+          ...item.metadata,
+        }));
+      try {
+        const mutantPreview = await services.previewIntegrationImport({ scope, context });
+        expect(normalizedRefeed).toHaveBeenCalledTimes(2);
+        expect(mutantPreview.targetCount).toBe(0);
+        expect(mutantPreview.targetCount).not.toBe(preview.targetCount);
+      } finally {
+        normalizedRefeed.mockRestore();
+      }
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("processes queued TCGplayer imports through the durable integration worker", async () => {
     const tcgplayerHarness = createTcgplayerImportHarness();
     const harness = createIntegrationJobClaimHandoffHarness({
@@ -1893,7 +2108,7 @@ describe("source observation runtime: provider integration jobs", () => {
             estimateState: "estimate-unavailable",
             estimatedRequestCount: null,
             estimateReason:
-              "Card page count is available only after the first Scrydex paged search response; set imports use q=printings:<set> to include reprints.",
+              "Card page count requires a fresh completed exact-query Scrydex count observation; set imports use q=printings:<set> to include reprints.",
             actualRequestCount: 1,
             pageCount: 1,
             cacheHitCount: null,

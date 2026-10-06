@@ -30,12 +30,14 @@ export type RoleAssignmentAuthority =
   | Readonly<{ type: "system" }>
   | Readonly<{ type: "platform-bootstrap" }>;
 export type PermissionKey =
+  | "provider-connections.view"
   | "accounts.manage"
   | "accounts.view"
   | "catalog.manage"
   | "catalog.view"
   | "channels.manage"
   | "channels.view"
+  | "commercial-terms.agreements.manage"
   | "commercial-terms.manage"
   | "commercial-terms.view"
   | "fulfillment.manage"
@@ -61,6 +63,7 @@ export type PermissionKey =
   | "orders.view"
   | "payouts.manage"
   | "payouts.reconcile"
+  | "payouts.platform.view"
   | "payouts.request"
   | "payouts.setup"
   | "payouts.view"

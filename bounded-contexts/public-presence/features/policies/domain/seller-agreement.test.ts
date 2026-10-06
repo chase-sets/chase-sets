@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { termsOfServicePolicyArtifact } from "./terms-of-service";
 import {
   evaluateSellerAgreementPublicationReadiness,
   requiredSellerAgreementSubjectIds,
@@ -62,6 +63,22 @@ function sellerAgreementIdentityCitations() {
 }
 
 describe("Seller Agreement policy artifact", () => {
+  it("matches Terms entity, state, courts and mailing address, retaining only the notice-email placeholder", () => {
+    const seller = sellerAgreementPolicyArtifact.sections.find(({ id }) => id === "governing-law")!;
+    const terms = termsOfServicePolicyArtifact.sections.find(({ id }) => id === "governing-law-and-forum")!;
+    for (const pattern of [
+      /Chase Sets Limited, registered in Wichita, Kansas/,
+      /laws of the State of Kansas/,
+      /state and federal courts located in Kansas/,
+      /Chase Sets Limited, PO Box 164, Maize, KS 67101-0164, US, or to \[NOTICE-EMAIL\]/,
+    ]) {
+      expect(seller.draftText.match(pattern)?.[0]).toBe(terms.draftText.match(pattern)?.[0]);
+      expect(seller.draftText).toMatch(pattern);
+    }
+    expect(seller.draftText.match(/\[[A-Z-]+\]/g)).toEqual(terms.draftText.match(/\[[A-Z-]+\]/g));
+    expect(seller.reviewManifest.decisionRefs).toContain(5677);
+    expect(seller.reviewManifest.openQuestions.join(" ")).toContain("[NOTICE-EMAIL]");
+  });
   it.each(sellerAgreementIdentityCitations())("resolves the $name citation to its claimed Identity symbols", (row) => {
     const source = resolveIdentityCitation(row.reference);
     for (const symbol of row.symbols) {
@@ -122,12 +139,16 @@ describe("Seller Agreement policy artifact", () => {
     }
   });
 
-  it("keeps commercial policy figures out of prose everywhere except the fixed dispute-resolution mechanics", () => {
+  it("keeps commercial policy figures out of prose apart from fixed dispute mechanics and the ruled postal address", () => {
     for (const section of sellerAgreementPolicyArtifact.sections) {
       if (section.id === "dispute-resolution") {
         continue;
       }
-      expect(section.draftText).not.toMatch(/\d/);
+      const prose =
+        section.id === "governing-law"
+          ? section.draftText.replace("PO Box 164, Maize, KS 67101-0164", "the ruled postal address")
+          : section.draftText;
+      expect(prose).not.toMatch(/\d/);
     }
   });
 

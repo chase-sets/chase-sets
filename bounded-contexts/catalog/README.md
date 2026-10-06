@@ -46,6 +46,12 @@ The v2 integration control-plane IA — three pages, two utilities, and the per-
 
 ## Owns
 
+The [TCGplayer Operator Extension](../../deployables/tcgplayer-operator-extension/README.md)
+composes Catalog's operator-session background and sandboxed popup through
+`./client`. Relay behavior, local records, transport, UI and tests live in the
+operator-session slice, not in the deployable. The existing grant/custody
+server remains the only writer of platform custody.
+
 - Canonical `catalog_item_id` identity
 - Dimension definitions and their Options
 - Blueprint-driven product resolution rules
@@ -65,6 +71,12 @@ The v2 integration control-plane IA — three pages, two utilities, and the per-
 - Catalog Aliases and Alias Candidates: the reviewable, typed, confidence-scored alias facts and the auto-accept, revocation, and decay policy published to downstream contexts
 - Resolved Aliases: the Catalog-owned per-target, per-language published alias fact derived from accepted aliases, published to downstream search and display
 - Product Contents: the Catalog-owned relationship describing what one configured Product contains, published to downstream contexts as a stable resolved fact
+
+The `operator-session` slice owns encrypted TCGplayer Operator Session custody for Todd's automation. Each request resolves the retained row; stored custody wins over the environment, unreadable custody fails closed, and cleared custody restores fallback without erasing its revision fence. It does not establish provider authentication or session expiry.
+
+Operator Session Push Grants use `/api/catalog/operator-session` for Admin metadata and Disconnect, with direct mint at `/grant`. Admin mutations require `catalog.manage`, the platform-admin role, same-origin requests, and authentication within ten minutes. The separate public mount `/api/public/catalog/operator-session` accepts only a narrow bearer for `PUT /tcgplayer` and `DELETE /grant`; it grants no Admin or cookie authority.
+
+The grant lock and custody SQL share one physical PostgreSQL backend. PUT commits custody acceptance and conditional idle renewal atomically, including renewal for stale and unchanged outcomes. A lost COMMIT acknowledgement returns a bounded 503 with an indeterminate outcome, never an automatic server retry or a no-write promise. Disconnect deliberately commits revoke before its fresh fenced clear. The existing retained revision governs every later request. Per-replica admission is bounded to four operations, 120 requests/minute, and six PUTs/minute per valid grant; these are not distributed quotas.
 
 ## Does Not Own
 

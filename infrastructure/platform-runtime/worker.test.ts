@@ -8,6 +8,8 @@ import {
   createDurableJobLaneRunners,
   createWorkerRunnerLoop,
   DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS,
+  type WorkerHolderLifecycleEvent,
+  type WorkerRuntimeObserver,
   type WorkerRunner,
 } from "./worker";
 
@@ -39,6 +41,596 @@ describe("durable job lane runners", () => {
 });
 
 describe("worker runner loop", () => {
+  it("holder observation preserves worker lifecycle", async () => {
+    vi.useFakeTimers();
+    try {
+      const runScenario = async (observer?: WorkerRuntimeObserver) => {
+        const trace: string[] = [];
+        const errors: string[] = [];
+        const outcomes: Array<Parameters<PlatformControlPlane["recordRunnerStatus"]>[0]> = [];
+        const sequences = [[1, 1, 0], [1, new Error("synthetic pass failure"), 0], [0]];
+        const runners: WorkerRunner[] = sequences.map((sequence, runnerIndex) => {
+          let pass = 0;
+          return {
+            name: `synthetic.runner-${runnerIndex}`,
+            kind: runnerIndex === 2 ? "job" : "projection-group",
+            runOnce: async () => {
+              trace.push(`run:${runnerIndex}#${pass}`);
+              const result = sequence[pass++] ?? 0;
+              if (result instanceof Error) throw result;
+              return { processed: result, lastGlobalPosition: "1" as never };
+            },
+          };
+        });
+        const controlPlane = createAlwaysLeasedControlPlane({
+          acquireLease: async (input) => {
+            trace.push(`acquire:${input.leaseName}`);
+            return {
+              leaseName: input.leaseName,
+              ownerId: input.ownerId,
+              fencingToken: "1",
+              expiresAt: new Date(Date.now() + input.ttlMs).toISOString(),
+            };
+          },
+          releaseLease: async (lease) => {
+            trace.push(`release:${lease.leaseName}`);
+          },
+          recordRunnerStatus: async (status) => {
+            outcomes.push(status);
+          },
+        });
+        const loop = createWorkerRunnerLoop({
+          workerId: "synthetic-worker",
+          controlPlane,
+          runners,
+          maxConcurrentRunners: 1,
+          leaseTtlMs: 60_000,
+          leaseRenewIntervalMs: 60_000,
+          pollIntervalMs: 1,
+          failureBackoffBaseMs: 0,
+          observer,
+          onError: (error) => {
+            errors.push(error instanceof Error ? error.message : String(error));
+          },
+        });
+        loop.start();
+        try {
+          await vi.advanceTimersByTimeAsync(20);
+        } finally {
+          await loop.stop();
+        }
+        expect(trace).toEqual(expect.arrayContaining(["run:0#2", "run:1#2", "run:2#0"]));
+        expect(outcomes).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ runnerName: "synthetic.runner-0", state: "caught-up", lastProcessed: 0 }),
+            expect.objectContaining({
+              runnerName: "synthetic.runner-1",
+              state: "error",
+              lastError: "synthetic pass failure",
+            }),
+            expect.objectContaining({ runnerName: "synthetic.runner-1", state: "caught-up", lastProcessed: 0 }),
+          ]),
+        );
+        return { trace, errors, outcomes };
+      };
+      const baseline = await runScenario();
+      const observations: WorkerHolderLifecycleEvent[] = [];
+      const recording = await runScenario({
+        holderLifecycle: (event) => {
+          observations.push(event);
+        },
+      });
+      const throwing = await runScenario({
+        holderLifecycle: () => {
+          throw new Error("synthetic observer failure");
+        },
+      });
+      expect(observations.length).toBeGreaterThan(0);
+      expect(recording).toEqual(baseline);
+      expect(throwing.trace).toEqual(baseline.trace);
+      expect(throwing.outcomes).toEqual(baseline.outcomes);
+      expect(throwing.errors.filter((error) => error !== "synthetic observer failure")).toEqual(baseline.errors);
+      expect(throwing.errors.filter((error) => error === "synthetic observer failure")).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("observes projection-group holder intervals", async () => {
+    const events: WorkerHolderLifecycleEvent[] = [];
+    const runGate = holderTestGate();
+    const statusGate = holderTestGate();
+    const statusCalls: string[] = [];
+    const names = ["synthetic.holder-a", "synthetic.holder-b"];
+    const runners: WorkerRunner[] = names.map((name) => {
+      let passes = 0;
+      return {
+        name,
+        kind: "projection-group",
+        runOnce: async (context) => {
+          if (++passes === 1) await runGate.promise;
+          else await holderTestAbort(context);
+          return { processed: 1, lastGlobalPosition: "1" as never };
+        },
+      };
+    });
+    const loop = createWorkerRunnerLoop({
+      workerId: "synthetic-worker",
+      controlPlane: createAlwaysLeasedControlPlane({
+        recordRunnerStatus: async (status) => {
+          if (status.lastProcessed === 1) {
+            statusCalls.push(status.runnerName);
+            await statusGate.promise;
+          }
+        },
+      }),
+      runners,
+      maxConcurrentRunners: 2,
+      leaseTtlMs: 60_000,
+      leaseRenewIntervalMs: 60_000,
+      pollIntervalMs: 5,
+      observer: {
+        holderLifecycle: (event) => {
+          events.push(event);
+        },
+      },
+    });
+    loop.start();
+    try {
+      await vi.waitFor(() => expect(events.filter((event) => event.phase === "run-start")).toHaveLength(2));
+      for (const name of names) {
+        expect(events.filter((event) => event.runnerName === name).map((event) => event.phase)).toEqual([
+          "acquired",
+          "pass-start",
+          "run-start",
+        ]);
+      }
+      runGate.resolve();
+      await vi.waitFor(() => expect(statusCalls).toHaveLength(2));
+      for (const name of names) {
+        expect(events.filter((event) => event.runnerName === name).map((event) => event.phase)).toEqual([
+          "acquired",
+          "pass-start",
+          "run-start",
+          "run-end",
+        ]);
+      }
+      statusGate.resolve();
+      await vi.waitFor(() => expect(events.filter((event) => event.phase === "run-start")).toHaveLength(4));
+      const acquired = events.filter((event) => event.phase === "acquired");
+      expect(new Set(acquired.map((event) => event.leaseIntervalId))).toHaveLength(2);
+      for (const acquisition of acquired) {
+        const interval = events.filter((event) => event.leaseIntervalId === acquisition.leaseIntervalId);
+        expect(interval.every((event) => event.runnerName === acquisition.runnerName)).toBe(true);
+        expect(events.filter((event) => event.runnerName === acquisition.runnerName)).toEqual(interval);
+        expect(interval).toMatchObject([
+          { phase: "acquired" },
+          { phase: "pass-start", passSeq: 1 },
+          { phase: "run-start", passSeq: 1 },
+          { phase: "run-end", passSeq: 1, outcome: "success" },
+          { phase: "pass-end", passSeq: 1, outcome: "success", disposition: "retained", processed: 1 },
+          { phase: "pass-start", passSeq: 2 },
+          { phase: "run-start", passSeq: 2 },
+        ]);
+      }
+    } finally {
+      runGate.resolve();
+      statusGate.resolve();
+      await loop.stop();
+    }
+    for (const name of names) {
+      expect(events.filter((event) => event.runnerName === name).slice(-3)).toMatchObject([
+        { phase: "run-end", outcome: "cancelled" },
+        { phase: "pass-end", outcome: "cancelled", disposition: "release-pending" },
+        { phase: "released", reason: "stop" },
+      ]);
+    }
+    expect(events.every((event) => Number.isFinite(Date.parse(event.timestamp)) && event.elapsedMs >= 0)).toBe(true);
+  });
+
+  it("observes idle yield and a fresh holder interval on reacquisition", async () => {
+    const events: WorkerHolderLifecycleEvent[] = [];
+    let passes = 0;
+    const loop = createWorkerRunnerLoop({
+      workerId: "synthetic-worker",
+      controlPlane: createAlwaysLeasedControlPlane(),
+      runners: [
+        {
+          name: "synthetic.holder-idle",
+          kind: "projection-group",
+          runOnce: async (context) => {
+            if (++passes > 1) await holderTestAbort(context);
+            return { processed: 0, lastGlobalPosition: "0" as never };
+          },
+        },
+      ],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 60_000,
+      leaseRenewIntervalMs: 60_000,
+      pollIntervalMs: 5,
+      observer: {
+        holderLifecycle: (event) => {
+          events.push(event);
+        },
+      },
+    });
+    loop.start();
+    try {
+      await vi.waitFor(() => expect(events.filter((event) => event.phase === "run-start")).toHaveLength(2));
+      const [first, second] = events.filter((event) => event.phase === "acquired");
+      expect(first).toBeDefined();
+      expect(second).toBeDefined();
+      expect(second?.leaseIntervalId).not.toBe(first?.leaseIntervalId);
+      expect(events.filter((event) => event.leaseIntervalId === first?.leaseIntervalId)).toMatchObject([
+        { phase: "acquired" },
+        { phase: "pass-start", passSeq: 1 },
+        { phase: "run-start", passSeq: 1 },
+        { phase: "run-end", outcome: "success" },
+        { phase: "pass-end", outcome: "success", disposition: "release-pending", processed: 0 },
+        { phase: "released", reason: "idle" },
+      ]);
+      expect(events.slice(6)).toMatchObject([
+        { phase: "acquired", leaseIntervalId: second?.leaseIntervalId },
+        { phase: "pass-start", passSeq: 1, leaseIntervalId: second?.leaseIntervalId },
+        { phase: "run-start", passSeq: 1, leaseIntervalId: second?.leaseIntervalId },
+      ]);
+    } finally {
+      await loop.stop();
+    }
+  });
+
+  it("observes renewal loss during a run and a new lease incarnation", async () => {
+    const events: WorkerHolderLifecycleEvent[] = [];
+    let renewals = 0;
+    const loop = createWorkerRunnerLoop({
+      workerId: "synthetic-worker",
+      controlPlane: createAlwaysLeasedControlPlane({ renewLease: async () => ++renewals > 1 }),
+      runners: [
+        {
+          name: "synthetic.holder-renewal-loss",
+          kind: "projection-group",
+          runOnce: async (context) => {
+            await holderTestAbort(context);
+            return { processed: 1, lastGlobalPosition: "1" as never };
+          },
+        },
+      ],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 60_000,
+      leaseRenewIntervalMs: 5,
+      pollIntervalMs: 5,
+      observer: {
+        holderLifecycle: (event) => {
+          events.push(event);
+        },
+      },
+    });
+    loop.start();
+    try {
+      await vi.waitFor(() => expect(events.filter((event) => event.phase === "run-start")).toHaveLength(2));
+      const [first, second] = events.filter((event) => event.phase === "acquired");
+      expect(first).toBeDefined();
+      expect(second).toBeDefined();
+      expect(second?.leaseIntervalId).not.toBe(first?.leaseIntervalId);
+      expect(events.filter((event) => event.leaseIntervalId === first?.leaseIntervalId)).toMatchObject([
+        { phase: "acquired" },
+        { phase: "pass-start", passSeq: 1 },
+        { phase: "run-start", passSeq: 1 },
+        { phase: "lost", reason: "renewal-loss" },
+        { phase: "run-end", outcome: "lease-lost" },
+        { phase: "pass-end", outcome: "lease-lost", disposition: "lost" },
+        { phase: "released", reason: "renewal-loss" },
+      ]);
+      expect(events.slice(7)).toMatchObject([
+        { phase: "acquired", leaseIntervalId: second?.leaseIntervalId },
+        { phase: "pass-start", passSeq: 1, leaseIntervalId: second?.leaseIntervalId },
+        { phase: "run-start", passSeq: 1, leaseIntervalId: second?.leaseIntervalId },
+      ]);
+    } finally {
+      await loop.stop();
+    }
+  });
+
+  it("observes failed idle release without a false released boundary", async () => {
+    const events: WorkerHolderLifecycleEvent[] = [];
+    const failure = new Error("synthetic release failure");
+    const onError = vi.fn();
+    const loop = createWorkerRunnerLoop({
+      workerId: "synthetic-worker",
+      controlPlane: createAlwaysLeasedControlPlane({
+        releaseLease: async () => {
+          throw failure;
+        },
+      }),
+      runners: [
+        {
+          name: "synthetic.holder-failed-release",
+          kind: "projection-group",
+          runOnce: async () => ({ processed: 0, lastGlobalPosition: "0" as never }),
+        },
+      ],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 60_000,
+      leaseRenewIntervalMs: 60_000,
+      pollIntervalMs: 60_000,
+      observer: {
+        holderLifecycle: (event) => {
+          events.push(event);
+        },
+      },
+      onError,
+    });
+    loop.start();
+    try {
+      await vi.waitFor(() => expect(onError).toHaveBeenCalledWith(failure, expect.anything()));
+      expect(events).toMatchObject([
+        { phase: "acquired" },
+        { phase: "pass-start", passSeq: 1 },
+        { phase: "run-start", passSeq: 1 },
+        { phase: "run-end", outcome: "success" },
+        { phase: "pass-end", outcome: "success", disposition: "release-pending", processed: 0 },
+        { phase: "release-failed", reason: "idle" },
+      ]);
+    } finally {
+      await loop.stop();
+    }
+    expect(new Set(events.map((event) => event.leaseIntervalId))).toHaveLength(1);
+    expect(events.some((event) => event.phase === "released")).toBe(false);
+  });
+
+  it("deduplicates stale-lease release while idle release is in flight", async () => {
+    const events: WorkerHolderLifecycleEvent[] = [];
+    const releaseGate = holderTestGate();
+    const releaseLease = vi.fn(async () => releaseGate.promise);
+    let passes = 0;
+    const loop = createWorkerRunnerLoop({
+      workerId: "synthetic-worker",
+      controlPlane: createAlwaysLeasedControlPlane({ releaseLease }),
+      runners: [
+        {
+          name: "synthetic.holder-stale",
+          kind: "projection-group",
+          runOnce: async (context) => {
+            if (++passes > 1) await holderTestAbort(context);
+            return { processed: 0, lastGlobalPosition: "0" as never };
+          },
+        },
+      ],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 60_000,
+      leaseRenewIntervalMs: 60_000,
+      pollIntervalMs: 60_000,
+      observer: {
+        holderLifecycle: (event) => {
+          events.push(event);
+        },
+      },
+    });
+    loop.start();
+    try {
+      await vi.waitFor(() => expect(releaseLease).toHaveBeenCalledTimes(1));
+      expect(loop.status().activeRunnerCount).toBe(0);
+      loop.nudge();
+      await vi.waitFor(() => expect(loop.status().activeRunnerCount).toBe(1));
+      expect(events.map((event) => event.phase)).toEqual([
+        "acquired",
+        "pass-start",
+        "run-start",
+        "run-end",
+        "pass-end",
+      ]);
+      releaseGate.resolve();
+      await vi.waitFor(() => expect(events.filter((event) => event.phase === "run-start")).toHaveLength(2));
+      expect(releaseLease).toHaveBeenCalledTimes(1);
+      const firstId = events[0]?.leaseIntervalId;
+      expect(events.filter((event) => event.leaseIntervalId === firstId)).toMatchObject([
+        { phase: "acquired" },
+        { phase: "pass-start" },
+        { phase: "run-start" },
+        { phase: "run-end", outcome: "success" },
+        { phase: "pass-end", disposition: "release-pending", processed: 0 },
+        { phase: "released", reason: "idle" },
+      ]);
+    } finally {
+      releaseGate.resolve();
+      await loop.stop();
+    }
+    const terminals = events.filter(
+      (event) =>
+        event.leaseIntervalId === events[0]?.leaseIntervalId &&
+        (event.phase === "released" || event.phase === "release-failed"),
+    );
+    expect(terminals).toHaveLength(1);
+    expect(terminals[0]).toMatchObject({ phase: "released", reason: "idle" });
+  });
+
+  it("distinguishes retained and blocked synthetic holder intervals", async () => {
+    const controls = new Map<string, WorkerHolderLifecycleEvent[]>();
+    for (const mode of ["retained", "blocked"] as const) {
+      const events: WorkerHolderLifecycleEvent[] = [];
+      controls.set(mode, events);
+      let passes = 0;
+      const loop = createWorkerRunnerLoop({
+        workerId: "synthetic-worker",
+        controlPlane: createAlwaysLeasedControlPlane(),
+        runners: [
+          {
+            name: `synthetic.holder-${mode}`,
+            kind: "projection-group",
+            runOnce: async (context) => {
+              if (++passes > 1 || mode === "blocked") await holderTestAbort(context);
+              return { processed: 1, lastGlobalPosition: "1" as never };
+            },
+          },
+        ],
+        maxConcurrentRunners: 1,
+        leaseTtlMs: 60_000,
+        leaseRenewIntervalMs: 60_000,
+        pollIntervalMs: 60_000,
+        observer: {
+          holderLifecycle: (event) => {
+            events.push(event);
+          },
+        },
+      });
+      loop.start();
+      try {
+        await vi.waitFor(() =>
+          expect(events.filter((event) => event.phase === "run-start")).toHaveLength(mode === "retained" ? 2 : 1),
+        );
+        if (mode === "retained") {
+          expect(events.map((event) => event.phase)).toEqual([
+            "acquired",
+            "pass-start",
+            "run-start",
+            "run-end",
+            "pass-end",
+            "pass-start",
+            "run-start",
+          ]);
+          const end = events[4];
+          const next = events[5];
+          expect(end).toMatchObject({ phase: "pass-end", disposition: "retained", passSeq: 1 });
+          expect(next).toMatchObject({ phase: "pass-start", passSeq: 2, leaseIntervalId: end?.leaseIntervalId });
+          expect(next!.elapsedMs).toBeGreaterThan(end!.elapsedMs);
+        } else {
+          expect(events.map((event) => event.phase)).toEqual(["acquired", "pass-start", "run-start"]);
+        }
+      } finally {
+        await loop.stop();
+      }
+      expect(events.slice(-3)).toMatchObject([
+        { phase: "run-end", outcome: "cancelled" },
+        { phase: "pass-end", outcome: "cancelled", disposition: "release-pending" },
+        { phase: "released", reason: "stop" },
+      ]);
+      expect(events.filter((event) => event.phase === "pass-end" && event.outcome === "cancelled")).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ disposition: "retained" })]),
+      );
+    }
+    expect(
+      controls.get("retained")?.filter((event) => event.phase === "pass-end" && event.disposition === "retained"),
+    ).toHaveLength(1);
+    expect(
+      controls.get("blocked")?.filter((event) => event.phase === "pass-end" && event.disposition === "retained"),
+    ).toHaveLength(0);
+  });
+
+  it("keeps holder observation silent for non-projection runners", async () => {
+    const holderLifecycle = vi.fn();
+    const runOnce = vi.fn(async (context?: ProjectionRunContext) => {
+      await holderTestAbort(context);
+      return { processed: 0, lastGlobalPosition: "0" as never };
+    });
+    const loop = createWorkerRunnerLoop({
+      workerId: "synthetic-worker",
+      controlPlane: createAlwaysLeasedControlPlane(),
+      runners: [{ name: "synthetic.job", kind: "job", runOnce }],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 60_000,
+      leaseRenewIntervalMs: 60_000,
+      pollIntervalMs: 60_000,
+      observer: { holderLifecycle },
+    });
+    loop.start();
+    try {
+      await vi.waitFor(() => expect(runOnce).toHaveBeenCalledTimes(1));
+    } finally {
+      await loop.stop();
+    }
+    expect(holderLifecycle).not.toHaveBeenCalled();
+  });
+
+  it("retains a thrown projection-group pass through failure backoff", async () => {
+    const events: Array<Record<string, unknown>> = [];
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane: createAlwaysLeasedControlPlane(),
+      runners: [
+        {
+          name: "catalog.listing",
+          kind: "projection-group",
+          runOnce: async (context) => {
+            if (events.filter((event) => event.phase === "pass-end").length >= 2) {
+              await new Promise<void>((resolve) =>
+                context?.signal?.addEventListener("abort", () => resolve(), { once: true }),
+              );
+            }
+            throw new Error("synthetic failure");
+          },
+        },
+      ],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+      failureBackoffBaseMs: 20,
+      failureBackoffMaxMs: 20,
+      observer: {
+        holderLifecycle: (event) => events.push(event as unknown as Record<string, unknown>),
+      },
+      onError: () => undefined,
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(events.filter((event) => event.phase === "pass-end").length).toBeGreaterThanOrEqual(1);
+      });
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ phase: "run-end", outcome: "error" }),
+          expect.objectContaining({ phase: "pass-end", outcome: "error", disposition: "retained" }),
+        ]),
+      );
+      expect(events.some((event) => event.phase === "released")).toBe(false);
+      await vi.waitFor(() => {
+        expect(events.filter((event) => event.phase === "pass-end").length).toBeGreaterThanOrEqual(2);
+      });
+      const acquired = events.find((event) => event.phase === "acquired");
+      expect(
+        events
+          .filter((event) => event.phase === "pass-start")
+          .every((event) => event.leaseIntervalId === acquired?.leaseIntervalId),
+      ).toBe(true);
+    } finally {
+      await loop.stop();
+    }
+  });
+
+  it("isolates a throwing holder callback and reports it once", async () => {
+    const onError = vi.fn();
+    const callback = vi.fn(() => {
+      throw new Error("observer failure");
+    });
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane: createAlwaysLeasedControlPlane(),
+      runners: [
+        {
+          name: "catalog.listing",
+          kind: "projection-group",
+          runOnce: async () => ({ processed: 0, lastGlobalPosition: "0" as never }),
+        },
+      ],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+      observer: { holderLifecycle: callback },
+      onError,
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => expect(callback).toHaveBeenCalled());
+    } finally {
+      await loop.stop();
+    }
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(loop.status().stopped).toBe(true);
+  });
+
   it("rotates through runners when concurrency is lower than the runner count", async () => {
     const calls: string[] = [];
     const controlPlane = createAlwaysLeasedControlPlane();
@@ -1279,6 +1871,86 @@ describe("worker runner loop", () => {
     });
   });
 
+  it.each(["degraded", "caught-up"] as const)(
+    "observes durable %s counts on idle passes, after restart and without snapshot-write heartbeat",
+    async (state) => {
+      const observed = vi.fn();
+      const status = {
+        ...createProjectionGroup().getStatus(),
+        state,
+        blockedStreamCount: state === "degraded" ? 1 : 0,
+        poisonEventCount: state === "degraded" ? 2 : 0,
+      } as ReturnType<ContextProjectionGroup["getStatus"]>;
+      const snapshots = vi.fn(async () => undefined);
+      const runner: WorkerRunner = {
+        name: "synthetic-context.synthetic-projection",
+        kind: "projection-group",
+        projectionStatusSnapshot: () => status,
+        runOnce: async () => ({ processed: 0, lastGlobalPosition: "0" as never, state }),
+      };
+      for (let restart = 0; restart < 2; restart += 1) {
+        const before = observed.mock.calls.length;
+        const loop = createWorkerRunnerLoop({
+          workerId: "synthetic-worker",
+          runners: [runner],
+          controlPlane: createAlwaysLeasedControlPlane({ recordProjectionStatusSnapshot: snapshots }),
+          maxConcurrentRunners: 1,
+          leaseTtlMs: 1_000,
+          leaseRenewIntervalMs: 100,
+          pollIntervalMs: 5,
+          statusHeartbeatIntervalMs: 60_000,
+          observer: { projectionStatusObserved: observed },
+        });
+        loop.start();
+        try {
+          await vi.waitFor(() => expect(observed.mock.calls.length).toBeGreaterThanOrEqual(before + 3));
+        } finally {
+          await loop.stop();
+        }
+      }
+      expect(observed.mock.calls.every(([snapshot]) => snapshot === status)).toBe(true);
+      expect(observed.mock.calls.length).toBeGreaterThanOrEqual(6);
+      expect(snapshots).toHaveBeenCalled();
+    },
+  );
+
+  it("does not change projection outcomes when count publication throws", async () => {
+    const statuses: unknown[] = [];
+    const loop = createWorkerRunnerLoop({
+      workerId: "synthetic-worker",
+      controlPlane: createAlwaysLeasedControlPlane({
+        recordRunnerStatus: async (status) => {
+          statuses.push(status);
+        },
+      }),
+      runners: [
+        {
+          name: "synthetic.projection",
+          kind: "projection-group",
+          projectionStatusSnapshot: () =>
+            createProjectionGroup().getStatus() as ReturnType<ContextProjectionGroup["getStatus"]>,
+          runOnce: async () => ({ processed: 0, lastGlobalPosition: "0" as never }),
+        },
+      ],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+      observer: {
+        projectionStatusObserved: () => {
+          throw new Error("synthetic exporter unavailable");
+        },
+      },
+    });
+    loop.start();
+    try {
+      await vi.waitFor(() => expect(statuses).toContainEqual(expect.objectContaining({ state: "caught-up" })));
+    } finally {
+      await loop.stop();
+    }
+    expect(statuses).not.toContainEqual(expect.objectContaining({ state: "error" }));
+  });
+
   it("skips unchanged idle runner status and projection snapshot writes before heartbeat", async () => {
     let runs = 0;
     const statuses: unknown[] = [];
@@ -2443,6 +3115,21 @@ function createProjectionGroup(
       })),
     markRevisionSynced: overrides.markRevisionSynced ?? (async () => undefined),
   };
+}
+
+function holderTestGate() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+function holderTestAbort(context?: ProjectionRunContext): Promise<void> {
+  return new Promise<void>((resolve) => {
+    if (context?.signal?.aborted) resolve();
+    else context?.signal?.addEventListener("abort", () => resolve(), { once: true });
+  });
 }
 
 function createAlwaysLeasedControlPlane(overrides: Partial<PlatformControlPlane> = {}): PlatformControlPlane {

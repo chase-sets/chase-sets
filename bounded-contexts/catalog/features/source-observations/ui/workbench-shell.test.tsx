@@ -17,6 +17,11 @@ import type { CatalogProviderSourceOptionKind, SourceObservationIntegrationOptio
 import { profileReview, sourceObservationScope } from "./primary-workbench-test-fixtures";
 import { CommandHiddenInputs } from "./admin-control-plane/import-to-promotion/command-controls";
 import { parseCatalogPrimaryWorkbenchRouteContext } from "./primary-workbench-route-context";
+import { queryCatalogProviderIntegrationOptionsWithCache } from "../api/providers/provider-option-query-cache";
+import {
+  catalogPrimaryWorkbenchSourceOptionForcesRefresh,
+  parseCatalogPrimaryWorkbenchSourceOptionIntent,
+} from "./primary-workbench-source-option-refresh";
 
 // The import-jobs module polls live progress via useRevalidator and the import
 // context form submits context changes via useSubmit; these pages render bare (no
@@ -1085,10 +1090,7 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
     expect(submitSpy).toHaveBeenCalledTimes(2);
   });
 
-  // A parent filter change must force a live refresh of every dependent option page,
-  // not just reload cache-only options, so the form submits with
-  // sourceOptionAction=force-refresh-all stamped on it.
-  it("forces a refresh-all of source options when a parent filter changes", () => {
+  it("keeps parent guided selection cache-only and clears stale refresh intent", () => {
     render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithSourceOptions()} />);
     expandImportContextBar();
 
@@ -1097,8 +1099,7 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
     const form = language.form;
     expect(form).not.toBeNull();
 
-    // A prior per-group reload/force-refresh left a stale query-kind hint on the
-    // form; the refresh-all submit must drop it since it carries no single group.
+    appendHiddenField(form!, "sourceOptionAction", "force-refresh-all");
     const staleQueryKind = document.createElement("input");
     staleQueryKind.type = "hidden";
     staleQueryKind.name = "sourceOptionQueryKind";
@@ -1108,17 +1109,16 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
 
     fireEvent.change(language, { target: { value: "ja" } });
 
-    const action = form!.elements.namedItem("sourceOptionAction");
-    expect(action).toBeInstanceOf(HTMLInputElement);
-    expect((action as HTMLInputElement).type).toBe("hidden");
-    expect((action as HTMLInputElement).value).toBe("force-refresh-all");
+    expect(form!.elements.namedItem("sourceOptionAction")).toBeNull();
     expect(form!.elements.namedItem("sourceOptionQueryKind")).toBeNull();
+    expect(latestSubmittedFormData().has("sourceOptionAction")).toBe(false);
+    expect(latestSubmittedFormData().has("sourceOptionQueryKind")).toBe(false);
     expectSubmittedWithoutStaleImportContextState(latestSubmittedFormData());
     expect(submitSpy).toHaveBeenCalledTimes(1);
     expect(submitSpy.mock.calls[0]![0]).toBe(form);
   });
 
-  it("hydrates parent fields and refreshes source options when a leaf filter changes", () => {
+  it("hydrates parent fields while keeping leaf selection cache-only", () => {
     render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithJapaneseExpansionOnly()} />);
     expandImportContextBar();
 
@@ -1131,6 +1131,8 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
 
     language.value = "";
     series.value = "";
+    appendHiddenField(form!, "sourceOptionAction", "force-refresh");
+    appendHiddenField(form!, "sourceOptionQueryKind", "expansions");
 
     fireEvent.change(expansion, { target: { value: "SV8" } });
 
@@ -1138,13 +1140,62 @@ describe("CatalogWorkbenchShell guided source-scope selector", () => {
     expect(series.value).toBe("SV");
     expect((form!.elements.namedItem("seriesName") as HTMLInputElement).value).toBe("Scarlet & Violet");
     expect((form!.elements.namedItem("expansionName") as HTMLInputElement).value).toBe("Super Electric Breaker");
-    const action = form!.elements.namedItem("sourceOptionAction");
-    expect(action).toBeInstanceOf(HTMLInputElement);
-    expect((action as HTMLInputElement).value).toBe("force-refresh-all");
+    expect(form!.elements.namedItem("sourceOptionAction")).toBeNull();
+    expect(latestSubmittedFormData().has("sourceOptionAction")).toBe(false);
+    expect(latestSubmittedFormData().has("sourceOptionQueryKind")).toBe(false);
     expect(latestSubmittedFormData().get("seriesName")).toBe("Scarlet & Violet");
     expect(latestSubmittedFormData().get("expansionName")).toBe("Super Electric Breaker");
     expect(submitSpy).toHaveBeenCalledTimes(1);
     expect(submitSpy.mock.calls[0]![0]).toBe(form);
+  });
+
+  it("queries the provider only after an explicit Force refresh click, not guided selection", async () => {
+    const providerQuery = vi.fn(async () => []);
+    async function resolveSubmittedOptions(params: URLSearchParams): Promise<void> {
+      const requestUrl = `https://admin.example/catalog/integrations?${params}`;
+      const intent = parseCatalogPrimaryWorkbenchSourceOptionIntent(requestUrl);
+      const requests = buildCatalogPrimaryWorkbenchSourceOptionRequests({
+        requestUrl,
+        scopes: [sourceObservationScope()],
+        profiles: [profileReview({ active: true, lifecycle: "active" })],
+        cacheOnly: true,
+      });
+      for (const request of requests) {
+        if (intent?.queryKind && intent.queryKind !== request.queryKind) continue;
+        const forceRefresh = catalogPrimaryWorkbenchSourceOptionForcesRefresh(intent, request.queryKind);
+        const query = new URL(forceRefresh ? request.refreshHref! : request.queryHref, requestUrl).searchParams;
+        await queryCatalogProviderIntegrationOptionsWithCache({
+          request: {
+            providerKey: request.providerKey,
+            profileVersion: request.profileVersion,
+            queryKind: request.queryKind,
+            cacheOnly: query.get("cacheOnly") === "true",
+            forceRefresh: query.get("forceRefresh") === "true",
+          },
+          cacheStore: null,
+          loadLive: providerQuery,
+        }).catch((error: unknown) => {
+          if (!(error instanceof Error) || error.name !== "CatalogProviderOptionQueryUnavailableError") throw error;
+        });
+      }
+    }
+    render(<CatalogIntegrationsSurfacePage surface="daily" readModel={dailyReadModelWithSourceOptions()} />);
+    expandImportContextBar();
+    const language = screen.getByLabelText<HTMLSelectElement>("Language");
+    fireEvent.change(language, { target: { value: "ja" } });
+    const selection = new URLSearchParams();
+    latestSubmittedFormData().forEach((value, key) => selection.append(key, String(value)));
+    await resolveSubmittedOptions(selection);
+    expect(providerQuery).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Reload" })[0]!);
+    await resolveSubmittedOptions(submitSpy.mock.calls.at(-1)![0] as URLSearchParams);
+    expect(providerQuery).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Force refresh" })[0]!);
+    const intent = submitSpy.mock.calls.at(-1)![0] as URLSearchParams;
+    await resolveSubmittedOptions(intent);
+    expect(providerQuery).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the importer usable when the streamed source-options slice rejects", async () => {

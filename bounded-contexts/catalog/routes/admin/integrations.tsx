@@ -12,6 +12,7 @@ import {
 
 export { action } from "../../support/route-support/admin-integrations/integrations-action";
 export { loader } from "../../support/route-support/admin-integrations/integrations-loader";
+export { catalogPrimaryWorkbenchSourceOptionShouldRevalidate as shouldRevalidate } from "../../features/source-observations/ui/primary-workbench-source-option-refresh";
 
 export const meta: MetaFunction = () => [
   { title: t("catalog.routes.admin.integrations.catalog.integrations.catalog.admin") },

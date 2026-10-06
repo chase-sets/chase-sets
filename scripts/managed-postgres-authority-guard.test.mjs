@@ -1,10 +1,11 @@
 import { execFile } from "node:child_process";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { writeManagedPostgresAuthorityManifest } from "./managed-postgres-authority-sources.mjs";
 
 const execFileAsync = promisify(execFile);
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -331,6 +332,7 @@ process.stderr.write(${JSON.stringify(`${spreadOverflowMarker}\n`)});
     expect(codes(result.report)).toContain(code);
     if (code === "yaml-parse-failed") {
       expect(result.report.violations).toEqual([
+        { code: "authority-source-invalid", file: ".github/authority" },
         {
           code: "yaml-parse-failed",
           file: ".github/workflows/nonstandard/broken.yml",
@@ -451,14 +453,30 @@ async function createFixture(options = {}) {
     ...(options.files ?? {}),
   };
   for (const [relativePath, contents] of Object.entries(files)) {
+    if (Object.hasOwn(options.files ?? {}, relativePath)) continue;
     await write(join(root, relativePath), contents);
   }
   await mkdir(join(root, "scripts"), { recursive: true });
   await copyFile(schemaPath, join(root, "scripts/managed-postgres-authority-manifest.schema.json"));
-  await writeJson(join(root, "scripts/managed-postgres-authority-manifest.json"), {
-    schemaVersion: 1,
-    grants: [...baseGrants, ...(options.extraGrants ?? [])],
-  });
+  const owners = new Map();
+  for (const record of [...baseGrants, ...(options.extraGrants ?? [])]) {
+    const source = `.github/authority/${basename(record.file).replace(/\.ya?ml$/, "")}/${record.jobId}.json`;
+    owners.set(source, [...(owners.get(source) ?? []), record]);
+    if (!(record.file in files)) {
+      await writeJson(join(root, record.file), { jobs: { [record.jobId]: { steps: [] } } });
+    }
+  }
+  for (const [source, grants] of owners) await writeJson(join(root, source), { grants });
+  await execFileAsync("git", ["init", "--initial-branch=main"], { cwd: root });
+  await execFileAsync("git", ["add", "--", ".github/authority"], { cwd: root });
+  await writeManagedPostgresAuthorityManifest(root);
+  for (const [relativePath, contents] of Object.entries(options.files ?? {})) {
+    await write(join(root, relativePath), contents);
+  }
+  // Leave stale reviewed grants behind when exercising deleted-workflow reconciliation.
+  for (const record of options.extraGrants ?? []) {
+    if (!(record.file in files)) await rm(join(root, record.file), { force: true });
+  }
   return root;
 }
 

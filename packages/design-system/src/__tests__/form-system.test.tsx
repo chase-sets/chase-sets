@@ -694,6 +694,95 @@ describe("form system", () => {
     expect(emittedValues.every((value) => value === null || /^-?\d+\.\d{2}$/.test(value))).toBe(true);
   });
 
+  describe.each(["NumberField", "CurrencyInput"] as const)("%s behavior", (kind) => {
+    function renderField(options: { disabled?: boolean; error?: string } = {}) {
+      const onValueChange = vi.fn();
+      const shared = {
+        label: "Value",
+        decrementLabel: "Decrease value",
+        incrementLabel: "Increase value",
+        onValueChange,
+        ...options,
+      };
+      render(
+        kind === "NumberField" ? (
+          <NumberField {...shared} defaultValue={2} min={1} max={3} />
+        ) : (
+          <CurrencyInput {...shared} currencyCode="USD" defaultValue="2.00" min="1.00" max="3.00" step="1.00" />
+        ),
+      );
+      return {
+        input: screen.getByRole("spinbutton", { name: "Value" }),
+        decrement: screen.getByRole("button", { name: "Decrease value" }),
+        increment: screen.getByRole("button", { name: "Increase value" }),
+        onValueChange,
+      };
+    }
+
+    const value = (number: number) => (kind === "NumberField" ? number : number.toFixed(2));
+
+    it("commits typed values and null on clearing", async () => {
+      const user = userEvent.setup();
+      const { input, onValueChange } = renderField();
+      await user.clear(input);
+      await user.type(input, "3");
+      await user.tab();
+      expect(onValueChange).toHaveBeenLastCalledWith(value(3));
+      await user.clear(input);
+      await user.tab();
+      expect(onValueChange).toHaveBeenLastCalledWith(null);
+    });
+
+    it("steps with buttons and keyboard without exceeding either bound", async () => {
+      const user = userEvent.setup();
+      const { input, decrement, increment, onValueChange } = renderField();
+      await user.click(increment);
+      expect(onValueChange).toHaveBeenLastCalledWith(value(3));
+      expect(increment.hasAttribute("disabled")).toBe(true);
+      await user.click(input);
+      await user.keyboard("{ArrowUp}");
+      expect(onValueChange).toHaveBeenLastCalledWith(value(3));
+      await user.click(decrement);
+      expect(onValueChange).toHaveBeenLastCalledWith(value(2));
+      await user.click(input);
+      await user.keyboard("{ArrowDown}");
+      expect(onValueChange).toHaveBeenLastCalledWith(value(1));
+      expect(decrement.hasAttribute("disabled")).toBe(true);
+      await user.keyboard("{ArrowDown}");
+      expect(onValueChange).toHaveBeenLastCalledWith(value(1));
+      await user.keyboard("{ArrowUp}");
+      expect(onValueChange).toHaveBeenLastCalledWith(value(2));
+      expect(onValueChange.mock.calls.every(([next]) => Number(next) >= 1 && Number(next) <= 3)).toBe(true);
+    });
+
+    it("keeps disabled input and steppers inert", async () => {
+      const user = userEvent.setup();
+      const { input, decrement, increment, onValueChange } = renderField({ disabled: true });
+      expect(input.hasAttribute("disabled")).toBe(true);
+      expect(decrement.hasAttribute("disabled")).toBe(true);
+      expect(increment.hasAttribute("disabled")).toBe(true);
+      await user.type(input, "3{ArrowUp}{ArrowDown}");
+      await user.click(decrement);
+      await user.click(increment);
+      expect(onValueChange).not.toHaveBeenCalled();
+      expect(Number((input as HTMLInputElement).value)).toBe(2);
+    });
+
+    it("retains its error association while allowing ordinary editing", async () => {
+      const user = userEvent.setup();
+      const { input, onValueChange } = renderField({ error: "Enter a valid value." });
+      const error = screen.getByText("Enter a valid value.");
+      expect(input.getAttribute("aria-invalid")).toBe("true");
+      expect(input.getAttribute("aria-describedby")?.split(" ")).toContain(error.id);
+      await user.clear(input);
+      await user.type(input, "3");
+      await user.tab();
+      expect(onValueChange).toHaveBeenLastCalledWith(value(3));
+      expect(input.getAttribute("aria-invalid")).toBe("true");
+      expect(input.getAttribute("aria-describedby")?.split(" ")).toContain(error.id);
+    });
+  });
+
   it("normalizes server errors and drives controlled form state", () => {
     expect(
       normalizeFormErrors({

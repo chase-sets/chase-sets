@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import manifest from "../../../../context.json" with { type: "json" };
 import type { CatalogIntegrationUnitKey } from "../governance/integration-unit";
 import type { CatalogAdminProfileVersionPointer } from "./admin-control-plane-read-model-contracts";
 import type {
@@ -236,7 +237,19 @@ function jobMatchesUnit(
   return providerUnits.length === 1;
 }
 
-function buildProviderReadiness(
+export function buildCatalogProviderDetailDestination(providerKey: string) {
+  const route = manifest.deployableContributions
+    .filter((contribution) => contribution.deployable === "admin-web")
+    .flatMap((contribution) => contribution.routes)
+    .find((candidate) => candidate.routeId === "provider-detail");
+  if (!route) throw new Error("Catalog provider detail route unavailable");
+  return {
+    routeId: route.routeId,
+    href: `/${route.section}/${route.routePath.replace(":providerKey", encodeURIComponent(providerKey))}`,
+  };
+}
+
+export function buildProviderReadiness(
   units: readonly CatalogIntegrationControlPlaneUnitReadiness[],
 ): readonly CatalogIntegrationProviderReadiness[] {
   const providers = new Map<string, CatalogIntegrationControlPlaneUnitReadiness[]>();

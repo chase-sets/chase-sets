@@ -56,10 +56,20 @@ describe("founder badge permanence claim guard", () => {
       helpArticleSources,
       publicPolicyRegistry,
     );
-    expect(corpus.localeEntries.length).toBeGreaterThanOrEqual(10);
+    // #8503 trimmed the landing founders offer to title, description and the
+    // terms link, so the founder locale corpus is the three retained
+    // `home.foundersOffer.*` keys plus the /founders info namespaces.
+    expect(corpus.localeEntries.length).toBeGreaterThanOrEqual(5);
     expect(corpus.helpArticles.length).toBeGreaterThanOrEqual(2);
     expect(corpus.registeredArtifacts.length).toBeGreaterThanOrEqual(6);
-    expect(corpus.localeEntries).toHaveLength(12);
+    expect(corpus.localeEntries).toHaveLength(6);
+    expect(corpus.localeEntries.map((entry) => entry.id)).toEqual(
+      expect.arrayContaining([
+        "publicPresence.home.foundersOffer.title",
+        "publicPresence.home.foundersOffer.description",
+        "publicPresence.home.foundersOffer.action",
+      ]),
+    );
     expect(corpus.helpArticles).toHaveLength(17);
     expect(corpus.registeredArtifacts).toHaveLength(7);
     expect(corpus.policyDrafts.filter((source) => source.founderScoped)).toHaveLength(6);
@@ -125,9 +135,8 @@ describe("founder badge permanence claim guard", () => {
     expect(findFounderClaimViolations([{ id: "fee-lock-control", text: feeLockPromise, founderScoped: true }])).toEqual(
       [],
     );
-    expect(publicPresenceEnglishTranslations["publicPresence.home.foundersOffer.point.expiry"]).toContain(
-      feeLockPromise,
-    );
+    // #8503 moved the founders mechanics off the landing page; the /founders
+    // terms artifact is where the promise is published.
     expect(
       foundersOfferTermsPolicyArtifact.sections.find((section) => section.id === "offer-window-and-fee-lock")!
         .draftText,

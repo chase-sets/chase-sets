@@ -1537,6 +1537,151 @@ describe("checkout session routes", () => {
     );
   });
 
+  describe("reviewed fulfillment preview revision", () => {
+    const reviewedShippingAddress = {
+      name: "Buyer",
+      line1: "123 Test Street",
+      line2: null,
+      city: "Chicago",
+      state: "IL",
+      postalCode: "60601",
+      country: "US",
+    };
+    const callerSnapshot = {
+      ...readyBuyNowSupplyPreview(),
+      optimizationGoal: "lowest-total",
+      revision: "caller_snapshot_rev",
+    };
+
+    function postFulfillmentPreview(services: CheckoutSessionServices, body: Record<string, unknown>) {
+      return buildApp(services).fetch(
+        new Request("http://checkout.test/account/checkout-sessions/chk_1/fulfillment-preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+    }
+
+    it.each([
+      { revisionInput: "omitted", body: {} },
+      { revisionInput: "blank", body: { fulfillmentPreviewRevision: "   " } },
+    ])(
+      "records the calculated Ordering revision when review input has an $revisionInput revision",
+      async ({ body }) => {
+        const calculatedPreview = { ...readyBuyNowSupplyPreview(), revision: "ordering_rev_calculated" };
+        mockPreviewCheckoutFulfillmentThroughOrdering.mockResolvedValue(calculatedPreview);
+        const services = createServices();
+
+        const response = await postFulfillmentPreview(services, {
+          ...body,
+          shippingOption: "expedited",
+          shippingAddress: reviewedShippingAddress,
+        });
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toEqual({
+          session_id: "chk_1",
+          status: "fulfillment-preview-recorded",
+        });
+        expect(mockPreviewCheckoutFulfillmentThroughOrdering).toHaveBeenCalledWith(
+          expect.any(Request),
+          expect.objectContaining({ session_id: "chk_1" }),
+          expect.objectContaining({
+            shippingOption: "expedited",
+            shippingAddress: expect.objectContaining({ line1: "123 Test Street" }),
+          }),
+        );
+        expect(services.recordFulfillmentPreview).toHaveBeenCalledWith(
+          {
+            sessionId: "chk_1",
+            accountId: "acc_buyer",
+            fulfillmentPreviewRevision: "ordering_rev_calculated",
+            fulfillmentPreviewSnapshot: calculatedPreview,
+          },
+          expect.any(Object),
+        );
+      },
+    );
+
+    it("keeps a non-blank caller revision ahead of the calculated revision", async () => {
+      const calculatedPreview = { ...readyBuyNowSupplyPreview(), revision: "ordering_rev_calculated" };
+      mockPreviewCheckoutFulfillmentThroughOrdering.mockResolvedValue(calculatedPreview);
+      const services = createServices();
+
+      const response = await postFulfillmentPreview(services, {
+        fulfillmentPreviewRevision: "caller_rev",
+        shippingOption: "standard",
+      });
+
+      expect(response.status).toBe(200);
+      expect(services.recordFulfillmentPreview).toHaveBeenCalledWith(
+        {
+          sessionId: "chk_1",
+          accountId: "acc_buyer",
+          fulfillmentPreviewRevision: "caller_rev",
+          fulfillmentPreviewSnapshot: calculatedPreview,
+        },
+        expect.any(Object),
+      );
+    });
+
+    it.each([
+      {
+        rejection: "a null Ordering preview",
+        calculatedPreview: null,
+        body: { shippingOption: "standard" },
+      },
+      {
+        rejection: "a blank calculated revision",
+        calculatedPreview: { ...readyBuyNowSupplyPreview(), revision: "  " },
+        body: { shippingOption: "standard" },
+      },
+      {
+        rejection: "no review input or revision",
+        calculatedPreview: readyBuyNowSupplyPreview(),
+        body: {},
+      },
+      {
+        rejection: "a blank revision without review input",
+        calculatedPreview: readyBuyNowSupplyPreview(),
+        body: { fulfillmentPreviewRevision: "   " },
+      },
+      {
+        rejection: "a supplied snapshot without a revision",
+        calculatedPreview: readyBuyNowSupplyPreview(),
+        body: { fulfillmentPreviewSnapshot: callerSnapshot },
+      },
+      {
+        rejection: "a supplied snapshot with review input and no revision",
+        calculatedPreview: readyBuyNowSupplyPreview(),
+        body: { fulfillmentPreviewSnapshot: callerSnapshot, shippingOption: "standard" },
+      },
+    ])("rejects $rejection without recording a preview", async ({ calculatedPreview, body }) => {
+      mockPreviewCheckoutFulfillmentThroughOrdering.mockResolvedValue(calculatedPreview);
+      const services = createServices();
+
+      const response = await postFulfillmentPreview(services, body);
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: {
+          code: "fulfillment_preview_required",
+          message: "Fulfillment preview must include a revision.",
+        },
+      });
+      expect(services.recordFulfillmentPreview).not.toHaveBeenCalled();
+    });
+
+    it("does not calculate a preview from stored session inputs when no review input or revision is posted", async () => {
+      const services = createServices();
+
+      await postFulfillmentPreview(services, {});
+
+      expect(mockPreviewCheckoutFulfillmentThroughOrdering).not.toHaveBeenCalled();
+    });
+  });
+
   it("confirms a new checkout session by recording orders and payment", async () => {
     const checkoutObservabilityTelemetry = { recordCheckoutEvent: vi.fn() };
     mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({

@@ -6,6 +6,7 @@ import type { MetaFunction } from "react-router";
 import { useActionData, useLoaderData, useNavigation, useParams, useRevalidator } from "react-router";
 import { contextManifest, type ChannelPublicationConnectionDetail, type ChannelPublicationSettings } from "../../index";
 import { ChannelPublicationDetailPage } from "../../features/listing-composition/ui/publication-pages";
+import { parseChannelPublicationSettingsForm } from "../../features/listing-composition/api/route-actions";
 import {
   ChannelsPublicationApiError,
   createChannelsPublicationRequestApiClient,
@@ -44,13 +45,7 @@ export const action = defineFormAction({
   authorization: { permission: "channels.manage" },
   intents: {
     "replace-settings": async ({ request, formData }) => {
-      const settings: ChannelPublicationSettings = {
-        titlePrefix: text(formData, "titlePrefix"),
-        titleSuffix: text(formData, "titleSuffix"),
-        descriptionFooter: text(formData, "descriptionFooter"),
-        categoryAllowlist: lines(formData, "categoryAllowlist"),
-        excludedListingIds: lines(formData, "excludedListingIds"),
-      };
+      const settings = parseChannelPublicationSettingsForm(formData);
       const result = await createChannelsPublicationRequestApiClient(request).replaceSettings(
         connectionId(request),
         settings,
@@ -226,14 +221,4 @@ function integer(data: FormData, key: string): number {
   const value = Number(data.get(key));
   if (!Number.isSafeInteger(value) || value < 0) throw new Error("invalid-version");
   return value;
-}
-function lines(data: FormData, key: string): readonly string[] {
-  return [
-    ...new Set(
-      text(data, key)
-        .split(/\r?\n/u)
-        .map((value) => value.trim())
-        .filter(Boolean),
-    ),
-  ];
 }

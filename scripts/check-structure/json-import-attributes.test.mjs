@@ -700,11 +700,11 @@ describe("real repository execution membership", () => {
 
     expect(result.violations, result.violations.join("\n")).toEqual([]);
     expect(result.inventory.parserVersion).toBe("6.0.3");
-    expect(result.inventory.declarations).toHaveLength(111);
+    expect(result.inventory.declarations).toHaveLength(120);
     expect(result.inventory.partition).toEqual({
-      "node-enforced": 46,
+      "node-enforced": 47,
       "vite-excluded": 51,
-      "vitest-excluded": 14,
+      "vitest-excluded": 22,
       "manifest-only": 0,
       indeterminate: 0,
     });
@@ -719,7 +719,7 @@ describe("real repository execution membership", () => {
       }),
     );
     expect(createHash("sha256").update(JSON.stringify(normalized)).digest("hex")).toBe(
-      "ddc8cf2f960690fd5146be09b63ce89312fb00639f63280fff406947d2b73099",
+      "e8e71732075670298d401d485e7a38175f36b0f3ca2b7a766d85f2c4944d9f7a",
     );
     expect(
       normalized.filter((entry) => entry.relativeFile.startsWith("bounded-contexts/pricing/routes/marketplace/")),

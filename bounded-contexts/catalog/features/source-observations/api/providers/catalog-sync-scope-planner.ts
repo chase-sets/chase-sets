@@ -1,3 +1,4 @@
+import { ProviderSendStoppedError } from "./provider-send-admission";
 import { t } from "@chase-sets/localization";
 import type { CatalogIntegrationUnitKey } from "../governance/integration-unit";
 import type { ProviderAdapterRegistry } from "../provider-adapters/registry";
@@ -137,6 +138,7 @@ export type CatalogSyncProviderParticipationUnit = Readonly<{
     }>[];
   }>;
   estimate: Readonly<{
+    enforcedAdmissionMaximum?: ProviderUsageEstimate["enforcedAdmissionMaximum"];
     targetCount: number | null;
     requestStrategy: ProviderUsageEstimate["requestStrategy"] | null;
     estimatedRequestCount: number | null;
@@ -458,6 +460,7 @@ async function planEstimate(
       targetCount: plan.estimatedPayloads ?? null,
       requestStrategy: plan.usageEstimate?.requestStrategy ?? null,
       estimatedRequestCount: plan.usageEstimate?.estimatedRequestCount ?? null,
+      enforcedAdmissionMaximum: plan.usageEstimate?.enforcedAdmissionMaximum ?? null,
       estimateState: plan.usageEstimate?.estimateState ?? "unavailable",
       estimateReason: plan.usageEstimate?.estimateReason ?? null,
       usageCheckState: plan.usageEstimate?.usageCheckState ?? null,
@@ -466,6 +469,7 @@ async function planEstimate(
       transportSteps: plan.transportSteps,
     };
   } catch (error) {
+    if (error instanceof ProviderSendStoppedError) throw error;
     blockers.push({
       code: "provider-plan-unavailable",
       severity: "error",
@@ -506,7 +510,8 @@ async function appendProviderReadinessBlockers(
         });
       }
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof ProviderSendStoppedError) throw error;
     credentials.push({
       unitKey,
       requirement: "unknown",
@@ -540,7 +545,8 @@ async function appendProviderReadinessBlockers(
         action: "Clear the provider transport blocker before confirming this sync.",
       });
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof ProviderSendStoppedError) throw error;
     transport.push({
       unitKey,
       code: "transport-diagnostics-unavailable",

@@ -23,6 +23,7 @@ export const orderingWakeRegistryEntry = registryEntry({
     "checkout:checkout-marketplace-listing-options-projection",
     "discovery:discovery-market-projection",
     "fulfillment:fulfillment-order-source-projection",
+    "fulfillment:fulfillment-order-group-admission-subscription",
     "inventory:inventory-order-reservation-workflow",
     "notifications:notifications-source-facts-outbox-projection",
     "ordering:ordering-order-review-opportunity-projection",

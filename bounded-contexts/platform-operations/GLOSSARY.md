@@ -1,5 +1,9 @@
 # Platform Operations Glossary
 
+## Provider Connection
+
+A **Provider Connection** is a read-only operator view of a Catalog integration provider or a Channels Channel Connection. Catalog retains Provider Integration Profile and credential readiness ownership; Channels retains connection and Channel Health ownership. Platform Operations composes their reported state without owning credentials or connection actions.
+
 ## Public Doc Article Review
 
 A **Public Doc Article Review** is the operator attention item opened when a revised policy is cited by a public Help Article. It remains visibly aged in Policy Console until an operator confirms that the surrounding prose still matches the revised policy or updates the article before confirmation.

@@ -23,6 +23,17 @@ export type ListingsCoverage = "complete" | "ceiling-truncated" | "page-budget-t
 export type HistoryCoverage = "observed" | "inconsistent" | "unknown";
 
 export type SafeHttpStatusClass = "none" | "4xx" | "5xx" | "other";
+export type TcgplayerEndpointFailureClass =
+  | "credential-unavailable"
+  | "auth-rejected"
+  | "forbidden"
+  | "rate-limited"
+  | "client-error"
+  | "server-error"
+  | "other"
+  | "no-response"
+  | "unknown"
+  | null;
 export type EndpointFailurePhase = "transport" | "response-processing" | null;
 export type TcgplayerEndpointFailurePhases = Readonly<{
   sales: EndpointFailurePhase;
@@ -31,7 +42,7 @@ export type TcgplayerEndpointFailurePhases = Readonly<{
 }>;
 
 export type TcgplayerEndpointStageTrace = Readonly<{
-  entries: readonly (TcgplayerMarketStageFact & Readonly<{ page: number }>)[];
+  entries: readonly (Omit<TcgplayerMarketStageFact, "credential"> & Readonly<{ page: number }>)[];
   overflow: number;
   retryCount: number;
   cooldownCount: number;
@@ -118,12 +129,30 @@ const STAGES = new Set<string>([
   "terminal",
 ]);
 
+function hasValidCredentialProvenance(fact: TcgplayerMarketStageFact): boolean {
+  const descriptor = Object.getOwnPropertyDescriptor(fact, "credential");
+  if (!descriptor) return !("credential" in fact);
+  if (!("value" in descriptor)) return false;
+  const credential: unknown = descriptor.value;
+  if (credential === undefined || credential === null) return true;
+  if (typeof credential !== "object" || Array.isArray(credential)) return false;
+  const keys = Reflect.ownKeys(credential);
+  if (keys.length !== 2 || !keys.includes("source") || !keys.includes("revision")) return false;
+  const source = Object.getOwnPropertyDescriptor(credential, "source");
+  const revision = Object.getOwnPropertyDescriptor(credential, "revision");
+  if (!source || !("value" in source) || !revision || !("value" in revision)) return false;
+  return source.value === "environment"
+    ? revision.value === 0
+    : source.value === "operator-session" && Number.isSafeInteger(revision.value) && revision.value >= 1;
+}
+
 function sanitizeStageFact(
   page: number,
   fact: TcgplayerMarketStageFact,
 ): TcgplayerEndpointStageTrace["entries"][number] | null {
   if (
     !fact ||
+    !hasValidCredentialProvenance(fact) ||
     !Number.isInteger(page) ||
     page < 1 ||
     page > 10000 ||
@@ -135,24 +164,55 @@ function sanitizeStageFact(
     !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(fact.at) ||
     !Number.isFinite(Date.parse(fact.at)) ||
     new Date(fact.at).toISOString() !== fact.at ||
-    Object.keys(fact).some((key) => !["stage", "at", "attempt", "statusClass", "activeStage", "outcome"].includes(key))
+    Object.keys(fact).some(
+      (key) =>
+        ![
+          "stage",
+          "at",
+          "attempt",
+          "statusClass",
+          "httpStatus",
+          "lastHttpStatus",
+          "lastHttpStatusAttempt",
+          "failureCode",
+          "activeStage",
+          "outcome",
+          "credential",
+        ].includes(key),
+    )
   )
     return null;
   if (fact.stage === "headers-received") {
     if (
       !["2xx", "3xx", "4xx", "5xx", "other"].includes(fact.statusClass ?? "") ||
+      (fact.httpStatus !== undefined &&
+        (!Number.isInteger(fact.httpStatus) || fact.httpStatus < 100 || fact.httpStatus > 599)) ||
       fact.activeStage !== undefined ||
-      fact.outcome !== undefined
+      fact.outcome !== undefined ||
+      fact.lastHttpStatus !== undefined ||
+      fact.lastHttpStatusAttempt !== undefined ||
+      fact.failureCode !== undefined
     )
       return null;
-    return { page, attempt: fact.attempt, stage: fact.stage, at: fact.at, statusClass: fact.statusClass };
+    return {
+      page,
+      attempt: fact.attempt,
+      stage: fact.stage,
+      at: fact.at,
+      statusClass: fact.statusClass,
+      ...(fact.httpStatus === undefined ? {} : { httpStatus: fact.httpStatus }),
+    };
   }
   if (fact.stage === "abort") {
     if (
       !fact.activeStage ||
       !STAGES.has(fact.activeStage) ||
       fact.statusClass !== undefined ||
-      fact.outcome !== undefined
+      fact.outcome !== undefined ||
+      fact.httpStatus !== undefined ||
+      fact.lastHttpStatus !== undefined ||
+      fact.lastHttpStatusAttempt !== undefined ||
+      fact.failureCode !== undefined
     )
       return null;
     return { page, attempt: fact.attempt, stage: fact.stage, at: fact.at, activeStage: fact.activeStage };
@@ -161,12 +221,43 @@ function sanitizeStageFact(
     if (
       !["success", "failure", "aborted"].includes(fact.outcome ?? "") ||
       fact.statusClass !== undefined ||
-      fact.activeStage !== undefined
+      fact.activeStage !== undefined ||
+      fact.httpStatus !== undefined ||
+      (fact.lastHttpStatus !== undefined &&
+        fact.lastHttpStatus !== null &&
+        (!Number.isInteger(fact.lastHttpStatus) || fact.lastHttpStatus < 100 || fact.lastHttpStatus > 599)) ||
+      (fact.lastHttpStatusAttempt !== undefined &&
+        fact.lastHttpStatusAttempt !== null &&
+        (!Number.isInteger(fact.lastHttpStatusAttempt) ||
+          fact.lastHttpStatusAttempt < 1 ||
+          fact.lastHttpStatusAttempt > 10000)) ||
+      (fact.failureCode !== undefined && fact.failureCode !== null && fact.failureCode !== "credential-unavailable") ||
+      (fact.lastHttpStatus === null) !== (fact.lastHttpStatusAttempt === null) ||
+      (fact.lastHttpStatus === undefined) !== (fact.lastHttpStatusAttempt === undefined) ||
+      (fact.lastHttpStatusAttempt != null && fact.lastHttpStatusAttempt > fact.attempt)
     )
       return null;
-    return { page, attempt: fact.attempt, stage: fact.stage, at: fact.at, outcome: fact.outcome };
+    return {
+      page,
+      attempt: fact.attempt,
+      stage: fact.stage,
+      at: fact.at,
+      outcome: fact.outcome,
+      ...(fact.lastHttpStatus === undefined ? {} : { lastHttpStatus: fact.lastHttpStatus }),
+      ...(fact.lastHttpStatusAttempt === undefined ? {} : { lastHttpStatusAttempt: fact.lastHttpStatusAttempt }),
+      ...(fact.failureCode === undefined ? {} : { failureCode: fact.failureCode }),
+    };
   }
-  if (fact.statusClass !== undefined || fact.activeStage !== undefined || fact.outcome !== undefined) return null;
+  if (
+    fact.statusClass !== undefined ||
+    fact.activeStage !== undefined ||
+    fact.outcome !== undefined ||
+    fact.httpStatus !== undefined ||
+    fact.lastHttpStatus !== undefined ||
+    fact.lastHttpStatusAttempt !== undefined ||
+    fact.failureCode !== undefined
+  )
+    return null;
   return { page, attempt: fact.attempt, stage: fact.stage, at: fact.at };
 }
 
@@ -187,7 +278,20 @@ export function sanitizeEndpointStageTrace(
     if (
       !entry ||
       Object.keys(entry).some(
-        (key) => !["page", "attempt", "stage", "at", "statusClass", "activeStage", "outcome"].includes(key),
+        (key) =>
+          ![
+            "page",
+            "attempt",
+            "stage",
+            "at",
+            "statusClass",
+            "httpStatus",
+            "lastHttpStatus",
+            "lastHttpStatusAttempt",
+            "failureCode",
+            "activeStage",
+            "outcome",
+          ].includes(key),
       )
     )
       return null;

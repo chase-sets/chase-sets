@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { MemoryRouter } from "react-router";
 import { SettlementPayoutRequestPanel } from "../../../../settlement/features/payouts/ui/payout-request-panel";
@@ -155,6 +155,100 @@ function publishedArtifact(artifact: PublicPolicyArtifact): PublicPolicyArtifact
 describe("policy artifact page", () => {
   afterEach(() => {
     cleanup();
+  });
+
+  it("links only finite policy references in frozen synthetic operative text without changing serialization", () => {
+    const texts = [
+      "  (chasesets.com/privacy), chasesets.com/privacy.\n[chasesets.com/seller-agreement]; chasesets.com/payments-terms! " +
+        "chasesets.com/agent-terms? chasesets.com/authenticity-terms: chasesets.com/founders  ",
+      "chasesets.com/developers chasesets.com/unknown example.com/privacy notchasesets.com/privacy " +
+        "chasesets.com/privacy-extra chasesets.com/privacy/nested chasesets.com/privacy.example.com",
+      "Synthetic text without references.\n  Whitespace stays unchanged.",
+      "",
+      '<script>alert("synthetic")</script> <b>chasesets.com/privacy</b>',
+    ];
+    const artifact: PublicPolicyArtifact = {
+      metadata: { ...privacyPolicyArtifact.metadata },
+      title: "Synthetic linkification fixture",
+      description: "Synthetic presentation-only test, not legal content.",
+      sections: texts.map((draftText, index) => ({
+        id: `synthetic-reference-${index}`,
+        title: `Synthetic reference ${index}`,
+        draftText,
+        reviewStatus: "counsel-required",
+        reviewManifest: {
+          scopeNote: "Synthetic packet-only note",
+          decisionRefs: [],
+          productTruthRefs: [],
+          openQuestions: [],
+          assumptions: [],
+        },
+      })),
+    };
+    function freeze(value: unknown): void {
+      if (value !== null && typeof value === "object") {
+        Object.values(value).forEach(freeze);
+        Object.freeze(value);
+      }
+    }
+    freeze(artifact);
+    const before = JSON.stringify(artifact);
+    renderRouteAdapter(() => <PolicyArtifactPage artifact={artifact} copyProfile="corpus" eyebrow="Synthetic" />);
+    const article = screen.getByRole("article");
+    const expectedSlugs = [
+      ["privacy", "privacy", "seller-agreement", "payments-terms", "agent-terms", "authenticity-terms", "founders"],
+      [],
+      [],
+      [],
+      ["privacy"],
+    ];
+    for (const [index, section] of artifact.sections.entries()) {
+      const region = within(article).getByRole("region", { name: section.title });
+      const paragraph = region.querySelector("p");
+      if (section.draftText === "") {
+        expect(paragraph).toBeNull();
+        expect(within(region).queryAllByRole("link")).toEqual([]);
+        continue;
+      }
+      expect(paragraph?.textContent).toBe(section.draftText);
+      expect(
+        within(paragraph!)
+          .queryAllByRole("link")
+          .map((link) => [link.textContent, link.getAttribute("href")]),
+      ).toEqual(expectedSlugs[index]!.map((slug) => [`chasesets.com/${slug}`, `/${slug}`]));
+      expect(paragraph!.querySelector("script, b")).toBeNull();
+    }
+    expect(JSON.stringify(artifact)).toBe(before);
+    expect(article.textContent).not.toContain("Synthetic packet-only note");
+  });
+
+  it("rejects a footer-only control with plain operative text even when every allowed destination exists elsewhere", () => {
+    renderRouteAdapter(() => <TermsOfServiceRouteAdapter />);
+    const article = screen.getByRole("article");
+    const section = termsOfServicePolicyArtifact.sections.find(
+      (candidate) => candidate.id === "conduct-and-policy-incorporation",
+    )!;
+    const region = within(article).getByRole("region", { name: section.title });
+    const paragraph = region.querySelector("p")!;
+    const assertOperativeLinks = (operativeText: HTMLElement) =>
+      expect(within(operativeText).queryAllByRole("link"), "operative references must be linked").toHaveLength(6);
+    assertOperativeLinks(paragraph);
+    const footer = screen.getByRole("contentinfo");
+    for (const slug of [
+      "seller-agreement",
+      "payments-terms",
+      "agent-terms",
+      "privacy",
+      "founders",
+      "authenticity-terms",
+    ]) {
+      expect(footer.querySelector(`a[href="/${slug}"]`)).not.toBeNull();
+    }
+    const plainParagraph = document.createElement("p");
+    plainParagraph.textContent = paragraph.textContent;
+    paragraph.replaceWith(plainParagraph);
+    expect(plainParagraph.textContent).toBe(paragraph.textContent);
+    expect(() => assertOperativeLinks(plainParagraph)).toThrow("operative references must be linked");
   });
 
   for (const route of policyRouteAdapters) {

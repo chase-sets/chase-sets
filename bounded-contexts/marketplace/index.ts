@@ -52,6 +52,7 @@ import { marketplaceListingSchemaMigrations } from "./features/listings/read-mod
 import { marketplaceListingReadModelSchemaMigrations } from "./features/listings/read-model/schema";
 import { marketplaceOfferSchemaMigrations } from "./features/offers/read-model/schema";
 import { reviewSchemaMigrations } from "./features/reviews/read-model/schema";
+import { reviewOpportunityPublicationMigrations } from "./features/reviews/integrations/opportunity-publication/schema";
 import { inspectMarketplaceSeedState, seedMarketplaceContextDatabase } from "./support/runtime-support/seed";
 import { marketplaceChannelInboundClampSchemaMigrations } from "./features/channel-inbound-clamp/read-model/schema";
 import { marketplaceBuyerOfferPolicySchemaMigrations } from "./features/offer-policy/read-model/schema";
@@ -72,6 +73,7 @@ const baseModule = defineBoundedContextModule<MarketplaceServices, PgTransaction
     ...marketplaceBuyerOfferPolicySchemaMigrations,
     ...marketplaceManagedOfferSchemaMigrations,
     ...reviewSchemaMigrations,
+    ...reviewOpportunityPublicationMigrations,
     ...marketplaceSellerMetricsSourceSchemaMigrations,
     ...marketplaceSellerMetricsSummarySchemaMigrations,
     ...marketplaceChannelInboundClampSchemaMigrations,

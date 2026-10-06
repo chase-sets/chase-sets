@@ -167,8 +167,8 @@ describe("platform worker projection wake interest graph", () => {
       ]),
     );
     expect(fingerprint(runtime.subscriptionRunners.map((runner) => fingerprintObject(runner)))).toEqual({
-      count: 249,
-      sha256: "677d4681cc7c7829d54e3cd5e6e5930670b1a30ee53616ccb810bd7cb61e3b39",
+      count: 250,
+      sha256: "716e5e66a87f506c5789a0dd0fd841aba23228465f9cc201320f3d467bc218eb",
     });
     expect(
       fingerprint(
@@ -178,22 +178,22 @@ describe("platform worker projection wake interest graph", () => {
         })),
       ),
     ).toEqual({
-      count: 154,
-      sha256: "addfbecbe6c60bfcce488feda7a32052e1f7d381fe8de3695c8fb365baa0d5b7",
+      count: 155,
+      sha256: "785c0191fe64f887dc7be64548425888dd7f2901a083aa44978a3723537a9137",
     });
     expect({
       count: rawCheckpointIdentities.length,
       sha256: sha256(JSON.stringify(rawCheckpointIdentities)),
     }).toEqual({
-      count: 154,
-      sha256: "815c6ac53f7e5c515bb6da32351f4dde5f2f51506db6e2a83f21272fece8652f",
+      count: 155,
+      sha256: "664bd2d6f9a37a84c0e2243b8e3573ff5fb975df8f90804f490838a318b37c7d",
     });
     expect(fingerprint(runtime.subscriptionRunners.map((runner) => runner.checkpointKey))).toEqual({
-      count: 249,
-      sha256: "9daf8c47b4d9e121eb06dd41843f6127a88fb9ae570b1448073050ad1b79b6a3",
+      count: 250,
+      sha256: "a655aa3aec7d130199810affdb7e46fb0248cc6fc259bad42b23dc80345e35ee",
     });
     expect(sharedNames).toMatchObject({
-      distinctNames: 119,
+      distinctNames: 120,
       distinctSharedNames: 20,
       runnersUsingSharedNames: 55,
     });

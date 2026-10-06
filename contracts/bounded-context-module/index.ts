@@ -213,6 +213,8 @@ export type BcShellContributionItemBase = Readonly<{
   readonly order: number;
   readonly visibility: BcShellContributionVisibility;
   readonly requiredPermissions: readonly string[];
+  /** Defaults to all; an empty permission list passes in either mode. */
+  readonly requiredPermissionsMatch?: "all" | "any";
 }>;
 
 export type BcShellContributionItem = BcShellContributionItemBase &

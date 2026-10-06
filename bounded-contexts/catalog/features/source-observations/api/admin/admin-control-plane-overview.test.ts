@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { readProviderSendWindow } from "../providers/provider-send-runtime";
+import { createPostgresProviderSendLedger } from "../providers/provider-send-ledger";
+import { createProviderSendAdmission } from "../providers/provider-send-admission";
 import { buildCatalogIntegrationControlPlaneOverview } from "./admin-control-plane-overview";
 import { SCRYDEX_ONE_PIECE_SEALED_PRODUCT_SOURCE_OBSERVATION_IMPORT_UNIT_KEY } from "../provider-adapters/scrydex-one-piece";
 import type {
@@ -10,6 +13,18 @@ import type {
 const generatedAt = "2026-06-25T12:00:00.000Z";
 
 describe("Catalog integration control-plane overview", () => {
+  it("lost ledger authority is unavailable, never zero or raw driver detail", async () => {
+    const connect = vi.fn(async () => {
+      throw new Error("synthetic-private-driver-detail");
+    });
+    const ledger = createPostgresProviderSendLedger({ query: vi.fn(), connect });
+    const admission = createProviderSendAdmission({ enabled: true, ledger });
+    const readout = await readProviderSendWindow({ ledger, admission });
+    expect(readout).toEqual({ state: "unavailable", refusal: "authority-unavailable" });
+    expect(JSON.stringify(readout)).not.toContain("synthetic-private-driver-detail");
+    expect(connect).toHaveBeenCalledTimes(1);
+    expect(await readProviderSendWindow(null)).toEqual({ state: "disabled" });
+  });
   it("summarizes failed import outcome reasons with redacted provider evidence", () => {
     const overview = buildCatalogIntegrationControlPlaneOverview({
       generatedAt,

@@ -17,6 +17,8 @@ Use the stable IDs below in PR #1028, #1020, #1023, #1025, and milestone comment
 
 ## Section Shell Rows
 
+The platform-admin-only Provider Connections route is `/platform/provider-connections`, gated by `provider-connections.view` and the platform-admin role. Its real-loader contract coverage is `deployables/admin-web/app/provider-connections.test.tsx`: Catalog provider actions resolve to the registered owner route; Channels rows are read-only. This is controlled local fixture coverage, not deployed smoke evidence.
+
 | ID | Section | Route | Actor | Required Evidence |
 | --- | --- | --- | --- | --- |
 | SMOKE-SHELL-ACCESS | Access | `/access` | all-admin-permissions | Shared top app bar, account/sign-out access, local navigation, no retired SellerBadge Verified chip. |

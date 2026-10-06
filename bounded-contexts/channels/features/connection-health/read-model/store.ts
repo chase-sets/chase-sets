@@ -2,6 +2,20 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { decodeChannelHealthSnapshot } from "../domain/codecs";
 import type { ChannelHealthSnapshot } from "../domain/contracts";
 
+export async function readOperatorHealthSummaries(db: PgQueryable, connectionIds: readonly string[]) {
+  if (connectionIds.length > 100) throw new Error("invalid-health-page");
+  if (connectionIds.length === 0)
+    return new Map<string, { state: ChannelHealthSnapshot["state"]; observed_at: string | null }>();
+  const result = await db.query<{
+    connection_id: string;
+    state: ChannelHealthSnapshot["state"];
+    observed_at: string | null;
+  }>(`SELECT connection_id, state, observed_at FROM channel_connection_health WHERE connection_id=ANY($1::text[])`, [
+    connectionIds,
+  ]);
+  return new Map(result.rows.map((row) => [row.connection_id, row]));
+}
+
 export function openHealthReasonGenerations(snapshot: ChannelHealthSnapshot) {
   return snapshot.reasons.filter((reason) => reason.state !== "closed");
 }

@@ -12,10 +12,13 @@ export const PERMISSION_PRESETS = {
 
 export const ROLE_PERMISSIONS = {
   "platform-admin": [
+    "payouts.platform.view",
+    "provider-connections.view",
     "accounts.manage",
     "accounts.view",
     "catalog.manage",
     "catalog.view",
+    "commercial-terms.agreements.manage",
     "commercial-terms.manage",
     "commercial-terms.view",
     "google-shopping.manage",

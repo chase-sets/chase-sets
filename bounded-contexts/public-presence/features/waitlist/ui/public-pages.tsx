@@ -3,15 +3,14 @@ import {
   Form,
   Banner,
   Badge,
+  Box,
   BrandFoilText,
   BrandLink,
   Button,
   Checkbox,
-  CheckboxGroup,
   ChaseRoot,
   Cluster,
   Container,
-  DiscountValue,
   Grid,
   Heading,
   HiddenInput,
@@ -19,8 +18,6 @@ import {
   Inline,
   LinkButton,
   LinkText,
-  ListingCard,
-  List,
   MarketingImageHero,
   MobileStickyBar,
   MobileStickyInset,
@@ -34,10 +31,11 @@ import {
   Show,
   SkipLink,
   Stack,
+  Stagger,
   StickyBar,
   Surface,
-  PriceBreakdown,
   ProgressiveDisclosure,
+  ProgressiveDisclosureGroup,
   Table,
   Text,
   TextInput,
@@ -48,14 +46,12 @@ import { RouterLinkAdapter } from "@chase-sets/design-system/react-router";
 import prelaunchHeroUrl from "./assets/chase-sets-prelaunch-hero.webp?url";
 import prelaunchHero800wUrl from "./assets/chase-sets-prelaunch-hero-800w.webp?url";
 import prelaunchHero1200wUrl from "./assets/chase-sets-prelaunch-hero-1200w.webp?url";
-import pikachuIllustrationRareUrl from "./assets/pikachu-illustration-rare-preview.webp?url";
 import { trackWaitlistEvent } from "./analytics";
 import {
   checkoutFeeTranslationValues,
   fallbackCheckoutFeePreview,
   type CheckoutFeePreview,
 } from "./checkout-fee-preview";
-import { FeeCalculatorSection, type PublicMarketplaceFeeSchedule } from "./fee-comparison-calculator";
 import {
   landingExperimentVariantForIntent,
   landingExperimentVariants,
@@ -63,9 +59,8 @@ import {
   type LandingExperimentVariant,
   type LandingIntent,
 } from "./landing-experiment";
-import { launchTimeline } from "./launch-config";
+import { landingFaqEntries } from "./landing-faq";
 import { publicPresenceT as t } from "./public-presence-translator";
-import { sellerToolsClaimStatus } from "./seller-tools-claims";
 
 export type WaitlistActionData = Readonly<{ status: "error"; message: string }> | null;
 
@@ -246,6 +241,11 @@ const policyLinks = [
   { href: "/order-protection", label: t("publicPresence.nav.buyerProtection") },
   { href: "/sales-fees", label: t("publicPresence.nav.sellerFees") },
   { href: "/founders", label: t("publicPresence.nav.foundersTerms") },
+  { href: "/seller-agreement", label: t("publicPresence.info.sellerAgreement.eyebrow") },
+  { href: "/payments-terms", label: t("publicPresence.info.paymentsTerms.eyebrow") },
+  { href: "/authenticity-terms", label: t("publicPresence.info.authenticityTerms.eyebrow") },
+  { href: "/agent-terms", label: t("publicPresence.info.agentTerms.eyebrow") },
+  { href: "/press", label: t("publicPresence.nav.press") },
 ];
 
 function trackCtaClick(
@@ -402,6 +402,13 @@ function useWaitlistCounterDisplay() {
   return displayCount;
 }
 
+// The shell owns no gutter of its own around `main`: `Page` applies `px-4 md:px-6`
+// to page content, and furniture outside `main` repeats the same tokens so every
+// edge lines up at every viewport width.
+function ShellGutter({ children }: { children: ReactNode }) {
+  return <Box paddingX={{ base: 4, md: 6 }}>{children}</Box>;
+}
+
 export function PublicPresencePageShell({
   children,
   landingExperimentVariant = landingExperimentVariants.sellerFirstV1,
@@ -410,50 +417,61 @@ export function PublicPresencePageShell({
   landingExperimentVariant?: LandingExperimentVariant;
 }) {
   const promoBarMessages = usePromoBarMessages();
+  // `PromoBar` renders null unless a message has a title, so the wrapper (and its
+  // `Stack` gap slot) must follow the same titled-message rule, not array length.
+  const hasTitledPromoMessage = promoBarMessages.some((message) => Boolean(message.title));
 
   return (
     <LandingExperimentVariantContext.Provider value={landingExperimentVariant}>
       <ChaseRoot colorMode="system" linkComponent={RouterLinkAdapter}>
         <SkipLink />
         <MobileStickyInset>
-          <Container width="wide">
+          <Container width="wide" paddingX={0}>
             <Stack gap={4}>
-              <PromoBar messages={promoBarMessages} />
-              <Surface element="nav" tone="subtle" elevation="flush" padding={2}>
-                <Cluster gap={2}>
-                  <Inline gap={3} align="center">
-                    <BrandLink label={t("publicPresence.brand")} />
-                  </Inline>
-                  <LinkButton
-                    href="/#waitlist-form"
-                    tone="primary"
-                    size="sm"
-                    leadingIcon="rocket"
-                    onClick={() => trackCtaClick("nav", "waitlist_form", landingExperimentVariant)}
-                  >
-                    {t("publicPresence.nav.waitlist")}
-                  </LinkButton>
-                </Cluster>
-              </Surface>
+              {hasTitledPromoMessage ? (
+                <ShellGutter>
+                  <PromoBar messages={promoBarMessages} />
+                </ShellGutter>
+              ) : null}
+              <ShellGutter>
+                <Surface element="nav" tone="subtle" elevation="flush" padding={2}>
+                  <Cluster gap={2}>
+                    <Inline gap={3} align="center">
+                      <BrandLink label={t("publicPresence.brand")} />
+                    </Inline>
+                    <LinkButton
+                      href="/#waitlist-form"
+                      tone="primary"
+                      size="sm"
+                      leadingIcon="rocket"
+                      onClick={() => trackCtaClick("nav", "waitlist_form", landingExperimentVariant)}
+                    >
+                      {t("publicPresence.nav.waitlist")}
+                    </LinkButton>
+                  </Cluster>
+                </Surface>
+              </ShellGutter>
               <main id="main-content">{children}</main>
-              <Surface element="footer" tone="subtle" elevation="flush">
-                <Stack gap={3}>
-                  <Text weight="semibold">{t("publicPresence.footer.title")}</Text>
-                  <Inline gap={3}>
-                    {policyLinks.map((link) => (
-                      <LinkText key={link.href} href={link.href} touchTarget>
-                        {link.label}
+              <ShellGutter>
+                <Surface element="footer" tone="subtle" elevation="flush">
+                  <Stack gap={3}>
+                    <Text weight="semibold">{t("publicPresence.footer.title")}</Text>
+                    <Inline gap={3}>
+                      {policyLinks.map((link) => (
+                        <LinkText key={link.href} href={link.href} touchTarget>
+                          {link.label}
+                        </LinkText>
+                      ))}
+                      <LinkText href="/contact" touchTarget>
+                        {t("publicPresence.nav.contact")}
                       </LinkText>
-                    ))}
-                    <LinkText href="/contact" touchTarget>
-                      {t("publicPresence.nav.contact")}
-                    </LinkText>
-                  </Inline>
-                  <Text size="sm" tone="secondary">
-                    {t("publicPresence.footer.description")}
-                  </Text>
-                </Stack>
-              </Surface>
+                    </Inline>
+                    <Text size="sm" tone="secondary">
+                      {t("publicPresence.footer.description")}
+                    </Text>
+                  </Stack>
+                </Surface>
+              </ShellGutter>
             </Stack>
           </Container>
         </MobileStickyInset>
@@ -594,7 +612,6 @@ export function PublicPresenceHomePage({
   source,
   selectedGame: selectedGameInput = null,
   checkoutFeePreview = fallbackCheckoutFeePreview,
-  feeSchedule = null,
 }: {
   actionData: WaitlistActionData;
   discordInviteUrl?: string | null;
@@ -603,12 +620,6 @@ export function PublicPresenceHomePage({
   selectedGame?: string | null;
   /** Live buyer-side checkout processing presentation from the loader; falls back to the compiled launch terms. */
   checkoutFeePreview?: CheckoutFeePreview;
-  /**
-   * Live standard fee schedule from the whitelisted public policy read
-   * (loader-provided). Null hides the calculator — its Chase Sets numbers
-   * are truth-gated and never hardcoded.
-   */
-  feeSchedule?: PublicMarketplaceFeeSchedule | null;
 }) {
   const [intent, setIntent] = useState<WaitlistIntent>(() => resolveInitialHeroIntent(source));
   const landingExperimentVariant = landingExperimentVariantForIntent(heroIntentValue(intent));
@@ -664,11 +675,6 @@ export function PublicPresenceHomePage({
             imageWidth={1600}
             imageHeight={1000}
             density="compact"
-            eyebrow={
-              landingExperimentVariant === landingExperimentVariants.sellerFirstV2
-                ? t("publicPresence.home.buyerHero.eyebrow")
-                : t("publicPresence.home.eyebrow")
-            }
             title={
               landingExperimentVariant === landingExperimentVariants.sellerFirstV2
                 ? heroTitleContent(t("publicPresence.home.buyerHero.title"), "cards")
@@ -737,19 +743,9 @@ export function PublicPresenceHomePage({
 
         <OpenOffersSection />
 
-        <SellerToolsSection />
-
         <FeeComparisonSection onDisclosureOpen={trackDisclosureOpen} />
 
-        <FeeCalculatorSection schedule={feeSchedule} onDisclosureOpen={trackDisclosureOpen} />
-
         <FoundersOfferSection />
-
-        <LaunchTimelineSection onDisclosureOpen={trackDisclosureOpen} />
-
-        <ProductSignalPreview checkoutFeePreview={checkoutFeePreview} onDisclosureOpen={trackDisclosureOpen} />
-
-        <FounderStorySection discordInviteUrl={discordInviteUrl} />
 
         <FinalCtaSection
           actionData={actionData}
@@ -799,174 +795,44 @@ function GameRosterSection({ pagePath, selectedGame }: { pagePath: string; selec
   );
 }
 
-// The "everywhere else" card describes the generic pattern of buy/sell social
-// groups (unlisted, unprotected, seller-hunts-a-stranger), not any single
-// named platform. Unlike the fee-comparison surfaces (which name TCGplayer
-// and eBay per the ratified competitor-naming decision), there is no single
-// platform to name here.
+// A play-once walkthrough: the three steps reveal in order beside the
+// sample offer the first time the section scrolls into view, then rest
+// visible. `trigger="in-view"` server-renders every step visible, so the
+// steps read without JavaScript and a `/#open-offers` jump (the open-offers
+// nurture email link) lands on a settled section. Two steps of stagger plus
+// the `lift` transition finish well inside WCAG 2.2.2's five seconds, so the
+// sequence needs no pause control.
+const openOffersWalkthroughStaggerMs = 600;
+
 function OpenOffersSection() {
   return (
     <PageSection
+      id="open-offers"
       data-public-presence-section="open_offers"
       title={t("publicPresence.home.openOffers.title")}
-      description={t("publicPresence.home.openOffers.description")}
     >
       <Grid columns={{ base: 1, lg: 2 }} gap={4}>
-        <Surface tone="subtle" elevation="tinted">
-          <Stack gap={3}>
-            <BadgeRow>
-              <Badge tone="warning">{t("publicPresence.home.openOffers.before.badge")}</Badge>
-            </BadgeRow>
-            <Heading level={3}>{t("publicPresence.home.openOffers.before.title")}</Heading>
-            <Text tone="secondary">{t("publicPresence.home.openOffers.before.description")}</Text>
-            <List
-              items={[
-                t("publicPresence.home.openOffers.before.point.post"),
-                t("publicPresence.home.openOffers.before.point.replies"),
-                t("publicPresence.home.openOffers.before.point.payment"),
-                t("publicPresence.home.openOffers.before.point.risk"),
-              ]}
-            />
-          </Stack>
-        </Surface>
-        <Stack gap={3}>
-          <Surface tone="subtle" elevation="tinted">
-            <Stack gap={3}>
-              <BadgeRow>
-                <Badge tone="success">{t("publicPresence.home.openOffers.after.badge")}</Badge>
-              </BadgeRow>
-              <Heading level={3}>{t("publicPresence.home.openOffers.after.title")}</Heading>
-              <Text tone="secondary">{t("publicPresence.home.openOffers.after.description")}</Text>
-            </Stack>
-          </Surface>
-          <OfferCard
-            title={t("publicPresence.home.openOffers.after.offerCard.title")}
-            amount={t("publicPresence.home.openOffers.after.offerCard.amount")}
-            status={t("publicPresence.home.openOffers.after.offerCard.status")}
-            details={t("publicPresence.home.openOffers.after.offerCard.details")}
-          />
-          <List
-            items={[
-              t("publicPresence.home.openOffers.after.point.accept"),
-              t("publicPresence.home.openOffers.after.point.checkout"),
-              t("publicPresence.home.openOffers.after.point.record"),
-            ]}
-          />
-        </Stack>
+        <OfferCard
+          title={t("publicPresence.home.openOffers.after.offerCard.title")}
+          amount={t("publicPresence.home.openOffers.after.offerCard.amount")}
+          status={t("publicPresence.home.openOffers.after.offerCard.status")}
+          details={t("publicPresence.home.openOffers.after.offerCard.details")}
+        />
+        <Stagger trigger="in-view" staggerMs={openOffersWalkthroughStaggerMs}>
+          {[
+            "publicPresence.home.openOffers.step.post",
+            "publicPresence.home.openOffers.step.accept",
+            "publicPresence.home.openOffers.step.checkout",
+          ].map((key, index) => (
+            <Box key={key} paddingY={2} data-open-offers-step={index + 1}>
+              <Inline gap={3} align="start" wrap={false}>
+                <Badge tone="neutral">{index + 1}</Badge>
+                <Text tone="secondary">{t(key)}</Text>
+              </Inline>
+            </Box>
+          ))}
+        </Stagger>
       </Grid>
-      <Grid columns={{ base: 1, md: 3 }} gap={3}>
-        {[
-          "publicPresence.home.openOffers.step.post",
-          "publicPresence.home.openOffers.step.accept",
-          "publicPresence.home.openOffers.step.checkout",
-        ].map((key, index) => (
-          <Surface key={key} elevation="tinted">
-            <Stack gap={2}>
-              <Badge tone="neutral">{index + 1}</Badge>
-              <Text tone="secondary">{t(key)}</Text>
-            </Stack>
-          </Surface>
-        ))}
-      </Grid>
-    </PageSection>
-  );
-}
-
-// Seller-tools differentiator: the repricing engine and market analytics are
-// real platform machinery, but their seller-facing controls are launch-gated.
-// Keep every capability card explicitly future-facing until seller access is
-// available; this section must never turn an implementation milestone into a
-// claim of current product availability.
-function SellerToolsSection() {
-  const cards = [
-    {
-      capability: "repricing" as const,
-      status: sellerToolsClaimStatus("repricing"),
-      icon: "settings" as const,
-      title: t("publicPresence.home.sellerTools.repricing.title"),
-      description: t("publicPresence.home.sellerTools.repricing.description"),
-      points: [
-        t("publicPresence.home.sellerTools.repricing.point.anchor"),
-        t("publicPresence.home.sellerTools.repricing.point.floor"),
-        t("publicPresence.home.sellerTools.repricing.point.preview"),
-      ],
-    },
-    {
-      capability: "marketAnalytics" as const,
-      status: sellerToolsClaimStatus("marketAnalytics"),
-      icon: "chart" as const,
-      title: t("publicPresence.home.sellerTools.market.title"),
-      description: t("publicPresence.home.sellerTools.market.description"),
-      points: [
-        t("publicPresence.home.sellerTools.market.point.history"),
-        t("publicPresence.home.sellerTools.market.point.collection"),
-        t("publicPresence.home.sellerTools.market.point.fairness"),
-      ],
-    },
-    {
-      capability: "sellerScale" as const,
-      status: sellerToolsClaimStatus("sellerScale"),
-      icon: "dashboard" as const,
-      title: t("publicPresence.home.sellerTools.scale.title"),
-      description: t("publicPresence.home.sellerTools.scale.description"),
-      points: [
-        t("publicPresence.home.sellerTools.scale.point.inventory"),
-        t("publicPresence.home.sellerTools.scale.point.bulk"),
-        t("publicPresence.home.sellerTools.scale.point.api"),
-      ],
-    },
-  ];
-
-  return (
-    <PageSection
-      id="seller-tools"
-      data-public-presence-section="seller_tools"
-      title={t("publicPresence.home.sellerTools.title")}
-      description={t("publicPresence.home.sellerTools.description")}
-    >
-      <Grid columns={{ base: 1, lg: 3 }} gap={4}>
-        {cards.map((card) => (
-          <Surface
-            key={card.title}
-            tone="subtle"
-            elevation="tinted"
-            data-seller-tools-capability={card.capability}
-            data-seller-tools-status={card.status}
-          >
-            <Stack gap={3}>
-              <BadgeRow>
-                <Badge tone={card.status === "live" ? "success" : "info"}>
-                  {card.status === "live"
-                    ? t("publicPresence.home.sellerTools.live")
-                    : t("publicPresence.home.sellerTools.comingToBeta")}
-                </Badge>
-              </BadgeRow>
-              <ToneIcon name={card.icon} tone="primary" size="lg" label={card.title} />
-              <Heading level={3}>{card.title}</Heading>
-              <Text tone="secondary">{card.description}</Text>
-              <List items={card.points} />
-            </Stack>
-          </Surface>
-        ))}
-      </Grid>
-      <Surface tone="subtle" elevation="tinted">
-        <Inline gap={3} align="center">
-          <ToneIcon name="rocket" tone="success" size="md" label={t("publicPresence.home.sellerTools.cta.title")} />
-          <Stack gap={1}>
-            <Heading level={3}>{t("publicPresence.home.sellerTools.cta.title")}</Heading>
-            <Text size="sm" tone="secondary">
-              {t("publicPresence.home.sellerTools.cta.description")}
-            </Text>
-          </Stack>
-          <LinkButton
-            href="#waitlist-form-final"
-            tone="primary"
-            onClick={() => trackCtaClick("seller_tools", "waitlist_form_final")}
-          >
-            {t("publicPresence.home.sellerTools.cta.action")}
-          </LinkButton>
-        </Inline>
-      </Surface>
     </PageSection>
   );
 }
@@ -986,17 +852,20 @@ function SellerToolsSection() {
 // decision (Todd, 2026-07-12): TCGplayer and eBay, here and on all
 // downstream fee-comparison surfaces.
 function FeeComparisonSection({ onDisclosureOpen }: { onDisclosureOpen: TrackDisclosureOpen }) {
+  const landingExperimentVariant = useLandingExperimentVariant();
+
+  // One row only: the kept amount is the whole argument on the
+  // landing page; the fee breakdown, calculator and worked examples live on
+  // the /compare pages this section links to.
   return (
     <PageSection
       data-public-presence-section="fee_comparison"
       title={t("publicPresence.home.sellerEconomics.comparison.title")}
-      description={t("publicPresence.home.sellerEconomics.comparison.description")}
     >
       <Stack gap={3}>
         <Table
           density="compact"
           wrapFirstColumn
-          caption={t("publicPresence.home.sellerEconomics.comparison.caption")}
           columns={[
             t("publicPresence.home.sellerEconomics.comparison.column.metric"),
             t("publicPresence.home.sellerEconomics.comparison.column.chaseSets"),
@@ -1004,18 +873,6 @@ function FeeComparisonSection({ onDisclosureOpen }: { onDisclosureOpen: TrackDis
             t("publicPresence.home.sellerEconomics.comparison.column.ebay"),
           ]}
           rows={[
-            [
-              t("publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.label"),
-              t("publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.chaseSets"),
-              t("publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.tcgplayer"),
-              t("publicPresence.home.sellerEconomics.comparison.row.marketplaceFee.ebay"),
-            ],
-            [
-              t("publicPresence.home.sellerEconomics.comparison.row.perOrderFee.label"),
-              t("publicPresence.home.sellerEconomics.comparison.row.perOrderFee.chaseSets"),
-              t("publicPresence.home.sellerEconomics.comparison.row.perOrderFee.tcgplayer"),
-              t("publicPresence.home.sellerEconomics.comparison.row.perOrderFee.ebay"),
-            ],
             [
               t("publicPresence.home.sellerEconomics.comparison.row.youKeep.label"),
               <Badge tone="success" variant="solid">
@@ -1035,63 +892,27 @@ function FeeComparisonSection({ onDisclosureOpen }: { onDisclosureOpen: TrackDis
             {t("publicPresence.home.sellerEconomics.comparison.sourceNote")}
           </Text>
         </ProgressiveDisclosure>
-        <Grid columns={{ base: 1, md: 2 }} gap={4}>
-          <PriceBreakdown
-            title={t("publicPresence.home.sellerEconomics.math.title")}
-            description={t("publicPresence.home.sellerEconomics.math.description")}
-            lines={[
-              {
-                label: t("publicPresence.home.sellerEconomics.math.item"),
-                value: t("publicPresence.home.sellerEconomics.math.item.value"),
-              },
-              {
-                label: t("publicPresence.home.sellerEconomics.math.sellerFee"),
-                value: t("publicPresence.home.sellerEconomics.math.sellerFee.value"),
-              },
-              {
-                label: t("publicPresence.home.sellerEconomics.math.processingFee"),
-                value: t("publicPresence.home.sellerEconomics.math.processingFee.value"),
-              },
-            ]}
-            totalLabel={t("publicPresence.home.sellerEconomics.math.total")}
-            total={t("publicPresence.home.sellerEconomics.math.total.value")}
-            reassurance={t("publicPresence.home.sellerEconomics.math.reassurance")}
-          />
-          <PriceBreakdown
-            title={t("publicPresence.home.sellerEconomics.math.graded.title")}
-            description={t("publicPresence.home.sellerEconomics.math.graded.description")}
-            lines={[
-              {
-                label: t("publicPresence.home.sellerEconomics.math.graded.item"),
-                value: t("publicPresence.home.sellerEconomics.math.graded.item.value"),
-              },
-              {
-                label: t("publicPresence.home.sellerEconomics.math.graded.sellerFee"),
-                value: t("publicPresence.home.sellerEconomics.math.graded.sellerFee.value"),
-              },
-              {
-                label: t("publicPresence.home.sellerEconomics.math.graded.processingFee"),
-                value: t("publicPresence.home.sellerEconomics.math.graded.processingFee.value"),
-              },
-            ]}
-            totalLabel={t("publicPresence.home.sellerEconomics.math.graded.total")}
-            total={t("publicPresence.home.sellerEconomics.math.graded.total.value")}
-            reassurance={t("publicPresence.home.sellerEconomics.math.graded.reassurance")}
-          />
-        </Grid>
+        <Inline>
+          <LinkButton
+            href="/compare/tcgplayer"
+            tone="secondary"
+            size="sm"
+            onClick={() => trackCtaClick("fee_comparison", "compare_tcgplayer", landingExperimentVariant)}
+          >
+            {t("publicPresence.home.sellerEconomics.comparison.compareLink")}
+          </LinkButton>
+        </Inline>
       </Stack>
     </PageSection>
   );
 }
 
-// Founders offer module: replaces vague "Founding Account badge eligibility"
-// copy with the concrete mechanics (cap, numbered badge, 60-day window).
+// Founders offer module: title and description state the cap and the 60-day
+// window; the mechanics live on /founders, not in a point list here.
 // Cap is stated as a static number, not a live count: an "N of 500 founder
 // numbers claimed" scarcity chip needs an activated-founders cohort counter
 // that does not exist yet (only the waitlist signup counter is live, and
 // that counts a different population -- signups, not activated founders).
-// Ship the offer terms accurately now; wire the live counter once that
-// cohort-counter machinery lands.
 function FoundersOfferSection() {
   const landingExperimentVariant = useLandingExperimentVariant();
 
@@ -1101,273 +922,16 @@ function FoundersOfferSection() {
       title={t("publicPresence.home.foundersOffer.title")}
       description={t("publicPresence.home.foundersOffer.description")}
     >
-      <Surface tone="subtle" elevation="tinted">
-        <Stack gap={3}>
-          <BadgeRow>
-            <Badge tone="trust">{t("publicPresence.home.foundersOffer.badge")}</Badge>
-          </BadgeRow>
-          <List
-            items={[
-              t("publicPresence.home.foundersOffer.point.badge"),
-              t("publicPresence.home.foundersOffer.point.window"),
-              t("publicPresence.home.foundersOffer.point.expiry"),
-              t("publicPresence.home.foundersOffer.point.community"),
-              t("publicPresence.home.foundersOffer.point.input"),
-            ]}
-          />
-          <Inline>
-            <LinkButton
-              href="/founders"
-              tone="secondary"
-              size="sm"
-              onClick={() => trackCtaClick("founders_offer", "founders_terms", landingExperimentVariant)}
-            >
-              {t("publicPresence.home.foundersOffer.action")}
-            </LinkButton>
-          </Inline>
-        </Stack>
-      </Surface>
-    </PageSection>
-  );
-}
-
-// Access follows waitlist -> numbered beta invite waves -> open signup.
-// Wave progression depends on operational readiness, not promised dates.
-function LaunchTimelineSection({ onDisclosureOpen }: { onDisclosureOpen: TrackDisclosureOpen }) {
-  const landingExperimentVariant = useLandingExperimentVariant();
-
-  const steps = [
-    { key: "waitlist", badgeTone: "info" as const },
-    { key: "waves", badgeTone: "trust" as const },
-    { key: "launch", badgeTone: "success" as const },
-  ];
-
-  return (
-    <PageSection
-      data-public-presence-section="launch_timeline"
-      title={t("publicPresence.home.launchTimeline.title")}
-      description={t("publicPresence.home.launchTimeline.description")}
-    >
-      <Grid columns={{ base: 1, md: 3 }} gap={4}>
-        {steps.map((step) => (
-          <Surface key={step.key} tone="subtle" elevation="tinted">
-            <Stack gap={3}>
-              <BadgeRow>
-                <Badge tone={step.badgeTone}>{t(`publicPresence.home.launchTimeline.step.${step.key}.badge`)}</Badge>
-              </BadgeRow>
-              <Heading level={3}>{t(`publicPresence.home.launchTimeline.step.${step.key}.title`)}</Heading>
-              <Text tone="secondary">
-                {t(`publicPresence.home.launchTimeline.step.${step.key}.description`, launchTimeline)}
-              </Text>
-              {step.key === "waves" ? (
-                <List
-                  items={[
-                    t("publicPresence.home.launchTimeline.step.waves.gates"),
-                    t("publicPresence.home.launchTimeline.step.waves.founders"),
-                  ]}
-                />
-              ) : null}
-              {step.key === "waves" ? (
-                <ProgressiveDisclosure
-                  data-landing-disclosure="launch_timeline_wave_qualification"
-                  title={t("publicPresence.home.launchTimeline.step.waves.qualificationDisclosure")}
-                  onOpenChange={(open) =>
-                    open && onDisclosureOpen("launch_timeline", "launch_timeline_wave_qualification")
-                  }
-                >
-                  <Text>{t("publicPresence.home.launchTimeline.step.waves.qualification")}</Text>
-                </ProgressiveDisclosure>
-              ) : null}
-            </Stack>
-          </Surface>
-        ))}
-      </Grid>
       <Inline>
         <LinkButton
-          href="/#waitlist-form"
-          tone="primary"
+          href="/founders"
+          tone="secondary"
           size="sm"
-          leadingIcon="rocket"
-          onClick={() => trackCtaClick("launch_timeline", "waitlist_form", landingExperimentVariant)}
+          onClick={() => trackCtaClick("founders_offer", "founders_terms", landingExperimentVariant)}
         >
-          {t("publicPresence.home.launchTimeline.action")}
+          {t("publicPresence.home.foundersOffer.action")}
         </LinkButton>
       </Inline>
-    </PageSection>
-  );
-}
-
-function ProductSignalPreview({
-  checkoutFeePreview,
-  onDisclosureOpen,
-}: {
-  checkoutFeePreview: CheckoutFeePreview;
-  onDisclosureOpen: TrackDisclosureOpen;
-}) {
-  const landingExperimentVariant = useLandingExperimentVariant();
-
-  // The concrete buyer-side checkout-fee presentation: the card processing
-  // line states the real passthrough terms and the sample order resolves to
-  // a concrete total, instead of a fee "quoted before payment".
-  const checkoutFee = checkoutFeeTranslationValues(checkoutFeePreview);
-  return (
-    <PageSection
-      id="product-preview"
-      data-public-presence-section="product_preview"
-      title={t("publicPresence.preview.section.title")}
-      description={t("publicPresence.preview.section.description")}
-    >
-      <Grid columns={{ base: 1, lg: 2 }} gap={4}>
-        <ListingCard
-          title={t("publicPresence.preview.listing.title")}
-          model="product"
-          imageSrc={pikachuIllustrationRareUrl}
-          imageAlt={t("publicPresence.preview.listing.imageAlt")}
-          detailLinkLabel={t("publicPresence.preview.listing.viewDetails", {
-            identity: t("publicPresence.preview.listing.title"),
-          })}
-          saveLabel={t("publicPresence.preview.listing.save", { identity: t("publicPresence.preview.listing.title") })}
-          savedLabel={t("publicPresence.preview.listing.saved", {
-            identity: t("publicPresence.preview.listing.title"),
-          })}
-          watchingLabel={t("publicPresence.preview.listing.watching", {
-            identity: t("publicPresence.preview.listing.title"),
-          })}
-          imageLoading="lazy"
-          imageFetchPriority="low"
-          imageDecoding="async"
-          imageWidth={420}
-          imageHeight={587}
-          promotion={t("publicPresence.preview.listing.badge")}
-          price={t("publicPresence.preview.listing.price.value")}
-          priceDetail={t("publicPresence.preview.listing.price.detail")}
-          priceExplanation={t("publicPresence.preview.listing.price.explanation")}
-          sellerName={t("publicPresence.preview.listing.seller.value")}
-          sellerTrustLabel={t("publicPresence.preview.listing.seller.trust")}
-          sellerMeta={t("publicPresence.preview.listing.seller.meta")}
-          fulfillment={t("publicPresence.preview.listing.fulfillment.value")}
-          availability={t("publicPresence.preview.listing.availability.value")}
-          condition={t("publicPresence.preview.listing.condition.value")}
-          valueCue={t("publicPresence.preview.listing.description")}
-          truncateValueCue={false}
-          protection={t("publicPresence.preview.listing.protection.value")}
-          returnPolicy={t("publicPresence.preview.listing.returnPolicy.value")}
-          primaryAction={
-            <LinkButton
-              href="/#waitlist-form"
-              size="sm"
-              onClick={() => trackCtaClick("product_preview", "waitlist_form", landingExperimentVariant)}
-            >
-              {t("publicPresence.preview.listing.action")}
-            </LinkButton>
-          }
-          secondaryAction={
-            <LinkButton
-              href="/order-protection"
-              tone="secondary"
-              size="sm"
-              onClick={() => trackCtaClick("product_preview", "order_protection", landingExperimentVariant)}
-            >
-              {t("publicPresence.preview.listing.secondaryAction")}
-            </LinkButton>
-          }
-        />
-        <Stack gap={4}>
-          <PriceBreakdown
-            title={t("publicPresence.preview.total.title")}
-            description={t("publicPresence.preview.total.description", checkoutFee)}
-            lines={[
-              { label: t("publicPresence.preview.total.item"), value: t("publicPresence.preview.total.item.value") },
-              { label: t("publicPresence.preview.total.shipping"), value: <DiscountedShippingValue /> },
-              {
-                label: t("publicPresence.preview.total.tax"),
-                value: t("publicPresence.preview.total.tax.value"),
-              },
-              {
-                label: t("publicPresence.preview.total.cardProcessing", checkoutFee),
-                value: t("publicPresence.preview.total.cardProcessing.value", checkoutFee),
-              },
-            ]}
-            totalLabel={t("publicPresence.preview.total.due")}
-            total={t("publicPresence.preview.total.due.value", checkoutFee)}
-            reassurance={t("publicPresence.preview.total.reassurance", checkoutFee)}
-          />
-          <Text size="sm" tone="tertiary">
-            {t("publicPresence.preview.total.protectionCaption")}{" "}
-            <LinkText href="/order-protection" touchTarget>
-              {t("publicPresence.preview.total.protectionLink")}
-            </LinkText>
-          </Text>
-          <ProgressiveDisclosure
-            data-landing-disclosure="product_preview_trust"
-            title={t("publicPresence.preview.trust.title")}
-            onOpenChange={(open) => open && onDisclosureOpen("product_preview", "product_preview_trust")}
-          >
-            <Stack gap={4}>
-              {[
-                ["publicPresence.preview.trust.payment.title", "publicPresence.preview.trust.payment.description"],
-                ["publicPresence.preview.trust.shipping.title", "publicPresence.preview.trust.shipping.description"],
-                ["publicPresence.preview.trust.support.title", "publicPresence.preview.trust.support.description"],
-              ].map(([title, description]) => (
-                <Stack key={title} gap={1}>
-                  <Text weight="semibold">{t(title)}</Text>
-                  <Text size="sm" tone="secondary">
-                    {/* Checkout-fee values interpolate here; keys without those tokens ignore the extra values. */}
-                    {t(description, checkoutFee)}
-                  </Text>
-                </Stack>
-              ))}
-            </Stack>
-          </ProgressiveDisclosure>
-        </Stack>
-      </Grid>
-    </PageSection>
-  );
-}
-
-function DiscountedShippingValue() {
-  return (
-    <DiscountValue
-      original={t("publicPresence.preview.total.shipping.original")}
-      current={t("publicPresence.preview.total.shipping.net")}
-    />
-  );
-}
-
-function FounderStorySection({ discordInviteUrl }: { discordInviteUrl?: string | null }) {
-  return (
-    <PageSection
-      data-public-presence-section="founder_story"
-      title={t("publicPresence.home.founderStory.title")}
-      description={t("publicPresence.home.founderStory.description")}
-    >
-      <Surface tone="subtle" elevation="tinted">
-        <Stack gap={3}>
-          <BadgeRow>
-            <Badge tone="trust">{t("publicPresence.home.founderStory.badge")}</Badge>
-          </BadgeRow>
-          <Inline gap={3} align="center">
-            <ToneIcon name="user" tone="trust" size="lg" label={t("publicPresence.home.founderStory.name")} />
-            <Stack gap={0}>
-              <Heading level={3}>{t("publicPresence.home.founderStory.name")}</Heading>
-              <Text size="sm" tone="secondary">
-                {t("publicPresence.home.founderStory.role")}
-              </Text>
-            </Stack>
-          </Inline>
-          <Text tone="secondary">{t("publicPresence.home.founderStory.story")}</Text>
-          <List
-            items={[
-              t("publicPresence.home.founderStory.point.collector"),
-              t("publicPresence.home.founderStory.point.transparency"),
-              t("publicPresence.home.founderStory.point.roadmap"),
-            ]}
-          />
-          <Inline gap={2}>
-            {discordInviteUrl ? <DiscordInviteLink href={discordInviteUrl} section="founder_story" /> : null}
-          </Inline>
-        </Stack>
-      </Surface>
     </PageSection>
   );
 }
@@ -1394,20 +958,17 @@ function FinalCtaSection({
       <Grid columns={{ base: 1, lg: 2 }} gap={5}>
         <Stack gap={3}>
           <Stack gap={2}>
-            <BadgeRow>
-              <Badge tone="success">{t("publicPresence.home.finalCta.badge")}</Badge>
-            </BadgeRow>
             <Heading level={2}>{t("publicPresence.home.finalCta.title")}</Heading>
             <Text tone="secondary">{t("publicPresence.home.finalCta.description")}</Text>
           </Stack>
-          <List
-            items={[
-              t("publicPresence.home.finalCta.point.foundingBadge"),
-              t("publicPresence.home.finalCta.point.sellers"),
-              t("publicPresence.home.finalCta.point.buyers"),
-              t("publicPresence.home.finalCta.point.terms"),
-            ]}
-          />
+          {/* One-line founder byline: the credibility the removed founder-story
+              section carried, from its existing name/role keys. */}
+          <Text size="sm" tone="secondary" data-public-presence-founder-byline>
+            {t("publicPresence.home.finalCta.byline", {
+              name: t("publicPresence.home.founderStory.name"),
+              role: t("publicPresence.home.founderStory.role"),
+            })}
+          </Text>
           <Inline gap={2}>
             {discordInviteUrl ? <DiscordInviteLink href={discordInviteUrl} variant={landingExperimentVariant} /> : null}
             <LinkButton
@@ -1460,7 +1021,6 @@ function WaitlistSignupPanel({
 }) {
   const [marketingConsent, setMarketingConsent] = useState(false);
   const [games, setGames] = useState<string[]>(selectedGame ? [selectedGame] : []);
-  const [hasStoreLink, setHasStoreLink] = useState(false);
   const formStarted = useRef(false);
   const isHero = variant === "hero";
   const section = isHero ? "hero" : "final_cta";
@@ -1468,17 +1028,15 @@ function WaitlistSignupPanel({
 
   // A game tile clicked after first render (client-side navigation) must
   // still land in the games selection, so the prefill merges reactively
-  // instead of relying on initial state alone.
+  // instead of relying on initial state alone. Both forms post the prefill as
+  // hidden `games` values; the seller cohort-quality fields (games, inventory
+  // size, store link) are collected on /welcome after signup.
   useEffect(() => {
     if (!selectedGame) {
       return;
     }
     setGames((current) => (current.includes(selectedGame) ? current : [...current, selectedGame]));
   }, [selectedGame]);
-  // Cohort quality fields are only collected on the full form (not the
-  // compact hero/sticky variant) and only for sell/both intent -- they are
-  // never a condition of joining the waitlist.
-  const showSellerInventoryFields = !isHero && intent.role !== "buy";
 
   function trackFormStart(field: string) {
     if (formStarted.current) {
@@ -1547,31 +1105,19 @@ function WaitlistSignupPanel({
   const panel = (
     <Surface id={panelId} elevation="elevated" glow padding={isHero ? 2 : 4}>
       <Stack gap={isHero ? 2 : 4}>
+        {/* The hero panel opens on the form so email and submit fit the first
+            phone screen (#8504); its notes and counter follow the button. */}
         {isHero ? (
-          <Stack gap={1}>
-            <Text weight="semibold">{t("publicPresence.waitlist.compactTitle")}</Text>
-            <Text size="sm" tone="secondary">
-              {t("publicPresence.waitlist.compactDescription")}
-            </Text>
-            {prefillGameLabel ? (
-              // Per-game proof point: a roster tile / per-game campaign link
-              // landed here, so the panel confirms which game is prefilled.
-              <Inline gap={1} align="center">
-                <Badge tone="info">{prefillGameLabel}</Badge>
-                <Text size="sm" tone="secondary">
-                  {t("publicPresence.waitlist.gamePrefill")}
-                </Text>
-              </Inline>
-            ) : null}
-            {waitlistCounterDisplay !== null ? (
-              <Inline gap={1} align="center">
-                <ToneIcon name="users" tone="primary" size="sm" />
-                <Text size="sm" weight="semibold">
-                  {t("publicPresence.waitlist.counter.label", { count: waitlistCounterDisplay })}
-                </Text>
-              </Inline>
-            ) : null}
-          </Stack>
+          prefillGameLabel ? (
+            // Per-game proof point: a roster tile / per-game campaign link
+            // landed here, so the panel confirms which game is prefilled.
+            <Inline gap={1} align="center">
+              <Badge tone="info">{prefillGameLabel}</Badge>
+              <Text size="sm" tone="secondary">
+                {t("publicPresence.waitlist.gamePrefill")}
+              </Text>
+            </Inline>
+          ) : null
         ) : (
           <Stack gap={2}>
             <BadgeRow>
@@ -1590,17 +1136,12 @@ function WaitlistSignupPanel({
         <Form spacing="none" method="post" action="?index" onSubmit={handleSubmit}>
           <Stack gap={isHero ? 2 : 4}>
             {isHero ? (
-              <Stack gap={1}>
-                <Text size="sm" weight="semibold">
-                  {t("publicPresence.waitlist.heroIntent.label")}
-                </Text>
-                <SegmentedControl
-                  aria-label={t("publicPresence.waitlist.heroIntent.label")}
-                  items={heroIntentItems}
-                  value={heroIntentValue(intent)}
-                  onValueChange={trackHeroIntentSelected}
-                />
-              </Stack>
+              <SegmentedControl
+                aria-label={t("publicPresence.waitlist.heroIntent.label")}
+                items={heroIntentItems}
+                value={heroIntentValue(intent)}
+                onValueChange={trackHeroIntentSelected}
+              />
             ) : null}
             <TextInput
               label={t("publicPresence.waitlist.email")}
@@ -1612,15 +1153,15 @@ function WaitlistSignupPanel({
               onFocus={() => trackFormStart("email")}
               controlSize="lg"
             />
+            {/* Both forms stay minimal (#3954): a game prefill travels
+                as hidden values, never as a visible field. */}
+            {games.map((game) => (
+              <HiddenInput key={game} name="games" value={game} />
+            ))}
             {isHero ? (
               <>
                 <HiddenInput name="role" value={intent.role} />
                 <HiddenInput name="interests" value={intent.interest} />
-                {/* The hero form stays minimal (email + intent, #3954): a game
-                    prefill travels as hidden values, never as a visible field. */}
-                {games.map((game) => (
-                  <HiddenInput key={game} name="games" value={game} />
-                ))}
               </>
             ) : (
               <Grid columns={{ base: 1, md: 2 }} gap={3}>
@@ -1647,55 +1188,6 @@ function WaitlistSignupPanel({
                 />
               </Grid>
             )}
-            {showSellerInventoryFields ? (
-              <Stack gap={3}>
-                <Stack gap={1}>
-                  <Text weight="semibold">{t("publicPresence.waitlist.sellerInventory.title")}</Text>
-                  <Text size="sm" tone="secondary">
-                    {t("publicPresence.waitlist.sellerInventory.description")}
-                  </Text>
-                </Stack>
-                <CheckboxGroup
-                  label={t("publicPresence.waitlist.games.label")}
-                  description={t("publicPresence.waitlist.games.description")}
-                  name="games"
-                  items={gameItems}
-                  values={games}
-                  onValuesChange={(nextGames) => {
-                    trackFormStart("games");
-                    setGames(nextGames);
-                  }}
-                />
-                <NativeSelect
-                  label={t("publicPresence.waitlist.inventorySize.label")}
-                  name="inventorySize"
-                  placeholder={t("publicPresence.waitlist.inventorySize.placeholder")}
-                  items={inventorySizeItems}
-                  onFocus={() => trackFormStart("inventorySize")}
-                  controlSize="lg"
-                />
-                <Checkbox
-                  label={t("publicPresence.waitlist.hasStoreLink.label")}
-                  name="hasStoreLink"
-                  value="yes"
-                  checked={hasStoreLink}
-                  onCheckedChange={(checked) => {
-                    trackFormStart("hasStoreLink");
-                    setHasStoreLink(checked === true);
-                  }}
-                />
-                {hasStoreLink ? (
-                  <TextInput
-                    label={t("publicPresence.waitlist.storeUrl.label")}
-                    name="storeUrl"
-                    type="url"
-                    placeholder={t("publicPresence.waitlist.storeUrl.placeholder")}
-                    onFocus={() => trackFormStart("storeUrl")}
-                    controlSize="lg"
-                  />
-                ) : null}
-              </Stack>
-            ) : null}
             {isHero ? null : (
               <Checkbox
                 label={t("publicPresence.waitlist.marketingConsent")}
@@ -1730,9 +1222,28 @@ function WaitlistSignupPanel({
             <Button type="submit" size={isHero ? "md" : "lg"} block leadingIcon="rocket">
               {t("publicPresence.waitlist.submit")}
             </Button>
-            <Text size="sm" tone="secondary">
-              {isHero ? t("publicPresence.waitlist.impliedConsent") : t("publicPresence.waitlist.noCommitment")}
-            </Text>
+            {isHero ? (
+              <Stack gap={1}>
+                <Text size="sm" tone="secondary">
+                  {t("publicPresence.waitlist.compactDescription")}
+                </Text>
+                <Text size="sm" tone="secondary">
+                  {t("publicPresence.waitlist.impliedConsent")}
+                </Text>
+              </Stack>
+            ) : (
+              <Text size="sm" tone="secondary">
+                {t("publicPresence.waitlist.noCommitment")}
+              </Text>
+            )}
+            {isHero && waitlistCounterDisplay !== null ? (
+              <Inline gap={1} align="center">
+                <ToneIcon name="users" tone="primary" size="sm" />
+                <Text size="sm" weight="semibold">
+                  {t("publicPresence.waitlist.counter.label", { count: waitlistCounterDisplay })}
+                </Text>
+              </Inline>
+            ) : null}
           </Stack>
         </Form>
       </Stack>
@@ -1742,13 +1253,11 @@ function WaitlistSignupPanel({
   return panel;
 }
 
+// The visible FAQ renders the same four entries the home route publishes as
+// FAQPage JSON-LD, collapsed (prior art: `compare_faq`, which likewise emits
+// no disclosure event). Answers stay in the server HTML while collapsed.
 function FaqPreview({ checkoutFeePreview }: { checkoutFeePreview: CheckoutFeePreview }) {
   const landingExperimentVariant = useLandingExperimentVariant();
-
-  const previewQuestions = [
-    ["publicPresence.faq.launch.question", "publicPresence.faq.launch.answer"],
-    ["publicPresence.faq.fees.question", "publicPresence.faq.fees.answer"],
-  ];
   const answerValues = checkoutFeeTranslationValues(checkoutFeePreview);
 
   return (
@@ -1757,21 +1266,18 @@ function FaqPreview({ checkoutFeePreview }: { checkoutFeePreview: CheckoutFeePre
       title={t("publicPresence.faq.title")}
       description={t("publicPresence.faq.description")}
     >
+      <ProgressiveDisclosureGroup
+        items={landingFaqEntries.map(({ value, question, answer }) => ({
+          value,
+          title: t(question),
+          content: t(answer, answerValues),
+        }))}
+      />
       <Inline>
         <LinkButton href="/faq" tone="secondary" onClick={() => trackCtaClick("faq", "faq", landingExperimentVariant)}>
           {t("publicPresence.faq.all")}
         </LinkButton>
       </Inline>
-      <Grid columns={{ base: 1, md: 2 }} gap={4}>
-        {previewQuestions.map(([question, answer]) => (
-          <Surface key={question} tone="subtle" elevation="tinted">
-            <Stack gap={2}>
-              <Heading level={3}>{t(question)}</Heading>
-              <Text tone="secondary">{t(answer, answerValues)}</Text>
-            </Stack>
-          </Surface>
-        ))}
-      </Grid>
     </PageSection>
   );
 }

@@ -8,8 +8,8 @@ import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { resolveClientAddress, resolvePublicRequestOrigin } from "@chase-sets/platform-runtime/http";
-import { providerWebhookErrorFromUnknown } from "@chase-sets/http/provider-errors";
-import { PaymentsRateLimitExceededError, type PaymentServices } from "./runtime";
+import { paymentWebhookErrorFromUnknown } from "./webhook-errors";
+import { PaymentDeclineLimitUnavailableError, PaymentsRateLimitExceededError, type PaymentServices } from "./runtime";
 import { normalizeRequestedBalanceCreditAmount } from "./balance-credit-request";
 import type { AccountId, OrderId, TenantId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { PaymentProcessorPublicConfig } from "@chase-sets/payment-processing";
@@ -70,7 +70,7 @@ function errorMessage(error: unknown) {
 }
 
 function providerWebhookFailureResponse(c: { json: (body: unknown, status?: number) => Response }, error: unknown) {
-  const classified = providerWebhookErrorFromUnknown(error);
+  const classified = paymentWebhookErrorFromUnknown(error);
   const ignored =
     classified.failureClass === "unknown-event" ||
     classified.failureClass === "schema-mismatch" ||
@@ -134,6 +134,12 @@ function staleFeeQuoteResponse(c: { json: (body: unknown, status?: number) => Re
 }
 
 function paymentRateLimitResponse(error: unknown) {
+  if (error instanceof PaymentDeclineLimitUnavailableError) {
+    return new Response(JSON.stringify({ error: { code: error.code, message: error.message } }), {
+      status: 503,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
   if (!(error instanceof PaymentsRateLimitExceededError)) {
     return null;
   }

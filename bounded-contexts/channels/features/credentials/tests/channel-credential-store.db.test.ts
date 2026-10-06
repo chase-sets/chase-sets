@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { withPgTransaction } from "@chase-sets/event-core-postgres";
 import { createChannelCredentialRuntime } from "../api/runtime";
 import { decodeTokenSet, encodeEnvelopeAad, encodeTokenSet } from "../domain/codecs";
-import { sealSecretEnvelope } from "../../../support/runtime-support/secret-envelope";
+import { sealSecretEnvelope } from "@chase-sets/platform-runtime/secret-envelope";
 import { credentialDatabase, credentialReadBarrier } from "./db-support";
 import { at, later, binding, payload, keyring, capability } from "./fixtures";
 

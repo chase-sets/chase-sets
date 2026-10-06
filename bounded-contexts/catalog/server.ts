@@ -1,4 +1,10 @@
 export { createCatalogRequestApiClient } from "./support/request-support/api-client";
+export { createTcgplayerAutomationRuntime } from "./features/operator-session/api/runtime";
+export {
+  createPostgresCatalogOperatorSessionStore,
+  type CatalogOperatorSessionStore,
+  type CatalogOperatorSessionMetadata,
+} from "./features/operator-session/api/store";
 export {
   resolveCatalogProductSelection,
   type CatalogProductSelection,
@@ -25,6 +31,8 @@ export {
   createTcgplayerAutomationHttpClients,
   type TcgplayerAutomationHttpConfig,
 } from "./features/source-observations/api/tcgplayer-automation-client";
+export { readTcgplayerAutomationRateLimitState } from "./features/source-observations/api/providers/tcgplayer-automation-client";
+export type { TcgplayerAutomationDomainRateLimitState } from "./features/source-observations/api/providers/tcgplayer-automation-client";
 export { createTcgplayerAutomationCatalogClient } from "./features/source-observations/api/tcgplayer-automation-catalog-client";
 export {
   OBSERVATION_PACK_DECISION_LINK,
@@ -66,3 +74,6 @@ export type {
 } from "./features/source-observations/ui/contracts";
 export type { CatalogBulkReviewJob } from "./support/shell-support/api/client";
 export type { CatalogItemDetail } from "./features/catalog-items/ui/contracts";
+export { createCatalogProviderConnectionsReadSource } from "./features/source-observations/api/admin/provider-connections-read-source";
+export type { CatalogServices } from "./support/authoring-support/services";
+export { createOperatorTransport } from "./features/operator-session/domain/extension/transport";

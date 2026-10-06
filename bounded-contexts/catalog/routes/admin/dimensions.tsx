@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import { type Dimension } from "../../client";
+import { type Dimension } from "../../support/client-support/contracts";
 import { DimensionListPage } from "../../features/dimensions/ui/dimension-list-page";
 import { createCatalogRequestApiClient } from "../../support/request-support/api-client";
 import { catalogRealtimeRouteTopics } from "../../support/realtime-support/topics";

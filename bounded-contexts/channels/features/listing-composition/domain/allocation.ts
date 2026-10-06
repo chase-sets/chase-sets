@@ -70,6 +70,7 @@ export function deriveChannelPublishQuantity(
   input: Readonly<{
     available: number;
     listingQuantityCap: number;
+    connectionPublishQuantityCap?: number | null;
     channelConnectionId: string;
     allocation: ChannelStockAllocationFacts;
     buffer: ChannelStockAllocationBufferPolicyValue;
@@ -84,7 +85,7 @@ export function deriveChannelPublishQuantity(
             ?.units ?? 0,
           available,
         );
-  return Math.max(0, Math.min(input.listingQuantityCap, allocated));
+  return Math.max(0, Math.min(input.listingQuantityCap, allocated, input.connectionPublishQuantityCap ?? Infinity));
 }
 
 function boundedInteger(value: unknown, label: string): number {

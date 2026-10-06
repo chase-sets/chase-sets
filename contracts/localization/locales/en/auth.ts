@@ -31,7 +31,7 @@ export const authEnglishTranslations = {
   "auth.features.invitationAcceptance.ui.invitationAcceptancePage.password": "Password",
   "auth.features.accountSelection.ui.accountSelectionPage.this.user.can.act.for.more":
     "This user can act for more than one account.",
-  "auth.features.registration.ui.registerPage.create.account": "Create an account with a passkey",
+  "auth.features.registration.ui.registerPage.create.account": "Create your account",
   "auth.features.registration.ui.registerPage.create.account.2": "Create Account",
   "auth.features.registration.ui.registerPage.create.account.with.password": "Create account with password",
   "auth.features.registration.ui.registerPage.create.with.passkey": "Create With Passkey",
@@ -46,7 +46,6 @@ export const authEnglishTranslations = {
   "auth.features.registration.ui.registerPage.email.me.magic.link": "Email me a magic link",
   "auth.features.registration.ui.registerPage.enter.phone.code.copy":
     "Enter the code sent to your phone to create your account.",
-  "auth.features.registration.ui.registerPage.fastest": "Fastest",
   "auth.features.registration.ui.registerPage.magic.link": "Magic Link",
   "auth.features.registration.ui.registerPage.magic.link.copy":
     "We will email a sign-in link and create your account when you continue.",
@@ -211,7 +210,8 @@ export const authEnglishTranslations = {
   "auth.features.signIn.ui.signInPage.email.2": "Email",
   "auth.features.signIn.ui.signInPage.email.3": "Email",
   "auth.features.signIn.ui.signInPage.email.or.phone": "Email or phone",
-  "auth.features.signIn.ui.signInPage.magic.link": "Magic Link",
+  "auth.features.signIn.ui.signInPage.magic.link": "Email me a sign-in link",
+  "auth.features.signIn.ui.signInPage.magic.link.description": "We'll email you a one-time link.",
   "auth.features.signIn.ui.signInPage.magic.link.ready.check.your.email":
     "Magic link ready. Check your email to continue.",
   "auth.features.signIn.ui.signInPage.magic.link.sent": "Magic link sent",
@@ -229,7 +229,7 @@ export const authEnglishTranslations = {
   "auth.features.signIn.ui.signInPage.phone.code.ready.check.your.phone":
     "Code ready. Check your phone, then continue here.",
   "auth.features.signIn.ui.signInPage.phone.code.sent": "Phone code sent",
-  "auth.features.signIn.ui.signInPage.send.magic.link": "Send Magic Link",
+  "auth.features.signIn.ui.signInPage.send.magic.link": "Email me a sign-in link",
   "auth.features.signIn.ui.signInPage.send.phone.code": "Send Phone Code",
   "auth.features.signIn.ui.signInPage.sign.in": "Sign In",
   "auth.features.signIn.ui.signInPage.sign.in.2": "Sign In",
@@ -240,6 +240,7 @@ export const authEnglishTranslations = {
     "Use phone, email, password, social login, or passkey to continue.",
   "auth.features.signIn.ui.signInPage.use.social.email.or.phone": "Continue with social login, email, or phone.",
   "auth.features.signIn.ui.signInPage.use.passkey": "Use Passkey",
+  "auth.features.signIn.ui.signInPage.you.can.sign.in.with": "You can sign in with",
   "auth.support.apiSupport.accountSelectionRoutes.account.selection.could.not.be.completed":
     "Account selection could not be completed.",
   "auth.support.apiSupport.accountSelectionRoutes.account.selection.is.invalid.or.has":

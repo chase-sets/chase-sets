@@ -55,9 +55,13 @@ describe("registration page", () => {
     render(<RegisterPage />);
 
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
-    expect(screen.getByRole("heading", { level: 1, name: "Create an account with a passkey" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1, name: "Create your account" })).toBeTruthy();
     expect(screen.getByRole("radio", { name: /Passkey/ }).getAttribute("aria-checked")).toBe("true");
-    expect(screen.getByText("Recommended")).toBeTruthy();
+    expect(screen.getAllByText("Recommended")).toHaveLength(1);
+    expect(containingCard(screen.getByText("Recommended"))).toBe(
+      containingCard(screen.getByRole("button", { name: "Create With Passkey" })),
+    );
+    expect(screen.queryByText("Fastest")).toBeNull();
     expect(screen.getByText(/Face ID, Touch ID, Windows Hello/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Create With Passkey" })).toBeTruthy();
     expect(screen.queryByLabelText("Password")).toBeNull();
@@ -94,6 +98,63 @@ describe("registration page", () => {
         "Your Sell List is saved. An account is required before offer acceptance, listing publication, payout, or shipping label work starts.",
       ),
     ).toBeTruthy();
+  });
+
+  it.each(["Phone Code", "Magic Link", "Password"])(
+    "keeps %s and the social row free of recommendation badges",
+    (label) => {
+      render(<RegisterPage />);
+      fillIdentity();
+      fireEvent.click(screen.getByRole("radio", { name: label }));
+      expect(screen.getByRole("radio", { name: label }).getAttribute("aria-checked")).toBe("true");
+      expect(screen.getByRole("heading", { level: 1, name: "Create your account" })).toBeTruthy();
+      expect(screen.queryByText("Recommended")).toBeNull();
+      expect(screen.queryByText("Fastest")).toBeNull();
+      expect(inputNamed("displayName").value).toBe("Todd");
+      fireEvent.click(screen.getByRole("radio", { name: "Passkey" }));
+      expect(inputNamed("email").value).toBe("todd@example.com");
+      expect(screen.getAllByText("Recommended")).toHaveLength(1);
+    },
+  );
+
+  it("preserves registration notice, error, and native phone verification payload", () => {
+    const action = "/register?returnTo=%2Faccount%2Fsell-list";
+    render(
+      <RegisterPage
+        action={action}
+        hiddenFields={[{ name: "returnTo", value: "/account/sell-list" }]}
+        errorMessage="The previous code expired."
+        notice={{
+          status: "phone-code-sent",
+          tokenId: "synthetic-registration-token",
+          phone: "+13125550100",
+          displayName: "Todd",
+          expiresAt: "2099-01-01T00:00:00Z",
+        }}
+      />,
+    );
+    expect(screen.getByRole("alert").textContent).toContain("The previous code expired.");
+    expect(screen.getByText("Phone code sent")).toBeTruthy();
+    expect(screen.queryByText("Recommended")).toBeNull();
+    expect(screen.queryByText("Fastest")).toBeNull();
+    fireEvent.change(inputNamed("code"), { target: { value: "123456" } });
+    const form = screen.getByRole("button", { name: "Create account with code" }).closest("form")!;
+    expect(form.getAttribute("action")).toBe(action);
+    expect(form.getAttribute("method")).toBe("post");
+    expect(Object.fromEntries(new FormData(form))).toEqual({
+      returnTo: "/account/sell-list",
+      registrationMethod: "phone-code",
+      registrationMethodsShown: "passkey,phone-code,magic-link,password",
+      intent: "phone-code-consume",
+      tokenId: "synthetic-registration-token",
+      phone: "+13125550100",
+      displayName: "Todd",
+      code: "123456",
+    });
+    const submit = vi.fn((event: Event) => event.preventDefault());
+    form.addEventListener("submit", submit);
+    fireEvent.submit(form);
+    expect(submit).toHaveBeenCalledOnce();
   });
 
   it("keeps entered identity details when moving to magic link", () => {
