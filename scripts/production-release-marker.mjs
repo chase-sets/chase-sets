@@ -503,6 +503,14 @@ async function gitRefs(identity, runCommand = command) {
 
 export function markerIo(identity, env, assertFresh, runCommand = command) {
   const image = `${identity.image}:${identity.tag}`;
+  const registryUnavailable = (error) => {
+    const stderr = typeof error.stderr === "string" || Buffer.isBuffer(error.stderr) ? error.stderr.toString() : "";
+    const excerpt = stderr
+      .split(/[\r\n]/, 1)[0]
+      .replace(/[\u0000-\u001f\u007f]/g, " ")
+      .slice(0, 300);
+    return new Error(`registry identity unavailable${excerpt ? `: ${excerpt}` : ""}`);
+  };
   return {
     readRefs: () => gitRefs(identity, runCommand),
     isAncestor: async (from, to) => {
@@ -515,10 +523,20 @@ export function markerIo(identity, env, assertFresh, runCommand = command) {
       }
     },
     readRegistry: async () => {
+      let topDigest;
       try {
-        const topDigest = (
+        topDigest = (
           await runCommand("docker", ["buildx", "imagetools", "inspect", image, "--format", "{{.Manifest.Digest}}"])
         ).stdout.trim();
+      } catch (error) {
+        const stderr = typeof error.stderr === "string" ? error.stderr : "";
+        const line = stderr.replace(/\r?\n$/, "");
+        const missingTag = /^ERROR: /i.test(line) && line.slice(7) === `${image}: not found`;
+        if (error.code === 1 && !error.killed && !error.signal && (missingTag || /\bmanifest unknown\b/i.test(stderr)))
+          return null;
+        throw registryUnavailable(error);
+      }
+      try {
         requireThat(digestPattern.test(topDigest), "invalid registry tag digest");
         const raw = (
           await runCommand("docker", ["buildx", "imagetools", "inspect", `${identity.image}@${topDigest}`, "--raw"], {
@@ -527,9 +545,7 @@ export function markerIo(identity, env, assertFresh, runCommand = command) {
         ).stdout;
         return registryManifestBytes(raw, topDigest);
       } catch (error) {
-        // Only the registry's explicit missing-manifest response authorizes creation.
-        if (/manifest unknown/.test(String(error.stderr))) return null;
-        throw new Error("registry identity unavailable");
+        throw registryUnavailable(error);
       }
     },
     publishRegistry: () =>
