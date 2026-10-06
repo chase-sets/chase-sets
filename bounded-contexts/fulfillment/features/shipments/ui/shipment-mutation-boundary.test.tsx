@@ -69,6 +69,16 @@ function page() {
   );
 }
 
+function retainDescriptorUpdates(initial: ShipmentMutationRecoveryDescriptor[] = []) {
+  let stored = initial;
+  vi.mocked(recovery.listShipmentMutationDescriptors).mockImplementation(async () => stored);
+  vi.mocked(recovery.updateShipmentMutationDescriptor).mockImplementation(async (value, patch) => {
+    const updated = { ...value, ...patch };
+    stored = [...stored.filter((entry) => entry.mutationAttemptId !== value.mutationAttemptId), updated];
+    return updated;
+  });
+}
+
 function shipment(): FulfillmentShipmentDetail {
   return {
     shipment_id: "shp_test",
@@ -223,19 +233,108 @@ describe("ShipmentMutationBoundary", () => {
   });
 
   it.each(["ambiguous", "partial", "reauthentication-required", "confirming", "provider-pending"] as const)(
-    "retains the %s mutation fence on reload without replay or another automatic read",
+    "enables retained read-once %s without a notice or read and permits explicit same-attempt retry",
     async (state) => {
-      vi.mocked(recovery.listShipmentMutationDescriptors).mockResolvedValue([
-        { ...descriptor, state, automaticRecoveryReadAt: descriptor.sentAt },
-      ]);
+      const retained = { ...descriptor, state, automaticRecoveryReadAt: descriptor.sentAt };
+      vi.mocked(recovery.listShipmentMutationDescriptors).mockResolvedValue([retained]);
+      vi.mocked(recovery.persistShipmentMutationDescriptor).mockResolvedValue(retained);
       render(page());
-      await waitFor(() => expect(screen.getByText(new RegExp(state))).toBeTruthy());
-      expect(screen.getByRole("button", { name: "Dispatch" }).matches(":disabled")).toBe(true);
-      expect(screen.getByRole("link", { name: "Sales" }).closest("[inert], [aria-disabled=true]")).toBeNull();
+      await waitFor(() => expect(screen.queryByText("Preparing shipment actions")).toBeNull());
+      const button = screen.getByRole("button", { name: "Dispatch" });
+      expect(button.matches(":disabled")).toBe(false);
+      expect(screen.queryByText("Shipment action recovery")).toBeNull();
+      const link = screen.getByRole("link", { name: "Sales" });
+      expect(link.closest("[inert], [aria-disabled=true]")).toBeNull();
+      expect(link.getAttribute("tabindex")).not.toBe("-1");
+      expect(link.getAttribute("href")).toBe("/account/sales");
       expect(fetch).not.toHaveBeenCalled();
       expect(submit).not.toHaveBeenCalled();
+      await userEvent.click(button);
+      await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+      expect(submit.mock.calls[0]![0].get("mutationAttemptId")).toBe(retained.mutationAttemptId);
     },
   );
+
+  it("enables a never-sent descriptor without a recovery read or notice", async () => {
+    vi.mocked(recovery.listShipmentMutationDescriptors).mockResolvedValue([
+      { ...descriptor, state: "submitting", sentAt: null },
+    ]);
+    render(page());
+    await waitFor(() => expect(screen.queryByText("Preparing shipment actions")).toBeNull());
+    expect(screen.getByRole("button", { name: "Dispatch" }).matches(":disabled")).toBe(false);
+    expect(screen.queryByText("Shipment action recovery")).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["provider-pending", true],
+    ["unchanged", false],
+  ] as const)(
+    "handles post-submit %s in-session and enables its read-once descriptor on reload",
+    async (state, fenced) => {
+      retainDescriptorUpdates();
+      vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ status: state })));
+      const first = render(page());
+      const button = screen.getByRole("button", { name: "Dispatch" });
+      await waitFor(() => expect(button.matches(":disabled")).toBe(false));
+      await userEvent.click(button);
+      await waitFor(() => expect(screen.getByText(new RegExp(state))).toBeTruthy());
+      expect(button.matches(":disabled")).toBe(fenced);
+      expect(
+        screen.getByText("Shipment action recovery").parentElement?.parentElement?.classList.contains("bg-info-soft"),
+      ).toBe(true);
+      expect(submit).toHaveBeenCalledTimes(1);
+      expect(recovery.completeShipmentMutationDescriptor).not.toHaveBeenCalled();
+      expect(recovery.updateShipmentMutationDescriptor).toHaveBeenLastCalledWith(
+        expect.objectContaining({ automaticRecoveryReadAt: expect.any(String) }),
+        { state },
+      );
+      first.unmount();
+      submit.mockClear();
+      render(page());
+      await waitFor(() => expect(screen.queryByText("Preparing shipment actions")).toBeNull());
+      expect(screen.getByRole("button", { name: "Dispatch" }).matches(":disabled")).toBe(false);
+      expect(screen.queryByText("Shipment action recovery")).toBeNull();
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(submit).not.toHaveBeenCalled();
+      expect(recovery.completeShipmentMutationDescriptor).not.toHaveBeenCalled();
+    },
+  );
+
+  it("fences a live sent-unread ambiguous discovery with warning, then enables on reload without replay", async () => {
+    retainDescriptorUpdates([{ ...descriptor, state: "submitting" }]);
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ status: "ambiguous" })));
+    const first = render(page());
+    await waitFor(() => expect(screen.getByText(/ambiguous/)).toBeTruthy());
+    expect(screen.getByRole("button", { name: "Dispatch" }).matches(":disabled")).toBe(true);
+    expect(
+      screen.getByText("Shipment action recovery").parentElement?.parentElement?.classList.contains("bg-warning-soft"),
+    ).toBe(true);
+    first.unmount();
+    render(page());
+    await waitFor(() => expect(screen.queryByText("Preparing shipment actions")).toBeNull());
+    expect(screen.getByRole("button", { name: "Dispatch" }).matches(":disabled")).toBe(false);
+    expect(screen.queryByText("Shipment action recovery")).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it.each(["discovery", "post-submit"] as const)("fences a null live %s read as confirming", async (path) => {
+    if (path === "discovery") {
+      vi.mocked(recovery.listShipmentMutationDescriptors).mockResolvedValue([{ ...descriptor, state: "submitting" }]);
+    }
+    vi.mocked(fetch).mockRejectedValue(new Error("transport unavailable"));
+    render(page());
+    if (path === "post-submit") {
+      await waitFor(() => expect(screen.getByRole("button", { name: "Dispatch" }).matches(":disabled")).toBe(false));
+      await userEvent.click(screen.getByRole("button", { name: "Dispatch" }));
+    }
+    await waitFor(() => expect(screen.getByText(/Recovery state: confirming/)).toBeTruthy());
+    expect(screen.getByRole("button", { name: "Dispatch" }).matches(":disabled")).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(submit).toHaveBeenCalledTimes(path === "discovery" ? 0 : 1);
+  });
 
   describe.each([
     ["shipment list", ShipmentsRoute],
@@ -326,12 +425,15 @@ describe("ShipmentMutationBoundary", () => {
 
   it("does not let a resolved sibling erase an outstanding recovery fence", async () => {
     vi.mocked(recovery.listShipmentMutationDescriptors).mockResolvedValue([
-      { ...descriptor, state: "ambiguous", automaticRecoveryReadAt: descriptor.sentAt },
+      { ...descriptor, state: "submitting", automaticRecoveryReadAt: null },
       { ...descriptor, shipmentId: "shp_second", state: "succeeded" },
     ]);
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({ status: "ambiguous" })));
     render(page());
     await waitFor(() => expect(screen.getByText(/ambiguous/)).toBeTruthy());
     expect(screen.getByRole("button", { name: "Dispatch" }).matches(":disabled")).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(submit).not.toHaveBeenCalled();
   });
 
   it("rejects a wrong-shipment anchor with every fence and other URL field unchanged", () => {
