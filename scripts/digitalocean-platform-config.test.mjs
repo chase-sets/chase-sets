@@ -1614,8 +1614,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformStagingResetWorkflow).toContain("group: platform-registry-mutation");
     expect(platformStagingResetWorkflow).toContain("group: platform-deploy-staging");
     expect(platformRegistryCleanupWorkflow).toContain("DOCR garbage collection makes the registry read-only");
-    expect(platformProductionWorkflow).toContain(
-      'docker buildx imagetools create --tag "$release_image" "${promoted_image}@${promoted_digest}"',
+    expect(
+      workflowStep(workflowJob(platformProductionWorkflow, "deploy-production"), "Mark production release"),
+    ).toContain("node ./scripts/production-release-marker.mjs publish");
+    expect(readFileSync(resolve("scripts/production-release-marker.mjs"), "utf8")).toMatch(
+      /"docker",\s*\["buildx",\s*"imagetools",\s*"create",\s*"--tag",\s*image,/,
     );
     expect(platformStagingResetWorkflow).toContain("Staging reset rebuilds and pushes the platform image");
     expect(deployLaneStep).toContain('const workflows = ["platform-production.yml", "platform-staging-reset.yml"];');
@@ -3029,6 +3032,39 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(releaseHealthStep).toContain(
       "ROLLBACK_WORKLOAD_IDENTITIES: ${{ steps.production_rollback.outputs.rollback_workload_identities || '[]' }}",
+    );
+  });
+
+  it("binds production marker recovery callers and handoff outputs to the verified producer", () => {
+    const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const recoveryStep = workflowStep(productionJob, "Capture production rollback target");
+    const markerStep = workflowStep(productionJob, "Mark production release");
+    const transitionStep = workflowStep(productionJob, "Verify production Kubernetes deployment transition");
+    for (const step of [recoveryStep, markerStep, transitionStep]) {
+      expect(step).toContain("GITHUB_TOKEN: ${{ github.token }}");
+      expect(step).toContain("RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}");
+      expect(step).toContain("RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}");
+    }
+    expect(recoveryStep).toContain("production-release-marker.mjs reconcile");
+    expect(recoveryStep.indexOf("production-release-marker.mjs reconcile")).toBeLessThan(
+      recoveryStep.indexOf("git fetch origin production --tags"),
+    );
+    expect(markerStep).toContain("production-release-marker.mjs publish");
+    expect(transitionStep).toContain("production-release-marker.mjs retain-identity");
+    expect(recoveryStep).not.toContain("id: production_marker");
+    for (const name of ["Write promoted release handoff", "Upload promoted release handoff"]) {
+      expect(workflowStep(productionJob, name)).toContain(
+        "if: steps.production_marker.outputs.marker_updated == 'true'",
+      );
+    }
+    expect(workflowStep(productionJob, "Write promoted release handoff")).toContain(
+      '--producer-run-attempt "${{ github.run_attempt }}"',
+    );
+    expect(workflowStep(productionJob, "Resolve terminal release state")).toContain(
+      "steps.production_marker.outputs.marker_updated || 'false'",
+    );
+    expect(workflowStep(productionJob, "Write release health summary")).toContain(
+      "steps.production_marker.outputs.marker_mismatch == 'true'",
     );
   });
 
