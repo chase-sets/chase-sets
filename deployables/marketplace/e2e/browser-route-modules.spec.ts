@@ -6,8 +6,8 @@ import ts from "@chase-sets/typescript-compiler-api";
 import { marketplaceBrowserE2eSeedContract } from "./support/seed-contract";
 
 const routes = [
-  { entry: "account-desk-offers", path: "/account/desk/offers", input: "pointer" },
-  { entry: "account-sell-list", path: "/account/sell-list", input: "keyboard" },
+  { entry: "account-desk-offers", path: "/account/desk/offers", heading: "Offers & sell list", input: "pointer" },
+  { entry: "account-sell-list", path: "/account/sell-list", heading: "Sell List", input: "keyboard" },
 ] as const;
 
 async function builtRouteAsset(entry: string) {
@@ -170,7 +170,7 @@ for (const route of routes) {
       const response = await page.goto(route.path);
       expect(response?.status()).toBe(200);
       expect(new URL(page.url()).pathname).toBe(route.path);
-      await expect(page.getByRole("heading", { name: "Sell List", exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { name: route.heading, exact: true })).toBeVisible();
       const review = page.getByRole("button", { name: "Review Charizard offers and terms", exact: true });
       await expect(review).toHaveCount(1);
       await expect(page.getByRole("dialog")).toHaveCount(0);
