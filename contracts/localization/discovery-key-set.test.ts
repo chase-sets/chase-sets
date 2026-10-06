@@ -5,7 +5,7 @@ import { discoveryEnglishTranslations } from "./locales/en/discovery";
 
 const englishDiscoveryKeySet = {
   count: 1045,
-  sha256: "4003123a042a952226ee4cfe42fd615ae8837658e937957c899f66a5c163666c",
+  sha256: "dec1344853efbaa5d1cb25e88a3ddb528c315898513ca5065c90b597553d3aaf",
 } as const;
 
 describe("discovery locale key set", () => {

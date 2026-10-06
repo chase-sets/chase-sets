@@ -38,7 +38,34 @@ describe("getDiscoveryBrowseSetPageBySlug", () => {
   beforeEach(() => {
     loadReferenceRecordMap.mockClear();
     searchDiscoveryItems.mockClear();
-    searchDiscoveryItems.mockResolvedValue({ items: [], total: 3 });
+    searchDiscoveryItems.mockResolvedValue({
+      items: [
+        {
+          catalog_item_id: "item_foreign_printing",
+          slug: "base-set-charizard-foreign-printing",
+          language_code: "fr",
+          title_i18n: null,
+          title: "Charizard (French printing)",
+          subtitle_i18n: null,
+          subtitle: null,
+          display_badges: [],
+          description_i18n: null,
+          description: "",
+          blueprint_id: null,
+          blueprint_name: null,
+          status: "active",
+          category_names: [],
+          category_slugs: [],
+          tags: [],
+          image_urls: [],
+          product_asset_sets: [],
+          image_fallback: null,
+          market_summary: null,
+          updated_at: "2026-07-01T00:00:00.000Z",
+        },
+      ],
+      total: 3,
+    });
   });
 
   it("resolves by slug or slug redirect, restricted to set-like reference types", async () => {
@@ -79,11 +106,18 @@ describe("getDiscoveryBrowseSetPageBySlug", () => {
 
   it.each([
     ["number", { "card-count": 102 }, 102],
-    ["numeric string", { "card-count": "102" }, 102],
-    ["printed count precedence", { "printed-card-count": 110, "card-count": 102 }, 110],
-    ["numeric printed count precedence", { "printed-card-count": "110", "card-count": "102" }, 110],
-    ["valid printed count ignores invalid card count", { "printed-card-count": 110, "card-count": "invalid" }, 110],
-    ["invalid printed count fallback", { "printed-card-count": 0, "card-count": 102 }, 102],
+    ["trimmed digit string", { "card-count": " 102 " }, 102],
+    ["one", { "card-count": 1 }, 1],
+    ["printed count does not override card count", { "printed-card-count": 100, "card-count": 110 }, 110],
+    ["invalid printed count does not override card count", { "printed-card-count": 0, "card-count": 102 }, 102],
+    ["printed count does not supply a missing card count", { "printed-card-count": 110 }, null],
+    [
+      "printed count does not replace an invalid card count",
+      { "printed-card-count": 110, "card-count": "invalid" },
+      null,
+    ],
+    ["unsafe number", { "card-count": Number.MAX_SAFE_INTEGER + 1 }, null],
+    ["unsafe string", { "card-count": "9007199254740992" }, null],
     ["invalid card count", { "card-count": 0 }, null],
     ["negative count", { "card-count": -1 }, null],
     ["fractional count", { "card-count": 1.5 }, null],
@@ -95,6 +129,9 @@ describe("getDiscoveryBrowseSetPageBySlug", () => {
     ["array", { "card-count": [102] }, null],
     ["object", { "card-count": { value: 102 } }, null],
     ["missing candidates", {}, null],
+    ["null attributes", null, null],
+    ["array attributes", [], null],
+    ["string attributes", "card-count: 102", null],
   ])("returns the expected reference total for %s", async (_label, attributes, expected) => {
     const db = queryDbSequence([
       [
@@ -115,6 +152,7 @@ describe("getDiscoveryBrowseSetPageBySlug", () => {
 
     expect(result?.reference_card_count).toBe(expected);
     expect(result?.item_count).toBe(3);
-    expect(result?.items).toEqual([]);
+    expect(result?.items).toHaveLength(1);
+    expect(result?.items[0]?.title).toBe("Charizard (French printing)");
   });
 });

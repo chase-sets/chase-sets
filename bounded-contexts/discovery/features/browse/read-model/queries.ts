@@ -123,16 +123,14 @@ function referenceCardCountFromAttributes(attributes: unknown): number | null {
   }
 
   const values = attributes as Record<string, unknown>;
-  for (const key of ["printed-card-count", "card-count"] as const) {
-    const value = values[key];
-    if (typeof value === "number" && Number.isInteger(value) && value > 0) {
-      return value;
-    }
-    if (typeof value === "string" && /^\d+$/.test(value.trim())) {
-      const parsed = Number(value.trim());
-      if (Number.isSafeInteger(parsed) && parsed > 0) {
-        return parsed;
-      }
+  const value = values["card-count"];
+  if (typeof value === "number" && Number.isSafeInteger(value) && value > 0) {
+    return value;
+  }
+  if (typeof value === "string" && /^\d+$/.test(value.trim())) {
+    const parsed = Number(value.trim());
+    if (Number.isSafeInteger(parsed) && parsed > 0) {
+      return parsed;
     }
   }
 

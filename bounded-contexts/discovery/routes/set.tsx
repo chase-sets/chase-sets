@@ -114,11 +114,11 @@ export default function DiscoverySetRoute() {
           <Text tone="secondary">
             {[
               setPage.reference_card_count != null
-                ? t("discovery.routes.set.cards.cataloged.count", {
-                    count: setPage.item_count,
-                    total: setPage.reference_card_count,
+                ? t("discovery.routes.set.reference.cards.count", {
+                    count: setPage.reference_card_count,
                   })
-                : t("discovery.routes.set.cards.count", { count: setPage.item_count }),
+                : null,
+              t("discovery.routes.set.cataloged.items.count", { count: setPage.item_count }),
               setPage.code ? t("discovery.routes.set.set.code", { code: setPage.code }) : null,
               releaseDate ? t("discovery.routes.set.released.on", { date: releaseDate }) : null,
             ]

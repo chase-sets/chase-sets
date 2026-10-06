@@ -60,7 +60,9 @@ describe("Discovery set route card count", () => {
   it("renders the reference total beside item_count and preserves browse-all count", async () => {
     renderSet(page({ reference_card_count: 102, code: "base", release_date: "1999-01-09" }));
 
-    expect(await screen.findByText(/3 of 102 cards cataloged · set code base · released January 9, 1999/)).toBeTruthy();
+    expect(
+      await screen.findByText("Cards in set: 102 · Cataloged items: 3 · set code base · released January 9, 1999"),
+    ).toBeTruthy();
     expect(screen.getByRole("link", { name: "Browse all 3 cards in this set" })).toBeTruthy();
     expect(getSetBySlug).toHaveBeenCalledWith("base-set");
   });
@@ -81,20 +83,31 @@ describe("Discovery set route card count", () => {
   });
 
   it.each([
-    ["null", { reference_card_count: null }],
-    ["omitted", {}],
-  ])("uses the existing count copy when the total is %s", async (_label, overrides) => {
+    ["known", { reference_card_count: 102 }, "Cards in set: 102 · Cataloged items: 3"],
+    ["null", { reference_card_count: null }, "Cataloged items: 3"],
+    ["omitted", {}, "Cataloged items: 3"],
+    ["one", { reference_card_count: 1, item_count: 1 }, "Cards in set: 1 · Cataloged items: 1"],
+    ["over-count", { reference_card_count: 102, item_count: 216 }, "Cards in set: 102 · Cataloged items: 216"],
+  ])("renders independent counts for %s", async (_label, overrides, expected) => {
     renderSet(page(overrides));
 
-    expect(await screen.findByText(/^3 cards$/)).toBeTruthy();
-    expect(screen.queryByText(/of \d+ cards cataloged/)).toBeNull();
+    expect(await screen.findByText(expected)).toBeTruthy();
+    if (_label === "over-count") {
+      expect(screen.getByRole("link", { name: "Browse all 216 cards in this set" })).toBeTruthy();
+    }
   });
 
   it("shows the known total with zero cataloged items and keeps the empty-state recovery", async () => {
     renderSet(page({ item_count: 0, items: [], reference_card_count: 102 }));
 
-    expect(await screen.findByText("0 of 102 cards cataloged")).toBeTruthy();
+    expect(await screen.findByText("Cards in set: 102 · Cataloged items: 0")).toBeTruthy();
     expect(screen.getByText("No cards yet")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Browse marketplace" })).toBeTruthy();
+  });
+
+  it("renders unknown total with zero cataloged items", async () => {
+    renderSet(page({ item_count: 0, items: [], reference_card_count: null }));
+
+    expect(await screen.findByText("Cataloged items: 0")).toBeTruthy();
   });
 });
