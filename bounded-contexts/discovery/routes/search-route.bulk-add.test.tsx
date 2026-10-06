@@ -125,7 +125,11 @@ function deferred<T>() {
 }
 
 const routers: ReturnType<typeof createMemoryRouter>[] = [];
-function setup(entry = "/search?q=pikachu#results", transform?: (response: Response) => Response) {
+async function setup(
+  entry = "/search?q=pikachu#results",
+  transform?: (response: Response) => Response,
+  configure?: (router: ReturnType<typeof createMemoryRouter>) => void,
+) {
   const requests: Request[] = [];
   const responses: Response[] = [];
   const load = vi.fn(({ request }: { request: Request }) => searchData(request.url));
@@ -158,11 +162,15 @@ function setup(entry = "/search?q=pikachu#results", transform?: (response: Respo
     { initialEntries: [entry] },
   );
   routers.push(router);
-  const view = render(
-    <ChaseRoot linkComponent={RouterLinkAdapter}>
-      <RouterProvider router={router} />
-    </ChaseRoot>,
-  );
+  configure?.(router);
+  let view!: ReturnType<typeof render>;
+  await act(async () => {
+    view = render(
+      <ChaseRoot linkComponent={RouterLinkAdapter}>
+        <RouterProvider router={router} />
+      </ChaseRoot>,
+    );
+  });
   return { router, requests, responses, load, runAction, ...view };
 }
 
@@ -203,7 +211,7 @@ describe("Search bulk route data transport", () => {
   it.each(["/", "/search", "/categories/cards"])(
     "submits preview through the current route data action: %s",
     async (path) => {
-      const test = setup(`${path}?q=pikachu`);
+      const test = await setup(`${path}?q=pikachu`);
       await openPreview();
       expect(test.runAction).toHaveBeenCalledTimes(1);
       const request = test.requests[0];
@@ -228,8 +236,9 @@ describe("Search bulk route data transport", () => {
       }
       if (kind === "over-limit") Object.assign(value, { overLimit: true, totalMatches: 101 });
       previewQuery.mockResolvedValue(value);
-      setup();
+      await setup();
       const dialog = await openPreview();
+      expect(within(dialog).getByText(String(value.totalMatches))).toBeTruthy();
       expect(within(dialog).getByText("Choose options for Raichu.")).toBeTruthy();
       expect((within(dialog).getByRole("button", { name: COMMIT }) as HTMLButtonElement).disabled).toBe(
         kind !== "eligible",
@@ -241,7 +250,7 @@ describe("Search bulk route data transport", () => {
 
   it.each(["account", "guest"])("commits account and guest bulk additions once: %s", async (actor) => {
     if (actor === "guest") resolveActor.mockResolvedValue(null);
-    const test = setup();
+    const test = await setup();
     const dialog = await openPreview();
     fireEvent.click(within(dialog).getByRole("button", { name: COMMIT }));
     expect(await screen.findByRole("link", { name: "Review Buy Cart" })).toBeTruthy();
@@ -282,7 +291,7 @@ describe("Search bulk route data transport", () => {
   });
 
   it.each(["preview", "commit"])("recovers inline after a bulk action dependency rejects: %s", async (phase) => {
-    const test = setup();
+    const test = await setup();
     if (phase === "commit") await openPreview();
     const dependency = phase === "preview" ? previewQuery : addCartLines;
     dependency.mockRejectedValueOnce(new Error(SENTINEL));
@@ -317,6 +326,22 @@ describe("Search bulk route data transport", () => {
         context: {},
       }),
     ).rejects.toBe(response);
+  });
+
+  it("returns the real guest cookie from the direct action response", async () => {
+    resolveActor.mockResolvedValue(null);
+    const response = (await action({
+      request: new Request("https://marketplace.test/search?q=pikachu", {
+        method: "POST",
+        body: new URLSearchParams({ intent: "commit-bulk-add" }),
+      }),
+      params: {},
+      context: {},
+    })) as Response;
+    expect(response.status).toBe(200);
+    expect(response.headers.get("set-cookie")).toContain(addGuestCartLines.mock.calls[0][0]);
+    expect(response.headers.get("set-cookie")).toContain("HttpOnly");
+    expect(await response.json()).toEqual({ status: "bulk-added", preview: preview(), ...counts });
   });
 
   it.each([
@@ -374,7 +399,7 @@ describe("Search bulk route data transport", () => {
     ],
     ["unexpected commit", () => ({ status: "bulk-added", preview: preview(), ...counts })],
   ] as const)("rejects malformed and error-shaped data without publication: %s", async (_name, payload) => {
-    setup("/search?q=pikachu", () => Response.json(payload()));
+    await setup("/search?q=pikachu", () => Response.json(payload()));
     fireEvent.click(await screen.findByRole("button", { name: PREVIEW }));
     expect((await screen.findByRole("alert")).textContent).toContain(ERROR);
     expect(document.body.textContent).not.toContain(SENTINEL);
@@ -387,7 +412,7 @@ describe("Search bulk route data transport", () => {
     "retains the preview for invalid commit count %s",
     async (key) => {
       let malformed = false;
-      setup("/search?q=pikachu", (response) =>
+      await setup("/search?q=pikachu", (response) =>
         malformed ? Response.json({ status: "bulk-added", preview: preview(), ...counts, [key]: -1 }) : response,
       );
       await openPreview();
@@ -400,9 +425,11 @@ describe("Search bulk route data transport", () => {
   );
 
   it("recovers after local submit rejection without replacing the router hooks", async () => {
-    const test = setup();
+    const test = await setup("/search?q=pikachu", undefined, (router) => {
+      const fetch = router.fetch;
+      vi.spyOn(router, "fetch").mockImplementationOnce(fetch).mockRejectedValueOnce(new Error(SENTINEL));
+    });
     await openPreview();
-    vi.spyOn(test.router, "fetch").mockRejectedValueOnce(new Error(SENTINEL));
     fireEvent.click(screen.getByRole("button", { name: COMMIT }));
     expect((await within(screen.getByRole("dialog")).findByRole("alert")).textContent).toContain(ERROR);
     expect(test.router.state.errors).toBeNull();
@@ -413,7 +440,7 @@ describe("Search bulk route data transport", () => {
   });
 
   it("keeps the Result Set and nonzero scroll steady", async () => {
-    const test = setup();
+    const test = await setup();
     await screen.findByRole("button", { name: PREVIEW });
     const location = { ...test.router.state.location };
     y = 427;
@@ -442,7 +469,7 @@ describe("Search bulk route data transport", () => {
   });
 
   it("resets scroll on an ordinary new navigation", async () => {
-    const test = setup();
+    const test = await setup();
     await screen.findByRole("button", { name: PREVIEW });
     y = 427;
     vi.mocked(window.scrollTo).mockClear();
@@ -451,38 +478,45 @@ describe("Search bulk route data transport", () => {
     expect(y).toBe(0);
   });
 
-  it.each(["success", "failure"])("admits one intent and ignores old results after reset: %s", async (outcome) => {
-    const old = deferred<DiscoveryBulkCartPreview>();
-    previewQuery.mockReturnValueOnce(old.promise);
-    const test = setup();
-    const button = await screen.findByRole("button", { name: PREVIEW });
-    act(() => {
-      button.click();
-      button.click();
-    });
-    await waitFor(() => expect(test.runAction).toHaveBeenCalledTimes(1));
-    const oldSignal = test.runAction.mock.calls[0][0].request.signal;
-    await act(async () => test.router.navigate("/search?q=raichu"));
-    expect(oldSignal.aborted).toBe(true);
-    const current = deferred<DiscoveryBulkCartPreview>();
-    previewQuery.mockReturnValueOnce(current.promise);
-    fireEvent.click(screen.getByRole("button", { name: PREVIEW }));
-    await waitFor(() => expect(test.runAction).toHaveBeenCalledTimes(2));
-    await act(async () => {
-      if (outcome === "success") old.resolve(preview());
-      else old.reject(new Error(SENTINEL));
-    });
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(screen.queryByText(ERROR)).toBeNull();
-    expect((screen.getByRole("button", { name: PREVIEW }) as HTMLButtonElement).disabled).toBe(true);
-    await act(async () => current.resolve({ ...preview(), totalMatches: 9 }));
-    const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("9")).toBeTruthy();
-    expect(cartDelta).not.toHaveBeenCalled();
-  });
+  it.each(["preview success", "preview failure", "commit success", "commit failure"])(
+    "admits one intent and ignores old results after reset: %s",
+    async (scenario) => {
+      const committing = scenario.startsWith("commit");
+      const old = deferred<DiscoveryBulkCartPreview | typeof counts>();
+      const test = await setup();
+      if (committing) await openPreview();
+      (committing ? addCartLines : previewQuery).mockReturnValueOnce(old.promise);
+      const button = await screen.findByRole("button", { name: committing ? COMMIT : PREVIEW });
+      act(() => {
+        button.click();
+        button.click();
+      });
+      const oldCount = committing ? 2 : 1;
+      await waitFor(() => expect(test.runAction).toHaveBeenCalledTimes(oldCount));
+      if (committing) await waitFor(() => expect(addCartLines).toHaveBeenCalledTimes(1));
+      const oldSignal = test.runAction.mock.calls[oldCount - 1][0].request.signal;
+      await act(async () => test.router.navigate("/search?q=raichu"));
+      expect(oldSignal.aborted).toBe(true);
+      const current = deferred<DiscoveryBulkCartPreview>();
+      previewQuery.mockReturnValueOnce(current.promise);
+      fireEvent.click(screen.getByRole("button", { name: PREVIEW }));
+      await waitFor(() => expect(test.runAction).toHaveBeenCalledTimes(oldCount + 1));
+      await act(async () => {
+        if (scenario.endsWith("success")) old.resolve(committing ? counts : preview());
+        else old.reject(new Error(SENTINEL));
+      });
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.queryByText(ERROR)).toBeNull();
+      expect((screen.getByRole("button", { name: PREVIEW }) as HTMLButtonElement).disabled).toBe(true);
+      await act(async () => current.resolve({ ...preview(), totalMatches: 9 }));
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).getByText("9")).toBeTruthy();
+      expect(cartDelta).not.toHaveBeenCalled();
+    },
+  );
 
   it("recovers the existing bulk controls across every phase", async () => {
-    const test = setup();
+    const test = await setup();
     const pending = deferred<DiscoveryBulkCartPreview>();
     previewQuery.mockReturnValueOnce(pending.promise);
     fireEvent.click(await screen.findByRole("button", { name: PREVIEW }));
@@ -503,7 +537,7 @@ describe("Search bulk route data transport", () => {
     expect(cartDelta).toHaveBeenCalledTimes(1);
     test.unmount();
     test.router.dispose();
-    setup();
+    await setup();
     await screen.findByRole("button", { name: PREVIEW });
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(cartDelta).toHaveBeenCalledTimes(1);
