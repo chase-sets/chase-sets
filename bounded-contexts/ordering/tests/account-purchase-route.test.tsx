@@ -217,7 +217,7 @@ describe("marketplace account purchase route", () => {
         author_role: "buyer",
         eligible_at: "2026-04-02T00:00:00.000Z",
         active_review_id: state === "expired" ? null : "rev_authoritative",
-        active_review_revealed_at: state === "pending" ? null : "2026-04-05T00:00:00.000Z",
+        active_review_revealed_at: state === "pending" || state === "expired" ? null : "2026-04-05T00:00:00.000Z",
         submission_state: state === "held" ? "held" : state === "pending" ? "allowed" : "expired",
         hold_reason: state === "held" ? "feedback-on-hold" : null,
         window_expired: state === "expired",
@@ -276,7 +276,7 @@ describe("marketplace account purchase route", () => {
       for (const label of new Set(Object.values(labels))) {
         if (label !== labels[state]) expect(screen.queryByText(label)).toBeNull();
       }
-      expect(screen.getByText("Order outcome")).toBeTruthy();
+      expect(screen.getByRole("heading", { name: "Order outcome" })).toBeTruthy();
       expect(screen.queryByRole("link", { name: "Leave account review" })).toBeNull();
       expect(document.querySelector('a[href*="rev_stale"]')).toBeNull();
       expect(screen.queryByText(/Reviews open only after delivery/)).toBeNull();
