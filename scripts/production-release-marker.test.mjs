@@ -452,6 +452,118 @@ describe("production authority collector", () => {
   );
 });
 
+describe("registry reads through the real command adapter", () => {
+  const release = { ...identity, image: "registry.digitalocean.com/synthetic/chase-sets-platform" };
+  const ref = `${release.image}:${release.tag}`;
+  const failure = (stderr, code = 1) => Object.assign(new Error("synthetic command failure"), { code, stderr });
+  const creates = (runCommand) =>
+    runCommand.mock.calls.filter(([program, args]) => program === "docker" && args.includes("create"));
+
+  it("readRegistry accepts exact-ref buildx missing tag", async () => {
+    const runCommand = vi.fn(async () => {
+      throw failure(`ERROR: ${ref}: not found\n`);
+    });
+    const adapter = markerIo(release, {}, async () => {}, runCommand);
+    await expect(adapter.readRegistry()).resolves.toBeNull();
+    expect(runCommand).toHaveBeenCalledExactlyOnceWith("docker", [
+      "buildx",
+      "imagetools",
+      "inspect",
+      ref,
+      "--format",
+      "{{.Manifest.Digest}}",
+    ]);
+    const { io } = publication();
+    io.readRegistry.mockImplementationOnce(adapter.readRegistry);
+    expect(await publishReleaseMarker(release, io)).toMatchObject({ marker_updated: "true" });
+    expect(io.publishRegistry).toHaveBeenCalledOnce();
+  });
+
+  it.each([`error: ${ref}: not found\r\n`, "manifest unknown", "ERROR: manifest unknown: manifest unknown\n"])(
+    "retains supported tag-absence wording %s",
+    async (stderr) => {
+      const runCommand = vi.fn(async () => {
+        throw failure(stderr);
+      });
+      await expect(markerIo(release, {}, async () => {}, runCommand).readRegistry()).resolves.toBeNull();
+      expect(runCommand).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("readRegistry refuses digest-pinned raw-read failure", async () => {
+    const runCommand = vi.fn(async (_program, args) => {
+      if (args.includes("--raw")) throw failure("manifest unknown");
+      return { stdout: `${digest}\n` };
+    });
+    const adapter = markerIo(release, {}, async () => {}, runCommand);
+    await expect(adapter.readRegistry()).rejects.toThrow("registry identity unavailable");
+    expect(runCommand.mock.calls[1]).toEqual([
+      "docker",
+      ["buildx", "imagetools", "inspect", `${release.image}@${digest}`, "--raw"],
+      { encoding: "buffer" },
+    ]);
+    const { io } = publication();
+    io.readRegistry = adapter.readRegistry;
+    await expect(publishReleaseMarker(release, io)).rejects.toThrow("registry identity unavailable");
+    expect(io.publishRegistry).not.toHaveBeenCalled();
+    expect(io.publishGit).not.toHaveBeenCalled();
+    expect(creates(runCommand)).toHaveLength(0);
+  });
+
+  it.each([
+    ["401/unauthorized", failure("ERROR: failed to authorize: 401 Unauthorized\n")],
+    ["denied", failure("ERROR: denied: requested access to the resource is denied\n")],
+    ["rate limit", failure("ERROR: toomanyrequests: rate limit exceeded\n")],
+    ["timeout/kill", Object.assign(failure("", null), { killed: true, signal: "SIGTERM" })],
+    ["spawn ENOENT", failure(undefined, "ENOENT")],
+    ["missing stderr", failure(undefined)],
+    ["other ref", failure(`ERROR: ${release.image}:other: not found\n`)],
+    ["non-1 missing tag", failure(`ERROR: ${ref}: not found\n`, 2)],
+    ["non-1 manifest unknown", failure("manifest unknown", 2)],
+    ["different ref case", failure(`ERROR: ${ref.toUpperCase()}: not found\n`)],
+    ["extra line", failure(`ERROR: unrelated failure\nERROR: ${ref}: not found\n`)],
+    ["extra suffix", failure(`ERROR: ${ref}: not found: unauthorized\n`)],
+  ])("refuses %s without creation", async (_label, error) => {
+    const runCommand = vi.fn(async () => {
+      throw error;
+    });
+    const adapter = markerIo(release, {}, async () => {}, runCommand);
+    await expect(adapter.readRegistry()).rejects.toThrow("registry identity unavailable");
+    const { io } = publication();
+    io.readRegistry = adapter.readRegistry;
+    await expect(publishReleaseMarker(release, io)).rejects.toThrow("registry identity unavailable");
+    expect(io.publishRegistry).not.toHaveBeenCalled();
+    expect(io.publishGit).not.toHaveBeenCalled();
+    expect(creates(runCommand)).toHaveLength(0);
+  });
+
+  it.each(["tag", "raw"])(
+    "bounds the first stderr line in marker_error for a %s failure without credential reads",
+    async (stage) => {
+      const envReads = vi.fn(() => {
+        throw new Error("environment must not be read");
+      });
+      const env = new Proxy({}, { get: envReads, ownKeys: envReads });
+      const firstLine = `ERROR: denied: ${"x".repeat(320)}`;
+      const stderr = `${firstLine}\r\nsynthetic-credential-on-second-line`;
+      const error = failure(stage === "raw" ? Buffer.from(stderr) : stderr);
+      error.message = "synthetic-credential-in-command-error";
+      const runCommand = vi.fn(async (_program, args) => {
+        if (stage === "raw" && !args.includes("--raw")) return { stdout: `${digest}\n` };
+        throw error;
+      });
+      const { io } = publication();
+      io.readRegistry = markerIo(release, env, async () => {}, runCommand).readRegistry;
+      await expect(publishReleaseMarker(release, io)).rejects.toMatchObject({
+        marker: { marker_error: `registry identity unavailable: ${firstLine.slice(0, 300)}` },
+      });
+      expect(envReads).not.toHaveBeenCalled();
+      expect(io.publishRegistry).not.toHaveBeenCalled();
+      expect(creates(runCommand)).toHaveLength(0);
+    },
+  );
+});
+
 describe("publication interruption through the real command adapter", () => {
   it.each(["registry", "tag", "both", "no-effect"])(
     "reconciles authoritative reads after %s interruption",
@@ -469,7 +581,8 @@ describe("publication interruption through the real command adapter", () => {
             }
             return { stdout: "" };
           }
-          if (!state.registry) throw Object.assign(new Error("synthetic missing"), { stderr: "manifest unknown" });
+          if (!state.registry)
+            throw Object.assign(new Error("synthetic missing"), { code: 1, stderr: `ERROR: ${args[3]}: not found\n` });
           return {
             stdout: args.includes("--raw") ? Buffer.concat([state.registry, Buffer.from("\n")]) : `${digest}\n`,
           };
