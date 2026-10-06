@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { appendFileSync, readFileSync } from "node:fs";
 import process from "node:process";
+import { changeSeedOwnership } from "../infrastructure/helm/platform/scripts/bootstrap-quiesce.mjs";
 import {
   buildDoksIngressValues,
   buildPlatformHelmValues,
@@ -1988,6 +1989,8 @@ export function buildScenarioSeedJobManifest(options = {}) {
   });
   if (quiesceWorkers) {
     env.push(
+      { name: "CHASE_SETS_QUIESCE_MODE", value: "scenario-seed" },
+      { name: "CHASE_SETS_QUIESCE_OWNER", value: `scenario-seed:${jobName}` },
       { name: "CHASE_SETS_KUBERNETES_NAMESPACE", value: namespace },
       { name: "CHASE_SETS_QUIESCE_DEPLOYMENTS", value: workerDeployment },
       { name: "CHASE_SETS_QUIESCE_TIMEOUT_SECONDS", value: String(scenarioSeedQuiesceTimeoutSeconds) },
@@ -2112,7 +2115,7 @@ export function buildScenarioSeedAccessManifest(options = {}) {
             apiGroups: ["keda.sh"],
             resources: ["scaledobjects"],
             resourceNames: [workerDeployment],
-            verbs: ["patch"],
+            verbs: ["get", "patch"],
           },
         ],
       },
@@ -2253,11 +2256,13 @@ async function readScenarioSeedBootstrapError({ kubectlPath, namespace, jobName,
 }
 
 export function extractScenarioSeedBootstrapError(logText) {
+  const lines = String(logText ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim());
   return (
-    String(logText ?? "")
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .find((line) => line.startsWith(SCENARIO_SEED_BOOTSTRAP_ERROR_PREFIX)) ?? null
+    lines.find((line) => /^\[bootstrap-quiesce\] scenario-seed result=(refused|preempted)$/.test(line)) ??
+    lines.find((line) => line.startsWith(SCENARIO_SEED_BOOTSTRAP_ERROR_PREFIX)) ??
+    null
   );
 }
 
@@ -2267,7 +2272,7 @@ function scenarioSeedFailure({ release, namespace, jobName, reason, message, boo
   failure.evidence = {
     schemaVersion: PLATFORM_KUBERNETES_SCENARIO_SEED_VERSION,
     action: "scenario-seed",
-    result: "failure",
+    result: bootstrapError?.match(/^\[bootstrap-quiesce\] scenario-seed result=(refused|preempted)$/)?.[1] ?? "failure",
     release,
     namespace,
     jobName,
@@ -2275,6 +2280,64 @@ function scenarioSeedFailure({ release, namespace, jobName, reason, message, boo
     bootstrapError,
   };
   return failure;
+}
+
+export async function releaseScenarioSeedQuiesce(options = {}) {
+  const namespace = requiredOption(options.namespace ?? defaultNamespace, "namespace");
+  const release = requiredOption(options.release ?? defaultRelease, "release");
+  const jobName = requiredOption(options.jobName, "job-name");
+  if (!/^[a-z0-9][a-z0-9.-]*$/.test(jobName)) throw new Error("Invalid scenario seed Job name.");
+  const owner = `scenario-seed:${jobName}`;
+  const worker = kubernetesComponentName(release, "platform-worker");
+  const kubectl = async (args) => {
+    const result = await runProcess({
+      command: options.kubectlPath ?? "kubectl",
+      args: [...args, "--namespace", namespace, "--request-timeout=2s", "--output", "json"],
+      spawn: options.spawn,
+      captureOutput: true,
+      allowFailure: true,
+    });
+    if (result.code !== 0) {
+      throw Object.assign(new Error("Cannot establish scenario seed cleanup authority."), {
+        statusCode: /\(Conflict\)/.test(result.stderr ?? "") ? 409 : undefined,
+      });
+    }
+    return JSON.parse(result.stdout);
+  };
+  const kubernetes = {
+    readScaledObject: (name) => kubectl(["get", `scaledobject/${name}`]),
+    patchScaledObject: (name, patch) =>
+      kubectl(["patch", `scaledobject/${name}`, "--type=merge", "--patch", JSON.stringify(patch)]),
+  };
+  const authorize = async () => {
+    if (!options.reclaim) return true;
+    const job = await kubectl(["get", `job/${jobName}`]);
+    if (
+      job.metadata?.name !== jobName ||
+      !job.metadata?.uid ||
+      job.status?.active > 0 ||
+      !job.status?.conditions?.some(
+        (condition) => ["Complete", "Failed"].includes(condition.type) && condition.status === "True",
+      )
+    )
+      return false;
+    const pods = await kubectl(["get", "pods", "--selector", `job-name=${jobName}`]);
+    return (
+      Array.isArray(pods.items) &&
+      pods.items.every(
+        (pod) =>
+          pod.metadata?.ownerReferences?.some((ref) => ref.kind === "Job" && ref.uid === job.metadata.uid) &&
+          ["Succeeded", "Failed"].includes(pod.status?.phase),
+      )
+    );
+  };
+  let released = false;
+  try {
+    released = await changeSeedOwnership(kubernetes, worker, owner, "release", authorize);
+  } catch {
+    // Unknown or missing authority is not permission to remove a pause.
+  }
+  return { action: "scenario-seed-release", result: released ? "released" : "refused", namespace, jobName };
 }
 
 export async function rollbackPlatformOnKubernetes(options = {}) {
@@ -2907,6 +2970,7 @@ export function parseArgs(argv, env = process.env) {
       "deploy",
       "reconcile-managed-postgres-ca",
       "scenario-seed",
+      "scenario-seed-release",
       "promote",
       "abort",
       "rollback",
@@ -2939,6 +3003,7 @@ export function parseArgs(argv, env = process.env) {
     timeout: readOption(rest, "--timeout", env.CHASE_SETS_KUBERNETES_ROLLOUT_TIMEOUT ?? defaultTimeout),
     rolloutsEnabled: readBooleanOption(rest, "--rollouts-enabled", env.ARGO_ROLLOUTS_ENABLED),
     quiesceWorkers: readBooleanOption(rest, "--quiesce-workers", env.CHASE_SETS_SCENARIO_SEED_QUIESCE_WORKERS),
+    reclaim: readBooleanOption(rest, "--reclaim", "false"),
     betaWaveSize: readOption(rest, "--beta-wave-size", env.BETA_WAVE_SIZE),
     betaWaveRolloutExposure: readOption(rest, "--beta-wave-rollout-exposure", env.BETA_WAVE_ROLLOUT_EXPOSURE_PERCENT),
     managedPostgresCaSha256: readOption(rest, "--managed-postgres-ca-sha256", env.MANAGED_POSTGRES_CA_SHA256),
@@ -3068,6 +3133,13 @@ async function main(argv, env = process.env) {
     }
     console.log(JSON.stringify(evidence, null, 2));
     return 0;
+  }
+
+  if (options.command === "scenario-seed-release") {
+    const evidence = await releaseScenarioSeedQuiesce(options);
+    if (options.outPath) await writeJsonRecord(options.outPath, evidence);
+    console.log(JSON.stringify(evidence, null, 2));
+    return evidence.result === "released" ? 0 : 1;
   }
 
   if (options.command === "promote") {

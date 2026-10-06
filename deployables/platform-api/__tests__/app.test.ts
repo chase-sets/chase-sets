@@ -2516,7 +2516,11 @@ describe("platform API payment provider mode observation", () => {
     const sourceFiles = collectRepositorySourceFiles(repositoryRoot);
 
     // Includes the shared-seed bootstrap host, whose owned pools close in finally.
-    verifyHostConstructionCensus(repositoryRoot, sourceFiles);
+    // AC2's caller-held/standalone seed host in bootstrap-lock-contention.db.test.ts closes its pools in finally.
+    const hostCallSites = verifyHostConstructionCensus(repositoryRoot, sourceFiles);
+    expect(hostCallSites.map((entry) => entry.file)).toContain(
+      "deployables/platform-api/__tests__/bootstrap-lock-contention.db.test.ts",
+    );
 
     const paymentsServiceCallSites = countConstructionCallSites(
       sourceFiles,

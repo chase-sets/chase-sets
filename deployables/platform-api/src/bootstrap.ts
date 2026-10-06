@@ -1,6 +1,6 @@
 import { bootstrapPlatformAdminPassword } from "@chase-sets/auth/server";
 import { bootstrapPlatformAdminIdentity } from "@chase-sets/identity/server";
-import { syncContextProjectionGroups } from "@chase-sets/bounded-context-runtime";
+import { syncContextProjectionGroups, withSchemaBootstrapLock } from "@chase-sets/bounded-context-runtime";
 import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import { createPlatformApiHost } from "./app";
@@ -49,42 +49,53 @@ async function bootstrap() {
         },
       }),
     );
-    await runBootstrapPhase("seed-api-host", () =>
-      seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
-        schemaBootstrapLockPool: pools.schemaBootstrapLockPool,
-        enabledDataProfiles: config.dataProfiles ?? [],
-        environmentName: config.deploymentEnvironment ?? null,
-        runtimeProfile: config.runtimeProfile,
-        substepTimeoutMs: DEPLOYMENT_SEED_SUBSTEP_TIMEOUT_MS,
-        schemaBootstrap: {
-          lockAcquisitionTimeoutMs: DEPLOYMENT_SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS,
-          lockTimeoutRetryBudgetMs: DEPLOYMENT_SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS,
-        },
-      }),
+    await withSchemaBootstrapLock(
+      pools.schemaBootstrapLockPool,
+      {
+        lockAcquisitionTimeoutMs: DEPLOYMENT_SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS,
+      },
+      async (schemaBootstrapLockAcquisition) => {
+        await runBootstrapPhase("seed-api-host", () =>
+          seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {
+            schemaBootstrapLockPool: pools.schemaBootstrapLockPool,
+            schemaBootstrapLockAcquisition,
+            enabledDataProfiles: config.dataProfiles ?? [],
+            environmentName: config.deploymentEnvironment ?? null,
+            runtimeProfile: config.runtimeProfile,
+            substepTimeoutMs: DEPLOYMENT_SEED_SUBSTEP_TIMEOUT_MS,
+            schemaBootstrap: {
+              lockAcquisitionTimeoutMs: DEPLOYMENT_SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS,
+              lockTimeoutRetryBudgetMs: DEPLOYMENT_SCHEMA_BOOTSTRAP_LOCK_WAIT_TIMEOUT_MS,
+            },
+          }),
+        );
+
+        const platformAdmin = config.platformAdmin;
+        if (platformAdmin) {
+          const identityServices = runtime.services.identity as Parameters<typeof bootstrapPlatformAdminIdentity>[0];
+          const authServices = runtime.services.auth as Parameters<typeof bootstrapPlatformAdminPassword>[0];
+          const admin = await runBootstrapPhase("platform-admin-identity", async () => {
+            // A prior worker-less bootstrap may have committed Identity events without projecting them.
+            await syncContextProjectionGroups(runtime, "identity");
+            return bootstrapPlatformAdminIdentity(identityServices, {
+              email: platformAdmin.email,
+              displayName: platformAdmin.displayName,
+              accountName: platformAdmin.accountName,
+            });
+          });
+
+          await runBootstrapPhase("auth-projection-sync", () => syncContextProjectionGroups(runtime, "auth"));
+          await runBootstrapPhase("platform-admin-password", () =>
+            bootstrapPlatformAdminPassword(authServices, {
+              userId: admin.userId,
+              credentialId: admin.credentialId,
+              password: platformAdmin.password,
+            }),
+          );
+          console.log("Platform admin bootstrap reconciled.");
+        }
+      },
     );
-
-    const platformAdmin = config.platformAdmin;
-    if (platformAdmin) {
-      const identityServices = runtime.services.identity as Parameters<typeof bootstrapPlatformAdminIdentity>[0];
-      const authServices = runtime.services.auth as Parameters<typeof bootstrapPlatformAdminPassword>[0];
-      const admin = await runBootstrapPhase("platform-admin-identity", () =>
-        bootstrapPlatformAdminIdentity(identityServices, {
-          email: platformAdmin.email,
-          displayName: platformAdmin.displayName,
-          accountName: platformAdmin.accountName,
-        }),
-      );
-
-      await runBootstrapPhase("auth-projection-sync", () => syncContextProjectionGroups(runtime, "auth"));
-      await runBootstrapPhase("platform-admin-password", () =>
-        bootstrapPlatformAdminPassword(authServices, {
-          userId: admin.userId,
-          credentialId: admin.credentialId,
-          password: platformAdmin.password,
-        }),
-      );
-      console.log("Platform admin bootstrap reconciled.");
-    }
 
     console.log("Platform API bootstrap complete.");
   } finally {
