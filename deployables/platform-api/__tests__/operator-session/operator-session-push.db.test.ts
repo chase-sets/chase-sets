@@ -5,19 +5,8 @@ import {
   createTcgplayerAutomationRuntime,
 } from "@chase-sets/catalog/server";
 import type { PgQueryable, PgQueryResult } from "@chase-sets/event-core-postgres";
-import {
-  admin,
-  adminPath,
-  barrier,
-  database,
-  describeDb,
-  keyring,
-  mint,
-  mounted,
-  push,
-  session,
-  snapshot,
-} from "./fixture";
+import { admin, adminPath, barrier, keyring, mint, mounted, push, session, snapshot } from "./fixture";
+import { database, describeDb } from "./db-fixture";
 
 describeDb("real app and custody factory retained fence", () => {
   const db = database("operator_push");

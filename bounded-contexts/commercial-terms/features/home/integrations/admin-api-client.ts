@@ -1,5 +1,6 @@
 import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
 import { attachResponseMetadata, type MutationResult } from "@chase-sets/http/responses";
+import { t } from "@chase-sets/localization";
 
 export class CommercialTermsApiError extends Error {
   public constructor(
@@ -38,6 +39,31 @@ export type PublishedMarketplaceSalesFeeSchedule = Readonly<{
   effectiveFrom: string | null;
   resolvedAt: string;
 }>;
+
+function isPublishedSchedule(raw: unknown): raw is PublishedMarketplaceSalesFeeSchedule {
+  if (typeof raw !== "object" || raw === null) return false;
+  const envelope = raw as Record<string, unknown>;
+  if (typeof envelope.value !== "object" || envelope.value === null) return false;
+  const value = envelope.value as Record<string, unknown>;
+  const isText = (input: unknown): input is string => typeof input === "string" && input.trim().length > 0;
+  const isDate = (input: unknown) =>
+    isText(input) && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(input) && Number.isFinite(Date.parse(input));
+  const isBps = (input: unknown) =>
+    typeof input === "number" && Number.isInteger(input) && input >= 0 && input <= 10000;
+  const isMoney = (input: unknown) =>
+    typeof input === "string" && /^\d+\.\d{2}$/.test(input) && Number.isFinite(Number(input));
+  return (
+    isText(value.label) &&
+    isBps(value.marketplaceSalesFeePercentageBps) &&
+    isMoney(value.marketplaceSalesFeeFixedAmount) &&
+    isMoney(value.marketplaceSalesFeeCapAmount) &&
+    Number(value.marketplaceSalesFeeCapAmount) > 0 &&
+    isBps(value.shippingAllowancePercentageBps) &&
+    isDate(envelope.resolvedAt) &&
+    ((envelope.source === "policy" && isText(envelope.documentId) && isDate(envelope.effectiveFrom)) ||
+      (envelope.source === "fallback" && envelope.documentId === null && envelope.effectiveFrom === null))
+  );
+}
 
 type CommercialTermsRequest = Omit<CommercialTermsApiErrorRequest, "contentType">;
 export type CommercialTermsMutationResult<T extends object> = MutationResult<T>;
@@ -112,6 +138,7 @@ export type CommercialTermsHistoryItem = Readonly<{
 export type CommercialAgreement = Readonly<{
   agreement_id: string;
   account_id: string;
+  account_name: string | null;
   account_display_name: string | null;
   account_type: string | null;
   label: string;
@@ -128,6 +155,7 @@ export type CommercialAgreement = Readonly<{
 
 export type CommercialTermsAccountOption = Readonly<{
   accountId: string;
+  name: string;
   displayName: string;
   accountType: string;
 }>;
@@ -170,10 +198,11 @@ export function createCommercialTermsRequestApiClient(request: Request) {
     },
     async listAccountOptions() {
       const response = await requestJson<{
-        items: Array<{ account_id: string; display_name: string; account_type: string }>;
+        items: Array<{ account_id: string; account_name: string; display_name: string; account_type: string }>;
       }>(`${baseUrl}/agreements/account-options`);
       return response.items.map((item) => ({
         accountId: item.account_id,
+        name: item.account_name,
         displayName: item.display_name,
         accountType: item.account_type,
       }));
@@ -205,7 +234,11 @@ export function createCommercialTermsPublicRequestApiClient(request: Request) {
   return {
     async getMarketplaceSalesFeeSchedule(): Promise<PublishedMarketplaceSalesFeeSchedule> {
       const input = `${baseUrl}/marketplace-sales-fee-schedule`;
-      return parseJsonResponse<PublishedMarketplaceSalesFeeSchedule>(await fetch(input), describeRequest(input));
+      const schedule = await parseJsonResponse<unknown>(await fetch(input), describeRequest(input));
+      if (!isPublishedSchedule(schedule)) {
+        throw new Error(t("commercialTerms.features.home.unavailable"));
+      }
+      return schedule;
     },
   };
 }

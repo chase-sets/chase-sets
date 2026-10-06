@@ -4107,6 +4107,174 @@
         }
       ],
       "artifact": "sign-in-email-option-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "search-price-max-typeable-1280x720",
+      "file": "deployables/marketplace/e2e/search-price-filter-layout.spec.ts",
+      "testTitle": "Maximum price stays typeable at 1280x720 @marketplace-browse",
+      "route": {
+        "name": "Base Set search price filters",
+        "path": "/search?q=charizard&reference.expansion=ref_seed_expansion_base_set"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:base-set:v1"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "target": {
+        "identity": "search-price-filters-desktop",
+        "selector": "[data-facet-list-presentation='desktop']",
+        "populatedSelector": "role=spinbutton[name=\"Maximum price\"]"
+      },
+      "measurements": [
+        {
+          "identity": "maximum-price-width",
+          "scope": "target",
+          "selector": "role=spinbutton[name=\"Maximum price\"]",
+          "property": "width",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "search-price-max-typeable-1280x720"
+    },
+    {
+      "kind": "claim",
+      "id": "search-price-max-filtered-1280x720",
+      "file": "deployables/marketplace/e2e/search-price-filter-layout.spec.ts",
+      "testTitle": "Maximum price stays typeable at 1280x720 @marketplace-browse",
+      "route": {
+        "name": "Base Set search price filters",
+        "path": "/search?q=charizard&reference.expansion=ref_seed_expansion_base_set&priceMax=25.00"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:base-set:v1"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "target": {
+        "identity": "search-price-filters-desktop",
+        "selector": "[data-facet-list-presentation='desktop']",
+        "populatedSelector": "role=spinbutton[name=\"Maximum price\"]"
+      },
+      "measurements": [
+        {
+          "identity": "maximum-price-width",
+          "scope": "target",
+          "selector": "role=spinbutton[name=\"Maximum price\"]",
+          "property": "width",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "search-price-max-filtered-1280x720"
+    },
+    {
+      "kind": "claim",
+      "id": "search-price-max-typeable-360x800",
+      "file": "deployables/marketplace/e2e/search-price-filter-layout.spec.ts",
+      "testTitle": "Maximum price stays typeable at 360x800 @marketplace-browse",
+      "route": {
+        "name": "Base Set search price filters",
+        "path": "/search?q=charizard&reference.expansion=ref_seed_expansion_base_set"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:base-set:v1"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "search-price-filters-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": "role=spinbutton[name=\"Maximum price\"]"
+      },
+      "measurements": [
+        {
+          "identity": "maximum-price-width",
+          "scope": "target",
+          "selector": "role=spinbutton[name=\"Maximum price\"]",
+          "property": "width",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "search-price-max-typeable-360x800"
+    },
+    {
+      "kind": "claim",
+      "id": "search-price-max-filtered-360x800",
+      "file": "deployables/marketplace/e2e/search-price-filter-layout.spec.ts",
+      "testTitle": "Maximum price stays typeable at 360x800 @marketplace-browse",
+      "route": {
+        "name": "Base Set search price filters",
+        "path": "/search?q=charizard&reference.expansion=ref_seed_expansion_base_set&priceMax=25.00"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:base-set:v1"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "search-price-filters-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": "role=spinbutton[name=\"Maximum price\"]"
+      },
+      "measurements": [
+        {
+          "identity": "maximum-price-width",
+          "scope": "target",
+          "selector": "role=spinbutton[name=\"Maximum price\"]",
+          "property": "width",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "search-price-max-filtered-360x800"
     }
   ]
 }

@@ -78,6 +78,22 @@ export const bootstrapDbEnrollmentManifest: Readonly<Record<string, BootstrapDbE
 export const bootstrapDbExecutionUnitBootBearingCaseCeilings: Readonly<Record<BootstrapDbExecutionUnitName, number>>;
 export const bootstrapDbScheduleModel: BootstrapDbScheduleModel;
 
+export interface PlatformApiNonBootstrapDbCensus {
+  readonly referenceRunId: number;
+  readonly referenceJobId: number;
+  readonly entries: Readonly<Record<string, BootstrapDbExecutionUnitName>>;
+}
+
+export const platformApiNonBootstrapDbCensus: PlatformApiNonBootstrapDbCensus;
+
+export function derivePlatformApiDbTestCensus(options?: Readonly<{ platformApiRoot?: string }>): Readonly<{
+  entries: readonly string[];
+  bootstrapEntries: readonly string[];
+  dbEntries: readonly string[];
+  suffixEntries: readonly string[];
+  violations: readonly string[];
+}>;
+
 export function checkBootstrapDbEnrollment(
   options?: Readonly<{
     platformApiRoot?: string;
@@ -85,6 +101,7 @@ export function checkBootstrapDbEnrollment(
     executionUnitBootBearingCaseCeilings?: Readonly<Record<string, number>>;
     /** Untrusted input validated against the closed JSON-like plain-record contract before use. */
     scheduleModel?: unknown;
+    nonBootstrapCensus?: PlatformApiNonBootstrapDbCensus;
   }>,
 ): BootstrapDbEnrollmentResult;
 
