@@ -260,7 +260,7 @@ describeDb("ordering reputation projection SQL persistence boundary", () => {
   it("carries a real Marketplace publication through persistent Ordering projection and the authorized HTTP DTO", async () => {
     await insertOrderPage(pools.ordering, "ord_1");
     await current();
-    const marketplace = marketplaceModule.createServices(pools.marketplace);
+    const marketplace = marketplaceModule.createServices(pools.marketplace, {});
     const subscriptions = marketplaceModule.buildSubscriptions!(marketplace);
     const sourceNames = [
       "marketplace-review-order-source-projection",
