@@ -69,7 +69,13 @@ export function ReviewListPage({
             <MarketplaceEmptyState title={emptyTitle} description={emptyDescription} />
           ) : (
             reviews.map((review) =>
-              review.held && review.rating === null ? (
+              review.status === "withdrawn" ? (
+                <MarketplaceEmptyState
+                  key={review.review_id}
+                  title={t("reputation.features.reviews.ui.reviewListPage.review.withdrawn.title")}
+                  description={t("reputation.features.reviews.ui.reviewListPage.review.withdrawn.description")}
+                />
+              ) : review.held && review.rating === null ? (
                 <Stack key={review.review_id} gap={2}>
                   <MarketplaceEmptyState
                     title={t("reputation.features.reviews.ui.reviewListPage.feedback.on.hold.title")}

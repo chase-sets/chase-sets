@@ -41,6 +41,32 @@ const reviews = [
 ] satisfies ReviewListItem[];
 
 describe("review list page", () => {
+  it.each([null, 5])("hides withdrawn content even with rating %s", (rating) => {
+    const markup = renderToString(
+      <ReviewListPage
+        title="Received reviews"
+        eyebrow="Reviews"
+        emptyTitle="No reviews"
+        emptyDescription="Nothing yet."
+        reviewDetailBasePath="/account/reviews"
+        reviews={[
+          { ...reviews[0]!, status: "withdrawn", rating, reply_status: "active", reply_feedback: "Response sentinel" },
+        ]}
+      />,
+    );
+    expect(markup).toContain("Review withdrawn");
+    for (const forbidden of [
+      "A review is pending",
+      "Packed carefully.",
+      "Response sentinel",
+      "Review author:",
+      "Report review",
+      'aria-label="5 rating"',
+    ]) {
+      expect(markup).not.toContain(forbidden);
+    }
+  });
+
   it("renders account-to-account review labels for each review", () => {
     const markup = renderToString(
       <ReviewListPage
@@ -73,6 +99,9 @@ describe("review list page", () => {
 
     expect(markup).not.toContain("Packed carefully.");
     expect(markup).not.toContain("Review author:");
+    expect(markup).toContain("A review is pending");
+    expect(markup).not.toContain("Review withdrawn");
+    expect(markup).not.toContain("Report review");
   });
 
   it("shows neutral hold copy without held review content", () => {
@@ -83,12 +112,41 @@ describe("review list page", () => {
         emptyTitle="No reviews"
         emptyDescription="Nothing yet."
         reviewDetailBasePath="/account/reviews"
-        reviews={[{ ...reviews[0]!, held: true, rating: null, feedback: null }]}
+        reviews={[
+          {
+            ...reviews[0]!,
+            held: true,
+            rating: null,
+            feedback: null,
+            reply_status: "active",
+            reply_feedback: "Response sentinel",
+          },
+        ]}
       />,
     );
 
     expect(markup).toContain("Review paused");
     expect(markup).not.toContain("Packed carefully.");
+    expect(markup).not.toContain("Response sentinel");
+    expect(markup).not.toContain("A review is pending");
+    expect(markup).not.toContain("Report review");
+  });
+
+  it("preserves the author's own pending preview without calling it published", () => {
+    const markup = renderToString(
+      <ReviewListPage
+        title="Written reviews"
+        eyebrow="Reviews"
+        emptyTitle="No reviews"
+        emptyDescription="Nothing yet."
+        reviewDetailBasePath="/account/reviews"
+        reviews={[{ ...reviews[0]!, revealed_at: null, reveal_reason: null }]}
+      />,
+    );
+    expect(markup).toContain("Packed carefully.");
+    expect(markup).toContain("Pending reveal");
+    expect(markup).not.toContain("Review withdrawn");
+    expect(markup).not.toContain("Report review");
   });
 
   it("shows the same response and report action on active revealed list items", () => {

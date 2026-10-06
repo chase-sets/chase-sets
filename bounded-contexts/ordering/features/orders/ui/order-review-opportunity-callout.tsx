@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { Badge, Card, LinkButton, MarketplaceNotice, Stack, Text } from "@chase-sets/design-system";
+import type { ReviewOpportunity } from "@chase-sets/marketplace/server";
 
 export type OrderReviewOpportunity = Readonly<{
   author_role: string;
@@ -11,6 +12,21 @@ export type OrderReviewOpportunity = Readonly<{
   revealed?: boolean;
   scoring_disposition?: "included" | "context-only" | null;
 }>;
+
+export function mapOrderReviewOpportunity(
+  opportunity: ReviewOpportunity,
+  projectedReview?: OrderReviewOpportunity | null,
+) {
+  const matchingReview =
+    opportunity.active_review_id !== null && opportunity.active_review_id === projectedReview?.active_review_id;
+  const visible = opportunity.active_review_revealed_at != null && opportunity.submission_state !== "held";
+  return {
+    ...opportunity,
+    revealed: opportunity.active_review_revealed_at != null,
+    response: matchingReview && visible ? projectedReview.response : null,
+    scoring_disposition: matchingReview ? projectedReview.scoring_disposition : null,
+  } satisfies OrderReviewOpportunity;
+}
 
 function getCounterpartyRole(authorRole: string) {
   return authorRole === "buyer" ? "seller" : "buyer";
@@ -77,7 +93,7 @@ function ReviewOutcome({
     );
   }
 
-  if (opportunity.submission_state === "expired" || opportunity.window_expired) {
+  if (!opportunity.active_review_id && opportunity.window_expired) {
     return (
       <Stack gap={1}>
         <Badge tone="neutral">{t("ordering.features.orders.ui.orderOutcome.review.expired")}</Badge>
@@ -170,13 +186,10 @@ export function OrderReviewOpportunityCallout({
                 counterpartyRole,
               })}
         </Text>
-        <Text size="sm" tone="secondary">
-          {t("ordering.features.orders.ui.orderReviewOpportunityCallout.reviews.open.only.after.delivery.verifies")}
-        </Text>
         {opportunity.active_review_id ? (
           <Badge tone={opportunity.revealed ? "success" : "neutral"}>
             {t(
-              opportunity.scoring_disposition === "context-only"
+              opportunity.revealed && opportunity.scoring_disposition === "context-only"
                 ? "ordering.features.orders.ui.orderReviewOpportunityCallout.context.only"
                 : opportunity.revealed
                   ? "ordering.features.orders.ui.orderReviewOpportunityCallout.revealed"

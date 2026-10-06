@@ -6,7 +6,8 @@ import { defineFormAction, defineResourceRoute, formActionRedirect } from "@chas
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { createOrderingRequestApiClient, type SaleDetail } from "../support/request-support/api-client";
 import { OrderingOrderDetailPage } from "../features/orders/ui/order-detail-page";
-import { OrderOutcomePanel, type OrderReviewOpportunity } from "../features/orders/ui/order-review-opportunity-callout";
+import { OrderOutcomePanel, mapOrderReviewOpportunity } from "../features/orders/ui/order-review-opportunity-callout";
+import { createReputationRequestApiClient, ReputationApiError } from "@chase-sets/marketplace/server";
 import contextManifest from "../context.json";
 import { orderingApiErrorAdapter } from "../support/request-support/route-api-error";
 
@@ -24,13 +25,27 @@ export const loader = defineResourceRoute({
   },
   errorAdapter: orderingApiErrorAdapter,
   load: ({ request, params }) => createOrderingRequestApiClient(request).getSale(params.orderId!),
-  map: (sale) => ({
-    sale,
-    reviewOutcome: {
-      status: "ready" as const,
-      opportunity: sale.reviewOpportunity ?? null,
-    },
-  }),
+  map: async (sale, { request }) => {
+    try {
+      const opportunity = await createReputationRequestApiClient(request).getOrderReviewOpportunity(sale.order_id);
+      return {
+        sale,
+        reviewOutcome: {
+          status: "ready" as const,
+          opportunity: mapOrderReviewOpportunity(opportunity, sale.reviewOpportunity),
+        },
+      };
+    } catch (error) {
+      return {
+        sale,
+        reviewOutcome: {
+          status:
+            error instanceof ReputationApiError && error.status === 404 ? ("ready" as const) : ("unavailable" as const),
+          opportunity: null,
+        },
+      };
+    }
+  },
   messages: {
     pending: "We are preparing your sale. Refresh in a moment and it should appear.",
     pendingStatusText: "Preparing sale",
@@ -76,7 +91,7 @@ export default function OrderingAccountSaleRoute() {
       supplementarySection={
         <OrderOutcomePanel
           orderStatus={data.sale.status}
-          opportunity={data.reviewOutcome.opportunity as OrderReviewOpportunity | null}
+          opportunity={data.reviewOutcome.opportunity}
           reviewReadStatus={data.reviewOutcome.status}
           reviewHref={`/account/sales/${data.sale.order_id}/review`}
           supportHref={`/account/support?orderId=${encodeURIComponent(data.sale.order_id)}&role=seller`}

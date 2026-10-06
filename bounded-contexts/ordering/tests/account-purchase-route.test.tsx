@@ -11,6 +11,7 @@ import {
 import { CHASE_SETS_READ_AFTER_WRITE_HEADER, CHASE_SETS_READ_TARGET_CONTEXT_HEADER } from "@chase-sets/http/responses";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import { jsonResponse, requestUrl } from "./test-support/http";
+import type { ReviewOpportunity } from "@chase-sets/marketplace/server";
 
 const { mockUseLoaderData, mockUseActionData, mockRequireActorFromAuthApi } = vi.hoisted(() => ({
   mockUseLoaderData: vi.fn(),
@@ -147,6 +148,24 @@ describe("marketplace account purchase route", () => {
         const url = requestUrl(input);
         fetchCalls.push(url);
 
+        if (url.includes("/reviews/opportunities/orders/ord_1")) {
+          return Promise.resolve(
+            jsonResponse({
+              order_id: "ord_1",
+              subject_account_id: "acc_seller",
+              subject_display_name: "seller",
+              author_role: "buyer",
+              eligible_at: "2026-04-02T00:00:00.000Z",
+              active_review_id: "rev_1",
+              active_review_revealed_at: "2026-04-05T00:00:00.000Z",
+              submission_state: "allowed",
+              hold_reason: null,
+              window_expired: false,
+              window_expires_at: "2026-06-01T00:00:00.000Z",
+            } satisfies ReviewOpportunity),
+          );
+        }
+
         if (url.includes("/api/marketplace/account/purchases/ord_1")) {
           return Promise.resolve(
             jsonResponse({
@@ -181,7 +200,110 @@ describe("marketplace account purchase route", () => {
     expect(result.reviewOutcome.opportunity?.response).toBe("Thank you for sharing this.");
     expect(result.reviewOutcome.opportunity?.revealed).toBe(true);
     expect(result.reviewOutcome.opportunity?.scoring_disposition).toBe("context-only");
-    expect(fetchCalls).toEqual([expect.stringContaining("/account/purchases/ord_1")]);
+    expect(fetchCalls).toEqual([
+      expect.stringContaining("/account/purchases/ord_1"),
+      expect.stringContaining("/reviews/opportunities/orders/ord_1"),
+    ]);
+  });
+
+  it.each(["revealed", "pending", "expired", "held", "404", "503", "network"] as const)(
+    "composes the real purchase loader and panel for review %s",
+    async (state) => {
+      const calls: Request[] = [];
+      const opportunity: ReviewOpportunity = {
+        order_id: "ord_1",
+        subject_account_id: "acc_seller",
+        subject_display_name: null,
+        author_role: "buyer",
+        eligible_at: "2026-04-02T00:00:00.000Z",
+        active_review_id: state === "expired" ? null : "rev_authoritative",
+        active_review_revealed_at: state === "pending" ? null : "2026-04-05T00:00:00.000Z",
+        submission_state: state === "held" ? "held" : state === "pending" ? "allowed" : "expired",
+        hold_reason: state === "held" ? "feedback-on-hold" : null,
+        window_expired: state === "expired",
+        window_expires_at: "2026-06-01T00:00:00.000Z",
+      };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: string | URL | Request, init?: RequestInit) => {
+          const request = input instanceof Request ? input : new Request(input, init);
+          calls.push(request);
+          if (request.url.includes("/account/purchases/ord_1"))
+            return Promise.resolve(
+              jsonResponse({
+                ...order,
+                reviewOpportunity: { author_role: "buyer", active_review_id: "rev_stale", revealed: true },
+              }),
+            );
+          expect(request.url).toContain("/reviews/opportunities/orders/ord_1");
+          if (state === "network") return Promise.reject(new Error("Network unavailable"));
+          if (state === "404" || state === "503")
+            return Promise.resolve(jsonResponse({ error: "Review read failed" }, Number(state)));
+          return Promise.resolve(jsonResponse(opportunity));
+        }),
+      );
+      const result = await loader({
+        request: new Request("http://localhost/account/purchases/ord_1", { headers: { cookie: "session=test" } }),
+        params: { purchaseId: "ord_1" },
+        context: undefined,
+      } as never);
+      expect(result.purchase.order_id).toBe("ord_1");
+      expect(calls.map((request) => new URL(request.url).pathname)).toEqual([
+        "/api/marketplace/account/purchases/ord_1",
+        "/api/marketplace/reviews/opportunities/orders/ord_1",
+      ]);
+      expect(calls[1]?.headers.get("cookie")).toBe("session=test");
+      expect(calls[1]?.headers.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("marketplace");
+      expect(result.reviewOutcome.status).toBe(["503", "network"].includes(state) ? "unavailable" : "ready");
+      if (["404", "503", "network"].includes(state)) expect(result.reviewOutcome.opportunity).toBeNull();
+      if (state === "revealed") expect(result.reviewOutcome.opportunity?.revealed).toBe(true);
+      mockUseLoaderData.mockReturnValue(result);
+      render(
+        <ChaseRoot>
+          <MarketplaceAccountPurchaseRoute />
+        </ChaseRoot>,
+      );
+      const labels = {
+        revealed: "Published",
+        pending: "Awaiting publication",
+        expired: "Review window closed",
+        held: "Review paused",
+        "404": "Review not available yet",
+        "503": "Review status is temporarily unavailable",
+        network: "Review status is temporarily unavailable",
+      };
+      expect(screen.getByText(labels[state])).toBeTruthy();
+      for (const label of new Set(Object.values(labels))) {
+        if (label !== labels[state]) expect(screen.queryByText(label)).toBeNull();
+      }
+      expect(screen.getByText("Order outcome")).toBeTruthy();
+      expect(screen.queryByRole("link", { name: "Leave account review" })).toBeNull();
+      expect(document.querySelector('a[href*="rev_stale"]')).toBeNull();
+      expect(screen.queryByText(/Reviews open only after delivery/)).toBeNull();
+      if (state === "revealed" || state === "pending") {
+        expect(screen.getByRole("link", { name: "Open your review" }).getAttribute("href")).toBe(
+          "/account/reviews/rev_authoritative",
+        );
+      } else {
+        expect(screen.queryByRole("link", { name: "Open your review" })).toBeNull();
+      }
+    },
+  );
+
+  it("does not request a review when the purchase read fails", async () => {
+    const fetch = vi.fn((_input: string | URL | Request) =>
+      Promise.resolve(jsonResponse({ error: "Order unavailable" }, 503)),
+    );
+    vi.stubGlobal("fetch", fetch);
+    await expect(
+      loader({
+        request: new Request("http://localhost/account/purchases/ord_1"),
+        params: { purchaseId: "ord_1" },
+        context: undefined,
+      } as never),
+    ).rejects.toBeDefined();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(requestUrl(fetch.mock.calls[0]![0]!)).toContain("/account/purchases/ord_1");
   });
 
   it("renders recorded delivery through the HTTP request client and real purchase loader", async () => {
@@ -190,6 +312,9 @@ describe("marketplace account purchase route", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
+        if (requestUrl(input).includes("/reviews/opportunities")) {
+          return Promise.resolve(jsonResponse({ error: "No opportunity" }, 404));
+        }
         expect(requestUrl(input)).toContain("/api/marketplace/account/purchases/ord_1");
         return Promise.resolve(
           jsonResponse({
@@ -250,7 +375,7 @@ describe("marketplace account purchase route", () => {
 
     expect(result.purchase.order_id).toBe("ord_1");
     expect(fetchCalls.filter((request) => request.url.includes("/account/purchases/ord_1"))).toHaveLength(2);
-    expect(fetchCalls.some((request) => request.url.includes("/reviews/opportunities"))).toBe(false);
+    expect(fetchCalls.filter((request) => request.url.includes("/reviews/opportunities"))).toHaveLength(1);
     expect(fetchCalls[0]?.headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
     expect(fetchCalls[0]?.headers.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("ordering");
   });

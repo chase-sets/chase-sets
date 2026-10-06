@@ -106,7 +106,17 @@ export function ReviewDetailPage({
       />
 
       <PageSection title={t("reputation.features.reviews.ui.reviewDetailPage.summary")}>
-        {review.held && review.rating === null ? (
+        {review.status === "withdrawn" ? (
+          <Stack gap={2}>
+            <MarketplaceEmptyState
+              title={t("reputation.features.reviews.ui.reviewDetailPage.review.withdrawn.title")}
+              description={t("reputation.features.reviews.ui.reviewDetailPage.review.withdrawn.description")}
+            />
+            {review.withdrawn_by_actor_type === "operator" ? (
+              <Badge tone="danger">{t("reputation.features.reviews.ui.reviewDetailPage.moderated.withdrawn")}</Badge>
+            ) : null}
+          </Stack>
+        ) : review.held && review.rating === null ? (
           <MarketplaceEmptyState
             title={t("reputation.features.reviews.ui.reviewDetailPage.feedback.on.hold.title")}
             description={t("reputation.features.reviews.ui.reviewDetailPage.feedback.on.hold.description")}
@@ -142,11 +152,6 @@ export function ReviewDetailPage({
                 ) : null}
                 {review.scoring_disposition === "context-only" ? (
                   <Badge tone="neutral">{t("reputation.features.reviews.ui.context.only.rating.explanation")}</Badge>
-                ) : null}
-                {review.withdrawn_by_actor_type === "operator" ? (
-                  <Badge tone="danger">
-                    {t("reputation.features.reviews.ui.reviewDetailPage.moderated.withdrawn")}
-                  </Badge>
                 ) : null}
                 {review.feedback_redacted_at !== null ? (
                   <Badge tone="danger">{t("reputation.features.reviews.ui.reviewDetailPage.moderated.redacted")}</Badge>
