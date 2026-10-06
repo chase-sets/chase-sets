@@ -356,6 +356,67 @@ describe("demand-curve closer production boundary", () => {
     assertCapped(output.written);
   });
 
+  it.each([
+    ["provider", 101],
+    ["provider", 150],
+    ["platform", 101],
+    ["platform", 150],
+  ] as const)("preserves ordered-input identity across %s deletion from %i sales", async (source, count) => {
+    const rows = spreadRows(count).map((row, index) => ({
+      ...row,
+      sale_fingerprint: `synthetic-spread-${index + 1}`,
+      sold_at: new Date(Date.parse(now) - (index + 1) * 3_600_000).toISOString(),
+      unit_price: (5 + (index + 1) / 10).toFixed(2),
+    }));
+    // Independent fixture identities, not the production comparator or expectedSelection.
+    const newestOrder = [
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+      32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59,
+      60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87,
+      88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100,
+    ];
+    const fingerprintOrder = [
+      1, 10, 100, 11, 12, 13, 14, 15, 16, 17, 18, 19, 2, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 3, 30, 31, 32, 33, 34,
+      35, 36, 37, 38, 39, 4, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 5, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 6, 60,
+      61, 62, 63, 64, 65, 66, 67, 68, 69, 7, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 8, 80, 81, 82, 83, 84, 85, 86, 87,
+      88, 89, 9, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99,
+    ];
+    const prices = (order: readonly number[]) => order.map((n) => (50 + n) / 10);
+    const build = (evidence: RawSale[], unusable = false) =>
+      run(source === "provider" ? [...evidence, ...(unusable ? unusableRows() : [])] : [], true, {
+        platform: source === "platform" ? evidence : [],
+        emptySupply: true,
+      });
+    const overflow = await build(rows);
+    expect(overflow.selected.map((sale) => sale.price)).toEqual(prices(newestOrder));
+    assertCapped(overflow.written);
+    const withUnusable = await build(rows, true);
+    expect(withUnusable.selected).toEqual(overflow.selected);
+    expect(withUnusable.written.fingerprint).toBe(overflow.written.fingerprint);
+    expect(withUnusable.written.points).toEqual(overflow.written.points);
+    if (count === 150) {
+      const stillOverflow = await build(rows.slice(0, 101), true);
+      expect(stillOverflow.selected).toEqual(overflow.selected);
+      expect(stillOverflow.written.fingerprint).toBe(overflow.written.fingerprint);
+      expect(stillOverflow.written.points).toEqual(overflow.written.points);
+    }
+    const exact = await build(rows.slice(0, 100), true);
+    expect(exact.selected.map((sale) => sale.price)).toEqual(
+      prices(source === "provider" ? fingerprintOrder : newestOrder),
+    );
+    expect([...exact.selected].sort((a, b) => a.price - b.price)).toEqual(overflow.selected);
+    if (source === "provider") expect(exact.written.fingerprint).not.toBe(overflow.written.fingerprint);
+    else {
+      expect(exact.written.fingerprint).toBe(overflow.written.fingerprint);
+      expect(exact.written.points).toEqual(overflow.written.points);
+    }
+    assertCapped(exact.written);
+    const replay = await build(rows.slice(0, 100), true);
+    expect(replay.selected).toEqual(exact.selected);
+    expect(replay.written.fingerprint).toBe(exact.written.fingerprint);
+    expect(replay.written.points).toEqual(exact.written.points);
+  });
+
   it("excludes unknown and zero-price slot theft before the N20 overflow cap", async () => {
     const valid = spreadRows(101);
     const control = await run(valid, true, { emptySupply: true });

@@ -361,27 +361,31 @@ describeDb("Demand Curve immutable versions and LiquidityEstimated", () => {
         [catalogItemId, productId, at, count],
       );
     }
-    const closer = createDemandCurveCloser({
-      pool,
-      eventStore: createPostgresEventStore({ pool }),
-      policies: stubDemandCurvePolicies(),
-    });
-    expect((await closer.runDemandCurveCloser({ now: at })).built).toBe(1);
+    const store = createPostgresEventStore({ pool });
+    const closer = createDemandCurveCloser({ pool, eventStore: store, policies: stubDemandCurvePolicies() });
+    const readEvents = () => store.readStream({ streamId: demandCurveStreamId({ catalogItemId, productId }) });
+    expect(await closer.runDemandCurveCloser({ now: at })).toMatchObject({ built: 1, unchanged: 0 });
     const served = await getDemandCurve(pool, { catalogItemId, productId, asOf: at });
     expect(served).toMatchObject({ exposureStartReason: "sales-cap", supplyStatus: "observed", version: 1 });
     const points = await listDemandCurvePoints(pool, { catalogItemId, productId, version: served!.version });
-    expect(points).toHaveLength(19);
-    for (const point of points) {
-      expect(point.historyCapped).toBe(true);
-      expect(Number(point.priceAmount)).toBeGreaterThanOrEqual(5.6);
-      expect(Number(point.priceAmount)).toBeLessThanOrEqual(14.5);
-      expect(point.buyerArrivalIntervalDays).not.toBeNull();
-      expect(Number.isFinite(point.buyerArrivalIntervalDays)).toBe(true);
-      expect(point.buyerArrivalIntervalDays).toBeGreaterThan(0);
-      expect(point.medianSellDays).not.toBeNull();
-      expect(Number.isFinite(point.medianSellDays)).toBe(true);
-      expect(point.medianSellDays).toBeGreaterThan(0);
+    function assertCappedPoints(actual: typeof points) {
+      expect(actual).toHaveLength(19);
+      for (const point of actual) {
+        expect(point.historyCapped).toBe(true);
+        expect(Number(point.priceAmount)).toBeGreaterThanOrEqual(5.6);
+        expect(Number(point.priceAmount)).toBeLessThanOrEqual(14.5);
+        expect(point.buyerArrivalIntervalDays).not.toBeNull();
+        expect(Number.isFinite(point.buyerArrivalIntervalDays)).toBe(true);
+        expect(point.buyerArrivalIntervalDays).toBeGreaterThan(0);
+        expect(point.medianSellDays).not.toBeNull();
+        expect(Number.isFinite(point.medianSellDays)).toBe(true);
+        expect(point.medianSellDays).toBeGreaterThan(0);
+      }
     }
+    assertCappedPoints(points);
+    const initialEvents = await readEvents();
+    expect(initialEvents.map((event) => event.eventType)).toEqual([liquidityEstimatedEventType]);
+    expect(initialEvents[0]?.payload).toMatchObject({ curveVersion: 1 });
     if (source === "provider") {
       await pool.query(
         `INSERT INTO pricing_external_sale_observations
@@ -395,8 +399,21 @@ describeDb("Demand Curve immutable versions and LiquidityEstimated", () => {
       );
       expect(await closer.runDemandCurveCloser({ now: at })).toMatchObject({ built: 0, unchanged: 1 });
       expect(await getDemandCurve(pool, { catalogItemId, productId, asOf: at })).toEqual(served);
+      expect(await listDemandCurvePoints(pool, { catalogItemId, productId, version: 1 })).toEqual(points);
+      expect(await readEvents()).toEqual(initialEvents);
+      if (count === 150) {
+        await pool.query(
+          `DELETE FROM pricing_external_sale_observations
+           WHERE capture_id='synthetic-capture' AND sold_at < $1::timestamptz - interval '101 hours'`,
+          [at],
+        );
+        expect(await closer.runDemandCurveCloser({ now: at })).toMatchObject({ built: 0, unchanged: 1 });
+        expect(await getDemandCurve(pool, { catalogItemId, productId, asOf: at })).toEqual(served);
+        expect(await listDemandCurvePoints(pool, { catalogItemId, productId, version: 1 })).toEqual(points);
+        expect(await readEvents()).toEqual(initialEvents);
+      }
     }
-    // Removing only evidence older than the latest 100 must not change the version.
+    // At exactly 100, only the provider switches from recency to fingerprint order.
     if (source === "provider")
       await pool.query(
         `DELETE FROM pricing_external_sale_observations
@@ -409,9 +426,35 @@ describeDb("Demand Curve immutable versions and LiquidityEstimated", () => {
          WHERE catalog_catalog_item_id=$1 AND sold_at < $2::timestamptz - interval '100 hours'`,
         [catalogItemId, at],
       );
+    expect(await closer.runDemandCurveCloser({ now: at })).toMatchObject(
+      source === "provider" ? { built: 1, unchanged: 0 } : { built: 0, unchanged: 1 },
+    );
+    const exactCap = await getDemandCurve(pool, { catalogItemId, productId, asOf: at });
+    const exactCapPoints = await listDemandCurvePoints(pool, { catalogItemId, productId, version: exactCap!.version });
+    const exactCapEvents = await readEvents();
+    if (source === "provider") {
+      expect(exactCap).toMatchObject({ version: 2, exposureStartReason: "sales-cap", supplyStatus: "observed" });
+      expect(exactCap!.fingerprint).not.toBe(served!.fingerprint);
+      assertCappedPoints(exactCapPoints);
+      expect(exactCapEvents.map((event) => event.eventType)).toEqual([
+        liquidityEstimatedEventType,
+        liquidityEstimatedEventType,
+      ]);
+      expect(exactCapEvents[0]).toEqual(initialEvents[0]);
+      expect(exactCapEvents[1]?.payload).toMatchObject({ curveVersion: 2 });
+    } else {
+      expect(exactCap).toEqual(served);
+      expect(exactCapPoints).toEqual(points);
+      expect(exactCapEvents).toEqual(initialEvents);
+    }
+    expect(await listDemandCurvePoints(pool, { catalogItemId, productId, version: 1 })).toEqual(points);
     expect(await closer.runDemandCurveCloser({ now: at })).toMatchObject({ built: 0, unchanged: 1 });
-    expect(await getDemandCurve(pool, { catalogItemId, productId, asOf: at })).toEqual(served);
-    expect(await listDemandCurvePoints(pool, { catalogItemId, productId, version: served!.version })).toEqual(points);
+    expect(await getDemandCurve(pool, { catalogItemId, productId, asOf: at })).toEqual(exactCap);
+    expect(await listDemandCurvePoints(pool, { catalogItemId, productId, version: exactCap!.version })).toEqual(
+      exactCapPoints,
+    );
+    expect(await listDemandCurvePoints(pool, { catalogItemId, productId, version: 1 })).toEqual(points);
+    expect(await readEvents()).toEqual(exactCapEvents);
   });
 
   it("single-printing joint remains observed; Normal+Foil never pools a seller count", async () => {
