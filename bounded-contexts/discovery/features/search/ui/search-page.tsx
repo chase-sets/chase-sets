@@ -1019,7 +1019,7 @@ export function SearchPage({
         {error ? (
           <Banner tone="danger" title={t("discovery.features.search.ui.searchPage.error")} description={error} />
         ) : null}
-        {bulkAdd?.error && !bulkSheetOpen ? (
+        {bulkAdd?.error && !(bulkSheetOpen && bulkPreview) ? (
           <Banner
             tone="danger"
             title={t("discovery.features.search.ui.searchPage.bulk.error.title")}

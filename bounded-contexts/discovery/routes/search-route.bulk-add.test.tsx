@@ -545,6 +545,20 @@ describe("Search bulk route data transport", () => {
     expect(addCartLines).toHaveBeenCalledTimes(1);
   });
 
+  it("shows preview failure on the page after resetting an open sheet", async () => {
+    const test = await setup();
+    await openPreview();
+    await act(async () => test.router.navigate("/search?q=raichu"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    previewQuery.mockRejectedValueOnce(new Error(SENTINEL));
+    fireEvent.click(screen.getByRole("button", { name: PREVIEW }));
+    expect((await screen.findByRole("alert")).textContent).toContain(ERROR);
+    await act(async () => test.router.navigate("/search?q=eevee"));
+    expect(screen.queryByText(ERROR)).toBeNull();
+    await openPreview();
+    expect(cartDelta).not.toHaveBeenCalled();
+  });
+
   it("renders on the server without submission", () => {
     const router = createMemoryRouter(
       [
