@@ -1,6 +1,5 @@
 import { t } from "@chase-sets/localization";
 import { Badge, Card, LinkButton, MarketplaceNotice, Stack, Text } from "@chase-sets/design-system";
-import type { ReviewOpportunity } from "@chase-sets/marketplace/server";
 
 export type OrderReviewOpportunity = Readonly<{
   author_role: string;
@@ -13,10 +12,9 @@ export type OrderReviewOpportunity = Readonly<{
   scoring_disposition?: "included" | "context-only" | null;
 }>;
 
-export function mapOrderReviewOpportunity(
-  opportunity: ReviewOpportunity,
-  projectedReview?: OrderReviewOpportunity | null,
-) {
+export function mapOrderReviewOpportunity<
+  TOpportunity extends OrderReviewOpportunity & { active_review_revealed_at: string | null },
+>(opportunity: TOpportunity, projectedReview?: OrderReviewOpportunity | null) {
   const matchingReview =
     opportunity.active_review_id !== null && opportunity.active_review_id === projectedReview?.active_review_id;
   const visible = opportunity.active_review_revealed_at != null && opportunity.submission_state !== "held";
