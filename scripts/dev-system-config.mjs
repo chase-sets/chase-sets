@@ -193,10 +193,15 @@ function resolveBrowserE2ePlatformWorkerLogPath(environment, configuredLogFilePa
   return logFilePath;
 }
 
-export const browserE2ePlatformWorkerCiCommand = Object.freeze({
-  command: process.platform === "win32" ? "pnpm.cmd" : "pnpm",
-  args: Object.freeze(["--filter", "@chase-sets/app-platform-worker", "run", "dev:ci"]),
-});
+function resolveBrowserE2ePlatformWorkerCiCommand(platform) {
+  return platform === "win32"
+    ? { command: undefined, args: undefined, script: "dev:ci" }
+    : { command: "pnpm", args: Object.freeze(["--filter", "@chase-sets/app-platform-worker", "run", "dev:ci"]) };
+}
+
+export const browserE2ePlatformWorkerCiCommand = Object.freeze(
+  resolveBrowserE2ePlatformWorkerCiCommand(process.platform),
+);
 
 const packageManagerCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 
@@ -278,7 +283,7 @@ export function createBrowserE2eProductionIngressDefinitions(processDefinitions,
 export function applyDevTargetEnvOverrides(
   targetName,
   processDefinitions,
-  { ci = Boolean(process.env.CI), environment = process.env } = {},
+  { ci = Boolean(process.env.CI), environment = process.env, platform = process.platform } = {},
 ) {
   if (!isBrowserE2eTarget(targetName)) {
     return processDefinitions;
@@ -311,7 +316,7 @@ export function applyDevTargetEnvOverrides(
           ...browserE2ePlatformWorkerEnv,
           ...(logFilePath === undefined ? {} : { LOG_FILE_PATH: logFilePath }),
         },
-        ...(productionCommand ?? (ci ? browserE2eDirectCiCommands[definition.name] : {})),
+        ...(productionCommand ?? (ci ? resolveBrowserE2ePlatformWorkerCiCommand(platform) : {})),
       };
     }
 

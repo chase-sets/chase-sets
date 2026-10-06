@@ -1,0 +1,18 @@
+import base from "../../playwright.config";
+import { fileURLToPath } from "node:url";
+
+export default {
+  ...base,
+  testDir: "../../",
+  outputDir: "./results",
+  reporter: [
+    ...(base.reporter as [string, unknown][]).map(([reporter, options]) => [
+      reporter.startsWith(".") ? fileURLToPath(new URL(`../../${reporter}`, import.meta.url)) : reporter,
+      options,
+    ]),
+    ["./predecessor-reporter.ts"],
+  ],
+  webServer: Array.isArray(base.webServer)
+    ? base.webServer.map((server) => ({ ...server, cwd: fileURLToPath(new URL("../../", import.meta.url)) }))
+    : base.webServer,
+};

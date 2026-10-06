@@ -1,0 +1,136 @@
+name: 8816 Original Base Capture
+
+on:
+  push:
+    branches:
+      - codex/8816-hosted-base-capture-r1
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    name: Original Base Capture (${{ matrix.batch }})
+    if: github.repository == 'chase-sets/chase-sets' && github.event_name == 'push' && github.ref == 'refs/heads/codex/8816-hosted-base-capture-r1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - batch: A
+            grep: "@admin-commerce|@admin-access"
+          - batch: B
+            grep: "@catalog-admin-integrations|@admin-auth"
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Verify original base, complete source delta and payloads
+        env:
+          CAPTURE_BATCH: ${{ matrix.batch }}
+          CAPTURE_GREP: ${{ matrix.grep }}
+        run: |
+          set -euo pipefail
+          mkdir -p .tmp/8816-capture/evidence
+          evidence=.tmp/8816-capture/evidence
+          base=9f8cda509fc269dcec4b1715f59e26b6cf9afd0d
+          {
+            printf 'captured-at=%s\n' "$(date -u +%FT%TZ)"
+            printf 'repository=%s\nevent=%s\nref=%s\nsha=%s\n' "$GITHUB_REPOSITORY" "$GITHUB_EVENT_NAME" "$GITHUB_REF" "$GITHUB_SHA"
+            printf 'workflow=%s\nworkflow-ref=%s\nworkflow-sha=%s\nrun-id=%s\nrun-attempt=%s\njob=%s\nbatch=%s\ngrep=%s\n' "$GITHUB_WORKFLOW" "$GITHUB_WORKFLOW_REF" "$GITHUB_WORKFLOW_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_JOB" "$CAPTURE_BATCH" "$CAPTURE_GREP"
+            printf 'base-head=%s\nbase-tree=%s\ndiagnostic-head=%s\ndiagnostic-tree=%s\n' "$base" "$(git rev-parse "$base^{tree}")" "$(git rev-parse HEAD)" "$(git rev-parse 'HEAD^{tree}')"
+            printf 'runner-os=%s\nrunner-arch=%s\nimage-os=%s\nimage-version=%s\n' "$RUNNER_OS" "$RUNNER_ARCH" "$ImageOS" "$ImageVersion"
+            cat /etc/os-release
+            printf 'target=browser-e2e-production\nCI=true\nCHASE_SETS_BROWSER_E2E_SYSTEM=production\n'
+            printf 'overlay-merge=a594bc16619a8546a6a19a47d04a6a74c139da1f\noverlay-reviewed-head=f79a77c0d92c539165c439fca690781e1e8785d3\noverlay-review=H:27748\noverlay-landing=H:27750\n'
+            printf 'base-launcher=ed966ec5e7bfd62d03ec7c16d846a4f04e29f262\nbase-config=97a63e2782b2f0a24cac8a4011c04daca0c5f804\nbase-launch=ABSENT\n'
+            git ls-tree HEAD -- scripts/dev-system.mjs scripts/dev-system-config.mjs scripts/dev-system-launch.mjs .github/workflows/8816-original-base-capture.yml .github/8816-base-capture
+          } | tee "$evidence/source-facts.txt"
+          {
+            test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+            test "$(git show -s --format=%P HEAD)" = "$base"
+            test "$(git rev-parse "$base^{tree}")" = c640f6be11f7d80e91fa099db56d4fe096a21169
+            test -z "$(git status --porcelain --untracked-files=no)"
+            printf '%s\n' \
+              $'A\t.github/8816-base-capture/capture.config.ts.txt' \
+              $'A\t.github/8816-base-capture/predecessor-reporter.ts.txt' \
+              $'A\t.github/8816-base-capture/rendered-copy-sweep.spec.ts.txt' \
+              $'A\t.github/workflows/8816-original-base-capture.yml' \
+              $'M\tscripts/dev-system-config.mjs' \
+              $'A\tscripts/dev-system-launch.mjs' \
+              $'M\tscripts/dev-system.mjs' > "$evidence/expected-delta.txt"
+            git diff --no-renames --name-status "$base" HEAD > "$evidence/actual-delta.txt"
+            diff -u "$evidence/expected-delta.txt" "$evidence/actual-delta.txt"
+            test "$(git rev-parse HEAD:scripts/dev-system.mjs)" = a661d39d5716962bf8c17b0c0c9a532214156a69
+            test "$(git rev-parse HEAD:scripts/dev-system-config.mjs)" = b9d4fb6de36282ec1223edf593047375cd378e31
+            test "$(git rev-parse HEAD:scripts/dev-system-launch.mjs)" = 18136fa1b4595bd35f56bc8509c01c721c96b24c
+            printf '%s\n' \
+              '6de7a00f8310d72d20bd9d7b8815c9e9210c229cd88f33640976b3d4d6189e1a  .github/8816-base-capture/rendered-copy-sweep.spec.ts.txt' \
+              '1539a86954c2d1c14814d9c4c8b61d4a9d8880a5dbc0df7016b3ac56da296b40  .github/8816-base-capture/capture.config.ts.txt' \
+              '406c6525dbe3c93ccc6e4e27c9f9c01644e88f51198119fc6bfffc47e0b59783  .github/8816-base-capture/predecessor-reporter.ts.txt' > "$evidence/payload-sha256.txt"
+            sha256sum --check "$evidence/payload-sha256.txt"
+            cp .github/8816-base-capture/rendered-copy-sweep.spec.ts.txt deployables/admin-web/e2e/rendered-copy-sweep.spec.ts
+            cp .github/8816-base-capture/capture.config.ts.txt .tmp/8816-capture/capture.config.ts
+            cp .github/8816-base-capture/predecessor-reporter.ts.txt .tmp/8816-capture/predecessor-reporter.ts
+            printf '%s\n' \
+              '6de7a00f8310d72d20bd9d7b8815c9e9210c229cd88f33640976b3d4d6189e1a  deployables/admin-web/e2e/rendered-copy-sweep.spec.ts' \
+              '1539a86954c2d1c14814d9c4c8b61d4a9d8880a5dbc0df7016b3ac56da296b40  .tmp/8816-capture/capture.config.ts' \
+              '406c6525dbe3c93ccc6e4e27c9f9c01644e88f51198119fc6bfffc47e0b59783  .tmp/8816-capture/predecessor-reporter.ts' > "$evidence/materialized-sha256.txt"
+            sha256sum --check "$evidence/materialized-sha256.txt"
+            echo ORIGINAL_BASE_WITH_DISCLOSED_LAUNCHER_OVERLAY_VERIFIED
+          } 2>&1 | tee "$evidence/source-verification.log"
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Record pinned toolchain
+        run: |
+          set -euo pipefail
+          {
+            node --version
+            pnpm --version
+            pnpm exec playwright --version
+            sha256sum package.json pnpm-lock.yaml playwright.config.ts .github/actions/setup-pnpm-workspace/action.yml
+          } | tee .tmp/8816-capture/evidence/toolchain.txt
+
+      - name: Install Playwright Chromium
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Capture unchanged original-base batch
+        env:
+          CI: "true"
+          CHASE_SETS_BROWSER_E2E_SYSTEM: production
+          PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
+          CAPTURE_GREP: ${{ matrix.grep }}
+        run: |
+          set -uo pipefail
+          evidence=.tmp/8816-capture/evidence
+          date -u +%FT%TZ > "$evidence/test-started-at.txt"
+          pnpm exec playwright test --config .tmp/8816-capture/capture.config.ts --grep "$CAPTURE_GREP" 2>&1 | tee "$evidence/capture.log"
+          statuses=("${PIPESTATUS[@]}")
+          printf '%s\n' "${statuses[0]}" > "$evidence/test-exit.txt"
+          date -u +%FT%TZ > "$evidence/test-completed-at.txt"
+          if [ "${statuses[0]}" -ne 0 ]; then exit "${statuses[0]}"; fi
+          exit "${statuses[1]}"
+
+      - name: Upload original-base receipts and lifecycle
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: 8816-original-base-${{ matrix.batch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            .tmp/8816-capture/owner-*.json
+            .tmp/8816-capture/execution.jsonl
+            .tmp/8816-capture/evidence/*.txt
+            .tmp/8816-capture/evidence/*.log
+            artifacts/browser-e2e/runs/**/lifecycle.json
+            artifacts/browser-e2e/runs/**/readiness.json

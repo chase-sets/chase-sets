@@ -1,0 +1,14 @@
+import { appendFileSync, writeFileSync } from "node:fs";
+import { basename, relative } from "node:path";
+import type { Reporter, TestCase, TestResult } from "@playwright/test/reporter";
+
+const evidence = new URL("execution.jsonl", import.meta.url);
+export default class PredecessorReporter implements Reporter {
+  onBegin() { writeFileSync(evidence, ""); }
+  onTestBegin(test: TestCase, result: TestResult) {
+    appendFileSync(evidence, `${JSON.stringify({ event: "begin", at: new Date().toISOString(), file: relative(process.cwd(), test.location.file), title: test.titlePath(), retry: result.retry, worker: result.workerIndex })}\n`);
+  }
+  onTestEnd(test: TestCase, result: TestResult) {
+    appendFileSync(evidence, `${JSON.stringify({ event: "end", at: new Date().toISOString(), file: relative(process.cwd(), test.location.file), title: test.titlePath(), retry: result.retry, worker: result.workerIndex, status: result.status, duration: result.duration, errors: result.errors.map(error => error.message) })}\n`);
+  }
+}
