@@ -4,7 +4,13 @@ import type { searchDiscoveryItems as searchDiscoveryItemsContract } from "../..
 
 const { loadReferenceRecordMap, searchDiscoveryItems } = vi.hoisted(() => ({
   loadReferenceRecordMap: vi.fn(async () => new Map()),
-  searchDiscoveryItems: vi.fn<typeof searchDiscoveryItemsContract>(async () => ({ items: [], total: 3 })),
+  searchDiscoveryItems: vi.fn<typeof searchDiscoveryItemsContract>(async () => ({
+    items: [],
+    facets: [],
+    category_counts: [],
+    total: 3,
+    nextCursor: null,
+  })),
 }));
 
 vi.mock("../../../support/item-support/reference-records", async (importOriginal) => ({
@@ -65,7 +71,10 @@ describe("getDiscoveryBrowseSetPageBySlug", () => {
           updated_at: "2026-07-01T00:00:00.000Z",
         },
       ],
+      facets: [],
+      category_counts: [],
       total: 3,
+      nextCursor: null,
     });
   });
 
