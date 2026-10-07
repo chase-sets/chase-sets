@@ -1078,6 +1078,116 @@ describe("worker runner loop", () => {
     }
   });
 
+  it("does not release a retained projection lease while a different runner shares its active pass", async () => {
+    vi.useFakeTimers();
+    const releaseLease = vi.fn(async () => {});
+    const controlPlane = createAlwaysLeasedControlPlane({ releaseLease });
+    let finishOperation!: () => void;
+    const operation = new Promise<void>((resolve) => {
+      finishOperation = resolve;
+    });
+    let targetBacklog = 1;
+    let operationStarted = false;
+    const target: WorkerRunner = {
+      name: "shared-target",
+      kind: "projection-group",
+      priority: () => targetBacklog,
+      runOnce: async () => {
+        targetBacklog = 0;
+        return { processed: 1, lastGlobalPosition: "1" as never };
+      },
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "shared-poll",
+      controlPlane,
+      runners: [
+        target,
+        {
+          name: "shared-operation",
+          kind: "job",
+          leaseName: createWorkerRunnerLeaseName(target),
+          priority: () => 1,
+          runOnce: async () => {
+            operationStarted = true;
+            await operation;
+            return { processed: 0, lastGlobalPosition: "1" as never };
+          },
+        },
+        {
+          name: "competitor",
+          kind: "projection-group",
+          priority: () => 1,
+          runOnce: async (context) => {
+            await new Promise<void>((resolve) =>
+              context?.signal?.addEventListener("abort", () => resolve(), { once: true }),
+            );
+            return { processed: 0, lastGlobalPosition: "0" as never };
+          },
+        },
+      ],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 30_000,
+      leaseRenewIntervalMs: 10_000,
+      pollIntervalMs: 1000,
+    });
+    try {
+      loop.start();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(operationStarted).toBe(true);
+      expect(releaseLease).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(releaseLease).not.toHaveBeenCalled();
+      finishOperation();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(releaseLease).toHaveBeenCalledWith(
+        expect.objectContaining({ leaseName: createWorkerRunnerLeaseName(target) }),
+      );
+    } finally {
+      finishOperation();
+      await loop.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a failed continuation's lease through backoff after a productive retained pass", async () => {
+    vi.useFakeTimers();
+    const releaseLease = vi.fn(async () => {});
+    const onError = vi.fn();
+    let runs = 0;
+    const loop = createWorkerRunnerLoop({
+      workerId: "failed-continuation",
+      controlPlane: createAlwaysLeasedControlPlane({ releaseLease }),
+      runners: [
+        {
+          name: "target",
+          kind: "projection-group",
+          runOnce: async () => {
+            if (++runs > 1) throw new Error("continuation failed");
+            return { processed: 1, lastGlobalPosition: "1" as never };
+          },
+        },
+      ],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 30_000,
+      leaseRenewIntervalMs: 10_000,
+      pollIntervalMs: 1000,
+      failureBackoffBaseMs: 5000,
+      onError,
+    });
+    try {
+      loop.start();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(runs).toBe(2);
+      expect(onError).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(runs).toBe(2);
+      expect(releaseLease).not.toHaveBeenCalled();
+    } finally {
+      await loop.stop();
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps an actively draining projection-group lease held so backlog replay is never churned", async () => {
     // Busy passes (processed > 0) keep single lease ownership and reschedule
     // immediately — only IDLE passes yield (#4730). Backlog draining must not

@@ -1556,8 +1556,14 @@ describe("busy-group-pass-attribution Postgres", () => {
         { contextName: "catalog", module: catalog, pool: observedPool("catalog"), ports: {} },
       ]);
       const group = runtime.projectionGroups.find((candidate) => candidate.projectionName === fixture.projectionName)!;
-      const workers = runtime.projectionGroups.map((mountedGroup) => createProjectionGroupWorkerRunner(mountedGroup));
-      const worker = workers.find((candidate) => candidate.name === `marketplace.${fixture.projectionName}`)!;
+      const worker = createProjectionGroupWorkerRunner(group);
+      const workers = [
+        worker,
+        ...runtime.projectionGroups
+          .filter((candidate) => candidate !== group)
+          .map((mountedGroup) => createProjectionGroupWorkerRunner(mountedGroup)),
+      ];
+      const competitorEventCount = 200;
       const activeHolders = new Map<string, WorkerHolderLifecycleEvent>();
       const lifecycle: WorkerHolderLifecycleEvent[] = [];
       const wakeDeferrals: unknown[] = [];
@@ -1597,7 +1603,7 @@ describe("busy-group-pass-attribution Postgres", () => {
                   const subscription = candidate.subscriptionRunners[0];
                   const committed =
                     committedPositions.get(`${candidate.targetContextName}:${subscription.checkpointKey}`) ?? "0";
-                  return String(50n - BigInt(committed));
+                  return String(BigInt(competitorEventCount) - BigInt(committed));
                 }),
             };
             trace("first-wake-attempt", firstWakeAttempt);
@@ -1709,7 +1715,7 @@ describe("busy-group-pass-attribution Postgres", () => {
           streamId: "inventory.attribution",
           expectedVersion: "no_stream",
           context: eventContext,
-          events: Array.from({ length: 50 }, (_, index) => ({
+          events: Array.from({ length: competitorEventCount }, (_, index) => ({
             eventType: index === 0 ? "inventory.item.created" : "inventory.item.adjusted",
             payload: {},
           })),
@@ -1727,10 +1733,16 @@ describe("busy-group-pass-attribution Postgres", () => {
         leaseRenewIntervalMs: loopOptions.leaseRenewIntervalMs,
         pollIntervalMs: loopOptions.pollIntervalMs,
         groups: runtime.projectionGroups.map((mountedGroup, index) => ({
-          runner: workers[index].name,
+          runner: workers.find(
+            (candidate) => candidate.name === `${mountedGroup.targetContextName}.${mountedGroup.projectionName}`,
+          )!.name,
           targetContextName: mountedGroup.targetContextName,
           projectionName: mountedGroup.projectionName,
-          priority: String(workers[index].priority!()),
+          priority: String(
+            workers.find(
+              (candidate) => candidate.name === `${mountedGroup.targetContextName}.${mountedGroup.projectionName}`,
+            )!.priority!(),
+          ),
           subscriptions: mountedGroup.subscriptionRunners.map((subscription) => subscription.getStatus()),
         })),
       });
