@@ -149,7 +149,7 @@ export const ADMIN_QA_ACTOR_FIXTURES: readonly AdminQaActorFixtureDefinition[] =
  * staging platform reset stay cheap. Returns only support-safe per-alias
  * outcome flags; callers must not log the underlying account, user, or
  * membership ids. No Consent is recorded: no human affirms anything here, so
- * per #6120 provisioning authors no synthetic Consent fact.
+ * provisioning authors no synthetic Consent fact.
  */
 export async function provisionAdminQaActorFixtures(
   services: IdentityServices,

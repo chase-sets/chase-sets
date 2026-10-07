@@ -387,7 +387,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       Object.freeze({
         name: "completes admin-QA fixtures and retains their seeded identity post-state",
         referenceDurationMs: 10872,
-        identity: "a2182644303ac89f",
+        identity: "9e7b99abfd2756ab",
       }),
     ]),
     executionUnit: "test:db:2",

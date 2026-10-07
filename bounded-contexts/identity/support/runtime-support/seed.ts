@@ -737,8 +737,8 @@ export async function inspectIdentitySeedState(
 
 /**
  * Seeds Identity state for the selected data profiles. No profile records
- * Consent: no human affirms anything during seeding, so per
- * #6120 provisioning authors no synthetic Consent fact.
+ * Consent: no human affirms anything during seeding, so provisioning
+ * authors no synthetic Consent fact.
  */
 export async function seedIdentityDatabase(pool: PgTransactionalPool, _services?: unknown, options?: BcSeedOptions) {
   const services = createIdentityServices(pool);

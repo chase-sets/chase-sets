@@ -2606,7 +2606,7 @@ process.exitCode = acceptancePassed ? 0 : 1;
 
     if (id === "MUT-AC8-REASON-REMOVE-6120") {
       // No provisioning row remains registered, so the probe reintroduces one
-      // whose reason drops the #6120 authority.
+      // whose reason drops its permanence authority.
       const changed = structuredClone(registry);
       changed.sites[0].constructor = "authorizeConsentForProvisioning";
       changed.sites[0].classification = "provisioning";
