@@ -127,7 +127,7 @@ function executeOperatorBlock(block, overrides = {}, run = block.source.run) {
         cat-file) [[ "$CONTROL_FAILURE" != object ]] ;;
         merge-base) [[ "$CONTROL_FAILURE" != ancestry ]] ;;
         rev-list) printf '%s\\n' "$CONTROL_SHA" ;;
-        rev-parse) [[ "$CONTROL_FAILURE" != tag ]] ;;
+        rev-parse) [[ "$CONTROL_FAILURE" != tag ]] || return 1; printf '%s\\n' "$CONTROL_SHA" ;;
       esac
     }
     gh() { trace gh "$@"; }
@@ -202,8 +202,44 @@ describe("operator inputs before shell parsing (#8993)", () => {
     expect(result.status, result.output).toBe(0);
     if (block.step.startsWith("Confirm")) {
       expect(result.output).toBe("Evaluating mixed-version wake evidence for deploy run 123.\n");
+    } else if (block.file === "platform-compose-boot-smoke.yml") {
+      expect(result.trace).toBe(
+        [
+          "git <init> <--quiet>",
+          "git <remote> <add> <origin> <https://example.invalid/synthetic.git>",
+          `git <fetch> <--quiet> <--no-tags> <--no-recurse-submodules> <origin> <${operatorSha}>`,
+          `git <cat-file> <-e> <${operatorSha}^{commit}>`,
+          `git <fetch> <--quiet> <--no-tags> <--no-recurse-submodules> <origin> <${operatorSha}>`,
+          `git <cat-file> <-e> <${operatorSha}^{commit}>`,
+          `git <merge-base> <--is-ancestor> <${operatorSha}> <${operatorSha}>`,
+          "",
+        ].join("\n"),
+      );
+    } else if (block.file === "platform-staging-advisory-evidence.yml") {
+      expect(result.trace).toBe(
+        `git <fetch> <origin> <main>\ngit <merge-base> <--is-ancestor> <${operatorSha}> <origin/main>\ngit <checkout> <--detach> <${operatorSha}>\n`,
+      );
+    } else if (block.file === "platform-rollback-readiness.yml") {
+      const [, , tag] = block.bindings[1];
+      const [, , image] = block.bindings[2];
+      expect(result.trace).toBe(
+        [
+          "git <fetch> <origin> <production> <--tags>",
+          `git <cat-file> <-e> <${operatorSha}^{commit}>`,
+          `git <merge-base> <--is-ancestor> <${operatorSha}> <origin/production>`,
+          `git <rev-parse> <--verify> <--quiet> <refs/tags/${tag}^{commit}>`,
+          `git <rev-list> <-n> <1> <${tag}>`,
+          "doctl <registry> <login> <--expiry-seconds> <3600>",
+          `docker <buildx> <imagetools> <inspect> <${image}>`,
+          "git <rev-parse> <origin/production>",
+          "",
+        ].join("\n"),
+      );
+      expect(result.evidence).toContain(`last_known_good_commit=${operatorSha}`);
     } else {
-      for (const [, , valid] of block.bindings) expect(result.trace).toContain(valid);
+      expect(result.trace).toBe(
+        "gh <run> <view> <123> <--repo> <synthetic/operator-input-control> <--json> <databaseId,status,conclusion,url,headSha,createdAt,updatedAt,jobs>\ngh <run> <download> <456> <--repo> <synthetic/operator-input-control> <--dir> <evidence/wake-primary>\ngh <run> <download> <789> <--repo> <synthetic/operator-input-control> <--dir> <evidence/wake-secondary>\n",
+      );
     }
     if (block.file === "platform-rollback-readiness.yml") expect(result.evidence).toContain("image_exists=true");
   });
@@ -284,6 +320,16 @@ describe("operator inputs before shell parsing (#8993)", () => {
       block.source.run.replace('[ -n "$SECONDARY_WAKE_DRILL_RUN_ID" ]', "true"),
     );
     expect(bypass.trace).toContain("gh <run> <download> <>");
+    for (const value of ["0", "000123", "9".repeat(32)]) {
+      const result = executeOperatorBlock(block, {
+        PLATFORM_DEPLOY_RUN_ID: value,
+        WAKE_DRILL_RUN_ID: value,
+        SECONDARY_WAKE_DRILL_RUN_ID: value,
+      });
+      expect(result.status).toBe(0);
+      expect(result.trace).toContain(`gh <run> <view> <${value}>`);
+      expect(result.trace.match(new RegExp(`<${value}>`, "gu"))).toHaveLength(3);
+    }
   });
 
   it("accepts producer prefixes without claiming suffix identity or evaluating suffix shell text", () => {
