@@ -1,6 +1,15 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 
 export const AUTH_SESSION_COOKIE_NAME = "chase_sets_session";
+export const CHANNEL_CONNECTOR_OPERATIONS = ["claim", "report", "ingest"] as const;
+export const CHANNEL_CONNECTOR_SCOPE_FAMILY = {
+  key: "channel-connector",
+  scopes: Object.freeze(CHANNEL_CONNECTOR_OPERATIONS.map((operation) => `channel-connector:${operation}` as const)),
+} as const;
+export type ChannelConnectorScope = (typeof CHANNEL_CONNECTOR_SCOPE_FAMILY.scopes)[number];
+export function isChannelConnectorScope(value: unknown): value is ChannelConnectorScope {
+  return CHANNEL_CONNECTOR_SCOPE_FAMILY.scopes.some((scope) => scope === value);
+}
 export const SOCIAL_LOGIN_PROVIDERS = ["google", "facebook"] as const;
 
 export type SocialLoginProviderKey = (typeof SOCIAL_LOGIN_PROVIDERS)[number];
