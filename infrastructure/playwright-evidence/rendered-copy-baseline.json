@@ -1,0 +1,57 @@
+[
+  { "page": "/access/accounts/acc_seed_demo_account?tab=audit", "class": "seed-id", "maxCount": 37, "issue": 8721 },
+  { "page": "/access/accounts/acc_seed_demo_account?tab=audit", "class": "typed-id", "maxCount": 5, "issue": 8721 },
+  { "page": "/access/accounts/acc_seed_suspended_account?tab=audit", "class": "seed-id", "maxCount": 5, "issue": 8721 },
+  { "page": "/account/channels/connection-seed-tcgplayer-manual", "class": "seed-id", "maxCount": 1, "issue": 8776 },
+  {
+    "page": "/account/channels/publication/connection-seed-tcgplayer-manual",
+    "class": "seed-id",
+    "maxCount": 13,
+    "issue": 8776
+  },
+  { "page": "/account/desk/money", "class": "seed-id", "maxCount": 6, "issue": 8774 },
+  { "page": "/account/desk/money", "class": "typed-id", "maxCount": 4, "issue": 8774 },
+  { "page": "/account/listings", "class": "template-placeholder", "maxCount": 2, "issue": 8769 },
+  { "page": "/account/notifications", "class": "seed-id", "maxCount": 6, "issue": 8744 },
+  { "page": "/account/offers/submitted", "class": "seed-id", "maxCount": 2, "issue": 8744 },
+  { "page": "/account/payments/pay_seed_checkout_pending", "class": "seed-id", "maxCount": 2, "issue": 8744 },
+  { "page": "/account/payments/pay_seed_review_eligible_captured", "class": "seed-id", "maxCount": 1, "issue": 8744 },
+  { "page": "/account/payments/pay_seed_review_eligible_captured", "class": "typed-id", "maxCount": 1, "issue": 8744 },
+  { "page": "/account/sales/shipments", "class": "seed-id", "maxCount": 1, "issue": 8744 },
+  {
+    "page": "/account/sales/shipments/packing-slips?shipmentIds=shp_seed_awaiting_label",
+    "class": "seed-id",
+    "maxCount": 1,
+    "issue": 8744
+  },
+  { "page": "/account/sales/shipments/shp_seed_awaiting_label", "class": "seed-id", "maxCount": 1, "issue": 8744 },
+  { "page": "/account/shipments/shp_seed_review_eligible", "class": "seed-id", "maxCount": 2, "issue": 8744 },
+  { "page": "/account/support", "class": "seed-id", "maxCount": 3, "issue": 8744 },
+  { "page": "/account/support", "class": "typed-id", "maxCount": 3, "issue": 8744 },
+  { "page": "/catalog/dimensions/dim_seed_condition", "class": "hedged-plural", "maxCount": 1, "issue": 8720 },
+  { "page": "/catalog/dimensions/dim_seed_condition", "class": "iso-instant", "maxCount": 1, "issue": 8720 },
+  { "page": "/catalog/display-templates", "class": "seed-id", "maxCount": 9, "issue": 8720 },
+  { "page": "/catalog/integrations", "class": "hedged-plural", "maxCount": 2, "issue": 8720 },
+  { "page": "/catalog/scopes/ref_seed_expansion_base_set", "class": "hedged-plural", "maxCount": 3, "issue": 8866 },
+  { "page": "/catalog/scopes/ref_seed_expansion_base_set", "class": "seed-id", "maxCount": 2, "issue": 8866 },
+  { "page": "/catalog/source-observations/tcgdex_en_base2_60", "class": "seed-id", "maxCount": 1, "issue": 8720 },
+  { "page": "/commerce/money-health", "class": "seed-id", "maxCount": 2, "issue": 8726 },
+  { "page": "/commerce/postage-policies", "class": "iso-instant", "maxCount": 2, "issue": 8721 },
+  {
+    "page": "/commerce/wallet-workbench/acc_seed_demo_account",
+    "class": "seed-id",
+    "maxCount": 1,
+    "issue": 8868
+  },
+  {
+    "page": "/commerce/wallet-workbench/acc_seed_demo_account",
+    "class": "typed-id",
+    "maxCount": 8,
+    "issue": 8868
+  },
+  { "page": "/growth/google-shopping", "class": "hedged-plural", "maxCount": 1, "issue": 8867 },
+  { "page": "/growth/google-shopping", "class": "seed-id", "maxCount": 59, "issue": 8867 },
+  { "page": "/support", "class": "seed-id", "maxCount": 2, "issue": 8742 },
+  { "page": "/support", "class": "typed-id", "maxCount": 2, "issue": 8742 },
+  { "page": "/support/platform-feedback/pfb_seed_checkout", "class": "seed-id", "maxCount": 5, "issue": 8721 }
+]
