@@ -56,9 +56,11 @@ describe("worktree sandbox", () => {
     );
     const reservations = configured.superuser_reserved_connections + configured.reserved_connections;
     const usable = configured.max_connections - reservations;
-    console.log(
-      JSON.stringify({ inventory, phaseDemand, demand, configured, usable, margin: usable - demand }, null, 2),
-    );
+    const evidence = `${JSON.stringify({ inventory, phaseDemand, demand, configured, usable, margin: usable - demand }, null, 2)}\n`;
+    const evidenceDirectory = path.join(repoRoot, "artifacts", "browser-e2e");
+    mkdirSync(evidenceDirectory, { recursive: true });
+    writeFileSync(path.join(evidenceDirectory, "postgres-client-demand.json"), evidence);
+    process.stdout.write(evidence);
     const fits = (capacity) => capacity - reservations >= demand + 8;
     expect(fits(configured.max_connections)).toBe(true);
     expect(demand).toBeLessThan(usable);

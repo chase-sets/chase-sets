@@ -16,6 +16,8 @@ const constructorRoots = [
   "deployables/admin-web",
   "infrastructure",
   "bounded-contexts",
+  "contracts",
+  "packages",
 ];
 
 function sourceFiles(directory) {
