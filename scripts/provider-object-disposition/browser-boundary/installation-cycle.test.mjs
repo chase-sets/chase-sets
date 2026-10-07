@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 const { execute, admit } = vi.hoisted(() => ({ execute: vi.fn(), admit: vi.fn() }));
 vi.mock("node:child_process", () => ({
   execFile: Object.assign(vi.fn(), { [Symbol.for("nodejs.util.promisify.custom")]: execute }),
@@ -62,4 +63,15 @@ it("verified restoration permits remaining cases without changing the original f
     }),
   ).rejects.toBe(primary);
   expect(primary.recovered).toBe(true);
+});
+
+it("each transition terminal stimulus owns its installation cycle", () => {
+  const source = readFileSync(new URL("native-controls.mjs", import.meta.url), "utf8");
+  const signals = source.indexOf('for (const signal of ["SIGKILL", "SIGTERM", "deadline"])');
+  const cycle = source.indexOf("await runCase(", signals);
+  const concurrent = source.indexOf("await withConcurrentBrowser(", signals);
+  expect(signals).toBeGreaterThan(0);
+  expect(cycle).toBeGreaterThan(signals);
+  expect(concurrent).toBeGreaterThan(cycle);
+  expect(source.slice(signals, source.indexOf('stage("15-peer-holder")'))).toContain("`${name}-${signal}`");
 });

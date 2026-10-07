@@ -199,16 +199,16 @@ export async function withConcurrentBrowser(sourceDigest, test) {
 
 export async function nativeControls(stage) {
   const failures = [];
-  const runCase = async (name, test) => {
-    stage(name);
+  const runCase = async (name, test, id = name) => {
+    stage(id);
     try {
       await withVariant(name, test);
     } catch (error) {
       console.error(
-        `installed-boundary control ${name}: FAIL; raw output redacted; restored=${error.recovered === true}`,
+        `installed-boundary control ${id}: FAIL; raw output redacted; restored=${error.recovered === true}`,
       );
       if (error.recovered !== true) throw error;
-      failures.push(name);
+      failures.push(id);
     }
   };
   const refusalCases = [
@@ -322,52 +322,55 @@ export async function nativeControls(stage) {
   for (const scope of ["outer", "nested"]) {
     for (let transition = 1; transition <= 6; transition++) {
       const name = `stall-${scope}-B${transition}`;
-      stage(name);
-      await runCase(name, async (digest) => {
-        await withConcurrentBrowser(digest, async (survives) => {
-          for (const signal of ["SIGKILL", "SIGTERM", "deadline"]) {
-            const running = launch(digest);
-            let records = [];
-            let primary;
-            try {
-              const expected = (scope === "nested" ? TRANSITION : "") + `SYNTHETIC_TRANSITION:${name}\n`;
-              const until = performance.now() + 2000;
-              while (!running.output().equals(Buffer.from(expected)) && performance.now() < until) await delay(10);
-              assert.equal(running.output().equals(Buffer.from(expected)), true);
-              records = await identities(running.child.pid);
-              assert.ok(records.length >= (scope === "nested" ? 4 : 2));
-              console.log(`installed-boundary transition-identities:${JSON.stringify({ name, signal, records })}`);
-              if (signal !== "deadline") assert.equal(running.child.kill(signal), true);
-              const actual = await running.result;
-              const expectedSignal = signal === "deadline" ? "SIGTERM" : signal;
-              const handled = expectedSignal === "SIGTERM" && scope === "nested";
-              console.log(
-                `installed-boundary termination:${JSON.stringify({ name, expectedSignal: handled ? null : expectedSignal, expectedStatus: handled ? 143 : null, actualSignal: actual.signal, actualStatus: actual.code, stdoutBytes: actual.stdout.length, stderrBytes: actual.stderr.length, redacted: true, truncated: actual.overflow })}`,
-              );
-              assert.equal(actual.code, handled ? 143 : null);
-              assert.equal(actual.signal, handled ? null : expectedSignal);
-              assert.equal(actual.overflow, false);
-              assert.equal(actual.stdout.equals(Buffer.from(expected)), true);
-              assert.equal(actual.stderr.length, 0);
-            } catch (error) {
-              primary = error;
-            } finally {
-              if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL");
-              await running.result;
+      for (const signal of ["SIGKILL", "SIGTERM", "deadline"]) {
+        await runCase(
+          name,
+          async (digest) => {
+            await withConcurrentBrowser(digest, async (survives) => {
+              const running = launch(digest);
+              let records = [];
+              let primary;
               try {
-                await absent(records);
+                const expected = (scope === "nested" ? TRANSITION : "") + `SYNTHETIC_TRANSITION:${name}\n`;
+                const until = performance.now() + 2000;
+                while (!running.output().equals(Buffer.from(expected)) && performance.now() < until) await delay(10);
+                assert.equal(running.output().equals(Buffer.from(expected)), true);
+                records = await identities(running.child.pid);
+                assert.ok(records.length >= (scope === "nested" ? 4 : 2));
+                console.log(`installed-boundary transition-identities:${JSON.stringify({ name, signal, records })}`);
+                if (signal !== "deadline") assert.equal(running.child.kill(signal), true);
+                const actual = await running.result;
+                const expectedSignal = signal === "deadline" ? "SIGTERM" : signal;
+                const handled = expectedSignal === "SIGTERM" && scope === "nested";
+                console.log(
+                  `installed-boundary termination:${JSON.stringify({ name, expectedSignal: handled ? null : expectedSignal, expectedStatus: handled ? 143 : null, actualSignal: actual.signal, actualStatus: actual.code, stdoutBytes: actual.stdout.length, stderrBytes: actual.stderr.length, redacted: true, truncated: actual.overflow })}`,
+                );
+                assert.equal(actual.code, handled ? 143 : null);
+                assert.equal(actual.signal, handled ? null : expectedSignal);
+                assert.equal(actual.overflow, false);
+                assert.equal(actual.stdout.equals(Buffer.from(expected)), true);
+                assert.equal(actual.stderr.length, 0);
               } catch (error) {
-                primary ??= error;
-                primary.cleanupUnknown = true;
+                primary = error;
+              } finally {
+                if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL");
+                await running.result;
+                try {
+                  await absent(records);
+                } catch (error) {
+                  primary ??= error;
+                  primary.cleanupUnknown = true;
+                }
               }
-            }
-            if (primary) throw primary;
-            await survives();
-            pass(`9/11/16 ${name} ${signal} exact status and owned drain`);
-            pass(`14 ${name} ${signal} concurrent roots and functional survival`);
-          }
-        });
-      });
+              if (primary) throw primary;
+              await survives();
+              pass(`9/11/16 ${name} ${signal} exact status and owned drain`);
+              pass(`14 ${name} ${signal} concurrent roots and functional survival`);
+            });
+          },
+          `${name}-${signal}`,
+        );
+      }
     }
   }
   if (failures.length) {

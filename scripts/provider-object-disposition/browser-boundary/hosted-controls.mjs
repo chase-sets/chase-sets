@@ -505,12 +505,16 @@ async function run() {
   await ownershipCases();
   await partialRemovalCase();
   control = "B2-bootstrap-transport";
-  await bootstrapControls((stage) => {
-    control = `B2-${stage}`;
-  });
-  await nativeDiagnosticControls((stage) => {
-    control = `B3-${stage}`;
-  });
+  await withInstallationCycle("B2-bootstrap", () =>
+    bootstrapControls((stage) => {
+      control = `B2-${stage}`;
+    }),
+  );
+  await withInstallationCycle("B3-native-diagnostics", () =>
+    nativeDiagnosticControls((stage) => {
+      control = `B3-${stage}`;
+    }),
+  );
   await nativeControls((stage) => {
     control = `native-${stage}`;
   });
