@@ -10,6 +10,7 @@ import { createBrowserE2eLifecycleRecorder, resolveBrowserE2eEvidencePaths } fro
 import { primeBrowserE2eProjectionWakeRelayCursors } from "./browser-e2e-readiness.mjs";
 import {
   acquireDevSystemHeavySlot,
+  assertSandboxPostgresSettings,
   applyCurrentPlatformBootstrapSelectors,
   applyDevTargetEnvOverrides,
   browserE2eProductionBuilds,
@@ -20,6 +21,7 @@ import {
   createMarketplaceDevProcessDefinition,
   createPublicWebDevProcessDefinition,
   isBrowserE2eTarget,
+  readSandboxPostgresSettings,
 } from "./dev-system-config.mjs";
 import { readEnvFile } from "./lib/env.mjs";
 import { completeDevSystemStartupFailure, createDevSystemLauncher } from "./dev-system-launch.mjs";
@@ -29,12 +31,10 @@ import { buildPackageManagerInvocation, runCommand, terminateProcessTree } from 
 import { runObservedBrowserE2eBootstrap } from "./browser-e2e-bootstrap-observation.mjs";
 import {
   applySandboxEnv,
-  assertSandboxPostgresSettings,
   buildDockerComposeArgs,
   ensureWorktreeSandboxEnvironment,
   getContextDatabaseEnvName,
   listSandboxDatabases,
-  readSandboxPostgresSettings,
 } from "./lib/sandbox.mjs";
 
 const mode = process.argv[2] ?? "dev";

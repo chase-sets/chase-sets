@@ -4,8 +4,6 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildDockerComposeArgs,
-  assertSandboxPostgresSettings,
-  configuredSandboxPostgresSettings,
   buildSandboxEnv,
   ensureWorktreeSandboxEnvironment,
   getContextDatabaseEnvName,
@@ -13,8 +11,12 @@ import {
   mergeSandboxEnvFile,
   normalizeSandboxWorktreeIdentity,
   resolveWorktreeSandbox,
-  readSandboxPostgresSettings,
 } from "./lib/sandbox.mjs";
+import {
+  assertSandboxPostgresSettings,
+  configuredSandboxPostgresSettings,
+  readSandboxPostgresSettings,
+} from "./dev-system-config.mjs";
 import { repoRoot } from "./lib/repo.mjs";
 import { browserE2ePostgresDemand } from "./lib/browser-e2e-postgres-demand.mjs";
 import { primeBrowserE2eProjectionWakeRelayCursors } from "./browser-e2e-readiness.mjs";
@@ -64,6 +66,7 @@ describe("worktree sandbox", () => {
     expect(configured.max_connections).toBe(50 * Math.ceil((demand + reservations + 8) / 50));
     expect(fits(100)).toBe(false);
     expect(fits(demand + reservations - 1)).toBe(false);
+    expect(apiRegistry.control).not.toBe(workerRegistry.control);
     for (const registry of [apiRegistry, workerRegistry]) {
       expect(registry.control).toBe(registry.workSignal);
       for (const [name, waiter] of Object.entries(registry.contextWaiters)) expect(waiter).toBe(registry[name]);

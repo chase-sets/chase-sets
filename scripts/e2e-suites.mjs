@@ -148,9 +148,6 @@ const defaultSuiteBatchSize = 2;
 const fallbackEstimatedSuiteDurationSeconds = 300;
 
 const browserRuntimePatterns = [
-  /^docker-compose\.dev\.yml$/,
-  /^scripts\/lib\/sandbox\.mjs$/,
-  /^scripts\/dev-system\.mjs$/,
   /^package\.json$/,
   /^pnpm-lock\.yaml$/,
   /^pnpm-workspace\.yaml$/,
@@ -165,6 +162,9 @@ const browserRuntimePatterns = [
   /^infrastructure\/playwright-evidence\/(?:index\.ts|package\.json|responsive-evidence-manifest\.json)$/,
   /^scripts\/validate-responsive-evidence-artifacts\.mjs$/,
   /^scripts\/run-e2e-suite\.mjs$/,
+  /^docker-compose\.dev\.yml$/,
+  /^scripts\/lib\/sandbox\.mjs$/,
+  /^scripts\/dev-system(?:-config)?\.mjs$/,
 ];
 
 const contextSuiteOwnership = new Map([

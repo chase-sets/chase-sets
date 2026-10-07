@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { runInNewContext } from "node:vm";
-import ts from "typescript";
+import ts from "@chase-sets/typescript-compiler-api";
 import { repoRoot } from "./repo.mjs";
 import { resolveWorktreeSandbox, getContextDatabaseEnvName } from "./sandbox.mjs";
 
@@ -261,7 +261,7 @@ export function browserE2ePostgresDemand({
   const pgPoolSource = readFileSync(createRequire(require.resolve("pg")).resolve("pg-pool"), "utf8");
   const defaultMaximum = positiveInteger(Number(/this\.options\.max\s*=.*?\|\|\s*(\d+)/.exec(pgPoolSource)?.[1]));
   add("dev-system", "provisioning", "admin pool", defaultMaximum, 1, "scripts/dev-system.mjs");
-  add("dev-system", "provisioning", "owned SHOW psql client", 1, 1, "scripts/lib/sandbox.mjs");
+  add("dev-system", "provisioning", "owned SHOW psql client", 1, 1, "scripts/dev-system-config.mjs");
   add("dev-system", "priming", "control + sequential context clients", 1, 2, "scripts/browser-e2e-readiness.mjs");
   add("readiness", "all phases", "sequential snapshot query/sample clients", 1, 2, "scripts/browser-e2e-readiness.mjs");
   const totals = (selectedPhase) =>

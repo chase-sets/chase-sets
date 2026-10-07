@@ -1,10 +1,7 @@
 import { createHash } from "node:crypto";
-import { spawnSync } from "node:child_process";
-import { parse as parseYaml } from "yaml";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { contextManifestContributesToApiHost, listBoundedContextManifests, repoRoot } from "./repo.mjs";
-import { buildMinimalProcessEnvironment } from "./process.mjs";
 
 const defaultSandboxEnvFileName = ".env.sandbox.local";
 const defaultPortBase = 6200;
@@ -389,66 +386,4 @@ export function buildDockerComposeArgs(sandbox, commandArgs = []) {
     sandbox.composeProjectName,
     ...commandArgs,
   ];
-}
-
-export function readSandboxPostgresSettings({ invocation, env, execute = spawnSync }) {
-  const settings = ["max_connections", "superuser_reserved_connections", "reserved_connections"];
-  const result = execute(
-    invocation.command,
-    [
-      ...invocation.args,
-      "exec",
-      "-T",
-      "postgres",
-      "env",
-      "-i",
-      "PATH=/usr/local/bin:/usr/bin:/bin",
-      "psql",
-      "-X",
-      "-h",
-      "/var/run/postgresql",
-      "-U",
-      "postgres",
-      "-d",
-      "postgres",
-      "-v",
-      "ON_ERROR_STOP=1",
-      "-At",
-      "-c",
-      settings.map((name) => `SHOW ${name};`).join(" "),
-    ],
-    { env: buildMinimalProcessEnvironment(env), encoding: "utf8", windowsHide: true },
-  );
-  if (result.error || result.status !== 0)
-    throw new Error("Unable to SHOW owned sandbox Postgres settings.", { cause: result.error });
-  const values = result.stdout.trim().split(/\r?\n/);
-  if (values.length !== settings.length || values.some((value) => !/^\d+$/.test(value))) {
-    throw new Error("Missing or invalid sandbox Postgres SHOW settings.");
-  }
-  return Object.fromEntries(settings.map((name, index) => [name, Number(values[index])]));
-}
-
-export function assertSandboxPostgresSettings(effective, composeSource) {
-  const configuredSettings = configuredSandboxPostgresSettings(composeSource);
-  for (const name of ["max_connections", "superuser_reserved_connections", "reserved_connections"]) {
-    const configured = configuredSettings[name];
-    if (!Number.isSafeInteger(configured) || effective[name] !== configured) {
-      throw new Error(
-        `Sandbox Postgres ${name}: configured=${configured}, effective=${effective[name]}. Recreate the owned Postgres container before client fan-out.`,
-      );
-    }
-  }
-}
-
-export function configuredSandboxPostgresSettings(composeSource) {
-  const command = parseYaml(composeSource)?.services?.postgres?.command;
-  if (!Array.isArray(command) || command[0] !== "postgres") throw new Error("Missing sandbox Postgres command.");
-  const settings = {};
-  for (let index = 1; index < command.length; index += 2) {
-    const match = /^([a-z_]+)=(\d+)$/.exec(command[index + 1]);
-    if (command[index] !== "-c" || !match || Object.hasOwn(settings, match[1]))
-      throw new Error("Invalid sandbox Postgres setting.");
-    settings[match[1]] = Number(match[2]);
-  }
-  return settings;
 }
