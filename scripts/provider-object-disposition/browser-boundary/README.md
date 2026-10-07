@@ -77,6 +77,17 @@ concurrent survival, peer holdings, interrupted removal and browser lifecycle.
 Each reports its own execution result. Cap construction, PID reuse and peer
 access can be refused by the runner; their explicit nonconstruction is not PASS.
 Ancestor-path mutation is not performed outside the installation footprint.
+The source-bound `path-fixtures.py` executes the shipped installer/wrapper with
+only their fixed names rebound in an unprivileged owned tree. Actual realpath
+resolution, exact refusals, effect sentinels, equality-only bypass and ordering
+mutants distinguish this fixture proof from native installed-ancestor proof.
+The hosted case repeats it with a live browser and checks identity and newPage.
+The native cap stimulus uses 17 guardian/shard pairs, at most 255 leaf pidfds
+plus one shard pidfd per guardian. Atomic clone3 PID/pidfd publication into a
+shared ledger and shared FD table retains leaf ownership if the shard dies.
+The guardian subreaps and retires only those leaves through their pidfds; EOF
+cancels construction/lifetime and the unchanged 2000ms drain bounds retirement.
+No inherited resource limit or production census bound is raised.
 The complete AC-D3 matrix is not yet discharged. A green subset is not
 AC-B1..B5 PASS; exact-head hosted logs, not this inventory, provide proof.
 

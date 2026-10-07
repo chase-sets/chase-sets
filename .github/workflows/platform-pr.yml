@@ -201,6 +201,7 @@ jobs:
           python3 scripts/provider-object-disposition/browser-boundary/peer-observe.test.py
           python3 scripts/provider-object-disposition/browser-boundary/ownership-stimulus.test.py
           python3 scripts/provider-object-disposition/browser-boundary/path-stimulus.test.py
+          python3 scripts/provider-object-disposition/browser-boundary/path-fixtures.py
           python3 scripts/provider-object-disposition/browser-boundary/pid-reuse.test.py
           python3 scripts/provider-object-disposition/browser-boundary/r3-stimulus.test.py
           python3 scripts/provider-object-disposition/browser-boundary/installer-failure.test.py

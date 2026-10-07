@@ -79,7 +79,7 @@ export async function withOwnershipStimulus(mode, test, owner) {
           "processLimit",
           "reason",
         ]);
-        assert.ok(["EAGAIN", "ENOMEM", "EMFILE"].includes(result.reason));
+        assert.ok(["EAGAIN", "ENOMEM", "EMFILE", "construction"].includes(result.reason));
         assert.ok(
           [result.children, result.fileLimit, result.processLimit].every(
             (value) => Number.isSafeInteger(value) && value >= -1,
@@ -100,6 +100,27 @@ export async function withOwnershipStimulus(mode, test, owner) {
         assert.equal(result.pid, owner.pid);
         assert.ok(Number.isSafeInteger(result.start) && result.start > 0 && result.start !== owner.start);
         assert.ok(Number.isSafeInteger(result.attempts) && result.attempts > 0 && result.attempts <= 8);
+      } else if (mode === "cap") {
+        assert.deepEqual(Object.keys(result).sort(), [
+          "children",
+          "constructed",
+          "fileLimit",
+          "maxShardPidfds",
+          "mode",
+          "pid",
+          "processCount",
+          "processLimit",
+          "shards",
+          "start",
+        ]);
+        assert.equal(result.mode, "cap");
+        assert.equal(result.children, 4097);
+        assert.equal(result.shards, 17);
+        assert.equal(result.maxShardPidfds, 256);
+        assert.ok(Number.isSafeInteger(result.processCount) && result.processCount >= 4097);
+        assert.ok([result.fileLimit, result.processLimit].every((value) => Number.isSafeInteger(value) && value > 0));
+        assert.ok([result.pid, result.start].every((value) => Number.isSafeInteger(value) && value > 0));
+        console.log(`installed-boundary control 13g bounded-FD construction:${JSON.stringify(result)}`);
       } else {
         assert.deepEqual(Object.keys(result).sort(), ["children", "constructed", "mode"]);
         assert.equal(result.mode, mode);

@@ -42,6 +42,10 @@ mark archive-input
 /usr/bin/git archive "$BOUNDARY_HEAD_SHA" -- scripts/provider-object-disposition/browser-boundary scripts/provider-object-disposition/test-window-browser.mjs scripts/provider-object-disposition/test-window-policy.mjs | \
   sudo /bin/tar --extract --directory="$input" --no-same-owner --no-same-permissions --mode=u=rwX,go=rX
 mark install-boundary
+sudo /usr/bin/gcc -std=gnu11 -O2 -Wall -Wextra -Werror \
+  "$input/scripts/provider-object-disposition/browser-boundary/census-stimulus.c" \
+  -o "$input/scripts/provider-object-disposition/browser-boundary/census-stimulus"
+sudo chmod 0755 "$input/scripts/provider-object-disposition/browser-boundary/census-stimulus"
 sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \
   ImageOS="$ImageOS" ImageVersion="$ImageVersion" /bin/bash \
   "$input/scripts/provider-object-disposition/browser-boundary/install-ci.sh" install "$(id -un)" "$browser"

@@ -1,58 +1,106 @@
-import errno
-import importlib.util
-import io
+"""Small native ownership negatives; the 4097 proof belongs to hosted controls."""
+import json
+import os
 from pathlib import Path
+import select
+import signal
+import subprocess
 import sys
-from types import SimpleNamespace
+import tempfile
+import time
 import unittest
-from unittest import mock
-from contextlib import ExitStack, redirect_stdout, redirect_stderr
-
-sys.dont_write_bytecode = True
-spec = importlib.util.spec_from_file_location('owner_stimulus', Path(__file__).with_name('ownership-stimulus.py'))
-stimulus = importlib.util.module_from_spec(spec)
-with mock.patch.dict(sys.modules, {'resource': SimpleNamespace(RLIMIT_NOFILE=7, RLIMIT_NPROC=6, getrlimit=lambda _: (1024, 1024))}):
-    spec.loader.exec_module(stimulus)
 
 
-class OwnershipStimulusFixtures(unittest.TestCase):
-    def run_cap(self, cleanup_fails):
-        output, error = io.StringIO(), io.StringIO()
-        process = mock.Mock(pid=42)
-        process.wait.return_value = -9
-        with ExitStack() as stack:
-            stack.enter_context(mock.patch.object(stimulus.os, 'getuid', return_value=0, create=True))
-            stack.enter_context(mock.patch.object(stimulus.os, 'O_CLOEXEC', 0o2000000, create=True))
-            stack.enter_context(mock.patch.object(stimulus.os, 'pidfd_open', return_value=7, create=True))
-            stack.enter_context(mock.patch.object(stimulus.signal, 'SIGKILL', 9, create=True))
-            stack.enter_context(mock.patch.object(stimulus.os, 'open', side_effect=[6, OSError(errno.EMFILE, 'SYNTHETIC_PRIVATE')]))
-            closed = stack.enter_context(mock.patch.object(stimulus.os, 'close'))
-            stack.enter_context(mock.patch.object(stimulus.signal, 'pidfd_send_signal', side_effect=OSError(errno.EPERM, 'SYNTHETIC_PRIVATE') if cleanup_fails else None, create=True))
-            spawned = stack.enter_context(mock.patch.object(stimulus.subprocess, 'Popen', return_value=process))
-            stack.enter_context(mock.patch.object(stimulus, 'principal', return_value=(1001, 1001)))
-            stack.enter_context(mock.patch.object(stimulus, 'process_count', return_value=0))
-            stack.enter_context(mock.patch.object(sys, 'argv', ['ownership-stimulus.py', 'cap']))
-            with redirect_stdout(output), redirect_stderr(error):
-                status = stimulus.main()
-            self.assertEqual(spawned.call_args.args[0], ['/bin/sleep', '30'])
-            self.assertEqual(spawned.call_args.kwargs['env'], stimulus.ENV)
-            self.assertIn(mock.call(6), closed.call_args_list)
-        self.assertNotIn('SYNTHETIC_PRIVATE', output.getvalue() + error.getvalue())
-        return status, output.getvalue(), error.getvalue()
+class CensusOwnershipFixtures(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.directory = tempfile.TemporaryDirectory(prefix='SYNTHETIC-census-')
+        cls.binary = str(Path(cls.directory.name) / 'census-stimulus')
+        subprocess.run(['/usr/bin/gcc', '-std=gnu11', '-O2', '-Wall', '-Wextra', '-Werror',
+                        str(Path(__file__).with_name('census-stimulus.c')), '-o', cls.binary], check=True)
 
-    def test_unconstructed_cap_is_explicit_and_its_generated_child_is_retired(self):
-        status, output, error = self.run_cap(False)
-        self.assertEqual(status, 0)
-        self.assertIn('"constructed": false', output)
-        self.assertIn('"reason": "EMFILE"', output)
-        self.assertTrue(output.endswith('provider-boundary-owner-stimulus:retired\n'))
-        self.assertEqual(error, '')
+    @classmethod
+    def tearDownClass(cls):
+        cls.directory.cleanup()
 
-    def test_cleanup_failure_cannot_inherit_a_prior_nonconstruction_success_status(self):
-        status, output, error = self.run_cap(True)
-        self.assertEqual(status, 1)
-        self.assertNotIn('provider-boundary-owner-stimulus:retired', output)
-        self.assertEqual(error, 'provider-boundary-owner-stimulus-refused:retirement\n')
+    def run_control(self, mode):
+        process = subprocess.Popen([self.binary, str(os.getuid()), str(os.getgid()), mode],
+                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            self.assertTrue(select.select([process.stdout], [], [], 15)[0])
+            ready = json.loads(process.stdout.readline())
+            started = time.monotonic()
+            process.stdin.close()
+            process.wait(timeout=2)
+            self.assertLess(time.monotonic() - started, 2)
+            self.assertEqual(process.returncode, 0)
+            self.assertEqual(process.stderr.read(), b'')
+            self.assertEqual(process.stdout.read(), b'provider-boundary-owner-stimulus:retired\n')
+            return ready
+        finally:
+            if not process.stdin.closed:
+                process.stdin.close()
+            process.wait(timeout=2)
+            process.stdout.close()
+            process.stderr.close()
+
+    def test_construction_failure_retires_every_atomically_owned_leaf(self):
+        ready = self.run_control('construction-failure')
+        self.assertFalse(ready['constructed'])
+        self.assertEqual(ready['reason'], 'EMFILE')
+        self.assertEqual(ready['children'], 4)
+
+    def test_coordinator_cancellation_drains_live_shard_and_all_leaves(self):
+        ready = self.run_control('cancel')
+        self.assertTrue(ready['constructed'])
+        self.assertEqual(ready['children'], 8)
+        self.assertEqual(ready['shards'], 1)
+        self.assertEqual(ready['maxShardPidfds'], 256)
+
+    def test_shard_death_keeps_guardian_pidfds_and_reaps_all_leaves(self):
+        ready = self.run_control('shard-death')
+        self.assertFalse(ready['constructed'])
+        self.assertEqual(ready['children'], 4)
+
+    def test_coordinator_death_closes_cancellation_pipe_and_guardian_drains(self):
+        process = subprocess.Popen([self.binary, str(os.getuid()), str(os.getgid()), 'cancel'],
+                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        fd = os.pidfd_open(process.pid)
+        try:
+            self.assertTrue(select.select([process.stdout], [], [], 15)[0])
+            self.assertTrue(json.loads(process.stdout.readline())['constructed'])
+            owned = {}
+
+            def record_children(pid):
+                for child in Path(f'/proc/{pid}/task/{pid}/children').read_text().split():
+                    text = Path(f'/proc/{child}/stat').read_text()
+                    owned[child] = text[text.rindex(') ') + 2:].split()[19]
+                    record_children(child)
+
+            record_children(process.pid)
+            self.assertEqual(len(owned), 10)  # guardian, shard and eight leaves
+            started = time.monotonic()
+            signal.pidfd_send_signal(fd, signal.SIGKILL)
+            process.wait(timeout=2)
+            self.assertEqual(process.returncode, -signal.SIGKILL)
+            while time.monotonic() - started < 2:
+                for pid, start in list(owned.items()):
+                    try:
+                        text = Path(f'/proc/{pid}/stat').read_text()
+                        if text[text.rindex(') ') + 2:].split()[19] != start:
+                            del owned[pid]
+                    except FileNotFoundError:
+                        del owned[pid]
+                if not owned:
+                    break
+                time.sleep(.01)
+            self.assertEqual(owned, {})
+        finally:
+            process.stdin.close()
+            process.wait(timeout=2)
+            os.close(fd)
+            process.stdout.close()
+            process.stderr.close()
 
 
 if __name__ == '__main__':

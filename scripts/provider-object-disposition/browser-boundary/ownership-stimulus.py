@@ -1,10 +1,8 @@
 """Root-owned, stdin-scoped synthetic owners. Only generated children are signalled."""
-import errno
 import json
 import os
 from pathlib import Path
 import re
-import resource
 import select
 import shutil
 import signal
@@ -28,11 +26,6 @@ def principal():
     return tuple(int(re.findall(r'^#define ADMITTED_' + key + r' ([0-9]+)$', header, re.M)[0]) for key in ('UID', 'GID'))
 
 
-def process_count():
-    with os.scandir('/proc') as entries:
-        return sum(entry.name.isdecimal() for entry in entries)
-
-
 def main():
     children = []
     members = []
@@ -47,6 +40,8 @@ def main():
         if uid == 0:
             raise ValueError()
         mode = sys.argv[1]
+        if mode == 'cap':
+            os.execv(str(Path(__file__).with_name('census-stimulus')), ['census-stimulus', str(uid), str(gid), 'cap'])
         stage = 'construct'
 
         def child(argv, admitted=True):
@@ -99,19 +94,6 @@ def main():
             os.chmod(FOREIGN, 0o750)
             child([str(FOREIGN), '30'])
             if children[0][0].poll() is not None:
-                raise ValueError()
-        else:
-            try:
-                while process_count() < 4097 and len(children) < 4097:
-                    child(['/bin/sleep', '30'])
-            except OSError as error:
-                if error.errno not in (errno.EAGAIN, errno.ENOMEM, errno.EMFILE):
-                    raise
-                print(json.dumps({'constructed': False, 'reason': errno.errorcode[error.errno], 'children': len(children),
-                                  'fileLimit': resource.getrlimit(resource.RLIMIT_NOFILE)[0],
-                                  'processLimit': resource.getrlimit(resource.RLIMIT_NPROC)[0]}), flush=True)
-                constructed = False
-            if constructed and process_count() < 4097:
                 raise ValueError()
         if constructed:
             print(json.dumps({'constructed': True, 'children': len(children), 'mode': mode}), flush=True)

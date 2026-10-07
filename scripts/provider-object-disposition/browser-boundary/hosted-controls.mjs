@@ -79,7 +79,7 @@ async function installationIdentity(inputLink = false) {
   return { files, inputDevice: directory.dev, inputInode: directory.ino };
 }
 
-async function ownerRefusal(contexts, owned, mode, stage, id) {
+async function ownerRefusal(contexts, owned, mode, stage, id, censusOwner) {
   const missingFrom = (records) =>
     owned
       .filter(
@@ -98,6 +98,28 @@ async function ownerRefusal(contexts, owned, mode, stage, id) {
   control = `${id}-${mode}-identity-before`;
   const missingBeforeRemoval = missingFrom(await tree());
   control = `${id}-${mode}-refusal`;
+  if (id === "13g") {
+    const limits = await readFile(`/proc/${censusOwner.pid}/limits`, "utf8");
+    const fileLimit = Number(/^Max open files\s+(\d+)/m.exec(limits)?.[1]);
+    const processLimit = Number(/^Max processes\s+(\d+)/m.exec(limits)?.[1]);
+    const ownerStat = await readFile(`/proc/${censusOwner.pid}/stat`, "utf8");
+    assert.equal(
+      Number(
+        ownerStat
+          .slice(ownerStat.lastIndexOf(") ") + 2)
+          .trim()
+          .split(/\s+/)[19],
+      ),
+      censusOwner.start,
+    );
+    assert.equal(fileLimit, censusOwner.fileLimit);
+    assert.equal(processLimit, censusOwner.processLimit);
+    const count = (await readdir("/proc")).filter((name) => /^[0-9]+$/.test(name)).length;
+    assert.ok(count >= 4097);
+    console.log(
+      `installed-boundary control 13g ${mode} immediately-before-removal:${JSON.stringify({ processCount: count, fileLimit, processLimit, ownerStart: censusOwner.start, stimulusLive: true })}`,
+    );
+  }
   let failure;
   try {
     await execute("/bin/bash", [`${input}/scripts/provider-object-disposition/browser-boundary/ci-cleanup.sh`], {
@@ -297,7 +319,9 @@ async function ownershipCases() {
     ]) {
       await ownerCase(`${id}-${mode}`, count, async (contexts, owned) => {
         control = `${id}-${mode}-stimulus`;
-        const constructed = await withOwnershipStimulus(stimulus, () => ownerRefusal(contexts, owned, mode, stage, id));
+        const constructed = await withOwnershipStimulus(stimulus, (result) =>
+          ownerRefusal(contexts, owned, mode, stage, id, result),
+        );
         await assertBrowserAdmission();
         if (constructed) pass(`${id} ${mode} stimulus retired and admission restored`);
         else
@@ -317,9 +341,31 @@ async function ownershipCases() {
       );
     }
   }
-  console.log(
-    "installed-boundary control 13h ancestor realpath mismatch: NOT CONSTRUCTED; ancestor-mutation-outside-footprint; closed parser fixtures only",
-  );
+  for (const count of [0, 1]) {
+    await ownerCase(`13h-owned-realpath-${count ? "concurrent-live" : "alone"}`, count, async (contexts, owned) => {
+      const before = await installationIdentity();
+      const { stdout, stderr } = await execute(
+        "/usr/bin/python3",
+        [`${input}/scripts/provider-object-disposition/browser-boundary/path-fixtures.py`],
+        { env: environment, timeout: 5000, maxBuffer: 4096 },
+      );
+      assert.equal(stdout, "provider-boundary-owned-realpath:target-input-refusal-order-bypass:PASS\n");
+      assert.equal(stderr, "");
+      assert.deepEqual(await installationIdentity(), before);
+      const after = await tree();
+      for (const record of owned) assert.ok(after.some((r) => r.pid === record.pid && r.start === record.start));
+      for (const context of contexts) {
+        const page = await context.newPage();
+        await page.setContent("<!doctype html><title>SYNTHETIC_REALPATH_SURVIVAL</title>");
+        assert.equal(await page.title(), "SYNTHETIC_REALPATH_SURVIVAL");
+        await page.close();
+      }
+      await assertBrowserAdmission();
+      pass(
+        `13h SYNTHETIC source-bound owned ancestor realpath/order/bypass ${count ? "and concurrent functional survival" : "alone"}`,
+      );
+    });
+  }
 }
 
 async function partialRemovalCase() {

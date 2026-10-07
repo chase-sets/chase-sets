@@ -338,6 +338,13 @@ export const releaseQualificationScopeRegistry = Object.freeze({
         "Import-to-promotion admin UI renders the import workflow; the import mutations live under the registered source-observations api surface.",
       applicability: Object.freeze({ kind: "path-scope/v0" }),
     }),
+    Object.freeze({
+      pattern: /^scripts\/provider-object-disposition\/browser-boundary\/bootstrap\.mjs$/,
+      expectedClass: "not_applicable",
+      rationale:
+        "Memory-only browser bootstrap under parent-only exact GET; no persistent seed, import, reconciliation or environment mutation.",
+      applicability: Object.freeze({ kind: "path-scope/v0" }),
+    }),
   ]),
 });
 
