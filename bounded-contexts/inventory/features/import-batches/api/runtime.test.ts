@@ -14,6 +14,8 @@ import {
   shouldDeferImportBatchParentClaimForCreateUnitMiss,
 } from "./runtime";
 import { inventoryImportBatchSchemaSql } from "../read-model/schema";
+import { inventoryImportSourceProfiles, type InventoryImportSourceKey } from "../domain/import-source-profiles";
+import { readFileSync } from "node:fs";
 
 type StoredBatch = Readonly<{
   batch_id: string;
@@ -486,7 +488,12 @@ function catalogServices(): InventoryCatalogItemServices {
         subtitle: null,
         blueprint_id: null,
         status: itemId === "cat_inactive" ? "draft" : "active",
-        product_schema: itemId === "cat_form_condition" ? formConditionProductSchema : productSchema,
+        product_schema:
+          itemId === "cat_form_condition"
+            ? formConditionProductSchema
+            : itemId === "cat_bad_schema"
+              ? { ...productSchema, canonicalDimensionOrder: [] }
+              : productSchema,
         updated_at: now,
       };
     },
@@ -523,10 +530,11 @@ function runtime(
   itemIds: InventoryItemId[] = [],
   adjustments: Array<Parameters<InventoryItemServices["adjustItem"]>[0]> = [],
   creations: Array<Parameters<InventoryItemServices["createItem"]>[0]> = [],
+  catalogItems: InventoryCatalogItemServices = catalogServices(),
 ) {
   return createInventoryImportBatchRuntime({
     db,
-    catalogItems: catalogServices(),
+    catalogItems,
     items: itemServices(
       (params) => {
         creations.push(params);
@@ -607,6 +615,287 @@ function addAccountSkuMapping(
 }
 
 describe("inventory import batch runtime", () => {
+  const sources = inventoryImportSourceProfiles.map((profile) => profile.sourceKey);
+  const cases = [
+    "missing",
+    "nonexistent",
+    "inactive",
+    "source-mismatched",
+    "option-incomplete",
+    "schema-invalid",
+    "schema-definition-invalid",
+    "complete",
+  ] as const;
+  function sourceValues(kind: (typeof cases)[number]): Record<string, string> {
+    const values: Record<string, string> = {
+      catalogItemId:
+        kind === "nonexistent"
+          ? "cat_unknown"
+          : kind === "inactive"
+            ? "cat_inactive"
+            : kind === "schema-definition-invalid"
+              ? "cat_bad_schema"
+              : "cat_active",
+      storageLocationId: "loc_active",
+      totalQuantity: "2",
+      Quantity: "2",
+      Price: "3.00",
+      Currency: "USD",
+      listingPriceAmount: "3.00",
+      listingPriceCurrencyCode: "USD",
+      listingQuantityCap: "2",
+      "option:condition": "near_mint",
+      sellerSku: "review-sku",
+      "Seller SKU": "review-sku",
+      SKU: "review-sku",
+    };
+    if (kind === "missing") delete values.catalogItemId;
+    if (kind === "option-incomplete") delete values["option:condition"];
+    if (kind === "schema-invalid") values["option:unknown"] = "invalid";
+    if (kind === "source-mismatched") values.productId = "stale_product";
+    return values;
+  }
+
+  it.each(sources.flatMap((sourceKey) => cases.map((kind) => ({ sourceKey, kind }))))(
+    "AC-01 $sourceKey/$kind validates final Product state and rejects the old-native behavior",
+    async ({ sourceKey, kind }) => {
+      const services = runtime(dbWithLocations());
+      const batch = await services.createBatch(
+        {
+          accountId: "acc_1" as AccountId,
+          sourceKey,
+          defaultStorageLocationId: "loc_active",
+          parsedRows: [{ rowNumber: 1, values: sourceValues(kind) }],
+        },
+        context,
+      );
+      const row = batch.rows[0]!;
+      if (kind === "complete") {
+        expect(row).toMatchObject({
+          status: "accepted",
+          product_id: "cat_active::condition:near_mint",
+          resolution_status: "native",
+        });
+      } else {
+        expect(row).toMatchObject({ status: "rejected", product_id: null, resolution_status: "unresolved" });
+        expect(row.validation_errors.length).toBeGreaterThan(0);
+      }
+    },
+  );
+
+  it.each(
+    sources.flatMap((sourceKey) => cases.filter((kind) => kind !== "complete").map((kind) => ({ sourceKey, kind }))),
+  )(
+    "AC-08 $sourceKey/$kind confirms fresh selection without stale source veto; only native SKU persists",
+    async ({ sourceKey, kind }) => {
+      const db = dbWithLocations();
+      const creations: Array<Parameters<InventoryItemServices["createItem"]>[0]> = [];
+      const services = runtime(db, [], [], creations);
+      const values = sourceValues(kind);
+      values["option:Condition"] = "stale-duplicate";
+      const batch = await services.createBatch(
+        {
+          accountId: "acc_1" as AccountId,
+          sourceKey,
+          defaultStorageLocationId: "loc_active",
+          parsedRows: [{ rowNumber: 1, values }],
+        },
+        context,
+      );
+      const before = db.queries.length;
+      const resolved = await services.resolveRow(
+        {
+          accountId: "acc_1" as AccountId,
+          batchId: batch.batch_id,
+          rowId: batch.rows[0]!.row_id,
+          catalogItemId: "cat_active",
+          storageLocationId: "loc_active",
+          selectedOptions: [{ dimensionId: "condition", optionId: "near_mint" }],
+        },
+        context,
+      );
+      expect(resolved.rows[0]).toMatchObject({
+        status: "accepted",
+        product_id: "cat_active::condition:near_mint",
+        resolution_status: "resolved",
+      });
+      const mappingWrites = db.queries
+        .slice(before)
+        .filter(({ sql }) => /(?:INSERT INTO|UPDATE) inventory_import_account_sku_mappings/.test(sql));
+      expect(mappingWrites).toHaveLength(sourceKey === "native-csv" ? 1 : 0);
+      await services.commitBatch({ accountId: "acc_1" as AccountId, batchId: batch.batch_id }, context);
+      expect(creations).toHaveLength(1);
+    },
+  );
+
+  it.each(sources)("AC-02 explicit %s identity performs zero candidate lookups", async (sourceKey) => {
+    const db = dbWithLocations();
+    const catalog = catalogServices();
+    const productLookup = vi.spyOn(catalog, "getExternalProductReference");
+    const itemLookup = vi.spyOn(catalog, "getExternalCatalogItemReference");
+    const gtinLookup = vi.spyOn(catalog, "getCatalogItemByGtin");
+    const services = runtime(db, [], [], [], catalog);
+    const batch = await services.createBatch(
+      {
+        accountId: "acc_1" as AccountId,
+        sourceKey,
+        defaultStorageLocationId: "loc_active",
+        parsedRows: [
+          {
+            rowNumber: 1,
+            values: {
+              ...sourceValues("complete"),
+              "Product ID": "12345",
+              GTIN: "00307418529636",
+              "Variant Barcode": "00307418529636",
+            },
+          },
+        ],
+      },
+      context,
+    );
+    expect(batch.rows[0]?.product_id).toBe("cat_active::condition:near_mint");
+    expect(productLookup).not.toHaveBeenCalled();
+    expect(itemLookup).not.toHaveBeenCalled();
+    expect(gtinLookup).not.toHaveBeenCalled();
+    expect(db.queries.filter(({ sql }) => sql.includes("FROM inventory_import_account_sku_mappings"))).toHaveLength(0);
+  });
+
+  it.each(["invalid-gtin", "mapped-invalid-high", "missing-high-valid-lower", "ambiguous-sku"])(
+    "AC-02 ordered candidate lookup control %s",
+    async (kind) => {
+      const db = dbWithLocations();
+      const catalog = { ...catalogServices() };
+      const events: string[] = [];
+      catalog.getCatalogItemByGtin = vi.fn(async (gtin) => {
+        events.push(`gtin:${gtin}`);
+        return null;
+      });
+      catalog.getExternalCatalogItemReference = vi.fn(async (_provider, key) => {
+        events.push(key);
+        return (key === "product:12345" && kind !== "ambiguous-sku") || key === "handle:lower"
+          ? { provider_key: "tcgplayer", external_key: key, catalog_item_id: "cat_active", updated_at: now }
+          : null;
+      });
+      catalog.getExternalProductReference = vi.fn(async (_provider, key) => {
+        events.push(key);
+        return kind === "mapped-invalid-high"
+          ? {
+              provider_key: "tcgplayer",
+              external_key: key,
+              catalog_item_id: "cat_inactive",
+              selected_options: [{ dimensionId: "condition", optionId: "near_mint" }],
+              updated_at: now,
+            }
+          : null;
+      });
+      if (kind === "ambiguous-sku") {
+        addAccountSkuMapping(db, { sellerSku: "review-sku", catalogItemId: "cat_active" });
+        addAccountSkuMapping(db, { sellerSku: "review-sku", catalogItemId: "cat_other" });
+      }
+      const sourceKey: InventoryImportSourceKey =
+        kind === "invalid-gtin" || kind === "ambiguous-sku" ? "shopify-csv" : "tcgplayer-csv";
+      const values = sourceValues("complete");
+      delete values.catalogItemId;
+      values["Product ID"] = "12345";
+      values["Variant ID"] = "missing";
+      values["Variant SKU"] = "review-sku";
+      values["Variant Barcode"] = "00307418529635";
+      values.Handle = "lower";
+      const batch = await runtime(db, [], [], [], catalog).createBatch(
+        {
+          accountId: "acc_1" as AccountId,
+          sourceKey,
+          defaultStorageLocationId: "loc_active",
+          parsedRows: [{ rowNumber: 1, values }],
+        },
+        context,
+      );
+      if (kind === "mapped-invalid-high" || kind === "ambiguous-sku") {
+        expect(batch.rows[0]).toMatchObject({ product_id: null, resolution_status: "unresolved" });
+        if (kind === "mapped-invalid-high") expect(events).not.toContain("product:12345");
+        if (kind === "ambiguous-sku") {
+          expect(events).not.toContain("handle:lower");
+          expect(events.some((entry) => entry.startsWith("gtin:"))).toBe(false);
+        }
+      } else {
+        expect(batch.rows[0]?.product_id).toBe("cat_active::condition:near_mint");
+        expect(events).toContain("product:12345");
+        expect(events.some((entry) => entry.startsWith("gtin:"))).toBe(false);
+      }
+    },
+  );
+
+  it("AC-02 valid GTIN precedes the stable profile order", async () => {
+    const catalog = catalogServices();
+    const gtin = vi.spyOn(catalog, "getCatalogItemByGtin");
+    const product = vi.spyOn(catalog, "getExternalProductReference");
+    const values = sourceValues("complete");
+    delete values.catalogItemId;
+    values["Variant ID"] = "mapped-lower";
+    values["Variant Barcode"] = "00307418529636";
+    const batch = await runtime(dbWithLocations(), [], [], [], catalog).createBatch(
+      {
+        accountId: "acc_1" as AccountId,
+        sourceKey: "shopify-csv",
+        defaultStorageLocationId: "loc_active",
+        parsedRows: [{ rowNumber: 1, values }],
+      },
+      context,
+    );
+    expect(batch.rows[0]?.resolution_status).toBe("resolved");
+    expect(gtin).toHaveBeenCalledWith("00307418529636");
+    expect(product).not.toHaveBeenCalled();
+  });
+
+  it("AC-09 all three live callers retain the one validator; deleting any caller fails the census", () => {
+    const source = readFileSync(new URL("./runtime.ts", import.meta.url), "utf8");
+    const callerNames = ["resolveBatchRow", "createBatchRows", "validateAndStoreCreateBatchRow"];
+    const census = (text: string) =>
+      callerNames.every((name) => {
+        const start = text.indexOf(`async function ${name}(`);
+        const end = text.indexOf("\n  async function ", start + 1);
+        return start >= 0 && /await validateRow\(/.test(text.slice(start, end < 0 ? undefined : end));
+      });
+    expect(census(source)).toBe(true);
+    for (const name of callerNames) {
+      const start = source.indexOf(`async function ${name}(`);
+      const end = source.indexOf("\n  async function ", start + 1);
+      const body = source.slice(start, end < 0 ? undefined : end);
+      expect(census(source.replace(body, body.replace("await validateRow(", "await omittedValidator(")))).toBe(false);
+    }
+  });
+
+  it("AC-08 native confirmation with a blank SKU never persists a mapping", async () => {
+    const db = dbWithLocations();
+    const services = runtime(db);
+    const values = sourceValues("source-mismatched");
+    delete values.sellerSku;
+    delete values["Seller SKU"];
+    delete values.SKU;
+    const batch = await services.createBatch(
+      { accountId: "acc_1" as AccountId, parsedRows: [{ rowNumber: 1, values }] },
+      context,
+    );
+    const before = db.queries.length;
+    const resolved = await services.resolveRow(
+      {
+        accountId: "acc_1" as AccountId,
+        batchId: batch.batch_id,
+        rowId: batch.rows[0]!.row_id,
+        catalogItemId: "cat_active",
+        storageLocationId: "loc_active",
+        selectedOptions: [{ dimensionId: "condition", optionId: "near_mint" }],
+      },
+      context,
+    );
+    expect(resolved.rows[0]?.status).toBe("accepted");
+    expect(
+      db.queries
+        .slice(before)
+        .filter(({ sql }) => /(?:INSERT INTO|UPDATE) inventory_import_account_sku_mappings/.test(sql)),
+    ).toHaveLength(0);
+  });
   it("keeps import batch schema additive for existing staging databases", () => {
     expect(inventoryImportBatchSchemaSql).toContain("ADD COLUMN IF NOT EXISTS source_filename text NULL");
     expect(inventoryImportBatchSchemaSql).toContain("ADD COLUMN IF NOT EXISTS seller_sku text NULL");
@@ -1067,7 +1356,7 @@ describe("inventory import batch runtime", () => {
       status: "rejected",
       resolution_status: "unresolved",
       catalog_item_id: null,
-      validation_errors: ["Seller SKU 'missing-sku' is not mapped for this account."],
+      validation_errors: ["Seller SKU 'missing-sku' is not mapped for this account.", "Catalog item id is required."],
     });
   });
 
@@ -1179,6 +1468,7 @@ describe("inventory import batch runtime", () => {
       catalog_item_id: null,
       validation_errors: [
         "Seller SKU 'duplicate-sku' has multiple mappings for this account: cat_active (condition:near_mint), cat_other (condition:near_mint).",
+        "Catalog item id is required.",
       ],
     });
   });

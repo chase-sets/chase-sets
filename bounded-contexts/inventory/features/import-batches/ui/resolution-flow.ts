@@ -16,7 +16,7 @@ export function rowNeedsResolution(
 ): boolean {
   return (
     row.status === "rejected" &&
-    (sourceKey === "saved-list" || row.resolution_status === "unresolved") &&
+    (sourceKey === "saved-list" || row.resolution_status === "unresolved" || !row.product_id) &&
     !row.committed_at
   );
 }

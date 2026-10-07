@@ -7,13 +7,35 @@ import type { MarketplaceServices } from "@chase-sets/marketplace/server";
 import type { PlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { createWorkSignalCleanupRunner } from "@chase-sets/platform-runtime/projection-wake-scheduler";
 import { createRetentionSweepRunner } from "@chase-sets/platform-runtime/retention-sweep";
-import type { WorkerRunner } from "@chase-sets/platform-runtime/worker";
+import { createDurableJobLaneRunners, type WorkerRunner } from "@chase-sets/platform-runtime/worker";
 import type { PlatformWorkerConfig } from "./config";
 
 export type ScheduledRunnerLogger = Readonly<{
   info: (message: string, fields?: Readonly<Record<string, unknown>>) => void;
   warn: (message: string, fields?: Readonly<Record<string, unknown>>) => void;
 }>;
+
+export function createInventoryProductResolutionMaintenanceRunners(
+  services: Readonly<Record<string, unknown>>,
+  config: Pick<PlatformWorkerConfig, "workerId" | "leaseTtlMs">,
+): readonly WorkerRunner[] {
+  const inventory = services.inventory as InventoryServices | undefined;
+  const processNext = inventory?.importBatches?.processNextImportProductResolutionMaintenanceJob;
+  if (!processNext) return [];
+  return createDurableJobLaneRunners({
+    workflowName: "inventory.import-product-resolution-maintenance",
+    laneCount: 1,
+    runLane: async (lane) => ({
+      processed: await processNext({
+        claimOwnerId: `${config.workerId}:product-resolution-maintenance`,
+        claimTtlMs: config.leaseTtlMs * 4,
+        signal: lane.runnerContext?.signal,
+        throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
+      }),
+      lastGlobalPosition: "0" as never,
+    }),
+  });
+}
 
 export type RegisteredScheduledRunnerConfig = Pick<
   PlatformWorkerConfig,
@@ -908,17 +930,7 @@ function createDurableJobRetentionTask(
         };
       }
     | undefined;
-  const inventory = services.inventory as
-    | {
-        importBatches?: {
-          pruneImportBatchJobRetention?: (input?: {
-            completedBefore?: Date;
-            stagedInputCreatedBefore?: Date;
-            limit?: number;
-          }) => Promise<{ jobs: number; stagedInputs: number }>;
-        };
-      }
-    | undefined;
+  const inventory = services.inventory as InventoryServices | undefined;
   const pricing = services.pricing as
     | {
         recommendations?: {

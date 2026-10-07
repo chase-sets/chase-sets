@@ -88,23 +88,9 @@ CREATE TABLE IF NOT EXISTS inventory_import_account_sku_mappings (
 CREATE INDEX IF NOT EXISTS inventory_import_account_sku_mappings_lookup_idx
   ON inventory_import_account_sku_mappings (account_id, normalized_seller_sku, updated_at DESC);
 
--- The legacy Product-state repair is a deterministic, idempotent job. Keeping
--- its receipt outside the mutable row projection makes replay observable even
--- after the durable-job retention sweep and prevents a second normalization.
-CREATE TABLE IF NOT EXISTS inventory_import_product_resolution_receipts (
-  receipt_id text PRIMARY KEY,
-  validator_version integer NOT NULL,
-  high_water_created_at timestamptz NOT NULL,
-  high_water_row_id text NOT NULL,
-  normalized_provider_count integer NOT NULL DEFAULT 0,
-  normalized_row_count integer NOT NULL DEFAULT 0,
-  poison_row_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
-  created_at timestamptz NOT NULL,
-  UNIQUE (validator_version)
-);
-
-CREATE INDEX IF NOT EXISTS inventory_import_product_resolution_receipts_created_idx
-  ON inventory_import_product_resolution_receipts (created_at DESC, receipt_id ASC);
+CREATE INDEX IF NOT EXISTS inventory_import_batch_rows_product_resolution_scan_idx
+  ON inventory_import_batch_rows (created_at, row_id)
+  WHERE status = 'rejected' AND committed_at IS NULL;
 
 ALTER TABLE inventory_import_batches
   ADD COLUMN IF NOT EXISTS source_key text NOT NULL DEFAULT 'native-csv',
@@ -149,6 +135,15 @@ ${durableJobWorkUnitSchemaSql({
 `;
 
 export const inventoryImportBatchSchemaMigrations: readonly BcSchemaMigration[] = [
+  {
+    migrationId: "20261006_inventory_import_product_resolution_scan",
+    description: "Index the bounded rejected/uncommitted Product resolution keyset scan.",
+    statements: [
+      `CREATE INDEX IF NOT EXISTS inventory_import_batch_rows_product_resolution_scan_idx
+  ON inventory_import_batch_rows (created_at, row_id)
+  WHERE status = 'rejected' AND committed_at IS NULL`,
+    ],
+  },
   {
     migrationId: "20260908_inventory_import_acquisition_occurrence",
     description: "Preserve import-supplied acquisition occurrence through staged Inventory rows.",

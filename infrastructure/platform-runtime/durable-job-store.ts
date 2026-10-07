@@ -287,7 +287,7 @@ export function createPostgresDurableJobStore<
   const jobsTable = sqlIdentifier(tables.jobsTable);
   const eventsTable = sqlIdentifier(tables.eventsTable);
   const retentionExemptJobKinds = [...new Set(tables.retentionExemptJobKinds ?? [])];
-  const retentionExemptionSql = retentionExemptJobKinds.length > 0 ? "AND job_kind <> ALL($3::text[])" : "";
+  const retentionExemptionSql = "AND job_kind <> ALL($3::text[])";
   const notifyChannel = sqlNotifyChannel(tables.notifyChannel ?? "durable_job_events");
   const notificationPool = options.notificationWaiterPool ?? db;
   const lifecycle =

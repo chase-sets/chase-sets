@@ -137,7 +137,10 @@ import { platformEmailTemplateRenderer } from "./email-template-renderer";
 import { createGoogleMerchantServiceAccountAccessTokenProvider } from "./google-merchant-auth";
 import { createGoogleMerchantApiClient } from "./google-merchant-client";
 import { workerContextRegistry } from "./generated/worker-context-registry";
-import { createRegisteredScheduledRunners } from "./scheduled-runners";
+import {
+  createInventoryProductResolutionMaintenanceRunners,
+  createRegisteredScheduledRunners,
+} from "./scheduled-runners";
 import { runStartupRetry } from "./startup-retry";
 import { processRepricingEvaluationJob } from "./repricing-evaluation-lane";
 import {
@@ -1528,23 +1531,7 @@ function createInventoryJobRunners(
       }),
     );
   }
-  if (processNextProductResolutionMaintenanceJob) {
-    runners.push(
-      ...createDurableJobLaneRunners({
-        workflowName: "inventory.import-product-resolution-maintenance",
-        laneCount: 1,
-        runLane: async (lane) => ({
-          processed: await processNextProductResolutionMaintenanceJob({
-            claimOwnerId: `${input.workerId}:product-resolution-maintenance`,
-            claimTtlMs: input.leaseTtlMs * 4,
-            signal: lane.runnerContext?.signal,
-            throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
-          }),
-          lastGlobalPosition: "0" as never,
-        }),
-      }),
-    );
-  }
+  runners.push(...createInventoryProductResolutionMaintenanceRunners(services, input));
   return runners;
 }
 
