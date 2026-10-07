@@ -97,6 +97,7 @@
     "bounded-contexts/channels/features/connections/read-model/queries.ts",
     "bounded-contexts/channels/features/connector-feed/api/runtime.ts",
     "bounded-contexts/channels/features/connector-feed/read-model/audit.ts",
+    "bounded-contexts/channels/features/connector-feed/read-model/inbound.ts",
     "bounded-contexts/channels/features/credentials/api/runtime.ts",
     "bounded-contexts/channels/features/listing-composition/api/listing-publication-application.ts",
     "bounded-contexts/channels/features/listing-composition/api/runtime.ts",
@@ -476,6 +477,7 @@
     "scripts/catalog-provider-send-window.ts"
   ],
   "unprovableForm": [
+    "bounded-contexts/channels/features/connector-feed/api/transport.ts",
     "deployables/platform-api/src/preview-postgres.ts",
     "infrastructure/platform-runtime/projection-wake-relay.ts",
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
