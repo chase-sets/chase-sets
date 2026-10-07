@@ -142,8 +142,14 @@ const QUALITY_DECLARATIONS = Object.freeze({
   compatibility: {
     heading: "contract compatibility",
     code: "BRIEF_QUALITY_CONTRACT_COMPATIBILITY",
-    headers: ["changed contract", "compatibility posture", "removed path"],
+    headers: ["changed contract", "compatibility posture"],
     none: "none — no schema, event, or contract changes.",
+  },
+  superseded: {
+    heading: "superseded paths",
+    code: "BRIEF_QUALITY_SUPERSEDED_PATHS",
+    headers: ["superseded path", "replacement", "removal"],
+    none: "none — no existing path is replaced or made redundant.",
   },
 });
 
@@ -476,6 +482,7 @@ export function lintBrief(body) {
       declarationFinding(markdown, QUALITY_DECLARATIONS.data),
       declarationFinding(markdown, QUALITY_DECLARATIONS.compatibility),
       declarationFinding(markdown, QUALITY_DECLARATIONS.glossary),
+      declarationFinding(markdown, QUALITY_DECLARATIONS.superseded),
     ].filter(Boolean),
   );
   return { bytes, findings, maxBytes: BRIEF_MAX_BYTES };

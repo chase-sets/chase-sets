@@ -26,6 +26,7 @@ const qualityFindingCodes = new Set([
   "BRIEF_QUALITY_DATA_PATH",
   "BRIEF_QUALITY_CONTRACT_COMPATIBILITY",
   "BRIEF_QUALITY_GLOSSARY_IMPACT",
+  "BRIEF_QUALITY_SUPERSEDED_PATHS",
 ]);
 
 const intentDeclaration = [
@@ -47,6 +48,7 @@ const qualitySections = {
   data: "## Data-path envelope\n\nnone — no data path changes.",
   compatibility: "## Contract compatibility\n\nnone — no schema, event, or contract changes.",
   glossary: "## Glossary impact\n\nnone — no new or renamed public names.",
+  superseded: "## Superseded paths\n\nnone — no existing path is replaced or made redundant.",
 };
 
 function conformingBrief(overrides = {}) {
@@ -62,6 +64,7 @@ function conformingBrief(overrides = {}) {
     overrides.data ?? qualitySections.data,
     overrides.compatibility ?? qualitySections.compatibility,
     overrides.glossary ?? qualitySections.glossary,
+    overrides.superseded ?? qualitySections.superseded,
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -282,6 +285,23 @@ describe("planning integration", () => {
     expect(source).toContain("node ./scripts/brief-lint.mjs <path-to-brief.md>");
   });
 
+  it("requires the supersession check and removal placement even on the Issues tier in both mirrors", () => {
+    const sources = [".agents", ".claude"].map((root) =>
+      readFileSync(path.join(repoRoot, root, "skills/planning/SKILL.md"), "utf8"),
+    );
+    expect(sources[0]).toBe(sources[1]);
+    for (const source of sources) {
+      for (const clause of [
+        "Run a **supersession check**: inventory every existing\n   path the planned change replaces or makes redundant",
+        "Stage 2-light for Issues still requires this check.",
+        "Place each superseded\n   path's removal in the replacing slice or in a removal slice natively dependent\n   on the switchover, in the same committed outcome, never candidate, parked or\n   unfiled work.",
+        "Each removal has an owning acceptance criterion and named\n   evidence method.",
+        "For Issues tier, Stage 5 performs the removal placement specified in\n   Decomposition; tier shortcuts never skip the supersession check or placement.",
+      ])
+        expect(source.split(clause)).toHaveLength(2);
+    }
+  });
+
   it("returns a discriminating CLI status", async () => {
     const logs = [];
     const logger = { error: (message) => logs.push(message), log: (message) => logs.push(message) };
@@ -336,9 +356,9 @@ describe("ready-10 quality-surface declarations", () => {
           compatibility: [
             "## Contract compatibility",
             "",
-            "| Changed contract | Compatibility posture | Removed path |",
-            "|---|---|---|",
-            "| Brief declaration | Breaking for future registrations | v1 declaration |",
+            "| Changed contract | Compatibility posture |",
+            "|---|---|",
+            "| Brief declaration | Breaking for future registrations |",
           ].join("\n"),
           glossary: [
             "## Glossary impact",
@@ -346,6 +366,14 @@ describe("ready-10 quality-surface declarations", () => {
             "| Public term | Owning glossary or contract |",
             "|---|---|",
             "| Quality profile | `contracts/quality-v2.md` |",
+          ].join("\n"),
+          superseded: [
+            "## Superseded paths",
+            "",
+            "| Superseded path | Replacement | Removal |",
+            "|---|---|---|",
+            "| v1 declaration | v2 declaration | this issue |",
+            "| old workflow | new workflow | #42 |",
           ].join("\n"),
         }),
       ),
@@ -366,6 +394,7 @@ describe("ready-10 quality-surface declarations", () => {
       "Data-path envelope\n------------------\n\nnone — no data path changes.",
       "Contract compatibility\n----------------------\n\nnone — no schema, event, or contract changes.",
       "Glossary impact\n---------------\n\nnone — no new or renamed public names.",
+      "Superseded paths:\n\nnone — no existing path is replaced or made redundant.",
     ].join("\n\n");
     expect(qualityCodes(alternate)).toEqual([]);
   });
@@ -487,9 +516,49 @@ describe("ready-10 quality-surface declarations", () => {
       "blank compatibility posture",
       {
         compatibility:
-          "## Contract compatibility\n\n| Changed contract | Compatibility posture | Removed path |\n|---|---|---|\n| Brief | | v1 |",
+          "## Contract compatibility\n\n| Changed contract | Compatibility posture |\n|---|---|\n| Brief | |",
       },
       "BRIEF_QUALITY_CONTRACT_COMPATIBILITY",
+    ],
+    [
+      "old three-column compatibility table",
+      {
+        compatibility:
+          "## Contract compatibility\n\n| Changed contract | Compatibility posture | Removed path |\n|---|---|---|\n| Brief | Breaking | v1 |",
+      },
+      "BRIEF_QUALITY_CONTRACT_COMPATIBILITY",
+    ],
+    ["missing superseded paths", { superseded: "" }, "BRIEF_QUALITY_SUPERSEDED_PATHS"],
+    ["empty superseded paths", { superseded: "## Superseded paths" }, "BRIEF_QUALITY_SUPERSEDED_PATHS"],
+    [
+      "partial superseded paths table",
+      {
+        superseded: "## Superseded paths\n\n| Superseded path | Replacement | Removal |\n|---|---|---|\n| v1 | v2 | |",
+      },
+      "BRIEF_QUALITY_SUPERSEDED_PATHS",
+    ],
+    [
+      "malformed superseded paths none form",
+      { superseded: "## Superseded paths\n\nnone" },
+      "BRIEF_QUALITY_SUPERSEDED_PATHS",
+    ],
+    [
+      "superseded paths none mixed with table",
+      {
+        superseded:
+          "## Superseded paths\n\nnone — no existing path is replaced or made redundant.\n\n| Superseded path | Replacement | Removal |\n|---|---|---|\n| v1 | v2 | this issue |",
+      },
+      "BRIEF_QUALITY_SUPERSEDED_PATHS",
+    ],
+    [
+      "fenced superseded paths declaration",
+      { superseded: "```md\n## Superseded paths\n\nnone — no existing path is replaced or made redundant.\n```" },
+      "BRIEF_QUALITY_SUPERSEDED_PATHS",
+    ],
+    [
+      "duplicate superseded paths declaration",
+      { superseded: `${qualitySections.superseded}\n\n${qualitySections.superseded}` },
+      "BRIEF_QUALITY_SUPERSEDED_PATHS",
     ],
     ["malformed glossary none form", { glossary: "Glossary impact:\n\nnone" }, "BRIEF_QUALITY_GLOSSARY_IMPACT"],
     [
@@ -557,11 +626,27 @@ describe("ready-10 quality-surface declarations", () => {
       "BRIEF_QUALITY_DATA_PATH",
       "BRIEF_QUALITY_CONTRACT_COMPATIBILITY",
       "BRIEF_QUALITY_GLOSSARY_IMPACT",
+      "BRIEF_QUALITY_SUPERSEDED_PATHS",
     ]);
   });
 });
 
 describe("quality-surface planning contract mirrors", () => {
+  it("keeps dependent removal children committed and out of Parked in both epic standards", () => {
+    const sources = [".agents", ".claude"].map((root) =>
+      readFileSync(path.join(repoRoot, root, "skills/planning/references/epic-standard.md"), "utf8"),
+    );
+    expect(sources[0]).toBe(sources[1]);
+    for (const source of sources) {
+      for (const clause of [
+        "A separate removal child for a path this plan itself supersedes follows its\n    switchover through a native Blocked by dependency in the chain DAG",
+        "in the same committed outcome, and must not be listed under Parked.",
+        "within the replacing child needs no self-dependency.",
+        "remain write-once; next-round corrections use a superseding comment, not a\n    body rewrite.",
+      ])
+        expect(source.split(clause)).toHaveLength(2);
+    }
+  });
   const issueStandardPaths = [
     ".agents/skills/planning/references/issue-standard.md",
     ".claude/skills/planning/references/issue-standard.md",
@@ -621,10 +706,18 @@ describe("quality-surface planning contract mirrors", () => {
       "5. **Data-path envelope.**",
       "6. **Contract compatibility.**",
       "7. **Glossary impact.**",
+      "8. **Superseded paths.**",
       "`ready-10-quality-surfaces`",
       "explicitly outside the `issue-readiness/v1`",
     ]) {
       expect(sources[0].split(token)).toHaveLength(2);
+    }
+    for (const source of sources) {
+      expect(source).toContain("`Changed contract`, `Compatibility posture`,");
+      expect(source).toContain("`Superseded path | Replacement | Removal`");
+      expect(source).toContain("`none — no existing path is replaced or made redundant.`");
+      expect(source).toContain("is `this issue` or the native successor `#N`, identifying the owning slice.");
+      expect(source).toContain("explicit acceptance criterion with a named\n   evidence method in its owning slice.");
     }
     for (const id of [
       "ready-00-placed-classified",
@@ -642,6 +735,17 @@ describe("quality-surface planning contract mirrors", () => {
     expect(sources[0]).toContain("G0: PASS <not-built list verified> | BLOCK_REPLAN <simpler shape>");
     expect(profileRows.every((row) => sources[0].split(row).length === 2)).toBe(true);
     expect(pairKeys(sources[0])).toEqual(qualityKeys);
+    for (const source of sources) {
+      expect(source.split("13. **Supersession completeness.**")).toHaveLength(2);
+      for (const clause of [
+        "Check only existing paths the planned change\n    itself replaces or makes redundant.",
+        "Flag an omitted path, a removal lacking\n    an owning acceptance criterion and evidence method",
+        "a removal deferred\n    outside the committed outcome.",
+        "required acceptance, not\n    unrelated debt or a SCOPE too-much finding.",
+        "Unrelated cleanup remains outside\n    scope; G0 still minimizes the implementation and evidence",
+      ])
+        expect(source.split(clause)).toHaveLength(2);
+    }
   });
 
   it("detects profile-weight drift", () => {
