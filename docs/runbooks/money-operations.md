@@ -422,6 +422,10 @@ result.receipt;
 5. Capture the receipt, account, deployed SHA, trusted environment, balances/holds and UTC time in the approved proof record. The receipt binds actor, policy document/version, reason/ruling, cap, recent authentication, amount and ledger identity. The statement intentionally shows **Wallet adjustment** with no adjustment-lifecycle action; it is not the proof-path identity. The audit has no second balance effect. Available credit offsets negative balance; holds and payout rules may leave nothing spendable.
 6. Disable in the same policy console with `{"enabled":false,"proofAccountId":"<same verified AccountId>"}` after the window. Authorized receipt reads remain available. Re-enable, expiry, new documents, operator/key changes, spend and refunds never replenish the allowance. Do not self-approve an ordinary adjustment, fake sales/clearance, reverse via this endpoint or expand the account set. #7806 separately owns EasyPost test-mode purchase/void/refund and its webhook-secret prerequisite; this receipt proves none of those operations.
 
+### Staging Proof Credit Rollback Compatibility
+
+Before the first credit, a pre-event Wallet reader rollback is possible because no proof audit exists. After the first credit, do not roll back to a pre-event Wallet reader: any rollback or forward-fix build must retain decoding and evolution of `settlement.wallet.staging-proof-credit-posted` alongside the existing ledger event. Disabling is a stop-write action, not event compatibility or credit reversal. The immutable audit and consumed allowance remain through disable/re-enable; never delete or rewrite them to make an older reader work. Corrections retain ordinary Wallet Adjustment governance.
+
 ## Wallet Adjustment Operations
 
 Wallet Adjustments are Settlement's governed request/approve/reject/post/reverse
