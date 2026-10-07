@@ -5,13 +5,45 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import sys
 
 sys.dont_write_bytecode = True
 
-from ownership import CensusError, snapshot
+from ownership import CensusError, bounded_read, parse_stat, snapshot
 
 stage = 'arguments'
+
+
+def closed_errno(error):
+    codes = ('EACCES', 'EPERM', 'ENOENT', 'ESRCH', 'ENOTDIR', 'ELOOP', 'EIO')
+    return next((c for c in codes if getattr(errno, c) == error.errno), 'other')
+
+
+def root_recheck(record):
+    path = Path('/proc') / str(record['pid'])
+    try:
+        current = parse_stat(bounded_read(path / 'stat'), record['pid'])
+        if current['start'] != record['start']:
+            identity = 'changed'
+        elif current['state'] == 'Z':
+            identity = 'zombie'
+        else:
+            image = (path / 'exe').stat()
+            identity = 'same' if (image.st_dev, image.st_ino) == record['image'] else 'changed'
+    except (CensusError, OSError, ValueError):
+        identity = 'unknown'
+    try:
+        link = os.readlink(path / 'root')
+        root = 'proc-fdinfo' if re.fullmatch(r'/proc/[0-9]+(?:/task/[0-9]+)?/fdinfo', link) else 'other'
+    except OSError:
+        root = 'unreadable'
+    try:
+        info = (path / 'root').stat()
+        kind, code = ('directory' if stat.S_ISDIR(info.st_mode) else 'other'), 'none'
+    except OSError as error:
+        kind, code = 'unreadable', closed_errno(error)
+    return ':'.join((identity, root, kind, code))
 
 
 class RootInspectionError(Exception):
@@ -22,9 +54,7 @@ class RootInspectionError(Exception):
                 kind not in ('host-helper', 'old-root') or
                 any(type(n) is not int or not 0 <= n <= 9007199254740991 for n in numbers)):
             raise ValueError()
-        codes = ('EACCES', 'EPERM', 'ENOENT', 'ESRCH', 'ENOTDIR', 'ELOOP', 'EIO')
-        code = next((c for c in codes if getattr(errno, c) == error.errno), 'other')
-        self.diagnostic = ':'.join((*map(str, numbers), image, kind, code))
+        self.diagnostic = ':'.join((*map(str, numbers), image, kind, closed_errno(error), root_recheck(record)))
         super().__init__()
 
 

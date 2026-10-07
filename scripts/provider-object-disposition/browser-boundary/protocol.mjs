@@ -146,7 +146,7 @@ export function observerDiagnostic(error) {
   let root = null;
   if (error?.code === 1 && !error?.signal && stdout?.length === 0 && stderr && stderr.length <= 512) {
     const match =
-      /^provider-boundary-observer-refused:root\nprovider-boundary-observer-root:(0|[1-9][0-9]{0,15}):(0|[1-9][0-9]{0,15}):(0|[1-9][0-9]{0,15}):(0|[1-9][0-9]{0,15}):(0|[1-9][0-9]{0,15}):(launcher|chrome|chrome_crashpad_handler):(host-helper|old-root):(EACCES|EPERM|ENOENT|ESRCH|ENOTDIR|ELOOP|EIO|other)\n$/.exec(
+      /^provider-boundary-observer-refused:root\nprovider-boundary-observer-root:(0|[1-9][0-9]{0,15}):(0|[1-9][0-9]{0,15}):(0|[1-9][0-9]{0,15}):(0|[1-9][0-9]{0,15}):(0|[1-9][0-9]{0,15}):(launcher|chrome|chrome_crashpad_handler):(host-helper|old-root):(EACCES|EPERM|ENOENT|ESRCH|ENOTDIR|ELOOP|EIO|other):(same|changed|zombie|unknown):(proc-fdinfo|other|unreadable):(directory|other|unreadable):(none|EACCES|EPERM|ENOENT|ESRCH|ENOTDIR|ELOOP|EIO|other)\n$/.exec(
         stderr.toString("ascii"),
       );
     if (
@@ -164,6 +164,10 @@ export function observerDiagnostic(error) {
         image: match[6],
         pathKind: match[7],
         errno: match[8],
+        identityRecheck: match[9],
+        rootLink: match[10],
+        rootKind: match[11],
+        rootErrno: match[12],
       };
     }
   }

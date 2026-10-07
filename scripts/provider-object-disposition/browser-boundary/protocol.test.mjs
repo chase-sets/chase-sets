@@ -102,7 +102,7 @@ it("observer status 1, native status 78, signal, and contaminated output remain 
 });
 
 const rootRefusal =
-  "provider-boundary-observer-refused:root\nprovider-boundary-observer-root:20:1:100:1:2:chrome:host-helper:EACCES\n";
+  "provider-boundary-observer-refused:root\nprovider-boundary-observer-root:20:1:100:1:2:chrome:host-helper:EACCES:same:proc-fdinfo:directory:none\n";
 
 it("observer root diagnostics retain only emitter-owned closed process/image, path kind and errno", () => {
   expect(observerDiagnostic({ code: 1, stdout: "", stderr: rootRefusal })).toMatchObject({
@@ -116,6 +116,10 @@ it("observer root diagnostics retain only emitter-owned closed process/image, pa
       image: "chrome",
       pathKind: "host-helper",
       errno: "EACCES",
+      identityRecheck: "same",
+      rootLink: "proc-fdinfo",
+      rootKind: "directory",
+      rootErrno: "none",
     },
     status: 1,
     redacted: true,
@@ -133,6 +137,8 @@ it.each([
   { code: 1, stdout: "", stderr: rootRefusal.replace("chrome", "PRIVATE") },
   { code: 1, stdout: "", stderr: rootRefusal.replace("host-helper", "PRIVATE") },
   { code: 1, stdout: "", stderr: rootRefusal.replace("EACCES", "PRIVATE") },
+  { code: 1, stdout: "", stderr: rootRefusal.replace("same", "PRIVATE") },
+  { code: 1, stdout: "", stderr: rootRefusal.replace("proc-fdinfo", "PRIVATE") },
   { code: 1, stdout: "", stderr: Buffer.concat([Buffer.from(rootRefusal), Buffer.from([0xff])]) },
   { code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER", stdout: "", stderr: rootRefusal },
 ])("observer root output rejects wrong status, truncation, markers and unsafe fields %#", (error) => {

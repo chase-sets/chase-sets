@@ -90,14 +90,28 @@ class OwnershipControls(unittest.TestCase):
                     path = mock.Mock()
                     path.exists.side_effect = OSError(code, 'PRIVATE', 'PRIVATE_PATH')
                     output, error = io.StringIO(), io.StringIO()
-                    with mock.patch.object(observer, 'observe', side_effect=lambda _: observer.root_exists(path, record(), kind)):
+                    with mock.patch.object(observer, 'observe', side_effect=lambda _: observer.root_exists(path, record(), kind)), mock.patch.object(observer, 'root_recheck', return_value='same:proc-fdinfo:directory:none'):
                         with mock.patch.object(observer.os, 'getuid', return_value=0, create=True):
                             with mock.patch.object(sys, 'argv', ['observe.py', '123']):
                                 with redirect_stdout(output), redirect_stderr(error):
                                     self.assertEqual(observer.main(), 1)
                     self.assertEqual(output.getvalue(), '')
                     self.assertEqual(error.getvalue(), 'provider-boundary-observer-refused:root\n' +
-                                     f'provider-boundary-observer-root:20:1:100:1:2:launcher:{kind}:{label}\n')
+                                     f'provider-boundary-observer-root:20:1:100:1:2:launcher:{kind}:{label}:same:proc-fdinfo:directory:none\n')
+
+    def test_root_recheck_distinguishes_live_identity_from_root_lookup(self):
+        image = mock.Mock(st_dev=1, st_ino=2, st_mode=0o040755)
+        with mock.patch.object(observer, 'bounded_read', return_value=''), mock.patch.object(observer, 'parse_stat', return_value=dict(start=100, state='S')):
+            with mock.patch.object(observer.Path, 'stat', return_value=image), mock.patch.object(observer.os, 'readlink', return_value='/proc/7/fdinfo'):
+                self.assertEqual(observer.root_recheck(record()), 'same:proc-fdinfo:directory:none')
+            with mock.patch.object(observer.Path, 'stat', side_effect=OSError(errno.ESRCH, 'PRIVATE')), mock.patch.object(observer.os, 'readlink', side_effect=OSError(errno.EACCES, 'PRIVATE')):
+                self.assertEqual(observer.root_recheck(record()), 'unknown:unreadable:unreadable:ESRCH')
+
+    def test_root_recheck_never_emits_an_unrecognized_root_path(self):
+        image = mock.Mock(st_dev=1, st_ino=2, st_mode=0o040755)
+        with mock.patch.object(observer, 'bounded_read', return_value=''), mock.patch.object(observer, 'parse_stat', return_value=dict(start=101, state='S')):
+            with mock.patch.object(observer.Path, 'stat', return_value=image), mock.patch.object(observer.os, 'readlink', return_value='/PRIVATE'):
+                self.assertEqual(observer.root_recheck(record()), 'changed:other:directory:none')
 
     def test_observer_root_success_and_absence_are_unchanged(self):
         for exists in (True, False):
