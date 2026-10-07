@@ -4,7 +4,10 @@ import {
   createWorkerRunnerLeaseName,
   createWorkerRunnerLoop,
 } from "./worker";
-import { createProjectionWakeSchedulerRunners } from "./projection-wake-scheduler";
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import type { WorkerHolderLifecycleEvent, WorkerRuntimeObserver } from "./worker";
 import type { ProjectorHandler } from "@chase-sets/event-core/projector";
 import {
   attachReadConsistencyMiddleware,
@@ -1336,6 +1339,7 @@ describe("busy-group-pass-attribution Postgres", () => {
     },
   ])("busy-group-exact-receipt-read $shape", async (fixture) => {
     const startedAt = performance.now();
+    const startedAtUtc = new Date().toISOString();
     const traceLimit = 5 * 1024 * 1024;
     let traceBytes = 0;
     let omittedRecords = 0;
@@ -1344,9 +1348,10 @@ describe("busy-group-pass-attribution Postgres", () => {
       const line = JSON.stringify({
         attribution: "busy-group-pass-attribution",
         case: fixture.shape,
-        group: fixture.projectionName,
+        targetGroup: fixture.projectionName,
         sequence: ++sequence,
         elapsedMs: performance.now() - startedAt,
+        timestamp: new Date().toISOString(),
         phase,
         ...fields,
       });
@@ -1359,16 +1364,34 @@ describe("busy-group-pass-attribution Postgres", () => {
       traceBytes += bytes;
       console.info(line);
     };
+    trace("execution-identity", {
+      base: "268a0899e8463007bb41a641ebe1b8153ecae70d",
+      checkout: execFileSync("git", ["show", "-s", "--format=%H %T %P", "HEAD"], { encoding: "utf8" }).trim(),
+      trackedChanges: execFileSync("git", ["status", "--porcelain", "--untracked-files=no"], {
+        encoding: "utf8",
+      }).trim(),
+      fixtureSha256: createHash("sha256")
+        .update(readFileSync(new URL(import.meta.url)))
+        .digest("hex"),
+      runId: process.env.GITHUB_RUN_ID ?? null,
+      runAttempt: process.env.GITHUB_RUN_ATTEMPT ?? null,
+      job: process.env.GITHUB_JOB ?? null,
+      workflowHead: process.env.GITHUB_SHA ?? null,
+      startedAtUtc,
+      monotonicOrigin: performance.timeOrigin,
+      fixture,
+    });
     let connectionId = 0;
-    const targetPool: PgTransactionalPool = {
-      ...pools.marketplace,
+    const committedPositions = new Map<string, string>();
+    const observedPool = (contextName: "inventory" | "catalog" | "marketplace"): PgTransactionalPool => ({
+      ...pools[contextName],
       query: <Row = Record<string, unknown>>(...[sql, values]: Parameters<PgQueryFunction>) =>
-        pools.marketplace.query<Row>(sql, values),
+        pools[contextName].query<Row>(sql, values),
       connect: async () => {
         const connection = ++connectionId;
-        trace("connection-request", { connection });
-        const client = await pools.marketplace.connect();
-        trace("connection-acquired", { connection });
+        trace("connection-request", { contextName, connection });
+        const client = await pools[contextName].connect();
+        trace("connection-acquired", { contextName, connection });
         let checkpoint: Readonly<{ checkpointKey: unknown; position: unknown }> | undefined;
         const query: PgQueryFunction = async <Row = Record<string, unknown>>(
           ...[sql, values]: Parameters<PgQueryFunction>
@@ -1384,6 +1407,7 @@ describe("busy-group-pass-attribution Postgres", () => {
                 ? command
                 : "statement";
           const identity = {
+            contextName,
             connection,
             kind,
             ...(ownedWrite ? { position: values?.[1], eventId: values?.[2] } : {}),
@@ -1393,23 +1417,27 @@ describe("busy-group-pass-attribution Postgres", () => {
             const result = await client.query<Row>(sql, values);
             trace("db-returned", identity);
             if (checkpointWrite) checkpoint = { checkpointKey: values?.[0], position: values?.[4] };
-            if (command === "COMMIT" && checkpoint) trace("checkpoint-committed", { connection, ...checkpoint });
+            if (command === "COMMIT" && checkpoint) {
+              committedPositions.set(`${contextName}:${String(checkpoint.checkpointKey)}`, String(checkpoint.position));
+              trace("checkpoint-committed", { contextName, connection, ...checkpoint });
+            }
             if (command === "COMMIT" || command === "ROLLBACK") checkpoint = undefined;
             return result;
           } catch (error) {
-            trace("db-failed", { connection, kind });
+            trace("db-failed", { contextName, connection, kind });
             throw error;
           }
         };
         return {
           query,
           release: (error) => {
-            trace("connection-release", { connection, failed: error !== undefined });
+            trace("connection-release", { contextName, connection, failed: error !== undefined });
             client.release(error);
           },
         };
       },
-    };
+    });
+    const targetPool = observedPool("marketplace");
     let resolveApplying: (() => void) | null = null;
     const applying = new Promise<void>((resolve) => {
       resolveApplying = resolve;
@@ -1460,13 +1488,56 @@ describe("busy-group-pass-attribution Postgres", () => {
         handlers: { [fixture.createdType]: apply, [fixture.changedType]: apply },
       },
     ];
-    const sourceModule = (contextName: string) =>
-      defineBoundedContextModule({
-        manifest: { contextName, apiBasePath: `/${contextName}`, streamPrefix: `${contextName}.` },
-        schemaSql: "",
+    const sourceModule = (contextName: "inventory" | "catalog") => {
+      const projectionName = `${contextName}-attribution-projection`;
+      const eventTypes = ["inventory.item.created", "inventory.item.adjusted"];
+      const subscription = {
+        sourceContextName: "inventory",
+        projectionName,
+        subscriptionName: `${contextName}.attribution-projection`,
+        subscriptionVersion: 1,
+        order: 1,
+        filterToEventTypes: true,
+        eventTypes,
+      };
+      const applyCompetitor: ProjectorHandler = async (event, context) => {
+        const identity = { contextName, projectionName, eventId: event.id, position: event.globalPosition };
+        trace("apply-start", identity);
+        await context!.db!.query(
+          `INSERT INTO busy_group_owned_items (stream_id, position, event_id)
+           VALUES ($1, $2::bigint, $3)
+           ON CONFLICT (stream_id) DO UPDATE SET position = EXCLUDED.position, event_id = EXCLUDED.event_id`,
+          [event.streamId, event.globalPosition, event.id],
+        );
+        trace("apply-end", identity);
+      };
+      return defineBoundedContextModule({
+        manifest: {
+          contextName,
+          apiBasePath: `/${contextName}`,
+          streamPrefix: `${contextName}.`,
+          eventSubscriptions: [{ ...subscription, projectionHandlerSetNames: [projectionName] }],
+          projectionGroups: [
+            {
+              projectionName,
+              sourceContextNames: ["inventory"],
+              ownedTables: ["busy_group_owned_items"],
+              resetStrategy: "truncate-owned-tables",
+            },
+          ],
+        },
+        schemaSql:
+          "CREATE TABLE busy_group_owned_items (stream_id text PRIMARY KEY, position bigint NOT NULL, event_id text NOT NULL)",
         createServices: () => ({}),
         buildApis: () => [],
+        buildSubscriptions: () => [
+          {
+            ...subscription,
+            handlers: Object.fromEntries(eventTypes.map((eventType) => [eventType, applyCompetitor])),
+          },
+        ],
       });
+    };
     const marketplace = defineBoundedContextModule({
       manifest: {
         contextName: "marketplace",
@@ -1496,17 +1567,18 @@ describe("busy-group-pass-attribution Postgres", () => {
     let pollLoop: ReturnType<typeof createWorkerRunnerLoop> | undefined;
     let wakeLoop: ReturnType<typeof createWorkerRunnerLoop> | undefined;
     let clientTimer: ReturnType<typeof setTimeout> | undefined;
+    let startReadInGap: (() => void) | undefined;
     let passed = false;
     try {
       await bootstrapContextDatabase(inventory, pools.inventory);
       await bootstrapContextDatabase(catalog, pools.catalog);
       await bootstrapContextDatabase(marketplace, pools.marketplace);
       const runtime = createMountedContextTestRuntime([
-        { contextName: "inventory", module: inventory, pool: pools.inventory, ports: {}, mountRole: "source-only" },
-        { contextName: "catalog", module: catalog, pool: pools.catalog, ports: {}, mountRole: "source-only" },
         { contextName: "marketplace", module: marketplace, pool: targetPool, ports: {} },
+        { contextName: "inventory", module: inventory, pool: observedPool("inventory"), ports: {} },
+        { contextName: "catalog", module: catalog, pool: observedPool("catalog"), ports: {} },
       ]);
-      const group = runtime.projectionGroups[0];
+      const group = runtime.projectionGroups.find((candidate) => candidate.projectionName === fixture.projectionName)!;
       const realControlPlane = createPostgresPlatformControlPlane(pools.platform);
       const controlPlane: typeof realControlPlane = {
         ...realControlPlane,
@@ -1523,39 +1595,52 @@ describe("busy-group-pass-attribution Postgres", () => {
           await realControlPlane.releaseLease(lease);
           trace("lease-released", identity);
         },
+        renewLease: async (lease, ttlMs) => {
+          const renewed = await realControlPlane.renewLease(lease, ttlMs);
+          trace("lease-renewed", { ...lease, renewed });
+          return renewed;
+        },
       };
       const signals = createPostgresWorkSignalStore(pools.platform, { readConsistencyGateway: {} });
-      const worker = createProjectionGroupWorkerRunner(group);
+      const workers = runtime.projectionGroups.map((mountedGroup) => createProjectionGroupWorkerRunner(mountedGroup));
+      const worker = workers.find((candidate) => candidate.name === `marketplace.${fixture.projectionName}`)!;
+      const activeHolders = new Map<string, WorkerHolderLifecycleEvent>();
+      let retainedPass: WorkerHolderLifecycleEvent | undefined;
+      const observer: WorkerRuntimeObserver = {
+        runnerCompleted: (event) => trace("runner-completed", event),
+        runnerFailed: (event) => trace("runner-failed", { runnerName: event.runnerName }),
+        holderLifecycle: (event) => {
+          trace("holder-lifecycle", { event });
+          if (event.phase === "pass-start") activeHolders.set(event.runnerName, event);
+          if (event.phase === "pass-end") activeHolders.delete(event.runnerName);
+          if (event.runnerName === worker.name) {
+            if (
+              event.phase === "pass-end" &&
+              event.outcome === "success" &&
+              event.disposition === "retained" &&
+              (event.processed ?? 0) > 0
+            ) {
+              retainedPass = event;
+            } else if (["pass-start", "released", "lost"].includes(event.phase)) {
+              retainedPass = undefined;
+            }
+          }
+          startReadInGap?.();
+        },
+      };
       const loopOptions = {
         controlPlane,
-        maxConcurrentRunners: 2,
+        maxConcurrentRunners: Math.min(2, 4),
+        priorityRefreshIntervalMs: 5000,
         leaseTtlMs: 30_000,
         leaseRenewIntervalMs: 10_000,
         pollIntervalMs: 1000,
-        observer: {
-          runnerCompleted: (event: { runnerName: string; processed: number }) => trace("runner-completed", event),
-          runnerFailed: (event: { runnerName: string }) => trace("runner-failed", { runnerName: event.runnerName }),
-        },
+        observer,
       };
       pollLoop = createWorkerRunnerLoop({
         ...loopOptions,
         workerId: `attribution-poll-${fixture.shape}`,
-        runners: [
-          {
-            ...worker,
-            runOnce: async (context) => {
-              trace("pass-start", { ownerId: context?.ownerId });
-              try {
-                const result = await worker.runOnce(context);
-                trace("pass-end", { processed: result.processed, position: result.lastGlobalPosition });
-                return result;
-              } catch (error) {
-                trace("pass-failed");
-                throw error;
-              }
-            },
-          },
-        ],
+        runners: workers,
       });
       wakeLoop = createWorkerRunnerLoop({
         ...loopOptions,
@@ -1566,12 +1651,10 @@ describe("busy-group-pass-attribution Postgres", () => {
           workSignalStore: signals,
           projectionGroups: runtime.projectionGroups,
           observer: {
-            wakeIntentClaimed: (event) =>
-              trace("wake-claimed", { checkpointKey: event.checkpointKey, position: event.requiredPosition }),
-            wakeIntentDeferred: (event) =>
-              trace("wake-deferred", { checkpointKey: event.checkpointKey, position: event.requiredPosition }),
-            wakeIntentCompleted: (event) =>
-              trace("wake-completed", { checkpointKey: event.checkpointKey, position: event.checkpointPosition }),
+            wakeIntentClaimed: (event) => trace("wake-claimed", event),
+            wakeIntentDeferred: (event) => trace("wake-deferred", event),
+            wakeIntentCompleted: (event) => trace("wake-completed", event),
+            wakeIntentNotReady: (event) => trace("wake-not-ready", event),
             wakeIntentRunFailed: () => trace("wake-failed"),
           },
         }),
@@ -1592,6 +1675,38 @@ describe("busy-group-pass-attribution Postgres", () => {
         context: eventContext,
       });
       trace("initial-appended", { position: initial.at(-1)!.globalPosition, count: initial.length });
+      // Both competitors consume Inventory's finite backlog; Catalog's source remains empty.
+      if (fixture.sourceContextName !== "inventory") {
+        const backlog = await createPostgresEventStore({ pool: pools.inventory }).appendToStream({
+          streamId: "inventory.attribution",
+          expectedVersion: "no_stream",
+          context: eventContext,
+          events: Array.from({ length: 50 }, (_, index) => ({
+            eventType: index === 0 ? "inventory.item.created" : "inventory.item.adjusted",
+            payload: {},
+          })),
+        });
+        trace("competitor-appended", {
+          contextName: "inventory",
+          count: backlog.length,
+          position: backlog.at(-1)!.globalPosition,
+        });
+      }
+      trace("composition", {
+        slots: loopOptions.maxConcurrentRunners,
+        priorityRefreshIntervalMs: loopOptions.priorityRefreshIntervalMs,
+        leaseTtlMs: loopOptions.leaseTtlMs,
+        leaseRenewIntervalMs: loopOptions.leaseRenewIntervalMs,
+        pollIntervalMs: loopOptions.pollIntervalMs,
+        groups: runtime.projectionGroups.map((mountedGroup, index) => ({
+          runner: workers[index].name,
+          targetContextName: mountedGroup.targetContextName,
+          projectionName: mountedGroup.projectionName,
+          priority: String(workers[index].priority!()),
+          subscriptions: mountedGroup.subscriptionRunners.map((subscription) => subscription.getStatus()),
+        })),
+      });
+      expect(workers.length).toBeGreaterThan(loopOptions.maxConcurrentRunners);
       pollLoop.start();
       // Observe real application starting; do not hold the transaction or delay the holder.
       await applying;
@@ -1607,11 +1722,18 @@ describe("busy-group-pass-attribution Postgres", () => {
       });
       const position = appended.at(-1)!.globalPosition;
       const eventIds = appended.map((event) => event.eventId);
+      const observedAtMs = Date.now();
       const receipt = encodeFreshWriteReceipt({
-        observedAtMs: Date.now(),
+        observedAtMs,
         sources: [{ sourceContextName: fixture.sourceContextName, maxGlobalPosition: position, eventIds }],
       });
-      trace("receipt", { sourceContextName: fixture.sourceContextName, position, eventIds });
+      trace("receipt", {
+        sourceContextName: fixture.sourceContextName,
+        maxGlobalPosition: position,
+        eventIds,
+        observedAtMs,
+        receiptSha256: createHash("sha256").update(receipt).digest("hex"),
+      });
       const app = new Hono();
       attachReadConsistencyMiddleware(
         app,
@@ -1644,33 +1766,71 @@ describe("busy-group-pass-attribution Postgres", () => {
         trace("owned-query-visible", { requiredPosition: position, rows: result.rows });
         return context.json(result.rows);
       });
-      const readStartedAt = performance.now();
-      trace("read-start", { position, serverBoundMs: fixture.timeoutMs, clientBoundMs: 5000 });
-      const read = app.request("/api/marketplace/owned", {
-        headers: {
-          [CHASE_SETS_READ_AFTER_WRITE_HEADER]: receipt,
-          [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: "marketplace",
-        },
+      let readStartedAt: number | undefined;
+      let gapCheckpoint: string | undefined;
+      const checkpointKey = group.subscriptionRunners.find(
+        (subscription) => subscription.sourceContextName === fixture.sourceContextName,
+      )!.checkpointKey;
+      const read = new Promise<Response>((resolve, reject) => {
+        startReadInGap = () => {
+          if (!retainedPass || activeHolders.has(worker.name) || activeHolders.size < loopOptions.maxConcurrentRunners)
+            return;
+          startReadInGap = undefined;
+          readStartedAt = performance.now();
+          gapCheckpoint = committedPositions.get(`marketplace:${checkpointKey}`);
+          trace("read-start", {
+            route: "/api/marketplace/owned",
+            position,
+            checkpointKey,
+            gapCheckpoint,
+            serverBoundMs: fixture.timeoutMs,
+            clientBoundMs: 5000,
+            retainedPass,
+            competitors: [...activeHolders.values()],
+          });
+          void app
+            .request("/api/marketplace/owned", {
+              headers: {
+                [CHASE_SETS_READ_AFTER_WRITE_HEADER]: receipt,
+                [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: "marketplace",
+              },
+            })
+            .then(resolve, reject);
+          wakeLoop!.start();
+        };
       });
-      wakeLoop.start();
+      startReadInGap?.();
       const response = await Promise.race([
         read,
         new Promise<never>((_resolve, reject) => {
           clientTimer = setTimeout(
-            () => reject(new Error("busy-group exact receipt exceeded 5000ms client bound")),
+            () =>
+              reject(
+                new Error(
+                  readStartedAt === undefined
+                    ? "INCOMPLETE: no receipt read intersected a productive retained gap with both competitor slots occupied"
+                    : "busy-group exact receipt exceeded 5000ms client bound",
+                ),
+              ),
             5000,
           );
         }),
       ]);
-      const elapsedMs = performance.now() - readStartedAt;
+      const elapsedMs = performance.now() - readStartedAt!;
       trace("read-end", { status: response.status, requestDurationMs: elapsedMs, position });
       expect(response.status).toBe(200);
+      expect(gapCheckpoint, "INCOMPLETE: required checkpoint COMMIT was not observed before the gap").toBeDefined();
+      expect(BigInt(gapCheckpoint!)).toBeLessThan(BigInt(position));
       expect(await response.json()).toEqual([{ position, event_id: appended.at(-1)!.eventId }]);
       expect(elapsedMs).toBeLessThan(fixture.timeoutMs);
       expect(elapsedMs).toBeLessThan(5000);
       expect(omittedRecords).toBe(0);
       passed = true;
+    } catch (error) {
+      trace("case-failed", { error: error instanceof Error ? error.message : String(error) });
+      throw error;
     } finally {
+      startReadInGap = undefined;
       if (clientTimer) clearTimeout(clientTimer);
       try {
         trace("read-bound-snapshot-start", { passed });

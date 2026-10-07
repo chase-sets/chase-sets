@@ -6,6 +6,7 @@ import {
   collectProjectionOperationRunners,
   collectWorkerRunners,
   createDurableJobLaneRunners,
+  createWorkerRunnerLeaseName,
   createWorkerRunnerLoop,
   DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS,
   type WorkerHolderLifecycleEvent,
@@ -913,6 +914,73 @@ describe("worker runner loop", () => {
       expect(acquireCalls).toBeGreaterThanOrEqual(3);
     } finally {
       await loop.stop();
+    }
+  });
+
+  it("busy-group-exact-receipt-read: selection of another group does not retain an inactive holder", async () => {
+    vi.useFakeTimers();
+    const leases = new Map<string, PlatformLease>();
+    const order: string[] = [];
+    const inactiveHolders: string[] = [];
+    let fence = 0;
+    const controlPlane = createAlwaysLeasedControlPlane({
+      acquireLease: async (input) => {
+        if (leases.has(input.leaseName)) return null;
+        const lease = {
+          leaseName: input.leaseName,
+          ownerId: input.ownerId,
+          fencingToken: String(++fence),
+          expiresAt: new Date(Date.now() + input.ttlMs).toISOString(),
+        };
+        leases.set(lease.leaseName, lease);
+        order.push(`acquire:${lease.leaseName}`);
+        return lease;
+      },
+      releaseLease: async (lease) => {
+        if (leases.get(lease.leaseName)?.fencingToken === lease.fencingToken) leases.delete(lease.leaseName);
+        order.push(`release:${lease.leaseName}`);
+      },
+    });
+    const backlog = [["target-1", "target-2"], ["competitor-1"]];
+    const runners: WorkerRunner[] = backlog.map((events, index) => ({
+      name: index === 0 ? "marketplace.receipt-target" : "inventory.competitor",
+      kind: "projection-group",
+      priority: () => events.length,
+      runOnce: async () => {
+        const event = events.shift();
+        if (event) order.push(`apply:${event}`);
+        return { processed: event ? 1 : 0, lastGlobalPosition: "0" as never };
+      },
+    }));
+    const targetLeaseName = createWorkerRunnerLeaseName(runners[0]);
+    const loop = createWorkerRunnerLoop({
+      workerId: "receipt-poll",
+      controlPlane,
+      runners,
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 30_000,
+      leaseRenewIntervalMs: 10_000,
+      pollIntervalMs: 1000,
+      observer: {
+        holderLifecycle: (event) => {
+          if (event.phase === "pass-start" && event.runnerName === runners[1].name) {
+            order.push("competitor-selected");
+            const inactiveHolder = leases.get(targetLeaseName);
+            if (inactiveHolder) inactiveHolders.push(inactiveHolder.ownerId);
+          }
+        },
+      },
+    });
+    try {
+      loop.start();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(order.indexOf("apply:target-1")).toBeLessThan(order.indexOf("competitor-selected"));
+      expect(order.indexOf("competitor-selected")).toBeLessThan(order.indexOf("apply:target-2"));
+      expect(backlog).toEqual([[], []]);
+      expect(inactiveHolders).toEqual([]);
+    } finally {
+      await loop.stop();
+      vi.useRealTimers();
     }
   });
 
