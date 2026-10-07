@@ -72,7 +72,9 @@ async function installationIdentity() {
 }
 
 async function ownerRefusal(contexts, owned, mode, stage, id) {
+  control = `${id}-${mode}-installation-before`;
   const before = await installationIdentity();
+  control = `${id}-${mode}-refusal`;
   let failure;
   try {
     await execute("/bin/bash", [`${input}/scripts/provider-object-disposition/browser-boundary/ci-cleanup.sh`], {
@@ -98,20 +100,33 @@ async function ownerRefusal(contexts, owned, mode, stage, id) {
     })}`,
   );
   assert.ok(exact);
+  control = `${id}-${mode}-installation-after`;
   assert.deepEqual(await installationIdentity(), before);
+  control = `${id}-${mode}-identity-survival`;
   const after = await tree();
-  for (const record of owned) {
-    assert.ok(
-      after.some(
+  const missing = owned.filter(
+    (record) =>
+      !after.some(
         (r) =>
           r.pid === record.pid && r.start === record.start && r.parent === record.parent && r.image === record.image,
       ),
-    );
-  }
+  );
+  console.log(
+    `installed-boundary control ${id} identity-survival:${JSON.stringify({
+      mode,
+      beforeCount: owned.length,
+      afterCount: after.length,
+      missing: missing.map(({ pid, start, parent, image }) => ({ pid, start, parent, image })),
+    })}`,
+  );
+  assert.deepEqual(missing, []);
   for (const context of contexts) {
+    control = `${id}-${mode}-new-page`;
     const page = await context.newPage();
+    control = `${id}-${mode}-page-content`;
     await page.setContent("<!doctype html><title>SYNTHETIC_LIVE_OWNER_SURVIVES</title>");
     assert.equal(await page.title(), "SYNTHETIC_LIVE_OWNER_SURVIVES");
+    control = `${id}-${mode}-page-close`;
     await page.close();
   }
   pass(`${id} ${mode} refusal${contexts.length ? " and functional survival" : ""}`);
@@ -147,6 +162,7 @@ async function missingOwnerKey(contexts, owned, mode) {
     }
   }
   if (primary) throw primary;
+  control = `13d-${mode}-restored-admission`;
   await assertBrowserAdmission();
   pass(`13d ${mode} restored admission`);
 }
