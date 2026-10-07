@@ -1,4 +1,6 @@
 [
+  { "page": "/access/accounts/acc_seed_demo_account?tab=audit", "class": "seed-id", "maxCount": 37, "issue": 8721 },
+  { "page": "/access/accounts/acc_seed_demo_account?tab=audit", "class": "typed-id", "maxCount": 5, "issue": 8721 },
   { "page": "/access/accounts/acc_seed_suspended_account?tab=audit", "class": "seed-id", "maxCount": 5, "issue": 8721 },
   { "page": "/account/channels/connection-seed-tcgplayer-manual", "class": "seed-id", "maxCount": 1, "issue": 8776 },
   {
@@ -30,9 +32,25 @@
   { "page": "/catalog/dimensions/dim_seed_condition", "class": "iso-instant", "maxCount": 1, "issue": 8720 },
   { "page": "/catalog/display-templates", "class": "seed-id", "maxCount": 9, "issue": 8720 },
   { "page": "/catalog/integrations", "class": "hedged-plural", "maxCount": 2, "issue": 8720 },
+  { "page": "/catalog/scopes/ref_seed_expansion_base_set", "class": "hedged-plural", "maxCount": 3, "issue": 8866 },
+  { "page": "/catalog/scopes/ref_seed_expansion_base_set", "class": "seed-id", "maxCount": 2, "issue": 8866 },
   { "page": "/catalog/source-observations/tcgdex_en_base2_60", "class": "seed-id", "maxCount": 1, "issue": 8720 },
   { "page": "/commerce/money-health", "class": "seed-id", "maxCount": 2, "issue": 8726 },
-  { "page": "/commerce/postage-policies", "class": "iso-instant", "maxCount": 1, "issue": 8721 },
+  { "page": "/commerce/postage-policies", "class": "iso-instant", "maxCount": 2, "issue": 8721 },
+  {
+    "page": "/commerce/wallet-workbench/acc_seed_demo_account",
+    "class": "seed-id",
+    "maxCount": 1,
+    "issue": 8868
+  },
+  {
+    "page": "/commerce/wallet-workbench/acc_seed_demo_account",
+    "class": "typed-id",
+    "maxCount": 8,
+    "issue": 8868
+  },
+  { "page": "/growth/google-shopping", "class": "hedged-plural", "maxCount": 1, "issue": 8867 },
+  { "page": "/growth/google-shopping", "class": "seed-id", "maxCount": 59, "issue": 8867 },
   { "page": "/support", "class": "seed-id", "maxCount": 2, "issue": 8742 },
   { "page": "/support", "class": "typed-id", "maxCount": 2, "issue": 8742 },
   { "page": "/support/platform-feedback/pfb_seed_checkout", "class": "seed-id", "maxCount": 5, "issue": 8721 }

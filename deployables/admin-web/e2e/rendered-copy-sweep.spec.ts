@@ -57,7 +57,11 @@ const pages: readonly SweepPage[] = [
     persona: "owner",
     tag: "@catalog-admin-integrations",
     key: "/catalog/scopes/ref_seed_expansion_base_set",
-    witness: { kind: "populated", selector: "dl", text: "tcgdex / pokemon / ref_seed_series_base / Base Set" },
+    witness: {
+      kind: "populated",
+      selector: 'role=region[name="Catalog scope sync"] >> dl',
+      text: "tcgdex / pokemon / ref_seed_series_base / Base Set",
+    },
   },
   // Catalog source-observations/api/seeding/seed.ts:136-160 creates this observation from its base2-60 scenario fixture.
   {
@@ -146,6 +150,18 @@ const pages: readonly SweepPage[] = [
   },
 ];
 
+const catalogScopeKey = "/catalog/scopes/ref_seed_expansion_base_set";
+async function requireSweepWitness(page: Page, key: string, witness: RenderedCopyWitness, timeout?: number) {
+  if (key === catalogScopeKey) {
+    const check = expect.configure({ timeout });
+    const trigger = page.locator('[data-catalog-import-workflow-stage="run-sync"]');
+    await check(trigger, `${key}: Run sync disclosure`).toBeVisible();
+    if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
+    await check(trigger, `${key}: Run sync disclosure`).toHaveAttribute("aria-expanded", "true");
+  }
+  await requireWitness(page, key, witness, { timeout });
+}
+
 for (const entry of pages) {
   test(`rendered copy ${entry.persona} ${entry.key} ${entry.tag} @browser-e2e-seed`, async ({ page }, info) => {
     await (entry.persona === "owner" ? authenticateAdmin : authenticatePlatformAdmin)(page, entry.key);
@@ -163,7 +179,7 @@ for (const entry of pages) {
     const heading = page.getByRole("heading", { level: 1 }).first();
     await expect(heading, entry.key).toBeVisible();
     await expectAdminPageReady(page, { heading: await heading.innerText() });
-    await requireWitness(page, entry.key, entry.witness);
+    await requireSweepWitness(page, entry.key, entry.witness);
 
     console.log(`RENDERED_COPY_WITNESS ${JSON.stringify(annotation)}`);
     await assertRenderedCopy(page, entry.key, renderedCopyBaseline);
@@ -171,11 +187,38 @@ for (const entry of pages) {
 }
 
 const expectRenderedCopyWitness = (page: Page, key: string, witness: RenderedCopyWitness) =>
-  requireWitness(page, key, witness, { timeout: 1 });
+  requireSweepWitness(page, key, witness, 1);
 
 test.describe("rendered-copy planted controls @admin-access", () => {
   const key = "/planted-copy-control";
   const allowance: readonly RenderedCopyBaselineEntry[] = [{ page: key, class: "seed-id", maxCount: 1, issue: 8720 }];
+
+  const catalogWitness = pages.find((entry) => entry.key === catalogScopeKey)!.witness;
+  const catalogScope = (expanded: boolean, text = "tcgdex / pokemon / ref_seed_series_base / Base Set") =>
+    `<main><h1>Scope Detail</h1><button data-catalog-import-workflow-stage="run-sync" aria-expanded="${expanded}" onclick="this.setAttribute('aria-expanded', 'true'); document.querySelector('#sync').hidden = false; this.dataset.clicks = String(Number(this.dataset.clicks || 0) + 1)">Run sync</button><section id="sync" aria-labelledby="sync-title" ${expanded ? "" : "hidden"}><h2 id="sync-title">Catalog scope sync</h2><dl><dt>Scope</dt><dd>${text}</dd></dl></section></main>`;
+  test("Catalog collapsed Run sync opens before the same seeded scope witness", async ({ page }) => {
+    await page.setContent(catalogScope(false));
+    await expectRenderedCopyWitness(page, catalogScopeKey, catalogWitness);
+    await expect(page.locator('[data-catalog-import-workflow-stage="run-sync"]')).toHaveAttribute("data-clicks", "1");
+  });
+  test("Catalog open Run sync retains its seeded scope without another click", async ({ page }) => {
+    await page.setContent(catalogScope(true));
+    await expectRenderedCopyWitness(page, catalogScopeKey, catalogWitness);
+    await expect(page.locator('[data-catalog-import-workflow-stage="run-sync"]')).not.toHaveAttribute("data-clicks");
+  });
+  test("Catalog missing seeded scope fails after exact disclosure activation", async ({ page }) => {
+    await page.setContent(
+      catalogScope(false, "A different scope").replace(
+        "</main>",
+        "<dl><dt>Unrelated scope</dt><dd>tcgdex / pokemon / ref_seed_series_base / Base Set</dd></dl></main>",
+      ),
+    );
+    await expect(expectRenderedCopyWitness(page, catalogScopeKey, catalogWitness)).rejects.toThrow(catalogScopeKey);
+    await expect(page.locator('[data-catalog-import-workflow-stage="run-sync"]')).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
 
   test("baseline entries are parsed, sorted by page and class, and unique", () => {
     const keys = renderedCopyBaseline.map((entry) => JSON.stringify([entry.page, entry.class]));

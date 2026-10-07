@@ -840,6 +840,9 @@
       "@chase-sets/playwright-evidence": [
         "./infrastructure/playwright-evidence/index.ts"
       ],
+      "@chase-sets/playwright-evidence/rendered-copy": [
+        "./infrastructure/playwright-evidence/rendered-copy.ts"
+      ],
       "@chase-sets/postage-labels": [
         "./contracts/postage-labels/index.ts"
       ],

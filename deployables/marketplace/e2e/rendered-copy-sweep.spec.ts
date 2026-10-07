@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import {
   assertRenderedCopy,
   classifyRenderedCopy,
@@ -111,6 +111,22 @@ const pages: readonly SweepPage[] = [
   },
 ];
 
+const channelConnectionKey = "/account/channels/connection-seed-tcgplayer-manual";
+async function requirePublicationActivity(page: Page, key: string, timeout?: number) {
+  const check = expect.configure({ timeout });
+  const main = page.locator("main");
+  const label = `${key}: required loaded Publication activity seeded row`;
+  await check(main.getByText("Publication activity is unavailable", { exact: true }), label).toHaveCount(0);
+  const log = main.locator('[data-channels-outbound-operation-log="true"]');
+  await check(log, label).toHaveCount(1);
+  await check(log, label).toBeVisible();
+  // Channels features/manual-sync/api/seed.ts:23-28,108 seeds this operation's listing.
+  await check(
+    log.locator("table tbody tr").getByText("lst_seed_charizard_base_set_nm", { exact: true }),
+    label,
+  ).toBeVisible();
+}
+
 for (const entry of pages) {
   const tag = entry.persona === "collector" ? "@marketplace-account" : "@marketplace-seller";
   test(`rendered copy ${entry.persona} ${entry.key} ${tag} @browser-e2e-seed`, async ({ page }, info) => {
@@ -135,11 +151,33 @@ for (const entry of pages) {
     await expect(page, entry.key).toHaveURL(new URL(entry.key, info.project.use.baseURL).href);
     await expect(page.getByRole("heading", { level: 1 }).first(), entry.key).toBeVisible();
     await expectRenderedCopyWitness(page, entry.key, entry.witness, { root: entry.root });
+    if (entry.key === channelConnectionKey) await requirePublicationActivity(page, entry.key);
 
     console.log(`RENDERED_COPY_WITNESS ${JSON.stringify(annotation)}`);
     await assertRenderedCopy(page, entry.key, renderedCopyBaseline);
   });
 }
+
+test.describe("rendered-copy Channel planted controls @marketplace-seller", () => {
+  const loaded =
+    '<section data-channels-outbound-operation-log="true"><h2>Publication activity</h2><table><tbody><tr><td>lst_seed_charizard_base_set_nm</td></tr></tbody></table></section>';
+  test("loaded Publication activity requires the exact seeded listing row", async ({ page }) => {
+    await page.setContent(`<main><h1>Channel connection</h1><span>sandbox</span>${loaded}</main>`);
+    await requirePublicationActivity(page, channelConnectionKey, 1);
+  });
+  for (const [name, content] of [
+    ["read-error", "<section><h2>Publication activity</h2><h3>Publication activity is unavailable</h3></section>"],
+    ["missing component", ""],
+    ["empty component", loaded.replace("<tr><td>lst_seed_charizard_base_set_nm</td></tr>", "")],
+    ["missing seeded row", loaded.replace("lst_seed_charizard_base_set_nm", "lst_seed_other")],
+  ]) {
+    test(`Channel ${name} rejects an otherwise healthy sandbox page before classification`, async ({ page }) => {
+      await page.setContent(`<main><h1>Channel connection</h1><span>sandbox</span>${content}</main>`);
+      await expect(page.getByText("sandbox", { exact: true })).toBeVisible();
+      await expect(requirePublicationActivity(page, channelConnectionKey, 1)).rejects.toThrow(channelConnectionKey);
+    });
+  }
+});
 
 test("six rendered-copy classes exclude code, pre and raw-identifier containers @marketplace-account", async ({
   page,
