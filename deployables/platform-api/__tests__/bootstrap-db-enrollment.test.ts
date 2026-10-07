@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -353,23 +352,33 @@ type ScheduleProbe = {
 };
 
 async function cachedCompleteOracle() {
+  const builderUrl = pathToFileURL(join(testDirectory, "fixtures/bootstrap-db-oracle-schedule-memo.mjs"));
+  const { createPinnedOracleModuleSource } = await import(builderUrl.href);
   const oracleUrl = pathToFileURL(join(testDirectory, "fixtures/bootstrap-db-schedule-before-subset-reuse.mjs"));
   const source = readFileSync(oracleUrl, "utf8");
   expect(createHash("sha256").update(source).digest("hex")).toBe(
     "d3b96de0c4051a7021f8f00869d19dd13314166b8dc81244c2bb554a2493847b",
   );
-  const compilerUrl = pathToFileURL(createRequire(import.meta.url).resolve("@chase-sets/typescript-compiler-api"));
-  // Keep every oracle assignment and its independent scheduler. Only repeated
-  // calls with identical ordered durations and worker counts share a result.
+  // Keep every oracle assignment and its independent scheduler. Only calls
+  // with identical ordered durations and worker counts share a pinned result.
   // This does not use the candidate's file-subset cache or scheduling code.
-  const moduleSource = `${source
-    .replace('"@chase-sets/typescript-compiler-api"', JSON.stringify(compilerUrl.href))
-    .replaceAll("import.meta.url", JSON.stringify(oracleUrl.href))}
+  const moduleSource = createPinnedOracleModuleSource(
+    source,
+    `
 const uncachedListSchedule = worstCaseListScheduleMs;
 const results = new Map();
 export const schedulerCalls = { hits: 0, misses: 0 };
+export const requestedKeys = new Set();
+export function preload(entries) {
+  results.clear();
+  for (const [key, value] of Object.entries(entries)) results.set(key, value);
+  requestedKeys.clear();
+  schedulerCalls.hits = 0;
+  schedulerCalls.misses = 0;
+}
 worstCaseListScheduleMs = (durations, workers) => {
   const key = JSON.stringify([workers, durations]);
+  requestedKeys.add(key);
   if (results.has(key)) {
     schedulerCalls.hits += 1;
     return results.get(key);
@@ -380,7 +389,8 @@ worstCaseListScheduleMs = (durations, workers) => {
   return result;
 };
 export { worstCaseListScheduleMs };
-`;
+`,
+  );
   return import(/* @vite-ignore */ `data:text/javascript;base64,${Buffer.from(moduleSource).toString("base64")}`);
 }
 
@@ -698,6 +708,13 @@ describe("Platform API bootstrap DB enrollment", () => {
         );
       }
     }
+    const memoBytes = readFileSync(join(testDirectory, "fixtures/bootstrap-db-oracle-schedule-memo.json"));
+    expect(createHash("sha256").update(memoBytes).digest("hex")).toBe(
+      "bc6e1290ef0a8d692bb4600cf43ed5943c504e5e018cce1b9c4b4bd3930f3411",
+    );
+    const memo = JSON.parse(memoBytes.toString("utf8"));
+    expect(memo.oracleSha256).toBe("d3b96de0c4051a7021f8f00869d19dd13314166b8dc81244c2bb554a2493847b");
+    old.preload(memo.entries);
     const normalize = (value: unknown) => JSON.parse(JSON.stringify(value));
     // The pinned oracle lives under __tests__/fixtures, so its import.meta.url-derived
     // default root is __tests__; bind both guards to the one production platform-api root.
@@ -716,6 +733,11 @@ describe("Platform API bootstrap DB enrollment", () => {
       `bootstrap-enrollment-oracle ${JSON.stringify({ durationMs: performance.now() - started, fileCount: oldRepository.fileCount, schedulerCalls: old.schedulerCalls })}\n`,
     );
     expect(old.schedulerCalls.hits).toBeGreaterThan(old.schedulerCalls.misses);
+    const regeneration =
+      "Regenerate with node __tests__/fixtures/bootstrap-db-oracle-schedule-memo.mjs from deployables/platform-api";
+    expect(old.schedulerCalls.misses, regeneration).toBe(0);
+    expect(Object.keys(memo.entries), regeneration).toHaveLength(4095);
+    expect([...old.requestedKeys].sort(), regeneration).toEqual(Object.keys(memo.entries).sort());
     // The historical oracle's top-level path classifier rejects the real Catalog
     // entry. Preserve its complete output comparison with this exact, intentional
     // census correction accounted for; every schedule/case field still agrees.
