@@ -113,7 +113,13 @@ export function browserPipe(child) {
       if (!entry) continue;
       if (message.id) requests.delete(message.id);
       else events.delete(message.method);
-      if (message.error) entry.reject(new Error("synthetic-browser-command-refused"));
+      if (message.error)
+        entry.reject(
+          Object.assign(new Error("synthetic-browser-command-refused"), {
+            kind: "command",
+            commandCode: [-32601, -32602, -32000].includes(message.error.code) ? message.error.code : null,
+          }),
+        );
       else entry.resolve(message.result ?? message.params);
     }
   });
@@ -187,7 +193,13 @@ export async function browserLifecycleControls(stage) {
               await pipe.request("Inspector.enable", {}, sessionId);
               const crashed = Promise.race([pipe.event("Inspector.targetCrashed"), pipe.event("Target.targetCrashed")]);
               phase = "crash-event";
-              void pipe.request("Page.crash", {}, sessionId).catch(() => {});
+              void pipe.request("Page.crash", {}, sessionId).then(
+                () => console.log('installed-boundary renderer-crash-command:{"result":"returned"}'),
+                (error) =>
+                  console.log(
+                    `installed-boundary renderer-crash-command:${JSON.stringify({ result: "rejected", kind: ["command", "closed", "stream", "overflow", "decode", "deadline"].includes(error.kind) ? error.kind : "unknown", code: error.commandCode ?? null })}`,
+                  ),
+              );
               await crashed;
               running.child.stdio[3].end();
             } else if (mode === "pipe-cancel") running.child.stdio[3].end();
