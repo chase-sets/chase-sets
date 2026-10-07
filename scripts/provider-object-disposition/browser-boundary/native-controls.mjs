@@ -244,6 +244,14 @@ export async function nativeControls(stage) {
         signal: actual.signal,
         exact,
         parentSends: 0,
+        clients: [...actual.stdout.toString("ascii").matchAll(/^SYNTHETIC_EGRESS:(2|10):(1|2):([0-9]{1,3})$/gm)].map(
+          ([, family, kind, errno]) => ({ family: Number(family), kind: Number(kind), errno: Number(errno) }),
+        ),
+        closedRefusals: [
+          ...actual.stderr
+            .toString("ascii")
+            .matchAll(/^provider-boundary-refused:(external-interface|nested-sandbox)$/gm),
+        ].map(([, code]) => code),
         stdoutBytes: actual.stdout.length,
         stderrBytes: actual.stderr.length,
         redacted: true,

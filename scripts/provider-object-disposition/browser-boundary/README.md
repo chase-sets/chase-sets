@@ -71,22 +71,33 @@ A root-only synthetic missing-key stimulus checks census refusal alone and with
 a live browser, restores the exact header and requires fresh admission. It is
 never part of the workload root. Cleanup completion requires
 the exact names and loaded profile to be absent.
-The complete AC-D3 matrix is not yet discharged: transition force-kill/stall
-controls, hostile seed/FD-import controls, native census stimuli, PID reuse,
-concurrent survival, peer holdings, marker propagation and failure restoration
-still require dedicated hosted controls. A green subset is not AC-B1..B5 PASS.
+Dedicated hosted controls now cover transition KILL/TERM/deadline, hostile seed
+syscalls, closed native diagnostics, census/path stimuli, PID-reuse attempts,
+concurrent survival, peer holdings, interrupted removal and browser lifecycle.
+Each reports its own execution result. Cap construction, PID reuse and peer
+access can be refused by the runner; their explicit nonconstruction is not PASS.
+Ancestor-path mutation is not performed outside the installation footprint.
+The complete AC-D3 matrix is not yet discharged. A green subset is not
+AC-B1..B5 PASS; exact-head hosted logs, not this inventory, provide proof.
 
 ## Callers And Ownership
 
 The bound caller census is Packet P in #8951 comment 6031379240. Main did not
-contain its historical capture callers. This slice restores only admission and
-open/close plus CI setup/removal; it does not import the held branch or its
-capture implementation. The retained caller obligations remain:
+contain its historical capture callers. This slice restores their boundary
+obligations against the currently shipped `captureEvidenceWindow` interface,
+not the held branch's capture implementation. The bare entry point refuses:
+there is no default private fixture source, credential reader or provider
+factory. A trusted sibling-owned composition must supply those closures.
 
 - Installer and adapter: source binding, CP-T/CP-A parsing and closed diagnostics.
-- Capture main: admission before fixtures/credentials and repeated admission.
-- Driver: expiry/disposal closes the owned browser.
-- CLI and PowerShell wrapper: closed packet validation before atomic publication.
+- Capture main: operator admission before private closures, repeated admission
+  and reviewed-head checks, claim before opening, then boundary before readers.
+- Driver: expiry/cancellation closes the owned browser; memoized disposal uses
+  the canonical disposition policy and preserves the first error.
+- CLI and PowerShell wrapper: closed recursive validation before publication.
+  The publisher binds the manifest digest, validates serialized bytes again,
+  writes both files exclusively and renames the owned partial directory.
+  A claimed failure retains the cleanup obligation, never reports it cleaned.
 - Component observer and real J: #8954, not this boundary's early checkpoints.
 - H2/H3: #8953. Operator installation: #8364. Joint acceptance: #8255.
 
@@ -98,4 +109,6 @@ request. Contexts are private, offline, service-worker blocked and uncached by
 routing. Deadline, cancellation and cap close the owned browser. The required
 sender is supplied by the trusted caller; no default network client exists.
 Hosted controls use only synthetic responses and make no provider request.
-Full alternate-client/native and capture composition proof remains owed.
+Native direct-client probes and browser negatives run only on hosted CI.
+Actual provider/scenario composition remains #8954's responsibility; these
+synthetic boundary controls neither enable nor qualify a provider window.
