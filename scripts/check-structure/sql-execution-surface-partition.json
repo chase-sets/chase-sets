@@ -6,6 +6,7 @@
     "bounded-contexts/auth/support/auth-support/store.ts",
     "bounded-contexts/auth/support/ucp-support/agent-webhooks/agent-webhook-outbox.ts",
     "bounded-contexts/auth/support/ucp-support/agent-webhooks/agent-webhook-registration.ts",
+    "bounded-contexts/auth/support/ucp-support/connector-oauth.ts",
     "bounded-contexts/auth/support/ucp-support/oauth.ts",
     "bounded-contexts/authenticity/features/cases/read-model/projection.ts",
     "bounded-contexts/authenticity/features/cases/read-model/queries.ts",
@@ -94,6 +95,8 @@
     "bounded-contexts/channels/features/connections/read-model/operator-read-source.ts",
     "bounded-contexts/channels/features/connections/read-model/projection.ts",
     "bounded-contexts/channels/features/connections/read-model/queries.ts",
+    "bounded-contexts/channels/features/connector-feed/api/runtime.ts",
+    "bounded-contexts/channels/features/connector-feed/read-model/audit.ts",
     "bounded-contexts/channels/features/credentials/api/runtime.ts",
     "bounded-contexts/channels/features/listing-composition/api/listing-publication-application.ts",
     "bounded-contexts/channels/features/listing-composition/api/runtime.ts",
@@ -478,9 +481,10 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 282,
+    "count": 284,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
+      "bounded-contexts/auth/support/ucp-support/connector-oauth.ts": 2,
       "bounded-contexts/auth/support/ucp-support/oauth.ts": 4,
       "bounded-contexts/authenticity/features/cases/api/route.ts": 3,
       "bounded-contexts/catalog/features/alias-equivalence/api/route.ts": 2,
