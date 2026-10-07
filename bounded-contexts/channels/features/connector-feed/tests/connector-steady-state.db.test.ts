@@ -281,6 +281,7 @@ describeDb("connector-feed-steady-state / connector-feed-connection-state-matrix
       JSON.stringify({ ...connectorPolicyDefaults, pollWindowSeconds: 0 }),
       documentId,
     ]);
+    h.restart();
     const hold = vi.spyOn(h.services.connectionHealth, "readConnectionHealth");
     const before = await h.effects();
     const refused = await h.request("claim");

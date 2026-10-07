@@ -15,7 +15,6 @@ import { module as authModule } from "@chase-sets/auth";
 import { createConnectorOAuthService } from "@chase-sets/auth/server";
 import { CHANNEL_CONNECTOR_SCOPE_FAMILY } from "@chase-sets/auth-context";
 import { createPolicyRuntime } from "@chase-sets/platform-policy/runtime";
-import { buildPolicyDocumentProjectionHandlers } from "@chase-sets/platform-policy/projection";
 import { module as channelsModule } from "../../../index";
 import { buildChannelConnectionProjectionHandlers } from "../../connections/read-model/projection";
 import { buildChannelConnectionFactsProjectionHandlers } from "../../listing-composition/read-model/facts-projection";
@@ -347,7 +346,10 @@ export function transportDatabase(suffix: string) {
         streamId: `platform-policy.document-${result.documentId}`,
         fromVersion: result.version,
       });
-      const handlers = buildPolicyDocumentProjectionHandlers(pools.channels);
+      const handlers = services.projectors.find(
+        (projector) => projector.projectionName === "platform-policy-document-projection",
+      )?.handlers;
+      if (!handlers) throw new Error("missing-owned-policy-projector");
       for (const event of events) {
         const handler = handlers[event.eventType];
         if (handler) await handler(toTransportEvent(event));
@@ -367,7 +369,10 @@ export function transportDatabase(suffix: string) {
         },
         transportContext,
       );
-      const handlers = buildPolicyDocumentProjectionHandlers(pools.channels);
+      const handlers = services.projectors.find(
+        (projector) => projector.projectionName === "platform-policy-document-projection",
+      )?.handlers;
+      if (!handlers) throw new Error("missing-owned-policy-projector");
       for (const event of await store.readStream({ streamId: `platform-policy.document-${result.documentId}` })) {
         const handler = handlers[event.eventType];
         if (handler) await handler(toTransportEvent(event));
@@ -376,10 +381,51 @@ export function transportDatabase(suffix: string) {
     },
     async enqueue(
       listingId: string,
-      sequence = 1,
+      sequence?: number,
       operationKind: "publish" | "update" | "delist" = "publish",
     ): Promise<EnqueueOutboundOperation> {
       const channelListingId = `channel_${listingId}`;
+      const store = createPostgresEventStore({ pool: pools.channels });
+      const streamId = `channels.channel-listing-${channelListingId}`;
+      const prior = await store.readStream({ streamId });
+      const priorVersion = prior.at(-1)?.streamVersion ?? 0;
+      sequence ??= priorVersion + 1;
+      await pools.channels.query(
+        `INSERT INTO channels_listing_publication_facts
+        (listing_id,account_id,inventory_item_id,catalog_item_id,price_amount,price_currency_code,quantity_cap,
+         selected_options,selected_option_key,listing_status,updated_at,listing_stream_version)
+        VALUES ($1,$2,$3,$4,'1.00','USD',1000000,'[]','none',$5,now(),7)
+        ON CONFLICT (listing_id) DO UPDATE SET listing_status=EXCLUDED.listing_status`,
+        [
+          listingId,
+          target.accountId,
+          `item_${listingId}`,
+          `catalog_${listingId}`,
+          operationKind === "delist" ? "withdrawn" : "active",
+        ],
+      );
+      await pools.channels.query(
+        `INSERT INTO channels_inventory_item_facts
+        (item_id,account_id,catalog_item_id,total_quantity,updated_at,item_stream_version)
+        VALUES ($1,$2,$3,$4,now(),1)
+        ON CONFLICT (item_id) DO UPDATE SET total_quantity=EXCLUDED.total_quantity`,
+        [`item_${listingId}`, target.accountId, `catalog_${listingId}`, sequence],
+      );
+      await pools.channels.query(
+        `INSERT INTO channels_external_catalog_item_reference_facts
+        SELECT 'tcgplayer',$1,$2,'linked',now(),1
+        WHERE NOT EXISTS (SELECT 1 FROM channels_external_catalog_item_reference_facts
+          WHERE provider_key='tcgplayer' AND catalog_item_id=$2 AND link_state='linked')
+        ON CONFLICT DO NOTHING`,
+        [`product:${listingId}`, `catalog_${listingId}`],
+      );
+      await pools.channels.query(
+        `INSERT INTO channels_connection_publication_settings
+        (connection_id,title_prefix,title_suffix,description_footer,category_allowlist,excluded_listing_ids,updated_at,last_stream_version)
+        VALUES ($1,'','','','[]','[]',now(),1) ON CONFLICT DO NOTHING`,
+        [target.connectionId],
+      );
+      const placeholder = "chase-sets:snapshot-preserved:tcgplayer";
       const common = {
         connectionId: target.connectionId,
         channelListingId,
@@ -407,20 +453,18 @@ export function transportDatabase(suffix: string) {
               draft: {
                 channelListingId,
                 listingRevision: 7,
-                title: listingId,
-                description: "Synthetic",
-                categoryKey: "cards",
-                conditionKey: "near-mint",
+                title: placeholder,
+                description: placeholder,
+                categoryKey: placeholder,
+                conditionKey: placeholder,
                 price: { amountMinor: 100, currency: "USD" },
                 quantity: sequence,
                 attributes: [],
               },
             };
-      const store = createPostgresEventStore({ pool: pools.channels });
-      const streamId = `channels.channel-listing-${channelListingId}`;
       const stored = await store.appendToStream({
         streamId,
-        expectedVersion: sequence === 1 ? "no_stream" : sequence - 1,
+        expectedVersion: priorVersion === 0 ? "no_stream" : priorVersion,
         context: transportContext,
         events: [channelListingEventCodec.encode({ type: "channels.channel-listing.desired-state-changed", data })],
       });
@@ -440,7 +484,7 @@ export function transportDatabase(suffix: string) {
         envelope: {
           sourceEventId: String(event.eventId),
           sourceStreamId: streamId,
-          sourceStreamVersion: sequence,
+          sourceStreamVersion: event.streamVersion,
           sourceGlobalPosition: event.globalPosition,
           sourceOccurredAt: event.occurredAt,
         },

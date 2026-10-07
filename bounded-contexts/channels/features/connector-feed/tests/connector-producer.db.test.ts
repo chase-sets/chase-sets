@@ -291,8 +291,8 @@ describeDb("connector-feed-round-trip / connector-feed-lease-redelivery / connec
           : member.outcome,
     }));
     expect((await h.request("report", { reservationId: reservation.reservationId, outcomes })).status).toBe(200);
-    await h.enqueue("poison", 3, "update");
-    await h.enqueue("neighbor", 3, "update");
+    await h.enqueue("poison", undefined, "update");
+    await h.enqueue("neighbor", undefined, "update");
     const next = await claim();
     expect(next?.operations.map((operation) => operation.listingId)).toEqual(["neighbor"]);
   });
