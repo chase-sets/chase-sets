@@ -80,7 +80,7 @@ export function browserE2ePostgresDemand({
   const module = (file, dependencies) => {
     const exports = {};
     const compiled = ts.transpileModule(readSource(file), {
-      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
       fileName: file,
     }).outputText;
     runInNewContext(compiled, {
@@ -119,12 +119,10 @@ export function browserE2ePostgresDemand({
   const postgresFactory = module("infrastructure/event-core-postgres/pool.ts", {
     "node:fs": { readFileSync },
     pg: {
-      default: {
-        Pool: function (options) {
-          const row = createPgPool(options.connectionString, options);
-          row.on = () => row;
-          return row;
-        },
+      Pool: function (options) {
+        const row = createPgPool(options.connectionString, options);
+        row.on = () => row;
+        return row;
       },
     },
   });
