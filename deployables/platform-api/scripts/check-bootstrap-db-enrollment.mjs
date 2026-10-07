@@ -12,7 +12,8 @@ import { parseCLI } from "vitest/node";
  * job, and what each case asserts.
  *
  * `referenceDurationMs` values are the per-case durations reported by the
- * hosted job named in `bootstrapDbScheduleModel`, ceiling-rounded per case.
+ * accepted measurement named below or in `bootstrapDbScheduleModel`,
+ * ceiling-rounded per case.
  *
  * `identity` is a digest of the case's own parsed arguments after its name —
  * its callback and its per-case timeout, if any. It therefore covers every
@@ -158,34 +159,36 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     ]),
   }),
   "connector-mount-gate-isolation.db.test.ts": Object.freeze({
+    // Connector host timing accepted at 8622d6ee6eafc228d13cac735220324cf08f2e0f:
+    // ceiling of each callback's maximum across four observed runs, 2026-10-07.
     executionUnit: "test:db:1",
     databaseSuffix: "connector_composed_7993",
     bootBearingCases: "all",
     cases: Object.freeze([
       Object.freeze({
         name: "runs public registration, seller pairing, credential exchange and denies both principal substitutions",
-        referenceDurationMs: 2149,
-        identity: "36f0d73f246065b7",
+        referenceDurationMs: 9551,
+        identity: "a323ff8a1803c065",
       }),
       Object.freeze({
         name: "connector-feed-audit-completeness: one safe row per success/refusal, verified identities only",
-        referenceDurationMs: 1237,
+        referenceDurationMs: 9474,
         identity: "1c52c83b94b7148c",
       }),
       Object.freeze({
         name: "classifies raw exceptions without leaking their sentinel into responses, audit, logs or events",
-        referenceDurationMs: 1095,
+        referenceDurationMs: 9320,
         identity: "c32e8f3114e13a9f",
       }),
       Object.freeze({
         name: "audits every OAuth refusal and malformed transport once with unresolved identity",
-        referenceDurationMs: 1105,
-        identity: "9a78de43c07008e1",
+        referenceDurationMs: 10125,
+        identity: "f4325e300b6b29b5",
       }),
       Object.freeze({
         name: "audits detail, unpair, repeat cleanup and refused authorize/revoke without trusting route identity",
-        referenceDurationMs: 1967,
-        identity: "f78ba9796f83882a",
+        referenceDurationMs: 8806,
+        identity: "f239ff43a5fed707",
       }),
     ]),
   }),
@@ -446,8 +449,9 @@ export const bootstrapDbExecutionUnitBootBearingCaseCeilings = Object.freeze({
  * Timing inputs come from the accepted twelve-file measurement run 37467774999,
  * attempt 1, job 112283047125, artifact 11416067313, SHA256
  * bde370829ec7936fe72c723168c0aee5a959effcc19a34195fe9fb87944bd781.
- * All 62 upward-rounded observations and the fixed costs share this owner.
- * The first minimal witness in declaration order yields 376859/271549/340454ms,
+ * The baseline's 62 upward-rounded observations and fixed costs share this
+ * owner; the connector manifest entry records its subsequently accepted timing.
+ * That baseline's first minimal witness yields 376859/271549/340454ms,
  * aggregate 1043928ms; capture walls are not guarded product qualification.
  *
  * `testFileFixedCostMs` and `executionUnitFixedCostMs` are the largest

@@ -34,6 +34,12 @@ describe("connector-pairing-surface", () => {
       expect(screen.getByText("Connector pairing")).toBeTruthy();
       expect(screen.getByRole("button", { name: "Generate pairing code" })).toBeTruthy();
       if (state === "paired") expect(screen.getByText("Not seen yet")).toBeTruthy();
+      if (state === "code") {
+        expect(
+          screen.getByText("Click the connector in your browser toolbar within ten minutes to finish pairing."),
+        ).toBeTruthy();
+        expect(screen.getByText("Expires 2026-09-14T12:10:00.000Z")).toBeTruthy();
+      }
       if (state === "code" || state === "paired")
         expect(screen.getByRole("button", { name: "Unpair connector" })).toBeTruthy();
       else expect(screen.queryByRole("button", { name: "Unpair connector" })).toBeNull();
@@ -55,7 +61,7 @@ describe("connector-pairing-surface", () => {
     expect(screen.getByRole("button", { name: "Generate pairing code" }).hasAttribute("disabled")).toBe(true);
     expect(screen.getByText("Updating connector pairing...")).toBeTruthy();
   });
-  it("shows the newly generated code and expiry only for its current pairing", () => {
+  it("shows toolbar help and expiry without rendering the newly generated code anywhere in the DOM", () => {
     const generated = {
       pairingId: "pair_test",
       revision: 1,
@@ -76,7 +82,10 @@ describe("connector-pairing-surface", () => {
       false,
       generated,
     );
-    expect(screen.getByText(generated.code)).toBeTruthy();
+    expect(document.body.innerHTML).not.toContain(generated.code);
+    expect(
+      screen.getByText("Click the connector in your browser toolbar within ten minutes to finish pairing."),
+    ).toBeTruthy();
     expect(screen.getByText(`Expires ${generated.expiresAt}`)).toBeTruthy();
   });
   it("does not redisplay an old code after expiry or supersession", () => {

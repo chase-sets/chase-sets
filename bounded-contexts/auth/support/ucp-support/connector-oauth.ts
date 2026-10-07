@@ -89,7 +89,34 @@ function redirect(value: unknown): string {
   return result;
 }
 
-export function createConnectorOAuthService(getAuth: () => AuthServices, now = () => new Date()) {
+export function createConnectorOAuthService(
+  getAuth: () => AuthServices,
+  options: Readonly<{ connectorRedirectUris: readonly [string, ...string[]] }>,
+  now = () => new Date(),
+) {
+  const configuration = connectorRecord(options, ["connectorRedirectUris"]);
+  if (!Array.isArray(configuration.connectorRedirectUris) || configuration.connectorRedirectUris.length === 0)
+    throw new ConnectorOAuthError("invalid-request");
+  const redirectUris = new Set(configuration.connectorRedirectUris.map(redirect));
+  function pinnedRedirect(value: unknown): string {
+    const uri = redirect(value);
+    if (!redirectUris.has(uri)) throw new ConnectorOAuthError("invalid-request");
+    return uri;
+  }
+  async function validateAuthorization(input: unknown) {
+    const body = connectorRecord(input, ["client_id", "redirect_uri", "code_challenge", "code_challenge_method"]);
+    const clientId = connectorString(body.client_id);
+    const redirectUri = pinnedRedirect(body.redirect_uri);
+    const challenge = connectorString(body.code_challenge, 43);
+    if (!/^[A-Za-z0-9_-]{43}$/.test(challenge) || body.code_challenge_method !== "S256")
+      throw new ConnectorOAuthError("invalid-request");
+    const clients = await getAuth().db.query<{ redirect_uri: string }>(
+      "SELECT redirect_uri FROM auth_connector_clients WHERE client_id = $1",
+      [clientId],
+    );
+    if (clients.rows[0]?.redirect_uri !== redirectUri) throw new ConnectorOAuthError("invalid-request");
+    return { client_id: clientId, redirect_uri: redirectUri, code_challenge: challenge, code_challenge_method: "S256" };
+  }
   function grant(row: GrantRow): ConnectorGrant {
     return {
       grantId: row.grant_id,
@@ -130,6 +157,7 @@ export function createConnectorOAuthService(getAuth: () => AuthServices, now = (
   return {
     readGrant,
     resolveToken,
+    validateAuthorization,
     async resolveSeller(request: Request): Promise<ResolvedActor | null> {
       const actor = await resolveActorFromRequest(getAuth(), request);
       if (!actor || actor.agentGrant || actor.roleKey === "guest-buyer") return null;
@@ -141,7 +169,7 @@ export function createConnectorOAuthService(getAuth: () => AuthServices, now = (
     },
     async register(input: unknown) {
       const body = connectorRecord(input, ["redirect_uri", "scope", "token_endpoint_auth_method"]);
-      const redirectUri = redirect(body.redirect_uri);
+      const redirectUri = pinnedRedirect(body.redirect_uri);
       if (body.scope !== CHANNEL_CONNECTOR_SCOPE_FAMILY.scopes.join(" ") || body.token_endpoint_auth_method !== "none")
         throw new ConnectorOAuthError("invalid-request");
       const clientId = `cc_client_${randomUUID()}`;
@@ -159,20 +187,10 @@ export function createConnectorOAuthService(getAuth: () => AuthServices, now = (
       };
     },
     async authorize(input: unknown, binding: ConnectorGrantBinding) {
-      const body = connectorRecord(input, ["client_id", "redirect_uri", "code_challenge", "code_challenge_method"]);
-      const clientId = connectorString(body.client_id);
-      const redirectUri = redirect(body.redirect_uri);
-      const challenge = connectorString(body.code_challenge, 43);
-      if (!/^[A-Za-z0-9_-]{43}$/.test(challenge)) throw new ConnectorOAuthError("invalid-request");
-      if (body.code_challenge_method !== "S256") throw new ConnectorOAuthError("invalid-request");
+      const body = await validateAuthorization(input);
       const checked = connectorRecord(binding, ["connectionId", "accountId", "pairingId", "userId"]);
       for (const key of ["connectionId", "accountId", "pairingId", "userId"]) connectorString(checked[key]);
       const auth = getAuth();
-      const clients = await auth.db.query<{ redirect_uri: string }>(
-        "SELECT redirect_uri FROM auth_connector_clients WHERE client_id = $1",
-        [clientId],
-      );
-      if (clients.rows[0]?.redirect_uri !== redirectUri) throw new ConnectorOAuthError("invalid-credential");
       const code = auth.auth.issueOpaqueToken("cc_code");
       const grantId = `cc_grant_${randomUUID()}`;
       const at = now();
@@ -189,10 +207,10 @@ export function createConnectorOAuthService(getAuth: () => AuthServices, now = (
           binding.accountId,
           binding.pairingId,
           binding.userId,
-          clientId,
+          body.client_id,
           new Date(at.getTime() + lifetimes.ucpRefreshTokenTtlMs).toISOString(),
           connectorSecretDigest(code),
-          challenge,
+          body.code_challenge,
           new Date(at.getTime() + lifetimes.ucpAuthorizationCodeTtlMs).toISOString(),
           at.toISOString(),
         ],
