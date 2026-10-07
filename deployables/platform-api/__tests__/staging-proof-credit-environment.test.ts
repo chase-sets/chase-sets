@@ -11,7 +11,15 @@ import { closePlatformApiPools, createPlatformApiPools } from "../src/database-p
 describe("staging-proof-credit-environment config to composed route", () => {
   it("real console writes retain the pin through disabled/expired projection fallback and refuse replacement authority", async () => {
     const memory = createInMemoryEventStore();
-    const store = vi.spyOn(postgres, "createPostgresEventStore").mockReturnValue(memory.eventStore);
+    const store = vi.spyOn(postgres, "createPostgresEventStore").mockReturnValue({
+      ...memory.eventStore,
+      appendToStreamInTransaction: async () => {
+        throw new Error("Synthetic console test does not use transaction-local appends.");
+      },
+      readStreamInTransaction: async () => {
+        throw new Error("Synthetic console test does not use transaction-local reads.");
+      },
+    });
     const pools = createPlatformApiPools({
       runtimeProfile: "public",
       sharedDatabaseUrl: "postgresql://localhost/synthetic_unused",

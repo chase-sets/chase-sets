@@ -319,7 +319,17 @@ describeDb("staging-proof-credit atomicity and interleavings on real Postgres", 
     });
     await expect(runtime.post(input, actor(), context)).rejects.toThrow("proof_policy_disabled");
     expect((await s.wallets.loadWalletState(accountId)).accountId).toBeNull();
-    // Discriminating current-policy-only control: bypassing the write adapter demonstrably changes the pin.
+    await s.policies.revisePolicyDocument(stagingProofCreditPolicy, STAGING_PROOF_DOCUMENT, policyParams(), context);
+    await s.stagingProofCredits.post(input, actor(), context);
+    // Synthetic pin-guard-omission control: the unguarded generic writer violates the same global bound.
+    await expect(
+      s.policies.revisePolicyDocument(
+        stagingProofCreditPolicy,
+        STAGING_PROOF_DOCUMENT,
+        policyParams(otherAccountId),
+        context,
+      ),
+    ).rejects.toThrow("proof_pin_immutable");
     const unguarded = createPolicyRuntime({ eventStore: store, db: pool });
     await unguarded.revisePolicyDocument(
       stagingProofCreditPolicy,
@@ -330,5 +340,10 @@ describeDb("staging-proof-credit atomicity and interleavings on real Postgres", 
     expect((await unguarded.readPolicyDocumentState(STAGING_PROOF_DOCUMENT)).state.value).toEqual(
       policyParams(otherAccountId).value,
     );
+    await s.stagingProofCredits.post({ ...input, targetAccountId: otherAccountId }, actor(), context);
+    const credited = await Promise.all([accountId, otherAccountId].map((id) => s.wallets.loadWalletState(id)));
+    const oneAccountBound = () =>
+      expect(credited.filter((wallet) => wallet.stagingProofCredits.length > 0)).toHaveLength(1);
+    expect(oneAccountBound).toThrow();
   });
 });

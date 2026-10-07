@@ -180,11 +180,12 @@ describe("staging-proof-credit-authority-and-cap", () => {
     await expect(
       f.policies.createPolicyDocumentWithId(stagingProofCreditPolicy, "replacement", params, context),
     ).rejects.toThrow("proof_policy_replacement_refused");
+    const malformedValue = { ...params.value, unexpected: true };
     await expect(
       f.policies.revisePolicyDocument(
         stagingProofCreditPolicy,
         STAGING_PROOF_DOCUMENT,
-        { ...params, value: { ...params.value, unexpected: true } },
+        { ...params, value: malformedValue },
         context,
       ),
     ).rejects.toThrow("proof_policy_invalid");
@@ -293,6 +294,36 @@ describe("staging-proof-credit-authority-and-cap", () => {
 });
 
 describe("staging-proof-credit-replay", () => {
+  it("duplicate-credit bypass control violates the same one-pair invariant", async () => {
+    const f = await setup();
+    const input = { targetAccountId: accountId, amount: "25.00" };
+    await f.services.post(input, actor, context);
+    const onePair = () =>
+      expect(
+        f.allEvents.filter((event) => event.eventType === "settlement.wallet.staging-proof-credit-posted"),
+      ).toHaveLength(1);
+    onePair();
+    // Synthetic mutant discards retained Wallet history and removes its append revision guard.
+    const mutantStore: EventStore = {
+      ...f.eventStore,
+      readStream: (read) =>
+        read.streamId.startsWith("settlement.wallet-") ? Promise.resolve([]) : f.eventStore.readStream(read),
+      appendToStreams: (inputs) =>
+        f.eventStore.appendToStreams!(
+          inputs.map((input) =>
+            input.streamId.startsWith("settlement.wallet-") ? { ...input, expectedVersion: "any" } : input,
+          ),
+        ),
+    };
+    const mutant = createStagingProofCreditRuntime({
+      eventStore: mutantStore,
+      policies: f.policies,
+      deploymentEnvironment: "staging",
+    });
+    await mutant.post(input, actor, context);
+    expect(onePair).toThrow();
+    await expect(f.services.receipt(accountId, actor)).rejects.toThrow("proof_history_invalid");
+  });
   it("duplicates, restart, changed operator/key, spend and disable/re-enable never replenish", async () => {
     const f = await setup();
     const input = { targetAccountId: accountId, amount: "25.00" };
