@@ -1043,28 +1043,13 @@ export function assertNoActiveHelmOperation(census) {
   }
 }
 
-export async function readGitHubProductionWriterCensus(options = {}) {
-  const env = options.env ?? process.env;
-  const token = requiredOption(env.GITHUB_TOKEN, "GITHUB_TOKEN");
-  const repository = requiredOption(env.GITHUB_REPOSITORY, "GITHUB_REPOSITORY");
-  const currentRunId = requiredOption(env.GITHUB_RUN_ID, "GITHUB_RUN_ID");
-  const apiUrl = requiredOption(env.GITHUB_API_URL ?? "https://api.github.com", "GITHUB_API_URL").replace(/\/$/, "");
-  const fetchImpl = options.fetch ?? globalThis.fetch;
-  const runsById = new Map();
-  async function readApi(path, label) {
-    const response = await fetchImpl(`${apiUrl}/repos/${repository}/${path}`, {
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${token}`,
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-    });
-    if (!response.ok) {
-      throw new Error(`GitHub Actions ${label} failed with HTTP ${response.status}.`);
-    }
-    return response.json();
-  }
+// Runs start and finish while pages are read; a pass that observed that movement is unknown, never a census.
+class MovingRunCensusError extends Error {}
+const productionWriterCensusPassLimit = 5;
+const productionWriterCensusRetryDelayMs = 1_000;
 
+async function readActiveRunCensusPass(readApi) {
+  const runsById = new Map();
   for (const status of activeActionsRunStatuses) {
     let page = 1;
     let collected = 0;
@@ -1079,7 +1064,7 @@ export async function readGitHubProductionWriterCensus(options = {}) {
       }
       totalCount ??= body.total_count;
       if (body.total_count !== totalCount) {
-        throw new Error(`GitHub Actions ${status} run census total moved during pagination.`);
+        throw new MovingRunCensusError(`GitHub Actions ${status} run census total moved during pagination.`);
       }
       for (const run of body.workflow_runs) {
         if (!Number.isSafeInteger(run?.id) || run.id <= 0 || typeof run.name !== "string" || !run.name) {
@@ -1102,21 +1087,59 @@ export async function readGitHubProductionWriterCensus(options = {}) {
           htmlUrl: run.html_url,
         };
         if (runsById.has(String(run.id))) {
-          throw new Error(`GitHub Actions run census returned duplicate or moving run ${run.id}.`);
+          throw new MovingRunCensusError(`GitHub Actions run census returned duplicate or moving run ${run.id}.`);
         }
         runsById.set(String(run.id), record);
       }
       collected += body.workflow_runs.length;
       page += 1;
+      // An empty page before the total is reached means runs shifted between pages.
+      if (body.workflow_runs.length === 0) break;
     } while (collected < totalCount);
     if (collected !== totalCount) {
-      throw new Error(
+      throw new MovingRunCensusError(
         `GitHub Actions ${status} run census pagination was incomplete; collected ${collected} of ${totalCount}.`,
       );
     }
   }
+  return [...runsById.values()].sort((left, right) => Number(left.id) - Number(right.id));
+}
 
-  const runs = [...runsById.values()].sort((left, right) => Number(left.id) - Number(right.id));
+// Re-reads every status from scratch; only a whole pass with stable pagination is trusted.
+async function readStableActiveRunCensus(readApi, sleep) {
+  for (let pass = 1; ; pass += 1) {
+    try {
+      return await readActiveRunCensusPass(readApi);
+    } catch (error) {
+      if (!(error instanceof MovingRunCensusError) || pass >= productionWriterCensusPassLimit) throw error;
+      await sleep(productionWriterCensusRetryDelayMs * pass);
+    }
+  }
+}
+
+export async function readGitHubProductionWriterCensus(options = {}) {
+  const env = options.env ?? process.env;
+  const token = requiredOption(env.GITHUB_TOKEN, "GITHUB_TOKEN");
+  const repository = requiredOption(env.GITHUB_REPOSITORY, "GITHUB_REPOSITORY");
+  const currentRunId = requiredOption(env.GITHUB_RUN_ID, "GITHUB_RUN_ID");
+  const apiUrl = requiredOption(env.GITHUB_API_URL ?? "https://api.github.com", "GITHUB_API_URL").replace(/\/$/, "");
+  const fetchImpl = options.fetch ?? globalThis.fetch;
+  const sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+  async function readApi(path, label) {
+    const response = await fetchImpl(`${apiUrl}/repos/${repository}/${path}`, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${token}`,
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`GitHub Actions ${label} failed with HTTP ${response.status}.`);
+    }
+    return response.json();
+  }
+
+  const runs = await readStableActiveRunCensus(readApi, sleep);
   const concurrencyQueuedRuns = await readConcurrencyQueuedWriters(runs, currentRunId, readApi);
   const queuedIds = new Set(concurrencyQueuedRuns.map((run) => run.id));
   return {
