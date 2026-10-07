@@ -153,7 +153,7 @@ describe("guarded consent document activation", () => {
  * runtime test exercise the real command handler, the real projection
  * handlers, and the real resolver/cache together without a live Postgres.
  */
-function createFakePolicyDb() {
+function createFakePolicyDb(options: Readonly<{ overlappingDocumentId?: string }> = {}) {
   const documents = new Map<string, Record<string, unknown>>();
   const history: Record<string, unknown>[] = [];
   const queryLog: string[] = [];
@@ -235,10 +235,9 @@ function createFakePolicyDb() {
       }
 
       if (sql.includes("tstzrange")) {
-        // Overlap guard is unit-tested directly in queries.test.ts; this
-        // fake stays permissive so the runtime test can focus on the
-        // create -> revise -> resolve -> invalidate flow.
-        return { rows: [] };
+        // Overlap guard SQL is unit-tested directly in queries.test.ts; this
+        // fake stays permissive unless a test names an overlapping document.
+        return { rows: options.overlappingDocumentId ? [{ document_id: options.overlappingDocumentId }] : [] };
       }
 
       if (sql.includes("DISTINCT ON (policy_key)")) {
@@ -396,5 +395,283 @@ describe("platform policy runtime (define -> create -> revise -> resolve -> inva
       ),
     ).rejects.toThrow("graceDays must be an integer between 0 and 90.");
     expect(allEvents).toHaveLength(0);
+  });
+});
+
+const activeWindow = {
+  status: "active",
+  effectiveFrom: "2026-04-30T00:00:00.000Z",
+  effectiveUntil: null,
+} as const;
+
+const createParams = { value: { graceDays: 5 }, ...activeWindow, actorUserId: "usr_admin" };
+
+function revisedEvent(documentId: string, graceDays: number) {
+  return {
+    eventType: "platform-policy.document.revised",
+    payload: {
+      documentId,
+      policyKey: gracePeriodPolicy.policyKey,
+      value: { graceDays },
+      ...activeWindow,
+      actorUserId: "usr_admin",
+    },
+  };
+}
+
+/** Records every single-stream append's identity and expected version, then forwards it unchanged. */
+function recordAppends(eventStore: EventStore) {
+  const appends: { streamId: string; expectedVersion: unknown; eventCount: number }[] = [];
+  const recorded: EventStore = {
+    ...eventStore,
+    appendToStream: async (input) => {
+      appends.push({
+        streamId: input.streamId,
+        expectedVersion: input.expectedVersion,
+        eventCount: input.events.length,
+      });
+      return eventStore.appendToStream(input);
+    },
+  };
+  return { eventStore: recorded, appends };
+}
+
+/** Creates `documentId`, then appends `revisions` revised events carrying `graceDays: 7`. */
+async function seedDocumentStream(eventStore: EventStore, documentId: string, revisions: number) {
+  await createPolicyRuntime({ eventStore, db: createFakePolicyDb().db }).createPolicyDocumentWithId(
+    gracePeriodPolicy,
+    documentId,
+    createParams,
+    context,
+  );
+  if (revisions === 0) {
+    return;
+  }
+  await eventStore.appendToStream({
+    streamId: `platform-policy.document-${documentId}`,
+    expectedVersion: 1,
+    context,
+    events: Array.from({ length: revisions }, () => revisedEvent(documentId, 7)),
+  });
+}
+
+describe("authoritative policy document state read", () => {
+  it("returns exactly state and version from a complete replay whose decisive event is 501", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const documentId = "pol_replay_tail";
+    const streamId = `platform-policy.document-${documentId}`;
+    await seedDocumentStream(eventStore, documentId, 499);
+    await eventStore.appendToStream({
+      streamId,
+      expectedVersion: 500,
+      context,
+      events: [revisedEvent(documentId, 42)],
+    });
+    const pageReads: number[] = [];
+    const pagedStore: EventStore = {
+      ...eventStore,
+      readStream: async (input) => {
+        pageReads.push(input.fromVersion ?? 1);
+        return eventStore.readStream(input);
+      },
+    };
+    const { db, queryLog } = createFakePolicyDb();
+
+    const read = await createPolicyRuntime({ eventStore: pagedStore, db }).readPolicyDocumentState(documentId);
+
+    expect(Object.keys(read).sort()).toEqual(["state", "version"]);
+    expect(read).toEqual({
+      state: { documentId, policyKey: gracePeriodPolicy.policyKey, value: { graceDays: 42 }, ...activeWindow },
+      version: 501,
+    });
+    expect(pageReads).toEqual([1, 501]);
+    expect(queryLog).toHaveLength(0);
+
+    // Negative control: one page stops at event 500 and misses the decisive tail.
+    const firstPage = await eventStore.readStream({ streamId });
+    expect(firstPage).toHaveLength(500);
+    expect(firstPage.at(-1)).toMatchObject({ streamVersion: 500, payload: { value: { graceDays: 7 } } });
+  });
+
+  it("reads an absent document as the initial state at version 0", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const { db } = createFakePolicyDb();
+
+    await expect(createPolicyRuntime({ eventStore, db }).readPolicyDocumentState("pol_absent")).resolves.toEqual({
+      state: {
+        documentId: null,
+        policyKey: null,
+        status: null,
+        value: null,
+        effectiveFrom: null,
+        effectiveUntil: null,
+      },
+      version: 0,
+    });
+  });
+
+  it("propagates a failed continuation read and an unreplayable tail instead of returning a prefix", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const { db } = createFakePolicyDb();
+    const documentId = "pol_replay_failure";
+    await seedDocumentStream(eventStore, documentId, 499);
+    const failingStore: EventStore = {
+      ...eventStore,
+      readStream: async (input) => {
+        if ((input.fromVersion ?? 1) > 1) {
+          throw new Error("synthetic continuation read failure");
+        }
+        return eventStore.readStream(input);
+      },
+    };
+    await expect(
+      createPolicyRuntime({ eventStore: failingStore, db }).readPolicyDocumentState(documentId),
+    ).rejects.toThrow("synthetic continuation read failure");
+
+    await eventStore.appendToStream({
+      streamId: `platform-policy.document-${documentId}`,
+      expectedVersion: 500,
+      context,
+      events: [{ eventType: "platform-policy.document.unknown", payload: {} }],
+    });
+    await expect(createPolicyRuntime({ eventStore, db }).readPolicyDocumentState(documentId)).rejects.toThrow(
+      "Unhandled variant",
+    );
+  });
+});
+
+describe("caller-chosen policy document creation", () => {
+  it("appends one create on the private stream with no_stream and no projection read", async () => {
+    const { eventStore: store } = createInMemoryEventStore();
+    const { eventStore, appends } = recordAppends(store);
+    // A projected overlap would reject the random-id create; this seam must not consult it.
+    const { db, queryLog } = createFakePolicyDb({ overlappingDocumentId: "pol_projected_overlap" });
+    const runtime = createPolicyRuntime({ eventStore, db });
+
+    await expect(
+      runtime.createPolicyDocumentWithId(gracePeriodPolicy, "pol_chosen", createParams, context),
+    ).resolves.toEqual({ documentId: "pol_chosen", version: 1 });
+    await expect(
+      runtime.createPolicyDocumentWithId(gracePeriodPolicy, "pol_chosen", createParams, context),
+    ).rejects.toThrow("Policy document has already been created.");
+
+    expect(appends).toEqual([
+      { streamId: "platform-policy.document-pol_chosen", expectedVersion: "no_stream", eventCount: 1 },
+    ]);
+    expect(await store.readStream({ streamId: "platform-policy.document-pol_chosen" })).toMatchObject([
+      { streamVersion: 1, eventType: "platform-policy.document.created", payload: { documentId: "pol_chosen" } },
+    ]);
+    expect(queryLog).toHaveLength(0);
+  });
+
+  it("rejects a create that loses the race to a concurrent create of the same id", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const { db, documents } = createFakePolicyDb();
+    const streamId = "platform-policy.document-pol_raced";
+    const racingStore: EventStore = {
+      ...eventStore,
+      appendToStream: async (input) => {
+        // The competing create commits after this command loaded an empty stream.
+        await eventStore.appendToStream({ streamId, expectedVersion: "no_stream", context, events: input.events });
+        return eventStore.appendToStream(input);
+      },
+    };
+
+    await expect(
+      createPolicyRuntime({ eventStore: racingStore, db }).createPolicyDocumentWithId(
+        gracePeriodPolicy,
+        "pol_raced",
+        createParams,
+        context,
+      ),
+    ).rejects.toMatchObject({ code: "concurrency_conflict" });
+    expect(await eventStore.readStream({ streamId })).toHaveLength(1);
+    expect(documents.size).toBe(0);
+  });
+
+  it("rejects an id whose recorded form would differ from its stream identity", async () => {
+    const { eventStore, allEvents } = createInMemoryEventStore();
+    const { db } = createFakePolicyDb();
+
+    await expect(
+      createPolicyRuntime({ eventStore, db }).createPolicyDocumentWithId(
+        gracePeriodPolicy,
+        " pol_padded",
+        createParams,
+        context,
+      ),
+    ).rejects.toThrow("Policy document id must not have surrounding whitespace.");
+    expect(allEvents).toHaveLength(0);
+  });
+
+  it("keeps the random-id create's projection overlap rejection unchanged", async () => {
+    const { eventStore, allEvents } = createInMemoryEventStore();
+    const { db } = createFakePolicyDb({ overlappingDocumentId: "pol_existing" });
+
+    await expect(
+      createPolicyRuntime({ eventStore, db }).createPolicyDocument(gracePeriodPolicy, createParams, context),
+    ).rejects.toThrow(
+      `Active policy document pol_existing already covers policy '${gracePeriodPolicy.policyKey}' for that effective window.`,
+    );
+    expect(allEvents).toHaveLength(0);
+  });
+});
+
+describe("conditional policy document revision", () => {
+  const reviseParams = { value: { graceDays: 9 }, ...activeWindow, actorUserId: "usr_admin" };
+
+  it("forwards the expected version to the append boundary", async () => {
+    const { eventStore: store } = createInMemoryEventStore();
+    await seedDocumentStream(store, "pol_revised", 0);
+    const { eventStore, appends } = recordAppends(store);
+    const runtime = createPolicyRuntime({ eventStore, db: createFakePolicyDb().db });
+
+    await expect(
+      runtime.revisePolicyDocument(gracePeriodPolicy, "pol_revised", reviseParams, context, { expectedVersion: 1 }),
+    ).resolves.toEqual({ documentId: "pol_revised", version: 2 });
+    expect(appends).toEqual([{ streamId: "platform-policy.document-pol_revised", expectedVersion: 1, eventCount: 1 }]);
+  });
+
+  it("appends nothing when the stream moved past the version the caller read", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    await seedDocumentStream(eventStore, "pol_revised", 0);
+    const runtime = createPolicyRuntime({ eventStore, db: createFakePolicyDb().db });
+    const { version: readVersion } = await runtime.readPolicyDocumentState("pol_revised");
+    await runtime.revisePolicyDocument(
+      gracePeriodPolicy,
+      "pol_revised",
+      { ...reviseParams, value: { graceDays: 8 }, actorUserId: "usr_other" },
+      context,
+    );
+
+    await expect(
+      runtime.revisePolicyDocument(gracePeriodPolicy, "pol_revised", reviseParams, context, {
+        expectedVersion: readVersion,
+      }),
+    ).rejects.toMatchObject({ code: "concurrency_conflict" });
+    expect(await runtime.readPolicyDocumentState("pol_revised")).toMatchObject({
+      version: 2,
+      state: { value: { graceDays: 8 } },
+    });
+  });
+
+  it("keeps four-argument revisions on the loaded version and the overlap rejection", async () => {
+    const { eventStore: store } = createInMemoryEventStore();
+    await seedDocumentStream(store, "pol_revised", 0);
+    const { eventStore, appends } = recordAppends(store);
+
+    await createPolicyRuntime({ eventStore, db: createFakePolicyDb().db }).revisePolicyDocument(
+      gracePeriodPolicy,
+      "pol_revised",
+      reviseParams,
+      context,
+    );
+    await expect(
+      createPolicyRuntime({
+        eventStore,
+        db: createFakePolicyDb({ overlappingDocumentId: "pol_other" }).db,
+      }).revisePolicyDocument(gracePeriodPolicy, "pol_revised", reviseParams, context),
+    ).rejects.toThrow("Active policy document pol_other already covers");
+    expect(appends).toEqual([{ streamId: "platform-policy.document-pol_revised", expectedVersion: 1, eventCount: 1 }]);
   });
 });

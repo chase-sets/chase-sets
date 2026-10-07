@@ -731,7 +731,7 @@ export function deriveConsentAuthorizationEvidenceInventory({
 
   /**
    * One owning import redirected onto a same-named module the declaration does
-   * not live in, with all six registered calls preserved. The consumption
+   * not live in, with all three registered calls preserved. The consumption
    * partition is byte-for-byte what the registry carries; only the owning-import
    * edge moved.
    */
@@ -1476,7 +1476,7 @@ export function deriveConsentAuthorizationEvidenceInventory({
       "collectConsentAuthorizationRegistryViolations / #6120 permanence",
       "registry.6120-permanence",
       "consent-authorization-registry-invalid",
-      "buildScenarioIdentityReconcilers > consentReconciler",
+      "termsOfServiceConsentRoutes > POST /accept",
       "reason",
     ),
     mutationCase(
@@ -1487,7 +1487,7 @@ export function deriveConsentAuthorizationEvidenceInventory({
       "registry.partition",
       "consent-authorization-registry-invalid",
       "termsOfServiceConsentRoutes > POST /accept",
-      "2/1/3 partition",
+      "2/1/0 partition",
     ),
     mutationCase(
       "MUT-AC8-REGISTRY-ADD-SEVENTH",
@@ -1497,7 +1497,7 @@ export function deriveConsentAuthorizationEvidenceInventory({
       "registry.cardinality",
       "consent-authorization-registry-invalid",
       "seventhProbe",
-      "six-row registry",
+      "three-row registry",
     ),
     mutationCase(
       "MUT-AC6-PARTITION-NARROW-REGISTRY-HITS",
@@ -1825,12 +1825,12 @@ export function deriveConsentAuthorizationEvidenceInventory({
         '    if (false && site.classification === "provisioning" && !/#6120\\b.*permanent|permanent.*#6120\\b/i.test(site.reason)) {',
       ],
       "MUT-AC8-PARTITION-SWAP-CLASSIFICATION": [
-        '  if (JSON.stringify(counts) !== JSON.stringify({ actor: 2, "self-registration": 1, provisioning: 3 })) {',
-        '  if (false && JSON.stringify(counts) !== JSON.stringify({ actor: 2, "self-registration": 1, provisioning: 3 })) {',
+        '  if (JSON.stringify(counts) !== JSON.stringify({ actor: 2, "self-registration": 1, provisioning: 0 })) {',
+        '  if (false && JSON.stringify(counts) !== JSON.stringify({ actor: 2, "self-registration": 1, provisioning: 0 })) {',
       ],
       "MUT-AC8-REGISTRY-ADD-SEVENTH": [
-        '  if (registry.sites.length !== 6) violations.push("registry must contain exactly six sites");',
-        '  if (false && registry.sites.length !== 6) violations.push("registry must contain exactly six sites");',
+        '  if (registry.sites.length !== 3) violations.push("registry must contain exactly three sites");',
+        '  if (false && registry.sites.length !== 3) violations.push("registry must contain exactly three sites");',
       ],
       // The governing variable is the observed partition itself, not one clause
       // that reads it. Narrowing the observed consumptions to the rows the
@@ -2243,9 +2243,9 @@ process.exitCode = acceptancePassed ? 0 : 1;
       const mutantKeys = new Set(mutantModule.default.sites.map(key));
       return {
         candidateGreen:
-          candidateModule.default.sites.length === 6 && [...candidateKeys].every((value) => observed.has(value)),
-        mutantRed: mutantModule.default.sites.length === 5 && [...observed].some((value) => !mutantKeys.has(value)),
-        candidateObservation: "all six registered rows reconcile one-for-one against the observed partition",
+          candidateModule.default.sites.length === 3 && [...candidateKeys].every((value) => observed.has(value)),
+        mutantRed: mutantModule.default.sites.length === 2 && [...observed].some((value) => !mutantKeys.has(value)),
+        candidateObservation: "all three registered rows reconcile one-for-one against the observed partition",
         mutantObservation: "a live consumption has no registered row once one row is dropped",
       };
     }
@@ -2605,8 +2605,12 @@ process.exitCode = acceptancePassed ? 0 : 1;
     }
 
     if (id === "MUT-AC8-REASON-REMOVE-6120") {
+      // No provisioning row remains registered, so the probe reintroduces one
+      // whose reason drops its permanence authority.
       const changed = structuredClone(registry);
-      changed.sites.find(({ classification }) => classification === "provisioning").reason = "Permanent exemption.";
+      changed.sites[0].constructor = "authorizeConsentForProvisioning";
+      changed.sites[0].classification = "provisioning";
+      changed.sites[0].reason = "Permanent exemption.";
       return {
         candidateGreen: candidateModule
           .collectConsentAuthorizationRegistryViolations(changed, registrySchema)
@@ -2631,7 +2635,7 @@ process.exitCode = acceptancePassed ? 0 : 1;
         mutantRed: !mutantModule
           .collectConsentAuthorizationRegistryViolations(changed, registrySchema)
           .some((entry) => entry.includes("registry partition")),
-        candidateObservation: "the exact 2/1/3 partition is enforced",
+        candidateObservation: "the exact 2/1/0 partition is enforced",
         mutantObservation: "disabling the partition clause accepts a reclassified row",
       };
     }
@@ -2642,12 +2646,12 @@ process.exitCode = acceptancePassed ? 0 : 1;
       return {
         candidateGreen: candidateModule
           .collectConsentAuthorizationRegistryViolations(changed, registrySchema)
-          .some((entry) => entry.includes("exactly six")),
+          .some((entry) => entry.includes("exactly three")),
         mutantRed: !mutantModule
           .collectConsentAuthorizationRegistryViolations(changed, registrySchema)
-          .some((entry) => entry.includes("exactly six")),
-        candidateObservation: "the registry cardinality is exactly six",
-        mutantObservation: "disabling the cardinality clause accepts a seventh row",
+          .some((entry) => entry.includes("exactly three")),
+        candidateObservation: "the registry cardinality is exactly three",
+        mutantObservation: "disabling the cardinality clause accepts a fourth row",
       };
     }
 
