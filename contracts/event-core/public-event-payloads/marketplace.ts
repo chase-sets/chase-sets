@@ -5,7 +5,13 @@
 // published contract: the types are Platform-Operations-owned, their membership here is not.
 import type { AddressSnapshot } from "../../primitives/address-snapshot";
 import type { JsonValue } from "../../primitives/json";
-import type { AccountId } from "../../primitives/typed-ids";
+import {
+  parseStrictTypedUlid,
+  type AccountId,
+  type ListingEnforcementActionId,
+  type ReportedContentActionId,
+  type TypedUlid,
+} from "../../primitives/typed-ids";
 import type { MarketplaceReviewScoringDispositionProjectedV1Payload } from "../review-scoring-facts";
 import type { ReviewOpportunityChangedV1 } from "../review-opportunity-facts";
 import type { EmptyEventPayload } from "./event-core";
@@ -203,12 +209,200 @@ export type MarketplaceSellerListingAvailabilityPayload = Readonly<{
   accountId: AccountId;
 }>;
 
-export type MarketplaceListingAutoUnlistedPayload = Readonly<{
+/** Closed provenance of a Listing Enforcement Action; the source grants no permission. */
+export const marketplaceListingEnforcementSources = ["operator-unlist", "automatic-report-threshold"] as const;
+
+export type MarketplaceListingEnforcementSource = (typeof marketplaceListingEnforcementSources)[number];
+
+type MarketplaceListingEnforcementFields = Readonly<{
+  version: 1;
+  listingEnforcementActionId: ListingEnforcementActionId;
+  /** The Listing owner, copied from the aggregate; never caller-supplied. */
+  accountId: AccountId;
+  occurredAt: string;
+}>;
+
+export type MarketplaceOperatorListingEnforcementData = MarketplaceListingEnforcementFields &
+  Readonly<{ source: "operator-unlist"; sourceActionId: ReportedContentActionId }>;
+
+export type MarketplaceAutomaticListingEnforcementData = MarketplaceListingEnforcementFields &
+  Readonly<{ source: "automatic-report-threshold"; sourceActionId: TypedUlid<"rpt"> }>;
+
+export type MarketplaceListingEnforcementData =
+  | MarketplaceOperatorListingEnforcementData
+  | MarketplaceAutomaticListingEnforcementData;
+
+/** Historical auto-unlisted facts carry no `listingEnforcement`; they record no identity. */
+export type MarketplaceListingAutoUnlistedLegacyPayload = Readonly<{
   reportId: string;
   reportCount: number;
   threshold: number;
   autoUnlistedAt: string;
 }>;
+
+export type MarketplaceListingAutoUnlistedEnforcedPayload = Readonly<{
+  reportId: TypedUlid<"rpt">;
+  reportCount: number;
+  threshold: number;
+  autoUnlistedAt: string;
+  listingEnforcement: MarketplaceAutomaticListingEnforcementData;
+}>;
+
+export type MarketplaceListingAutoUnlistedPayload =
+  | MarketplaceListingAutoUnlistedLegacyPayload
+  | MarketplaceListingAutoUnlistedEnforcedPayload;
+
+export type MarketplaceListingOperatorUnlistedPayload = Readonly<{
+  listingEnforcement: MarketplaceOperatorListingEnforcementData;
+}>;
+
+/**
+ * Reads a stored or candidate auto-unlisted payload. Enrichment wholly absent is
+ * historical and is returned unchanged; any present enrichment must be the complete,
+ * closed automatic record whose source and time equal the report fields.
+ */
+export function parseMarketplaceListingAutoUnlistedPayload(value: unknown): MarketplaceListingAutoUnlistedPayload {
+  const input = listingEnforcementRecord(value, "Auto-unlisted payload");
+  if (!Object.hasOwn(input, "listingEnforcement")) {
+    return input as MarketplaceListingAutoUnlistedLegacyPayload;
+  }
+  assertListingEnforcementKeys(
+    input,
+    ["reportId", "reportCount", "threshold", "autoUnlistedAt", "listingEnforcement"],
+    "Auto-unlisted payload",
+  );
+  const reportId = listingEnforcementTypedUlid(input.reportId, "rpt", "Auto-unlist report id");
+  const reportCount = listingEnforcementPositiveInteger(input.reportCount, "Auto-unlist report count");
+  const threshold = listingEnforcementPositiveInteger(input.threshold, "Auto-unlist threshold");
+  if (reportCount < threshold) {
+    throw new Error("Auto-unlist report count must reach the threshold.");
+  }
+  const autoUnlistedAt = listingEnforcementInstant(input.autoUnlistedAt, "Auto-unlist timestamp");
+  const enforcement = parseMarketplaceListingEnforcementData(input.listingEnforcement);
+  if (enforcement.source !== "automatic-report-threshold") {
+    throw new Error("Auto-unlisted payload requires the automatic-report-threshold source.");
+  }
+  if (enforcement.sourceActionId !== reportId || enforcement.occurredAt !== autoUnlistedAt) {
+    throw new Error("Automatic listing enforcement must equal its report id and auto-unlist timestamp.");
+  }
+  return { reportId, reportCount, threshold, autoUnlistedAt, listingEnforcement: enforcement };
+}
+
+export function parseMarketplaceListingOperatorUnlistedPayload(
+  value: unknown,
+): MarketplaceListingOperatorUnlistedPayload {
+  const input = listingEnforcementRecord(value, "Operator-unlisted payload");
+  assertListingEnforcementKeys(input, ["listingEnforcement"], "Operator-unlisted payload");
+  const enforcement = parseMarketplaceListingEnforcementData(input.listingEnforcement);
+  if (enforcement.source !== "operator-unlist") {
+    throw new Error("Operator-unlisted payload requires the operator-unlist source.");
+  }
+  return { listingEnforcement: enforcement };
+}
+
+/** Parses one closed `listingEnforcement` record; source-to-event pairing is checked by the payload parsers. */
+export function parseMarketplaceListingEnforcementData(value: unknown): MarketplaceListingEnforcementData {
+  const input = listingEnforcementRecord(value, "Listing enforcement");
+  assertListingEnforcementKeys(
+    input,
+    ["version", "listingEnforcementActionId", "accountId", "source", "sourceActionId", "occurredAt"],
+    "Listing enforcement",
+  );
+  if (input.version !== 1) {
+    throw new Error("Listing enforcement version is not supported.");
+  }
+  const fields = {
+    version: 1,
+    listingEnforcementActionId: listingEnforcementTypedUlid(
+      input.listingEnforcementActionId,
+      "lea",
+      "Listing enforcement action id",
+    ),
+    accountId: listingEnforcementText(input.accountId, "Listing enforcement account id") as AccountId,
+    occurredAt: listingEnforcementInstant(input.occurredAt, "Listing enforcement time"),
+  } as const;
+  switch (input.source) {
+    case "operator-unlist":
+      return {
+        ...fields,
+        source: input.source,
+        sourceActionId: listingEnforcementTypedUlid(input.sourceActionId, "rca", "Listing enforcement source id"),
+      };
+    case "automatic-report-threshold":
+      return {
+        ...fields,
+        source: input.source,
+        sourceActionId: listingEnforcementTypedUlid(input.sourceActionId, "rpt", "Listing enforcement source id"),
+      };
+    default:
+      throw new Error("Listing enforcement source is invalid.");
+  }
+}
+
+function listingEnforcementRecord(value: unknown, label: string): Readonly<Record<string, unknown>> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be an object.`);
+  }
+  return value as Readonly<Record<string, unknown>>;
+}
+
+function assertListingEnforcementKeys(
+  input: Readonly<Record<string, unknown>>,
+  keys: readonly string[],
+  label: string,
+): void {
+  if (Object.keys(input).length !== keys.length || keys.some((key) => !Object.hasOwn(input, key))) {
+    throw new Error(`${label} requires exactly: ${keys.join(", ")}.`);
+  }
+}
+
+function listingEnforcementText(value: unknown, label: string): string {
+  if (typeof value !== "string" || value.length === 0 || value.trim() !== value) {
+    throw new Error(`${label} must be a nonempty, unpadded string.`);
+  }
+  return value;
+}
+
+function listingEnforcementTypedUlid<Prefix extends string>(
+  value: unknown,
+  prefix: Prefix,
+  label: string,
+): TypedUlid<Prefix> {
+  try {
+    return parseStrictTypedUlid(listingEnforcementText(value, label), prefix);
+  } catch {
+    throw new Error(`${label} must be a canonical '${prefix}_' ULID.`);
+  }
+}
+
+function listingEnforcementPositiveInteger(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) {
+    throw new Error(`${label} must be a positive whole number.`);
+  }
+  return value;
+}
+
+/** A calendar-valid ISO instant with an explicit `Z` or `±hh:mm` offset; date-only text is rejected. */
+function listingEnforcementInstant(value: unknown, label: string): string {
+  const input = listingEnforcementText(value, label);
+  const parts = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3})?(?:Z|[+-](\d{2}):(\d{2}))$/.exec(input);
+  const [, year, month, day, hour, minute, second, offsetHour, offsetMinute] = parts ?? [];
+  const calendarDay = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+  if (
+    !parts ||
+    !Number.isFinite(Date.parse(input)) ||
+    calendarDay.getUTCMonth() !== Number(month) - 1 ||
+    calendarDay.getUTCDate() !== Number(day) ||
+    Number(hour) > 23 ||
+    Number(minute) > 59 ||
+    Number(second) > 59 ||
+    Number(offsetHour ?? 0) > 23 ||
+    Number(offsetMinute ?? 0) > 59
+  ) {
+    throw new Error(`${label} must be a timezone-bearing ISO instant.`);
+  }
+  return input;
+}
 
 export type MarketplaceReportSubmittedPayload = Readonly<{
   reportId: string;
@@ -234,6 +428,7 @@ export type MarketplaceEventPayloads = Readonly<{
   "marketplace.listing.published": EmptyEventPayload;
   "marketplace.listing.paused": EmptyEventPayload;
   "marketplace.listing.auto-unlisted": MarketplaceListingAutoUnlistedPayload;
+  "marketplace.listing.operator-unlisted": MarketplaceListingOperatorUnlistedPayload;
   "marketplace.listing.withdrawn": EmptyEventPayload;
   "marketplace.seller-listing-availability.disabled": MarketplaceSellerListingAvailabilityPayload;
   "marketplace.seller-listing-availability.enabled": MarketplaceSellerListingAvailabilityPayload;

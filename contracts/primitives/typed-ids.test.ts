@@ -3,8 +3,11 @@ import {
   createId,
   createInternalId,
   parseStrictTypedUlid,
+  type EnforcementActionId,
+  type ListingEnforcementActionId,
   type OrderGroupId,
   type OrderId,
+  type ReportedContentActionId,
   type ShipmentGroupId,
   type ShipmentId,
 } from "./typed-ids";
@@ -89,5 +92,44 @@ describe("parseStrictTypedUlid", () => {
     "enf_01ARYZ6S41TSV4RRFFQ69G5FAV",
   ])("rejects a malformed support-request id: %s", (value) => {
     expect(() => parseStrictTypedUlid(value, "sup")).toThrow();
+  });
+});
+
+describe("listing enforcement ids", () => {
+  it.each(["lea", "rca"] as const)("round-trips a generated %s_ id", (prefix) => {
+    const id = createId(prefix);
+    expect(parseStrictTypedUlid(id, prefix)).toBe(id);
+  });
+
+  it.each(["lea", "rca"] as const)("rejects malformed %s_ ids", (prefix) => {
+    for (const body of [
+      "",
+      "01ARYZ6S41TSV4RRFFQ69G5FA",
+      "01ARYZ6S41TSV4RRFFQ69G5FAI",
+      "81ARYZ6S41TSV4RRFFQ69G5FAV",
+      "01aryz6s41tsv4rrffq69g5fav",
+      "01ARYZ6S41TSV4RRFFQ69G5FAV0",
+    ]) {
+      expect(() => parseStrictTypedUlid(`${prefix}_${body}`, prefix)).toThrow();
+    }
+  });
+
+  it.each([
+    ["lea", "enf"],
+    ["enf", "lea"],
+    ["lea", "rca"],
+    ["rca", "lea"],
+    ["rca", "rpt"],
+    ["rpt", "rca"],
+  ] as const)("rejects %s_ ids at a %s_ boundary", (source, target) => {
+    expect(() => parseStrictTypedUlid(createId(source), target)).toThrow();
+  });
+
+  it("keeps listing and account enforcement identities distinct", () => {
+    expectTypeOf(createId("lea")).toEqualTypeOf<ListingEnforcementActionId>();
+    expectTypeOf(parseStrictTypedUlid(createId("rca"), "rca")).toEqualTypeOf<ReportedContentActionId>();
+    expectTypeOf<ListingEnforcementActionId>().not.toMatchTypeOf<EnforcementActionId>();
+    expectTypeOf<EnforcementActionId>().not.toMatchTypeOf<ListingEnforcementActionId>();
+    expectTypeOf<ReportedContentActionId>().not.toMatchTypeOf<ListingEnforcementActionId>();
   });
 });

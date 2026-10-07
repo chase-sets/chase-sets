@@ -195,6 +195,7 @@ export function createMarketplaceReportRuntime(deps: MarketplaceReportRuntimeDep
             reportCount,
             threshold: LISTING_REPORT_AUTO_UNLIST_THRESHOLD,
             autoUnlistedAt: new Date().toISOString(),
+            listingEnforcementActionId: createId("lea"),
           } satisfies MarketplaceListingCommand,
           context,
         });
