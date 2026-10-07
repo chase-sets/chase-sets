@@ -47,6 +47,7 @@ export const ROLE_PERMISSIONS = {
     "recovered-inventory.evidence",
     "recovered-inventory.manage",
     "recovered-inventory.view",
+    "reported-content.view",
     "security.manage",
     "support.manage",
     "support.remedies.approve",
