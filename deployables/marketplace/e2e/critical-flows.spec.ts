@@ -487,7 +487,7 @@ test.describe("marketplace critical flows", () => {
     await expect(sales).toHaveAttribute("href", "/account/sales");
     await sales.click();
     await expect(page).toHaveURL(/\/account\/sales$/);
-    await expect(page.getByRole("heading", { name: "Sales", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Sales", level: 1, exact: true })).toBeVisible();
   });
 
   test("seeded seller can reach critical marketplace commerce surfaces including repricing @marketplace-seller", async ({
