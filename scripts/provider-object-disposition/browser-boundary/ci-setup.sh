@@ -30,12 +30,12 @@ require checkout-ancestry /usr/bin/git merge-base --is-ancestor "$BOUNDARY_HEAD_
 # Shared Static guards retain the normal PR merge-ref provenance. Native inputs
 # must still be byte-identical to the candidate, and installation uses its archive.
 require checkout-boundary-bytes /usr/bin/git diff --quiet "$BOUNDARY_HEAD_SHA" -- \
-  scripts/provider-object-disposition/browser-boundary scripts/provider-object-disposition/test-window-browser.mjs
+  scripts/provider-object-disposition/browser-boundary scripts/provider-object-disposition/test-window-browser.mjs scripts/provider-object-disposition/test-window-policy.mjs
 printf 'provider-boundary-candidate:%s\n' "$BOUNDARY_HEAD_SHA"
 mark create-input
 sudo install -d -o root -g root -m 0755 "$input"
 mark archive-input
-/usr/bin/git archive "$BOUNDARY_HEAD_SHA" -- scripts/provider-object-disposition/browser-boundary scripts/provider-object-disposition/test-window-browser.mjs | \
+/usr/bin/git archive "$BOUNDARY_HEAD_SHA" -- scripts/provider-object-disposition/browser-boundary scripts/provider-object-disposition/test-window-browser.mjs scripts/provider-object-disposition/test-window-policy.mjs | \
   sudo /bin/tar --extract --directory="$input" --no-same-owner --no-same-permissions --mode=u=rwX,go=rX
 mark install-boundary
 sudo env -i PATH=/usr/sbin:/usr/bin:/sbin:/bin GITHUB_ACTIONS=true RUNNER_ENVIRONMENT=github-hosted \

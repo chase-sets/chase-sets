@@ -90,6 +90,12 @@ capture implementation. The retained caller obligations remain:
 - Component observer and real J: #8954, not this boundary's early checkpoints.
 - H2/H3: #8953. Operator installation: #8364. Joint acceptance: #8255.
 
-The boundary alone supplies no parent external-send policy. The bootstrap-only
-GET policy and its composition remain required before any capture is usable;
-this probe uses memory-only pages and makes no provider request.
+The parent transport in `test-window-policy.mjs` admits only the exact serialized
+and parsed bootstrap GET, with fixed outgoing headers, no redirects or cookies,
+a bounded response and atomic attempts. `openBootstrapPage` loads those bytes in
+memory; child routes never grant an external send, including a second bootstrap
+request. Contexts are private, offline, service-worker blocked and uncached by
+routing. Deadline, cancellation and cap close the owned browser. The required
+sender is supplied by the trusted caller; no default network client exists.
+Hosted controls use only synthetic responses and make no provider request.
+Full alternate-client/native and capture composition proof remains owed.

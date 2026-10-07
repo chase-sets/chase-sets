@@ -96,7 +96,12 @@ it("browser has no fallback, inherited environment, persistent context or option
   browser.newContext({ serviceWorkers: "allow" });
   await Promise.all([browser.close(), browser.close()]);
   expect(close).toHaveBeenCalledTimes(1);
-  expect(newContext).toHaveBeenCalledWith({ serviceWorkers: "block", acceptDownloads: false });
+  expect(newContext).toHaveBeenCalledWith({
+    serviceWorkers: "block",
+    acceptDownloads: false,
+    offline: true,
+    permissions: [],
+  });
   expect(launch).toHaveBeenCalledWith({
     executablePath: BROWSER_LAUNCHER,
     ignoreDefaultArgs: true,

@@ -6,6 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { acquireHeavySlot } from "../../lib/heavy-slot.mjs";
 import { assertBrowserAdmission, openConfinedBrowser } from "../test-window-browser.mjs";
 import { browserCapabilityProof, removalRefusal, mediationDiagnostic, observerDiagnostic } from "./protocol.mjs";
+import { bootstrapControls } from "./bootstrap-controls.mjs";
 
 const execute = promisify(execFile);
 const observer =
@@ -297,6 +298,8 @@ async function run() {
   control = "12-launch-temporaries";
   assert.deepEqual(await readdir(`${install}/root/tmp`), []);
   pass("12 launch host temporaries absent");
+  control = "B2-bootstrap-transport";
+  await bootstrapControls();
   console.log("installed-boundary remaining controls: NOT PROVEN; see boundary README");
 }
 

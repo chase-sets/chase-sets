@@ -13,6 +13,8 @@ export const SOURCE_FILES = Object.freeze([
   "browser-boundary/install-ci.sh",
   "browser-boundary/ownership.py",
   "browser-boundary/protocol.mjs",
+  "browser-boundary/bootstrap.mjs",
+  "test-window-policy.mjs",
   "test-window-browser.mjs",
 ]);
 const CHILD_ENVIRONMENT = Object.freeze({ PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C" });
@@ -86,7 +88,8 @@ export async function openConfinedBrowser() {
   }
   let closing;
   return {
-    newContext: () => browser.newContext({ serviceWorkers: "block", acceptDownloads: false }),
+    newContext: () =>
+      browser.newContext({ serviceWorkers: "block", acceptDownloads: false, offline: true, permissions: [] }),
     close: () => {
       closing ??= browser.close();
       return closing;

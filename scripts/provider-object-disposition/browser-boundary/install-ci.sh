@@ -95,7 +95,7 @@ install -d -o root -g "$gid" -m 0750 "$target"
 mark copy-inputs
 install -d -m 0755 "$target/source" "$target/root/browser" "$target/root/tmp" "$target/root/proc" "$target/root/old-root" \
   "$target/root/dev/shm" "$target/root/etc" "$target/root/usr/share/fonts" "$target/root/etc/fonts"
-sources=(browser-boundary/launcher.c browser-boundary/apparmor.profile browser-boundary/install-ci.sh browser-boundary/ownership.py browser-boundary/protocol.mjs test-window-browser.mjs)
+sources=(browser-boundary/launcher.c browser-boundary/apparmor.profile browser-boundary/install-ci.sh browser-boundary/ownership.py browser-boundary/protocol.mjs browser-boundary/bootstrap.mjs test-window-policy.mjs test-window-browser.mjs)
 for name in "${sources[@]}"; do
   install -D -o root -g root -m 0644 "$source_dir/$name" "$target/source/$name"
 done
