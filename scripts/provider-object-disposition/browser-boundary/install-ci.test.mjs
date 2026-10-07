@@ -78,3 +78,15 @@ it("cleanup completion requires exact-name and loaded-profile absence after admi
     expect(cleanup.indexOf(name)).toBeLessThan(cleanup.indexOf("mark complete"));
   }
 });
+
+it("native inputs remain exact-head while shared Static retains PR merge-ref provenance", () => {
+  const setup = read("ci-setup.sh");
+  expect(setup).toContain('git merge-base --is-ancestor "$BOUNDARY_HEAD_SHA" HEAD');
+  expect(setup).toContain('git diff --quiet "$BOUNDARY_HEAD_SHA" --');
+  expect(setup).toContain('git archive "$BOUNDARY_HEAD_SHA" --');
+  expect(setup.indexOf("checkout-boundary-bytes")).toBeLessThan(setup.indexOf("mark create-input"));
+  const workflow = read("../../../.github/workflows/platform-pr.yml");
+  const job = workflow.slice(workflow.indexOf("  static:"), workflow.indexOf("  typecheck:"));
+  expect(job).toContain("BOUNDARY_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}");
+  expect(job).not.toContain("          ref:");
+});

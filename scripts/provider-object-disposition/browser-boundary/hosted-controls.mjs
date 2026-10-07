@@ -167,6 +167,8 @@ async function run() {
     assert.ok(owned.some((r) => r.image === "launcher" && r.pidNamespace === "host"));
     assert.ok(owned.some((r) => r.image === "launcher" && r.pidNamespace === "isolated"));
     assert.ok(owned.some((r) => r.image === "chrome"));
+    control = "5-nested-browser-sandbox";
+    assert.ok(owned.some((r) => r.image === "chrome" && r.userNamespace === "nested" && r.Seccomp === "2"));
     for (const r of owned) {
       control = "6-label";
       assert.equal(r.label, "expected");
@@ -193,6 +195,7 @@ async function run() {
     await concurrentPage.setContent("<!doctype html><title>SYNTHETIC_CONCURRENT_OWNER</title>");
     assert.equal(await concurrentPage.title(), "SYNTHETIC_CONCURRENT_OWNER");
     owned = await tree();
+    console.log(`installed-boundary concurrent-identities:${JSON.stringify(owned)}`);
     await liveOwnerRefusal([context, concurrentContext], owned, "concurrent-live");
   } catch (error) {
     primary = { error, control };

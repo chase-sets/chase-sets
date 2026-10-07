@@ -18,7 +18,7 @@ export const SOURCE_FILES = Object.freeze([
 const CHILD_ENVIRONMENT = Object.freeze({ PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C" });
 
 export async function assertBrowserAdmission({ operator = false } = {}) {
-  // #8364 alone owns operator-host authority. Never run a probe for that entry.
+  // Operator-host authority is separate. Never run a probe for that entry.
   if (operator) throw mediationFailure("operator-installation-unavailable");
   if (process.platform !== "linux" || typeof process.getuid !== "function") throw mediationFailure("linux-required");
   if (process.getuid() === 0) throw mediationFailure("nonroot-required");

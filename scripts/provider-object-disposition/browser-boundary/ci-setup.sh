@@ -25,8 +25,12 @@ done
 require input-absent test ! -e "$input"
 require input-not-symlink test ! -L "$input"
 mark validate-checkout
-require checkout-commit test "$(/usr/bin/git rev-parse HEAD)" = "$BOUNDARY_HEAD_SHA"
 /usr/bin/git cat-file -e "$BOUNDARY_HEAD_SHA^{commit}"
+require checkout-ancestry /usr/bin/git merge-base --is-ancestor "$BOUNDARY_HEAD_SHA" HEAD
+# Shared Static guards retain the normal PR merge-ref provenance. Native inputs
+# must still be byte-identical to the candidate, and installation uses its archive.
+require checkout-boundary-bytes /usr/bin/git diff --quiet "$BOUNDARY_HEAD_SHA" -- \
+  scripts/provider-object-disposition/browser-boundary scripts/provider-object-disposition/test-window-browser.mjs
 printf 'provider-boundary-candidate:%s\n' "$BOUNDARY_HEAD_SHA"
 mark create-input
 sudo install -d -o root -g root -m 0755 "$input"
