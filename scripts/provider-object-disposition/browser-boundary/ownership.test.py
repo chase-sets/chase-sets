@@ -2,12 +2,18 @@ import importlib.util
 from pathlib import Path
 import unittest
 import sys
+import io
+from contextlib import redirect_stderr, redirect_stdout
+from unittest import mock
 
 sys.dont_write_bytecode = True
 
 spec = importlib.util.spec_from_file_location('ownership', Path(__file__).with_name('ownership.py'))
 ownership = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ownership)
+observer_spec = importlib.util.spec_from_file_location('observer', Path(__file__).with_name('observe.py'))
+observer = importlib.util.module_from_spec(observer_spec)
+observer_spec.loader.exec_module(observer)
 
 
 def record(pid=20, parent=1, start=100, uid=1001, image=(1, 2), namespace='pid:[1]', path='/usr/local/lib/chase-sets-provider-window/launcher'):
@@ -57,6 +63,24 @@ class OwnershipControls(unittest.TestCase):
 
     def test_unrelated_host_process_is_not_an_owner(self):
         self.assertEqual(classify({}, {20: record(image=(2, 3), path='/usr/bin/sleep')}), 'none')
+
+    def test_observer_census_exception_is_a_closed_refusal_not_a_traceback(self):
+        output, error = io.StringIO(), io.StringIO()
+        with mock.patch.object(observer, 'snapshot', side_effect=observer.CensusError('PRIVATE')):
+            with mock.patch.object(observer.os, 'getuid', return_value=0, create=True):
+                with mock.patch.object(sys, 'argv', ['observe.py', '123']):
+                    with redirect_stdout(output), redirect_stderr(error):
+                        self.assertEqual(observer.main(), 1)
+        self.assertEqual(output.getvalue(), '')
+        self.assertEqual(error.getvalue(), 'provider-boundary-observer-refused:census\n')
+
+    def test_observer_argument_refusal_does_not_echo_argv(self):
+        output, error = io.StringIO(), io.StringIO()
+        with mock.patch.object(sys, 'argv', ['observe.py', 'PRIVATE']):
+            with redirect_stdout(output), redirect_stderr(error):
+                self.assertEqual(observer.main(), 1)
+        self.assertEqual(output.getvalue(), '')
+        self.assertEqual(error.getvalue(), 'provider-boundary-observer-refused:arguments\n')
 
 
 if __name__ == '__main__':

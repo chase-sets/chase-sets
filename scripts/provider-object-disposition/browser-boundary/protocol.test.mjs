@@ -6,6 +6,7 @@ import {
   mediationFailure,
   mediationDiagnostic,
   nativeRefusal,
+  observerDiagnostic,
 } from "./protocol.mjs";
 
 it("CP-T precedes CP-A, with complete exact bytes and empty stderr", () => {
@@ -84,4 +85,18 @@ it("hosted diagnostics require provenance, not an error message that impersonate
   expect(JSON.stringify(mediationDiagnostic(failure))).not.toContain("PRIVATE");
   expect(mediationDiagnostic(new Error(failure.message))).toBeNull();
   expect(mediationDiagnostic({ diagnostic: { stage: "PRIVATE" } })).toBeNull();
+});
+
+it("observer status 1, native status 78, signal, and contaminated output remain distinct", () => {
+  const stderr = "provider-boundary-observer-refused:census\n";
+  expect(observerDiagnostic({ code: 1, stdout: "", stderr }).stage).toBe("census");
+  expect(observerDiagnostic({ code: 1, stdout: "PRIVATE", stderr }).stage).toBe("unknown");
+  expect(observerDiagnostic({ code: 78, stderr }).stage).toBe("unknown");
+  expect(observerDiagnostic({ code: 1, stderr: stderr + "PRIVATE" }).stage).toBe("unknown");
+  expect(observerDiagnostic({ signal: "SIGTERM", stderr: "" })).toMatchObject({
+    status: null,
+    signal: "SIGTERM",
+    stage: "unknown",
+  });
+  expect(JSON.stringify(observerDiagnostic({ code: 1, stderr: "PRIVATE" }))).not.toContain("PRIVATE");
 });

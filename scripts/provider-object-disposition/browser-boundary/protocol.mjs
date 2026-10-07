@@ -133,3 +133,23 @@ export function mediationFailure(stage, error, restriction = "unknown") {
 export function mediationDiagnostic(error) {
   return diagnostics.get(error) ?? null;
 }
+
+export function observerDiagnostic(error) {
+  const stdout = bytes(error?.stdout);
+  const stderr = bytes(error?.stderr);
+  const allowed = ["arguments", "census", "descendants", "status", "status-field", "label", "namespaces", "root"];
+  const stage =
+    error?.code === 1 && !error?.signal && stdout?.length === 0 && stderr
+      ? (allowed.find((name) => stderr.equals(Buffer.from(`provider-boundary-observer-refused:${name}\n`))) ??
+        "unknown")
+      : "unknown";
+  return {
+    stage,
+    status: Number.isInteger(error?.code) && error.code >= 0 && error.code <= 255 ? error.code : null,
+    signal: ["SIGTERM", "SIGKILL"].includes(error?.signal) ? error.signal : null,
+    capturedBytes: stderr?.length ?? null,
+    stdoutBytes: stdout?.length ?? null,
+    redacted: true,
+    truncated: error?.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER",
+  };
+}

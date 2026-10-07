@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import { acquireHeavySlot } from "../../lib/heavy-slot.mjs";
 import { assertBrowserAdmission, openConfinedBrowser } from "../test-window-browser.mjs";
-import { mediationDiagnostic } from "./protocol.mjs";
+import { mediationDiagnostic, observerDiagnostic } from "./protocol.mjs";
 
 const execute = promisify(execFile);
 const observer =
@@ -19,6 +19,9 @@ async function tree() {
     env: { PATH: "/usr/sbin:/usr/bin:/sbin:/bin", LANG: "C", LC_ALL: "C" },
     timeout: 1000,
     maxBuffer: 32768,
+  }).catch((error) => {
+    console.error(`installed-boundary observer:${JSON.stringify(observerDiagnostic(error))}`);
+    throw new Error("observer-failed");
   });
   assert.equal(stderr, "");
   return JSON.parse(stdout);
