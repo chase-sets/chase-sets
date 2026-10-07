@@ -1063,7 +1063,7 @@ describe("worker runner loop", () => {
       await vi.advanceTimersByTimeAsync(500);
       expect(events.filter((event) => event.runnerName === runners[0].name)).toHaveLength(completed);
       pending[0] = 1;
-      await vi.advanceTimersByTimeAsync(500);
+      await vi.advanceTimersToNextTimerAsync();
       expect(pending[0]).toBe(0);
       await loop.stop();
       expect(leases.size).toBe(0);
