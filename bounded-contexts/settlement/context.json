@@ -780,7 +780,7 @@
       "risk": "critical",
       "strategy": "snapshot-return",
       "surfaces": [
-        "api-route:bounded-contexts/settlement/features/wallets/api/staging-proof-credit-route.ts:POST /wallet/staging-proof-credits"
+        "api-route:bounded-contexts/settlement/features/wallets/api/staging-proof-credit-runtime.ts:POST /wallet/staging-proof-credits"
       ],
       "visibleDestination": {
         "description": "The staging operator receives the Wallet-stream proof receipt directly; no projection or UI is required."
