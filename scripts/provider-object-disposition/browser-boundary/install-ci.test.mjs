@@ -93,6 +93,24 @@ it("native inputs remain exact-head while shared Static retains PR merge-ref pro
   expect(job).not.toContain("          ref:");
 });
 
+it("required Static keeps the complete source gate and native matrix under unchanged job deadlines", () => {
+  const workflow = read("../../../.github/workflows/platform-pr.yml");
+  const source = workflow.slice(workflow.indexOf("  static-source:"), workflow.indexOf("  static:"));
+  const native = workflow.slice(workflow.indexOf("  static:"), workflow.indexOf("  typecheck:"));
+  for (const job of [source, native]) {
+    expect(job).toContain("timeout-minutes: 20");
+    expect(job).toContain("if: needs['change-scope'].outputs.static_required == 'true'");
+    expect(job).not.toContain("continue-on-error");
+  }
+  expect(source).toContain("FORMAT_CHECK_SCOPE: full");
+  expect(source).toContain("run: pnpm run verify:static");
+  expect(native).toContain("needs: [change-scope, static-source]");
+  expect(native.slice(0, native.indexOf("    steps:"))).not.toContain("always()");
+  expect(native).toContain("node scripts/provider-object-disposition/browser-boundary/hosted-controls.mjs");
+  expect(native).toContain("name: Remove owned provider browser boundary\n        if: always()");
+  expect(workflow).toContain('require_job "Static Checks" "${{ needs.static.result }}"');
+});
+
 it("missing-key survival binds its own pre-stimulus snapshot, not the preceding browser case", () => {
   const controls = read("hosted-controls.mjs");
   const missing = controls.slice(
