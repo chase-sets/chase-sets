@@ -7,11 +7,11 @@ export async function openBootstrapPage({ browser, expiresAt, send, signal }) {
     const context = await browser.newContext();
     if (typeof context.routeWebSocket !== "function") throw new Error("browser-transport-unavailable");
     const unsupported = ["WebTransport", "RTCPeerConnection", "webkitRTCPeerConnection", "SharedWorker"];
-    await context.exposeBinding("__providerBoundaryDenied", (_source, name) => {
+    await context.exposeBinding("__providerBoundaryDenied", (_source, name, url) => {
       try {
         budget.take();
-        budget.deny({ method: "other", url: undefined });
-        if (!unsupported.includes(name)) void budget.close();
+        budget.deny({ method: name === "beacon" ? "POST" : "other", url });
+        if (!unsupported.includes(name) && name !== "beacon") void budget.close();
       } catch {
         void budget.close();
       }
@@ -28,6 +28,14 @@ export async function openBootstrapPage({ browser, expiresAt, send, signal }) {
           },
         });
       }
+      Object.defineProperty(Navigator.prototype, "sendBeacon", {
+        configurable: false,
+        writable: false,
+        value: function (url) {
+          void deny("beacon", typeof url === "string" ? url : undefined).catch(() => {});
+          return false;
+        },
+      });
     }, unsupported);
     await context.routeWebSocket(/.*/, (socket) => {
       try {

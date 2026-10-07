@@ -7,6 +7,8 @@ import { acquireHeavySlot } from "../../lib/heavy-slot.mjs";
 import { assertBrowserAdmission, openConfinedBrowser } from "../test-window-browser.mjs";
 import { browserCapabilityProof, removalRefusal, mediationDiagnostic, observerDiagnostic } from "./protocol.mjs";
 import { bootstrapControls } from "./bootstrap-controls.mjs";
+import { nativeDiagnosticControls } from "./native-diagnostics.mjs";
+import { nativeControls } from "./native-controls.mjs";
 
 const execute = promisify(execFile);
 const observer =
@@ -301,6 +303,12 @@ async function run() {
   control = "B2-bootstrap-transport";
   await bootstrapControls((stage) => {
     control = `B2-${stage}`;
+  });
+  await nativeDiagnosticControls((stage) => {
+    control = `B3-${stage}`;
+  });
+  await nativeControls((stage) => {
+    control = `native-${stage}`;
   });
   console.log("installed-boundary remaining controls: NOT PROVEN; see boundary README");
 }

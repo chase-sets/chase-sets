@@ -1,0 +1,54 @@
+import importlib.util
+from pathlib import Path
+import sys
+import unittest
+
+sys.dont_write_bytecode = True
+spec = importlib.util.spec_from_file_location('variants', Path(__file__).with_name('native-variants.py'))
+variants = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(variants)
+SOURCE = Path(__file__).with_name('launcher.c').read_text()
+
+
+class NativeVariantFixtures(unittest.TestCase):
+    def test_exact_mutation_anchors_refuse_drift(self):
+        for source in ('', 'a a'):
+            with self.assertRaises(ValueError):
+                variants.replace_once(source, 'a', 'b')
+
+    def test_ready_and_reap_variants_preserve_governing_time_budgets(self):
+        for name in ('ready-outer', 'ready-nested', 'reap-outer', 'reap-nested'):
+            changed = variants.variant(SOURCE, name)
+            for budget in ('monotonic_ms() - started < 1000', 'poll(&dead, 1, 250)', 'monotonic_ms() - started < 1500'):
+                self.assertIn(budget, changed)
+            self.assertIn('seed_fence();', changed)
+            self.assertIn('prctl(PR_SET_DUMPABLE, 0)', changed)
+
+    def test_transition_stalls_are_probe_only_and_cover_outer_and_nested(self):
+        for scope in ('outer', 'nested'):
+            for number in range(1, 7):
+                name = f'stall-{scope}-B{number}'
+                changed = variants.variant(SOURCE, name)
+                self.assertEqual(changed.count('SYNTHETIC_TRANSITION:'), 1)
+                condition = 'nested' if scope == 'nested' else '!nested'
+                self.assertIn(f'if (synthetic_probe && {condition})', changed)
+                self.assertIn('synthetic_probe = probe;', changed)
+                self.assertIn('seed_fence();', changed)
+
+    def test_syscall_stimuli_do_not_change_filter_and_require_observed_sigsys(self):
+        fence = SOURCE[SOURCE.index('static void seed_fence'):SOURCE.index('static void seed_main')]
+        for name in ('open', 'socket', 'connect', 'recvmsg', 'setns', 'unshare', 'mount', 'clone', 'prctl', 'x32'):
+            changed = variants.variant(SOURCE, 'sf-' + name)
+            self.assertIn(fence, changed)
+            self.assertIn('synthetic_status.si_code == CLD_KILLED && synthetic_status.si_status == SIGSYS', changed)
+            self.assertLess(changed.index('seed_fence();'), changed.index('    for (;;) syscall(SYS_pause);'))
+
+    def test_mapping_and_first_error_controls_remain_closed(self):
+        self.assertEqual(variants.variant(SOURCE, 'map-write').count('seed_map(seed, "uid_map", mapping);'), 2)
+        self.assertIn('require(false && ancestry, "namespace-identity")', variants.variant(SOURCE, 'b3-failure'))
+        with self.assertRaises((KeyError, ValueError)):
+            variants.variant(SOURCE, 'SYNTHETIC_PRIVATE')
+
+
+if __name__ == '__main__':
+    unittest.main()
