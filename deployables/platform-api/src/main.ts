@@ -311,6 +311,7 @@ const runtime = createPlatformApiHost({
   pools,
   runtimeLifecycle,
   hostPorts: {
+    deploymentEnvironment: config.deploymentEnvironment,
     channelCredentialKeyring: config.channelCredentialKeyring,
     processorGateway: paymentProcessorGateway,
     paymentProcessorPublicConfiguration: paymentProcessorGateway.getPublicConfiguration(),
