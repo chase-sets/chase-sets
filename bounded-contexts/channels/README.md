@@ -53,6 +53,26 @@ composition never invoke this helper; it is not a production entrypoint.
   and one shared Seller Desk contribution combining health and manual work
 - The public-key-backed TCGplayer connector extension identity and callback URI
 - Connector Pairing, connection-scoped operation authority, and safe connector request audit
+- Channel Operation Feed claim/report and membership-independent write-only inbound admission
+
+## Connector Transport
+
+The existing sessionless `/channel-connector/oauth` mount also serves POST
+`/connections/:connectionId/claim`, `/report`, and `/ingest`. Each operation uses
+the connection-bound connector bearer, never seller or agent authority. Claim
+commits its fenced last-seen and served-window observation before invoking the
+producer's own reservation transaction and canonical health hold. Report preserves
+the producer outcome and run-settlement contracts. Accepted report and ingest
+replays return the same exact `{}` bytes without a duplicate signal.
+
+Inbound `order` envelopes contain versioned opaque records; `export` envelopes
+contain a recursively validated derived live snapshot, never raw CSV. The tuple
+of connection, kind and external reference is the retained non-PII inbox identity.
+Payloads are separate, atomically admitted rows. Consumers use
+`connectorFeed.readAdmittedConnectorInboundEvents` with a pinned committed horizon
+and independently counted total, not table access. Missing payloads remain ordered
+`expired` events. Consumers own progress and interpretation; #8592 owns deletion
+for the exported inventory-snapshot and order-observation retention classes.
 
 ## Does Not Own
 
@@ -253,9 +273,9 @@ current inbound state: `absent`, `live`, or `revoked`. `withAuthority` keeps the
 canonical connection stream locked while an admitted consumer runs. Both active
 and paused connections retain write-only ingest authority after the grantor loses
 membership; claim and report require current membership. Pending setup and
-disconnected connections never admit connector operations. No transport, queue,
-coverage resolver, or heartbeat is implemented here. Last seen remains null until
-the claim producer records a real observation.
+disconnected connections never admit connector operations. Claim transport records
+a fenced last-seen observation and served poll window before calling the outbound
+producer. Pairing itself does not reserve work or evaluate inbound coverage.
 
 Supersession, unpair, and disconnect revoke Auth authority before closing a
 pairing or publishing its replacement. Auth and Channels have separate databases:

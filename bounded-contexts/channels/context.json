@@ -675,8 +675,12 @@
     },
     "connector-feed": {
       "classification": "slice",
-      "purpose": "Own Channel Connection pairing, current operation authority, and safe request audit.",
-      "expectedConsumers": ["Channels connection detail, connector OAuth, and future claim/report/ingest transport"]
+      "purpose": "Own Channel Connection pairing, current operation authority, claim/report transport, durable write-only inbound admission and safe request audit.",
+      "expectedConsumers": [
+        "Channels connection detail",
+        "Connector clients",
+        "Channels inbound interpreters and retention sweeps"
+      ]
     },
     "connection-health": {
       "classification": "slice",
