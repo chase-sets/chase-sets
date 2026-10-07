@@ -335,8 +335,10 @@ function nestedSubstitutions(text, offset, found) {
   }
 }
 
-// Lexes one Bash run script. Words keep their expansion identity (dynamic) and
-// whether any quoting occurred; quoting removes syntax, never executable
+// Lexes one Bash run script. Words keep their expansion identity (dynamic),
+// whether any quoting occurred, whether any expansion sits outside double
+// quotes (unprotected: it may split) and whether an unquoted glob or brace
+// expansion occurs (pattern); quoting removes syntax, never executable
 // position. Here-document bodies are data except substitutions in bodies whose
 // delimiter is unquoted. Every loop iteration consumes at least one character.
 function shellTokens(run) {
@@ -377,6 +379,14 @@ function shellTokens(run) {
     let quote = null;
     let quoted = false;
     let dynamic = false;
+    let unprotected = false;
+    let pattern = false;
+    let braces = 0;
+    let braceList = false;
+    const expansion = () => {
+      dynamic = true;
+      if (!quote) unprotected = true;
+    };
     while (index < run.length) {
       const character = run[index];
       if (!quote && (blank(character) || operatorAt(run, index))) break;
@@ -406,7 +416,7 @@ function shellTokens(run) {
           if (!boundedArithmetic(run.slice(index + 3, end))) errors.push("unlisted arithmetic form");
           nestedSubstitutions(run.slice(index + 3, end), index + 3, substitutions);
           value += run.slice(index, end + 2);
-          dynamic = true;
+          expansion();
           index = end + 2;
           continue;
         }
@@ -417,7 +427,7 @@ function shellTokens(run) {
         substitutions.push({ run: run.slice(index + 2, end), index });
         productions.add("comsub");
         value += run.slice(index, end + 1);
-        dynamic = true;
+        expansion();
         index = end + 1;
         continue;
       }
@@ -430,7 +440,7 @@ function shellTokens(run) {
         }
         substitutions.push({ run: run.slice(index + 1, end), index });
         value += run.slice(index, end + 1);
-        dynamic = true;
+        expansion();
         index = end + 1;
         continue;
       }
@@ -441,16 +451,24 @@ function shellTokens(run) {
         if (/^[\s|]/.test(inner)) errors.push("unsupported function substitution");
         nestedSubstitutions(inner, index + 2, substitutions);
         value += run.slice(index, end + 1);
-        dynamic = true;
+        expansion();
         index = end + 1;
         continue;
       }
-      if (quote !== "'" && character === "$") dynamic = true;
+      if (quote !== "'" && character === "$") expansion();
+      if (!quote && "*?[".includes(character)) pattern = true;
+      if (!quote && character === "{") braces += 1;
+      if (!quote && braces && (character === "," || run.startsWith("..", index))) braceList = true;
+      if (!quote && braces && character === "}") {
+        braces -= 1;
+        if (braceList) pattern = true;
+      }
       value += character;
       index += 1;
     }
     if (quote) errors.push("unterminated quoted word");
-    const token = { type: "word", value, dynamic, quoted, index: start, raw: run.slice(start, index) };
+    const raw = run.slice(start, index);
+    const token = { type: "word", value, dynamic, quoted, unprotected, pattern, index: start, raw };
     tokens.push(token);
     if (heredocOperator) {
       pendingDocuments.push({ delimiter: value, quoted, stripTabs: heredocOperator === "<<-", token });
@@ -483,7 +501,16 @@ function shellTokens(run) {
       const end = shellGroupEnd(run, index + 1);
       const raw = run.slice(index, end + 1);
       substitutions.push({ run: run.slice(index + 2, end), index });
-      tokens.push({ type: "word", value: raw, dynamic: true, quoted: false, index, raw });
+      tokens.push({
+        type: "word",
+        value: raw,
+        dynamic: true,
+        quoted: false,
+        unprotected: true,
+        pattern: false,
+        index,
+        raw,
+      });
       index = end + 1;
     } else {
       const operator = operatorAt(run, index);
@@ -821,9 +848,10 @@ function shellSyntaxErrors(tokens, commands, grammar) {
 }
 
 // ---------------------------------------------------------------------------
-// Benign-form admission. Both callers (validateGrammarPartition and
-// benignFormMatches) use benignAdmissionViolations; an entry is admitted only
-// when it returns no violation. Admission inspects pinned entry data only.
+// Benign-form admission. validateGrammarPartition proves each stored entry
+// (benignAdmissionViolations); benignFormMatch re-proves the roles of every
+// match over the actual tokens and run context (roleViolations). A command is
+// admitted only when both return no violation.
 
 const dataOperandSelectors = new Set(["echo", "printf", "[", "[[", "test", "mkdir", "cp", "chmod", "install", "cat"]);
 const shellInterpreters = new Set(["bash", "sh", "dash", "zsh", "ksh"]);
@@ -835,18 +863,27 @@ const containsCoveredToken = (text) => coveredToken.test(text) || coveredToken.t
 
 const literal = (word, value) => Boolean(word) && !word.dynamic && word.value === value;
 const literalOption = (word) => Boolean(word) && !word.dynamic && word.value.length > 1 && word.value.startsWith("-");
+// Lexed words carry raw-derived quote facts. Stored entry words have only the
+// quoted flag, so validation reads that flag and the classifier re-proves each
+// match against the actual tokens.
+const unprotectedExpansion = (word) => word.dynamic && (word.unprotected ?? !word.quoted);
+const filenamePattern = (word) => word.pattern ?? (!word.quoted && /[*?[]|\{[^{}]*(?:,|\.\.)[^{}]*\}/.test(word.value));
 // Words whose expansion may yield any number of arguments.
 const variadicWord = (word) =>
-  word.dynamic && (!word.quoted || /\$\{?[@*]\}?|\$\{[A-Za-z_]\w*\[[@*]\]\}/.test(word.value));
-// One argument of any runtime content: a pinned spelling or one quoted expansion.
+  filenamePattern(word) ||
+  (word.dynamic && (unprotectedExpansion(word) || /\$\{?[@*]\}?|\$\{[A-Za-z_]\w*\[[@*]\]\}/.test(word.value)));
+// One argument of any runtime content: a pinned spelling or one protected expansion.
 const singleArgument = (word) => Boolean(word) && !variadicWord(word);
-const pinnedOperand = (word) => Boolean(word) && !word.dynamic && !word.value.startsWith("-");
+// A fixed program text, or a fixed non-option script/package/program name.
+const pinnedText = (word) => Boolean(word) && !word.dynamic && !filenamePattern(word);
+const pinnedOperand = (word) => pinnedText(word) && !word.value.startsWith("-");
 
-// The executable a hop selects, after resolving a literal path or a quoted
-// "$VAR/fixed/basename" spelling. Dynamic and option-shaped selectors resolve
-// to nothing.
+// The executable a hop selects, after resolving a literal path or a fully
+// quoted "$VAR/fixed/basename" spelling. Dynamic, partially quoted, pattern and
+// option-shaped selectors resolve to nothing.
 function hopSelector(word) {
-  const selector = word && fixedSelector({ ...word, raw: word.raw ?? word.value });
+  if (!word || filenamePattern(word) || unprotectedExpansion(word)) return null;
+  const selector = fixedSelector({ ...word, raw: word.raw ?? word.value });
   return selector && !selector.startsWith("-") ? basename(selector) : null;
 }
 
@@ -854,46 +891,78 @@ function spaced(list) {
   return new Set(list.split(" ").filter(Boolean));
 }
 
-// A non-forwarding utility: fixed command path, origin-proved literal options,
-// and data operands. `commands` lists accepted literal subcommand paths;
-// `global` gives option arities allowed before them. Literal options and
-// option-shaped dynamic words must name an allowed option; multi-argument
-// expansions are data only after a literal `--` or where `variadic` proves it.
-function terminal({ commands = null, optionalCommand = false, global = {}, options = "", variadic = [] } = {}) {
-  const allowed = spaced(options);
-  const paths = (commands ?? []).map((path) => path.split(" "));
-  const variadicPaths = new Set(variadic);
-  return (words, at) => {
+// Option tables list spellings: `-x` is a flag, `--x=` takes an inline value
+// and `--x:N` takes N following values; one name may list several spellings.
+function optionTable(list) {
+  const table = new Map();
+  for (const spelling of spaced(list)) {
+    const [, name, inline, values] = spelling.match(/^(.+?)(=)?(?::(\d))?$/);
+    const option = table.get(name) ?? { flag: false, inline: false, values: 0 };
+    if (inline) option.inline = true;
+    else if (values) option.values = Number(values);
+    else option.flag = true;
+    table.set(name, option);
+  }
+  return table;
+}
+
+// The index after the option at `index` and its single-argument values, or -1
+// when the table does not prove that option in that spelling.
+function optionEnd(words, index, table) {
+  const word = words[index];
+  const separator = word.value.indexOf("=");
+  const name = separator < 0 ? word.value : word.value.slice(0, separator);
+  const option = table.get(name);
+  if (!option || name.includes("$") || !singleArgument(word)) return -1;
+  if (separator >= 0) return option.inline ? index + 1 : -1;
+  if (word.dynamic) return -1;
+  if (option.flag) return index + 1;
+  const values = words.slice(index + 1, index + 1 + option.values);
+  return option.values && values.length === option.values && values.every(singleArgument)
+    ? index + 1 + option.values
+    : -1;
+}
+
+// A non-forwarding utility with finite, origin-proved command shapes. `shapes`
+// maps each literal command path ("" when none) to its option table, or to
+// { options, operands, variadic }: `operands` bounds the non-option data
+// words and `variadic` proves multi-argument expansions to be data. `global`
+// options precede the path. A literal `--` that a shape lists ends the checks.
+function terminal({ global = "", shapes = { "": "" } } = {}) {
+  const globals = optionTable(global);
+  const table = Object.entries(shapes).map(([path, shape]) => {
+    const {
+      options = "",
+      operands = Infinity,
+      variadic = false,
+    } = typeof shape === "string" ? { options: shape } : shape;
+    return { path: path ? path.split(" ") : [], options: optionTable(options), operands, variadic };
+  });
+  const admit = (words, at) => {
     let index = at + 1;
-    while (literalOption(words[index]) && Object.hasOwn(global, words[index].value)) {
-      const values = words.slice(index + 1, index + 1 + global[words[index].value]);
-      if (values.length !== global[words[index].value] || !values.every(singleArgument)) return false;
-      index += 1 + values.length;
+    while (literalOption(words[index]) && globals.has(words[index].value.split("=")[0])) {
+      index = optionEnd(words, index, globals);
+      if (index < 0) return false;
     }
-    let path = [];
-    if (paths.length) {
-      path =
-        paths
-          .filter((candidate) => candidate.every((part, offset) => literal(words[index + offset], part)))
-          .sort((left, right) => right.length - left.length)[0] ?? null;
-      if (!path && !optionalCommand) return false;
-      index += path?.length ?? 0;
-    }
-    const variadicData = variadicPaths.has((path ?? []).join(" ")) || variadicPaths.has("*");
-    for (let position = index; position < words.length; position += 1) {
-      const word = words[position];
-      if (literal(word, "--") && allowed.has("--")) return true;
-      if (variadicWord(word)) {
-        if (!variadicData) return false;
-        continue;
-      }
+    const shape = table
+      .filter(({ path }) => path.every((part, offset) => literal(words[index + offset], part)))
+      .sort((left, right) => right.path.length - left.path.length)[0];
+    if (!shape) return false;
+    let operands = 0;
+    for (index += shape.path.length; index < words.length; ) {
+      const word = words[index];
+      if (literal(word, "--") && shape.options.has("--")) return true;
       if (word.value.startsWith("-") && word.value !== "-") {
-        const name = word.value.split("=")[0];
-        if (name.includes("$") || !allowed.has(name)) return false;
+        index = optionEnd(words, index, shape.options);
+        if (index < 0) return false;
+      } else {
+        if (variadicWord(word) ? !shape.variadic : ++operands > shape.operands) return false;
+        index += 1;
       }
     }
     return true;
   };
+  return Object.assign(admit, { global: globals, shapes: table });
 }
 
 // Prefix commands. Each one requires a further executable and redispatches it.
@@ -904,12 +973,7 @@ function timeoutPrefix(words, at, next) {
 
 function envPrefix(words, at, next) {
   let index = at + 1;
-  while (
-    words[index] &&
-    /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[index].value) &&
-    (!words[index].dynamic || words[index].quoted) &&
-    !variadicWord(words[index])
-  )
+  while (words[index] && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[index].value) && singleArgument(words[index]))
     index += 1;
   if (literal(words[index], "--")) index += 1;
   return next(index);
@@ -927,17 +991,214 @@ function commandPrefix(words, at, next) {
   return next(index);
 }
 
+// Origin-proved dynamic package selection. These are the complete boot_smoke
+// run blocks at 926050f8 (YAML-decoded, LF), the only corpus commands whose
+// pnpm --filter package is dynamic. originWitness re-proves from each text that
+// `workspace="$2"` is its only binding, that nothing rebinds the positional
+// parameters, and that boot_smoke has exactly two callers, each passing a
+// literal package; "$workspace" therefore selects one of those packages only
+// inside that exact text and substitution occurrence.
+const bootSmokeBlocks = [
+  {
+    origin: {
+      sha: "926050f88aae70a631c117c1e0f002a3160a9278",
+      path: ".github/workflows/platform-pr.yml",
+      job: "docker-image",
+      step: 7,
+    },
+    run: [
+      "set -euo pipefail",
+      "",
+      "# Keep this aligned with Build Release Image boot smoke in",
+      "# platform-production.yml: start each web component exactly as App",
+      "# Platform does (run_command and health_check from",
+      "# infrastructure/digitalocean/platform/main.tf) before the merge",
+      "# queue accepts a Docker image change.",
+      "boot_smoke() {",
+      '  component="$1"',
+      '  workspace="$2"',
+      '  health_path="$3"',
+      '  host_port="$4"',
+      "",
+      '  container_id="$(docker run -d \\',
+      "    -e NODE_ENV=production \\",
+      "    -e PORT=8080 \\",
+      '    -p "${host_port}:8080" \\',
+      '    "$PLATFORM_IMAGE" \\',
+      '    pnpm --filter "$workspace" run start)"',
+      "",
+      "  for _ in $(seq 1 30); do",
+      '    if curl --fail --silent --output /dev/null "http://localhost:${host_port}${health_path}"; then',
+      '      if [ "$component" = "public-web" ] && ! pnpm run smoke:public-web-routes -- \\',
+      '        --base-url "http://localhost:${host_port}" \\',
+      "        --mode no-5xx; then",
+      '        echo "Boot smoke failed for public-web: the derived public route walk was not 5xx-free." >&2',
+      '        docker logs "$container_id" >&2 || true',
+      '        docker rm -f "$container_id" >/dev/null || true',
+      "        return 1",
+      "      fi",
+      '      echo "Boot smoke passed for ${component} (${health_path})."',
+      '      docker rm -f "$container_id" >/dev/null',
+      "      return 0",
+      "    fi",
+      '    if [ "$(docker inspect --format \'{{.State.Running}}\' "$container_id")" != "true" ]; then',
+      "      break",
+      "    fi",
+      "    sleep 1",
+      "  done",
+      "",
+      '  echo "Boot smoke failed for ${component}: ${health_path} never became healthy." >&2',
+      '  docker logs "$container_id" >&2 || true',
+      '  docker rm -f "$container_id" >/dev/null || true',
+      "  return 1",
+      "}",
+      "",
+      'boot_smoke marketplace "@chase-sets/app-marketplace-web" /health/ready 18080',
+      'boot_smoke public-web "@chase-sets/app-public-web" / 18081',
+      "",
+    ].join("\n"),
+  },
+  {
+    origin: {
+      sha: "926050f88aae70a631c117c1e0f002a3160a9278",
+      path: ".github/workflows/platform-production.yml",
+      job: "build-image",
+      step: 7,
+    },
+    run: [
+      "set -euo pipefail",
+      "",
+      "# Build-time success does not prove runtime success (issue #1417):",
+      "# start each web component with its deployed command and health check",
+      "# so a non-booting image fails this parallel job before the push and",
+      "# never reaches the deploy lane.",
+      "boot_smoke() {",
+      '  component="$1"',
+      '  workspace="$2"',
+      '  health_path="$3"',
+      '  host_port="$4"',
+      "",
+      '  container_id="$(docker run -d \\',
+      "    -e NODE_ENV=production \\",
+      "    -e PORT=8080 \\",
+      '    -p "${host_port}:8080" \\',
+      '    "$RELEASE_IMAGE" \\',
+      '    pnpm --filter "$workspace" run start)"',
+      "",
+      "  for _ in $(seq 1 30); do",
+      '    if curl --fail --silent --output /dev/null "http://localhost:${host_port}${health_path}"; then',
+      '      if [ "$component" = "public-web" ] && ! pnpm run smoke:public-web-routes -- \\',
+      '        --base-url "http://localhost:${host_port}" \\',
+      "        --mode no-5xx; then",
+      '        echo "Boot smoke failed for public-web: the derived public route walk was not 5xx-free." >&2',
+      '        docker logs "$container_id" >&2 || true',
+      '        docker rm -f "$container_id" >/dev/null || true',
+      "        return 1",
+      "      fi",
+      '      echo "Boot smoke passed for ${component} (${health_path})."',
+      '      docker rm -f "$container_id" >/dev/null',
+      "      return 0",
+      "    fi",
+      '    if [ "$(docker inspect --format \'{{.State.Running}}\' "$container_id")" != "true" ]; then',
+      "      break",
+      "    fi",
+      "    sleep 1",
+      "  done",
+      "",
+      '  echo "Boot smoke failed for ${component}: ${health_path} never became healthy." >&2',
+      '  docker logs "$container_id" >&2 || true',
+      '  docker rm -f "$container_id" >/dev/null || true',
+      "  return 1",
+      "}",
+      "",
+      'boot_smoke marketplace "@chase-sets/app-marketplace-web" /health/ready 18080',
+      'boot_smoke public-web "@chase-sets/app-public-web" / 18081',
+      "",
+    ].join("\n"),
+  },
+];
+
+const rebindingCommands = new Set(["shift", "read", "unset", "local", "declare", "typeset", "readonly", "export"]);
+
+function originWitness({ origin, run }) {
+  const { tokens, substitutions, errors } = shellTokens(run);
+  const commands = commandsFromTokens(tokens);
+  const definitions = tokens.filter(
+    (token, index) =>
+      token.value === "boot_smoke" && tokens[index + 1]?.value === "(" && tokens[index + 2]?.value === ")",
+  );
+  const bindings = commands.flatMap((command) => command.assignments).filter(({ name }) => name === "workspace");
+  const rebinding = commands.some(
+    ({ words }) =>
+      rebindingCommands.has(words[0]?.value) ||
+      (words[0]?.value === "set" &&
+        words.slice(1).some((word) => !literal(word, "-euo") && !literal(word, "pipefail"))),
+  );
+  const callers = commands.filter(({ words }) => words[0]?.value === "boot_smoke");
+  const occurrences = substitutions.flatMap((substitution) =>
+    commandsFromTokens(shellTokens(substitution.run).tokens)
+      .filter(({ words }) => words.some((word) => word.raw === '"$workspace"'))
+      .map((command) => ({ substitution, command })),
+  );
+  const [binding] = bindings;
+  const [{ substitution, command } = {}] = occurrences;
+  const proved =
+    !errors.length &&
+    definitions.length === 1 &&
+    bindings.length === 1 &&
+    binding.token.raw === 'workspace="$2"' &&
+    !tokens.some((token) => token.type === "word" && token.value === "workspace") &&
+    !rebinding &&
+    callers.length === 2 &&
+    callers.every(({ words }) => words.length === 5 && pinnedOperand(words[2])) &&
+    new Set(callers.map(({ words }) => words[2].value)).size === 2 &&
+    occurrences.length === 1 &&
+    definitions[0].index < binding.token.index &&
+    binding.token.index < substitution.index &&
+    callers.every(({ words }) => substitution.index < words[0].index);
+  return proved ? { origin, run, occurrence: substitution.index, words: command.words } : null;
+}
+
+const originWitnesses = bootSmokeBlocks.map(originWitness).filter(Boolean);
+
+// A stored entry is bound to a witness only when its origin names that block
+// and its words are exactly the block's occurrence command.
+function entryOriginWitness(entry) {
+  const witness = originWitnesses.find(({ origin }) =>
+    ["sha", "path", "job", "step"].every((field) => origin[field] === entry.origin?.[field]),
+  );
+  const exact =
+    witness &&
+    entry.input === undefined &&
+    entry.words.length === witness.words.length &&
+    entry.words.every(
+      (word, index) =>
+        word.value === witness.words[index].value &&
+        word.dynamic === witness.words[index].dynamic &&
+        word.quoted === witness.words[index].quoted,
+    );
+  return exact ? witness : null;
+}
+
+// The witness whose complete run block this run is, CRLF normalized.
+function runOriginWitness(run) {
+  const normalized = run.replaceAll("\r\n", "\n");
+  return originWitnesses.find((witness) => witness.run === normalized) ?? null;
+}
+
 // pnpm roles: exec/dlx select an executable; run, --filter run and the corpus
 // --filter test alias select a pinned package script whose arguments are data.
-function pnpmRoles(words, at, next) {
+// A dynamic package is only "$workspace" in its origin-proved occurrence.
+function pnpmRoles(words, at, next, context) {
   const role = words[at + 1];
   if (literal(role, "exec") || literal(role, "dlx")) return next(at + 2);
   if (literal(role, "run")) return pinnedOperand(words[at + 2]);
   if (literal(role, "install")) return words.length === at + 3 && literal(words[at + 2], "--frozen-lockfile");
   if (literal(role, "--filter")) {
     const workspace = words[at + 2];
-    if (!singleArgument(workspace) || (!workspace.dynamic && workspace.value.startsWith("-"))) return false;
-    if (workspace.dynamic && !workspace.quoted) return false;
+    const originPackage =
+      context.origin !== null && workspace?.value === "$workspace" && workspace.dynamic && singleArgument(workspace);
+    if (!pinnedOperand(workspace) && !originPackage) return false;
     if (literal(words[at + 3], "run")) return pinnedOperand(words[at + 4]);
     return literal(words[at + 3], "test");
   }
@@ -949,37 +1210,54 @@ function pnpmRoles(words, at, next) {
 function findRoles(words, at) {
   const start = words[at + 1];
   // Origin: EVIDENCE_DIR is the workflow's fixed artifacts/wake-drills path.
-  const originEvidenceDirectory = Boolean(start) && start.dynamic && start.quoted && start.value === "$EVIDENCE_DIR";
+  const originEvidenceDirectory =
+    Boolean(start) && start.dynamic && start.value === "$EVIDENCE_DIR" && singleArgument(start);
   if (!pinnedOperand(start) && !originEvidenceDirectory) return false;
-  const pattern = (word) => Boolean(word) && !word.dynamic;
   const head = literal(words[at + 2], "-type") && literal(words[at + 3], "f") && literal(words[at + 4], "-name");
-  if (!head || !pattern(words[at + 5])) return false;
+  if (!head || !pinnedText(words[at + 5])) return false;
   if (words.length === at + 6) return true;
   return (
-    words.length === at + 9 && literal(words[at + 6], "!") && literal(words[at + 7], "-name") && pattern(words[at + 8])
+    words.length === at + 9 &&
+    literal(words[at + 6], "!") &&
+    literal(words[at + 7], "-name") &&
+    pinnedText(words[at + 8])
   );
 }
 
-const interpreterProgramFlags = { python: "-c", python3: "-c", perl: "-e", ruby: "-e", pwsh: "-c", node: "-e" };
+// Interpreter modes: a pinned program after its program flag, non-empty pinned
+// stdin after `-`, a pinned script, or an exact query. Python ends option
+// parsing at `-c` and `-`; the other program flags keep parsing options, so
+// their program must end the command. Words after a script or stdin are that
+// program's single-argument argv.
+const interpreterModes = {
+  python: { program: "-c", argv: true, stdin: true },
+  python3: { program: "-c", argv: true, stdin: true },
+  perl: { program: "-e", stdin: true },
+  ruby: { program: "-e", stdin: true },
+  pwsh: { program: "-c" },
+  node: { program: "-e", stdin: true, query: "--version" },
+};
 
-// Interpreters run a pinned -c/-e program, non-empty pinned stdin after `-`,
-// or a pinned non-option script; `node --version` is a query.
-function interpreterRoles(words, at, entry) {
-  const name = hopSelector(words[at]);
+function interpreterRoles(words, at, next, context) {
+  const mode = interpreterModes[hopSelector(words[at])];
   const first = words[at + 1];
-  if (!first) return false;
-  if (literal(first, interpreterProgramFlags[name])) return Boolean(words[at + 2]) && !words[at + 2].dynamic;
+  const argv = (start) => words.slice(start).every(singleArgument);
+  if (literal(first, mode.program))
+    return pinnedText(words[at + 2]) && (mode.argv ? argv(at + 3) : words.length === at + 3);
   if (literal(first, "-"))
     return (
-      Array.isArray(entry.input) && entry.input.some((document) => typeof document === "string" && document.trim())
+      Boolean(mode.stdin) &&
+      Array.isArray(context.input) &&
+      context.input.some((document) => typeof document === "string" && document.trim()) &&
+      argv(at + 2)
     );
-  if (name === "node" && literal(first, "--version")) return words.length === at + 2;
-  return pinnedOperand(first);
+  if (mode.query && literal(first, mode.query)) return words.length === at + 2;
+  return pinnedOperand(first) && argv(at + 2);
 }
 
 const shellProgram = (words, at) =>
-  literal(words[at + 1], "-c") && Boolean(words[at + 2]) && !words[at + 2].dynamic && words.length === at + 3;
-const evalProgram = (words, at) => words.length === at + 2 && !words[at + 1].dynamic;
+  literal(words[at + 1], "-c") && pinnedText(words[at + 2]) && words.length === at + 3;
+const evalProgram = (words, at) => words.length === at + 2 && pinnedText(words[at + 1]);
 
 // psql -c text is sent to the server unless it begins with a backslash
 // meta-command; a dynamic text must pin a literal SQL lead.
@@ -1008,7 +1286,7 @@ const dockerRunFlags = spaced("--rm -d");
 // docker exec/run reach a container program: exec names a container resource
 // and redispatches its argv; run pins an image whose entrypoint has a rule, or
 // redispatches the argv after a resource image.
-function dockerRoles(words, at, next, entry) {
+function dockerRoles(words, at, next, context) {
   if (literal(words[at + 1], "exec")) {
     const container = words[at + 2];
     if (!singleArgument(container) || (!container.dynamic && container.value.startsWith("-"))) return false;
@@ -1026,7 +1304,7 @@ function dockerRoles(words, at, next, entry) {
     const entrypoint = image.dynamic ? null : pinnedImages.get(image.value);
     if (!entrypoint) return next(index + 1);
     const argv = [{ value: entrypoint, dynamic: false, quoted: false }, ...words.slice(index + 1)];
-    return programRules.get(entrypoint)(argv, 0, () => false, entry);
+    return programRules.get(entrypoint)(argv, 0, () => false, context);
   }
   // compose is its own command path: `-f <file>` precedes the pinned subcommand.
   if (literal(words[at + 1], "compose")) return composeTerminal(words, at + 1);
@@ -1034,47 +1312,48 @@ function dockerRoles(words, at, next, entry) {
 }
 
 const dockerTerminal = terminal({
-  commands: [
-    "buildx build",
-    "buildx imagetools create",
-    "buildx imagetools inspect",
-    "inspect",
-    "logs",
-    "push",
-    "restart",
-    "rm",
-    "tag",
-  ],
-  options: "--pull --cache-from --cache-to --load --push --tag --format --raw -f",
+  shapes: {
+    "buildx build": "--pull --cache-from:1 --cache-to:1 --load --push --tag:1",
+    "buildx imagetools create": "--tag:1",
+    "buildx imagetools inspect": "--format:1 --raw",
+    inspect: "--format:1",
+    logs: "",
+    push: "",
+    restart: "",
+    rm: "-f",
+    tag: "",
+  },
 });
 const composeTerminal = terminal({
-  commands: ["up", "down", "logs", "ps"],
-  global: { "-f": 1 },
-  options: "--detach --wait --wait-timeout --volumes --remove-orphans --no-color",
+  global: "-f:1",
+  shapes: {
+    up: { options: "--detach --wait --wait-timeout:1", operands: 0 },
+    down: { options: "--volumes --remove-orphans", operands: 0 },
+    logs: { options: "--no-color", operands: 0 },
+    ps: { operands: 0 },
+  },
 });
 
 const kubectlTerminal = terminal({
-  commands: [
-    "annotate",
-    "apply",
-    "config current-context",
-    "config get-contexts",
-    "cp",
-    "create namespace",
-    "create",
-    "delete",
-    "describe",
-    "get",
-    "label",
-    "logs",
-    "port-forward",
-    "rollout status",
-    "top pods",
-    "wait",
-  ],
-  global: { "-n": 1 },
-  options:
-    "-n -f -l -o --namespace --container --server-side --force-conflicts --dry-run --cascade --wait --ignore-not-found --timeout --selector --output --field-selector --sort-by --all-namespaces --request-timeout --all-containers --no-headers --for --all",
+  global: "-n:1",
+  shapes: {
+    annotate: "-n:1",
+    apply: { options: "--server-side --force-conflicts -f:1 -n:1", operands: 0 },
+    "config current-context": { operands: 0 },
+    "config get-contexts": { operands: 0 },
+    cp: "--namespace:1 --container:1",
+    create: { options: "-f:1", operands: 0 },
+    "create namespace": { options: "--dry-run= -o:1", operands: 1 },
+    delete: "-n:1 -l:1 --cascade= --wait= --timeout= --ignore-not-found --ignore-not-found=",
+    describe: "-n:1",
+    get: "-n:1 --namespace:1 -o:1 --output:1 -l:1 --selector:1 --field-selector= --sort-by= --all-namespaces --request-timeout= --ignore-not-found --ignore-not-found=",
+    label: "",
+    logs: "-n:1 --all-containers",
+    "port-forward": "--namespace:1",
+    "rollout status": "--timeout=",
+    "top pods": { options: "--namespace:1 --no-headers", operands: 0 },
+    wait: "-n:1 --namespace:1 --for:1 --for= --timeout= --all",
+  },
 });
 
 // kubectl exec and create job forward the argv after `--` into a pod.
@@ -1116,22 +1395,27 @@ function kubectlRoles(words, at, next) {
 }
 
 function trapRoles(words, at) {
-  const action = words[at + 1];
-  if (!action || action.dynamic || words.length < at + 3) return false;
+  if (!pinnedText(words[at + 1]) || words.length < at + 3) return false;
   return words.slice(at + 2).every((signal) => !signal.dynamic && /^[A-Z][A-Z0-9]*$/.test(signal.value));
 }
 
-// awk and sed take their program as the first operand: it must be pinned.
-function programOperand(valued, flags) {
+// awk and sed take their pinned program as the first operand after proved
+// options. Later words are single-argument file operands and never
+// option-shaped: GNU sed permutes options, so a later -e or -f adds a program.
+function programOperand(options) {
+  const table = optionTable(options);
   return (words, at) => {
     let index = at + 1;
     while (literalOption(words[index])) {
-      if (flags.has(words[index].value)) index += 1;
-      else if (valued.has(words[index].value) && singleArgument(words[index + 1])) index += 2;
-      else return false;
+      index = optionEnd(words, index, table);
+      if (index < 0) return false;
     }
-    const program = words[index];
-    return Boolean(program) && !program.dynamic && words.slice(index + 1).every(singleArgument);
+    return (
+      pinnedText(words[index]) &&
+      words
+        .slice(index + 1)
+        .every((word) => singleArgument(word) && (word.value === "-" || !word.value.startsWith("-")))
+    );
   };
 }
 
@@ -1143,125 +1427,149 @@ function declarationRoles(words, at) {
     .every((word) => /^[A-Za-z_][A-Za-z0-9_]*(?:=|$)/.test(word.value) && !/\$\{?[@*]/.test(word.value));
 }
 
+// Forwarding and program rules list the modes they admit; terminals list their
+// command shapes. benignAdmissionInventory publishes both.
+const modes = (list, admit) => Object.assign((...args) => admit(...args), { modes: list.split(", ") });
 const workflowFunction = terminal();
 const programRules = new Map([
   // Prefixes and forwarders.
-  ["timeout", timeoutPrefix],
-  ["nohup", (words, at, next) => next(at + 1)],
-  ["npx", (words, at, next) => next(at + 1)],
-  ["env", envPrefix],
-  ["exec", execPrefix],
-  ["command", commandPrefix],
-  ["pnpm", pnpmRoles],
-  ["docker", dockerRoles],
-  ["kubectl", kubectlRoles],
-  ["find", findRoles],
-  ["eval", evalProgram],
-  ...[...shellInterpreters].map((name) => [name, shellProgram]),
-  ...Object.keys(interpreterProgramFlags).map((name) => [
+  ["timeout", modes("duration", timeoutPrefix)],
+  ["nohup", modes("forward", (words, at, next) => next(at + 1))],
+  ["npx", modes("forward", (words, at, next) => next(at + 1))],
+  ["env", modes("assignments", envPrefix)],
+  ["exec", modes("forward", execPrefix)],
+  ["command", modes("forward, -v", commandPrefix)],
+  ["pnpm", modes("exec, dlx, run, install, --filter run, --filter test, --filter origin", pnpmRoles)],
+  [
+    "docker",
+    Object.assign(modes("exec, run, run alpine/helm:3.15.4, run ghcr.io/yannh/kubeconform:v0.6.7", dockerRoles), {
+      terminals: [
+        ["docker", dockerTerminal],
+        ["docker compose", composeTerminal],
+      ],
+    }),
+  ],
+  ["kubectl", Object.assign(modes("exec, create job", kubectlRoles), { terminals: [["kubectl", kubectlTerminal]] })],
+  ["find", modes("-type f -name", findRoles)],
+  ["eval", modes("program", evalProgram)],
+  ...[...shellInterpreters].map((name) => [name, modes("-c", shellProgram)]),
+  ...Object.entries(interpreterModes).map(([name, mode]) => [
     name,
-    (words, at, next, entry) => interpreterRoles(words, at, entry),
+    modes([mode.program, mode.stdin && "-", mode.query, "script"].filter(Boolean).join(", "), interpreterRoles),
   ]),
-  ["tsx", (words, at) => pinnedOperand(words[at + 1])],
-  ["psql", psqlRoles],
-  ["trap", trapRoles],
-  ["awk", programOperand(spaced("-F -v"), new Set())],
-  ["sed", programOperand(new Set(), spaced("-i"))],
-  ["local", declarationRoles],
-  ["export", declarationRoles],
-  // Non-forwarding utilities with origin-proved command paths and options.
-  ["terraform-init-with-retry.sh", terminal({ options: "-reconfigure -backend-config" })],
+  ["tsx", modes("script", (words, at) => pinnedOperand(words[at + 1]) && words.slice(at + 2).every(singleArgument))],
+  ["psql", modes("options", psqlRoles)],
+  ["trap", modes("action", trapRoles)],
+  ["awk", modes("program", programOperand("-F:1 -v:1"))],
+  ["sed", modes("program", programOperand("-i"))],
+  ["local", modes("declarations", declarationRoles)],
+  ["export", modes("declarations", declarationRoles)],
+  // Non-forwarding utilities with origin-proved command shapes and options.
+  ["terraform-init-with-retry.sh", terminal({ shapes: { "": "-reconfigure -backend-config=" } })],
   [
     "playwright",
-    terminal({ commands: ["install", "test"], optionalCommand: true, options: "--version --with-deps --project" }),
+    terminal({
+      shapes: {
+        "": { options: "--version", operands: 0 },
+        install: "--with-deps",
+        test: "--project=",
+      },
+    }),
   ],
-  ["kubeconform", terminal({ options: "-schema-location -strict -summary -ignore-missing-schemas" })],
+  ["kubeconform", terminal({ shapes: { "": "-schema-location:1 -strict -summary -ignore-missing-schemas" } })],
   [
     "helm",
     terminal({
-      commands: ["get values", "history", "status", "lint", "template"],
-      options: "--namespace --output --revision",
+      shapes: {
+        "get values": "--namespace:1 --output:1 --revision:1",
+        history: "--namespace:1 --output:1",
+        status: "--namespace:1",
+        lint: "",
+        template: "",
+      },
     }),
   ],
-  ["kubectl-argo-rollouts", terminal({ commands: ["version"], optionalCommand: true, options: "--help" })],
+  ["kubectl-argo-rollouts", terminal({ shapes: { "": { options: "--help", operands: 0 }, version: { operands: 0 } } })],
   [
     "git",
     terminal({
-      commands: [
-        "cat-file",
-        "checkout",
-        "config",
-        "fetch",
-        "init",
-        "ls-files",
-        "merge",
-        "merge-base",
-        "push",
-        "remote add",
-        "rev-list",
-        "rev-parse",
-        "show",
-        "show-ref",
-        "tag",
-      ],
-      options:
-        "--count --detach --diff-merges --ff-only --format --global --is-ancestor --list --max-parents --no-recurse-submodules --no-tags --points-at --quiet --tags --verify -B -a -e -m -n -s",
+      shapes: {
+        "cat-file": "-e",
+        checkout: "--detach -B:1",
+        "config --global init.defaultBranch": { operands: 1 },
+        "config user.email": { operands: 1 },
+        "config user.name": { operands: 1 },
+        fetch: "--quiet --no-tags --no-recurse-submodules --tags",
+        init: { options: "--quiet", operands: 0 },
+        "ls-files": "",
+        merge: "--ff-only",
+        "merge-base": "--is-ancestor",
+        push: "",
+        "remote add": "",
+        "rev-list": "--count --max-parents= -n:1",
+        "rev-parse": "--verify --quiet",
+        show: "-s --diff-merges= --format=",
+        "show-ref": "--verify --quiet",
+        tag: "--points-at:1 --list -a -m:1",
+      },
     }),
   ],
   [
     "gh",
     terminal({
-      commands: [
-        "api",
-        "issue close",
-        "issue comment",
-        "issue create",
-        "issue edit",
-        "issue list",
-        "run download",
-        "run view",
-        "workflow run",
-      ],
-      options:
-        "--body --comment --dir --field --jq --json --label --limit --method --paginate --ref --repo --search --slurp --state --title -f",
-      variadic: ["issue create"],
+      shapes: {
+        api: "--method:1 -f:1 --paginate --slurp --jq:1",
+        "issue close": "--repo:1 --comment:1",
+        "issue comment": "--repo:1 --body:1",
+        "issue create": { options: "--repo:1 --title:1 --body:1 --label:1", variadic: true },
+        "issue edit": "--repo:1 --body:1",
+        "issue list": { options: "--repo:1 --state:1 --search:1 --limit:1 --json:1 --jq:1", operands: 0 },
+        "run download": "--repo:1 --dir:1",
+        "run view": "--repo:1 --json:1",
+        "workflow run": "--repo:1 --ref:1 -f:1 --field:1",
+      },
     }),
   ],
   [
     "aws",
     terminal({
-      commands: ["s3api delete-object", "s3api head-object", "s3api list-objects-v2", "s3api put-object"],
-      options: "--body --bucket --endpoint-url --key --max-items",
+      shapes: {
+        "s3api delete-object": { options: "--bucket:1 --key:1 --endpoint-url:1", operands: 0 },
+        "s3api head-object": { options: "--bucket:1 --key:1 --endpoint-url:1", operands: 0 },
+        "s3api list-objects-v2": { options: "--bucket:1 --max-items:1 --endpoint-url:1", operands: 0 },
+        "s3api put-object": { options: "--bucket:1 --key:1 --body:1 --endpoint-url:1", operands: 0 },
+      },
     }),
   ],
   [
     "curl",
     terminal({
-      options:
-        "--data --fail --head --header --location --max-time --output --retry --retry-all-errors --retry-delay --show-error --silent --write-out -o -sS -sSL -w",
+      shapes: {
+        "": "--data:1 --fail --head --header:1 --location --max-time:1 --output:1 --retry:1 --retry-all-errors --retry-delay:1 --show-error --silent --write-out:1 -o:1 -sS -sSL -w:1",
+      },
     }),
   ],
-  ["jq", terminal({ options: "--arg --argjson -c -cer -cn -e -er -n -r" })],
-  ["grep", terminal({ options: "-- -E -Eq -Eqi -F -Fqx -qi -v" })],
-  ["tar", terminal({ options: "-C -czf" })],
-  ["rm", terminal({ options: "-- -f -rf" })],
-  ["pg_isready", terminal({ options: "-U -d" })],
-  ["base64", terminal({ options: "--decode" })],
-  ["cmp", terminal({ options: "-s" })],
-  ["cut", terminal({ options: "-c1-8" })],
-  ["date", terminal({ options: "-d -u" })],
-  ["free", terminal({ options: "-m" })],
-  ["head", terminal({ options: "-n" })],
-  ["tail", terminal({ options: "-n" })],
-  ["kill", terminal({ options: "-0" })],
-  ["mktemp", terminal({ options: "-d" })],
-  ["sha256sum", terminal({ options: "--check" })],
-  ["tee", terminal({ options: "-a" })],
-  ["tr", terminal({ options: "-d" })],
-  ["set", terminal({ options: "-Eeuo -e -euo -o" })],
-  ["read", terminal({ options: "-r" })],
-  ["mapfile", terminal({ options: "-t" })],
-  ["exit", terminal({ variadic: ["*"] })],
+  ["jq", terminal({ shapes: { "": "--arg:2 --argjson:2 -c -cer -cn -e -er -n -r" } })],
+  ["grep", terminal({ shapes: { "": "-- -E -Eq -Eqi -F -Fqx -qi -v" } })],
+  ["tar", terminal({ shapes: { "": "-C:1 -czf:1" } })],
+  ["rm", terminal({ shapes: { "": "-- -f -rf" } })],
+  ["pg_isready", terminal({ shapes: { "": { options: "-U:1 -d:1", operands: 0 } } })],
+  ["base64", terminal({ shapes: { "": { options: "--decode", operands: 0 } } })],
+  ["cmp", terminal({ shapes: { "": "-s" } })],
+  ["cut", terminal({ shapes: { "": "-c1-8" } })],
+  ["date", terminal({ shapes: { "": "-d:1 -u" } })],
+  ["free", terminal({ shapes: { "": { options: "-m", operands: 0 } } })],
+  ["head", terminal({ shapes: { "": "-n:1" } })],
+  ["tail", terminal({ shapes: { "": "-n:1" } })],
+  ["kill", terminal({ shapes: { "": "-0" } })],
+  ["mktemp", terminal({ shapes: { "": { options: "-d", operands: 0 } } })],
+  ["sha256sum", terminal({ shapes: { "": "--check" } })],
+  ["tee", terminal({ shapes: { "": "-a" } })],
+  ["tr", terminal({ shapes: { "": "-d" } })],
+  ["set", terminal({ shapes: { "": "-Eeuo:1 -euo:1 -o:1 -e" } })],
+  ["read", terminal({ shapes: { "": "-r" } })],
+  ["mapfile", terminal({ shapes: { "": "-t" } })],
+  ["exit", terminal({ shapes: { "": { variadic: true } } })],
   ...[
     "basename",
     "dirname",
@@ -1298,10 +1606,30 @@ const programRules = new Map([
 
 // Closed dispatch: the hop at `at` must resolve to a selector with a rule, and
 // that rule must prove every role it reaches, redispatching forwarded hops.
-function admitsProgramAt(words, at, entry) {
+function admitsProgramAt(words, at, context) {
   const selector = hopSelector(words[at]);
   const rule = selector === null ? undefined : programRules.get(selector);
-  return Boolean(rule) && rule(words, at, (next) => admitsProgramAt(words, next, entry), entry);
+  return Boolean(rule) && rule(words, at, (next) => admitsProgramAt(words, next, context), context);
+}
+
+// The closed admission inventory, one row per program mode or terminal shape.
+// Tests bind their behavior matrix to it; admission itself never reads it.
+export function benignAdmissionInventory() {
+  const terminalRows = (selector, rule) =>
+    rule.shapes.map(({ path, options, operands, variadic }) => ({
+      selector,
+      kind: "terminal",
+      path: path.join(" "),
+      global: Object.fromEntries(rule.global),
+      options: Object.fromEntries(options),
+      operands,
+      variadic,
+    }));
+  return [...programRules].flatMap(([selector, rule]) => [
+    ...(rule.modes ?? []).map((mode) => ({ selector, kind: "program", mode })),
+    ...(rule.terminals ?? []).flatMap(([prefix, terminalRule]) => terminalRows(prefix, terminalRule)),
+    ...(rule.shapes ? terminalRows(selector, rule) : []),
+  ]);
 }
 
 // Shells and eval at any index, including fixed-dynamic spellings, must carry
@@ -1355,7 +1683,13 @@ function benignAdmissionViolations(entry, grammar) {
   const shape = benignShapeViolation(entry);
   if (shape) return [shape];
   if (entry.dataOperands) return [];
-  const { words } = entry;
+  return roleViolations(entry, entry.words, grammar, entryOriginWitness(entry));
+}
+
+// Covered-token and role admission over `words`: the stored entry words when
+// validating, the actual lexed tokens when classifying a match. `origin` is the
+// boot_smoke witness that context proves, or null.
+function roleViolations(entry, words, grammar, origin) {
   const covered =
     [...words.map((word) => word.value), ...(entry.input ?? [])].some(containsCoveredToken) ||
     words.some((word, index) => {
@@ -1364,7 +1698,7 @@ function benignAdmissionViolations(entry, grammar) {
       return Boolean(result?.operation) || result?.disposition === "INDETERMINATE";
     });
   if (covered) return [`${entry.id}: benign payload contains a covered invocation.`];
-  if (!admitsProgramAt(words, 0, entry) || shellOrEvalAnywhereUnpinned(words))
+  if (!admitsProgramAt(words, 0, { input: entry.input, origin }) || shellOrEvalAnywhereUnpinned(words))
     return [`${entry.id}: benign payload admits an unpinned program.`];
   return [];
 }
@@ -1393,9 +1727,11 @@ function dataOperandsMatch(selector, words) {
   return true;
 }
 
-function benignFormMatches(command, grammar) {
+// The first matching entry that admits the actual command, or the named
+// refusal of a matching entry that does not.
+function benignFormMatch(command, grammar, origin) {
   const { words } = command;
-  if (words[0]?.dynamic) return false;
+  if (words[0]?.dynamic) return { admitted: false, refusal: null };
   const input = JSON.stringify(
     command.redirects.filter(({ target }) => target?.body !== undefined).map(({ target }) => target.body),
   );
@@ -1409,12 +1745,19 @@ function benignFormMatches(command, grammar) {
         word.dynamic === words[index].dynamic &&
         word.quoted === words[index].quoted,
     );
-  // The cheap shape match runs first; admission still decides every match.
-  return (grammar.benignForms ?? []).some((entry) => {
-    if (entry.selector !== words[0]?.value) return false;
-    const matches = entry.dataOperands === true ? dataOperandsMatch(entry.selector, words) : exactMatch(entry);
-    return matches && benignAdmissionViolations(entry, grammar).length === 0;
-  });
+  // The cheap shape match runs first; admission over the actual tokens and
+  // their origin context still decides every match.
+  let refusal = null;
+  for (const entry of grammar.benignForms ?? []) {
+    if (entry.selector !== words[0]?.value) continue;
+    const dataOnly = entry.dataOperands === true;
+    if (!(dataOnly ? dataOperandsMatch(entry.selector, words) : exactMatch(entry))) continue;
+    const shape = benignShapeViolation(entry);
+    const [violation] = shape ? [shape] : dataOnly ? [] : roleViolations(entry, words, grammar, origin);
+    if (!violation) return { admitted: true, refusal: null };
+    refusal ??= violation;
+  }
+  return { admitted: false, refusal };
 }
 
 const nodeEvaluationOptions = new Set([
@@ -1500,7 +1843,7 @@ function classifyNode(words, grammar, benign, destructive, unknown) {
   return operation ? { ...destructive(operation), scriptIndex: consumed.index, words } : benign();
 }
 
-function classifyCommand(command, grammar) {
+function classifyCommand(command, grammar, origin = null) {
   let { words } = command;
   if (!words.length) return null;
   const unknown = (reason) => ({
@@ -1532,7 +1875,8 @@ function classifyCommand(command, grammar) {
   if (tool === "terraform") return classifyTerraform(words, grammar, benign, destructive, unknown);
   if (tool === "doctl") return classifyDoctl(words, grammar, benign, destructive, unknown);
   if (tool === "node") return classifyNode(words, grammar, benign, destructive, unknown);
-  return benignFormMatches({ ...command, words }, grammar) ? null : unknown("unlisted executable form");
+  const match = benignFormMatch({ ...command, words }, grammar, origin);
+  return match.admitted ? null : unknown(match.refusal ?? "unlisted executable form");
 }
 
 const defaultGrammarProof = validateGrammarPartition();
@@ -1541,11 +1885,18 @@ const grammarProof = (grammar) =>
 
 export function classifyShellCommands(run, { grammar = DESTRUCTIVE_GRAMMAR } = {}) {
   if (typeof run !== "string") return { invocations: [], operations: [], indeterminate: [] };
-  return classifyProvedRun(run, grammar, grammarProof(grammar));
+  return classifyRun(run, grammar, grammarProof(grammar));
+}
+
+// A complete run block. Only a block that is exactly an origin witness carries
+// that witness, and only into its proved substitution occurrence.
+function classifyRun(run, grammar, proof) {
+  const witness = runOriginWitness(run);
+  return classifyProvedRun(witness?.run ?? run, grammar, proof, witness);
 }
 
 // One grammar proof covers a run and every substitution nested in it.
-function classifyProvedRun(run, grammar, proof) {
+function classifyProvedRun(run, grammar, proof, witness = null, origin = null) {
   if (!proof.passed) {
     const unknown = { tool: "grammar", index: 0, disposition: "INDETERMINATE", reason: proof.violations.join("; ") };
     return { invocations: [unknown], operations: [], indeterminate: [unknown] };
@@ -1561,10 +1912,11 @@ function classifyProvedRun(run, grammar, proof) {
   }
   lexed.errors.push(...shellSyntaxErrors(lexed.tokens, commands, grammar));
   const invocations = commands
-    .map((command) => classifyCommand(resolveCommandWords(command, commands, lexed.tokens), grammar))
+    .map((command) => classifyCommand(resolveCommandWords(command, commands, lexed.tokens), grammar, origin))
     .filter(Boolean);
   for (const substitution of lexed.substitutions) {
-    for (const invocation of classifyProvedRun(substitution.run, grammar, proof).invocations)
+    const bound = witness !== null && substitution.index === witness.occurrence ? witness : null;
+    for (const invocation of classifyProvedRun(substitution.run, grammar, proof, null, bound).invocations)
       invocations.push({ ...invocation, index: substitution.index + invocation.index });
   }
   if (lexed.errors.length) {
@@ -1898,7 +2250,7 @@ function parseWorkflow(source) {
 
 function classifyStep(workflow, job, step, grammar, proof) {
   const shell = step.shell ?? job.defaults?.run?.shell ?? workflow.defaults?.run?.shell ?? "bash";
-  if (/^bash(?:\s|$)/.test(shell)) return classifyProvedRun(step.run, grammar, proof);
+  if (/^bash(?:\s|$)/.test(shell)) return classifyRun(step.run, grammar, proof);
   return { operations: [], indeterminate: [{ tool: shell, reason: "unproved non-Bash run step" }] };
 }
 

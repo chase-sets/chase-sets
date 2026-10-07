@@ -2,12 +2,14 @@ import { createHash } from "node:crypto";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { parse, stringify } from "yaml";
 import {
   DESTRUCTIVE_GRAMMAR,
   DESTRUCTIVE_OPERATION_EXEMPTIONS,
   NAMED_RESET_WORKFLOW_TRIPWIRES,
+  benignAdmissionInventory,
   checkDiscoveredWorkflows,
   checkNamedResetWorkflowTripwires,
   checkWorkflowDestructiveOperationGating,
@@ -91,13 +93,24 @@ const withEntry = (entry) => ({
   ...DESTRUCTIVE_GRAMMAR,
   benignForms: [...DESTRUCTIVE_GRAMMAR.benignForms.filter((candidate) => candidate.id !== entry.id), entry],
 });
+// Admission proves each entry on its own, so single-entry grammars suffice
+// wherever no corpus workflow is classified.
+const alone = (entry) => ({ ...DESTRUCTIVE_GRAMMAR, benignForms: [entry] });
 const covered = (entry) => `${entry.id}: benign payload contains a covered invocation.`;
 const unpinned = (entry) => `${entry.id}: benign payload admits an unpinned program.`;
+const at = (words, index, replacement) => words.map((item, position) => (position === index ? replacement : item));
+const insert = (words, index, item) => [...words.slice(0, index), item, ...words.slice(index)];
+const sha256 = (text) => createHash("sha256").update(text).digest("hex");
+// The two corpus entries whose pnpm --filter package is "$workspace".
+const originIds = [
+  "127ddb007aa5c3e3f7d55a4a3ed6e695a113f4137c52190c94d69b15ba26f28b",
+  "8e090b6e1c15a22d9267ab80b3fa67c822df751b26d523e1d8a89f83acd535a2",
+];
 
 // Validator caller and classifier caller both report the named admission
 // violation, and nothing else.
 function expectRejected(entry, violation) {
-  const grammar = withEntry(entry);
+  const grammar = alone(entry);
   expect(validateGrammarPartition(grammar).violations, entry.example).toEqual([violation]);
   const classified = classifyShellCommands(entry.example, { grammar });
   expect(classified.operations).toEqual([]);
@@ -108,6 +121,35 @@ function expectAdmitted(entry) {
   const grammar = withEntry(entry);
   expect(validateGrammarPartition(grammar).violations, entry.example).toEqual([]);
   expect(classifyShellCommands(entry.example, { grammar }).indeterminate, entry.example).toEqual([]);
+}
+
+// Both callers over a batch: one validation reports exactly each rejected
+// entry's named violation, the classifier caller refuses with those same
+// violations, and the admitted entries validate and classify clean together.
+function expectBatch(admitted, rejected) {
+  const refusals = [...new Map(rejected.map((pair) => [pair[0].id, pair])).values()];
+  const negative = { ...DESTRUCTIVE_GRAMMAR, benignForms: refusals.map(([entry]) => entry) };
+  const { violations } = validateGrammarPartition(negative);
+  const reported = (entry) => violations.filter((violation) => violation.startsWith(`${entry.id}:`));
+  expect(refusals.map(([entry]) => [entry.example, reported(entry)])).toEqual(
+    refusals.map(([entry, violation]) => [entry.example, [violation]]),
+  );
+  expect(violations).toHaveLength(refusals.length);
+  expect(classifyShellCommands("true", { grammar: negative }).indeterminate).toEqual([
+    expect.objectContaining({ tool: "grammar", reason: violations.join("; ") }),
+  ]);
+  const accepted = [...new Map(admitted.map((entry) => [entry.id, entry])).values()];
+  // The classifier unwraps env/exec/command itself, so wrapped inner forms
+  // need the corpus that admits them.
+  const ids = new Set(accepted.map(({ id }) => id));
+  const positive = {
+    ...DESTRUCTIVE_GRAMMAR,
+    benignForms: [...DESTRUCTIVE_GRAMMAR.benignForms.filter(({ id }) => !ids.has(id)), ...accepted],
+  };
+  expect(validateGrammarPartition(positive).violations).toEqual([]);
+  expect(
+    classifyShellCommands(accepted.map(({ example }) => example).join("\n"), { grammar: positive }).indeterminate,
+  ).toEqual([]);
 }
 
 describe("derived destructive command positions", () => {
@@ -245,7 +287,9 @@ describe("closed executable admission", () => {
     expect(corpus).toHaveLength(674);
     expect(appended.map(({ origin }) => [origin.path, origin.job, origin.step])).toEqual([[driftFile, "digest", 3]]);
     expect(validateGrammarPartition().violations).toEqual([]);
-    for (const entry of DESTRUCTIVE_GRAMMAR.benignForms)
+    // The two origin-bound entries are admitted only inside their full block
+    // (see "origin-proved dynamic package selection").
+    for (const entry of DESTRUCTIVE_GRAMMAR.benignForms.filter(({ id }) => !originIds.includes(id)))
       expect(classifyShellCommands(entry.example).indeterminate, entry.id).toEqual([]);
 
     const admitted = DESTRUCTIVE_GRAMMAR.benignForms.find((entry) => entry.selector === "timeout");
@@ -284,8 +328,27 @@ describe("closed executable admission", () => {
     pnpmDynamicSubcommand: ["pnpm", D("$MODE"), D("$TOOL"), "destroy", "-auto-approve"],
     findDynamicAction: ["find", ".", D("$ACTION"), D("$TOOL"), "destroy", ";"],
   };
+  // S4 review r1 reproductions (#8970): additional program operands (F2),
+  // unquoted wildcard scripts (F3), terminal fallbacks (F4) and a context-free
+  // dynamic package (F7).
+  const reviewRows = {
+    "F2 perl": ["perl", "-e", Q("print 1"), "-e", D("$SYNTHETIC_8970_PROGRAM")],
+    "F2 ruby": ["ruby", "-e", Q("puts 1"), "-e", D("$SYNTHETIC_8970_PROGRAM")],
+    "F2 pwsh": ["pwsh", "-c", Q("Write-Output ok"), D("$SYNTHETIC_8970_PROGRAM")],
+    "F2 sed": ["sed", Q("s/x/y/"), "-e", D("$SYNTHETIC_8970_PROGRAM"), "synthetic.txt"],
+    "F2 awk": ["awk", Q("{print 1}"), "-f", D("$SYNTHETIC_8970_PROGRAM")],
+    "F3 python wildcard": ["python", "*.py"],
+    "F3 pnpm run wildcard": ["pnpm", "run", "synthetic-8970-*"],
+    "F4 playwright dynamic action": ["playwright", D("$SYNTHETIC_8970_ACTION")],
+    "F4 playwright unsupported action": ["playwright", "synthetic-8970-unsupported-action"],
+    "F4 git fetch --format": ["git", "fetch", "--format"],
+    "F4 curl --output": ["curl", "--output"],
+    "F4 kubectl create dynamic": ["kubectl", "create", D("$SYNTHETIC_8970_ACTION")],
+    "F7 context-free dynamic package": ["pnpm", "--filter", D("$workspace"), "run", "start"],
+  };
   const unpinnedForms = {
     ...c3Rows,
+    ...reviewRows,
     bareShell: ["bash"],
     shellStdin: ["sh", "-s"],
     dynamicShellProgram: ["bash", "-c", D("$CMD")],
@@ -305,109 +368,171 @@ describe("closed executable admission", () => {
     expectRejected(entry, unpinned(entry));
   });
 
-  // Rule-derived matrix: every supported rule with its bare control, literal
-  // path spelling, nested fixed-dynamic hop, prefix variants, dynamic
-  // role-selecting slots, a proved dynamic data slot and an unsupported option.
-  const rules = [
-    { rule: "timeout", words: ["timeout", "5m", "jq", "-r", Q(".x")], roles: [1, 2], data: 4, option: 1 },
-    {
-      rule: "nohup",
+  it.each([
+    ["wildcard", ["python", "*.py"]],
+    ["question mark", ["pnpm", "run", "synthetic-8970-?"]],
+    ["bracket", ["pnpm", "run", "synthetic-8970-[ab]"]],
+    ["brace list", ["python", "{a,b}.py"]],
+    ["brace sequence", ["tsx", "probe-{1..3}.ts"]],
+    ["bare selector", ["pyth*n", "-c", Q("print(1)")]],
+    ["path selector", ["/usr/bin/pyth?n", "-c", Q("print(1)")]],
+    ["wrapped selector", ["timeout", "5m", "pyth*n", "-c", Q("print(1)")]],
+    ["fixed-dynamic selector", ["timeout", "5m", D("$BIN/pyth*n"), "-c", Q("print(1)")]],
+    ["program text", ["bash", "-c", "*"]],
+    ["single-argument slot", ["docker", "exec", "*", "pg_isready"]],
+    ["terminal data", ["jq", "-r", Q(".x"), "*.json"]],
+  ])("filename expansion cannot select a program or fill a single-argument slot: %s", (_label, items) => {
+    const entry = syntheticEntry(items);
+    expectRejected(entry, unpinned(entry));
+  });
+
+  it("quoted literal patterns stay data", () => {
+    expectAdmitted(syntheticEntry(["python", Q("*.py")]));
+    expectAdmitted(syntheticEntry(["find", "artifacts", "-type", "f", "-name", Q("*.json")]));
+    expectAdmitted(syntheticEntry(["grep", "-E", Q("^[0-9]+$"), D("$FILE")]));
+  });
+
+  // Inventory-bound matrix: every program mode below and every terminal shape
+  // (generated) comes from benignAdmissionInventory, and the two key sets must
+  // match exactly. Each row checks the bare control, literal path and nested
+  // fixed-dynamic spellings, prefix variants, dynamic role-selecting slots, an
+  // unsupported option and a proved dynamic data slot.
+  const python = (name) => ({
+    [`${name} -c`]: { words: [name, "-c", Q("print(1)"), "argv"], roles: [1, 2], data: 3, option: 1 },
+    [`${name} -`]: { words: [name, "-", "argv"], input: ["print(1)\n"], roles: [1], data: 2, option: 1 },
+    [`${name} script`]: { words: [name, "tool.py", "argv"], roles: [1], data: 2, option: 1 },
+  });
+  // Program flags that keep parsing options must end the command.
+  const programFlag = (name, flag, text) => ({
+    words: [name, flag, Q(text)],
+    roles: [1, 2],
+    option: 1,
+    negatives: [
+      [name, flag, Q(text), "argv"],
+      [name, flag, Q(text), flag, Q(text)],
+    ],
+  });
+  const programRows = {
+    "timeout duration": { words: ["timeout", "5m", "jq", "-r", Q(".x")], roles: [1, 2], data: 4, option: 1 },
+    "nohup forward": {
       words: ["nohup", "node", "./scripts/platform-compose-ingress.mjs", "--port", "1"],
       roles: [1, 2],
       nodeSuffix: [2],
       data: 4,
       option: 1,
     },
-    { rule: "npx", words: ["npx", "playwright", "--version"], roles: [1], option: 1 },
+    "npx forward": { words: ["npx", "playwright", "--version"], roles: [1], option: 1 },
     // The classifier unwraps env/exec/command itself, so their inner form is one
     // the corpus already admits.
-    {
-      rule: "env",
+    "env assignments": {
       words: ["env", "MODE=x", "jq", "-r", Q(".number")],
       roles: [2],
       data: 1,
       dataWord: D("MODE=$X"),
       option: 1,
+      negatives: [["env", U("MODE=$X"), "jq", "-r", Q(".number")]],
     },
-    { rule: "exec", words: ["exec", "jq", "-r", Q(".number")], roles: [1], option: 1 },
-    { rule: "command", words: ["command", "-p", "--", "jq", "-r", Q(".number")], roles: [3], option: 1 },
-    { rule: "command -v", words: ["command", "-v", "jq"], roles: [2], option: 1 },
-    {
-      rule: "pnpm exec",
-      words: ["pnpm", "exec", "tsx", "infra/probe.ts", "final"],
-      roles: [1, 2, 3],
-      data: 4,
-      option: 1,
-    },
-    { rule: "pnpm dlx", words: ["pnpm", "dlx", "playwright", "--version"], roles: [1, 2], option: 1 },
-    { rule: "pnpm run", words: ["pnpm", "run", "verify:static", "--", "--flag"], roles: [1, 2], data: 4, option: 1 },
-    {
-      rule: "pnpm --filter run",
+    "exec forward": { words: ["exec", "jq", "-r", Q(".number")], roles: [1], option: 1 },
+    "command forward": { words: ["command", "-p", "--", "jq", "-r", Q(".number")], roles: [3], option: 1 },
+    "command -v": { words: ["command", "-v", "jq"], roles: [2], option: 1 },
+    "pnpm exec": { words: ["pnpm", "exec", "tsx", "infra/probe.ts", "final"], roles: [1, 2, 3], data: 4, option: 1 },
+    "pnpm dlx": { words: ["pnpm", "dlx", "playwright", "--version"], roles: [1, 2], option: 1 },
+    "pnpm run": { words: ["pnpm", "run", "verify:static", "--", "--flag"], roles: [1, 2], data: 4, option: 1 },
+    "pnpm install": { words: ["pnpm", "install", "--frozen-lockfile"], roles: [1, 2], option: 2 },
+    "pnpm --filter run": {
       words: ["pnpm", "--filter", "@chase-sets/app-platform-api", "run", "synthetic-8709:script"],
-      roles: [3, 4],
-      data: 2,
+      roles: [2, 3, 4],
       option: 1,
+      negatives: [["pnpm", "--filter", U("$PACKAGE"), "run", "start"]],
     },
-    {
-      rule: "pnpm --filter test",
+    "pnpm --filter test": {
       words: ["pnpm", "--filter", "@chase-sets/easypost-postage", "test", "--", "a.test.ts"],
-      roles: [3],
+      roles: [2, 3],
       data: 5,
       option: 1,
     },
-    { rule: "pnpm install", words: ["pnpm", "install", "--frozen-lockfile"], roles: [1, 2], option: 2 },
-    {
-      rule: "find",
-      words: ["find", "artifacts", "-type", "f", "-name", Q("*.json")],
-      roles: [1, 2, 3, 4, 5],
-      option: 2,
-    },
-    {
-      rule: "docker exec",
+    // Exercised by its own context controls below; no entry alone admits it.
+    "pnpm --filter origin": { origin: true },
+    "docker exec": {
       words: ["docker", "exec", D("$C"), "pg_isready", "-U", "postgres"],
       roles: [1, 3],
       data: 5,
       option: 2,
+      negatives: [["docker", "exec", D("${containers[@]}"), "pg_isready"]],
     },
-    {
-      rule: "docker run",
+    "docker run": {
       words: ["docker", "run", "--rm", D("$IMAGE"), "pnpm", "run", "start"],
       roles: [1, 4, 5, 6],
       data: 3,
       option: 2,
     },
-    {
-      rule: "docker run image",
+    "docker run alpine/helm:3.15.4": {
       words: ["docker", "run", "--rm", "alpine/helm:3.15.4", "lint", "charts/x"],
       roles: [1, 4],
       data: 5,
       option: 5,
     },
-    { rule: "docker", words: ["docker", "logs", D("$C")], roles: [1], data: 2, option: 2 },
-    {
-      rule: "docker compose",
-      words: ["docker", "compose", "-f", "compose.yml", "ps"],
-      roles: [1, 4],
-      data: 3,
+    "docker run ghcr.io/yannh/kubeconform:v0.6.7": {
+      words: ["docker", "run", "--rm", "ghcr.io/yannh/kubeconform:v0.6.7", "-strict", "manifest.yaml"],
+      roles: [1, 3],
+      data: 5,
       option: 4,
     },
-    {
-      rule: "kubectl exec",
+    "kubectl exec": {
       words: ["kubectl", "exec", D("$POD"), "--", "rm", "-f", D("$P")],
       roles: [1, 3, 4],
       data: 6,
       option: 2,
+      negatives: [
+        ["kubectl", "exec", D("$POD"), "--", D("$TOOL")],
+        ["kubectl", "exec", "--namespace", D("${namespaces[@]}"), D("$POD"), "--", "rm", "-f", "x"],
+      ],
     },
-    {
-      rule: "kubectl create job",
+    "kubectl create job": {
       words: ["kubectl", "create", "job", "proof", "--", "node", "--version"],
       roles: [2, 5, 6],
       nodeSuffix: [6],
       option: 4,
     },
-    { rule: "kubectl", words: ["kubectl", "get", "pods", "-o", "json"], roles: [1], data: 2, option: 2 },
-    {
-      rule: "node",
+    "find -type f -name": {
+      words: ["find", "artifacts", "-type", "f", "-name", Q("*.json")],
+      roles: [1, 2, 3, 4, 5],
+      option: 2,
+      negatives: [["find", "artifacts", "-type", "f", "-name", "*.json"]],
+    },
+    "eval program": { words: ["eval", Q("echo ok")], roles: [1], option: 1 },
+    ...Object.fromEntries(
+      ["bash", "sh", "dash", "zsh", "ksh"].map((name) => [
+        `${name} -c`,
+        { words: [name, "-c", Q("echo ok")], roles: [1, 2], option: 1, negatives: [[name, "-c", Q("echo ok"), "_"]] },
+      ]),
+    ),
+    ...python("python"),
+    ...python("python3"),
+    "perl -e": programFlag("perl", "-e", "print 1"),
+    "perl -": { words: ["perl", "-", "argv"], input: ["print 1;\n"], roles: [1], data: 2, option: 1 },
+    "perl script": { words: ["perl", "tool.pl", "argv"], roles: [1], data: 2, option: 1 },
+    "ruby -e": programFlag("ruby", "-e", "puts 1"),
+    "ruby -": { words: ["ruby", "-", "argv"], input: ["puts 1\n"], roles: [1], data: 2, option: 1 },
+    "ruby script": { words: ["ruby", "tool.rb", "argv"], roles: [1], data: 2, option: 1 },
+    "pwsh -c": programFlag("pwsh", "-c", "Write-Output ok"),
+    "pwsh script": {
+      words: ["pwsh", "tool.ps1", "argv"],
+      roles: [1],
+      data: 2,
+      option: 1,
+      negatives: [["pwsh", "-"]],
+    },
+    "node -e": { ...programFlag("node", "-e", "1"), nodeSuffix: [1], optionCovered: true },
+    "node -": { words: ["node", "-", "argv"], input: ["1\n"], roles: [1], nodeSuffix: [1], data: 2 },
+    "node --version": {
+      words: ["node", "--version"],
+      roles: [1],
+      nodeSuffix: [1],
+      option: 2,
+      optionCovered: true,
+    },
+    "node script": {
       words: ["node", "./scripts/platform-compose-ingress.mjs", "--port", "1"],
       roles: [1],
       nodeSuffix: [1],
@@ -415,78 +540,143 @@ describe("closed executable admission", () => {
       option: 1,
       optionCovered: true,
     },
-    {
-      rule: "node --version",
-      words: ["node", "--version"],
-      roles: [1],
-      nodeSuffix: [1],
-      option: 2,
-      optionCovered: true,
+    "tsx script": { words: ["tsx", "infra/probe.ts", "a"], roles: [1], data: 2, option: 1 },
+    "psql options": {
+      words: ["psql", "-U", "postgres", "-c", Q("SELECT 1")],
+      roles: [3, 4],
+      data: 2,
+      option: 1,
+      negatives: [
+        ["psql", "-c", D("$SQL")],
+        ["psql", "-c", Q("\\! sh")],
+      ],
     },
-    { rule: "python -c", words: ["python", "-c", Q("print(1)")], roles: [1, 2], option: 1 },
-    { rule: "python stdin", words: ["python", "-"], input: ["print(1)\n"], roles: [1], option: 1 },
-    { rule: "tsx", words: ["tsx", "infra/probe.ts", "a"], roles: [1], data: 2, option: 1 },
-    { rule: "bash -c", words: ["bash", "-c", Q("echo ok")], roles: [1, 2], option: 1 },
-    { rule: "eval", words: ["eval", Q("echo ok")], roles: [1], option: 1 },
-    { rule: "psql", words: ["psql", "-U", "postgres", "-c", Q("SELECT 1")], roles: [3, 4], data: 2, option: 1 },
-    { rule: "trap", words: ["trap", "cleanup", "EXIT"], roles: [1, 2] },
-    { rule: "awk", words: ["awk", Q("{print $3}")], roles: [1], option: 1 },
-    { rule: "sed", words: ["sed", "-i", Q("/x/d"), "file"], roles: [2], data: 3, option: 1 },
-    { rule: "export", words: ["export", "MODE=x"], roles: [1], data: 1, dataWord: D("MODE=$X") },
-    { rule: "git", words: ["git", "rev-parse", "origin/synthetic-8709"], roles: [1], data: 2, option: 1 },
-    { rule: "gh", words: ["gh", "api", Q("repos/x")], roles: [1], data: 2, option: 2 },
-    { rule: "jq", words: ["jq", "-r", Q(".x")], data: 2, option: 1 },
-    { rule: "curl", words: ["curl", "--fail", "https://example.invalid"], data: 2, option: 1 },
-    { rule: "workflow function", words: ["require_job", Q("Build"), "x"], data: 2, option: 2 },
-  ];
-  const at = (words, index, replacement) => words.map((item, position) => (position === index ? replacement : item));
-  const insert = (words, index, item) => [...words.slice(0, index), item, ...words.slice(index)];
+    "trap action": { words: ["trap", "cleanup", "EXIT"], roles: [1, 2] },
+    "awk program": { words: ["awk", "-F", Q("="), Q("{print $3}"), "file"], roles: [3], data: 4, option: 1 },
+    "sed program": {
+      words: ["sed", "-i", Q("/x/d"), "file"],
+      roles: [2],
+      data: 3,
+      option: 1,
+      negatives: [
+        ["sed", "-i", Q("/x/d"), "file", "--expression=p"],
+        ["sed", "-i.bak", Q("/x/d"), "file"],
+      ],
+    },
+    "local declarations": { words: ["local", "MODE=x"], data: 1, dataWord: D("MODE=$X") },
+    "export declarations": { words: ["export", "MODE=x"], data: 1, dataWord: D("MODE=$X") },
+  };
+  const inventory = benignAdmissionInventory();
+  const terminalRows = inventory.filter((row) => row.kind === "terminal");
+
+  it("the matrix covers exactly the closed admission inventory", () => {
+    const modes = inventory.filter((row) => row.kind === "program").map((row) => `${row.selector} ${row.mode}`);
+    expect(Object.keys(programRows).sort()).toEqual([...modes].sort());
+    expect(new Set(modes).size).toBe(modes.length);
+    expect(terminalRows.length).toBeGreaterThan(100);
+    // Generated path negatives assume no selector mixes command paths with a
+    // shape that would take the replaced word as data.
+    for (const row of terminalRows.filter(({ path }) => !path)) {
+      const named = terminalRows.filter(({ selector, path }) => selector === row.selector && path);
+      if (named.length) expect(row.operands, row.selector).toBe(0);
+    }
+  });
+
   const pathSpelling = (words) => [W(`/usr/bin/${word(words[0]).value}`), ...words.slice(1)];
+  const prefixNegatives = (words) => [
+    ["timeout", "5m"],
+    ["timeout", "5m", D("$TOOL"), ...words.slice(1)],
+    ["timeout", "-k", "5", "5m", ...words],
+    ["timeout", D("$DURATION"), ...words],
+    ["nice", ...words],
+    ["sudo", ...words],
+    ["env", "-i", ...words],
+    ["exec", "-a", "x", ...words],
+  ];
 
   // Node-suffix positions are refused by the earlier covered-invocation step
   // (first failure wins); every other refusal is the unpinned-program one.
-  describe.each(rules)(
-    "rule matrix: $rule",
-    ({ words, input, roles = [], nodeSuffix = [], data, dataWord, option, optionCovered }) => {
-      it("admits the bare, path and nested fixed-dynamic spellings", () => {
-        expectAdmitted(syntheticEntry(words, input));
-        expectAdmitted(syntheticEntry(pathSpelling(words), input));
-        const nested = ["timeout", "5m", D(`$BIN/${word(words[0]).value}`), ...words.slice(1)];
-        expectAdmitted(syntheticEntry(nested, input));
-        expectAdmitted(syntheticEntry(["nohup", "timeout", "5m", ...words], input));
-      });
+  it.each(Object.entries(programRows).filter(([, row]) => !row.origin))(
+    "rule matrix: %s",
+    (_key, { words, input, roles = [], nodeSuffix = [], data, dataWord, option, optionCovered, negatives = [] }) => {
+      const entry = (items) => syntheticEntry(items, input);
+      const admitted = [
+        words,
+        pathSpelling(words),
+        ["timeout", "5m", D(`$BIN/${word(words[0]).value}`), ...words.slice(1)],
+        ["nohup", "timeout", "5m", ...words],
+        ...(data === undefined ? [] : [at(words, data, dataWord ?? D("$SYNTHETIC_8709_DATA"))]),
+      ].map(entry);
+      const rejected = [
+        ...prefixNegatives(words).map((items) => [entry(items), unpinned]),
+        ...roles.map((index) => [
+          entry(at(words, index, D("$SYNTHETIC_8709_ROLE"))),
+          nodeSuffix.includes(index) ? covered : unpinned,
+        ]),
+        ...(option === undefined
+          ? []
+          : [[entry(insert(words, option, "--synthetic-8709-option")), optionCovered ? covered : unpinned]]),
+        ...negatives.map((items) => [entry(items), unpinned]),
+      ].map(([candidate, violation]) => [candidate, violation(candidate)]);
+      expectBatch(admitted, rejected);
+    },
+  );
 
-      it("rejects missing, dynamic, unsupported-option and unknown prefixes", () => {
-        for (const items of [
-          ["timeout", "5m"],
-          ["timeout", "5m", D("$TOOL"), ...words.slice(1)],
-          ["timeout", "-k", "5", "5m", ...words],
-          ["timeout", D("$DURATION"), ...words],
-          ["nice", ...words],
-          ["sudo", ...words],
-          ["env", "-i", ...words],
-          ["exec", "-a", "x", ...words],
-        ]) {
-          const entry = syntheticEntry(items, input);
-          expectRejected(entry, unpinned(entry));
-        }
-      });
-
-      it("rejects dynamic role-selecting slots and unsupported options", () => {
-        for (const index of roles) {
-          const entry = syntheticEntry(at(words, index, D("$SYNTHETIC_8709_ROLE")), input);
-          expectRejected(entry, nodeSuffix.includes(index) ? covered(entry) : unpinned(entry));
-        }
-        if (option !== undefined) {
-          const entry = syntheticEntry(insert(words, option, "--synthetic-8709-option"), input);
-          expectRejected(entry, optionCovered ? covered(entry) : unpinned(entry));
-        }
-      });
-
-      if (data !== undefined)
-        it("admits a proved dynamic data slot", () => {
-          expectAdmitted(syntheticEntry(at(words, data, dataWord ?? D("$SYNTHETIC_8709_DATA")), input));
-        });
+  // Terminal shapes, generated from their option tables: every spelling of
+  // every option is admitted; missing, extra or variadic values, the wrong
+  // spelling, unknown and dynamic option names, dynamic or unknown command path
+  // words and operands beyond the shape's bound are refused.
+  const value = D("$SYNTHETIC_8709_VALUE");
+  const spellings = (name, { flag, inline, values }) => [
+    ...(flag ? [[name]] : []),
+    ...(inline ? [[D(`${name}=$SYNTHETIC_8709_VALUE`)]] : []),
+    ...(values ? [[name, ...Array(values).fill(value)]] : []),
+  ];
+  it.each(terminalRows.map((row) => [`${row.selector}${row.path ? ` ${row.path}` : ""}`, row]))(
+    "terminal shape: %s",
+    (_label, { selector, path, global, options, operands, variadic }) => {
+      const head = selector.split(" ");
+      const command = path ? path.split(" ") : [];
+      const base = [...head, ...command];
+      const admitted = [
+        base,
+        [`/usr/bin/${head[0]}`, ...base.slice(1)],
+        // A fixed-dynamic spelling exists only for path-safe basenames.
+        ...(/^[\w./-]+$/.test(head[0]) ? [["timeout", "5m", D(`$BIN/${head[0]}`), ...base.slice(1)]] : []),
+        ...Object.entries(global).flatMap(([name, spec]) =>
+          spellings(name, spec).map((spelling) => [...head, ...spelling, ...command]),
+        ),
+        ...Object.entries(options).flatMap(([name, spec]) =>
+          spellings(name, spec).map((spelling) => [...base, ...spelling]),
+        ),
+        ...(operands > 0 ? [[...base, D("$SYNTHETIC_8709_DATA")]] : []),
+        ...(variadic ? [[...base, U("$SYNTHETIC_8709_LIST")]] : []),
+        ...(options["--"] ? [[...base, "--", U("$SYNTHETIC_8709_LIST")]] : []),
+      ];
+      const rejected = [
+        [...base, "--synthetic-8709-option"],
+        [...base, D("--synthetic-8709-$OPTION")],
+        ...Object.entries(options)
+          .filter(([name]) => name !== "--")
+          .flatMap(([name, { flag, inline, values }]) => [
+            ...(inline ? [] : [[...base, `${name}=synthetic`]]),
+            ...(flag ? [] : [[...base, name]]),
+            ...(values ? [[...base, name, ...Array(values - 1).fill(value), U("$SYNTHETIC_8709_LIST")]] : []),
+          ]),
+        ...command.flatMap((_part, index) => [
+          [...head, ...at(command, index, D("$SYNTHETIC_8709_ACTION"))],
+          [...head, ...at(command, index, "synthetic-8709-action")],
+        ]),
+        ...(Number.isFinite(operands) ? [[...base, ...Array(operands + 1).fill("synthetic-8709-data")]] : []),
+        ...(variadic ? [] : [[...base, U("$SYNTHETIC_8709_LIST")]]),
+      ];
+      expectBatch(
+        admitted.map((items) => syntheticEntry(items)),
+        rejected.map((items) => {
+          const entry = syntheticEntry(items);
+          return [entry, unpinned(entry)];
+        }),
+      );
     },
   );
 
@@ -505,6 +695,7 @@ describe("closed executable admission", () => {
       ["kubectl", "exec", "--namespace", D("${namespaces[@]}"), D("$POD"), "--", "rm", "-f", "x"],
       ["docker", "compose", "-f", U("$FILES"), "ps"],
       ["git", "-c", "core.sshCommand=x", "fetch"],
+      ["git", "config", "core.sshCommand", D("$X")],
       ["docker", "compose", "-f", "compose.yml", "exec", "app", "sh"],
     ]) {
       const entry = syntheticEntry(items);
@@ -512,10 +703,63 @@ describe("closed executable admission", () => {
     }
   });
 
+  // F1: a committed entry stays admitted only for the actual spelling it
+  // proves; partial quoting re-runs admission on the lexed tokens and refuses
+  // with that entry's named diagnostic.
+  const postgresProbe = 'docker exec "$POSTGRES_CONTAINER_ID" pg_isready -U postgres -d postgres';
+  const timeoutPsql = DESTRUCTIVE_GRAMMAR.benignForms.find((entry) =>
+    entry.example.startsWith('timeout 15s docker exec "$POSTGRES_CONTAINER_ID" psql'),
+  );
+  const fixedJq = syntheticEntry(["timeout", "5m", D("$BIN/jq"), "-r", Q(".x")]);
+  const fixedTimeout = syntheticEntry(["nohup", D("$BIN/timeout"), "5m", "jq", "-r", Q(".x")]);
+  const quotedPattern = syntheticEntry(["python", Q("x*.py")]);
+  const partialQuoting = {
+    "empty quotes after": [
+      postgresProbe,
+      postgresProbe.replace('"$POSTGRES_CONTAINER_ID"', '$POSTGRES_CONTAINER_ID""'),
+    ],
+    "empty quotes before": [
+      postgresProbe,
+      postgresProbe.replace('"$POSTGRES_CONTAINER_ID"', '""$POSTGRES_CONTAINER_ID'),
+    ],
+    "single quotes after": [
+      postgresProbe,
+      postgresProbe.replace('"$POSTGRES_CONTAINER_ID"', "$POSTGRES_CONTAINER_ID''"),
+    ],
+    "nested timeout docker": [
+      timeoutPsql.example,
+      timeoutPsql.example.replace('"$POSTGRES_CONTAINER_ID"', '$POSTGRES_CONTAINER_ID""'),
+    ],
+    "fixed-basename selector": [fixedJq.example, `timeout 5m $BIN"/jq" -r '.x'`, fixedJq],
+    "fixed-basename prefix": [fixedTimeout.example, `nohup $BIN"/timeout" 5m jq -r '.x'`, fixedTimeout],
+    "partially quoted pattern": [quotedPattern.example, 'python "x"*.py', quotedPattern],
+  };
+  it.each(Object.entries(partialQuoting))(
+    "partial quoting cannot reuse a proved entry: %s",
+    (_label, [proved, run, synthetic]) => {
+      const grammar = synthetic ? withEntry(synthetic) : DESTRUCTIVE_GRAMMAR;
+      expect(classifyShellCommands(proved, { grammar }).indeterminate).toEqual([]);
+      const entry = synthetic ?? DESTRUCTIVE_GRAMMAR.benignForms.find(({ example }) => example === proved);
+      const [refusal, ...others] = classifyShellCommands(run, { grammar }).indeterminate;
+      expect([refusal.reason, others]).toEqual([unpinned(entry), []]);
+      const ungated = checkWorkflowDestructiveOperationGating(pushWorkflow(run), { grammar });
+      expect(ungated.passed).toBe(false);
+      expect(ungated.checkedSteps).toEqual([expect.objectContaining({ disposition: "INDETERMINATE" })]);
+      expect(ungated.violations).toContainEqual(expect.stringContaining(refusal.reason));
+      const source = changeWorkflow(productionFile, (workflow) => {
+        workflow.jobs["deploy-production"].steps.push({ name: "Synthetic 8709 payload", run });
+      });
+      const exempt = checkWorkflowDestructiveOperationGating(source, { workflowFile: productionFile, grammar });
+      expect(exempt.passed).toBe(false);
+      expect(exempt.violations).toContainEqual(expect.stringContaining(refusal.reason));
+    },
+  );
+
   const suppressionNegatives = {
     "AC2 shell payload": ["bash", "-c", Q("terraform destroy")],
     E1: ["timeout", "5m", D("$TOOL"), "destroy", "-auto-approve"],
     ...c3Rows,
+    ...reviewRows,
   };
   it.each(Object.entries(suppressionNegatives))(
     "benign payload cannot suppress exempt inventory or ungated workflows: %s",
@@ -567,7 +811,7 @@ describe("closed executable admission", () => {
     DESTRUCTIVE_GRAMMAR.benignForms.push(negative, positive);
     try {
       expect(classifyShellCommands(negative.example).indeterminate).toEqual([
-        expect.objectContaining({ reason: "unlisted executable form" }),
+        expect.objectContaining({ reason: unpinned(negative) }),
       ]);
       expect(classifyShellCommands(positive.example).indeterminate).toEqual([]);
     } finally {
@@ -773,6 +1017,263 @@ describe("closed executable admission", () => {
     expect(
       checkWorkflowDestructiveOperationGating(production, { workflowFile: productionFile }).violations,
     ).toContainEqual(expect.stringContaining("exact invocation multiset required"));
+  });
+});
+
+// #8709 F7 decision: "$workspace" is admitted only inside the two complete
+// boot_smoke blocks at 926050f8, at their proved substitution occurrence.
+describe("origin-proved dynamic package selection", () => {
+  const originBlocks = [
+    {
+      id: originIds[0],
+      file: ".github/workflows/platform-pr.yml",
+      job: "docker-image",
+      bytes: 1681,
+      sha256: "e48422407d8d8524fc51f1174991009aa0a794b09ffcb183d360b83116be3c15",
+    },
+    {
+      id: originIds[1],
+      file: productionFile,
+      job: "build-image",
+      bytes: 1638,
+      sha256: "fb2ed0ee188f938991ce89b677bbe174cfdee0845a6d09468c7fe0e8b6ecb898",
+    },
+  ];
+  // YAML-decoded, as the detector receives a step's run text.
+  const blockRun = ({ file, job }) => parse(readWorkflow(file)).jobs[job].steps[6].run;
+  const entryOf = ({ id }) => DESTRUCTIVE_GRAMMAR.benignForms.find((entry) => entry.id === id);
+  const change = (run, from, to) => {
+    expect(run).toContain(from);
+    return run.replace(from, to);
+  };
+  const marketplaceCall = 'boot_smoke marketplace "@chase-sets/app-marketplace-web" /health/ready 18080';
+  const publicCall = 'boot_smoke public-web "@chase-sets/app-public-web" / 18081';
+  const command = 'pnpm --filter "$workspace" run start';
+  // Changed callers, bindings and surrounding text; the command and entry
+  // spelling stay unchanged.
+  const contextChanges = (run) => ({
+    "marketplace package dynamic": change(run, marketplaceCall, marketplaceCall.replace(/"[^"]+"/, '"$OTHER"')),
+    "public package dynamic": change(run, publicCall, publicCall.replace(/"[^"]+"/, '"$OTHER"')),
+    "marketplace package changed": change(
+      run,
+      marketplaceCall,
+      marketplaceCall.replace("marketplace-web", "other-web"),
+    ),
+    "public package changed": change(run, publicCall, publicCall.replace('public-web"', 'other-web"')),
+    "option-shaped package": change(run, marketplaceCall, marketplaceCall.replace(/"[^"]+"/, "--dir=elsewhere")),
+    "third caller": `${run}boot_smoke admin "@chase-sets/app-admin-web" / 18082\n`,
+    "callers removed": change(change(run, `${marketplaceCall}\n`, ""), `${publicCall}\n`, ""),
+    "binding changed": change(run, 'workspace="$2"', 'workspace="$3"'),
+    "binding reassigned": change(run, 'workspace="$2"\n', 'workspace="$2"\n  workspace="$OTHER"\n'),
+    "positional parameters reset": change(
+      run,
+      `${marketplaceCall}\n`,
+      `set -- marketplace "$OTHER"\n${marketplaceCall}\n`,
+    ),
+    "text appended": `${run}echo appended\n`,
+    "text prepended": `echo prepended\n${run}`,
+  });
+  // Changed command spellings inside the otherwise complete block.
+  const commandChanges = {
+    unquoted: "pnpm --filter $workspace run start",
+    "empty quotes": 'pnpm --filter $workspace"" run start',
+    suffix: 'pnpm --filter "$workspace"suffix run start',
+    braced: 'pnpm --filter "${workspace}" run start',
+    "other variable": 'pnpm --filter "$OTHER" run start',
+    "all arguments": 'pnpm --filter "$@" run start',
+    "array expansion": 'pnpm --filter "${args[@]}" run start',
+    "command substitution": 'pnpm --filter "$(printf x)" run start',
+    "dynamic script": 'pnpm --filter "$workspace" run "$SCRIPT"',
+    "second filter": 'pnpm --filter "$workspace" --filter other run start',
+    "unknown option": 'pnpm --filter "$workspace" --synthetic-8709-option run start',
+  };
+  const expectWorkflowRefused = (run) => {
+    const ungated = checkWorkflowDestructiveOperationGating(pushWorkflow(run));
+    expect(ungated.passed).toBe(false);
+    expect(ungated.checkedSteps).toEqual([expect.objectContaining({ disposition: "INDETERMINATE" })]);
+  };
+
+  it.each(originBlocks.map((block) => [block.file, block]))(
+    "C1 the complete origin block admits its preserved entry: %s",
+    (_file, block) => {
+      const entry = entryOf(block);
+      expect(entry.origin).toEqual({ sha: corpusSha, path: block.file, job: block.job, step: 7 });
+      expect(entry.id).toBe(sha256(JSON.stringify({ selector: entry.selector, words: entry.words })));
+      const run = blockRun(block);
+      expect([Buffer.byteLength(run), sha256(run)]).toEqual([block.bytes, block.sha256]);
+      expect(classifyShellCommands(run)).toMatchObject({ operations: [], indeterminate: [] });
+      expect(classifyShellCommands(run.replaceAll("\n", "\r\n")).indeterminate).toEqual([]);
+      expect(checkWorkflowDestructiveOperationGating(pushWorkflow(run))).toEqual({
+        passed: true,
+        checkedSteps: [],
+        violations: [],
+      });
+      const source = changeWorkflow(productionFile, (workflow) => {
+        workflow.jobs["deploy-production"].steps.push({ name: "Synthetic 8709 origin block", run });
+      });
+      expect(checkWorkflowDestructiveOperationGating(source, { workflowFile: productionFile })).toMatchObject({
+        passed: true,
+        violations: [],
+      });
+    },
+  );
+
+  it("C2 every corpus --filter entry stays admitted", () => {
+    const filters = DESTRUCTIVE_GRAMMAR.benignForms.filter((entry) =>
+      entry.words?.some(({ value }) => value === "--filter"),
+    );
+    expect(filters).toHaveLength(8);
+    expect(filters.filter(({ id }) => originIds.includes(id))).toHaveLength(2);
+    for (const entry of filters.filter(({ id }) => !originIds.includes(id)))
+      expect(classifyShellCommands(entry.example).indeterminate, entry.example).toEqual([]);
+    expect(filters.map(({ example }) => example)).toContainEqual(
+      expect.stringMatching(/--filter @chase-sets\/easypost-postage test -- /),
+    );
+  });
+
+  it.each(originBlocks.map((block) => [block.file, block]))(
+    "C3/C7 changed callers, bindings or block text refuse the unchanged command: %s",
+    (_file, block) => {
+      // The stored entry still validates; only the runtime context changed.
+      expect(validateGrammarPartition().passed).toBe(true);
+      for (const [label, run] of Object.entries(contextChanges(blockRun(block)))) {
+        expect(classifyShellCommands(run).indeterminate, label).toContainEqual(
+          expect.objectContaining({ reason: unpinned(entryOf(block)) }),
+        );
+        expectWorkflowRefused(run);
+      }
+    },
+  );
+
+  it.each(originBlocks.map((block) => [block.file, block]))(
+    "C4 the command outside its proved block or occurrence refuses: %s",
+    (_file, block) => {
+      const entry = entryOf(block);
+      const run = blockRun(block);
+      const refusals = {
+        "docker command alone": entry.example,
+        "pnpm command alone": command,
+        "function alone": run.slice(0, run.indexOf(marketplaceCall)),
+        "other occurrence": `probe="$(${entry.example})"`,
+      };
+      // Valid and invalid contexts in both orders: no proof leaks between runs.
+      const sequence = [run, ...Object.values(refusals), run];
+      for (const order of [sequence, [...sequence].reverse()])
+        for (const candidate of order) {
+          const { indeterminate } = classifyShellCommands(candidate);
+          if (candidate === run) expect(indeterminate).toEqual([]);
+          else expect(indeterminate.length, candidate).toBeGreaterThan(0);
+        }
+      expect(classifyShellCommands(entry.example).indeterminate).toEqual([
+        expect.objectContaining({ reason: unpinned(entry) }),
+      ]);
+      for (const candidate of Object.values(refusals)) expectWorkflowRefused(candidate);
+    },
+  );
+
+  it.each(Object.entries(commandChanges))(
+    "C5 a changed command spelling refuses inside the block: %s",
+    (_label, spelling) => {
+      for (const block of originBlocks) {
+        const run = change(blockRun(block), command, spelling);
+        expect(classifyShellCommands(run).indeterminate.length, block.file).toBeGreaterThan(0);
+        expectWorkflowRefused(run);
+      }
+    },
+  );
+
+  it("C5/C6/C7 mutated, forged or covered origin entries are refused by both callers", () => {
+    const entry = entryOf(originBlocks[0]);
+    const workspace = entry.words.findIndex(({ value }) => value === "$workspace");
+    const rehashed = (words) => ({ ...syntheticEntry(words), origin: entry.origin, proof: entry.proof });
+    const mutated = [
+      at(entry.words, workspace, U("$workspace")),
+      at(entry.words, workspace, D("$workspacesuffix")),
+      at(entry.words, workspace, D("${workspace}")),
+      at(entry.words, workspace, D("$OTHER")),
+      at(entry.words, workspace, D("$@")),
+      at(entry.words, workspace, D("${args[@]}")),
+      at(entry.words, workspace, D("$(printf x)")),
+      at(entry.words, entry.words.length - 1, D("$SCRIPT")),
+      insert(entry.words, workspace + 1, W("--synthetic-8709-option")),
+      [W("pnpm"), ...entry.words.slice(workspace - 1)],
+    ].map(rehashed);
+    for (const candidate of mutated) expectRejected(candidate, unpinned(candidate));
+    // The exact words under any other origin.
+    for (const origin of [
+      { ...entry.origin, step: 8 },
+      { ...entry.origin, job: "build-image" },
+      { ...entry.origin, path: ".github/workflows/synthetic-8709.yml" },
+      { ...entry.origin, sha: "f".repeat(40) },
+    ]) {
+      const forged = { ...entry, origin };
+      expectRejected(forged, unpinned(forged));
+    }
+    // A copied identity over changed words, and a covered insertion.
+    const copied = { ...entry, words: at(entry.words, workspace, D("$OTHER")) };
+    expectRejected(copied, `${entry.id}: changed benign form identity.`);
+    const coveredEntry = rehashed([...entry.words, W("terraform")]);
+    expectRejected(coveredEntry, covered(coveredEntry));
+    const run = change(blockRun(originBlocks[0]), '  host_port="$4"\n', '  host_port="$4"\n  terraform destroy\n');
+    expect(operations(run)).toEqual(["terraform:destroy"]);
+    expect(checkWorkflowDestructiveOperationGating(pushWorkflow(run)).passed).toBe(false);
+  });
+
+  // A mutant of the detector, written inside the repository so it resolves the
+  // same dependencies; each replacement must occur exactly once.
+  async function importMutant(replacements) {
+    let source = readFileSync(join(root, "scripts/workflow-destructive-op-gating.mjs"), "utf8");
+    for (const [from, to] of replacements) {
+      expect(source.split(from)).toHaveLength(2);
+      source = source.replace(from, to);
+    }
+    const cache = join(root, "node_modules", ".cache");
+    mkdirSync(cache, { recursive: true });
+    const directory = mkdtempSync(join(cache, "workflow-destructive-op-gating-mutant-"));
+    fixtureDirectories.push(directory);
+    copyFileSync(
+      join(root, "scripts/workflow-destructive-op-gating-grammar.json"),
+      join(directory, "workflow-destructive-op-gating-grammar.json"),
+    );
+    writeFileSync(join(directory, "workflow-destructive-op-gating.mjs"), source);
+    return import(pathToFileURL(join(directory, "workflow-destructive-op-gating.mjs")).href);
+  }
+
+  it("C8 the origin context check is load-bearing", async () => {
+    const bypass = await importMutant([["context.origin !== null &&", "true &&"]]);
+    for (const block of originBlocks) {
+      const run = blockRun(block);
+      expect(bypass.classifyShellCommands(run).indeterminate).toEqual([]);
+      // Without the context check no changed-context control refuses the
+      // command, so that check alone refuses them.
+      const entry = entryOf(block);
+      const refusal = expect.objectContaining({ reason: unpinned(entry) });
+      for (const [label, changed] of Object.entries(contextChanges(run))) {
+        expect(bypass.classifyShellCommands(changed).indeterminate, label).not.toContainEqual(refusal);
+        expect(classifyShellCommands(changed).indeterminate, label).toContainEqual(refusal);
+      }
+      expect(bypass.classifyShellCommands(entry.example).indeterminate).toEqual([]);
+      const forged = { ...entry, origin: { ...entry.origin, step: 8 } };
+      expect(bypass.validateGrammarPartition(alone(forged)).violations).toEqual([]);
+      expect(validateGrammarPartition(alone(forged)).violations).toEqual([unpinned(forged)]);
+    }
+  });
+
+  it("C3 the stored witness text carries authority only through its binding proof", async () => {
+    // Editing the stored platform-pr witness and the run alike keeps them equal;
+    // a changed comment still proves, a changed binding does not.
+    const [block] = originBlocks;
+    const entry = entryOf(block);
+    const run = blockRun(block);
+    const comment = "# queue accepts a Docker image change.";
+    const commented = await importMutant([[`"${comment}"`, '"# synthetic 8709 comment"']]);
+    expect(commented.classifyShellCommands(change(run, comment, "# synthetic 8709 comment")).indeterminate).toEqual([]);
+    const binding = `"${comment}",\n      "boot_smoke() {",\n      '  component="$1"',\n      '  workspace="$2"',`;
+    const rebound = await importMutant([[binding, binding.replace('"$2"', '"$3"')]]);
+    expect(rebound.classifyShellCommands(change(run, 'workspace="$2"', 'workspace="$3"')).indeterminate).toEqual([
+      expect.objectContaining({ reason: unpinned(entry) }),
+    ]);
+    expect(rebound.validateGrammarPartition().violations).toEqual([unpinned(entry)]);
   });
 });
 
