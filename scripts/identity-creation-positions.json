@@ -128,7 +128,7 @@
       "command": "CreateAccount",
       "occurrences": 1,
       "disposition": "exempt-temporary",
-      "reason": "The admin-QA fixture provisions an account and records consent directly; it must migrate when the consent bundle defines the operator surface.",
+      "reason": "The admin-QA fixture provisions an operator QA account with no human registration moment and records no Consent (#6120); the future operator-acceptance surface owns reassessment.",
       "ownerIssue": 5684
     },
     {
@@ -136,7 +136,7 @@
       "command": "CreateUser",
       "occurrences": 1,
       "disposition": "exempt-temporary",
-      "reason": "The admin-QA fixture provisions a user and records consent directly; it must migrate when the consent bundle defines the operator surface.",
+      "reason": "The admin-QA fixture provisions an operator QA user with no human registration moment and records no Consent (#6120); the future operator-acceptance surface owns reassessment.",
       "ownerIssue": 5684
     },
     {
@@ -144,7 +144,7 @@
       "command": "GrantMembership",
       "occurrences": 1,
       "disposition": "exempt-temporary",
-      "reason": "The admin-QA fixture grants the provisioned actor membership and records consent directly; it must migrate with the owned fixture composition.",
+      "reason": "The admin-QA fixture grants the provisioned QA actor membership with no human registration moment and records no Consent (#6120); the future operator-acceptance surface owns reassessment.",
       "ownerIssue": 5684
     },
     {
@@ -176,7 +176,7 @@
       "command": "CreateAccount",
       "occurrences": 6,
       "disposition": "exempt-temporary",
-      "reason": "Development and scenario seeding creates non-production accounts and records consent directly; it must migrate with the consent bundle.",
+      "reason": "Development and scenario seeding creates non-production accounts with no human registration moment and records no Consent (#6120); the consent bundle owns reassessment.",
       "ownerIssue": 5684
     },
     {
@@ -184,7 +184,7 @@
       "command": "CreateUser",
       "occurrences": 6,
       "disposition": "exempt-temporary",
-      "reason": "Development and scenario seeding creates non-production users and records consent directly; it must migrate with the consent bundle.",
+      "reason": "Development and scenario seeding creates non-production users with no human registration moment and records no Consent (#6120); the consent bundle owns reassessment.",
       "ownerIssue": 5684
     },
     {
@@ -192,7 +192,7 @@
       "command": "GrantMembership",
       "occurrences": 6,
       "disposition": "exempt-temporary",
-      "reason": "Development and scenario seeding grants non-production memberships and records consent directly; it must migrate with the consent bundle.",
+      "reason": "Development and scenario seeding grants non-production memberships with no human registration moment and records no Consent (#6120); the consent bundle owns reassessment.",
       "ownerIssue": 5684
     },
     {

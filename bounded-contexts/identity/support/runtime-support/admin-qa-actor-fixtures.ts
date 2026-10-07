@@ -1,5 +1,4 @@
-import type { AccountId, ConsentId, MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
-import { authorizeConsentForProvisioning } from "../../features/consents/domain/consent-recording-authorization";
+import type { AccountId, MembershipId, UserId } from "@chase-sets/primitives/typed-ids";
 import type { RoleKey } from "./common";
 import { createIdentityBootstrapContext } from "./bootstrap-context";
 import type { IdentityServices } from "./services";
@@ -25,7 +24,6 @@ export type AdminQaActorFixtureDefinition = Readonly<{
   accountId: AccountId;
   userId: UserId;
   membershipId: MembershipId;
-  consentId: ConsentId;
   accountName: string;
   displayName: string;
   primaryEmail: string;
@@ -41,7 +39,6 @@ export type AdminQaActorFixtureResult = Readonly<{
   createdAccount: boolean;
   createdUser: boolean;
   createdMembership: boolean;
-  createdConsent: boolean;
 }>;
 
 /**
@@ -67,7 +64,6 @@ export const ADMIN_QA_ACTOR_FIXTURES: readonly AdminQaActorFixtureDefinition[] =
     accountId: "acc_admin_qa_platform_admin" as AccountId,
     userId: "usr_admin_qa_platform_admin" as UserId,
     membershipId: "mbr_admin_qa_platform_admin" as MembershipId,
-    consentId: "cns_admin_qa_platform_admin" as ConsentId,
     accountName: "Admin QA Platform Admin",
     displayName: "Admin QA Platform Admin",
     primaryEmail: "admin-qa-platform-admin@chasesets.test",
@@ -82,7 +78,6 @@ export const ADMIN_QA_ACTOR_FIXTURES: readonly AdminQaActorFixtureDefinition[] =
     accountId: "acc_admin_qa_owner" as AccountId,
     userId: "usr_admin_qa_owner" as UserId,
     membershipId: "mbr_admin_qa_owner" as MembershipId,
-    consentId: "cns_admin_qa_owner" as ConsentId,
     accountName: "Admin QA Owner",
     displayName: "Admin QA Owner",
     primaryEmail: "admin-qa-owner@chasesets.test",
@@ -97,7 +92,6 @@ export const ADMIN_QA_ACTOR_FIXTURES: readonly AdminQaActorFixtureDefinition[] =
     accountId: "acc_admin_qa_manager" as AccountId,
     userId: "usr_admin_qa_manager" as UserId,
     membershipId: "mbr_admin_qa_manager" as MembershipId,
-    consentId: "cns_admin_qa_manager" as ConsentId,
     accountName: "Admin QA Manager",
     displayName: "Admin QA Manager",
     primaryEmail: "admin-qa-manager@chasesets.test",
@@ -112,7 +106,6 @@ export const ADMIN_QA_ACTOR_FIXTURES: readonly AdminQaActorFixtureDefinition[] =
     accountId: "acc_admin_qa_fulfillment" as AccountId,
     userId: "usr_admin_qa_fulfillment" as UserId,
     membershipId: "mbr_admin_qa_fulfillment" as MembershipId,
-    consentId: "cns_admin_qa_fulfillment" as ConsentId,
     accountName: "Admin QA Fulfillment",
     displayName: "Admin QA Fulfillment",
     primaryEmail: "admin-qa-fulfillment@chasesets.test",
@@ -127,7 +120,6 @@ export const ADMIN_QA_ACTOR_FIXTURES: readonly AdminQaActorFixtureDefinition[] =
     accountId: "acc_admin_qa_viewer" as AccountId,
     userId: "usr_admin_qa_viewer" as UserId,
     membershipId: "mbr_admin_qa_viewer" as MembershipId,
-    consentId: "cns_admin_qa_viewer" as ConsentId,
     accountName: "Admin QA Viewer",
     displayName: "Admin QA Viewer",
     primaryEmail: "admin-qa-viewer@chasesets.test",
@@ -142,7 +134,6 @@ export const ADMIN_QA_ACTOR_FIXTURES: readonly AdminQaActorFixtureDefinition[] =
     accountId: "acc_admin_qa_catalog_admin" as AccountId,
     userId: "usr_admin_qa_catalog_admin" as UserId,
     membershipId: "mbr_admin_qa_catalog_admin" as MembershipId,
-    consentId: "cns_admin_qa_catalog_admin" as ConsentId,
     accountName: "Admin QA Catalog Admin",
     displayName: "Admin QA Catalog Admin",
     primaryEmail: "admin-qa-catalog-admin@chasesets.test",
@@ -157,7 +148,8 @@ export const ADMIN_QA_ACTOR_FIXTURES: readonly AdminQaActorFixtureDefinition[] =
  * across reruns, and skipped when it already exists so reruns after a full
  * staging platform reset stay cheap. Returns only support-safe per-alias
  * outcome flags; callers must not log the underlying account, user, or
- * membership ids.
+ * membership ids. No Consent is recorded: no human affirms anything here, so
+ * provisioning authors no synthetic Consent fact.
  */
 export async function provisionAdminQaActorFixtures(
   services: IdentityServices,
@@ -180,7 +172,6 @@ async function provisionAdminQaActorFixture(
   let createdAccount = false;
   let createdUser = false;
   let createdMembership = false;
-  let createdConsent = false;
 
   if (!(await rowExists(services.db, "identity_accounts", "account_id", fixture.accountId))) {
     await services.accounts.commandHandler({
@@ -243,25 +234,6 @@ async function provisionAdminQaActorFixture(
     createdMembership = true;
   }
 
-  if (!(await rowExists(services.db, "identity_consents", "consent_id", fixture.consentId))) {
-    await services.consents.commandHandler({
-      streamId: `identity.consent-${fixture.consentId}`,
-      command: {
-        type: "RecordConsent",
-        consentId: fixture.consentId,
-        subjectType: "user",
-        userId: fixture.userId,
-        accountId: fixture.accountId,
-        policyKey: "terms-of-service",
-        policyVersion: "v1",
-        recordedAt: ADMIN_QA_ACTOR_FIXTURES_SEEDED_AT,
-      },
-      context,
-      authorization: authorizeConsentForProvisioning(fixture.userId, fixture.accountId),
-    });
-    createdConsent = true;
-  }
-
   return {
     actorAlias: fixture.actorAlias,
     roleKey: fixture.roleKey,
@@ -270,7 +242,6 @@ async function provisionAdminQaActorFixture(
     createdAccount,
     createdUser,
     createdMembership,
-    createdConsent,
   };
 }
 

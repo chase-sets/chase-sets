@@ -21,11 +21,10 @@ import {
 } from "@chase-sets/platform-runtime/durable-job-work-units";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, InventoryItemId, ListingId } from "@chase-sets/primitives/typed-ids";
+import { normalizeGtin } from "@chase-sets/primitives/gtin";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { InventoryCatalogItemServices } from "../../inventory-items/integrations/catalog/runtime";
 import {
-  createInventoryProductDescriptor,
-  parseSelectedOptionsInput,
   type InventoryProductDimension,
   type InventoryProductOption,
   type InventoryProductSchema,
@@ -61,6 +60,20 @@ import {
   type CreateInventorySavedListImportBatch,
   type InventorySavedListImportBatchHandoff,
 } from "./saved-list-import";
+import { validateImportProduct } from "../domain/product-validation";
+import {
+  initializeProductResolutionProgress,
+  normalizeProductResolutionPage,
+  productResolutionReceipt,
+  readProductResolutionProgress,
+  readProductResolutionReceipt,
+  ProductResolutionMaintenanceError,
+  PRODUCT_RESOLUTION_JOB_ID,
+  PRODUCT_RESOLUTION_UNIT_ID,
+  type ProductResolutionProgress,
+  type InventoryImportProductResolutionMaintenanceReceipt,
+} from "./product-resolution-maintenance";
+export type { InventoryImportProductResolutionMaintenanceReceipt } from "./product-resolution-maintenance";
 
 export type InventoryDraftListingCreator = (
   params: Readonly<{
@@ -155,6 +168,17 @@ export type InventoryImportBatchServices = Readonly<{
     signal?: AbortSignal;
     throwIfLeaseLost?: () => void;
   }) => Promise<number>;
+  enqueueProductResolutionMaintenanceJob: (input?: {
+    validatorVersion?: number;
+    reactivateFailed?: boolean;
+  }) => Promise<InventoryImportBatchJob>;
+  processNextImportProductResolutionMaintenanceJob: (input: {
+    claimOwnerId: string;
+    claimTtlMs: number;
+    signal?: AbortSignal;
+    throwIfLeaseLost?: () => void;
+    normalizationEnabled?: boolean;
+  }) => Promise<number>;
   getImportBatchWorkUnitSummary: (input?: { jobId?: string | null }) => Promise<DurableJobWorkUnitSummary>;
   /**
    * Batch seller-SKU -> inventory-item resolution for cross-context callers
@@ -174,6 +198,7 @@ type InventoryImportBatchRuntimeDeps = Readonly<{
   items: InventoryItemServices;
   catalogItems: InventoryCatalogItemServices;
   draftListingCreator?: InventoryDraftListingCreator;
+  importProductRollout?: Readonly<{ normalizationEnabled: boolean; stockProgressionEnabled: boolean }>;
 }>;
 
 type ValidatedImportRow = Readonly<{
@@ -210,6 +235,9 @@ type ExistingImportTargetItem = Readonly<{
 const MONEY_PATTERN = /^\d+(\.\d{1,2})?$/;
 const IMPORT_BATCH_JOB_KIND_CREATE = "create";
 const IMPORT_BATCH_JOB_KIND_COMMIT = "commit";
+export const INVENTORY_IMPORT_PRODUCT_RESOLUTION_MAINTENANCE_JOB_KIND = PRODUCT_RESOLUTION_JOB_ID;
+export const INVENTORY_IMPORT_PRODUCT_RESOLUTION_MAINTENANCE_UNIT_KIND = PRODUCT_RESOLUTION_UNIT_ID;
+const INVENTORY_IMPORT_PRODUCT_RESOLUTION_VALIDATOR_VERSION = 1;
 
 export type InventoryImportBatchJobPayload = Readonly<{
   batchId?: string;
@@ -219,6 +247,7 @@ export type InventoryImportBatchJobPayload = Readonly<{
     inputId: string;
     batchId?: string;
   }>;
+  maintenance?: Readonly<{ validatorVersion: number }>;
 }>;
 
 export type InventoryImportBatchJobProgress = Readonly<{
@@ -227,11 +256,13 @@ export type InventoryImportBatchJobProgress = Readonly<{
   total: number;
   currentRowId: string | null;
   message: string | null;
+  maintenance?: ProductResolutionProgress;
 }>;
 
 export type InventoryImportBatchJobResult = Readonly<{
-  batch: InventoryImportBatchDetail;
+  batch?: InventoryImportBatchDetail;
   commandReceipt?: CommandReceiptMetadata | null;
+  maintenanceReceipt?: InventoryImportProductResolutionMaintenanceReceipt;
 }>;
 
 export type InventoryImportBatchJob = DurableJobRecord<
@@ -455,7 +486,7 @@ function normalizeExternalReferences(row: NormalizedInventoryImportRow): readonl
 }
 
 function gtinCandidatePriority(candidate: InventoryImportExternalReference): number {
-  return candidate.targetIntent === "gtin-reference" ? 0 : 1;
+  return candidate.targetIntent === "gtin-reference" && normalizeGtin(candidate.externalKey) ? 0 : 1;
 }
 
 function sellerSkuFromAccountSkuReference(
@@ -736,6 +767,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     {
       jobsTable: "inventory_import_batch_jobs",
       eventsTable: "inventory_import_batch_job_events",
+      retentionExemptJobKinds: [INVENTORY_IMPORT_PRODUCT_RESOLUTION_MAINTENANCE_JOB_KIND],
     },
     { notificationWaiterPool: deps.notificationWaiterPool },
   );
@@ -845,15 +877,17 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     accountId: AccountId,
     row: NormalizedInventoryImportRow,
     quantityMode: InventoryImportQuantityMode,
+    manualSelection?: readonly InventorySelectedOptionEntry[],
   ): Promise<ValidatedImportRow> {
     const errors: string[] = [];
     const values = row.values;
     const externalReferences = normalizeExternalReferences(row);
     let externalReference = externalReferences[0] ?? null;
-    let catalogItemId = clean(values.catalogItemId);
+    let catalogItemId = clean(values.catalogItemId ?? row.rawRow.catalogItemId);
     let storageLocationId = clean(values.storageLocationId);
     const imported = importedQuantity(clean(values.totalQuantity), quantityMode, errors);
-    let selectedOptions: readonly InventorySelectedOptionEntry[] = optionEntries(values);
+    let selectedOptions: readonly InventorySelectedOptionEntry[] =
+      manualSelection ?? optionEntries({ ...row.rawRow, ...values });
     let productId: string | null = null;
     let resolutionStatus: InventoryImportResolutionStatus = catalogItemId ? "native" : "unresolved";
     let resolutionError: string | null = null;
@@ -869,8 +903,10 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
 
       for (const candidate of orderedCandidates) {
         if (candidate.targetIntent === "gtin-reference") {
+          const gtin = normalizeGtin(candidate.externalKey);
+          if (!gtin) continue;
           externalReference = candidate;
-          const gtinMapping = await deps.catalogItems.getCatalogItemByGtin(candidate.externalKey);
+          const gtinMapping = await deps.catalogItems.getCatalogItemByGtin(gtin);
           if (gtinMapping) {
             catalogItemId = gtinMapping.catalog_item_id;
             resolutionStatus = "resolved";
@@ -946,36 +982,27 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
               : `External product references are not mapped to Chase Sets catalog items: ${candidateList}.`),
         );
       }
-    } else if (!catalogItemId && externalReferences.length === 0) {
-      errors.push("catalogItemId is required.");
     }
 
-    if (!catalogItemId) {
-      resolutionStatus = externalReference ? "unresolved" : "native";
-    } else {
-      const catalogItem = await deps.catalogItems.getCatalogItem(catalogItemId);
-      if (!catalogItem) {
-        errors.push("Catalog item was not found.");
-      } else if (catalogItem.status !== "active") {
-        errors.push("Catalog item must be active.");
-      } else {
-        try {
-          selectedOptions = normalizeSelectedOptionsForSchema(catalogItem.product_schema, selectedOptions, row);
-          const descriptor = createInventoryProductDescriptor({
-            catalogItemId,
-            productSchema: catalogItem.product_schema,
-            selection: parseSelectedOptionsInput(selectedOptions),
-          });
-          productId = descriptor.productId;
-          const sourceProductId = clean(values.productId);
-          if (sourceProductId && sourceProductId !== productId) {
-            errors.push("The source Product no longer matches the current Catalog selection.");
-          }
-        } catch (error) {
-          errors.push(error instanceof Error ? error.message : "Selected options are invalid.");
-        }
+    const catalogItem = catalogItemId ? await deps.catalogItems.getCatalogItem(catalogItemId) : null;
+    try {
+      if (!manualSelection && catalogItem?.status === "active") {
+        selectedOptions = normalizeSelectedOptionsForSchema(catalogItem.product_schema, selectedOptions, row);
       }
+    } catch {
+      errors.push("Selected options schema is invalid.");
     }
+    const product = validateImportProduct({
+      catalogItemId,
+      catalogItem,
+      selectedOptions,
+      sourceProductId: manualSelection ? null : clean(values.productId ?? row.rawRow.productId),
+      authority: manualSelection || resolutionStatus === "resolved" ? "resolved" : "native",
+    });
+    productId = product.productId;
+    resolutionStatus = product.resolutionStatus;
+    selectedOptions = product.selectedOptions;
+    errors.push(...product.errors);
 
     const storageLocationLabel = storageLocationLabelForRow(row);
     if (!storageLocationId && storageLocationLabel) {
@@ -1176,6 +1203,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       params.accountId,
       rowForManualResolution(detail, row, params),
       row.quantity_mode,
+      params.selectedOptions,
     );
     if (validated.validationErrors.length > 0 || !validated.catalogItemId || !validated.productId) {
       throw new InventoryDomainError(`Import row fix is incomplete: ${validated.validationErrors.join(" ")}`);
@@ -1258,6 +1286,9 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     onProgress?: (progress: InventoryImportBatchJobProgress) => Promise<void>,
     options: Readonly<{ throwIfCancelled?: () => void }> = {},
   ): Promise<InventoryImportBatchDetail> {
+    if (deps.importProductRollout?.stockProgressionEnabled === false) {
+      throw new InventoryDomainError("Import stock progression is disabled; Product review remains available.");
+    }
     const detail = await getImportBatch(deps.db, params.batchId, params.accountId);
     if (!detail) {
       throw new InventoryDomainError("Import batch not found.");
@@ -1919,6 +1950,267 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     return job;
   }
 
+  async function enqueueProductResolutionMaintenanceJob(
+    input: {
+      validatorVersion?: number;
+      reactivateFailed?: boolean;
+    } = {},
+  ): Promise<InventoryImportBatchJob> {
+    const validatorVersion = input.validatorVersion ?? INVENTORY_IMPORT_PRODUCT_RESOLUTION_VALIDATOR_VERSION;
+    if (!Number.isSafeInteger(validatorVersion) || validatorVersion < 1 || validatorVersion > 2_147_483_647) {
+      throw new InventoryDomainError("Product resolution validator version must be a positive PostgreSQL integer.");
+    }
+    const jobId = PRODUCT_RESOLUTION_JOB_ID;
+    const existing = await jobStore.get(jobId);
+    if (existing) {
+      if (existing.jobKind !== INVENTORY_IMPORT_PRODUCT_RESOLUTION_MAINTENANCE_JOB_KIND) {
+        throw new InventoryDomainError("Product maintenance job identity is occupied by another workflow.");
+      }
+      const existingVersion = existing.payload.maintenance?.validatorVersion;
+      if (
+        !Number.isSafeInteger(existingVersion) ||
+        !existingVersion ||
+        existingVersion < 1 ||
+        existingVersion > 2_147_483_647
+      ) {
+        throw new InventoryDomainError("Product maintenance has invalid retained validator identity.");
+      }
+      if (existing.result?.maintenanceReceipt) {
+        if (existing.status !== "completed")
+          throw new InventoryDomainError("Product maintenance receipt is not bound to a completed job.");
+        if (readProductResolutionReceipt(existing.result.maintenanceReceipt).validatorVersion !== existingVersion) {
+          throw new InventoryDomainError("Product maintenance receipt validator identity does not match its job.");
+        }
+        return existing;
+      }
+      if (existing.status === "completed")
+        throw new InventoryDomainError("Completed Product maintenance is missing its receipt.");
+      if (existing.status === "failed") {
+        const state = readProductResolutionProgress(existing.progress.maintenance);
+        if (state.validatorVersion !== existingVersion)
+          throw new InventoryDomainError("Product maintenance retained progress does not match its validator.");
+        if (!input.reactivateFailed || validatorVersion <= state.validatorVersion) {
+          throw new InventoryDomainError(
+            "Failed Product maintenance requires fenced higher-validatorVersion reactivation of the same job and unit.",
+          );
+        }
+        const reactivated = await workUnitStore.requeueFailed({
+          jobId,
+          unitId: PRODUCT_RESOLUTION_UNIT_ID,
+          expectedPayload: existing.payload,
+          expectedProgress: existing.progress,
+          payload: { ...existing.payload, maintenance: { validatorVersion } },
+          progress: {
+            ...existing.progress,
+            phase: "queued",
+            message: "Product maintenance reactivated.",
+            maintenance: readProductResolutionProgress({ ...state, validatorVersion, poison: null }),
+          },
+        });
+        if (!reactivated) throw new InventoryDomainError("Product maintenance reactivation fence changed.");
+        return (await jobStore.get(jobId))!;
+      }
+      if (
+        (input.validatorVersion !== undefined && validatorVersion !== existing.payload.maintenance?.validatorVersion) ||
+        input.reactivateFailed
+      ) {
+        throw new InventoryDomainError("Active Product maintenance cannot be replaced by another validator version.");
+      }
+      await enqueueProductMaintenanceUnit(jobId);
+      return existing;
+    }
+    const job = await jobStore.enqueue({
+      jobId,
+      jobKind: INVENTORY_IMPORT_PRODUCT_RESOLUTION_MAINTENANCE_JOB_KIND,
+      payload: { accountId: "system", maintenance: { validatorVersion } },
+      progress: importBatchJobProgress("queued", 0, 0, null, "Product resolution maintenance queued."),
+      eventContext: null,
+    });
+    await enqueueProductMaintenanceUnit(jobId);
+    return job;
+  }
+
+  async function enqueueProductMaintenanceUnit(jobId: string) {
+    await workUnitStore.enqueue({
+      jobId,
+      units: [
+        {
+          unitId: INVENTORY_IMPORT_PRODUCT_RESOLUTION_MAINTENANCE_UNIT_KIND,
+          unitKind: INVENTORY_IMPORT_PRODUCT_RESOLUTION_MAINTENANCE_UNIT_KIND,
+          payload: { rowNumber: 0 },
+        },
+      ],
+    });
+  }
+
+  async function processNextImportProductResolutionMaintenanceJob(input: {
+    claimOwnerId: string;
+    claimTtlMs: number;
+    signal?: AbortSignal;
+    throwIfLeaseLost?: () => void;
+    normalizationEnabled?: boolean;
+  }): Promise<number> {
+    if (input.normalizationEnabled === false || deps.importProductRollout?.normalizationEnabled === false) return 0;
+    const claimResult = await workUnitStore.claimNext({
+      claimOwnerId: input.claimOwnerId,
+      claimTtlMs: input.claimTtlMs,
+      workflowMaxActiveClaims: 1,
+      jobMaxActiveClaims: 1,
+      jobKinds: [INVENTORY_IMPORT_PRODUCT_RESOLUTION_MAINTENANCE_JOB_KIND],
+      jobId: PRODUCT_RESOLUTION_JOB_ID,
+      unitId: PRODUCT_RESOLUTION_UNIT_ID,
+      laneName: "maintenance",
+    });
+    const claim = claimResult.claim;
+    if (!claim) return 0;
+    const fence = {
+      jobId: claim.job.jobId,
+      unitId: claim.unit.unitId,
+      claimOwnerId: claim.claimOwnerId,
+      claimToken: claim.claimToken,
+      claimTtlMs: input.claimTtlMs,
+    };
+    let progress = claim.job.progress;
+    const checkLease = () => {
+      input.throwIfLeaseLost?.();
+      if (input.signal?.aborted) throw new InventoryDomainError("Product resolution maintenance was cancelled.");
+    };
+    try {
+      checkLease();
+      const validatorVersion =
+        claim.job.payload.maintenance?.validatorVersion ?? INVENTORY_IMPORT_PRODUCT_RESOLUTION_VALIDATOR_VERSION;
+      if (!progress.maintenance) {
+        const initialized = await workUnitStore.checkpoint({
+          ...fence,
+          resolveProgress: async (db, current) => ({
+            ...current,
+            phase: "processing",
+            maintenance: await initializeProductResolutionProgress(db, validatorVersion),
+          }),
+        });
+        if (!initialized) throw new InventoryDomainError("Product maintenance claim was lost during initialization.");
+        progress = initialized;
+      }
+      for (;;) {
+        checkLease();
+        let exhausted = false;
+        const checkpoint = await workUnitStore.checkpoint({
+          ...fence,
+          resolveProgress: async (db, current) => {
+            const state = readProductResolutionProgress(current.maintenance);
+            if (state.validatorVersion !== validatorVersion)
+              throw new InventoryDomainError("Product maintenance checkpoint validator does not match its job.");
+            const transactionStore = createPostgresDurableJobWorkUnitStore<
+              InventoryImportBatchJobPayload,
+              InventoryImportBatchJobProgress,
+              InventoryImportBatchJobResult,
+              InventoryImportBatchWorkUnitPayload,
+              InventoryImportBatchWorkUnitResult
+            >(
+              db,
+              {
+                jobsTable: "inventory_import_batch_jobs",
+                eventsTable: "inventory_import_batch_job_events",
+                workUnitsTable: "inventory_import_batch_work_units",
+              },
+              { workflowName: "inventory.import-batch" },
+            );
+            const result = await normalizeProductResolutionPage(db, state, async () => {
+              checkLease();
+              if (!(await transactionStore.renewClaim(fence)))
+                throw new InventoryDomainError("Product maintenance claim expired.");
+            });
+            exhausted = result.exhausted;
+            return {
+              ...current,
+              phase: "processing",
+              completed: result.state.scannedCount,
+              total: result.state.scannedCount,
+              currentRowId: result.state.finalCursor?.rowId ?? null,
+              maintenance: result.state,
+            };
+          },
+        });
+        if (!checkpoint) throw new InventoryDomainError("Product maintenance claim was lost during checkpoint.");
+        progress = checkpoint;
+        if (exhausted) break;
+      }
+      const outcome = await workUnitStore.recordTerminal({
+        jobId: claim.job.jobId,
+        unitId: claim.unit.unitId,
+        claimOwnerId: claim.claimOwnerId,
+        claimToken: claim.claimToken,
+        state: "completed",
+        unitResult: { rowId: PRODUCT_RESOLUTION_UNIT_ID, status: "rejected" },
+        parentProgress: progress,
+        completeJob: true,
+        resolveParentUpdate: async (db) => {
+          checkLease();
+          const receipt = await productResolutionReceipt(db, readProductResolutionProgress(progress.maintenance));
+          return {
+            parentProgress: {
+              ...progress,
+              phase: "completed",
+              currentRowId: null,
+              message: "Product resolution maintenance completed.",
+            },
+            parentResult: { maintenanceReceipt: receipt },
+            completeJob: true,
+          };
+        },
+      });
+      if (outcome !== "recorded") {
+        throw new InventoryDomainError("Product resolution maintenance claim was lost before completion.");
+      }
+      return 1;
+    } catch (error) {
+      if (isImportBatchJobHandoff(error, input)) {
+        await workUnitStore.releaseClaim(fence);
+        return 0;
+      }
+      if (!progress.maintenance) {
+        await workUnitStore.releaseClaim(fence);
+        throw error;
+      }
+      const previous = readProductResolutionProgress(progress.maintenance);
+      const rowId =
+        error instanceof ProductResolutionMaintenanceError ? error.rowId : (previous.finalCursor?.rowId ?? "");
+      const errorClass = error instanceof ProductResolutionMaintenanceError ? error.errorClass : "checkpoint";
+      const attempts = Math.min(3, previous.poison?.rowId === rowId ? previous.poison.attempts + 1 : 1);
+      const failed = await workUnitStore.checkpoint({
+        ...fence,
+        resolveProgress: async (_db, current) => ({
+          ...current,
+          message: `Product maintenance ${errorClass}; row=${rowId.slice(0, 200)}; attempt=${attempts}/3.`,
+          maintenance: readProductResolutionProgress({
+            ...previous,
+            recoveryRowId: errorClass === "convergence" ? rowId : previous.recoveryRowId,
+            poison: { rowId: rowId.slice(0, 200), cursor: previous.finalCursor, errorClass, attempts },
+          }),
+        }),
+      });
+      if (!failed) return 0;
+      progress = failed;
+      if (attempts < 3) {
+        await workUnitStore.releaseClaim(fence);
+        return 1;
+      }
+      await workUnitStore.recordTerminal({
+        jobId: claim.job.jobId,
+        unitId: claim.unit.unitId,
+        claimOwnerId: claim.claimOwnerId,
+        claimToken: claim.claimToken,
+        state: "failed",
+        unitResult: { rowId: claim.unit.unitId, status: "rejected" },
+        errorMessage: progress.message,
+        parentProgress: { ...progress, phase: "failed" },
+        parentResult: claim.job.result,
+        failJob: true,
+      });
+      return 1;
+    }
+  }
+
   return {
     createBatch: (params) => createBatchRows(params),
     getBatch: (batchId, accountId) => getImportBatch(deps.db, batchId, accountId),
@@ -2140,6 +2432,8 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         return 1;
       }
     },
+    enqueueProductResolutionMaintenanceJob,
+    processNextImportProductResolutionMaintenanceJob,
     getImportBatchWorkUnitSummary: (input = {}) => workUnitStore.summarize(input),
   };
 

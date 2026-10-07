@@ -57,6 +57,7 @@ export type InventoryServices = Readonly<{
 
 export type InventoryHostPorts = Readonly<{
   draftListingCreator?: InventoryDraftListingCreator;
+  importProductRollout?: Readonly<{ normalizationEnabled: boolean; stockProgressionEnabled: boolean }>;
 }>;
 
 /**
@@ -119,6 +120,7 @@ export function createInventoryServices(
     items,
     catalogItems,
     draftListingCreator: ports.draftListingCreator,
+    importProductRollout: ports.importProductRollout,
   });
   const holds = createInventoryHoldRuntime(deps);
   const holdCleanupAuthority = createInventoryHoldCleanupAuthority({ eventStore, db });
