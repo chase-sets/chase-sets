@@ -1788,14 +1788,14 @@ describe("busy-group-pass-attribution Postgres", () => {
             retainedPass,
             competitors: [...activeHolders.values()],
           });
-          void app
-            .request("/api/marketplace/owned", {
+          void Promise.resolve(
+            app.request("/api/marketplace/owned", {
               headers: {
                 [CHASE_SETS_READ_AFTER_WRITE_HEADER]: receipt,
                 [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: "marketplace",
               },
-            })
-            .then(resolve, reject);
+            }),
+          ).then(resolve, reject);
           wakeLoop!.start();
         };
       });
