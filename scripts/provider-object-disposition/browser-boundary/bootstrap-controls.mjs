@@ -177,8 +177,18 @@ export async function bootstrapControls(stage = () => {}) {
         await Promise.allSettled(Array.from({ length: 140 }, () => fetch("https://example.invalid/SYNTHETIC_PRIVATE")));
       })
       .catch(() => {});
+    console.log(
+      `installed-boundary atomic-cap:${JSON.stringify({
+        attempts: bootstrap.snapshot().attempts,
+        sends,
+        closing: bootstrap.closed() !== undefined,
+        pageClosed: bootstrap.page.isClosed(),
+      })}`,
+    );
     assert.equal(bootstrap.snapshot().attempts, 128);
     assert.equal(sends, 1);
+    assert.ok(bootstrap.closed());
+    await bootstrap.closed();
     assert.equal(bootstrap.page.isClosed(), true);
     pass("atomic-cap-destroys-child");
   } finally {

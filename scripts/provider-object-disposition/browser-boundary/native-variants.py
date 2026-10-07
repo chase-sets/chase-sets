@@ -17,6 +17,7 @@ BACKUP = TARGET / 'synthetic-original'
 SOURCE = TARGET / 'source/browser-boundary/launcher.c'
 HEADER = TARGET / 'source/browser-boundary/installation.h'
 NAMES = ('launcher', 'launcher.sha256', 'files.sha256', 'source.sha256')
+stage = 'arguments'
 
 
 def replace_once(source, old, new):
@@ -38,6 +39,40 @@ def variant(source, name):
         return replace_once(source, '    seed_map(seed, "uid_map", mapping);', '    seed_map(seed, "uid_map", mapping);\n    seed_map(seed, "uid_map", mapping);')
     if name == 'b3-failure':
         return replace_once(source, 'require(ancestry, "namespace-identity");', 'require(false && ancestry, "namespace-identity");')
+    if name == 'ancestry':
+        source = replace_once(source, '#include <sys/mount.h>', '#include <sys/mount.h>\n#include <sys/mman.h>')
+        source = replace_once(source, 'static int active_seed = -1;', 'static int active_seed = -1;\nstatic volatile int *synthetic_nested;')
+        begin = source.index('static void seed_main(')
+        end = source.index('static void seed_map(', begin)
+        source = source[:begin] + '''static void seed_main(int guardian) {
+    struct pollfd parent = {guardian, POLLIN, 0};
+    if (prctl(PR_SET_PDEATHSIG, SIGKILL) != 0 || poll(&parent, 1, 0) != 0 ||
+        syscall(SYS_close_range, 0, ~0U, 0) != 0 || prctl(PR_SET_DUMPABLE, 1) != 0) _exit(78);
+    (void)seed_fence;
+    const char *paths[] = {"/proc/self/setgroups", "/proc/self/uid_map", "/proc/self/gid_map"};
+    char uid[80], gid[80];
+    snprintf(uid, sizeof(uid), "%u %u 1\\n", ADMITTED_UID, ADMITTED_UID);
+    snprintf(gid, sizeof(gid), "%u %u 1\\n", ADMITTED_GID, ADMITTED_GID);
+    const char *values[] = {"deny\\n", uid, gid};
+    for (int i = 0; i < 3; i++) {
+        int fd = open(paths[i], O_WRONLY | O_CLOEXEC);
+        if (fd < 0 || write(fd, values[i], strlen(values[i])) != (ssize_t)strlen(values[i])) _exit(78);
+        close(fd);
+    }
+    if (unshare(CLONE_NEWUSER) != 0 || prctl(PR_SET_DUMPABLE, 1) != 0) _exit(78);
+    *synthetic_nested = 1;
+    for (;;) pause();
+}
+
+''' + source[end:]
+        source = replace_once(source, 'static void join_seed(bool nested) {', '''static void join_seed(bool nested) {
+    synthetic_nested = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+    require(synthetic_nested != MAP_FAILED, "namespace-seed");''')
+        source = replace_once(source, '        if (ready.st_uid == ADMITTED_UID) break;', '        if (ready.st_uid == ADMITTED_UID && *synthetic_nested == 1) break;')
+        begin = source.index('    seed_map(seed, "setgroups", "deny\\n");')
+        end = source.index('    snprintf(path, sizeof(path), "/proc/%d/ns/user", seed);', begin)
+        source = source[:begin] + '    (void)seed_map;\n' + source[end:]
+        return source
     if name.startswith('sf-'):
         calls = {
             'open': 'syscall(SYS_openat, AT_FDCWD, "/tmp/SYNTHETIC_HELPER", O_RDONLY, 0)',
@@ -93,6 +128,8 @@ def digest(path):
 
 
 def apply(name):
+    global stage
+    stage = 'rewrite'
     original = SOURCE.read_text()
     changed = variant(original, name)
     if BACKUP.exists() or BACKUP.is_symlink():
@@ -101,6 +138,7 @@ def apply(name):
         regular(TARGET / name)
     regular(SOURCE)
     regular(HEADER)
+    stage = 'backup'
     BACKUP.mkdir(mode=0o700)
     for name in NAMES:
         shutil.copy2(TARGET / name, BACKUP / name)
@@ -108,6 +146,7 @@ def apply(name):
         os.chown(BACKUP / name, info.st_uid, info.st_gid)
     shutil.copy2(SOURCE, BACKUP / 'launcher.c')
     shutil.copy2(HEADER, BACKUP / 'installation.h')
+    stage = 'inventory'
     SOURCE.write_text(changed)
     installer = (TARGET / 'source/browser-boundary/install-ci.sh').read_text()
     sources = re.search(r'^sources=\(([^)]+)\)$', installer, re.M)[1].split()
@@ -123,9 +162,11 @@ def apply(name):
     header = re.sub(r'#define SOURCE_DIGEST "[a-f0-9]{64}"', f'#define SOURCE_DIGEST "{source_digest}"', header)
     header = re.sub(r'#define FILES_DIGEST "[a-f0-9]{64}"', f'#define FILES_DIGEST "{digest(TARGET / "files.sha256")}"', header)
     HEADER.write_text(header)
+    stage = 'compile'
     result = subprocess.run(['/usr/bin/gcc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-Wno-deprecated-declarations', '-static', str(SOURCE), '-o', str(TARGET / 'launcher.synthetic'), '-lcrypto', '-ldl', '-pthread'], capture_output=True, timeout=10, check=False)
     if result.returncode != 0:
         raise ValueError()
+    stage = 'publish'
     gid = int(re.search(r'^#define ADMITTED_GID (\d+)$', header, re.M)[1])
     os.chown(TARGET / 'launcher.synthetic', 0, gid)
     os.chmod(TARGET / 'launcher.synthetic', 0o750)
@@ -136,6 +177,8 @@ def apply(name):
 
 
 def restore():
+    global stage
+    stage = 'restore'
     if BACKUP.resolve(strict=True) != BACKUP or not BACKUP.is_dir():
         raise ValueError()
     for name in (*NAMES, 'launcher.c', 'installation.h'):
@@ -152,6 +195,8 @@ def restore():
 
 
 def owned(ancestor):
+    global stage
+    stage = 'owned'
     records = snapshot()
     selected = {ancestor}
     for _ in range(len(records)):
@@ -163,7 +208,10 @@ def owned(ancestor):
     for pid in sorted(selected):
         record = records.get(pid)
         if record is not None:
-            result.append({key: record[key] for key in ('pid', 'parent', 'start')})
+            image = Path(record['path']).name
+            if pid == ancestor or image in ('launcher', 'chrome', 'chrome_crashpad_handler'):
+                result.append({**{key: record[key] for key in ('pid', 'parent', 'start')},
+                               'image': image if image in ('launcher', 'chrome', 'chrome_crashpad_handler') else 'caller'})
     print(json.dumps(result))
 
 
@@ -181,7 +229,7 @@ def main():
             raise ValueError()
         return 0
     except Exception:
-        print('provider-boundary-variant-refused:control', file=sys.stderr)
+        print('provider-boundary-variant-refused:' + stage, file=sys.stderr)
         return 1
 
 

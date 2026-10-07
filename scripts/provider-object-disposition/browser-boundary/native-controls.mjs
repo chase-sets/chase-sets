@@ -4,7 +4,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 import { assertBrowserAdmission, BROWSER_LAUNCHER } from "../test-window-browser.mjs";
-import { TRANSITION } from "./protocol.mjs";
+import { TRANSITION, nativeRefusal } from "./protocol.mjs";
 
 const execute = promisify(execFile);
 const helper =
@@ -18,6 +18,23 @@ async function command(...args) {
     timeout: args[0] === "owned" ? 1000 : 15000,
     maxBuffer: 32768,
     encoding: "buffer",
+  }).catch((error) => {
+    const stage =
+      ["arguments", "rewrite", "backup", "inventory", "compile", "publish", "restore", "owned"].find((name) =>
+        error.stderr?.equals(Buffer.from(`provider-boundary-variant-refused:${name}\n`)),
+      ) ?? "unknown";
+    console.error(
+      `installed-boundary variant-helper:${JSON.stringify({
+        stage,
+        status: Number.isInteger(error.code) ? error.code : null,
+        signal: ["SIGTERM", "SIGKILL"].includes(error.signal) ? error.signal : null,
+        stdoutBytes: error.stdout?.length ?? null,
+        stderrBytes: error.stderr?.length ?? null,
+        redacted: true,
+        truncated: error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER",
+      })}`,
+    );
+    throw new Error("variant-helper-refused");
   });
   assert.equal(stderr.length, 0);
   return stdout.toString("utf8");
@@ -117,6 +134,59 @@ async function withVariant(name, test) {
   pass(`${name} restored admission and exact host temporary absence`);
 }
 
+async function withConcurrentBrowser(sourceDigest, test) {
+  const { chromium } = await import("@playwright/test");
+  const browser = await chromium.launch({
+    executablePath: BROWSER_LAUNCHER,
+    ignoreDefaultArgs: true,
+    args: ["browser", sourceDigest],
+    env: environment,
+    chromiumSandbox: true,
+    timeout: 5000,
+  });
+  let roots = [];
+  let primary;
+  try {
+    const context = await browser.newContext({
+      serviceWorkers: "block",
+      offline: true,
+      acceptDownloads: false,
+      permissions: [],
+    });
+    const page = await context.newPage();
+    await page.setContent("<!doctype html><title>SYNTHETIC_CONCURRENT_SURVIVAL</title>");
+    roots = (await identities(process.pid)).filter((record) => record.image === "launcher");
+    assert.equal(roots.length, 2);
+    await test(async () => {
+      const after = await identities(process.pid);
+      for (const root of roots)
+        assert.ok(
+          after.some(
+            (record) =>
+              record.pid === root.pid &&
+              record.start === root.start &&
+              record.parent === root.parent &&
+              record.image === root.image,
+          ),
+        );
+      const check = await context.newPage();
+      await check.setContent("<!doctype html><title>SYNTHETIC_CONCURRENT_SURVIVAL</title>");
+      assert.equal(await check.title(), "SYNTHETIC_CONCURRENT_SURVIVAL");
+      await check.close();
+    });
+  } catch (error) {
+    primary = error;
+  } finally {
+    try {
+      await browser.close();
+      await absent(roots);
+    } catch (error) {
+      primary ??= error;
+    }
+  }
+  if (primary) throw primary;
+}
+
 export async function nativeControls(stage) {
   const refusalCases = [
     ["ready-outer", "", "seed-deadline"],
@@ -124,6 +194,7 @@ export async function nativeControls(stage) {
     ["ready-nested", TRANSITION, "seed-deadline"],
     ["reap-nested", TRANSITION, "seed-reap"],
     ["map-write", "", "mapping-write"],
+    ["ancestry", "", "namespace-identity"],
     ["b3-failure", "", "namespace-identity"],
     ...["open", "socket", "connect", "recvmsg", "setns", "unshare", "mount", "clone", "prctl", "x32"].map((name) => [
       `sf-${name}`,
@@ -158,7 +229,7 @@ export async function nativeControls(stage) {
           actual.stdout.equals(Buffer.from(stdout)) &&
           actual.stderr.equals(Buffer.from(stderr));
         console.log(
-          `installed-boundary native-control:${JSON.stringify({ name, expectedStatus: 78, actualStatus: actual.code, signal: actual.signal, stdoutBytes: actual.stdout.length, stderrBytes: actual.stderr.length, exact, redacted: true, truncated: actual.overflow })}`,
+          `installed-boundary native-control:${JSON.stringify({ name, expectedStatus: 78, actualStatus: actual.code, signal: actual.signal, nativeStage: nativeRefusal(actual.stdout, actual.stderr, actual.code), stdoutBytes: actual.stdout.length, stderrBytes: actual.stderr.length, exact, redacted: true, truncated: actual.overflow })}`,
         );
         assert.equal(exact, true);
       } catch (error) {
@@ -181,40 +252,47 @@ export async function nativeControls(stage) {
       const name = `stall-${scope}-B${transition}`;
       stage(name);
       await withVariant(name, async (digest) => {
-        for (const signal of ["SIGKILL", "SIGTERM"]) {
-          const running = launch(digest);
-          let records = [];
-          let primary;
-          try {
-            const expected = (scope === "nested" ? TRANSITION : "") + `SYNTHETIC_TRANSITION:${name}\n`;
-            const until = performance.now() + 2000;
-            while (!running.output().equals(Buffer.from(expected)) && performance.now() < until) await delay(10);
-            assert.equal(running.output().equals(Buffer.from(expected)), true);
-            records = await identities(running.child.pid);
-            assert.ok(records.length >= (scope === "nested" ? 4 : 2));
-            console.log(`installed-boundary transition-identities:${JSON.stringify({ name, signal, records })}`);
-            assert.equal(running.child.kill(signal), true);
-            const actual = await running.result;
-            const handled = signal === "SIGTERM" && scope === "nested";
-            assert.equal(actual.code, handled ? 143 : null);
-            assert.equal(actual.signal, handled ? null : signal);
-            assert.equal(actual.overflow, false);
-            assert.equal(actual.stdout.equals(Buffer.from(expected)), true);
-            assert.equal(actual.stderr.length, 0);
-          } catch (error) {
-            primary = error;
-          } finally {
-            if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL");
-            await running.result;
+        await withConcurrentBrowser(digest, async (survives) => {
+          for (const signal of ["SIGKILL", "SIGTERM"]) {
+            const running = launch(digest);
+            let records = [];
+            let primary;
             try {
-              await absent(records);
+              const expected = (scope === "nested" ? TRANSITION : "") + `SYNTHETIC_TRANSITION:${name}\n`;
+              const until = performance.now() + 2000;
+              while (!running.output().equals(Buffer.from(expected)) && performance.now() < until) await delay(10);
+              assert.equal(running.output().equals(Buffer.from(expected)), true);
+              records = await identities(running.child.pid);
+              assert.ok(records.length >= (scope === "nested" ? 4 : 2));
+              console.log(`installed-boundary transition-identities:${JSON.stringify({ name, signal, records })}`);
+              assert.equal(running.child.kill(signal), true);
+              const actual = await running.result;
+              const handled = signal === "SIGTERM" && scope === "nested";
+              console.log(
+                `installed-boundary termination:${JSON.stringify({ name, expectedSignal: handled ? null : signal, expectedStatus: handled ? 143 : null, actualSignal: actual.signal, actualStatus: actual.code, stdoutBytes: actual.stdout.length, stderrBytes: actual.stderr.length, redacted: true, truncated: actual.overflow })}`,
+              );
+              assert.equal(actual.code, handled ? 143 : null);
+              assert.equal(actual.signal, handled ? null : signal);
+              assert.equal(actual.overflow, false);
+              assert.equal(actual.stdout.equals(Buffer.from(expected)), true);
+              assert.equal(actual.stderr.length, 0);
             } catch (error) {
-              primary ??= error;
+              primary = error;
+            } finally {
+              if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL");
+              await running.result;
+              try {
+                await absent(records);
+              } catch (error) {
+                primary ??= error;
+              }
             }
+            if (primary) throw primary;
+            await survives();
+            pass(`9/11/16 ${name} ${signal} exact status and owned drain`);
+            pass(`14 ${name} ${signal} concurrent roots and functional survival`);
           }
-          if (primary) throw primary;
-          pass(`9/11/16 ${name} ${signal} exact status and owned drain`);
-        }
+        });
       });
     }
   }

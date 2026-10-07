@@ -106,6 +106,7 @@ export function createBrowserBudget({ expiresAt, stop, signal }) {
       denials.set(key, { ...bucket, count: (previous?.count ?? 0) + 1 });
     },
     snapshot: () => ({ attempts, denials: [...denials.values()].map((entry) => ({ ...entry })) }),
+    closed: () => closing,
     close,
   };
 }

@@ -49,6 +49,14 @@ class NativeVariantFixtures(unittest.TestCase):
         with self.assertRaises((KeyError, ValueError)):
             variants.variant(SOURCE, 'SYNTHETIC_PRIVATE')
 
+    def test_ancestry_stimulus_is_explicitly_unfenced_but_preserves_the_ancestry_predicate(self):
+        changed = variants.variant(SOURCE, 'ancestry')
+        self.assertIn('unshare(CLONE_NEWUSER)', changed)
+        self.assertNotIn('    seed_fence();', changed)
+        self.assertIn('require(ancestry, "namespace-identity");', changed)
+        self.assertNotIn('false && ancestry', changed)
+        self.assertIn('ready.st_uid == ADMITTED_UID && *synthetic_nested == 1', changed)
+
 
 if __name__ == '__main__':
     unittest.main()

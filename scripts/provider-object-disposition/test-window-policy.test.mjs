@@ -136,7 +136,8 @@ it("reserves permitted and denied attempts atomically and destroys the child at 
   expect(budget.snapshot().denials).toEqual([{ method: "POST", origin: "connect-js", path: "bootstrap", count: 64 }]);
   expect(send).toHaveBeenCalledTimes(64);
   expect(results.filter((result) => result.status === "rejected")).toHaveLength(128);
-  await budget.close();
+  expect(budget.closed()).toBeDefined();
+  await budget.closed();
   expect(stop).toHaveBeenCalledTimes(1);
 });
 

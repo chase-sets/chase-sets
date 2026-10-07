@@ -71,7 +71,7 @@ export async function openBootstrapPage({ browser, expiresAt, send, signal }) {
     budget.assert();
     await page.addScriptTag({ content: response.bytes.toString("utf8") });
     budget.assert();
-    return { page, context, close: budget.close, snapshot: budget.snapshot };
+    return { page, context, close: budget.close, closed: budget.closed, snapshot: budget.snapshot };
   } catch {
     await budget.close();
     throw new Error("browser-bootstrap-unavailable");
