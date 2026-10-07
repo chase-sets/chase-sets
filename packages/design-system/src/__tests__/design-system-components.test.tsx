@@ -250,6 +250,46 @@ describe("6110 accessible compositions", () => {
   }
 
   for (const phase of ["SSR", "client"] as const) {
+    it(`6110 disclosure heading level: default h3 and contextual h2 ${phase}`, () => {
+      const view = renderPhase(
+        <>
+          <ProgressiveDisclosure title="Shipping defaults" defaultOpen>
+            Default content
+          </ProgressiveDisclosure>
+          <ProgressiveDisclosure title="Choose packaging" headingLevel={2} defaultOpen>
+            Packaging content
+          </ProgressiveDisclosure>
+          <ProgressiveDisclosureGroup
+            defaultValue={["delivery"]}
+            items={[{ value: "delivery", title: "Delivery preferences", content: "Delivery content" }]}
+          />
+        </>,
+        phase,
+      );
+      try {
+        const { container } = view;
+        for (const [name, level] of [
+          ["Shipping defaults", 3],
+          ["Choose packaging", 2],
+          ["Delivery preferences", 3],
+        ] as const) {
+          const heading = within(container).getByRole("heading", { level, name });
+          const trigger = within(heading).getByRole("button", { name });
+          expect(trigger.parentElement).toBe(heading);
+          expect(heading.tagName).toBe(`H${level}`);
+          expect(heading.hasAttribute("aria-level")).toBe(false);
+          const panel = within(container).getByRole("region", { name });
+          expect(panel.getAttribute("aria-labelledby")).toBe(trigger.id);
+        }
+        expect(container.querySelectorAll("h2")).toHaveLength(1);
+        expect(container.querySelectorAll("h3")).toHaveLength(2);
+        expect(container.querySelectorAll("[headinglevel]")).toHaveLength(0);
+        expectReferences(container);
+      } finally {
+        view.dispose();
+      }
+    });
+
     for (const idKind of ["generated", "explicit"] as const) {
       for (const control of ["NumberField", "CurrencyInput"] as const) {
         it(`6110 numeric label ownership: ${control} ${idKind} ${phase}`, () => {

@@ -813,6 +813,8 @@ test.describe("marketplace item detail mobile Product options and Market book (#
     async function ready() {
       await expect(mobile).toBeVisible();
       await expectExpandedProductOptions(page);
+      await expect(mobile.getByRole("heading", { level: 2, name: "Choose options", exact: true })).toHaveCount(1);
+      await expect(mobile.locator("h2").getByRole("button", { name: "Choose options", exact: true })).toHaveCount(1);
       await expectAccessibleDisclosure(trigger);
       await expectAccessibleMain(page);
       await expect(mobile.getByRole("region", { name: "Choose options", exact: true })).toBeVisible();

@@ -133,7 +133,7 @@ async function assertInkFoilHero(page: Page, viewport: InkFoilViewport) {
   // The retired Stat surface is absent as markup, not merely hidden.
   await expect(page.getByText("Catalog depth", { exact: true })).toHaveCount(0);
   await expect(page.getByText(/\d+ tracked items/)).toHaveCount(0);
-  await expect(page.getByText("Results", { exact: true })).toHaveCount(0);
+  await expect(hero.getByText("Results", { exact: true })).toHaveCount(0);
 
   // Desktop rail versus focused-only mobile Filter bar: the hidden sibling is
   // named explicitly rather than inferred from a visibility-dependent role.

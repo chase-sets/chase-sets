@@ -41,6 +41,7 @@ export interface ProgressiveDisclosureProps extends Omit<
   "className" | "defaultValue" | "style" | "title"
 > {
   title: ReactNode;
+  headingLevel?: 2 | 3 | 4 | 5 | 6;
   description?: ReactNode;
   summary?: ReactNode;
   children?: ReactNode;
@@ -118,16 +119,19 @@ function DisclosureTriggerContent({
 function DisclosureItem({
   value,
   title,
+  headingLevel = 3,
   description,
   summary,
   content,
   tone,
   icon,
   last,
-}: ProgressiveDisclosureItem & { last: boolean }) {
+}: ProgressiveDisclosureItem & { last: boolean; headingLevel?: ProgressiveDisclosureProps["headingLevel"] }) {
+  const Header = `h${headingLevel}` as const;
+
   return (
     <AccordionPrimitive.Item value={value} className={cx("border-muted", !last && "border-b")}>
-      <AccordionPrimitive.Header>
+      <AccordionPrimitive.Header render={<Header />}>
         <AccordionPrimitive.Trigger className="focus-ring group flex w-full items-start justify-between gap-3 px-4 py-3 text-left transition hover:bg-background">
           <DisclosureTriggerContent title={title} description={description} summary={summary} tone={tone} icon={icon} />
           <span className="mt-0.5 inline-flex shrink-0 transition-transform duration-200 group-data-[panel-open]:rotate-180">
@@ -149,6 +153,7 @@ function DisclosureItem({
 
 export function ProgressiveDisclosure({
   title,
+  headingLevel,
   description,
   summary,
   children,
@@ -174,6 +179,7 @@ export function ProgressiveDisclosure({
       <DisclosureItem
         value={singleDisclosureValue}
         title={title}
+        headingLevel={headingLevel}
         description={description}
         summary={summary}
         content={children}
