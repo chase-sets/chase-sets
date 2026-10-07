@@ -233,6 +233,7 @@ describe("scoped guard-test selection", () => {
       "scripts/check-structure/deployed-browser-e2e-profile.test.mjs",
       [
         "playwright.config.ts",
+        "pnpm-lock.yaml",
         "deployables/marketplace/e2e/probe.spec.ts",
         "deployables/admin-web/e2e/probe.spec.ts",
         "deployables/public-web/e2e/nested/probe.spec.ts",
@@ -248,7 +249,13 @@ describe("scoped guard-test selection", () => {
     ],
     [
       "scripts/check-structure/json-import-attributes.test.mjs",
-      ["bounded-contexts/channels/index.ts", "scripts/sync-workspace-metadata.mjs", "scripts/registry-helper.mjs"],
+      [
+        "bounded-contexts/channels/index.ts",
+        "scripts/sync-workspace-metadata.mjs",
+        "scripts/registry-helper.mjs",
+        "deployables/platform-api/__tests__/operator-session/operator-session-secrecy.test.ts",
+        "deployables/admin-web/app/generated/web-context-registry.ts",
+      ],
     ],
     [
       "scripts/check-structure/regenerate-lockfile-bound-artifacts.test.mjs",
@@ -275,6 +282,7 @@ describe("scoped guard-test selection", () => {
         "infrastructure/runtime.ts",
         "deployables/platform-api/src/start.ts",
         "scripts/guard.mjs",
+        "pnpm-lock.yaml",
       ],
     ],
   ];
@@ -338,6 +346,7 @@ describe("scoped guard-test selection", () => {
       brandGuard,
       "scripts/ci-gate-plan.test.mjs",
       representativeSurfaces[4][0],
+      "scripts/check-structure/json-import-attributes.test.mjs",
     ]) {
       expect(VERIFY_STATIC_GUARD_TEST_SURFACES[file].include).toContainEqual({ kind: "any" });
     }
@@ -345,6 +354,14 @@ describe("scoped guard-test selection", () => {
 
   it("documentation-brand-caller-is-selected", () => {
     expect(selectVerifyStaticGuardTests({ changedFiles: ["docs/synthetic-brand-caller.md"] })).toContain(brandGuard);
+  });
+
+  it("selects the JSON-import census guard for a deployables-only declaring-file change", () => {
+    expect(
+      selectVerifyStaticGuardTests({
+        changedFiles: ["deployables/platform-api/__tests__/operator-session/operator-session-secrecy.test.ts"],
+      }),
+    ).toContain("scripts/check-structure/json-import-attributes.test.mjs");
   });
 
   it("documentation-exemption-mutant", () => {
@@ -519,6 +536,7 @@ describe("scoped guard-test selection", () => {
 
   it("runs one deduplicated explicit-file batch after links under the aggregate slot", async () => {
     const events = [];
+    const output = [];
     const guards = selectVerifyStaticGuardTests({ changedFiles: ["docs/synthetic-brand-caller.md"] });
     const status = await runVerifyStaticScoped({
       env: { CHANGED_FILES_JSON: '["docs/synthetic-brand-caller.md"]' },
@@ -534,10 +552,12 @@ describe("scoped guard-test selection", () => {
         events.push(files);
         return 19;
       },
-      stdout: () => {},
+      stdout: (line) => output.push(line),
     });
     expect(events).toEqual(["acquire", "check:always", guards]);
     expect(status).toBe(19);
+    expect(output).toContain(`[VERIFY_STATIC_GUARD_TESTS] ${guards.join(" ")}`);
+    expect(output.at(-1)).toMatch(/^\[VERIFY_STATIC_GUARD_TESTS\] elapsed=\d+\.\d{2}s$/);
   });
 
   it("acquires ownership even when only guard tests are selected and preserves refusal status", async () => {
@@ -998,9 +1018,11 @@ describe("derived root-runtime fanout", () => {
     // Guard scan inputs may name root files; static-chain fanout must still
     // derive from the classifier rather than duplicate its filename list.
     const surfaceSource = readFileSync(path.join(repoRoot, "scripts/verify-static-surfaces.mjs"), "utf8");
+    const staticSurfaceStart = surfaceSource.indexOf("export const VERIFY_STATIC_SURFACES =");
+    expect(staticSurfaceStart).toBeGreaterThanOrEqual(0);
     const source =
       readFileSync(path.join(repoRoot, "scripts/verify-static-scoped.mjs"), "utf8") +
-      surfaceSource.slice(surfaceSource.indexOf("export const VERIFY_STATIC_SURFACES ="));
+      surfaceSource.slice(staticSurfaceStart);
     const copiedNames = rootRuntimePaths.filter((file) => source.includes(`"${file}"`));
 
     // package.json appears only because the runner reads the authoritative

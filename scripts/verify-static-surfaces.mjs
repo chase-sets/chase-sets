@@ -32,7 +32,7 @@ export const VERIFY_STATIC_GUARD_TEST_SURFACES = {
     rule: "deployed browser config, three web E2E roots, and the guard source",
     evidence: ["scripts/check-structure/deployed-browser-e2e-profile.test.mjs:1-9,64-73"],
     include: [
-      ...exact("playwright.config.ts"),
+      ...exact("playwright.config.ts", "pnpm-lock.yaml"),
       ...prefix(
         "deployables/marketplace/e2e",
         "deployables/admin-web/e2e",
@@ -53,9 +53,12 @@ export const VERIFY_STATIC_GUARD_TEST_SURFACES = {
     include: [{ kind: "any" }],
   },
   "scripts/check-structure/json-import-attributes.test.mjs": {
-    rule: "script analyzers and registry-builder helpers, plus the live Channels context-root contract",
-    evidence: ["scripts/check-structure/json-import-attributes.test.mjs:1-13,137-138,487-495,822-829"],
-    include: prefix("scripts", "bounded-contexts", "packages/typescript-compiler-api"),
+    rule: "repository-wide tracked JSON-import census (tracked TypeScript inventory, git grep, workspace vite/vitest partition), script analyzers and registry-builder helpers, plus the live Channels context-root contract",
+    evidence: [
+      "scripts/check-structure/json-import-attributes.test.mjs:1-13,137-138,487-495,697-723,822-829",
+      "scripts/check-structure/json-import-attributes.mjs:44-78,494-530",
+    ],
+    include: [{ kind: "any" }],
   },
   "scripts/check-structure/regenerate-lockfile-bound-artifacts.test.mjs": {
     rule: "root command and lockfile, compiler wrapper, and script-owned artifact provenance chain",
@@ -82,7 +85,10 @@ export const VERIFY_STATIC_GUARD_TEST_SURFACES = {
       "scripts/check-structure/issue-reference-comments.mjs:1-6,26-38",
       "scripts/check-structure/issue-reference-comments.test.mjs:220-225",
     ],
-    include: prefix("bounded-contexts", "infrastructure", "deployables", "scripts", "packages/typescript-compiler-api"),
+    include: [
+      ...exact("pnpm-lock.yaml"),
+      ...prefix("bounded-contexts", "infrastructure", "deployables", "scripts", "packages/typescript-compiler-api"),
+    ],
   },
 };
 

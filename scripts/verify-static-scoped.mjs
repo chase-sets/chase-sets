@@ -415,7 +415,12 @@ export async function runVerifyStaticScoped({
   }
   if (plan.guardTests.length > 0) {
     stdout(`[VERIFY_STATIC_GUARD_TESTS] ${plan.guardTests.join(" ")}`);
-    return await runGuardTests(plan.guardTests);
+    const started = performance.now();
+    try {
+      return await runGuardTests(plan.guardTests);
+    } finally {
+      stdout(`[VERIFY_STATIC_GUARD_TESTS] elapsed=${((performance.now() - started) / 1000).toFixed(2)}s`);
+    }
   }
   return 0;
 }
