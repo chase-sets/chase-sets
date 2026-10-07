@@ -19,15 +19,15 @@ Helm is the flag authority: `infrastructure/helm/platform/runtime-values.json` s
 
 | Helm-pinned flag | Preview | Staging | Production | Source |
 | --- | --- | --- | --- | --- |
-| `PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED` | `false` | `false` | Helm base component env and `productionEnvOverrides` in `runtime-values.json` (values above); env var locally | Base component env; `productionEnvOverrides` |
-| `WORKER_PROJECTION_WAKE_RELAY_ENABLED` | `false` | `true` | Helm base worker env, renderer staging overlay, and `productionEnvOverrides` (values above) | Base worker env; `doksStagingWorkerEnvOverrides`; `productionEnvOverrides` |
-| `READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED` | `false` | `false` | Helm base API env in `runtime-values.json`; `false` in every environment | Base API env |
-| `READ_CONSISTENCY_READINESS_NOTIFICATIONS_ENABLED` | `false` | `false` | Helm base API env in `runtime-values.json`; `false` in every environment | Base API env |
+| `PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED` | `false` | `false` | `true` | Base component env; `productionEnvOverrides` |
+| `WORKER_PROJECTION_WAKE_RELAY_ENABLED` | `false` | `true` | `true` | Base worker env; `doksStagingWorkerEnvOverrides`; `productionEnvOverrides` |
+| `READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED` | `false` | `false` | `false` | Base API env |
+| `READ_CONSISTENCY_READINESS_NOTIFICATIONS_ENABLED` | `false` | `false` | `false` | Base API env |
 | `REALTIME_WAKE_SIGNAL_ENABLED` | `false` | `false` | `true` | Base API env; `productionEnvOverrides` |
 | `REALTIME_BACKGROUND_MAINTENANCE_ENABLED` | `false` | `false` | `true` | Base API env; `productionEnvOverrides` |
 | `PROJECTION_INLINE_APPLY_ENABLED` | `false` | `true` | `false` | Base API env; `doksStagingApiOverrides.envOverrides` |
 | `WORKER_WAKE_MAX_CONCURRENT_RUNNERS` | `2` | `3` | `2` | Base worker env; `doksStagingWorkerEnvOverrides` |
-| `WORKER_WAKE_HOT_LANE_RUNNER_COUNT` / `WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT` / `WORKER_WAKE_BULK_LANE_RUNNER_COUNT` | `1` / `1` / `1` | `1` / `2` / `1` | Helm base worker env in `runtime-values.json`; renderer staging overlay sets standard lane to `2` (values above) | Base worker env; staging overrides the standard lane |
+| `WORKER_WAKE_HOT_LANE_RUNNER_COUNT` / `WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT` / `WORKER_WAKE_BULK_LANE_RUNNER_COUNT` | `1` / `1` / `1` | `1` / `2` / `1` | `1` / `1` / `1` | Base worker env; staging overrides the standard lane |
 | `WORKER_WAKE_STATEMENT_TIMEOUT_MS` | `30000` | `30000` | `30000` | Base worker env |
 
 Flags not pinned in Helm use the consuming reader's defaults in every environment. `deployables/platform-worker/src/config.ts` reads `WORKER_PROJECTION_WAKE_SCHEDULER_ENABLED=true` and `WORKER_WAKE_PUSH_DISPATCH_ENABLED=true` when unset; neither is a Helm declaration. Push dispatch controls the scheduler's push-driven dispatch path, not durable polling. Other unset worker controls and their defaults are listed below and in the [scheduler configuration](../architecture/projection-wake-scheduler.md#configuration).
