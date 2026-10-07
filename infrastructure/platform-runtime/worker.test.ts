@@ -1005,11 +1005,20 @@ describe("worker runner loop", () => {
       },
     });
     const pending = [1, 2, 2];
+    let contender: PlatformLease | null | undefined;
     const runners: WorkerRunner[] = pending.map((_, index) => ({
       name: `handoff-${index}`,
       kind: "projection-group",
       priority: () => pending[index],
       runOnce: async () => {
+        if (index === 2 && contender === undefined) {
+          contender = await controlPlane.acquireLease({
+            leaseName: "projection-group:handoff-0",
+            ownerId: "wake",
+            ttlMs: 30_000,
+          });
+          if (contender) await controlPlane.releaseLease(contender);
+        }
         const processed = pending[index] > 0 ? 1 : 0;
         pending[index] -= processed;
         return { processed, lastGlobalPosition: "0" as never };
@@ -1029,19 +1038,28 @@ describe("worker runner loop", () => {
     try {
       loop.start();
       await vi.advanceTimersByTimeAsync(1);
-      const target = events.filter((event) => event.runnerName === runners[0].name);
-      expect(target.map((event) => event.phase)).toEqual(["acquired", "pass-start", "pass-end", "released"]);
+      expect(contender).toBeDefined();
+      expect(contender).not.toBeNull();
+      const target = events.filter(
+        (event) => event.runnerName === runners[0].name && !["run-start", "run-end"].includes(event.phase),
+      );
+      expect(target.slice(0, 4).map((event) => event.phase)).toEqual([
+        "acquired",
+        "pass-start",
+        "pass-end",
+        "released",
+      ]);
       expect(target[2]).toMatchObject({ processed: 1, disposition: "retained", outcome: "success" });
       expect(target[3]).toMatchObject({ reason: "idle", leaseIntervalId: target[0].leaseIntervalId });
       expect(pending[0]).toBe(0);
-      const contender = await controlPlane.acquireLease({
+      const laterContender = await controlPlane.acquireLease({
         leaseName: createWorkerRunnerLeaseName(runners[0]),
         ownerId: "wake",
         ttlMs: 30_000,
       });
-      expect(contender).not.toBeNull();
-      await controlPlane.releaseLease(contender!);
-      const completed = target.length;
+      expect(laterContender).not.toBeNull();
+      await controlPlane.releaseLease(laterContender!);
+      const completed = events.filter((event) => event.runnerName === runners[0].name).length;
       await vi.advanceTimersByTimeAsync(500);
       expect(events.filter((event) => event.runnerName === runners[0].name)).toHaveLength(completed);
       pending[0] = 1;
