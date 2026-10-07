@@ -125,6 +125,26 @@ function deferred<T>() {
 }
 
 const routers: ReturnType<typeof createMemoryRouter>[] = [];
+async function waitForRouterIdle(router: ReturnType<typeof createMemoryRouter>) {
+  const isIdle = () =>
+    router.state.initialized &&
+    router.state.navigation.state === "idle" &&
+    router.state.revalidation === "idle" &&
+    [...router.state.fetchers.values()].every((fetcher) => fetcher.state === "idle");
+  if (isIdle()) return;
+  await new Promise<void>((resolve) => {
+    const unsubscribe = router.subscribe(() => {
+      if (!isIdle()) return;
+      unsubscribe();
+      resolve();
+    });
+  });
+}
+
+async function settleRouter(router = routers[routers.length - 1]) {
+  await act(async () => waitForRouterIdle(router));
+}
+
 async function setup(
   entry = "/search?q=pikachu#results",
   transform?: (response: Response) => Response,
@@ -165,6 +185,7 @@ async function setup(
   configure?.(router);
   let view!: ReturnType<typeof render>;
   await act(async () => {
+    await waitForRouterIdle(router);
     view = render(
       <ChaseRoot linkComponent={RouterLinkAdapter}>
         <RouterProvider router={router} />
@@ -176,6 +197,7 @@ async function setup(
 
 async function openPreview() {
   fireEvent.click(await screen.findByRole("button", { name: PREVIEW }));
+  await settleRouter();
   return screen.findByRole("dialog", { name: PREVIEW });
 }
 
@@ -252,6 +274,7 @@ describe("Search bulk route data transport", () => {
     const test = await setup();
     const dialog = await openPreview();
     fireEvent.click(within(dialog).getByRole("button", { name: COMMIT }));
+    await settleRouter(test.router);
     expect(await screen.findByRole("link", { name: "Review Buy Cart" })).toBeTruthy();
     expect(test.requests).toHaveLength(2);
     expect([...(await test.requests[1].formData())]).toEqual([["intent", "commit-bulk-add"]]);
@@ -295,6 +318,7 @@ describe("Search bulk route data transport", () => {
     const dependency = phase === "preview" ? previewQuery : addCartLines;
     dependency.mockRejectedValueOnce(new Error(SENTINEL));
     fireEvent.click(await screen.findByRole("button", { name: phase === "preview" ? PREVIEW : COMMIT }));
+    await settleRouter(test.router);
     const active = phase === "commit" ? within(screen.getByRole("dialog")) : screen;
     const alert = await active.findByRole("alert");
     expect(alert.textContent).toContain(ERROR);
@@ -307,6 +331,7 @@ describe("Search bulk route data transport", () => {
     const retry = active.getByRole("button", { name: phase === "preview" ? PREVIEW : COMMIT });
     expect((retry as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(retry);
+    await settleRouter(test.router);
     if (phase === "preview") await screen.findByRole("dialog");
     else await screen.findByRole("link", { name: "Review Buy Cart" });
     expect(screen.queryByText(ERROR)).toBeNull();
@@ -400,6 +425,7 @@ describe("Search bulk route data transport", () => {
   ] as const)("rejects malformed and error-shaped data without publication: %s", async (_name, payload) => {
     await setup("/search?q=pikachu", () => Response.json(payload()));
     fireEvent.click(await screen.findByRole("button", { name: PREVIEW }));
+    await settleRouter();
     expect((await screen.findByRole("alert")).textContent).toContain(ERROR);
     expect(document.body.textContent).not.toContain(SENTINEL);
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -417,6 +443,7 @@ describe("Search bulk route data transport", () => {
       await openPreview();
       malformed = true;
       fireEvent.click(screen.getByRole("button", { name: COMMIT }));
+      await settleRouter();
       expect((await within(screen.getByRole("dialog")).findByRole("alert")).textContent).toContain(ERROR);
       expect(cartDelta).not.toHaveBeenCalled();
       expect(screen.queryByRole("link", { name: "Review Buy Cart" })).toBeNull();
@@ -430,10 +457,12 @@ describe("Search bulk route data transport", () => {
     });
     await openPreview();
     fireEvent.click(screen.getByRole("button", { name: COMMIT }));
+    await settleRouter(test.router);
     expect((await within(screen.getByRole("dialog")).findByRole("alert")).textContent).toContain(ERROR);
     expect(test.router.state.errors).toBeNull();
     expect(cartDelta).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: COMMIT }));
+    await settleRouter(test.router);
     await screen.findByRole("link", { name: "Review Buy Cart" });
     expect(cartDelta).toHaveBeenCalledTimes(1);
   });
@@ -449,6 +478,7 @@ describe("Search bulk route data transport", () => {
     await waitFor(() => expect(test.runAction).toHaveBeenCalledTimes(1));
     expect(y).toBe(427);
     await act(async () => pendingPreview.resolve(preview()));
+    await settleRouter(test.router);
     await screen.findByRole("dialog");
     expect(y).toBe(427);
     const pendingCommit = deferred<typeof counts>();
@@ -457,9 +487,11 @@ describe("Search bulk route data transport", () => {
     await waitFor(() => expect(addCartLines).toHaveBeenCalledTimes(1));
     expect(y).toBe(427);
     await act(async () => pendingCommit.reject(new Error(SENTINEL)));
+    await settleRouter(test.router);
     await screen.findByText(ERROR);
     expect(y).toBe(427);
     fireEvent.click(screen.getByRole("button", { name: COMMIT }));
+    await settleRouter(test.router);
     await screen.findByRole("link", { name: "Review Buy Cart" });
     expect(y).toBe(427);
     expect(test.router.state.location).toEqual(location);
@@ -508,6 +540,7 @@ describe("Search bulk route data transport", () => {
       expect(screen.queryByText(ERROR)).toBeNull();
       expect((screen.getByRole("button", { name: PREVIEW }) as HTMLButtonElement).disabled).toBe(true);
       await act(async () => current.resolve({ ...preview(), totalMatches: 9 }));
+      await settleRouter(test.router);
       const dialog = await screen.findByRole("dialog");
       expect(within(dialog).getByText("9")).toBeTruthy();
       expect(cartDelta).not.toHaveBeenCalled();
@@ -521,6 +554,7 @@ describe("Search bulk route data transport", () => {
     fireEvent.click(await screen.findByRole("button", { name: PREVIEW }));
     expect((screen.getByRole("button", { name: PREVIEW }) as HTMLButtonElement).disabled).toBe(true);
     await act(async () => pending.resolve(preview()));
+    await settleRouter(test.router);
     const dialog = await screen.findByRole("dialog");
     const commit = deferred<typeof counts>();
     addCartLines.mockReturnValueOnce(commit.promise);
@@ -532,6 +566,7 @@ describe("Search bulk route data transport", () => {
     await waitFor(() => expect(addCartLines).toHaveBeenCalledTimes(1));
     expect((button as HTMLButtonElement).disabled).toBe(true);
     await act(async () => commit.resolve(counts));
+    await settleRouter(test.router);
     await screen.findByRole("link", { name: "Review Buy Cart" });
     expect(cartDelta).toHaveBeenCalledTimes(1);
     test.unmount();
@@ -551,6 +586,7 @@ describe("Search bulk route data transport", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     previewQuery.mockRejectedValueOnce(new Error(SENTINEL));
     fireEvent.click(screen.getByRole("button", { name: PREVIEW }));
+    await settleRouter(test.router);
     expect((await screen.findByRole("alert")).textContent).toContain(ERROR);
     await act(async () => test.router.navigate("/search?q=eevee"));
     expect(screen.queryByText(ERROR)).toBeNull();
