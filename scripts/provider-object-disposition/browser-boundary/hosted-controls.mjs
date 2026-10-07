@@ -72,8 +72,23 @@ async function installationIdentity() {
 }
 
 async function ownerRefusal(contexts, owned, mode, stage, id) {
+  const missingFrom = (records) =>
+    owned
+      .filter(
+        (record) =>
+          !records.some(
+            (r) =>
+              r.pid === record.pid &&
+              r.start === record.start &&
+              r.parent === record.parent &&
+              r.image === record.image,
+          ),
+      )
+      .map(({ pid, start, parent, image }) => ({ pid, start, parent, image }));
   control = `${id}-${mode}-installation-before`;
   const before = await installationIdentity();
+  control = `${id}-${mode}-identity-before`;
+  const missingBeforeRemoval = missingFrom(await tree());
   control = `${id}-${mode}-refusal`;
   let failure;
   try {
@@ -104,19 +119,14 @@ async function ownerRefusal(contexts, owned, mode, stage, id) {
   assert.deepEqual(await installationIdentity(), before);
   control = `${id}-${mode}-identity-survival`;
   const after = await tree();
-  const missing = owned.filter(
-    (record) =>
-      !after.some(
-        (r) =>
-          r.pid === record.pid && r.start === record.start && r.parent === record.parent && r.image === record.image,
-      ),
-  );
+  const missing = missingFrom(after);
   console.log(
     `installed-boundary control ${id} identity-survival:${JSON.stringify({
       mode,
       beforeCount: owned.length,
       afterCount: after.length,
-      missing: missing.map(({ pid, start, parent, image }) => ({ pid, start, parent, image })),
+      missingBeforeRemoval,
+      missingAfterRemoval: missing,
     })}`,
   );
   assert.deepEqual(missing, []);
