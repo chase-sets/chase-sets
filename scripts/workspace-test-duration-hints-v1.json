@@ -60,6 +60,7 @@
     { "workspace": "@chase-sets/inventory", "script": "test:unit", "estimatedDurationSeconds": 49 },
     { "workspace": "@chase-sets/marketplace", "script": "test:unit", "estimatedDurationSeconds": 115 },
     { "workspace": "@chase-sets/notifications", "script": "test:unit", "estimatedDurationSeconds": 13 },
+    { "workspace": "@chase-sets/ordering", "script": "test:unit", "estimatedDurationSeconds": 70 },
     { "workspace": "@chase-sets/payments", "script": "test:unit", "estimatedDurationSeconds": 50 },
     { "workspace": "@chase-sets/platform-operations", "script": "test:unit", "estimatedDurationSeconds": 105 },
     { "workspace": "@chase-sets/platform-policy", "script": "test:unit", "estimatedDurationSeconds": 7 },
