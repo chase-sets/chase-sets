@@ -204,6 +204,20 @@ describe("run e2e suite", () => {
     ]);
   });
 
+  it.each([
+    "docker-compose.dev.yml",
+    "scripts/lib/sandbox.mjs",
+    "scripts/dev-system.mjs",
+    "scripts/dev-system-config.mjs",
+  ])("shared sandbox runtime %s covers account and seller in normal suite batches", (file) => {
+    const selected = e2eSuiteIdsForChangedFile(file);
+    const batched = batchE2eSuiteIds(selected).flatMap((batch) => batch.split(","));
+    expect(selected).toContain("marketplace_account");
+    expect(selected).toContain("marketplace_seller");
+    expect(batched).toEqual(expect.arrayContaining(["marketplace_account", "marketplace_seller"]));
+    expect(new Set(batched).size).toBe(selected.length);
+  });
+
   it("routes the marketplace index route to browse coverage", () => {
     expect(e2eSuiteIdsForChangedFile("deployables/marketplace/app/routes/index.tsx")).toEqual(["marketplace_browse"]);
   });

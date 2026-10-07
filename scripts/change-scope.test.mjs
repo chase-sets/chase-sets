@@ -681,12 +681,56 @@ describe("change-scope", () => {
     }
   });
 
+  it.each([
+    "bounded-contexts/public-presence/features/policies/domain/authenticity-service-terms.ts",
+    "bounded-contexts/public-presence/features/policies/domain/privacy-policy.ts",
+    "bounded-contexts/public-presence/features/policies/domain/authenticity-service-terms.test.ts",
+    "scripts/verify-static-surfaces.mjs",
+  ])("selects public-presence for citation fence input %s", (file) => {
+    const scope = classifyChanges({ changedFiles: [file] });
+    expect(scope.affectedWorkspaces).toContain("@chase-sets/public-presence");
+    expect(scope.unitTestsRequired).toBe(true);
+  });
+
+  it("adds only test coverage for the static-surfaces citation fence input", () => {
+    const scope = classifyChanges({ changedFiles: ["scripts/verify-static-surfaces.mjs"] });
+    const baseline = classifyChanges({ changedFiles: ["scripts/clean-logs.mjs"] });
+    expect(scope.directlyTestOnlyAffectedWorkspaces).toEqual(["@chase-sets/public-presence"]);
+    expect(scope.affectedWorkspaces).toEqual(["@chase-sets/public-presence"]);
+    expect(scope.runtimeAffectedWorkspaces).toEqual([]);
+    expect(baseline.affectedWorkspaces).toEqual([]);
+    expect(baseline.unitTestsRequired).toBe(false);
+    const nonUnitCapabilities = ({
+      changedFiles,
+      affectedWorkspaces,
+      directlyAffectedWorkspaces,
+      directlyTestOnlyAffectedWorkspaces,
+      unitTestsRequired,
+      ...capabilities
+    }) => capabilities;
+    expect(nonUnitCapabilities(scope)).toEqual(nonUnitCapabilities(baseline));
+  });
+
   it("exposes the exact classifier result for the shared CI gate plan", () => {
     const scope = classifyChanges({ changedFiles: ["README.md"] });
     const output = toGithubOutputMap(scope);
 
     expect(JSON.parse(output.scope_json)).toEqual(scope);
     expect(Object.keys(output)).toEqual([...baseCapturedOutputMapKeyOrder, "scope_json"]);
+  });
+
+  it.each([
+    "docker-compose.dev.yml",
+    "scripts/lib/sandbox.mjs",
+    "scripts/dev-system.mjs",
+    "scripts/dev-system-config.mjs",
+  ])("selects hosted browser coverage for shared sandbox runtime %s", (file) => {
+    const scope = classifyChanges({ changedFiles: [file], workspaces: [] });
+    const output = toOutputMap(scope);
+    expect(scope.e2eTestsRequired).toBe(true);
+    expect(scope.e2eSuiteIds).toEqual(expect.arrayContaining(["marketplace_account", "marketplace_seller"]));
+    const covered = JSON.parse(output.e2e_suite_batches_json).flatMap((batch) => batch.split(","));
+    expect(covered).toEqual(expect.arrayContaining(["marketplace_account", "marketplace_seller"]));
   });
 
   it("diffs changed files from the merge-base instead of the moving base branch tip", () => {

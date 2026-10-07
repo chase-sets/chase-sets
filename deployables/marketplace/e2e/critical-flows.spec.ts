@@ -476,6 +476,20 @@ test.describe("marketplace critical flows", () => {
     }
   });
 
+  test("seeded seller can open Sales from the Seller Desk Jump to row @marketplace-seller", async ({ page }) => {
+    await page.goto("/sign-in?returnTo=%2Faccount%2Fdesk");
+    await signInWithPassword(page, new URL(page.url()).origin, marketplaceBrowserE2eSellerCredentials());
+    await expectAccountRouteReady(page, { path: "/account/desk", heading: /^Seller Desk$/i, flow: "seller desk" });
+
+    const jumpTo = page.getByRole("heading", { name: "Jump to", exact: true }).locator("xpath=ancestor::section[1]");
+    const sales = jumpTo.getByRole("link", { name: "Sales", exact: true });
+    await expect(sales).toBeVisible();
+    await expect(sales).toHaveAttribute("href", "/account/sales");
+    await sales.click();
+    await expect(page).toHaveURL(/\/account\/sales$/);
+    await expect(page.getByRole("heading", { name: "Sales", level: 1, exact: true })).toBeVisible();
+  });
+
   test("seeded seller can reach critical marketplace commerce surfaces including repricing @marketplace-seller", async ({
     page,
   }) => {
