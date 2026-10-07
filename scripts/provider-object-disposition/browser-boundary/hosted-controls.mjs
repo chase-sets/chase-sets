@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { readFile, lstat, stat, readdir } from "node:fs/promises";
 import { promisify } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
+import { dirname } from "node:path";
 import { acquireHeavySlot } from "../../lib/heavy-slot.mjs";
 import { assertBrowserAdmission, BROWSER_LAUNCHER, openConfinedBrowser } from "../test-window-browser.mjs";
 import { browserCapabilityProof, removalRefusal, mediationDiagnostic, observerDiagnostic } from "./protocol.mjs";
@@ -416,6 +417,32 @@ async function partialRemovalCase() {
   });
 }
 
+async function wholeInstallerFailure() {
+  control = "18-whole-installer";
+  await withInstallationCycle("18-whole-installer", async () => {
+    const { chromium } = await import("@playwright/test");
+    const { stdout, stderr } = await execute(
+      "/usr/bin/sudo",
+      [
+        "-n",
+        "/usr/bin/python3",
+        `${input}/scripts/provider-object-disposition/browser-boundary/installer-failure.py`,
+        dirname(chromium.executablePath()),
+        process.env.ImageVersion,
+      ],
+      { env: environment, timeout: 125000, maxBuffer: 4096 },
+    );
+    assert.equal(stderr, "");
+    assert.equal(
+      stdout,
+      "provider-boundary-whole-installer:synthetic-negative;installer=1;native=78;stage=negative-mapping-write-output;exact=true\n",
+    );
+    console.log(
+      "installed-boundary control 18 whole installer: synthetic negative mismatch; exact native=78 and installer=1; first failure retained",
+    );
+  });
+}
+
 async function run() {
   assert.equal(process.platform, "linux");
   assert.equal(process.env.GITHUB_ACTIONS, "true");
@@ -503,6 +530,7 @@ async function run() {
   pass("12 launch host temporaries absent");
   await installationCycle("CP-B");
   await ownershipCases();
+  await wholeInstallerFailure();
   await partialRemovalCase();
   control = "B2-bootstrap-transport";
   await withInstallationCycle("B2-bootstrap", () =>
