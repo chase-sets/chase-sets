@@ -16,12 +16,68 @@ Manual product selection per row is not the intended workflow. Import adapters s
 8. Unmapped rows remain rejected for review instead of forcing per-row manual selection.
 9. Committing accepted rows creates or adjusts Inventory Items and may create Marketplace draft Listings through the existing host port.
 
+Every source uses the same final Product validity rule: a missing, nonexistent,
+inactive, source-mismatched, option-incomplete, or schema-invalid Product stores
+`product_id = null` and `resolution_status = unresolved`. Rejected rows from any
+provider, plus Saved List location review, feed the same drawer and Seller
+Attention predicate.
+
+Explicit `catalogItemId` identity, including Saved List identity, performs no
+candidate lookup. Otherwise, check-digit-valid GTINs come first, followed by the
+stable source-profile order below. Invalid GTINs are not lookup candidates. A
+missing mapping may continue; an ambiguous account SKU or mapped-but-invalid
+Product stops, even when a lower-priority candidate would be valid. Titles and
+other descriptive evidence never auto-link a Product.
+
+The deterministic `inventory-import-product-resolution-maintenance` job and its
+`normalize-legacy-rejected-products-v1` unit repair only rejected, uncommitted
+legacy rows. The job's existing durable progress stores an inclusive
+`(created_at, row_id)` high-watermark, a microsecond-precise keyset cursor, counts,
+and bounded poison diagnostics. Pages contain at most 250 rows. Product writes
+and the claim-token-guarded checkpoint share one transaction; a failed page
+rolls back both. Claims renew while rows are processed, and guarded row writes
+honor `updated_at`, rejection status, commitment, and affected-row counts.
+
+Maintenance validates the persisted Catalog Item, Options, and Product, not
+current mappings or other row fields. A missing persisted Product requires
+seller confirmation rather than being synthesized from source evidence. Only
+`product_id`, `resolution_status`, Product errors, and `updated_at` can change.
+Product errors are exactly the Catalog-item missing/inactive/required messages,
+the source-Product mismatch message, and messages starting `Selected options `.
+All other errors retain their original bytes and relative order.
+
+Three failures poison the retained job and unit without a receipt. Only an
+explicit, fenced higher-`validatorVersion` reactivation of the same IDs resumes
+the retained high-watermark, cursor, and counts. There are no version-suffixed
+jobs or extra receipt tables. A concurrent change is reread; final verification
+traverses every rejected/uncommitted row at or below the watermark under row
+locks and refuses completion if any Product-state change remains. Such a row is
+durably scheduled for revalidation before the next completion attempt.
+
+The one `inventory-import-product-resolution-maintenance/v1` receipt lives in
+the existing job result. It includes job/unit/version identity, high-watermark,
+final cursor, scanned/normalized/provider/already-converged/concurrent-skip
+counts, start/completion instants, and `complete=true`. Counts are cumulative
+row inspections and outcomes, including guarded revalidation; no failed page
+contributes counts. Retention preserves the job, unit, receipt, and poison event
+history. Completed replay returns the same receipt without writes.
+
+`InventoryHostPorts.importProductRollout` can disable new normalization and stock
+progression. Review eligibility remains widened even during pre-provider
+rollback, partial provider normalization, or after the receipt; native-only
+rollback is not retained. New-write validation and widened review eligibility
+ship before maintenance and never wait for a receipt. Unresolved rows cannot
+create stock or drafts. Manual confirmation replaces the attempt's stale Product
+and Option evidence with an active Catalog Item and complete Options, leaving
+source evidence intact; accepted/resolved rows leave review. Only native CSV
+confirmation with a nonblank SKU persists an account SKU mapping.
+
 ## Supported CSV Sources
 
 - Chase Sets CSV: native IDs and selected options, or account-scoped seller SKU mappings when `catalogItemId` is omitted.
 - TCGplayer CSV: tries `tcgplayer:sku:<id>` as a Product reference, then `tcgplayer:product:<id>` as a Catalog Item reference. Seller SKU is captured separately as an account SKU candidate when present.
-- eBay CSV: tries listing and variation identifiers as Product references, seller SKU as an account SKU candidate, then ePID, GTIN, and UPC as Catalog Item candidates.
-- Shopify CSV: tries variant ID as a Product reference, product ID/barcode/handle as Catalog Item candidates, and SKU as an account SKU candidate.
+- eBay CSV: valid GTIN/UPC first; then listing and variation Product references, account SKU, and ePID Catalog Item reference.
+- Shopify CSV: valid barcode first; then variant Product reference, product Catalog Item reference, account SKU, and handle Catalog Item reference.
 - Whatnot CSV: tries product ID as a Catalog Item candidate, listing and inventory IDs as Product references, and SKU as an account SKU candidate.
 - CardTrader CSV: tries CardTrader product and blueprint identifiers as Catalog Item candidates, article identifiers as Product references, SKU as an account SKU candidate, then exposed TCGplayer/Cardmarket Product IDs as Catalog Item candidates.
 
