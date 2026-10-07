@@ -693,6 +693,90 @@ describe("checkout sell list page", () => {
     expect(markup).not.toContain("Browse products");
   });
 
+  it.each([false, true])(
+    "withholds populated review conclusions during pending composite recovery (auto-refresh=%s)",
+    (isAutoRevalidating) => {
+      render(
+        <CheckoutSellListPage
+          sellListLines={[selectedOfferLine, productLine]}
+          offerReviews={[]}
+          productOfferReviews={[]}
+          inventoryItems={[]}
+          payoutReadiness={{ status: "ready", missing_requirements: [] }}
+          recoveryState={{
+            kind: "pending-fresh-write",
+            message: "Your Sell List is updating.",
+            refreshHref: "/account/sell-list?afterWrite=synthetic-pending-review",
+            isAutoRevalidating,
+          }}
+        />,
+      );
+
+      expect(screen.getByText("Your Sell List is updating.")).toBeTruthy();
+      expect(screen.getByText(isAutoRevalidating ? "Updating Sell List" : "Refreshing Sell List")).toBeTruthy();
+      expect(screen.getByRole("link", { name: "Refresh Sell List" }).getAttribute("href")).toBe(
+        "/account/sell-list?afterWrite=synthetic-pending-review",
+      );
+      expect(screen.queryByText(/Estimated net|Expected seller payout|Estimated sales fees/)).toBeNull();
+      expect(screen.queryByText(/No ready matching offers|Some items need action|Line readiness/)).toBeNull();
+      expect(screen.queryByRole("button", { name: /Review .* offers and terms/ })).toBeNull();
+      expect(screen.getByRole("button", { name: "Continue to seller checkout" }).hasAttribute("disabled")).toBe(true);
+      expect(document.querySelector('form[method="post"]')).toBeNull();
+    },
+  );
+
+  it("shows healthy review terms and enables checkout once pending composite recovery clears", () => {
+    const { rerender } = render(
+      <CheckoutSellListPage
+        sellListLines={[selectedOfferLine]}
+        recoveryState={{
+          kind: "pending-fresh-write",
+          message: "Your Sell List is updating.",
+          refreshHref: "/account/sell-list?afterWrite=synthetic-pending-review",
+          isAutoRevalidating: true,
+        }}
+      />,
+    );
+
+    rerender(
+      <CheckoutSellListPage
+        sellListLines={[selectedOfferLine]}
+        recoveryState={null}
+        payoutReadiness={{ status: "ready", missing_requirements: [] }}
+        offerReviews={[
+          {
+            lineId: selectedOfferLine.line_id,
+            status: "ready",
+            terms: {
+              basis_amount: "350.00",
+              marketplace_sales_fee_unit_amount: "35.00",
+              seller_net_unit_amount: "315.00",
+              shipping_allowance_percentage_bps: 0,
+              fee_quote_fingerprint: "fee_healthy_review",
+            },
+            comparison: null,
+            message: null,
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.queryByText("Your Sell List is updating.")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Refresh Sell List" })).toBeNull();
+    expect(screen.getByText("Estimated net $630.00")).toBeTruthy();
+    expect(screen.getByText("Estimated sales fees")).toBeTruthy();
+    expect(screen.getByText("$70.00")).toBeTruthy();
+    expect(screen.getAllByText("$630.00").length).toBeGreaterThan(0);
+    for (const label of screen.getAllByText("Expected seller payout")) {
+      expect(label.parentElement?.textContent).toContain("$630.00");
+      expect(label.parentElement?.textContent).not.toContain("$700.00");
+    }
+    expect(screen.getByText("Ready for seller checkout")).toBeTruthy();
+    for (const button of screen.getAllByRole("button", { name: "Continue to seller checkout" })) {
+      expect(button.hasAttribute("disabled")).toBe(false);
+    }
+  });
+
   it("shows an actionable expired fresh-write recovery when the added line stays missing", () => {
     const markup = renderToString(
       <CheckoutSellListPage
