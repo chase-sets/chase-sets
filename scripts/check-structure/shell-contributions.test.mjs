@@ -131,6 +131,58 @@ const manifest = (shellContributions, routes = ["owned"], deployable = "marketpl
 });
 
 describe("shell contribution discovery matrix", () => {
+  it("classifies top-level shell shape before diagnosing JSON or JSONC siblings", async () => {
+    const files = {
+      "arbitrary/array.json": [{ shellContributions: null }],
+      "arbitrary/null.json": null,
+      "arbitrary/number.json": 42,
+      "arbitrary/boolean.json": true,
+      "arbitrary/string.json": '"shellContributions"',
+      "arbitrary/nested.json": { nested: { shellContributions: null } },
+      "arbitrary/malformed.json": '{ "unrelated": ',
+      "arbitrary/malformed-text.json": '{ "unrelated": "shellContributions", ',
+      "arbitrary/jsonc.json": '{ // Candidate with comments and a trailing comma.\n"shellContributions": [],\n}',
+    };
+    const options = await trackedRepository(files);
+    const discovered = await discoverShellContributionManifests(options);
+    expect(discovered.scanned).toBe(Object.keys(files).length);
+    expect(discovered.candidates).toBe(1);
+    expect(discovered.manifests.map((entry) => entry.manifestPath)).toEqual(["arbitrary/jsonc.json"]);
+    expect(discovered.diagnostics).toEqual([]);
+    expect(await validateDiscoveredShellContributions(options)).toEqual({
+      scanned: Object.keys(files).length,
+      candidates: 1,
+      diagnostics: [],
+    });
+  });
+
+  it.each(['{ "shellContributions": ', '{ "shellContributions": [null]', '{ "shellContributions": [], "unrelated": }'])(
+    "retains malformed candidate accounting and parse diagnostics for %s",
+    async (source) => {
+      const files = {
+        "unknown/broken.json": source,
+        "unknown/valid.json": manifest([]),
+        "unknown/unrelated.json": '{ "other": ',
+      };
+      const options = await trackedRepository(files);
+      const discovered = await discoverShellContributionManifests(options);
+      const diagnostic = {
+        code: "SHELL_MANIFEST_JSON",
+        path: "unknown/broken.json",
+        message: "shell contribution manifest could not be parsed",
+      };
+      expect(discovered.scanned).toBe(Object.keys(files).length);
+      expect(discovered.candidates).toBe(2);
+      expect(discovered.manifests.map((entry) => entry.manifestPath)).toEqual(["unknown/valid.json"]);
+      expect(discovered.diagnostics).toEqual([diagnostic]);
+      expect(await validateDiscoveredShellContributions(options)).toEqual({
+        scanned: Object.keys(files).length,
+        candidates: 2,
+        diagnostics: [diagnostic],
+      });
+    },
+  );
+
   it.each([false, true])("unions FIRST-block routes in either order (reversed=%s)", async (reversed) => {
     const candidate = manifest([leaf("owned")]);
     const blocks = [

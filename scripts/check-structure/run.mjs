@@ -1522,25 +1522,44 @@ export async function discoverShellContributionManifests({ repoRoot: rootDir = r
     .filter(Boolean);
   const manifests = [];
   const diagnostics = [];
+  let candidates = 0;
   for (const file of files) {
-    let manifest;
+    let source;
     try {
-      const parsed = ts.parseConfigFileTextToJson(file, await readFile(path.join(rootDir, file), "utf8"));
-      if (parsed.error) throw new Error("Invalid JSON");
-      manifest = parsed.config;
+      source = await readFile(path.join(rootDir, file), "utf8");
     } catch {
       diagnostics.push({
-        code: "SHELL_MANIFEST_JSON",
+        code: "SHELL_MANIFEST_READ",
         path: file,
-        message: "tracked JSON could not be read or parsed for shell discovery",
+        message: "tracked JSON could not be read for shell discovery",
       });
       continue;
     }
-    if (isShellObject(manifest) && Object.hasOwn(manifest, "shellContributions")) {
-      manifests.push(classifyShellManifest({ manifest, root: path.posix.dirname(file), manifestPath: file }));
+
+    const parsed = ts.parseJsonText(file, source);
+    const expression = parsed.statements[0]?.expression;
+    if (
+      !expression ||
+      !ts.isObjectLiteralExpression(expression) ||
+      !expression.properties.some((property) => property.name?.text === "shellContributions")
+    ) {
+      continue;
     }
+
+    candidates += 1;
+    const errors = [...parsed.parseDiagnostics];
+    const manifest = errors.length === 0 ? ts.convertToObject(parsed, errors) : undefined;
+    if (errors.length > 0) {
+      diagnostics.push({
+        code: "SHELL_MANIFEST_JSON",
+        path: file,
+        message: "shell contribution manifest could not be parsed",
+      });
+      continue;
+    }
+    manifests.push(classifyShellManifest({ manifest, root: path.posix.dirname(file), manifestPath: file }));
   }
-  return { scanned: files.length, candidates: manifests.length, manifests, diagnostics };
+  return { scanned: files.length, candidates, manifests, diagnostics };
 }
 
 function isLiteralShellPath(value) {
