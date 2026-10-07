@@ -23,6 +23,10 @@ import {
   pricingMarketRollupsSchemaSql,
 } from "../../features/market-rollups/read-model/schema";
 import { pricingMarketEstimatesSchemaSql } from "../../features/market-estimates/read-model/schema";
+import {
+  pricingDemandCurveSchemaMigrations,
+  pricingDemandCurveSchemaSql,
+} from "../../features/market-estimates/read-model/demand-curve-schema";
 import { pricingRepricingPolicySchemaSql } from "../../features/repricing-policies/read-model/schema";
 import { pricingRepricingPolicySchemaMigrations } from "../../features/repricing-policies/read-model/migrations";
 import {
@@ -52,6 +56,7 @@ export const pricingFeatureSchemaMigrations = [
   ...pricingRecommendationSourceSchemaMigrations,
   ...pricingRecommendationSchemaMigrations,
   ...pricingMarketRollupsSchemaMigrations,
+  ...pricingDemandCurveSchemaMigrations,
   ...pricingBulkRepriceIngestionSchemaMigrations,
   ...pricingEconomicsSchemaMigrations,
 ];
@@ -72,6 +77,7 @@ export const pricingSchemaSql = [
   pricingEconomicsSchemaSql,
   pricingMarketRollupsSchemaSql,
   pricingMarketEstimatesSchemaSql,
+  pricingDemandCurveSchemaSql,
   // Must run after pricingRecommendationSourceSchemaSql: the assignment view joins
   // pricing_market_listing_inputs and pricing_catalog_item_inputs.
   pricingRepricingPolicySchemaSql,
