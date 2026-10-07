@@ -147,9 +147,7 @@ export type PolicyRuntime = Readonly<{
    * event stream through the aggregate repository (never the projection).
    * An absent document reads as the initial state at version 0.
    */
-  readPolicyDocumentState: (
-    documentId: string,
-  ) => Promise<Readonly<{ state: PolicyDocumentState; version: number }>>;
+  readPolicyDocumentState: (documentId: string) => Promise<Readonly<{ state: PolicyDocumentState; version: number }>>;
   resolvePolicy: <Value>(
     definition: PolicyDefinition<Value>,
     params?: Readonly<{ at?: string }>,

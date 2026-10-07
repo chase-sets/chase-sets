@@ -425,7 +425,11 @@ function recordAppends(eventStore: EventStore) {
   const recorded: EventStore = {
     ...eventStore,
     appendToStream: async (input) => {
-      appends.push({ streamId: input.streamId, expectedVersion: input.expectedVersion, eventCount: input.events.length });
+      appends.push({
+        streamId: input.streamId,
+        expectedVersion: input.expectedVersion,
+        eventCount: input.events.length,
+      });
       return eventStore.appendToStream(input);
     },
   };
@@ -457,7 +461,12 @@ describe("authoritative policy document state read", () => {
     const documentId = "pol_replay_tail";
     const streamId = `platform-policy.document-${documentId}`;
     await seedDocumentStream(eventStore, documentId, 499);
-    await eventStore.appendToStream({ streamId, expectedVersion: 500, context, events: [revisedEvent(documentId, 42)] });
+    await eventStore.appendToStream({
+      streamId,
+      expectedVersion: 500,
+      context,
+      events: [revisedEvent(documentId, 42)],
+    });
     const pageReads: number[] = [];
     const pagedStore: EventStore = {
       ...eventStore,
