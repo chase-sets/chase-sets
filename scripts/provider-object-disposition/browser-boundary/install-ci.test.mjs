@@ -99,15 +99,18 @@ it("required Static keeps the complete source gate and native matrix under uncha
   const native = workflow.slice(workflow.indexOf("  static:"), workflow.indexOf("  typecheck:"));
   for (const job of [source, native]) {
     expect(job).toContain("timeout-minutes: 20");
-    expect(job).toContain("if: needs['change-scope'].outputs.static_required == 'true'");
+    expect(job).toContain("needs['change-scope'].outputs.static_required == 'true'");
     expect(job).not.toContain("continue-on-error");
   }
   expect(source).toContain("FORMAT_CHECK_SCOPE: full");
   expect(source).toContain("run: pnpm run verify:static");
   expect(native).toContain("needs: [change-scope, static-source]");
-  expect(native.slice(0, native.indexOf("    steps:"))).not.toContain("always()");
+  expect(native).toContain("if: always() && needs['change-scope'].result == 'success'");
   expect(native).toContain("node scripts/provider-object-disposition/browser-boundary/hosted-controls.mjs");
   expect(native).toContain("name: Remove owned provider browser boundary\n        if: always()");
+  expect(native).toContain("name: Require full source checks\n        if: always()");
+  expect(native).toContain("SOURCE_RESULT: ${{ needs.static-source.result }}");
+  expect(native).toContain('run: test "$SOURCE_RESULT" = success');
   expect(workflow).toContain('require_job "Static Checks" "${{ needs.static.result }}"');
 });
 
