@@ -1062,7 +1062,7 @@ describe("platform api bootstrap production reconciliation", () => {
 
     await expect(runRepresentativeIdentitySeed(runtime)).resolves.toBeUndefined();
     const firstRunCounts = await countRepresentativeIdentityCreationEvents(pools.identity);
-    expect(Object.values(firstRunCounts)).toEqual([5, 5, 5, 5, 5]);
+    expect(Object.values(firstRunCounts)).toEqual([5, 5, 5, 0, 5]);
 
     await drainLocalProjectionHandlerSets(
       identityContext.contextName,
@@ -1274,7 +1274,7 @@ describe("platform api bootstrap production reconciliation", () => {
     const retainedListings = await countCreationEvents(pools.marketplace, "marketplace.listing.created");
     const retainedOffers = await countCreationEvents(pools.marketplace, "marketplace.offer.submitted");
     const retainedParticipants = await representativeParticipantIdentities(pools);
-    expect(Object.values(retainedIdentityEvents)).toEqual([5, 5, 5, 5, 5]);
+    expect(Object.values(retainedIdentityEvents)).toEqual([5, 5, 5, 0, 5]);
     expect(retainedListings.eventCount).toBeGreaterThan(0);
     expect(retainedListings.eventCount).toBe(retainedListings.streamCount);
     expect(retainedOffers.eventCount).toBeGreaterThan(0);

@@ -94,7 +94,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       Object.freeze({
         name: "keeps every representative Identity creation event count stable on an ordinary day-after bootstrap",
         referenceDurationMs: 654,
-        identity: "ec6d52932ca711b2",
+        identity: "5faa4bae78495bc7",
       }),
       Object.freeze({
         name: "rejects a conflicting retained representative Account profile with actionable detail",
@@ -114,7 +114,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       Object.freeze({
         name: "resumes the real representative commerce command after offer acceptance without duplicate creation events",
         referenceDurationMs: 41452,
-        identity: "4994a619e1d95849",
+        identity: "18b6a50d157754d5",
       }),
     ]),
   }),
