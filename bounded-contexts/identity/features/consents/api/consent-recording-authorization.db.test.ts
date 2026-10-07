@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { composeModuleSchemaSql, drainLocalProjectionHandlerSets } from "@chase-sets/bounded-context-runtime";
 import {
   closeMultiContextTestPools,
   createMultiContextTestDatabaseUrls,
@@ -14,6 +15,7 @@ import { createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/
 import { CONSENT_ACTIVATION_AUTHORITY_STREAM_PREFIX } from "@chase-sets/platform-policy/consent-activation-authority";
 import type { AccountId, ConsentId, UserId } from "@chase-sets/primitives/typed-ids";
 import { module as identityModule } from "../../../index";
+import { createIdentityServices } from "../../../support/runtime-support/services";
 import {
   authorizeConsentForActor,
   type ConsentRecordingAuthorization,
@@ -158,7 +160,7 @@ describeDb("Consent Recording Authorization against real PostgreSQL", () => {
 
   beforeEach(async () => {
     await resetMultiContextTestSchemas(pools);
-    await pools.identity.query(identityModule.schemaSql);
+    await pools.identity.query(composeModuleSchemaSql(identityModule));
     eventStore = createPostgresEventStore({ pool: pools.identity });
     runtime = createConsentRuntime({
       eventStore,
@@ -266,21 +268,32 @@ describeDb("Consent Recording Authorization against real PostgreSQL", () => {
   });
 
   it.each([
-    { profile: "scenario-seed", created: 8 },
-    { profile: "representative-commerce-state", created: 5 },
-    { profile: "admin-qa-actor-fixtures", created: 6 },
+    { profile: "scenario-seed", created: 8, readsProjections: false },
+    { profile: "representative-commerce-state", created: 5, readsProjections: false },
+    // Admin-QA decides existence from the Identity projections rather than the
+    // streams, so its reruns see what the host's projection runner has drained.
+    { profile: "admin-qa-actor-fixtures", created: 6, readsProjections: true },
   ] as const)(
     "provisions $profile identities with no Consent fact and no activation-authority read",
-    async ({ profile, created }) => {
+    async ({ profile, created, readsProjections }) => {
       const seed = identityModule.seed;
       if (!seed) {
         throw new Error("Identity module must expose its seed boundary.");
       }
+      const drainProjections = async () => {
+        if (!readsProjections) return;
+        await drainLocalProjectionHandlerSets(
+          "identity",
+          pools.identity,
+          createIdentityServices(pools.identity).projectors,
+        );
+      };
       const authorityBefore = await eventStore.readStream({ streamId: authorityStreamId });
       const boot = observeStatementValues(pools.identity);
 
       // Clean boot, then a repeat inside the same boot.
       await seed(boot.pool, undefined, { enabledDataProfiles: [profile] });
+      await drainProjections();
       const provisioned = await identityProvisioningState();
       expect(provisioned.created).toEqual({
         "identity.account.created": created,
@@ -289,6 +302,7 @@ describeDb("Consent Recording Authorization against real PostgreSQL", () => {
         "identity.consent.recorded": 0,
       });
       await seed(boot.pool, undefined, { enabledDataProfiles: [profile] });
+      await drainProjections();
       await expect(identityProvisioningState()).resolves.toEqual(provisioned);
 
       // A fresh boot over the retained state authors nothing.
