@@ -31,6 +31,11 @@ import { module as paymentsModule } from "../index";
 import { createPaymentsServices } from "../support/runtime-support/services";
 import { createPaymentMcpHandlers } from "../features/payments/api/mcp";
 import { DISPOSITION_RECEIPT_POLICY } from "../../../scripts/provider-object-disposition/disposition-receipt-policy.mjs";
+import { createTestWindowDriver } from "../../../scripts/provider-object-disposition/test-window-driver.mjs";
+import {
+  SYNTHETIC_FIXTURES,
+  syntheticManifest,
+} from "../../../scripts/provider-object-disposition/test-window-fixtures.mjs";
 
 const windowId = "a".repeat(32);
 const accountId = "acc_SYNTHETIC_J" as AccountId;
@@ -113,6 +118,117 @@ describe("deployed provider journal J1-J6 (synthetic DB proof)", () => {
       },
     });
   }
+
+  it("AC-01 windows / AC-04 lifecycle / AC-05 budgets: real launch gateways persist six mapper memberships, four CAS closures and independent receipts", async () => {
+    const registration = createPostgresEvidenceWindowRegistration(pools.payments);
+    const current = await registration.current();
+    await registration.close({ windowId, expectedVersion: current!.version });
+    const statuses = new Map<string, string>();
+    const requests: { target: string; key: string | null; method: string }[] = [];
+    const send: typeof globalThis.fetch = async (target, init) => {
+      const url = String(target);
+      const method = init?.method ?? "GET";
+      const key = new Headers(init?.headers).get("Idempotency-Key");
+      requests.push({ target: url, key, method });
+      if (method === "POST") {
+        const current = await registration.current();
+        const rows = await createPostgresEvidenceWindowProviderWrite(pools.payments).readWindow(current!.windowId);
+        const row = rows.find((row) => providerWriteIdempotencyKey(row.key) === key)!;
+        expect(row.state).toBe("pending");
+        expect(row.envelope!.bodyText).toBe(init?.body ?? null);
+      }
+      if (url.includes("/v2/core/accounts/"))
+        return Response.json({
+          id: "acct_SYNTHETIC_6733",
+          livemode: false,
+          configuration: { recipient: { capabilities: {} } },
+          requirements: {},
+          defaults: {},
+        });
+      if (url.endsWith("/v1/account_sessions"))
+        return Response.json({ livemode: false, client_secret: "SYNTHETIC_PRIVATE_SESSION", expires_at: 4070908800 });
+      if (url.includes("/v1/customers")) return Response.json({ id: "cus_SYNTHETIC_6733_A", livemode: false });
+      const reference = url.includes("setup_intents") ? "seti_SYNTHETIC_6733_LAUNCH" : "pi_SYNTHETIC_6733_LAUNCH";
+      if (url.endsWith("/cancel")) statuses.set(reference, "canceled");
+      return Response.json({
+        id: reference,
+        livemode: false,
+        client_secret: "SYNTHETIC_PRIVATE_INTENT",
+        status: statuses.get(reference) ?? "requires_confirmation",
+      });
+    };
+    const driver = createTestWindowDriver(syntheticManifest(), {
+      pool: pools.payments,
+      secretKey: "sk_test_SYNTHETIC_6733",
+      fixtures: SYNTHETIC_FIXTURES,
+      browser: {
+        close: async () => {},
+        newContext: async () => {
+          throw new Error("synthetic-journal-control-does-not-observe-components");
+        },
+      },
+      send,
+    });
+    const receipts = [];
+    try {
+      for (const group of driver.groups) {
+        await group.open();
+        expect((await registration.current())!.windowId).toBe(group.windowId);
+        await expect(registration.open({ windowId: "f".repeat(32), retentionSeconds: 3600 })).rejects.toThrow(
+          "evidence-window-already-open",
+        );
+        for (const scenario of group.scenarios) {
+          await scenario.activate("original");
+          await expect(scenario.original()).rejects.toThrow("write-unresolved");
+          await scenario.activate("replay");
+          await scenario.restartAndReplay();
+          if (scenario.mapper === "customer") await scenario.reuse();
+          if (scenario.mapper.startsWith("connect-")) {
+            const posts = requests.filter((request) => request.method === "POST").length;
+            await expect(scenario.repeatSameSlot()).rejects.toThrow("response-unqualified");
+            const twins = await Promise.allSettled([scenario.repeatSameSlot(), scenario.repeatSameSlot()]);
+            expect(twins.every((result) => result.status === "rejected")).toBe(true);
+            expect(requests.filter((request) => request.method === "POST")).toHaveLength(posts);
+          }
+        }
+        const rows = await driver.journal.readWindow(group.windowId);
+        expect(
+          rows
+            .filter((row) => row.key.operation === "create")
+            .map((row) => row.binding.writerKind)
+            .sort(),
+        ).toEqual(group.scenarios.map((scenario) => scenario.mapper).sort());
+        expect(
+          rows
+            .filter((row) => row.key.operation === "create")
+            .every((row) => row.replayAttempts === 1 && row.state === "succeeded"),
+        ).toBe(true);
+        receipts.push(await group.dispose(DISPOSITION_RECEIPT_POLICY));
+        await group.close();
+        expect(await registration.current()).toBeNull();
+      }
+      expect(receipts).toHaveLength(4);
+      expect(
+        receipts.every((receipt) => DISPOSITION_RECEIPT_POLICY.validateProviderObjectDisposition(receipt).ok),
+      ).toBe(true);
+      expect(receipts.slice(1).map((receipt) => receipt.classes[5]!.observedCount)).toEqual([1, 1, 1]);
+      expect(driver.creationCount()).toBe(6);
+      expect(driver.counts().browser).toBe(0);
+      expect(
+        driver
+          .lifecycle()
+          .filter((entry) => entry.stage === "terminal-repeat")
+          .every((entry) => entry.postCount === 0),
+      ).toBe(true);
+      expect(
+        JSON.stringify({ receipts, sends: driver.sends(), lifecycle: driver.lifecycle() }).includes(
+          "SYNTHETIC_PRIVATE",
+        ),
+      ).toBe(false);
+    } finally {
+      await driver.dispose();
+    }
+  });
 
   it("AC-04b/AC-10: actual service factory reads J, precommits disposition and repeats terminal GET without a write", async () => {
     let status = "requires_confirmation";
