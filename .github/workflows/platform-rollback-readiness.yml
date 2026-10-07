@@ -71,11 +71,24 @@ jobs:
 
       - name: Validate rollback target evidence
         id: evidence
+        env:
+          target_commit: ${{ inputs.target_commit }}
+          release_tag: ${{ inputs.release_tag }}
+          image_ref: ${{ inputs.image_ref }}
         run: |
           set -euo pipefail
-          target_commit="${{ inputs.target_commit }}"
-          release_tag="${{ inputs.release_tag }}"
-          image_ref="${{ inputs.image_ref }}"
+          [[ "$target_commit" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "Target commit must be a lowercase 40-character hexadecimal commit SHA." >&2
+            exit 1
+          }
+          [[ "$release_tag" =~ ^release-.+$ ]] || {
+            echo "Release tag must start with release- and have a nonempty suffix." >&2
+            exit 1
+          }
+          [[ "$image_ref" =~ ^registry\.digitalocean\.com/.+$ ]] || {
+            echo "Image reference must start with registry.digitalocean.com/ and have a nonempty suffix." >&2
+            exit 1
+          }
 
           git fetch origin production --tags
           if ! git cat-file -e "${target_commit}^{commit}"; then
