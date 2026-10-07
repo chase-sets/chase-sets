@@ -554,18 +554,23 @@ describe("admin API retry", () => {
     },
   );
 
-  it.each([true, false])("admin API retry: body disposal — incomplete rejected HTML recovery=%s", async (recovers) => {
+  it.each([
+    { name: "recovery=true", recovers: true, rootTimeout: false },
+    { name: "recovery=false", recovers: false, rootTimeout: false },
+    { name: "recovery=true first root timeout=true", recovers: true, rootTimeout: true },
+    { name: "recovery=false first root timeout=true", recovers: false, rootTimeout: true },
+  ])("admin API retry: body disposal — incomplete rejected HTML $name", async ({ recovers, rootTimeout }) => {
     const streamPath = ADMIN_DEPLOYED_API_SMOKE_PROBES[11].path;
     const fixture = await startAdminRetryServer({
+      "/": (attempt) => (rootTimeout && attempt === 1 ? { transport: "timeout" } : undefined),
       [authProbePath]: (attempt) =>
         recovers && attempt === 3 ? undefined : { status: 503, contentType: "text/html", incomplete: true },
       [streamPath]: () => ({ contentType: "text/event-stream", incomplete: true }),
     });
     const result = await runAdminRetrySmoke(fixture);
     expectRetryCount(result, fixture, authProbePath, 3, recovers);
-    const lifecycle = result.events
-      .filter((event) => event.path === authProbePath || event.kind === "retry-delay")
-      .map((event) => event.kind);
+    expectDiscriminatorObservation(result, [authProbePath, authProbePath]);
+    const lifecycle = result.events.filter((event) => event.path === authProbePath).map((event) => event.kind);
     expect(lifecycle, `${result.stderr}\nClassified events: ${JSON.stringify(result.events)}`).toEqual([
       "fetch",
       "cancel-start",
@@ -579,6 +584,15 @@ describe("admin API retry", () => {
       "cancel-start",
       "cancel-end",
     ]);
+    if (rootTimeout) {
+      expect(result.stderr).toContain("admin home timed out after 100ms");
+      const undiscriminatedLifecycle = result.events
+        .filter((event) => event.path === authProbePath || event.kind === "retry-delay")
+        .map((event) => event.kind);
+      expect(() => expect(undiscriminatedLifecycle, "body lifecycle discriminator removal").toEqual(lifecycle)).toThrow(
+        /body lifecycle discriminator removal/,
+      );
+    }
     expect(fixture.closedBodies.filter((entry) => entry.path === authProbePath)).toHaveLength(recovers ? 2 : 3);
     if (recovers) {
       const streamStart = result.events.findIndex((event) => event.path === streamPath);
@@ -591,6 +605,19 @@ describe("admin API retry", () => {
       expect(fixture.closedBodies).toContainEqual({ path: streamPath, attempt: 1 });
     }
     expect(fixture.sockets.size).toBe(0);
+    console.info(
+      "[body-lifecycle-discriminator-proof]",
+      JSON.stringify({
+        recovers,
+        rootTimeout,
+        removalControl: rootTimeout ? "rejected by body lifecycle discriminator removal assertion" : "not exercised",
+        code: result.code,
+        signal: result.signal,
+        events: result.events,
+        diagnostics: result.stderr,
+        requests: fixture.requests.map(({ path: requestPath, method }) => ({ path: requestPath, method })),
+      }),
+    );
   });
 
   it.each([true, false])("admin API retry: body disposal — absent body accepted=%s", async (accepted) => {
