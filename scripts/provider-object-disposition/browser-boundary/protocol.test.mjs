@@ -1,5 +1,12 @@
 import { expect, it } from "vitest";
-import { ADMISSION, TRANSITION, admissionProof, mediationFailure, nativeRefusal } from "./protocol.mjs";
+import {
+  ADMISSION,
+  TRANSITION,
+  admissionProof,
+  mediationFailure,
+  mediationDiagnostic,
+  nativeRefusal,
+} from "./protocol.mjs";
 
 it("CP-T precedes CP-A, with complete exact bytes and empty stderr", () => {
   expect(admissionProof(Buffer.from(TRANSITION + ADMISSION), Buffer.alloc(0))).toBe(true);
@@ -69,4 +76,12 @@ it("AC-B3 governing mutant compares original status/bytes, not a substring", () 
   expect(nativeRefusal(TRANSITION, stderr, 78)).toBe("external-interface");
   expect(nativeRefusal(TRANSITION + ADMISSION, stderr, 78)).toBeNull();
   expect(nativeRefusal(TRANSITION, stderr.replace("external-interface", "host-rejoin"), 78)).toBe("host-rejoin");
+});
+
+it("hosted diagnostics require provenance, not an error message that impersonates closed JSON", () => {
+  const failure = mediationFailure("SYNTHETIC_PRIVATE_STAGE", { stdout: "", stderr: "PRIVATE", code: 78 });
+  expect(mediationDiagnostic(failure).stage).toBe("unknown");
+  expect(JSON.stringify(mediationDiagnostic(failure))).not.toContain("PRIVATE");
+  expect(mediationDiagnostic(new Error(failure.message))).toBeNull();
+  expect(mediationDiagnostic({ diagnostic: { stage: "PRIVATE" } })).toBeNull();
 });

@@ -2,6 +2,14 @@ export const TRANSITION =
   '{"transition":"seed-joined","uidMap":"exact","gidMap":"exact","setgroups":"deny","seed":"reaped"}\n';
 export const ADMISSION =
   '{"admitted":true,"nonroot":true,"network":"isolated","hostRejoin":"denied","capabilities":"dropped","nestedSandbox":true,"handles":"closed"}\n';
+const diagnostics = new WeakMap();
+const stages = new Set([
+  "operator-installation-unavailable",
+  "linux-required",
+  "nonroot-required",
+  "installed-boundary",
+  "sandboxed-chromium",
+]);
 
 const nativeStages = new Set([
   "arguments",
@@ -106,7 +114,7 @@ export function mediationFailure(stage, error, restriction = "unknown") {
   const native = truncated || signal ? null : nativeRefusal(stdout, stderr, status);
   // Lengths describe captured bytes, never an inferred length of lost output.
   const diagnostic = {
-    stage,
+    stage: stages.has(stage) ? stage : "unknown",
     status,
     signal,
     nativeStage: native,
@@ -117,5 +125,11 @@ export function mediationFailure(stage, error, restriction = "unknown") {
     complete: !truncated && stdout !== null && stderr !== null,
     userNamespaceRestriction: [0, 1].includes(restriction) ? restriction : "unknown",
   };
-  return new Error(`browser-mediation-unavailable: ${JSON.stringify(diagnostic)}`);
+  const failure = new Error(`browser-mediation-unavailable: ${JSON.stringify(diagnostic)}`);
+  diagnostics.set(failure, Object.freeze(diagnostic));
+  return failure;
+}
+
+export function mediationDiagnostic(error) {
+  return diagnostics.get(error) ?? null;
 }
