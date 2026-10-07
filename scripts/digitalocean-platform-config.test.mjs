@@ -35,6 +35,13 @@ const operatorBlocks = [
       ["release_commit", "RELEASE_COMMIT", operatorSha, "Advisory evidence requires a full release commit SHA."],
     ],
   },
+  ...["Summarize staging advisory evidence", "Create, update, or resolve advisory evidence incident"].map((step) => ({
+    file: "platform-staging-advisory-evidence.yml",
+    step,
+    bindings: [
+      ["release_commit", "RELEASE_COMMIT", operatorSha, "Advisory evidence requires a full release commit SHA."],
+    ],
+  })),
   {
     file: "platform-rollback-readiness.yml",
     step: "Validate rollback target evidence",
@@ -114,6 +121,13 @@ function executeOperatorBlock(block, overrides = {}, run = block.source.run) {
     PLATFORM_IMAGE_DIGEST: `sha256:${"b".repeat(64)}`,
     CONTROL_SHA: operatorSha,
     CONTROL_FAILURE: "",
+    CONTROL_NAME: "",
+    SCENARIO_SEED_OUTCOME: "success",
+    MARKETPLACE_E2E_OUTCOME: "success",
+    ADVISORY_RESULT: "failure",
+    SCENARIO_SEED_ERROR: "",
+    RUN_URL: "https://example.invalid/synthetic-run",
+    ARTIFACTS_URL: "https://example.invalid/synthetic-artifacts",
     ...overrides,
   };
   // Functions intercept every provider-facing command in these extracted
@@ -133,8 +147,20 @@ function executeOperatorBlock(block, overrides = {}, run = block.source.run) {
     gh() { trace gh "$@"; }
     doctl() { trace doctl "$@"; }
     docker() { trace docker "$@"; [[ "$CONTROL_FAILURE" != image ]]; }
+    jq() { trace jq "$@"; if [[ "$1" == -cn ]]; then printf '[]'; else printf '{}'; fi; }
+    date() { printf '2026-10-07T00:00:00Z'; }
+    control_use() {
+      [[ "$1" == *'=~'* || "$1" == '[ -z '* || "$1" == 'fail '* || "$1" == "$CONTROL_NAME="* ]] && return 0
+      if [[ "$1" == *"\\$$CONTROL_NAME"* || "$1" == *"\\\${$CONTROL_NAME}"* ]]; then
+        trace consume "\${!CONTROL_NAME}"
+      fi
+    }
+    if [[ -n "$CONTROL_NAME" ]]; then trap 'control_use "$BASH_COMMAND"' DEBUG; fi
   `;
   try {
+    run = run
+      .replaceAll("\${{ inputs.platform_image }}", env.PLATFORM_IMAGE)
+      .replaceAll("\${{ inputs.platform_image_digest }}", env.PLATFORM_IMAGE_DIGEST);
     const result = spawnSync(operatorBash, ["-c", `${stubs}\n${run}`], { cwd: root, env, encoding: "utf8" });
     if (result.error) throw result.error;
     const read = (name) => (existsSync(join(root, name)) ? readFileSync(join(root, name), "utf8") : "");
@@ -144,6 +170,7 @@ function executeOperatorBlock(block, overrides = {}, run = block.source.run) {
       trace: read("trace"),
       injected: existsSync(join(root, "marker")),
       evidence: read("output"),
+      summary: read("summary"),
     };
   } finally {
     if (!root.startsWith(join(tmpdir(), "operator-input-control-"))) throw new Error("Unexpected control cleanup root");
@@ -215,7 +242,7 @@ describe("operator inputs before shell parsing (#8993)", () => {
           "",
         ].join("\n"),
       );
-    } else if (block.file === "platform-staging-advisory-evidence.yml") {
+    } else if (block.step === "Check out applied staging release") {
       expect(result.trace).toBe(
         `git <fetch> <origin> <main>\ngit <merge-base> <--is-ancestor> <${operatorSha}> <origin/main>\ngit <checkout> <--detach> <${operatorSha}>\n`,
       );
@@ -236,6 +263,16 @@ describe("operator inputs before shell parsing (#8993)", () => {
         ].join("\n"),
       );
       expect(result.evidence).toContain(`last_known_good_commit=${operatorSha}`);
+    } else if (block.step === "Summarize staging advisory evidence") {
+      expect(result.trace).toContain(
+        `jq <-n> <--arg> <checkedAt> <2026-10-07T00:00:00Z> <--arg> <releaseCommit> <${operatorSha}>`,
+      );
+      expect(result.summary).toContain(`Release: ${operatorSha}@sha256:${"b".repeat(64)}`);
+      expect(result.evidence).toBe("scenario_seed_error<<SCENARIO_SEED_ERROR_EOF\n\nSCENARIO_SEED_ERROR_EOF\n");
+    } else if (block.step === "Create, update, or resolve advisory evidence incident") {
+      expect(result.trace).toContain("gh <issue> <list>");
+      expect(result.trace).toContain("gh <issue> <create>");
+      expect(result.trace).toContain(`- Release commit: ${operatorSha}`);
     } else {
       expect(result.trace).toBe(
         "gh <run> <view> <123> <--repo> <synthetic/operator-input-control> <--json> <databaseId,status,conclusion,url,headSha,createdAt,updatedAt,jobs>\ngh <run> <download> <456> <--repo> <synthetic/operator-input-control> <--dir> <evidence/wake-primary>\ngh <run> <download> <789> <--repo> <synthetic/operator-input-control> <--dir> <evidence/wake-secondary>\n",
@@ -290,7 +327,7 @@ describe("operator inputs before shell parsing (#8993)", () => {
     "discriminates deleted, rebound, nullable and alternation guards: $input in $block.step",
     ({ block, name }) => {
       const guard = operatorGuard(block.source.run, name);
-      const candidate = executeOperatorBlock(block, { [name]: "-e" });
+      const candidate = executeOperatorBlock(block, { [name]: "-e", CONTROL_NAME: name });
       expect(candidate.status).toBe(1);
       expect(candidate.trace).toBe("");
       const mutants = [
@@ -300,9 +337,23 @@ describe("operator inputs before shell parsing (#8993)", () => {
         block.source.run.replace(guard, guard.replace(/=~ .* \]\]/u, "=~ ^a|-e$ ]]")),
       ];
       for (const [index, run] of mutants.entries()) {
-        const result = executeOperatorBlock(block, index === 1 ? {} : { [name]: "-e" }, run);
-        expect(result.status, result.output).toBe(0);
-        expect(block.step.startsWith("Confirm") ? result.output : result.trace).toContain("-e");
+        const result = executeOperatorBlock(
+          block,
+          { ...(index === 1 ? {} : { [name]: "-e" }), CONTROL_NAME: name },
+          run,
+        );
+        expect(result.trace, result.output).toContain("consume <-e>");
+        if (block.step === "Check out applied staging release") {
+          expect(result.status).toBe(1);
+          expect(result.output).toContain("release commit's SHA-tagged platform image");
+          expect(result.trace).not.toContain("git <checkout>");
+        } else if (name === "target_commit") {
+          expect(result.status).toBe(1);
+          expect(result.output).toContain("expected -e");
+          expect(result.trace).not.toContain("docker");
+        } else {
+          expect(result.status, result.output).toBe(0);
+        }
       }
     },
   );

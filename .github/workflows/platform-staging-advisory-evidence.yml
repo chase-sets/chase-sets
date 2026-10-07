@@ -291,10 +291,15 @@ jobs:
         id: summarize
         if: always()
         env:
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
           SCENARIO_SEED_OUTCOME: ${{ steps.scenario_seed.outcome || 'skipped' }}
           MARKETPLACE_E2E_OUTCOME: ${{ steps.marketplace_e2e.outcome || 'skipped' }}
         run: |
           set -euo pipefail
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "Advisory evidence requires a full release commit SHA." >&2
+            exit 1
+          }
           mkdir -p artifacts/staging-advisory-evidence
           checked_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           # The seed CLI writes this record on failure too, so the pod's bootstrap error survives the
@@ -314,7 +319,7 @@ jobs:
             '[if $scenarioSeed == "success" then empty else "scenario-seed" end, if $marketplaceE2e == "success" then empty else "marketplace-e2e" end]')"
           jq -n \
             --arg checkedAt "$checked_at" \
-            --arg releaseCommit "${{ inputs.release_commit }}" \
+            --arg releaseCommit "$RELEASE_COMMIT" \
             --arg platformImage "${{ inputs.platform_image }}" \
             --arg platformImageDigest "${{ inputs.platform_image_digest }}" \
             --arg scenarioSeed "$SCENARIO_SEED_OUTCOME" \
@@ -332,7 +337,7 @@ jobs:
             echo ""
             echo "Scenario seed bootstrap error: ${scenario_seed_error:-none captured}"
             echo ""
-            echo "Release: ${{ inputs.release_commit }}@${{ inputs.platform_image_digest }}"
+            echo "Release: $RELEASE_COMMIT@${{ inputs.platform_image_digest }}"
             echo ""
             echo "Failures remain visible here and through the deduplicated advisory incident; they do not govern production promotion."
           } >> "$GITHUB_STEP_SUMMARY"
@@ -382,6 +387,10 @@ jobs:
           ARTIFACTS_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts?attempt=${{ github.run_attempt }}
         run: |
           set -euo pipefail
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "Advisory evidence requires a full release commit SHA." >&2
+            exit 1
+          }
           title="Incident: Staging advisory evidence failing"
           existing_issue="$(
             gh issue list \
