@@ -42,6 +42,7 @@ let serverNow: number;
 
 async function fixture(pair = true) {
   if (pair) await feed.createPairingCode({ accountId: seller.accountId, connectionId: "connection_A" }, seller);
+  const authorizationStatuses: number[] = [];
   const f = backgroundFixture("unpaired", {
     clientId,
     request: vi.fn(async (request) => {
@@ -55,28 +56,34 @@ async function fixture(pair = true) {
       return { outcome: "ok" as const };
     }),
   });
-  vi.mocked(f.ports.identity.launchWebAuthFlow).mockImplementation(async ({ url, interactive }) => {
-    expect(interactive).toBe(true);
+  vi.mocked(f.ports.identity.launchWebAuthFlow).mockImplementation(async ({ url }) => {
     const authorize = new URL(url);
-    expect(authorize.pathname).toBe("/channel-connector/oauth/authorize");
-    expect([...authorize.searchParams.keys()].sort()).toEqual([
-      "client_id",
-      "code_challenge",
-      "code_challenge_method",
-      "redirect_uri",
-      "response_type",
-      "state",
-    ]);
-    expect(authorize.searchParams.get("redirect_uri")).toBe(TCGPLAYER_CONNECTOR_REDIRECT_URI);
-    expect(authorize.searchParams.get("code_challenge_method")).toBe("S256");
     const result = await routes.request(`http://localhost/authorize${authorize.search}`);
-    expect(result.status).toBe(302);
+    authorizationStatuses.push(result.status);
     return result.headers.get("location")!;
   });
-  return f;
+  return { ...f, authorizationStatuses };
+}
+function assertAuthorization(f: Awaited<ReturnType<typeof fixture>>) {
+  expect(f.authorizationStatuses).toEqual([302]);
+  const details = vi.mocked(f.ports.identity.launchWebAuthFlow).mock.calls[0]![0];
+  expect(details.interactive).toBe(true);
+  const authorize = new URL(details.url);
+  expect(authorize.pathname).toBe("/channel-connector/oauth/authorize");
+  expect([...authorize.searchParams.keys()].sort()).toEqual([
+    "client_id",
+    "code_challenge",
+    "code_challenge_method",
+    "redirect_uri",
+    "response_type",
+    "state",
+  ]);
+  expect(authorize.searchParams.get("redirect_uri")).toBe(TCGPLAYER_CONNECTOR_REDIRECT_URI);
+  expect(authorize.searchParams.get("code_challenge_method")).toBe("S256");
 }
 async function refused(f: Awaited<ReturnType<typeof fixture>>) {
   await f.command("start-pairing");
+  assertAuthorization(f);
   expect((await f.background.status()).state).toBe("unpaired");
   expect(f.fake.rows()[extensionCredentialKey]).toBeUndefined();
   expect(f.session.rows()[pairingSessionKey]).toBeUndefined();
@@ -166,6 +173,7 @@ describeDb("extension-pairing-redirect-and-scope", () => {
   it("background PKCE GET and real token routes bind one connection; every later call presents it; withAuthority refuses a swap", async () => {
     const f = await fixture();
     await f.command("start-pairing");
+    assertAuthorization(f);
     expect(await f.background.status()).toMatchObject({
       state: "paired-idle",
       connectionId: "connection_A",
@@ -214,40 +222,38 @@ describeDb("extension-pairing-redirect-and-scope", () => {
     async (fault) => {
       const f = await fixture();
       const original = vi.mocked(f.ports.transport.request).getMockImplementation()!;
+      const statuses: number[] = [];
       vi.mocked(f.ports.transport.request).mockImplementation(async (request) => {
         const input = (await request.clone().json()) as Record<string, unknown>;
         if (fault === "wrong-client") input.client_id = "cc_client_wrong";
         if (fault === "wrong-redirect") input.redirect_uri = `${TCGPLAYER_CONNECTOR_REDIRECT_URI}/wrong`;
         if (fault === "expired-code") serverNow += 600_000;
-        if (fault === "reused-code") expect((await original(request.clone())).status).toBe(200);
+        if (fault === "reused-code") statuses.push((await original(request.clone())).status);
         const result = await original(new Request(request, { body: JSON.stringify(input) }));
-        expect(result.status).toBe(400);
+        statuses.push(result.status);
         return result;
       });
       await refused(f);
+      expect(statuses).toEqual(fault === "reused-code" ? [200, 400] : [400]);
     },
   );
   it("real exchange missing identity or multiple identities is refused by background codec", async () => {
     for (const multiple of [false, true]) {
       const f = await fixture();
       const original = vi.mocked(f.ports.transport.request).getMockImplementation()!;
+      const observed: { status: number; keys: string[] }[] = [];
       vi.mocked(f.ports.transport.request).mockImplementation(async (request) => {
         const response = await original(request);
-        expect(response.status).toBe(200);
         const tokens = (await response.json()) as Record<string, unknown>;
-        expect(Object.keys(tokens).sort()).toEqual([
-          "access_token",
-          "connection_id",
-          "expires_in",
-          "refresh_token",
-          "scope",
-          "token_type",
-        ]);
+        observed.push({ status: response.status, keys: Object.keys(tokens).sort() });
         if (multiple) tokens.connection_id = ["connection_A", "connection_B"];
         else delete tokens.connection_id;
         return Response.json(tokens);
       });
       await refused(f);
+      expect(observed).toEqual([
+        { status: 200, keys: ["access_token", "connection_id", "expires_in", "refresh_token", "scope", "token_type"] },
+      ]);
     }
   });
   it.each(["pairing_code_missing", "pairing_code_ambiguous", "authorization_refused"])(
@@ -258,12 +264,14 @@ describeDb("extension-pairing-redirect-and-scope", () => {
         await feed.createPairingCode({ accountId: seller.accountId, connectionId: "connection_B" }, seller);
       if (error === "authorization_refused") actor = { ...seller, permissions: [] };
       const original = vi.mocked(f.ports.identity.launchWebAuthFlow).getMockImplementation()!;
+      const errors: (string | null)[] = [];
       vi.mocked(f.ports.identity.launchWebAuthFlow).mockImplementation(async (details) => {
         const callback = await original(details);
-        expect(new URL(callback).searchParams.get("error_description")).toBe(error);
+        errors.push(new URL(callback).searchParams.get("error_description"));
         return callback;
       });
       await refused(f);
+      expect(errors).toEqual([error]);
       expect(f.ports.transport.request).not.toHaveBeenCalled();
     },
   );
