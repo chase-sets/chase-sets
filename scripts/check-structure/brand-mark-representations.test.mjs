@@ -750,14 +750,13 @@ describe("lockfile package-entry discipline", () => {
     expect(evaluateBrandFontPackageKeys([...packageKeys, extra])).toEqual({ ok: false, missing: [], extra: [extra] });
   });
 
-  it.each([
-    "@fontsource/ibm-plex-mono@5.3.0",
-    "@fontsource/ibm-plex-sans@5.2.8",
-    "@fontsource/space-grotesk@5.3.0",
-  ])("rejects missing brand font key %s by name", (missing) => {
-    const keys = packageKeys.filter((key) => key !== missing);
-    expect(evaluateBrandFontPackageKeys(keys)).toEqual({ ok: false, missing: [missing], extra: [] });
-  });
+  it.each(["@fontsource/ibm-plex-mono@5.3.0", "@fontsource/ibm-plex-sans@5.2.8", "@fontsource/space-grotesk@5.3.0"])(
+    "rejects missing brand font key %s by name",
+    (missing) => {
+      const keys = packageKeys.filter((key) => key !== missing);
+      expect(evaluateBrandFontPackageKeys(keys)).toEqual({ ok: false, missing: [missing], extra: [] });
+    },
+  );
 
   it.each([
     ["@fontsource/ibm-plex-mono@5.3.0", "@fontsource/ibm-plex-mono@5.3.1"],
