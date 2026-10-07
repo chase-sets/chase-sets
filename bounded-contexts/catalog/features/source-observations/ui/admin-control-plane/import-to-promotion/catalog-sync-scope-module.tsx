@@ -8,6 +8,7 @@ import {
   DataTable,
   HiddenInput,
   KeyValueList,
+  OperationalStatusBanner,
   WorkbenchActionRow,
   WorkbenchDataCell,
   WorkbenchDetailPanel,
@@ -296,7 +297,20 @@ function DeferredCatalogSyncRunProgress({
         </WorkbenchDetailPanel>
       }
     >
-      <Await resolve={deferredCatalogSyncRun}>{(run) => (run ? <CatalogSyncRunProgress run={run} /> : null)}</Await>
+      <Await
+        resolve={deferredCatalogSyncRun}
+        errorElement={
+          <OperationalStatusBanner
+            tone="warning"
+            role="status"
+            data-catalog-deferred-panel="unavailable"
+            title={t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.progress.status")}
+            description={t("catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.unavailable")}
+          />
+        }
+      >
+        {(run) => (run ? <CatalogSyncRunProgress run={run} /> : null)}
+      </Await>
     </Suspense>
   );
 }
@@ -391,7 +405,18 @@ function DeferredScopeSyncStateSection({
         </WorkbenchDetailPanel>
       }
     >
-      <Await resolve={deferredScopeSyncState}>
+      <Await
+        resolve={deferredScopeSyncState}
+        errorElement={
+          <OperationalStatusBanner
+            tone="warning"
+            role="status"
+            data-catalog-deferred-panel="unavailable"
+            title={t("catalog.features.sourceObservations.ui.primaryWorkbench.catalogSync.state.title")}
+            description={t("catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.unavailable")}
+          />
+        }
+      >
         {(units) => (units && units.length > 0 ? <ScopeSyncStateTable readModel={readModel} units={units} /> : null)}
       </Await>
     </Suspense>

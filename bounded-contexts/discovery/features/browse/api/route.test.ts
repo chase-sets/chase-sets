@@ -20,6 +20,7 @@ const SET_PAGE: DiscoveryBrowseSetPageRow = {
   release_date: "2024-11-08",
   status: "active",
   item_count: 1,
+  reference_card_count: 102,
   items: [],
   updated_at: "2026-07-01T00:00:00.000Z",
 };
@@ -32,6 +33,13 @@ describe("discovery browse set route", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(SET_PAGE);
     expect(runtime.getSetBySlug).toHaveBeenCalledWith("surging-sparks");
+  });
+
+  it("serializes a null reference total distinctly from the cataloged count", async () => {
+    const result = { ...SET_PAGE, item_count: 3, reference_card_count: null };
+    const response = await discoveryBrowseRoutes(services(result)).request("/surging-sparks");
+
+    expect(await response.json()).toMatchObject({ item_count: 3, reference_card_count: null });
   });
 
   it("returns not found for an unresolved slug", async () => {

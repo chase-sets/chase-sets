@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LoaderFunctionArgs } from "react-router";
-import { CatalogApiError } from "../../../client";
+import { ApiError as CatalogApiError } from "../../shell-support/api/client";
 
 const { mockCreateCatalogRequestApiClient } = vi.hoisted(() => ({
   mockCreateCatalogRequestApiClient: vi.fn(),

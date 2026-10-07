@@ -1,3 +1,4 @@
+import { currentProviderSendBinding, ProviderSendStoppedError } from "./provider-send-admission";
 import { toJsonValue, type JsonObject, type JsonValue } from "@chase-sets/primitives/json";
 import type { SourceObservationExternalProductReference } from "../../domain/domain";
 import type {
@@ -398,6 +399,7 @@ async function listAllTcgplayerAutomationProducts(
     });
     const page = response.results[0];
     if (!page) {
+      if (currentProviderSendBinding()) throw new ProviderSendStoppedError("unknown-request");
       return products;
     }
     if (from === 0) {

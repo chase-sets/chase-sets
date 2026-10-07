@@ -2,6 +2,37 @@ import path from "node:path";
 import { buildMinimalProcessEnvironment } from "./lib/process.mjs";
 import { browserE2eLifecyclePathEnv } from "./browser-e2e-evidence.mjs";
 
+export function createMarketplaceDevProcessDefinition(sandbox, sandboxEnvironment) {
+  return {
+    name: "marketplace",
+    workspace: "@chase-sets/app-marketplace-web",
+    env: {
+      ...sandboxEnvironment,
+      PLATFORM_API_URL: sandbox.urls.platformApi,
+      VITE_PLATFORM_API_URL: sandbox.urls.platformApi,
+      CHASE_SETS_INTERNAL_API_ORIGIN: sandbox.urls.platformApi,
+      PORT: String(sandbox.ports.marketplaceWeb),
+    },
+    port: sandbox.ports.marketplaceWeb,
+  };
+}
+
+export function createPublicWebDevProcessDefinition(sandbox, sandboxEnvironment) {
+  return {
+    name: "public-web",
+    workspace: "@chase-sets/app-public-web",
+    env: {
+      ...sandboxEnvironment,
+      PLATFORM_API_URL: sandbox.urls.platformApi,
+      VITE_PLATFORM_API_URL: sandbox.urls.platformApi,
+      CHASE_SETS_INTERNAL_API_ORIGIN: sandbox.urls.platformApi,
+      CHASE_SETS_MARKETPLACE_ORIGIN: sandbox.urls.marketplaceWeb,
+      PORT: String(sandbox.ports.publicWeb),
+    },
+    port: sandbox.ports.publicWeb,
+  };
+}
+
 const representativeSnapshotEnvironmentNames = Object.freeze([
   "CATALOG_ASSET_LOCAL_ROOT",
   "REPRESENTATIVE_CATALOG_PACK_MANIFEST_KEYS",
@@ -162,10 +193,15 @@ function resolveBrowserE2ePlatformWorkerLogPath(environment, configuredLogFilePa
   return logFilePath;
 }
 
-export const browserE2ePlatformWorkerCiCommand = Object.freeze({
-  command: process.platform === "win32" ? "pnpm.cmd" : "pnpm",
-  args: Object.freeze(["--filter", "@chase-sets/app-platform-worker", "run", "dev:ci"]),
-});
+function resolveBrowserE2ePlatformWorkerCiCommand(platform) {
+  return platform === "win32"
+    ? { command: undefined, args: undefined, script: "dev:ci" }
+    : { command: "pnpm", args: Object.freeze(["--filter", "@chase-sets/app-platform-worker", "run", "dev:ci"]) };
+}
+
+export const browserE2ePlatformWorkerCiCommand = Object.freeze(
+  resolveBrowserE2ePlatformWorkerCiCommand(process.platform),
+);
 
 const packageManagerCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 
@@ -247,7 +283,7 @@ export function createBrowserE2eProductionIngressDefinitions(processDefinitions,
 export function applyDevTargetEnvOverrides(
   targetName,
   processDefinitions,
-  { ci = Boolean(process.env.CI), environment = process.env } = {},
+  { ci = Boolean(process.env.CI), environment = process.env, platform = process.platform } = {},
 ) {
   if (!isBrowserE2eTarget(targetName)) {
     return processDefinitions;
@@ -280,7 +316,7 @@ export function applyDevTargetEnvOverrides(
           ...browserE2ePlatformWorkerEnv,
           ...(logFilePath === undefined ? {} : { LOG_FILE_PATH: logFilePath }),
         },
-        ...(productionCommand ?? (ci ? browserE2eDirectCiCommands[definition.name] : {})),
+        ...(productionCommand ?? (ci ? resolveBrowserE2ePlatformWorkerCiCommand(platform) : {})),
       };
     }
 

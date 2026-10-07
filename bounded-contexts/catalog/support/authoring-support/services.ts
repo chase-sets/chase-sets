@@ -1,4 +1,5 @@
 import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
+import { createCatalogProviderSendRuntime } from "../../features/source-observations/api/providers/provider-send-runtime";
 import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import { createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
 import type { PgTransactionalPool, PgQueryable } from "@chase-sets/event-core-postgres";
@@ -26,14 +27,20 @@ import type { CatalogAssetStorage } from "../../features/source-observations/api
 import type { SourceObservationTelemetry } from "../../features/source-observations/api/catalog-integration-observability";
 import type { TcgplayerAutomationCatalogClient } from "../../features/source-observations/api/tcgplayer-automation-catalog-client";
 import { createCatalogAuthoringBulkJobServices } from "./bulk-authoring-jobs";
+import {
+  createOperatorSessionGrants,
+  type OperatorSessionConfiguration,
+} from "../../features/operator-session/api/grants";
 
 export type CatalogHostPorts = Readonly<{
+  catalogOperatorSessionConfiguration?: OperatorSessionConfiguration;
   catalogAssetStorage?: CatalogAssetStorage;
   tcgplayerAutomationCatalogClient?: TcgplayerAutomationCatalogClient;
   sourceObservationTelemetry?: SourceObservationTelemetry;
 }>;
 
 export type CatalogServices = Readonly<{
+  operatorSession: ReturnType<typeof createOperatorSessionGrants>;
   dimensions: ReturnType<typeof createDimensionRuntime>;
   displayTemplates: ReturnType<typeof createDisplayTemplateRuntime>;
   fields: ReturnType<typeof createFieldRuntime>;
@@ -70,6 +77,7 @@ export function createCatalogServices(
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const deps = {
+    providerSendRuntime: createCatalogProviderSendRuntime(pool),
     eventStore,
     checkpointStore,
     db,
@@ -135,6 +143,7 @@ export function createCatalogServices(
   });
 
   return {
+    operatorSession: createOperatorSessionGrants(pool, ports.catalogOperatorSessionConfiguration),
     dimensions,
     displayTemplates,
     fields,

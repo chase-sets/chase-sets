@@ -779,6 +779,38 @@ describe("verify-ci-local", () => {
     );
   });
 
+  it("executes the same scoped E2E batches on unlabeled PRs and merge groups without a heavy-lane override", () => {
+    const scope = scopeFor([
+      "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.ts",
+    ]);
+    expect(scope.integrationRiskRequired).toBe(false);
+    const input = { mode: "pull-request", provenance: "same-repository", labels: [] };
+    const records = [];
+    const receipt = runCiLocalVerification(input, {
+      gitExec: fakeGit,
+      now: clock(),
+      executor: executorFor(scope, new Map(), records),
+    });
+    expect(receipt.plan.fullBatteryRequired).toBe(false);
+    expect(receipt.plan.targetedHeavyRequired).toBe(false);
+    expect(receipt.gates.find(({ id }) => id === "e2e-tests")).toMatchObject({
+      selection: "REQUIRED",
+      evidence: "PASSED",
+    });
+    const prCommands = createLocalCommandPlan({ plan: receipt.plan, baseSha, headSha, scope }).get("e2e-tests");
+    const groupCommands = createLocalCommandPlan({
+      plan: createCiGatePlan({ mode: "merge-group", scope }),
+      baseSha,
+      headSha,
+      scope,
+    }).get("e2e-tests");
+    expect(prCommands).toEqual(groupCommands);
+    expect(records.filter(({ gate }) => gate.id === "e2e-tests").map(({ spec }) => spec)).toEqual(prCommands);
+    expect(receipt.plan.gates.find(({ id }) => id === "e2e-tests").e2eBatches).toEqual([
+      "marketplace_browse,catalog_admin_integrations",
+    ]);
+  });
+
   it("executes the resolved pnpm program through the real command executor", () => {
     const scope = scopeFor();
     const plan = createCiGatePlan({ mode: "merge-group", scope });

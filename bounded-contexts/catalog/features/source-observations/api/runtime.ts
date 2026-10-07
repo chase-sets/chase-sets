@@ -1,3 +1,4 @@
+import { bindCatalogProviderServices, readProviderSendWindow } from "./providers/provider-send-runtime";
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-command-handler";
 import { createProjectionHandlerSet } from "@chase-sets/event-core/projector";
@@ -38,6 +39,7 @@ import { createScryfallProviderAdapter } from "./provider-adapters/scryfall";
 import { createYgoprodeckProviderAdapter } from "./provider-adapters/ygoprodeck";
 import { createYgojsonProviderAdapter } from "./provider-adapters/ygojson";
 import { createScrydexOnePieceProviderAdapter } from "./provider-adapters/scrydex-one-piece";
+import { createPgCatalogProviderOptionQueryCacheStore } from "./providers/provider-option-query-cache";
 import { normalizeCatalogControlPlaneTelemetryEvent } from "./governance/catalog-integration-observability";
 import { staticCatalogProviderIntegrationProfileVersions } from "./source-observation-runtime-contracts";
 import type {
@@ -309,7 +311,11 @@ export function createSourceObservationRuntime(
     createScryfallProviderAdapter(),
     createYgoprodeckProviderAdapter(),
     createYgojsonProviderAdapter(),
-    createScrydexOnePieceProviderAdapter({ credentials: scrydexOnePieceCredentialsFromEnv() }),
+    createScrydexOnePieceProviderAdapter({
+      credentials: scrydexOnePieceCredentialsFromEnv(),
+      profileVersions,
+      cacheStore: createPgCatalogProviderOptionQueryCacheStore(deps.db),
+    }),
   ]);
   const dryRunProofRegistry = createCatalogIntegrationDryRunProofRegistry();
 
@@ -378,70 +384,74 @@ export function createSourceObservationRuntime(
     providerImport,
   });
 
-  return {
-    commandHandler,
-    ...mergeCandidates.services,
-    providerAdapterRegistry,
-    listTcgdexLanguages: () => {
-      rolloutControlPolicy.assertAllowed({ capability: "provider-option-query", providerKey: "tcgdex" });
-      return listTcgdexLanguagesThroughAdapter(providerAdapterRegistry);
-    },
-    listTcgdexSeries: ({ languageCode }) => {
-      rolloutControlPolicy.assertAllowed({ capability: "provider-option-query", providerKey: "tcgdex" });
-      return listTcgdexSeriesThroughAdapter(providerAdapterRegistry, { languageCode });
-    },
-    listTcgdexExpansions: ({ languageCode, seriesId }) => {
-      rolloutControlPolicy.assertAllowed({ capability: "provider-option-query", providerKey: "tcgdex" });
-      return listTcgdexExpansionsThroughAdapter(providerAdapterRegistry, { languageCode, seriesId });
-    },
-    queryIntegrationOptions: (input) =>
-      queryProviderIntegrationOptions(
-        input,
-        deps.db,
-        rolloutControlPolicy,
-        deps.tcgplayerAutomationCatalogClient,
-        profileVersions,
-        providerAdapterRegistry,
-        deps.sourceObservationTelemetry,
-      ),
-    listIntegrationOptions: (input) => {
-      rolloutControlPolicy.assertAllowed({
-        capability: "provider-option-query",
-        providerKey: input.providerKey,
-      });
-      return listProviderIntegrationOptions(
-        input,
-        deps.tcgplayerAutomationCatalogClient,
-        profileVersions,
-        providerAdapterRegistry,
-      );
-    },
-    getSelectedOptionAuthoringSchema: async () => loadSelectedOptionAuthoringSchema(deps.db),
-    getPromotionTargetAuthoringSchema: async () => loadPromotionTargetAuthoringSchema(deps.db),
-    ...integrationEngine.services,
-    ...promotionReapply.services,
-    ...bulkReviewJobs.services,
-    ...scopeSyncState.services,
-    ...catalogSyncRuns.services,
-    ...integrationJobs.services,
-    listSourceObservations: (params) => listSourceObservations(deps.db, params),
-    listCatalogMergeCandidates: (params) => listCatalogMergeCandidates(deps.db, params),
-    listIntegrationScopes: (params) => listSourceObservationIntegrationScopes(deps.db, params),
-    pruneSourceObservationJobRetention: async (input = {}) => {
-      const completedBefore = input.completedBefore ?? sourceObservationRetentionCutoff(7);
-      const [bulkReviewJobsPruned, integrationJobsPruned] = await Promise.all([
-        bulkReviewJobStore.pruneTerminalJobs({ completedBefore, limit: input.limit }),
-        integrationJobStore.pruneTerminalJobs({ completedBefore, limit: input.limit }),
-      ]);
+  return bindCatalogProviderServices(
+    {
+      commandHandler,
+      getProviderSendWindow: () => readProviderSendWindow(deps.providerSendRuntime ?? null),
+      ...mergeCandidates.services,
+      providerAdapterRegistry,
+      listTcgdexLanguages: () => {
+        rolloutControlPolicy.assertAllowed({ capability: "provider-option-query", providerKey: "tcgdex" });
+        return listTcgdexLanguagesThroughAdapter(providerAdapterRegistry);
+      },
+      listTcgdexSeries: ({ languageCode }) => {
+        rolloutControlPolicy.assertAllowed({ capability: "provider-option-query", providerKey: "tcgdex" });
+        return listTcgdexSeriesThroughAdapter(providerAdapterRegistry, { languageCode });
+      },
+      listTcgdexExpansions: ({ languageCode, seriesId }) => {
+        rolloutControlPolicy.assertAllowed({ capability: "provider-option-query", providerKey: "tcgdex" });
+        return listTcgdexExpansionsThroughAdapter(providerAdapterRegistry, { languageCode, seriesId });
+      },
+      queryIntegrationOptions: (input) =>
+        queryProviderIntegrationOptions(
+          input,
+          deps.db,
+          rolloutControlPolicy,
+          deps.tcgplayerAutomationCatalogClient,
+          profileVersions,
+          providerAdapterRegistry,
+          deps.sourceObservationTelemetry,
+        ),
+      listIntegrationOptions: (input) => {
+        rolloutControlPolicy.assertAllowed({
+          capability: "provider-option-query",
+          providerKey: input.providerKey,
+        });
+        return listProviderIntegrationOptions(
+          input,
+          deps.tcgplayerAutomationCatalogClient,
+          profileVersions,
+          providerAdapterRegistry,
+        );
+      },
+      getSelectedOptionAuthoringSchema: async () => loadSelectedOptionAuthoringSchema(deps.db),
+      getPromotionTargetAuthoringSchema: async () => loadPromotionTargetAuthoringSchema(deps.db),
+      ...integrationEngine.services,
+      ...promotionReapply.services,
+      ...bulkReviewJobs.services,
+      ...scopeSyncState.services,
+      ...catalogSyncRuns.services,
+      ...integrationJobs.services,
+      listSourceObservations: (params) => listSourceObservations(deps.db, params),
+      listCatalogMergeCandidates: (params) => listCatalogMergeCandidates(deps.db, params),
+      listIntegrationScopes: (params) => listSourceObservationIntegrationScopes(deps.db, params),
+      pruneSourceObservationJobRetention: async (input = {}) => {
+        const completedBefore = input.completedBefore ?? sourceObservationRetentionCutoff(7);
+        const [bulkReviewJobsPruned, integrationJobsPruned] = await Promise.all([
+          bulkReviewJobStore.pruneTerminalJobs({ completedBefore, limit: input.limit }),
+          integrationJobStore.pruneTerminalJobs({ completedBefore, limit: input.limit }),
+        ]);
 
-      return { bulkReviewJobs: bulkReviewJobsPruned, integrationJobs: integrationJobsPruned };
+        return { bulkReviewJobs: bulkReviewJobsPruned, integrationJobs: integrationJobsPruned };
+      },
+      getSourceObservationDetail: (observationId) => getSourceObservationDetail(deps.db, observationId),
+      recordControlPlaneTelemetry: (event) => {
+        deps.sourceObservationTelemetry?.recordControlPlaneEvent?.(normalizeCatalogControlPlaneTelemetryEvent(event));
+      },
+      projectors,
     },
-    getSourceObservationDetail: (observationId) => getSourceObservationDetail(deps.db, observationId),
-    recordControlPlaneTelemetry: (event) => {
-      deps.sourceObservationTelemetry?.recordControlPlaneEvent?.(normalizeCatalogControlPlaneTelemetryEvent(event));
-    },
-    projectors,
-  };
+    deps.providerSendRuntime ?? null,
+  );
 }
 
 function shouldInvalidateSourceObservationEvent(eventType: string, event: { data: unknown }): boolean {

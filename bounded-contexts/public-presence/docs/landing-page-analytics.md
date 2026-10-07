@@ -39,7 +39,7 @@ Primary funnel metrics:
 
 - Landing page view to hero form start.
 - Hero intent tab selection to form submission.
-- Seller-tools early-access CTA click to final form start.
+- Fee-comparison compare-page link click (`cta_clicked` with `section=fee_comparison`, `target=compare_tcgplayer`).
 - Mobile sticky CTA click to form submission.
 - Desktop sticky CTA click to form submission.
 - Optional marketing consent checked to submitted signup (final-CTA variant only; early-access consent is implied and untracked as a discrete opt-in).
@@ -51,8 +51,16 @@ First experiments to run:
 
 - Hero promise: seller margin headline versus buyer-total clarity headline.
 - CTA framing: "Request early access" with seller-beta context versus seller-beta-only access wording.
-- Founder proof: eligibility language in final CTA versus a dedicated status panel.
 - Mobile sticky CTA enabled versus hidden.
+
+Landing identities on `/` (#8503):
+
+- `section_viewed` fires for the seven sections, in order: `hero`, `game_roster`, `open_offers`, `fee_comparison`, `founders_offer`, `final_cta`
+  and the closing questions section.
+- `disclosure_opened` fires only for `fee_comparison_source_note`; the collapsed questions group emits nothing, like `compare_faq`.
+- `waitlist_form_started` field values on `/` are `email`, `role`, `interests` and `marketingConsent`. The seller cohort-quality fields (games, inventory size, store link) are collected on `/welcome`, not the landing forms.
+- The `fee_calculator` section and its `copy_share_link` / `compare_<competitor>` CTA tuples live on the `/compare/*` pages only.
+- The seller-tools, launch-timeline, product-preview and founder-story identities are retired and no longer emitted.
 
 The OpenTelemetry bridge is directional funnel observability, not transactional truth. It may duplicate client events and must never block the landing page or waitlist submission. Durable signup truth remains the Public Presence waitlist domain and read model.
 

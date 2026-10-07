@@ -1395,6 +1395,334 @@ function groupProviderSyncJourneysByCanonicalScope(
 }
 
 test.describe("catalog staging provider sync UAT helpers", () => {
+  test("Source option missing fails closed control", async ({ page }) => {
+    const panel = `
+      <section data-catalog-source-options-status="true"><div data-source-option-page><span>Set</span>
+        <button type="button" onclick="document.documentElement.dataset.refreshClicks = (Number(document.documentElement.dataset.refreshClicks || 0) + 1).toString()">Force refresh</button>
+        <button type="button" onclick="document.documentElement.dataset.refreshClicks = (Number(document.documentElement.dataset.refreshClicks || 0) + 1).toString()">Reload</button>
+        <button type="button" onclick="document.documentElement.dataset.refreshClicks = (Number(document.documentElement.dataset.refreshClicks || 0) + 1).toString()">Refresh all</button>
+      </div></section>`;
+    const counters = `
+      <a href="/catalog/integrations" onclick="document.documentElement.dataset.retryClicks = (Number(document.documentElement.dataset.retryClicks || 0) + 1).toString(); event.preventDefault()">Retry</a>`;
+    const observe = async (call: Promise<unknown>) =>
+      Promise.race([
+        call.then(
+          (value) => value,
+          (error) => error,
+        ),
+        new Promise((resolve) => setTimeout(() => resolve("pending"), 10_000)),
+      ]);
+    const run = async (
+      html: string,
+      call: (
+        recover: MissingOptionRecovery,
+        frameNavigated: () => number,
+        reload: () => number,
+        recoveryCalls: readonly number[],
+      ) => Promise<unknown>,
+    ) => {
+      await page.setContent(html);
+      let navigations = 0;
+      const onNavigate = () => {
+        navigations += 1;
+      };
+      page.on("framenavigated", onNavigate);
+      let reloads = 0;
+      const originalReload = page["reload"].bind(page);
+      const pageWithReload = page as Page & { reload: Page["reload"] };
+      pageWithReload.reload = (async (...args: Parameters<Page["reload"]>) => {
+        reloads += 1;
+        return originalReload(...args);
+      }) as Page["reload"];
+      const recoveryCalls: number[] = [];
+      const recover: MissingOptionRecovery = () => {
+        recoveryCalls.push(Date.now());
+        return recoverSourceOptionSelection(page, "Set");
+      };
+      try {
+        const outcome = await call(
+          recover,
+          () => navigations,
+          () => reloads,
+          recoveryCalls,
+        );
+        return { outcome, recoveryCalls };
+      } finally {
+        pageWithReload.reload = originalReload as Page["reload"];
+        page.off("framenavigated", onNavigate);
+      }
+    };
+    const assertNoActions = async (
+      outcome: unknown,
+      recoveryCalls: readonly number[],
+      navigations: number,
+      reloads: number,
+    ) => {
+      expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+      expect(await page.locator("html").getAttribute("data-refresh-clicks")).toBeNull();
+      expect(navigations).toBe(0);
+      expect(reloads).toBe(0);
+      expect(recoveryCalls).toHaveLength(1);
+      expect(outcome).toEqual(
+        expect.objectContaining({
+          message: expect.stringContaining("Source option Set is hidden or lacks the requested option"),
+        }),
+      );
+    };
+
+    let t0 = 0;
+    const n1 = await run(
+      `${panel}<select aria-label="Set"><option value="other-8443">Other</option></select>`,
+      async (recover, navigations, reloads, recoveryCalls) => {
+        t0 = Date.now();
+        const outcome = await observe(
+          waitForOption(page.getByRole("combobox", { name: "Set" }), { values: ["missing-8443"] }, recover),
+        );
+        expect(recoveryCalls[0] - t0).toBeGreaterThanOrEqual(5_000);
+        await assertNoActions(outcome, recoveryCalls, navigations(), reloads());
+        return outcome;
+      },
+    );
+    expect(n1.outcome).not.toBe("pending");
+
+    const n2 = await run(
+      `${panel}<select aria-label="Set" style="display:none"><option value="missing-8443">Missing</option></select>`,
+      async (recover, navigations, reloads, recoveryCalls) => {
+        const outcome = await observe(
+          selectOption(page.locator('select[aria-label="Set"]'), { values: ["missing-8443"] }, recover),
+        );
+        await assertNoActions(outcome, recoveryCalls, navigations(), reloads());
+        expect(await page.locator('select[aria-label="Set"]').inputValue()).toBe("missing-8443");
+        return outcome;
+      },
+    );
+    expect(n2.outcome).not.toBe("pending");
+
+    const ae = await run(
+      `<main><h1>Admin Error</h1><details open><summary>Technical detail</summary>boom-8443</details>${counters}${panel}<select aria-label="Set"><option value="other-8443">Other</option></select></main>`,
+      async (recover, navigations, reloads, recoveryCalls) => {
+        t0 = Date.now();
+        const outcome = await observe(
+          waitForOption(page.getByRole("combobox", { name: "Set" }), { values: ["missing-8443"] }, recover),
+        );
+        expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+        expect(await page.locator("html").getAttribute("data-refresh-clicks")).toBeNull();
+        expect(navigations()).toBe(0);
+        expect(reloads()).toBe(0);
+        expect(recoveryCalls[0] - t0).toBeGreaterThanOrEqual(5_000);
+        expect(outcome).toEqual(
+          expect.objectContaining({
+            message: expect.stringMatching(/Catalog importer rendered Admin Error while loading.*boom-8443/),
+          }),
+        );
+        return outcome;
+      },
+    );
+    expect(ae.outcome).not.toBe("pending");
+
+    const hit = await run(
+      `${panel}<select aria-label="Set"><option value="">Choose</option><option value="hit-8443">The First Chapter</option></select>`,
+      async (recover, navigations, reloads) => {
+        const outcome = await observe(
+          selectOption(page.getByRole("combobox", { name: "Set" }), { labels: ["The First Chapter"] }, recover),
+        );
+        expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+        expect(await page.locator("html").getAttribute("data-refresh-clicks")).toBeNull();
+        expect(navigations()).toBe(0);
+        expect(reloads()).toBe(0);
+        expect(outcome).toEqual({ label: "The First Chapter", value: "hit-8443" });
+        expect(await page.getByRole("combobox", { name: "Set" }).inputValue()).toBe("hit-8443");
+        return outcome;
+      },
+    );
+    expect(hit.recoveryCalls).toHaveLength(0);
+
+    const fb = await run(
+      `${panel}<select aria-label="Set"><option value="">Choose</option><option value="fb-8443">Fallback Set</option></select>`,
+      async (recover, navigations, reloads) => {
+        t0 = Date.now();
+        const outcome = await observe(
+          waitForOption(
+            page.getByRole("combobox", { name: "Set" }),
+            { labels: ["Absent"], fallbackToFirstAvailableOption: {} },
+            recover,
+          ),
+        );
+        expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+        expect(await page.locator("html").getAttribute("data-refresh-clicks")).toBeNull();
+        expect(navigations()).toBe(0);
+        expect(reloads()).toBe(0);
+        expect(Date.now() - t0).toBeGreaterThanOrEqual(5_000);
+        expect(outcome).toEqual({ label: "Fallback Set", value: "fb-8443" });
+        return outcome;
+      },
+    );
+    expect(fb.recoveryCalls).toHaveLength(0);
+    expect(await page.locator("html").getAttribute("data-refresh-clicks")).toBeNull();
+  });
+
+  test("Admin Error fail closed control @catalog-admin-integrations", async ({ page }) => {
+    let frameNavigatedCount = 0;
+    const frameNavigatedHandler = () => {
+      frameNavigatedCount += 1;
+    };
+    page.on("framenavigated", frameNavigatedHandler);
+    let reloadCount = 0;
+    const originalReload = page["reload"].bind(page);
+    const pageWithReload = page as Page & { reload: Page["reload"] };
+    pageWithReload.reload = (async (...args: Parameters<Page["reload"]>) => {
+      reloadCount += 1;
+      return originalReload(...args);
+    }) as Page["reload"];
+
+    const counters = `
+      <a href="/catalog/integrations" onclick="document.documentElement.dataset.retryClicks = (Number(document.documentElement.dataset.retryClicks || 0) + 1).toString(); event.preventDefault()">Retry</a>
+      <button type="button" onclick="document.documentElement.dataset.refreshClicks = (Number(document.documentElement.dataset.refreshClicks || 0) + 1).toString()">Force refresh</button>
+      <button type="button" onclick="document.documentElement.dataset.refreshClicks = (Number(document.documentElement.dataset.refreshClicks || 0) + 1).toString()">Reload</button>
+      <button type="button" onclick="document.documentElement.dataset.refreshClicks = (Number(document.documentElement.dataset.refreshClicks || 0) + 1).toString()">Refresh all</button>`;
+    const adminError = (includeRetry: boolean, includeOptions = false) => `
+      <main><h1>Admin Error</h1><details open><summary>Technical detail</summary>boom-8442</details>
+      ${includeRetry ? counters.split("<button")[0] : ""}
+      ${includeOptions ? `<section data-catalog-source-options-status="true"><div data-source-option-page><span>Set</span>${counters.slice(counters.indexOf("<button"))}</div></section><label>Set<select aria-label="Set"><option value="existing-8442">Existing</option></select></label>` : ""}
+      </main>`;
+
+    try {
+      await page.setContent(adminError(true));
+      await expect(recoverImporterFromAdminError(page)).rejects.toThrow(
+        /Catalog importer rendered Admin Error while loading.*boom-8442/,
+      );
+      expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+      expect(reloadCount).toBe(0);
+      expect(frameNavigatedCount).toBe(0);
+
+      await page.setContent(
+        adminError(true).replace("boom-8442", "Catalog provider-send window stopped (quota-exhausted)."),
+      );
+      await expect(recoverSourceOptionSelection(page, "Set")).rejects.toThrow(/quota-exhausted/);
+      expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+      expect(reloadCount).toBe(0);
+      expect(frameNavigatedCount).toBe(0);
+
+      reloadCount = 0;
+      frameNavigatedCount = 0;
+      await page.setContent(adminError(false));
+      await expect(recoverImporterFromAdminError(page)).rejects.toThrow(/boom-8442/);
+      expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+      expect(reloadCount).toBe(0);
+      expect(frameNavigatedCount).toBe(0);
+
+      reloadCount = 0;
+      frameNavigatedCount = 0;
+      await page.setContent(adminError(true, true));
+      await expect(
+        waitForOption(page.getByRole("combobox", { name: "Set" }), { values: ["missing-8442"] }, () =>
+          recoverSourceOptionSelection(page, "Set"),
+        ),
+      ).rejects.toThrow(/Catalog importer rendered Admin Error while loading.*boom-8442/);
+      expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+      expect(await page.locator("html").getAttribute("data-refresh-clicks")).toBeNull();
+      expect(reloadCount).toBe(0);
+      expect(frameNavigatedCount).toBe(0);
+
+      reloadCount = 0;
+      frameNavigatedCount = 0;
+      await page.setContent("<main><p>Healthy importer</p></main>");
+      await expect(recoverImporterFromAdminError(page)).resolves.toBe(false);
+      expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+      expect(await page.locator("html").getAttribute("data-refresh-clicks")).toBeNull();
+      expect(reloadCount).toBe(0);
+      expect(frameNavigatedCount).toBe(0);
+    } finally {
+      pageWithReload.reload = originalReload as Page["reload"];
+      page.off("framenavigated", frameNavigatedHandler);
+    }
+  });
+
+  test("import preflight state control", async ({ page }) => {
+    const unitKey = "tcgplayer:pokemon:sealed-product:source-observation-import";
+    const selectedScope: SelectedProviderScope = {
+      providerKey: "tcgplayer",
+      importScope: "en:TFC",
+      displayLabel: "The First Chapter",
+      fields: [
+        { name: "languageCode", value: "en" },
+        { name: "expansionId", value: "TFC" },
+      ],
+    };
+    const fixture = (body: string, outsidePanel = "") => `
+      <section data-catalog-primary-workbench="true">
+        <button data-catalog-import-workflow-stage="run-sync" aria-controls="run-sync-panel" aria-expanded="true">Run sync</button>
+        <div data-catalog-import-context-bar="true"><button type="button" onclick="document.documentElement.dataset.selectClicks = (Number(document.documentElement.dataset.selectClicks || 0) + 1).toString()">Select source scope</button></div>
+        <div id="run-sync-panel">${body}</div>
+        ${outsidePanel}
+      </section>`;
+    const commandForm = (provider = "tcgplayer") => `
+      <section><form data-catalog-primary-workbench-command="scope.import" data-catalog-source-scope-unit="${unitKey}">
+        <input name="providerKey" value="${provider}"><input name="importScope" value="en:TFC"><input name="languageCode" value="en"><input name="expansionId" value="TFC">
+        <button type="button">Sync scope</button><button type="button" onclick="document.documentElement.dataset.retryClicks = (Number(document.documentElement.dataset.retryClicks || 0) + 1).toString()">Retry</button>
+      </form></section>`;
+    const degraded = `<section><form data-catalog-primary-workbench-command="scope.sync"></form></section><section><div role="status" data-catalog-deferred-panel="unavailable" tone="warning">Preview unavailable</div></section>`;
+    const ready = `<div data-catalog-import-preview="ready" data-catalog-import-preview-provider="tcgplayer" data-catalog-import-preview-unit="${unitKey}" data-catalog-import-preview-scope="en:TFC" data-catalog-import-preview-strategy="bulk-first"><span>ready evidence</span></div>`;
+
+    await page.setContent(fixture(`${commandForm()}${ready}`));
+    await expectImportPreflight(page, unitKey, selectedScope, {
+      requestStrategy: "bulk-first",
+      visibleText: ["ready evidence"],
+    }).then((state) => expect(state).toBe("ready"));
+
+    await page.setContent(fixture(`${commandForm()}${degraded}`));
+    let frameNavigatedCount = 0;
+    const frameNavigatedHandler = () => {
+      frameNavigatedCount += 1;
+    };
+    page.on("framenavigated", frameNavigatedHandler);
+    const capturedLogs: string[] = [];
+    const originalConsoleLog = console.log;
+    console.log = (...args: unknown[]) => {
+      capturedLogs.push(args.map((arg) => String(arg)).join(" "));
+      originalConsoleLog(...args);
+    };
+    try {
+      await expectImportPreflight(page, unitKey, selectedScope, { visibleText: [] }).then((state) =>
+        expect(state).toBe("degraded"),
+      );
+    } finally {
+      console.log = originalConsoleLog;
+    }
+    expect(frameNavigatedCount).toBe(0);
+    page.off("framenavigated", frameNavigatedHandler);
+    expect(
+      capturedLogs.filter(
+        (line) =>
+          line.includes("state=degraded") &&
+          line.includes(`unit=${unitKey}`) &&
+          line.includes("scope=The First Chapter"),
+      ),
+    ).toHaveLength(1);
+    expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+    expect(await page.locator("html").getAttribute("data-select-clicks")).toBeNull();
+
+    const negatives = [
+      `${commandForm()}<section><form data-catalog-primary-workbench-command="scope.sync"></form><div role="status" data-catalog-deferred-panel="unavailable">Sibling unavailable</div></section>`,
+      `${commandForm()}${degraded}${degraded}`,
+      `${commandForm("other-provider")}${degraded}`,
+      `${commandForm()}<div role="status">Preview unavailable</div>`,
+      `${commandForm()}<div data-catalog-deferred-panel="unavailable">Preview unavailable</div>`,
+      commandForm(),
+    ];
+    for (const body of negatives) {
+      await page.setContent(fixture(body));
+      await expect(expectImportPreflight(page, unitKey, selectedScope, { visibleText: [] }, 150)).rejects.toThrow();
+    }
+    await page.setContent(
+      fixture(
+        commandForm(),
+        '<section><div role="status" data-catalog-deferred-panel="unavailable">Outside panel</div></section>',
+      ),
+    );
+    await expect(expectImportPreflight(page, unitKey, selectedScope, { visibleText: [] }, 150)).rejects.toThrow();
+  });
+
   test("derives all 46 representative members from the real selector and independently refuses every omitted member", () => {
     const selected = providerJourneysForScope("staging-representative-catalog");
     expect(selected).toHaveLength(46);
@@ -3134,9 +3462,7 @@ async function openCatalogImporter(page: Page): Promise<void> {
       return;
     }
 
-    if (await recoverImporterFromAdminError(page)) {
-      continue;
-    }
+    await recoverImporterFromAdminError(page);
 
     if (Date.now() >= nextNavigationAt) {
       await page.goto("/catalog/integrations", { waitUntil: "domcontentloaded", timeout: pageReadyTimeoutMs });
@@ -3147,9 +3473,7 @@ async function openCatalogImporter(page: Page): Promise<void> {
     await page.waitForTimeout(1_000);
   }
 
-  if (await recoverImporterFromAdminError(page)) {
-    return;
-  }
+  await recoverImporterFromAdminError(page);
   if (!(await isImporterVisible(page, 1_000))) {
     await page.goto("/catalog/integrations", { waitUntil: "domcontentloaded", timeout: pageReadyTimeoutMs });
   }
@@ -3271,6 +3595,14 @@ async function selectGuidedScope({
   const settled = await waitForSelectedProviderScope(page, journey, selectedChoices);
   if (!settled.importScope) {
     throw new Error(`Selected source scope command form for ${journey.unitKey} did not expose a full importScope.`);
+  }
+  const expansionChoice = selectedChoices.find((choice) => choice.fieldName === "expansionId");
+  if (expansionChoice) {
+    expect(settled.displayLabel).toContain(expansionChoice.selectedOptionLabel);
+    const expansionName = new URL(page.url()).searchParams.get("expansionName")?.trim() ?? "";
+    if (expansionName) {
+      expect(expansionName).toBe(expansionChoice.selectedOptionLabel);
+    }
   }
   const expectedImportScope = expectedNativeGuidedImportScope(selectedChoices) ?? settled.importScope;
   // `settled` is an atomic command-form snapshot. Do not read the live
@@ -3847,11 +4179,18 @@ async function expectImportPreflight(
   unitKey: string,
   selectedScope: SelectedProviderScope,
   expectation: ImportPreflightExpectation,
-): Promise<void> {
-  const panel = await waitForSelectedImportPreflightPanel(page, unitKey, selectedScope);
+  timeoutMs = sourceOptionTimeoutMs,
+): Promise<"ready" | "degraded"> {
+  const { panel, previewState } = await waitForSelectedImportPreflightPanel(page, unitKey, selectedScope, timeoutMs);
+  if (previewState === "degraded") {
+    console.log(
+      `[catalog-staging-provider-uat] import preflight state: unit=${unitKey}, scope=${selectedScope.displayLabel}, state=degraded`,
+    );
+    return previewState;
+  }
   if (expectation.requestStrategy) {
     await expect(panel).toHaveAttribute("data-catalog-import-preview-strategy", expectation.requestStrategy, {
-      timeout: sourceOptionTimeoutMs,
+      timeout: timeoutMs,
     });
   }
   const usageState = (await panel.getAttribute("data-catalog-import-preview-usage-state")) ?? "none";
@@ -3862,9 +4201,10 @@ async function expectImportPreflight(
   }
   for (const text of expectation.visibleText) {
     await expect(panel.getByText(text).filter({ visible: true }).first()).toBeVisible({
-      timeout: sourceOptionTimeoutMs,
+      timeout: timeoutMs,
     });
   }
+  return previewState;
 }
 
 function cssAttrValue(value: string): string {
@@ -3875,10 +4215,11 @@ async function waitForSelectedImportPreflightPanel(
   page: Page,
   unitKey: string,
   selectedScope: SelectedProviderScope,
-): Promise<Locator> {
+  timeoutMs = sourceOptionTimeoutMs,
+): Promise<{ panel: Locator; previewState: "ready" | "degraded" }> {
   const panels = importPreflightPanelsForSelectedScope(page, unitKey, selectedScope.providerKey);
   const scopeCandidates = selectedScope.importScope ? importPreflightScopeCandidates(selectedScope.importScope) : [];
-  const deadline = Date.now() + sourceOptionTimeoutMs;
+  const deadline = Date.now() + timeoutMs;
   let nextRecoveryAttemptAt = Date.now() + 10_000;
   let observedScopes: readonly string[] = [];
 
@@ -3888,7 +4229,11 @@ async function waitForSelectedImportPreflightPanel(
     await expandWorkflowStage(page, "run-sync");
     const panel = await firstVisibleImportPreflightPanelMatchingScope(panels, scopeCandidates);
     if (panel) {
-      return panel;
+      return { panel, previewState: "ready" };
+    }
+    const degradedPanel = await visibleDegradedImportPreflightPanel(page, unitKey, selectedScope, deadline);
+    if (degradedPanel) {
+      return { panel: degradedPanel, previewState: "degraded" };
     }
     observedScopes = await visibleImportPreflightPanelScopes(panels);
     if (observedScopes.length > 0 && Date.now() >= nextRecoveryAttemptAt) {
@@ -3903,6 +4248,37 @@ async function waitForSelectedImportPreflightPanel(
       scopeCandidates.join(", ") || "any selected scope"
     }. Observed visible preview scopes: ${observedScopes.join(", ") || "none"}.`,
   );
+}
+
+async function visibleDegradedImportPreflightPanel(
+  page: Page,
+  unitKey: string,
+  selectedScope: SelectedProviderScope,
+  deadline: number,
+): Promise<Locator | null> {
+  const trigger = page.locator('[data-catalog-import-workflow-stage="run-sync"]').first();
+  const panelId = await trigger.getAttribute("aria-controls").catch(() => null);
+  if (!panelId) {
+    return null;
+  }
+  const stagePanel = page.locator(`[id="${cssAttrValue(panelId)}"]`).first();
+  const candidates = stagePanel
+    .locator('[role="status"][data-catalog-deferred-panel="unavailable"]')
+    .filter({ visible: true });
+  const count = await candidates.count().catch(() => 0);
+  if (count !== 1) {
+    return null;
+  }
+  const candidate = candidates.first();
+  const syncSectionCandidates = candidate.locator(
+    'xpath=ancestor::section[1][.//form[@data-catalog-primary-workbench-command="scope.sync"]]',
+  );
+  if ((await syncSectionCandidates.count().catch(() => 0)) > 0) {
+    return null;
+  }
+  const remainingMs = Math.max(1, deadline - Date.now());
+  await selectedSourceScopeSyncForm(page, unitKey, selectedScope, Math.min(remainingMs, 1_000));
+  return candidate;
 }
 
 async function recoverSelectedImportPreflightScope(
@@ -5298,8 +5674,9 @@ async function waitForOption(
   const labels = choice.labels ?? [];
   const values = choice.values ?? [];
   const deadline = Date.now() + sourceOptionTimeoutMs;
-  let nextRecoveryAttemptAt = Date.now() + 5_000;
-  const fallbackOptionAllowedAt = Date.now() + 5_000;
+  const observationStartedAt = Date.now();
+  let nextRecoveryAttemptAt = observationStartedAt + 5_000;
+  const fallbackOptionAllowedAt = observationStartedAt + 5_000;
   let recoveryAttempts = 0;
   let observedOptions: readonly { label: string; value: string }[] = [];
 
@@ -5323,7 +5700,7 @@ async function waitForOption(
     }
     const fallback = choice.fallbackToFirstAvailableOption;
     const fallbackOption =
-      fallback && Date.now() >= fallbackOptionAllowedAt && (!recoverMissingOptions || recoveryAttempts > 0)
+      fallback && Date.now() >= fallbackOptionAllowedAt
         ? observedOptions.find((option) => isSelectableFallbackOption(option, fallback))
         : undefined;
     if (fallbackOption) {
@@ -5376,74 +5753,25 @@ function isSelectableFallbackOption(
   );
 }
 
-async function refreshSourceOptionGroup(page: Page, label: string | RegExp): Promise<boolean> {
-  const sourceOptionsPanel = page.locator("[data-catalog-source-options-status]").first();
-  if (!(await sourceOptionsPanel.isVisible({ timeout: 1_000 }).catch(() => false))) {
-    return false;
-  }
-
-  const optionGroup = sourceOptionsPanel
-    .locator("[data-source-option-page]")
-    .filter({ has: sourceOptionGroupLabel(page, label) })
-    .first();
-  const refreshTarget = (await optionGroup.isVisible({ timeout: 1_000 }).catch(() => false))
-    ? optionGroup
-    : sourceOptionsPanel;
-
-  const forceRefresh = refreshTarget.getByRole("button", { name: "Force refresh" }).first();
-  if (await forceRefresh.isEnabled().catch(() => false)) {
-    await forceRefresh.click();
-    await waitForSourceOptionsToSettle(page);
-    return true;
-  }
-
-  const reload = refreshTarget.getByRole("button", { name: "Reload" }).first();
-  if (await reload.isEnabled().catch(() => false)) {
-    await reload.click();
-    await waitForSourceOptionsToSettle(page);
-    return true;
-  }
-
-  const refreshAll = sourceOptionsPanel.getByRole("button", { name: "Refresh all" }).first();
-  if (await refreshAll.isEnabled().catch(() => false)) {
-    await refreshAll.click();
-    await waitForSourceOptionsToSettle(page);
-    return true;
-  }
-
-  return false;
+async function recoverSourceOptionSelection(page: Page, label: string | RegExp): Promise<never> {
+  await recoverImporterFromAdminError(page);
+  throw new Error(
+    `Source option ${String(label)} is hidden or lacks the requested option; the UAT fails closed instead of refreshing source options.`,
+  );
 }
 
-async function recoverSourceOptionSelection(page: Page, label: string | RegExp): Promise<boolean> {
-  return (await recoverImporterFromAdminError(page)) || refreshSourceOptionGroup(page, label);
-}
-
-async function recoverImporterFromAdminError(page: Page): Promise<boolean> {
+async function recoverImporterFromAdminError(page: Page): Promise<false> {
   const adminError = page.getByRole("heading", { name: "Admin Error" });
   if (!(await adminError.isVisible({ timeout: 1_000 }).catch(() => false))) {
     return false;
   }
 
   const initialDetail = await adminErrorTechnicalDetail(page);
-  const retry = page.getByRole("link", { name: "Retry" }).first();
-  if (await retry.isVisible({ timeout: 1_000 }).catch(() => false)) {
-    await retry.click();
-  } else {
-    await page.reload({ waitUntil: "domcontentloaded", timeout: pageReadyTimeoutMs }).catch(() => undefined);
-  }
-
-  await page.waitForLoadState("domcontentloaded", { timeout: pageReadyTimeoutMs }).catch(() => undefined);
-  if (!(await isImporterVisible(page, 10_000))) {
-    const retryDetail = await adminErrorTechnicalDetail(page);
-    throw new Error(
-      `Catalog importer rendered Admin Error while loading ${supportSafeCurrentPath(page)}. Technical detail: ${
-        retryDetail ?? initialDetail ?? "not visible"
-      }`,
-    );
-  }
-
-  await expect(page.locator("html")).toHaveAttribute("data-admin-web-hydrated", "true", { timeout: 30_000 });
-  return true;
+  throw new Error(
+    `Catalog importer rendered Admin Error while loading ${supportSafeCurrentPath(page)}. Technical detail: ${
+      initialDetail ?? "not visible"
+    }`,
+  );
 }
 
 async function adminErrorTechnicalDetail(page: Page): Promise<string | null> {
@@ -5477,10 +5805,6 @@ function supportSafeCurrentPath(page: Page): string {
   } catch {
     return "[current route unavailable]";
   }
-}
-
-function sourceOptionGroupLabel(page: Page, label: string | RegExp): Locator {
-  return typeof label === "string" ? page.getByText(label, { exact: true }) : page.getByText(label);
 }
 
 async function waitForSourceOptionsToSettle(page: Page): Promise<void> {

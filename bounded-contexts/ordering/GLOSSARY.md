@@ -4,6 +4,10 @@ This glossary defines the canonical terminology for the Ordering bounded context
 
 Aggregate language and projection language may differ. `Order` is the aggregate and event-stream term; buyer read models and routes use `Purchase`, while seller read models and routes use `Sale`.
 
+## Order Review Outcome
+
+An **Order Review Outcome** is the authorized account's local view of a Marketplace Review Opportunity Fact. Ready with an absent opportunity means proven absence; unavailable means missing, malformed, lagging or rebuilding evidence, or a failed local read. Ordering never reconstructs Marketplace eligibility policy or fetches it during an order request. Held feedback outranks expiry, revealed feedback remains published after its deadline, and unsubmitted opportunities can expire without a new event.
+
 ## Order
 
 An **Order** is the commercial commitment between a buyer account and a seller account created from a listing purchase or accepted offer.
@@ -12,6 +16,15 @@ Notes:
 
 - Orders are owned by Ordering.
 - Fulfillment and Payments react to order facts but do not define orders.
+
+## Order Group
+
+An **Order Group** is the planned Ordering-owned linkage of exactly one existing anchor Order and one follow-on Order for the same signed-in buyer and seller, compatible Shipping policies, and the same standardized origin and destination.
+
+- Its `OrderGroupId` uses `ogr_`; the anchor Order stream owns formation and dissolution.
+- Money, payment, refunds, fees, inventory, and capacity remain per Order. Neither member's committed money is redistributed. A voluntary `buyer-cancelled` anchor's refund withholds the frozen survivor Shipping shortfall; a mandatory-refund cancellation, as ADR 0032 defines it, withholds nothing.
+- Pre-packing cancellation removes only the cancelled member and dissolves the group; the survivor keeps its frozen money. A destination correction changes only its own Order and never dissolves the group. The buyer funds the survivor Shipping shortfall from that refund, per [ADR 0032](../../docs/adr/0032-order-groups-and-shipment-groups.md).
+- This is a planned contract, not shipped grouping behavior, an N-member cart, or an Order Split. Fulfillment owns Shipment Group admission and physical execution.
 
 ## Purchase
 

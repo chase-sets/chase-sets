@@ -4,6 +4,7 @@ import { dirname, extname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import ts from "@chase-sets/typescript-compiler-api";
+import { parseCLI } from "vitest/node";
 
 /**
  * The single authority for which case runs in which file, which file runs in
@@ -234,9 +235,9 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
         identity: "9f9a50a07958feca",
       }),
       Object.freeze({
-        name: "resumes inventory from a committed-but-incomplete storage location",
+        name: "resumes inventory after only its first storage-location create commits",
         referenceDurationMs: 28698,
-        identity: "c93a07182fe7d5ff",
+        identity: "0d059da8303ae139",
       }),
       Object.freeze({
         name: "resumes an archived storage location committed before its archive step",
@@ -438,6 +439,23 @@ export const bootstrapDbScheduleModel = Object.freeze({
   maximumCaseReferenceDurationMs: 600000,
   maximumScheduledFileCount: 11,
   maximumEnumeratedUnitCount: 4,
+});
+
+// These entries contribute to unit residuals, not the manifested bootstrap
+// case schedule. Membership and provenance must be re-frozen together with the
+// model after measurement; discovery never expands this workload. The current
+// reference binding is pre-capture, not certification of the new topology.
+export const platformApiNonBootstrapDbCensus = Object.freeze({
+  referenceRunId: 36141162335,
+  referenceJobId: 108091066485,
+  entries: Object.freeze({
+    "__tests__/operator-session/operator-session-grant-mint.db.test.ts": "test:db:2",
+    "__tests__/operator-session/operator-session-grant-lifecycle.db.test.ts": "test:db:2",
+    "__tests__/operator-session/operator-session-grant-scope.db.test.ts": "test:db:2",
+    "__tests__/operator-session/operator-session-push.db.test.ts": "test:db:2",
+    "__tests__/operator-session/operator-extension-route-contract.db.test.ts": "test:db:2",
+    "__tests__/seed-command-catalog.db.test.ts": "test:db:2",
+  }),
 });
 
 const dbPartitionScriptNamePattern = /^test:db:\d+$/;
@@ -703,12 +721,18 @@ function resolveLocalTestImport(importerPath, specifier, testDirectory) {
   );
 }
 
-function referencedDbTestFileNames(command) {
-  return [...command.matchAll(/__tests__[\\/]+([a-z0-9-]+\.db\.test\.ts)/gi)].map((match) => match[1]);
-}
-
-function referencedDbTestFileOrder(command) {
-  return referencedDbTestFileNames(command);
+function readVitestInvocation(command, scriptName, violations) {
+  const invocations = command.split(/\s*&&\s*/).filter((part) => /^vitest\s/.test(part.trim()));
+  if (invocations.length !== 1) {
+    violations.push(`${scriptName} must contain exactly one Vitest invocation`);
+    return { filter: [], options: {} };
+  }
+  try {
+    return parseCLI(invocations[0].trim());
+  } catch (error) {
+    violations.push(`${scriptName} has an unreadable Vitest invocation: ${error.message}`);
+    return { filter: [], options: {} };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -753,15 +777,16 @@ function readVitestIncludeGlobs(root) {
 
   const sourceFile = sourceFileFor(configPath, readFileSync(configPath, "utf8"));
   const globs = [];
+  const excludes = [];
   function visit(node) {
     if (
       ts.isPropertyAssignment(node) &&
       (ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name)) &&
-      node.name.text === "include" &&
+      ["include", "exclude"].includes(node.name.text) &&
       ts.isArrayLiteralExpression(node.initializer)
     ) {
       for (const element of node.initializer.elements) {
-        if (ts.isStringLiteralLike(element)) globs.push(element.text);
+        if (ts.isStringLiteralLike(element)) (node.name.text === "include" ? globs : excludes).push(element.text);
       }
     }
     ts.forEachChild(node, visit);
@@ -771,7 +796,7 @@ function readVitestIncludeGlobs(root) {
   if (globs.length === 0) {
     return { globs: [], violation: `${configPath} declares no vitest include globs to derive test entries from` };
   }
-  return { globs, violation: null };
+  return { globs, excludes, violation: null };
 }
 
 function collectSourceFilesUnder(directory) {
@@ -788,41 +813,105 @@ function collectSourceFilesUnder(directory) {
   return found;
 }
 
-function importsBootstrapHarness(filePath, source, testDirectory, cache) {
-  if (cache.has(filePath)) return cache.get(filePath);
-  cache.set(filePath, false);
-
-  const sourceFile = sourceFileFor(filePath, source);
-  const specifiers = [];
-  let declaresFactory = false;
-  function visit(node) {
-    if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier)) {
-      specifiers.push(node.moduleSpecifier.text);
+function importsBootstrapHarness(filePath, root, cache) {
+  const pending = [filePath];
+  const visited = new Set();
+  while (pending.length) {
+    const next = pending.pop();
+    if (visited.has(next)) continue;
+    visited.add(next);
+    for (const imported of localDbFacts(next, root, cache).imports) {
+      if (imported.split(/[\\/]/).at(-1)?.startsWith(bootstrapHarnessModuleBaseName)) return true;
+      pending.push(imported);
     }
-    if (ts.isFunctionDeclaration(node) && node.name?.text === bootstrapHarnessFactoryName) {
-      declaresFactory = true;
+  }
+  return false;
+}
+
+function accessName(node) {
+  if (ts.isPropertyAccessExpression(node)) return node.name.text;
+  if (ts.isElementAccessExpression(node) && ts.isStringLiteralLike(node.argumentExpression)) {
+    return node.argumentExpression.text;
+  }
+  return null;
+}
+
+function localDbFacts(filePath, root, cache) {
+  if (cache.has(filePath)) return cache.get(filePath);
+  const sourceFile = sourceFileFor(filePath, readFileSync(filePath, "utf8"));
+  const imports = [];
+  let readsDatabaseUrl = false;
+  function visit(node) {
+    if (
+      accessName(node) === "TEST_DATABASE_URL" &&
+      accessName(node.expression) === "env" &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === "process" &&
+      !(
+        ts.isBinaryExpression(node.parent) &&
+        node.parent.left === node &&
+        node.parent.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      )
+    ) {
+      readsDatabaseUrl = true;
+    }
+    let specifier;
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) specifier = node.moduleSpecifier;
+    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      specifier = node.arguments[0];
+    }
+    if (specifier && ts.isStringLiteralLike(specifier) && specifier.text.startsWith(".")) {
+      const imported = resolveLocalTestImport(filePath, specifier.text, root);
+      if (imported) imports.push(imported);
     }
     ts.forEachChild(node, visit);
   }
   visit(sourceFile);
+  const facts = { readsDatabaseUrl, imports };
+  cache.set(filePath, facts);
+  return facts;
+}
 
-  let result = false;
-  for (const specifier of specifiers) {
-    if (!specifier.startsWith(".")) continue;
-    const resolved = resolveLocalTestImport(filePath, specifier, testDirectory);
-    if (!resolved) continue;
-    if (resolved.split(/[\\/]/).at(-1)?.startsWith(bootstrapHarnessModuleBaseName)) {
-      result = true;
-      break;
-    }
-    if (importsBootstrapHarness(resolved, readFileSync(resolved, "utf8"), testDirectory, cache)) {
-      result = true;
-      break;
+function reachesDatabaseUrl(filePath, root, cache) {
+  const pending = [filePath];
+  const visited = new Set();
+  while (pending.length) {
+    const next = pending.pop();
+    if (visited.has(next)) continue;
+    visited.add(next);
+    const facts = localDbFacts(next, root, cache);
+    if (facts.readsDatabaseUrl) return true;
+    pending.push(...facts.imports);
+  }
+  return false;
+}
+
+export function derivePlatformApiDbTestCensus({ platformApiRoot } = {}) {
+  const root = platformApiRoot ?? resolve(dirname(fileURLToPath(import.meta.url)), "..");
+  const testDirectory = resolve(root, "__tests__");
+  const { globs, violation } = readVitestIncludeGlobs(root);
+  const violations = violation ? [violation] : [];
+  const patterns = globs.map(globToRegExp);
+  const entries = [];
+  const bootstrapEntries = [];
+  const dbEntries = [];
+  const suffixEntries = [];
+  const dbCache = new Map();
+  for (const filePath of collectSourceFilesUnder(testDirectory).sort()) {
+    const entry = relative(root, filePath).replaceAll("\\", "/");
+    if (!patterns.some((pattern) => pattern.test(entry))) continue;
+    entries.push(entry);
+    const bootstrap = importsBootstrapHarness(filePath, root, dbCache);
+    const db = bootstrap || reachesDatabaseUrl(filePath, root, dbCache);
+    if (bootstrap) bootstrapEntries.push(entry);
+    if (db) dbEntries.push(entry);
+    const suffix = entry.endsWith(".db.test.ts");
+    if (suffix) suffixEntries.push(entry);
+    if (db !== suffix) {
+      violations.push(`${entry} DB census disagrees with *.db.test.ts suffix (code-shaped DB entry: ${db})`);
     }
   }
-
-  cache.set(filePath, result && !declaresFactory);
-  return cache.get(filePath);
+  return { entries, bootstrapEntries, dbEntries, suffixEntries, violations };
 }
 
 // ---------------------------------------------------------------------------
@@ -832,46 +921,84 @@ function importsBootstrapHarness(filePath, source, testDirectory, cache) {
 /**
  * The worst makespan any list schedule of `durationsMs` can produce on
  * `workerCount` workers: each file in turn goes to the least-loaded worker, and
- * the model takes the maximum over every possible file order. Memoized on the
- * placed set plus the sorted worker loads, which collapses the orderings that
- * reach the same state.
+ * the model takes the maximum over every possible file order. For each possible
+ * final file, maximize the least worker load over partitions of the other files.
+ * A maximum-minimum partition is list-schedulable: choose one minimizing squared
+ * loads; moving a job from a larger load to the least load cannot improve it,
+ * so every worker's last job starts at or below the least final load. Interleave
+ * those worker lists at their least loads, then append the chosen final file.
  */
 function worstCaseListScheduleMs(durationsMs, workerCount) {
   if (durationsMs.length === 0) return 0;
   if (durationsMs.length <= workerCount) return Math.max(...durationsMs);
+  // Refused references and file sets are still projected. Preserve those values
+  // outside the nonnegative safe-integer domain, including its total, or 16 files.
+  if (
+    durationsMs.length > 16 ||
+    durationsMs.some((duration) => !Number.isSafeInteger(duration) || duration < 0) ||
+    !Number.isSafeInteger(durationsMs.reduce((sum, duration) => sum + duration, 0))
+  ) {
+    const complete = (1 << durationsMs.length) - 1;
+    const memo = new Map();
+    function walk(placed, loads) {
+      if (placed === complete) return Math.max(...loads);
+      const key = `${placed}|${loads.join(",")}`;
+      const cached = memo.get(key);
+      if (cached !== undefined) return cached;
+      let worst = 0;
+      const considered = new Set();
+      for (let index = 0; index < durationsMs.length; index += 1) {
+        if (placed & (1 << index) || considered.has(durationsMs[index])) continue;
+        considered.add(durationsMs[index]);
+        const next = [...loads];
+        next[0] += durationsMs[index];
+        next.sort((left, right) => left - right);
+        worst = Math.max(worst, walk(placed | (1 << index), next));
+      }
+      memo.set(key, worst);
+      return worst;
+    }
+    return walk(0, new Array(workerCount).fill(0));
+  }
+  if (workerCount === 1) return durationsMs.reduce((sum, duration) => sum + duration, 0);
 
   const complete = (1 << durationsMs.length) - 1;
-  const memo = new Map();
+  const sums = new Float64Array(complete + 1);
+  const counts = new Uint8Array(complete + 1);
+  for (let mask = 1; mask <= complete; mask += 1) {
+    const bit = mask & -mask;
+    sums[mask] = sums[mask ^ bit] + durationsMs[31 - Math.clz32(bit)];
+    counts[mask] = counts[mask ^ bit] + 1;
+  }
+  const memo = Array.from({ length: workerCount + 1 }, () => new Map());
 
-  function walk(placedMask, loads) {
-    if (placedMask === complete) return Math.max(...loads);
-    const key = `${placedMask}|${loads.join(",")}`;
-    const cached = memo.get(key);
+  function greatestLeastLoad(mask, workers) {
+    if (workers === 1) return sums[mask];
+    if (counts[mask] < workers) return 0;
+    const cached = memo[workers].get(mask);
     if (cached !== undefined) return cached;
-
-    let leastLoadedIndex = 0;
-    for (let index = 1; index < loads.length; index += 1) {
-      if (loads[index] < loads[leastLoadedIndex]) leastLoadedIndex = index;
+    let best = 0;
+    const upper = Math.floor(sums[mask] / workers);
+    const first = mask & -mask;
+    // Anchor one block to its first file to remove worker-label permutations.
+    for (let block = mask; block > 0; block = (block - 1) & mask) {
+      if (!(block & first)) continue;
+      const rest = mask ^ block;
+      if (counts[rest] < workers - 1 || sums[block] <= best || Math.floor(sums[rest] / (workers - 1)) <= best) continue;
+      best = Math.max(best, Math.min(sums[block], greatestLeastLoad(rest, workers - 1)));
+      if (best === upper) break;
     }
-
-    let worst = 0;
-    const consideredDurations = new Set();
-    for (let index = 0; index < durationsMs.length; index += 1) {
-      if (placedMask & (1 << index)) continue;
-      if (consideredDurations.has(durationsMs[index])) continue;
-      consideredDurations.add(durationsMs[index]);
-      const next = [...loads];
-      next[leastLoadedIndex] = loads[leastLoadedIndex] + durationsMs[index];
-      next.sort((left, right) => left - right);
-      const candidate = walk(placedMask | (1 << index), next);
-      if (candidate > worst) worst = candidate;
-    }
-
-    memo.set(key, worst);
-    return worst;
+    memo[workers].set(mask, best);
+    return best;
   }
 
-  return walk(0, new Array(workerCount).fill(0));
+  let worst = 0;
+  for (let index = 0; index < durationsMs.length; index += 1) {
+    const rest = complete ^ (1 << index);
+    if (durationsMs[index] + Math.floor(sums[rest] / workerCount) <= worst) continue;
+    worst = Math.max(worst, durationsMs[index] + greatestLeastLoad(rest, workerCount));
+  }
+  return worst;
 }
 
 function executionUnitMakespanMs(fileDurationsMs, model) {
@@ -1449,6 +1576,7 @@ export function checkBootstrapDbEnrollment({
   manifest = bootstrapDbEnrollmentManifest,
   executionUnitBootBearingCaseCeilings = bootstrapDbExecutionUnitBootBearingCaseCeilings,
   scheduleModel = bootstrapDbScheduleModel,
+  nonBootstrapCensus = platformApiNonBootstrapDbCensus,
 } = {}) {
   const root = platformApiRoot ?? resolve(dirname(fileURLToPath(import.meta.url)), "..");
   const testDirectory = resolve(root, "__tests__");
@@ -1472,7 +1600,15 @@ export function checkBootstrapDbEnrollment({
   }
 
   const partitionFileNames = Object.keys(manifest);
-  const partitionMemberships = new Map(partitionFileNames.map((fileName) => [fileName, []]));
+  const census = derivePlatformApiDbTestCensus({ platformApiRoot: root });
+  const configExcludes = readVitestIncludeGlobs(root).excludes ?? [];
+  violations.push(...census.violations);
+  const manifestedPaths = new Map(partitionFileNames.map((fileName) => [`__tests__/${fileName}`, fileName]));
+  const bootstrapEntries = new Set(census.bootstrapEntries);
+  const dbEntries = new Set(census.dbEntries);
+  const partitionMemberships = new Map(
+    [...new Set([...manifestedPaths.keys(), ...dbEntries])].map((entry) => [entry, []]),
+  );
   const partitionScripts = selectedDbPartitionScripts(packageScripts);
   if (partitionScripts.length === 0) {
     violations.push("package.json must publish at least one numbered test:db:* partition script");
@@ -1486,24 +1622,81 @@ export function checkBootstrapDbEnrollment({
     }
   }
   for (const [scriptName, command] of partitionScripts) {
-    for (const fileName of referencedDbTestFileOrder(command)) {
-      const memberships = partitionMemberships.get(fileName);
-      if (!memberships) {
-        violations.push(`${scriptName} references unmanifested bootstrap DB file '${fileName}'`);
+    const { filter, options } = readVitestInvocation(command, scriptName, violations);
+    if (
+      (options.config !== undefined && resolve(root, options.config) !== resolve(root, "vitest.config.ts")) ||
+      options.root ||
+      options.dir ||
+      options.project ||
+      options.testNamePattern ||
+      options.shard ||
+      options.changed ||
+      options.related
+    ) {
+      violations.push(
+        `${scriptName} changes the canonical Vitest discovery or case selection; complete DB entry execution is required`,
+      );
+    }
+    if (filter.length === 0) violations.push(`${scriptName} must select explicit DB test entry filters`);
+    const excludes = [...configExcludes, ...(options.exclude ?? [])].map((glob) =>
+      globToRegExp(glob.replaceAll("\\", "/")),
+    );
+    for (const value of filter) {
+      const normalized = value.replaceAll("\\", "/").replace(/^\.\//, "");
+      const matches = census.entries.filter((entry) => entry.toLowerCase().includes(normalized.toLowerCase()));
+      if (matches.length !== 1) {
+        violations.push(`${scriptName} filter '${value}' must select exactly one test entry; found ${matches.length}`);
         continue;
       }
-      memberships.push(scriptName);
+      const [entry] = matches;
+      if (excludes.some((pattern) => pattern.test(entry))) {
+        violations.push(`${scriptName} excludes selected DB test entry '${entry}'`);
+        continue;
+      }
+      if (bootstrapEntries.has(entry) && !manifestedPaths.has(entry)) {
+        violations.push(`${scriptName} references unmanifested bootstrap DB file '${entry}'`);
+      } else if (!dbEntries.has(entry)) {
+        violations.push(`${scriptName} selects non-DB test entry '${entry}'`);
+      }
+      partitionMemberships.get(entry)?.push(scriptName);
     }
   }
-  for (const [fileName, memberships] of partitionMemberships) {
+  for (const [entry, memberships] of partitionMemberships) {
+    const fileName = manifestedPaths.get(entry) ?? entry;
     if (memberships.length !== 1) {
       violations.push(
         `${fileName} must appear in exactly one numbered test:db:* partition script; found ${memberships.length}${
           memberships.length > 0 ? ` (${memberships.join(", ")})` : ""
         }`,
       );
-    } else if (memberships[0] !== manifest[fileName].executionUnit) {
+      if (memberships.length === 0 && dbEntries.has(entry)) {
+        violations.push(`${entry} is not selected by any numbered unit`);
+      }
+    } else if (manifest[fileName] && memberships[0] !== manifest[fileName].executionUnit) {
       violations.push(`${fileName} belongs in ${manifest[fileName].executionUnit}, not ${memberships[0]}`);
+    }
+  }
+
+  if (
+    validatedScheduleModel &&
+    (nonBootstrapCensus.referenceRunId !== validatedScheduleModel.referenceRunId ||
+      nonBootstrapCensus.referenceJobId !== validatedScheduleModel.referenceJobId)
+  ) {
+    violations.push(
+      "non-bootstrap DB census reference is stale relative to the schedule model; re-measurement required",
+    );
+  }
+  const nonBootstrapEntries = new Set(census.dbEntries.filter((entry) => !bootstrapEntries.has(entry)));
+  for (const entry of new Set([...nonBootstrapEntries, ...Object.keys(nonBootstrapCensus.entries)])) {
+    const expectedUnit = nonBootstrapCensus.entries[entry];
+    const memberships = partitionMemberships.get(entry) ?? [];
+    if (
+      !nonBootstrapEntries.has(entry) ||
+      !expectedUnit ||
+      memberships.length !== 1 ||
+      memberships[0] !== expectedUnit
+    ) {
+      violations.push(`${entry} non-bootstrap DB census changed; re-measurement required`);
     }
   }
 
@@ -1550,12 +1743,11 @@ export function checkBootstrapDbEnrollment({
       violations.push(`package.json must publish ${scriptName}`);
       continue;
     }
-    const excludedFiles = new Set(
-      [...command.matchAll(/--exclude(?:=|\s+)__tests__[\\/]+([a-z0-9-]+\.db\.test\.ts)/gi)].map((match) => match[1]),
-    );
-    for (const fileName of partitionFileNames) {
-      if (!excludedFiles.has(fileName)) {
-        violations.push(`${scriptName} must exclude __tests__/${fileName}`);
+    const { options } = readVitestInvocation(command, scriptName, violations);
+    const excludes = (options.exclude ?? []).map((glob) => globToRegExp(glob.replaceAll("\\", "/")));
+    for (const entry of new Set([...manifestedPaths.keys(), ...dbEntries])) {
+      if (!excludes.some((pattern) => pattern.test(entry))) {
+        violations.push(`${scriptName} must exclude ${entry}`);
       }
     }
   }
@@ -1605,25 +1797,12 @@ export function checkBootstrapDbEnrollment({
   // through its import graph, has to be manifested and scheduled. A new DB test
   // that merely imports the harness is therefore undiscovered until it is
   // actually enrolled, rather than silently running outside every unit.
-  const { globs: includeGlobs, violation: includeViolation } = readVitestIncludeGlobs(root);
-  if (includeViolation) {
-    violations.push(includeViolation);
-  } else {
-    const includePatterns = includeGlobs.map((glob) => globToRegExp(glob));
-    const harnessImportCache = new Map();
-    for (const filePath of collectSourceFilesUnder(testDirectory)) {
-      const relativePath = relative(root, filePath).replaceAll("\\", "/");
-      if (!includePatterns.some((pattern) => pattern.test(relativePath))) continue;
-      if (!importsBootstrapHarness(filePath, readFileSync(filePath, "utf8"), testDirectory, harnessImportCache)) {
-        continue;
-      }
-      const fileName = filePath.split(/[\\/]/).at(-1);
-      if (!partitionMemberships.has(fileName)) {
-        violations.push(
-          `${relativePath} is an executable test entry that stands up a bootstrap database but is not manifested ` +
-            "in any numbered test:db:* execution unit",
-        );
-      }
+  for (const entry of bootstrapEntries) {
+    if (!manifestedPaths.has(entry)) {
+      violations.push(
+        `${entry} is an executable test entry that stands up a bootstrap database but is not manifested ` +
+          "in any numbered test:db:* execution unit",
+      );
     }
   }
 
@@ -1775,6 +1954,10 @@ const invokedPath = process.argv[1] ? resolve(process.argv[1]) : null;
 if (invokedPath === fileURLToPath(import.meta.url)) {
   const result = checkBootstrapDbEnrollment();
   console.log(formatBootstrapDbEnrollmentResult(result));
+  const census = derivePlatformApiDbTestCensus();
+  console.log(
+    `Platform API DB census: ${census.dbEntries.length} entries = ${census.bootstrapEntries.length} bootstrap + ${census.dbEntries.length - census.bootstrapEntries.length} non-bootstrap; ${census.entries.length} include-selected entries scanned.`,
+  );
   if (result.violations.length > 0) {
     process.exitCode = 1;
   }

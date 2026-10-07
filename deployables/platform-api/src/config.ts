@@ -64,6 +64,7 @@ import type {
 } from "@chase-sets/bounded-context-runtime";
 import { apiContextRegistry } from "./generated/api-context-registry";
 import { parseChannelCredentialKeyring, type ChannelCredentialKeyring } from "@chase-sets/channels/server";
+import { parseSecretEnvelopeKeyring, type SecretEnvelopeKeyring } from "@chase-sets/platform-runtime/secret-envelope";
 
 export type PlatformApiPaymentProcessorConfig = PlatformPaymentProcessorConfig;
 
@@ -326,6 +327,7 @@ export type PlatformApiConfig = Omit<PlatformApiBaseConfig, "realtime"> &
   Readonly<{
     checkoutClosed: boolean;
     channelCredentialKeyring: ChannelCredentialKeyring | null;
+    catalogOperatorSessionKeyring: SecretEnvelopeKeyring | null;
     realtime: PlatformApiRealtimeConfig;
     paymentProcessor: PlatformApiPaymentProcessorConfig;
     moneyMovement: PlatformApiMoneyMovementConfig;
@@ -765,6 +767,8 @@ function loadPreviewPostgresAdminUrl(deploymentEnvironment: DeploymentEnvironmen
 }
 
 export function loadConfig(): PlatformApiConfig {
+  const catalogOperatorSessionKeyring = parseSecretEnvelopeKeyring(process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON);
+  loadCatalogProviderSendWindowEnabled(process.env);
   const baseConfig = loadBaseConfig() as PlatformApiBaseConfig & {
     realtime: PlatformApiRealtimeConfig;
   };
@@ -889,6 +893,7 @@ export function loadConfig(): PlatformApiConfig {
     moneyMovement: stripeProvider.moneyMovement,
     checkoutClosed: getBooleanEnv("CHASE_SETS_CHECKOUT_CLOSED", false),
     channelCredentialKeyring: parseChannelCredentialKeyring(process.env.CHANNELS_CREDENTIAL_KEYRING_JSON),
+    catalogOperatorSessionKeyring,
     providerModeObservation: {
       mode: stripeProvider.effectiveMode,
       paymentProcessorKind: stripeProvider.paymentProcessor.kind,
@@ -906,7 +911,7 @@ export function loadConfig(): PlatformApiConfig {
       liveSecretKeyLikely: stripeProvider.keyClassification.serverKeyMode === "live",
     },
     catalogAssetStorage,
-    tcgplayerAutomation: loadTcgplayerAutomationConfig(),
+    tcgplayerAutomation: loadTcgplayerAutomationConfig(catalogOperatorSessionKeyring !== null),
     listingPhotoStorage,
     discoverySearchEmbeddings: {
       apiKey: getOptionalEnv("VOYAGE_API_KEY"),
@@ -962,3 +967,4 @@ function loadRealtimeStreamLimiterConfig(): PlatformApiRealtimeStreamLimiterConf
     leaseTtlSeconds: getOptionalPositiveNumberEnv("REALTIME_REDIS_LEASE_TTL_SECONDS", 60) ?? undefined,
   };
 }
+import { loadCatalogProviderSendWindowEnabled } from "@chase-sets/platform-runtime/config-schema";

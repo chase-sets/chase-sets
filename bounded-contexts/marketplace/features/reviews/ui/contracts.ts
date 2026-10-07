@@ -49,6 +49,7 @@ export interface ReviewOpportunity {
   author_role: string;
   eligible_at: string;
   active_review_id: string | null;
+  active_review_revealed_at: string | null;
   // Double-blind reveal (m108): true once the submission window has
   // elapsed with no review submitted yet.
   window_expired: boolean;

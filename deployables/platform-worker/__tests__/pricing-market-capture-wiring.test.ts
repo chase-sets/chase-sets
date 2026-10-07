@@ -11,7 +11,17 @@ describe("Pricing market-capture worker wiring", () => {
       expect.objectContaining({ portName: "tcgplayerMarketCaptureReceiptSink" }),
     );
     expect(main).toContain("const pricingHostPorts: PricingHostPorts");
-    expect(main).toContain("tcgplayerMarketTransport: tcgplayerAutomationHttpClients");
+    expect(main).toContain("createTcgplayerAutomationRuntime({");
+    expect(main).toContain("pool: pools.catalog");
+    expect(main).toContain("config: config.tcgplayerAutomation");
+    expect(main).toContain("keyring: config.catalogOperatorSessionKeyring");
+    expect(main).toContain("tcgplayerAutomationRuntime?.catalogClient");
+    expect(main).not.toContain("createPostgresTcgplayerAutomationHttpConfigStore");
+    expect(main).not.toContain("createTcgplayerAutomationHttpClients");
+    expect(main).toContain("const pricingTcgplayerAutomationHttpClients = createTcgplayerAutomationRuntime(");
+    expect(main).toContain("tcgplayerMarketTransport: pricingTcgplayerAutomationHttpClients");
+    expect(main).not.toContain("tcgplayerMarketTransport: tcgplayerAutomationHttpClients");
+    expect(main).toContain('ownership: "pricing-non-window"');
     expect(main).toContain(
       "tcgplayerMarketCaptureReceiptSink: createObjectStorageTcgplayerMarketCaptureReceiptSink(catalogAssetStorage)",
     );

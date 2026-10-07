@@ -7,21 +7,48 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
 
 import ts from "@chase-sets/typescript-compiler-api";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, type RunnerTestCase } from "vitest";
 
 import {
   bootstrapDbEnrollmentManifest,
   bootstrapDbExecutionUnitBootBearingCaseCeilings,
   bootstrapDbScheduleModel,
-  checkBootstrapDbEnrollment,
+  checkBootstrapDbEnrollment as evaluateBootstrapDbEnrollment,
   deriveBootstrapDbCaseIdentities,
+  derivePlatformApiDbTestCensus,
+  platformApiNonBootstrapDbCensus,
   type BootstrapDbEnrollmentPartition,
   type BootstrapDbScheduleModel,
+  type PlatformApiNonBootstrapDbCensus,
 } from "../scripts/check-bootstrap-db-enrollment.mjs";
 
 const testDirectory = dirname(fileURLToPath(import.meta.url));
+// Generate fixture code, not an environment read by this non-DB test module.
+const syntheticDatabaseUrlKey = ["TEST", "DATABASE", "URL"].join("_");
+const syntheticDatabaseUrlRead = `process.env.${syntheticDatabaseUrlKey}`;
 
 const temporaryRoots: string[] = [];
+const guardInputs = new Map<string, unknown>();
+const guardClasses = new Map<string, Set<string>>();
+let currentTest: RunnerTestCase | undefined;
+
+function checkBootstrapDbEnrollment(...args: Parameters<typeof evaluateBootstrapDbEnrollment>) {
+  const result = evaluateBootstrapDbEnrollment(...args);
+  const input = {
+    files: result.schedule.files,
+    model: result.schedule.files.length ? (args[0]?.scheduleModel ?? bootstrapDbScheduleModel) : null,
+    observedUnitCount: result.schedule.observedUnitCount,
+    fileCount: result.fileCount,
+  };
+  const key = createHash("sha256").update(JSON.stringify(input)).digest("hex");
+  guardInputs.set(key, input);
+  if (currentTest) {
+    const classes = guardClasses.get(currentTest.id) ?? new Set<string>();
+    classes.add(key);
+    guardClasses.set(currentTest.id, classes);
+  }
+  return result;
+}
 
 type FixtureCase = Readonly<{ name: string; referenceDurationMs: number; body: string; timeoutMs?: number }>;
 type FixtureFile = Readonly<{
@@ -45,6 +72,7 @@ type Fixture = Readonly<{
   manifest: FixtureManifest;
   ceilings: Record<string, number>;
   model: BootstrapDbScheduleModel;
+  nonBootstrapCensus: PlatformApiNonBootstrapDbCensus;
 }>;
 
 const syntheticScheduleModelProvenance = Object.freeze({
@@ -179,6 +207,7 @@ async function createFixture(
     manifest: buildManifest(files, (name) => identities.get(name) ?? "0000000000000000"),
     ceilings,
     model,
+    nonBootstrapCensus: { referenceRunId: model.referenceRunId, referenceJobId: model.referenceJobId, entries: {} },
   };
 }
 
@@ -206,7 +235,36 @@ function runFixture(fixture: Fixture) {
     manifest: fixture.manifest,
     executionUnitBootBearingCaseCeilings: fixture.ceilings,
     scheduleModel: fixture.model,
+    nonBootstrapCensus: fixture.nonBootstrapCensus,
   });
+}
+
+async function editScripts(fixture: Fixture, edit: (scripts: Record<string, string>) => void) {
+  const path = join(fixture.root, "package.json");
+  const packageJson = JSON.parse(await readFile(path, "utf8"));
+  edit(packageJson.scripts);
+  await writeFile(path, JSON.stringify(packageJson));
+}
+
+async function writeEntry(fixture: Fixture, entry: string, source: string) {
+  const path = join(fixture.root, entry);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, source);
+}
+
+async function createDbCensusFixture(): Promise<Fixture> {
+  const fixture = await createFixture(shippedShapedFiles());
+  const entries = platformApiNonBootstrapDbCensus.entries;
+  for (const entry of Object.keys(entries)) {
+    await writeEntry(fixture, entry, `const url = ${syntheticDatabaseUrlRead};\n`);
+  }
+  await editScripts(fixture, (scripts) => {
+    for (const [entry, unit] of Object.entries(entries)) {
+      scripts[unit] += ` ${entry}`;
+      for (const name of ["test:unit", "test:fast"]) scripts[name] += ` --exclude ${entry}`;
+    }
+  });
+  return { ...fixture, nonBootstrapCensus: { ...fixture.nonBootstrapCensus, entries } };
 }
 
 /** The shipped file set, case names, durations, and unit membership, with synthetic bodies. */
@@ -264,6 +322,7 @@ function exhaustiveScheduleProbe(bypassFileBound = false) {
 
 type ScheduleFile = { fileName: string; durationMs: number };
 type ScheduleProbe = {
+  worstCaseListScheduleMs: (durations: readonly number[], workers: number) => number;
   computeMinimumUnitCount: (files: ScheduleFile[], model: BootstrapDbScheduleModel) => unknown;
   bestAssignmentAt: (files: ScheduleFile[], count: number, model: BootstrapDbScheduleModel) => unknown;
   calculateMinimumAndOneFewer?: (
@@ -287,7 +346,7 @@ function exactScheduleProbes(): { old: ScheduleProbe; candidate: ScheduleProbe }
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
     return runInNewContext(
-      `${source.slice(start, end)}\n({ computeMinimumUnitCount, bestAssignmentAt, canonicalAssignments, calculateMinimumAndOneFewer: typeof calculateMinimumAndOneFewer === 'function' ? calculateMinimumAndOneFewer : undefined })`,
+      `${source.slice(start, end)}\n({ worstCaseListScheduleMs, computeMinimumUnitCount, bestAssignmentAt, canonicalAssignments, calculateMinimumAndOneFewer: typeof calculateMinimumAndOneFewer === 'function' ? calculateMinimumAndOneFewer : undefined })`,
     ) as ScheduleProbe;
   }
   return { old: extract(oracleSource), candidate: extract(candidateSource) };
@@ -372,6 +431,106 @@ afterEach(async () => {
 });
 
 describe("Platform API bootstrap DB enrollment", () => {
+  beforeEach(({ task }) => {
+    currentTest = task;
+  });
+
+  afterAll(({}, suite) => {
+    for (const [key, input] of guardInputs)
+      process.stdout.write(`bootstrap-enrollment-input ${JSON.stringify({ key, input })}\n`);
+    for (const task of suite.tasks) {
+      if (task.type !== "test" || task.mode !== "run") continue;
+      process.stdout.write(
+        `bootstrap-enrollment-case ${JSON.stringify({
+          name: task.name,
+          state: task.result?.state,
+          durationMs: task.result?.duration,
+          classes: [...(guardClasses.get(task.id) ?? [])],
+        })}\n`,
+      );
+    }
+  });
+
+  it("matches the pinned list scheduler for zero, distinct, repeated and reordered durations on up to five workers", () => {
+    const { old, candidate } = exactScheduleProbes();
+    const vectors = [
+      [],
+      [0, 0, 0, 0, 0, 0],
+      [0, 1, 0, 2, 0, 3],
+      [-1, -2, -3],
+      [3, 3, 3, -100],
+      new Array<number>(31).fill(7),
+      [7, 7, 7, 7, 7, 7, 7],
+      [1, 2, 3, 5, 8, 13, 21],
+      [23, 2, 19, 5, 17, 7, 13, 11],
+    ];
+    for (const vector of vectors)
+      for (const durations of [vector, [...vector].reverse()])
+        for (let workers = 1; workers <= 5; workers += 1) {
+          Object.freeze(durations);
+          expect(candidate.worstCaseListScheduleMs(durations, workers)).toBe(
+            old.worstCaseListScheduleMs(durations, workers),
+          );
+        }
+  });
+
+  it("preserves the pinned complete guard's projections for refused references and oversized file sets", async () => {
+    const old = await import(
+      pathToFileURL(join(testDirectory, "fixtures/bootstrap-db-schedule-before-subset-reuse.mjs")).href
+    );
+    for (const durations of [[-100, 3, 3, 3], new Array<number>(31).fill(7)]) {
+      const fixture = await createFixture(
+        durations.map((duration, index) => unitFileFor(`refused-reference-${index}`, "test:db:1", duration)),
+        { model: { testFileFixedCostMs: 0, executionUnitFixedCostMs: 0, maxWorkersPerExecutionUnit: 2 } },
+      );
+      const result = runFixture(fixture);
+      const violation = durations.some((duration) => duration < 0) ? "referenceDurationMs" : "declared bound";
+      expect(result.violations).toEqual(expect.arrayContaining([expect.stringContaining(violation)]));
+      expect(JSON.parse(JSON.stringify(result))).toEqual(
+        JSON.parse(
+          JSON.stringify(
+            old.checkBootstrapDbEnrollment({
+              platformApiRoot: fixture.root,
+              manifest: fixture.manifest,
+              executionUnitBootBearingCaseCeilings: fixture.ceilings,
+              scheduleModel: fixture.model,
+            }),
+          ),
+        ),
+      );
+    }
+  });
+
+  it.each([
+    { label: "unsafe duration", durations: [9007199254740992, 1, 1], makespanMs: 9007199254740994 },
+    { label: "unsafe total", durations: [9007199254740991, 2, 2], makespanMs: 9007199254740996 },
+  ])("preserves the pinned complete guard's projections for a refused $label", async ({ durations, makespanMs }) => {
+    const old = await import(
+      pathToFileURL(join(testDirectory, "fixtures/bootstrap-db-schedule-before-subset-reuse.mjs")).href
+    );
+    for (const ordered of [durations, [...durations].reverse()]) {
+      const fixture = await createFixture(
+        ordered.map((duration, index) => unitFileFor(`synthetic-unsafe-reference-${index}`, "test:db:1", duration)),
+        { model: { testFileFixedCostMs: 0, executionUnitFixedCostMs: 0, maxWorkersPerExecutionUnit: 1 } },
+      );
+      const result = runFixture(fixture);
+      expect(result.violations).toEqual(expect.arrayContaining([expect.stringContaining("referenceDurationMs")]));
+      expect(result.schedule.units[0]?.makespanMs).toBe(makespanMs);
+      expect(JSON.parse(JSON.stringify(result))).toEqual(
+        JSON.parse(
+          JSON.stringify(
+            old.checkBootstrapDbEnrollment({
+              platformApiRoot: fixture.root,
+              manifest: fixture.manifest,
+              executionUnitBootBearingCaseCeilings: fixture.ceilings,
+              scheduleModel: fixture.model,
+            }),
+          ),
+        ),
+      );
+    }
+  });
+
   it.each([0, 1, 2, 3, 4])(
     "exact subset schedule equivalence across ordered-vector/model pairs of length %i",
     (length) => {
@@ -476,9 +635,24 @@ describe("Platform API bootstrap DB enrollment", () => {
     // The pinned oracle lives under __tests__/fixtures, so its import.meta.url-derived
     // default root is __tests__; bind both guards to the one production platform-api root.
     const platformApiRoot = join(testDirectory, "..");
-    expect(normalize(checkBootstrapDbEnrollment({ platformApiRoot }))).toEqual(
-      normalize(old.checkBootstrapDbEnrollment({ platformApiRoot })),
+    // Compare both implementations against the same current enrollment corpus.
+    const candidateRepository = checkBootstrapDbEnrollment({
+      platformApiRoot,
+      manifest: bootstrapDbEnrollmentManifest,
+    });
+    const started = performance.now();
+    const oldRepository = old.checkBootstrapDbEnrollment({ platformApiRoot, manifest: bootstrapDbEnrollmentManifest });
+    process.stdout.write(
+      `bootstrap-enrollment-oracle ${JSON.stringify({ durationMs: performance.now() - started, fileCount: oldRepository.fileCount })}\n`,
     );
+    // The historical oracle's top-level path classifier rejects the real Catalog
+    // entry. Preserve its complete output comparison with this exact, intentional
+    // census correction accounted for; every schedule/case field still agrees.
+    expect(oldRepository.violations).toEqual([
+      "test:db:2 references unmanifested bootstrap DB file 'seed-command-catalog.db.test.ts'",
+    ]);
+    expect(candidateRepository.violations).toEqual([]);
+    expect(normalize(candidateRepository)).toEqual(normalize({ ...oldRepository, violations: [] }));
     for (const count of [10, 11, 12, 13]) {
       const files = Array.from({ length: count }, (_, index) => unitFileFor(`oracle-${index}`, "test:db:1", 1_000));
       const fixture = await createFixture(files, { model: { maximumScheduledFileCount: count === 13 ? 12 : 11 } });
@@ -487,6 +661,7 @@ describe("Platform API bootstrap DB enrollment", () => {
         manifest: fixture.manifest,
         executionUnitBootBearingCaseCeilings: fixture.ceilings,
         scheduleModel: fixture.model,
+        nonBootstrapCensus: fixture.nonBootstrapCensus,
       };
       expect(normalize(checkBootstrapDbEnrollment(options))).toEqual(
         normalize(old.checkBootstrapDbEnrollment(options)),
@@ -674,6 +849,283 @@ describe("Platform API bootstrap DB enrollment", () => {
 
     expect(runFixture(fixture).violations).toEqual([]);
   });
+
+  it("rejects a bootstrap importer at the real operator-session path when no DB unit executes it", async () => {
+    const fixture = await createFixture(shippedShapedFiles());
+    const directory = join(fixture.root, "__tests__", "operator-session");
+    await mkdir(directory);
+    await writeFile(
+      join(directory, "operator-session-push.db.test.ts"),
+      [
+        'import { it } from "vitest";',
+        'import { createPlatformApiBootstrapTestHarness } from "../bootstrap-db-test-support";',
+        'createPlatformApiBootstrapTestHarness("synthetic_operator_boot");',
+        'it("undiscovered bootstrap importer", async () => {});',
+      ].join("\n"),
+    );
+    expect(runFixture(fixture).violations).toContain(
+      "__tests__/operator-session/operator-session-push.db.test.ts is an executable test entry that stands up a bootstrap database " +
+        "but is not manifested in any numbered test:db:* execution unit",
+    );
+  });
+
+  // -- code-shaped DB census ----------------------------------------------
+
+  it("derives the complete frozen six-entry non-bootstrap census independently of suffixes", async () => {
+    const fixture = await createDbCensusFixture();
+    const census = derivePlatformApiDbTestCensus({ platformApiRoot: fixture.root });
+    expect(census.dbEntries).toHaveLength(17);
+    expect(census.bootstrapEntries).toHaveLength(11);
+    expect(census.dbEntries).toEqual(census.suffixEntries);
+    expect(census.dbEntries.filter((entry) => !census.bootstrapEntries.includes(entry)).sort()).toEqual(
+      Object.keys(fixture.nonBootstrapCensus.entries).sort(),
+    );
+    expect(runFixture(fixture).violations).toEqual([]);
+  });
+
+  it.each(["test:unit", "test:fast"])("rejects Catalog and nested DB leaks from %s (N1)", async (name) => {
+    for (const entry of [
+      "__tests__/seed-command-catalog.db.test.ts",
+      "__tests__/operator-session/operator-session-push.db.test.ts",
+    ]) {
+      const fixture = await createDbCensusFixture();
+      await editScripts(fixture, (scripts) => {
+        scripts[name] = scripts[name]!.replace(`--exclude ${entry}`, "");
+      });
+      expect(runFixture(fixture).violations).toContain(`${name} must exclude ${entry}`);
+    }
+  });
+
+  it("requires Catalog execution exactly once and accepts restoration (N4/N5)", async () => {
+    const fixture = await createDbCensusFixture();
+    const entry = "__tests__/seed-command-catalog.db.test.ts";
+    await editScripts(fixture, (scripts) => {
+      scripts["test:db:2"] = scripts["test:db:2"]!.replace(` ${entry}`, "");
+    });
+    expect(runFixture(fixture).violations).toContain(`${entry} is not selected by any numbered unit`);
+    await editScripts(fixture, (scripts) => {
+      scripts["test:db:2"] += ` ${entry}`;
+    });
+    expect(runFixture(fixture).violations).toEqual([]);
+    await editScripts(fixture, (scripts) => {
+      scripts["test:db:1"] += ` ${entry}`;
+    });
+    expect(runFixture(fixture).violations).toContain(
+      `${entry} must appear in exactly one numbered test:db:* partition script; found 2 (test:db:1, test:db:2)`,
+    );
+  });
+
+  it.each(["selected", "excluded"])("rejects a nested unmanifested harness importer when %s (N6)", async (mode) => {
+    const fixture = await createDbCensusFixture();
+    const entry = "__tests__/nested/renamed.db.test.ts";
+    await writeEntry(
+      fixture,
+      entry,
+      'import { createPlatformApiBootstrapTestHarness } from "../bootstrap-db-test-support";',
+    );
+    await editScripts(fixture, (scripts) => {
+      scripts["test:db:2"] += ` ${entry}${mode === "excluded" ? ` --exclude ${entry}` : ""}`;
+    });
+    expect(runFixture(fixture).violations).toContain(
+      mode === "selected"
+        ? `test:db:2 references unmanifested bootstrap DB file '${entry}'`
+        : `test:db:2 excludes selected DB test entry '${entry}'`,
+    );
+    if (mode === "excluded")
+      expect(runFixture(fixture).violations).toContain(`${entry} is not selected by any numbered unit`);
+  });
+
+  it.each([
+    ["absent-entry", 0],
+    ["operator-session", 5],
+  ] as const)("rejects filter %s resolving to %i entries (N7)", async (filter, count) => {
+    const fixture = await createDbCensusFixture();
+    await editScripts(fixture, (scripts) => {
+      scripts["test:db:2"] += ` ${filter}`;
+    });
+    expect(runFixture(fixture).violations).toContain(
+      `test:db:2 filter '${filter}' must select exactly one test entry; found ${count}`,
+    );
+  });
+
+  it("parses option values and case-insensitive path-contains filters without treating them as entries", async () => {
+    const fixture = await createDbCensusFixture();
+    await editScripts(fixture, (scripts) => {
+      scripts["test:db:2"] =
+        scripts["test:db:2"]!.replace("__tests__/seed-command-catalog.db.test.ts", "SEED-COMMAND-CATALOG") +
+        " --config ./vitest.config.ts";
+      for (const name of ["test:unit", "test:fast"]) {
+        for (const entry of Object.keys(fixture.nonBootstrapCensus.entries))
+          scripts[name] = scripts[name]!.replace(`--exclude ${entry}`, "");
+        scripts[name] += " --exclude __tests__/**/*.db.test.ts";
+      }
+    });
+    expect(runFixture(fixture).violations).toEqual([]);
+  });
+
+  it.each(["add", "move", "delete", "rename"])(
+    "refuses non-bootstrap census %s without re-measurement (N9)",
+    async (mode) => {
+      const fixture = await createDbCensusFixture();
+      const entry = "__tests__/seed-command-catalog.db.test.ts";
+      if (mode === "add" || mode === "rename") {
+        await writeEntry(fixture, "__tests__/nested/seventh.db.test.ts", `const url = ${syntheticDatabaseUrlRead};`);
+      }
+      if (mode === "delete" || mode === "rename") await rm(join(fixture.root, entry));
+      if (mode === "move")
+        await editScripts(fixture, (scripts) => {
+          scripts["test:db:2"] = scripts["test:db:2"]!.replace(entry, "");
+          scripts["test:db:1"] += ` ${entry}`;
+        });
+      expect(runFixture(fixture).violations).toEqual(
+        expect.arrayContaining([expect.stringContaining("non-bootstrap DB census changed; re-measurement required")]),
+      );
+    },
+  );
+
+  it.each(["referenceRunId", "referenceJobId"] as const)("rejects stale census %s (N10)", async (field) => {
+    const fixture = await createDbCensusFixture();
+    expect(
+      runFixture({
+        ...fixture,
+        nonBootstrapCensus: { ...fixture.nonBootstrapCensus, [field]: fixture.model[field] + 1 },
+      }).violations,
+    ).toContain("non-bootstrap DB census reference is stale relative to the schedule model; re-measurement required");
+  });
+
+  it("classifies Catalog as unmanifested bootstrap after a harness import (N11)", async () => {
+    const fixture = await createDbCensusFixture();
+    const entry = "__tests__/seed-command-catalog.db.test.ts";
+    await writeEntry(
+      fixture,
+      entry,
+      'import { createPlatformApiBootstrapTestHarness } from "./bootstrap-db-test-support";',
+    );
+    expect(derivePlatformApiDbTestCensus({ platformApiRoot: fixture.root }).bootstrapEntries).toContain(entry);
+    expect(runFixture(fixture).violations).toContain(`test:db:2 references unmanifested bootstrap DB file '${entry}'`);
+  });
+
+  it.each([syntheticDatabaseUrlRead, `process["env"]["${syntheticDatabaseUrlKey}"]`])(
+    "keeps literal mixed-fixture reachability in both directions for %s (N2/N8)",
+    async (read) => {
+      const fixture = await createDbCensusFixture();
+      const ordinary = "__tests__/renamed/deep/ordinary.test.ts";
+      const db = "__tests__/renamed/deep/consumer.db.test.ts";
+      const common = "__tests__/renamed/deep/common.ts";
+      const support = "__tests__/renamed/deep/db-support.ts";
+      const pure = `export const harmless = 1; // ${syntheticDatabaseUrlRead}\n`;
+      const setup = `const url = ${read}; export function setup() { return url; }\n`;
+      await writeEntry(fixture, common, pure + setup);
+      await writeEntry(fixture, ordinary, 'import { harmless } from "./common"; void harmless;');
+      await writeEntry(fixture, db, 'import { setup } from "./common"; setup();');
+      const census = () => derivePlatformApiDbTestCensus({ platformApiRoot: fixture.root });
+      expect(census().dbEntries).toEqual(expect.arrayContaining([ordinary, db]));
+      for (const entry of [ordinary, db]) {
+        expect(runFixture(fixture).violations).toContain(`${entry} is not selected by any numbered unit`);
+        for (const name of ["test:unit", "test:fast"])
+          expect(runFixture(fixture).violations).toContain(`${name} must exclude ${entry}`);
+      }
+      expect(census().violations).toContain(
+        `${ordinary} DB census disagrees with *.db.test.ts suffix (code-shaped DB entry: true)`,
+      );
+
+      await writeEntry(fixture, common, pure);
+      await writeEntry(fixture, support, setup);
+      await writeEntry(fixture, db, 'import { setup } from "./db-support"; setup();');
+      const split = {
+        ...fixture,
+        nonBootstrapCensus: {
+          ...fixture.nonBootstrapCensus,
+          entries: { ...fixture.nonBootstrapCensus.entries, [db]: "test:db:2" as const },
+        },
+      };
+      await editScripts(fixture, (scripts) => {
+        scripts["test:db:2"] += ` ${db}`;
+        for (const name of ["test:unit", "test:fast"]) scripts[name] += ` --exclude ${db}`;
+      });
+      expect(census().entries).toContain(ordinary);
+      expect(census().dbEntries).not.toContain(ordinary);
+      expect(census().dbEntries).toContain(db);
+      expect(runFixture(split).violations).toEqual([]);
+      const scripts = JSON.parse(await readFile(join(fixture.root, "package.json"), "utf8")).scripts;
+      for (const name of ["test:unit", "test:fast"]) expect(scripts[name]).not.toContain(ordinary);
+
+      await writeEntry(fixture, db, 'import { harmless } from "./common"; void harmless;');
+      expect(census().dbEntries).not.toContain(db);
+      expect(runFixture(split).violations).toContain(`test:db:2 selects non-DB test entry '${db}'`);
+      expect(census().violations).toContain(
+        `${db} DB census disagrees with *.db.test.ts suffix (code-shaped DB entry: false)`,
+      );
+      await writeEntry(fixture, ordinary, 'import { setup } from "./db-support"; setup();');
+      expect(census().dbEntries).toContain(ordinary);
+      expect(census().violations).toContain(
+        `${ordinary} DB census disagrees with *.db.test.ts suffix (code-shaped DB entry: true)`,
+      );
+
+      await writeEntry(fixture, ordinary, 'import { harmless } from "./common"; void harmless;');
+      for (const source of [pure + setup, pure + 'export { setup } from "./db-support";']) {
+        await writeEntry(fixture, common, source);
+        expect(census().dbEntries).toContain(ordinary);
+        expect(census().violations).toContain(
+          `${ordinary} DB census disagrees with *.db.test.ts suffix (code-shaped DB entry: true)`,
+        );
+      }
+    },
+  );
+
+  it("follows cyclic re-exports to the bootstrap harness without a path exemption", async () => {
+    const fixture = await createDbCensusFixture();
+    await writeEntry(
+      fixture,
+      "__tests__/nested/a.ts",
+      'export * from "./b"; export * from "../bootstrap-db-test-support";',
+    );
+    await writeEntry(fixture, "__tests__/nested/b.ts", 'export * from "./a";');
+    for (const name of ["a", "b"]) {
+      const entry = `__tests__/nested/${name}.db.test.ts`;
+      await writeEntry(
+        fixture,
+        entry,
+        `import { createPlatformApiBootstrapTestHarness as importedHarness } from "./${name}"; function createPlatformApiBootstrapTestHarness() { return importedHarness; }`,
+      );
+      await editScripts(fixture, (scripts) => {
+        scripts["test:db:2"] += ` ${entry}`;
+      });
+    }
+    const census = derivePlatformApiDbTestCensus({ platformApiRoot: fixture.root });
+    for (const name of ["a", "b"]) {
+      const entry = `__tests__/nested/${name}.db.test.ts`;
+      expect(census.bootstrapEntries).toContain(entry);
+      expect(runFixture(fixture).violations).toContain(
+        `test:db:2 references unmanifested bootstrap DB file '${entry}'`,
+      );
+    }
+  });
+
+  it("refuses an include-selected DB importer excluded by the actual Vitest config", async () => {
+    const fixture = await createDbCensusFixture();
+    const entry = "__tests__/seed-command-catalog.db.test.ts";
+    await writeFile(
+      join(fixture.root, "vitest.config.ts"),
+      `export default { test: { include: ["__tests__/**/*.test.ts"], exclude: ["${entry}"] } };`,
+    );
+    expect(derivePlatformApiDbTestCensus({ platformApiRoot: fixture.root }).dbEntries).toContain(entry);
+    expect(runFixture(fixture).violations).toContain(`test:db:2 excludes selected DB test entry '${entry}'`);
+    expect(runFixture(fixture).violations).toContain(`${entry} is not selected by any numbered unit`);
+  });
+
+  it.each(["--config other.config.ts", "--root elsewhere", "--testNamePattern subset", "--shard 1/2"])(
+    "rejects a DB invocation that narrows or changes execution with %s",
+    async (option) => {
+      const fixture = await createDbCensusFixture();
+      await editScripts(fixture, (scripts) => {
+        scripts["test:db:2"] += ` ${option}`;
+      });
+      expect(runFixture(fixture).violations).toContain(
+        "test:db:2 changes the canonical Vitest discovery or case selection; complete DB entry execution is required",
+      );
+    },
+  );
 
   // -- schedule model boundaries -------------------------------------------
 
@@ -1599,6 +2051,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(result.partitionUnitCount).toBe(3);
     expect(result.schedule.observedUnitCount).toBe(3);
     expect(result.violations).toEqual([
+      "test:db:3 selects non-DB test entry '__tests__/plain-unit.test.ts'",
       "test:db:3 is executed by hosted CI but owns no manifested bootstrap DB file; every numbered execution " +
         "unit must own manifested executable DB entries",
       "the shipped topology spends 3 execution units where the schedule model's minimumUnitCount for the same " +
@@ -1620,6 +2073,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(runFixture(fixture).violations).toEqual([
       "test:db:extra is selected and executed by the test:db* workspace selector but is not a numbered " +
         "test:db:<number> execution unit, so its cost is never scheduled",
+      "test:db:extra selects non-DB test entry '__tests__/plain-unit.test.ts'",
     ]);
   });
 
@@ -2170,6 +2624,28 @@ describe("Platform API bootstrap DB enrollment", () => {
         expect.stringContaining("vitest.config.ts is required to derive the executable test-entry set"),
       ]),
     );
+  });
+
+  it("evaluates an unmistakably synthetic twelve-file 62-case shipped-shaped enrollment without changing main", async () => {
+    const files = shippedShapedFiles();
+    files.push({
+      fileName: "synthetic-twelfth-enrollment.db.test.ts",
+      databaseSuffix: "synthetic_twelfth_enrollment",
+      executionUnit: "test:db:2",
+      cases: [1_518, 1_332, 1_213, 1_273, 1_419].map((referenceDurationMs, index) => ({
+        name: `synthetic twelfth enrollment case ${index}`,
+        referenceDurationMs,
+        body: `  expect(${index}).toBe(${index});`,
+      })),
+    });
+    // These are synthetic workload inputs, not fresh connector reference facts.
+    const fixture = await createFixture(files, { model: { maximumScheduledFileCount: 12 } });
+    const result = runFixture(fixture);
+    expect(result.violations).toEqual([]);
+    expect(result.fileCount).toBe(12);
+    expect(result.caseCount).toBe(62);
+    expect(result.schedule.minimumUnitCount).toBe(2);
+    expect(bootstrapDbScheduleModel.maximumScheduledFileCount).toBe(11);
   });
 });
 

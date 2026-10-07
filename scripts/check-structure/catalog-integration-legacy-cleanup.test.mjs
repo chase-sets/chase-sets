@@ -54,6 +54,7 @@ describe("catalog integration legacy cleanup", () => {
         legacySourceObservationReferences: 1,
         integrationDurableJobs: 1,
         providerOptionRateLimits: 3,
+        providerOptionRateLimitsAboveFloor: 3,
       },
       editableSections: [{ section: "basics", rawJsonBacked: true }],
     });
@@ -108,5 +109,6 @@ function cleanReport() {
     profileSectionDiagnostics: 0,
     providerOptionQueryCacheEntries: 0,
     providerOptionRateLimits: 0,
+    providerOptionRateLimitsAboveFloor: 0,
   };
 }

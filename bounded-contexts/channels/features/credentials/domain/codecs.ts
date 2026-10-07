@@ -4,6 +4,7 @@ import {
   assertOpaqueId,
   assertProviderKey,
 } from "../../connections/domain/validation";
+import { parseSecretEnvelopeKeyring, SecretEnvelopeKeyringError } from "@chase-sets/platform-runtime/secret-envelope";
 import { ChannelCredentialError, type ChannelCredentialKeyring, type ChannelOAuthTokenSet } from "./contracts";
 
 function closed(value: unknown, keys: readonly string[]): asserts value is Record<string, unknown> {
@@ -157,42 +158,11 @@ export function encodeEnvelopeAad(value: unknown): Buffer {
 }
 
 export function parseChannelCredentialKeyring(json: string | undefined): ChannelCredentialKeyring | null {
-  if (json === undefined || json === "") return null;
   try {
-    if (Buffer.byteLength(json) > 16384) throw new Error();
-    const value: unknown = JSON.parse(json);
-    // JSON.parse accepts duplicate names. Inspect JSON string tokens, not substrings inside values.
-    const objects: Set<string>[] = [];
-    for (const match of json.matchAll(/"(?:[^"\\]|\\.)*"|[{}]/gs)) {
-      if (match[0] === "{") objects.push(new Set());
-      else if (match[0] === "}") objects.pop();
-      else if (/^\s*:/.test(json.slice(match.index + match[0].length))) {
-        const key: string = JSON.parse(match[0]);
-        const names = objects.at(-1);
-        if (!names || names.has(key)) throw new Error();
-        names.add(key);
-      }
-    }
-    closed(value, ["activeKeyId", "keys"]);
-    if (!Array.isArray(value.keys) || value.keys.length < 1 || value.keys.length > 32) throw new Error();
-    const keys = new Map<string, Uint8Array>();
-    for (const entry of value.keys) {
-      closed(entry, ["keyId", "keyBase64"]);
-      if (
-        typeof entry.keyId !== "string" ||
-        !/^[A-Za-z0-9_-]{1,64}$/.test(entry.keyId) ||
-        keys.has(entry.keyId) ||
-        typeof entry.keyBase64 !== "string"
-      )
-        throw new Error();
-      const key = Buffer.from(entry.keyBase64, "base64");
-      if (key.length !== 32 || key.toString("base64") !== entry.keyBase64) throw new Error();
-      keys.set(entry.keyId, key);
-    }
-    if (typeof value.activeKeyId !== "string" || !keys.has(value.activeKeyId)) throw new Error();
-    return { activeKeyId: value.activeKeyId, keys };
-  } catch {
-    throw new ChannelCredentialError("invalid-keyring");
+    return parseSecretEnvelopeKeyring(json);
+  } catch (error) {
+    if (error instanceof SecretEnvelopeKeyringError) throw new ChannelCredentialError("invalid-keyring");
+    throw error;
   }
 }
 

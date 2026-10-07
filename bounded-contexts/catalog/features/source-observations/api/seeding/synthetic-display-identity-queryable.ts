@@ -8,7 +8,7 @@ import type { CatalogPromotionCurrentItem } from "../promotion/promotion-display
  * unmistakably synthetic identities. It is never evidence of production
  * identity validation: database-free seed and unit evidence uses it so the
  * validated planner entry still runs the real resolver, while PostgreSQL
- * proofs run against the projected read model.
+ * proofs run against authoritative Reference Record histories.
  */
 
 export type SyntheticDisplayTemplate = Readonly<{
@@ -35,6 +35,7 @@ export type SyntheticDisplayIdentityFixture = Readonly<{
   fields?: readonly Readonly<{ field_id: string; key: string }>[];
   templates?: readonly SyntheticDisplayTemplate[];
   referenceRecords?: readonly SyntheticReferenceRecord[];
+  projectReferenceRecords?: boolean;
   currentItems?: readonly CatalogPromotionCurrentItem[];
   /** Receives every query this fixture does not own. */
   fallback?: PgQueryable;
@@ -76,8 +77,16 @@ export function createSyntheticDisplayIdentityQueryable(
       );
       return { rowCount: rows.length, rows: rows as T[] };
     }
-    if (sql.includes("FROM catalog_reference_records") && sql.includes("reference_record_id = ANY($1)")) {
-      const rows = referenceRecords.filter((record) => ids(0).includes(record.reference_record_id));
+    if (
+      sql.includes("AS reference_event") ||
+      (sql.includes("FROM catalog_reference_records") && sql.includes("reference_record_id = ANY($1)"))
+    ) {
+      const records = referenceRecords.filter((record) => ids(0).includes(record.reference_record_id));
+      const rows = sql.includes("AS reference_event")
+        ? records.flatMap(syntheticReferenceRecordEvents)
+        : fixture.projectReferenceRecords === false
+          ? []
+          : records;
       return { rowCount: rows.length, rows: rows as T[] };
     }
     if (sql.includes("FROM catalog_item_aliases") || sql.includes("FROM catalog_reference_record_aliases")) {
@@ -94,6 +103,31 @@ export function createSyntheticDisplayIdentityQueryable(
   };
 
   return { query, queries } as SyntheticDisplayIdentityQueryable;
+}
+
+export function syntheticReferenceRecordEvents(record: SyntheticReferenceRecord) {
+  const events = [
+    {
+      type: "catalog.reference-record.created",
+      data: {
+        referenceRecordId: record.reference_record_id,
+        typeKey: record.type_key,
+        key: record.key,
+        name: { defaultLocale: "en", values: { en: record.name } },
+        description: { defaultLocale: "en", values: { en: "" } },
+        attributes: record.attributes,
+        relationships: record.relationships,
+      },
+    },
+    ...["active", "deprecated", "archived"]
+      .slice(0, ["draft", "active", "deprecated", "archived"].indexOf(record.status))
+      .map((status) => ({ type: `catalog.reference-record.${status === "active" ? "published" : status}`, data: {} })),
+  ];
+  return events.map((reference_event, index) => ({
+    reference_record_id: record.reference_record_id,
+    stream_version: index + 1,
+    reference_event,
+  }));
 }
 
 /** A synthetic draft Catalog Item row for refresh/link-existing fixtures. */

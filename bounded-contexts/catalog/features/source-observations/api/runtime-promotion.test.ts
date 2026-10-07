@@ -779,6 +779,56 @@ describe("source observation runtime: promotion and reapply", () => {
     );
   });
 
+  it("refuses set-reference promotion on a poisoned Reference Record history before any receipt", async () => {
+    // SYNTHETIC poison: the discovered Set history carries a second published
+    // event. The fold would still end active; the transition is illegal.
+    const harness = createChangedObservationRefreshHarness({
+      providerKey: "lorcanajson",
+      externalKey: "set:TFC",
+      sourceUrl: "https://lorcanajson.org/files/current/en/sets/setdata.TFC.json",
+      sourceProfileKey: "lorcana-set-reference-data",
+      sourceProfileVersion: "2026.06.23",
+      sourceMappingFingerprint: "fingerprint:lorcanajson:lorcana-set:2026.06.23",
+      status: "observed",
+      promotedCatalogItemId: null,
+      normalized: lorcanaSetReferenceObservation(),
+      referenceHistoryPoison: "repeated-publish",
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    // The product-line record is provisioned ahead of the Set and is the first
+    // poisoned history the hierarchy reads.
+    await expect(services.promoteObservation({ observationId: "obs_changed", context })).rejects.toThrow(
+      "promotion-reference-history-invalid:catalog.reference-record-ref_disney-lorcana",
+    );
+    expect(harness.appendedSourceEvents).toEqual([]);
+    expect(harness.referenceRecordCreateCommands).toEqual([]);
+    expect(harness.itemCommands).toEqual([]);
+  });
+
+  it("refuses Catalog Item promotion on a poisoned Reference Record history before any Catalog write", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      status: "observed",
+      promotedCatalogItemId: null,
+      referenceHistoryPoison: "repeated-publish",
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.promoteObservations({ observationIds: ["obs_changed"], context });
+
+    expect(result.outcomes).toEqual([
+      {
+        observationId: "obs_changed",
+        status: "failed",
+        catalogItemId: null,
+        reason: expect.stringContaining("promotion-reference-history-invalid:catalog.reference-record-ref_"),
+      },
+    ]);
+    expect(harness.itemCommands).toEqual([]);
+    expect(harness.appendedSourceEvents).toEqual([]);
+    expect(harness.referenceRecordCreateCommands).toEqual([]);
+  });
+
   it("fails image-backed promotion before writing partial Catalog Item commands when asset storage is unavailable", async () => {
     const harness = createChangedObservationRefreshHarness({
       status: "observed",

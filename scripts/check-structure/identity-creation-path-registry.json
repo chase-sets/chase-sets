@@ -6,7 +6,7 @@
       "kind": "public-first-use",
       "disposition": "bound",
       "reason": "Public first-use path; creates a personal identity through createPersonalIdentityForAuth and carries the registration consent submission its caller supplied.",
-      "sites": [{ "file": "bounded-contexts/auth/support/api-support/register-routes.ts", "line": 52 }]
+      "sites": [{ "file": "bounded-contexts/auth/support/api-support/register-routes.ts", "line": 53 }]
     },
     {
       "id": "invitation-registration",
@@ -22,7 +22,7 @@
       "kind": "public-first-use",
       "disposition": "bound",
       "reason": "Public first-use path; a consumed magic link for an unknown email creates a personal identity.",
-      "sites": [{ "file": "bounded-contexts/auth/support/api-support/magic-link-routes.ts", "line": 136 }]
+      "sites": [{ "file": "bounded-contexts/auth/support/api-support/magic-link-routes.ts", "line": 137 }]
     },
     {
       "id": "passkey-registration",
@@ -30,7 +30,7 @@
       "kind": "public-first-use",
       "disposition": "bound",
       "reason": "Public first-use path; a passkey ceremony for an unknown email creates a personal identity.",
-      "sites": [{ "file": "bounded-contexts/auth/support/api-support/passkey-routes.ts", "line": 117 }]
+      "sites": [{ "file": "bounded-contexts/auth/support/api-support/passkey-routes.ts", "line": 118 }]
     },
     {
       "id": "phone-code-registration",
@@ -62,7 +62,7 @@
       "kind": "direct-register-client",
       "disposition": "bound",
       "reason": "Registers synthetic accounts against the real register route; omitting the submission is the shape that failed a hosted CI shard, so it resolves before it registers.",
-      "sites": [{ "file": "deployables/marketplace/e2e/support/auth.ts", "line": 92 }]
+      "sites": [{ "file": "deployables/marketplace/e2e/support/auth.ts", "line": 148 }]
     },
     {
       "id": "guest-buy-now-freshness-probe",
@@ -70,7 +70,7 @@
       "kind": "direct-register-client",
       "disposition": "bound",
       "reason": "Registers a synthetic probe account against the real register route and resolves before it registers.",
-      "sites": [{ "file": "scripts/guest-buy-now-freshness-probe.mjs", "line": 1323 }]
+      "sites": [{ "file": "scripts/guest-buy-now-freshness-probe.mjs", "line": 1335 }]
     },
     {
       "id": "stripe-money-smoke-test",
@@ -86,7 +86,7 @@
       "kind": "protected-administration",
       "disposition": "exempt-permanent",
       "reason": "Permission-guarded operator action; the operator creating the account is not the consenting subject, so there is no registration moment to bind.",
-      "sites": [{ "file": "bounded-contexts/identity/features/accounts/api/route.ts", "line": 42 }]
+      "sites": [{ "file": "bounded-contexts/identity/features/accounts/api/route.ts", "line": 112 }]
     },
     {
       "id": "protected-user-administration",
@@ -135,8 +135,8 @@
       "disposition": "exempt-permanent",
       "reason": "Seeds pre-existing aggregate state directly through the command handlers so the bootstrap reconciliation it exercises has something to reconcile; no transport and no shipping surface.",
       "sites": [
-        { "file": "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts", "line": 182 },
-        { "file": "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts", "line": 903 }
+        { "file": "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts", "line": 184 },
+        { "file": "deployables/platform-api/__tests__/bootstrap-production-reconciliation.db.test.ts", "line": 1027 }
       ]
     },
     {
@@ -160,10 +160,10 @@
       "reason": "Provisions QA actors and already records consent directly; must migrate to the consent bundle once one exists.",
       "owningIssue": 5684,
       "sites": [
-        { "file": "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", "line": 188 },
-        { "file": "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", "line": 203 },
-        { "file": "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", "line": 233 },
-        { "file": "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", "line": 249 }
+        { "file": "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", "line": 189 },
+        { "file": "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", "line": 204 },
+        { "file": "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", "line": 234 },
+        { "file": "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts", "line": 250 }
       ]
     },
     {
@@ -174,26 +174,26 @@
       "reason": "Non-production seed data that records consent directly; must migrate to the consent bundle once one exists.",
       "owningIssue": 5684,
       "sites": [
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 272 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 283 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 294 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 305 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 322 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 385 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 455 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 484 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 524 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 542 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 572 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 584 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 596 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 627 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 640 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 655 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 844 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 895 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 944 },
-        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 983 }
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 442 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 452 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 462 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 472 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 491 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 548 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 579 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 591 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 613 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 625 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 639 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 649 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 659 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 672 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 683 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 696 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 863 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 914 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 963 },
+        { "file": "bounded-contexts/identity/support/runtime-support/seed.ts", "line": 1002 }
       ]
     }
   ],

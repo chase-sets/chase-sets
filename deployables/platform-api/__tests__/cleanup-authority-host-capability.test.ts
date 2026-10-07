@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { ShipmentGroupAdmissionAuthority } from "@chase-sets/order-groups";
+import type { module as fulfillmentModule } from "@chase-sets/fulfillment";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing/test-support";
 import { createApiHost } from "@chase-sets/platform-runtime/api";
 import { module as orderingModule } from "@chase-sets/ordering";
@@ -7,6 +9,18 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { createPlatformApiHost } from "../src/app";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
+
+const captured = vi.hoisted(() => ({ ports: undefined as Readonly<Record<string, unknown>> | undefined }));
+vi.mock("@chase-sets/platform-runtime/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@chase-sets/platform-runtime/api")>();
+  return {
+    ...actual,
+    createApiHost: (...args: Parameters<typeof actual.createApiHost>) => {
+      captured.ports = args[2].hostPorts;
+      return actual.createApiHost(...args);
+    },
+  };
+});
 
 /**
  * AC-10: the platform-api composition root supplies Ordering's required
@@ -38,7 +52,7 @@ function createPools(runtimeProfile: "landing" | "public") {
 }
 
 describe("cleanup-authority-inventory-host-capability", () => {
-  it("supplies the available variant from the real platform-api registry", async () => {
+  it("supplies the available cleanup capability and binds the lazy admission port from the real platform-api registry", async () => {
     const pools = createPools("public");
     try {
       const runtime = createPlatformApiHost({
@@ -46,6 +60,29 @@ describe("cleanup-authority-inventory-host-capability", () => {
         pools,
         hostPorts: { processorGateway: createFakePaymentProcessorGateway() },
       });
+      const fulfillment = runtime.services.fulfillment as ReturnType<typeof fulfillmentModule.createServices>;
+      const port = captured.ports?.shipmentGroupAdmissionAuthority as ShipmentGroupAdmissionAuthority;
+      expect(Object.keys(port).sort()).toEqual(["abort", "commit", "reserve"]);
+      const authority = fulfillment.shipments.shipmentGroupAdmissionAuthority;
+      const reserve = vi.spyOn(authority, "reserve").mockResolvedValue({ status: "identity-conflict" });
+      const commit = vi.spyOn(authority, "commit").mockResolvedValue({ status: "not-reserved" });
+      const abort = vi.spyOn(authority, "abort").mockResolvedValue({ status: "not-reserved" });
+      const input = {
+        requestId: "synthetic-request",
+        sourceGeneration: 1,
+        draftKey: "synthetic-draft",
+        anchorShipmentId: "shp_synthetic" as never,
+        anchorOrderId: "ord_anchor" as never,
+        proposedMemberOrderId: "ord_proposed" as never,
+        groupId: "ogr_synthetic" as never,
+        quoteFingerprint: "synthetic-quote",
+      };
+      await expect(port.reserve(input, accountContext)).resolves.toEqual({ status: "identity-conflict" });
+      await port.commit({ ...input, anchorOrderVersion: 7 }, accountContext);
+      await port.abort({ ...input, reason: "cancelled" }, accountContext);
+      expect(reserve).toHaveBeenCalledWith(input, accountContext);
+      expect(commit).toHaveBeenCalledWith({ ...input, anchorOrderVersion: 7 }, accountContext);
+      expect(abort).toHaveBeenCalledWith({ ...input, reason: "cancelled" }, accountContext);
       const ordering = orderingServicesOf(runtime.services);
 
       expect(ordering.orders.cleanupAuthority.kind).toBe("available");

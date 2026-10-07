@@ -1432,7 +1432,14 @@ describe("ProviderAdapterRegistry", () => {
   it("reports TCGplayer credential readiness without exposing credential material", async () => {
     const configured = await createTcgplayerProviderAdapter({
       loadProfileVersions: async () => [requireTcgplayerPokemonProfileVersion()],
-      client: tcgplayerClient(),
+      client: {
+        ...tcgplayerClient(),
+        resolveCredentialReadiness: async () => ({
+          sourceKind: "environment-secret",
+          state: "configured",
+          diagnosticCode: null,
+        }),
+      },
       now: () => new Date("2026-06-06T00:00:00.000Z"),
     }).getCredentialReadiness();
     const unconfigured = await createTcgplayerProviderAdapter({
@@ -1463,6 +1470,11 @@ describe("ProviderAdapterRegistry", () => {
     expect(JSON.stringify([...configured, ...unconfigured])).not.toMatch(
       /TCGAuthTicket|password|Bearer|authorization/i,
     );
+    const unresolved = await createTcgplayerProviderAdapter({
+      loadProfileVersions: async () => [requireTcgplayerPokemonProfileVersion()],
+      client: tcgplayerClient(),
+    }).getCredentialReadiness();
+    expect(unresolved[0]).toMatchObject({ state: "missing" });
   });
 
   it("validates MTGJSON reference data through ProviderAdapter extension points", async () => {

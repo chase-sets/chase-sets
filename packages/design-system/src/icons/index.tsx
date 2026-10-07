@@ -142,7 +142,8 @@ export type IconName =
   | "mapPin"
   | "checkCircle"
   | "xCircle"
-  | "inbox";
+  | "inbox"
+  | "mail";
 
 type IconSize = "sm" | "md" | "lg";
 type IconTone =
@@ -232,6 +233,7 @@ const iconMap: Record<IconName, LucideIcon> = {
   checkCircle: CheckCircle2,
   xCircle: XCircle,
   inbox: Inbox,
+  mail: Mail,
 };
 
 const sizeClasses: Record<IconSize, string> = {

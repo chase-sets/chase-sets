@@ -203,6 +203,20 @@ export function createRegisteredScheduledRunners({
     | undefined;
   const durableJobRetention = createDurableJobRetentionTask(services, logger);
   const runners: WorkerRunner[] = [];
+  const reviewOpportunityPublication = (services.marketplace as MarketplaceServices | undefined)
+    ?.reviewOpportunityPublication;
+  if (reviewOpportunityPublication) {
+    runners.push(
+      createScheduledJobRunner("marketplace.review-opportunity-publication", 1_000, controlPlane, () =>
+        reviewOpportunityPublication.run(SYSTEM_CONTEXT),
+      ),
+    );
+    runners.push(
+      createScheduledJobRunner("marketplace.review-opportunity-backfill", 60_000, controlPlane, () =>
+        reviewOpportunityPublication.backfill(),
+      ),
+    );
+  }
   const managedOfferWork = (services.marketplace as MarketplaceServices | undefined)?.managedOfferWork;
   if (managedOfferWork) {
     runners.push(

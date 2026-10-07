@@ -5,7 +5,7 @@ import type {
   CatalogProviderProfileVersionReview,
   SourceObservationIntegrationScope,
   SourceObservationListItem,
-} from "../../../client";
+} from "../../client-support/contracts";
 import type {
   CatalogSyncProviderParticipationPreview,
   CatalogSyncScope,
@@ -60,7 +60,7 @@ import {
   resolveCatalogAttentionQueueResult,
   type CatalogDeferredAttentionQueueResult,
 } from "./attention-queue-result";
-import { CatalogApiError } from "../../../client";
+import { ApiError as CatalogApiError } from "../../shell-support/api/client";
 import { createCatalogRequestApiClient } from "../../../support/request-support/api-client";
 import { integrationScopeFromContext, previewPromotionForContext } from "./integrations-command-context";
 import {
@@ -410,11 +410,16 @@ async function selectedImportPreview(
 
   try {
     const expectedScope = integrationScopeFromContext(context);
-    const preview =
-      await api.previewSourceObservationIntegrationImport<SourceObservationIntegrationImportPreview>(expectedScope);
+    const preview = await withSourceOptionPageTimeout(
+      api.previewSourceObservationIntegrationImport<SourceObservationIntegrationImportPreview>(expectedScope),
+      SOURCE_OPTION_CACHE_PAGE_TIMEOUT_MS,
+    );
 
     return importPreviewMatchesSelectedScope(preview, expectedScope) ? preview : null;
-  } catch {
+  } catch (error) {
+    if (error instanceof CatalogSourceOptionPageTimeoutError) {
+      throw error;
+    }
     return null;
   }
 }
@@ -941,10 +946,9 @@ async function selectedProviderSourceOptionPages(
         return { request: sourceOptionRequest };
       }
 
-      const forceRefresh = catalogPrimaryWorkbenchSourceOptionForcesRefresh(
-        refreshIntent,
-        sourceOptionRequest.queryKind,
-      );
+      const forceRefresh =
+        catalogPrimaryWorkbenchSourceOptionForcesRefresh(refreshIntent, sourceOptionRequest.queryKind) &&
+        !(refreshIntent?.action === "force-refresh-all" && sourceOptionRequest.scope === "product/card");
       const href =
         forceRefresh && sourceOptionRequest.refreshHref
           ? sourceOptionRequest.refreshHref

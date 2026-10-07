@@ -15,10 +15,12 @@ export type CatalogIntegrationDataSurfaceKey =
   | "bulk-review-job-event"
   | "bulk-review-work-unit"
   | "provider-option-query-cache"
-  | "provider-option-rate-limit";
+  | "provider-option-rate-limit"
+  | "provider-option-rate-limit-lease";
 
 export type CatalogIntegrationDataResetAction =
   | "delete"
+  | "reset-to-floor"
   | "delete-and-rebuild-seed"
   | "rebuild-from-profile-version"
   | "verify-only";
@@ -110,6 +112,7 @@ export type CatalogIntegrationDataVerificationReport = Readonly<{
   profileSectionDiagnostics: number;
   providerOptionQueryCacheEntries: number;
   providerOptionRateLimits: number;
+  providerOptionRateLimitsAboveFloor: number;
 }>;
 
 export type CatalogIntegrationDataBackfillDecision = Readonly<{
@@ -380,14 +383,25 @@ export const catalogIntegrationDataSurfacePolicies = [
     tableName: "catalog_tcgplayer_automation_domain_rate_limits",
     compatibilitySurface: "provider-payload-provenance-envelope",
     retention: "operational-cache",
-    resetAction: "delete",
+    resetAction: "reset-to-floor",
     resetOrder: 105,
-    retainedWhen: [
-      "learned provider throttling state is operational cache and is not retained across pre-launch reset",
-    ],
+    retainedWhen: ["learned provider throttling state is reset to configured floors across pre-launch reset"],
     backfillRequirement: "No backfill; adapters relearn throttling from current runtime behavior.",
     rollbackRequirement: "Rollback does not restore learned throttling state.",
-    verificationQuery: "SELECT COUNT(*) AS count FROM catalog_tcgplayer_automation_domain_rate_limits",
+    verificationQuery:
+      "SELECT COUNT(*) AS count FROM catalog_tcgplayer_automation_domain_rate_limits WHERE effective_request_delay_ms <> min_request_delay_ms OR effective_learned_min_delay_ms <> min_request_delay_ms OR shared_success_streak <> 0",
+  },
+  {
+    key: "provider-option-rate-limit-lease",
+    tableName: "catalog_tcgplayer_automation_domain_rate_limit_leases",
+    compatibilitySurface: "provider-payload-provenance-envelope",
+    retention: "operational-cache",
+    resetAction: "verify-only",
+    resetOrder: 106,
+    retainedWhen: ["live leases remain until response settlement or expiry; reset never deletes an active lease"],
+    backfillRequirement: "No backfill; expired leases are reclaimed by the next admission statement.",
+    rollbackRequirement: "Rollback leaves lease rows untouched and predecessor senders remain fenced.",
+    verificationQuery: "SELECT COUNT(*) AS count FROM catalog_tcgplayer_automation_domain_rate_limit_leases",
   },
   {
     key: "provider-profile-version",
@@ -408,17 +422,31 @@ export const catalogIntegrationDataSurfacePolicies = [
 ] as const satisfies readonly CatalogIntegrationDataSurfacePolicy[];
 
 export const catalogIntegrationDataResetDeleteStatements = catalogIntegrationDataSurfacePolicies
-  .filter((surface) => surface.resetAction === "delete" || surface.resetAction === "delete-and-rebuild-seed")
+  // Provider-send authority, quota, attempt and job-binding tables are permanent
+  // admission evidence. They are deliberately outside this pre-launch reset.
+  .filter((surface) => !surface.tableName.startsWith("catalog_provider_send_"))
+  .filter(
+    (surface) =>
+      surface.resetAction === "delete" ||
+      surface.resetAction === "reset-to-floor" ||
+      surface.resetAction === "delete-and-rebuild-seed",
+  )
   .sort((left, right) => left.resetOrder - right.resetOrder)
   .map((surface) => ({
     tableName: surface.tableName,
     action: surface.resetAction,
     sql:
-      surface.key === "provider-profile-version"
-        ? `DELETE FROM ${surface.tableName}
+      surface.key === "provider-option-rate-limit"
+        ? `UPDATE ${surface.tableName}
+   SET effective_request_delay_ms = min_request_delay_ms,
+       effective_learned_min_delay_ms = min_request_delay_ms,
+       shared_success_streak = 0,
+       updated_at = clock_timestamp()`
+        : surface.key === "provider-profile-version"
+          ? `DELETE FROM ${surface.tableName}
 WHERE authoring_audit_json IS NULL
   AND migration_evidence_json IS NULL`
-        : `DELETE FROM ${surface.tableName}`,
+          : `DELETE FROM ${surface.tableName}`,
   }));
 
 export function catalogIntegrationDataResetTargetTables(): readonly string[] {
@@ -676,6 +704,14 @@ export async function collectCatalogIntegrationDataVerificationReport(
     db,
     "SELECT COUNT(*) AS count FROM catalog_tcgplayer_automation_domain_rate_limits",
   );
+  const providerOptionRateLimitsAboveFloor = await countRows(
+    db,
+    `SELECT COUNT(*) AS count
+       FROM catalog_tcgplayer_automation_domain_rate_limits
+      WHERE effective_request_delay_ms <> min_request_delay_ms
+         OR effective_learned_min_delay_ms <> min_request_delay_ms
+         OR shared_success_streak <> 0`,
+  );
   const providerOptionQueryCacheEntries = await countRows(
     db,
     "SELECT COUNT(*) AS count FROM catalog_provider_option_query_cache",
@@ -700,6 +736,7 @@ export async function collectCatalogIntegrationDataVerificationReport(
     profileSectionDiagnostics,
     providerOptionQueryCacheEntries,
     providerOptionRateLimits,
+    providerOptionRateLimitsAboveFloor,
   };
 }
 
@@ -910,12 +947,12 @@ function catalogIntegrationDataResetPostconditionFindings(
       ),
     });
   }
-  if (report.providerOptionRateLimits > 0) {
+  if (report.providerOptionRateLimitsAboveFloor > 0) {
     findings.push({
       code: "post-reset-provider-rate-limits-remain",
       severity: "p1",
       message: resetEvidenceFindingMessage(
-        `Post-reset verification still has ${report.providerOptionRateLimits} learned provider rate-limit row(s).`,
+        `Post-reset verification still has ${report.providerOptionRateLimitsAboveFloor} provider rate-limit row(s) above their configured floors.`,
       ),
     });
   }

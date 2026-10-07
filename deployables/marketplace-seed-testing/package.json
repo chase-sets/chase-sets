@@ -7,7 +7,9 @@
     "testProfile": "db"
   },
   "scripts": {
-    "test:db": "vitest run --config ./tests/vitest.config.mjs"
+    "test:db": "vitest run --config ./tests/vitest.config.mjs",
+    "test:db:1": "vitest run --config ./tests/vitest.config.mjs tests/representative-catalog.test.ts",
+    "test:db:2": "vitest run --config ./tests/vitest.config.mjs tests/identity-anchor-representative-reconciliation.test.ts tests/marketplace-seed.test.ts tests/representative-commerce-state.test.ts"
   },
   "exports": {
     ".": "./index.ts"

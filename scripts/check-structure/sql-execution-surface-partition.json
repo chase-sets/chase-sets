@@ -38,6 +38,10 @@
     "bounded-contexts/catalog/features/display-templates/read-model/queries.ts",
     "bounded-contexts/catalog/features/fields/read-model/projection.ts",
     "bounded-contexts/catalog/features/fields/read-model/queries.ts",
+    "bounded-contexts/catalog/features/operator-session/api/grants.ts",
+    "bounded-contexts/catalog/features/operator-session/api/operation.ts",
+    "bounded-contexts/catalog/features/operator-session/api/outcomes.ts",
+    "bounded-contexts/catalog/features/operator-session/api/store.ts",
     "bounded-contexts/catalog/features/product-contents/api/runtime.ts",
     "bounded-contexts/catalog/features/product-contents/api/seed.ts",
     "bounded-contexts/catalog/features/product-contents/read-model/queries.ts",
@@ -64,6 +68,8 @@
     "bounded-contexts/catalog/features/source-observations/api/promotion/promotion-display-identity.ts",
     "bounded-contexts/catalog/features/source-observations/api/providers/provider-integration-profile-store.ts",
     "bounded-contexts/catalog/features/source-observations/api/providers/provider-profile-section-projection.ts",
+    "bounded-contexts/catalog/features/source-observations/api/providers/provider-send-ledger.ts",
+    "bounded-contexts/catalog/features/source-observations/api/providers/provider-send-runtime.ts",
     "bounded-contexts/catalog/features/source-observations/api/providers/tcgplayer-automation-client.ts",
     "bounded-contexts/catalog/features/source-observations/api/seeding/representative-catalog-replay.ts",
     "bounded-contexts/catalog/features/source-observations/api/seeding/seed.ts",
@@ -249,6 +255,7 @@
     "bounded-contexts/inventory/features/restock-decisions/read-model/queries.ts",
     "bounded-contexts/inventory/features/storage-locations/read-model/projection.ts",
     "bounded-contexts/inventory/features/storage-locations/read-model/queries.ts",
+    "bounded-contexts/inventory/index.ts",
     "bounded-contexts/inventory/support/runtime-support/inventory-adjustment-idempotency.ts",
     "bounded-contexts/inventory/support/runtime-support/stock-snapshot.ts",
     "bounded-contexts/marketplace/features/channel-inbound-clamp/api/runtime.ts",
@@ -270,6 +277,8 @@
     "bounded-contexts/marketplace/features/offers/read-model/seller-attention-source.ts",
     "bounded-contexts/marketplace/features/reviews/api/runtime.ts",
     "bounded-contexts/marketplace/features/reviews/integrations/notifications/notification-projector.ts",
+    "bounded-contexts/marketplace/features/reviews/integrations/opportunity-publication/publication.ts",
+    "bounded-contexts/marketplace/features/reviews/integrations/opportunity-publication/source-proof.ts",
     "bounded-contexts/marketplace/features/reviews/integrations/source/eligibility-sync.ts",
     "bounded-contexts/marketplace/features/reviews/integrations/source/source-projection.ts",
     "bounded-contexts/marketplace/features/reviews/read-model/hold-projection.ts",
@@ -301,6 +310,7 @@
     "bounded-contexts/ordering/index.ts",
     "bounded-contexts/ordering/support/account-support/projection.ts",
     "bounded-contexts/ordering/support/runtime-support/seed.ts",
+    "bounded-contexts/payments/features/payments/api/card-decline-store.ts",
     "bounded-contexts/payments/features/payments/api/webhook-transaction.ts",
     "bounded-contexts/payments/features/payments/integrations/account-risk-source/account-risk-source-projection.ts",
     "bounded-contexts/payments/features/payments/integrations/dispute-evidence/dispute-evidence-queries.ts",
@@ -447,7 +457,8 @@
     "infrastructure/platform-runtime/work-signal-store.ts",
     "infrastructure/provider-webhook-inbox/index.ts",
     "infrastructure/web-notifications/index.ts",
-    "scripts/catalog-integration-reset.ts"
+    "scripts/catalog-integration-reset.ts",
+    "scripts/catalog-provider-send-window.ts"
   ],
   "unprovableForm": [
     "deployables/platform-api/src/preview-postgres.ts",
@@ -455,7 +466,7 @@
     "infrastructure/platform-runtime/realtime-stream-limiter.ts"
   ],
   "unresolvedMemberRoots": {
-    "count": 281,
+    "count": 282,
     "fileCounts": {
       "bounded-contexts/auth/features/sessions/api/route.ts": 1,
       "bounded-contexts/auth/support/ucp-support/oauth.ts": 4,
@@ -475,7 +486,7 @@
       "bounded-contexts/catalog/features/source-observations/api/route-modules/provider-options-routes.ts": 17,
       "bounded-contexts/catalog/features/source-observations/api/route-modules/provider-profile-routes.ts": 1,
       "bounded-contexts/catalog/features/source-observations/api/route-modules/source-observation-review-routes.ts": 1,
-      "bounded-contexts/catalog/features/source-observations/api/route.ts": 1,
+      "bounded-contexts/catalog/features/source-observations/api/route.ts": 2,
       "bounded-contexts/catalog/support/authoring-support/seed.ts": 1,
       "bounded-contexts/channels/features/listing-composition/api/route.ts": 2,
       "bounded-contexts/channels/features/manual-sync/api/route.ts": 1,

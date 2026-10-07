@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData } from "react-router";
-import type { SourceObservationDetail } from "../../client";
+import type { SourceObservationDetail } from "../../support/client-support/contracts";
 import { SourceObservationDetailPage } from "../../features/source-observations/ui/source-observation-detail-page";
 import { createCatalogRequestApiClient } from "../../support/request-support/api-client";
 

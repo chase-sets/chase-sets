@@ -1,3 +1,4 @@
+import { retainProviderSendJobBinding, runProviderSendJob } from "./providers/provider-send-runtime";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
   createDurableJobExecutionContext,
@@ -262,6 +263,7 @@ export function createSourceObservationIntegrationJobRuntime({
         : [];
     const progress = bulkProgress(0, unitObservationIds.length, null, null, "queued");
 
+    await retainProviderSendJobBinding(deps, jobId);
     const job = await integrationJobStore.enqueue({
       jobId,
       jobKind: input.action,
@@ -491,18 +493,20 @@ export function createSourceObservationIntegrationJobRuntime({
 
     try {
       throwIfJobRunCancelled(input);
-      const turnResult =
+      const activeJob = claimed;
+      const turnResult = await runProviderSendJob(deps, claimed.jobId, async () =>
         claimed.action === "import"
           ? await processIntegrationImportJobTurn({
-              job: claimed,
+              job: activeJob,
               claimTtlMs: input.claimTtlMs,
               context: input,
             })
           : await processIntegrationReapplyJobTurn({
-              job: claimed,
+              job: activeJob,
               claimTtlMs: input.claimTtlMs,
               context: input,
-            });
+            }),
+      );
 
       throwIfJobRunCancelled(input);
       if (turnResult.complete) {
@@ -608,16 +612,18 @@ export function createSourceObservationIntegrationJobRuntime({
         throwIfLeaseLost: input.throwIfLeaseLost,
         claimTtlMs: input.claimTtlMs,
       });
-      const itemResult = await reapplyObservationIds({
-        observationIds: [claim.unit.payload.observationId],
-        context,
-        runReapplyObservation,
-        reapplyProfileMode: requireIntegrationJobReapplyProfileMode(
-          claim.unit.payload.reapplyProfileMode ?? job.reapplyProfileMode,
-          job.jobId,
-        ),
-        profileSnapshot: claim.unit.payload.profileSnapshot ?? job.profileSnapshot,
-      });
+      const itemResult = await runProviderSendJob(deps, job.jobId, () =>
+        reapplyObservationIds({
+          observationIds: [claim.unit.payload.observationId],
+          context,
+          runReapplyObservation,
+          reapplyProfileMode: requireIntegrationJobReapplyProfileMode(
+            claim.unit.payload.reapplyProfileMode ?? job.reapplyProfileMode,
+            job.jobId,
+          ),
+          profileSnapshot: claim.unit.payload.profileSnapshot ?? job.profileSnapshot,
+        }),
+      );
       const outcome = integrationReapplyOutcomeFromBulkOutcome(
         job,
         claim.unit.payload.observationId,

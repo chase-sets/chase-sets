@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-import { readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { basename, dirname, extname, relative, resolve, sep } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { parseDocument } from "yaml";
 import { acquireHeavySlot } from "./lib/heavy-slot.mjs";
+import { AUTHORITY_ROOT, validateManagedPostgresAuthoritySources } from "./managed-postgres-authority-sources.mjs";
 
 const MANIFEST_PATH = "scripts/managed-postgres-authority-manifest.json";
 const SCHEMA_PATH = "scripts/managed-postgres-authority-manifest.schema.json";
@@ -76,6 +77,10 @@ export async function scanManagedPostgresAuthority(options = {}) {
   await validateUsesTargets(repositoryRoot, discovery.usesSites, parsedFiles, violations);
 
   const { manifest, schemaValid } = await loadAndValidateManifest(repositoryRoot, violations);
+  const sourceResult = await validateManagedPostgresAuthoritySources(repositoryRoot);
+  if (!sourceResult.valid) {
+    violations.push(violation("authority-source-invalid", { file: AUTHORITY_ROOT }));
+  }
   const reconciliation = reconcileIngress(discovery.ingresses, schemaValid ? manifest.grants : [], violations);
   const boundary = enforceBoundaryInvariants({
     discovery,
@@ -657,67 +662,6 @@ async function resolveExecutableReference(repositoryRoot, baseDirectory, referen
   return path && isWithinRepository(repositoryRoot, path) ? path : null;
 }
 
-export function suggestedManifestForReport(report, ingresses, steps) {
-  const stepByKey = new Map(steps.map((step) => [stepKey(step), step]));
-  return {
-    schemaVersion: 1,
-    grants: ingresses
-      .map((ingress) => {
-        const step = stepByKey.get(stepKey(ingress));
-        return {
-          file: ingress.file,
-          jobId: ingress.jobId,
-          stepAnchor: ingress.stepAnchor,
-          secretName: ingress.secretName,
-          purpose: suggestedPurpose(ingress, step),
-        };
-      })
-      .sort(compareGrants),
-  };
-}
-
-function suggestedPurpose(ingress, step) {
-  if (step?.target === CANONICAL_BOUNDARY_ACTION) return "managed-postgres-boundary";
-  const text = `${ingress.file} ${ingress.jobId} ${ingress.stepAnchor} ${step?.target ?? ""}`.toLowerCase();
-  if (ingress.file === ".github/workflows/platform-database-restore-drill.yml" && /restore drill/.test(text)) {
-    return "restore-drill-fork-ca";
-  }
-  if (/terraform|foundation|state|apply|plan|production/.test(text)) return "terraform-infra";
-  if (/release.evidence/.test(text) || ingress.secretName.startsWith("RELEASE_EVIDENCE_")) return "release-evidence";
-  if (/spaces|artifact|evidence/.test(text) || ingress.secretName.startsWith("SPACES_")) return "spaces-evidence";
-  if (/alert|discord|issue/.test(text)) return "alerting";
-  if (/DIGITALOCEAN|doctl|doks|kubernetes/.test(`${ingress.secretName} ${text}`)) return "digitalocean-ops";
-  if (/STRIPE|EASYPOST|VOYAGE/.test(ingress.secretName)) return "marketplace-ops";
-  if (/test|smoke|e2e|qa|fixture/.test(text)) return "test-credentials";
-  return "application-runtime";
-}
-
-async function writeSuggestedManifest(repositoryRoot) {
-  const violations = [];
-  const yamlPaths = await enumerateYamlIngressFiles(repositoryRoot);
-  const parsedFiles = [];
-  for (const path of yamlPaths) {
-    const file = repositoryPath(repositoryRoot, path);
-    const document = parseDocument(await readFile(path, "utf8"), { prettyErrors: false, uniqueKeys: true });
-    if (document.errors.length > 0) {
-      throw new Error(`Cannot generate manifest while YAML is invalid: ${file}`);
-    }
-    parsedFiles.push({
-      absolutePath: path,
-      file,
-      kind: isWorkflowPath(file) ? "workflow" : "action",
-      value: document.toJS({ maxAliasCount: 100 }),
-    });
-  }
-  const discovery = discoverIngressAndSteps(parsedFiles, violations);
-  if (violations.length > 0) {
-    throw new Error("Cannot generate manifest while forbidden secret inheritance is present.");
-  }
-  const manifest = suggestedManifestForReport(null, discovery.ingresses, discovery.steps);
-  await writeFile(resolve(repositoryRoot, MANIFEST_PATH), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-  return manifest.grants.length;
-}
-
 function grantKey(value) {
   return `${value.file}\u0000${value.jobId}\u0000${value.stepAnchor}\u0000${value.secretName}`;
 }
@@ -896,16 +840,15 @@ function readCliOptions(argv) {
   const repositoryRoot = rootIndex >= 0 ? argv[rootIndex + 1] : undefined;
   return {
     repositoryRoot,
-    generateManifest: argv.includes("--generate-manifest"),
   };
 }
 
 async function main() {
   const options = readCliOptions(process.argv.slice(2));
   const repositoryRoot = resolve(options.repositoryRoot ?? fileURLToPath(new URL("..", import.meta.url)));
-  if (options.generateManifest) {
-    const grantCount = await writeSuggestedManifest(repositoryRoot);
-    process.stdout.write(`${JSON.stringify({ manifestGrantCount: grantCount })}\n`);
+  if (process.argv.includes("--generate-manifest")) {
+    process.stderr.write("--generate-manifest has been retired; use scripts/managed-postgres-authority-sources.mjs\n");
+    process.exitCode = 1;
     return;
   }
   const report = await scanManagedPostgresAuthority({ repositoryRoot });

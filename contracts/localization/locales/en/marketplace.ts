@@ -34,6 +34,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.app.host.purchases": "Purchases",
   "marketplace.app.host.reviews": "Reviews",
   "marketplace.app.host.sales": "Sales",
+  "marketplace.app.host.seller.money": "Seller money",
   "marketplace.app.host.sell": "Sell",
   "marketplace.app.host.sell.2": "Sell",
   "marketplace.app.host.cart": "Buy Cart",

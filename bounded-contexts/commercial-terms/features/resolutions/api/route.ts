@@ -64,15 +64,19 @@ export function createResolutionRoutes(services: ResolutionServices) {
 
     try {
       const scope = body.scope === "order" ? "order" : "listing";
+      const accountId =
+        access.actor.roleKey === "platform-admin"
+          ? String(body.accountId ?? access.actor.accountId)
+          : access.actor.accountId;
       const result =
         scope === "order"
           ? await services.previewOrderTerms({
-              accountId: String(body.accountId ?? access.actor.accountId),
+              accountId,
               amount: String(body.amount ?? ""),
               effectiveAt: typeof body.effectiveAt === "string" ? body.effectiveAt : undefined,
             })
           : await services.previewListingTerms({
-              accountId: String(body.accountId ?? access.actor.accountId),
+              accountId,
               amount: String(body.amount ?? ""),
               effectiveAt: typeof body.effectiveAt === "string" ? body.effectiveAt : undefined,
             });

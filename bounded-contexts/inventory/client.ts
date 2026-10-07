@@ -345,7 +345,7 @@ export function createInventoryApiClient({
         }),
       );
     },
-    async extendCheckoutReservation(id: string, body: Record<string, unknown>) {
+    async extendCheckoutReservation(id: string, body: Readonly<{ checkoutSessionId: string; lineKey?: string }>) {
       return parseJsonResponse(
         await client["checkout-reservations"][":id"].extend.$post({
           param: { id },
@@ -354,7 +354,7 @@ export function createInventoryApiClient({
         }),
       );
     },
-    async releaseCheckoutReservation(id: string, body: Record<string, unknown>) {
+    async releaseCheckoutReservation(id: string, body: Readonly<{ checkoutSessionId: string; lineKey?: string }>) {
       return parseJsonResponse(
         await client["checkout-reservations"][":id"].release.$post({
           param: { id },
