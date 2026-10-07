@@ -270,14 +270,12 @@ def crash_observation(text):
                 result.append({'pid': pid, 'start': start, 'observation': 'gone'})
                 continue
             status = bounded_read(path / 'status')
-            cmdline = bounded_read(path / 'cmdline')
             core = re.findall(r'^CoreDumping:\s+([01])$', status, re.M)
             tracer = re.findall(r'^TracerPid:\s+([0-9]+)$', status, re.M)
             after = parse_stat(bounded_read(path / 'stat'), pid)
             if after['start'] != start or len(tracer) != 1:
                 raise ValueError()
             result.append({'pid': pid, 'start': start, 'observation': 'present',
-                           'renderer': '--type=renderer' in cmdline.split('\0'),
                            'coreDumping': int(core[0]) if len(core) == 1 else None,
                            'traced': int(tracer[0]) != 0,
                            'state': after['state'] if after['state'] in ('R', 'S', 'D', 'T', 't', 'Z', 'I') else 'other'})

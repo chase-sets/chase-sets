@@ -17,12 +17,11 @@ SOURCE = Path(__file__).with_name('launcher.c').read_text()
 class NativeVariantFixtures(unittest.TestCase):
     def test_crash_observation_emits_only_closed_renderer_status(self):
         def read(path):
-            return {'stat': 'synthetic', 'status': 'CoreDumping:\t1\nTracerPid:\t0\n',
-                    'cmdline': '/browser/chrome\0--type=renderer\0SYNTHETIC_PRIVATE\0'}[path.name]
+            return {'stat': 'synthetic', 'status': 'CoreDumping:\t1\nTracerPid:\t0\nName:\tSYNTHETIC_PRIVATE\n'}[path.name]
         output = StringIO()
         with patch.object(variants, 'bounded_read', side_effect=read), patch.object(variants, 'parse_stat', return_value={'pid': 42, 'start': 100, 'state': 'S'}), redirect_stdout(output):
             variants.crash_observation('42:100')
-        self.assertEqual(json.loads(output.getvalue()), [{'pid': 42, 'start': 100, 'observation': 'present', 'renderer': True, 'coreDumping': 1, 'traced': False, 'state': 'S'}])
+        self.assertEqual(json.loads(output.getvalue()), [{'pid': 42, 'start': 100, 'observation': 'present', 'coreDumping': 1, 'traced': False, 'state': 'S'}])
         self.assertNotIn('SYNTHETIC_PRIVATE', output.getvalue())
 
     def test_missing_crash_status_is_not_process_absence(self):

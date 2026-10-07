@@ -1,7 +1,18 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { expect, it } from "vitest";
-import { browserPipe, partitionOwnedSnapshot } from "./browser-lifecycle-controls.mjs";
+import { browserPipe, partitionOwnedSnapshot, nativeCrashObserved } from "./browser-lifecycle-controls.mjs";
+
+it("native crash proof requires an actual CoreDumping transition on the same owned browser identity", () => {
+  const prior = { pid: 42, start: 100, observation: "present", coreDumping: 0 };
+  const owner = { pid: 42, start: 100, image: "chrome" };
+  const after = { ...prior, coreDumping: 1 };
+  expect(nativeCrashObserved([prior], [after], [owner])).toBe(true);
+  for (const patch of [{ coreDumping: 0 }, { coreDumping: null }, { observation: "gone" }, { start: 101 }, { pid: 43 }])
+    expect(nativeCrashObserved([prior], [{ ...after, ...patch }], [owner])).toBe(false);
+  expect(nativeCrashObserved([after], [after], [owner])).toBe(false);
+  expect(nativeCrashObserved([prior], [after], [{ ...owner, image: "launcher" }])).toBe(false);
+});
 
 it("partitions one fresh snapshot by ancestry, never mistaking late A children for B survivors", () => {
   const root = { pid: 10, parent: 1, start: 100, image: "launcher" };

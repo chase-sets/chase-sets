@@ -37,6 +37,22 @@ async function crashObservation(records) {
   return value;
 }
 
+export function nativeCrashObserved(before, after, owned) {
+  return after.some(
+    (record) =>
+      record.observation === "present" &&
+      record.coreDumping === 1 &&
+      owned.some((owner) => owner.image === "chrome" && owner.pid === record.pid && owner.start === record.start) &&
+      before.some(
+        (prior) =>
+          prior.pid === record.pid &&
+          prior.start === record.start &&
+          prior.observation === "present" &&
+          prior.coreDumping === 0,
+      ),
+  );
+}
+
 export function partitionOwnedSnapshot(snapshot, root) {
   assert.ok(snapshot.some((record) => record.pid === root.pid && record.start === root.start));
   const owned = new Set([root.pid]);
@@ -222,8 +238,13 @@ export async function browserLifecycleControls(stage) {
                   ),
               );
               await delay(200);
-              console.log(`installed-boundary renderer-after:${JSON.stringify(await crashObservation(records))}`);
-              await crashed;
+              const afterCrash = await crashObservation(records);
+              console.log(`installed-boundary renderer-after:${JSON.stringify(afterCrash)}`);
+              if (nativeCrashObserved(beforeCrash, afterCrash, records))
+                console.log(
+                  "installed-boundary renderer-crash-observed: kernel CoreDumping changed 0-to-1 for the same owned chrome PID/start",
+                );
+              else await crashed;
               running.child.stdio[3].end();
             } else if (mode === "pipe-cancel") running.child.stdio[3].end();
             else if (mode === "SIGKILL") {
