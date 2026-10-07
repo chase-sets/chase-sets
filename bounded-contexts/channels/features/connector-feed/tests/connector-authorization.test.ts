@@ -25,7 +25,7 @@ const actor = {
 function harness() {
   const audits: (readonly unknown[])[] = [];
   const db: PgTransactionalPool = {
-    async query(_text, values) {
+    async query(_text: string, values?: readonly unknown[]) {
       audits.push(values ?? []);
       return { rows: [] };
     },
