@@ -956,6 +956,47 @@ const repairedOmissionGuardOutcomes = (() => {
   };
 })();
 
+/**
+ * The three provisioning consumptions #8945 removed, in their production
+ * shapes. Kept inline rather than as fixtures so they add no governed
+ * evidence input; the suite itself is outside that footprint.
+ */
+const restoredProvisioningSeedSource = `import { authorizeConsentForProvisioning } from "../../features/consents/domain/consent-recording-authorization";
+
+declare function createSeedAggregateReconciler(options: {
+  send: (streamId: string, command: unknown) => unknown;
+}): unknown;
+declare const services: { consents: { commandHandler: (input: unknown) => unknown } };
+
+function buildScenarioIdentityReconcilers() {
+  const consentReconciler = (userId: unknown, accountId: unknown) =>
+    createSeedAggregateReconciler({
+      send: (streamId, command) =>
+        services.consents.commandHandler({
+          streamId,
+          command,
+          authorization: authorizeConsentForProvisioning(userId, accountId),
+        }),
+    });
+  return consentReconciler;
+}
+
+async function reconcileRepresentativeConsent(userId: unknown, accountId: unknown) {
+  return authorizeConsentForProvisioning(userId, accountId);
+}
+
+void buildScenarioIdentityReconcilers;
+void reconcileRepresentativeConsent;
+`;
+const restoredProvisioningAdminQaSource = `import { authorizeConsentForProvisioning } from "../../features/consents/domain/consent-recording-authorization";
+
+async function provisionAdminQaActorFixture(userId: unknown, accountId: unknown) {
+  return authorizeConsentForProvisioning(userId, accountId);
+}
+
+void provisionAdminQaActorFixture;
+`;
+
 const driftResult = buildPlantedSiteEvidence(
   "consent-drift-",
   "arbitrary/authorization.ts",
@@ -2348,10 +2389,10 @@ describe("Consent authorization sites", () => {
     const seedFile = "bounded-contexts/identity/support/runtime-support/seed.ts";
     const adminQaFile = "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts";
     const restored = [
-      [seedFile, `${fixtureRoot}/restored/seed.ts`],
-      [adminQaFile, `${fixtureRoot}/restored/admin-qa-actor-fixtures.ts`],
-    ].flatMap(([file, fixture]) =>
-      scanConsentAuthorizationSource(file, repoFile(fixture), ownerContexts)
+      [seedFile, restoredProvisioningSeedSource],
+      [adminQaFile, restoredProvisioningAdminQaSource],
+    ].flatMap(([file, source]) =>
+      scanConsentAuthorizationSource(file, source, ownerContexts)
         .filter(({ referenceClass }) => referenceClass === "consumption")
         .map(({ owner, constructor }) => ({ file, owner, constructor })),
     );
