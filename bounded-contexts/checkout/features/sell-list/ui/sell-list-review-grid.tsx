@@ -242,9 +242,10 @@ export function SellListReviewGrid({
             line.line_type === "selected-offer"
               ? offerReviewsByLineId.get(line.line_id)
               : productOfferReviewsByLineId.get(line.line_id);
-          const estimatedNet = bestOffer
-            ? moneyNumber(bestOffer.terms?.seller_net_unit_amount) * Math.min(line.quantity, bestOffer.quantity)
-            : 0;
+          const bestOfferNet =
+            bestOffer?.terms && offers.every((offer) => offer.terms)
+              ? moneyNumber(bestOffer.terms.seller_net_unit_amount) * Math.min(line.quantity, bestOffer.quantity)
+              : null;
           return (
             <ProductCard
               key={line.line_id}
@@ -265,8 +266,11 @@ export function SellListReviewGrid({
                     : t("checkout.features.sellList.ui.sellListPage.no.ready.matching.offers")}
                 </Badge>
               }
-              price={t("checkout.features.sellList.ui.sellListPage.estimated.net", {
-                amount: formatMoney(estimatedNet),
+              price={t("checkout.features.sellList.ui.sellListPage.best.offer.net", {
+                amount:
+                  bestOfferNet === null
+                    ? t("checkout.features.sellList.ui.sellListPage.not.quoted.yet")
+                    : formatMoney(bestOfferNet),
               })}
               meta={t("checkout.features.sellList.ui.sellListPage.card.summary", {
                 quantity: line.quantity,
