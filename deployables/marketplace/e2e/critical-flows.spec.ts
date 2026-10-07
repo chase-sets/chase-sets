@@ -255,6 +255,10 @@ test.describe("marketplace critical flows", () => {
       const hrefs = snapshot.flatMap((card) => card.links.map((link) => link.href));
       expect(hrefs).toHaveLength(10);
       expect(new Set(hrefs).size, "unique detail destinations").toBe(10);
+      expect(
+        hrefs.every((href) => typeof href === "string" && !/[?#]/.test(href)),
+        "exact API detail destinations",
+      ).toBe(true);
       expect([...hrefs].sort(), "exact API detail destinations").toEqual(expectedHrefs);
     }
     assertCards(stable);
@@ -265,7 +269,11 @@ test.describe("marketplace critical flows", () => {
     for (const links of [[], [...stable[0]!.links, ...stable[0]!.links]]) {
       expect(() => assertCards([{ ...stable[0]!, links }, ...stable.slice(1)])).toThrow("one detail link per card");
     }
-    for (const href of ["/items/6110-wrong-item", `${stable[0]!.links[0]!.href}?unexpected=1`]) {
+    for (const href of [
+      "/items/6110-wrong-item",
+      `${stable[0]!.links[0]!.href}?unexpected=1`,
+      `${stable[0]!.links[0]!.href}#unexpected`,
+    ]) {
       expect(() => assertCards([{ ...stable[0]!, links: [{ href, visible: true }] }, ...stable.slice(1)])).toThrow(
         "exact API detail destinations",
       );
