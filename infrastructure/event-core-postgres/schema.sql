@@ -99,6 +99,17 @@ CREATE TABLE IF NOT EXISTS event_projection_checkpoints (
   updated_at timestamptz NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS event_projection_measure_publication_parts (
+  checkpoint_key text NOT NULL,
+  stream_id text NOT NULL,
+  stream_version bigint NOT NULL CHECK (stream_version > 0),
+  payload jsonb NOT NULL,
+  PRIMARY KEY (checkpoint_key, stream_id, stream_version)
+);
+
+CREATE INDEX IF NOT EXISTS event_projection_measure_publication_parts_checkpoint_idx
+  ON event_projection_measure_publication_parts (checkpoint_key);
+
 CREATE UNLOGGED TABLE IF NOT EXISTS event_projection_recovery_markers (
   projection_kind text NOT NULL CHECK (projection_kind IN ('projector', 'subscription')),
   projection_key text NOT NULL,
