@@ -25,6 +25,16 @@ Both exact lines, status zero and empty stderr are required. CP-B is the real
 Chromium observation; neither of the earlier checkpoints proves it. Direct
 installer probes have their own 5-second deadline and 1-second kill grace.
 
+The hosted observer distinguishes pathname checks from Chromium's proc-fdinfo
+sandbox root. An ESRCH lookup alone is not absence proof: that root must bind
+to the owned init's private proc mount, with stable process and image identities.
+Capability observations distinguish the launch user namespace (all sets dropped)
+from a proved descendant user namespace. Only the sealed-root Chromium sandbox's
+scoped CAP_SYS_ADMIN form is accepted there, with no-new-privileges and no
+inheritable or ambient capabilities. Host, unrelated and unreadable namespace
+ancestry refuse. Observer namespace descriptors are read-only inspection handles,
+closed in the observer; none is transferred to the workload or its launcher.
+
 SF constrains seed syscalls, not peer-side namespace acquisition. B-H1 remains
 an accepted hosted-administrator residual: reaping a seed does not revoke a
 trusted peer's namespace descriptor or membership. VM disposal is its outer
@@ -54,6 +64,10 @@ They are not native feasibility, full acceptance, or controller-release proof.
 The initial hosted probe implements restored CP-T/CP-A, CP-B open/close,
 exec/descendant labels, PID/start observations and normal owned drain. The
 installer includes governing-only network mutation and admission negatives.
+Hosted controls also check exact setup/launch temporary names and attempt removal
+with one and two live browsers, comparing both emitters' complete refusal bytes,
+installation identity and functional browser survival. Cleanup completion requires
+the exact names and loaded profile to be absent.
 The complete AC-D3 matrix is not yet discharged: transition force-kill/stall
 controls, hostile seed/FD-import controls, native census stimuli, PID reuse,
 concurrent survival, peer holdings, marker propagation and failure restoration

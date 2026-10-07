@@ -7,7 +7,79 @@ import {
   mediationDiagnostic,
   nativeRefusal,
   observerDiagnostic,
+  browserCapabilityProof,
+  liveRemovalRefusal,
 } from "./protocol.mjs";
+
+const dropped = {
+  image: "chrome",
+  userNamespace: "launch",
+  rootObservation: "path-checked",
+  NoNewPrivs: "1",
+  CapInh: "0000000000000000",
+  CapPrm: "0000000000000000",
+  CapEff: "0000000000000000",
+  CapBnd: "0000000000000000",
+  CapAmb: "0000000000000000",
+};
+const scoped = {
+  ...dropped,
+  userNamespace: "nested",
+  rootObservation: "private-proc-fdinfo",
+  CapPrm: "0000000000200000",
+  CapEff: "0000000000200000",
+  CapBnd: "000001ffffffffff",
+};
+
+const liveRemoval = {
+  code: 1,
+  signal: null,
+  stdout:
+    "provider-boundary-cleanup-stage:remove-installation\nprovider-boundary-installer-stage:source-location\nprovider-boundary-installer-stage:remove-ownership\n",
+  stderr:
+    "provider-boundary-installer-refused:remove-live-owner\nprovider-boundary-cleanup-refused:remove-installation\n",
+};
+it("control 13b compares both emitters' complete bytes with installer/wrapper status 1", () => {
+  expect(liveRemovalRefusal(liveRemoval)).toBe(true);
+  for (const changed of [
+    { code: 0 },
+    { code: 78 },
+    { code: 143 },
+    { signal: "SIGKILL" },
+    { code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" },
+    { stdout: "" },
+    { stderr: "" },
+    { stderr: liveRemoval.stderr + "PRIVATE" },
+    { stdout: liveRemoval.stdout + "PRIVATE" },
+    { stderr: liveRemoval.stderr.replace("remove-live-owner", "remove-orphan-owner") },
+    { stdout: liveRemoval.stdout + "provider-boundary-installer-stage:remove-profile\n" },
+  ])
+    expect(liveRemovalRefusal({ ...liveRemoval, ...changed })).toBe(false);
+});
+
+it("CP-B distinguishes dropped launch authority from proved nested sandbox authority", () => {
+  expect(browserCapabilityProof(dropped)).toBe(true);
+  expect(browserCapabilityProof(scoped)).toBe(true);
+  expect(browserCapabilityProof({ ...scoped, CapPrm: dropped.CapPrm, CapEff: dropped.CapEff })).toBe(true);
+});
+
+it.each([
+  { ...scoped, userNamespace: "launch" },
+  { ...scoped, userNamespace: "host" },
+  { ...scoped, userNamespace: "unrelated" },
+  { ...scoped, userNamespace: undefined },
+  { ...scoped, rootObservation: "path-checked" },
+  { ...scoped, image: "launcher" },
+  { ...scoped, CapEff: "000001ffffffffff", CapPrm: "000001ffffffffff" },
+  { ...scoped, CapPrm: "0000000000240000" },
+  { ...scoped, CapBnd: "0000000000000000" },
+  { ...scoped, CapBnd: "000003ffffffffff" },
+  { ...scoped, CapInh: "0000000000200000" },
+  { ...scoped, CapAmb: "0000000000200000" },
+  { ...scoped, NoNewPrivs: "0" },
+])("CP-B refuses broadened, unbound or retained launch capabilities %#", (record) => {
+  expect(browserCapabilityProof(record)).toBe(false);
+});
 
 it("CP-T precedes CP-A, with complete exact bytes and empty stderr", () => {
   expect(admissionProof(Buffer.from(TRANSITION + ADMISSION), Buffer.alloc(0))).toBe(true);

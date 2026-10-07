@@ -21,4 +21,15 @@ else
 fi
 mark remove-input
 if test -e "$input"; then sudo rm -rf -- "$input"; fi
+mark verify-exact-names
+require target-absent test ! -e /usr/local/lib/chase-sets-provider-window
+require target-absent test ! -L /usr/local/lib/chase-sets-provider-window
+require profile-absent test ! -e /etc/apparmor.d/chase-sets-provider-window
+require profile-absent test ! -L /etc/apparmor.d/chase-sets-provider-window
+require input-absent test ! -e "$input"
+require input-absent test ! -L "$input"
+profiles="$(sudo /usr/bin/cat /sys/kernel/security/apparmor/profiles)" || refuse profile-census
+case "$profiles" in
+  *'chase-sets-provider-window (unconfined)'*) refuse profile-present ;;
+esac
 mark complete

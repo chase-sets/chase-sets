@@ -76,6 +76,54 @@ def same_identity(record):
             current['state'] != 'Z' and (image.st_dev, image.st_ino) == record['image'])
 
 
+def launch_owner(record, records):
+    installed = LAUNCHER.stat()
+    image = (installed.st_dev, installed.st_ino)
+    initial = os.readlink('/proc/self/ns/pid')
+    current, visited = record, set()
+    while current['pid'] not in visited:
+        visited.add(current['pid'])
+        if current['image'] == image and current['path'] == str(LAUNCHER) and current['namespace'] == initial:
+            if not same_identity(current):
+                raise ValueError()
+            return current
+        parent = records.get(current['parent'])
+        if parent is None or parent['start'] > current['start']:
+            raise ValueError()
+        current = parent
+    raise ValueError()
+
+
+def namespace_parent(fd):
+    import fcntl
+    return fcntl.ioctl(fd, 0xb702)  # NS_GET_PARENT returns an O_CLOEXEC descriptor.
+
+
+def user_namespace_scope(record, owner):
+    host = Path('/proc/self/ns/user').stat()
+    launch = (Path('/proc') / str(owner['pid']) / 'ns/user').stat()
+    host_key, launch_key = (host.st_dev, host.st_ino), (launch.st_dev, launch.st_ino)
+    if host_key == launch_key or not same_identity(record):
+        raise ValueError()
+    fd = os.open(Path('/proc') / str(record['pid']) / 'ns/user', os.O_RDONLY | os.O_CLOEXEC)
+    try:
+        for depth in range(32):
+            info = os.fstat(fd)
+            key = (info.st_dev, info.st_ino)
+            if key == launch_key:
+                if not same_identity(record) or not same_identity(owner):
+                    raise ValueError()
+                return 'launch' if depth == 0 else 'nested'
+            if key == host_key:
+                return 'host' if depth == 0 else 'unrelated'
+            parent = namespace_parent(fd)
+            os.close(fd)
+            fd = parent
+        raise ValueError()
+    finally:
+        os.close(fd)
+
+
 def private_fdinfo_root(record, records):
     # Chromium can chroot to a helper's proc fdinfo directory. After that helper
     # exits, fdinfo permission returns ESRCH even while Chromium remains alive.
@@ -175,6 +223,8 @@ def observe(parent):
         stage = 'namespaces'
         fields['network'] = 'host' if os.readlink(path / 'ns/net') == os.readlink('/proc/self/ns/net') else 'isolated'
         fields['pidNamespace'] = 'host' if os.readlink(path / 'ns/pid') == os.readlink('/proc/self/ns/pid') else 'isolated'
+        stage = 'user-namespace'
+        fields['userNamespace'] = user_namespace_scope(r, launch_owner(r, records))
         stage = 'root'
         fields.update(inspect_root(r, records))
         result.append(dict(pid=pid, parent=r['parent'], start=r['start'], image=name, **fields))

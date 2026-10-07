@@ -68,3 +68,13 @@ it("operator, root and administrator boundaries have no runtime privilege fallba
   expect(launcher).toContain("prctl(PR_SET_DUMPABLE, 0)");
   expect(launcher).toContain("PR_SET_NO_NEW_PRIVS");
 });
+
+it("cleanup completion requires exact-name and loaded-profile absence after admitted removal", () => {
+  const cleanup = read("ci-cleanup.sh");
+  expect(cleanup.indexOf("input-not-symlink")).toBeLessThan(cleanup.indexOf("mark remove-installation"));
+  expect(cleanup.indexOf("mark verify-exact-names")).toBeGreaterThan(cleanup.indexOf("mark remove-input"));
+  for (const name of ["target-absent", "profile-absent", "input-absent", "profile-census", "profile-present"]) {
+    expect(cleanup.indexOf(name)).toBeGreaterThan(cleanup.indexOf("mark verify-exact-names"));
+    expect(cleanup.indexOf(name)).toBeLessThan(cleanup.indexOf("mark complete"));
+  }
+});

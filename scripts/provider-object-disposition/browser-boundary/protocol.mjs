@@ -134,10 +134,66 @@ export function mediationDiagnostic(error) {
   return diagnostics.get(error) ?? null;
 }
 
+export function browserCapabilityProof(record) {
+  const zero = "0000000000000000";
+  const sysAdmin = "0000000000200000";
+  const nestedBounding = "000001ffffffffff";
+  if (record.NoNewPrivs !== "1" || record.CapInh !== zero || record.CapAmb !== zero) return false;
+  if (record.userNamespace === "launch") {
+    return record.CapEff === zero && record.CapPrm === zero && record.CapBnd === zero;
+  }
+  // Chromium's namespace sandbox recreates a bounding set in its nested user
+  // namespace; its zygote retains only namespace-scoped CAP_SYS_ADMIN. The
+  // observer proves ancestry to this launch, not merely a non-host inode.
+  return (
+    record.userNamespace === "nested" &&
+    record.image === "chrome" &&
+    record.rootObservation === "private-proc-fdinfo" &&
+    [zero, sysAdmin].includes(record.CapEff) &&
+    record.CapPrm === record.CapEff &&
+    [zero, nestedBounding].includes(record.CapBnd) &&
+    (record.CapEff === zero || record.CapBnd === nestedBounding)
+  );
+}
+
+export function liveRemovalRefusal(error) {
+  const stdout = bytes(error?.stdout);
+  const stderr = bytes(error?.stderr);
+  return (
+    error?.code === 1 &&
+    !error?.signal &&
+    stdout !== null &&
+    stderr !== null &&
+    stdout.equals(
+      Buffer.from(
+        "provider-boundary-cleanup-stage:remove-installation\n" +
+          "provider-boundary-installer-stage:source-location\n" +
+          "provider-boundary-installer-stage:remove-ownership\n",
+      ),
+    ) &&
+    stderr.equals(
+      Buffer.from(
+        "provider-boundary-installer-refused:remove-live-owner\n" +
+          "provider-boundary-cleanup-refused:remove-installation\n",
+      ),
+    )
+  );
+}
+
 export function observerDiagnostic(error) {
   const stdout = bytes(error?.stdout);
   const stderr = bytes(error?.stderr);
-  const allowed = ["arguments", "census", "descendants", "status", "status-field", "label", "namespaces", "root"];
+  const allowed = [
+    "arguments",
+    "census",
+    "descendants",
+    "status",
+    "status-field",
+    "label",
+    "namespaces",
+    "user-namespace",
+    "root",
+  ];
   let stage =
     error?.code === 1 && !error?.signal && stdout?.length === 0 && stderr
       ? (allowed.find((name) => stderr.equals(Buffer.from(`provider-boundary-observer-refused:${name}\n`))) ??

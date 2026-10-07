@@ -178,6 +178,33 @@ class OwnershipControls(unittest.TestCase):
                 with mock.patch.object(observer.Path, 'stat', return_value=mock.Mock(st_dev=1, st_ino=3)):
                     self.assertFalse(observer.same_identity(record()))
 
+    def test_user_namespace_ancestry_is_bound_not_just_different_from_host(self):
+        for chain, expected in (((2,), 'launch'), ((3, 2), 'nested'), ((1,), 'host'), ((3, 1), 'unrelated')):
+            with self.subTest(chain=chain), ExitStack() as stack:
+                stack.enter_context(mock.patch.object(observer.Path, 'stat', autospec=True, side_effect=lambda p: mock.Mock(st_dev=1, st_ino=1 if 'self' in p.parts else 2)))
+                stack.enter_context(mock.patch.object(observer, 'same_identity', return_value=True))
+                stack.enter_context(mock.patch.object(observer.os, 'O_CLOEXEC', 0, create=True))
+                stack.enter_context(mock.patch.object(observer.os, 'open', return_value=100))
+                stack.enter_context(mock.patch.object(observer.os, 'fstat', side_effect=lambda fd: mock.Mock(st_dev=1, st_ino=chain[fd - 100])))
+                stack.enter_context(mock.patch.object(observer, 'namespace_parent', side_effect=lambda fd: fd + 1))
+                close = stack.enter_context(mock.patch.object(observer.os, 'close'))
+                self.assertEqual(observer.user_namespace_scope(record(), record()), expected)
+                self.assertEqual(close.call_args_list, [mock.call(100 + n) for n in range(len(chain))])
+
+    def test_user_namespace_observer_closes_handles_on_parent_refusal_and_depth_cap(self):
+        for error in (OSError(errno.EPERM, 'PRIVATE'), None):
+            with self.subTest(error=type(error).__name__), ExitStack() as stack:
+                stack.enter_context(mock.patch.object(observer.Path, 'stat', autospec=True, side_effect=lambda p: mock.Mock(st_dev=1, st_ino=1 if 'self' in p.parts else 2)))
+                stack.enter_context(mock.patch.object(observer, 'same_identity', return_value=True))
+                stack.enter_context(mock.patch.object(observer.os, 'O_CLOEXEC', 0, create=True))
+                stack.enter_context(mock.patch.object(observer.os, 'open', return_value=100))
+                stack.enter_context(mock.patch.object(observer.os, 'fstat', return_value=mock.Mock(st_dev=1, st_ino=3)))
+                stack.enter_context(mock.patch.object(observer, 'namespace_parent', side_effect=error or (lambda fd: fd + 1)))
+                close = stack.enter_context(mock.patch.object(observer.os, 'close'))
+                with self.assertRaises(OSError if error else ValueError):
+                    observer.user_namespace_scope(record(), record())
+                self.assertEqual(close.call_args_list, [mock.call(100 + n) for n in range(1 if error else 33)])
+
 
 if __name__ == '__main__':
     unittest.main()
