@@ -1,4 +1,4 @@
-import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { ChannelProviderRegistry } from "../../publication-port/domain/contracts";
 import type { OutboundSyncServices } from "../../outbound-sync/domain/contracts";
 import { assertClosedRecord } from "../../connections/domain/validation";
@@ -36,7 +36,7 @@ export function createConnectorTransport(
       const resolved = await policy();
       const admission = await deps.authority.withAuthority(
         { ...input, operation: "claim" },
-        async (authority, db) => {
+        async (authority, db: PgQueryable) => {
           if (!authority.pairingId || !authority.grant) throw new ConnectorPairingError("invalid-credential");
           const at = now().toISOString();
           const observed = await db.query<{ revision: number }>(
@@ -77,7 +77,7 @@ export function createConnectorTransport(
       assertConnectorReport(value);
       await deps.authority.withAuthority(
         { ...input, operation: "report" },
-        async (authority, db) => {
+        async (authority, db: PgQueryable) => {
           if (!authority.pairingId) throw new ConnectorPairingError("invalid-credential");
           const context = value.runSettlement?.context;
           if (context) {

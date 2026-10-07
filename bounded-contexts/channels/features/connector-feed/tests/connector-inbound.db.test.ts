@@ -9,8 +9,7 @@ import {
   type ContextSubscriptionStatus,
 } from "@chase-sets/bounded-context-runtime";
 import { module as channelsModule } from "../../../index";
-import { readAdmittedConnectorInboundEvents } from "../../../server";
-import { admitConnectorInbound } from "../read-model/inbound";
+import { admitConnectorInbound, readAdmittedConnectorInboundEvents } from "../read-model/inbound";
 import { connectorInboundSchemaMigrations } from "../read-model/inbound-schema";
 import type { ConnectorInbound } from "../domain/transport";
 import { describeDb, target, transportContext, transportDatabase } from "./transport-test-support";
