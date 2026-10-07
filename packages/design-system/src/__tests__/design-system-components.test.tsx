@@ -328,6 +328,8 @@ describe("6110 accessible compositions", () => {
     }
 
     it(`6110 panel names: sibling, grouped and mixed compositions ${phase}`, () => {
+      const onAccordionChange = vi.fn();
+      const onDisclosureChange = vi.fn();
       const items = ["Shipping choices", "Payment preferences"].map((title, index) => ({
         value: `section-${index}`,
         title,
@@ -346,12 +348,19 @@ describe("6110 accessible compositions", () => {
           />
           <Accordion
             data-testid="6110-sibling"
+            value={[]}
+            onValueChange={onAccordionChange}
             items={[{ value: "sibling", trigger: "Collection notes", content: "Notes" }]}
           />
           <ProgressiveDisclosure data-testid="6110-disclosure" title="Delivery instructions" defaultOpen>
             Delivery content
           </ProgressiveDisclosure>
-          <ProgressiveDisclosure data-testid="6110-disclosure-sibling" title="Packing instructions">
+          <ProgressiveDisclosure
+            data-testid="6110-disclosure-sibling"
+            title="Packing instructions"
+            open={false}
+            onOpenChange={onDisclosureChange}
+          >
             Packing content
           </ProgressiveDisclosure>
           <ProgressiveDisclosureGroup
@@ -389,6 +398,16 @@ describe("6110 accessible compositions", () => {
         if (phase === "client") {
           for (const item of items)
             expect(within(container).getByRole("button", { name: item.title }).id).toBe(item.triggerProps.id);
+          for (const [id, name] of [
+            ["6110-sibling", "Collection notes"],
+            ["6110-disclosure-sibling", "Packing instructions"],
+          ]) {
+            const controlled = within(within(container).getByTestId(id!)).getByRole("button", { name: name! });
+            fireEvent.click(controlled);
+            expect(controlled.getAttribute("aria-expanded")).toBe("false");
+          }
+          expect(onAccordionChange).toHaveBeenCalledWith("sibling");
+          expect(onDisclosureChange).toHaveBeenCalledWith(true);
           const disclosure = within(container).getByTestId("6110-disclosure");
           const trigger = within(disclosure).getByRole("button", { name: "Delivery instructions" });
           fireEvent.click(trigger);
