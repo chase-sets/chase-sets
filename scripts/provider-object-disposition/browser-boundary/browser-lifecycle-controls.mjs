@@ -19,6 +19,24 @@ const cleanupOptions = {
   encoding: "buffer",
 };
 
+async function crashObservation(records) {
+  const { stdout, stderr } = await execute(
+    "/usr/bin/sudo",
+    [
+      "-n",
+      "/usr/bin/python3",
+      "/usr/local/lib/chase-sets-provider-window-input/scripts/provider-object-disposition/browser-boundary/native-variants.py",
+      "crash-observation",
+      records.map(({ pid, start }) => `${pid}:${start}`).join(","),
+    ],
+    { ...cleanupOptions, timeout: 1000, maxBuffer: 16384 },
+  );
+  assert.equal(stderr.length, 0);
+  const value = JSON.parse(stdout);
+  assert.equal(value.length, records.length);
+  return value;
+}
+
 export function partitionOwnedSnapshot(snapshot, root) {
   assert.ok(snapshot.some((record) => record.pid === root.pid && record.start === root.start));
   const owned = new Set([root.pid]);
@@ -191,7 +209,10 @@ export async function browserLifecycleControls(stage) {
               await pipe.request("Target.setDiscoverTargets", { discover: true });
               phase = "inspector";
               await pipe.request("Inspector.enable", {}, sessionId);
+              const beforeCrash = await crashObservation(records);
+              console.log(`installed-boundary renderer-before:${JSON.stringify(beforeCrash)}`);
               const crashed = Promise.race([pipe.event("Inspector.targetCrashed"), pipe.event("Target.targetCrashed")]);
+              void crashed.catch(() => {});
               phase = "crash-event";
               void pipe.request("Page.crash", {}, sessionId).then(
                 () => console.log('installed-boundary renderer-crash-command:{"result":"returned"}'),
@@ -200,6 +221,8 @@ export async function browserLifecycleControls(stage) {
                     `installed-boundary renderer-crash-command:${JSON.stringify({ result: "rejected", kind: ["command", "closed", "stream", "overflow", "decode", "deadline"].includes(error.kind) ? error.kind : "unknown", code: error.commandCode ?? null })}`,
                   ),
               );
+              await delay(200);
+              console.log(`installed-boundary renderer-after:${JSON.stringify(await crashObservation(records))}`);
               await crashed;
               running.child.stdio[3].end();
             } else if (mode === "pipe-cancel") running.child.stdio[3].end();

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { openConfinedBrowser } from "../test-window-browser.mjs";
 import { BROWSER_BOOTSTRAP, createBrowserBudget, createBrowserBootstrapTransport } from "../test-window-policy.mjs";
 import { openBootstrapPage } from "./bootstrap.mjs";
+import { setTimeout as delay } from "node:timers/promises";
+import { withInstallationCycle } from "./installation-cycle.mjs";
 
 const form = { url: BROWSER_BOOTSTRAP, method: "GET", headers: {}, body: null };
 const pass = (id) => console.log(`installed-boundary control B2-${id}: PASS`);
@@ -193,5 +195,39 @@ export async function bootstrapControls(stage = () => {}) {
     pass("atomic-cap-destroys-child");
   } finally {
     await (bootstrap ? bootstrap.close() : browser.close());
+  }
+  for (const mode of ["abort", "expiry"]) {
+    await withInstallationCycle(`B2-${mode}`, async () => {
+      stage(mode);
+      const browser = await openConfinedBrowser();
+      const authority = new AbortController();
+      const deadline = Date.now() + 5000;
+      let page;
+      let sends = 0;
+      try {
+        page = await openBootstrapPage({
+          browser,
+          signal: authority.signal,
+          expiresAt: new Date(deadline).toISOString(),
+          send: async () => {
+            sends++;
+            return new Response("globalThis.__syntheticBootstrap = true;");
+          },
+        });
+        assert.equal(await page.page.evaluate(() => globalThis.__syntheticBootstrap), true);
+        if (mode === "abort") authority.abort();
+        else await delay(Math.max(0, deadline - Date.now()));
+        const until = performance.now() + 2000;
+        while (!page.closed() && performance.now() < until) await delay(10);
+        assert.ok(page.closed());
+        await page.closed();
+        assert.equal(page.page.isClosed(), true);
+        assert.equal(sends, 1);
+        assert.deepEqual(page.snapshot(), { attempts: 1, denials: [] });
+        pass(`${mode}-destroys-child-retains-counts`);
+      } finally {
+        await (page ? page.close() : browser.close());
+      }
+    });
   }
 }

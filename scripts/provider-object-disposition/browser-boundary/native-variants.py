@@ -253,6 +253,49 @@ def namespaces(text):
     print(json.dumps({'namespaces': sorted(found), 'unknown': unknown}))
 
 
+def crash_observation(text):
+    global stage
+    stage = 'owned'
+    if len(text) > 16384 or not re.fullmatch(r'[0-9]+:[0-9]+(?:,[0-9]+:[0-9]+)*', text):
+        raise ValueError()
+    owners = [tuple(map(int, item.split(':'))) for item in text.split(',')]
+    if len(owners) > 256:
+        raise ValueError()
+    result = []
+    for pid, start in owners:
+        try:
+            path = Path('/proc') / str(pid)
+            before = parse_stat(bounded_read(path / 'stat'), pid)
+            if before['start'] != start:
+                result.append({'pid': pid, 'start': start, 'observation': 'gone'})
+                continue
+            status = bounded_read(path / 'status')
+            cmdline = bounded_read(path / 'cmdline')
+            core = re.findall(r'^CoreDumping:\s+([01])$', status, re.M)
+            tracer = re.findall(r'^TracerPid:\s+([0-9]+)$', status, re.M)
+            after = parse_stat(bounded_read(path / 'stat'), pid)
+            if after['start'] != start or len(tracer) != 1:
+                raise ValueError()
+            result.append({'pid': pid, 'start': start, 'observation': 'present',
+                           'renderer': '--type=renderer' in cmdline.split('\0'),
+                           'coreDumping': int(core[0]) if len(core) == 1 else None,
+                           'traced': int(tracer[0]) != 0,
+                           'state': after['state'] if after['state'] in ('R', 'S', 'D', 'T', 't', 'Z', 'I') else 'other'})
+        except OSError as error:
+            if error.errno not in (2, 3):
+                raise
+            try:
+                current = parse_stat(bounded_read(Path('/proc') / str(pid) / 'stat'), pid)
+            except OSError as gone:
+                if gone.errno not in (2, 3):
+                    raise
+                current = None
+            if current is not None and current['start'] == start:
+                raise ValueError()
+            result.append({'pid': pid, 'start': start, 'observation': 'gone'})
+    print(json.dumps(result))
+
+
 def main():
     try:
         if os.getuid() != 0:
@@ -265,6 +308,8 @@ def main():
             owned(int(sys.argv[2]))
         elif len(sys.argv) == 3 and sys.argv[1] == 'namespaces':
             namespaces(sys.argv[2])
+        elif len(sys.argv) == 3 and sys.argv[1] == 'crash-observation':
+            crash_observation(sys.argv[2])
         else:
             raise ValueError()
         return 0

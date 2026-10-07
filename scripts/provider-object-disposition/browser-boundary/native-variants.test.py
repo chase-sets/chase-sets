@@ -2,6 +2,10 @@ import importlib.util
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
+from contextlib import redirect_stdout
+from io import StringIO
+import json
 
 sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location('variants', Path(__file__).with_name('native-variants.py'))
@@ -11,6 +15,30 @@ SOURCE = Path(__file__).with_name('launcher.c').read_text()
 
 
 class NativeVariantFixtures(unittest.TestCase):
+    def test_crash_observation_emits_only_closed_renderer_status(self):
+        def read(path):
+            return {'stat': 'synthetic', 'status': 'CoreDumping:\t1\nTracerPid:\t0\n',
+                    'cmdline': '/browser/chrome\0--type=renderer\0SYNTHETIC_PRIVATE\0'}[path.name]
+        output = StringIO()
+        with patch.object(variants, 'bounded_read', side_effect=read), patch.object(variants, 'parse_stat', return_value={'pid': 42, 'start': 100, 'state': 'S'}), redirect_stdout(output):
+            variants.crash_observation('42:100')
+        self.assertEqual(json.loads(output.getvalue()), [{'pid': 42, 'start': 100, 'observation': 'present', 'renderer': True, 'coreDumping': 1, 'traced': False, 'state': 'S'}])
+        self.assertNotIn('SYNTHETIC_PRIVATE', output.getvalue())
+
+    def test_missing_crash_status_is_not_process_absence(self):
+        def read(path):
+            if path.name == 'status':
+                raise FileNotFoundError(2, 'SYNTHETIC_PRIVATE')
+            return 'synthetic'
+        with patch.object(variants, 'bounded_read', side_effect=read), patch.object(variants, 'parse_stat', return_value={'pid': 42, 'start': 100, 'state': 'S'}):
+            with self.assertRaises(ValueError):
+                variants.crash_observation('42:100')
+
+    def test_crash_observation_rejects_malformed_or_excessive_owner_input(self):
+        for value in ('SYNTHETIC_PRIVATE', '42', ','.join(['42:100'] * 257)):
+            with self.assertRaises(ValueError):
+                variants.crash_observation(value)
+
     def test_native_clients_run_after_isolation_with_no_external_parent_sender(self):
         changed = variants.variant(SOURCE, 'direct-clients')
         self.assertIn('            no_network();\n            synthetic_egress();', changed)

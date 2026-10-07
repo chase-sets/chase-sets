@@ -9,7 +9,7 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 
-async function open() {
+async function open(signal) {
   const callbacks = {};
   const page = { setContent: vi.fn(), addScriptTag: vi.fn() };
   const context = {
@@ -28,7 +28,12 @@ async function open() {
   };
   const browser = { newContext: vi.fn(async () => context), close: vi.fn() };
   const send = vi.fn(async () => new Response("SYNTHETIC_MEMORY_BOOTSTRAP"));
-  const bootstrap = await openBootstrapPage({ browser, send, expiresAt: new Date(Date.now() + 1000).toISOString() });
+  const bootstrap = await openBootstrapPage({
+    browser,
+    send,
+    signal,
+    expiresAt: new Date(Date.now() + 1000).toISOString(),
+  });
   pages.push(bootstrap);
   return { bootstrap, browser, context, callbacks, page, send };
 }
@@ -68,6 +73,17 @@ it("deadline closes the owned browser even with no further child requests", asyn
   await vi.advanceTimersByTimeAsync(1000);
   expect(browser.close).toHaveBeenCalledTimes(1);
   expect(bootstrap.snapshot().attempts).toBe(1);
+  await bootstrap.close();
+  expect(browser.close).toHaveBeenCalledTimes(1);
+});
+
+it("authority abort closes the owned browser and retains counts exactly once", async () => {
+  const authority = new AbortController();
+  const { browser, bootstrap } = await open(authority.signal);
+  authority.abort();
+  await bootstrap.closed();
+  expect(browser.close).toHaveBeenCalledTimes(1);
+  expect(bootstrap.snapshot()).toEqual({ attempts: 1, denials: [] });
   await bootstrap.close();
   expect(browser.close).toHaveBeenCalledTimes(1);
 });
