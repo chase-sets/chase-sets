@@ -116,7 +116,7 @@ describe("worktree sandbox", () => {
     });
     expect(execute.mock.calls[0][1]).toContain("env");
     expect(execute.mock.calls[0][1]).toContain("-i");
-    expect(execute.mock.calls[0][1]).toContain("127.0.0.1");
+    expect(execute.mock.calls[0][1]).toContain("/var/run/postgresql");
     expect(execute.mock.calls[0][2].env).toEqual({ PATH: "local-path" });
     const compose = readFileSync(path.join(repoRoot, "docker-compose.dev.yml"), "utf8");
     expect(() => assertSandboxPostgresSettings(effective, compose)).not.toThrow();
