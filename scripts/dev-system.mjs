@@ -10,6 +10,7 @@ import { createBrowserE2eLifecycleRecorder, resolveBrowserE2eEvidencePaths } fro
 import { primeBrowserE2eProjectionWakeRelayCursors } from "./browser-e2e-readiness.mjs";
 import {
   acquireDevSystemHeavySlot,
+  assertSandboxPostgresSettings,
   applyCurrentPlatformBootstrapSelectors,
   applyDevTargetEnvOverrides,
   browserE2eProductionBuilds,
@@ -20,6 +21,7 @@ import {
   createMarketplaceDevProcessDefinition,
   createPublicWebDevProcessDefinition,
   isBrowserE2eTarget,
+  readSandboxPostgresSettings,
 } from "./dev-system-config.mjs";
 import { readEnvFile } from "./lib/env.mjs";
 import { completeDevSystemStartupFailure, createDevSystemLauncher } from "./dev-system-launch.mjs";
@@ -466,6 +468,16 @@ async function ensureDevDatabase() {
   await runCommand(dockerComposeInvocation.command, [...dockerComposeInvocation.args, "up", "-d"], {
     env: sandboxEnv,
     prefix: "docker",
+  });
+  await withAdminPool(async () => {
+    const effective = readSandboxPostgresSettings({
+      invocation: dockerComposeInvocation,
+      env: { ...process.env, ...sandboxEnv },
+    });
+    assertSandboxPostgresSettings(effective, readFileSync(path.join(rootDir, "docker-compose.dev.yml"), "utf8"));
+    for (const [name, value] of Object.entries(effective)) {
+      prefixedConsole("postgres", `SHOW ${name} = ${value} (configured = effective; before client fan-out)`);
+    }
   });
   prefixedConsole("dev", `Provisioning sandbox databases for ${sandbox.id}...`);
   await preparePlatformDatabase();

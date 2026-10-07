@@ -6,6 +6,16 @@ x-sandbox-labels: &sandbox-labels
 services:
   postgres:
     image: pgvector/pgvector:pg16
+    command:
+      [
+        "postgres",
+        "-c",
+        "max_connections=500",
+        "-c",
+        "superuser_reserved_connections=3",
+        "-c",
+        "reserved_connections=0",
+      ]
     labels: *sandbox-labels
     ports:
       - "${POSTGRES_DEV_HOST_PORT:-5432}:5432"

@@ -689,6 +689,20 @@ describe("change-scope", () => {
     expect(Object.keys(output)).toEqual([...baseCapturedOutputMapKeyOrder, "scope_json"]);
   });
 
+  it.each([
+    "docker-compose.dev.yml",
+    "scripts/lib/sandbox.mjs",
+    "scripts/dev-system.mjs",
+    "scripts/dev-system-config.mjs",
+  ])("selects hosted browser coverage for shared sandbox runtime %s", (file) => {
+    const scope = classifyChanges({ changedFiles: [file], workspaces: [] });
+    const output = toOutputMap(scope);
+    expect(scope.e2eTestsRequired).toBe(true);
+    expect(scope.e2eSuiteIds).toEqual(expect.arrayContaining(["marketplace_account", "marketplace_seller"]));
+    const covered = JSON.parse(output.e2e_suite_batches_json).flatMap((batch) => batch.split(","));
+    expect(covered).toEqual(expect.arrayContaining(["marketplace_account", "marketplace_seller"]));
+  });
+
   it("diffs changed files from the merge-base instead of the moving base branch tip", () => {
     const calls = [];
     const changedFiles = listChangedFiles("origin/main", "HEAD", {

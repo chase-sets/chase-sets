@@ -12,7 +12,13 @@ import {
   normalizeSandboxWorktreeIdentity,
   resolveWorktreeSandbox,
 } from "./lib/sandbox.mjs";
+import {
+  assertSandboxPostgresSettings,
+  configuredSandboxPostgresSettings,
+  readSandboxPostgresSettings,
+} from "./dev-system-config.mjs";
 import { repoRoot } from "./lib/repo.mjs";
+import { browserE2ePostgresDemand } from "./lib/browser-e2e-postgres-demand.mjs";
 import { primeBrowserE2eProjectionWakeRelayCursors } from "./browser-e2e-readiness.mjs";
 
 const temporaryRoots = [];
@@ -43,6 +49,105 @@ afterEach(() => {
 });
 
 describe("worktree sandbox", () => {
+  it("browser E2E client demand fits usable Postgres slots", () => {
+    const { inventory, phaseDemand, demand, apiRegistry, workerRegistry } = browserE2ePostgresDemand();
+    const configured = configuredSandboxPostgresSettings(
+      readFileSync(path.join(repoRoot, "docker-compose.dev.yml"), "utf8"),
+    );
+    const reservations = configured.superuser_reserved_connections + configured.reserved_connections;
+    const usable = configured.max_connections - reservations;
+    const evidence = `${JSON.stringify({ inventory, phaseDemand, demand, configured, usable, margin: usable - demand }, null, 2)}\n`;
+    const evidenceDirectory = path.join(repoRoot, "artifacts", "browser-e2e");
+    mkdirSync(evidenceDirectory, { recursive: true });
+    writeFileSync(path.join(evidenceDirectory, "postgres-client-demand.json"), evidence);
+    process.stdout.write(evidence);
+    const fits = (capacity) => capacity - reservations >= demand + 8;
+    expect(fits(configured.max_connections)).toBe(true);
+    expect(demand).toBeLessThan(usable);
+    expect(usable - demand).toBeGreaterThanOrEqual(8);
+    expect(configured.max_connections).toBe(50 * Math.ceil((demand + reservations + 8) / 50));
+    expect(fits(100)).toBe(false);
+    expect(fits(demand + reservations - 1)).toBe(false);
+    expect(apiRegistry.control).not.toBe(workerRegistry.control);
+    for (const registry of [apiRegistry, workerRegistry]) {
+      expect(registry.control).toBe(registry.workSignal);
+      for (const [name, waiter] of Object.entries(registry.contextWaiters)) expect(waiter).toBe(registry[name]);
+      const unique = new Set([...Object.values(registry), ...Object.values(registry.contextWaiters)]);
+      unique.delete(registry.contextWaiters);
+      expect(unique.size).toBe(Object.keys(registry.contextWaiters).length + 1);
+    }
+  });
+
+  it("derives changed pool maxima and additional distinct pools from their real sources", () => {
+    const readSource = (file) => readFileSync(path.join(repoRoot, file), "utf8");
+    const baseline = browserE2ePostgresDemand();
+    const increased = browserE2ePostgresDemand({
+      readSource: (file) =>
+        file === "deployables/platform-api/.env.example"
+          ? readSource(file).replace("DATABASE_POOL_MAX=10", "DATABASE_POOL_MAX=11")
+          : readSource(file),
+    });
+    expect(increased.demand).toBeGreaterThan(baseline.demand);
+    const largerListener = browserE2ePostgresDemand({
+      readSource: (file) =>
+        file === "deployables/platform-worker/src/main.ts"
+          ? readSource(file).replace("max: 1,", "max: 2,")
+          : readSource(file),
+    });
+    expect(largerListener.demand).toBeGreaterThan(baseline.demand);
+    const added = browserE2ePostgresDemand({
+      readSource: (file) =>
+        file === "deployables/platform-api/src/database-pools.ts"
+          ? readSource(file).replace(
+              "return createContextPools(platformApiPoolRegistry, config);",
+              'createPgPool("postgresql://postgres:postgres@localhost/synthetic_distinct", { max: 7 }); return createContextPools(platformApiPoolRegistry, config);',
+            )
+          : readSource(file),
+    });
+    expect(added.demand).toBe(baseline.demand + 7);
+    expect(() =>
+      browserE2ePostgresDemand({
+        readSource: (file) => (file.endsWith("platform-api/.env.example") ? "" : readSource(file)),
+      }),
+    ).toThrow("Missing or invalid pool maximum");
+  });
+
+  it("captures owned startup SHOW settings without ambient libpq routing", () => {
+    const execute = vi.fn(() => ({ status: 0, stdout: "500\n3\n0\n" }));
+    const effective = readSandboxPostgresSettings({
+      invocation: { command: "docker", args: ["compose", "-p", "owned"] },
+      env: { PATH: "local-path", PGHOSTADDR: "203.0.113.5", pgservice: "hostile" },
+      execute,
+    });
+    expect(execute.mock.calls[0][1]).toContain("env");
+    expect(execute.mock.calls[0][1]).toContain("-i");
+    expect(execute.mock.calls[0][1]).toContain("/var/run/postgresql");
+    expect(execute.mock.calls[0][2].env).toEqual({ PATH: "local-path" });
+    const compose = readFileSync(path.join(repoRoot, "docker-compose.dev.yml"), "utf8");
+    expect(() => assertSandboxPostgresSettings(effective, compose)).not.toThrow();
+    expect(() => assertSandboxPostgresSettings({ ...effective, max_connections: 100 }, compose)).toThrow(
+      "before client fan-out",
+    );
+    expect(() => assertSandboxPostgresSettings({}, compose)).toThrow();
+    expect(() =>
+      readSandboxPostgresSettings({
+        invocation: { command: "docker", args: [] },
+        env: {},
+        execute: () => ({ status: 0, stdout: "500\n3\n" }),
+      }),
+    ).toThrow("Missing or invalid");
+    expect(() =>
+      readSandboxPostgresSettings({
+        invocation: { command: "docker", args: [] },
+        env: {},
+        execute: () => ({ status: 1, stdout: "" }),
+      }),
+    ).toThrow("Unable to SHOW");
+    const launcher = readFileSync(path.join(repoRoot, "scripts/dev-system.mjs"), "utf8");
+    expect(launcher.indexOf("assertSandboxPostgresSettings(effective,")).toBeLessThan(
+      launcher.indexOf("await preparePlatformDatabase();"),
+    );
+  });
   it("derives stable sandbox identity and ports from the worktree path", () => {
     const rootDir = createTempRepo();
     const left = resolveWorktreeSandbox({ rootDir, env: {} });
