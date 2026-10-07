@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes } from "react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { Icon } from "../../icons";
 import { useChaseMotion } from "../../theme/provider";
@@ -37,6 +37,15 @@ export function CopyButton({
     motionSettings.interactiveLift,
   );
   const nativeProps = toMotionDomProps(rest);
+
+  useEffect(
+    () => () => {
+      if (timerRef.current !== null) {
+        clearTimeout(timerRef.current);
+      }
+    },
+    [],
+  );
 
   const handleClick = useCallback(() => {
     navigator.clipboard.writeText(value).then(() => {
