@@ -407,3 +407,14 @@ Authenticity terminology (Authenticity Case, Authenticity Verdict, Verdict Reaso
 ## Channel Inbound Clamp
 
 A **Channel Inbound Clamp** is Marketplace's revision-fenced ownership record for Listings paused while a Channel cannot observe inbound sales; recovery restores only an unchanged, solely clamp-owned pause.
+
+## Listing Enforcement Action
+
+A **Listing Enforcement Action** is one immutable Marketplace fact that removes an active Listing from sale and has a never-reused `lea_` identity. It is distinct from Identity's Account Enforcement Action and never changes the Account.
+
+Notes:
+
+- The Listing aggregate owns removal. Each action records its closed source: `automatic-report-threshold` names the triggering `rpt_` Report, and `operator-unlist` names the `rca_` Reported Content action. The source is provenance only and grants no permission.
+- The action is attributed to the Listing owner taken from the aggregate, never from a caller. Its time is the auto-unlist timestamp or the operator action's recorded time.
+- A source removes a Listing at most once. A redelivered source is inert even after republish, a distinct later source removes again, and an identity is never reused for another source. Draft, paused and withdrawn Listings are not removed.
+- The latest action stays current across republish and pause. Historical automated unlisting without an action identity remains valid and records none.

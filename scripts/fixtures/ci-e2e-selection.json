@@ -147,6 +147,30 @@
       "synthetic": false
     },
     {
+      "family": "browserRuntimePatterns:14",
+      "pattern": "/^docker-compose\\.dev\\.yml$/",
+      "suites": null,
+      "path": "docker-compose.dev.yml",
+      "trackedCandidates": 1,
+      "synthetic": false
+    },
+    {
+      "family": "browserRuntimePatterns:15",
+      "pattern": "/^scripts\\/lib\\/sandbox\\.mjs$/",
+      "suites": null,
+      "path": "scripts/lib/sandbox.mjs",
+      "trackedCandidates": 1,
+      "synthetic": false
+    },
+    {
+      "family": "browserRuntimePatterns:16",
+      "pattern": "/^scripts\\/dev-system(?:-config)?\\.mjs$/",
+      "suites": null,
+      "path": "scripts/dev-system.mjs",
+      "trackedCandidates": 2,
+      "synthetic": false
+    },
+    {
       "family": "contextSuiteOwnership:auth",
       "pattern": "/^bounded-contexts\\/auth\\/features\\/[^/]+\\/(?:api|ui)\\//",
       "suites": ["marketplace_account", "admin_auth"],
@@ -1108,6 +1132,106 @@
     }
   ],
   "cases": [
+    {
+      "changedFiles": ["docker-compose.dev.yml"],
+      "suiteIds": [
+        "marketplace_browse",
+        "marketplace_account",
+        "marketplace_checkout",
+        "marketplace_seller",
+        "catalog_admin_integrations",
+        "catalog_admin_modeling",
+        "admin_growth",
+        "admin_commerce",
+        "admin_support",
+        "admin_platform",
+        "admin_auth",
+        "admin_access"
+      ],
+      "batches": [
+        "catalog_admin_integrations,admin_auth",
+        "catalog_admin_modeling,admin_platform",
+        "marketplace_checkout,admin_support",
+        "marketplace_browse,marketplace_account",
+        "admin_commerce,admin_access",
+        "marketplace_seller,admin_growth"
+      ]
+    },
+    {
+      "changedFiles": ["scripts/lib/sandbox.mjs"],
+      "suiteIds": [
+        "marketplace_browse",
+        "marketplace_account",
+        "marketplace_checkout",
+        "marketplace_seller",
+        "catalog_admin_integrations",
+        "catalog_admin_modeling",
+        "admin_growth",
+        "admin_commerce",
+        "admin_support",
+        "admin_platform",
+        "admin_auth",
+        "admin_access"
+      ],
+      "batches": [
+        "catalog_admin_integrations,admin_auth",
+        "catalog_admin_modeling,admin_platform",
+        "marketplace_checkout,admin_support",
+        "marketplace_browse,marketplace_account",
+        "admin_commerce,admin_access",
+        "marketplace_seller,admin_growth"
+      ]
+    },
+    {
+      "changedFiles": ["scripts/dev-system.mjs"],
+      "suiteIds": [
+        "marketplace_browse",
+        "marketplace_account",
+        "marketplace_checkout",
+        "marketplace_seller",
+        "catalog_admin_integrations",
+        "catalog_admin_modeling",
+        "admin_growth",
+        "admin_commerce",
+        "admin_support",
+        "admin_platform",
+        "admin_auth",
+        "admin_access"
+      ],
+      "batches": [
+        "catalog_admin_integrations,admin_auth",
+        "catalog_admin_modeling,admin_platform",
+        "marketplace_checkout,admin_support",
+        "marketplace_browse,marketplace_account",
+        "admin_commerce,admin_access",
+        "marketplace_seller,admin_growth"
+      ]
+    },
+    {
+      "changedFiles": ["scripts/dev-system-config.mjs"],
+      "suiteIds": [
+        "marketplace_browse",
+        "marketplace_account",
+        "marketplace_checkout",
+        "marketplace_seller",
+        "catalog_admin_integrations",
+        "catalog_admin_modeling",
+        "admin_growth",
+        "admin_commerce",
+        "admin_support",
+        "admin_platform",
+        "admin_auth",
+        "admin_access"
+      ],
+      "batches": [
+        "catalog_admin_integrations,admin_auth",
+        "catalog_admin_modeling,admin_platform",
+        "marketplace_checkout,admin_support",
+        "marketplace_browse,marketplace_account",
+        "admin_commerce,admin_access",
+        "marketplace_seller,admin_growth"
+      ]
+    },
     {
       "changedFiles": [],
       "suiteIds": [],

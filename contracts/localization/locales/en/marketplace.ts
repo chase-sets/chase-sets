@@ -1031,6 +1031,7 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.sellerDesk.surfaces.title": "Jump to",
   "marketplace.features.sellerDesk.surfaces.listings": "Listings",
   "marketplace.features.sellerDesk.surfaces.offers": "Offers",
+  "marketplace.features.sellerDesk.surfaces.sales": "Sales",
   "marketplace.features.sellerDesk.surfaces.shipments": "Shipments",
   "marketplace.features.sellerDesk.surfaces.payouts": "Payouts",
   "marketplace.features.sellerDesk.surfaces.inventory": "Inventory",
