@@ -1,7 +1,28 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { expect, it } from "vitest";
-import { browserPipe } from "./browser-lifecycle-controls.mjs";
+import { browserPipe, partitionOwnedSnapshot } from "./browser-lifecycle-controls.mjs";
+
+it("partitions one fresh snapshot by ancestry, never mistaking late A children for B survivors", () => {
+  const root = { pid: 10, parent: 1, start: 100, image: "launcher" };
+  const records = [
+    { pid: 1, parent: 0, start: 1, image: "caller" },
+    root,
+    { pid: 11, parent: 10, start: 101, image: "launcher" },
+    { pid: 12, parent: 11, start: 102, image: "chrome" },
+    { pid: 13, parent: 12, start: 103, image: "chrome" },
+    { pid: 20, parent: 1, start: 90, image: "launcher" },
+    { pid: 21, parent: 20, start: 91, image: "chrome" },
+  ];
+  const before = records.filter((record) => [10, 11, 12].includes(record.pid));
+  expect(
+    records.filter((record) => !before.some((owned) => owned.pid === record.pid)).map((record) => record.pid),
+  ).toContain(13);
+  const partition = partitionOwnedSnapshot([...records].reverse(), root);
+  expect(partition.owned.map((record) => record.pid).sort((a, b) => a - b)).toEqual([10, 11, 12, 13]);
+  expect(partition.survivors.map((record) => record.pid).sort((a, b) => a - b)).toEqual([1, 20, 21]);
+  expect(() => partitionOwnedSnapshot(records, { ...root, start: 99 })).toThrow();
+});
 
 function fixture() {
   const child = new EventEmitter();

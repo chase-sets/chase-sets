@@ -19,6 +19,20 @@ const cleanupOptions = {
   encoding: "buffer",
 };
 
+export function partitionOwnedSnapshot(snapshot, root) {
+  assert.ok(snapshot.some((record) => record.pid === root.pid && record.start === root.start));
+  const owned = new Set([root.pid]);
+  for (;;) {
+    const before = owned.size;
+    for (const record of snapshot) if (owned.has(record.parent)) owned.add(record.pid);
+    if (owned.size === before) break;
+  }
+  return {
+    owned: snapshot.filter((record) => owned.has(record.pid)),
+    survivors: snapshot.filter((record) => !owned.has(record.pid)),
+  };
+}
+
 async function realOrphanRemoval(stage) {
   stage("13c-real-alone");
   await withInstallationCycle("13c-real-alone", async () => {
@@ -123,132 +137,178 @@ export function browserPipe(child) {
 }
 
 export async function browserLifecycleControls(stage) {
-  await realOrphanRemoval(stage);
+  const failures = [];
+  const runCase = async (name, test) => {
+    try {
+      await test();
+    } catch (error) {
+      if (error.recovered !== true) throw error;
+      failures.push(name);
+      console.error(`installed-boundary browser case ${name}: FAIL; installation restored; failure retained`);
+    }
+  };
+  await runCase("13c-real-alone", () => realOrphanRemoval(stage));
   const { sourceDigest } = await assertBrowserAdmission();
   for (const mode of ["SIGKILL", "SIGTERM", "pipe-cancel", "renderer-crash"]) {
     stage(mode);
-    await withInstallationCycle(`browser-${mode}`, () =>
-      withConcurrentBrowser(sourceDigest, async (survives) => {
-        const running = launch(sourceDigest, "browser");
-        const pipe = browserPipe(running.child);
-        let records = [];
-        let primary;
-        let phase = "version";
-        try {
-          await pipe.request("Browser.getVersion");
-          const { targetId } = await pipe.request("Target.createTarget", { url: "about:blank" });
-          const { sessionId } = await pipe.request("Target.attachToTarget", { targetId, flatten: true });
-          const evaluation = await pipe.request(
-            "Runtime.evaluate",
-            {
-              expression: 'document.title = "SYNTHETIC_PRIVATE_LIFECYCLE_MARKER"',
-              returnByValue: true,
-            },
-            sessionId,
-          );
-          assert.equal(evaluation.result.value, "SYNTHETIC_PRIVATE_LIFECYCLE_MARKER");
-          records = await identities(running.child.pid);
-          assert.ok(records.filter((record) => record.image === "launcher").length >= 2);
-          assert.ok(records.some((record) => record.image === "chrome"));
-          console.log(`installed-boundary browser-lifecycle-identities:${JSON.stringify({ mode, records })}`);
-          if (mode === "renderer-crash") {
-            phase = "discovery";
-            await pipe.request("Target.setDiscoverTargets", { discover: true });
-            phase = "inspector";
-            await pipe.request("Inspector.enable", {}, sessionId);
-            const crashed = Promise.race([pipe.event("Inspector.targetCrashed"), pipe.event("Target.targetCrashed")]);
-            phase = "crash-event";
-            void pipe.request("Page.crash", {}, sessionId).catch(() => {});
-            await crashed;
-            running.child.stdio[3].end();
-          } else if (mode === "pipe-cancel") running.child.stdio[3].end();
-          else if (mode === "SIGKILL") {
-            const survivors = (await identities(process.pid)).filter(
-              (record) => !records.some((owned) => owned.pid === record.pid),
-            );
-            const names = ["launcher.sha256", "files.sha256", "source.sha256"];
-            const before = await Promise.all(
-              names.map((name) => readFile(`/usr/local/lib/chase-sets-provider-window/${name}`)),
-            );
-            assert.equal(running.child.kill(mode), true);
-            let failure;
-            try {
-              await execute("/bin/bash", [cleanup], cleanupOptions);
-            } catch (error) {
-              failure = error;
-            }
-            assert.equal(removalRefusal(failure, "remove-live-owner"), true);
-            assert.deepEqual(
-              await Promise.all(names.map((name) => readFile(`/usr/local/lib/chase-sets-provider-window/${name}`))),
-              before,
-            );
-            const after = await identities(process.pid);
-            for (const survivor of survivors)
-              assert.ok(
-                after.some(
-                  (record) =>
-                    record.pid === survivor.pid &&
-                    record.start === survivor.start &&
-                    record.image === survivor.image &&
-                    record.parent === survivor.parent,
-                ),
-              );
-            await assertBrowserAdmission();
-            console.log(
-              "installed-boundary control 13c real kill/removal concurrent: exact live-owner refusal; digests and full recorded survivor identities unchanged",
-            );
-          } else assert.equal(running.child.kill(mode), true);
-          const actual = await running.result;
-          const exact =
-            actual.code === (mode === "SIGKILL" ? null : 143) &&
-            actual.signal === (mode === "SIGKILL" ? "SIGKILL" : null) &&
-            !actual.overflow;
-          const markerAbsent = !Buffer.concat([actual.stdout, actual.stderr]).includes(
-            "SYNTHETIC_PRIVATE_LIFECYCLE_MARKER",
-          );
-          console.log(
-            `installed-boundary browser-lifecycle:${JSON.stringify({ mode, status: actual.code, signal: actual.signal, exact, markerAbsent, stdoutBytes: actual.stdout.length, stderrBytes: actual.stderr.length, redacted: true, truncated: actual.overflow })}`,
-          );
-          assert.equal(exact, true);
-          assert.equal(markerAbsent, true);
-        } catch (error) {
-          console.error(
-            `installed-boundary browser-lifecycle-failure:${JSON.stringify({ mode, phase, kind: ["closed", "stream", "overflow", "decode", "deadline"].includes(error.kind) ? error.kind : "assertion-or-command" })}`,
-          );
-          primary = error;
-        } finally {
-          if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL");
-          const final = await running.result;
-          if (primary)
-            console.error(
-              `installed-boundary browser-lifecycle-final:${JSON.stringify({ mode, status: final.code, signal: final.signal, stdoutBytes: final.stdout.length, stderrBytes: final.stderr.length, redacted: true, truncated: final.overflow })}`,
-            );
+    await runCase(mode, () =>
+      withInstallationCycle(`browser-${mode}`, () =>
+        withConcurrentBrowser(sourceDigest, async (survives) => {
+          const running = launch(sourceDigest, "browser");
+          const pipe = browserPipe(running.child);
+          let records = [];
+          let primary;
+          let phase = "version";
           try {
-            await absent(records);
-          } catch (error) {
-            primary ??= error;
-          }
-        }
-        if (primary) throw primary;
-        if (mode === "SIGKILL") {
-          const old = records.find((record) => record.image === "launcher" && record.parent === running.child.pid);
-          assert.ok(old);
-          const constructed = await withOwnershipStimulus(
-            "reuse",
-            async () => {
-              await absent([old]);
-              await delay(2000);
-            },
-            old,
-          );
-          if (constructed)
-            console.log(
-              "installed-boundary control 11a native PID reuse: PASS; old record absent; synthetic survivor retired through pidfd",
+            await pipe.request("Browser.getVersion");
+            phase = "create-target";
+            const { targetId } = await pipe.request("Target.createTarget", { url: "about:blank" });
+            phase = "attach-target";
+            const { sessionId } = await pipe.request("Target.attachToTarget", { targetId, flatten: true });
+            phase = "page-marker";
+            const evaluation = await pipe.request(
+              "Runtime.evaluate",
+              {
+                expression: 'document.title = "SYNTHETIC_PRIVATE_LIFECYCLE_MARKER"',
+                returnByValue: true,
+              },
+              sessionId,
             );
-        }
-        await survives();
-        console.log(`installed-boundary control 9/14/16/20 browser-${mode} drain and concurrent survival: PASS`);
-      }),
+            assert.equal(evaluation.result.value, "SYNTHETIC_PRIVATE_LIFECYCLE_MARKER");
+            phase = "owned-identities";
+            records = await identities(running.child.pid);
+            assert.ok(records.filter((record) => record.image === "launcher").length >= 2);
+            assert.ok(records.some((record) => record.image === "chrome"));
+            console.log(`installed-boundary browser-lifecycle-identities:${JSON.stringify({ mode, records })}`);
+            if (mode === "renderer-crash") {
+              phase = "discovery";
+              await pipe.request("Target.setDiscoverTargets", { discover: true });
+              phase = "inspector";
+              await pipe.request("Inspector.enable", {}, sessionId);
+              const crashed = Promise.race([pipe.event("Inspector.targetCrashed"), pipe.event("Target.targetCrashed")]);
+              phase = "crash-event";
+              void pipe.request("Page.crash", {}, sessionId).catch(() => {});
+              await crashed;
+              running.child.stdio[3].end();
+            } else if (mode === "pipe-cancel") running.child.stdio[3].end();
+            else if (mode === "SIGKILL") {
+              phase = "concurrent-snapshot";
+              const snapshot = await identities(process.pid);
+              const partition = partitionOwnedSnapshot(
+                snapshot,
+                records.find((record) => record.pid === running.child.pid),
+              );
+              records = partition.owned;
+              const { survivors } = partition;
+              console.log(`installed-boundary real-kill-snapshot:${JSON.stringify(partition)}`);
+              const names = ["launcher.sha256", "files.sha256", "source.sha256"];
+              phase = "installation-before";
+              const before = await Promise.all(
+                names.map((name) => readFile(`/usr/local/lib/chase-sets-provider-window/${name}`)),
+              );
+              phase = "kill";
+              assert.equal(running.child.kill(mode), true);
+              let failure;
+              phase = "removal-refusal";
+              try {
+                await execute("/bin/bash", [cleanup], cleanupOptions);
+              } catch (error) {
+                failure = error;
+              }
+              const exactRefusal = removalRefusal(failure, "remove-live-owner");
+              const observedRefusal =
+                ["remove-live-owner", "remove-orphan-owner", "remove-ambiguous-owner", "remove-ownership-census"].find(
+                  (name) => removalRefusal(failure, name),
+                ) ?? "unknown";
+              console.log(
+                `installed-boundary real-kill-removal:${JSON.stringify({ exact: exactRefusal, observedRefusal, status: Number.isInteger(failure?.code) ? failure.code : null, signal: ["SIGTERM", "SIGKILL"].includes(failure?.signal) ? failure.signal : null, stdoutBytes: failure?.stdout?.length ?? null, stderrBytes: failure?.stderr?.length ?? null, redacted: true, truncated: failure?.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" })}`,
+              );
+              assert.equal(exactRefusal, true);
+              phase = "installation-after";
+              assert.deepEqual(
+                await Promise.all(names.map((name) => readFile(`/usr/local/lib/chase-sets-provider-window/${name}`))),
+                before,
+              );
+              phase = "survivor-identities";
+              const after = await identities(process.pid);
+              const missing = survivors.filter(
+                (survivor) =>
+                  !after.some(
+                    (record) =>
+                      record.pid === survivor.pid &&
+                      record.start === survivor.start &&
+                      record.image === survivor.image &&
+                      record.parent === survivor.parent,
+                  ),
+              );
+              console.log(
+                `installed-boundary real-kill-survival:${JSON.stringify({ missing, beforeCount: survivors.length, afterCount: after.length })}`,
+              );
+              assert.deepEqual(missing, []);
+              phase = "restored-admission";
+              await assertBrowserAdmission();
+              console.log(
+                "installed-boundary control 13c real kill/removal concurrent: exact live-owner refusal; digests and full recorded survivor identities unchanged",
+              );
+            } else assert.equal(running.child.kill(mode), true);
+            phase = "termination";
+            const actual = await running.result;
+            const exact =
+              actual.code === (mode === "SIGKILL" ? null : 143) &&
+              actual.signal === (mode === "SIGKILL" ? "SIGKILL" : null) &&
+              !actual.overflow;
+            const markerAbsent = !Buffer.concat([actual.stdout, actual.stderr]).includes(
+              "SYNTHETIC_PRIVATE_LIFECYCLE_MARKER",
+            );
+            console.log(
+              `installed-boundary browser-lifecycle:${JSON.stringify({ mode, status: actual.code, signal: actual.signal, exact, markerAbsent, stdoutBytes: actual.stdout.length, stderrBytes: actual.stderr.length, redacted: true, truncated: actual.overflow })}`,
+            );
+            assert.equal(exact, true);
+            assert.equal(markerAbsent, true);
+          } catch (error) {
+            console.error(
+              `installed-boundary browser-lifecycle-failure:${JSON.stringify({ mode, phase, kind: ["closed", "stream", "overflow", "decode", "deadline"].includes(error.kind) ? error.kind : "assertion-or-command" })}`,
+            );
+            primary = error;
+          } finally {
+            if (running.child.exitCode === null && running.child.signalCode === null) running.child.kill("SIGKILL");
+            const final = await running.result;
+            if (primary)
+              console.error(
+                `installed-boundary browser-lifecycle-final:${JSON.stringify({ mode, status: final.code, signal: final.signal, stdoutBytes: final.stdout.length, stderrBytes: final.stderr.length, redacted: true, truncated: final.overflow })}`,
+              );
+            try {
+              await absent(records);
+            } catch (error) {
+              primary ??= error;
+            }
+          }
+          if (primary) throw primary;
+          if (mode === "SIGKILL") {
+            const old = records.find((record) => record.image === "launcher" && record.parent === running.child.pid);
+            assert.ok(old);
+            const constructed = await withOwnershipStimulus(
+              "reuse",
+              async () => {
+                await absent([old]);
+                await delay(2000);
+              },
+              old,
+            );
+            if (constructed)
+              console.log(
+                "installed-boundary control 11a native PID reuse: PASS; old record absent; synthetic survivor retired through pidfd",
+              );
+          }
+          await survives();
+          console.log(`installed-boundary control 9/14/16/20 browser-${mode} drain and concurrent survival: PASS`);
+        }),
+      ),
     );
+  }
+  if (failures.length) {
+    console.error(`installed-boundary failed browser controls:${JSON.stringify(failures)}`);
+    stage(failures[0]);
+    throw new Error("browser-controls-failed");
   }
 }

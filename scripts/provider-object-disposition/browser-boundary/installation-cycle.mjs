@@ -8,6 +8,7 @@ const execute = promisify(execFile);
 
 export async function withInstallationCycle(id, test) {
   let primary;
+  let recovered = false;
   try {
     await test();
   } catch (error) {
@@ -15,10 +16,14 @@ export async function withInstallationCycle(id, test) {
   }
   try {
     await installationCycle(id);
+    recovered = true;
   } catch (error) {
     primary ??= error;
   }
-  if (primary) throw primary;
+  if (primary) {
+    primary.recovered = recovered && !primary.cleanupUnknown;
+    throw primary;
+  }
 }
 
 export async function installationCycle(id) {

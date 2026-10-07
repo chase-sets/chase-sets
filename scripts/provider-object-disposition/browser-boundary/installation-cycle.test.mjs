@@ -28,6 +28,7 @@ it("each completed case removes exact names before reinstalling and readmitting"
 
 it("a cleanup error never replaces the original case error or prints private diagnostics", async () => {
   const primary = new Error("original-case-error");
+  primary.recovered = true;
   execute.mockRejectedValueOnce({
     code: 1,
     stdout: Buffer.from("SYNTHETIC_PRIVATE"),
@@ -40,4 +41,25 @@ it("a cleanup error never replaces the original case error or prints private dia
     }),
   ).rejects.toBe(primary);
   expect(JSON.stringify(output.mock.calls)).not.toContain("SYNTHETIC_PRIVATE");
+  expect(primary.recovered).toBe(false);
+});
+
+it("verified restoration permits remaining cases without changing the original failure to PASS", async () => {
+  const primary = new Error("original-case-error");
+  execute
+    .mockResolvedValueOnce({
+      stdout: Buffer.from("provider-boundary-cleanup-stage:complete\n"),
+      stderr: Buffer.alloc(0),
+    })
+    .mockResolvedValueOnce({
+      stdout: Buffer.from("provider-boundary-setup-stage:complete\n"),
+      stderr: Buffer.alloc(0),
+    });
+  vi.spyOn(console, "log").mockImplementation(() => {});
+  await expect(
+    withInstallationCycle("SYNTHETIC", async () => {
+      throw primary;
+    }),
+  ).rejects.toBe(primary);
+  expect(primary.recovered).toBe(true);
 });
