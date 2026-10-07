@@ -106,11 +106,11 @@ function expectJumpToSales() {
     [t("marketplace.features.sellerDesk.surfaces.payouts"), "/account/payouts"],
     [t("marketplace.features.sellerDesk.surfaces.inventory"), "/account/inventory"],
   ] as const;
-  expect(row.getAllByRole("link")).toEqual(destinations.map(([name]) => row.getByRole("link", { name, exact: true })));
+  expect(row.getAllByRole("link")).toEqual(destinations.map(([name]) => row.getByRole("link", { name })));
   for (const [name, href] of destinations) {
-    expect(row.getByRole("link", { name, exact: true }).getAttribute("href")).toBe(href);
+    expect(row.getByRole("link", { name }).getAttribute("href")).toBe(href);
   }
-  const sales = row.getByRole("link", { name: "Sales", exact: true });
+  const sales = row.getByRole("link", { name: "Sales" });
   expect(t("marketplace.features.sellerDesk.surfaces.sales")).toBe("Sales");
   for (let ancestor = sales.parentElement; ancestor; ancestor = ancestor.parentElement) {
     expect(ancestor.matches("details, [hidden], [aria-expanded]")).toBe(false);
