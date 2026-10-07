@@ -15,7 +15,7 @@ Flipping a switch changes freshness latency (push-accelerated to poll-bounded), 
 
 ## Kill-Switch Matrix
 
-Helm is the flag authority: `infrastructure/helm/platform/runtime-values.json` supplies the base component env and `productionEnvOverrides`; `scripts/render-platform-helm-values.mjs` supplies staging overlays (`doksStagingWorkerEnvOverrides` and `doksStagingApiOverrides`). The renderer generates `infrastructure/helm/platform/values.yaml`, `infrastructure/helm/platform/values.staging.yaml`, and `infrastructure/helm/platform/values.production.yaml`. Staging/production merge their overlay over the base; previews use the base. Editing a source or re-rendering alone changes no running process: changes take effect only through a Platform Deploy.
+Helm is the flag authority: `infrastructure/helm/platform/runtime-values.json` supplies the base component env and `productionEnvOverrides`; `scripts/render-platform-helm-values.mjs` supplies staging overlays (`doksStagingWorkerEnvOverrides` and `doksStagingApiOverrides.envOverrides`). The renderer generates `infrastructure/helm/platform/values.yaml`, `infrastructure/helm/platform/values.staging.yaml`, and `infrastructure/helm/platform/values.production.yaml`. Staging/production overlays only replace values of names already declared in that component's base `env` in `runtime-values.json`; an override for an undeclared name is silently dropped by the chart. Previews use the base. Editing a source or re-rendering alone changes no running process: changes take effect only through a Platform Deploy.
 
 | Helm-pinned flag | Preview | Staging | Production | Source |
 | --- | --- | --- | --- | --- |
@@ -70,16 +70,16 @@ Issue #1229 asks for kill switches scoped by environment, phase, source context,
 
 1. Edit `infrastructure/platform-runtime/source-context-wake-registry.ts`: set the entry's `rolloutState: "disabled"`, add a `disabledReason`, and remove the `enablement` block (both flags must return to `false`; validators reject active enablement on a disabled state).
 2. Ship through a Platform Deploy. Write-side emission for that context turns off and the relay drops it from fan-out configs.
-3. For a worker-side stop without changing the source registry, use `WORKER_WAKE_DISABLED_PROJECTIONS` with the context's `affectedProjectionNames` keys and/or the environment-level switches below. These changes still require a Platform Deploy; they are not an immediate live env flip.
+3. For a worker-side stop without changing the source registry, use `WORKER_WAKE_DISABLED_PROJECTIONS` with the context's `affectedProjectionNames` keys and/or the environment-level switches below. This flag is unset in Helm: first declare it in the platform-worker base `env` in `runtime-values.json`. That also changes previews unless the base declaration uses its reader-default empty string and the environment overlay carries the changed value. Re-render/check and ship through a Platform Deploy; this is not an immediate live env flip.
 
 ### Disable push entirely in one environment
 
 1. Set `PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED=false` in the applicable Helm source above (including the production override) to stop new wake notifications from every component, including bootstrap jobs.
 2. Set `WORKER_PROJECTION_WAKE_RELAY_ENABLED=false` in the applicable Helm source above (including the staging/production override) to stop relay listening, catch-up, and fan-out.
-3. Leave `WORKER_PROJECTION_WAKE_SCHEDULER_ENABLED=true` so already-queued intents drain; set it `false` only if the scheduler itself is the problem (queued intents then expire via TTL and the cleanup runner).
+3. Leave `WORKER_PROJECTION_WAKE_SCHEDULER_ENABLED=true` so already-queued intents drain; set it `false` only if the scheduler itself is the problem (queued intents then expire via TTL and the cleanup runner). It is unset in Helm: first declare it in the platform-worker base `env` in `runtime-values.json`, using its reader-default `true` to preserve previews and an environment overlay for `false`; then re-render/check and ship through a Platform Deploy.
 4. Optionally set `READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED=false` to stop `api-wait` enqueues; with the scheduler still on this is not required for correctness.
 
-Production currently has emission and relay on; staging has emission off and relay on; previews have both off. Re-render with `node scripts/render-platform-helm-values.mjs`, check with `node scripts/render-platform-helm-values.mjs --check`, then ship through a Platform Deploy. For normally unset worker controls, configure the worker env in the applicable Helm source only when an override is needed; unset continues to use the reader default.
+Production currently has emission and relay on; staging has emission off and relay on; previews have both off. Re-render with `node scripts/render-platform-helm-values.mjs`, check with `node scripts/render-platform-helm-values.mjs --check`, then ship through a Platform Deploy. For normally unset worker controls, first declare the flag in the platform-worker base `env` in `runtime-values.json` when a change is needed; this also changes previews unless the declaration uses the reader-default value and the environment overlay carries the change. Then re-render/check and Platform Deploy. Leaving a flag undeclared continues to use its reader default; an overlay alone cannot change it.
 
 ### Disable one priority lane
 
@@ -95,7 +95,7 @@ Production currently has emission and relay on; staging has emission off and rel
 ### Disable push for one projection group
 
 1. Set `WORKER_WAKE_DISABLED_PROJECTIONS=<target-context>:<projection-name>[,...]` on the platform-worker, e.g. `WORKER_WAKE_DISABLED_PROJECTIONS=checkout:checkout.cart-projection`.
-2. Configure the worker env in the applicable Helm source, re-render/check with `scripts/render-platform-helm-values.mjs`, and ship through a Platform Deploy. Startup logs `projection-wake.controls.projections_disabled` including any keys that match no hosted projection group (typo check).
+2. This flag is unset in Helm: first declare it in the platform-worker base `env` in `runtime-values.json`. That also changes previews unless the base declaration uses its reader-default empty string and the environment overlay carries the changed value. Re-render/check with `scripts/render-platform-helm-values.mjs` and ship through a Platform Deploy. Startup logs `projection-wake.controls.projections_disabled` including any keys that match no hosted projection group (typo check).
 3. Expect residual and `api-wait`-origin intents for the group to retire as `projection-wake.intent.unknown_target` retries until TTL expiry; this is bounded and safe, but noisy — disable the source context or api-wait switch too if the noise matters.
 4. Fallback polling keeps the projection fresh on the poll interval.
 
