@@ -118,12 +118,38 @@ export type PolicyRuntime = Readonly<{
     params: Omit<CreatePolicyDocumentParams<Value>, "documentId">,
     context: EventStoreContext,
   ) => Promise<{ documentId: string; version: number }>;
+  /**
+   * Creates a document under a caller-chosen id. The event stream is the only
+   * authority: the append requires `no_stream`, and no projection-based
+   * active-overlap precheck runs, so a duplicate id can never append a second
+   * create even while the read model lags.
+   */
+  createPolicyDocumentWithId: <Value>(
+    definition: PolicyDefinition<Value>,
+    documentId: string,
+    params: Omit<CreatePolicyDocumentParams<Value>, "documentId">,
+    context: EventStoreContext,
+  ) => Promise<{ documentId: string; version: number }>;
+  /**
+   * `options.expectedVersion`, when given, reaches the append boundary: a
+   * revision against a stream that has moved since that version appends
+   * nothing and rejects with the event store's concurrency conflict.
+   */
   revisePolicyDocument: <Value>(
     definition: PolicyDefinition<Value>,
     documentId: string,
     params: RevisePolicyDocumentParams<Value>,
     context: EventStoreContext,
+    options?: Readonly<{ expectedVersion?: number }>,
   ) => Promise<{ documentId: string; version: number }>;
+  /**
+   * Authoritative document state from a complete replay of the document's
+   * event stream through the aggregate repository (never the projection).
+   * An absent document reads as the initial state at version 0.
+   */
+  readPolicyDocumentState: (
+    documentId: string,
+  ) => Promise<Readonly<{ state: PolicyDocumentState; version: number }>>;
   resolvePolicy: <Value>(
     definition: PolicyDefinition<Value>,
     params?: Readonly<{ at?: string }>,
@@ -159,7 +185,7 @@ export class ConsentActivationDocumentError extends PlatformPolicyDomainError {
  */
 export function createPolicyRuntime(deps: PolicyRuntimeDeps): PolicyRuntime {
   const cache = deps.cache ?? createPolicyCache();
-  const { commandHandler } = createAggregateCommandHandler({
+  const { commandHandler, repository } = createAggregateCommandHandler({
     eventStore: deps.eventStore,
     codec: createPassthroughDomainEventCodec<PolicyDocumentEvent>(),
     initialState: () => initialPolicyDocumentState,
@@ -347,7 +373,22 @@ export function createPolicyRuntime(deps: PolicyRuntimeDeps): PolicyRuntime {
       });
       return { documentId, version: result.version };
     },
-    async revisePolicyDocument(definition, documentId, params, context) {
+    async createPolicyDocumentWithId(definition, documentId, params, context) {
+      if (documentId.trim() !== documentId) {
+        // The domain trims the id it records; reject rather than let the
+        // recorded id diverge from the stream it is addressed by.
+        throw new PlatformPolicyDomainError("Policy document id must not have surrounding whitespace.");
+      }
+      const command = buildCreatePolicyDocumentCommand(definition, { ...params, documentId });
+      const result = await commandHandler({
+        streamId: policyDocumentStreamId(documentId),
+        command,
+        context,
+        expectedVersion: "no_stream",
+      });
+      return { documentId, version: result.version };
+    },
+    async revisePolicyDocument(definition, documentId, params, context, options) {
       await assertNoActiveOverlap({
         policyKey: definition.policyKey,
         status: params.status,
@@ -360,8 +401,13 @@ export function createPolicyRuntime(deps: PolicyRuntimeDeps): PolicyRuntime {
         streamId: policyDocumentStreamId(documentId),
         command,
         context,
+        ...(options?.expectedVersion === undefined ? {} : { expectedVersion: options.expectedVersion }),
       });
       return { documentId, version: result.version };
+    },
+    async readPolicyDocumentState(documentId) {
+      const { state, version } = await repository.load(policyDocumentStreamId(documentId));
+      return { state, version };
     },
     resolvePolicy: resolver.resolvePolicy,
     getPolicyDocument: (documentId) => getPolicyDocument(deps.db, documentId),
