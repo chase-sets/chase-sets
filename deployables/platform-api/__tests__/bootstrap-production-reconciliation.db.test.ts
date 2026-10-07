@@ -1011,7 +1011,7 @@ describe("platform api bootstrap production reconciliation", () => {
       "identity.account.created": 5,
       "identity.user.created": 5,
       "identity.membership.granted": 5,
-      "identity.consent.recorded": 5,
+      "identity.consent.recorded": 0,
       "identity.shipping-address.added": 5,
     });
     const projectedUser = await pools.identity.query("SELECT user_id FROM identity_users WHERE user_id = $1", [

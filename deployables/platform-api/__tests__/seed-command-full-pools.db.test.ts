@@ -150,6 +150,34 @@ describe("seed commands with owned capped pools and preview-shaped waiters", () 
       });
       expect(await countEvents(assertionPools.identity, "identity.account.created")).toBeGreaterThan(0);
       expect(await countEvents(assertionPools.identity, "identity.membership.granted")).toBeGreaterThan(0);
+      // Provisioning authors no synthetic Consent (#6120), and a rerun over the
+      // retained state authors nothing at all.
+      expect(await countEvents(assertionPools.identity, "identity.consent.recorded")).toBe(0);
+      const identityEventTypes = ["identity.account.created", "identity.user.created", "identity.membership.granted"];
+      const firstRunCounts = await Promise.all(
+        identityEventTypes.map((eventType) => countEvents(assertionPools.identity, eventType)),
+      );
+      output.mockClear();
+      await expect(runAdminQaActorFixtures({ config: createCappedSeedTestConfig() })).resolves.toBeUndefined();
+      const rerunEvidence = output.mock.calls
+        .map(([message]) => {
+          try {
+            return JSON.parse(String(message)) as { type?: string; fixtures?: readonly Record<string, unknown>[] };
+          } catch {
+            return null;
+          }
+        })
+        .find((entry) => entry?.type === "admin-qa-actor-fixtures.complete");
+      expect(rerunEvidence?.fixtures).toHaveLength(6);
+      expect(
+        rerunEvidence?.fixtures?.every(
+          (fixture) => !fixture.createdAccount && !fixture.createdUser && !fixture.createdMembership,
+        ),
+      ).toBe(true);
+      expect(
+        await Promise.all(identityEventTypes.map((eventType) => countEvents(assertionPools.identity, eventType))),
+      ).toEqual(firstRunCounts);
+      expect(await countEvents(assertionPools.identity, "identity.consent.recorded")).toBe(0);
     } finally {
       output.mockRestore();
       if (previousConfirm === undefined) delete process.env.ADMIN_QA_ACTOR_FIXTURES_CONFIRM;
