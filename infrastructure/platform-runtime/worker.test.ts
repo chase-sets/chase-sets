@@ -984,6 +984,82 @@ describe("worker runner loop", () => {
     }
   });
 
+  it("releases a drained unselected holder for a contender, then resumes new work after polling and restart", async () => {
+    vi.useFakeTimers();
+    const leases = new Map<string, PlatformLease>();
+    const events: WorkerHolderLifecycleEvent[] = [];
+    let fence = 0;
+    const controlPlane = createAlwaysLeasedControlPlane({
+      acquireLease: async (input) => {
+        if (leases.has(input.leaseName)) return null;
+        const lease = {
+          ...input,
+          fencingToken: String(++fence),
+          expiresAt: new Date(Date.now() + input.ttlMs).toISOString(),
+        };
+        leases.set(input.leaseName, lease);
+        return lease;
+      },
+      releaseLease: async (lease) => {
+        if (leases.get(lease.leaseName)?.fencingToken === lease.fencingToken) leases.delete(lease.leaseName);
+      },
+    });
+    const pending = [1, 2, 2];
+    const runners: WorkerRunner[] = pending.map((_, index) => ({
+      name: `handoff-${index}`,
+      kind: "projection-group",
+      priority: () => pending[index],
+      runOnce: async () => {
+        const processed = pending[index] > 0 ? 1 : 0;
+        pending[index] -= processed;
+        return { processed, lastGlobalPosition: "0" as never };
+      },
+    }));
+    const options = {
+      workerId: "poll",
+      controlPlane,
+      runners,
+      maxConcurrentRunners: 2,
+      leaseTtlMs: 30_000,
+      leaseRenewIntervalMs: 10_000,
+      pollIntervalMs: 1000,
+      observer: { holderLifecycle: (event: WorkerHolderLifecycleEvent) => events.push(event) },
+    };
+    let loop = createWorkerRunnerLoop(options);
+    try {
+      loop.start();
+      await vi.advanceTimersByTimeAsync(1);
+      const target = events.filter((event) => event.runnerName === runners[0].name);
+      expect(target.map((event) => event.phase)).toEqual(["acquired", "pass-start", "pass-end", "released"]);
+      expect(target[2]).toMatchObject({ processed: 1, disposition: "retained", outcome: "success" });
+      expect(target[3]).toMatchObject({ reason: "idle", leaseIntervalId: target[0].leaseIntervalId });
+      expect(pending[0]).toBe(0);
+      const contender = await controlPlane.acquireLease({
+        leaseName: createWorkerRunnerLeaseName(runners[0]),
+        ownerId: "wake",
+        ttlMs: 30_000,
+      });
+      expect(contender).not.toBeNull();
+      await controlPlane.releaseLease(contender!);
+      const completed = target.length;
+      await vi.advanceTimersByTimeAsync(500);
+      expect(events.filter((event) => event.runnerName === runners[0].name)).toHaveLength(completed);
+      pending[0] = 1;
+      await vi.advanceTimersByTimeAsync(500);
+      expect(pending[0]).toBe(0);
+      await loop.stop();
+      expect(leases.size).toBe(0);
+      pending[0] = 1;
+      loop = createWorkerRunnerLoop(options);
+      loop.start();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(pending[0]).toBe(0);
+    } finally {
+      await loop.stop();
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps an actively draining projection-group lease held so backlog replay is never churned", async () => {
     // Busy passes (processed > 0) keep single lease ownership and reschedule
     // immediately — only IDLE passes yield (#4730). Backlog draining must not
