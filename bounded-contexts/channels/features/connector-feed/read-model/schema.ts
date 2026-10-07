@@ -47,6 +47,9 @@ export const connectorFeedSchemaMigrations: readonly BcSchemaMigration[] = [
   {
     migrationId: "20261007_channels_connector_actor_code_index",
     description: "Bound live pairing selection to the authorizing account and user.",
-    statements: [actorCodeIndex],
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS channel_connector_pairings_actor_code_idx
+        ON channel_connector_pairings (account_id, user_id, created_sequence DESC) WHERE state = 'code'`,
+    ],
   },
 ];
