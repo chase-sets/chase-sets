@@ -80,6 +80,24 @@ async function installationIdentity(inputLink = false) {
 }
 
 async function ownerRefusal(contexts, owned, mode, stage, id, censusOwner) {
+  // The cap control intentionally makes the bounded global observer refuse.
+  // Re-read only the browser identities recorded BEFORE constructing its leaves;
+  // this is survival evidence, not a successful or enlarged global census.
+  const survivalRecords = async () => {
+    if (id !== "13g") return tree();
+    assert.ok(owned.length <= 256);
+    return Promise.all(
+      owned.map(async ({ pid }) => {
+        const value = await readFile(`/proc/${pid}/stat`, "utf8");
+        const fields = value
+          .slice(value.lastIndexOf(") ") + 2)
+          .trim()
+          .split(/\s+/);
+        assert.notEqual(fields[0], "Z");
+        return { pid, parent: Number(fields[1]), start: Number(fields[19]) };
+      }),
+    );
+  };
   const missingFrom = (records) =>
     owned
       .filter(
@@ -89,14 +107,15 @@ async function ownerRefusal(contexts, owned, mode, stage, id, censusOwner) {
               r.pid === record.pid &&
               r.start === record.start &&
               r.parent === record.parent &&
-              r.image === record.image,
+              (id === "13g" || r.image === record.image),
           ),
       )
       .map(({ pid, start, parent, image }) => ({ pid, start, parent, image }));
   control = `${id}-${mode}-installation-before`;
   const before = await installationIdentity(stage === "input-not-symlink");
   control = `${id}-${mode}-identity-before`;
-  const missingBeforeRemoval = missingFrom(await tree());
+  const missingBeforeRemoval = missingFrom(await survivalRecords());
+  assert.deepEqual(missingBeforeRemoval, []);
   control = `${id}-${mode}-refusal`;
   if (id === "13g") {
     const limits = await readFile(`/proc/${censusOwner.pid}/limits`, "utf8");
@@ -148,7 +167,7 @@ async function ownerRefusal(contexts, owned, mode, stage, id, censusOwner) {
   control = `${id}-${mode}-installation-after`;
   assert.deepEqual(await installationIdentity(stage === "input-not-symlink"), before);
   control = `${id}-${mode}-identity-survival`;
-  const after = await tree();
+  const after = await survivalRecords();
   const missing = missingFrom(after);
   console.log(
     `installed-boundary control ${id} identity-survival:${JSON.stringify({
