@@ -394,7 +394,7 @@ describe("ready-10 quality-surface declarations", () => {
       "Data-path envelope\n------------------\n\nnone — no data path changes.",
       "Contract compatibility\n----------------------\n\nnone — no schema, event, or contract changes.",
       "Glossary impact\n---------------\n\nnone — no new or renamed public names.",
-      "Superseded paths:\n\nnone — no existing path is replaced or made redundant.",
+      "Superseded paths\n----------------\n\nnone — no existing path is replaced or made redundant.",
     ].join("\n\n");
     expect(qualityCodes(alternate)).toEqual([]);
   });
