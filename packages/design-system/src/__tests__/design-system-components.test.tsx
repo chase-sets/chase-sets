@@ -1,9 +1,9 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { act, useState, type ReactNode } from "react";
 import { hydrateRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import tailwindConfig from "../../../../tailwind.config";
 import {
   Button,
@@ -1962,6 +1962,84 @@ describe("design system components", () => {
     );
 
     expect(screen.getByText("Copy ID")).toBeTruthy();
+  });
+
+  describe("CopyButton reset timer", () => {
+    beforeEach(() => {
+      userEvent.setup();
+      vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      cleanup();
+      vi.clearAllTimers();
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    });
+
+    it("clears the pending reset on unmount without later errors", async () => {
+      const consoleError = vi.spyOn(console, "error");
+      const windowError = vi.fn();
+      window.addEventListener("error", windowError);
+      try {
+        const { unmount } = render(
+          <ChaseRoot reducedMotion="always">
+            <CopyButton value="test-value" label="Copy ID" />
+          </ChaseRoot>,
+        );
+        act(() => vi.runOnlyPendingTimers());
+        expect(vi.getTimerCount()).toBe(0);
+
+        await act(async () => {
+          fireEvent.click(screen.getByRole("button", { name: "Copy ID" }));
+        });
+        expect(navigator.clipboard.writeText).toHaveBeenCalledWith("test-value");
+        expect(screen.getByRole("button", { name: "Copied" })).toBeTruthy();
+        expect(vi.getTimerCount()).toBe(1);
+
+        unmount();
+        expect(vi.getTimerCount()).toBe(0);
+        act(() => vi.advanceTimersByTime(2001));
+        expect(vi.getTimerCount()).toBe(0);
+        expect(consoleError).not.toHaveBeenCalled();
+        expect(windowError).not.toHaveBeenCalled();
+      } finally {
+        window.removeEventListener("error", windowError);
+      }
+    });
+
+    it("reverts after 2000 ms while mounted and restarts on another copy", async () => {
+      render(
+        <ChaseRoot reducedMotion="always">
+          <CopyButton value="test-value" label="Copy ID" />
+        </ChaseRoot>,
+      );
+      act(() => vi.runOnlyPendingTimers());
+      expect(vi.getTimerCount()).toBe(0);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Copy ID" }));
+      });
+      act(() => vi.advanceTimersByTime(1999));
+      expect(screen.getByRole("button", { name: "Copied" })).toBeTruthy();
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByRole("button", { name: "Copy ID" })).toBeTruthy();
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Copy ID" }));
+      });
+      act(() => vi.advanceTimersByTime(1000));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Copied" }));
+      });
+      expect(vi.getTimerCount()).toBe(1);
+      act(() => vi.advanceTimersByTime(1999));
+      expect(screen.getByRole("button", { name: "Copied" })).toBeTruthy();
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByRole("button", { name: "Copy ID" })).toBeTruthy();
+      expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(3);
+    });
   });
 
   it("renders TagInput with tag values", () => {
