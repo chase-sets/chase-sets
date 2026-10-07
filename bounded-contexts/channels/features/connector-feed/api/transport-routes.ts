@@ -12,7 +12,7 @@ import {
   type ConnectorIdentity,
 } from "../domain/contracts";
 import { ConnectorTransportError } from "../domain/transport";
-import { connectorMaxOperations } from "../domain/policy";
+import { connectorReportMaxBytes } from "../domain/policy";
 import { recordConnectorAudit } from "../read-model/audit";
 import type { ConnectorTransportServices } from "./transport";
 
@@ -36,7 +36,7 @@ export function createConnectorTransportRoutes(services: ConnectorTransportServi
             ? 1024
             : operation === "ingest"
               ? policy.maxIngestBytes
-              : connectorMaxOperations * 16_384 + 65_536;
+              : connectorReportMaxBytes(policy);
         const value = await readBody(c.req.raw, maxBytes);
         const input = { token: authorization.slice(7), connectionId: c.req.param("connectionId") };
         const identify = (verified: ConnectorIdentity) => {

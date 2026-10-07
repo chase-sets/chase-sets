@@ -308,6 +308,36 @@ describe("connector-feed-audit-completeness", () => {
     expect(await response.json()).toEqual({ reservation, pollWindowSeconds: 3600 });
     expect(h.query).toHaveBeenCalledTimes(1);
   });
+  it.each([connectorPolicyDefaults.maxOperationsPerClaim, 1])(
+    "refuses a report above the resolved policy byte bound (%i operations) before calling the service",
+    async (maxOperationsPerClaim) => {
+      const h = http();
+      h.services.resolveTransportPolicy.mockResolvedValue({ ...connectorPolicyDefaults, maxOperationsPerClaim });
+      const bound = maxOperationsPerClaim * 16_384 + 65_536;
+      const response = await h.request("report", "x".repeat(bound - 1));
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ code: "report-refused", reason: "invalid-input" });
+      expect(h.services.report).not.toHaveBeenCalled();
+      expect(h.query).toHaveBeenCalledTimes(1);
+    },
+  );
+  it.each([connectorPolicyDefaults.maxOperationsPerClaim, 1])(
+    "passes a report at the resolved policy byte bound (%i operations) to the service",
+    async (maxOperationsPerClaim) => {
+      const h = http();
+      h.services.resolveTransportPolicy.mockResolvedValue({ ...connectorPolicyDefaults, maxOperationsPerClaim });
+      const bound = maxOperationsPerClaim * 16_384 + 65_536;
+      const value = "x".repeat(bound - 2);
+      const response = await h.request("report", value);
+      expect(response.status).toBe(200);
+      expect(h.services.report).toHaveBeenCalledExactlyOnceWith(
+        { token: "sentinel-token", connectionId: "connection_test" },
+        value,
+        expect.any(Function),
+      );
+      expect(h.query).toHaveBeenCalledTimes(1);
+    },
+  );
   it.each(["ingest", "report"])(
     "returns byte-identical %s success without a replay discriminator and audits once per call",
     async (operation) => {

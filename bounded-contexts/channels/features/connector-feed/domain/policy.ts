@@ -5,6 +5,11 @@ import { assertClosedRecord } from "../../connections/domain/validation";
 
 // Mirrors assertReserveClaimedOutboundOperationsInput; the source-parity test binds this ceiling.
 export const connectorMaxOperations = 1_000_000;
+
+export function connectorReportMaxBytes(policy: ConnectorPolicy): number {
+  return policy.maxOperationsPerClaim * 16_384 + 65_536;
+}
+
 export const connectorPolicyKeys = [
   "leaseMs",
   "pollWindowSeconds",
