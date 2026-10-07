@@ -207,12 +207,14 @@ async function syntheticOwnerCases(contexts, mode) {
     control = `${id}-${mode}-baseline`;
     const owned = await tree();
     control = `${id}-${mode}-stimulus`;
-    await withOwnershipStimulus(stimulus, async () => {
+    const constructed = await withOwnershipStimulus(stimulus, async () => {
       await ownerRefusal(contexts, owned, mode, stage, id);
     });
     control = `${id}-${mode}-restored-admission`;
     await assertBrowserAdmission();
-    pass(`${id} ${mode} stimulus retired and admission restored`);
+    if (constructed) pass(`${id} ${mode} stimulus retired and admission restored`);
+    else
+      console.log(`installed-boundary control ${id} ${mode}: NOT CONSTRUCTED; cleanup and restored admission verified`);
   }
 }
 
