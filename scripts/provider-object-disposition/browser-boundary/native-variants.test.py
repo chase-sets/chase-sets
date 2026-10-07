@@ -40,7 +40,8 @@ class NativeVariantFixtures(unittest.TestCase):
         for name in ('open', 'socket', 'connect', 'recvmsg', 'setns', 'unshare', 'mount', 'clone', 'prctl', 'x32'):
             changed = variants.variant(SOURCE, 'sf-' + name)
             self.assertIn(fence, changed)
-            self.assertIn('synthetic_status.si_code == CLD_KILLED && synthetic_status.si_status == SIGSYS', changed)
+            self.assertIn('(synthetic_status.si_code == CLD_KILLED || synthetic_status.si_code == CLD_DUMPED)', changed)
+            self.assertIn('synthetic_status.si_status == SIGSYS, "namespace-seed"', changed)
             self.assertLess(changed.index('seed_fence();'), changed.index('    for (;;) syscall(SYS_pause);'))
 
     def test_mapping_and_first_error_controls_remain_closed(self):

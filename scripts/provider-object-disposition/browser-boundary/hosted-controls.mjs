@@ -11,6 +11,7 @@ import { nativeDiagnosticControls } from "./native-diagnostics.mjs";
 import { nativeControls } from "./native-controls.mjs";
 import { peerControls } from "./peer-controls.mjs";
 import { withOwnershipStimulus } from "./ownership-controls.mjs";
+import { browserLifecycleControls } from "./browser-lifecycle-controls.mjs";
 
 const execute = promisify(execFile);
 const observer =
@@ -336,6 +337,9 @@ async function run() {
   });
   await nativeControls((stage) => {
     control = `native-${stage}`;
+  });
+  await browserLifecycleControls((stage) => {
+    control = `browser-lifecycle-${stage}`;
   });
   console.log("installed-boundary remaining controls: NOT PROVEN; see boundary README");
 }

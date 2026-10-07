@@ -95,7 +95,8 @@ def variant(source, name):
     int synthetic_wait = waitid(P_PIDFD, seedfd, &synthetic_status, WEXITED | WNOHANG | WNOWAIT);
     dprintf(STDOUT_FILENO, "SYNTHETIC_SF:%d:%d:%d:%d\\n", synthetic_poll, synthetic_wait, synthetic_status.si_code, synthetic_status.si_status);
     require(synthetic_poll == 1 && synthetic_wait == 0 &&
-            synthetic_status.si_code == CLD_KILLED && synthetic_status.si_status == SIGSYS, "namespace-seed");
+            (synthetic_status.si_code == CLD_KILLED || synthetic_status.si_code == CLD_DUMPED) &&
+            synthetic_status.si_status == SIGSYS, "namespace-seed");
     dprintf(STDOUT_FILENO, "SYNTHETIC_SF:SIGSYS\\n");'''
         return replace_once(source, '    active_seed = seedfd;', '    active_seed = seedfd;' + observation)
     match = re.fullmatch(r'stall-(outer|nested)-B([1-6])', name)

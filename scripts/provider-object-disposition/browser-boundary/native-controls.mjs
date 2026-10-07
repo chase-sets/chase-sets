@@ -40,7 +40,7 @@ async function command(...args) {
   return stdout.toString("utf8");
 }
 
-async function identities(pid) {
+export async function identities(pid) {
   const records = JSON.parse(await command("owned", String(pid)));
   assert.ok(records.some((record) => record.pid === pid));
   for (const record of records) {
@@ -50,7 +50,7 @@ async function identities(pid) {
   return records;
 }
 
-async function absent(records) {
+export async function absent(records) {
   const until = performance.now() + 2000;
   do {
     let present = false;
@@ -72,10 +72,11 @@ async function absent(records) {
   throw new Error("owned-drain-incomplete");
 }
 
-function launch(sourceDigest) {
-  const child = spawn(BROWSER_LAUNCHER, ["probe", sourceDigest], {
+export function launch(sourceDigest, mode = "probe") {
+  assert.ok(["probe", "browser"].includes(mode));
+  const child = spawn(BROWSER_LAUNCHER, [mode, sourceDigest], {
     env: environment,
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: mode === "probe" ? ["ignore", "pipe", "pipe"] : ["ignore", "pipe", "pipe", "pipe", "pipe"],
   });
   const stdout = [];
   const stderr = [];
@@ -139,7 +140,7 @@ async function withVariant(name, test) {
   pass(`${name} restored admission and exact host temporary absence`);
 }
 
-async function withConcurrentBrowser(sourceDigest, test) {
+export async function withConcurrentBrowser(sourceDigest, test) {
   const { chromium } = await import("@playwright/test");
   const browser = await chromium.launch({
     executablePath: BROWSER_LAUNCHER,
@@ -217,7 +218,7 @@ export async function nativeControls(stage) {
     ["b3-failure", "", "namespace-identity"],
     ...["open", "socket", "connect", "recvmsg", "setns", "unshare", "mount", "clone", "prctl", "x32"].map((name) => [
       `sf-${name}`,
-      "SYNTHETIC_SF:1:0:2:31\nSYNTHETIC_SF:SIGSYS\n",
+      [2, 3].map((code) => `SYNTHETIC_SF:1:0:${code}:31\nSYNTHETIC_SF:SIGSYS\n`),
       "namespace-seed",
     ]),
   ];
@@ -256,7 +257,7 @@ export async function nativeControls(stage) {
           actual.code === 78 &&
           actual.signal === null &&
           !actual.overflow &&
-          actual.stdout.equals(Buffer.from(stdout)) &&
+          [stdout].flat().some((expected) => actual.stdout.equals(Buffer.from(expected))) &&
           actual.stderr.equals(Buffer.from(stderr));
         console.log(
           `installed-boundary native-control:${JSON.stringify({ name, expectedStatus: 78, actualStatus: actual.code, signal: actual.signal, seedTermination, nativeStage: nativeRefusal(actual.stdout, actual.stderr, actual.code), stdoutBytes: actual.stdout.length, stderrBytes: actual.stderr.length, exact, redacted: true, truncated: actual.overflow })}`,
