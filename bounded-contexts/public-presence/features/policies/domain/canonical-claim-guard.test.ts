@@ -100,12 +100,12 @@ describe("ordinary interest versus the ruled Prepaid Balance term", () => {
 const chargeSourceRoles = [
   {
     role: "request",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1954-1974",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1956-1976",
     markers: ["createPaymentSession", "amount: processorAmount"],
   },
   {
     role: "saved request",
-    ref: "infrastructure/stripe-payments/index.ts:1616-1670",
+    ref: "infrastructure/stripe-payments/index.ts:1670-1724",
     markers: [
       'confirm: "true"',
       "paymentIntentAuthenticationUrl(body)",
@@ -115,7 +115,7 @@ const chargeSourceRoles = [
   },
   {
     role: "new session request",
-    ref: "infrastructure/stripe-payments/index.ts:1672-1761",
+    ref: "infrastructure/stripe-payments/index.ts:1726-1815",
     markers: [
       'mode: "payment"',
       '"/v1/checkout/sessions"',
@@ -125,12 +125,12 @@ const chargeSourceRoles = [
   },
   {
     role: "nonzero pending",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2082-2089",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2084-2091",
     markers: ['compareMoney(processorAmount, "0.00")', '"pending-confirmation"', "captured_at:"],
   },
   {
     role: "session outcomes",
-    ref: "infrastructure/stripe-payments/index.ts:920-1002",
+    ref: "infrastructure/stripe-payments/index.ts:930-1012",
     markers: [
       'case "checkout.session.completed"',
       'paymentObject.mode === "setup"',
@@ -142,7 +142,7 @@ const chargeSourceRoles = [
   },
   {
     role: "intent outcomes",
-    ref: "infrastructure/stripe-payments/index.ts:1047-1073",
+    ref: "infrastructure/stripe-payments/index.ts:1057-1083",
     markers: [
       'case "payment_intent.processing"',
       'case "payment_intent.amount_capturable_updated"',
@@ -153,7 +153,7 @@ const chargeSourceRoles = [
   },
   {
     role: "webhook capture recording",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2527-2568",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:2532-2573",
     markers: [
       'case "payment-authorized"',
       'type: "RecordPaymentAuthorization"',
@@ -164,7 +164,7 @@ const chargeSourceRoles = [
   },
   {
     role: "reconciliation outcomes",
-    ref: "infrastructure/stripe-payments/index.ts:401-476",
+    ref: "infrastructure/stripe-payments/index.ts:411-486",
     markers: [
       'processorStatus === "succeeded"',
       'processorStatus === "requires_capture"',
@@ -175,12 +175,12 @@ const chargeSourceRoles = [
   },
   {
     role: "reconciliation capture command",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:265-295",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:267-297",
     markers: ['case "captured"', 'type: "RecordPaymentCapture"', "capturedAt: result.occurredAt", 'case "authorized"'],
   },
   {
     role: "reconciliation recording",
-    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1227-1269",
+    ref: "bounded-contexts/payments/features/payments/api/runtime.ts:1229-1271",
     markers: [
       "providerResultMismatch(payment, result)",
       "paymentCommandFromProviderResult(result)",
@@ -702,7 +702,7 @@ const citationAuthorityRows: readonly CitationAuthorityRow[] = [
   },
   {
     id: "C8",
-    ref: `${termsAcceptanceSourcePath}:12-13`,
+    ref: `${termsAcceptanceSourcePath}:39-40`,
     targetPath: termsAcceptanceSourcePath,
     identity: "resolveTermsAcceptanceStatus",
     fragment: "active Terms of Service version",
@@ -712,7 +712,7 @@ const citationAuthorityRows: readonly CitationAuthorityRow[] = [
   },
   {
     id: "C9",
-    ref: `${termsAcceptanceSourcePath}:26-28`,
+    ref: `${termsAcceptanceSourcePath}:53-55`,
     targetPath: termsAcceptanceSourcePath,
     identity: "resolveTermsAcceptanceStatus",
     fragment: "exact active version string",
@@ -722,7 +722,7 @@ const citationAuthorityRows: readonly CitationAuthorityRow[] = [
   },
   {
     id: "C10",
-    ref: `${termsAcceptanceSourcePath}:19-30`,
+    ref: `${termsAcceptanceSourcePath}:46-57`,
     targetPath: termsAcceptanceSourcePath,
     identity: "resolveTermsAcceptanceStatus",
     fragment: "A thin fail-closed wrapper",
@@ -775,17 +775,17 @@ const expectedTermsAcceptanceCitationOccurrences: readonly TermsAcceptanceCitati
   {
     sectionId: "effective-date-notice-and-acceptance",
     fieldPath: "reviewManifest.productTruthRefs[1]",
-    ref: `${termsAcceptanceSourcePath}:12-13`,
+    ref: `${termsAcceptanceSourcePath}:39-40`,
   },
   {
     sectionId: "changes-notice-and-acceptance",
     fieldPath: "reviewManifest.productTruthRefs[2]",
-    ref: `${termsAcceptanceSourcePath}:26-28`,
+    ref: `${termsAcceptanceSourcePath}:53-55`,
   },
   {
     sectionId: "changes-notice-and-acceptance",
     fieldPath: "reviewManifest.assumptions[0].evidenceRef",
-    ref: `${termsAcceptanceSourcePath}:19-30`,
+    ref: `${termsAcceptanceSourcePath}:46-57`,
   },
 ];
 
@@ -830,8 +830,8 @@ const citationFencePaths = {
 
 const reviewedCitationFenceDigests: Readonly<Record<string, string>> = {
   [citationFencePaths.authenticityTerms]: "7e64ea6fba08d7f0796193db12fb203c21525732a33f0b5a22456ada80682b00",
-  // Refreshed for the authorized charge-authority draft correction; only C1-C7 digits remain normalized.
-  [citationFencePaths.privacyPolicy]: "ce7135c9b63f41417e5dad54a32ada1d6a01afe9cb9631e3ad972df2e590c04a",
+  // Refreshed for byte-identical citation relocations; only C1-C7 digits remain normalized.
+  [citationFencePaths.privacyPolicy]: "3107386fd3d02e7072c633be6def3eec052efeee68b49d245f26aecc53aa5578",
   [citationFencePaths.authenticityTest]: "4117ad0b8293c6b450b43ef42fbcbdcfb8bcc0d58a1c7b4c1df0e61adc831d34",
   [citationFencePaths.staticSurfaces]: "008c7a9dfe4475ca97613eece7b4f337be854de440e11ceb24d5b2684677b901",
 };
@@ -960,7 +960,7 @@ describe("canonical claim consistency guard", () => {
         "reconciliation recording",
         "capture fact",
       ],
-      extra: ["bounded-contexts/payments/features/payments/api/runtime.ts:2038-2049"],
+      extra: ["bounded-contexts/payments/features/payments/api/runtime.ts:2040-2051"],
     },
     ...chargeSourceRoles.slice(3).map(({ role }) => ({ name: `missing ${role}`, omitted: [role], extra: [] })),
   ])(
@@ -1048,7 +1048,7 @@ describe("canonical claim consistency guard", () => {
     const registry = withPaymentsTermsCanonicalClaims("charge-timing-and-statement-descriptor", [
       {
         claimId: "payment-charge-timing-and-capture",
-        productTruthRefs: ["bounded-contexts/payments/features/payments/api/runtime.ts:491-509"],
+        productTruthRefs: ["bounded-contexts/payments/features/payments/api/runtime.ts:493-511"],
       },
     ]);
 
@@ -1775,7 +1775,7 @@ describe("line-keyed policy citation authority", () => {
       expect(validateCitationAuthority(row), row.id).toEqual([]);
       if (row.minimalEdges !== undefined) {
         const identity = row.spanOf(row.identity);
-        expect(identity, `${row.id} identity`).toEqual({ start: 11, end: 41 });
+        expect(identity, `${row.id} identity`).toEqual({ start: 38, end: 68 });
         const slice = readCitedSourceSlice(repoRoot, row.ref);
         if (slice.error !== undefined) {
           throw new Error(`${row.id}: ${slice.error}`);
@@ -1851,7 +1851,7 @@ describe("line-keyed policy citation authority", () => {
         registry: withTermsOfServiceSectionOverride(conduct.id, {
           reviewManifest: {
             ...conduct.reviewManifest,
-            productTruthRefs: [...conduct.reviewManifest.productTruthRefs, `${termsAcceptanceSourcePath}:12-13`],
+            productTruthRefs: [...conduct.reviewManifest.productTruthRefs, `${termsAcceptanceSourcePath}:39-40`],
           },
         }),
       },
@@ -1861,7 +1861,7 @@ describe("line-keyed policy citation authority", () => {
           reviewManifest: {
             ...effective.reviewManifest,
             productTruthRefs: effective.reviewManifest.productTruthRefs.filter(
-              (ref) => ref !== `${termsAcceptanceSourcePath}:12-13`,
+              (ref) => ref !== `${termsAcceptanceSourcePath}:39-40`,
             ),
           },
         }),
@@ -1872,7 +1872,7 @@ describe("line-keyed policy citation authority", () => {
           reviewManifest: {
             ...changes.reviewManifest,
             productTruthRefs: changes.reviewManifest.productTruthRefs.map((ref) =>
-              ref === `${termsAcceptanceSourcePath}:26-28`
+              ref === `${termsAcceptanceSourcePath}:53-55`
                 ? "bounded-contexts/identity/features/consents/api/terms-route.ts:31-90"
                 : ref,
             ),
@@ -1885,7 +1885,7 @@ describe("line-keyed policy citation authority", () => {
           reviewManifest: {
             ...effective.reviewManifest,
             productTruthRefs: effective.reviewManifest.productTruthRefs.map((ref) =>
-              ref === `${termsAcceptanceSourcePath}:12-13` ? `${termsAcceptanceSourcePath}:6-7` : ref,
+              ref === `${termsAcceptanceSourcePath}:39-40` ? `${termsAcceptanceSourcePath}:6-7` : ref,
             ),
           },
         }),

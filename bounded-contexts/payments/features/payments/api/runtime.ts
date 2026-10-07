@@ -35,6 +35,7 @@ import type {
   ProcessorPaymentReconciliationResult,
 } from "@chase-sets/payment-processing";
 import type { BalanceCreditResolver } from "./balance-credit-resolver";
+import type { WalletFundingServices } from "../../wallet-funding/api/runtime";
 import { listPaymentOrderInputs, type PaymentOrderInputRow } from "../integrations/order-input/order-input-queries";
 import {
   submitPaymentDisputeEvidence,
@@ -127,6 +128,7 @@ import {
 type PaymentRuntimeDeps = Readonly<{
   cardDeclineStore: CardDeclineStore;
   runWebhookTransaction: PaymentWebhookRunner;
+  walletFunding?: WalletFundingServices;
   evidenceWindowCorrelation?: import("@chase-sets/evidence-window-provider-write").ProviderWriteCorrelation;
   evidenceWindowProviderWrite?: import("@chase-sets/evidence-window-provider-write").EvidenceWindowProviderWrite;
   eventStore: EventStore;
@@ -2496,6 +2498,9 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
               });
             }
             return { received: true, ignored: !instrument };
+          }
+          if (deps.walletFunding && (await deps.walletFunding.processWebhook(webhookEvent, context))) {
+            return { received: true, ignored: false };
           }
 
           if (webhookEvent.internalPaymentId) await transaction.lock(`payment:${webhookEvent.internalPaymentId}`);

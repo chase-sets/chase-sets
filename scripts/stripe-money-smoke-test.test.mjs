@@ -4,9 +4,69 @@ import {
   resolveStripeKeyMode,
   runEdgeCheck,
   runSellerFlow,
+  runWalletFundingProbe,
   validateStripeDeliveredWebhookProofForRun,
   validateStripeKeyModeForRun,
 } from "./stripe-money-smoke-test.mjs";
+
+describe("wallet funding optional staging smoke", () => {
+  it("stays off without an amount and refuses live mode before requests", async () => {
+    const fetchImpl = async () => {
+      throw new Error("unexpected request");
+    };
+    expect(await runWalletFundingProbe("https://synthetic.test", { env: {}, fetchImpl })).toBe("skipped");
+    await expect(
+      runWalletFundingProbe("https://synthetic.test", {
+        env: {
+          STAGING_SMOKE_WALLET_FUNDING_AMOUNT: "10.00",
+          STRIPE_SECRET_KEY: "sk_live_synthetic",
+          STRIPE_PUBLISHABLE_KEY: "pk_live_synthetic",
+        },
+        fetchImpl,
+      }),
+    ).rejects.toThrow("test mode");
+  });
+  it("quotes and creates through the application without reporting a client secret or unobserved proof", async () => {
+    const calls = [];
+    const result = await runWalletFundingProbe("https://synthetic.test", {
+      env: {
+        STAGING_SMOKE_WALLET_FUNDING_AMOUNT: "10.00",
+        STRIPE_SECRET_KEY: "sk_test_synthetic",
+        STRIPE_PUBLISHABLE_KEY: "pk_test_synthetic",
+      },
+      headers: new Headers({ Authorization: "Bearer synthetic" }),
+      fetchImpl: async (url, init) => {
+        calls.push({ url, body: JSON.parse(init.body) });
+        const quote = {
+          quote_fingerprint: "synthetic-fingerprint",
+          marketplace_checkout_fee_amount: "0.61",
+          processor_amount: "10.61",
+        };
+        return calls.length === 1
+          ? jsonResponse({ fundingId: "wfp_synthetic", outcome: "quoted", quote })
+          : jsonResponse(
+              {
+                fundingId: "wfp_synthetic",
+                outcome: "created",
+                quote,
+                processorClientSecret: "SYNTHETIC-SECRET-MARKER",
+                funding: { processorPaymentReference: "pi_synthetic" },
+              },
+              201,
+            );
+      },
+    });
+    expect(calls).toHaveLength(2);
+    expect(calls.every((call) => call.url.endsWith("/api/marketplace/account/wallet-fundings"))).toBe(true);
+    expect(calls[1].body.quoteFingerprint).toBe("synthetic-fingerprint");
+    expect(result).toMatchObject({
+      create: "observed",
+      capture: "requires-client-confirmation",
+      integratedRefundProof: "owed-by-7813",
+    });
+    expect(JSON.stringify(result)).not.toContain("SYNTHETIC-SECRET-MARKER");
+  });
+});
 
 function jsonResponse(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), {

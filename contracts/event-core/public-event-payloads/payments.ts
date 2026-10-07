@@ -194,7 +194,37 @@ export type PaymentsCheckoutAffordancesPublishedPayload = Readonly<{
   publishedAt: string;
 }>;
 
+export type WalletFundingFactPayload = Readonly<{
+  fundingId: TypedUlid<"wfp">;
+  accountId: AccountId;
+  requestedAmount: string;
+  feeAmount: string;
+  grossAmount: string;
+  currencyCode: "usd";
+  processorPaymentReference: string | null;
+  occurredAt: string;
+}>;
+export type WalletFundingRefundedPayload = WalletFundingFactPayload &
+  Readonly<{
+    refundId: string;
+    refundAmount: string;
+    reservationId: string;
+    processorRefundReference: string;
+    factId: string;
+  }>;
+export type WalletFundingDisputeRecordedPayload = WalletFundingFactPayload &
+  Readonly<{
+    disputeId: string;
+    lifecycle: "opened" | "won" | "lost";
+    disputeAmount: string;
+    disputeFeeAmount: string;
+  }>;
+
 export type PaymentsEventPayloads = Readonly<{
+  "payments.wallet-funding-captured": WalletFundingFactPayload;
+  "payments.wallet-funding-failed": WalletFundingFactPayload & Readonly<{ reason: string }>;
+  "payments.wallet-funding-refunded": WalletFundingRefundedPayload;
+  "payments.wallet-funding-dispute-recorded": WalletFundingDisputeRecordedPayload;
   "payments.payment-created": PaymentCreatedPayload;
   "payments.payment-captured": PaymentCapturedPayload;
   "payments.payment-failed": PaymentFailedPayload;

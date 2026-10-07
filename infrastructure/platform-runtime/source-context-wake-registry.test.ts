@@ -194,6 +194,23 @@ describe("source-context wake registry", () => {
     );
   });
 
+  it("registers wallet funding and its policy projection only under their Payments source", () => {
+    const payments = requireSourceContextWakeRegistryEntry("payments");
+    expect(payments).toMatchObject({
+      owner: "Payments",
+      rolloutState: "staging-enabled",
+      rolloutWave: "wave-1-checkout-hot-path",
+      priorityLane: "hot",
+      enablement: { eventStoreWakeNotifications: true, relayFanOut: true },
+    });
+    for (const key of ["payments:payments-wallet-funding-projection", "payments:platform-policy-document-projection"]) {
+      expect(sourceContextWakeRegistry.filter((entry) => entry.affectedProjectionNames.includes(key))).toEqual([
+        payments,
+      ]);
+      expect(payments.affectedProjectionNames.filter((projectionKey) => projectionKey === key)).toHaveLength(1);
+    }
+  });
+
   it("creates write-side and relay configs from the same source-context entry", () => {
     delete process.env.PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED;
     delete process.env.PLATFORM_PROJECTION_WAKE_SOURCE_CONTEXTS;

@@ -183,7 +183,7 @@ export const privacyPolicyArtifact: PublicPolicyArtifact<"privacy-policy", Priva
         decisionRefs: [5679, 5685],
         productTruthRefs: [
           ...privacyProductTruthRefsForSection("recipients-and-disclosures"),
-          "infrastructure/stripe-payments/index.ts:1464-1494",
+          "infrastructure/stripe-payments/index.ts:1485-1515",
           "infrastructure/easypost-postage/index.ts:77-100",
           "infrastructure/ses-email/index.ts:1-7",
           "infrastructure/twilio-messaging/index.ts:1-20",

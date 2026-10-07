@@ -13,6 +13,28 @@ import {
 } from "./terraform-plan-inspection.mjs";
 
 const platformMain = readFileSync(resolve("infrastructure/digitalocean/platform/main.tf"), "utf8");
+
+it("maps the optional wallet funding smoke and fail-closed production runtime gates", () => {
+  for (const workflow of ["platform-production.yml", "platform-staging-representative-commerce-state.yml"]) {
+    const source = readFileSync(resolve(".github/workflows", workflow), "utf8");
+    expect(source).toContain(
+      "STAGING_SMOKE_WALLET_FUNDING_AMOUNT: ${{ vars.STAGING_SMOKE_WALLET_FUNDING_AMOUNT || '' }}",
+    );
+  }
+  const production = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
+  const deployProduction = production.slice(
+    production.indexOf("  deploy-production:"),
+    production.indexOf("  dispatch-ephemeral-verification:"),
+  );
+  for (const name of [
+    "PRODUCTION_WALLET_FUNDING_APPROVED",
+    "PRODUCTION_WALLET_FUNDING_REFERENCE",
+    "PRODUCTION_WALLET_FUNDING_ACCOUNT_ALLOWLIST",
+  ]) {
+    expect(deployProduction).toContain(`vars.${name}`);
+    expect(deployProduction).toContain(`add_optional_runtime_env "${name}"`);
+  }
+});
 const platformVersions = readFileSync(resolve("infrastructure/digitalocean/platform/versions.tf"), "utf8");
 const platformLocals = readFileSync(resolve("infrastructure/digitalocean/platform/locals.tf"), "utf8");
 const platformOutputs = readFileSync(resolve("infrastructure/digitalocean/platform/outputs.tf"), "utf8");

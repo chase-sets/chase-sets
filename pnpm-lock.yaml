@@ -1045,6 +1045,9 @@ importers:
       '@chase-sets/payment-processing':
         specifier: workspace:*
         version: link:../../contracts/payment-processing
+      '@chase-sets/platform-policy':
+        specifier: workspace:*
+        version: link:../../infrastructure/platform-policy
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime

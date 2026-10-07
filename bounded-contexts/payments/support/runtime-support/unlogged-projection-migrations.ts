@@ -2,6 +2,16 @@ import type { BcSchemaMigration } from "@chase-sets/bounded-context-module";
 
 export const paymentsUnloggedProjectionSchemaMigrations: readonly BcSchemaMigration[] = [
   {
+    migrationId: "20260927_payments_wallet_funding_unlogged_projections",
+    description: "Keep wallet funding and policy projections replayable from their durable streams.",
+    statements: [
+      "SET lock_timeout = '5s';",
+      "ALTER TABLE payments_wallet_funding_pages SET UNLOGGED;",
+      "ALTER TABLE platform_policy_documents SET UNLOGGED;",
+      "ALTER TABLE platform_policy_document_history SET UNLOGGED;",
+    ],
+  },
+  {
     migrationId: "20260710_payments_unlogged_projections",
     description: "Store replayable Payments projections as unlogged tables.",
     statements: [
