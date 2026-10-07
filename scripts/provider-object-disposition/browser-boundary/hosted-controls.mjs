@@ -299,7 +299,9 @@ async function run() {
   assert.deepEqual(await readdir(`${install}/root/tmp`), []);
   pass("12 launch host temporaries absent");
   control = "B2-bootstrap-transport";
-  await bootstrapControls();
+  await bootstrapControls((stage) => {
+    control = `B2-${stage}`;
+  });
   console.log("installed-boundary remaining controls: NOT PROVEN; see boundary README");
 }
 

@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
+import { readFile } from "node:fs/promises";
 import {
   BROWSER_BOOTSTRAP,
   browserRequestAllowed,
@@ -171,4 +172,18 @@ it("denial schema has at most 80 closed buckets and never retains private input"
     }
   }
   expect(buckets.size).toBeLessThanOrEqual(80);
+});
+
+it("the forbidden-send assertion detects a governing-only URL policy mutant with a synthetic sender", async () => {
+  const source = await readFile(new URL("test-window-policy.mjs", import.meta.url), "utf8");
+  const predicate = "if (!browserRequestAllowed(request))";
+  expect(source.split(predicate)).toHaveLength(2);
+  const mutant = await import(
+    `data:text/javascript;base64,${Buffer.from(source.replace(predicate, "if (false)")).toString("base64")}`
+  );
+  const { budget, send } = setup();
+  const transport = mutant.createBrowserBootstrapTransport({ budget, send });
+  await transport({ ...allowed(), url: "https://api.stripe.com/v1/accounts" });
+  expect(send).toHaveBeenCalledTimes(1);
+  expect(() => expect(send).not.toHaveBeenCalled()).toThrow();
 });

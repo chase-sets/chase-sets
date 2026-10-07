@@ -6,6 +6,29 @@ export async function openBootstrapPage({ browser, expiresAt, send, signal }) {
     budget.assert();
     const context = await browser.newContext();
     if (typeof context.routeWebSocket !== "function") throw new Error("browser-transport-unavailable");
+    const unsupported = ["WebTransport", "RTCPeerConnection", "webkitRTCPeerConnection", "SharedWorker"];
+    await context.exposeBinding("__providerBoundaryDenied", (_source, name) => {
+      try {
+        budget.take();
+        budget.deny({ method: "other", url: undefined });
+        if (!unsupported.includes(name)) void budget.close();
+      } catch {
+        void budget.close();
+      }
+    });
+    await context.addInitScript((names) => {
+      const deny = globalThis.__providerBoundaryDenied;
+      for (const name of names) {
+        Object.defineProperty(globalThis, name, {
+          configurable: false,
+          writable: false,
+          value: function () {
+            void deny(name).catch(() => {});
+            throw new Error("browser-policy-blocked");
+          },
+        });
+      }
+    }, unsupported);
     await context.routeWebSocket(/.*/, (socket) => {
       try {
         budget.take();

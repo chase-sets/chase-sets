@@ -6,7 +6,7 @@ import { openBootstrapPage } from "./bootstrap.mjs";
 const form = { url: BROWSER_BOOTSTRAP, method: "GET", headers: {}, body: null };
 const pass = (id) => console.log(`installed-boundary control B2-${id}: PASS`);
 
-export async function bootstrapControls() {
+export async function bootstrapControls(stage = () => {}) {
   let sends = 0;
   const budget = createBrowserBudget({ expiresAt: new Date(Date.now() + 5000).toISOString(), stop: () => {} });
   const transport = createBrowserBootstrapTransport({
@@ -68,10 +68,12 @@ export async function bootstrapControls() {
     await budget.close();
   }
 
+  stage("open-browser");
   const browser = await openConfinedBrowser();
   let bootstrap;
   sends = 0;
   try {
+    stage("open-bootstrap-page");
     bootstrap = await openBootstrapPage({
       browser,
       expiresAt: new Date(Date.now() + 15000).toISOString(),
@@ -80,15 +82,19 @@ export async function bootstrapControls() {
         return new Response("globalThis.__syntheticBootstrap = true;");
       },
     });
+    stage("bootstrap-executed");
     assert.equal(await bootstrap.page.evaluate(() => globalThis.__syntheticBootstrap), true);
     assert.equal(sends, 1);
     // Deliberately permissive CSP is the adversary, never the permission source.
-    await bootstrap.page.setContent(
+    stage("hostile-page");
+    const hostile = await bootstrap.context.newPage();
+    await hostile.setContent(
       "<!doctype html><meta http-equiv=\"Content-Security-Policy\" content=\"default-src * data: blob: 'unsafe-inline'; connect-src *; script-src * blob: 'unsafe-inline'\"><title>SYNTHETIC</title>",
     );
     for (const kind of ["fetch", "xhr", "script", "image", "frame", "worker", "popup", "form", "beacon", "websocket"]) {
+      stage(`child-${kind}`);
       const before = bootstrap.snapshot().attempts;
-      await bootstrap.page.evaluate(async (kind) => {
+      await hostile.evaluate(async (kind) => {
         const url = "https://example.invalid/SYNTHETIC_PRIVATE";
         await new Promise((resolve) => {
           setTimeout(resolve, 250);
@@ -138,13 +144,35 @@ export async function bootstrapControls() {
           }
         });
       }, kind);
+      console.log(
+        `installed-boundary child-client:${JSON.stringify({ kind, before, after: bootstrap.snapshot().attempts, sends })}`,
+      );
       assert.ok(bootstrap.snapshot().attempts > before, `alternate-client-${kind}`);
       assert.equal(sends, 1);
       pass(`child-${kind}-send0`);
     }
     assert.ok(!JSON.stringify(bootstrap.snapshot()).includes("SYNTHETIC_PRIVATE"));
     pass("permissive-csp-does-not-authorize");
-    await bootstrap.page
+    for (const name of ["WebTransport", "RTCPeerConnection", "webkitRTCPeerConnection", "SharedWorker"]) {
+      stage(`unsupported-${name}`);
+      const before = bootstrap.snapshot().attempts;
+      assert.equal(
+        await hostile.evaluate((name) => {
+          try {
+            new globalThis[name]("https://example.invalid/SYNTHETIC_PRIVATE");
+            return false;
+          } catch (error) {
+            return error.message === "browser-policy-blocked";
+          }
+        }, name),
+        true,
+      );
+      assert.ok(bootstrap.snapshot().attempts > before);
+      assert.equal(sends, 1);
+      pass(`unsupported-${name}-send0`);
+    }
+    stage("atomic-cap");
+    await hostile
       .evaluate(async () => {
         await Promise.allSettled(Array.from({ length: 140 }, () => fetch("https://example.invalid/SYNTHETIC_PRIVATE")));
       })

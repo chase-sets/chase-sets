@@ -59,6 +59,7 @@ export function createBrowserBudget({ expiresAt, stop, signal }) {
   const controller = new AbortController();
   const denials = new Map();
   let attempts = 0;
+  let deniedAttempts = 0;
   let closing;
   const close = () => {
     if (!controller.signal.aborted) {
@@ -94,6 +95,11 @@ export function createBrowserBudget({ expiresAt, stop, signal }) {
       attempts++;
     },
     deny(request) {
+      if (deniedAttempts >= attempts) {
+        close();
+        throw new Error("browser-bound");
+      }
+      deniedAttempts++;
       const bucket = denialBucket(request);
       const key = JSON.stringify(bucket);
       const previous = denials.get(key);
