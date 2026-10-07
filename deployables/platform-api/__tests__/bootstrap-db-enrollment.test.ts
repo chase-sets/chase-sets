@@ -710,7 +710,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     }
     const memoBytes = readFileSync(join(testDirectory, "fixtures/bootstrap-db-oracle-schedule-memo.json"));
     expect(createHash("sha256").update(memoBytes).digest("hex")).toBe(
-      "bc6e1290ef0a8d692bb4600cf43ed5943c504e5e018cce1b9c4b4bd3930f3411",
+      "be67510b16f8e5e57adf10621c605a3679c77acc128a3137ce0592bd5b803b10",
     );
     const memo = JSON.parse(memoBytes.toString("utf8"));
     expect(memo.oracleSha256).toBe("d3b96de0c4051a7021f8f00869d19dd13314166b8dc81244c2bb554a2493847b");
@@ -1566,6 +1566,14 @@ describe("Platform API bootstrap DB enrollment", () => {
     const fixture = await createShippedFixture(
       shippedShapedFiles().map((file) => ({
         ...file,
+        // Preserve this capture's inputs, not #7918's later accepted callback timings.
+        cases:
+          file.fileName === "connector-mount-gate-isolation.db.test.ts"
+            ? file.cases.map((testCase, index) => ({
+                ...testCase,
+                referenceDurationMs: [2_149, 1_237, 1_095, 1_105, 1_967][index]!,
+              }))
+            : file.cases,
         executionUnit: measuredUnitOne.has(file.fileName)
           ? "test:db:1"
           : measuredUnitTwo.has(file.fileName)
@@ -1596,7 +1604,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(bootstrapDbScheduleModel.maximumEnumeratedUnitCount).toBe(4);
     expect(bootstrapDbScheduleModel.maximumCaseReferenceDurationMs).toBe(600_000);
     expect(checkBootstrapDbEnrollment().schedule.files.reduce((total, file) => total + file.caseDurationMs, 0)).toBe(
-      1_731_388,
+      1_771_111,
     );
   });
 
@@ -1606,7 +1614,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     const { schedule } = checkBootstrapDbEnrollment();
 
     expect(schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual([
-      ["test:db:1", 376_859],
+      ["test:db:1", 387_817],
       ["test:db:2", 271_549],
       ["test:db:3", 340_454],
     ]);
@@ -1615,8 +1623,8 @@ describe("Platform API bootstrap DB enrollment", () => {
       [27, 27],
       [6, 6],
     ]);
-    expect(schedule.aggregateMs).toBe(988_862);
-    expect(schedule.aggregateWithOverheadMs).toBe(1_043_928);
+    expect(schedule.aggregateMs).toBe(999_820);
+    expect(schedule.aggregateWithOverheadMs).toBe(1_054_886);
     expect(schedule.minimumUnitCount).toBe(3);
     expect(schedule.observedUnitCount).toBe(3);
   });
@@ -1628,7 +1636,7 @@ describe("Platform API bootstrap DB enrollment", () => {
     expect(Object.getPrototypeOf(nullPrototypeModel)).toBeNull();
     expect(result.violations).toEqual([]);
     expect(result.schedule.units.map((unit) => [unit.scriptName, unit.makespanMs])).toEqual([
-      ["test:db:1", 376_859],
+      ["test:db:1", 387_817],
       ["test:db:2", 271_549],
       ["test:db:3", 340_454],
     ]);

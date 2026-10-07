@@ -35,11 +35,21 @@ const statements = [
   `CREATE INDEX IF NOT EXISTS channel_connector_audit_connection_time_idx
     ON channel_connector_audit (connection_id, occurred_at DESC)`,
 ] as const;
-export const connectorFeedSchemaSql = statements.join(";\n") + ";";
+const actorCodeIndex = `CREATE INDEX IF NOT EXISTS channel_connector_pairings_actor_code_idx
+  ON channel_connector_pairings (account_id, user_id, created_sequence DESC) WHERE state = 'code'`;
+export const connectorFeedSchemaSql = [...statements, actorCodeIndex].join(";\n") + ";";
 export const connectorFeedSchemaMigrations: readonly BcSchemaMigration[] = [
   {
     migrationId: "20260914_channels_connector_pairing",
     description: "Connection-scoped one-use pairing lifecycle and credential-safe request audit.",
     statements,
+  },
+  {
+    migrationId: "20261007_channels_connector_actor_code_index",
+    description: "Bound live pairing selection to the authorizing account and user.",
+    statements: [
+      `CREATE INDEX CONCURRENTLY IF NOT EXISTS channel_connector_pairings_actor_code_idx
+        ON channel_connector_pairings (account_id, user_id, created_sequence DESC) WHERE state = 'code'`,
+    ],
   },
 ];

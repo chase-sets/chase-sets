@@ -97,7 +97,10 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
    track placement plus entry/exit gates against other milestones.
 2. **Discovery.** Repo evidence sweep: owning contexts' README/GLOSSARY, prior
    art, and an explicit **don't-rebuild check** — shipped surfaces get pointers,
-   never reimplementation. Check glossary conformance of every term the plan
+   never reimplementation. Run a **supersession check**: inventory every existing
+   path the planned change replaces or makes redundant, including code, docs,
+   flags, and workflows. Stage 2-light for Issues still requires this check.
+   Check glossary conformance of every term the plan
    introduces. Query the orchestrator ledgers with the outcome, domain terms,
    and predicted footprint:
 
@@ -112,7 +115,11 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
 3. **Decomposition.** Vertical slices, one behavior owner each. **Footprint
    analysis drives topology:** slices sharing files form declared serial chains;
    disjoint slices form parallel waves. Declare the chain DAG explicitly — this
-   is what lets the orchestrator parallelize lanes safely.
+   is what lets the orchestrator parallelize lanes safely. Place each superseded
+   path's removal in the replacing slice or in a removal slice natively dependent
+   on the switchover, in the same committed outcome, never candidate, parked or
+   unfiled work. Each removal has an owning acceptance criterion and named
+   evidence method.
 4. **Decision extraction.** Enumerate every decision the work will hit. Resolve
    what repo evidence can; everything else goes to the decision queue NOW, each
    with a recommendation — never leave a known decision to surface mid-lane.
@@ -127,6 +134,8 @@ Stages by tier — Issues: 1, 2-light, 5, 7 · Epic: 1–5, 6-light, 7 · Milest
    (`references/issue-standard.md` item 8).
 5. **Drafting.** Author artifacts per the reference standards. Every path
    terminates in issues meeting `references/issue-standard.md`, whatever the tier.
+   For Issues tier, Stage 5 performs the removal placement specified in
+   Decomposition; tier shortcuts never skip the supersession check or placement.
 6. **Pressure test.** Adversarial pass in a FRESH context (independent agent)
    per `references/pressure-test.md`. Repair findings before registration.
 7. **Registration.** Create on GitHub (issue forms under `.github/ISSUE_TEMPLATE/`)
