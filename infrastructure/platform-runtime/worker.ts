@@ -556,7 +556,6 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
   let scheduling = false;
   let scheduleAgainAfterCurrentPass = false;
   const heldRunnerLeases = new Map<string, HeldRunnerLease>();
-  const retainedProjectionLeases = new Set<HeldRunnerLease>();
   const failureBackoffBaseMs = Math.max(0, Math.floor(options.failureBackoffBaseMs ?? options.pollIntervalMs * 5));
   const failureBackoffMaxMs = Math.max(failureBackoffBaseMs, Math.floor(options.failureBackoffMaxMs ?? 30_000));
   const refreshableRunners = options.runners.filter((runner) => runner.refreshPriority);
@@ -823,8 +822,8 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
           //   already-satisfied) — the push-wake fast path degrades to the
           //   polling loop's rotation latency, which stretches to minutes
           //   during post-rollout replay.
-          // Productive continuations reuse the lease; schedule releases a
-          // retained holder only after selection leaves it inactive.
+          // Busy passes (processed > 0) keep the lease and reschedule
+          // immediately, so backlog draining never churns its lease.
           if (acquiredLease && shouldYieldIdleProjectionGroupLease(runner, completedResult)) {
             // Release without an immediate reschedule: the group runner has no
             // work of its own, so let the normal poll tick re-run it while the
@@ -832,8 +831,6 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
             void releaseHeldRunnerLease(acquiredLease, false, "idle").catch((error: unknown) => {
               options.onError?.(error, runner);
             });
-          } else if (acquiredLease && runner.kind === "projection-group" && (completedResult?.processed ?? 0) > 0) {
-            retainedProjectionLeases.add(acquiredLease);
           }
           try {
             if (shouldRescheduleAfterCompletion(runner, completedResult)) {
@@ -969,28 +966,6 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
         }
         nextRunnerIndex = (selection.index + 1) % options.runners.length;
         startRunner(selection.runner, "shared");
-      }
-
-      for (const heldLease of retainedProjectionLeases) {
-        if (activeRunnerNames.has(heldLease.runner.name) || !heldLease.leaseActive) {
-          retainedProjectionLeases.delete(heldLease);
-          continue;
-        }
-        // Another runner can share this lease, including one selected above
-        // whose asynchronous acquisition has not incremented activeRunCount yet.
-        if (
-          heldLease.activeRunCount > 0 ||
-          options.runners.some(
-            (runner) =>
-              activeRunnerNames.has(runner.name) && createWorkerRunnerLeaseName(runner) === heldLease.leaseName,
-          )
-        ) {
-          continue;
-        }
-        retainedProjectionLeases.delete(heldLease);
-        void releaseHeldRunnerLease(heldLease, false, "idle").catch((error: unknown) => {
-          options.onError?.(error, heldLease.runner);
-        });
       }
     } finally {
       scheduling = false;

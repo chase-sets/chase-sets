@@ -1568,6 +1568,10 @@ describe("busy-group-pass-attribution Postgres", () => {
       const lifecycle: WorkerHolderLifecycleEvent[] = [];
       const wakeDeferrals: unknown[] = [];
       const wakeCompletions: unknown[] = [];
+      let resolveWakeCompleted!: () => void;
+      const wakeCompleted = new Promise<void>((resolve) => {
+        resolveWakeCompleted = resolve;
+      });
       let retainedPass: WorkerHolderLifecycleEvent | undefined;
       let handoffSequence: number | undefined;
       let firstWakeAttempt:
@@ -1687,6 +1691,7 @@ describe("busy-group-pass-attribution Postgres", () => {
             wakeIntentCompleted: (event) => {
               wakeCompletions.push(event);
               trace("wake-completed", event);
+              resolveWakeCompleted();
             },
             wakeIntentNotReady: (event) => trace("wake-not-ready", event),
             wakeIntentRunFailed: () => trace("wake-failed"),
@@ -1837,7 +1842,7 @@ describe("busy-group-pass-attribution Postgres", () => {
         }),
       );
       const response = await Promise.race([
-        read,
+        Promise.all([read, wakeCompleted]).then(([response]) => response),
         new Promise<never>((_resolve, reject) => {
           clientTimer = setTimeout(
             () => reject(new Error("busy-group exact receipt exceeded 5000ms client bound")),
