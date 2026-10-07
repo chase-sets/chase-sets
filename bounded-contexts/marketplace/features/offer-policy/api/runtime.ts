@@ -49,7 +49,11 @@ function stableEvidence(value: unknown): unknown {
 }
 const streamId = (policyId: string) => `marketplace.offer-policy-${policyId}`;
 
-export function serializeBuyerOfferPolicy(state: BuyerOfferPolicyState, version: number) {
+export function serializeBuyerOfferPolicy(
+  state: BuyerOfferPolicyState,
+  version: number,
+  offerVersions: Readonly<Record<string, number>>,
+) {
   return {
     policyId: state.policyId,
     status: state.status,
@@ -64,6 +68,7 @@ export function serializeBuyerOfferPolicy(state: BuyerOfferPolicyState, version:
       : null,
     authority: state.authority,
     preview: state.preview,
+    offerVersions,
   };
 }
 
@@ -100,6 +105,24 @@ export function createBuyerOfferPolicyRuntime(
     return loaded;
   }
 
+  async function snapshot(state: BuyerOfferPolicyState, version: number) {
+    const ids = [
+      ...new Set(
+        [...(state.authority?.offers ?? []), ...(state.preview?.terms.offers ?? [])].map((offer) => offer.offerId),
+      ),
+    ];
+    const selected = await Promise.all(ids.map((id) => offers.load(`marketplace.offer-${id}`)));
+    return serializeBuyerOfferPolicy(
+      state,
+      version,
+      Object.fromEntries(
+        selected
+          .filter((offer) => offer.state.buyerAccountId === state.buyerAccountId)
+          .map((offer) => [offer.state.offerId!, offer.version]),
+      ),
+    );
+  }
+
   async function execute(policyId: string, input: BuyerOfferPolicyRequest, context: EventStoreContext) {
     buyerOfferPolicyIdSchema.parse(policyId);
     const request = buyerOfferPolicyRequestSchema.parse(input);
@@ -118,7 +141,7 @@ export function createBuyerOfferPolicyRuntime(
           "operation_conflict",
           "Operation identity was already used for different authority.",
         );
-      return serializeBuyerOfferPolicy(current.state, current.version);
+      return snapshot(current.state, current.version);
     }
     if (request.expectedVersion !== current.version)
       throw new BuyerOfferPolicyError("stale_preview", "Policy version changed. Refresh before continuing.");
@@ -141,8 +164,10 @@ export function createBuyerOfferPolicyRuntime(
         terms.offers.map((selection) => offers.load(`marketplace.offer-${selection.offerId}`)),
       );
       if (
-        request.type === "AuthorizeBuyerOfferPolicy" &&
-        loadedOffers.some((offer, index) => offer.version !== terms.offers[index]!.offerVersion)
+        loadedOffers.some(
+          (offer, index) =>
+            offer.state.buyerAccountId === buyerAccountId && offer.version !== terms.offers[index]!.offerVersion,
+        )
       )
         throw new BuyerOfferPolicyError("stale_preview", "Offer selection is stale. Request a fresh preview.");
       assertBuyerOfferPolicySelection(policyId, buyerAccountId, terms, loadedOffers);
@@ -215,7 +240,7 @@ export function createBuyerOfferPolicyRuntime(
       }
     } else command = { type: request.type, audit };
     const events = decideBuyerOfferPolicy(current.state, command);
-    if (events.length === 0) return serializeBuyerOfferPolicy(current.state, current.version);
+    if (events.length === 0) return snapshot(current.state, current.version);
     assertPolicy(deps.eventStore.appendToStreams, "Buyer Offer Policy commands require atomic append support.");
     try {
       await deps.eventStore.appendToStreams([
@@ -235,21 +260,18 @@ export function createBuyerOfferPolicyRuntime(
             (event) => event.data.operationId === request.operationId && event.data.requestHash === requestHash,
           )
         )
-          return serializeBuyerOfferPolicy(latest.state, latest.version);
+          return snapshot(latest.state, latest.version);
         throw new BuyerOfferPolicyError("stale_preview", "Policy or selected Offers changed. Request a fresh preview.");
       }
       throw error;
     }
-    return serializeBuyerOfferPolicy(
-      events.reduce(evolveBuyerOfferPolicy, current.state),
-      current.version + events.length,
-    );
+    return snapshot(events.reduce(evolveBuyerOfferPolicy, current.state), current.version + events.length);
   }
   return {
     execute,
     async get(policyId: string, buyerAccountId: string) {
       const current = await owned(policyId, buyerAccountId);
-      return serializeBuyerOfferPolicy(current.state, current.version);
+      return snapshot(current.state, current.version);
     },
     async list(buyerAccountId: string, afterPolicyId = "", limit = 100, offerIds: readonly string[] = []) {
       assertPolicy(
@@ -269,9 +291,27 @@ export function createBuyerOfferPolicyRuntime(
          ORDER BY policy_id LIMIT $3`,
         [buyerAccountId, afterPolicyId, limit, offerIds],
       );
+      const selected = await Promise.all(offerIds.map((id) => offers.load(`marketplace.offer-${id}`)));
+      const ownedOffers = selected.filter((offer) => offer.state.buyerAccountId === buyerAccountId);
+      const policyIds = [
+        ...new Set([
+          ...result.rows.map((row) => row.state.policyId!),
+          ...ownedOffers.flatMap((offer) => (offer.state.buyerOfferPolicyId ? [offer.state.buyerOfferPolicyId] : [])),
+        ]),
+      ]
+        .filter((id) => id > afterPolicyId)
+        .sort()
+        .slice(0, limit);
+      const items = await Promise.all(
+        policyIds.map(async (id) => {
+          const current = await owned(id, buyerAccountId);
+          return snapshot(current.state, current.version);
+        }),
+      );
       return {
-        items: result.rows.map((row) => serializeBuyerOfferPolicy(row.state, row.last_stream_version)),
-        nextCursor: result.rows.length === limit ? result.rows.at(-1)!.state.policyId : null,
+        items,
+        offerVersions: Object.fromEntries(ownedOffers.map((offer) => [offer.state.offerId!, offer.version])),
+        nextCursor: policyIds.length === limit ? policyIds.at(-1)! : null,
       };
     },
     projectors: [
@@ -283,3 +323,4 @@ export function createBuyerOfferPolicyRuntime(
   };
 }
 export type BuyerOfferPolicyServices = ReturnType<typeof createBuyerOfferPolicyRuntime>;
+export type BuyerOfferPolicyListSnapshot = Awaited<ReturnType<BuyerOfferPolicyServices["list"]>>;

@@ -189,8 +189,18 @@ test("market-following consent, held evidence and permanent stop @marketplace-ac
     } finally {
       await sellerContext.close();
     }
+    const resumeResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" && new URL(response.url()).pathname === "/account/offers/submitted.data",
+    );
     await page.getByRole("button", { name: "Preview to resume" }).click();
-    await expect(page.getByText("Review exact Offer authority")).toBeVisible();
+    const resume = await resumeResponse;
+    const resumeDiagnostic = `Resume Preview action status=${resume.status()}; command status=${
+      resume.headers()["x-marketplace-command-status"] ?? "no rejection"
+    }; code=${resume.headers()["x-marketplace-command-code"] ?? "none"}`;
+    expect(resume.status(), resumeDiagnostic).toBe(200);
+    expect(resume.headers()["x-marketplace-command-status"], resumeDiagnostic).toBeUndefined();
+    await expect(page.getByText("Review exact Offer authority"), resumeDiagnostic).toBeVisible();
     await consent.focus();
     await page.keyboard.press("Space");
     await expect(consent).toBeChecked();

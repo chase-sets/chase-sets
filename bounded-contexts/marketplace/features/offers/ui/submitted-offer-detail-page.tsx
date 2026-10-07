@@ -28,6 +28,8 @@ import {
 } from "@chase-sets/design-system";
 import type { SubmittedOfferDetail } from "./contracts";
 
+type MarketFollowingSubmittedOffer = SubmittedOfferDetail & { authoritativeOfferVersion?: number };
+
 function statusTone(status: string) {
   switch (status) {
     case "submitted":
@@ -42,7 +44,7 @@ export function MarketplaceSubmittedOfferDetailPage({
   errorMessage,
   policies,
 }: {
-  offer: SubmittedOfferDetail;
+  offer: MarketFollowingSubmittedOffer;
   errorMessage?: string | null;
   policies?: readonly BuyerOfferPolicySnapshot[];
 }) {
@@ -181,7 +183,7 @@ export function MarketFollowingOfferControls({
   offers,
   policies,
 }: {
-  offers: readonly SubmittedOfferDetail[];
+  offers: readonly MarketFollowingSubmittedOffer[];
   policies: readonly BuyerOfferPolicySnapshot[];
 }) {
   const fetcher = useFetcher<{ policy: BuyerOfferPolicySnapshot | null; error: string | null }>();
@@ -247,6 +249,19 @@ export function MarketFollowingOfferControls({
   }
   function preview() {
     if (!enabled || !currency || !editable) return;
+    const offerVersions = Object.fromEntries(
+      selectedOffers.map((offer) => [
+        offer.offer_id,
+        Math.max(policy?.offerVersions?.[offer.offer_id] ?? 0, offer.authoritativeOfferVersion ?? 0),
+      ]),
+    );
+    if (selectedOffers.some((offer) => !offerVersions[offer.offer_id])) {
+      setError("stale_preview");
+      setReview(false);
+      setConsent(false);
+      feedback.current?.focus();
+      return;
+    }
     const percent = /^(-?)(\d{1,2})(?:\.(\d{1,2}))?$/.exec(adjustment);
     const bps = percent
       ? (Number(percent[2]) * 100 + Number((percent[3] ?? "").padEnd(2, "0"))) * (percent[1] ? -1 : 1)
@@ -269,7 +284,7 @@ export function MarketFollowingOfferControls({
       itemCommitmentAllowance: canonical(allowance),
       offers: selectedOffers.map((offer) => ({
         offerId: offer.offer_id,
-        offerVersion: offer.last_stream_version,
+        offerVersion: offerVersions[offer.offer_id]!,
         catalogItemId: offer.catalog_catalog_item_id,
         productId: offer.product_id,
         selectedOptions: [...offer.selected_options],

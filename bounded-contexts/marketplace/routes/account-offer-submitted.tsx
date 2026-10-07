@@ -12,6 +12,7 @@ import {
   SubmittedOfferDetailErrorBoundary,
 } from "../features/offers/ui/offer-detail-error-boundary";
 import { MarketplaceSubmittedOfferDetailPage } from "../features/offers/ui/submitted-offer-detail-page";
+import type { BuyerOfferPolicyListSnapshot } from "../features/offer-policy/api/runtime";
 
 export { SubmittedOfferDetailErrorBoundary as ErrorBoundary };
 export { action } from "./account-offers-submitted";
@@ -55,9 +56,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     throw new Response(t("marketplace.routes.accountOfferSubmitted.submitted.offer.not.found"), { status: 404 });
   }
 
+  const policies = (await api.listBuyerOfferPolicies([params.offerId!])) as BuyerOfferPolicyListSnapshot;
   return {
-    submittedOffer: submittedOfferDestination.data,
-    policies: (await api.listBuyerOfferPolicies([params.offerId!])).items,
+    submittedOffer: {
+      ...submittedOfferDestination.data,
+      authoritativeOfferVersion: policies.offerVersions?.[params.offerId!],
+    },
+    policies: policies.items,
   };
 }
 

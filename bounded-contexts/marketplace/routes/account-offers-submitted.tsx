@@ -1,23 +1,52 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData, useRouteLoaderData } from "react-router";
+import { data, useLoaderData, useRouteLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
 import { type ListResponse } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { type SubmittedOfferListItem } from "../support/request-support/api-client";
-import { createMarketplaceRequestApiClient } from "../support/request-support/api-client";
+import { createMarketplaceRequestApiClient, MarketplaceApiError } from "../support/request-support/api-client";
 import { MarketplaceSubmittedOfferListPage } from "../features/offers/ui/submitted-offer-list-page";
 import { applyMarketplaceListPatch } from "../support/realtime-support/patches";
 import { marketplaceRealtimeRouteTopics } from "../support/realtime-support/topics";
 import { submittedOfferPolicyAction } from "../features/offer-policy/api/submitted-offer-route";
+import type { BuyerOfferPolicyListSnapshot } from "../features/offer-policy/api/runtime";
 
 const DEFAULT_OFFER_QUERY = "limit=100&offset=0";
 const MARKETPLACE_DESCRIPTION = t("marketplace.routes.accountOffersSubmitted.track.offers.you.have.submitted.against");
 
 export async function action({ request }: ActionFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "offers.manage" });
-  return submittedOfferPolicyAction(request, createMarketplaceRequestApiClient(request));
+  const api = createMarketplaceRequestApiClient(request);
+  const headers = new Headers();
+  const result = await submittedOfferPolicyAction(request, {
+    ...api,
+    async commandBuyerOfferPolicy(...args: Parameters<typeof api.commandBuyerOfferPolicy>) {
+      try {
+        return await api.commandBuyerOfferPolicy(...args);
+      } catch (error) {
+        if (error instanceof MarketplaceApiError) {
+          headers.set("X-Marketplace-Command-Status", String(error.status));
+          const body = error.body;
+          if (
+            typeof body === "object" &&
+            body !== null &&
+            "error" in body &&
+            typeof body.error === "object" &&
+            body.error !== null &&
+            "code" in body.error &&
+            typeof body.error.code === "string" &&
+            /^[a-z_]+$/.test(body.error.code)
+          ) {
+            headers.set("X-Marketplace-Command-Code", body.error.code);
+          }
+        }
+        throw error;
+      }
+    },
+  });
+  return data(result, { headers });
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -25,10 +54,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const api = createMarketplaceRequestApiClient(request);
 
   const submittedOffers = await api.listSubmittedOffers(DEFAULT_OFFER_QUERY);
-  const policies = submittedOffers.items.length
-    ? await api.listBuyerOfferPolicies(submittedOffers.items.map((offer) => offer.offer_id))
-    : { items: [] };
-  return { submittedOffers, policies: policies.items };
+  const policies: BuyerOfferPolicyListSnapshot = submittedOffers.items.length
+    ? ((await api.listBuyerOfferPolicies(
+        submittedOffers.items.map((offer) => offer.offer_id),
+      )) as BuyerOfferPolicyListSnapshot)
+    : { items: [], offerVersions: {}, nextCursor: null };
+  return { submittedOffers, policies: policies.items, offerVersions: policies.offerVersions };
 }
 
 export const meta: MetaFunction = () =>
@@ -74,7 +105,18 @@ function MarketplaceAccountSubmittedOffersRealtimeView({
     onSyncRequired: reloadForRealtimeSync,
   });
 
-  return <MarketplaceSubmittedOfferListPage data={submittedOffers} policies={data.policies} />;
+  return (
+    <MarketplaceSubmittedOfferListPage
+      data={{
+        ...submittedOffers,
+        items: submittedOffers.items.map((offer) => ({
+          ...offer,
+          authoritativeOfferVersion: data.offerVersions?.[offer.offer_id],
+        })),
+      }}
+      policies={data.policies}
+    />
+  );
 }
 
 function reloadForRealtimeSync() {
