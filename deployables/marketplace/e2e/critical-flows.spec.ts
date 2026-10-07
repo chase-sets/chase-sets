@@ -360,7 +360,12 @@ test.describe("marketplace critical flows", () => {
         await expect(page.getByLabel(/Email or phone/)).toHaveValue("");
         await expect(page.getByRole("radiogroup")).toHaveCount(0);
         await expect(page.getByRole("button", { name: "Email me a sign-in link", exact: true })).toHaveCount(0);
-        await expect(page).toHaveURL((url) => url.pathname === "/sign-in" && url.search === "" && url.hash === "");
+        const unhydratedUrl = new URL(page.url());
+        expect({ pathname: unhydratedUrl.pathname, search: unhydratedUrl.search, hash: unhydratedUrl.hash }).toEqual({
+          pathname: "/sign-in",
+          search: "",
+          hash: "",
+        });
       } finally {
         await hydration.dispose();
       }
