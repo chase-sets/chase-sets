@@ -89,7 +89,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       Object.freeze({
         name: "proves the reviewed projection guard fails at User, then resumes a full retained Identity seed",
         referenceDurationMs: 1288,
-        identity: "ab68f4b84303d9ef",
+        identity: "90b195ccf8bfe4d8",
       }),
       Object.freeze({
         name: "keeps every representative Identity creation event count stable on an ordinary day-after bootstrap",
@@ -183,7 +183,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       Object.freeze({
         name: "reconciles every inspecting scenario-seed context to its frozen identity corpus and active state",
         referenceDurationMs: 99368,
-        identity: "3bd4154a13acf332",
+        identity: "309fc59ff41d9ee4",
       }),
       Object.freeze({
         name: "enumerates stream-sourced seed-state coverage from the runtime mount list",
@@ -387,7 +387,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
       Object.freeze({
         name: "completes admin-QA fixtures and retains their seeded identity post-state",
         referenceDurationMs: 10872,
-        identity: "9e7b99abfd2756ab",
+        identity: "a2182644303ac89f",
       }),
     ]),
     executionUnit: "test:db:2",
