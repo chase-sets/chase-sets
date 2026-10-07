@@ -159,7 +159,7 @@ export const bootstrapDbEnrollmentManifest = Object.freeze({
     ]),
   }),
   "connector-mount-gate-isolation.db.test.ts": Object.freeze({
-    // #7918 host timing accepted at 8622d6ee6eafc228d13cac735220324cf08f2e0f:
+    // Connector host timing accepted at 8622d6ee6eafc228d13cac735220324cf08f2e0f:
     // ceiling of each callback's maximum across four observed runs, 2026-10-07.
     executionUnit: "test:db:1",
     databaseSuffix: "connector_composed_7993",
