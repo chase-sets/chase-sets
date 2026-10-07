@@ -6,6 +6,7 @@ import {
   collectProjectionOperationRunners,
   collectWorkerRunners,
   createDurableJobLaneRunners,
+  createWorkerRunnerLeaseName,
   createWorkerRunnerLoop,
   DEFAULT_PROJECTION_TRANSACTION_IDLE_TIMEOUT_MS,
   type WorkerHolderLifecycleEvent,
@@ -913,6 +914,277 @@ describe("worker runner loop", () => {
       expect(acquireCalls).toBeGreaterThanOrEqual(3);
     } finally {
       await loop.stop();
+    }
+  });
+
+  it("busy-group-exact-receipt-read: selection of another group does not retain an inactive holder", async () => {
+    vi.useFakeTimers();
+    const leases = new Map<string, PlatformLease>();
+    const order: string[] = [];
+    const inactiveHolders: string[] = [];
+    let fence = 0;
+    const controlPlane = createAlwaysLeasedControlPlane({
+      acquireLease: async (input) => {
+        if (leases.has(input.leaseName)) return null;
+        const lease = {
+          leaseName: input.leaseName,
+          ownerId: input.ownerId,
+          fencingToken: String(++fence),
+          expiresAt: new Date(Date.now() + input.ttlMs).toISOString(),
+        };
+        leases.set(lease.leaseName, lease);
+        order.push(`acquire:${lease.leaseName}`);
+        return lease;
+      },
+      releaseLease: async (lease) => {
+        if (leases.get(lease.leaseName)?.fencingToken === lease.fencingToken) leases.delete(lease.leaseName);
+        order.push(`release:${lease.leaseName}`);
+      },
+    });
+    const backlog = [["target-1", "target-2"], ["competitor-1"]];
+    const runners: WorkerRunner[] = backlog.map((events, index) => ({
+      name: index === 0 ? "marketplace.receipt-target" : "inventory.competitor",
+      kind: "projection-group",
+      priority: () => events.length,
+      runOnce: async () => {
+        const event = events.shift();
+        if (event) order.push(`apply:${event}`);
+        return { processed: event ? 1 : 0, lastGlobalPosition: "0" as never };
+      },
+    }));
+    const targetLeaseName = createWorkerRunnerLeaseName(runners[0]);
+    const loop = createWorkerRunnerLoop({
+      workerId: "receipt-poll",
+      controlPlane,
+      runners,
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 30_000,
+      leaseRenewIntervalMs: 10_000,
+      pollIntervalMs: 1000,
+      observer: {
+        holderLifecycle: (event) => {
+          if (event.phase === "pass-start" && event.runnerName === runners[1].name) {
+            order.push("competitor-selected");
+            const inactiveHolder = leases.get(targetLeaseName);
+            if (inactiveHolder) inactiveHolders.push(inactiveHolder.ownerId);
+          }
+        },
+      },
+    });
+    try {
+      loop.start();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(order.indexOf("apply:target-1")).toBeLessThan(order.indexOf("competitor-selected"));
+      expect(order.indexOf("competitor-selected")).toBeLessThan(order.indexOf("apply:target-2"));
+      expect(backlog).toEqual([[], []]);
+      expect(inactiveHolders).toEqual([]);
+    } finally {
+      await loop.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it("releases a drained unselected holder for a contender, then resumes new work after polling and restart", async () => {
+    vi.useFakeTimers();
+    const leases = new Map<string, PlatformLease>();
+    const events: WorkerHolderLifecycleEvent[] = [];
+    let fence = 0;
+    const controlPlane = createAlwaysLeasedControlPlane({
+      acquireLease: async (input) => {
+        if (leases.has(input.leaseName)) return null;
+        const lease = {
+          ...input,
+          fencingToken: String(++fence),
+          expiresAt: new Date(Date.now() + input.ttlMs).toISOString(),
+        };
+        leases.set(input.leaseName, lease);
+        return lease;
+      },
+      releaseLease: async (lease) => {
+        if (leases.get(lease.leaseName)?.fencingToken === lease.fencingToken) leases.delete(lease.leaseName);
+      },
+    });
+    const pending = [1, 2, 2];
+    let contender: PlatformLease | null | undefined;
+    const runners: WorkerRunner[] = pending.map((_, index) => ({
+      name: `handoff-${index}`,
+      kind: "projection-group",
+      priority: () => pending[index],
+      runOnce: async () => {
+        if (index === 2 && contender === undefined) {
+          contender = await controlPlane.acquireLease({
+            leaseName: "projection-group:handoff-0",
+            ownerId: "wake",
+            ttlMs: 30_000,
+          });
+          if (contender) await controlPlane.releaseLease(contender);
+        }
+        const processed = pending[index] > 0 ? 1 : 0;
+        pending[index] -= processed;
+        return { processed, lastGlobalPosition: "0" as never };
+      },
+    }));
+    const options = {
+      workerId: "poll",
+      controlPlane,
+      runners,
+      maxConcurrentRunners: 2,
+      leaseTtlMs: 30_000,
+      leaseRenewIntervalMs: 10_000,
+      pollIntervalMs: 1000,
+      observer: { holderLifecycle: (event: WorkerHolderLifecycleEvent) => events.push(event) },
+    };
+    let loop = createWorkerRunnerLoop(options);
+    try {
+      loop.start();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(contender).toBeDefined();
+      expect(contender).not.toBeNull();
+      const target = events.filter(
+        (event) => event.runnerName === runners[0].name && !["run-start", "run-end"].includes(event.phase),
+      );
+      expect(target.slice(0, 4).map((event) => event.phase)).toEqual([
+        "acquired",
+        "pass-start",
+        "pass-end",
+        "released",
+      ]);
+      expect(target[2]).toMatchObject({ processed: 1, disposition: "retained", outcome: "success" });
+      expect(target[3]).toMatchObject({ reason: "idle", leaseIntervalId: target[0].leaseIntervalId });
+      expect(pending[0]).toBe(0);
+      const laterContender = await controlPlane.acquireLease({
+        leaseName: createWorkerRunnerLeaseName(runners[0]),
+        ownerId: "wake",
+        ttlMs: 30_000,
+      });
+      expect(laterContender).not.toBeNull();
+      await controlPlane.releaseLease(laterContender!);
+      const completed = events.filter((event) => event.runnerName === runners[0].name).length;
+      await vi.advanceTimersByTimeAsync(500);
+      expect(events.filter((event) => event.runnerName === runners[0].name)).toHaveLength(completed);
+      pending[0] = 1;
+      await vi.advanceTimersToNextTimerAsync();
+      expect(pending[0]).toBe(0);
+      await loop.stop();
+      expect(leases.size).toBe(0);
+      pending[0] = 1;
+      loop = createWorkerRunnerLoop(options);
+      loop.start();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(pending[0]).toBe(0);
+    } finally {
+      await loop.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not release a retained projection lease while a different runner shares its active pass", async () => {
+    vi.useFakeTimers();
+    const releaseLease = vi.fn(async () => {});
+    const controlPlane = createAlwaysLeasedControlPlane({ releaseLease });
+    let finishOperation!: () => void;
+    const operation = new Promise<void>((resolve) => {
+      finishOperation = resolve;
+    });
+    let targetBacklog = 1;
+    let operationStarted = false;
+    const target: WorkerRunner = {
+      name: "shared-target",
+      kind: "projection-group",
+      priority: () => targetBacklog,
+      runOnce: async () => {
+        targetBacklog = 0;
+        return { processed: 1, lastGlobalPosition: "1" as never };
+      },
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "shared-poll",
+      controlPlane,
+      runners: [
+        target,
+        {
+          name: "shared-operation",
+          kind: "job",
+          leaseName: createWorkerRunnerLeaseName(target),
+          priority: () => 1,
+          runOnce: async () => {
+            operationStarted = true;
+            await operation;
+            return { processed: 0, lastGlobalPosition: "1" as never };
+          },
+        },
+        {
+          name: "competitor",
+          kind: "projection-group",
+          priority: () => 1,
+          runOnce: async (context) => {
+            await new Promise<void>((resolve) =>
+              context?.signal?.addEventListener("abort", () => resolve(), { once: true }),
+            );
+            return { processed: 0, lastGlobalPosition: "0" as never };
+          },
+        },
+      ],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 30_000,
+      leaseRenewIntervalMs: 10_000,
+      pollIntervalMs: 1000,
+    });
+    try {
+      loop.start();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(operationStarted).toBe(true);
+      expect(releaseLease).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(releaseLease).not.toHaveBeenCalled();
+      finishOperation();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(releaseLease).toHaveBeenCalledWith(
+        expect.objectContaining({ leaseName: createWorkerRunnerLeaseName(target) }),
+      );
+    } finally {
+      finishOperation();
+      await loop.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a failed continuation's lease through backoff after a productive retained pass", async () => {
+    vi.useFakeTimers();
+    const releaseLease = vi.fn(async () => {});
+    const onError = vi.fn();
+    let runs = 0;
+    const loop = createWorkerRunnerLoop({
+      workerId: "failed-continuation",
+      controlPlane: createAlwaysLeasedControlPlane({ releaseLease }),
+      runners: [
+        {
+          name: "target",
+          kind: "projection-group",
+          runOnce: async () => {
+            if (++runs > 1) throw new Error("continuation failed");
+            return { processed: 1, lastGlobalPosition: "1" as never };
+          },
+        },
+      ],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 30_000,
+      leaseRenewIntervalMs: 10_000,
+      pollIntervalMs: 1000,
+      failureBackoffBaseMs: 5000,
+      onError,
+    });
+    try {
+      loop.start();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(runs).toBe(2);
+      expect(onError).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(runs).toBe(2);
+      expect(releaseLease).not.toHaveBeenCalled();
+    } finally {
+      await loop.stop();
+      vi.useRealTimers();
     }
   });
 
