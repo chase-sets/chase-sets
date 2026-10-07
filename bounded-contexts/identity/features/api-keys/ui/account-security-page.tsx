@@ -5,6 +5,7 @@ import {
   HiddenInput,
   Form,
   Button,
+  Banner,
   MarketplaceDashboardPanel,
   ModalDialog,
   NativeSelect,
@@ -28,10 +29,12 @@ export function SecurityPage({
   user,
   apiKeys,
   oneTimeSecret,
+  errorMessage,
 }: {
   user: User;
   apiKeys: readonly ApiKey[];
   oneTimeSecret?: OneTimeApiKeySecret | null;
+  errorMessage?: string;
 }) {
   const enabledMethods = user.auth_methods.length
     ? user.auth_methods.map((method) => identityAuthenticationMethodLabel(method)).join(", ")
@@ -102,6 +105,7 @@ export function SecurityPage({
           </Stack>
         }
       />
+      {errorMessage ? <Banner tone="danger" title={errorMessage} /> : null}
       <ApiKeySecretReveal secret={oneTimeSecret} />
       <MarketplaceDashboardPanel
         title={t("identity.features.apiKeys.ui.accountSecurityPage.account.protection")}

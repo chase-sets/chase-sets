@@ -111,12 +111,27 @@ The current implementation also uses four supporting authoring concepts:
 - `Catalog Item Image Fallback` — the configured fallback image for a Catalog Item, including whether it is permanent item imagery or loading-only presentation imagery
 - `Product Measure Profile` — a reusable Catalog-owned physical measurement rule for Products that share size, weight, stack behavior, and physical flags
 - `Resolved Product Measure` — the per-Product measurement snapshot published for downstream shipping quote and fulfillment use
+- `Product Measure Publication` — the complete resolved measure set for one Catalog Item, applied as one replacement
+- `Publication Part` — a contiguous, zero-based portion of a Product Measure Publication, staged until completion
+- `completion revision` — the stream version of the completion event for a Product Measure Publication
 - `Product Contents` — the Catalog-owned relationship describing what one configured Product contains
 - `Product Content Line` — one contained Catalog Item or Product selection inside Product Contents
 - `Product Content Type` — configured Catalog data that names and orders the meaning of a Product Content Line
 - `Product Content Inclusion Policy` — configured Catalog data that describes exact, variable, random, optional, choice-based, or other inclusion semantics
 
 These are Catalog concepts, not compatibility aliases. They support authoring catalog truth while `Catalog Item`, `Dimension`, `Option`, and `Product` define catalog identity.
+
+## Product Measure Publication
+
+A Product Measure Publication is Catalog's complete resolved Product measure set for one Catalog Item. A legacy resolved event publishes the set directly; multipart publication records Publication Parts followed by completion. Consumers stage parts and replace their prior complete set only after verifying every part, the Product count and the canonical SHA-256 digest. The digest detects assembly errors, not authentication.
+
+## Publication Part
+
+A Publication Part carries the Catalog Item identity, a zero-based part index and Product measure snapshots. For completion at stream version V with k parts, the parts occupy precisely V-k through V-1 on the same Catalog Product Measures stream. Parts alone never change serving state.
+
+## completion revision
+
+The completion revision is the stream version of the Product Measure Publication completion event. It identifies the complete replacement, not an individual Publication Part.
 
 ## Rich Reference Model
 

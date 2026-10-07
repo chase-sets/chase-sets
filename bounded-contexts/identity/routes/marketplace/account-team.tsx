@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData } from "react-router";
+import { useActionData, useLoaderData } from "react-router";
 import type { ListResponse } from "@chase-sets/http/responses";
 import { defineFormAction, formActionRedirect } from "@chase-sets/platform-runtime/http";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -10,6 +10,12 @@ import type { Invitation, Membership } from "../../support/request-support/api-c
 import { TeamPage } from "../../features/memberships/ui/account-team-page";
 import { createIdentityRequestApiClient } from "../../support/route-support/identity-request";
 import { requestInvitationAcceptanceLink } from "../../features/invitations/integrations/request-invitation-acceptance-link";
+import {
+  createAccountActionErrorHandling,
+  type AccountActionFailureResult,
+} from "../../support/route-support/account-action-errors";
+
+const actionErrors = createAccountActionErrorHandling();
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await requireActorFromIdentityApi({
@@ -26,9 +32,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export const action = defineFormAction({
+  ...actionErrors.options,
   authorization: ({ request }) => requireActorFromIdentityApi({ request, permission: "memberships.manage" }),
   intents: {
-    "create-invitation": async ({ request, actor, formData }) => {
+    "create-invitation": async (context) => {
+      const { request, actor, formData } = context;
       const invitationId = createId("ivt");
       const result = await createIdentityRequestApiClient(request).createInvitation({
         invitationId,
@@ -37,6 +45,7 @@ export const action = defineFormAction({
         roleKey: String(formData.get("roleKey") ?? "viewer"),
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       });
+      actionErrors.markCommitted(context);
       await requestInvitationAcceptanceLink(request, invitationId, result);
       return formActionRedirect(result, "/account/team");
     },
@@ -72,5 +81,12 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceAccountTeamRoute() {
   const data = useLoaderData<typeof loader>();
-  return <TeamPage invitations={data.invitations} memberships={data.memberships} />;
+  const actionData = useActionData<AccountActionFailureResult>();
+  return (
+    <TeamPage
+      invitations={data.invitations}
+      memberships={data.memberships}
+      errorMessage={actionData?.failure.message}
+    />
+  );
 }
