@@ -18,6 +18,24 @@ describe("process helpers", () => {
     vi.unstubAllEnvs();
   });
 
+  it("preserves case-insensitive program-files paths without ambient database or secret variables", () => {
+    expect(
+      buildMinimalProcessEnvironment({
+        Path: "synthetic-path",
+        programfiles: "C:\\Program Files",
+        PROGRAMW6432: "C:\\Program Files",
+        PGHOSTADDR: "synthetic-host",
+        pgservice: "synthetic-service",
+        DATABASE_URL: "synthetic-database-url",
+        UNLISTED_SECRET: "SYNTHETIC_SECRET_9049",
+      }),
+    ).toEqual({
+      Path: "synthetic-path",
+      programfiles: "C:\\Program Files",
+      PROGRAMW6432: "C:\\Program Files",
+    });
+  });
+
   it("runs pnpm native executables directly on Windows", () => {
     const pnpmExe = "C:\\Users\\ToddS\\AppData\\Local\\pnpm\\pnpm.exe";
     const invocation = buildPackageManagerInvocation(["--version"], {
