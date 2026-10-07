@@ -1,4 +1,15 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
+const fault = vi.hoisted(() => ({ suffix: null }));
+vi.mock("node:fs/promises", async (original) => {
+  const fs = await original();
+  return {
+    ...fs,
+    open: (...args) => {
+      if (fault.suffix && args[0].endsWith(fault.suffix)) throw new Error("SYNTHETIC_PRIVATE_WRITE_ERROR");
+      return fs.open(...args);
+    },
+  };
+});
 import { createHash } from "node:crypto";
 import { mkdtemp, writeFile, readFile, readdir, rm, mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -7,11 +18,30 @@ import { publishCapturePacket } from "./publish-test-window.mjs";
 
 const roots = [];
 afterEach(async () => {
+  fault.suffix = null;
   for (const root of roots.splice(0)) {
     if (!root.startsWith(resolve(tmpdir()) + "/") && !root.startsWith(resolve(tmpdir()) + "\\"))
       throw new Error("test-cleanup-path");
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("changing serialization cannot replace the manifest binding", async () => {
+  const f = await fixture();
+  let reads = 0;
+  Object.defineProperty(f.packet, "manifestDigest", {
+    enumerable: true,
+    get: () => (++reads <= 2 ? f.digest : "0".repeat(64)),
+  });
+  await expect(publishCapturePacket(f.packet, f.manifestPath, f.digest)).rejects.toThrow(/^packet-invalid$/);
+  expect(await readdir(f.root)).toEqual(["manifest.json"]);
+});
+
+test("a second-file failure removes only the owned partial and exposes no packet or private error", async () => {
+  const f = await fixture();
+  fault.suffix = "sha256.txt";
+  await expect(publishCapturePacket(f.packet, f.manifestPath, f.digest)).rejects.toThrow(/^packet-invalid$/);
+  expect(await readdir(f.root)).toEqual(["manifest.json"]);
 });
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "boundary-publication-"));

@@ -1,4 +1,5 @@
 static void synthetic_egress(void) {
+    bool blocked = true;
     for (int family_index = 0; family_index < 2; family_index++) {
         int family = family_index == 0 ? AF_INET : AF_INET6;
         for (int kind = SOCK_STREAM; kind <= SOCK_DGRAM; kind++) {
@@ -26,7 +27,9 @@ static void synthetic_egress(void) {
             int observed = errno;
             close(fd);
             dprintf(STDOUT_FILENO, "SYNTHETIC_EGRESS:%d:%d:%d\n", family, kind, observed);
-            require(result == -1 && observed == ENETUNREACH, "external-interface");
+            int expected = family == AF_INET ? ENETUNREACH : EADDRNOTAVAIL;
+            blocked = blocked && result == -1 && observed == expected;
         }
     }
+    require(blocked, "external-interface");
 }

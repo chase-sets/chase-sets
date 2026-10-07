@@ -2,6 +2,7 @@ import { captureEvidenceWindow } from "./capture-evidence-window.mjs";
 import { assertBrowserAdmission, openConfinedBrowser } from "./test-window-browser.mjs";
 import { assertReviewedWorktree, parseLaunchArguments } from "./test-window-admission.mjs";
 import { createTestWindowDriver } from "./test-window-driver.mjs";
+import { parseStrictRfc3339 } from "./validate-provider-object-disposition.mjs";
 
 const refused = (claimed) => ({
   version: "provider-lifecycle-capture/v1",
@@ -47,12 +48,16 @@ export async function runTestWindow(args = process.argv.slice(2), launch) {
       open: async (admission) => {
         await assertBrowserAdmission({ operator: true });
         assertReviewedWorktree(request.candidateHead);
-        const remaining = Date.parse(admission.expiresAt) - Date.now();
+        const expiry = parseStrictRfc3339(admission.expiresAt);
+        if (!expiry || !admission.expiresAt.endsWith("Z")) throw new Error("authority-unavailable");
+        const remaining = expiry.ms - Date.now();
         if (!Number.isFinite(remaining) || remaining <= 0 || remaining > 3600000)
           throw new Error("authority-unavailable");
+        authority.signal.throwIfAborted();
         timer = setTimeout(cancel, remaining);
-        await launch.claim(request, admission);
         claimed = true;
+        await launch.claim(request, admission);
+        authority.signal.throwIfAborted();
         browser = await openConfinedBrowser();
         authority.signal.throwIfAborted();
         const fixtures = await launch.readFixtures({ signal: authority.signal });

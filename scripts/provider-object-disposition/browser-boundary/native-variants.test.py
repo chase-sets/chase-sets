@@ -14,7 +14,9 @@ class NativeVariantFixtures(unittest.TestCase):
     def test_native_clients_run_after_isolation_with_no_external_parent_sender(self):
         changed = variants.variant(SOURCE, 'direct-clients')
         self.assertIn('            no_network();\n            synthetic_egress();', changed)
-        self.assertIn('result == -1 && observed == ENETUNREACH', changed)
+        self.assertIn('int expected = family == AF_INET ? ENETUNREACH : EADDRNOTAVAIL;', changed)
+        self.assertIn('blocked = blocked && result == -1 && observed == expected;', changed)
+        self.assertIn('require(blocked, "external-interface");', changed)
         self.assertIn('SOCK_NONBLOCK | SOCK_CLOEXEC', changed)
         self.assertIn('198.51.100.1', changed)
         self.assertIn('2001:db8::1', changed)

@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { parseCapturePacket, validateCapturePacket } from "./test-window-packet.mjs";
-import { SCENARIO_FIXTURES } from "./validate-provider-object-disposition.mjs";
+import { SCENARIO_FIXTURES, validateProviderObjectDisposition } from "./validate-provider-object-disposition.mjs";
+import { computeResultDigest } from "./canonicalize-provider-object-disposition.mjs";
 
 export const packet = () => ({
   version: "provider-lifecycle-capture/v1",
@@ -86,4 +87,12 @@ test("observation dates require UTC, exact elapsed time and unique mapper identi
   for (const originalSentAt of ["2026-10-07", "2026-10-07T00:00:00+00:00", "2026-10-07T00:00:02Z", null])
     expect(validateCapturePacket({ ...value, observations: [{ ...observation, originalSentAt }] })).toBe(false);
   expect(validateCapturePacket({ ...value, observations: [observation, observation] })).toBe(false);
+});
+
+test("nested disposition timestamps must be UTC even with a valid canonical digest", () => {
+  const value = packet();
+  value.disposition.startedAt = value.disposition.startedAt.replace(/Z$/, "+00:00");
+  value.disposition.resultDigest = computeResultDigest(value.disposition);
+  expect(validateProviderObjectDisposition(value.disposition).ok).toBe(true);
+  expect(validateCapturePacket(value)).toBe(false);
 });

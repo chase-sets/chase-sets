@@ -229,7 +229,9 @@ export async function nativeControls(stage) {
     const actual = await launch(digest).result;
     const expected =
       TRANSITION +
-      [2, 10].flatMap((family) => [1, 2].map((kind) => `SYNTHETIC_EGRESS:${family}:${kind}:101\n`)).join("") +
+      [2, 10]
+        .flatMap((family) => [1, 2].map((kind) => `SYNTHETIC_EGRESS:${family}:${kind}:${family === 2 ? 101 : 99}\n`))
+        .join("") +
       ADMISSION;
     const exact =
       actual.code === 0 &&

@@ -164,3 +164,32 @@ test("expiry after claim closes boundary, stops readers and retains cleanup obli
   expect(f.launch.open).not.toHaveBeenCalled();
   expect(f.browser.close).toHaveBeenCalledTimes(1);
 });
+
+test("a failed claim is potentially consumed and retains the cleanup obligation", async () => {
+  const f = fixture();
+  f.launch.claim.mockRejectedValue(new Error("SYNTHETIC_PRIVATE_CLAIM_ERROR"));
+  const result = await runTestWindow(args, f.launch);
+  expect(result.code).toBe("cleanup-obligation-retained");
+  expect(result.manifestDigest).toBe(args[5]);
+  expect(boundary.open).not.toHaveBeenCalled();
+  expect(f.launch.readFixtures).not.toHaveBeenCalled();
+});
+
+test("non-UTC authority refuses before claim or private readers", async () => {
+  const f = fixture();
+  f.admission.expiresAt = f.admission.expiresAt.replace("Z", "+00:00");
+  expect((await runTestWindow(args, f.launch)).classification).toBe("refused");
+  expect(f.launch.claim).not.toHaveBeenCalled();
+  expect(f.launch.readFixtures).not.toHaveBeenCalled();
+});
+
+test("cancellation during admission refuses before claim", async () => {
+  const f = fixture();
+  f.launch.admit.mockImplementation(async () => {
+    process.emit("SIGTERM");
+    return f.admission;
+  });
+  expect((await runTestWindow(args, f.launch)).classification).toBe("refused");
+  expect(f.launch.claim).not.toHaveBeenCalled();
+  expect(boundary.open).not.toHaveBeenCalled();
+});
