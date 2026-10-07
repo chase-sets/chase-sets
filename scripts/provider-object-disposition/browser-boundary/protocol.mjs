@@ -138,13 +138,38 @@ export function observerDiagnostic(error) {
   const stdout = bytes(error?.stdout);
   const stderr = bytes(error?.stderr);
   const allowed = ["arguments", "census", "descendants", "status", "status-field", "label", "namespaces", "root"];
-  const stage =
+  let stage =
     error?.code === 1 && !error?.signal && stdout?.length === 0 && stderr
       ? (allowed.find((name) => stderr.equals(Buffer.from(`provider-boundary-observer-refused:${name}\n`))) ??
         "unknown")
       : "unknown";
+  let root = null;
+  if (error?.code === 1 && !error?.signal && stdout?.length === 0 && stderr && stderr.length <= 512) {
+    const match =
+      /^provider-boundary-observer-refused:root\nprovider-boundary-observer-root:(0|[1-9][0-9]{0,15}):(0|[1-9][0-9]{0,15}):(0|[1-9][0-9]{0,15}):(0|[1-9][0-9]{0,15}):(0|[1-9][0-9]{0,15}):(launcher|chrome|chrome_crashpad_handler):(host-helper|old-root):(EACCES|EPERM|ENOENT|ESRCH|ENOTDIR|ELOOP|EIO|other)\n$/.exec(
+        stderr.toString("ascii"),
+      );
+    if (
+      match &&
+      stderr.equals(Buffer.from(match[0])) &&
+      match.slice(1, 6).every((v) => Number.isSafeInteger(Number(v)))
+    ) {
+      stage = "root";
+      root = {
+        pid: Number(match[1]),
+        parent: Number(match[2]),
+        start: Number(match[3]),
+        imageDevice: Number(match[4]),
+        imageInode: Number(match[5]),
+        image: match[6],
+        pathKind: match[7],
+        errno: match[8],
+      };
+    }
+  }
   return {
     stage,
+    root,
     status: Number.isInteger(error?.code) && error.code >= 0 && error.code <= 255 ? error.code : null,
     signal: ["SIGTERM", "SIGKILL"].includes(error?.signal) ? error.signal : null,
     capturedBytes: stderr?.length ?? null,

@@ -100,3 +100,44 @@ it("observer status 1, native status 78, signal, and contaminated output remain 
   });
   expect(JSON.stringify(observerDiagnostic({ code: 1, stderr: "PRIVATE" }))).not.toContain("PRIVATE");
 });
+
+const rootRefusal =
+  "provider-boundary-observer-refused:root\nprovider-boundary-observer-root:20:1:100:1:2:chrome:host-helper:EACCES\n";
+
+it("observer root diagnostics retain only emitter-owned closed process/image, path kind and errno", () => {
+  expect(observerDiagnostic({ code: 1, stdout: "", stderr: rootRefusal })).toMatchObject({
+    stage: "root",
+    root: {
+      pid: 20,
+      parent: 1,
+      start: 100,
+      imageDevice: 1,
+      imageInode: 2,
+      image: "chrome",
+      pathKind: "host-helper",
+      errno: "EACCES",
+    },
+    status: 1,
+    redacted: true,
+    truncated: false,
+  });
+});
+
+it.each([
+  { code: 78, stdout: "", stderr: rootRefusal },
+  { code: 1, signal: "SIGTERM", stdout: "", stderr: rootRefusal },
+  { code: 1, stdout: "PRIVATE", stderr: rootRefusal },
+  { code: 1, stdout: "", stderr: rootRefusal + "PRIVATE" },
+  { code: 1, stdout: "", stderr: rootRefusal + "\n" },
+  { code: 1, stdout: "", stderr: rootRefusal.replace(":20:", ":9007199254740992:") },
+  { code: 1, stdout: "", stderr: rootRefusal.replace("chrome", "PRIVATE") },
+  { code: 1, stdout: "", stderr: rootRefusal.replace("host-helper", "PRIVATE") },
+  { code: 1, stdout: "", stderr: rootRefusal.replace("EACCES", "PRIVATE") },
+  { code: 1, stdout: "", stderr: Buffer.concat([Buffer.from(rootRefusal), Buffer.from([0xff])]) },
+  { code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER", stdout: "", stderr: rootRefusal },
+])("observer root output rejects wrong status, truncation, markers and unsafe fields %#", (error) => {
+  const result = observerDiagnostic(error);
+  expect(result.stage).toBe("unknown");
+  expect(result.root).toBeNull();
+  expect(JSON.stringify(result)).not.toContain("PRIVATE");
+});

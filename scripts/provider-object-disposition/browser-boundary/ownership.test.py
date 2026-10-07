@@ -3,6 +3,7 @@ from pathlib import Path
 import unittest
 import sys
 import io
+import errno
 from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
 
@@ -81,6 +82,35 @@ class OwnershipControls(unittest.TestCase):
                 self.assertEqual(observer.main(), 1)
         self.assertEqual(output.getvalue(), '')
         self.assertEqual(error.getvalue(), 'provider-boundary-observer-refused:arguments\n')
+
+    def test_observer_root_error_retains_closed_identity_path_kind_and_errno(self):
+        for kind in ('host-helper', 'old-root'):
+            for code, label in ((errno.EACCES, 'EACCES'), (errno.EPERM, 'EPERM'), (123456, 'other')):
+                with self.subTest(kind=kind, code=code):
+                    path = mock.Mock()
+                    path.exists.side_effect = OSError(code, 'PRIVATE', 'PRIVATE_PATH')
+                    output, error = io.StringIO(), io.StringIO()
+                    with mock.patch.object(observer, 'observe', side_effect=lambda _: observer.root_exists(path, record(), kind)):
+                        with mock.patch.object(observer.os, 'getuid', return_value=0, create=True):
+                            with mock.patch.object(sys, 'argv', ['observe.py', '123']):
+                                with redirect_stdout(output), redirect_stderr(error):
+                                    self.assertEqual(observer.main(), 1)
+                    self.assertEqual(output.getvalue(), '')
+                    self.assertEqual(error.getvalue(), 'provider-boundary-observer-refused:root\n' +
+                                     f'provider-boundary-observer-root:20:1:100:1:2:launcher:{kind}:{label}\n')
+
+    def test_observer_root_success_and_absence_are_unchanged(self):
+        for exists in (True, False):
+            path = mock.Mock()
+            path.exists.return_value = exists
+            self.assertEqual(observer.root_exists(path, record(), 'host-helper'), exists)
+
+    def test_observer_root_diagnostic_rejects_unbounded_or_open_fields(self):
+        for changed in (record(pid=9007199254740992), record(path='/PRIVATE'), record(start=-1)):
+            with self.assertRaises(ValueError):
+                observer.RootInspectionError(changed, 'host-helper', OSError(errno.EACCES, 'PRIVATE'))
+        with self.assertRaises(ValueError):
+            observer.RootInspectionError(record(), 'PRIVATE', OSError(errno.EACCES, 'PRIVATE'))
 
 
 if __name__ == '__main__':
