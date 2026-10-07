@@ -520,26 +520,6 @@ async function assertPopulatedSearchPriceRole(page: Page) {
 }
 
 test.describe("Ink & Foil rendered visual identity", () => {
-  test("6110 diagnostic hero-injected Results fails before capture @marketplace-browse", async ({ page }, testInfo) => {
-    const viewport = { width: 390, height: 844 };
-    await page.setViewportSize(viewport);
-    await assertInkFoilSearch(page, viewport);
-    console.info("6110-diagnostic-healthy", JSON.stringify({ control: "hero-results", url: page.url(), viewport }));
-    const hero = page.locator("[data-search-home-hero]");
-    await hero.evaluate((element) => {
-      const regression = document.createElement("span");
-      regression.textContent = "Results";
-      element.append(regression);
-    });
-    const state = { url: page.url(), viewport, html: await hero.evaluate((element) => element.outerHTML) };
-    await testInfo.attach("6110-hero-injected-state", {
-      body: JSON.stringify(state),
-      contentType: "application/json",
-    });
-    console.info("6110-diagnostic-state", JSON.stringify({ control: "hero-results", ...state }));
-    await assertInkFoilHero(page, viewport);
-  });
-
   test("records browse Ink & Foil evidence at 390x844 light @marketplace-browse", async ({ page }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ colorScheme: "light" });

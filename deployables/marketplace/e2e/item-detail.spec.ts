@@ -645,17 +645,6 @@ test.describe("marketplace item detail mobile action dock (#5963)", () => {
 });
 
 test.describe("marketplace item detail mobile Product options and Market book (#5964)", () => {
-  test.afterEach(async ({}, testInfo) => {
-    if (!testInfo.title.startsWith("6110")) return;
-    for (const attachment of testInfo.attachments) {
-      if (attachment.contentType !== "application/json" || !attachment.body) continue;
-      console.info(
-        "6110-retained-attachment",
-        JSON.stringify({ name: attachment.name, body: attachment.body.toString(), utc: new Date().toISOString() }),
-      );
-    }
-  });
-
   const itemDetailRoutePath = marketplaceBrowserE2eSeedContract.itemDetail.routePath;
   const selectedProductRoutePath = marketplaceBrowserE2eSeedContract.itemDetail.selectedProductRoutePath;
   const unresolvedProductRoutePath = marketplaceBrowserE2eSeedContract.itemDetailWithoutListings.routePath;
@@ -849,93 +838,6 @@ test.describe("marketplace item detail mobile Product options and Market book (#
     });
     await ready();
     await captureAccessibilityEvidence({ page, testInfo, surface: "6110-expanded-item-detail" });
-  });
-
-  test("6110 diagnostic missing association fails before axe @marketplace-browse", async ({ page }, testInfo) => {
-    await openItemRoute(page, unresolvedProductRoutePath, { width: 390, height: 844 });
-    const mobile = page.locator("main [data-product-options-mobile]");
-    const trigger = mobile.getByRole("button", { name: "Choose options", exact: true });
-    await expect(mobile).toBeVisible();
-    await expectExpandedProductOptions(page);
-    await expect(mobile.locator("h2").getByRole("button", { name: "Choose options", exact: true })).toHaveCount(1);
-    await expectAccessibleDisclosure(trigger);
-    await expectAccessibleMain(page);
-    await expect(mobile.getByRole("region", { name: "Choose options", exact: true })).toBeVisible();
-    console.info(
-      "6110-diagnostic-healthy",
-      JSON.stringify({ control: "missing-association", url: page.url(), viewport: page.viewportSize() }),
-    );
-    await trigger.evaluate((element) => {
-      document.getElementById(element.getAttribute("aria-controls") ?? "")!.removeAttribute("aria-labelledby");
-    });
-    await testInfo.attach("6110-diagnostic-missing-association-state", {
-      body: JSON.stringify({
-        url: page.url(),
-        viewport: page.viewportSize(),
-        html: await mobile.evaluate((element) => element.outerHTML),
-      }),
-      contentType: "application/json",
-    });
-    let reachedScan = false;
-    try {
-      await expectAccessibleDisclosure(trigger);
-      reachedScan = true;
-      await captureAccessibilityEvidence({ page, testInfo, surface: "6110-diagnostic-missing-association" });
-    } finally {
-      console.info(
-        "6110-diagnostic-sentinel",
-        JSON.stringify({
-          control: "missing-association",
-          reachedScan,
-          reports: testInfo.attachments.filter(
-            (attachment) => attachment.name === "accessibility:6110-diagnostic-missing-association",
-          ).length,
-        }),
-      );
-    }
-  });
-
-  test("6110 diagnostic hidden desktop fails before axe @marketplace-browse", async ({ page }, testInfo) => {
-    await openItemRoute(page, unresolvedProductRoutePath, { width: 390, height: 844 });
-    const mobile = page.locator("main [data-product-options-mobile]");
-    const trigger = mobile.getByRole("button", { name: "Choose options", exact: true });
-    await expect(mobile).toBeVisible();
-    await expectExpandedProductOptions(page);
-    await expect(mobile.locator("h2").getByRole("button", { name: "Choose options", exact: true })).toHaveCount(1);
-    await expectAccessibleDisclosure(trigger);
-    await expectAccessibleMain(page);
-    await expect(mobile.getByRole("region", { name: "Choose options", exact: true })).toBeVisible();
-    console.info(
-      "6110-diagnostic-healthy",
-      JSON.stringify({ control: "hidden-desktop", url: page.url(), viewport: page.viewportSize() }),
-    );
-    const desktop = page.locator("main [data-product-options-desktop]");
-    await expect(desktop).toBeHidden();
-    await testInfo.attach("6110-diagnostic-hidden-desktop-state", {
-      body: JSON.stringify({
-        url: page.url(),
-        viewport: page.viewportSize(),
-        html: await desktop.evaluate((element) => element.outerHTML),
-      }),
-      contentType: "application/json",
-    });
-    let reachedScan = false;
-    try {
-      await expect(desktop).toBeVisible();
-      reachedScan = true;
-      await captureAccessibilityEvidence({ page, testInfo, surface: "6110-diagnostic-hidden-desktop" });
-    } finally {
-      console.info(
-        "6110-diagnostic-sentinel",
-        JSON.stringify({
-          control: "hidden-desktop",
-          reachedScan,
-          reports: testInfo.attachments.filter(
-            (attachment) => attachment.name === "accessibility:6110-diagnostic-hidden-desktop",
-          ).length,
-        }),
-      );
-    }
   });
 
   test("6110 accessibility helper rejects a real violation @marketplace-browse", async ({ page }, testInfo) => {
