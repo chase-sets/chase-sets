@@ -115,7 +115,6 @@ describe("admin-qa actor fixtures evidence artifact", () => {
             createdAccount: true,
             createdUser: true,
             createdMembership: true,
-            createdConsent: true,
             // @ts-expect-error intentionally injecting a leak for the test
             leakedAccountId: "acc_admin_qa_owner",
           },
@@ -149,7 +148,6 @@ function supportSafeEvidence(): AdminQaActorFixturesEvidence {
         createdAccount: false,
         createdUser: false,
         createdMembership: false,
-        createdConsent: false,
       },
       {
         actorAlias: "admin-qa-owner",
@@ -159,7 +157,6 @@ function supportSafeEvidence(): AdminQaActorFixturesEvidence {
         createdAccount: false,
         createdUser: false,
         createdMembership: false,
-        createdConsent: false,
       },
       {
         actorAlias: "admin-qa-manager",
@@ -169,7 +166,6 @@ function supportSafeEvidence(): AdminQaActorFixturesEvidence {
         createdAccount: false,
         createdUser: false,
         createdMembership: false,
-        createdConsent: false,
       },
       {
         actorAlias: "admin-qa-fulfillment",
@@ -179,7 +175,6 @@ function supportSafeEvidence(): AdminQaActorFixturesEvidence {
         createdAccount: false,
         createdUser: false,
         createdMembership: false,
-        createdConsent: false,
       },
       {
         actorAlias: "admin-qa-viewer",
@@ -189,7 +184,6 @@ function supportSafeEvidence(): AdminQaActorFixturesEvidence {
         createdAccount: false,
         createdUser: false,
         createdMembership: false,
-        createdConsent: false,
       },
       {
         actorAlias: "admin-qa-catalog-admin",
@@ -199,7 +193,6 @@ function supportSafeEvidence(): AdminQaActorFixturesEvidence {
         createdAccount: false,
         createdUser: false,
         createdMembership: false,
-        createdConsent: false,
       },
     ],
     requiredActorMatrixSize: 6,
