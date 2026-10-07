@@ -1,8 +1,93 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { test, type Locator, type Page, type TestInfo } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
+import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
 import sourceManifest from "./responsive-evidence-manifest.json" with { type: "json" };
+
+export async function captureAccessibilityEvidence(input: { page: Page; testInfo: TestInfo; surface: string }) {
+  await expect(input.page.getByRole("main")).toHaveCount(1);
+  await expect(input.page.getByRole("main")).toBeVisible();
+  const results = await new AxeBuilder({ page: input.page }).include("main").analyze();
+  await input.testInfo.attach(`accessibility:${input.surface}`, {
+    body: JSON.stringify({
+      surface: input.surface,
+      scope: "main",
+      url: input.page.url(),
+      violations: results.violations,
+      passes: results.passes,
+      incomplete: results.incomplete,
+    }),
+    contentType: "application/json",
+  });
+  expect(results.violations, `Accessibility violations on ${input.surface}`).toEqual([]);
+}
+
+export async function expectAccessibleMain(page: Page) {
+  const main = page.getByRole("main");
+  await expect(main).toHaveCount(1);
+  await expect(main).toBeVisible();
+  await expect(main.locator('[aria-busy="true"]')).toHaveCount(0);
+  await expect(main).not.toHaveAttribute("aria-busy", "true");
+  await expect
+    .poll(() =>
+      main.evaluate((root) => {
+        const attributes = [
+          "for",
+          "form",
+          "list",
+          "headers",
+          "itemref",
+          "popovertarget",
+          "commandfor",
+          "aria-labelledby",
+          "aria-describedby",
+          "aria-controls",
+          "aria-owns",
+          "aria-activedescendant",
+          "aria-details",
+          "aria-errormessage",
+          "aria-flowto",
+        ];
+        const elements = [root, ...root.querySelectorAll("*")];
+        const owners = Array.from(document.querySelectorAll("[id]"));
+        return elements.flatMap((element) =>
+          attributes.flatMap((attribute) =>
+            (element.getAttribute(attribute)?.trim().split(/\s+/).filter(Boolean) ?? []).flatMap((id) => {
+              const targets = owners.filter((owner) => owner.id === id);
+              return targets.length === 1 ? [] : [`${element.tagName}[${attribute}=${id}]: ${targets.length} owners`];
+            }),
+          ),
+        );
+      }),
+    )
+    .toEqual([]);
+}
+
+export async function expectAccessibleDisclosure(trigger: Locator) {
+  await expect(trigger).toHaveCount(1);
+  await expect(trigger).toBeVisible();
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  await expect
+    .poll(() =>
+      trigger.evaluate((element) => {
+        const panel = document.getElementById(element.getAttribute("aria-controls") ?? "");
+        const bounds = panel?.getBoundingClientRect();
+        return Boolean(
+          element.id &&
+          panel &&
+          panel.getAttribute("aria-labelledby") === element.id &&
+          element.parentElement?.parentElement?.contains(panel) &&
+          panel.getAttribute("role") === "region" &&
+          panel.checkVisibility({ checkVisibilityCSS: true, checkOpacity: true }) &&
+          bounds &&
+          bounds.width > 0 &&
+          bounds.height > 0,
+        );
+      }),
+    )
+    .toBe(true);
+}
 
 type NumericAssertion = Readonly<{
   equals?: number;

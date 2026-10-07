@@ -165,6 +165,7 @@ export function ProgressiveDisclosure({
   return (
     <AccordionPrimitive.Root<string>
       {...rest}
+      role="group"
       value={value}
       defaultValue={defaultValue}
       onValueChange={(nextValue) => onOpenChange?.(nextValue.includes(singleDisclosureValue))}
@@ -211,6 +212,7 @@ export function ProgressiveDisclosureGroup({
         </Stack>
       ) : null}
       <AccordionPrimitive.Root<string>
+        role="group"
         multiple={multiple}
         value={value}
         defaultValue={defaultValue}

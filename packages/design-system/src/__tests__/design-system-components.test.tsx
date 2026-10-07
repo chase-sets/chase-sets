@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { act, useState, type ReactNode } from "react";
+import { act, createRef, useState, type ReactNode } from "react";
 import { hydrateRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -56,6 +56,7 @@ import {
 import { Icon, type IconName } from "../icons";
 import {
   Checkbox,
+  CurrencyInput,
   Combobox,
   Autocomplete,
   NativeSelect,
@@ -139,6 +140,269 @@ beforeEach(() => {
 });
 
 const expectedSpacingTokens = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] satisfies SpaceToken[];
+
+describe("6110 accessible compositions", () => {
+  it("6110 numeric label ownership preserves client form, refs, conversion and state", async () => {
+    const quantity = createRef<HTMLInputElement>();
+    const amount = createRef<HTMLInputElement>();
+    const onQuantity = vi.fn();
+    const onAmount = vi.fn();
+    const fixture = (disabled: boolean, readOnly: boolean) => (
+      <ChaseRoot>
+        <form id="6110-order" />
+        <NumberField
+          ref={quantity}
+          label="Quantity to buy"
+          name="quantity"
+          form="6110-order"
+          value={2}
+          onValueChange={onQuantity}
+          disabled={disabled}
+          readOnly={readOnly}
+          required
+        />
+        <CurrencyInput
+          ref={amount}
+          label="Unit price"
+          aria-label="Price in US dollars"
+          currencyCode="USD"
+          name="price"
+          form="6110-order"
+          value="2.50"
+          onValueChange={onAmount}
+          disabled={disabled}
+          readOnly={readOnly}
+          required
+        />
+      </ChaseRoot>
+    );
+    const view = render(fixture(false, false));
+    expect(quantity.current).toBe(screen.getByRole("spinbutton", { name: "Quantity to buy" }));
+    expect(amount.current).toBe(screen.getByRole("spinbutton", { name: "Unit price" }));
+    expect(amount.current!.getAttribute("aria-label")).toBe("Price in US dollars");
+    expect(new FormData(document.getElementById("6110-order") as HTMLFormElement).get("quantity")).toBe("2");
+    expect(new FormData(document.getElementById("6110-order") as HTMLFormElement).get("price")).toBe("2.5");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Increase value" }));
+    await user.click(screen.getByRole("button", { name: "Increase amount" }));
+    expect(onQuantity).toHaveBeenLastCalledWith(3);
+    expect(onAmount).toHaveBeenLastCalledWith("2.51");
+    for (const [disabled, readOnly] of [
+      [true, false],
+      [false, true],
+    ]) {
+      view.rerender(fixture(disabled!, readOnly!));
+      for (const input of [quantity.current!, amount.current!]) {
+        expect(input.disabled).toBe(disabled);
+        expect(input.readOnly).toBe(readOnly);
+        expect(input.required).toBe(true);
+      }
+      expectReferences(view.container);
+    }
+  });
+
+  function expectReferences(container: HTMLElement) {
+    const owners = Array.from(container.querySelectorAll("[id]"));
+    expect(new Set(owners.map((owner) => owner.id)).size).toBe(owners.length);
+    for (const element of container.querySelectorAll("*")) {
+      for (const attribute of [
+        "for",
+        "form",
+        "list",
+        "headers",
+        "itemref",
+        "popovertarget",
+        "commandfor",
+        "aria-labelledby",
+        "aria-describedby",
+        "aria-controls",
+        "aria-owns",
+        "aria-activedescendant",
+        "aria-details",
+        "aria-errormessage",
+        "aria-flowto",
+      ]) {
+        for (const id of element.getAttribute(attribute)?.trim().split(/\s+/).filter(Boolean) ?? []) {
+          expect(
+            owners.filter((owner) => owner.id === id),
+            `${element.tagName}[${attribute}=${id}]`,
+          ).toHaveLength(1);
+        }
+      }
+    }
+  }
+
+  function renderPhase(ui: ReactNode, phase: "SSR" | "client") {
+    const container = document.createElement("div");
+    document.body.append(container);
+    if (phase === "SSR") {
+      container.innerHTML = renderToString(<ChaseRoot>{ui}</ChaseRoot>);
+      return { container, dispose: () => container.remove() };
+    }
+    const view = render(<ChaseRoot>{ui}</ChaseRoot>, { container });
+    return {
+      container,
+      dispose: () => {
+        view.unmount();
+        container.remove();
+      },
+    };
+  }
+
+  for (const phase of ["SSR", "client"] as const) {
+    for (const idKind of ["generated", "explicit"] as const) {
+      for (const control of ["NumberField", "CurrencyInput"] as const) {
+        it(`6110 numeric label ownership: ${control} ${idKind} ${phase}`, () => {
+          const props = {
+            id: idKind === "explicit" ? "6110-quantity" : undefined,
+            label: "Available quantity",
+            description: "Enter the available amount",
+            error: "Review this amount",
+            status: "Not yet saved",
+            counter: "One amount",
+            required: true,
+            name: "amount",
+            form: "6110-form",
+          };
+          const view = renderPhase(
+            <>
+              <form id="6110-form" />
+              {control === "NumberField" ? (
+                <NumberField {...props} defaultValue={2} />
+              ) : (
+                <CurrencyInput
+                  {...props}
+                  currencyCode="USD"
+                  defaultValue="2.00"
+                  currencyAccessibleDescription="US dollars"
+                />
+              )}
+            </>,
+            phase,
+          );
+          try {
+            const { container } = view;
+            const labels = container.querySelectorAll<HTMLLabelElement>("label[for]");
+            expect(labels).toHaveLength(1);
+            const owners = Array.from(container.querySelectorAll("[id]")).filter(
+              (element) => element.id === labels[0]!.htmlFor,
+            );
+            const input = within(container).getByRole("spinbutton") as HTMLInputElement;
+            const steppers = within(container).getAllByRole("button");
+            expect(
+              {
+                labelOwners: owners.map((owner) => owner === input),
+                stepperOwners: steppers.map((stepper) =>
+                  Array.from(container.querySelectorAll("[id]"))
+                    .filter((owner) => owner.id === stepper.getAttribute("aria-controls"))
+                    .map((owner) => owner === input),
+                ),
+              },
+              "label and both steppers must resolve to the same unique input",
+            ).toEqual({
+              labelOwners: [true],
+              stepperOwners: [[true], [true]],
+            });
+            expect(within(container).getByRole("spinbutton", { name: "Available quantity" })).toBe(input);
+            expect(owners[0]).toBe(input);
+            expect(input.tagName).toBe("INPUT");
+            expect(input.type).not.toBe("hidden");
+            expect(input.required).toBe(true);
+            expect(input.getAttribute("aria-invalid")).toBe("true");
+            const descriptions = input
+              .getAttribute("aria-describedby")!
+              .split(/\s+/)
+              .map((id) => Array.from(container.querySelectorAll("[id]")).find((owner) => owner.id === id)?.textContent)
+              .join(" ");
+            for (const text of [props.description, props.error, props.status, props.counter])
+              expect(descriptions).toContain(text);
+            if (control === "CurrencyInput") expect(descriptions).toContain("US dollars");
+            expect(steppers).toHaveLength(2);
+            for (const stepper of steppers) expect(stepper.getAttribute("aria-controls")).toBe(input.id);
+            expectReferences(container);
+          } finally {
+            view.dispose();
+          }
+        });
+      }
+    }
+
+    it(`6110 panel names: sibling, grouped and mixed compositions ${phase}`, () => {
+      const items = ["Shipping choices", "Payment preferences"].map((title, index) => ({
+        value: `section-${index}`,
+        title,
+        trigger: title,
+        content: <p>{title} content</p>,
+        triggerProps: { id: `6110-explicit-trigger-${index}` },
+      }));
+      const view = renderPhase(
+        <>
+          <Accordion
+            data-testid="6110-accordion"
+            id="6110-accordion"
+            type="multiple"
+            defaultValue={items.map((item) => item.value)}
+            items={items}
+          />
+          <Accordion
+            data-testid="6110-sibling"
+            items={[{ value: "sibling", trigger: "Collection notes", content: "Notes" }]}
+          />
+          <ProgressiveDisclosure data-testid="6110-disclosure" title="Delivery instructions" defaultOpen>
+            Delivery content
+          </ProgressiveDisclosure>
+          <ProgressiveDisclosure data-testid="6110-disclosure-sibling" title="Packing instructions">
+            Packing content
+          </ProgressiveDisclosure>
+          <ProgressiveDisclosureGroup
+            data-testid="6110-group"
+            defaultValue={["returns", "stock"]}
+            items={[
+              { value: "returns", title: "Return preferences", content: "Returns" },
+              { value: "stock", title: "Stock preferences", content: "Stock" },
+            ]}
+          />
+        </>,
+        phase,
+      );
+      try {
+        const { container } = view;
+        for (const id of ["6110-accordion", "6110-sibling", "6110-disclosure", "6110-disclosure-sibling"]) {
+          expect(within(container).getByTestId(id).getAttribute("role"), `${id} is not a landmark`).toBe("group");
+        }
+        expect(within(within(container).getByTestId("6110-group")).getAllByRole("group")).toHaveLength(1);
+        const regions = Array.from(container.querySelectorAll('[role="region"]'));
+        expect(regions).toHaveLength(7);
+        const names = [];
+        for (const panel of regions) {
+          const trigger = Array.from(container.querySelectorAll("button")).find(
+            (element) => element.id === panel.getAttribute("aria-labelledby"),
+          );
+          expect(trigger, "each panel is named by its own trigger").toBeTruthy();
+          expect(trigger!.parentElement?.parentElement?.contains(panel)).toBe(true);
+          names.push(trigger!.textContent);
+          if (trigger!.getAttribute("aria-expanded") === "true")
+            expect(trigger!.getAttribute("aria-controls")).toBe(panel.id);
+        }
+        expect(new Set(names).size).toBe(names.length);
+        expectReferences(container);
+        if (phase === "client") {
+          for (const item of items)
+            expect(within(container).getByRole("button", { name: item.title }).id).toBe(item.triggerProps.id);
+          const disclosure = within(container).getByTestId("6110-disclosure");
+          const trigger = within(disclosure).getByRole("button", { name: "Delivery instructions" });
+          fireEvent.click(trigger);
+          expect(trigger.getAttribute("aria-expanded")).toBe("false");
+          fireEvent.click(trigger);
+          expect(trigger.getAttribute("aria-expanded")).toBe("true");
+          expectReferences(container);
+        }
+      } finally {
+        view.dispose();
+      }
+    });
+  }
+});
 
 describe("composed Surface treatments", () => {
   it.each([

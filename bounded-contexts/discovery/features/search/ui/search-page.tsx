@@ -1103,7 +1103,11 @@ export function SearchPage({
                       : t("discovery.features.search.ui.searchPage.closest.matches.semantic.only")}
                   </Text>
                 </Stack>
-              ) : null}
+              ) : (
+                <Heading level={2} visualSize={4}>
+                  {t("discovery.features.search.ui.searchPage.results")}
+                </Heading>
+              )}
               <Grid columns={{ base: 1, lg: 2, "2xl": 3 }} gap={4}>
                 {data.items.map((item, index) => {
                   const listingCount = item.market_summary?.active_listing_count ?? 0;

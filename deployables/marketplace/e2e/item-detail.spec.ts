@@ -1,5 +1,10 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
+import {
+  captureAccessibilityEvidence,
+  captureResponsiveEvidence,
+  expectAccessibleDisclosure,
+  expectAccessibleMain,
+} from "@chase-sets/playwright-evidence";
 import sharp from "sharp";
 import { marketplaceBrowserE2eSeedContract } from "./support/seed-contract";
 
@@ -799,6 +804,70 @@ test.describe("marketplace item detail mobile Product options and Market book (#
       (error: unknown) => (error instanceof Error ? error.message : String(error)),
     );
   }
+
+  test("6110 expanded item detail passes exclusion-free axe @marketplace-browse", async ({ page }, testInfo) => {
+    await openItemRoute(page, unresolvedProductRoutePath, { width: 390, height: 844 });
+    await expect(page.locator("html")).toHaveAttribute("lang", "en");
+    const mobile = page.locator("main [data-product-options-mobile]");
+    const trigger = mobile.getByRole("button", { name: "Choose options", exact: true });
+    async function ready() {
+      await expect(mobile).toBeVisible();
+      await expectExpandedProductOptions(page);
+      await expectAccessibleDisclosure(trigger);
+      await expectAccessibleMain(page);
+      await expect(mobile.getByRole("region", { name: "Choose options", exact: true })).toBeVisible();
+    }
+    await ready();
+    await testInfo.attach("6110-detail-state", {
+      body: JSON.stringify({
+        url: page.url(),
+        viewport: page.viewportSize(),
+        dom: await mobile.evaluate((element) => ({
+          html: element.outerHTML,
+          bounds: element.getBoundingClientRect().toJSON(),
+          panels: Array.from(element.querySelectorAll('[role="region"]'), (panel) => ({
+            id: panel.id,
+            labelledBy: panel.getAttribute("aria-labelledby"),
+            bounds: panel.getBoundingClientRect().toJSON(),
+          })),
+        })),
+      }),
+      contentType: "application/json",
+    });
+    await ready();
+    await captureAccessibilityEvidence({ page, testInfo, surface: "6110-expanded-item-detail" });
+  });
+
+  test("6110 accessibility helper rejects a real violation @marketplace-browse", async ({ page }, testInfo) => {
+    await page.setContent(
+      '<main><img id="6110-unlabelled-image" src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%221%22 height=%221%22/%3E"></main>',
+    );
+    await expect(page.locator('main [id="6110-unlabelled-image"]')).toHaveCount(1);
+    const failure = await failureMessageOf(
+      captureAccessibilityEvidence({ page, testInfo, surface: "6110-unlabelled-image" }),
+      "the accessibility helper unexpectedly accepted an unlabelled image",
+    );
+    expect(failure).toContain("Accessibility violations on 6110-unlabelled-image");
+    const reports = testInfo.attachments.filter(
+      (attachment) => attachment.name === "accessibility:6110-unlabelled-image",
+    );
+    expect(reports).toHaveLength(1);
+    expect(reports[0]!.body).toBeDefined();
+    const report = JSON.parse(reports[0]!.body!.toString()) as {
+      surface: string;
+      scope: string;
+      violations: { id: string; nodes: { html: string }[] }[];
+    };
+    expect(report.surface).toBe("6110-unlabelled-image");
+    expect(report.scope).toBe("main");
+    expect(
+      report.violations.some(
+        (violation) =>
+          violation.id === "image-alt" &&
+          violation.nodes.some((node) => node.html.includes('id="6110-unlabelled-image"')),
+      ),
+    ).toBe(true);
+  });
 
   test("Product options reconcile the real item route after each dependent choice @marketplace-browse", async ({
     page,

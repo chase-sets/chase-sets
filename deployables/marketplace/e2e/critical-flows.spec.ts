@@ -1,5 +1,11 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
-import { captureResponsiveEvidence } from "@chase-sets/playwright-evidence";
+import {
+  captureAccessibilityEvidence,
+  captureResponsiveEvidence,
+  expectAccessibleDisclosure,
+  expectAccessibleMain,
+} from "@chase-sets/playwright-evidence";
+import { catalogSeedIds } from "@chase-sets/catalog-seed";
 import { registerSyntheticAccount, signInWithPassword, syntheticAccountFor } from "./support/auth";
 import { marketplaceBrowserE2eSeedContract, marketplaceBrowserE2eSellerCredentials } from "./support/seed-contract";
 
@@ -149,6 +155,153 @@ function expectFirstPaintChaseRoot(html: string, expected: Readonly<{ colorMode:
 }
 
 test.describe("marketplace critical flows", () => {
+  test("6110 populated browse passes exclusion-free axe @marketplace-browse", async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await expectPageOk(page, "/search?q=pokemon");
+    await expect(page.locator("html")).toHaveAttribute("lang", "en");
+    const response = await page.request.get("/api/marketplace/items?search=pokemon&includeTotal=true&limit=24");
+    expect(response.status()).toBe(200);
+    const body = (await response.json()) as { total: number; items: { catalog_item_id: string; slug: string }[] };
+    expect(body.total).toBe(10);
+    expect(body.items).toHaveLength(10);
+    const orderedIds = body.items.map((item) => item.catalog_item_id);
+    expect(new Set(orderedIds).size).toBe(10);
+    expect([...orderedIds].sort()).toEqual(
+      [
+        catalogSeedIds.items.bulbasaurBaseSet,
+        catalogSeedIds.items.charizardBaseSet,
+        catalogSeedIds.items.japaneseCharizardBaseSet,
+        catalogSeedIds.items.lugiaNeoGenesis,
+        catalogSeedIds.items.mewtwoBlackStarPromo,
+        catalogSeedIds.items.pikachuJungle,
+        catalogSeedIds.items.pikachuPrismaticEvolutions,
+        catalogSeedIds.items.prismaticEvolutionsBoosterPack,
+        catalogSeedIds.items.surgingSparksBoosterBox,
+        catalogSeedIds.items.twilightMasqueradeEliteTrainerBox,
+      ].sort(),
+    );
+    expect(body.items.every((item) => typeof item.slug === "string" && item.slug.length > 0)).toBe(true);
+    const expectedHrefs = body.items.map((item) => `/items/${item.slug}`).sort();
+    const main = page.getByRole("main");
+    const facets = main.locator('[data-facet-list-presentation="desktop"]');
+    const cards = main.locator('article[data-card-layout="search-result"]');
+    async function ready() {
+      await expectAccessibleMain(page);
+      await expect(facets).toBeVisible();
+      for (const value of ["categories", "price-and-stock"]) {
+        await expectAccessibleDisclosure(facets.locator(`[data-facet-item-value="${value}"]`));
+      }
+      await expect
+        .poll(() =>
+          facets
+            .locator('input[role="spinbutton"]')
+            .evaluateAll(
+              (inputs) =>
+                inputs.length === 2 &&
+                inputs.every(
+                  (input) =>
+                    Array.from(document.querySelectorAll("label[for]")).filter(
+                      (label) => label.getAttribute("for") === input.id,
+                    ).length === 1 &&
+                    Array.from(document.querySelectorAll("[id]")).filter((owner) => owner.id === input.id).length === 1,
+                ),
+            ),
+        )
+        .toBe(true);
+      await expect(cards).toHaveCount(10);
+      for (const card of await cards.all()) {
+        await expect(card).toBeVisible();
+        const link = card.getByRole("link", { name: /^View details for / });
+        await expect(link).toHaveCount(1);
+        await expect(link).toBeVisible();
+      }
+      await expect(cards.getByRole("link", { name: /^View details for / })).toHaveCount(10);
+    }
+    const snapshot = () =>
+      cards.evaluateAll((elements) =>
+        elements.map((card) => ({
+          html: card.outerHTML,
+          bounds: card.getBoundingClientRect().toJSON(),
+          links: Array.from(card.querySelectorAll<HTMLAnchorElement>("a[aria-label]"))
+            .filter((link) => /^View details for /.test(link.getAttribute("aria-label") ?? ""))
+            .map((link) => ({
+              href: link.getAttribute("href"),
+              visible: link.checkVisibility({ checkVisibilityCSS: true, checkOpacity: true }),
+            })),
+          broadCount: card.querySelectorAll('a[href^="/items/"]').length,
+          broadLinks: Array.from(card.querySelectorAll<HTMLAnchorElement>('a[href^="/items/"]'), (link) => ({
+            href: link.getAttribute("href"),
+            visible: link.checkVisibility({ checkVisibilityCSS: true, checkOpacity: true }),
+          })),
+        })),
+      );
+    await ready();
+    let previous: Awaited<ReturnType<typeof snapshot>> | undefined;
+    await expect
+      .poll(async () => {
+        const current = await snapshot();
+        const equal = JSON.stringify(current) === JSON.stringify(previous);
+        previous = current;
+        return equal;
+      })
+      .toBe(true);
+    const stable = previous!;
+    function assertCards(snapshot: typeof stable) {
+      expect(snapshot, "ten populated cards").toHaveLength(10);
+      for (const card of snapshot) {
+        expect(card.links, "one detail link per card").toHaveLength(1);
+        expect(card.links[0]!.visible).toBe(true);
+      }
+      const hrefs = snapshot.flatMap((card) => card.links.map((link) => link.href));
+      expect(hrefs).toHaveLength(10);
+      expect(new Set(hrefs).size, "unique detail destinations").toBe(10);
+      expect([...hrefs].sort(), "exact API detail destinations").toEqual(expectedHrefs);
+    }
+    assertCards(stable);
+    const hrefs = stable.flatMap((card) => card.links.map((link) => link.href));
+    expect(() => assertCards(stable.map((card) => ({ ...card, links: card.broadLinks })))).toThrow(
+      "one detail link per card",
+    );
+    for (const links of [[], [...stable[0]!.links, ...stable[0]!.links]]) {
+      expect(() => assertCards([{ ...stable[0]!, links }, ...stable.slice(1)])).toThrow("one detail link per card");
+    }
+    for (const href of ["/items/6110-wrong-item", `${stable[0]!.links[0]!.href}?unexpected=1`]) {
+      expect(() => assertCards([{ ...stable[0]!, links: [{ href, visible: true }] }, ...stable.slice(1)])).toThrow(
+        "exact API detail destinations",
+      );
+    }
+    expect(() => assertCards([{ ...stable[0]!, links: stable[1]!.links }, ...stable.slice(1)])).toThrow(
+      "unique detail destinations",
+    );
+    expect(() => assertCards([])).toThrow("ten populated cards");
+    await ready();
+    expect(await snapshot()).toEqual(stable);
+    await testInfo.attach("6110-browse-state", {
+      body: JSON.stringify({
+        status: response.status(),
+        total: body.total,
+        orderedIds,
+        hrefs,
+        cards: stable,
+        facets: await facets.evaluate((element) => ({
+          html: element.outerHTML,
+          bounds: element.getBoundingClientRect().toJSON(),
+          panels: Array.from(element.querySelectorAll('[role="region"]'), (panel) => ({
+            id: panel.id,
+            labelledBy: panel.getAttribute("aria-labelledby"),
+            bounds: panel.getBoundingClientRect().toJSON(),
+          })),
+        })),
+        viewport: page.viewportSize(),
+        url: page.url(),
+      }),
+      contentType: "application/json",
+    });
+    await ready();
+    expect(await snapshot()).toEqual(stable);
+    await captureAccessibilityEvidence({ page, testInfo, surface: "6110-populated-browse" });
+  });
+
   test("signed-out shoppers can browse, search, and reach auth entry points @marketplace-browse", async ({ page }) => {
     await expectPageOk(page, "/search");
 
