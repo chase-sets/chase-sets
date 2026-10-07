@@ -649,7 +649,7 @@ function buildMainAdvanceEvidence() {
 
 /**
  * One owning import redirected onto a same-named module the declaration does
- * not live in, with all six registered calls preserved. The consumption
+ * not live in, with all three registered calls preserved. The consumption
  * partition is byte-for-byte what the registry carries; only the owning-import
  * edge moved.
  */
@@ -955,6 +955,47 @@ const repairedOmissionGuardOutcomes = (() => {
     legacy: run(legacyMutantCoverage, legacyMutantCensusArms),
   };
 })();
+
+/**
+ * The three provisioning consumptions #8945 removed, in their production
+ * shapes. Kept inline rather than as fixtures so they add no governed
+ * evidence input; the suite itself is outside that footprint.
+ */
+const restoredProvisioningSeedSource = `import { authorizeConsentForProvisioning } from "../../features/consents/domain/consent-recording-authorization";
+
+declare function createSeedAggregateReconciler(options: {
+  send: (streamId: string, command: unknown) => unknown;
+}): unknown;
+declare const services: { consents: { commandHandler: (input: unknown) => unknown } };
+
+function buildScenarioIdentityReconcilers() {
+  const consentReconciler = (userId: unknown, accountId: unknown) =>
+    createSeedAggregateReconciler({
+      send: (streamId, command) =>
+        services.consents.commandHandler({
+          streamId,
+          command,
+          authorization: authorizeConsentForProvisioning(userId, accountId),
+        }),
+    });
+  return consentReconciler;
+}
+
+async function reconcileRepresentativeConsent(userId: unknown, accountId: unknown) {
+  return authorizeConsentForProvisioning(userId, accountId);
+}
+
+void buildScenarioIdentityReconcilers;
+void reconcileRepresentativeConsent;
+`;
+const restoredProvisioningAdminQaSource = `import { authorizeConsentForProvisioning } from "../../features/consents/domain/consent-recording-authorization";
+
+async function provisionAdminQaActorFixture(userId: unknown, accountId: unknown) {
+  return authorizeConsentForProvisioning(userId, accountId);
+}
+
+void provisionAdminQaActorFixture;
+`;
 
 const driftResult = buildPlantedSiteEvidence(
   "consent-drift-",
@@ -1625,10 +1666,10 @@ describe("Consent authorization sites", () => {
       },
     ]);
     expect(driftResult.drift.removed).toEqual([]);
-    expect(driftResult.drift.previousTotal).toBe(6);
-    expect(driftResult.drift.currentTotal).toBe(7);
-    expect(driftResult.drift.previousCounts).toEqual({ actor: 2, "self-registration": 1, provisioning: 3 });
-    expect(driftResult.drift.currentCounts).toEqual({ actor: 3, "self-registration": 1, provisioning: 3 });
+    expect(driftResult.drift.previousTotal).toBe(3);
+    expect(driftResult.drift.currentTotal).toBe(4);
+    expect(driftResult.drift.previousCounts).toEqual({ actor: 2, "self-registration": 1, provisioning: 0 });
+    expect(driftResult.drift.currentCounts).toEqual({ actor: 3, "self-registration": 1, provisioning: 0 });
     expect(driftResult.drift.previousDigest).toBe(registry.partitionDigest);
     expect(driftResult.drift.currentDigest).not.toBe(registry.partitionDigest);
   });
@@ -1641,14 +1682,14 @@ describe("Consent authorization sites", () => {
       })}\n`,
     );
 
-    // The consumption partition did not move: six registered calls, nothing
+    // The consumption partition did not move: three registered calls, nothing
     // added, nothing removed. Only the owning-import edge changed.
-    expect(redirectedImportResult.partition.consumptions).toHaveLength(6);
+    expect(redirectedImportResult.partition.consumptions).toHaveLength(3);
     expect(redirectedImportResult.drift.added).toEqual([]);
     expect(redirectedImportResult.drift.removed).toEqual([]);
-    expect(redirectedImportResult.drift.previousTotal).toBe(6);
-    expect(redirectedImportResult.drift.currentTotal).toBe(6);
-    expect(redirectedImportResult.drift.currentCounts).toEqual({ actor: 2, "self-registration": 1, provisioning: 3 });
+    expect(redirectedImportResult.drift.previousTotal).toBe(3);
+    expect(redirectedImportResult.drift.currentTotal).toBe(3);
+    expect(redirectedImportResult.drift.currentCounts).toEqual({ actor: 2, "self-registration": 1, provisioning: 0 });
 
     // The digest separates the two owning-import identities, so drift is
     // reported rather than the redirect passing as an unchanged partition.
@@ -1675,8 +1716,8 @@ describe("Consent authorization sites", () => {
     expect(redirectedImportResult.drift.removedImports).toEqual([
       expectedConsentAuthorizationImportIdentity(registry.sites.find(({ file }) => file === redirectedFile)),
     ]);
-    expect(redirectedImportResult.drift.previousImportTotal).toBe(5);
-    expect(redirectedImportResult.drift.currentImportTotal).toBe(5);
+    expect(redirectedImportResult.drift.previousImportTotal).toBe(3);
+    expect(redirectedImportResult.drift.currentImportTotal).toBe(3);
     expect(redirectedImportResult.violations.some(({ code }) => code === "consent-authorization-import-invalid")).toBe(
       true,
     );
@@ -2302,10 +2343,15 @@ describe("Consent authorization sites", () => {
     expect(digestConsentAuthorizationPartition(changed)).not.toBe(registry.partitionDigest);
   });
 
-  it("fails reclassifying a provisioning site as actor", () => {
+  it("fails reintroducing a provisioning row even under a #6120 permanent reason", () => {
     const changed = structuredClone(registry);
-    changed.sites.find(({ classification }) => classification === "provisioning").classification = "actor";
-    expect(collectConsentAuthorizationRegistryViolations(changed, registrySchema).length).toBeGreaterThan(0);
+    const site = changed.sites.find(({ classification }) => classification === "self-registration");
+    site.constructor = "authorizeConsentForProvisioning";
+    site.classification = "provisioning";
+    site.reason = "Permanent #6120 provisioning exemption.";
+    expect(collectConsentAuthorizationRegistryViolations(changed, registrySchema)).toEqual([
+      "registry partition must be exactly 2 actor / 1 self-registration / 0 provisioning",
+    ]);
   });
 
   it("reconciles the live tree one-for-one against the committed registry", () => {
@@ -2328,26 +2374,47 @@ describe("Consent authorization sites", () => {
       })}\n`,
     );
     expect(realTreeResult.violations).toEqual([]);
+    // All three trusted constructors stay declared; provisioning consumes none.
     expect(realTreeResult.partition.declarations).toHaveLength(3);
-    expect(new Set(realTreeResult.partition.imports.map(({ file }) => file)).size).toBe(5);
-    expect(realTreeResult.partition.consumptions).toHaveLength(6);
-    expect(realTreeResult.partition.counts).toEqual({ actor: 2, "self-registration": 1, provisioning: 3 });
+    expect(new Set(realTreeResult.partition.imports.map(({ file }) => file)).size).toBe(3);
+    expect(realTreeResult.partition.consumptions).toHaveLength(3);
+    expect(realTreeResult.partition.counts).toEqual({ actor: 2, "self-registration": 1, provisioning: 0 });
     expect(realTreeResult.partitionDigest).toBe(registry.partitionDigest);
     expect(new Set(realTreeResult.partition.consumptions.map(key))).toEqual(new Set(registry.sites.map(key)));
     expect(realTreeResult.partition.consumptions.every(({ line }) => typeof line === "number")).toBe(true);
-    expect(
-      registry.sites
-        .filter(({ classification }) => classification === "provisioning")
-        .every(({ reason }) => reason.includes("#6120") && /permanent/i.test(reason)),
-    ).toBe(true);
+    expect(registry.sites.filter(({ classification }) => classification === "provisioning")).toEqual([]);
   });
 
-  it("preserves the anonymous send callback owner in the real tree", () => {
-    expect(
-      realTreeResult.partition.consumptions.some(
-        ({ owner }) => owner === "buildScenarioIdentityReconcilers > consentReconciler",
-      ),
-    ).toBe(true);
+  it("fails restoring any provisioning site #8945 removed, keeping the anonymous send callback owner", () => {
+    const seedFile = "bounded-contexts/identity/support/runtime-support/seed.ts";
+    const adminQaFile = "bounded-contexts/identity/support/runtime-support/admin-qa-actor-fixtures.ts";
+    const restored = [
+      [seedFile, restoredProvisioningSeedSource],
+      [adminQaFile, restoredProvisioningAdminQaSource],
+    ].flatMap(([file, source]) =>
+      scanConsentAuthorizationSource(file, source, ownerContexts)
+        .filter(({ referenceClass }) => referenceClass === "consumption")
+        .map(({ owner, constructor }) => ({ file, owner, constructor })),
+    );
+    expect(restored).toEqual([
+      {
+        file: seedFile,
+        owner: "buildScenarioIdentityReconcilers > consentReconciler",
+        constructor: "authorizeConsentForProvisioning",
+      },
+      { file: seedFile, owner: "reconcileRepresentativeConsent", constructor: "authorizeConsentForProvisioning" },
+      { file: adminQaFile, owner: "provisionAdminQaActorFixture", constructor: "authorizeConsentForProvisioning" },
+    ]);
+
+    // None of them is registered, and each one moves the committed digest.
+    const key = ({ file, owner, constructor }) => [file, owner, constructor].join("\0");
+    const registered = new Set(registry.sites.map(key));
+    expect(restored.filter((site) => registered.has(key(site)))).toEqual([]);
+    for (const site of restored) {
+      const changed = structuredClone(realTreeResult.partition);
+      changed.consumptions.push({ ...site, ordinal: 1, classification: "provisioning" });
+      expect(digestConsentAuthorizationPartition(changed)).not.toBe(registry.partitionDigest);
+    }
   });
 
   it("enters ordinary source under a test-named directory into the corpus", () => {
@@ -2855,7 +2922,7 @@ describe("Consent authorization sites", () => {
     expect(planted.map(({ identicalInputs }) => identicalInputs)).toEqual([true]);
   });
 
-  it("is recursively closed and freezes the exact 2/1/3 semantic partition", () => {
+  it("is recursively closed and freezes the exact 2/1/0 semantic partition", () => {
     expect(collectOpenSchemaObjectPaths(registrySchema)).toEqual([]);
     expect(collectOpenSchemaObjectPaths(receiptSchema)).toEqual([]);
     expect(collectOpenSchemaObjectPaths(aggregateSchema)).toEqual([]);
@@ -2865,9 +2932,6 @@ describe("Consent authorization sites", () => {
     expect(registry.sites.map(({ classification }) => classification).toSorted()).toEqual([
       "actor",
       "actor",
-      "provisioning",
-      "provisioning",
-      "provisioning",
       "self-registration",
     ]);
   });
