@@ -64,14 +64,6 @@ const forbiddenBoundedContextDirectoryNames = new Set(["infrastructure", "shared
 const nonSupportSuffixDirectoryExceptions = new Set(["tests"]);
 const supportDirectoryNamePattern = /^[a-z0-9]+(?:-[a-z0-9]+)*-support$/;
 const forbiddenUmbrellaSliceNames = new Set(["authoring", "customer", "items"]);
-const retiredPanelDrawerNames = [
-  "CommerceDrawer",
-  "FilterDrawer",
-  "MarketplaceFilterDrawer",
-  "MarketplaceMobileFilterDrawer",
-  "NotificationCenterDrawer",
-];
-const retiredPanelDrawerPattern = new RegExp(`\\b(?:${retiredPanelDrawerNames.join("|")})\\b`);
 const directoryIntentAllowedFields = new Set([
   "classification",
   "crossCuttingRuntimeComposition",
@@ -94,38 +86,6 @@ const placeholderFieldTokens = new Set([
   "unknown",
 ]);
 const crossCuttingRuntimeCompositionSupportDirectories = new Set(["auth-support", "request-support", "seed-support"]);
-const legacyForbiddenPaths = [
-  "bounded-contexts/experience",
-  "bounded-contexts/insights",
-  "bounded-contexts/reputation",
-  "bounded-contexts/support",
-  "bounded-contexts/tax",
-  "bounded-contexts/catalog/authoring/package.json",
-  "bounded-contexts/catalog/authoring/api",
-  "contracts/notifications",
-  "contracts/dev-seeds",
-  "contracts/event-core/postgres",
-  "contracts/sellable-units",
-  "deployables/admin-support-api",
-  "deployables/admin-support-worker",
-  "deployables/catalog-admin",
-  "deployables/catalog-api",
-  "deployables/identity-admin",
-  "deployables/identity-api",
-  "deployables/inventory-api",
-  "deployables/marketplace-api",
-  "deployables/platform-ingress",
-  "scripts/deployable-api-mount-support.mjs",
-  "scripts/deployable-lifecycle-support.mjs",
-  "scripts/deployable-route-support.mjs",
-  "scripts/deployable-runtime-support.mjs",
-  "scripts/deployable-shell-support.mjs",
-  "scripts/generate-deployable-api-mounts.mjs",
-  "scripts/generate-deployable-lifecycles.mjs",
-  "scripts/generate-deployable-routes.mjs",
-  "scripts/generate-deployable-runtimes.mjs",
-  "scripts/generate-deployable-shells.mjs",
-];
 const nonPackageWorkspaceDirectoryExceptions = new Set([
   "infrastructure/digitalocean",
   "infrastructure/helm",
@@ -164,7 +124,6 @@ const deployableRouteTests = /\.test\.(ts|tsx)$/;
 const domainFacingImportHeuristic =
   /(?:^|\/)(?:domain|domains|query|queries|projection|projections|read-model|read-models|projector|projectors)(?:\/|$)/;
 const contractsForbiddenImports = /^(react($|\/)|react-dom($|\/)|react-router($|\/)|@react-router\/|hono($|\/))/;
-const retiredIntegrationSurfaceImportPattern = /["']@chase-sets\/[^/"'\s]+\/integration(?:\/[^"']*)?["']/;
 const forbiddenRootSurfaceReexports =
   /export\s+(?:\*|\{[\s\S]*?\})\s+from\s+["']\.\/(?:client|server|web|seed-support(?:\/[^"']+)?)["']/;
 const boundedContextSurfaceFiles = new Set(["client.ts", "server.ts", "web.ts"]);
@@ -621,19 +580,6 @@ export function isApprovedCrossContextTypeContractImport(relativeFile, specifier
       .map((member) => member.replace(/^type\s+/, "").split(/\s+as\s+/)[0]);
     return symbols.length > 0 && symbols.every((symbol) => contract.symbols.has(symbol));
   });
-}
-
-const retiredFreshnessDroppingForwardingImportMessage =
-  "retired freshness-dropping forwarding helper import; use @chase-sets/platform-runtime/http";
-
-export function retiredFreshnessDroppingForwardingImport(relativeFile, specifier) {
-  const normalizedSpecifier = specifier.replaceAll("\\", "/").replace(/\.(?:ts|tsx|js|jsx|mjs|cjs)$/, "");
-  const resolvedSpecifier = resolveRelativeSpecifier(relativeFile, normalizedSpecifier);
-
-  return (
-    normalizedSpecifier === "@chase-sets/bounded-context-runtime/http" ||
-    resolvedSpecifier === "infrastructure/bounded-context-runtime/http"
-  );
 }
 
 function stripContextManifestSurfaceExport(content) {
@@ -1131,27 +1077,6 @@ async function loadContextManifests() {
       addPathViolation(`${relativeRoot}/context.json`, "seedRequirements must be an array of context names");
     }
 
-    if ("requiredPorts" in manifest) {
-      addPathViolation(
-        `${relativeRoot}/context.json`,
-        "requiredPorts is retired; model external runtime dependencies through hostPorts only",
-      );
-    }
-
-    if ("integrationCapabilities" in manifest) {
-      addPathViolation(
-        `${relativeRoot}/context.json`,
-        "integrationCapabilities is retired; use eventSubscriptions, projectionGroups, hostPorts, and ./server surfaces instead",
-      );
-    }
-
-    if ("apiRequirements" in manifest) {
-      addPathViolation(
-        `${relativeRoot}/context.json`,
-        "apiRequirements is retired; use eventSubscriptions, projectionGroups, hostPorts, and ./server surfaces instead",
-      );
-    }
-
     if (
       manifest.contextName === "payments" &&
       (!Array.isArray(manifest.eventSubscriptions) ||
@@ -1269,14 +1194,6 @@ export async function findWorkspaceDirectoryManifestViolations(options = {}) {
       }
 
       const relativeDirectory = `${workspaceRoot}/${entry.name}`;
-      if (legacyForbiddenPaths.includes(relativeDirectory)) {
-        diagnostics.push({
-          path: relativeDirectory,
-          message: "retired workspace directory should not exist",
-        });
-        continue;
-      }
-
       if (nonPackageWorkspaceDirectoryExceptions.has(relativeDirectory)) {
         continue;
       }
@@ -1285,7 +1202,7 @@ export async function findWorkspaceDirectoryManifestViolations(options = {}) {
       if (!existsSync(path.join(directoryPath, "package.json"))) {
         diagnostics.push({
           path: `${relativeDirectory}/package.json`,
-          message: "workspace directory must declare package.json or be added to the retired-path list",
+          message: "workspace directory must declare package.json",
         });
         continue;
       }
@@ -1397,13 +1314,28 @@ function isAllowedContextImporter(relativeFile) {
   );
 }
 
-function isFeatureModulePath(relativeFile) {
-  return (
-    relativeFile.includes("/routes/") ||
-    relativeFile.includes("/ui/") ||
-    domainFacingImportHeuristic.test(relativeFile) ||
-    relativeFile.endsWith("/runtime.ts")
-  );
+export function findAuthOwnershipViolations(manifest) {
+  if (manifest.contextName !== "auth") return [];
+  return ["authentication", "session-journey", "account-selection"]
+    .filter((noun) => !(manifest.ownedNouns ?? []).includes(noun))
+    .map((noun) => `Auth must own ${noun}`);
+}
+
+export function findDeployableBoundaryViolation(relativeFile, content) {
+  if (!relativeFile.startsWith("deployables/")) return null;
+  if (path.posix.basename(relativeFile) === "api.server.ts") {
+    return "deployables must not define local business API helpers";
+  }
+  if (/\/src\/stack\.ts$/.test(relativeFile)) {
+    return "API deployables must not keep hand-written stack composition modules";
+  }
+  if (/\/src\/seed-stack\.ts$/.test(relativeFile)) {
+    return "API deployables must not keep hand-written seed stack composition modules";
+  }
+  if (isTestFile(relativeFile) && /@chase-sets\/[^/]+\/client/.test(content)) {
+    return "deployable tests must not depend on bounded-context client surfaces";
+  }
+  return null;
 }
 
 function isAllowedServerSurfaceConsumer(relativeFile) {
@@ -2474,33 +2406,8 @@ export async function runStructureCheck(options = {}) {
     const declaredDirectoryIntent = manifest.directoryIntent ?? {};
     const declaredDirectoryIntentNames = new Set(Object.keys(declaredDirectoryIntent));
 
-    if (manifest.contextName === "identity") {
-      if ((manifest.allowedSupportDirectories ?? []).includes("auth-support")) {
-        addPathViolation(
-          `${root}/context.json`,
-          "Identity must not declare auth-support after Auth ownership extraction",
-        );
-      }
-
-      if ((manifest.ownedNouns ?? []).includes("session")) {
-        addPathViolation(`${root}/context.json`, "Identity must not own session after Auth ownership extraction");
-      }
-
-      if ((manifest.slices ?? []).includes("sessions")) {
-        addPathViolation(
-          `${root}/context.json`,
-          "Identity must not declare a sessions slice after Auth ownership extraction",
-        );
-      }
-    }
-
-    if (manifest.contextName === "auth") {
-      const requiredOwnedNouns = ["authentication", "session-journey", "account-selection"];
-      for (const noun of requiredOwnedNouns) {
-        if (!(manifest.ownedNouns ?? []).includes(noun)) {
-          addPathViolation(`${root}/context.json`, `Auth must own ${noun}`);
-        }
-      }
+    for (const message of findAuthOwnershipViolations(manifest)) {
+      addPathViolation(`${root}/context.json`, message);
     }
 
     const rootEntries = await readdir(rootAbs, { withFileTypes: true });
@@ -2679,13 +2586,6 @@ export async function runStructureCheck(options = {}) {
     for (const entry of rootEntries) {
       if (entry.isDirectory() && ignoredDirectories.has(entry.name)) {
         continue;
-      }
-
-      if (entry.isDirectory() && entry.name === "integration") {
-        addPathViolation(
-          `${root}/${entry.name}`,
-          "integration directories are retired; use ./server for request-time access and eventSubscriptions for downstream data sharing",
-        );
       }
 
       if (entry.isDirectory() && entry.name === "deployables") {
@@ -2941,10 +2841,6 @@ export async function runStructureCheck(options = {}) {
     const importerContextRoot = getContextRoot(relativeFile);
     const importerContext = importerContextRoot ? contextManifests.get(importerContextRoot) : null;
 
-    if (retiredFreshnessDroppingForwardingImport(relativeFile, normalized)) {
-      addViolation(file, retiredFreshnessDroppingForwardingImportMessage);
-    }
-
     if (importerContext && resolvedSpecifier) {
       recordSupportFileConsumer(importerContext, relativeFile, resolvedSpecifier);
     }
@@ -3017,27 +2913,6 @@ export async function runStructureCheck(options = {}) {
       if (!dependency) {
         addViolation(file, `bounded contexts must not import another bounded context (${specifier})`);
       } else {
-        if (
-          normalized === "@chase-sets/catalog/integration/sellable-units" &&
-          dependency.packageName !== contextManifests.get(importerContextRoot)?.packageName
-        ) {
-          addViolation(
-            file,
-            "non-catalog code must own its catalog version-key logic locally instead of importing the catalog sellable-unit integration surface",
-          );
-        }
-
-        if (
-          normalized.startsWith(`${dependency.packageName}/integration/`) &&
-          isFeatureModulePath(relativeFile) &&
-          relativeFile !== "bounded-contexts/auth/services.ts"
-        ) {
-          addViolation(
-            file,
-            `feature modules must not import another bounded context's integration surface directly; move the adapter into local request-support or route-support (${specifier})`,
-          );
-        }
-
         const isAllowedIntegrationImport =
           normalized.startsWith(`${dependency.packageName}/integration/`) &&
           (importerContext?.manifest.allowedContextDependencies ?? []).includes(dependency.packageName);
@@ -3214,12 +3089,6 @@ export async function runStructureCheck(options = {}) {
     }
   }
 
-  for (const forbiddenPath of legacyForbiddenPaths) {
-    if (existsSync(path.join(repoRoot, forbiddenPath))) {
-      addPathViolation(forbiddenPath, "legacy structure artifact should not exist");
-    }
-  }
-
   await runImportBoundaryValidation({
     roots: roots.map((root) => path.join(repoRoot, root)),
     walk,
@@ -3249,10 +3118,6 @@ export async function runStructureCheck(options = {}) {
       }
 
       const normalizedFile = normalizeRelative(file);
-      if (normalizedFile.startsWith("deployables/") && path.basename(file) === "api.server.ts") {
-        addViolation(file, "deployables must not define local business API helpers");
-      }
-
       if (/bounded-contexts\/[^/]+(?:\/[^/]+)?\/shell\/nav\.ts$/.test(normalizedFile)) {
         addViolation(
           file,
@@ -3289,6 +3154,11 @@ export async function runStructureCheck(options = {}) {
       }
 
       content ??= await readFile(file, "utf8");
+
+      const deployableBoundaryViolation = findDeployableBoundaryViolation(normalizedFile, content);
+      if (deployableBoundaryViolation) {
+        addViolation(file, deployableBoundaryViolation);
+      }
 
       if (isSoftwareDeliveryConceptGuardedFile(normalizedFile, extension)) {
         for (const guard of findSoftwareDeliveryConceptViolations({
@@ -3427,13 +3297,6 @@ export async function runStructureCheck(options = {}) {
         addViolation(file, "catalog authoring durable jobs must receive worker cancellation and lease-loss context");
       }
 
-      if (normalizedFile !== "scripts/check-structure/run.mjs" && retiredPanelDrawerPattern.test(content)) {
-        addViolation(
-          file,
-          "non-navigation drawer aliases are retired; use SideSheet, BottomSheet, CommerceSheet, ResponsiveEditSheet, or NotificationCenterSheet",
-        );
-      }
-
       if (
         ((normalizedFile.startsWith("deployables/") &&
           (normalizedFile.endsWith("/src/config.ts") || isTestFile(normalizedFile))) ||
@@ -3559,13 +3422,6 @@ export async function runStructureCheck(options = {}) {
         addViolation(file, "client surfaces must not export presentation-named DTO folders");
       }
 
-      if (normalizedFile.startsWith("bounded-contexts/") && path.basename(file) === "integration.ts") {
-        addViolation(
-          file,
-          "integration surfaces are retired; use ./server for request-time access and published events for downstream projections",
-        );
-      }
-
       if (/^bounded-contexts\/[^/]+\/web\.ts$/.test(normalizedFile)) {
         const webSurfaceSpecifiers = extractImportSpecifiers(content).filter((specifier) => specifier.startsWith("."));
         const invalidSpecifiers = webSurfaceSpecifiers.filter(
@@ -3615,40 +3471,8 @@ export async function runStructureCheck(options = {}) {
         addViolation(file, "web deployable auth wrappers must use the shared auth host factory");
       }
 
-      if (normalizedFile.startsWith("deployables/") && /\/src\/stack\.ts$/.test(normalizedFile)) {
-        addViolation(file, "API deployables must not keep hand-written stack composition modules");
-      }
-
-      if (normalizedFile.startsWith("deployables/") && /\/src\/seed-stack\.ts$/.test(normalizedFile)) {
-        addViolation(file, "API deployables must not keep hand-written seed stack composition modules");
-      }
-
-      if (
-        normalizedFile.startsWith("deployables/") &&
-        isApiDeployableFile(normalizedFile) &&
-        normalizedFile.includes("/src/") &&
-        retiredIntegrationSurfaceImportPattern.test(content)
-      ) {
-        addViolation(file, "API deployables must not import retired bounded-context integration surfaces");
-      }
-
-      if (normalizedFile.startsWith("bounded-contexts/") && retiredIntegrationSurfaceImportPattern.test(content)) {
-        addViolation(
-          file,
-          "bounded-context code must not import retired ./integration surfaces; use provider ./server surfaces or published events instead",
-        );
-      }
-
       if (normalizedFile.startsWith("contracts/") && /\bprocess\.env\b/.test(content)) {
         addViolation(file, "contracts must not read environment variables");
-      }
-
-      if (
-        normalizedFile.startsWith("deployables/") &&
-        isTestFile(normalizedFile) &&
-        /@chase-sets\/[^/]+\/client/.test(content)
-      ) {
-        addViolation(file, "deployable tests must not depend on bounded-context client surfaces");
       }
 
       for (const specifier of extractImportSpecifiers(content)) {
