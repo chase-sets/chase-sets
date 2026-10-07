@@ -171,13 +171,14 @@ describe("extension-security-day-after", () => {
   it("unpair advances revision and clears work before revoke; retry is bounded and never coordinates", async () => {
     const f = backgroundFixture("paired-idle");
     const response = deferred<Response>();
+    const atRevoke: { profile: unknown; workScheduled: boolean }[] = [];
     vi.mocked(f.ports.transport.request).mockImplementation(async () => {
-      expect(f.fake.rows()[extensionProfileKey]).toMatchObject({ state: "unpairing", revision: 2 });
-      expect(f.alarms.has("connector-work")).toBe(false);
+      atRevoke.push({ profile: f.fake.rows()[extensionProfileKey], workScheduled: f.alarms.has("connector-work") });
       return response.promise;
     });
     const pending = f.command("unpair");
     await vi.waitFor(() => expect(f.ports.transport.request).toHaveBeenCalledTimes(1));
+    expect(atRevoke).toMatchObject([{ profile: { state: "unpairing", revision: 2 }, workScheduled: false }]);
     response.reject(new Error("offline"));
     await pending;
     expect((await f.background.status()).state).toBe("unpairing");
@@ -195,12 +196,14 @@ describe("extension-security-day-after", () => {
     "%s deletes credential before raw sweep, cleanup never regains authority",
     async (outcome) => {
       const f = backgroundFixture("paired-idle");
+      const credentialsAtSweep: unknown[] = [];
       vi.mocked(f.ports.transport.coordinate!).mockResolvedValue({ outcome });
       vi.mocked(f.ports.sweep.run).mockImplementation(async ({ deleteAll }) => {
-        if (deleteAll) expect(f.fake.rows()[extensionCredentialKey]).toBeUndefined();
+        if (deleteAll) credentialsAtSweep.push(f.fake.rows()[extensionCredentialKey]);
         return { ok: !deleteAll, nextDeadline: null };
       });
       await f.alarm("connector-work");
+      expect(credentialsAtSweep).toEqual([undefined]);
       expect((await f.background.status()).state).toBe("cleanup-pending");
       await f.command("resume");
       await f.command("start-pairing");
