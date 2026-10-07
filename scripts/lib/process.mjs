@@ -19,6 +19,8 @@ const minimalProcessEnvironmentNames = new Set(
     "PATH",
     "PATHEXT",
     "PNPM_HOME",
+    "ProgramFiles",
+    "ProgramW6432",
     "SYSTEMROOT",
     "TEMP",
     "TERM",
