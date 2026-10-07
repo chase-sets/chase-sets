@@ -877,6 +877,21 @@ const singleArgument = (word) => Boolean(word) && !variadicWord(word);
 // A fixed program text, or a fixed non-option script/package/program name.
 const pinnedText = (word) => Boolean(word) && !word.dynamic && !filenamePattern(word);
 const pinnedOperand = (word) => pinnedText(word) && !word.value.startsWith("-");
+// One argument that cannot begin with `-`: a literal that is not option-shaped,
+// or a protected expansion behind a fixed non-option lead. A leading expansion
+// may yield an option.
+const nonOptionWord = (word) =>
+  singleArgument(word) &&
+  (word.dynamic ? /^[^-$`]/.test(word.value) : word.value === "-" || !word.value.startsWith("-"));
+// Every occurrence of the identifier `name` in `text` reads it as $name or
+// ${name}, or lies inside one of the proved binding `spans` ([start, end)).
+const onlyReads = (text, name, spans = []) =>
+  [...text.matchAll(new RegExp(`(?<![A-Za-z0-9_])${name}(?![A-Za-z0-9_])`, "g"))].every(
+    ({ index }) =>
+      spans.some(([start, end]) => start <= index && index < end) ||
+      text[index - 1] === "$" ||
+      (text.slice(index - 2, index) === "${" && text[index + name.length] === "}"),
+  );
 
 // The executable a hop selects, after resolving a literal path or a fully
 // quoted "$VAR/fixed/basename" spelling. Dynamic, partially quoted, pattern and
@@ -994,10 +1009,11 @@ function commandPrefix(words, at, next) {
 // Origin-proved dynamic package selection. These are the complete boot_smoke
 // run blocks at 926050f8 (YAML-decoded, LF), the only corpus commands whose
 // pnpm --filter package is dynamic. originWitness re-proves from each text that
-// `workspace="$2"` is its only binding, that nothing rebinds the positional
-// parameters, and that boot_smoke has exactly two callers, each passing a
-// literal package; "$workspace" therefore selects one of those packages only
-// inside that exact text and substitution occurrence.
+// `workspace="$2"` is its only binding, that nothing in the block or in the
+// substitution holding the command rebinds it or the positional parameters,
+// and that boot_smoke has exactly two callers, each passing a literal package;
+// "$workspace" therefore selects one of those packages only inside that exact
+// text and substitution occurrence.
 const bootSmokeBlocks = [
   {
     origin: {
@@ -1119,6 +1135,7 @@ const bootSmokeBlocks = [
 ];
 
 const rebindingCommands = new Set(["shift", "read", "unset", "local", "declare", "typeset", "readonly", "export"]);
+const rebinds = ({ words }) => rebindingCommands.has(words[0]?.value) || words[0]?.value === "set";
 
 function originWitness({ origin, run }) {
   const { tokens, substitutions, errors } = shellTokens(run);
@@ -1142,13 +1159,24 @@ function originWitness({ origin, run }) {
   );
   const [binding] = bindings;
   const [{ substitution, command } = {}] = occurrences;
+  // The bound substitution is its own statement scope: it must lex cleanly,
+  // nest no further substitution and rebind nothing before or around the
+  // command; arithmetic and nested assignments are caught by onlyReads.
+  const scope = substitution && shellTokens(substitution.run);
+  const scopeProved =
+    Boolean(scope) &&
+    !scope.errors.length &&
+    !scope.substitutions.length &&
+    !commandsFromTokens(scope.tokens).some(rebinds);
   const proved =
     !errors.length &&
     definitions.length === 1 &&
     bindings.length === 1 &&
     binding.token.raw === 'workspace="$2"' &&
     !tokens.some((token) => token.type === "word" && token.value === "workspace") &&
+    onlyReads(run, "workspace", [[binding.token.index, binding.token.index + binding.token.raw.length]]) &&
     !rebinding &&
+    scopeProved &&
     callers.length === 2 &&
     callers.every(({ words }) => words.length === 5 && pinnedOperand(words[2])) &&
     new Set(callers.map(({ words }) => words[2].value)).size === 2 &&
@@ -1184,6 +1212,113 @@ function entryOriginWitness(entry) {
 function runOriginWitness(run) {
   const normalized = run.replaceAll("\r\n", "\n");
   return originWitnesses.find((witness) => witness.run === normalized) ?? null;
+}
+
+// Origin-bound directories: the only corpus sed file operands that are
+// dynamic. Each record names its corpus step, the operand and the assignment
+// chain deriving its directory from a non-option root (`mktemp -d` prints an
+// absolute path; the runner sets RUNNER_TEMP to one), so the operand cannot
+// begin with `-`. directoryWitness re-proves the chain from the stored text.
+const directoryRoots = new Map([
+  ["$(mktemp -d)", "mktemp"],
+  ["${RUNNER_TEMP}", "RUNNER_TEMP"],
+]);
+const originDirectories = [
+  {
+    origin: {
+      sha: "926050f88aae70a631c117c1e0f002a3160a9278",
+      path: ".github/workflows/platform-pr.yml",
+      job: "terraform-preview-plan",
+      step: 6,
+    },
+    operand: "$tmp/versions.tf",
+    bindings: ['tmp="$(mktemp -d)"'],
+  },
+  {
+    origin: {
+      sha: "926050f88aae70a631c117c1e0f002a3160a9278",
+      path: ".github/workflows/platform-observability-state-migration.yml",
+      job: "migrate",
+      step: 8,
+    },
+    operand: "$local_module/versions.tf",
+    bindings: [
+      'migration_root="${RUNNER_TEMP}/observability-state-migration"',
+      'local_root="${migration_root}/local"',
+      'local_module="${local_root}/infrastructure/digitalocean/observability"',
+    ],
+  },
+]
+  .map(directoryWitness)
+  .filter(Boolean);
+
+// Each binding is one plain assignment rooted at the previous name, the first
+// at a listed root; the operand is a fixed path under the last name. The
+// witness's names are the bound names, the root and PATH.
+function directoryWitness(record) {
+  const names = [];
+  for (const text of record.bindings) {
+    const { tokens, errors } = shellTokens(text);
+    const commands = commandsFromTokens(tokens);
+    const [assignment] = commands[0]?.assignments ?? [];
+    const roots = names.length ? [`\${${names.at(-1)}}`] : [...directoryRoots.keys()];
+    const root = roots.find((lead) => assignment?.value === lead || assignment?.value.startsWith(`${lead}/`));
+    const plain =
+      !errors.length &&
+      commands.length === 1 &&
+      commands[0].words.length === 0 &&
+      commands[0].assignments.length === 1 &&
+      assignment.token.raw === text;
+    if (!plain || root === undefined) return null;
+    if (!names.length) names.push(directoryRoots.get(root), "PATH");
+    names.push(assignment.name);
+  }
+  const fixed =
+    record.operand.startsWith(`$${names.at(-1)}/`) && /^[\w./-]+$/.test(record.operand.slice(names.at(-1).length + 2));
+  return fixed ? { ...record, names } : null;
+}
+
+// A stored entry may use the operands of directories its origin names.
+const entryDirectories = (entry) =>
+  originDirectories
+    .filter(({ origin }) => ["sha", "path", "job", "step"].every((field) => origin[field] === entry.origin?.[field]))
+    .map(({ operand }) => operand);
+
+// The directories a run proves, each with the index its last binding ends at.
+// A run proves one only when it makes each assignment exactly once, by that
+// text, as an unconditional top-level statement, and otherwise only reads the
+// witness's names.
+function runDirectories(run, tokens) {
+  // Tokens that make a later statement conditional, grouped or a subshell.
+  const control = (token) =>
+    token.type === "operator"
+      ? !["\n", ";"].includes(token.value) && !redirections.has(token.value)
+      : !token.quoted && (ambiguousAssignmentContext.test(token.value) || ["{", "}"].includes(token.value));
+  const separator = (token) => !token || (token.type === "operator" && ["\n", ";"].includes(token.value));
+  return originDirectories.flatMap(({ operand, bindings, names }) => {
+    if (!bindings.every((text) => run.includes(text))) return [];
+    const positions = [];
+    for (const text of bindings) {
+      const found = tokens.flatMap((token, position) =>
+        token.type === "word" && token.raw === text ? [position] : [],
+      );
+      const [position] = found;
+      const statement =
+        found.length === 1 &&
+        position > (positions.at(-1) ?? -1) &&
+        separator(tokens[position - 1]) &&
+        separator(tokens[position + 1]) &&
+        !tokens.slice(0, position).some(control);
+      if (!statement) return [];
+      positions.push(position);
+    }
+    const spans = positions.map((position) => [
+      tokens[position].index,
+      tokens[position].index + tokens[position].raw.length,
+    ]);
+    if (!names.every((name) => onlyReads(run, name, spans))) return [];
+    return [{ operand, after: tokens[positions.at(-1)].index }];
+  });
 }
 
 // pnpm roles: exec/dlx select an executable; run, --filter run and the corpus
@@ -1399,23 +1534,31 @@ function trapRoles(words, at) {
   return words.slice(at + 2).every((signal) => !signal.dynamic && /^[A-Z][A-Z0-9]*$/.test(signal.value));
 }
 
+// A dynamic word that is the operand of a directory the context proves.
+const directoryOperand = (word, context) =>
+  word.dynamic && singleArgument(word) && context.directories.includes(word.value);
+
 // awk and sed take their pinned program as the first operand after proved
-// options. Later words are single-argument file operands and never
-// option-shaped: GNU sed permutes options, so a later -e or -f adds a program.
+// options. GNU sed permutes options, so any later word that may begin with `-`
+// can add a program (-e, -f) or select another option. Later words are
+// therefore files proved not to begin with `-`, origin-bound directory
+// operands, or any single argument after a literal `--`, which ends options.
 function programOperand(options) {
   const table = optionTable(options);
-  return (words, at) => {
+  return (words, at, next, context) => {
     let index = at + 1;
-    while (literalOption(words[index])) {
-      index = optionEnd(words, index, table);
+    let ended = false;
+    while (!ended && literalOption(words[index])) {
+      ended = literal(words[index], "--");
+      index = ended ? index + 1 : optionEnd(words, index, table);
       if (index < 0) return false;
     }
-    return (
-      pinnedText(words[index]) &&
-      words
-        .slice(index + 1)
-        .every((word) => singleArgument(word) && (word.value === "-" || !word.value.startsWith("-")))
-    );
+    if (!pinnedText(words[index])) return false;
+    for (const word of words.slice(index + 1)) {
+      if (!ended && literal(word, "--")) ended = true;
+      else if (!(ended ? singleArgument(word) : nonOptionWord(word) || directoryOperand(word, context))) return false;
+    }
+    return true;
   };
 }
 
@@ -1683,13 +1826,17 @@ function benignAdmissionViolations(entry, grammar) {
   const shape = benignShapeViolation(entry);
   if (shape) return [shape];
   if (entry.dataOperands) return [];
-  return roleViolations(entry, entry.words, grammar, entryOriginWitness(entry));
+  return roleViolations(entry, entry.words, grammar, {
+    origin: entryOriginWitness(entry),
+    directories: entryDirectories(entry),
+  });
 }
 
 // Covered-token and role admission over `words`: the stored entry words when
-// validating, the actual lexed tokens when classifying a match. `origin` is the
-// boot_smoke witness that context proves, or null.
-function roleViolations(entry, words, grammar, origin) {
+// validating, the actual lexed tokens when classifying a match. The context's
+// `origin` is the boot_smoke witness it proves, or null; `directories` are the
+// origin-bound directory operands it proves.
+function roleViolations(entry, words, grammar, context) {
   const covered =
     [...words.map((word) => word.value), ...(entry.input ?? [])].some(containsCoveredToken) ||
     words.some((word, index) => {
@@ -1698,7 +1845,7 @@ function roleViolations(entry, words, grammar, origin) {
       return Boolean(result?.operation) || result?.disposition === "INDETERMINATE";
     });
   if (covered) return [`${entry.id}: benign payload contains a covered invocation.`];
-  if (!admitsProgramAt(words, 0, { input: entry.input, origin }) || shellOrEvalAnywhereUnpinned(words))
+  if (!admitsProgramAt(words, 0, { input: entry.input, ...context }) || shellOrEvalAnywhereUnpinned(words))
     return [`${entry.id}: benign payload admits an unpinned program.`];
   return [];
 }
@@ -1729,7 +1876,7 @@ function dataOperandsMatch(selector, words) {
 
 // The first matching entry that admits the actual command, or the named
 // refusal of a matching entry that does not.
-function benignFormMatch(command, grammar, origin) {
+function benignFormMatch(command, grammar, context) {
   const { words } = command;
   if (words[0]?.dynamic) return { admitted: false, refusal: null };
   const input = JSON.stringify(
@@ -1753,7 +1900,7 @@ function benignFormMatch(command, grammar, origin) {
     const dataOnly = entry.dataOperands === true;
     if (!(dataOnly ? dataOperandsMatch(entry.selector, words) : exactMatch(entry))) continue;
     const shape = benignShapeViolation(entry);
-    const [violation] = shape ? [shape] : dataOnly ? [] : roleViolations(entry, words, grammar, origin);
+    const [violation] = shape ? [shape] : dataOnly ? [] : roleViolations(entry, words, grammar, context);
     if (!violation) return { admitted: true, refusal: null };
     refusal ??= violation;
   }
@@ -1843,7 +1990,9 @@ function classifyNode(words, grammar, benign, destructive, unknown) {
   return operation ? { ...destructive(operation), scriptIndex: consumed.index, words } : benign();
 }
 
-function classifyCommand(command, grammar, origin = null) {
+const noContext = { origin: null, directories: [] };
+
+function classifyCommand(command, grammar, context = noContext) {
   let { words } = command;
   if (!words.length) return null;
   const unknown = (reason) => ({
@@ -1875,7 +2024,7 @@ function classifyCommand(command, grammar, origin = null) {
   if (tool === "terraform") return classifyTerraform(words, grammar, benign, destructive, unknown);
   if (tool === "doctl") return classifyDoctl(words, grammar, benign, destructive, unknown);
   if (tool === "node") return classifyNode(words, grammar, benign, destructive, unknown);
-  const match = benignFormMatch({ ...command, words }, grammar, origin);
+  const match = benignFormMatch({ ...command, words }, grammar, context);
   return match.admitted ? null : unknown(match.refusal ?? "unlisted executable form");
 }
 
@@ -1911,8 +2060,16 @@ function classifyProvedRun(run, grammar, proof, witness = null, origin = null) {
     if (!handled) lexed.errors.push(`INDETERMINATE shell production ${production}`);
   }
   lexed.errors.push(...shellSyntaxErrors(lexed.tokens, commands, grammar));
+  const directories = runDirectories(run, lexed.tokens);
+  // A directory operand is proved only for commands after its last binding.
+  const context = (command) => ({
+    origin,
+    directories: directories
+      .filter(({ after }) => after < (command.words[0]?.index ?? -1))
+      .map(({ operand }) => operand),
+  });
   const invocations = commands
-    .map((command) => classifyCommand(resolveCommandWords(command, commands, lexed.tokens), grammar, origin))
+    .map((command) => classifyCommand(resolveCommandWords(command, commands, lexed.tokens), grammar, context(command)))
     .filter(Boolean);
   for (const substitution of lexed.substitutions) {
     const bound = witness !== null && substitution.index === witness.occurrence ? witness : null;

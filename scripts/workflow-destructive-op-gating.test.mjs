@@ -106,6 +106,11 @@ const originIds = [
   "127ddb007aa5c3e3f7d55a4a3ed6e695a113f4137c52190c94d69b15ba26f28b",
   "8e090b6e1c15a22d9267ab80b3fa67c822df751b26d523e1d8a89f83acd535a2",
 ];
+// The two corpus sed entries whose file operand is an origin-bound directory.
+const directoryIds = [
+  "6f8e2d3b0a8074a8e387c00b81a30b36ac26d7e2fda2f792e1d577974eb71f89",
+  "2560701ccadcee87c93a85e5a552d60d79dc0c4840ab18434c4857db505f626d",
+];
 
 // Validator caller and classifier caller both report the named admission
 // violation, and nothing else.
@@ -287,10 +292,18 @@ describe("closed executable admission", () => {
     expect(corpus).toHaveLength(674);
     expect(appended.map(({ origin }) => [origin.path, origin.job, origin.step])).toEqual([[driftFile, "digest", 3]]);
     expect(validateGrammarPartition().violations).toEqual([]);
-    // The two origin-bound entries are admitted only inside their full block
-    // (see "origin-proved dynamic package selection").
-    for (const entry of DESTRUCTIVE_GRAMMAR.benignForms.filter(({ id }) => !originIds.includes(id)))
+    // The origin-bound entries are admitted only inside their full block or
+    // after their directory bindings (see "origin-proved dynamic package
+    // selection" and "origin-bound sed directories").
+    const contextBound = [...originIds, ...directoryIds];
+    for (const entry of DESTRUCTIVE_GRAMMAR.benignForms.filter(({ id }) => !contextBound.includes(id)))
       expect(classifyShellCommands(entry.example).indeterminate, entry.id).toEqual([]);
+    for (const id of directoryIds) {
+      const entry = DESTRUCTIVE_GRAMMAR.benignForms.find((candidate) => candidate.id === id);
+      expect(classifyShellCommands(entry.example).indeterminate).toEqual([
+        expect.objectContaining({ tool: "sed", reason: unpinned(entry) }),
+      ]);
+    }
 
     const admitted = DESTRUCTIVE_GRAMMAR.benignForms.find((entry) => entry.selector === "timeout");
     for (const mutation of ["proof", "origin", "selector", "hole", "missing"]) {
@@ -345,6 +358,13 @@ describe("closed executable admission", () => {
     "F4 curl --output": ["curl", "--output"],
     "F4 kubectl create dynamic": ["kubectl", "create", D("$SYNTHETIC_8970_ACTION")],
     "F7 context-free dynamic package": ["pnpm", "--filter", D("$workspace"), "run", "start"],
+    // S4 delta review r2 (#8970): a dynamic awk/sed tail word may begin with
+    // `-`, and GNU sed permutes it into another program; a directory operand
+    // outside its origin step is not origin-bound.
+    "F2 sed dynamic option tail": ["sed", Q("p"), D("$SYNTHETIC_OPTION"), D("$SYNTHETIC_PROGRAM")],
+    "F2 sed dynamic file": ["sed", "-i", Q("/x/d"), D("$SYNTHETIC_8970_FILE")],
+    "F2 awk dynamic option tail": ["awk", Q("{print}"), D("$SYNTHETIC_OPTION"), D("$SYNTHETIC_PROGRAM")],
+    "F2 sed directory outside its origin": ["sed", "-i", Q('/backend "s3" {}/d'), D("$tmp/versions.tf")],
   };
   const unpinnedForms = {
     ...c3Rows,
@@ -552,15 +572,25 @@ describe("closed executable admission", () => {
       ],
     },
     "trap action": { words: ["trap", "cleanup", "EXIT"], roles: [1, 2] },
-    "awk program": { words: ["awk", "-F", Q("="), Q("{print $3}"), "file"], roles: [3], data: 4, option: 1 },
+    // awk/sed file operands are data only behind a fixed non-option lead.
+    "awk program": {
+      words: ["awk", "-F", Q("="), Q("{print $3}"), "file"],
+      roles: [3],
+      data: 4,
+      dataWord: D("./$SYNTHETIC_8709_DATA"),
+      option: 1,
+      negatives: [["awk", "-F", Q("="), Q("{print $3}"), D("$SYNTHETIC_8709_DATA")]],
+    },
     "sed program": {
       words: ["sed", "-i", Q("/x/d"), "file"],
       roles: [2],
       data: 3,
+      dataWord: D("./$SYNTHETIC_8709_DATA"),
       option: 1,
       negatives: [
         ["sed", "-i", Q("/x/d"), "file", "--expression=p"],
         ["sed", "-i.bak", Q("/x/d"), "file"],
+        ["sed", "-i", Q("/x/d"), D("$SYNTHETIC_8709_DATA")],
       ],
     },
     "local declarations": { words: ["local", "MODE=x"], data: 1, dataWord: D("MODE=$X") },
@@ -701,6 +731,32 @@ describe("closed executable admission", () => {
       const entry = syntheticEntry(items);
       expectRejected(entry, unpinned(entry));
     }
+  });
+
+  // F2: a word after the awk/sed program is a file only when it cannot begin
+  // with `-` or follows a literal `--`.
+  it("awk and sed tails admit only proved non-option files", () => {
+    const file = D("$SYNTHETIC_8970_FILE");
+    expectBatch(
+      [
+        ["sed", "-i", Q("/x/d"), D("./$SYNTHETIC_8970_FILE")],
+        ["sed", "-i", Q("/x/d"), "--", file, D("$SYNTHETIC_OPTION")],
+        ["sed", "-i", "--", Q("/x/d"), file],
+        ["awk", Q("{print}"), D("/tmp/$SYNTHETIC_8970_FILE"), "-"],
+        ["awk", "-F", Q("="), "--", Q("{print}"), file],
+      ].map((items) => syntheticEntry(items)),
+      [
+        ["sed", "-i", Q("/x/d"), file],
+        ["sed", "-i", Q("/x/d"), file, "--"],
+        ["sed", "-i", Q("/x/d"), D("${SYNTHETIC_8970_FILE}/x")],
+        ["sed", "-i", Q("/x/d"), D("$(printf ./x)")],
+        ["sed", "-i", Q("/x/d"), "--", U("$SYNTHETIC_8970_FILES")],
+        ["awk", Q("{print}"), file],
+      ].map((items) => {
+        const entry = syntheticEntry(items);
+        return [entry, unpinned(entry)];
+      }),
+    );
   });
 
   // F1: a committed entry stays admitted only for the actual spelling it
@@ -1049,6 +1105,10 @@ describe("origin-proved dynamic package selection", () => {
   const marketplaceCall = 'boot_smoke marketplace "@chase-sets/app-marketplace-web" /health/ready 18080';
   const publicCall = 'boot_smoke public-web "@chase-sets/app-public-web" / 18081';
   const command = 'pnpm --filter "$workspace" run start';
+  // The start of the substitution that holds the command, and that start with
+  // a statement inserted before docker run.
+  const nestedAt = 'container_id="$(docker run -d';
+  const nested = (statement) => `container_id="$(${statement}docker run -d`;
   // Changed callers, bindings and surrounding text; the command and entry
   // spelling stay unchanged.
   const contextChanges = (run) => ({
@@ -1070,6 +1130,7 @@ describe("origin-proved dynamic package selection", () => {
       `${marketplaceCall}\n`,
       `set -- marketplace "$OTHER"\n${marketplaceCall}\n`,
     ),
+    "binding reassigned in the substitution": change(run, nestedAt, nested('workspace="$OTHER"; ')),
     "text appended": `${run}echo appended\n`,
     "text prepended": `echo prepended\n${run}`,
   });
@@ -1274,6 +1335,137 @@ describe("origin-proved dynamic package selection", () => {
       expect.objectContaining({ reason: unpinned(entry) }),
     ]);
     expect(rebound.validateGrammarPartition().violations).toEqual([unpinned(entry)]);
+  });
+
+  it("C3 rebinding inside the bound substitution voids the stored witness", async () => {
+    // Each stored witness and its run gain the same statement inside the
+    // substitution, before docker run: the load-time proof must refuse it.
+    const statements = {
+      assignment: 'workspace="$SYNTHETIC_8970_PACKAGE"; ',
+      "positional reset": 'set -- "$SYNTHETIC_8970_PACKAGE"; ',
+      unset: "unset workspace; ",
+      arithmetic: "(( workspace = 1 )); ",
+    };
+    const comments = ["# queue accepts a Docker image change.", "# never reaches the deploy lane."];
+    // The stored text from each block's unique comment to the substitution.
+    const header = (comment, statement = "") =>
+      [
+        `"${comment}",`,
+        '"boot_smoke() {",',
+        `'  component="$1"',`,
+        `'  workspace="$2"',`,
+        `'  health_path="$3"',`,
+        `'  host_port="$4"',`,
+        '"",',
+        `'  ${nested(statement)}`,
+      ].join("\n      ");
+    // Two mutants, each covering both blocks with a different statement.
+    const labels = Object.keys(statements);
+    for (const pair of [labels.slice(0, 2), labels.slice(2)]) {
+      const mutant = await importMutant(
+        pair.map((label, index) => [header(comments[index]), header(comments[index], statements[label])]),
+      );
+      expect(mutant.validateGrammarPartition().violations, pair.join(", ")).toEqual(
+        originBlocks.map((block) => unpinned(entryOf(block))),
+      );
+      originBlocks.forEach((block, index) => {
+        const run = change(blockRun(block), nestedAt, nested(statements[pair[index]]));
+        expect(mutant.classifyShellCommands(run).indeterminate, pair[index]).toContainEqual(
+          expect.objectContaining({ reason: expect.stringContaining(unpinned(entryOf(block))) }),
+        );
+        expect(mutant.checkWorkflowDestructiveOperationGating(pushWorkflow(run)).passed, pair[index]).toBe(false);
+      });
+    }
+  });
+});
+
+describe("origin-bound sed directories", () => {
+  const sedCommand = (operand) => `sed -i '/backend "s3" {}/d' "${operand}"`;
+  const directories = [
+    {
+      file: ".github/workflows/platform-pr.yml",
+      job: "terraform-preview-plan",
+      step: 6,
+      operand: "$tmp/versions.tf",
+      changes: (run, change) => ({
+        "binding removed": change('tmp="$(mktemp -d)"\n', ""),
+        "binding changed": change('tmp="$(mktemp -d)"', 'tmp="$SYNTHETIC_8970_DIR"'),
+        "binding repeated": change('tmp="$(mktemp -d)"\n', 'tmp="$(mktemp -d)"\ntmp="$SYNTHETIC_8970_DIR"\n'),
+        "read rebinding": change(sedCommand("$tmp/versions.tf"), `read -r tmp\n${sedCommand("$tmp/versions.tf")}`),
+        "conditional binding": change('tmp="$(mktemp -d)"', 'if true; then tmp="$(mktemp -d)"; fi'),
+        "piped binding": change('tmp="$(mktemp -d)"', 'true | tmp="$(mktemp -d)"'),
+        "binding after the command": `${sedCommand("$tmp/versions.tf")}\n${run}`,
+        "mktemp redefined": `mktemp() { echo -e; }\n${run}`,
+      }),
+    },
+    {
+      file: ".github/workflows/platform-observability-state-migration.yml",
+      job: "migrate",
+      step: 8,
+      operand: "$local_module/versions.tf",
+      changes: (run, change) => ({
+        "chain link changed": change('local_root="${migration_root}/local"', 'local_root="$SYNTHETIC_8970_DIR"'),
+        "binding removed": change('local_module="${local_root}/infrastructure/digitalocean/observability"\n', ""),
+        "runner root assigned": `RUNNER_TEMP="$SYNTHETIC_8970_DIR"\n${run}`,
+        "PATH assigned": `PATH="$SYNTHETIC_8970_DIR"\n${run}`,
+      }),
+    },
+  ];
+  const stepRun = ({ file, job, step }) => parse(readWorkflow(file)).jobs[job].steps[step - 1].run;
+  const entryOf = ({ operand }) =>
+    DESTRUCTIVE_GRAMMAR.benignForms.find((entry) => entry.selector === "sed" && entry.words.at(-1).value === operand);
+
+  it.each(directories.map((directory) => [directory.file, directory]))(
+    "the origin step admits its preserved sed entry: %s",
+    (_file, directory) => {
+      const entry = entryOf(directory);
+      expect(entry.origin).toEqual({ sha: corpusSha, path: directory.file, job: directory.job, step: directory.step });
+      expect(directoryIds).toContain(entry.id);
+      const run = stepRun(directory);
+      expect(run).toContain(sedCommand(directory.operand));
+      expect(classifyShellCommands(run).indeterminate).toEqual([]);
+      // CRLF leaves the bindings' tokens unchanged; other multi-line words in
+      // the step need not match their stored LF spelling.
+      const crlf = classifyShellCommands(run.replaceAll("\n", "\r\n")).indeterminate;
+      expect(crlf.filter(({ tool }) => tool === "sed")).toEqual([]);
+    },
+  );
+
+  it.each(directories.map((directory) => [directory.file, directory]))(
+    "a changed binding, root or read refuses the unchanged sed command: %s",
+    (_file, directory) => {
+      const entry = entryOf(directory);
+      const run = stepRun(directory);
+      const change = (from, to) => {
+        expect(run).toContain(from);
+        return run.replace(from, to);
+      };
+      const refusal = expect.objectContaining({ tool: "sed", reason: unpinned(entry) });
+      for (const [label, changed] of Object.entries({
+        ...directory.changes(run, change),
+        "command alone": sedCommand(directory.operand),
+      })) {
+        expect(classifyShellCommands(changed).indeterminate, label).toContainEqual(refusal);
+        const ungated = checkWorkflowDestructiveOperationGating(pushWorkflow(changed));
+        expect(ungated.passed, label).toBe(false);
+        expect(ungated.violations, label).toContainEqual(expect.stringContaining(unpinned(entry)));
+      }
+    },
+  );
+
+  it("a stored directory operand is bound to its origin step", () => {
+    for (const directory of directories) {
+      const entry = entryOf(directory);
+      for (const origin of [
+        { ...entry.origin, step: entry.origin.step + 1 },
+        { ...entry.origin, job: "synthetic-8970" },
+        { ...entry.origin, path: ".github/workflows/synthetic-8970.yml" },
+        { ...entry.origin, sha: "f".repeat(40) },
+      ]) {
+        const forged = { ...entry, origin };
+        expectRejected(forged, unpinned(forged));
+      }
+    }
   });
 });
 
