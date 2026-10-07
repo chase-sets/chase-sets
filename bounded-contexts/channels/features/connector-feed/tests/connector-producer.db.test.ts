@@ -31,11 +31,11 @@ describeDb("connector-feed-round-trip / connector-feed-lease-redelivery / connec
       `INSERT INTO channels_listing_publication_facts
       (listing_id,account_id,inventory_item_id,catalog_item_id,price_amount,price_currency_code,quantity_cap,
        selected_options,selected_option_key,listing_status,updated_at,listing_stream_version)
-      VALUES ('manual',$1,'item_manual','catalog_manual','1.00','USD',10,'[]','none','active',now(),7)`,
+      VALUES ('manual',$1,'item_manual','catalog_manual','1.00','USD',10,'[]','','active',now(),7)`,
       [target.accountId],
     );
     await h.db.query(
-      `INSERT INTO channels_external_product_reference_facts VALUES ('tcgplayer','sku:2001','catalog_manual','[]','none','linked',now(),1)`,
+      `INSERT INTO channels_external_product_reference_facts VALUES ('tcgplayer','sku:2001','catalog_manual','[]','','linked',now(),1)`,
     );
     await h.db.query(
       `INSERT INTO channels_external_catalog_item_reference_facts VALUES ('tcgplayer','product:1001','catalog_manual','linked',now(),1)`,

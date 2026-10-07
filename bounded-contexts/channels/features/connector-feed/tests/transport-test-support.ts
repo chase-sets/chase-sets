@@ -28,6 +28,7 @@ import {
 import { healthDigest } from "../../connection-health/domain/identity";
 import type { EnqueueOutboundOperation } from "../../outbound-sync/domain/contracts";
 import { channelListingEventCodec } from "../../listing-composition/domain/codecs";
+import { deriveChannelSelectedOptionKey } from "../../listing-composition/domain/canonical";
 import type { ChannelListingDesiredStateChangedData } from "../../listing-composition/domain/contracts";
 import { buildChannelListingStateProjectionHandlers } from "../../listing-composition/read-model/state-projection";
 import { buildChannelOutboundOperationReactionHandlers } from "../../outbound-sync/integrations/listing-composition";
@@ -394,7 +395,7 @@ export function transportDatabase(suffix: string) {
         `INSERT INTO channels_listing_publication_facts
         (listing_id,account_id,inventory_item_id,catalog_item_id,price_amount,price_currency_code,quantity_cap,
          selected_options,selected_option_key,listing_status,updated_at,listing_stream_version)
-        VALUES ($1,$2,$3,$4,'1.00','USD',1000000,'[]','none',$5,now(),7)
+        VALUES ($1,$2,$3,$4,'1.00','USD',1000000,'[]',$6,$5,now(),7)
         ON CONFLICT (listing_id) DO UPDATE SET listing_status=EXCLUDED.listing_status`,
         [
           listingId,
@@ -402,6 +403,7 @@ export function transportDatabase(suffix: string) {
           `item_${listingId}`,
           `catalog_${listingId}`,
           operationKind === "delist" ? "withdrawn" : "active",
+          deriveChannelSelectedOptionKey([]),
         ],
       );
       await pools.channels.query(
