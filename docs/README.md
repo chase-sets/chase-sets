@@ -43,8 +43,11 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 
 ### Contributing
 
+- [Goal-Based Browser Probes](./contributing/browser-usability.md): advisory goal-only Luna probes, independent outcome checks, bounded browser recording, and correctness-conditioned timing comparisons.
+
 - [Backlog Model](./contributing/backlog-model.md): the canonical work-structure contract — the strategy/wave/epic/slice ladder, what each GitHub primitive means, the label charter, refined-vs-backlog states, generated rollup, and the orchestrator selection algorithm.
 - [Public Knowledge Base Change Convention](./contributing/public-knowledge-base.md): the `KB:` pull-request/issue marker, warning-only feature-slice ratchet, and documented post-launch block-mode transition.
+- [Workflow Authority Grants](./contributing/workflow-authority-grants.md): owner fragments and generation rules for managed Postgres workflow grants.
 
 ### Bounded contexts and structure
 
@@ -223,6 +226,8 @@ Completed milestone evidence, signoff checklists, and audits live in the closing
 - [ADR 0027: Representative Catalog Observation Packs](./adr/0027-representative-catalog-observation-packs.md)
 - [ADR 0029: My Collection Composition And Saved List Ownership](./adr/0029-my-collection-composition-and-saved-list-ownership.md)
 - [ADR 0031: Card Identification Authority And Provider Boundary](./adr/0031-card-identification-authority-and-provider-boundary.md)
+- [ADR 0032: Order Groups And Shipment Groups](./adr/0032-order-groups-and-shipment-groups.md)
+- [ADR 0033: Capability-First Provider Integrations](./adr/0033-capability-first-provider-integrations.md)
 
 ## Generated Markdown
 

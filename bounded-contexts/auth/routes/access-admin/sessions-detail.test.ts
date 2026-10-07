@@ -1,8 +1,10 @@
 import type { ActionFunctionArgs } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import { decodeFreshWriteReceipt } from "@chase-sets/http/responses";
-import { action as accessAction } from "./sessions-detail";
-import { action as marketplaceAction } from "../marketplace/account-sessions-detail";
+import { action as accessAction, loader as accessLoader } from "./sessions-detail";
+import { action as marketplaceAction, loader as marketplaceLoader } from "../marketplace/account-sessions-detail";
+import { identitySeedIds } from "@chase-sets/identity-seed";
+import type { Session } from "../../features/sessions/ui/contracts";
 
 const { mockCreateAuthRequestApiClient } = vi.hoisted(() => ({
   mockCreateAuthRequestApiClient: vi.fn(),
@@ -117,4 +119,60 @@ describe("session detail actions", () => {
     expect(readReceipt(location)).toMatchObject({ sources: [authSource] });
     expect(switchSessionAccount).toHaveBeenCalledWith("ses_2", "acct_2");
   });
+});
+
+describe("seeded session detail loaders", () => {
+  const cases = [
+    { loader: accessLoader, destination: "/access/sessions", fixture: identitySeedIds.demo, status: "active" },
+    { loader: accessLoader, destination: "/access/sessions", fixture: identitySeedIds.support, status: "active" },
+    { loader: accessLoader, destination: "/access/sessions", fixture: identitySeedIds.collector, status: "expired" },
+    {
+      loader: marketplaceLoader,
+      destination: "/account/sessions",
+      fixture: identitySeedIds.collector,
+      status: "expired",
+    },
+  ];
+
+  it.each(cases)("forwards $fixture.sessionId at $destination", async ({ loader, destination, fixture, status }) => {
+    const data: Session = {
+      session_id: fixture.sessionId,
+      user_id: fixture.userId,
+      account_id:
+        fixture.sessionId === identitySeedIds.support.sessionId ? identitySeedIds.demo.accountId : fixture.accountId,
+      available_account_ids:
+        fixture.sessionId === identitySeedIds.support.sessionId
+          ? [fixture.accountId, identitySeedIds.demo.accountId]
+          : [fixture.accountId],
+      authentication_method: fixture.sessionId === identitySeedIds.support.sessionId ? "magic-link" : "password",
+      status,
+      expires_at: status === "expired" ? "2026-10-04T12:00:00.000Z" : "2026-11-04T12:00:00.000Z",
+      updated_at: "2026-10-05T12:00:00.000Z",
+    };
+    const getSession = vi.fn().mockResolvedValue(data);
+    mockCreateAuthRequestApiClient.mockReturnValue({ getSession });
+    const request = new Request(`https://chasesets.test${destination}/${fixture.sessionId}`);
+
+    expect(await loader({ request, params: { id: fixture.sessionId }, context: undefined } as never)).toEqual({
+      id: fixture.sessionId,
+      data,
+    });
+    expect(mockCreateAuthRequestApiClient).toHaveBeenCalledWith(request);
+    expect(getSession).toHaveBeenCalledWith(fixture.sessionId);
+  });
+
+  it.each([accessLoader, marketplaceLoader])(
+    "does not replace a rejected API detail read with a successful fixture",
+    async (loader) => {
+      const error = new Response("Not found", { status: 404 });
+      mockCreateAuthRequestApiClient.mockReturnValue({ getSession: vi.fn().mockRejectedValue(error) });
+      await expect(
+        loader({
+          request: new Request("https://chasesets.test/sessions/ses_synthetic_nonexistent"),
+          params: { id: "ses_synthetic_nonexistent" },
+          context: undefined,
+        } as never),
+      ).rejects.toBe(error);
+    },
+  );
 });

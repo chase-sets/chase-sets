@@ -44,6 +44,7 @@ import {
 import { createPostgresDurableJobStore, durableJobSchemaSql } from "./durable-job-store";
 import { createPostgresDurableJobWorkUnitStore, durableJobWorkUnitSchemaSql } from "./durable-job-work-units";
 import { createPostgresUcpIdempotencyStore } from "./ucp";
+import { createProjectionWakeSchedulerRunners } from "./projection-wake-scheduler";
 import {
   createPostgresWorkSignalStore,
   platformWorkSignalStoreSchemaSql,
@@ -1712,6 +1713,223 @@ describe("subscription pass checkpoint bounds Postgres", () => {
     if (pools) await closeMultiContextTestPools(pools);
   });
 
+  it.each(["api-wait", "relay"] as const)(
+    "idle-tail-wake-durable-settlement / idle-tail-wake-safety: %s survives a fresh API and repeated wakes",
+    async (origin) => {
+      const module = defineBoundedContextModule({
+        manifest: {
+          contextName: "checkpoint",
+          apiBasePath: "/checkpoint",
+          streamPrefix: "checkpoint.",
+          eventSubscriptions: ["sell-list", "session"].map((name) => ({
+            sourceContextName: "checkpoint",
+            projectionName: name,
+            subscriptionVersion: 1,
+            projectionHandlerSetNames: [name],
+            eventTypes: [`checkpoint.${name}`],
+          })),
+          projectionGroups: ["sell-list", "session"].map((name) => ({
+            projectionName: name,
+            sourceContextNames: ["checkpoint"],
+            ownedTables: [name === "sell-list" ? "sell_list_owned" : "session_owned"],
+            resetStrategy: "truncate-owned-tables" as const,
+          })),
+        },
+        schemaSql: `CREATE TABLE sell_list_owned (event_id text PRIMARY KEY, position bigint NOT NULL);
+          CREATE TABLE session_owned (event_id text PRIMARY KEY, position bigint NOT NULL)`,
+        createServices: () => ({}),
+        buildApis: () => [],
+        buildSubscriptions: () =>
+          ["sell-list", "session"].map((name) => ({
+            subscriptionName: `checkpoint.${name}`,
+            projectionName: name,
+            sourceContextName: "checkpoint",
+            subscriptionVersion: 1,
+            eventTypes: [`checkpoint.${name}`],
+            streamPrefixes: [`checkpoint.${name}-`],
+            handlers: {
+              [`checkpoint.${name}`]: async (event, context) => {
+                const table = name === "sell-list" ? "sell_list_owned" : "session_owned";
+                await context!.db!.query(`INSERT INTO ${table} VALUES ($1, $2::bigint)`, [
+                  event.id,
+                  event.globalPosition,
+                ]);
+              },
+            },
+          })),
+      });
+      await bootstrapContextDatabase(module, pools.checkpoint);
+      await pools.checkpoint.query(platformControlPlaneSchemaSql);
+      await pools.checkpoint.query(platformWorkSignalStoreSchemaSql);
+      const mount = () =>
+        createMountedContextTestRuntime([{ contextName: "checkpoint", module, pool: pools.checkpoint, ports: {} }]);
+      const runtime = mount();
+      const session = runtime.projectionGroups.find((group) => group.projectionName === "session")!;
+      const subscription = session.subscriptionRunners[0]!;
+      const controlPlane = createPostgresPlatformControlPlane(pools.checkpoint);
+      const signals = createPostgresWorkSignalStore(pools.checkpoint, { readConsistencyGateway: {} });
+      const store = createPostgresEventStore({ pool: pools.checkpoint });
+      const append = (name: string) =>
+        store.appendToStream({
+          streamId: `checkpoint.sell-list-${name}`,
+          expectedVersion: "no_stream",
+          events: [{ eventType: "checkpoint.sell-list", payload: {} }],
+          context: {
+            tenantId: "tenant_test" as never,
+            audit: { performedByUserId: "user_test" as never, forAccountId: "account_test" as never },
+          },
+        });
+      const first = (await append("first"))[0]!;
+      // Prime the same runner closures used by the scheduler, without forced settlement.
+      const primedAt = Date.now();
+      for (const group of runtime.projectionGroups) {
+        const worker = createProjectionGroupWorkerRunner(group);
+        await worker.runOnce();
+        await worker.runOnce();
+      }
+      expect((await subscription.refreshStatus()).lastGlobalPosition).toBe(first.globalPosition);
+      await pools.checkpoint.query(`
+        CREATE TABLE checkpoint_writes (checkpoint_key text NOT NULL);
+        CREATE FUNCTION count_checkpoint_write() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN INSERT INTO checkpoint_writes VALUES (NEW.checkpoint_key); RETURN NEW; END $$;
+        CREATE TRIGGER count_checkpoint_write AFTER INSERT OR UPDATE ON event_subscription_checkpoints
+          FOR EACH ROW EXECUTE FUNCTION count_checkpoint_write();
+      `);
+      const event = (await append("second"))[0]!;
+      const before = await subscription.refreshStatus();
+      expect(before.lastGlobalPosition).toBe(first.globalPosition);
+      expect(before.sourceHeadGlobalPosition).toBe(event.globalPosition);
+      expect(BigInt(event.globalPosition) - BigInt(first.globalPosition)).toBeLessThan(100n);
+      const receipt = encodeFreshWriteReceipt({
+        observedAtMs: Date.now(),
+        sources: [
+          { sourceContextName: "checkpoint", maxGlobalPosition: event.globalPosition, eventIds: [event.eventId] },
+        ],
+      });
+      const headers = { [CHASE_SETS_READ_AFTER_WRITE_HEADER]: receipt };
+      const createApi = (groups: typeof runtime.projectionGroups) => {
+        const app = new Hono();
+        attachReadConsistencyMiddleware(app, [{ contextName: "checkpoint", mountPath: "/checkpoint" }], groups, {
+          timeoutMs: 100,
+          pollIntervalMs: 10,
+          workSignalGateway: signals.readConsistencyGateway,
+        });
+        app.get("/checkpoint/composite-review", async (c) =>
+          c.json(
+            (await pools.checkpoint.query("SELECT event_id, position::text FROM sell_list_owned ORDER BY position"))
+              .rows,
+          ),
+        );
+        return app;
+      };
+      const app = createApi(runtime.projectionGroups);
+      if (origin === "relay") {
+        for (const group of runtime.projectionGroups) {
+          await signals.enqueueProjectionWakeIntent({
+            sourceContextName: "checkpoint",
+            targetContextName: "checkpoint",
+            projectionName: group.projectionName,
+            checkpointKey: group.subscriptionRunners[0]!.checkpointKey,
+            requiredPosition: event.globalPosition,
+            priorityLane: "hot",
+            origin,
+          });
+        }
+      } else {
+        const pending = await app.request("/checkpoint/composite-review", { headers });
+        expect(pending.status).toBe(503);
+        expect(await pending.json()).toMatchObject({
+          error: { code: "projection_freshness_timeout", waitMode: "target-context" },
+        });
+      }
+      const [scheduler] = createProjectionWakeSchedulerRunners({
+        workerId: "idle-tail-worker",
+        controlPlane,
+        workSignalStore: signals,
+        projectionGroups: runtime.projectionGroups,
+        lanes: [{ lane: "hot", runnerCount: 1 }],
+      });
+      await scheduler.runOnce();
+      expect(Date.now() - primedAt, "test must remain inside the ordinary idle heartbeat").toBeLessThan(60_000);
+      const durable = await subscription.refreshStatus();
+      const progress = await pools.checkpoint.query(
+        `SELECT c.last_global_position::text AS checkpoint, r.ready_position::text AS readiness,
+          w.state, w.origin, w.required_position::text AS required
+         FROM event_subscription_checkpoints c
+         JOIN platform_projection_checkpoint_readiness r USING (checkpoint_key)
+         JOIN platform_projection_wake_intents w USING (checkpoint_key)
+         WHERE c.checkpoint_key = $1`,
+        [subscription.checkpointKey],
+      );
+      // Soft assertions retain the main's false-completion/read-failure evidence together.
+      expect.soft(progress.rows).toEqual([
+        {
+          checkpoint: event.globalPosition,
+          readiness: event.globalPosition,
+          state: "completed",
+          origin,
+          required: event.globalPosition,
+        },
+      ]);
+      expect.soft(durable.lastGlobalPosition).toBe(event.globalPosition);
+      expect
+        .soft(
+          (
+            await pools.checkpoint.query(
+              "SELECT count(*)::integer AS count FROM checkpoint_writes WHERE checkpoint_key = $1",
+              [subscription.checkpointKey],
+            )
+          ).rows,
+        )
+        .toEqual([{ count: 1 }]);
+      const fresh = await app.request("/checkpoint/composite-review", { headers });
+      expect.soft(fresh.status).toBe(200);
+      if (fresh.status === 200)
+        expect(await fresh.json()).toEqual([
+          { event_id: first.eventId, position: first.globalPosition },
+          { event_id: event.eventId, position: event.globalPosition },
+        ]);
+      expect((await pools.checkpoint.query("SELECT * FROM session_owned")).rows).toEqual([]);
+      expect
+        .soft((await createApi(mount().projectionGroups).request("/checkpoint/composite-review", { headers })).status)
+        .toBe(200);
+
+      const checkpointRows = () =>
+        pools.checkpoint.query(
+          "SELECT checkpoint_key, last_global_position::text, xmin::text FROM event_subscription_checkpoints ORDER BY checkpoint_key",
+        );
+      const saved = (await checkpointRows()).rows;
+      for (const group of runtime.projectionGroups) {
+        await signals.enqueueProjectionWakeIntent({
+          sourceContextName: "checkpoint",
+          targetContextName: "checkpoint",
+          projectionName: group.projectionName,
+          checkpointKey: group.subscriptionRunners[0]!.checkpointKey,
+          requiredPosition: event.globalPosition,
+          priorityLane: "hot",
+          origin,
+        });
+      }
+      await scheduler.runOnce();
+      await scheduler.runOnce();
+      expect((await checkpointRows()).rows).toEqual(saved);
+      expect(
+        (
+          await pools.checkpoint.query(
+            "SELECT checkpoint_key, count(*)::integer AS count FROM checkpoint_writes GROUP BY checkpoint_key ORDER BY checkpoint_key",
+          )
+        ).rows,
+      ).toEqual(
+        runtime.projectionGroups
+          .map((group) => ({
+            checkpoint_key: group.subscriptionRunners[0]!.checkpointKey,
+            count: 1,
+          }))
+          .sort((left, right) => left.checkpoint_key.localeCompare(right.checkpoint_key)),
+      );
+    },
+  );
+
   it.each([false, true])(
     "keeps receipt E pending until its owned application commits (refresh=%s)",
     async (refresh) => {
@@ -2017,8 +2235,18 @@ describe("projection-group-recovery-marker Postgres", () => {
     failProjection = false;
     await expect(resetProjectionGroup(group)).resolves.toMatchObject({ generation: "3" });
     await expect(worker.runOnce()).resolves.toMatchObject({ processed: 2, blockedStreams: 0 });
-    await expect(worker.runOnce()).resolves.toMatchObject({ processed: 0, blockedStreams: 0 });
-    await expect(read()).resolves.toMatchObject({ rebuildingGeneration: "3", state: "rebuilding" });
+    const readRevision = async () => {
+      const result = await pools.marker.query(
+        `SELECT projection_revision FROM event_projection_group_revisions
+         WHERE target_context_name = $1 AND projection_name = $2`,
+        [key.targetContextName, key.projectionName],
+      );
+      return result.rows;
+    };
+    const revisionBeforeRefusal = await readRevision();
+    await expect(worker.runOnce()).rejects.toThrow("rejected stale rebuild token");
+    await expect(read()).resolves.toEqual({ activeGeneration: "1", rebuildingGeneration: "3", state: "rebuilding" });
+    expect(await readRevision()).toEqual(revisionBeforeRefusal);
     const restarted = createProjectionGroupWorkerRunner(makeGroup());
     await expect(restarted.runOnce()).resolves.toMatchObject({ processed: 0, blockedStreams: 0 });
     await expect(read()).resolves.toEqual({ activeGeneration: "3", rebuildingGeneration: null, state: "active" });

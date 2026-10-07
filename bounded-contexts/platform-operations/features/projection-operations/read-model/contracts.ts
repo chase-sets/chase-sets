@@ -265,7 +265,7 @@ export function buildProjectionRepairQueue(data: ProjectionOperationsSnapshot): 
       kind: "projection-group",
       targetId: `${group.targetContextName}:${group.projectionName}`,
       label: group.projectionName,
-      detail: `${group.targetContextName} projection group`,
+      detail: `${group.targetContextName} projection group; poison events: ${group.poisonEventCount}; blocked streams: ${group.blockedStreamCount}`,
       state: group.revisionStale ? "stale" : group.state,
       tone: group.state === "error" ? "danger" : "warning",
       contextName: group.targetContextName,
@@ -308,7 +308,7 @@ export function buildProjectionRepairQueue(data: ProjectionOperationsSnapshot): 
 
   for (const worker of data.workers) {
     const state = String(worker.worker_state ?? "");
-    if (state !== "stale" && state !== "expired") {
+    if (state !== "stale") {
       continue;
     }
     items.push({
@@ -352,9 +352,7 @@ export function activeWorkerCount(data: ProjectionOperationsSnapshot) {
 }
 
 export function staleWorkerCount(data: ProjectionOperationsSnapshot) {
-  const staleCount = data.workers.filter((worker) => worker.worker_state === "stale").length;
-  const returnedExpiredCount = data.workers.filter((worker) => worker.worker_state === "expired").length;
-  return staleCount + Math.max(data.workerHeartbeatHistory.expiredTotalCount, returnedExpiredCount);
+  return data.workers.filter((worker) => worker.worker_state === "stale").length;
 }
 
 export function buildAttentionItems(data: ProjectionOperationsSnapshot): readonly AttentionItem[] {
@@ -426,7 +424,7 @@ export function buildAttentionItems(data: ProjectionOperationsSnapshot): readonl
     items.push({
       id: "stale-workers",
       label: "Stale workers",
-      detail: "Worker heartbeats are stale or expired.",
+      detail: "Live worker heartbeats are stale.",
       tone: "warning",
       count: staleWorkers,
       targetTab: "workers",

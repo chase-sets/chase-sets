@@ -1,7 +1,70 @@
 import { describe, expect, it } from "vitest";
-import { resolveAndPersistCatalogItemDisplayIdentity, resolveCatalogItemDisplayIdentity } from "./display-identity";
+import {
+  resolveAndPersistCatalogItemDisplayIdentity,
+  resolveCatalogItemDisplayIdentity,
+  resolveCatalogItemDisplayIdentities,
+} from "./display-identity";
 
 describe("resolveCatalogItemDisplayIdentity", () => {
+  it("uses the same truthful Set identity before and after reference projection", async () => {
+    const data = {
+      fields: [{ field_id: "fld_set", key: "set" }],
+      references: [
+        {
+          reference_record_id: "ref_synthetic_new_set",
+          type_key: "set",
+          key: "1",
+          name: "Synthetic New Set",
+          attributes: {},
+          relationships: [],
+          status: "active",
+        },
+      ],
+      templates: [
+        {
+          key: "synthetic-set",
+          target_kind: "global",
+          target_id: null,
+          priority: 1,
+          title_template: "{item.title}",
+          subtitle_template: "{reference.set.name}",
+          required_field_keys: ["set"],
+        },
+      ],
+    };
+    const item = {
+      catalog_item_id: "cat_synthetic_new_set",
+      title: "Synthetic Card",
+      subtitle: null,
+      blueprint_id: null,
+      category_ids: [],
+      field_values: [{ fieldId: "fld_set", value: { referenceId: "ref_synthetic_new_set" } }],
+    };
+    const unprojected = await resolveCatalogItemDisplayIdentity(
+      displayIdentityDb(data, { projectReferences: false }),
+      item,
+    );
+    const projected = await resolveCatalogItemDisplayIdentity(displayIdentityDb(data), item);
+    expect(unprojected.subtitle).toBe("Synthetic New Set");
+    expect(unprojected).toEqual(projected);
+    const batch = await resolveCatalogItemDisplayIdentities(displayIdentityDb(data, { projectReferences: false }), [
+      item,
+    ]);
+    expect(batch.get(item.catalog_item_id)).toEqual(unprojected);
+    const changed = await resolveCatalogItemDisplayIdentity(
+      displayIdentityDb(
+        {
+          ...data,
+          references: data.references.map((reference) => ({ ...reference, name: "Revised Synthetic Set" })),
+        },
+        { projectReferences: false },
+      ),
+      item,
+    );
+    expect(changed.subtitle).toBe("Revised Synthetic Set");
+    expect(changed.hash).not.toBe(projected.hash);
+  });
+
   it("uses blueprint templates with field and reference attributes", async () => {
     const db = displayIdentityDb({
       fields: [
@@ -931,7 +994,7 @@ function displayIdentityDb(
     itemAliases?: AliasRow[];
     referenceAliasesById?: Record<string, AliasRow[]>;
   },
-  options: { existingHash?: string; persistedWrites?: unknown[][] } = {},
+  options: { existingHash?: string; persistedWrites?: unknown[][]; projectReferences?: boolean } = {},
 ) {
   return {
     async query<T>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[] }> {
@@ -964,9 +1027,37 @@ function displayIdentityDb(
         return { rows: ((data.referenceAliasesById ?? {})[referenceRecordId] ?? []) as T[] };
       }
 
-      if (sql.includes("FROM catalog_reference_records")) {
+      if (sql.includes("FROM catalog_reference_records") || sql.includes("AS reference_event")) {
         const ids = Array.isArray(params?.[0]) ? params[0] : [];
-        return { rows: data.references.filter((reference) => ids.includes(reference.reference_record_id)) as T[] };
+        const references = data.references.filter((reference) => ids.includes(reference.reference_record_id));
+        const rows = sql.includes("AS reference_event")
+          ? references.flatMap((reference) => [
+              {
+                reference_record_id: reference.reference_record_id,
+                stream_version: 1,
+                reference_event: {
+                  type: "catalog.reference-record.created",
+                  data: {
+                    referenceRecordId: reference.reference_record_id,
+                    typeKey: reference.type_key,
+                    key: reference.key,
+                    name: { defaultLocale: "en", values: { en: reference.name } },
+                    description: { defaultLocale: "en", values: { en: "" } },
+                    attributes: reference.attributes,
+                    relationships: reference.relationships,
+                  },
+                },
+              },
+              {
+                reference_record_id: reference.reference_record_id,
+                stream_version: 2,
+                reference_event: { type: "catalog.reference-record.published", data: {} },
+              },
+            ])
+          : options.projectReferences === false
+            ? []
+            : references;
+        return { rows: rows as T[] };
       }
 
       return { rows: [] };

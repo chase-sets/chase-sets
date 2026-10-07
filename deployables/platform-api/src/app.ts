@@ -1,6 +1,8 @@
 import { Hono, type Context, type Next } from "hono";
 import { createCheckoutClosedMiddleware } from "./middleware/checkout-closed";
 import { module as authModule } from "@chase-sets/auth";
+import type { ShipmentGroupAdmissionAuthority } from "@chase-sets/order-groups";
+import type { module as fulfillmentModule } from "@chase-sets/fulfillment";
 import {
   createUcpOAuthMetadataRoutes,
   createUcpOAuthRoutes,
@@ -30,12 +32,15 @@ import {
 } from "@chase-sets/discovery/server";
 import {
   catalogRealtimeManifest,
+  createCatalogProviderConnectionsReadSource,
+  type CatalogServices,
   catalogRealtimeTopicPolicyManifest,
   resolveCatalogProductSelection,
 } from "@chase-sets/catalog/server";
 import type { SavedListProductCatalog } from "@chase-sets/collections/server";
 import {
   pricingRealtimeManifest,
+  createBuyerOfferPricing,
   type ChannelConnectionIdentityReader,
   type PricingHostPorts,
 } from "@chase-sets/pricing/server";
@@ -202,7 +207,11 @@ import { createPolicyResolver } from "@chase-sets/platform-policy/resolver";
 import { listActivePolicyDocuments } from "@chase-sets/platform-policy/queries";
 import type { JsonValue } from "@chase-sets/primitives/json";
 import { apiContextRegistry } from "./generated/api-context-registry";
-import { createChannelActionAttentionSourceFromReadModel } from "@chase-sets/channels/server";
+import {
+  createChannelActionAttentionSourceFromReadModel,
+  createChannelConnectionsOperatorReadSourceFromReadModel,
+} from "@chase-sets/channels/server";
+import type { ProviderConnectionsCrossContextPort } from "@chase-sets/platform-operations/server";
 import {
   createMarketplaceChannelInboundClampCapability,
   type MarketplaceChannelInboundClampCapability,
@@ -604,6 +613,16 @@ export function createPlatformApiHost(
     ? { kind: "available", port: createInventoryHoldCleanupAuthorityForPool(inventoryPool) }
     : { kind: "not-mounted" };
   const channelSaleRecorder = inventoryPool ? createPlatformApiChannelSaleRecorder(inventoryPool) : undefined;
+  const admissionAuthority = (): ShipmentGroupAdmissionAuthority => {
+    const services = runtime?.services.fulfillment as ReturnType<typeof fulfillmentModule.createServices> | undefined;
+    if (!services) throw new Error("Shipment Group admission authority is unavailable.");
+    return services.shipments.shipmentGroupAdmissionAuthority;
+  };
+  const shipmentGroupAdmissionAuthority: ShipmentGroupAdmissionAuthority = {
+    reserve: (input, context) => admissionAuthority().reserve(input, context),
+    commit: (input, context) => admissionAuthority().commit(input, context),
+    abort: (input, context) => admissionAuthority().abort(input, context),
+  };
   const inventorySavedListImportBatchCreator: SavedListInventoryImportBatchCreator = async (params, context) => {
     const inventoryServices = runtime?.services.inventory as
       | {
@@ -631,11 +650,19 @@ export function createPlatformApiHost(
       }
     : undefined;
 
+  const providerConnectionsCrossContext: ProviderConnectionsCrossContextPort = {
+    catalog: createCatalogProviderConnectionsReadSource(
+      () => (runtime?.services.catalog as CatalogServices | undefined)?.sourceObservations,
+    ),
+    ...(channelsPool ? { channels: createChannelConnectionsOperatorReadSourceFromReadModel(channelsPool) } : {}),
+  };
+
   runtime = createApiHost(apiContextRegistry, "platform-api", {
     ...options,
     runtimeProfile,
     hostPorts: {
       ...options.hostPorts,
+      ...(pricingPool ? { managedOfferPricing: createBuyerOfferPricing(pricingPool) } : {}),
       ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
       ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
       ...(checkoutProcessingFeePolicyResolver ? { checkoutProcessingFeePolicyResolver } : {}),
@@ -647,11 +674,13 @@ export function createPlatformApiHost(
       ...(policyConsoleCrossContext ? { policyConsoleCrossContext } : {}),
       ...(supportReferenceLookupCrossContext ? { supportReferenceLookupCrossContext } : {}),
       ...(opsMarketAnalyticsCrossContext ? { opsMarketAnalyticsCrossContext } : {}),
+      providerConnectionsCrossContext,
       ...(offerEconomicsCrossContext ? { offerEconomicsCrossContext } : {}),
       sellerAttentionSources,
       publicPolicySources,
       draftListingCreator,
       inventoryCleanupAuthority,
+      shipmentGroupAdmissionAuthority,
       ...(channelSaleRecorder ? { channelSaleRecorder } : {}),
       inventorySavedListImportBatchCreator,
       marketplaceChannelInboundClamp,
@@ -1091,6 +1120,12 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     );
   }
 
+  for (const path of ["/api/catalog/operator-session", "/api/catalog/operator-session/*"]) {
+    app.use(path, async (c, next) => {
+      c.header("Cache-Control", "no-store");
+      await next();
+    });
+  }
   attachApiMountMiddleware(
     app,
     apiMounts

@@ -22,7 +22,7 @@ promiseTable:
   - claim: The per-item fee cap is re-audited when settlement credits the seller.
     issues: ["#4099"]
     tests: ["bounded-contexts/settlement/features/wallets/integrations/payment-source/payment-source-projection.test.ts"]
-  - claim: The founders window applies a 0% sales-fee agreement for 60 days, capped at 500 founders.
+  - claim: "Every account admitted to beta pays a 0% marketplace sales fee for 60 days from the start of its beta access. The 500 cap applies only to numbered founder badges: an account's first listing or submitted offer claims a badge while numbers remain."
     issues: ["#4068"]
     tests: ["bounded-contexts/identity/features/founders-cohort/domain/domain.test.ts", "bounded-contexts/commercial-terms/features/agreements/integrations/identity/founders-window-reaction.test.ts"]
   - claim: Beta access uses three numbered invite waves with ratified capacities and explicit wave-one qualification.
@@ -43,13 +43,13 @@ The lock covers the formula, not a frozen dollar figure: if you edit the item pr
 
 ## Founders window
 
-The first 500 accounts to list an item or submit an offer after receiving beta access claim a founders place. A founders account pays a 0% marketplace sales fee for 60 days from the start of its beta access; listings confirmed inside the window lock the 0% rate exactly like any other locked rate. After the window ends, new listings lock at the standard schedule.
+Every account admitted to beta pays a 0% marketplace sales fee for 60 days from the start of its beta access. The 500 cap applies only to numbered founder badges: an account's first listing or submitted offer claims a badge while numbers remain. Listings confirmed inside the window lock the 0% rate exactly like any other locked rate. After the window ends, new listings lock at the standard schedule.
 
 Founders also join the founders-circle Discord and help shape seller tools such as bulk listing, pricing, fulfillment, fee locks, and offers. The first 500 accounts to list or make an offer claim a numbered founder badge, publicly displayed.
 
 ## Beta invite waves
 
-Before signup opens to everyone on September 1, 2026, beta access is admitted in three numbered waves:
+Join the waitlist first. Beta access is then admitted in three numbered waves, followed by open signup for everyone. No launch or wave dates are promised:
 
 - Wave 1: 100 invites
 - Wave 2: 250 invites

@@ -64,6 +64,7 @@ function payoutDetailHref(payoutId: string, marketplaceOrigin?: string | null) {
 
 export function SettlementPayoutOperationsPage({
   payouts,
+  canReconcile,
   idempotencyKeys = [],
   payoutReadiness,
   runResult,
@@ -72,6 +73,7 @@ export function SettlementPayoutOperationsPage({
   marketplaceOrigin,
 }: {
   payouts: readonly SettlementPayoutRow[];
+  canReconcile: boolean;
   idempotencyKeys?: readonly SettlementProviderIdempotencyKeyRow[];
   payoutReadiness?: SettlementPayoutReadinessRow | null;
   runResult?: Readonly<{
@@ -132,62 +134,64 @@ export function SettlementPayoutOperationsPage({
         }
       />
 
-      <PageSection title={t("settlement.features.payouts.ui.payoutOperationsPage.reconciliation")}>
-        <Card data-testid="payout-reconciliation-entity" elevation="outlined">
-          <Stack gap={3}>
-            <Form spacing="none" method="post">
-              <HiddenInput type="hidden" name="intent" value="run-reconciliation" />
-              <Button type="submit">
-                {t("settlement.features.payouts.ui.payoutOperationsPage.run.reconciliation")}
-              </Button>
-            </Form>
-            <Text size="sm" tone="secondary">
-              {t("settlement.features.payouts.ui.payoutOperationsPage.last.checked")}
-              {lastCheckedAt
-                ? formatDateTime(lastCheckedAt)
-                : t("settlement.features.payouts.ui.payoutOperationsPage.not.checked.in.this.session")}
-            </Text>
-            {runResult ? (
-              <Stack gap={1}>
-                <Badge
-                  tone={
-                    runResult.status === "failed" ? "danger" : runResult.status === "completed" ? "success" : "accent"
-                  }
-                >
-                  {runResult.status}
-                </Badge>
-                {runResult.progress.message ? (
+      {canReconcile ? (
+        <PageSection title={t("settlement.features.payouts.ui.payoutOperationsPage.reconciliation")}>
+          <Card data-testid="payout-reconciliation-entity" elevation="outlined">
+            <Stack gap={3}>
+              <Form spacing="none" method="post">
+                <HiddenInput type="hidden" name="intent" value="run-reconciliation" />
+                <Button type="submit">
+                  {t("settlement.features.payouts.ui.payoutOperationsPage.run.reconciliation")}
+                </Button>
+              </Form>
+              <Text size="sm" tone="secondary">
+                {t("settlement.features.payouts.ui.payoutOperationsPage.last.checked")}
+                {lastCheckedAt
+                  ? formatDateTime(lastCheckedAt)
+                  : t("settlement.features.payouts.ui.payoutOperationsPage.not.checked.in.this.session")}
+              </Text>
+              {runResult ? (
+                <Stack gap={1}>
+                  <Badge
+                    tone={
+                      runResult.status === "failed" ? "danger" : runResult.status === "completed" ? "success" : "accent"
+                    }
+                  >
+                    {runResult.status}
+                  </Badge>
+                  {runResult.progress.message ? (
+                    <Text size="sm" tone="secondary">
+                      {runResult.progress.message}
+                    </Text>
+                  ) : null}
                   <Text size="sm" tone="secondary">
-                    {runResult.progress.message}
+                    {t("settlement.features.payouts.ui.payoutOperationsPage.checked")}
+                    {terminalRunResult?.checked ?? runResult.progress.completed}
+                    {t("settlement.features.payouts.ui.payoutOperationsPage.reconciled")}
+                    {terminalRunResult?.reconciled ?? 0}
+                    {t("settlement.features.payouts.ui.payoutOperationsPage.ignored")}
+                    {terminalRunResult?.ignored ?? 0}
+                    {t("settlement.features.payouts.ui.payoutOperationsPage.skipped")}
+                    {terminalRunResult?.skipped ?? 0}.
                   </Text>
-                ) : null}
-                <Text size="sm" tone="secondary">
-                  {t("settlement.features.payouts.ui.payoutOperationsPage.checked")}
-                  {terminalRunResult?.checked ?? runResult.progress.completed}
-                  {t("settlement.features.payouts.ui.payoutOperationsPage.reconciled")}
-                  {terminalRunResult?.reconciled ?? 0}
-                  {t("settlement.features.payouts.ui.payoutOperationsPage.ignored")}
-                  {terminalRunResult?.ignored ?? 0}
-                  {t("settlement.features.payouts.ui.payoutOperationsPage.skipped")}
-                  {terminalRunResult?.skipped ?? 0}.
-                </Text>
-                {terminalRunResult && terminalRunResult.errors.length > 0 ? (
-                  <Text size="sm" tone="secondary">
-                    {t("settlement.features.payouts.ui.payoutOperationsPage.errors")}
-                    {terminalRunResult.errors.map((error) => error.message).join("; ")}
-                  </Text>
-                ) : null}
-                {runResult.errorMessage ? (
-                  <Text size="sm" tone="secondary">
-                    {t("settlement.features.payouts.ui.payoutOperationsPage.errors")}
-                    {runResult.errorMessage}
-                  </Text>
-                ) : null}
-              </Stack>
-            ) : null}
-          </Stack>
-        </Card>
-      </PageSection>
+                  {terminalRunResult && terminalRunResult.errors.length > 0 ? (
+                    <Text size="sm" tone="secondary">
+                      {t("settlement.features.payouts.ui.payoutOperationsPage.errors")}
+                      {terminalRunResult.errors.map((error) => error.message).join("; ")}
+                    </Text>
+                  ) : null}
+                  {runResult.errorMessage ? (
+                    <Text size="sm" tone="secondary">
+                      {t("settlement.features.payouts.ui.payoutOperationsPage.errors")}
+                      {runResult.errorMessage}
+                    </Text>
+                  ) : null}
+                </Stack>
+              ) : null}
+            </Stack>
+          </Card>
+        </PageSection>
+      ) : null}
 
       <PageSection title={t("settlement.features.payouts.ui.payoutOperationsPage.needs.attention")}>
         <DataTable
@@ -218,24 +222,32 @@ export function SettlementPayoutOperationsPage({
               value: staleCheckCount,
               detail: t("settlement.features.payouts.ui.payoutOperationsPage.provider.status.has.not.been.checked"),
             },
-            {
-              id: "payout-setup-blocked",
-              label: t("settlement.features.payouts.ui.payoutOperationsPage.payout.setup.blocked"),
-              value: payoutSetupBlocked ? 1 : 0,
-              detail: t("settlement.features.payouts.ui.payoutOperationsPage.account.cannot.request.payouts.until"),
-            },
-            {
-              id: "payout-setup-requirements",
-              label: t("settlement.features.payouts.ui.payoutOperationsPage.open.setup.requirements"),
-              value: payoutSetupMissingRequirementCount,
-              detail: t("settlement.features.payouts.ui.payoutOperationsPage.provider.requirement.groups.remain.open"),
-            },
-            {
-              id: "payout-setup-stale",
-              label: t("settlement.features.payouts.ui.payoutOperationsPage.stale.payout.setup.status"),
-              value: payoutSetupStale ? 1 : 0,
-              detail: t("settlement.features.payouts.ui.payoutOperationsPage.payout.setup.status.needs.refresh"),
-            },
+            ...(canReconcile
+              ? [
+                  {
+                    id: "payout-setup-blocked",
+                    label: t("settlement.features.payouts.ui.payoutOperationsPage.payout.setup.blocked"),
+                    value: payoutSetupBlocked ? 1 : 0,
+                    detail: t(
+                      "settlement.features.payouts.ui.payoutOperationsPage.account.cannot.request.payouts.until",
+                    ),
+                  },
+                  {
+                    id: "payout-setup-requirements",
+                    label: t("settlement.features.payouts.ui.payoutOperationsPage.open.setup.requirements"),
+                    value: payoutSetupMissingRequirementCount,
+                    detail: t(
+                      "settlement.features.payouts.ui.payoutOperationsPage.provider.requirement.groups.remain.open",
+                    ),
+                  },
+                  {
+                    id: "payout-setup-stale",
+                    label: t("settlement.features.payouts.ui.payoutOperationsPage.stale.payout.setup.status"),
+                    value: payoutSetupStale ? 1 : 0,
+                    detail: t("settlement.features.payouts.ui.payoutOperationsPage.payout.setup.status.needs.refresh"),
+                  },
+                ]
+              : []),
           ]}
           getRowId={(row) => row.id}
           columns={[
@@ -256,7 +268,7 @@ export function SettlementPayoutOperationsPage({
             },
           ]}
         />
-        {payoutReadiness ? (
+        {canReconcile && payoutReadiness ? (
           <DataTable
             rows={[
               {
@@ -398,44 +410,46 @@ export function SettlementPayoutOperationsPage({
         />
       </PageSection>
 
-      <PageSection title={t("settlement.features.payouts.ui.payoutOperationsPage.recent.provider.attempts")}>
-        <DataTable
-          rows={[...idempotencyKeys]}
-          getRowId={(row) => row.operation_key}
-          columns={[
-            {
-              key: "operation",
-              header: t("settlement.features.payouts.ui.payoutOperationsPage.operation"),
-              cell: (row) => row.operation_kind,
-            },
-            {
-              key: "payout",
-              header: t("settlement.features.payouts.ui.payoutOperationsPage.payout"),
-              cell: (row) => row.payout_id ?? t("settlement.features.payouts.ui.payoutOperationsPage.none"),
-            },
-            {
-              key: "provider",
-              header: t("settlement.features.payouts.ui.payoutOperationsPage.provider.reference"),
-              cell: (row) =>
-                row.provider_object_reference ?? t("settlement.features.payouts.ui.payoutOperationsPage.pending"),
-            },
-            {
-              key: "idempotency",
-              header: t("settlement.features.payouts.ui.payoutOperationsPage.idempotency.key"),
-              cell: () => t("settlement.features.payouts.ui.payoutOperationsPage.protected.retry.key"),
-            },
-            {
-              key: "created",
-              header: t("settlement.features.payouts.ui.payoutOperationsPage.created"),
-              cell: (row) => formatDateTime(row.created_at),
-            },
-          ]}
-          emptyTitle={t("settlement.features.payouts.ui.payoutOperationsPage.no.provider.attempts")}
-          emptyDescription={t(
-            "settlement.features.payouts.ui.payoutOperationsPage.provider.transfer.and.payout.submissions.appear",
-          )}
-        />
-      </PageSection>
+      {canReconcile ? (
+        <PageSection title={t("settlement.features.payouts.ui.payoutOperationsPage.recent.provider.attempts")}>
+          <DataTable
+            rows={[...idempotencyKeys]}
+            getRowId={(row) => row.operation_key}
+            columns={[
+              {
+                key: "operation",
+                header: t("settlement.features.payouts.ui.payoutOperationsPage.operation"),
+                cell: (row) => row.operation_kind,
+              },
+              {
+                key: "payout",
+                header: t("settlement.features.payouts.ui.payoutOperationsPage.payout"),
+                cell: (row) => row.payout_id ?? t("settlement.features.payouts.ui.payoutOperationsPage.none"),
+              },
+              {
+                key: "provider",
+                header: t("settlement.features.payouts.ui.payoutOperationsPage.provider.reference"),
+                cell: (row) =>
+                  row.provider_object_reference ?? t("settlement.features.payouts.ui.payoutOperationsPage.pending"),
+              },
+              {
+                key: "idempotency",
+                header: t("settlement.features.payouts.ui.payoutOperationsPage.idempotency.key"),
+                cell: () => t("settlement.features.payouts.ui.payoutOperationsPage.protected.retry.key"),
+              },
+              {
+                key: "created",
+                header: t("settlement.features.payouts.ui.payoutOperationsPage.created"),
+                cell: (row) => formatDateTime(row.created_at),
+              },
+            ]}
+            emptyTitle={t("settlement.features.payouts.ui.payoutOperationsPage.no.provider.attempts")}
+            emptyDescription={t(
+              "settlement.features.payouts.ui.payoutOperationsPage.provider.transfer.and.payout.submissions.appear",
+            )}
+          />
+        </PageSection>
+      ) : null}
     </Page>
   );
 }

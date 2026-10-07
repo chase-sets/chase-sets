@@ -195,8 +195,8 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(production.totals).toMatchObject({
       roots: production.roots.length,
       loadedRoots: production.roots.length,
-      discoveredCallCandidates: 10,
-      authoritativeSites: 10,
+      discoveredCallCandidates: 11,
+      authoritativeSites: 11,
       helperSites: 1,
       ambiguousOriginSites: 0,
       outOfLocationHelperSites: 0,
@@ -219,10 +219,10 @@ describe("authoritative-stream-read-diagnostics-transport-control", () => {
     expect(detachment.totals.detachmentEscapeSites).toBe(detachment.diagnostics.length);
   });
 
-  it("derives the twelve green grammar instances across eleven live locations without a registry", () => {
+  it("derives the fifteen green grammar instances across fourteen live locations without a registry", () => {
     const green = deriveGreenGrammarInstances(production);
-    expect(green).toHaveLength(12);
-    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(11);
+    expect(green).toHaveLength(15);
+    expect(new Set(green.map((entry) => `${entry.file}:${entry.line}`))).toHaveLength(14);
     const shared = green.filter(
       (entry) => entry.file === "contracts/event-core/complete-stream.ts" && entry.line === 5,
     );

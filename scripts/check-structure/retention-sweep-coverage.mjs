@@ -42,6 +42,10 @@ export const retentionCoverageExemptions = new Map([
   ["platform_projection_checkpoint_waiters", "The scheduled work-signal cleanup runner owns this table."],
   ["platform_projection_wake_intents", "The scheduled work-signal cleanup runner owns this table."],
   ["platform_realtime_stream_leases", "The realtime stream limiter cleans expired leases on admission/release."],
+  [
+    "catalog_tcgplayer_automation_domain_rate_limit_leases",
+    "The Catalog TCGplayer shared-budget admission statement reclaims expired leases and release removes settled leases; this coordination table is not age-swept.",
+  ],
   ["platform_ucp_agent_profiles", "Agent profile expiry is authorization state, not disposable request history."],
   ["platform_ucp_idempotency_records", "The UCP idempotency store has its own expiry pruning path."],
   [

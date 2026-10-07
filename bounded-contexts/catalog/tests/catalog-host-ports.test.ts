@@ -17,7 +17,12 @@ describe("catalog host ports", () => {
     const hostPorts = new Set((context.hostPorts ?? []).map((entry) => entry.portName));
 
     expect(hostPorts).toEqual(
-      new Set(["catalogAssetStorage", "sourceObservationTelemetry", "tcgplayerAutomationCatalogClient"]),
+      new Set([
+        "catalogAssetStorage",
+        "sourceObservationTelemetry",
+        "tcgplayerAutomationCatalogClient",
+        "catalogOperatorSessionConfiguration",
+      ]),
     );
   });
 });

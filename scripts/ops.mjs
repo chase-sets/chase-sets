@@ -16,6 +16,10 @@ import { fileURLToPath } from "node:url";
 const scriptsDir = dirname(fileURLToPath(import.meta.url));
 
 export const SUBCOMMANDS = {
+  "browser:usability": {
+    script: "browser-usability.mjs",
+    description: "Prepare, adjudicate, and compare advisory goal-only browser probes.",
+  },
   "design-system:raw-ui-budget": {
     script: "design-system-raw-ui-budget.mjs",
     description: "Ratcheted raw UI budgets for bounded-context and deployable consumers.",
@@ -203,6 +207,10 @@ export const SUBCOMMANDS = {
   "release-health:flake-digest": {
     script: "release-health-flake-digest.mjs",
     description: "Weekly CI flake digest from GitHub Actions retry telemetry.",
+  },
+  "release-health:db-duration-drift": {
+    script: "release-health-db-duration-drift.mjs",
+    description: "Collect DB duration drift and explicitly pending baseline cohorts.",
   },
   "release-health:merge-group-failure-signatures": {
     script: "release-health-merge-group-failure-signatures.mjs",

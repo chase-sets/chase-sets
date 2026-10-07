@@ -1,4 +1,4 @@
-import { Suspense, useMemo, type ReactNode } from "react";
+import { Suspense, useMemo, useState, type ReactNode } from "react";
 import { Await } from "react-router";
 import {
   Badge,
@@ -7,8 +7,10 @@ import {
   ConnectionStatusIndicator,
   DataTable,
   EmptyState,
+  FilterBar,
   KeyValueList,
   LinkText,
+  NativeSelect,
   Show,
   WorkbenchDetailPanel,
   WorkbenchActionRow,
@@ -19,6 +21,7 @@ import {
   WorkbenchStack,
   WorkbenchText,
   WorkflowModule,
+  OperationalStatusBanner,
   type ButtonProps,
   type DataColumn,
 } from "@chase-sets/design-system";
@@ -45,6 +48,19 @@ import { BlockerList, profileSnapshotLabel, stateLabel } from "../import-to-prom
 import { useLiveImportJobs } from "./use-live-import-jobs";
 
 type ImportJobRow = CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"][number];
+type ImportJobOperatorStatus = ImportJobRow["operatorStatus"];
+type ImportJobStatusFilter = ImportJobOperatorStatus | "all";
+const ALL_IMPORT_JOB_STATUSES = "all";
+const importJobOperatorStatuses: readonly ImportJobOperatorStatus[] = [
+  "queued",
+  "running",
+  "stale",
+  "retried",
+  "partial",
+  "failed",
+  "cancelled",
+  "completed",
+];
 const importJobDiscoveryIntents = new Set([
   "scope.import",
   "observation.reapply",
@@ -70,6 +86,21 @@ export function CatalogIntegrationImportJobsModule({
     pendingJobDiscovery: pendingJobDiscoveryKey !== null,
     pendingJobDiscoveryKey,
   });
+
+  // The status filter narrows only the rendered rows of the loaded recent window.
+  // The live hook above keeps the complete snapshot so polling, discovery and the
+  // monotonic progress cache never depend on which rows are visible.
+  const statusFilterEnabled = readModel.routeContext.providerKey === "tcgplayer";
+  const selectedStatus = useImportJobStatusFilter(readModel.routeContext);
+  const activeStatus = statusFilterEnabled ? selectedStatus.value : ALL_IMPORT_JOB_STATUSES;
+  const visibleJobs =
+    activeStatus === ALL_IMPORT_JOB_STATUSES
+      ? readModel.importJobs.jobs
+      : readModel.importJobs.jobs.filter((job) => job.operatorStatus === activeStatus);
+  const activeStatusLabel =
+    activeStatus === ALL_IMPORT_JOB_STATUSES
+      ? t("catalog.support.shellSupport.ui.entityListPage.all.statuses")
+      : stateLabel(activeStatus);
 
   const jobColumns = useMemo<DataColumn<ImportJobRow>[]>(
     () => [
@@ -385,8 +416,36 @@ export function CatalogIntegrationImportJobsModule({
         />
       )}
 
+      {statusFilterEnabled ? (
+        <WorkbenchStack gap="sm" data-catalog-import-job-status-filter={activeStatus}>
+          <FilterBar sticky={false}>
+            <NativeSelect
+              label={t("catalog.support.shellSupport.ui.entityListPage.status")}
+              value={activeStatus}
+              onChange={(event) => selectedStatus.select(importJobStatusFilterValue(event.target.value))}
+              items={[
+                {
+                  value: ALL_IMPORT_JOB_STATUSES,
+                  label: t("catalog.support.shellSupport.ui.entityListPage.all.statuses"),
+                },
+                ...importJobOperatorStatuses.map((status) => ({ value: status, label: stateLabel(status) })),
+              ]}
+            />
+          </FilterBar>
+          <KeyValueList
+            items={[
+              {
+                key: t("catalog.features.sourceObservations.ui.providerDetail.jobs.title"),
+                value: readModel.importJobs.jobs.length,
+              },
+              { key: activeStatusLabel, value: visibleJobs.length },
+            ]}
+          />
+        </WorkbenchStack>
+      ) : null}
+
       <DataTable
-        rows={[...readModel.importJobs.jobs]}
+        rows={[...visibleJobs]}
         columns={jobColumns}
         caption={t("catalog.features.sourceObservations.ui.primaryWorkbench.stage.supporting.jobs")}
         getRowId={(job) => job.jobId}
@@ -401,11 +460,51 @@ export function CatalogIntegrationImportJobsModule({
           "data-catalog-import-job-scope-route": job.scopeMatchesRoute ? "current" : "overlapping",
         })}
         density="compact"
-        emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.empty.title")}
-        emptyDescription={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.empty.description")}
+        emptyTitle={
+          activeStatus === ALL_IMPORT_JOB_STATUSES
+            ? t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.empty.title")
+            : t("catalog.support.shellSupport.ui.entityListPage.none.found", { title: activeStatusLabel })
+        }
+        emptyDescription={
+          activeStatus === ALL_IMPORT_JOB_STATUSES
+            ? t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.empty.description")
+            : t("catalog.support.shellSupport.ui.entityListPage.try.adjusting.your.filters")
+        }
       />
     </WorkflowModule>
   );
+}
+
+// The selected status belongs to one import context: a same-context refresh keeps
+// it, while a provider, unit, import scope or scope record change resets it to all
+// statuses, so returning to an earlier context never restores a remembered filter.
+function useImportJobStatusFilter(routeContext: CatalogPrimaryWorkbenchReadModel["routeContext"]): Readonly<{
+  value: ImportJobStatusFilter;
+  select: (value: ImportJobStatusFilter) => void;
+}> {
+  const contextKey = [
+    routeContext.providerKey ?? "provider:none",
+    routeContext.unitKey ?? "unit:none",
+    routeContext.importScope ?? "scope:none",
+    routeContext.scopeRecordId ?? "scope-record:none",
+  ].join("|");
+  const [selection, setSelection] = useState<Readonly<{ contextKey: string; value: ImportJobStatusFilter }>>({
+    contextKey,
+    value: ALL_IMPORT_JOB_STATUSES,
+  });
+
+  if (selection.contextKey !== contextKey) {
+    setSelection({ contextKey, value: ALL_IMPORT_JOB_STATUSES });
+  }
+
+  return {
+    value: selection.contextKey === contextKey ? selection.value : ALL_IMPORT_JOB_STATUSES,
+    select: (value) => setSelection({ contextKey, value }),
+  };
+}
+
+function importJobStatusFilterValue(value: string): ImportJobStatusFilter {
+  return importJobOperatorStatuses.find((status) => status === value) ?? ALL_IMPORT_JOB_STATUSES;
 }
 
 function ImportJobUsage({
@@ -489,7 +588,19 @@ function DeferredImportPreviewEvidence({
         />
       }
     >
-      <Await key={previewKey} resolve={deferredImportPreview}>
+      <Await
+        key={previewKey}
+        resolve={deferredImportPreview}
+        errorElement={
+          <OperationalStatusBanner
+            tone="warning"
+            role="status"
+            data-catalog-deferred-panel="unavailable"
+            title={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.preview.title")}
+            description={t("catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.unavailable")}
+          />
+        }
+      >
         {(preview) =>
           preview && importPreviewMatchesRouteContext(preview, routeContext) ? (
             <ImportPreviewEvidence preview={preview} />

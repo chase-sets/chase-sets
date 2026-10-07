@@ -10,8 +10,18 @@ import { productAlertSettingsHref } from "./product-alert-settings-link";
 import type { DiscoveryCategoryItem } from "../../categories/ui/contracts";
 import type { DiscoverySearchItem, DiscoverySearchResponse } from "../../../support/client-support/contracts";
 
+const titleOverrides = vi.hoisted(() => new Map<string, string>());
+vi.mock("@chase-sets/localization", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@chase-sets/localization")>();
+  return {
+    ...original,
+    t: (key: string, values?: Parameters<typeof original.t>[1]) => titleOverrides.get(key) ?? original.t(key, values),
+  };
+});
+
 afterEach(() => {
   cleanup();
+  titleOverrides.clear();
   vi.unstubAllGlobals();
 });
 
@@ -114,7 +124,7 @@ const searchResponse: DiscoverySearchResponse = {
   resultSetKey: "b".repeat(64),
 };
 
-const heroHeadline = "Find cards, comics, figures, sneakers, and memorabilia worth chasing.";
+const heroHeadline = "Find trading cards worth chasing.";
 const heroDescription =
   "Search live supply, compare active markets, and move from discovery to item detail with buyer confidence built in.";
 
@@ -381,6 +391,117 @@ function renderSearchPage(overrides: Partial<Parameters<typeof SearchPage>[0]> =
 }
 
 describe("SearchPage", () => {
+  it.each(["desktop", "mobile"] as const)(
+    "keeps ordered independent %s facet state across toggles, removal, reopening and remount",
+    (presentation) => {
+      const facet = {
+        id: "condition",
+        kind: "dimension" as const,
+        label: "Condition",
+        values: [{ id: "nm", label: "Near Mint", count: 2, selected: true }],
+      };
+      const props = renderSearchPage({ committedSearch: "abra", data: { ...searchResponse, facets: [facet] } });
+      cleanup();
+      const view = render(<SearchPage {...props} />);
+      const openMobile = () => fireEvent.click(screen.getByRole("button", { name: "Open filters" }));
+      const root = (name: string) => document.querySelector<HTMLElement>(`[data-facet-list-presentation="${name}"]`)!;
+      const defaults = ["categories", "price-and-stock"];
+      const assertState = (name: string, values: string[]) => {
+        expect(JSON.parse(root(name).dataset.facetExpandedValues!)).toEqual(values);
+        for (const trigger of root(name).querySelectorAll<HTMLElement>("[data-facet-item-value]")) {
+          expect(trigger.getAttribute("aria-expanded")).toBe(String(values.includes(trigger.dataset.facetItemValue!)));
+        }
+      };
+      const toggle = (value: string) =>
+        fireEvent.click(root(presentation).querySelector(`[data-facet-item-value="${value}"]`)!);
+      openMobile();
+      expect(document.querySelectorAll("[data-facet-list-presentation]")).toHaveLength(2);
+      for (const name of ["desktop", "mobile"]) {
+        assertState(name, defaults);
+        expect(
+          Array.from(
+            root(name).querySelectorAll<HTMLElement>("[data-facet-item-value]"),
+            (node) => node.dataset.facetItemValue,
+          ),
+        ).toEqual(["categories", "price-and-stock", "language", "market-activity", "dimension:condition"]);
+      }
+      const other = presentation === "desktop" ? "mobile" : "desktop";
+      toggle("language");
+      assertState(presentation, [...defaults, "language"]);
+      assertState(other, defaults);
+      toggle("categories");
+      assertState(presentation, ["price-and-stock", "language"]);
+      assertState(other, defaults);
+      toggle("dimension:condition");
+      assertState(presentation, ["price-and-stock", "language", "dimension:condition"]);
+      assertState(other, defaults);
+      view.rerender(<SearchPage {...props} data={{ ...searchResponse, facets: [] }} />);
+      assertState(presentation, ["price-and-stock", "language"]);
+      assertState(other, defaults);
+      view.rerender(<SearchPage {...props} />);
+      assertState(presentation, ["price-and-stock", "language"]);
+      assertState(other, defaults);
+      fireEvent.click(screen.getByRole("button", { name: "Close filters" }));
+      openMobile();
+      assertState(presentation, ["price-and-stock", "language"]);
+      assertState(other, defaults);
+      view.unmount();
+      render(<SearchPage {...props} />);
+      openMobile();
+      assertState("desktop", defaults);
+      assertState("mobile", defaults);
+    },
+  );
+
+  it("rejects duplicate dynamic facet values before rendering a section list", () => {
+    const facet = { id: "condition", kind: "dimension" as const, label: "Condition", values: [] };
+    expect(() => renderSearchPage({ data: { ...searchResponse, facets: [facet, facet] } })).toThrow(
+      "Duplicate Search facet section value",
+    );
+  });
+
+  it.each(["desktop", "mobile"] as const)(
+    "qualifies every simultaneous ARIA reference and retains %s keyboard focus",
+    async (presentation) => {
+      const user = userEvent.setup();
+      renderSearchPage({ committedSearch: "abra" });
+      const opener = screen.getByRole("button", { name: "Open filters" });
+      await user.click(opener);
+      await waitFor(() =>
+        expect(screen.getByRole("dialog", { name: "Filters" }).contains(document.activeElement)).toBe(true),
+      );
+      const ids = Array.from(document.querySelectorAll("[id]"), (node) => node.id);
+      expect(new Set(ids).size).toBe(ids.length);
+      for (const trigger of document.querySelectorAll<HTMLElement>("[data-facet-item-value]")) {
+        const root = trigger.closest<HTMLElement>("[data-facet-list-presentation]")!;
+        expect(trigger.id).toBe(`${root.id}-trigger-${trigger.dataset.facetItemValue}`);
+        const panel = document.getElementById(trigger.getAttribute("aria-controls")!)!;
+        expect(panel.id).toBe(`${root.id}-panel-${trigger.dataset.facetItemValue}`);
+        expect(panel.getAttribute("aria-labelledby")).toBe(trigger.id);
+      }
+      if (presentation === "desktop") {
+        await user.click(screen.getByRole("button", { name: "Close filters" }));
+        await waitFor(() => expect(document.activeElement).toBe(opener));
+      }
+      const root = document.querySelector(`[data-facet-list-presentation="${presentation}"]`)!;
+      const trigger = root.querySelector<HTMLElement>('[data-facet-item-value="language"]')!;
+      const before = Array.from(root.querySelectorAll("[data-facet-item-value]"), (node) =>
+        node.getAttribute("aria-expanded"),
+      );
+      trigger.focus();
+      expect(document.activeElement).toBe(trigger);
+      await user.keyboard("{Enter}");
+      expect(trigger.getAttribute("aria-expanded")).toBe("true");
+      expect(document.activeElement).toBe(trigger);
+      await user.keyboard(" ");
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
+      expect(document.activeElement).toBe(trigger);
+      expect(
+        Array.from(root.querySelectorAll("[data-facet-item-value]"), (node) => node.getAttribute("aria-expanded")),
+      ).toEqual(before);
+    },
+  );
+
   it("dispatches only base Result Set detail activation through search_result_selected", async () => {
     const events: unknown[] = [];
     const listener = (event: Event) => events.push((event as CustomEvent).detail);
@@ -452,18 +573,16 @@ describe("SearchPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open filters" }));
     const filterSheet = screen.getByRole("dialog", { name: "Filters" });
     const facetSummary = (container: HTMLElement) =>
-      Array.from(container.querySelectorAll<HTMLElement>("[id^=search-facet-]"))
-        .filter((group) => !group.id.includes("-panel-"))
-        .map((group) => ({
-          id: group.id.replace("search-facet-", ""),
-          label: group.querySelector("h3")?.textContent,
-          options: Array.from(group.querySelectorAll("button")).map((option) => {
-            const label = option.getAttribute("aria-label") ?? option.textContent ?? "";
-            const count = / \((\d+)\)$/.exec(label);
+      Array.from(container.querySelectorAll<HTMLElement>("[data-accordion-item-value]")).map((group) => ({
+        id: group.dataset.accordionItemValue,
+        label: group.querySelector("h3")?.textContent,
+        options: Array.from(group.querySelectorAll("button")).map((option) => {
+          const label = option.getAttribute("aria-label") ?? option.textContent ?? "";
+          const count = / \((\d+)\)$/.exec(label);
 
-            return { label: label.replace(/ \(\d+\)$/, ""), count: count ? Number(count[1]) : null };
-          }),
-        }));
+          return { label: label.replace(/ \(\d+\)$/, ""), count: count ? Number(count[1]) : null };
+        }),
+      }));
 
     expect(facetSummary(desktopRail!)).toEqual(facetSummary(filterSheet));
     expect(facetSummary(filterSheet)).toEqual(
@@ -472,7 +591,7 @@ describe("SearchPage", () => {
         expect.objectContaining({ id: "market-activity", label: "Market activity" }),
       ]),
     );
-    expect(filterSheet.querySelectorAll("[id^=search-facet-] button[aria-pressed] svg")).toHaveLength(0);
+    expect(filterSheet.querySelectorAll("[data-accordion-item-value] button[aria-pressed] svg")).toHaveLength(0);
   });
 
   it("allows wide desktop search result grids to use a third column", () => {
@@ -568,7 +687,7 @@ describe("SearchPage", () => {
     expect(headline.contains(foilSites[0]!)).toBe(true);
     expect(foilSites[0]!.textContent).toBe("chasing");
     expect(Array.from(headline.childNodes).map((node) => [node.nodeType, node.textContent])).toEqual([
-      [Node.TEXT_NODE, "Find cards, comics, figures, sneakers, and memorabilia worth "],
+      [Node.TEXT_NODE, "Find trading cards worth "],
       [Node.ELEMENT_NODE, "chasing"],
       [Node.TEXT_NODE, "."],
     ]);
@@ -580,6 +699,9 @@ describe("SearchPage", () => {
 
     // The hero search form is the existing one-search-input call site.
     const searchForm = heroView.getByRole("search");
+    expect(within(searchForm).getByRole("searchbox", { name: "Marketplace search" }).getAttribute("placeholder")).toBe(
+      "Search Charizard, Black Lotus, Dark Magician, Luffy...",
+    );
     fireEvent.change(within(searchForm).getByRole("searchbox", { name: "Marketplace search" }), {
       target: { value: "charizard" },
     });
@@ -623,6 +745,42 @@ describe("SearchPage", () => {
         "Verified supply, transparent pricing, and item-level market history help buyers move with confidence.",
       ),
     ).toBeTruthy();
+  });
+
+  it.each([
+    { match: "zero", title: "Find trading cards worth collecting." },
+    { match: "subword-only", title: "Find the chasingest trading cards." },
+    { match: "multiple whole-word", title: "Keep chasing trading cards worth chasing." },
+  ])("renders the entire hero title plain for $match matches without throwing", ({ title }) => {
+    titleOverrides.set("discovery.features.search.ui.searchPage.find.cards.comics.figures.sneakers.and", title);
+
+    renderSearchPage({ data: { ...searchResponse, total: 352 } });
+
+    const headline = screen.getByRole("heading", { level: 1 });
+    expect(headline.textContent).toBe(title);
+    expect(Array.from(headline.childNodes).map((node) => [node.nodeType, node.textContent])).toEqual([
+      [Node.TEXT_NODE, title],
+    ]);
+    expect(document.querySelectorAll(".ds-brand-foil-text")).toHaveLength(0);
+  });
+
+  it("foils the single whole-word hero subject after an earlier subword match", () => {
+    const title = "The chasingest cards worth chasing.";
+    titleOverrides.set("discovery.features.search.ui.searchPage.find.cards.comics.figures.sneakers.and", title);
+
+    renderSearchPage({ data: { ...searchResponse, total: 352 } });
+
+    const headline = screen.getByRole("heading", { level: 1 });
+    expect(headline.textContent).toBe(title);
+    const foilSites = document.querySelectorAll(".ds-brand-foil-text");
+    expect(foilSites).toHaveLength(1);
+    expect(headline.contains(foilSites[0]!)).toBe(true);
+    expect(foilSites[0]!.textContent).toBe("chasing");
+    expect(Array.from(headline.childNodes).map((node) => [node.nodeType, node.textContent])).toEqual([
+      [Node.TEXT_NODE, "The chasingest cards worth "],
+      [Node.ELEMENT_NODE, "chasing"],
+      [Node.TEXT_NODE, "."],
+    ]);
   });
 
   it.each(inkFoilRouteStateRows)(

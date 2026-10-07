@@ -1,0 +1,60 @@
+{
+  "grants": [
+    {
+      "file": ".github/workflows/platform-seed-packs-apply.yml",
+      "jobId": "apply",
+      "stepAnchor": "name:Verify and apply exact reviewed seed-packs payload#8",
+      "secretName": "DIGITALOCEAN_ACCESS_TOKEN",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-seed-packs-apply.yml",
+      "jobId": "apply",
+      "stepAnchor": "name:Verify and apply exact reviewed seed-packs payload#8",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-seed-packs-apply.yml",
+      "jobId": "apply",
+      "stepAnchor": "name:Verify and apply exact reviewed seed-packs payload#8",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-seed-packs-apply.yml",
+      "jobId": "apply",
+      "stepAnchor": "name:Verify and apply exact reviewed seed-packs payload#8",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-seed-packs-apply.yml",
+      "jobId": "apply",
+      "stepAnchor": "name:Verify and apply exact reviewed seed-packs payload#8",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-seed-packs-apply.yml",
+      "jobId": "apply",
+      "stepAnchor": "name:Verify and apply exact reviewed seed-packs payload#8",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-seed-packs-apply.yml",
+      "jobId": "apply",
+      "stepAnchor": "name:Verify seed-pack privacy and key isolation#9",
+      "secretName": "SPACES_ACCESS_ID",
+      "purpose": "terraform-infra"
+    },
+    {
+      "file": ".github/workflows/platform-seed-packs-apply.yml",
+      "jobId": "apply",
+      "stepAnchor": "name:Verify seed-pack privacy and key isolation#9",
+      "secretName": "SPACES_SECRET_KEY",
+      "purpose": "terraform-infra"
+    }
+  ]
+}

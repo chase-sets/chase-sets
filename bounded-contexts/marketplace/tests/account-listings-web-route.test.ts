@@ -38,6 +38,51 @@ const listingAvailability = {
   updated_at: "2026-04-17T00:00:00.000Z",
 };
 
+const insufficientHistorySellerMetrics = {
+  seller_account_id: "acc_1",
+  window_days: 30,
+  orders_created_count: 3,
+  seller_cancelled_count: 0,
+  cancellation_rate: null,
+  shipments_dispatched_count: 2,
+  shipments_on_time_count: 2,
+  on_time_shipment_rate: null,
+  disputes_resolved_count: 0,
+  disputes_against_seller_count: 0,
+  dispute_rate: null,
+  missing_responsibility_count: 0,
+  computed_at: "2026-07-01 00:00:00.123456+00",
+  updated_at: "2026-07-01 00:00:00.123456+00",
+};
+
+function stubAccountListingsReads(sellerMetrics: () => Promise<Response>) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: string | URL | Request) => {
+      const url = String(input);
+
+      if (url.includes("/api/auth/session")) {
+        return Promise.resolve(jsonResponse({ actor: sellerActor }));
+      }
+      if (url.includes("/api/marketplace/account/seller-metrics")) {
+        return sellerMetrics();
+      }
+      if (url.includes("/api/marketplace/account/listing-availability")) {
+        return Promise.resolve(jsonResponse(listingAvailability));
+      }
+      if (url.includes("/api/marketplace/account/sales/order-capacity")) {
+        return Promise.resolve(jsonResponse({ open_order_count: 4 }));
+      }
+
+      return Promise.resolve(jsonResponse({ items: [], total: 0, count: 0 }));
+    }),
+  );
+}
+
+function accountListingsLoaderArgs() {
+  return { request: new Request("http://localhost/account/listings"), params: {}, context: undefined } as never;
+}
+
 let restorePostWriteTokenStore: (() => void) | null = null;
 
 afterEach(() => {
@@ -304,6 +349,32 @@ describe("marketplace listings workbench route", () => {
     expect(bulkResult.bulkActionOutcomes.find((outcome) => outcome.listingId === "lst_2")).toMatchObject({
       outcome: "error",
     });
+  });
+
+  it("keeps successful null-rate Seller Reliability as insufficient history", async () => {
+    stubAccountListingsReads(async () => jsonResponse(insufficientHistorySellerMetrics));
+
+    const result = await listingsLoader(accountListingsLoaderArgs());
+
+    expect(result.sellerBehavioralMetrics).toEqual({ status: "available", summary: insufficientHistorySellerMetrics });
+  });
+
+  it.each<[string, () => Promise<Response>]>([
+    ["a rejected request", () => Promise.reject(new TypeError("fetch failed"))],
+    ["a non-2xx response", async () => jsonResponse({ error: "seller metrics unavailable" }, 503)],
+    [
+      "a mixed valid/invalid response",
+      async () => jsonResponse({ ...insufficientHistorySellerMetrics, dispute_rate: 0 }),
+    ],
+  ])("fails unusable Seller Reliability reads to unavailable: %s", async (_label, sellerMetrics) => {
+    stubAccountListingsReads(sellerMetrics);
+
+    const result = await listingsLoader(accountListingsLoaderArgs());
+
+    expect(result.sellerBehavioralMetrics).toEqual({ status: "unavailable" });
+    // Fail-soft: the rest of the account Listings reads still reach the page.
+    expect(result.listingAvailability.account_id).toBe("acc_1");
+    expect(result.openOrderCount).toBe(4);
   });
 
   it("withdraws selected listings in bulk", async () => {

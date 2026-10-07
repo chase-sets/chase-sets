@@ -10,10 +10,19 @@ import { createAggregateCommandHandler } from "@chase-sets/event-core/aggregate-
 import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import { buildTransportEvent } from "@chase-sets/event-core/test-support";
-import { bootstrapContextDatabase } from "@chase-sets/bounded-context-runtime";
+import { defineBoundedContextModule } from "@chase-sets/bounded-context-module";
+import {
+  bootstrapContextDatabase,
+  loadProjectionGroupGeneration,
+  rebuildProjectionGroup,
+  syncProjectionGroup,
+  type ContextProjectionGroup,
+} from "@chase-sets/bounded-context-runtime";
+import { createProjectionGroupWorkerRunner } from "@chase-sets/platform-runtime/worker";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import {
   closeMultiContextTestPools,
+  createMountedContextTestRuntime,
   createMultiContextTestDatabaseUrls,
   createMultiContextTestPools,
   ensureMultiContextTestDatabases,
@@ -40,6 +49,7 @@ import {
 import { buildCheckoutCartProjectionHandlers } from "./projection";
 import { listCartLines, listOwnCartLines, type CheckoutCartLineRow } from "./queries";
 import { checkoutCartSchemaMigrations, checkoutCartSchemaSql } from "./schema";
+import { buildCheckoutMarketplaceSellerOptionsProjectionHandlers } from "../integrations/marketplace/marketplace-projection";
 
 /**
  * DB-tier replacement for the former seller-options readiness interpreter test.
@@ -2193,4 +2203,537 @@ describeDb("post-claim read authority against the claim alias in Postgres", () =
     // And the claimant still reads both its own and the claimed source's lines.
     expect(claimant.lineOutcomes.map((outcome) => outcome.lineId).sort()).toEqual(["cli_own", "cli_source"]);
   });
+});
+
+describeDb("seller-options revision rebuild from source history", () => {
+  const projectionName = "checkout-marketplace-listing-options-projection";
+  const sourceNames = ["marketplace", "catalog", "ordering"] as const;
+  const names = ["checkout", ...sourceNames] as const;
+  const callers = ["bootstrap", "worker", "operator"] as const;
+  type Caller = (typeof callers)[number];
+  let databases: Readonly<Record<(typeof names)[number], PgTransactionalPool>>;
+  const declared = checkoutModule.projectionGroups!.find((group) => group.projectionName === projectionName)!;
+  const sourceModules = sourceNames.map((contextName) =>
+    defineBoundedContextModule({
+      manifest: { contextName, apiBasePath: `/${contextName}`, streamPrefix: `${contextName}.` },
+      schemaSql: "",
+      createServices: () => ({}),
+      buildApis: () => [],
+    }),
+  );
+
+  beforeAll(async () => {
+    const urls = createMultiContextTestDatabaseUrls(requireDatabaseBaseUrl(), names, "seller_options_rebuild");
+    await ensureMultiContextTestDatabases(requireDatabaseBaseUrl(), urls);
+    databases = createMultiContextTestPools(urls);
+  });
+  beforeEach(async () => {
+    await resetMultiContextTestSchemas(databases);
+    await bootstrapContextDatabase(checkoutModule, databases.checkout);
+    for (const module of sourceModules) {
+      await bootstrapContextDatabase(module, databases[module.contextName as (typeof sourceNames)[number]]);
+    }
+    await seedHistory();
+    await seedUnrelatedRows();
+  });
+  afterAll(async () => closeMultiContextTestPools(databases));
+
+  function createGroup(definition = declared): ContextProjectionGroup {
+    const runtime = createMountedContextTestRuntime([
+      ...sourceModules.map((module) => ({
+        contextName: module.contextName,
+        mountRole: "source-only" as const,
+        module,
+        pool: databases[module.contextName as (typeof sourceNames)[number]],
+        ports: {},
+      })),
+      {
+        contextName: "checkout",
+        module: {
+          ...checkoutModule,
+          eventSubscriptions: checkoutModule.eventSubscriptions!.filter(
+            (entry) => entry.projectionName === projectionName,
+          ),
+          projectionGroups: [definition],
+          projectionHandlerSets: () => [],
+          buildSubscriptions: (services: Parameters<NonNullable<typeof checkoutModule.buildSubscriptions>>[0]) =>
+            checkoutModule.buildSubscriptions!(services).filter((entry) => entry.projectionName === projectionName),
+        },
+        pool: databases.checkout,
+        ports: {},
+      },
+    ]);
+    return runtime.projectionGroups.find((group) => group.projectionName === projectionName)!;
+  }
+
+  async function run(caller: Caller, group = createGroup()) {
+    if (caller === "bootstrap") return syncProjectionGroup(group);
+    if (caller === "operator") return rebuildProjectionGroup(group);
+    const worker = createProjectionGroupWorkerRunner(group);
+    for (let pass = 0; pass < 20; pass += 1) {
+      const result = await worker.runOnce();
+      if (result.blockedStreams) throw new Error("seller-options replay blocked");
+      if (result.processed === 0) return;
+    }
+    throw new Error("seller-options worker did not catch up");
+  }
+
+  async function ownedRows() {
+    // JSON preserves every column, numeric value, JSON field and timestamp,
+    // independently of driver parsers and physical column order after migration.
+    const options = await databases.checkout.query(
+      "SELECT to_jsonb(option) AS row FROM checkout_marketplace_seller_options AS option ORDER BY listing_id",
+    );
+    const availability = await databases.checkout.query(
+      "SELECT to_jsonb(availability) AS row FROM checkout_marketplace_seller_availability AS availability ORDER BY account_id",
+    );
+    return { options: options.rows, availability: availability.rows };
+  }
+
+  async function unrelatedRows() {
+    const tables = [
+      "checkout_cart_line_pages",
+      "checkout_supply_items",
+      "checkout_supply_holds",
+      "checkout_seller_accounts",
+    ];
+    return Promise.all(
+      tables.map(async (table) => (await databases.checkout.query(`SELECT to_jsonb(t) FROM ${table} t`)).rows),
+    );
+  }
+
+  async function persistedState() {
+    const checkpoints = await databases.checkout.query(
+      "SELECT checkpoint_key, last_global_position::text FROM event_subscription_checkpoints ORDER BY checkpoint_key",
+    );
+    const revisions = await databases.checkout.query(
+      "SELECT projection_revision FROM event_projection_group_revisions WHERE target_context_name = 'checkout' AND projection_name = $1",
+      [projectionName],
+    );
+    const generation = await loadProjectionGroupGeneration(databases.checkout, {
+      targetContextName: "checkout",
+      projectionName,
+    });
+    return { rows: await ownedRows(), checkpoints: checkpoints.rows, revisions: revisions.rows, generation };
+  }
+
+  async function retainOldRevision(shape: "populated" | "empty" | "partial" = "populated") {
+    await databases.checkout.query(
+      "UPDATE event_projection_group_revisions SET projection_revision = 2 WHERE projection_name = $1",
+      [projectionName],
+    );
+    if (shape === "empty") {
+      await databases.checkout.query("DELETE FROM checkout_marketplace_seller_options");
+      await databases.checkout.query("DELETE FROM checkout_marketplace_seller_availability");
+      return;
+    }
+    await databases.checkout.query(`UPDATE checkout_marketplace_seller_options
+      SET product_summary = 'obsolete creation value', product_measure_snapshot = NULL,
+          price_currency_code = NULL, inventory_item_id = NULL, supply_total_quantity = 999,
+          active_held_quantity = 999, evidence = '[]'::jsonb`);
+    await databases.checkout.query(`INSERT INTO checkout_marketplace_seller_options
+      (listing_id, seller_account_id, product_id, catalog_catalog_item_id, price_amount,
+       listing_quantity_cap, status, updated_at)
+      VALUES ('lst_obsolete', 'acc_obsolete', 'prd_obsolete', 'cat_obsolete', 999, 1, 'active', now())`);
+    await databases.checkout.query(`UPDATE checkout_marketplace_seller_availability SET available = true`);
+    await databases.checkout.query(`INSERT INTO checkout_marketplace_seller_availability
+      VALUES ('acc_obsolete', false, 99, now())`);
+    if (shape === "partial") {
+      await databases.checkout.query(
+        "DELETE FROM checkout_marketplace_seller_options WHERE listing_id = 'lst_published'",
+      );
+      await databases.checkout.query(
+        "DELETE FROM checkout_marketplace_seller_availability WHERE account_id = 'acc_seller'",
+      );
+    }
+  }
+
+  it.each(
+    callers.flatMap((caller) => (["populated", "empty", "partial"] as const).map((shape) => ({ caller, shape }))),
+  )(
+    "$caller rebuilds $shape revision-2 rows to the normalized full clean replay and retains the steady state",
+    async ({ caller, shape }) => {
+      await run("bootstrap");
+      const clean = await ownedRows();
+      const sentinels = await unrelatedRows();
+      expect(clean.options).toHaveLength(2);
+      expect(clean.availability).toHaveLength(1);
+      expect(clean.options).toContainEqual({
+        row: expect.objectContaining({
+          listing_id: "lst_created",
+          listing_stream_version: 1,
+          product_summary: "Historical creation",
+          price_currency_code: "USD",
+          supply_total_quantity: 12,
+          active_held_quantity: 3,
+        }),
+      });
+      const checkpoints = (await persistedState()).checkpoints;
+      await retainOldRevision(shape);
+      expect(await ownedRows()).not.toEqual(clean);
+      await run(caller);
+      expect(await ownedRows()).toEqual(clean);
+      expect(await unrelatedRows()).toEqual(sentinels);
+      expect((await persistedState()).checkpoints).toEqual(checkpoints);
+      expect((await persistedState()).revisions).toEqual([{ projection_revision: 3 }]);
+      await run("operator");
+      expect(await ownedRows()).toEqual(clean);
+      const steady = await persistedState();
+      await run(caller === "operator" ? "bootstrap" : caller);
+      expect(await persistedState()).toEqual(steady);
+      expect(await unrelatedRows()).toEqual(sentinels);
+    },
+  );
+
+  it("detects the prior replay-only policy mutant through a normalized full-row mismatch", async () => {
+    await run("bootstrap");
+    const clean = await ownedRows();
+    await retainOldRevision();
+    await run("bootstrap", createGroup({ ...declared, resetStrategy: "replay-only" }));
+    const retained = await ownedRows();
+    expect(retained).not.toEqual(clean);
+    expect(retained.options).toContainEqual({
+      row: expect.objectContaining({
+        listing_id: "lst_created",
+        product_summary: "obsolete creation value",
+        listing_stream_version: 1,
+      }),
+    });
+    expect(retained.options).toContainEqual({ row: expect.objectContaining({ listing_id: "lst_obsolete" }) });
+    expect((await persistedState()).revisions).toEqual([{ projection_revision: 3 }]);
+    await run("operator");
+    expect(await ownedRows()).toEqual(clean);
+  });
+
+  it("detects a foreign-table reset mutant through the unrelated sentinels", async () => {
+    await run("bootstrap");
+    const sentinels = await unrelatedRows();
+    await run(
+      "operator",
+      createGroup({
+        ...declared,
+        ownedTables: [...declared.ownedTables, "checkout_cart_line_pages"],
+      }),
+    );
+    expect(await unrelatedRows()).not.toEqual(sentinels);
+    expect((await databases.checkout.query("SELECT * FROM checkout_cart_line_pages")).rows).toEqual([]);
+  });
+
+  it("detects an inner-commit reset mutant that changes serving rows before reporting failure", async () => {
+    await run("bootstrap");
+    await retainOldRevision();
+    const before = await persistedState();
+    const group = createGroup();
+    const lastRunner = group.subscriptionRunners.at(-1)!;
+    await expect(
+      run("bootstrap", {
+        ...group,
+        reset: (context) => group.reset(context),
+        subscriptionRunners: group.subscriptionRunners.map((runner) =>
+          runner !== lastRunner
+            ? runner
+            : {
+                ...runner,
+                reset: async (context, options) => {
+                  await runner.reset(context, options);
+                  throw new Error("injected failure after inner commit");
+                },
+              },
+        ),
+      }),
+    ).rejects.toThrow("injected failure after inner commit");
+    const after = await persistedState();
+    expect(after.rows).toEqual({ options: [], availability: [] });
+    expect(after.rows).not.toEqual(before.rows);
+    expect(after.checkpoints).toEqual(before.checkpoints);
+    expect(after.revisions).toEqual(before.revisions);
+    expect(after.generation).toEqual(before.generation);
+  });
+
+  it.each(callers)("%s rolls back a failure after table and checkpoint reset, then retries", async (caller) => {
+    await run("bootstrap");
+    const clean = await ownedRows();
+    await retainOldRevision();
+    const before = await persistedState();
+    const sentinels = await unrelatedRows();
+    const group = createGroup();
+    const lastRunner = group.subscriptionRunners.at(-1)!;
+    let sawEmptyRows = false;
+    const failing: ContextProjectionGroup = {
+      ...group,
+      subscriptionRunners: group.subscriptionRunners.map((runner) =>
+        runner !== lastRunner
+          ? runner
+          : {
+              ...runner,
+              reset: async (context, options) => {
+                await runner.reset(context, options);
+                const rows = await options!.db!.query(
+                  "SELECT 1 FROM checkout_marketplace_seller_options UNION ALL SELECT 1 FROM checkout_marketplace_seller_availability",
+                );
+                sawEmptyRows = rows.rows.length === 0;
+                throw new Error("injected failure after checkpoint reset");
+              },
+            },
+      ),
+    };
+    await expect(run(caller, failing)).rejects.toThrow("injected failure after checkpoint reset");
+    expect(sawEmptyRows).toBe(true);
+    expect(await persistedState()).toEqual(before);
+    expect(group.getStatus().storedProjectionRevision).not.toBe(3);
+    await run(caller);
+    expect(await ownedRows()).toEqual(clean);
+    expect(await unrelatedRows()).toEqual(sentinels);
+  });
+
+  it.each(callers)("%s leaves a committed reset rebuilding after a crash and recovers on restart", async (caller) => {
+    await run("bootstrap");
+    const clean = await ownedRows();
+    await retainOldRevision();
+    const group = createGroup();
+    const failing: ContextProjectionGroup = {
+      ...group,
+      subscriptionRunners: group.subscriptionRunners.map((runner) => ({
+        ...runner,
+        runOnce: async () => {
+          throw new Error("injected crash before replay");
+        },
+      })),
+    };
+    await expect(run(caller, failing)).rejects.toThrow("injected crash before replay");
+    const failed = await persistedState();
+    expect(failed.rows).toEqual({ options: [], availability: [] });
+    expect(failed.checkpoints).toEqual([]);
+    expect(failed.revisions).toEqual([{ projection_revision: 2 }]);
+    expect(failed.generation).toMatchObject({ state: "rebuilding" });
+    await run(caller);
+    expect(await ownedRows()).toEqual(clean);
+    expect((await persistedState()).generation).toMatchObject({ state: "active", rebuildingGeneration: null });
+  });
+
+  it.each(callers)("%s refuses a poisoned stream without syncing the revision and retries", async (caller) => {
+    await run("bootstrap");
+    const clean = await ownedRows();
+    await retainOldRevision();
+    await databases.checkout.query(`CREATE FUNCTION reject_seller_option() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'injected seller-options poison'; END; $$`);
+    await databases.checkout
+      .query(`CREATE TRIGGER reject_seller_option BEFORE INSERT ON checkout_marketplace_seller_options
+      FOR EACH ROW EXECUTE FUNCTION reject_seller_option()`);
+    try {
+      await expect(run(caller)).rejects.toThrow();
+      const failed = await persistedState();
+      expect(failed.rows.options).toEqual([]);
+      expect(failed.revisions).toEqual([{ projection_revision: 2 }]);
+      expect(failed.generation).toMatchObject({ state: "rebuilding" });
+      const group = createGroup();
+      await group.refreshStatus();
+      for (const runner of group.subscriptionRunners) await runner.refreshStatus();
+      expect(group.getStatus()).toMatchObject({ revisionStale: true });
+      expect(group.getStatus().blockedStreamCount).toBeGreaterThan(0);
+    } finally {
+      await databases.checkout.query("DROP TRIGGER reject_seller_option ON checkout_marketplace_seller_options");
+      await databases.checkout.query("DROP FUNCTION reject_seller_option()");
+    }
+    await run(caller);
+    expect(await ownedRows()).toEqual(clean);
+  });
+
+  it.each(callers)(
+    "%s keeps replayed rows and checkpoints consistent when revision completion fails",
+    async (caller) => {
+      await run("bootstrap");
+      const clean = await ownedRows();
+      const checkpoints = (await persistedState()).checkpoints;
+      await retainOldRevision();
+      const group = createGroup();
+      await databases.checkout
+        .query(`CREATE FUNCTION reject_seller_options_revision() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'injected revision completion failure'; END; $$`);
+      await databases.checkout.query(`CREATE TRIGGER reject_seller_options_revision BEFORE INSERT OR UPDATE
+      ON event_projection_group_revisions FOR EACH ROW EXECUTE FUNCTION reject_seller_options_revision()`);
+      try {
+        await expect(run(caller, group)).rejects.toThrow("injected revision completion failure");
+        const failed = await persistedState();
+        expect(failed.rows).toEqual(clean);
+        expect(failed.checkpoints).toEqual(checkpoints);
+        expect(failed.revisions).toEqual([{ projection_revision: 2 }]);
+        expect(failed.generation).toMatchObject({
+          activeGeneration: "1",
+          rebuildingGeneration: "2",
+          state: "rebuilding",
+        });
+        expect(group.getStatus().storedProjectionRevision).not.toBe(3);
+      } finally {
+        await databases.checkout.query(
+          "DROP TRIGGER reject_seller_options_revision ON event_projection_group_revisions",
+        );
+        await databases.checkout.query("DROP FUNCTION reject_seller_options_revision()");
+      }
+      await run(caller);
+      expect(await ownedRows()).toEqual(clean);
+      expect((await persistedState()).revisions).toEqual([{ projection_revision: 3 }]);
+    },
+  );
+
+  it("rebuilds obsolete rows to an empty source history through every caller", async () => {
+    for (const source of sourceModules) {
+      const sourcePool = databases[source.contextName as (typeof sourceNames)[number]];
+      await resetMultiContextTestSchemas({ [source.contextName]: sourcePool });
+      await bootstrapContextDatabase(source, sourcePool);
+    }
+    await run("bootstrap");
+    const clean = await ownedRows();
+    expect(clean).toEqual({ options: [], availability: [] });
+    const sentinels = await unrelatedRows();
+    for (const caller of callers) {
+      await retainOldRevision();
+      await run(caller);
+      expect(await ownedRows()).toEqual(clean);
+      expect(await unrelatedRows()).toEqual(sentinels);
+      expect((await persistedState()).revisions).toEqual([{ projection_revision: 3 }]);
+    }
+  });
+
+  it("agrees on fresh and ledger-upgraded schema and refuses a foreign-owned FK without cascading", async () => {
+    await run("bootstrap");
+    const clean = await ownedRows();
+    const columns = () =>
+      databases.checkout.query(`SELECT table_name, column_name, data_type, is_nullable, column_default
+      FROM information_schema.columns WHERE table_name IN
+      ('checkout_marketplace_seller_options', 'checkout_marketplace_seller_availability') ORDER BY table_name, column_name`);
+    const freshColumns = (await columns()).rows;
+    await databases.checkout.query(`ALTER TABLE checkout_marketplace_seller_options
+      DROP COLUMN price_currency_code, DROP COLUMN listing_stream_version`);
+    await databases.checkout.query(`DELETE FROM bounded_context_schema_migrations
+      WHERE migration_id = '20260907_checkout_marketplace_listing_price_currency'`);
+    await bootstrapContextDatabase(checkoutModule, databases.checkout);
+    expect((await columns()).rows).toEqual(freshColumns);
+    await retainOldRevision();
+    await run("bootstrap");
+    expect(await ownedRows()).toEqual(clean);
+    const incoming = await databases.checkout.query(`SELECT conname FROM pg_constraint
+      WHERE contype = 'f' AND confrelid IN ('checkout_marketplace_seller_options'::regclass,
+      'checkout_marketplace_seller_availability'::regclass)`);
+    expect(incoming.rows).toEqual([]);
+    await databases.checkout.query(`CREATE UNLOGGED TABLE foreign_owned_reference (
+      listing_id text PRIMARY KEY REFERENCES checkout_marketplace_seller_options(listing_id))`);
+    await databases.checkout.query("INSERT INTO foreign_owned_reference VALUES ('lst_created')");
+    const before = await persistedState();
+    await expect(run("operator")).rejects.toThrow(/foreign key constraint/);
+    expect(await persistedState()).toEqual(before);
+    expect((await databases.checkout.query("SELECT * FROM foreign_owned_reference")).rows).toEqual([
+      { listing_id: "lst_created" },
+    ]);
+    await databases.checkout.query("DROP TABLE foreign_owned_reference");
+    await run("operator");
+    expect(await ownedRows()).toEqual(clean);
+  });
+
+  it("keeps created, price and availability equal-version redeliveries from overwriting current rows", async () => {
+    await run("bootstrap");
+    const handlers = buildCheckoutMarketplaceSellerOptionsProjectionHandlers(databases.checkout);
+    const clean = await ownedRows();
+    const deliver = async (type: string, streamId: string, data: Record<string, unknown>, version: number) =>
+      handlers[type]!(buildTransportEvent(type, data, { streamId, streamVersion: version }));
+    await deliver(
+      "marketplace.listing.created",
+      "marketplace.listing-lst_created",
+      {
+        ...listingData("lst_created"),
+        productSummary: "must not replace",
+        priceAmount: "999.00",
+      },
+      1,
+    );
+    await deliver(
+      "marketplace.listing.price-updated",
+      "marketplace.listing-lst_published",
+      { priceAmount: "999.00" },
+      2,
+    );
+    await deliver(
+      "marketplace.seller-listing-availability.enabled",
+      "marketplace.seller-listing-availability-acc_seller",
+      { accountId: "acc_seller" },
+      1,
+    );
+    expect(await ownedRows()).toEqual(clean);
+  });
+
+  function listingData(listingId: string) {
+    return {
+      listingId,
+      accountId: "acc_seller",
+      inventoryItemId: "inv_history",
+      catalogItemId: "cat_history",
+      productId: "prd_history",
+      productSummary: "Historical creation",
+      priceAmount: "12.50",
+      priceCurrencyCode: "USD",
+      quantityCap: 8,
+      productMeasureSnapshot: { productId: "prd_history", measureVersion: "historical-v1" },
+      evidenceRequirements: { policyVersion: 1 },
+      evidence: [{ photoId: "photo_history", status: "active" }],
+    };
+  }
+
+  async function seedHistory() {
+    const marketplace = createPostgresEventStore({ pool: databases.marketplace });
+    for (const listingId of ["lst_created", "lst_published"]) {
+      await marketplace.appendToStream({
+        streamId: `marketplace.listing-${listingId}`,
+        expectedVersion: "no_stream",
+        context,
+        events: [
+          { eventType: "marketplace.listing.created", payload: listingData(listingId) },
+          ...(listingId === "lst_published"
+            ? [
+                {
+                  eventType: "marketplace.listing.price-updated",
+                  payload: { priceAmount: "15.75", priceCurrencyCode: "USD" },
+                },
+                { eventType: "marketplace.listing.published", payload: {} },
+              ]
+            : []),
+        ],
+      });
+    }
+    await marketplace.appendToStream({
+      streamId: "marketplace.seller-listing-availability-acc_seller",
+      expectedVersion: "no_stream",
+      context,
+      events: [{ eventType: "marketplace.seller-listing-availability.disabled", payload: { accountId: "acc_seller" } }],
+    });
+    await createPostgresEventStore({ pool: databases.catalog }).appendToStream({
+      streamId: "catalog.catalog-item-cat_history",
+      expectedVersion: "no_stream",
+      context,
+      events: [
+        {
+          eventType: "catalog.catalog-item.product-measures-resolved",
+          payload: { catalogItemId: "cat_history", products: [] },
+        },
+      ],
+    });
+    await createPostgresEventStore({ pool: databases.ordering }).appendToStream({
+      streamId: "ordering.seller-capacity-acc_seller",
+      expectedVersion: "no_stream",
+      context,
+      events: [{ eventType: "ordering.seller-capacity.reached", payload: { accountId: "acc_seller" } }],
+    });
+  }
+
+  async function seedUnrelatedRows() {
+    await databases.checkout.query(`INSERT INTO checkout_supply_items (item_id, total_quantity, last_stream_version)
+      VALUES ('inv_history', 12, 7)`);
+    await databases.checkout
+      .query(`INSERT INTO checkout_supply_holds (hold_id, item_id, quantity, status, last_stream_version)
+      VALUES ('hold_history', 'inv_history', 3, 'active', 1)`);
+    await databases.checkout.query(`INSERT INTO checkout_seller_accounts (account_id, display_name, slug)
+      VALUES ('acc_sentinel', 'Preserved seller', 'preserved-seller')`);
+    await databases.checkout.query(`INSERT INTO checkout_cart_line_pages
+      (buyer_account_id, line_id, catalog_catalog_item_id, product_id, item_title, quantity, fulfillment_mode, availability_state, updated_at)
+      VALUES ('acc_buyer', 'cli_sentinel', 'cat_history', 'prd_history', 'Preserved cart', 1, 'optimize', 'available', now())`);
+  }
 });

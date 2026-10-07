@@ -88,6 +88,11 @@ describe("settlement payment source projection", () => {
 
   it("records one replay-idempotent protection reserve contribution per captured order", async () => {
     const { db, queryMock } = createDb();
+    queryMock.mockImplementation(async (sql) => ({
+      rows: sql.includes("INSERT INTO settlement_protection_reserve_facts")
+        ? [{ fact_id: "protection_contribution_pay_1_ord_1" } as never]
+        : [],
+    }));
     const handlers = buildSettlementPaymentInputProjectionHandlers(db);
 
     await handlers["payments.payment-captured"]!(

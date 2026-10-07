@@ -9,6 +9,20 @@ import {
 import { businessLiteralAllowlist } from "./business-literal-allowlist.mjs";
 
 describe("business literal guard", () => {
+  it("admits only the Q1 fixed grant lifetime in both mint and renewal", () => {
+    const relativeFile = "bounded-contexts/catalog/features/operator-session/api/grants.ts";
+    const content = "`SELECT t + interval '30 days'; UPDATE grants SET expiry = instant.t + interval '30 days'`";
+    expect(findBusinessLiteralGuardViolations({ relativeFile, content })).toEqual([]);
+    expect(
+      findBusinessLiteralGuardViolations({ relativeFile: relativeFile.replace("grants.ts", "other.ts"), content }),
+    ).toHaveLength(2);
+    expect(
+      findBusinessLiteralGuardViolations({ relativeFile, content: content.replaceAll("30 days", "31 days") }),
+    ).toHaveLength(2);
+    expect(
+      findBusinessLiteralGuardViolations({ relativeFile, content: content + "; \"SELECT interval '2 days'\"" }),
+    ).toHaveLength(1);
+  });
   it("guards only bounded-context .ts source, excluding tests", () => {
     expect(
       isBusinessLiteralGuardedFile("bounded-contexts/settlement/features/payouts/read-model/queries.ts", ".ts"),

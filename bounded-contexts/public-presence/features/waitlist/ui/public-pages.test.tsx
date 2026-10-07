@@ -1,15 +1,44 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { act, cleanup, fireEvent, render as renderWithoutRouter, type RenderOptions } from "@testing-library/react";
-import type { ReactNode } from "react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render as renderWithoutRouter,
+  within,
+  type RenderOptions,
+} from "@testing-library/react";
+import { Children, type ComponentProps, type ReactNode } from "react";
 import { MemoryRouter } from "react-router";
+import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { resolveChaseMotion, type StaggerProps } from "@chase-sets/design-system";
 import ts from "@chase-sets/typescript-compiler-api";
-import type { PublicMarketplaceFeeSchedule } from "./fee-comparison-calculator";
-import { PublicPresenceHomePage } from "./public-pages";
+import { checkoutFeeTranslationValues, fallbackCheckoutFeePreview } from "./checkout-fee-preview";
+import { landingFaqEntries } from "./landing-faq";
+import { developerArticles } from "../../developer-portal/domain/developer-article-catalog";
+import { DeveloperArticlePage, DeveloperPortalPage } from "../../developer-portal/ui/developer-pages";
+import { helpCategories, publicHelpArticles } from "../../help/domain/article-catalog";
+import { HelpArticlePage, HelpCategoryPage, HelpHubPage } from "../../help/ui/help-pages";
+import { PrivacyPolicyRouteAdapter } from "../../policies/ui/policy-artifact-route-adapter";
+import { ComparePage } from "./compare-page";
+import { PublicInfoPage, PublicPresenceHomePage } from "./public-pages";
 import { publicPresenceT as t } from "./public-presence-translator";
+import { WaitlistSuccessPage } from "./success-page";
 
 const titleOverrides = vi.hoisted(() => new Map<string, string>());
+const staggerRenders = vi.hoisted(() => [] as StaggerProps[]);
+vi.mock("@chase-sets/design-system", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@chase-sets/design-system")>();
+  return {
+    ...original,
+    Surface: (props: ComponentProps<typeof original.Surface>) => <original.Surface {...props} data-test-surface />,
+    Stagger: (props: ComponentProps<typeof original.Stagger>) => {
+      staggerRenders.push(props);
+      return <original.Stagger {...props} />;
+    },
+  };
+});
 vi.mock("./public-presence-translator", async (importOriginal) => {
   const original = await importOriginal<typeof import("./public-presence-translator")>();
   return {
@@ -56,9 +85,221 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   titleOverrides.clear();
+  staggerRenders.length = 0;
+});
+
+// The seven landing identities (#8503), in order, for both experiment variants.
+const landingSectionOrder = [
+  "hero",
+  "game_roster",
+  "open_offers",
+  "fee_comparison",
+  "founders_offer",
+  "final_cta",
+  "faq",
+] as const;
+// Section, disclosure and CTA identities retired from `/` by #8503 (AC4).
+const retiredLandingIdentities = [
+  "seller_tools",
+  "fee_calculator",
+  "fee_calculator_source_note",
+  "launch_timeline",
+  "launch_timeline_wave_qualification",
+  "product_preview",
+  "product_preview_trust",
+  "founder_story",
+] as const;
+
+const landingVariantCases = [
+  { variant: "seller_first_v1", pagePath: "/" },
+  { variant: "seller_first_v2", pagePath: "/?intent=buy" },
+] as const;
+
+const disclosureTargets = [["fee_comparison", "fee_comparison_source_note"]] as const;
+
+describe("landing fine-print disclosures", () => {
+  it.each(landingVariantCases)(
+    "renders $variant at $pagePath with one collapsed mounted disclosure",
+    ({ variant, pagePath }) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(JSON.stringify({ items: [] }))),
+      );
+      const { container } = render(<PublicPresenceHomePage actionData={null} source={{ ...source, pagePath }} />);
+      const disclosures = container.querySelectorAll("[data-landing-disclosure]");
+      expect([...disclosures].map((item) => item.getAttribute("data-landing-disclosure"))).toEqual(
+        disclosureTargets.map(([, target]) => target),
+      );
+      expect([...disclosures].map((item) => item.querySelector("button")?.getAttribute("aria-expanded"))).toEqual([
+        "false",
+      ]);
+      expect(
+        container.querySelector(
+          '[data-public-presence-section="fee_comparison"] [data-landing-disclosure="fee_comparison_source_note"]',
+        ),
+      ).not.toBeNull();
+      expect(container.textContent).toContain(t("publicPresence.home.sellerEconomics.comparison.sourceNote"));
+      expect(container.textContent).toContain(variant === "seller_first_v2" ? "The cards you need" : "marketplace");
+    },
+  );
+
+  it("keeps the source note and every FAQ answer in SSR with closed triggers (AC2)", () => {
+    const html = renderToString(
+      <MemoryRouter>
+        <PublicPresenceHomePage actionData={null} source={source} />
+      </MemoryRouter>,
+    );
+    // One fine-print disclosure plus the four collapsed FAQ items.
+    expect(html.match(/aria-expanded="false"/g) ?? []).toHaveLength(1 + landingFaqEntries.length);
+    expect(html.match(/aria-expanded="true"/g) ?? []).toHaveLength(0);
+    const text = html.replaceAll("&#x27;", "'").replaceAll("&amp;", "&");
+    expect(text).toContain(t("publicPresence.home.sellerEconomics.comparison.sourceNote"));
+    for (const { question, answer } of landingFaqEntries) {
+      expect(text).toContain(t(question));
+      expect(text).toContain(t(answer, checkoutFeeTranslationValues(fallbackCheckoutFeePreview)));
+    }
+  });
+
+  it.each(landingVariantCases)(
+    "emits one bounded disclosure_opened for the source note across a remount, and none for FAQ items (AC4) in $variant",
+    ({ variant, pagePath }) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(JSON.stringify({ items: [] }))),
+      );
+      window.dataLayer = [];
+      const pageSource = { ...source, pagePath };
+      const { container, rerender } = render(<PublicPresenceHomePage actionData={null} source={pageSource} />);
+      const opened = () => (window.dataLayer ?? []).filter((event) => event.event === "disclosure_opened");
+      const sourceNote = () =>
+        container.querySelector<HTMLButtonElement>('[data-landing-disclosure="fee_comparison_source_note"] button')!;
+      expect(opened()).toHaveLength(0);
+
+      // FAQ items (prior art compare_faq) open and close without any event.
+      const faqSection = container.querySelector('[data-public-presence-section="faq"]')!;
+      const faqTriggers = [...faqSection.querySelectorAll<HTMLButtonElement>("button")];
+      expect(faqTriggers).toHaveLength(landingFaqEntries.length);
+      for (const trigger of faqTriggers) {
+        fireEvent.click(trigger);
+        expect(trigger.getAttribute("aria-expanded")).toBe("true");
+      }
+      expect(opened()).toHaveLength(0);
+
+      fireEvent.click(sourceNote());
+      expect(sourceNote().getAttribute("aria-expanded")).toBe("true");
+      const expected = [
+        { event: "disclosure_opened", section: "fee_comparison", target: "fee_comparison_source_note", variant },
+      ];
+      expect(opened()).toEqual(expected);
+      fireEvent.click(sourceNote());
+      fireEvent.click(sourceNote());
+      expect(opened()).toEqual(expected);
+
+      // A new page view (new source object) resets the per-view dedupe.
+      rerender(<PublicPresenceHomePage actionData={null} source={{ ...pageSource }} />);
+      fireEvent.click(sourceNote());
+      fireEvent.click(sourceNote());
+      expect(opened()).toEqual([...expected, ...expected]);
+    },
+  );
+
+  it("keeps no emitter for a retired landing identity in public-pages.tsx (AC4)", () => {
+    for (const identity of retiredLandingIdentities) {
+      expect(publicPagesSource, identity).not.toContain(identity);
+    }
+  });
 });
 
 describe("public waitlist form migration smoke", () => {
+  it("renders the open_offers OfferCard outside every Surface ancestor without changing content order", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+      ),
+    );
+    window.dataLayer = [];
+    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
+    const section = container.querySelector('[data-public-presence-section="open_offers"]');
+    expect(section).not.toBeNull();
+    const titles = Array.from(section!.querySelectorAll("h3"));
+    const offerTitle = titles.find(
+      (element) => element.textContent === t("publicPresence.home.openOffers.after.offerCard.title"),
+    );
+    expect(offerTitle).toBeDefined();
+    expect(offerTitle!.closest("[data-test-surface]")).toBeNull();
+    expect(offerTitle!.closest(".ds-glass")?.textContent).toContain(
+      t("publicPresence.home.openOffers.after.offerCard.details"),
+    );
+    expect(titles.map((title) => title.textContent)).toEqual([
+      t("publicPresence.home.openOffers.after.offerCard.title"),
+    ]);
+  });
+
+  it.each(landingVariantCases)(
+    "renders open_offers as #open-offers with its title, one OfferCard and the post, accept, checkout steps and no before/after cards in $variant (#8506 AC1)",
+    ({ pagePath }) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(JSON.stringify({ items: [] }))),
+      );
+      const { container } = render(<PublicPresenceHomePage actionData={null} source={{ ...source, pagePath }} />);
+      const section = container.querySelector<HTMLElement>('[data-public-presence-section="open_offers"]')!;
+      expect(section).not.toBeNull();
+      expect(section.id).toBe("open-offers");
+      expect(container.querySelectorAll("#open-offers")).toHaveLength(1);
+      expect(section.querySelector("h2")?.textContent).toBe(t("publicPresence.home.openOffers.title"));
+
+      // One OfferCard: its title is the section's only card title.
+      expect([...section.querySelectorAll("h3")].map((title) => title.textContent)).toEqual([
+        t("publicPresence.home.openOffers.after.offerCard.title"),
+      ]);
+      expect(section.querySelectorAll(".ds-glass")).toHaveLength(1);
+
+      const steps = [...section.querySelectorAll<HTMLElement>("[data-open-offers-step]")];
+      expect(steps.map((step) => step.textContent)).toEqual(
+        ["post", "accept", "checkout"].map(
+          (step, index) => `${index + 1}${t(`publicPresence.home.openOffers.step.${step}`)}`,
+        ),
+      );
+
+      // The before/after cards were tinted Surfaces carrying this copy.
+      expect(section.querySelector("[data-test-surface]")).toBeNull();
+      for (const retired of ["The old way", "Social card groups", "On Chase Sets", "Post it once."]) {
+        expect(section.textContent, retired).not.toContain(retired);
+      }
+    },
+  );
+
+  it("plays the open_offers steps once in view and finishes within 5,000ms, with no video, canvas or image (#8506 AC2)", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ items: [] }))),
+    );
+    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
+    const section = container.querySelector<HTMLElement>('[data-public-presence-section="open_offers"]')!;
+
+    expect(staggerRenders.length).toBeGreaterThan(0);
+    const props = staggerRenders.at(-1)!;
+    expect(props.trigger).toBe("in-view");
+    const steps = Children.count(props.children);
+    expect(steps).toBe(3);
+    expect(section.querySelectorAll("[data-open-offers-step]")).toHaveLength(steps);
+
+    const motion = resolveChaseMotion();
+    const preset = props.preset ?? "lift";
+    const presetDurationMs = (motion.presets[preset].transition?.duration ?? Number.NaN) * 1_000;
+    if (preset === "lift") {
+      expect(presetDurationMs).toBe(motion.durations.base * 1_000);
+    }
+    const staggerMs = props.staggerMs ?? 70;
+    const sequenceMs = (steps - 1) * staggerMs + presetDurationMs;
+    expect(sequenceMs).toBeGreaterThan(0);
+    expect(sequenceMs).toBeLessThanOrEqual(5_000);
+
+    expect(section.querySelector("video, canvas, img, picture, object, embed, iframe")).toBeNull();
+  });
+
   it("renders the buyer hero and records seller_first_v2 for an explicit buyer intent", () => {
     vi.stubGlobal(
       "fetch",
@@ -228,7 +469,7 @@ describe("public waitlist form migration smoke", () => {
     });
   });
 
-  it("renders an unconditional founder-story Discord CTA ahead of the final section, and hides it when unconfigured", () => {
+  it("renders the Discord CTA only in the final section, and hides it when unconfigured", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -244,18 +485,16 @@ describe("public waitlist form migration smoke", () => {
     const discordLinks = Array.from(
       container.querySelectorAll<HTMLAnchorElement>('a[href="https://discord.gg/chase-sets"]'),
     );
-    expect(discordLinks.length).toBeGreaterThanOrEqual(2);
-
-    const founderSection = container.querySelector('[data-public-presence-section="founder_story"]');
+    // #8503 removed founder_story, the only other Discord placement.
+    expect(discordLinks).toHaveLength(1);
     const finalCtaSection = container.querySelector('[data-public-presence-section="final_cta"]');
-    expect(founderSection?.querySelector('a[href="https://discord.gg/chase-sets"]')).not.toBeNull();
     expect(finalCtaSection?.querySelector('a[href="https://discord.gg/chase-sets"]')).not.toBeNull();
 
     rerender(<PublicPresenceHomePage actionData={null} discordInviteUrl={null} source={source} />);
     expect(container.querySelectorAll('a[href="https://discord.gg/chase-sets"]').length).toBe(0);
   });
 
-  it("renders the open-offers section ahead of seller tools, with a sample offer mock and no unrecorded demo placeholder", () => {
+  it("renders the open-offers section ahead of the fee comparison, with a sample offer mock and no unrecorded demo placeholder", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -267,13 +506,13 @@ describe("public waitlist form migration smoke", () => {
     const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
 
     const offersSection = container.querySelector('[data-public-presence-section="open_offers"]');
-    const sellerToolsSection = container.querySelector('[data-public-presence-section="seller_tools"]');
-    if (!offersSection || !sellerToolsSection) {
-      throw new Error("Expected both the open-offers and seller-tools sections to render.");
+    const feeComparisonSection = container.querySelector('[data-public-presence-section="fee_comparison"]');
+    if (!offersSection || !feeComparisonSection) {
+      throw new Error("Expected both the open-offers and fee-comparison sections to render.");
     }
 
-    // DOCUMENT_POSITION_FOLLOWING (4) on sellerToolsSection means offersSection comes first.
-    expect(offersSection.compareDocumentPosition(sellerToolsSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+    // DOCUMENT_POSITION_FOLLOWING (4) on feeComparisonSection means offersSection comes first.
+    expect(offersSection.compareDocumentPosition(feeComparisonSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
     expect(offersSection.textContent).toContain(t("publicPresence.home.openOffers.after.offerCard.title"));
@@ -281,105 +520,67 @@ describe("public waitlist form migration smoke", () => {
     expect(offersSection.textContent).not.toContain("Watch a 30-second offer get posted and accepted");
   });
 
-  it("shows the founder-math examples inside the fee-comparison section, with the comparison table as centerpiece, and buyer-side checkout economics", () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
-      ),
-    );
-    window.dataLayer = [];
+  it.each(landingVariantCases)(
+    "keeps fee_comparison to the three You-keep values, the source note and a /compare/tcgplayer link in $variant (AC2)",
+    ({ pagePath }) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+        ),
+      );
+      window.dataLayer = [];
 
-    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
+      const { container } = render(<PublicPresenceHomePage actionData={null} source={{ ...source, pagePath }} />);
 
-    const feeComparisonSection = container.querySelector('[data-public-presence-section="fee_comparison"]');
-    const previewSection = container.querySelector('[data-public-presence-section="product_preview"]');
-    if (!feeComparisonSection || !previewSection) {
-      throw new Error("Expected fee-comparison and product-preview sections to render.");
-    }
+      const feeComparisonSection = container.querySelector('[data-public-presence-section="fee_comparison"]');
+      if (!feeComparisonSection) {
+        throw new Error("Expected the fee-comparison section to render.");
+      }
 
-    // #5617: SellerEconomicsSection was removed; its founder-math cards now
-    // render inside FeeComparisonSection alongside the comparison table.
-    expect(feeComparisonSection.textContent).toContain(t("publicPresence.home.sellerEconomics.comparison.title"));
-    expect(feeComparisonSection.textContent).toContain("$10 card beta seller math");
-    expect(feeComparisonSection.textContent).toContain("$100 graded-card founder math");
-    expect(feeComparisonSection.textContent).toContain("$100.00");
-    expect(previewSection.textContent).toContain("Shipping");
-    // #3951: the card processing line states the real passthrough terms and
-    // the sample order resolves to a concrete total -- no fee on this surface
-    // is described only as "quoted before payment".
-    expect(previewSection.textContent).toContain("Card processing (2.9% + $0.30)");
-    expect(previewSection.textContent).toContain("$2.82");
-    expect(previewSection.textContent).toContain("$86.70");
-    expect(previewSection.textContent).not.toMatch(/quoted before payment/i);
-    expect(previewSection.textContent).not.toContain("At checkout");
-    expect(previewSection.textContent).toContain("$0 with Chase Sets balance");
-    expect(previewSection.textContent).toContain("Order Protection comes with every order.");
-    expect(previewSection.querySelector('a[href="/order-protection"]')).not.toBeNull();
-    expect(previewSection.textContent).not.toContain("Order protectionIncluded");
-  });
+      expect(feeComparisonSection.querySelector("h2")?.textContent).toBe(
+        t("publicPresence.home.sellerEconomics.comparison.title"),
+      );
+      // Exactly one table with exactly one body row: the kept amount per marketplace.
+      expect(feeComparisonSection.querySelectorAll("table")).toHaveLength(1);
+      const rows = [...feeComparisonSection.querySelectorAll("tbody tr")].map((row) =>
+        [...row.querySelectorAll("td")].map((cell) => cell.textContent),
+      );
+      expect(rows).toEqual([
+        [
+          t("publicPresence.home.sellerEconomics.comparison.row.youKeep.label"),
+          t("publicPresence.home.sellerEconomics.comparison.row.youKeep.chaseSets"),
+          t("publicPresence.home.sellerEconomics.comparison.row.youKeep.tcgplayer"),
+          t("publicPresence.home.sellerEconomics.comparison.row.youKeep.ebay"),
+        ],
+      ]);
+      expect([...feeComparisonSection.querySelectorAll("th")].map((cell) => cell.textContent)).toEqual([
+        t("publicPresence.home.sellerEconomics.comparison.column.metric"),
+        t("publicPresence.home.sellerEconomics.comparison.column.chaseSets"),
+        t("publicPresence.home.sellerEconomics.comparison.column.tcgplayer"),
+        t("publicPresence.home.sellerEconomics.comparison.column.ebay"),
+      ]);
+      // The removed rows, worked examples and description are gone, including from the caption (F6).
+      expect(feeComparisonSection.textContent).not.toContain("Marketplace fee");
+      expect(feeComparisonSection.textContent).not.toContain("per-order");
+      expect(feeComparisonSection.textContent).not.toContain("founder math");
+      expect(feeComparisonSection.textContent).not.toContain("beta seller math");
+      expect(feeComparisonSection.querySelector("caption")).toBeNull();
+      expect(feeComparisonSection.textContent).toContain(
+        t("publicPresence.home.sellerEconomics.comparison.sourceNote"),
+      );
 
-  it("places the truth-gated seller-tools differentiator between open offers and the fee comparison", () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
-      ),
-    );
-    window.dataLayer = [];
+      const compareLink = feeComparisonSection.querySelector<HTMLAnchorElement>('a[href="/compare/tcgplayer"]');
+      expect(compareLink?.textContent).toBe(t("publicPresence.home.sellerEconomics.comparison.compareLink"));
+      expect(feeComparisonSection.querySelectorAll("a")).toHaveLength(1);
+      // The landing calculator is gone: no calculator anchor renders anywhere on `/`.
+      expect(document.getElementById("fee-calculator")).toBeNull();
+      expect(document.getElementById("product-preview")).toBeNull();
+      expect(document.getElementById("seller-tools")).toBeNull();
+    },
+  );
 
-    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
-
-    const offersSection = container.querySelector('[data-public-presence-section="open_offers"]');
-    const sellerToolsSection = container.querySelector('[data-public-presence-section="seller_tools"]');
-    const feeComparisonSection = container.querySelector('[data-public-presence-section="fee_comparison"]');
-    if (!offersSection || !sellerToolsSection || !feeComparisonSection) {
-      throw new Error("Expected open offers, seller tools, and fee comparison sections to render.");
-    }
-
-    expect(offersSection.compareDocumentPosition(sellerToolsSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    );
-    expect(sellerToolsSection.compareDocumentPosition(feeComparisonSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    );
-    expect(sellerToolsSection.textContent).toContain(t("publicPresence.home.sellerTools.comingToBeta"));
-    expect(sellerToolsSection.textContent).not.toContain("Included at launch");
-    expect(sellerToolsSection.textContent).toContain(t("publicPresence.home.sellerTools.repricing.title"));
-    expect(sellerToolsSection.textContent).toContain(t("publicPresence.home.sellerTools.market.title"));
-    expect(sellerToolsSection.textContent).toContain(t("publicPresence.home.sellerTools.scale.title"));
-    expect(sellerToolsSection.querySelector('a[href="/#waitlist-form-final"]')).not.toBeNull();
-  });
-
-  it("tracks the seller-tools early-access CTA through the existing funnel event", () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
-      ),
-    );
-    window.dataLayer = [];
-
-    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
-    const sellerToolsSection = container.querySelector('[data-public-presence-section="seller_tools"]');
-    const cta = sellerToolsSection?.querySelector('a[href="/#waitlist-form-final"]');
-    if (!cta) {
-      throw new Error("Expected seller-tools early-access CTA to render.");
-    }
-
-    fireEvent.click(cta);
-
-    expect(window.dataLayer).toContainEqual(
-      expect.objectContaining({
-        event: "cta_clicked",
-        section: "seller_tools",
-        target: "waitlist_form_final",
-        variant: "seller_first_v1",
-      }),
-    );
-  });
-
-  it("concretizes the founders offer with cap, numbered badge, and 60-day window, linked ahead of the launch timeline and from the footer", () => {
+  it("keeps founders_offer to its title, description and /founders link, with the footer terms link (AC2)", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -392,35 +593,33 @@ describe("public waitlist form migration smoke", () => {
 
     const feeComparisonSection = container.querySelector('[data-public-presence-section="fee_comparison"]');
     const foundersSection = container.querySelector('[data-public-presence-section="founders_offer"]');
-    const timelineSection = container.querySelector('[data-public-presence-section="launch_timeline"]');
-    if (!feeComparisonSection || !foundersSection || !timelineSection) {
-      throw new Error("Expected fee-comparison, founders-offer, and launch-timeline sections to render.");
+    if (!feeComparisonSection || !foundersSection) {
+      throw new Error("Expected fee-comparison and founders-offer sections to render.");
     }
 
-    // DOCUMENT_POSITION_FOLLOWING (4) means the founders section renders
-    // after fee comparison and ahead of the launch timeline, per the
-    // "immediately after the fees section" placement in #4081.
+    // DOCUMENT_POSITION_FOLLOWING (4) means the founders section still renders
+    // after fee comparison ("immediately after the fees section", #4081).
     expect(feeComparisonSection.compareDocumentPosition(foundersSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
-    expect(foundersSection.compareDocumentPosition(timelineSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    );
 
+    expect(foundersSection.querySelector("h2")?.textContent).toBe(t("publicPresence.home.foundersOffer.title"));
+    expect(foundersSection.textContent).toContain(t("publicPresence.home.foundersOffer.description"));
     expect(foundersSection.textContent).toContain("500");
-    expect(foundersSection.textContent).toContain(t("publicPresence.home.foundersOffer.point.badge"));
-    expect(foundersSection.textContent).toContain(t("publicPresence.home.foundersOffer.point.window"));
-    expect(foundersSection.textContent).toContain(t("publicPresence.home.foundersOffer.point.expiry"));
-    expect(foundersSection.textContent).toContain(t("publicPresence.home.foundersOffer.point.community"));
-    expect(foundersSection.textContent).toContain(t("publicPresence.home.foundersOffer.point.input"));
-    expect(foundersSection.querySelector('a[href="/founders"]')).not.toBeNull();
+    // #8503: the badge row and the five-point list are gone; the terms live on /founders.
+    expect(foundersSection.textContent).not.toContain("Capped at 500 founders");
+    expect(foundersSection.querySelectorAll("li")).toHaveLength(0);
+    expect(foundersSection.querySelectorAll("a")).toHaveLength(1);
+    expect(foundersSection.querySelector('a[href="/founders"]')?.textContent).toBe(
+      t("publicPresence.home.foundersOffer.action"),
+    );
 
     expect(container.querySelector('footer a[href="/founders"]')?.textContent).toBe(
       t("publicPresence.nav.foundersTerms"),
     );
   });
 
-  it("answers when access opens with numbered invite capacities, qualification, and the public launch date", () => {
+  it("renders all four FAQ questions collapsed, in JSON-LD order, with answers in the DOM and the All-FAQs link (AC2)", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -432,43 +631,40 @@ describe("public waitlist form migration smoke", () => {
     const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
 
     const foundersSection = container.querySelector('[data-public-presence-section="founders_offer"]');
-    const timelineSection = container.querySelector('[data-public-presence-section="launch_timeline"]');
     const faqSection = container.querySelector('[data-public-presence-section="faq"]');
-    if (!foundersSection || !timelineSection || !faqSection) {
-      throw new Error("Expected founders-offer, launch-timeline, and FAQ sections to render.");
+    if (!foundersSection || !faqSection) {
+      throw new Error("Expected founders-offer and FAQ sections to render.");
     }
-
-    // The timeline reads as the founders offer's "when": founders_offer →
-    // launch_timeline → ... → faq.
-    expect(foundersSection.compareDocumentPosition(timelineSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    );
-    expect(timelineSection.compareDocumentPosition(faqSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+    expect(foundersSection.compareDocumentPosition(faqSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
 
-    // The one hard public date and the season-level beta window, interpolated
-    // from launch-config (no leaked tokens).
-    expect(timelineSection.textContent).toContain("September 1, 2026");
-    expect(timelineSection.textContent).toContain("late July 2026");
-    expect(timelineSection.textContent).toContain("Wave 1: 100 invites");
-    expect(timelineSection.textContent).toContain("Wave 2: 250 invites");
-    expect(timelineSection.textContent).toContain("Wave 3: 500 invites");
-    expect(timelineSection.textContent).toContain(t("publicPresence.home.launchTimeline.step.waves.qualification"));
-    expect(timelineSection.textContent).toContain(t("publicPresence.home.launchTimeline.step.waves.gates"));
-    expect(timelineSection.textContent).not.toContain("{publicLaunchDate}");
-    expect(timelineSection.textContent).not.toContain("{betaWavesWindow}");
-    // Wave-to-wave progression is operations-gated, so target dates are not promises.
-    expect(timelineSection.textContent).not.toMatch(/July 31|August \d/i);
-    expect(timelineSection.querySelector('a[href="/#waitlist-form"]')).not.toBeNull();
-
-    // The FAQ preview answers the same question with the same dates.
-    expect(faqSection.textContent).toContain(t("publicPresence.faq.launch.question"));
-    expect(faqSection.textContent).toContain("September 1, 2026");
+    const triggers = [...faqSection.querySelectorAll<HTMLButtonElement>("button")];
+    expect(triggers.map((trigger) => trigger.textContent)).toEqual(
+      landingFaqEntries.map(({ question }) => t(question)),
+    );
+    expect(triggers.map((trigger) => trigger.getAttribute("aria-expanded"))).toEqual(
+      landingFaqEntries.map(() => "false"),
+    );
+    const answerValues = checkoutFeeTranslationValues(fallbackCheckoutFeePreview);
+    for (const { answer } of landingFaqEntries) {
+      expect(faqSection.textContent).toContain(t(answer, answerValues));
+    }
+    // The launch answer states the undated access order (timing moved here from launch_timeline).
+    expect(faqSection.textContent).toMatch(/waitlist.*numbered beta invite waves.*open signup/i);
+    expect(container.innerHTML).not.toContain("September 1, 2026");
+    expect(container.innerHTML).not.toContain("late July 2026");
     expect(faqSection.textContent).not.toContain("{publicLaunchDate}");
+    // No per-question Surface cards remain: the four items are one disclosure group.
+    expect(faqSection.querySelectorAll("[data-test-surface]")).toHaveLength(0);
+    expect(faqSection.querySelector('a[href="/faq"]')?.textContent).toBe(t("publicPresence.faq.all"));
   });
 
-  it("shows seller cohort-quality fields on the final-CTA form by default (role defaults to both)", () => {
+  // #8606: the hero and FAQ bound the 0% claim to the founder 60-day window
+  // and never claim the seller keeps 100% (the Order Protection contribution
+  // applies to every order). Pinned as literal copy, not via t(), so a locale
+  // edit that reintroduces the claim fails here as well as in the guard.
+  it("renders the hero highlight and FAQ fee answer bounded to the founder 60-day window (#8606 AC2)", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -477,22 +673,111 @@ describe("public waitlist form migration smoke", () => {
     );
     window.dataLayer = [];
 
-    render(<PublicPresenceHomePage actionData={null} source={source} />);
+    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
 
-    const panel = document.getElementById("waitlist-form-final");
-    const form = panel?.querySelector("form");
-    if (!form) {
-      throw new Error("Expected final-CTA waitlist panel to render a form.");
+    const heroSection = container.querySelector('[data-public-presence-section="hero"]');
+    const faqSection = container.querySelector('[data-public-presence-section="faq"]');
+    if (!heroSection || !faqSection) {
+      throw new Error("Expected hero and FAQ sections to render.");
     }
 
-    expect(form.querySelectorAll('input[name="games"]').length).toBe(5);
-    expect(form.querySelector('select[name="inventorySize"]')).not.toBeNull();
-    expect(form.querySelector('input[name="hasStoreLink"]')).not.toBeNull();
-    // storeUrl only renders once hasStoreLink is checked.
-    expect(form.querySelector('input[name="storeUrl"]')).toBeNull();
+    const highlightCells = Array.from(
+      heroSection.querySelector('[aria-label="Marketing highlights"]')?.children ?? [],
+    ).map((cell) => cell.textContent);
+    expect(highlightCells).toContain(
+      "Founders window0% sales fee on listings you create in your first 60 days of beta",
+    );
+    expect(heroSection.textContent).not.toContain("Keep 100% of the sale");
+    expect(heroSection.textContent).not.toContain("0% beta seller fees");
+    expect(heroSection.textContent).not.toContain("0% fees during beta");
+
+    expect(faqSection.textContent).toContain(
+      "Listings you create in your first 60 days of beta lock a 0% sales fee until they sell. Listings created after that window lock the published standard sales fee at listing time.",
+    );
+    expect(faqSection.textContent).not.toContain("Listings created during beta keep a 0% seller fee");
+    expect(container.textContent).not.toContain("100%");
+    const feeComparisonSection = container.querySelector('[data-public-presence-section="fee_comparison"]');
+    if (!feeComparisonSection) {
+      throw new Error("Expected the fee comparison section to render.");
+    }
+    const keepCells = Array.from(feeComparisonSection.querySelectorAll("tbody tr td"));
+    expect(keepCells.map((cell) => cell.textContent)).toEqual(["You keep", "$9.90", "$8.38", "$8.38"]);
+    expect(keepCells[1]?.textContent).not.toBe("$10.00");
+    expect(feeComparisonSection.textContent).toContain("On a $10 card");
+    expect(feeComparisonSection.textContent).toContain(
+      "Every order funds Order Protection at 1% of item value, paid by the seller.",
+    );
+    expect(faqSection.textContent).toContain(
+      "Every order funds Order Protection at 1% of item value, paid by the seller.",
+    );
   });
 
-  it("hides seller cohort-quality fields on the final-CTA form once role is switched to buy", () => {
+  it.each([
+    { role: "both", pagePath: "/" },
+    { role: "buy", pagePath: "/?intent=buy" },
+  ])(
+    "posts email, role, interest and consent from the final form with no seller-inventory fields for role=$role (AC3)",
+    ({ role, pagePath }) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+        ),
+      );
+      window.dataLayer = [];
+
+      render(<PublicPresenceHomePage actionData={null} source={{ ...source, pagePath }} />);
+
+      const panel = document.getElementById("waitlist-form-final");
+      const form = panel?.querySelector("form");
+      if (!form) {
+        throw new Error("Expected final-CTA waitlist panel to render a form.");
+      }
+
+      // Field inventory: every control the final form renders, by name.
+      const controlNames = [...form.querySelectorAll<HTMLInputElement | HTMLSelectElement>("input, select")].map(
+        (control) => `${control.tagName.toLowerCase()}[${control.type}]:${control.name}`,
+      );
+      expect(controlNames).toEqual([
+        "input[email]:email",
+        "select[select-one]:role",
+        "select[select-one]:interests",
+        "input[checkbox]:marketingConsent",
+        "input[text]:website",
+        "input[hidden]:pagePath",
+        "input[hidden]:referrer",
+        "input[hidden]:utmSource",
+        "input[hidden]:utmMedium",
+        "input[hidden]:utmCampaign",
+        "input[hidden]:utmContent",
+        "input[hidden]:utmTerm",
+        "input[hidden]:referredBySignupId",
+        "input[hidden]:landingExperimentVariant",
+      ]);
+      for (const name of ["games", "inventorySize", "hasStoreLink", "storeUrl"]) {
+        expect(form.querySelector(`[name="${name}"]`), name).toBeNull();
+      }
+      expect(form.textContent).not.toContain("Takes under a minute");
+
+      fireEvent.change(form.querySelector('input[name="email"]')!, { target: { value: "seller@example.com" } });
+      fireEvent.change(form.querySelector('select[name="interests"]')!, { target: { value: "bulk-listing" } });
+      fireEvent.click(form.querySelector('input[name="marketingConsent"]')!);
+
+      const formData = new FormData(form);
+      expect(form.getAttribute("method")).toBe("post");
+      expect(form.getAttribute("action")).toBe("?index");
+      expect(formData.get("email")).toBe("seller@example.com");
+      expect(formData.get("role")).toBe(role);
+      expect(formData.get("interests")).toBe("bulk-listing");
+      expect(formData.get("marketingConsent")).toBe("yes");
+      expect(formData.getAll("games")).toEqual([]);
+      expect(formData.has("inventorySize")).toBe(false);
+      expect(formData.has("hasStoreLink")).toBe(false);
+      expect(formData.has("storeUrl")).toBe(false);
+    },
+  );
+
+  it("keeps the final_cta heading, description, founder byline and links, with no badge or point list (AC2)", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -501,18 +786,36 @@ describe("public waitlist form migration smoke", () => {
     );
     window.dataLayer = [];
 
-    render(<PublicPresenceHomePage actionData={null} source={source} />);
+    const { container } = render(
+      <PublicPresenceHomePage actionData={null} discordInviteUrl="https://discord.gg/chase-sets" source={source} />,
+    );
 
-    const panel = document.getElementById("waitlist-form-final");
-    const form = panel?.querySelector("form");
-    if (!form) {
-      throw new Error("Expected final-CTA waitlist panel to render a form.");
+    const finalCtaSection = container.querySelector('[data-public-presence-section="final_cta"]');
+    if (!finalCtaSection) {
+      throw new Error("Expected the final-CTA section to render.");
     }
-
-    fireEvent.change(form.querySelector('select[name="role"]')!, { target: { value: "buy" } });
-
-    expect(form.querySelectorAll('input[name="games"]').length).toBe(0);
-    expect(form.querySelector('input[name="hasStoreLink"]')).toBeNull();
+    expect([...finalCtaSection.querySelectorAll("h2")].map((heading) => heading.textContent)).toEqual([
+      t("publicPresence.home.finalCta.title"),
+      t("publicPresence.waitlist.formTitle"),
+    ]);
+    expect(finalCtaSection.textContent).toContain(t("publicPresence.home.finalCta.description"));
+    expect(finalCtaSection.querySelector("[data-public-presence-founder-byline]")?.textContent).toBe(
+      t("publicPresence.home.finalCta.byline", {
+        name: t("publicPresence.home.founderStory.name"),
+        role: t("publicPresence.home.founderStory.role"),
+      }),
+    );
+    expect(finalCtaSection.textContent).toContain("Todd Skelton, Founder, Chase Sets");
+    expect(finalCtaSection.textContent).not.toContain("Takes under a minute");
+    expect(finalCtaSection.querySelectorAll("li")).toHaveLength(0);
+    // The signup panel's own "Early access" header badge is untouched; it is the only badge left in the section.
+    const panelBadge = t("publicPresence.waitlist.badge");
+    expect(finalCtaSection.textContent?.split(panelBadge)).toHaveLength(2);
+    expect(finalCtaSection.querySelector('a[href="https://discord.gg/chase-sets"]')).not.toBeNull();
+    expect(finalCtaSection.querySelector('a[href="/founders"]')?.textContent).toBe(
+      t("publicPresence.home.foundersOffer.action"),
+    );
+    expect(document.getElementById("waitlist-form-final")).not.toBeNull();
   });
 
   it("renders the game roster strip under the hero with five campaign-linkable per-game tiles", () => {
@@ -579,7 +882,7 @@ describe("public waitlist form migration smoke", () => {
     expect(panel?.textContent).toContain(t("publicPresence.waitlist.game.magicTheGathering"));
   });
 
-  it("pre-checks the selected game on the final-CTA games checkboxes", () => {
+  it("posts the ?game= prefill from the final-CTA form as a hidden games value with no visible games control (AC3)", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -598,6 +901,9 @@ describe("public waitlist form migration smoke", () => {
 
     const formData = new FormData(form);
     expect(formData.getAll("games")).toEqual(["disney-lorcana"]);
+    const gamesInputs = [...form.querySelectorAll<HTMLInputElement>('input[name="games"]')];
+    expect(gamesInputs.map((input) => input.type)).toEqual(["hidden"]);
+    expect(form.querySelector('input[type="checkbox"][name="games"]')).toBeNull();
   });
 
   it("ignores an unrecognized ?game= slug instead of forwarding it to the form", () => {
@@ -620,83 +926,40 @@ describe("public waitlist form migration smoke", () => {
     expect(new FormData(form).getAll("games")).toEqual([]);
   });
 
-  it("reveals the store URL field only after the store-link checkbox is checked, and submits selected games", () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
-      ),
-    );
-    window.dataLayer = [];
+  it.each(landingVariantCases)(
+    "#8503 AC1: renders exactly the seven surviving section identities in order for $variant",
+    ({ pagePath }) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+        ),
+      );
+      window.dataLayer = [];
 
-    render(<PublicPresenceHomePage actionData={null} source={source} />);
+      const { container } = render(<PublicPresenceHomePage actionData={null} source={{ ...source, pagePath }} />);
 
-    const panel = document.getElementById("waitlist-form-final");
-    const form = panel?.querySelector("form");
-    if (!form) {
-      throw new Error("Expected final-CTA waitlist panel to render a form.");
-    }
+      const sections = Array.from(container.querySelectorAll<HTMLElement>("[data-public-presence-section]")).map(
+        (section) => section.getAttribute("data-public-presence-section"),
+      );
+      expect(sections).toEqual([...landingSectionOrder]);
 
-    const pokemonCheckbox = Array.from(form.querySelectorAll<HTMLInputElement>('input[name="games"]')).find(
-      (input) => input.value === "pokemon",
-    );
-    if (!pokemonCheckbox) {
-      throw new Error("Expected a Pokemon games checkbox.");
-    }
-    fireEvent.click(pokemonCheckbox);
-
-    const storeLinkCheckbox = form.querySelector<HTMLInputElement>('input[name="hasStoreLink"]');
-    if (!storeLinkCheckbox) {
-      throw new Error("Expected a store-link checkbox.");
-    }
-    expect(form.querySelector('input[name="storeUrl"]')).toBeNull();
-    fireEvent.click(storeLinkCheckbox);
-    expect(form.querySelector('input[name="storeUrl"]')).not.toBeNull();
-
-    const formData = new FormData(form);
-    expect(formData.getAll("games")).toEqual(["pokemon"]);
-    expect(formData.get("hasStoreLink")).toBe("yes");
-  });
-
-  it("#5617: cuts the removed sections and renders exactly the approved surviving section order", () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
-      ),
-    );
-    window.dataLayer = [];
-
-    const { container } = render(<PublicPresenceHomePage actionData={null} source={source} />);
-
-    // The five approved cuts: SignupExpectationSection, MarketplaceModelSection,
-    // AudiencePathSection, and the standalone SellerEconomicsSection are gone.
-    expect(container.querySelector('[data-public-presence-section="signup_expectations"]')).toBeNull();
-    expect(container.querySelector('[data-public-presence-section="marketplace_model"]')).toBeNull();
-    expect(container.querySelector('[data-public-presence-section="audience_paths"]')).toBeNull();
-    expect(container.querySelector('[data-public-presence-section="seller_economics"]')).toBeNull();
-    expect(container.querySelector('[data-public-presence-section="balance_flywheel"]')).toBeNull();
-
-    const sections = Array.from(container.querySelectorAll<HTMLElement>("[data-public-presence-section]")).map(
-      (section) => section.getAttribute("data-public-presence-section"),
-    );
-
-    // feeSchedule defaults to null in this render, which hides
-    // FeeCalculatorSection entirely (it is truth-gated on a live schedule).
-    expect(sections).toEqual([
-      "hero",
-      "game_roster",
-      "open_offers",
-      "seller_tools",
-      "fee_comparison",
-      "founders_offer",
-      "launch_timeline",
-      "product_preview",
-      "founder_story",
-      "final_cta",
-      "faq",
-    ]);
-  });
+      // The #5617 cuts stay cut, and the #8503 cuts never render, hidden or otherwise.
+      for (const identity of [
+        "signup_expectations",
+        "marketplace_model",
+        "audience_paths",
+        "seller_economics",
+        "balance_flywheel",
+        ...retiredLandingIdentities,
+      ]) {
+        expect(container.querySelector(`[data-public-presence-section="${identity}"]`), identity).toBeNull();
+      }
+      for (const id of ["seller-tools", "product-preview", "fee-calculator"]) {
+        expect(document.getElementById(id), id).toBeNull();
+      }
+    },
+  );
 
   it("#5617: preserves the hero and final-CTA form anchors and the game-prefill link mechanism", () => {
     vi.stubGlobal(
@@ -709,9 +972,10 @@ describe("public waitlist form migration smoke", () => {
 
     const { container } = render(<PublicPresenceHomePage actionData={null} source={source} selectedGame="pokemon" />);
 
+    // Both anchors survive #8503 unchanged: the sticky CTAs (and the nav) still target them.
     expect(document.getElementById("waitlist-form")).not.toBeNull();
     expect(document.getElementById("waitlist-form-final")).not.toBeNull();
-    expect(container.querySelector('a[href="/#waitlist-form-final"]')).not.toBeNull();
+    expect(container.querySelector('nav a[href="/#waitlist-form"]')).not.toBeNull();
 
     const rosterSection = container.querySelector('[data-public-presence-section="game_roster"]');
     const pokemonTile = rosterSection?.querySelector<HTMLAnchorElement>('a[href*="game=pokemon"]');
@@ -742,17 +1006,12 @@ describe("public waitlist form migration smoke", () => {
       throw new Error("Expected both waitlist panels to render a form.");
     }
 
-    // storeUrl only renders once a seller role is selected and hasStoreLink is checked.
-    fireEvent.change(finalForm.querySelector('select[name="role"]')!, { target: { value: "sell" } });
-    fireEvent.click(finalForm.querySelector('input[name="hasStoreLink"]')!);
-
     const heroEmail = heroForm.querySelector<HTMLInputElement>('input[name="email"]');
+    const finalEmail = finalForm.querySelector<HTMLInputElement>('input[name="email"]');
     const roleSelect = finalForm.querySelector<HTMLSelectElement>('select[name="role"]');
     const interestsSelect = finalForm.querySelector<HTMLSelectElement>('select[name="interests"]');
-    const inventorySizeSelect = finalForm.querySelector<HTMLSelectElement>('select[name="inventorySize"]');
-    const storeUrlInput = finalForm.querySelector<HTMLInputElement>('input[name="storeUrl"]');
 
-    const landingTextControls = [heroEmail, roleSelect, interestsSelect, inventorySizeSelect, storeUrlInput];
+    const landingTextControls = [heroEmail, finalEmail, roleSelect, interestsSelect];
     for (const control of landingTextControls) {
       if (!control) {
         throw new Error("Expected every landing text input and select to render.");
@@ -764,10 +1023,8 @@ describe("public waitlist form migration smoke", () => {
 
     // Checkbox and segmented controls are out of scope and must stay at their existing sizing.
     const marketingConsentCheckbox = finalForm.querySelector('input[name="marketingConsent"]');
-    const hasStoreLinkCheckbox = finalForm.querySelector('input[name="hasStoreLink"]');
     const heroSegmentedControl = heroForm.querySelector('[role="radiogroup"]');
     expect(marketingConsentCheckbox?.closest("label")?.className).not.toContain("text-base");
-    expect(hasStoreLinkCheckbox?.closest("label")?.className).not.toContain("text-base");
     expect(heroSegmentedControl).not.toBeNull();
     expect(heroSegmentedControl?.className).not.toContain("text-base");
   });
@@ -793,17 +1050,6 @@ describe("public waitlist form migration smoke", () => {
       expect(link.className).toContain("pointer-coarse:min-h-11");
       expect(link.className).toContain("pointer-coarse:min-w-11");
     }
-
-    const previewSection = container.querySelector('[data-public-presence-section="product_preview"]');
-    const protectionLinks = Array.from(previewSection?.querySelectorAll('a[href="/order-protection"]') ?? []);
-    const inlineProtectionLink = protectionLinks.find(
-      (link) => link.textContent === t("publicPresence.preview.total.protectionLink"),
-    );
-    if (!inlineProtectionLink) {
-      throw new Error("Expected the inline LinkText order-protection link to render in the product preview section.");
-    }
-    expect(inlineProtectionLink.className).toContain("pointer-coarse:min-h-11");
-    expect(inlineProtectionLink.className).toContain("pointer-coarse:min-w-11");
 
     // The fee-comparison Table renders at compact density with `wrapFirstColumn`,
     // which constrains the metric-label column to a narrow max-width and allows
@@ -882,48 +1128,39 @@ describe("public waitlist form migration smoke", () => {
   it.each([
     { variant: "seller_first_v1", pagePath: source.pagePath },
     { variant: "seller_first_v2", pagePath: "/?intent=buy" },
-  ])("maps DS-owned Surface intent by section in $variant with null and live schedules", ({ pagePath }) => {
+  ])("maps DS-owned Surface intent by section in $variant", ({ pagePath }) => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response(JSON.stringify({ items: [] }))),
     );
-    const schedule: PublicMarketplaceFeeSchedule = {
-      percentageBps: 500,
-      fixedAmount: "0.00",
-      capAmount: "25.00",
-      effectiveFrom: "2026-07-03T00:00:00.000Z",
-    };
-    const expected: Record<string, string[]> = {
+    // #8503: fee_comparison, founders_offer and faq no longer wrap content in
+    // a Surface; the two signup panels are the only elevated roots.
+    const expected: Record<(typeof landingSectionOrder)[number], string[]> = {
       hero: ["elevated"],
-      open_offers: ["tinted", "tinted", "tinted", "tinted", "tinted"],
-      seller_tools: ["tinted", "tinted", "tinted", "tinted"],
-      founders_offer: ["tinted"],
-      launch_timeline: ["tinted", "tinted", "tinted"],
-      product_preview: ["tinted"],
-      founder_story: ["tinted"],
+      game_roster: [],
+      // #8506: the walkthrough steps are plain badge rows; the OfferCard is a
+      // Card, never a Surface.
+      open_offers: [],
+      fee_comparison: [],
+      founders_offer: [],
       final_cta: ["elevated"],
-      faq: ["tinted", "tinted"],
+      faq: [],
     };
-    for (const feeSchedule of [null, schedule]) {
-      const { container, unmount } = render(
-        <PublicPresenceHomePage actionData={null} source={{ ...source, pagePath }} feeSchedule={feeSchedule} />,
-      );
-      for (const [section, intents] of Object.entries(expected)) {
-        const root = container.querySelector(`[data-public-presence-section="${section}"]`);
-        expect(root, section).not.toBeNull();
-        const surfaces = Array.from(root!.querySelectorAll<HTMLElement>(".min-w-0.max-w-full.rounded-tokenLg"));
-        expect(
-          surfaces.map((surface) =>
-            surface.classList.contains("surface-border") || surface.classList.contains("shadow-tokenLg")
-              ? "elevated"
-              : surface.classList.contains("bg-surface-2")
-                ? "tinted"
-                : "unexpected",
-          ),
-          section,
-        ).toEqual(intents);
-      }
-      unmount();
+    const { container } = render(<PublicPresenceHomePage actionData={null} source={{ ...source, pagePath }} />);
+    for (const [section, intents] of Object.entries(expected)) {
+      const root = container.querySelector(`[data-public-presence-section="${section}"]`);
+      expect(root, section).not.toBeNull();
+      const surfaces = Array.from(root!.querySelectorAll<HTMLElement>(".min-w-0.max-w-full.rounded-tokenLg"));
+      expect(
+        surfaces.map((surface) =>
+          surface.classList.contains("surface-border") || surface.classList.contains("shadow-tokenLg")
+            ? "elevated"
+            : surface.classList.contains("bg-surface-2")
+              ? "tinted"
+              : "unexpected",
+        ),
+        section,
+      ).toEqual(intents);
     }
   });
 
@@ -1014,13 +1251,11 @@ describe("public waitlist form migration smoke", () => {
     const variants = [
       {
         pageSource: source,
-        heroEyebrow: t("publicPresence.home.eyebrow"),
         heroTitle: t("publicPresence.home.title"),
         heroDescription: t("publicPresence.home.description"),
       },
       {
         pageSource: { ...source, pagePath: "/?intent=buy" },
-        heroEyebrow: t("publicPresence.home.buyerHero.eyebrow"),
         heroTitle: t("publicPresence.home.buyerHero.title"),
         heroDescription: t("publicPresence.home.buyerHero.description"),
       },
@@ -1036,10 +1271,6 @@ describe("public waitlist form migration smoke", () => {
       );
 
       expect(container.querySelector('nav a[href="/"] > span')?.textContent).toBe(t("publicPresence.brand"));
-      const founderStory = container.querySelector('[data-public-presence-section="founder_story"]');
-      expect(founderStory?.querySelector('a[href="https://discord.gg/chase-sets"]')?.textContent).toBe(
-        t("publicPresence.home.discordCta"),
-      );
       const stickyObserver = observerInstances.find((instance) =>
         instance.observed.includes(document.getElementById("waitlist-form")!),
       );
@@ -1056,7 +1287,8 @@ describe("public waitlist form migration smoke", () => {
       const titleEl = heroSection.querySelector("h1");
       if (!titleEl) throw new Error("Expected the hero h1 to render.");
       expect(titleEl.textContent).toBe(variant.heroTitle);
-      expect(titleEl.previousElementSibling?.textContent).toBe(variant.heroEyebrow);
+      // The hero opens on the h1: no eyebrow sits above it (#8504).
+      expect(titleEl.previousElementSibling).toBeNull();
       expect(titleEl.nextElementSibling?.textContent).toBe(variant.heroDescription);
 
       expect(container.querySelector('nav a[href="/#waitlist-form"]')?.textContent).toBe(
@@ -1089,9 +1321,9 @@ describe("public waitlist form migration smoke", () => {
         expect(tile.textContent).toBe(label);
       }
 
-      const sellerToolsSection = container.querySelector('[data-public-presence-section="seller_tools"]');
-      expect(sellerToolsSection?.querySelector('a[href="/#waitlist-form-final"]')?.textContent).toBe(
-        t("publicPresence.home.sellerTools.cta.action"),
+      const feeComparisonSection = container.querySelector('[data-public-presence-section="fee_comparison"]');
+      expect(feeComparisonSection?.querySelector('a[href="/compare/tcgplayer"]')?.textContent).toBe(
+        t("publicPresence.home.sellerEconomics.comparison.compareLink"),
       );
 
       const foundersSection = container.querySelector('[data-public-presence-section="founders_offer"]');
@@ -1099,30 +1331,12 @@ describe("public waitlist form migration smoke", () => {
         t("publicPresence.home.foundersOffer.action"),
       );
 
-      const timelineSection = container.querySelector('[data-public-presence-section="launch_timeline"]');
-      expect(timelineSection?.querySelector('a[href="/#waitlist-form"]')?.textContent).toBe(
-        t("publicPresence.home.launchTimeline.action"),
-      );
-
-      const previewSection = container.querySelector('[data-public-presence-section="product_preview"]');
-      if (!previewSection) throw new Error("Expected the product preview section to render.");
-      expect(previewSection.querySelector('a[href="/#waitlist-form"]')?.textContent).toBe(
-        t("publicPresence.preview.listing.action"),
-      );
-      const orderProtectionLinks = Array.from(
-        previewSection.querySelectorAll<HTMLAnchorElement>('a[href="/order-protection"]'),
-      ).map((anchor) => anchor.textContent);
-      expect(orderProtectionLinks).toHaveLength(2);
-      expect(orderProtectionLinks).toEqual(
-        expect.arrayContaining([
-          t("publicPresence.preview.listing.secondaryAction"),
-          t("publicPresence.preview.total.protectionLink"),
-        ]),
-      );
-
       const finalCtaSection = container.querySelector('[data-public-presence-section="final_cta"]');
       expect(finalCtaSection?.querySelector('a[href="/founders"]')?.textContent).toBe(
         t("publicPresence.home.foundersOffer.action"),
+      );
+      expect(finalCtaSection?.querySelector('a[href="https://discord.gg/chase-sets"]')?.textContent).toBe(
+        t("publicPresence.home.discordCta"),
       );
 
       const faqSection = container.querySelector('[data-public-presence-section="faq"]');
@@ -1163,19 +1377,7 @@ describe("public waitlist form migration smoke", () => {
 
       render(<PublicPresenceHomePage actionData={null} source={pageSource} />);
 
-      const expectedSections = [
-        "hero",
-        "game_roster",
-        "open_offers",
-        "seller_tools",
-        "fee_comparison",
-        "founders_offer",
-        "launch_timeline",
-        "product_preview",
-        "founder_story",
-        "final_cta",
-        "faq",
-      ];
+      const expectedSections = [...landingSectionOrder];
       const sectionElements = Array.from(document.querySelectorAll<HTMLElement>("[data-public-presence-section]"));
       expect(sectionElements.map((element) => element.getAttribute("data-public-presence-section"))).toEqual(
         expectedSections,
@@ -1258,14 +1460,6 @@ describe("public waitlist form migration smoke", () => {
       ]);
     }
 
-    const founderStorySection = container.querySelector('[data-public-presence-section="founder_story"]');
-    if (!founderStorySection) throw new Error("Expected the founder-story section to render.");
-    clickAndExpect('a[href="https://discord.gg/chase-sets"]', founderStorySection, {
-      section: "founder_story",
-      target: "discord",
-      variant,
-    });
-
     const navSurface = container.querySelector("nav");
     if (!navSurface) throw new Error("Expected the nav to render.");
     clickAndExpect('a[href="/#waitlist-form"]', navSurface, {
@@ -1286,6 +1480,14 @@ describe("public waitlist form migration smoke", () => {
       { event: "cta_clicked", section: "game_roster", target: "pokemon", variant },
     ]);
 
+    const feeComparisonSection = container.querySelector('[data-public-presence-section="fee_comparison"]');
+    if (!feeComparisonSection) throw new Error("Expected the fee-comparison section to render.");
+    clickAndExpect('a[href="/compare/tcgplayer"]', feeComparisonSection, {
+      section: "fee_comparison",
+      target: "compare_tcgplayer",
+      variant,
+    });
+
     const foundersSection = container.querySelector('[data-public-presence-section="founders_offer"]');
     if (!foundersSection) throw new Error("Expected the founders-offer section to render.");
     clickAndExpect('a[href="/founders"]', foundersSection, {
@@ -1293,32 +1495,6 @@ describe("public waitlist form migration smoke", () => {
       target: "founders_terms",
       variant,
     });
-
-    const timelineSection = container.querySelector('[data-public-presence-section="launch_timeline"]');
-    if (!timelineSection) throw new Error("Expected the launch-timeline section to render.");
-    clickAndExpect('a[href="/#waitlist-form"]', timelineSection, {
-      section: "launch_timeline",
-      target: "waitlist_form",
-      variant,
-    });
-
-    const previewSection = container.querySelector('[data-public-presence-section="product_preview"]');
-    if (!previewSection) throw new Error("Expected the product-preview section to render.");
-    clickAndExpect('a[href="/#waitlist-form"]', previewSection, {
-      section: "product_preview",
-      target: "waitlist_form",
-      variant,
-    });
-
-    const orderProtectionCta = Array.from(
-      previewSection.querySelectorAll<HTMLAnchorElement>('a[href="/order-protection"]'),
-    ).find((anchor) => anchor.textContent === t("publicPresence.preview.listing.secondaryAction"));
-    if (!orderProtectionCta) throw new Error("Expected the product-preview order-protection CTA to render.");
-    const beforeOrderProtection = events.length;
-    fireEvent.click(orderProtectionCta);
-    expect(events.slice(beforeOrderProtection).filter((detail) => detail.event === "cta_clicked")).toEqual([
-      { event: "cta_clicked", section: "product_preview", target: "order_protection", variant },
-    ]);
 
     const finalCtaSection = container.querySelector('[data-public-presence-section="final_cta"]');
     if (!finalCtaSection) throw new Error("Expected the final-CTA section to render.");
@@ -1341,36 +1517,122 @@ describe("public waitlist form migration smoke", () => {
       variant,
     });
 
-    stop();
-  });
-
-  it("keeps the seller_tools CTA's cta_clicked payload variant-less even from the buyer (seller_first_v2) landing context (AC7)", () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () => new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
-      ),
-    );
-    window.dataLayer = [];
-    const { events, stop } = captureAnalyticsEvents();
-
-    const { container } = render(
-      <PublicPresenceHomePage actionData={null} source={{ ...source, pagePath: "/?intent=buy" }} />,
-    );
-
-    const sellerToolsSection = container.querySelector('[data-public-presence-section="seller_tools"]');
-    const cta = sellerToolsSection?.querySelector('a[href="/#waitlist-form-final"]');
-    if (!cta) {
-      throw new Error("Expected the seller-tools CTA to render.");
-    }
-
-    fireEvent.click(cta);
-
-    expect(events.filter((detail) => detail.event === "cta_clicked")).toEqual([
-      { event: "cta_clicked", section: "seller_tools", target: "waitlist_form_final", variant: "seller_first_v1" },
+    // Every landing CTA has now been clicked once; no tuple names a retired section or target (AC4).
+    const ctaTuples = events
+      .filter((detail) => detail.event === "cta_clicked")
+      .map((detail) => `${String(detail.section)}:${String(detail.target)}`);
+    expect(ctaTuples).toEqual([
+      "nav:waitlist_form",
+      "game_roster:pokemon",
+      "fee_comparison:compare_tcgplayer",
+      "founders_offer:founders_terms",
+      "final_cta:founders_terms",
+      "final_cta:discord",
+      "faq:faq",
     ]);
 
     stop();
+  });
+});
+
+describe("landing hero signup panel first screen (#8504)", () => {
+  const heroVariants = [
+    { variant: "seller_first_v1", pagePath: source.pagePath },
+    { variant: "seller_first_v2", pagePath: "/?intent=buy" },
+  ] as const;
+
+  function stubWaitlistCount(displayCount: number | null) {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      String(input).includes("/waitlist/count")
+        ? new Response(JSON.stringify({ displayCount }), { headers: { "Content-Type": "application/json" } })
+        : new Response(JSON.stringify({ items: [] }), { headers: { "Content-Type": "application/json" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  function visibleTextNodes(root: Element) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes: Text[] = [];
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node.textContent?.trim()) nodes.push(node as Text);
+    }
+    return nodes;
+  }
+
+  function follows(earlier: Node, later: Node) {
+    return Boolean(earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING);
+  }
+
+  it.each(
+    heroVariants.flatMap(({ variant, pagePath }) => [
+      { variant, pagePath, displayCount: 125 },
+      { variant, pagePath, displayCount: null },
+    ]),
+  )(
+    "$variant panel orders intent, email, submit, notes, then counter (displayCount $displayCount)",
+    async ({ pagePath, displayCount }) => {
+      const fetchMock = stubWaitlistCount(displayCount);
+      window.dataLayer = [];
+
+      const { container } = render(<PublicPresenceHomePage actionData={null} source={{ ...source, pagePath }} />);
+
+      await vi.waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith("/api/public-presence/waitlist/count", expect.anything()),
+      );
+      await act(async () => {});
+
+      const h1 = container.querySelector('[data-public-presence-section="hero"] h1');
+      expect(h1?.previousElementSibling).toBeNull();
+
+      const panel = document.getElementById("waitlist-form")!;
+      const intentControl = panel.querySelector('[role="radiogroup"]')!;
+      const email = panel.querySelector('input[name="email"]')!;
+      const submit = panel.querySelector('button[type="submit"]')!;
+      const intentLabel = t("publicPresence.waitlist.heroIntent.label");
+      expect(intentControl.getAttribute("aria-label")).toBe(intentLabel);
+      expect(panel.textContent).not.toContain(intentLabel);
+
+      const textNodes = visibleTextNodes(panel);
+      // No title, description, counter or visible label precedes the intent control.
+      expect(textNodes.filter((node) => follows(node, intentControl))).toEqual([]);
+
+      const noPayment = textNodes.find((node) => node.textContent === t("publicPresence.waitlist.compactDescription"))!;
+      const consent = textNodes.find((node) => node.textContent === t("publicPresence.waitlist.impliedConsent"))!;
+      const ordered = [intentControl, email, submit, noPayment, consent];
+      expect(ordered.every(Boolean)).toBe(true);
+      for (let index = 1; index < ordered.length; index += 1) {
+        expect(follows(ordered[index - 1]!, ordered[index]!)).toBe(true);
+      }
+
+      const trailingText = textNodes.filter((node) => follows(consent, node)).map((node) => node.textContent);
+      expect(trailingText).toEqual(
+        displayCount === null ? [] : [t("publicPresence.waitlist.counter.label", { count: displayCount })],
+      );
+    },
+  );
+
+  it.each(heroVariants)("hero form analytics unchanged ($variant)", ({ pagePath }) => {
+    stubWaitlistCount(null);
+    window.dataLayer = [];
+
+    render(<PublicPresenceHomePage actionData={null} source={{ ...source, pagePath }} />);
+
+    const panel = document.getElementById("waitlist-form")!;
+    fireEvent.focus(panel.querySelector('input[name="email"]')!);
+    const sellSegment = [...panel.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((segment) =>
+      segment.textContent?.includes(t("publicPresence.waitlist.heroIntent.sell")),
+    );
+    fireEvent.click(sellSegment!);
+
+    expect(
+      window.dataLayer.filter((detail) =>
+        ["waitlist_form_started", "waitlist_role_selected"].includes(String(detail.event)),
+      ),
+    ).toEqual([
+      expect.objectContaining({ event: "waitlist_form_started", section: "hero", field: "email" }),
+      expect.objectContaining({ event: "waitlist_role_selected", section: "hero", role: "sell" }),
+    ]);
   });
 });
 
@@ -1582,22 +1844,381 @@ describe("landing surface-diet census (AC5)", () => {
     return results;
   }
 
-  it("gives every landing Surface root an explicit elevation intent, leaving exactly one legacy elevated boolean", () => {
+  it("gives every Surface root in public-pages.tsx an explicit elevation intent with no bare or legacy elevated roots (#8270 AC3)", () => {
     const surfaces = surfaceElements(publicPagesSource);
-    // 2 shell roots (nav/footer, neither prop) + 11 landing roots (explicit
-    // elevation) + 1 PublicInfoPage root (legacy elevated boolean) = 14,
-    // matching the source-derived census.
-    expect(surfaces).toHaveLength(14);
+    // 2 shell roots (nav/footer, flush) + 1 landing root (the elevated panel;
+    // #8506 retired the 3 tinted open-offers cards) + 1 PublicInfoPage
+    // section root (tinted) = 4, matching the source-derived census.
+    expect(surfaces).toHaveLength(4);
 
     const explicitElevation = surfaces.filter((surface) => surface.elevation !== null);
-    const legacyElevated = surfaces.filter((surface) => surface.elevation === null && surface.elevatedBoolean);
-    const untouchedShellRoots = surfaces.filter((surface) => surface.elevation === null && !surface.elevatedBoolean);
+    const legacyElevated = surfaces.filter((surface) => surface.elevatedBoolean);
+    const bareRoots = surfaces.filter((surface) => surface.elevation === null && !surface.elevatedBoolean);
 
-    expect(explicitElevation).toHaveLength(11);
-    expect(legacyElevated).toHaveLength(1);
-    expect(untouchedShellRoots).toHaveLength(2);
+    expect(explicitElevation).toHaveLength(4);
+    expect(legacyElevated).toHaveLength(0);
+    expect(bareRoots).toHaveLength(0);
 
+    expect(explicitElevation.filter((surface) => surface.elevation === "flush")).toHaveLength(2);
+    expect(explicitElevation.filter((surface) => surface.elevation === "tinted")).toHaveLength(1);
     expect(explicitElevation.filter((surface) => surface.elevation === "elevated")).toHaveLength(1);
-    expect(explicitElevation.filter((surface) => surface.elevation === "tinted")).toHaveLength(10);
+    expect(explicitElevation.filter((surface) => surface.elevation === "outlined")).toHaveLength(0);
+    // Source-level guard: a bare `elevated` attribute (boolean or expression)
+    // never returns; `elevation="elevated"` on the panel is not a match.
+    expect(publicPagesSource).not.toMatch(/<Surface\b[^>]*\s+elevated(?:\s|>|\/|=\{)/);
+  });
+});
+
+describe("public shell and info page surface diet (#8270 AC3)", () => {
+  // DS-owned Surface recipe → elevation intent (see
+  // packages/design-system/src/primitives/layout.tsx `Surface`). Legacy
+  // (no `elevation`) and explicit `elevated` both carry `surface-border` plus a
+  // shadow, so they classify as "elevated"; `flush` is the bare
+  // `min-w-0 max-w-full rounded-tokenLg` frame with no fill, border or shadow.
+  function surfaceIntent(element: Element) {
+    const classes = element.classList;
+    if (
+      classes.contains("surface-border") ||
+      classes.contains("shadow-tokenLg") ||
+      classes.contains("shadow-tokenSm")
+    ) {
+      return "elevated";
+    }
+    if (classes.contains("border")) {
+      return "outlined";
+    }
+    if (classes.contains("bg-surface-2") || Array.from(classes).some((token) => /^bg-.+-soft$/.test(token))) {
+      return "tinted";
+    }
+    if (classes.contains("min-w-0") && classes.contains("max-w-full") && classes.contains("rounded-tokenLg")) {
+      return "flush";
+    }
+    return "unexpected";
+  }
+  // Chrome vocabulary the surface-diet law forbids on furniture; responsive and
+  // state variants are stripped so `md:border` still counts.
+  const chromeClassPattern =
+    /^(?:border|border-.+|surface-border|bg-surface(?:-.+)?|shadow-.+|backdrop-blur(?:-.+)?|bg-\[color-mix.*|ring|ring-.+|outline|outline-.+)$/;
+  function chromeTokens(element: Element) {
+    return element.className
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((token) => token.replace(/^(?:[a-z0-9-]+:)+/, ""))
+      .filter((token) => chromeClassPattern.test(token));
+  }
+
+  it.each([
+    { variant: "seller_first_v1", pagePath: source.pagePath },
+    { variant: "seller_first_v2", pagePath: "/?intent=buy" },
+  ])(
+    "renders nav and footer flush and keeps the signup panel as the hero's only raised element in $variant",
+    ({ pagePath }) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(JSON.stringify({ items: [] }))),
+      );
+      const { container } = render(<PublicPresenceHomePage actionData={null} source={{ ...source, pagePath }} />);
+
+      const nav = container.querySelector("nav");
+      const footer = container.querySelector("footer");
+      expect(nav).not.toBeNull();
+      expect(footer).not.toBeNull();
+      expect(container.querySelectorAll("nav")).toHaveLength(1);
+      expect(container.querySelectorAll("footer")).toHaveLength(1);
+
+      const heroSection = container.querySelector('[data-public-presence-section="hero"]');
+      expect(heroSection).not.toBeNull();
+      const heroRoot = heroSection!.querySelector("section");
+      expect(heroRoot).not.toBeNull();
+      const mobileHighlightRow = heroRoot!.querySelector('[aria-label="Marketing highlight"]');
+      const desktopHighlightRow = heroRoot!.querySelector('[aria-label="Marketing highlights"]');
+      expect(mobileHighlightRow).not.toBeNull();
+      expect(desktopHighlightRow).not.toBeNull();
+      const panel = heroRoot!.querySelector("#waitlist-form");
+      expect(panel).not.toBeNull();
+
+      // Per-root intent map (review packet seed): nav, footer, hero root,
+      // highlight rows and panel.
+      expect({
+        nav: surfaceIntent(nav!),
+        footer: surfaceIntent(footer!),
+        heroRoot: chromeTokens(heroRoot!),
+        mobileHighlightRow: chromeTokens(mobileHighlightRow!),
+        desktopHighlightRow: chromeTokens(desktopHighlightRow!),
+        panel: surfaceIntent(panel!),
+      }).toEqual({
+        nav: "flush",
+        footer: "flush",
+        heroRoot: [],
+        mobileHighlightRow: [],
+        desktopHighlightRow: [],
+        panel: "elevated",
+      });
+      expect(panel!.classList.contains("ds-glow")).toBe(true);
+      expect(heroRoot!.classList.contains("relative")).toBe(true);
+
+      // The whole hero subtree outside the caller-owned panel is chrome-free,
+      // so chrome cannot hide on an inner wrapper.
+      const heroOwnedNodes = [heroRoot!, ...Array.from(heroRoot!.querySelectorAll("*"))].filter(
+        (element) => element !== panel && !panel!.contains(element),
+      );
+      expect(heroOwnedNodes.length).toBeGreaterThan(5);
+      expect(
+        heroOwnedNodes.flatMap((element) =>
+          chromeTokens(element).map((token) => `${element.tagName.toLowerCase()}.${token}`),
+        ),
+      ).toEqual([]);
+      // Highlights are copy, not tiles: no Surface/Card root outside the panel.
+      expect(heroOwnedNodes.filter((element) => element.matches(".min-w-0.max-w-full.rounded-tokenLg"))).toEqual([]);
+      // The panel is the only raised element inside the hero.
+      expect(
+        Array.from(heroRoot!.querySelectorAll(".surface-border, .shadow-tokenLg, .shadow-tokenSm")).filter(
+          (element) => !panel!.contains(element),
+        ),
+      ).toEqual([]);
+    },
+  );
+
+  it("renders every PublicInfoPage section root tinted inside the flush shell", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ items: [] }))),
+    );
+    const { container } = render(
+      <PublicInfoPage
+        content={{
+          eyebrow: "Contact",
+          title: "Talk to the team",
+          description: "Support and status channels.",
+          sections: [
+            { title: "Support", body: ["Email support@example.test."] },
+            { title: "Status", body: ["Check status.example.test.", "Subscribe for incident updates."] },
+          ],
+        }}
+      />,
+    );
+
+    expect(surfaceIntent(container.querySelector("nav")!)).toBe("flush");
+    expect(surfaceIntent(container.querySelector("footer")!)).toBe("flush");
+
+    const main = container.querySelector("main#main-content");
+    expect(main).not.toBeNull();
+    expect(main!.textContent).toContain("Talk to the team");
+    const sectionRoots = Array.from(main!.querySelectorAll<HTMLElement>(".min-w-0.max-w-full.rounded-tokenLg"));
+    expect(sectionRoots).toHaveLength(2);
+    expect(sectionRoots.map((root) => root.querySelector("h2")?.textContent)).toEqual(["Support", "Status"]);
+    expect(sectionRoots.map(surfaceIntent)).toEqual(["tinted", "tinted"]);
+    // A tinted section root carries exactly its tint fill and no border, shadow or ring.
+    for (const root of sectionRoots) {
+      expect(chromeTokens(root)).toEqual(["bg-surface-2"]);
+    }
+    expect(main!.querySelectorAll(".surface-border, .shadow-tokenLg, .shadow-tokenSm")).toHaveLength(0);
+  });
+});
+
+describe("public shell single content gutter (#8499)", () => {
+  // `Page` owns the content gutter; furniture outside `main` repeats its tokens.
+  const pageGutterTokens = ["md:px-6", "px-4"];
+  // Any `p-*`, `px-*`, `pl-*`, `pr-*`, `ps-*` or `pe-*` class, with or without
+  // responsive/state prefixes, except a `*-0` class (the `px-0` that
+  // `paddingX={0}` emits is not padding).
+  const horizontalPaddingPattern = /^(?:[a-z0-9-]+:)*(?:p|px|pl|pr|ps|pe)-(?!0$).+$/;
+  const promoSelector = 'section[aria-label="Marketplace announcements"]';
+
+  function horizontalPaddingTokens(element: Element) {
+    return (element.getAttribute("class") ?? "")
+      .split(/\s+/)
+      .filter((token) => horizontalPaddingPattern.test(token))
+      .sort();
+  }
+
+  function ancestorsBetween(main: Element, root: Element) {
+    const chain: Element[] = [];
+    for (let node = main.parentElement; node && node !== root; node = node.parentElement) {
+      chain.push(node);
+    }
+    return chain;
+  }
+
+  function stubPromoMessages(items: readonly Record<string, unknown>[]) {
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ items }), { headers: { "Content-Type": "application/json" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  async function settlePromoFetch(fetchMock: ReturnType<typeof stubPromoMessages>) {
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+
+  function shellParts(container: HTMLElement) {
+    const main = container.querySelector<HTMLElement>("main#main-content");
+    const nav = container.querySelector("nav");
+    const footer = container.querySelector("footer");
+    expect(main).not.toBeNull();
+    expect(nav).not.toBeNull();
+    expect(footer).not.toBeNull();
+    const stack = main!.parentElement!;
+    return { main: main!, nav: nav!, footer: footer!, stack, furniture: Array.from(stack.children) };
+  }
+
+  const infoContent = {
+    eyebrow: "Contact",
+    title: "Talk to the team",
+    description: "Support and status channels.",
+    sections: [{ title: "Support", body: ["Email support@example.test."] }],
+  };
+  const helpArticle =
+    publicHelpArticles.find((article) => article.policyValueKeys.length === 0) ?? publicHelpArticles[0]!;
+  const developerArticle = developerArticles[0]!;
+
+  // Every `<PublicPresencePageShell` render site: ten sites in six files.
+  const shellConsumers: readonly (readonly [string, () => ReactNode])[] = [
+    ["landing page", () => <PublicPresenceHomePage actionData={null} source={source} />],
+    ["PublicInfoPage", () => <PublicInfoPage content={infoContent} />],
+    ["compare page", () => <ComparePage competitor="tcgplayer" feeSchedule={null} />],
+    ["success page", () => <WaitlistSuccessPage signupId="wls_public" publicOrigin="https://chasesets.com" />],
+    ["help hub", () => <HelpHubPage />],
+    ["help category", () => <HelpCategoryPage category={helpCategories[0]} articles={[]} />],
+    ["help article", () => <HelpArticlePage article={helpArticle} related={[]} />],
+    ["developer portal", () => <DeveloperPortalPage />],
+    ["developer article", () => <DeveloperArticlePage article={developerArticle} />],
+    ["policy artifact page", () => <PrivacyPolicyRouteAdapter />],
+  ];
+
+  it("lists every PublicPresencePageShell render site as a consumer", () => {
+    const featuresDirectory = join(repositoryRoot(), "bounded-contexts", "public-presence", "features");
+    const renderSiteFiles = [
+      ["waitlist", "ui", "public-pages.tsx"],
+      ["waitlist", "ui", "compare-page.tsx"],
+      ["waitlist", "ui", "success-page.tsx"],
+      ["help", "ui", "help-pages.tsx"],
+      ["developer-portal", "ui", "developer-pages.tsx"],
+      ["policies", "ui", "policy-artifact-page.tsx"],
+    ];
+    const renderSites = renderSiteFiles.reduce(
+      (count, segments) =>
+        count +
+        (readFileSync(join(featuresDirectory, ...segments), "utf8").match(/<PublicPresencePageShell\b/g) ?? []).length,
+      0,
+    );
+
+    expect(renderSites).toBe(10);
+    expect(shellConsumers).toHaveLength(renderSites);
+  });
+
+  it.each(shellConsumers)("keeps all public destinations discoverable in the %s footer", (_name, renderConsumer) => {
+    stubPromoMessages([]);
+    const { container } = render(renderConsumer());
+    const { footer } = shellParts(container);
+    const destinations = [
+      ["Help", "/help"],
+      ["Terms", "/terms"],
+      ["Privacy", "/privacy"],
+      ["Refunds and returns", "/refunds-and-returns"],
+      ["Order Protection", "/order-protection"],
+      ["Marketplace sales fees", "/sales-fees"],
+      ["Founders offer terms", "/founders"],
+      ["Contact", "/contact"],
+      ["Seller agreement", "/seller-agreement"],
+      ["Payments terms", "/payments-terms"],
+      ["Authenticity service terms", "/authenticity-terms"],
+      ["Agent connector terms", "/agent-terms"],
+      ["Creator and press fact sheet", "/press"],
+    ] as const;
+
+    expect(within(footer).getAllByRole("link")).toHaveLength(destinations.length);
+    for (const [name, href] of destinations) {
+      const links = within(footer).getAllByRole("link", { name });
+      expect(links).toHaveLength(1);
+      expect(links[0]!.getAttribute("href")).toBe(href);
+      expect(footer.querySelectorAll(`a[href="${href}"]`)).toHaveLength(1);
+    }
+  });
+
+  it.each(shellConsumers)(
+    "renders main#main-content > Page root with no horizontally padded ancestor or wrapper for the %s",
+    (_name, renderConsumer) => {
+      stubPromoMessages([]);
+      const { container } = render(renderConsumer());
+      const { main } = shellParts(container);
+
+      expect(main.children).toHaveLength(1);
+      expect(horizontalPaddingTokens(main.firstElementChild!)).toEqual(pageGutterTokens);
+      const ancestors = ancestorsBetween(main, container);
+      expect(ancestors.length).toBeGreaterThan(0);
+      expect(
+        ancestors
+          .map((ancestor) => ({ tag: ancestor.tagName.toLowerCase(), padding: horizontalPaddingTokens(ancestor) }))
+          .filter(({ padding }) => padding.length > 0),
+      ).toEqual([]);
+    },
+  );
+
+  it("renders no promo wrapper or extra stack gap with zero titled messages", async () => {
+    const fetchMock = stubPromoMessages([]);
+    const { container } = render(<PublicInfoPage content={infoContent} />);
+    await settlePromoFetch(fetchMock);
+    const { nav, footer, stack, furniture } = shellParts(container);
+
+    expect(container.querySelector(promoSelector)).toBeNull();
+    expect(furniture).toHaveLength(3);
+    expect(furniture[0]!.contains(nav)).toBe(true);
+    expect(furniture[2]!.contains(footer)).toBe(true);
+    expect(Array.from(stack.children).every((child) => child.childElementCount > 0)).toBe(true);
+  });
+
+  it("renders no promo wrapper when every fetched message lacks a title", async () => {
+    const fetchMock = stubPromoMessages([
+      { id: "promo_untitled", description: "No title" },
+      { id: "promo_blank", title: "" },
+    ]);
+    const { container } = render(<PublicInfoPage content={infoContent} />);
+    await settlePromoFetch(fetchMock);
+    const { nav, furniture } = shellParts(container);
+
+    expect(container.querySelector(promoSelector)).toBeNull();
+    expect(furniture).toHaveLength(3);
+    expect(furniture[0]!.contains(nav)).toBe(true);
+  });
+
+  it("matches the Page gutter with one titled promo message", async () => {
+    const fetchMock = stubPromoMessages([{ id: "promo_one", title: "Founders offer is open", tone: "info" }]);
+    const { container } = render(<PublicInfoPage content={infoContent} />);
+    await settlePromoFetch(fetchMock);
+    const { main, nav, footer, stack, furniture } = shellParts(container);
+    const promo = container.querySelector(promoSelector);
+
+    expect(promo).not.toBeNull();
+    expect(furniture).toHaveLength(4);
+    expect(furniture[0]).toBe(promo!.parentElement);
+    expect(furniture[1]).toBe(nav.parentElement);
+    expect(furniture[3]).toBe(footer.parentElement);
+
+    const pageRootTokens = horizontalPaddingTokens(main.firstElementChild!);
+    expect(pageRootTokens).toEqual(pageGutterTokens);
+    for (const wrapper of [promo!.parentElement!, nav.parentElement!, footer.parentElement!]) {
+      expect(wrapper.parentElement).toBe(stack);
+      expect(horizontalPaddingTokens(wrapper)).toEqual(pageRootTokens);
+    }
+  });
+
+  it.each([
+    ["landing page", () => <PublicPresenceHomePage actionData={null} source={source} />],
+    ["compare page", () => <ComparePage competitor="ebay" feeSchedule={null} />],
+  ] as const)("gives the nav and footer the Page gutter tokens on the %s", async (_name, renderPage) => {
+    const fetchMock = stubPromoMessages([]);
+    const { container } = render(renderPage());
+    await settlePromoFetch(fetchMock);
+    const { main, nav, footer } = shellParts(container);
+
+    const pageRootTokens = horizontalPaddingTokens(main.firstElementChild!);
+    expect(pageRootTokens).toEqual(pageGutterTokens);
+    expect(horizontalPaddingTokens(nav.parentElement!)).toEqual(pageRootTokens);
+    expect(horizontalPaddingTokens(footer.parentElement!)).toEqual(pageRootTokens);
   });
 });

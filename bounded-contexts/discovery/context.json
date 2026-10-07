@@ -894,7 +894,10 @@
       "owner": "discovery",
       "risk": "important",
       "strategy": "snapshot-return",
-      "surfaces": ["route-action:bounded-contexts/discovery/routes/search.tsx"],
+      "surfaces": [
+        "route-action:bounded-contexts/discovery/routes/search.tsx",
+        "fetcher-submit:bounded-contexts/discovery/routes/search.tsx:H291fe7ad6435#1"
+      ],
       "visibleDestination": {
         "routeId": "search",
         "description": "Search bulk add and Add to List stay on the browse page and render command-owned Checkout or Collections snapshots. Client-side request keys suppress stale snapshots when the visible Result Set or Product changes before the POST resolves."
@@ -904,6 +907,7 @@
         "correction": "The Search route records active Result Set and Product keys with request ids, applies only the latest matching response, and ignores older snapshots after navigation, selection, or filter changes.",
         "tests": [
           "bounded-contexts/discovery/routes/search-route.test.tsx",
+          "bounded-contexts/discovery/routes/search-route.bulk-add.test.tsx",
           "bounded-contexts/discovery/features/saved-list-addition/ui/add-to-saved-list.test.tsx",
           "bounded-contexts/collections/features/saved-lists/api/discovery-runtime.test.ts"
         ]

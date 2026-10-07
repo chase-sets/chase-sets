@@ -109,3 +109,4 @@ export type {
   MarketplaceLockedFeeListingCohortSummary,
   MarketplaceLockedFeeListingCohortWeeklyPoint,
 } from "./features/listings/read-model/queries";
+export type { ManagedOfferPricing } from "./features/offers/api/managed-authority";

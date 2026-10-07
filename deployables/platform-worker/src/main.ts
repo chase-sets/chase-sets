@@ -6,14 +6,11 @@ import {
   type NotificationChannelAdapter,
   type NotificationPreferenceResolver,
 } from "@chase-sets/outbound-messaging";
-import {
-  createPostgresTcgplayerAutomationHttpConfigStore,
-  createTcgplayerAutomationCatalogClient,
-  createTcgplayerAutomationHttpClients,
-} from "@chase-sets/catalog/server";
+import { createTcgplayerAutomationRuntime } from "@chase-sets/catalog/server";
 import { isChannelsServices, type ChannelsServices } from "@chase-sets/channels/server";
 import {
   createObjectStorageTcgplayerMarketCaptureReceiptSink,
+  createBuyerOfferPricing,
   type ChannelConnectionIdentityReader,
   type PricingHostPorts,
 } from "@chase-sets/pricing/server";
@@ -59,10 +56,10 @@ import {
   createWorkerHost,
   createWorkerRunnerLoop,
   type WorkerHostRuntime,
-  type WorkerRuntimeObserver,
   type WorkerRunner,
   type WorkerRunnerLoop,
 } from "@chase-sets/platform-runtime/worker";
+import { createWorkerObserver } from "@chase-sets/platform-runtime/worker-observer";
 import {
   createProjectionWakeSchedulerRunners,
   startPostgresProjectionWakePushDispatcher,
@@ -114,6 +111,7 @@ import {
   recordCatalogIntegrationJob,
   recordCatalogIntegrationOptionQuery,
   recordProjectionInterestIndexLookup,
+  recordProjectionStatus,
   recordProjectionWakeIntentEnqueueOutcome,
   recordProjectionWakeIntentOutcome,
   recordProjectionWakeRelayCatchUp,
@@ -231,14 +229,20 @@ const postageLabelProvider =
       })
     : createSandboxPostageLabelProvider();
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
-const tcgplayerAutomationHttpClients = config.tcgplayerAutomation
-  ? createTcgplayerAutomationHttpClients(
-      createPostgresTcgplayerAutomationHttpConfigStore(pools.catalog, config.tcgplayerAutomation),
-    )
-  : undefined;
-const tcgplayerAutomationCatalogClient = tcgplayerAutomationHttpClients
-  ? createTcgplayerAutomationCatalogClient(tcgplayerAutomationHttpClients)
-  : undefined;
+const tcgplayerAutomationRuntime = createTcgplayerAutomationRuntime({
+  pool: pools.catalog,
+  config: config.tcgplayerAutomation,
+  keyring: config.catalogOperatorSessionKeyring,
+});
+const tcgplayerAutomationCatalogClient = tcgplayerAutomationRuntime?.catalogClient;
+const pricingTcgplayerAutomationHttpClients = createTcgplayerAutomationRuntime(
+  {
+    pool: pools.catalog,
+    config: config.tcgplayerAutomation,
+    keyring: config.catalogOperatorSessionKeyring,
+  },
+  { ownership: "pricing-non-window" },
+)?.httpClients;
 const sourceObservationTelemetry = createSourceObservationTelemetry();
 let runtime: WorkerHostRuntime | null = null;
 const marketplaceChannelInboundClamp = createPlatformWorkerMarketplaceChannelInboundClampBinding(
@@ -255,7 +259,7 @@ const commercialTermsResolver = pools["commercial-terms"]
   : undefined;
 const pricingHostPorts: PricingHostPorts | undefined = pools.pricing
   ? {
-      tcgplayerMarketTransport: tcgplayerAutomationHttpClients ?? { kind: "not-mounted" },
+      tcgplayerMarketTransport: pricingTcgplayerAutomationHttpClients ?? { kind: "not-mounted" },
       tcgplayerMarketCaptureReceiptSink: createObjectStorageTcgplayerMarketCaptureReceiptSink(catalogAssetStorage),
       commercialTermsResolver: requirePricingCommercialTermsResolver(commercialTermsResolver),
       channelConnectionIdentityReader: createChannelConnectionIdentityReader(() => {
@@ -299,6 +303,7 @@ const constructWorkerRuntime = (marketplaceLabelPostageActivation?: MarketplaceL
     runtimeProfile: config.runtimeProfile,
     runtimeLifecycle,
     hostPorts: {
+      ...(pools.pricing ? { managedOfferPricing: createBuyerOfferPricing(pools.pricing) } : {}),
       processorGateway: paymentProcessorGateway,
       moneyMovementGateway,
       operationsRecorder: settlementOperationsRecorder,
@@ -431,7 +436,7 @@ const projectionOperationRunners = collectProjectionOperationRunners(runtime, {
   retryBackoffMaxMs: config.projectionOperations.retryBackoffMaxMs,
   leaseAcquireTimeoutMs: config.projectionOperations.leaseAcquireTimeoutMs,
   workSignalStore,
-  observer: createWorkerObserver(workerKind),
+  observer: createWorkerObserver(logger, workerKind, undefined, recordProjectionStatus),
 });
 const inventoryImportJobRunners = platformWorkerGroupsEnabled
   ? createInventoryJobRunners(runtime.services, config)
@@ -571,7 +576,7 @@ const runnerLoops = runnerGroups.map((group) => ({
     leaseTtlMs: config.leaseTtlMs,
     leaseRenewIntervalMs: config.leaseRenewIntervalMs,
     pollIntervalMs: group.pollIntervalMs ?? config.pollIntervalMs,
-    observer: createWorkerObserver(workerKind, group.name),
+    observer: createWorkerObserver(logger, workerKind, group.name, recordProjectionStatus),
     onError: (error, runner) => {
       logger.error("Platform worker runner failed.", {
         type: "platform-worker.runner.failed",
@@ -1343,62 +1348,6 @@ function createProjectionWakeSchedulerLogObserver(): ProjectionWakeSchedulerObse
       logger.info("Work signal cleanup completed.", {
         type: "work-signals.cleanup.completed",
         ...event.result,
-      }),
-  };
-}
-
-function createWorkerObserver(workerKind: string, runnerGroup?: string): WorkerRuntimeObserver {
-  return {
-    leaseMissed: (event) =>
-      logger.debug("Worker runner lease missed.", {
-        type: "worker.runner.lease_missed",
-        workerKind,
-        runnerGroup,
-        ...event,
-      }),
-    leaseRenewFailed: (event) =>
-      logger.warn("Worker runner lease renewal failed.", {
-        type: "worker.runner.lease_renew_failed",
-        workerKind,
-        runnerGroup,
-        ...event,
-      }),
-    runnerCompleted: (event) => {
-      const log = event.processed > 0 || event.state === "degraded" ? logger.info : logger.debug;
-      log("Worker runner completed.", {
-        type: "worker.runner.completed",
-        workerKind,
-        runnerGroup,
-        ...event,
-      });
-    },
-    runnerFailed: (event) =>
-      logger.error("Worker runner failed.", {
-        type: "worker.runner.failed",
-        workerKind,
-        runnerGroup,
-        ...event,
-      }),
-    projectionOperationStarted: (event) =>
-      logger.info("Projection operation started.", {
-        type: "projection.operation.started",
-        workerKind,
-        runnerGroup,
-        ...event,
-      }),
-    projectionOperationCompleted: (event) =>
-      logger.info("Projection operation completed.", {
-        type: "projection.operation.completed",
-        workerKind,
-        runnerGroup,
-        ...event,
-      }),
-    projectionOperationFailed: (event) =>
-      logger.error("Projection operation failed.", {
-        type: "projection.operation.failed",
-        workerKind,
-        runnerGroup,
-        ...event,
       }),
   };
 }

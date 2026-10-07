@@ -13,6 +13,22 @@ export const marketplaceRetentionSweeps: readonly BcRetentionSweep[] = [
 
 export const marketplaceRetentionExemptions: readonly BcRetentionExemption[] = [
   {
+    tableName: "marketplace_review_opportunity_work",
+    owner: "marketplace",
+    reason:
+      "Publication generations and explicit absence survive replay and retries without resurrecting older opportunities.",
+  },
+  {
+    tableName: "marketplace_review_opportunity_backfill",
+    owner: "marketplace",
+    reason: "Durable historical publication cursor resumes after worker replacement.",
+  },
+  {
+    tableName: "marketplace_managed_offer_recovery",
+    owner: "marketplace",
+    reason: "Durable keyset continuation ensures managed Offer recovery visits the tail across worker replacements.",
+  },
+  {
     tableName: "marketplace_channel_inbound_clamps",
     owner: "marketplace",
     reason:

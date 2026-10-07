@@ -14,6 +14,18 @@ import { catalogComponentSchemaSql } from "../../features/components/read-model/
 import { catalogDimensionSchemaSql } from "../../features/dimensions/read-model/schema";
 import { catalogDisplayTemplateSchemaSql } from "../../features/display-templates/read-model/schema";
 import { catalogFieldSchemaSql } from "../../features/fields/read-model/schema";
+import {
+  catalogOperatorSessionGrantSchemaSql,
+  catalogOperatorSessionGrantSchemaMigrations,
+} from "../../features/operator-session/read-model/grant-schema";
+import {
+  catalogOperatorSessionSchemaSql,
+  catalogOperatorSessionSchemaMigrations,
+} from "../../features/operator-session/read-model/schema";
+import {
+  catalogOperatorSessionOutcomeSchemaSql,
+  catalogOperatorSessionOutcomeSchemaMigrations,
+} from "../../features/operator-session/read-model/outcome-schema";
 import { catalogProductContentsSchemaSql } from "../../features/product-contents/read-model/schema";
 import { catalogProductMeasureSchemaSql } from "../../features/product-measures/read-model/schema";
 import {
@@ -61,7 +73,10 @@ export const catalogAuthoringSchemaSql = [
   }),
   catalogSourceObservationSchemaSql,
   catalogAliasEquivalenceSchemaSql,
+  catalogOperatorSessionSchemaSql,
+  catalogOperatorSessionOutcomeSchemaSql,
   catalogAttentionDismissalSchemaSql,
+  catalogOperatorSessionGrantSchemaSql,
   realtimeOutboxSchemaSql,
 ].join("\n\n");
 
@@ -70,6 +85,9 @@ export const catalogAuthoringSchemaMigrations = [
     jobsTable: "catalog_authoring_bulk_jobs",
   }),
   ...catalogSourceObservationSchemaMigrations,
+  ...catalogOperatorSessionSchemaMigrations,
+  ...catalogOperatorSessionOutcomeSchemaMigrations,
+  ...catalogOperatorSessionGrantSchemaMigrations,
   ...catalogCatalogItemSchemaMigrations,
   ...catalogProviderScopeDiscoverySchemaMigrations,
   ...catalogScopeSyncStateSchemaMigrations,

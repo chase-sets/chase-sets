@@ -27,7 +27,7 @@ import {
   PlatformCredibilityCue,
   PromoStrip,
   MarketplaceFacetChoiceGroup,
-  MarketplaceFacetGroup,
+  PanelSectionAccordion,
   MarketplaceFacetRail,
   MarketplaceFilterBottomSheet,
   MarketplaceMobileFilterBar,
@@ -118,12 +118,13 @@ function formatPrice(item: DiscoverySearchItem): string | undefined {
 // Splits the shipped locale headline around its one treated word so the landed
 // BrandFoilText wraps only that word: punctuation stays outside and the
 // concatenated visible/accessible text stays byte-identical to the locale value.
-// A zero- or multi-match headline is a contract failure, never a guessed split.
+// Zero or multiple whole-word matches stay plain, never a guessed split.
 function heroHeadlineContent(headline: string, treatedWord: string) {
-  const index = headline.indexOf(treatedWord);
-  if (index === -1 || headline.indexOf(treatedWord, index + treatedWord.length) !== -1) {
-    throw new Error(`Expected exactly one "${treatedWord}" in hero headline "${headline}".`);
+  const matches = Array.from(headline.matchAll(new RegExp(`\\b${treatedWord}\\b`, "g")));
+  if (matches.length !== 1) {
+    return headline;
   }
+  const index = matches[0]!.index;
   return (
     <>
       {headline.slice(0, index)}
@@ -692,63 +693,103 @@ export function SearchPage({
     })),
   ];
 
+  const facetValues = searchFacetConfigurations.map((facet) => facet.id);
+  if (new Set(facetValues).size !== facetValues.length) {
+    throw new Error("Duplicate Search facet section value");
+  }
+  const facetValuesKey = JSON.stringify(facetValues);
+  const [desktopFacetValues, setDesktopFacetValues] = useState<string[]>(["categories", "price-and-stock"]);
+  const [mobileFacetValues, setMobileFacetValues] = useState<string[]>(["categories", "price-and-stock"]);
+
+  useEffect(() => {
+    const available = new Set<string>(JSON.parse(facetValuesKey));
+    const prune = (values: string[]) => {
+      const retained = values.filter((value) => available.has(value));
+      return retained.length === values.length ? values : retained;
+    };
+    setDesktopFacetValues(prune);
+    setMobileFacetValues(prune);
+  }, [facetValuesKey]);
+
   function renderFacetConfigurations(presentation: "desktop" | "mobile") {
-    return searchFacetConfigurations.map((facet) => {
-      if (facet.kind === "price-and-stock") {
-        return (
-          <MarketplaceFacetGroup
-            key={facet.id}
-            id={`search-facet-${facet.id}`}
-            title={facet.title}
-            description={facet.description}
-            selectionSummary={facet.selectionSummary}
-            defaultExpanded={facet.defaultExpanded}
-          >
-            <PriceAndStockFilters
-              priceMin={priceMin}
-              priceMax={priceMax}
-              inStock={inStock}
-              onPriceMinChange={onPriceMinChange}
-              onPriceMaxChange={onPriceMaxChange}
-              onPriceMinStep={onPriceMinStep}
-              onPriceMaxStep={onPriceMaxStep}
-              onInStockChange={onInStockChange}
-            />
-          </MarketplaceFacetGroup>
-        );
-      }
-
-      const sharedProps = {
-        id: `search-facet-${facet.id}`,
-        headingLevel: 2 as const,
-        title: facet.title,
-        description: facet.description,
-        allLabel: facet.allLabel,
-        items: facet.items,
-        selectedId: facet.selectedId,
-        selectedIds: facet.selectedIds,
-        selectionMode: facet.selectionMode,
-        onSelect: facet.onSelect,
-        searchable: facet.searchable,
-        searchLabel: facet.searchLabel,
-        searchPlaceholder: facet.searchPlaceholder,
-        searchEmptyLabel: facet.searchEmptyLabel,
-        showLeadingIcons: false,
-        collapsible: true,
-        defaultExpanded: facet.defaultExpanded,
-        selectionSummary: facet.selectionSummary,
-        ...progressiveFacetLabels,
-      };
-
-      return presentation === "desktop" ? (
-        <MarketplaceFacetRail key={facet.id} {...sharedProps} />
-      ) : (
-        <MarketplaceFacetChoiceGroup key={facet.id} {...sharedProps} />
-      );
-    });
+    const values = presentation === "desktop" ? desktopFacetValues : mobileFacetValues;
+    const setValues = presentation === "desktop" ? setDesktopFacetValues : setMobileFacetValues;
+    return (
+      <PanelSectionAccordion
+        id={`search-facets-${presentation}`}
+        data-facet-list-presentation={presentation}
+        data-facet-expanded-values={JSON.stringify(values)}
+        type="multiple"
+        edge={presentation === "desktop" ? "compact" : "panel"}
+        bleed="horizontal"
+        anchorActiveItemToScrollEnd={false}
+        value={values}
+        onValueChange={(next) => setValues(Array.isArray(next) ? next : [next])}
+        items={searchFacetConfigurations.map((facet) => {
+          const sharedProps =
+            facet.kind === "choice"
+              ? {
+                  allLabel: facet.allLabel,
+                  items: facet.items,
+                  selectedId: facet.selectedId,
+                  selectedIds: facet.selectedIds,
+                  selectionMode: facet.selectionMode,
+                  onSelect: facet.onSelect,
+                  searchable: facet.searchable,
+                  searchLabel: facet.searchLabel,
+                  searchPlaceholder: facet.searchPlaceholder,
+                  searchEmptyLabel: facet.searchEmptyLabel,
+                  showLeadingIcons: false,
+                  ...progressiveFacetLabels,
+                }
+              : null;
+          return {
+            value: facet.id,
+            triggerProps: { "data-facet-item-value": facet.id },
+            trigger: (
+              <Stack element="span" gap={1}>
+                <Text element="span" size="sm" weight="semibold">
+                  {facet.title}
+                </Text>
+                {facet.selectionSummary ? (
+                  <Text element="span" size="xs" weight="regular" tone="secondary">
+                    {facet.selectionSummary}
+                  </Text>
+                ) : null}
+              </Stack>
+            ),
+            content: (
+              <Stack gap={3}>
+                <Text size="sm" tone="secondary">
+                  {facet.description}
+                </Text>
+                {sharedProps ? (
+                  presentation === "desktop" ? (
+                    <MarketplaceFacetRail {...sharedProps} />
+                  ) : (
+                    <MarketplaceFacetChoiceGroup {...sharedProps} />
+                  )
+                ) : (
+                  <PriceAndStockFilters
+                    priceMin={priceMin}
+                    priceMax={priceMax}
+                    inStock={inStock}
+                    onPriceMinChange={onPriceMinChange}
+                    onPriceMaxChange={onPriceMaxChange}
+                    onPriceMinStep={onPriceMinStep}
+                    onPriceMaxStep={onPriceMaxStep}
+                    onInStockChange={onInStockChange}
+                  />
+                )}
+              </Stack>
+            ),
+          };
+        })}
+      />
+    );
   }
 
-  const filterRail = <Stack gap={3}>{renderFacetConfigurations("desktop")}</Stack>;
+  const filterRail = renderFacetConfigurations("desktop");
   const bulkActionData = bulkAdd?.data;
   const bulkPreview = bulkActionData?.preview;
   const bulkBusy = bulkAdd?.status === "submitting";
@@ -978,7 +1019,7 @@ export function SearchPage({
         {error ? (
           <Banner tone="danger" title={t("discovery.features.search.ui.searchPage.error")} description={error} />
         ) : null}
-        {bulkAdd?.error ? (
+        {bulkAdd?.error && !(bulkSheetOpen && bulkPreview) ? (
           <Banner
             tone="danger"
             title={t("discovery.features.search.ui.searchPage.bulk.error.title")}
@@ -1300,6 +1341,13 @@ export function SearchPage({
           }
         >
           <Stack gap={4}>
+            {bulkAdd.error ? (
+              <Banner
+                tone="danger"
+                title={t("discovery.features.search.ui.searchPage.bulk.error.title")}
+                description={bulkAdd.error}
+              />
+            ) : null}
             {bulkPreview.overLimit ? (
               <Banner
                 tone="warning"

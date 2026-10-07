@@ -27,6 +27,7 @@ import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector
 import type { EventStoreContext, StoredEvent } from "@chase-sets/event-core/storage";
 import type { MarketplaceOfferAcceptedPayload } from "@chase-sets/event-core";
 import type { PgQueryable, PgTransactionalPool, PostgresEventStore } from "@chase-sets/event-core-postgres";
+import type { PurchaseDetail } from "./contracts";
 import type { SourceCommitPosition } from "@chase-sets/http/responses";
 import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/outbound-messaging";
 import {
@@ -82,7 +83,10 @@ import {
 } from "../read-model/queries";
 import { buildOrderingOrderProjectionHandlers } from "../read-model/projection";
 import { buildOrderingReputationProjectionHandlers } from "../integrations/reputation/reputation-projection";
-import { getOrderingOrderReviewOpportunity } from "../integrations/reputation/reputation-queries";
+import {
+  getOrderingOrderDeliverySummary,
+  getOrderingOrderReviewOpportunity,
+} from "../integrations/reputation/reputation-queries";
 import {
   buildOrderingTransactionalEmailProjectionHandlers,
   ORDERING_TRANSACTIONAL_EMAIL_PROJECTION,
@@ -128,6 +132,7 @@ import {
   completeOrderSourceClaim,
   getOrderSourceClaim,
   compensatePendingOrderSourceClaim,
+  finishOrderSourceCompensation,
   type OrderSourceClaim,
 } from "./order-source-claims";
 
@@ -230,7 +235,7 @@ async function getOrderPurchaseLimitReleaseInput(db: PgTransactionalPool, orderI
 }
 
 type OrderRuntimeDeps = Readonly<{
-  eventStore: EventStore & Partial<Pick<PostgresEventStore, "appendToStreamInTransaction">>;
+  eventStore: EventStore & Partial<Pick<PostgresEventStore, "appendToStreamInTransaction" | "readStreamInTransaction">>;
   checkpointStore: ProjectionCheckpointStore;
   db: PgTransactionalPool;
   shippingQuotePolicy: ShippingQuotePolicy;
@@ -615,7 +620,7 @@ export type OrderingOrderServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<{ checked: number; cancelled: number; progressed: number; failed: number }>;
   listPurchases: (params: Parameters<typeof listPurchases>[1]) => ReturnType<typeof listPurchases>;
-  getPurchase: (orderId: string, buyerAccountId: string) => ReturnType<typeof getPurchase>;
+  getPurchase: (orderId: string, buyerAccountId: string) => ReturnType<typeof getPurchaseWithDeliverySummary>;
   getPurchaseListSummary: (buyerAccountId: string) => ReturnType<typeof getPurchaseListSummary>;
   listSales: (params: Parameters<typeof listSales>[1]) => ReturnType<typeof listSales>;
   getSale: (orderId: string, sellerAccountId: string) => ReturnType<typeof getSale>;
@@ -1495,6 +1500,18 @@ function planToPreview(
   };
 }
 
+async function getPurchaseWithDeliverySummary(
+  db: PgQueryable,
+  orderId: string,
+  buyerAccountId: string,
+): Promise<(NonNullable<Awaited<ReturnType<typeof getPurchase>>> & Pick<PurchaseDetail, "delivery_summary">) | null> {
+  const purchase = await getPurchase(db, orderId, buyerAccountId);
+  if (!purchase) {
+    return null;
+  }
+  return { ...purchase, delivery_summary: await getOrderingOrderDeliverySummary(db, orderId) };
+}
+
 export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrderServices {
   const taxQuoteResolver = deps.taxQuoteResolver ?? zeroTaxQuoteResolver;
   const postagePolicyResolver = deps.postagePolicyResolver ?? defaultPostagePolicyResolver;
@@ -1509,8 +1526,13 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
   });
   const eventStoreInTransaction = (client: PgQueryable): EventStore => {
     const append = deps.eventStore.appendToStreamInTransaction;
-    if (!append) throw new OrderingDomainError("Governed Ordering requires a transaction-bound event store.");
-    return { ...deps.eventStore, appendToStream: (input) => append(client, input) };
+    const read = deps.eventStore.readStreamInTransaction;
+    if (!append || !read) throw new OrderingDomainError("Ordering requires a transaction-bound event store.");
+    return {
+      ...deps.eventStore,
+      readStream: (input) => read(client, input),
+      appendToStream: (input) => append(client, input),
+    };
   };
   const orderHandlerInTransaction = (client: PgQueryable) =>
     createAggregateCommandHandler({
@@ -1556,7 +1578,33 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
     sellerAccountId: string,
     context: EventStoreContext,
     governedSource?: EvidenceWindowSourceIdentity,
+    transactionClient?: PgQueryable,
   ) => {
+    if (!governedSource) {
+      await reconcileSellerOrderCapacity(
+        deps.db,
+        sellerAccountId,
+        undefined,
+        async ({ atCapacity }, client) => {
+          const handler = createAggregateCommandHandler({
+            eventStore: eventStoreInTransaction(client),
+            codec: createPassthroughDomainEventCodec<SellerCapacitySignalEvent>(),
+            initialState: () => initialSellerCapacitySignalState,
+            evolve: evolveSellerCapacitySignal,
+            decide: decideSellerCapacitySignal,
+          }).commandHandler;
+          await handler({
+            streamId: `ordering.seller-capacity-${sellerAccountId}`,
+            command: atCapacity
+              ? { type: "MarkSellerAtCapacity", accountId: sellerAccountId }
+              : { type: "ClearSellerAtCapacity", accountId: sellerAccountId },
+            context,
+          });
+        },
+        transactionClient,
+      );
+      return;
+    }
     const { atCapacity } = await reconcileSellerOrderCapacity(deps.db, sellerAccountId, governedSource);
     const signal = {
       streamId: `ordering.seller-capacity-${sellerAccountId}`,
@@ -1602,9 +1650,18 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         }
       : { kind: "not-mounted" };
 
-  const claimedOrderStreamStatus = async (claim: OrderSourceClaim) => {
+  const claimedOrderStreamStatus = async (claim: OrderSourceClaim, client?: PgQueryable) => {
+    const sourceRepository = client
+      ? createAggregateCommandHandler({
+          eventStore: eventStoreInTransaction(client),
+          codec: createPassthroughDomainEventCodec<OrderingOrderEvent>(),
+          initialState: () => initialOrderingOrderState,
+          evolve: evolveOrderingOrder,
+          decide: decideOrderingOrder,
+        }).repository
+      : repository;
     const loadedOrders = await Promise.all(
-      claim.orderIds.map((orderId) => repository.load(`ordering.order-${orderId}`)),
+      claim.orderIds.map((orderId) => sourceRepository.load(`ordering.order-${orderId}`)),
     );
     const existingCount = loadedOrders.filter(({ state }) => state.orderId !== null).length;
     const matchingCount = loadedOrders.filter(
@@ -1618,6 +1675,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
   };
 
   const completedOrderSourceResult = async (claim: OrderSourceClaim, governed = false) => {
+    if (claim.status === "compensating") return null;
     if (claim.status === "created") {
       return { orderIds: [...claim.orderIds], rejectedSellerAccountIds: [] };
     }
@@ -2455,7 +2513,18 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
           throw new OrderingDomainError("Evidence window source binding refused.");
         }
       }
-      const existingClaim = await getOrderSourceClaim(deps.db, params.sourceType, params.checkoutSessionId);
+      let existingClaim = await getOrderSourceClaim(deps.db, params.sourceType, params.checkoutSessionId);
+      if (existingClaim?.status === "compensating" && existingClaim.buyerAccountId === params.buyerAccountId) {
+        const compensatingClaim = existingClaim;
+        await finishOrderSourceCompensation(
+          deps.db,
+          compensatingClaim,
+          async (client) => (await claimedOrderStreamStatus(compensatingClaim, client)).existingCount > 0,
+          (sellerAccountId, client) => reconcileAndSignalSellerCapacity(sellerAccountId, context, undefined, client),
+          evidenceWindowSourceAdmissionConfigured,
+        );
+        existingClaim = await getOrderSourceClaim(deps.db, params.sourceType, params.checkoutSessionId);
+      }
       if (existingClaim) {
         if (existingClaim.buyerAccountId !== params.buyerAccountId) {
           throw new OrderingDomainError("Order source identity is already claimed by another buyer account.");
@@ -2594,12 +2663,22 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
           Boolean(params.evidenceWindowSource),
         );
       } catch (error) {
-        await compensatePendingOrderSourceClaim(
-          deps.db,
-          sourceClaimResult.claim,
-          async () => (await claimedOrderStreamStatus(sourceClaimResult.claim)).existingCount > 0,
-          evidenceWindowSourceAdmissionConfigured,
-        );
+        try {
+          await compensatePendingOrderSourceClaim(
+            deps.db,
+            sourceClaimResult.claim,
+            async (client) => (await claimedOrderStreamStatus(sourceClaimResult.claim, client)).existingCount > 0,
+            evidenceWindowSourceAdmissionConfigured,
+            (sellerAccountId, client) => reconcileAndSignalSellerCapacity(sellerAccountId, context, undefined, client),
+          );
+        } catch (compensationError) {
+          if (error instanceof Error) {
+            error.cause = new AggregateError(
+              error.cause === undefined ? [compensationError] : [error.cause, compensationError],
+              "Order source compensation failed.",
+            );
+          }
+        }
         throw error;
       }
 
@@ -2798,7 +2877,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       return { checked: candidates.length, cancelled, progressed, failed };
     },
     listPurchases: (params) => listPurchases(deps.db, params),
-    getPurchase: (orderId, buyerAccountId) => getPurchase(deps.db, orderId, buyerAccountId),
+    getPurchase: (orderId, buyerAccountId) => getPurchaseWithDeliverySummary(deps.db, orderId, buyerAccountId),
     getPurchaseListSummary: (buyerAccountId) => getPurchaseListSummary(deps.db, buyerAccountId),
     listSales: (params) => listSales(deps.db, params),
     getSale: (orderId, sellerAccountId) => getSale(deps.db, orderId, sellerAccountId),

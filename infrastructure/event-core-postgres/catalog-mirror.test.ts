@@ -256,6 +256,52 @@ describe("buildCatalogMirrorProjectionHandlers", () => {
     }
   });
 
+  it.each([
+    { name: "opt-out", blueprintDraftStatusOnUpsert: false },
+    { name: "default", blueprintDraftStatusOnUpsert: undefined },
+  ])(
+    "publishes a blueprint with $name status behavior and refreshes assigned items",
+    async ({ blueprintDraftStatusOnUpsert }) => {
+      const replayDb = createCatalogMirrorReplayDb("mirror_catalog");
+      const handlers = buildCatalogMirrorProjectionHandlers(replayDb.db, {
+        tablePrefix: "mirror_catalog",
+        blueprintDraftStatusOnUpsert,
+      });
+      await handlers["catalog.blueprint.created"]!(
+        event("catalog.blueprint.created", { blueprintId: "bp_1", name: "Card" }, "catalog.blueprint-bp_1"),
+      );
+      await handlers["catalog.catalog-item.created"]!(
+        event("catalog.catalog-item.created", { itemId: "cat_1", title: "Card" }),
+      );
+      await handlers["catalog.catalog-item.blueprint-assigned"]!(
+        event("catalog.catalog-item.blueprint-assigned", { blueprintId: "bp_1" }),
+      );
+      const effectCountBefore = replayDb.effects.length;
+      const publishedAt = "2026-05-10T12:00:00.000Z";
+      await handlers["catalog.blueprint.published"]!(
+        event("catalog.blueprint.published", {}, "catalog.blueprint-bp_1", publishedAt),
+      );
+      const effects = replayDb.effects.slice(effectCountBefore);
+      expect(effects[0]).toEqual({
+        sql: `UPDATE mirror_catalog_blueprints SET ${blueprintDraftStatusOnUpsert === false ? "" : "status = 'active', "}updated_at = $2 WHERE blueprint_id = $1`,
+        params: ["bp_1", publishedAt],
+      });
+      if (blueprintDraftStatusOnUpsert === false) {
+        expect(effects.every(({ sql }) => !/\bstatus\b/.test(sql))).toBe(true);
+      } else {
+        expect(replayDb.snapshotState().blueprints.bp_1).toMatchObject({ status: "active", updated_at: publishedAt });
+      }
+      expect(effects.at(-1)).toEqual({
+        sql: "UPDATE mirror_catalog_items SET product_schema = $2::jsonb, updated_at = mirror_catalog_items.updated_at WHERE blueprint_id = $1 AND product_schema IS DISTINCT FROM $2::jsonb",
+        params: ["bp_1", JSON.stringify({ canonicalDimensionOrder: [], dimensions: [] })],
+      });
+      expect(replayDb.snapshotState().items.cat_1).toMatchObject({
+        blueprint_id: "bp_1",
+        updated_at: "2026-05-09T00:00:00.000Z",
+      });
+    },
+  );
+
   it("cascades blueprint and dimension changes into item product schemas", async () => {
     const replayDb = createCatalogMirrorReplayDb("checkout_catalog");
     const handlers = buildCatalogMirrorProjectionHandlers(replayDb.db, { tablePrefix: "checkout_catalog" });

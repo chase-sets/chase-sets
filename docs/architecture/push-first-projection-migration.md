@@ -31,7 +31,7 @@ An explicit opt-out (`projectionPushOptOuts` in `projection-push-migration.ts`) 
 
 The validator also rejects opt-outs naming unknown projection groups and duplicates. **Current opt-out count: 0.** Every projection group on the platform is push-first eligible or enabled.
 
-## Projection Groups (164)
+## Projection Groups (167)
 
 Bold source contexts are staging-enabled in the registry. `Enabled` counts sources with relay fan-out enabled.
 
@@ -93,6 +93,7 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `discovery:discovery-search-item-projection` | Discovery | **catalog** | push-enabled | 1/1 |
 | `fulfillment:fulfillment-account-projection` | Fulfillment | **identity** | push-enabled | 1/1 |
 | `fulfillment:fulfillment-order-source-projection` | Fulfillment | **ordering** | push-enabled | 1/1 |
+| `fulfillment:fulfillment-order-group-admission-subscription` | Fulfillment | **ordering** | push-enabled | 1/1 |
 | `fulfillment:fulfillment-payment-fraud-source-projection` | Fulfillment | **payments** | push-enabled | 1/1 |
 | `fulfillment:fulfillment-shipment-projection` | Fulfillment | fulfillment | push-eligible | 0/1 |
 | `fulfillment:fulfillment-return-shipment-projection` | Fulfillment | fulfillment | push-eligible | 0/1 |
@@ -126,6 +127,9 @@ Bold source contexts are staging-enabled in the registry. `Enabled` counts sourc
 | `marketplace:marketplace-identity-account-projection` | Marketplace | **identity**, **marketplace** | push-enabled | 2/2 |
 | `marketplace:marketplace-inventory-supply-projection` | Marketplace | **inventory** | push-enabled | 1/1 |
 | `marketplace:marketplace-listing-projection` | Marketplace | **catalog**, **marketplace** | push-enabled | 2/2 |
+| `marketplace:marketplace-managed-offer-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
+| `marketplace:marketplace-managed-offer-reaction` | Marketplace | pricing | push-eligible | 0/1 |
+| `marketplace:marketplace-offer-policy-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
 | `marketplace:marketplace-offer-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |
 | `marketplace:marketplace-review-account-source-projection` | Marketplace | **identity** | push-enabled | 1/1 |
 | `marketplace:marketplace-review-hold-projection` | Marketplace | **marketplace** | push-enabled | 1/1 |

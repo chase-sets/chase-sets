@@ -252,11 +252,11 @@
     },
     {
       "projectionName": "checkout-marketplace-listing-options-projection",
-      "projectionRevision": 2,
+      "projectionRevision": 3,
       "sourceContextNames": ["marketplace", "catalog", "ordering"],
       "ownedTables": ["checkout_marketplace_seller_options", "checkout_marketplace_seller_availability"],
       "requiredDuringBootstrap": true,
-      "resetStrategy": "replay-only"
+      "resetStrategy": "truncate-owned-tables"
     },
     {
       "projectionName": "checkout-inventory-supply-projection",
@@ -838,29 +838,6 @@
         "tests": [
           "bounded-contexts/checkout/features/cart/api/route.test.ts",
           "bounded-contexts/checkout/features/cart/domain/readiness.test.ts",
-          "bounded-contexts/checkout/routes/account-cart-route.test.ts"
-        ]
-      }
-    },
-    {
-      "id": "checkout.cart-self-refresh-fresh-read-forms",
-      "owner": "checkout",
-      "risk": "important",
-      "strategy": "fresh-read",
-      "surfaces": ["post-form:bounded-contexts/checkout/features/cart/ui/add-to-cart-section.tsx:H2df726441e2a#1"],
-      "visibleDestination": {
-        "routeId": "account-cart",
-        "apiContextName": "checkout",
-        "apiRoutePath": "/account/cart",
-        "readModelTables": ["checkout_cart_line_pages", "checkout_marketplace_seller_options"],
-        "transientRecovery": {
-          "kinds": "refreshable-catching-up",
-          "behavior": "Buy Cart add-to-cart forms submit through the account cart action, which redirects with a Checkout commit receipt; the account cart loader waits on checkout_cart_line_pages plus checkout seller-options data and shows temporary cart recovery for valid fresh-write projection lag."
-        }
-      },
-      "proof": {
-        "tests": [
-          "bounded-contexts/checkout/features/cart/ui/cart-page.test.tsx",
           "bounded-contexts/checkout/routes/account-cart-route.test.ts"
         ]
       }

@@ -15,6 +15,7 @@ import {
   activeMemberProfile,
   assertExactMembers,
   collectCatalogCensus,
+  catalogReadDigest,
   evaluateCausalReadback,
   executableMemberPartition,
   inventoryDigest,
@@ -29,6 +30,7 @@ import {
   type CatalogPage,
   type CatalogScope,
   type ItemInstant,
+  type CatalogReadItem,
 } from "./support/representative-catalog-evidence";
 
 const catalogWorkbenchCommand = {
@@ -1393,6 +1395,334 @@ function groupProviderSyncJourneysByCanonicalScope(
 }
 
 test.describe("catalog staging provider sync UAT helpers", () => {
+  test("Source option missing fails closed control", async ({ page }) => {
+    const panel = `
+      <section data-catalog-source-options-status="true"><div data-source-option-page><span>Set</span>
+        <button type="button" onclick="document.documentElement.dataset.refreshClicks = (Number(document.documentElement.dataset.refreshClicks || 0) + 1).toString()">Force refresh</button>
+        <button type="button" onclick="document.documentElement.dataset.refreshClicks = (Number(document.documentElement.dataset.refreshClicks || 0) + 1).toString()">Reload</button>
+        <button type="button" onclick="document.documentElement.dataset.refreshClicks = (Number(document.documentElement.dataset.refreshClicks || 0) + 1).toString()">Refresh all</button>
+      </div></section>`;
+    const counters = `
+      <a href="/catalog/integrations" onclick="document.documentElement.dataset.retryClicks = (Number(document.documentElement.dataset.retryClicks || 0) + 1).toString(); event.preventDefault()">Retry</a>`;
+    const observe = async (call: Promise<unknown>) =>
+      Promise.race([
+        call.then(
+          (value) => value,
+          (error) => error,
+        ),
+        new Promise((resolve) => setTimeout(() => resolve("pending"), 10_000)),
+      ]);
+    const run = async (
+      html: string,
+      call: (
+        recover: MissingOptionRecovery,
+        frameNavigated: () => number,
+        reload: () => number,
+        recoveryCalls: readonly number[],
+      ) => Promise<unknown>,
+    ) => {
+      await page.setContent(html);
+      let navigations = 0;
+      const onNavigate = () => {
+        navigations += 1;
+      };
+      page.on("framenavigated", onNavigate);
+      let reloads = 0;
+      const originalReload = page["reload"].bind(page);
+      const pageWithReload = page as Page & { reload: Page["reload"] };
+      pageWithReload.reload = (async (...args: Parameters<Page["reload"]>) => {
+        reloads += 1;
+        return originalReload(...args);
+      }) as Page["reload"];
+      const recoveryCalls: number[] = [];
+      const recover: MissingOptionRecovery = () => {
+        recoveryCalls.push(Date.now());
+        return recoverSourceOptionSelection(page, "Set");
+      };
+      try {
+        const outcome = await call(
+          recover,
+          () => navigations,
+          () => reloads,
+          recoveryCalls,
+        );
+        return { outcome, recoveryCalls };
+      } finally {
+        pageWithReload.reload = originalReload as Page["reload"];
+        page.off("framenavigated", onNavigate);
+      }
+    };
+    const assertNoActions = async (
+      outcome: unknown,
+      recoveryCalls: readonly number[],
+      navigations: number,
+      reloads: number,
+    ) => {
+      expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+      expect(await page.locator("html").getAttribute("data-refresh-clicks")).toBeNull();
+      expect(navigations).toBe(0);
+      expect(reloads).toBe(0);
+      expect(recoveryCalls).toHaveLength(1);
+      expect(outcome).toEqual(
+        expect.objectContaining({
+          message: expect.stringContaining("Source option Set is hidden or lacks the requested option"),
+        }),
+      );
+    };
+
+    let t0 = 0;
+    const n1 = await run(
+      `${panel}<select aria-label="Set"><option value="other-8443">Other</option></select>`,
+      async (recover, navigations, reloads, recoveryCalls) => {
+        t0 = Date.now();
+        const outcome = await observe(
+          waitForOption(page.getByRole("combobox", { name: "Set" }), { values: ["missing-8443"] }, recover),
+        );
+        expect(recoveryCalls[0] - t0).toBeGreaterThanOrEqual(5_000);
+        await assertNoActions(outcome, recoveryCalls, navigations(), reloads());
+        return outcome;
+      },
+    );
+    expect(n1.outcome).not.toBe("pending");
+
+    const n2 = await run(
+      `${panel}<select aria-label="Set" style="display:none"><option value="missing-8443">Missing</option></select>`,
+      async (recover, navigations, reloads, recoveryCalls) => {
+        const outcome = await observe(
+          selectOption(page.locator('select[aria-label="Set"]'), { values: ["missing-8443"] }, recover),
+        );
+        await assertNoActions(outcome, recoveryCalls, navigations(), reloads());
+        expect(await page.locator('select[aria-label="Set"]').inputValue()).toBe("missing-8443");
+        return outcome;
+      },
+    );
+    expect(n2.outcome).not.toBe("pending");
+
+    const ae = await run(
+      `<main><h1>Admin Error</h1><details open><summary>Technical detail</summary>boom-8443</details>${counters}${panel}<select aria-label="Set"><option value="other-8443">Other</option></select></main>`,
+      async (recover, navigations, reloads, recoveryCalls) => {
+        t0 = Date.now();
+        const outcome = await observe(
+          waitForOption(page.getByRole("combobox", { name: "Set" }), { values: ["missing-8443"] }, recover),
+        );
+        expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+        expect(await page.locator("html").getAttribute("data-refresh-clicks")).toBeNull();
+        expect(navigations()).toBe(0);
+        expect(reloads()).toBe(0);
+        expect(recoveryCalls[0] - t0).toBeGreaterThanOrEqual(5_000);
+        expect(outcome).toEqual(
+          expect.objectContaining({
+            message: expect.stringMatching(/Catalog importer rendered Admin Error while loading.*boom-8443/),
+          }),
+        );
+        return outcome;
+      },
+    );
+    expect(ae.outcome).not.toBe("pending");
+
+    const hit = await run(
+      `${panel}<select aria-label="Set"><option value="">Choose</option><option value="hit-8443">The First Chapter</option></select>`,
+      async (recover, navigations, reloads) => {
+        const outcome = await observe(
+          selectOption(page.getByRole("combobox", { name: "Set" }), { labels: ["The First Chapter"] }, recover),
+        );
+        expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+        expect(await page.locator("html").getAttribute("data-refresh-clicks")).toBeNull();
+        expect(navigations()).toBe(0);
+        expect(reloads()).toBe(0);
+        expect(outcome).toEqual({ label: "The First Chapter", value: "hit-8443" });
+        expect(await page.getByRole("combobox", { name: "Set" }).inputValue()).toBe("hit-8443");
+        return outcome;
+      },
+    );
+    expect(hit.recoveryCalls).toHaveLength(0);
+
+    const fb = await run(
+      `${panel}<select aria-label="Set"><option value="">Choose</option><option value="fb-8443">Fallback Set</option></select>`,
+      async (recover, navigations, reloads) => {
+        t0 = Date.now();
+        const outcome = await observe(
+          waitForOption(
+            page.getByRole("combobox", { name: "Set" }),
+            { labels: ["Absent"], fallbackToFirstAvailableOption: {} },
+            recover,
+          ),
+        );
+        expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+        expect(await page.locator("html").getAttribute("data-refresh-clicks")).toBeNull();
+        expect(navigations()).toBe(0);
+        expect(reloads()).toBe(0);
+        expect(Date.now() - t0).toBeGreaterThanOrEqual(5_000);
+        expect(outcome).toEqual({ label: "Fallback Set", value: "fb-8443" });
+        return outcome;
+      },
+    );
+    expect(fb.recoveryCalls).toHaveLength(0);
+    expect(await page.locator("html").getAttribute("data-refresh-clicks")).toBeNull();
+  });
+
+  test("Admin Error fail closed control @catalog-admin-integrations", async ({ page }) => {
+    let frameNavigatedCount = 0;
+    const frameNavigatedHandler = () => {
+      frameNavigatedCount += 1;
+    };
+    page.on("framenavigated", frameNavigatedHandler);
+    let reloadCount = 0;
+    const originalReload = page["reload"].bind(page);
+    const pageWithReload = page as Page & { reload: Page["reload"] };
+    pageWithReload.reload = (async (...args: Parameters<Page["reload"]>) => {
+      reloadCount += 1;
+      return originalReload(...args);
+    }) as Page["reload"];
+
+    const counters = `
+      <a href="/catalog/integrations" onclick="document.documentElement.dataset.retryClicks = (Number(document.documentElement.dataset.retryClicks || 0) + 1).toString(); event.preventDefault()">Retry</a>
+      <button type="button" onclick="document.documentElement.dataset.refreshClicks = (Number(document.documentElement.dataset.refreshClicks || 0) + 1).toString()">Force refresh</button>
+      <button type="button" onclick="document.documentElement.dataset.refreshClicks = (Number(document.documentElement.dataset.refreshClicks || 0) + 1).toString()">Reload</button>
+      <button type="button" onclick="document.documentElement.dataset.refreshClicks = (Number(document.documentElement.dataset.refreshClicks || 0) + 1).toString()">Refresh all</button>`;
+    const adminError = (includeRetry: boolean, includeOptions = false) => `
+      <main><h1>Admin Error</h1><details open><summary>Technical detail</summary>boom-8442</details>
+      ${includeRetry ? counters.split("<button")[0] : ""}
+      ${includeOptions ? `<section data-catalog-source-options-status="true"><div data-source-option-page><span>Set</span>${counters.slice(counters.indexOf("<button"))}</div></section><label>Set<select aria-label="Set"><option value="existing-8442">Existing</option></select></label>` : ""}
+      </main>`;
+
+    try {
+      await page.setContent(adminError(true));
+      await expect(recoverImporterFromAdminError(page)).rejects.toThrow(
+        /Catalog importer rendered Admin Error while loading.*boom-8442/,
+      );
+      expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+      expect(reloadCount).toBe(0);
+      expect(frameNavigatedCount).toBe(0);
+
+      await page.setContent(
+        adminError(true).replace("boom-8442", "Catalog provider-send window stopped (quota-exhausted)."),
+      );
+      await expect(recoverSourceOptionSelection(page, "Set")).rejects.toThrow(/quota-exhausted/);
+      expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+      expect(reloadCount).toBe(0);
+      expect(frameNavigatedCount).toBe(0);
+
+      reloadCount = 0;
+      frameNavigatedCount = 0;
+      await page.setContent(adminError(false));
+      await expect(recoverImporterFromAdminError(page)).rejects.toThrow(/boom-8442/);
+      expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+      expect(reloadCount).toBe(0);
+      expect(frameNavigatedCount).toBe(0);
+
+      reloadCount = 0;
+      frameNavigatedCount = 0;
+      await page.setContent(adminError(true, true));
+      await expect(
+        waitForOption(page.getByRole("combobox", { name: "Set" }), { values: ["missing-8442"] }, () =>
+          recoverSourceOptionSelection(page, "Set"),
+        ),
+      ).rejects.toThrow(/Catalog importer rendered Admin Error while loading.*boom-8442/);
+      expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+      expect(await page.locator("html").getAttribute("data-refresh-clicks")).toBeNull();
+      expect(reloadCount).toBe(0);
+      expect(frameNavigatedCount).toBe(0);
+
+      reloadCount = 0;
+      frameNavigatedCount = 0;
+      await page.setContent("<main><p>Healthy importer</p></main>");
+      await expect(recoverImporterFromAdminError(page)).resolves.toBe(false);
+      expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+      expect(await page.locator("html").getAttribute("data-refresh-clicks")).toBeNull();
+      expect(reloadCount).toBe(0);
+      expect(frameNavigatedCount).toBe(0);
+    } finally {
+      pageWithReload.reload = originalReload as Page["reload"];
+      page.off("framenavigated", frameNavigatedHandler);
+    }
+  });
+
+  test("import preflight state control", async ({ page }) => {
+    const unitKey = "tcgplayer:pokemon:sealed-product:source-observation-import";
+    const selectedScope: SelectedProviderScope = {
+      providerKey: "tcgplayer",
+      importScope: "en:TFC",
+      displayLabel: "The First Chapter",
+      fields: [
+        { name: "languageCode", value: "en" },
+        { name: "expansionId", value: "TFC" },
+      ],
+    };
+    const fixture = (body: string, outsidePanel = "") => `
+      <section data-catalog-primary-workbench="true">
+        <button data-catalog-import-workflow-stage="run-sync" aria-controls="run-sync-panel" aria-expanded="true">Run sync</button>
+        <div data-catalog-import-context-bar="true"><button type="button" onclick="document.documentElement.dataset.selectClicks = (Number(document.documentElement.dataset.selectClicks || 0) + 1).toString()">Select source scope</button></div>
+        <div id="run-sync-panel">${body}</div>
+        ${outsidePanel}
+      </section>`;
+    const commandForm = (provider = "tcgplayer") => `
+      <section><form data-catalog-primary-workbench-command="scope.import" data-catalog-source-scope-unit="${unitKey}">
+        <input name="providerKey" value="${provider}"><input name="importScope" value="en:TFC"><input name="languageCode" value="en"><input name="expansionId" value="TFC">
+        <button type="button">Sync scope</button><button type="button" onclick="document.documentElement.dataset.retryClicks = (Number(document.documentElement.dataset.retryClicks || 0) + 1).toString()">Retry</button>
+      </form></section>`;
+    const degraded = `<section><form data-catalog-primary-workbench-command="scope.sync"></form></section><section><div role="status" data-catalog-deferred-panel="unavailable" tone="warning">Preview unavailable</div></section>`;
+    const ready = `<div data-catalog-import-preview="ready" data-catalog-import-preview-provider="tcgplayer" data-catalog-import-preview-unit="${unitKey}" data-catalog-import-preview-scope="en:TFC" data-catalog-import-preview-strategy="bulk-first"><span>ready evidence</span></div>`;
+
+    await page.setContent(fixture(`${commandForm()}${ready}`));
+    await expectImportPreflight(page, unitKey, selectedScope, {
+      requestStrategy: "bulk-first",
+      visibleText: ["ready evidence"],
+    }).then((state) => expect(state).toBe("ready"));
+
+    await page.setContent(fixture(`${commandForm()}${degraded}`));
+    let frameNavigatedCount = 0;
+    const frameNavigatedHandler = () => {
+      frameNavigatedCount += 1;
+    };
+    page.on("framenavigated", frameNavigatedHandler);
+    const capturedLogs: string[] = [];
+    const originalConsoleLog = console.log;
+    console.log = (...args: unknown[]) => {
+      capturedLogs.push(args.map((arg) => String(arg)).join(" "));
+      originalConsoleLog(...args);
+    };
+    try {
+      await expectImportPreflight(page, unitKey, selectedScope, { visibleText: [] }).then((state) =>
+        expect(state).toBe("degraded"),
+      );
+    } finally {
+      console.log = originalConsoleLog;
+    }
+    expect(frameNavigatedCount).toBe(0);
+    page.off("framenavigated", frameNavigatedHandler);
+    expect(
+      capturedLogs.filter(
+        (line) =>
+          line.includes("state=degraded") &&
+          line.includes(`unit=${unitKey}`) &&
+          line.includes("scope=The First Chapter"),
+      ),
+    ).toHaveLength(1);
+    expect(await page.locator("html").getAttribute("data-retry-clicks")).toBeNull();
+    expect(await page.locator("html").getAttribute("data-select-clicks")).toBeNull();
+
+    const negatives = [
+      `${commandForm()}<section><form data-catalog-primary-workbench-command="scope.sync"></form><div role="status" data-catalog-deferred-panel="unavailable">Sibling unavailable</div></section>`,
+      `${commandForm()}${degraded}${degraded}`,
+      `${commandForm("other-provider")}${degraded}`,
+      `${commandForm()}<div role="status">Preview unavailable</div>`,
+      `${commandForm()}<div data-catalog-deferred-panel="unavailable">Preview unavailable</div>`,
+      commandForm(),
+    ];
+    for (const body of negatives) {
+      await page.setContent(fixture(body));
+      await expect(expectImportPreflight(page, unitKey, selectedScope, { visibleText: [] }, 150)).rejects.toThrow();
+    }
+    await page.setContent(
+      fixture(
+        commandForm(),
+        '<section><div role="status" data-catalog-deferred-panel="unavailable">Outside panel</div></section>',
+      ),
+    );
+    await expect(expectImportPreflight(page, unitKey, selectedScope, { visibleText: [] }, 150)).rejects.toThrow();
+  });
+
   test("derives all 46 representative members from the real selector and independently refuses every omitted member", () => {
     const selected = providerJourneysForScope("staging-representative-catalog");
     expect(selected).toHaveLength(46);
@@ -1659,7 +1989,7 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     }
   });
 
-  test("joins create, refresh, retry and reapply to the exact command and refuses stale, queued, wrong-item and skew violations", () => {
+  test("representative catalog causal joins create, refresh, retry and reapply and refuses stale, queued, wrong-item and skew violations", () => {
     const now = Date.parse("2026-01-01T00:00:10.000Z");
     const iso = (delta: number) => new Date(now + delta).toISOString();
     const before: ItemInstant[] = [{ id: "synthetic_item", updatedAt: iso(-10_000) }];
@@ -1679,6 +2009,17 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     };
     expect(evaluateCausalReadback(valid)).toBe("refreshed");
     expect(evaluateCausalReadback({ ...valid, before: [] })).toBe("created");
+    const comparisons: unknown[] = [];
+    expect(() => evaluateCausalReadback({ ...valid, before: valid.after }, (value) => comparisons.push(value))).toThrow(
+      "unchanged-preexisting-item",
+    );
+    expect(() =>
+      evaluateCausalReadback({ ...valid, catalogItemId: "synthetic_wrong" }, (value) => comparisons.push(value)),
+    ).toThrow("missing-causal-item");
+    expect(comparisons).toEqual([
+      { catalogItemId: "synthetic_item", verdict: "refused", code: "unchanged-preexisting-item" },
+      { catalogItemId: "synthetic_wrong", verdict: "refused", code: "missing-causal-item" },
+    ]);
     for (const change of [
       { commandState: "queued" },
       { successful: false },
@@ -1719,8 +2060,221 @@ test.describe("catalog staging provider sync UAT helpers", () => {
     ).toBe("refreshed");
   });
 
-  test("contains first and last member failures, exhausts nested reads and rejects a truncated receipt", async () => {
-    const identity = { runId: "synthetic-helper", attempt: "1", sha: "a".repeat(40) };
+  test("representative catalog receipt digests every census status and Updated tuple without raw text", () => {
+    const rows: CatalogReadItem[] = [
+      { id: "synthetic_draft", status: "draft", updatedAt: "2026-01-01T00:00:00.000Z" },
+      { id: "synthetic_active", status: "active", updatedAt: "2026-01-01T00:00:01.000Z" },
+    ];
+    const original = catalogReadDigest(rows);
+    expect(catalogReadDigest([...rows].reverse())).toEqual(original);
+    const updated = catalogReadDigest([{ ...rows[0]!, updatedAt: "2026-01-01T00:00:02.000Z" }, rows[1]!]);
+    expect(updated.census).toBe(original.census);
+    expect(updated.updated).not.toBe(original.updated);
+    const moved = catalogReadDigest([{ ...rows[0]!, status: "active" }, rows[1]!]);
+    expect(moved.census).not.toBe(original.census);
+    expect(moved.updated).toBe(original.updated);
+    for (const changed of [rows.slice(1), [...rows, { ...rows[0]!, id: "synthetic_extra" }]]) {
+      expect(catalogReadDigest(changed).census).not.toBe(original.census);
+      expect(catalogReadDigest(changed).updated).not.toBe(original.updated);
+    }
+    expect(catalogReadDigest([]).count).toBe(0);
+    expect(() => catalogReadDigest([rows[0]!, rows[0]!])).toThrow("duplicate-read-identity");
+    expect(() => catalogReadDigest([{ ...rows[0]!, updatedAt: "raw provider text" }])).toThrow();
+    expect(JSON.stringify(original)).not.toContain("synthetic_draft");
+    expect(JSON.stringify(original)).not.toContain("2026-01-01");
+  });
+
+  test("representative catalog receipt binds created, refreshed and refused comparisons to command-timed reads and retries", async () => {
+    const identity = { runId: "synthetic-receipt", attempt: "1", retry: 0, sha: "b".repeat(40) };
+    const old: CatalogReadItem = { id: "synthetic_item", status: "draft", updatedAt: "2026-01-01T00:00:00.000Z" };
+    const current: CatalogReadItem = { ...old, updatedAt: "2026-01-01T00:00:10.000Z" };
+    const scenarios = [
+      "created",
+      "refreshed",
+      "stale",
+      "wrong-identity",
+      "before-only",
+      "both-reads",
+      "unreached",
+    ] as const;
+    const produce = (retry: number) =>
+      runRepresentativeMembers(
+        representativeMembers,
+        new RepresentativeBudget(30_000),
+        async (member, progress) => {
+          const scenario = scenarios[representativeMembers.indexOf(member) % scenarios.length]!;
+          if (scenario === "unreached") throw new EvidenceUnknown("deadline-exhausted");
+          progress.current = {
+            ...progress.current,
+            selected: true,
+            executed: true,
+            observationId: "synthetic_observation",
+            commandJobId: `synthetic_command_${member.id.replace(/[^A-Za-z0-9_-]/g, "_")}`,
+            watermark: current.updatedAt,
+          };
+          const before = scenario === "created" ? [] : [old];
+          progress.current = { ...progress.current, before: catalogReadDigest(before) };
+          if (scenario === "before-only") throw new EvidenceUnknown("synthetic-post-read-failed");
+          const after = [scenario === "stale" ? old : current];
+          progress.current = { ...progress.current, after: catalogReadDigest(after), absoluteCount: after.length };
+          if (scenario === "both-reads") throw new EvidenceUnknown("unmatched-item-command-provenance");
+          const state = evaluateCausalReadback(
+            {
+              before,
+              after,
+              watermark: current.updatedAt,
+              completedAt: current.updatedAt,
+              observationId: "synthetic_observation",
+              outcomeObservationId: scenario === "wrong-identity" ? "synthetic_other" : "synthetic_observation",
+              catalogItemId: current.id,
+              promotedAt: current.updatedAt,
+              commandState: "completed",
+              successful: true,
+              exactTarget: true,
+              competingMutation: false,
+            },
+            (comparison) => {
+              progress.current = { ...progress.current, comparison };
+            },
+          );
+          return {
+            ...progress.current,
+            state,
+            catalogItemId: current.id,
+            updatedAt: current.updatedAt,
+            causalCount: 1,
+          };
+        },
+        { ...identity, retry },
+      );
+    const receipt = await produce(0);
+    expect(receipt.members).toHaveLength(46);
+    expect(receipt.groups).toHaveLength(7);
+    const [created, refreshed, stale, wrong, partial, failed, unreached] = receipt.members;
+    expect(created).toMatchObject({
+      state: "created",
+      before: { count: 0 },
+      after: { count: 1 },
+      comparison: { verdict: "created", code: null },
+    });
+    expect(refreshed).toMatchObject({ state: "refreshed", before: { count: 1 }, comparison: { verdict: "refreshed" } });
+    expect(stale).toMatchObject({
+      state: "failed",
+      causalCount: 0,
+      comparison: { verdict: "refused", code: "outside-causal-interval" },
+    });
+    expect(wrong).toMatchObject({
+      state: "failed",
+      comparison: { verdict: "refused", code: "unproven-command-causality" },
+    });
+    expect(partial).toMatchObject({ state: "failed", after: null, comparison: { verdict: "not-evaluated" } });
+    expect(partial!.before).not.toBeNull();
+    expect(failed).toMatchObject({ state: "failed", after: { count: 1 }, comparison: { verdict: "not-evaluated" } });
+    expect(unreached).toMatchObject({
+      state: "unreached",
+      before: null,
+      after: null,
+      comparison: { verdict: "not-evaluated" },
+    });
+    for (const retry of [1, 2]) {
+      const repeated = await produce(retry);
+      expect(repeated.attempt).toBe(receipt.attempt);
+      expect(repeated.retry).toBe(retry);
+      expect(repeated.members[0]!.before).toEqual(created!.before);
+      expect(repeated.members[0]!.readbackDigest).not.toBe(created!.readbackDigest);
+    }
+    for (const field of ["runId", "attempt", "retry", "sha"] as const) {
+      const changed = { ...receipt, [field]: field === "retry" ? 1 : field === "sha" ? "c".repeat(40) : "2" };
+      expect(() => validateRepresentativeReceipt(changed, representativeMembers)).toThrow("readback-digest-mismatch");
+    }
+    for (const field of ["commandJobId", "observationId", "previewId", "watermark"] as const) {
+      const changed = {
+        ...receipt,
+        members: receipt.members.map((row, index) =>
+          index
+            ? row
+            : {
+                ...row,
+                [field]:
+                  field === "previewId" ? "d".repeat(64) : field === "watermark" ? old.updatedAt : "synthetic_other",
+              },
+        ),
+      };
+      expect(() => validateRepresentativeReceipt(changed, representativeMembers)).toThrow("readback-digest-mismatch");
+    }
+    const swap = {
+      ...receipt,
+      members: receipt.members.map((row, index) => (index === 0 ? { ...row, before: refreshed!.before } : row)),
+    };
+    expect(() => validateRepresentativeReceipt(swap, representativeMembers)).toThrow("readback-digest-mismatch");
+    const crossedMember = {
+      ...receipt,
+      members: receipt.members.map((row, index) =>
+        index === 1 ? { ...row, readbackDigest: created!.readbackDigest } : row,
+      ),
+    };
+    expect(() => validateRepresentativeReceipt(crossedMember, representativeMembers)).toThrow(
+      "readback-digest-mismatch",
+    );
+    const reversed = {
+      ...receipt,
+      members: receipt.members.map((row, index) => (index ? row : { ...row, before: row.after, after: row.before })),
+    };
+    expect(() => validateRepresentativeReceipt(reversed, representativeMembers)).toThrow();
+    const serialized = JSON.stringify(receipt);
+    for (const member of representativeMembers) {
+      expect(() =>
+        validateRepresentativeReceipt(
+          { ...receipt, members: receipt.members.filter((row) => row.id !== member.id) },
+          representativeMembers,
+        ),
+      ).toThrow("incomplete-member-set");
+    }
+    expect(serialized).not.toContain("raw provider text");
+    expect(serialized).not.toContain("synthetic-post-read-failed:");
+
+    // JSON controls deliberately exercise the wire schema, not TypeScript's shape.
+    for (const field of ["retry", "before", "after", "comparison", "readbackDigest"]) {
+      const malformed = JSON.parse(serialized);
+      Reflect.deleteProperty(field === "retry" ? malformed : malformed.members[0], field);
+      expect(() => validateRepresentativeReceipt(malformed, representativeMembers)).toThrow();
+    }
+    for (const retry of [-1, 0.5, "1", null]) {
+      expect(() =>
+        validateRepresentativeReceipt(JSON.parse(JSON.stringify({ ...receipt, retry })), representativeMembers),
+      ).toThrow();
+    }
+    for (const patch of [
+      { before: { ...created!.before, census: "raw provider text" } },
+      { before: { ...created!.before, updated: "0".repeat(64) } },
+      { before: { ...created!.before, count: -1 } },
+      { before: { ...created!.before, extra: "unsafe" } },
+      { after: null },
+      { comparison: { ...created!.comparison, verdict: "not-evaluated" } },
+      { comparison: { ...created!.comparison, catalogItemId: "synthetic_wrong" } },
+      { comparison: { ...created!.comparison, code: "raw provider text" } },
+      { comparison: { ...created!.comparison, extra: true } },
+      { comparison: null },
+      { readbackDigest: "0".repeat(64) },
+    ]) {
+      const malformed = JSON.parse(serialized);
+      Object.assign(malformed.members[0], patch);
+      expect(() => validateRepresentativeReceipt(malformed, representativeMembers)).toThrow();
+    }
+    for (const field of ["census", "updated", "count"]) {
+      const malformed = JSON.parse(serialized);
+      Reflect.deleteProperty(malformed.members[0].before, field);
+      expect(() => validateRepresentativeReceipt(malformed, representativeMembers)).toThrow();
+    }
+    for (const field of ["catalogItemId", "verdict", "code"]) {
+      const malformed = JSON.parse(serialized);
+      Reflect.deleteProperty(malformed.members[0].comparison, field);
+      expect(() => validateRepresentativeReceipt(malformed, representativeMembers)).toThrow();
+    }
+  });
+
+  test("representative catalog receipt contains first and last failures, exhausted reads and rejects truncation", async () => {
+    const identity = { runId: "synthetic-helper", attempt: "1", retry: 0, sha: "a".repeat(40) };
     for (const failAt of [0, representativeMembers.length - 1]) {
       const receipt = await runRepresentativeMembers(
         representativeMembers,
@@ -2399,7 +2953,7 @@ test.describe("catalog staging provider sync UAT", () => {
     );
 
     if (providerUatJourneyScope === "staging-representative-catalog") {
-      await runRepresentativeCatalog(page, testInfo.timeout - (Date.now() - startedAt));
+      await runRepresentativeCatalog(page, testInfo.timeout - (Date.now() - startedAt), testInfo.retry);
       return;
     }
 
@@ -2653,7 +3207,7 @@ async function waitRepresentativeCommand(
   }
 }
 
-async function runRepresentativeCatalog(page: Page, remainingMs: number): Promise<void> {
+async function runRepresentativeCatalog(page: Page, remainingMs: number, retry: number): Promise<void> {
   const budget = new RepresentativeBudget(remainingMs);
   const references = new Map<string, { setId: string; referenceRecordId: string }>();
   let initialized = false;
@@ -2743,6 +3297,7 @@ async function runRepresentativeCatalog(page: Page, remainingMs: number): Promis
       }
       const executeHref = page.url();
       const before = needsSetReference ? [] : await readCatalogBaseline(page, member, budget);
+      if (!needsSetReference) progress.current = { ...progress.current, before: catalogReadDigest(before) };
       await budget.run((timeout) => page.goto(executeHref, { waitUntil: "domcontentloaded", timeout }));
       await assertNoCompetingCatalogJobs(page, budget);
       await budget.run(() => expandWorkflowStage(page, mode === "promote" ? "create-items" : "review-changes"));
@@ -2781,6 +3336,7 @@ async function runRepresentativeCatalog(page: Page, remainingMs: number): Promis
       }
       await assertNoCompetingCatalogJobs(page, budget, jobId);
       const after = await readCatalogBaseline(page, member, budget);
+      progress.current = { ...progress.current, after: catalogReadDigest(after), absoluteCount: after.length };
       if (updatedObservation.promoted_catalog_item_id !== result.outcome.catalogItemId)
         throw new EvidenceUnknown("wrong-promoted-item");
       const item = await readCatalogJson<CatalogItemDetail>(
@@ -2805,20 +3361,25 @@ async function runRepresentativeCatalog(page: Page, remainingMs: number): Promis
         )
       )
         throw new EvidenceUnknown("wrong-boxed-set-reference");
-      const state = evaluateCausalReadback({
-        before,
-        after,
-        watermark,
-        completedAt: result.job.completedAt!,
-        observationId: observation.observation_id,
-        outcomeObservationId: result.outcome.observationId,
-        catalogItemId: result.outcome.catalogItemId,
-        promotedAt: updatedObservation.promoted_at,
-        commandState: result.job.status,
-        successful: true,
-        exactTarget: true,
-        competingMutation: false,
-      });
+      const state = evaluateCausalReadback(
+        {
+          before,
+          after,
+          watermark,
+          completedAt: result.job.completedAt!,
+          observationId: observation.observation_id,
+          outcomeObservationId: result.outcome.observationId,
+          catalogItemId: result.outcome.catalogItemId,
+          promotedAt: updatedObservation.promoted_at,
+          commandState: result.job.status,
+          successful: true,
+          exactTarget: true,
+          competingMutation: false,
+        },
+        (comparison) => {
+          progress.current = { ...progress.current, comparison };
+        },
+      );
       return {
         ...progress.current,
         state,
@@ -2831,6 +3392,7 @@ async function runRepresentativeCatalog(page: Page, remainingMs: number): Promis
     {
       runId: process.env.GITHUB_RUN_ID ?? "",
       attempt: process.env.GITHUB_RUN_ATTEMPT ?? "",
+      retry,
       sha: process.env.GITHUB_SHA ?? "",
     },
   );
@@ -2900,9 +3462,7 @@ async function openCatalogImporter(page: Page): Promise<void> {
       return;
     }
 
-    if (await recoverImporterFromAdminError(page)) {
-      continue;
-    }
+    await recoverImporterFromAdminError(page);
 
     if (Date.now() >= nextNavigationAt) {
       await page.goto("/catalog/integrations", { waitUntil: "domcontentloaded", timeout: pageReadyTimeoutMs });
@@ -2913,9 +3473,7 @@ async function openCatalogImporter(page: Page): Promise<void> {
     await page.waitForTimeout(1_000);
   }
 
-  if (await recoverImporterFromAdminError(page)) {
-    return;
-  }
+  await recoverImporterFromAdminError(page);
   if (!(await isImporterVisible(page, 1_000))) {
     await page.goto("/catalog/integrations", { waitUntil: "domcontentloaded", timeout: pageReadyTimeoutMs });
   }
@@ -3037,6 +3595,14 @@ async function selectGuidedScope({
   const settled = await waitForSelectedProviderScope(page, journey, selectedChoices);
   if (!settled.importScope) {
     throw new Error(`Selected source scope command form for ${journey.unitKey} did not expose a full importScope.`);
+  }
+  const expansionChoice = selectedChoices.find((choice) => choice.fieldName === "expansionId");
+  if (expansionChoice) {
+    expect(settled.displayLabel).toContain(expansionChoice.selectedOptionLabel);
+    const expansionName = new URL(page.url()).searchParams.get("expansionName")?.trim() ?? "";
+    if (expansionName) {
+      expect(expansionName).toBe(expansionChoice.selectedOptionLabel);
+    }
   }
   const expectedImportScope = expectedNativeGuidedImportScope(selectedChoices) ?? settled.importScope;
   // `settled` is an atomic command-form snapshot. Do not read the live
@@ -3613,11 +4179,18 @@ async function expectImportPreflight(
   unitKey: string,
   selectedScope: SelectedProviderScope,
   expectation: ImportPreflightExpectation,
-): Promise<void> {
-  const panel = await waitForSelectedImportPreflightPanel(page, unitKey, selectedScope);
+  timeoutMs = sourceOptionTimeoutMs,
+): Promise<"ready" | "degraded"> {
+  const { panel, previewState } = await waitForSelectedImportPreflightPanel(page, unitKey, selectedScope, timeoutMs);
+  if (previewState === "degraded") {
+    console.log(
+      `[catalog-staging-provider-uat] import preflight state: unit=${unitKey}, scope=${selectedScope.displayLabel}, state=degraded`,
+    );
+    return previewState;
+  }
   if (expectation.requestStrategy) {
     await expect(panel).toHaveAttribute("data-catalog-import-preview-strategy", expectation.requestStrategy, {
-      timeout: sourceOptionTimeoutMs,
+      timeout: timeoutMs,
     });
   }
   const usageState = (await panel.getAttribute("data-catalog-import-preview-usage-state")) ?? "none";
@@ -3628,9 +4201,10 @@ async function expectImportPreflight(
   }
   for (const text of expectation.visibleText) {
     await expect(panel.getByText(text).filter({ visible: true }).first()).toBeVisible({
-      timeout: sourceOptionTimeoutMs,
+      timeout: timeoutMs,
     });
   }
+  return previewState;
 }
 
 function cssAttrValue(value: string): string {
@@ -3641,10 +4215,11 @@ async function waitForSelectedImportPreflightPanel(
   page: Page,
   unitKey: string,
   selectedScope: SelectedProviderScope,
-): Promise<Locator> {
+  timeoutMs = sourceOptionTimeoutMs,
+): Promise<{ panel: Locator; previewState: "ready" | "degraded" }> {
   const panels = importPreflightPanelsForSelectedScope(page, unitKey, selectedScope.providerKey);
   const scopeCandidates = selectedScope.importScope ? importPreflightScopeCandidates(selectedScope.importScope) : [];
-  const deadline = Date.now() + sourceOptionTimeoutMs;
+  const deadline = Date.now() + timeoutMs;
   let nextRecoveryAttemptAt = Date.now() + 10_000;
   let observedScopes: readonly string[] = [];
 
@@ -3654,7 +4229,11 @@ async function waitForSelectedImportPreflightPanel(
     await expandWorkflowStage(page, "run-sync");
     const panel = await firstVisibleImportPreflightPanelMatchingScope(panels, scopeCandidates);
     if (panel) {
-      return panel;
+      return { panel, previewState: "ready" };
+    }
+    const degradedPanel = await visibleDegradedImportPreflightPanel(page, unitKey, selectedScope, deadline);
+    if (degradedPanel) {
+      return { panel: degradedPanel, previewState: "degraded" };
     }
     observedScopes = await visibleImportPreflightPanelScopes(panels);
     if (observedScopes.length > 0 && Date.now() >= nextRecoveryAttemptAt) {
@@ -3669,6 +4248,37 @@ async function waitForSelectedImportPreflightPanel(
       scopeCandidates.join(", ") || "any selected scope"
     }. Observed visible preview scopes: ${observedScopes.join(", ") || "none"}.`,
   );
+}
+
+async function visibleDegradedImportPreflightPanel(
+  page: Page,
+  unitKey: string,
+  selectedScope: SelectedProviderScope,
+  deadline: number,
+): Promise<Locator | null> {
+  const trigger = page.locator('[data-catalog-import-workflow-stage="run-sync"]').first();
+  const panelId = await trigger.getAttribute("aria-controls").catch(() => null);
+  if (!panelId) {
+    return null;
+  }
+  const stagePanel = page.locator(`[id="${cssAttrValue(panelId)}"]`).first();
+  const candidates = stagePanel
+    .locator('[role="status"][data-catalog-deferred-panel="unavailable"]')
+    .filter({ visible: true });
+  const count = await candidates.count().catch(() => 0);
+  if (count !== 1) {
+    return null;
+  }
+  const candidate = candidates.first();
+  const syncSectionCandidates = candidate.locator(
+    'xpath=ancestor::section[1][.//form[@data-catalog-primary-workbench-command="scope.sync"]]',
+  );
+  if ((await syncSectionCandidates.count().catch(() => 0)) > 0) {
+    return null;
+  }
+  const remainingMs = Math.max(1, deadline - Date.now());
+  await selectedSourceScopeSyncForm(page, unitKey, selectedScope, Math.min(remainingMs, 1_000));
+  return candidate;
 }
 
 async function recoverSelectedImportPreflightScope(
@@ -5064,8 +5674,9 @@ async function waitForOption(
   const labels = choice.labels ?? [];
   const values = choice.values ?? [];
   const deadline = Date.now() + sourceOptionTimeoutMs;
-  let nextRecoveryAttemptAt = Date.now() + 5_000;
-  const fallbackOptionAllowedAt = Date.now() + 5_000;
+  const observationStartedAt = Date.now();
+  let nextRecoveryAttemptAt = observationStartedAt + 5_000;
+  const fallbackOptionAllowedAt = observationStartedAt + 5_000;
   let recoveryAttempts = 0;
   let observedOptions: readonly { label: string; value: string }[] = [];
 
@@ -5089,7 +5700,7 @@ async function waitForOption(
     }
     const fallback = choice.fallbackToFirstAvailableOption;
     const fallbackOption =
-      fallback && Date.now() >= fallbackOptionAllowedAt && (!recoverMissingOptions || recoveryAttempts > 0)
+      fallback && Date.now() >= fallbackOptionAllowedAt
         ? observedOptions.find((option) => isSelectableFallbackOption(option, fallback))
         : undefined;
     if (fallbackOption) {
@@ -5142,74 +5753,25 @@ function isSelectableFallbackOption(
   );
 }
 
-async function refreshSourceOptionGroup(page: Page, label: string | RegExp): Promise<boolean> {
-  const sourceOptionsPanel = page.locator("[data-catalog-source-options-status]").first();
-  if (!(await sourceOptionsPanel.isVisible({ timeout: 1_000 }).catch(() => false))) {
-    return false;
-  }
-
-  const optionGroup = sourceOptionsPanel
-    .locator("[data-source-option-page]")
-    .filter({ has: sourceOptionGroupLabel(page, label) })
-    .first();
-  const refreshTarget = (await optionGroup.isVisible({ timeout: 1_000 }).catch(() => false))
-    ? optionGroup
-    : sourceOptionsPanel;
-
-  const forceRefresh = refreshTarget.getByRole("button", { name: "Force refresh" }).first();
-  if (await forceRefresh.isEnabled().catch(() => false)) {
-    await forceRefresh.click();
-    await waitForSourceOptionsToSettle(page);
-    return true;
-  }
-
-  const reload = refreshTarget.getByRole("button", { name: "Reload" }).first();
-  if (await reload.isEnabled().catch(() => false)) {
-    await reload.click();
-    await waitForSourceOptionsToSettle(page);
-    return true;
-  }
-
-  const refreshAll = sourceOptionsPanel.getByRole("button", { name: "Refresh all" }).first();
-  if (await refreshAll.isEnabled().catch(() => false)) {
-    await refreshAll.click();
-    await waitForSourceOptionsToSettle(page);
-    return true;
-  }
-
-  return false;
+async function recoverSourceOptionSelection(page: Page, label: string | RegExp): Promise<never> {
+  await recoverImporterFromAdminError(page);
+  throw new Error(
+    `Source option ${String(label)} is hidden or lacks the requested option; the UAT fails closed instead of refreshing source options.`,
+  );
 }
 
-async function recoverSourceOptionSelection(page: Page, label: string | RegExp): Promise<boolean> {
-  return (await recoverImporterFromAdminError(page)) || refreshSourceOptionGroup(page, label);
-}
-
-async function recoverImporterFromAdminError(page: Page): Promise<boolean> {
+async function recoverImporterFromAdminError(page: Page): Promise<false> {
   const adminError = page.getByRole("heading", { name: "Admin Error" });
   if (!(await adminError.isVisible({ timeout: 1_000 }).catch(() => false))) {
     return false;
   }
 
   const initialDetail = await adminErrorTechnicalDetail(page);
-  const retry = page.getByRole("link", { name: "Retry" }).first();
-  if (await retry.isVisible({ timeout: 1_000 }).catch(() => false)) {
-    await retry.click();
-  } else {
-    await page.reload({ waitUntil: "domcontentloaded", timeout: pageReadyTimeoutMs }).catch(() => undefined);
-  }
-
-  await page.waitForLoadState("domcontentloaded", { timeout: pageReadyTimeoutMs }).catch(() => undefined);
-  if (!(await isImporterVisible(page, 10_000))) {
-    const retryDetail = await adminErrorTechnicalDetail(page);
-    throw new Error(
-      `Catalog importer rendered Admin Error while loading ${supportSafeCurrentPath(page)}. Technical detail: ${
-        retryDetail ?? initialDetail ?? "not visible"
-      }`,
-    );
-  }
-
-  await expect(page.locator("html")).toHaveAttribute("data-admin-web-hydrated", "true", { timeout: 30_000 });
-  return true;
+  throw new Error(
+    `Catalog importer rendered Admin Error while loading ${supportSafeCurrentPath(page)}. Technical detail: ${
+      initialDetail ?? "not visible"
+    }`,
+  );
 }
 
 async function adminErrorTechnicalDetail(page: Page): Promise<string | null> {
@@ -5243,10 +5805,6 @@ function supportSafeCurrentPath(page: Page): string {
   } catch {
     return "[current route unavailable]";
   }
-}
-
-function sourceOptionGroupLabel(page: Page, label: string | RegExp): Locator {
-  return typeof label === "string" ? page.getByText(label, { exact: true }) : page.getByText(label);
 }
 
 async function waitForSourceOptionsToSettle(page: Page): Promise<void> {

@@ -590,7 +590,7 @@ function sourceObservationEvent(row: StoredEventRow): SourceObservationEvent {
   }
 }
 
-function createPackBackedProviderAdapter(
+export function createPackBackedProviderAdapter(
   manifest: ObservationPackManifestV1,
   envelopes: readonly ObservationPackEnvelope[],
 ): ProviderAdapter {
@@ -617,7 +617,27 @@ function createPackBackedProviderAdapter(
       throw new RepresentativeCatalogReplayError("representative-catalog-pack-contract-invalid");
     },
     planImport: async (requested) => {
-      if (requested.unitKey !== scope.unitKey || requested.scopeKey !== scope.scopeKey) {
+      const manifestCoordinates = [scope.values.expansionId, scope.values.setId, scope.values.setCode].filter(
+        (value): value is string => typeof value === "string" && value.length > 0,
+      );
+      const requestedCoordinates = [
+        requested.values.expansionId,
+        requested.values.setId,
+        requested.values.setCode,
+      ].filter((value): value is string => typeof value === "string" && value.length > 0);
+      if (
+        requested.unitKey !== scope.unitKey ||
+        !["expansion", "set"].includes(scope.scopeKey) ||
+        !["expansion", "set"].includes(requested.scopeKey) ||
+        manifestCoordinates.length === 0 ||
+        requestedCoordinates.length === 0 ||
+        new Set(manifestCoordinates).size !== 1 ||
+        new Set(requestedCoordinates).size !== 1 ||
+        manifestCoordinates[0] !== requestedCoordinates[0] ||
+        !scope.values.languageCode ||
+        scope.values.languageCode !== manifest.identity.language ||
+        requested.values.languageCode !== scope.values.languageCode
+      ) {
         throw new RepresentativeCatalogReplayError("representative-catalog-pack-contract-invalid");
       }
       return {
@@ -670,7 +690,9 @@ function providerImportScopeFromManifest(manifest: ObservationPackManifestV1): P
   };
 }
 
-function integrationScopeFromManifest(manifest: ObservationPackManifestV1): SourceObservationIntegrationJobScope {
+export function integrationScopeFromManifest(
+  manifest: ObservationPackManifestV1,
+): SourceObservationIntegrationJobScope {
   const coordinates = Object.fromEntries(manifest.identity.scope.coordinates.map(({ key, value }) => [key, value]));
   return {
     provider: manifest.identity.provider.key,

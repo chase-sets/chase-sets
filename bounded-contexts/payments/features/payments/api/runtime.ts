@@ -8,14 +8,11 @@ import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createNoopNotificationOutbox, type NotificationOutbox } from "@chase-sets/outbound-messaging";
-import { createConfiguredInMemoryRateLimiter, recordRateLimitExceeded } from "@chase-sets/http/rate-limit";
-import {
-  providerWebhookErrorFromUnknown,
-  ProviderWebhookError,
-  type ProviderWebhookTelemetry,
-  type ProviderWebhookTelemetryEvent,
-} from "@chase-sets/http/provider-errors";
-import { hasProcessedProviderWebhookEvent, recordProviderWebhookEvent } from "@chase-sets/provider-webhook-inbox";
+import { recordRateLimitExceeded } from "@chase-sets/http/rate-limit";
+import { cardDeclineSurface, type CardDeclineStore } from "./card-decline-store";
+import type { ProviderWebhookTelemetry, ProviderWebhookTelemetryEvent } from "@chase-sets/http/provider-errors";
+import { decideWebhookPayment, paymentWebhookErrorFromUnknown } from "./webhook-errors";
+import type { PaymentWebhookRunner, PaymentWebhookResult } from "./webhook-transaction";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import { sumMoneyAmounts } from "@chase-sets/primitives/money";
@@ -105,7 +102,7 @@ import {
   type SellerPayoutComponent,
 } from "../domain/domain";
 import { decideRefund, evolveRefund, initialRefundState, type RefundEvent } from "../../refunds/domain/domain";
-import type { RefundServices } from "../../refunds/api/runtime";
+import { createRefundRuntime } from "../../refunds/api/runtime";
 import {
   defaultMarketplaceCheckoutFeePolicyValue,
   marketplaceCheckoutFeePaymentMethodCategories,
@@ -128,13 +125,14 @@ import {
 } from "@chase-sets/evidence-window-provider-write";
 
 type PaymentRuntimeDeps = Readonly<{
+  cardDeclineStore: CardDeclineStore;
+  runWebhookTransaction: PaymentWebhookRunner;
   evidenceWindowCorrelation?: import("@chase-sets/evidence-window-provider-write").ProviderWriteCorrelation;
   evidenceWindowProviderWrite?: import("@chase-sets/evidence-window-provider-write").EvidenceWindowProviderWrite;
   eventStore: EventStore;
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
   processorGateway: PaymentProcessorGateway;
-  refunds?: Pick<RefundServices, "issueRefund">;
   balanceCreditResolver?: BalanceCreditResolver;
   checkoutProcessingFeePolicyResolver?: CheckoutProcessingFeePolicyResolver;
   notificationOutbox?: NotificationOutbox;
@@ -172,38 +170,25 @@ export class PaymentsRateLimitExceededError extends Error {
   }
 }
 
-const cardDeclineVelocityRateLimiter = createConfiguredInMemoryRateLimiter("payments.card-decline.fingerprint", {
-  max: 5,
-  windowMs: 60 * 60 * 1000,
-});
-
-function enforceCardDeclineVelocity(fingerprint: string | null | undefined) {
-  const normalized = fingerprint?.trim();
-  if (!normalized) {
-    return;
-  }
-  const decision = cardDeclineVelocityRateLimiter.peek(`card:${normalized}`);
-  if (decision.limited) {
-    recordRateLimitExceeded("payments.card-decline.fingerprint");
-    throw new PaymentsRateLimitExceededError("payments.card-decline.fingerprint", decision.retryAfterSeconds);
+export class PaymentDeclineLimitUnavailableError extends Error {
+  readonly code = "payment_decline_limit_unavailable";
+  constructor() {
+    super("Payment attempts are temporarily unavailable. Please retry later.");
+    this.name = "PaymentDeclineLimitUnavailableError";
   }
 }
 
-function recordCardDeclineVelocity(
-  method:
-    | Readonly<{
-        paymentMethodCategory?: string | null;
-        paymentMethodFingerprint?: string | null;
-      }>
-    | null
-    | undefined,
-) {
-  if (method?.paymentMethodCategory !== "card" || !method.paymentMethodFingerprint?.trim()) {
-    return;
+async function enforceCardDeclineVelocity(store: CardDeclineStore, fingerprint: string | null | undefined) {
+  if (!fingerprint?.trim()) return;
+  let decision;
+  try {
+    decision = await store.check(fingerprint);
+  } catch {
+    throw new PaymentDeclineLimitUnavailableError();
   }
-  const decision = cardDeclineVelocityRateLimiter.check(`card:${method.paymentMethodFingerprint.trim()}`);
-  if (decision.limited) {
-    recordRateLimitExceeded("payments.card-decline.fingerprint");
+  if (decision) {
+    recordRateLimitExceeded(cardDeclineSurface);
+    throw new PaymentsRateLimitExceededError(cardDeclineSurface, decision.retryAfterSeconds);
   }
 }
 
@@ -1033,11 +1018,7 @@ export type PaymentServices = Readonly<{
   processWebhook: (
     params: Readonly<{ rawBody: string; signatureHeader: string | null }>,
     context: EventStoreContext,
-  ) => Promise<{
-    received: boolean;
-    ignored: boolean;
-    failure_class?: "inbox-conflict";
-  }>;
+  ) => Promise<PaymentWebhookResult>;
   submitDisputeEvidence: (
     dispute: PaymentDisputedEvent["data"],
     context: EventStoreContext,
@@ -1062,13 +1043,6 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
     initialState: () => initialPaymentState,
     evolve: evolvePayment,
     decide: decidePayment,
-  });
-  const { commandHandler: refundCommandHandler } = createAggregateCommandHandler({
-    eventStore: deps.eventStore,
-    codec: createPassthroughDomainEventCodec<RefundEvent>(),
-    initialState: () => initialRefundState,
-    evolve: evolveRefund,
-    decide: decideRefund,
   });
 
   const publicConfig = deps.processorGateway.getPublicConfiguration();
@@ -1791,7 +1765,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         instrumentId: params.savedCheckoutInstrumentId,
         paymentMethodCategory,
       });
-      enforceCardDeclineVelocity(savedCheckoutInstrument?.provider_fingerprint ?? null);
+      await enforceCardDeclineVelocity(deps.cardDeclineStore, savedCheckoutInstrument?.provider_fingerprint ?? null);
       const shouldSavePaymentMethod =
         Boolean(params.savePaymentMethodForFuture) &&
         !savedCheckoutInstrument &&
@@ -2376,7 +2350,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       try {
         webhookEvent = await deps.processorGateway.parseWebhook(params);
       } catch (error) {
-        const classified = providerWebhookErrorFromUnknown(error);
+        const classified = paymentWebhookErrorFromUnknown(error);
         recordWebhookTelemetry({
           endpoint: "payments",
           failureClass: classified.failureClass,
@@ -2414,388 +2388,389 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
                 webhookEvent.providerObjectReference ??
                 webhookEvent.processorPaymentReference),
         };
-        const alreadyProcessed = await hasProcessedProviderWebhookEvent(deps.db, inboxEntry);
-        if (alreadyProcessed) {
-          recordWebhookTelemetry({
-            endpoint: "payments",
-            failureClass: "inbox-conflict",
-            outcome: "ignored",
-            statusCode: 200,
-            retryable: false,
-            providerEventId: webhookEvent.eventId,
-            eventKind: webhookEvent.kind,
+        await deps.cardDeclineStore.record(webhookEvent);
+        const outerDeps = deps;
+        const committed = await deps.runWebhookTransaction(inboxEntry, async (transaction) => {
+          const deps = { ...outerDeps, db: transaction.db, eventStore: transaction.eventStore };
+          const { commandHandler } = createAggregateCommandHandler({
+            eventStore: deps.eventStore,
+            codec: createPassthroughDomainEventCodec<PaymentEvent>(),
+            initialState: () => initialPaymentState,
+            evolve: evolvePayment,
+            decide: decideWebhookPayment,
           });
-          return { received: true, ignored: true, failure_class: "inbox-conflict" };
-        }
-        const recordProcessed = async () => {
-          const recorded = await recordProviderWebhookEvent(deps.db, inboxEntry);
-          if (!recorded) {
-            recordWebhookTelemetry({
-              endpoint: "payments",
-              failureClass: "inbox-conflict",
-              outcome: "ignored",
-              statusCode: 200,
-              retryable: false,
-              providerEventId: webhookEvent.eventId,
-              eventKind: webhookEvent.kind,
-            });
-            throw new ProviderWebhookError(
-              "inbox-conflict",
-              "Provider webhook event was already recorded.",
-              webhookEvent.eventId,
-              webhookEvent.kind,
-              false,
-            );
-          }
-          return recorded;
-        };
-
-        if (
-          webhookEvent.kind === "shared-payment-token-used" ||
-          webhookEvent.kind === "shared-payment-token-deactivated"
-        ) {
-          await recordProcessed();
-          return { received: true, ignored: true };
-        }
-
-        if (webhookEvent.kind === "saved-payment-setup-succeeded") {
-          const setupReference = webhookEvent.processorSetupReference ?? webhookEvent.processorPaymentReference;
-          const setupSession = await getSavedCheckoutSetupSessionByProcessorReference(deps.db, setupReference);
-          if (!setupSession) {
-            throw new PaymentsDomainError(
-              "Payment webhook setup session was not found.",
-              "payment_webhook_target_not_ready",
-            );
-          }
-          await completeSavedCheckoutSetupSession(deps.db, {
-            processorSetupReference: setupReference,
-            processorStatus: webhookEvent.processorStatus,
-            completedAt: webhookEvent.occurredAt,
+          const { commandHandler: refundCommandHandler } = createAggregateCommandHandler({
+            eventStore: deps.eventStore,
+            codec: createPassthroughDomainEventCodec<RefundEvent>(),
+            initialState: () => initialRefundState,
+            evolve: evolveRefund,
+            decide: decideRefund,
           });
-          if (webhookEvent.savedPaymentMethod) {
-            await persistProcessorSavedPaymentMethod(deps, {
-              accountId: setupSession.account_id as AccountId,
-              providerCustomerReference: setupSession.provider_customer_reference,
-              savedPaymentMethod: webhookEvent.savedPaymentMethod,
-              agentGrantId: setupSession.agent_grant_id,
-              consentId: setupSession.consent_id,
-              consentText: setupSession.consent_text,
-              isDefault: true,
-              auditAction: "setup-webhook-saved",
-            });
-          }
-          await recordProcessed();
-          return { received: true, ignored: false };
-        }
-
-        if (webhookEvent.kind === "saved-payment-setup-failed") {
-          const setupReference = webhookEvent.processorSetupReference ?? webhookEvent.processorPaymentReference;
-          const setupSession = await getSavedCheckoutSetupSessionByProcessorReference(deps.db, setupReference);
-          if (!setupSession) {
-            throw new PaymentsDomainError(
-              "Payment webhook setup session was not found.",
-              "payment_webhook_target_not_ready",
-            );
-          }
-          await completeSavedCheckoutSetupSession(deps.db, {
-            processorSetupReference: setupReference,
-            processorStatus: webhookEvent.processorStatus,
-            completedAt: webhookEvent.occurredAt,
+          const refunds = createRefundRuntime({
+            ...deps,
+            handlers: { payment: commandHandler, refund: refundCommandHandler },
           });
-          await recordProcessed();
-          return { received: true, ignored: false };
-        }
+          const targetReference =
+            webhookEvent.processorSetupReference ??
+            (webhookEvent.kind === "saved-payment-method-detached"
+              ? webhookEvent.savedPaymentMethod?.providerReference
+              : null) ??
+            webhookEvent.processorPaymentReference;
+          await transaction.lock(`target:${webhookEvent.processorName}:${targetReference}`);
 
-        if (webhookEvent.kind === "saved-payment-method-detached" && webhookEvent.savedPaymentMethod) {
-          const instrument = await getSavedCheckoutInstrumentByProviderReference(deps.db, {
-            provider: webhookEvent.savedPaymentMethod.processorName,
-            providerReference: webhookEvent.savedPaymentMethod.providerReference,
-          });
-          if (instrument) {
-            await markSavedCheckoutInstrumentRemoved(deps.db, {
-              accountId: instrument.account_id,
-              instrumentId: instrument.instrument_id,
-              timestamp: webhookEvent.occurredAt,
-            });
-            await recordSavedCheckoutInstrumentAudit(deps.db, {
-              auditId: createId("audit"),
-              instrumentId: instrument.instrument_id,
-              accountId: instrument.account_id,
-              action: "provider-detached",
-              reason: webhookEvent.eventId,
-              performedByAccountId: instrument.account_id,
-              createdAt: webhookEvent.occurredAt,
-            });
-            await recordProcessed();
+          if (
+            webhookEvent.kind === "shared-payment-token-used" ||
+            webhookEvent.kind === "shared-payment-token-deactivated"
+          ) {
+            return { received: true, ignored: true };
           }
-          return { received: true, ignored: !instrument };
-        }
 
-        const payment = webhookEvent.internalPaymentId
-          ? await getPaymentById(deps.db, webhookEvent.internalPaymentId)
-          : await getPaymentByProcessorReference(
-              deps.db,
-              webhookEvent.processorName,
-              webhookEvent.processorPaymentReference,
-            );
-
-        if (!payment) {
-          throw new PaymentsDomainError("Payment webhook target was not found.", "payment_webhook_target_not_ready");
-        }
-
-        const streamId = `payments.payment-${payment.payment_id}`;
-
-        switch (webhookEvent.kind) {
-          case "payment-authorized":
-            await commandHandler({
-              streamId,
-              command: {
-                type: "RecordPaymentAuthorization",
-                processorStatus: webhookEvent.processorStatus,
-                authorizedAt: webhookEvent.occurredAt,
-              },
-              context,
-            });
-            break;
-          case "payment-captured":
-            await commandHandler({
-              streamId,
-              command: {
-                type: "RecordPaymentCapture",
-                processorStatus: webhookEvent.processorStatus,
-                capturedAt: webhookEvent.occurredAt,
-              },
-              context,
+          if (webhookEvent.kind === "saved-payment-setup-succeeded") {
+            const setupReference = webhookEvent.processorSetupReference ?? webhookEvent.processorPaymentReference;
+            const setupSession = await getSavedCheckoutSetupSessionByProcessorReference(deps.db, setupReference);
+            if (!setupSession) {
+              throw new PaymentsDomainError(
+                "Payment webhook setup session was not found.",
+                "payment_webhook_target_not_ready",
+              );
+            }
+            await transaction.lock(`account:${setupSession.account_id}`);
+            await completeSavedCheckoutSetupSession(deps.db, {
+              processorSetupReference: setupReference,
+              processorStatus: webhookEvent.processorStatus,
+              completedAt: webhookEvent.occurredAt,
             });
             if (webhookEvent.savedPaymentMethod) {
-              const customer =
-                webhookEvent.savedPaymentMethod.providerCustomerReference ??
-                (
-                  await getProviderCustomer(deps.db, {
-                    accountId: payment.buyer_account_id,
-                    provider: webhookEvent.savedPaymentMethod.processorName,
-                  })
-                )?.provider_customer_reference;
-              if (customer) {
-                await persistProcessorSavedPaymentMethod(deps, {
-                  accountId: payment.buyer_account_id as AccountId,
-                  providerCustomerReference: customer,
-                  savedPaymentMethod: webhookEvent.savedPaymentMethod,
-                  consentId: webhookEvent.savedPaymentConsentId ?? null,
-                  consentText: webhookEvent.savedPaymentConsentText ?? SAVE_PAYMENT_CONSENT_TEXT,
-                  isDefault: true,
-                  auditAction: "payment-consent-saved",
-                });
-              }
+              await persistProcessorSavedPaymentMethod(deps, {
+                accountId: setupSession.account_id as AccountId,
+                providerCustomerReference: setupSession.provider_customer_reference,
+                savedPaymentMethod: webhookEvent.savedPaymentMethod,
+                agentGrantId: setupSession.agent_grant_id,
+                consentId: setupSession.consent_id,
+                consentText: setupSession.consent_text,
+                isDefault: true,
+                auditAction: "setup-webhook-saved",
+              });
             }
-            break;
-          case "payment-failed":
-            recordCardDeclineVelocity(webhookEvent.savedPaymentMethod);
-            await commandHandler({
-              streamId,
-              command: {
-                type: "RecordPaymentFailure",
-                processorStatus: webhookEvent.processorStatus,
-                failureCode: webhookEvent.failureCode,
-                failureMessage: webhookEvent.failureMessage,
-                failedAt: webhookEvent.occurredAt,
-              },
-              context,
-            });
-            await markPaymentCreationReservationInactive(deps.db, {
-              paymentId: payment.payment_id,
-              status: "failed",
-              updatedAt: webhookEvent.occurredAt,
-            });
-            break;
-          case "payment-cancelled":
-            if (
-              webhookEvent.processorPaymentKind !== "payment-intent" ||
-              payment.processor_payment_kind !== "payment-intent"
-            ) {
-              await recordProcessed();
-              return { received: true, ignored: true };
+            return { received: true, ignored: false };
+          }
+
+          if (webhookEvent.kind === "saved-payment-setup-failed") {
+            const setupReference = webhookEvent.processorSetupReference ?? webhookEvent.processorPaymentReference;
+            const setupSession = await getSavedCheckoutSetupSessionByProcessorReference(deps.db, setupReference);
+            if (!setupSession) {
+              throw new PaymentsDomainError(
+                "Payment webhook setup session was not found.",
+                "payment_webhook_target_not_ready",
+              );
             }
-            await commandHandler({
-              streamId,
-              command: {
-                type: "CancelPayment",
-                cancelledAt: webhookEvent.occurredAt,
-              },
-              context,
+            await transaction.lock(`account:${setupSession.account_id}`);
+            await completeSavedCheckoutSetupSession(deps.db, {
+              processorSetupReference: setupReference,
+              processorStatus: webhookEvent.processorStatus,
+              completedAt: webhookEvent.occurredAt,
             });
-            await markPaymentCreationReservationInactive(deps.db, {
-              paymentId: payment.payment_id,
-              status: "released",
-              updatedAt: webhookEvent.occurredAt,
+            return { received: true, ignored: false };
+          }
+
+          if (webhookEvent.kind === "saved-payment-method-detached" && webhookEvent.savedPaymentMethod) {
+            const instrument = await getSavedCheckoutInstrumentByProviderReference(deps.db, {
+              provider: webhookEvent.savedPaymentMethod.processorName,
+              providerReference: webhookEvent.savedPaymentMethod.providerReference,
             });
-            break;
-          case "payment-refunded":
-            if (webhookEvent.refundId) {
-              await refundCommandHandler({
-                streamId: `payments.refund-${webhookEvent.refundId}`,
+            if (instrument) {
+              await transaction.lock(`account:${instrument.account_id}`);
+              await markSavedCheckoutInstrumentRemoved(deps.db, {
+                accountId: instrument.account_id,
+                instrumentId: instrument.instrument_id,
+                timestamp: webhookEvent.occurredAt,
+              });
+              await recordSavedCheckoutInstrumentAudit(deps.db, {
+                auditId: createId("audit"),
+                instrumentId: instrument.instrument_id,
+                accountId: instrument.account_id,
+                action: "provider-detached",
+                reason: webhookEvent.eventId,
+                performedByAccountId: instrument.account_id,
+                createdAt: webhookEvent.occurredAt,
+              });
+            }
+            return { received: true, ignored: !instrument };
+          }
+
+          if (webhookEvent.internalPaymentId) await transaction.lock(`payment:${webhookEvent.internalPaymentId}`);
+          let payment = webhookEvent.internalPaymentId
+            ? await getPaymentById(deps.db, webhookEvent.internalPaymentId)
+            : await getPaymentByProcessorReference(
+                deps.db,
+                webhookEvent.processorName,
+                webhookEvent.processorPaymentReference,
+              );
+
+          if (!payment) {
+            throw new PaymentsDomainError("Payment webhook target was not found.", "payment_webhook_target_not_ready");
+          }
+
+          if (!webhookEvent.internalPaymentId) {
+            await transaction.lock(`payment:${payment.payment_id}`);
+            payment = await getPaymentById(deps.db, payment.payment_id);
+            if (!payment)
+              throw new PaymentsDomainError(
+                "Payment webhook target was not found.",
+                "payment_webhook_target_not_ready",
+              );
+          }
+          await transaction.lock(`account:${payment.buyer_account_id}`);
+          const streamId = `payments.payment-${payment.payment_id}`;
+
+          switch (webhookEvent.kind) {
+            case "payment-authorized":
+              await commandHandler({
+                streamId,
                 command: {
-                  type: "RecordRefundIssued",
-                  processorRefundReference:
-                    webhookEvent.processorRefundReference ?? webhookEvent.providerObjectReference ?? "",
+                  type: "RecordPaymentAuthorization",
                   processorStatus: webhookEvent.processorStatus,
-                  issuedAt: webhookEvent.occurredAt,
+                  authorizedAt: webhookEvent.occurredAt,
                 },
                 context,
               });
-            }
-            await commandHandler({
-              streamId,
-              command: {
-                type: "RecordPaymentRefund",
-                refundId: webhookEvent.refundId ? (webhookEvent.refundId as RefundId) : null,
-                orderIds: webhookEvent.orderIds ?? [],
-                processorStatus: webhookEvent.processorStatus,
-                processorRefundReference:
-                  webhookEvent.processorRefundReference ?? webhookEvent.providerObjectReference ?? null,
-                amount: webhookEvent.amount ?? null,
-                refundedAmount: webhookEvent.refundedAmount ?? null,
-                refundedAt: webhookEvent.occurredAt,
-              },
-              context,
-            });
-            break;
-          case "payment-early-fraud-warning":
-            await commandHandler({
-              streamId,
-              command: {
-                type: "RecordPaymentEarlyFraudWarning",
-                providerEventId: webhookEvent.eventId,
-                earlyFraudWarningId: webhookEvent.providerObjectReference ?? webhookEvent.eventId,
-                providerChargeReference: webhookEvent.providerChargeReference ?? null,
-                processorStatus: webhookEvent.processorStatus,
-                fraudType: webhookEvent.fraudType ?? webhookEvent.failureCode,
-                chargeDisputed: Boolean(webhookEvent.chargeDisputed),
-                receivedAt: webhookEvent.occurredAt,
-              },
-              context,
-            });
-            if (
-              deps.refunds &&
-              webhookEvent.chargeDisputed === false &&
-              !payment.disputed_at &&
-              (payment.status === "captured" || payment.status === "partially-refunded")
-            ) {
-              const refundableAmount = subtractMoney(payment.amount, payment.refunded_amount);
-              if (compareMoney(refundableAmount, "0.00") > 0) {
-                await deps.refunds.issueRefund(
-                  {
-                    refundId: fraudRefundId(webhookEvent.providerObjectReference ?? webhookEvent.eventId),
-                    paymentId: payment.payment_id as PaymentId,
-                    orderIds: payment.order_ids,
-                    amount: refundableAmount,
-                    reason: `Stripe early fraud warning ${webhookEvent.providerObjectReference ?? webhookEvent.eventId}.`,
+              break;
+            case "payment-captured":
+              if (webhookEvent.savedPaymentMethod) {
+                const customer =
+                  webhookEvent.savedPaymentMethod.providerCustomerReference ??
+                  (
+                    await getProviderCustomer(deps.db, {
+                      accountId: payment.buyer_account_id,
+                      provider: webhookEvent.savedPaymentMethod.processorName,
+                    })
+                  )?.provider_customer_reference;
+                if (customer) {
+                  await persistProcessorSavedPaymentMethod(deps, {
+                    accountId: payment.buyer_account_id as AccountId,
+                    providerCustomerReference: customer,
+                    savedPaymentMethod: webhookEvent.savedPaymentMethod,
+                    consentId: webhookEvent.savedPaymentConsentId ?? null,
+                    consentText: webhookEvent.savedPaymentConsentText ?? SAVE_PAYMENT_CONSENT_TEXT,
+                    isDefault: true,
+                    auditAction: "payment-consent-saved",
+                  });
+                }
+              }
+              await commandHandler({
+                streamId,
+                command: {
+                  type: "RecordPaymentCapture",
+                  processorStatus: webhookEvent.processorStatus,
+                  capturedAt: webhookEvent.occurredAt,
+                },
+                context,
+              });
+              break;
+            case "payment-failed":
+              await commandHandler({
+                streamId,
+                command: {
+                  type: "RecordPaymentFailure",
+                  processorStatus: webhookEvent.processorStatus,
+                  failureCode: webhookEvent.failureCode,
+                  failureMessage: webhookEvent.failureMessage,
+                  failedAt: webhookEvent.occurredAt,
+                },
+                context,
+              });
+              await markPaymentCreationReservationInactive(deps.db, {
+                paymentId: payment.payment_id,
+                status: "failed",
+                updatedAt: webhookEvent.occurredAt,
+              });
+              break;
+            case "payment-cancelled":
+              if (
+                webhookEvent.processorPaymentKind !== "payment-intent" ||
+                payment.processor_payment_kind !== "payment-intent"
+              ) {
+                return { received: true, ignored: true };
+              }
+              await commandHandler({
+                streamId,
+                command: {
+                  type: "CancelPayment",
+                  cancelledAt: webhookEvent.occurredAt,
+                },
+                context,
+              });
+              await markPaymentCreationReservationInactive(deps.db, {
+                paymentId: payment.payment_id,
+                status: "released",
+                updatedAt: webhookEvent.occurredAt,
+              });
+              break;
+            case "payment-refunded":
+              if (webhookEvent.refundId) {
+                await refundCommandHandler({
+                  streamId: `payments.refund-${webhookEvent.refundId}`,
+                  command: {
+                    type: "RecordRefundIssued",
+                    processorRefundReference:
+                      webhookEvent.processorRefundReference ?? webhookEvent.providerObjectReference ?? "",
+                    processorStatus: webhookEvent.processorStatus,
+                    issuedAt: webhookEvent.occurredAt,
                   },
                   context,
-                );
+                });
               }
-            }
-            break;
-          case "payment-fraud-review-opened":
-            await commandHandler({
-              streamId,
-              command: {
-                type: "RecordPaymentFraudReviewOpened",
-                providerEventId: webhookEvent.eventId,
-                providerReviewId: webhookEvent.providerObjectReference ?? webhookEvent.eventId,
-                providerChargeReference: webhookEvent.providerChargeReference ?? null,
-                processorStatus: webhookEvent.processorStatus,
-                reason: webhookEvent.fraudReviewReason ?? webhookEvent.failureCode,
-                openedAt: webhookEvent.occurredAt,
-              },
-              context,
-            });
-            break;
-          case "payment-fraud-review-closed":
-            await commandHandler({
-              streamId,
-              command: {
-                type: "RecordPaymentFraudReviewClosed",
-                providerEventId: webhookEvent.eventId,
-                providerReviewId: webhookEvent.providerObjectReference ?? webhookEvent.eventId,
-                providerChargeReference: webhookEvent.providerChargeReference ?? null,
-                processorStatus: webhookEvent.processorStatus,
-                reason: webhookEvent.fraudReviewReason ?? webhookEvent.failureCode,
-                outcome: webhookEvent.fraudReviewOutcome,
-                closedAt: webhookEvent.occurredAt,
-              },
-              context,
-            });
-            break;
-          case "payment-disputed":
-            await commandHandler({
-              streamId,
-              command: {
-                type: "RecordPaymentDispute",
-                providerEventId: webhookEvent.eventId,
-                providerDisputeId: webhookEvent.providerObjectReference ?? webhookEvent.eventId,
-                providerChargeReference: webhookEvent.providerChargeReference ?? null,
-                processorStatus: webhookEvent.processorStatus,
-                disputeStatus: webhookEvent.failureCode,
-                disputeMessage: webhookEvent.disputeStatus ?? webhookEvent.failureMessage,
-                disputeLifecycleState: webhookEvent.disputeLifecycleState,
-                disputeReason: webhookEvent.disputeReason,
-                disputeEvidenceDueAt: webhookEvent.disputeEvidenceDueAt,
-                amount: webhookEvent.amount ?? null,
-                disputedAt: webhookEvent.occurredAt,
-              },
-              context,
-            });
-            break;
-          case "saved-payment-method-detached":
-            break;
-          default:
-            assert(false, "Unhandled payment webhook kind.");
-        }
+              await commandHandler({
+                streamId,
+                command: {
+                  type: "RecordPaymentRefund",
+                  refundId: webhookEvent.refundId ? (webhookEvent.refundId as RefundId) : null,
+                  orderIds: webhookEvent.orderIds ?? [],
+                  processorStatus: webhookEvent.processorStatus,
+                  processorRefundReference:
+                    webhookEvent.processorRefundReference ?? webhookEvent.providerObjectReference ?? null,
+                  amount: webhookEvent.amount ?? null,
+                  refundedAmount: webhookEvent.refundedAmount ?? null,
+                  refundedAt: webhookEvent.occurredAt,
+                },
+                context,
+              });
+              break;
+            case "payment-early-fraud-warning":
+              await commandHandler({
+                streamId,
+                command: {
+                  type: "RecordPaymentEarlyFraudWarning",
+                  providerEventId: webhookEvent.eventId,
+                  earlyFraudWarningId: webhookEvent.providerObjectReference ?? webhookEvent.eventId,
+                  providerChargeReference: webhookEvent.providerChargeReference ?? null,
+                  processorStatus: webhookEvent.processorStatus,
+                  fraudType: webhookEvent.fraudType ?? webhookEvent.failureCode,
+                  chargeDisputed: Boolean(webhookEvent.chargeDisputed),
+                  receivedAt: webhookEvent.occurredAt,
+                },
+                context,
+              });
+              if (
+                webhookEvent.chargeDisputed === false &&
+                !payment.disputed_at &&
+                (payment.status === "captured" || payment.status === "partially-refunded")
+              ) {
+                const refundableAmount = subtractMoney(payment.amount, payment.refunded_amount);
+                if (compareMoney(refundableAmount, "0.00") > 0) {
+                  await refunds.issueRefund(
+                    {
+                      refundId: fraudRefundId(webhookEvent.providerObjectReference ?? webhookEvent.eventId),
+                      paymentId: payment.payment_id as PaymentId,
+                      orderIds: payment.order_ids,
+                      amount: refundableAmount,
+                      reason: `Stripe early fraud warning ${webhookEvent.providerObjectReference ?? webhookEvent.eventId}.`,
+                    },
+                    context,
+                  );
+                }
+              }
+              break;
+            case "payment-fraud-review-opened":
+              await commandHandler({
+                streamId,
+                command: {
+                  type: "RecordPaymentFraudReviewOpened",
+                  providerEventId: webhookEvent.eventId,
+                  providerReviewId: webhookEvent.providerObjectReference ?? webhookEvent.eventId,
+                  providerChargeReference: webhookEvent.providerChargeReference ?? null,
+                  processorStatus: webhookEvent.processorStatus,
+                  reason: webhookEvent.fraudReviewReason ?? webhookEvent.failureCode,
+                  openedAt: webhookEvent.occurredAt,
+                },
+                context,
+              });
+              break;
+            case "payment-fraud-review-closed":
+              await commandHandler({
+                streamId,
+                command: {
+                  type: "RecordPaymentFraudReviewClosed",
+                  providerEventId: webhookEvent.eventId,
+                  providerReviewId: webhookEvent.providerObjectReference ?? webhookEvent.eventId,
+                  providerChargeReference: webhookEvent.providerChargeReference ?? null,
+                  processorStatus: webhookEvent.processorStatus,
+                  reason: webhookEvent.fraudReviewReason ?? webhookEvent.failureCode,
+                  outcome: webhookEvent.fraudReviewOutcome,
+                  closedAt: webhookEvent.occurredAt,
+                },
+                context,
+              });
+              break;
+            case "payment-disputed":
+              await commandHandler({
+                streamId,
+                command: {
+                  type: "RecordPaymentDispute",
+                  providerEventId: webhookEvent.eventId,
+                  providerDisputeId: webhookEvent.providerObjectReference ?? webhookEvent.eventId,
+                  providerChargeReference: webhookEvent.providerChargeReference ?? null,
+                  processorStatus: webhookEvent.processorStatus,
+                  disputeStatus: webhookEvent.failureCode,
+                  disputeMessage: webhookEvent.disputeStatus ?? webhookEvent.failureMessage,
+                  disputeLifecycleState: webhookEvent.disputeLifecycleState,
+                  disputeReason: webhookEvent.disputeReason,
+                  disputeEvidenceDueAt: webhookEvent.disputeEvidenceDueAt,
+                  amount: webhookEvent.amount ?? null,
+                  disputedAt: webhookEvent.occurredAt,
+                },
+                context,
+              });
+              break;
+            case "saved-payment-method-detached":
+              break;
+            default:
+              assert(false, "Unhandled payment webhook kind.");
+          }
 
-        if (webhookEvent.liabilityShiftOutcome) {
-          await commandHandler({
-            streamId,
-            command: {
-              type: "RecordPaymentLiabilityShiftOutcome",
-              providerEventId: webhookEvent.eventId,
-              threeDSecureRequested: webhookEvent.liabilityShiftOutcome.threeDSecureRequested,
-              status: webhookEvent.liabilityShiftOutcome.status,
-              authenticationResult: webhookEvent.liabilityShiftOutcome.authenticationResult,
-              radarRiskLevel: webhookEvent.liabilityShiftOutcome.radarRiskLevel ?? null,
-              recordedAt: webhookEvent.occurredAt,
-            },
-            context,
-          });
-        }
+          if (webhookEvent.liabilityShiftOutcome) {
+            await commandHandler({
+              streamId,
+              command: {
+                type: "RecordPaymentLiabilityShiftOutcome",
+                providerEventId: webhookEvent.eventId,
+                threeDSecureRequested: webhookEvent.liabilityShiftOutcome.threeDSecureRequested,
+                status: webhookEvent.liabilityShiftOutcome.status,
+                authenticationResult: webhookEvent.liabilityShiftOutcome.authenticationResult,
+                radarRiskLevel: webhookEvent.liabilityShiftOutcome.radarRiskLevel ?? null,
+                recordedAt: webhookEvent.occurredAt,
+              },
+              context,
+            });
+          }
 
-        await recordProcessed();
+          return { received: true, ignored: false };
+        });
         recordWebhookTelemetry({
           endpoint: "payments",
-          failureClass: null,
-          outcome: "processed",
+          failureClass: committed.result.failure_class ?? null,
+          outcome: committed.result.ignored ? "ignored" : "processed",
           statusCode: 200,
           retryable: false,
           providerEventId: webhookEvent.eventId,
           eventKind: webhookEvent.kind,
+          invariantCode: committed.invariantCode,
         });
-        return { received: true, ignored: false };
+        return committed.result;
       } catch (error) {
-        const classified = providerWebhookErrorFromUnknown(error, {
+        const classified = paymentWebhookErrorFromUnknown(error, {
           providerEventId: webhookEvent.eventId,
           eventKind: webhookEvent.kind,
         });
-        if (classified.failureClass !== "inbox-conflict") {
-          recordWebhookTelemetry({
-            endpoint: "payments",
-            failureClass: "handler-failure",
-            outcome: "failed",
-            statusCode: 400,
-            retryable: true,
-            providerEventId: webhookEvent.eventId,
-            eventKind: webhookEvent.kind,
-          });
-        }
+        recordWebhookTelemetry({
+          endpoint: "payments",
+          failureClass: classified.failureClass,
+          outcome: classified.retryable ? "failed" : "ignored",
+          statusCode: classified.retryable ? 400 : 200,
+          retryable: classified.retryable,
+          providerEventId: webhookEvent.eventId,
+          eventKind: webhookEvent.kind,
+        });
         throw classified;
       }
     },

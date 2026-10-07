@@ -27,8 +27,8 @@ const listingRuntime = "bounded-contexts/marketplace/features/listings/api/runti
 const runtimeTests = "bounded-contexts/marketplace/features/listings/api/runtime.test.ts";
 const feeLock = "bounded-contexts/marketplace/features/listings/domain/fee-lock.ts";
 const feeQuotes = "bounded-contexts/marketplace/support/runtime-support/fee-quotes.ts";
-const currentQuoteEvidence = `${listingRuntime}:985-1005; ${feeQuotes}:53-78; ${feeQuotes}:133-152`;
-const creationEvidence = `${listingDomain}:390-415; ${listingDomain}:513-545; ${listingDomain}:938-967; ${listingRuntime}:1441-1486; ${currentQuoteEvidence}`;
+const currentQuoteEvidence = `${listingRuntime}:989-1009; ${feeQuotes}:53-78; ${feeQuotes}:133-152`;
+const creationEvidence = `${listingDomain}:391-416; ${listingDomain}:514-546; ${listingDomain}:939-968; ${listingRuntime}:1449-1494; ${currentQuoteEvidence}`;
 
 export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
   "founders-offer-terms",
@@ -92,8 +92,8 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
         productTruthRefs: [
           "docs/campaigns/offer-economics-claims-substantiation.md:30-46",
           "bounded-contexts/identity/api.ts:815-827",
-          `${listingRuntime}:1803-1943`,
-          `${feeLock}:105-179`,
+          `${listingRuntime}:1813-1953`,
+          `${feeLock}:106-180`,
         ],
         openQuestions: [
           "Counsel must review the operative fee-lock wording; storage invariants do not establish a right to terminate or forfeit the offer.",
@@ -113,7 +113,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Single and bulk price edits preserve all seven stored term fields, tranche count and unit counts.",
-            evidenceRef: `${listingRuntime}:1803-1819; ${listingRuntime}:1820-1928; ${feeQuotes}:154-176; ${listingDomain}:720-728; ${feeLock}:105-134`,
+            evidenceRef: `${listingRuntime}:1813-1829; ${listingRuntime}:1830-1938; ${feeQuotes}:154-176; ${listingDomain}:721-729; ${feeLock}:106-135`,
           },
           {
             assertion: "Photos, pause and resume preserve existing fee locks.",
@@ -122,21 +122,21 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Purchase-limit edits change only purchase limits; this is structural evidence, not a dedicated behavioral test.",
-            evidenceRef: `${listingDomain}:773-783; ${listingDomain}:986-993`,
+            evidenceRef: `${listingDomain}:774-784; ${listingDomain}:987-994`,
           },
           {
             assertion:
               "Added units use a fresh current quote; reductions retire newest units and re-added units need current terms.",
-            evidenceRef: `${listingDomain}:752-771; ${feeLock}:142-179; ${listingRuntime}:1931-1943; ${currentQuoteEvidence}`,
+            evidenceRef: `${listingDomain}:753-772; ${feeLock}:143-180; ${listingRuntime}:1941-1953; ${currentQuoteEvidence}`,
           },
           {
             assertion: "Withdrawal is terminal; relisting creates a new identity with current quoted terms.",
-            evidenceRef: `${listingDomain}:924-930; ${listingTests}:399-421; ${creationEvidence}; ${runtimeTests}:971-1097`,
+            evidenceRef: `${listingDomain}:925-931; ${listingTests}:399-421; ${creationEvidence}; ${runtimeTests}:971-1097`,
           },
           {
             assertion:
               "Item or condition substitution requires recreation; the closed command union is structural evidence, and new listings use current quoted terms.",
-            evidenceRef: `${listingDomain}:498-513; ${creationEvidence}; ${runtimeTests}:971-1097`,
+            evidenceRef: `${listingDomain}:499-514; ${creationEvidence}; ${runtimeTests}:971-1097`,
           },
           {
             assertion:
@@ -178,7 +178,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
         scopeNote:
           "New counsel-gated coverage with no predecessor topic. Review changes and termination without deriving legal powers from storage behavior.",
         decisionRefs: [5692, 6798],
-        productTruthRefs: [`${feeLock}:120-134`],
+        productTruthRefs: [`${feeLock}:121-135`],
         openQuestions: [
           "What changes or termination terms, if any, should counsel approve, including treatment of existing locks and any notice obligations?",
         ],
@@ -186,7 +186,7 @@ export const foundersOfferTermsPolicyArtifact: PublicPolicyArtifact<
           {
             assertion:
               "Fee-lock preservation supplies product scope only; it does not answer the unresolved legal power or notice questions.",
-            evidenceRef: `${feeLock}:120-134`,
+            evidenceRef: `${feeLock}:121-135`,
           },
         ],
       },

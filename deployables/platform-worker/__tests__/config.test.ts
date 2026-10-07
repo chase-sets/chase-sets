@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   describeGoogleMerchantConfigForLogs,
   getPlatformWorkerContextsForRuntimeProfile,
@@ -157,6 +157,7 @@ const envNames = [
   "DATABASE_URL_PRICING",
   "DATABASE_URL_PUBLIC_PRESENCE",
   "DATABASE_URL_SETTLEMENT",
+  "CATALOG_OPERATOR_SESSION_KEYRING_JSON",
 ];
 
 function clearConfigEnv() {
@@ -204,6 +205,37 @@ describe("platform worker config", () => {
     } finally {
       if (previous === undefined) delete process.env.CHANNELS_CREDENTIAL_KEYRING_JSON;
       else process.env.CHANNELS_CREDENTIAL_KEYRING_JSON = previous;
+    }
+  });
+  it("loads the optional Catalog operator-session keyring and fails malformed startup", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    expect(loadConfig().catalogOperatorSessionKeyring).toBeNull();
+    process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = "";
+    expect(loadConfig().catalogOperatorSessionKeyring).toBeNull();
+    const keyBase64 = Buffer.alloc(32, 7).toString("base64");
+    const logs = ["log", "error", "warn", "info", "debug"] as const;
+    const spies = logs.map((method) => vi.spyOn(console, method).mockImplementation(() => {}));
+    try {
+      process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = JSON.stringify({
+        activeKeyId: "synthetic",
+        keys: [{ keyId: "synthetic", keyBase64 }],
+      });
+      expect(loadConfig().catalogOperatorSessionKeyring?.activeKeyId).toBe("synthetic");
+      expect(loadConfig().tcgplayerAutomation).toMatchObject({ auth: { tcgAuthCookie: null } });
+      process.env.CATALOG_OPERATOR_SESSION_KEYRING_JSON = `malformed-synthetic-marker${keyBase64}`;
+      let message = "";
+      try {
+        loadConfig();
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).toBe("invalid-keyring");
+      const output = JSON.stringify({ message, logs: spies.map((spy) => spy.mock.calls) });
+      expect(output).not.toContain("malformed-synthetic-marker");
+      expect(output).not.toContain(keyBase64);
+      for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+    } finally {
+      for (const spy of spies) spy.mockRestore();
     }
   });
   it("defaults the repricing dry-run lane to one and reads its configured count", () => {
@@ -444,11 +476,11 @@ describe("platform worker config", () => {
       domainConfigs: {
         mpSearchApi: expect.objectContaining({
           requestDelayMs: 500,
-          rateLimitCooldownMs: 30_000,
+          rateLimitCooldownMs: 100_000,
           maxConcurrentRequests: 1,
         }),
         mpApi: expect.objectContaining({
-          requestDelayMs: 250,
+          requestDelayMs: 10_000,
           maxConcurrentRequests: 2,
         }),
       },
@@ -470,6 +502,31 @@ describe("platform worker config", () => {
       },
     });
     expect(JSON.stringify(description)).not.toMatch(/fixture-cookie-value|TCGAuthTicket|fixture-cookie-value/i);
+  });
+
+  it("raises unsafe TCGplayer overrides to the shared-budget floors", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.TCGPLAYER_AUTOMATION_TCG_AUTH_COOKIE = "fixture-cookie-value";
+    process.env.TCGPLAYER_AUTOMATION_DOMAIN_CONFIG_JSON = JSON.stringify({
+      mpApi: {
+        requestDelayMs: 1,
+        rateLimitCooldownMs: 1,
+        maxConcurrentRequests: 99,
+        minRequestDelayMs: 1,
+        learnedMinDelayMs: 1,
+      },
+      mpSearchApi: { rateLimitCooldownMs: 1 },
+    });
+
+    const config = loadConfig().tcgplayerAutomation!;
+    expect(config.domainConfigs.mpApi).toMatchObject({
+      requestDelayMs: 10_000,
+      rateLimitCooldownMs: 30_000,
+      maxConcurrentRequests: 2,
+      minRequestDelayMs: 10_000,
+      learnedMinDelayMs: 10_000,
+    });
+    expect(config.domainConfigs.mpSearchApi.rateLimitCooldownMs).toBe(100_000);
   });
 
   it("rejects malformed TCGplayer domain config instead of silently weakening provider budgets", () => {

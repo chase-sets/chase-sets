@@ -7,9 +7,15 @@ import { marketplaceSupplyProjectionSchemaSql } from "../../features/listings/in
 import { marketplaceOfferSchemaSql } from "../../features/offers/read-model/schema";
 import { marketplaceReviewSourceProjectionSchemaSql } from "../../features/reviews/integrations/source/source-schema";
 import { reviewSchemaSql } from "../../features/reviews/read-model/schema";
+import {
+  reviewOpportunityPublicationSchemaSql,
+  reviewOpportunityPublicationTriggersSql,
+} from "../../features/reviews/integrations/opportunity-publication/schema";
 import { marketplaceSellerMetricsSourceSchemaSql } from "../../features/seller-metrics/integrations/source/source-schema";
 import { marketplaceSellerMetricsSummarySchemaSql } from "../../features/seller-metrics/read-model/schema";
 import { marketplaceChannelInboundClampSchemaSql } from "../../features/channel-inbound-clamp/read-model/schema";
+import { marketplaceBuyerOfferPolicySchemaSql } from "../../features/offer-policy/read-model/schema";
+import { marketplaceManagedOfferSchemaSql } from "../../features/offers/read-model/managed-schema";
 
 export const marketplaceSchemaSql = [
   eventCorePostgresSchemaSql,
@@ -20,8 +26,12 @@ export const marketplaceSchemaSql = [
   marketplaceSupplyProjectionSchemaSql,
   marketplaceListingSchemaSql,
   marketplaceOfferSchemaSql,
+  marketplaceBuyerOfferPolicySchemaSql,
+  marketplaceManagedOfferSchemaSql,
   marketplaceReviewSourceProjectionSchemaSql,
   reviewSchemaSql,
+  reviewOpportunityPublicationSchemaSql,
+  reviewOpportunityPublicationTriggersSql,
   marketplaceSellerMetricsSourceSchemaSql,
   marketplaceSellerMetricsSummarySchemaSql,
   marketplaceChannelInboundClampSchemaSql,

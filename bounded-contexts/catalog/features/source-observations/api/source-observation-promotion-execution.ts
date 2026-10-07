@@ -1,4 +1,8 @@
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
+import { readCompleteStream } from "@chase-sets/event-core/complete-stream";
+import { createPassthroughDomainEventCodec } from "@chase-sets/event-core/codec";
+import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { type JsonValue } from "@chase-sets/primitives/json";
@@ -6,7 +10,13 @@ import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runt
 import type { CatalogItemId, BlueprintId, CategoryId, FieldId, ReferenceRecordId } from "../../../ids";
 import type { ProductAssetSet } from "../../../support/runtime-support/product-assets";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
-import type { CatalogItemCommand } from "../../catalog-items/domain/domain";
+import {
+  decideCatalogItem,
+  evolveCatalogItem,
+  initialCatalogItemState,
+  type CatalogItemCommand,
+  type CatalogItemEvent,
+} from "../../catalog-items/domain/domain";
 import type { ProductContentServices } from "../../product-contents/api/runtime";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
 import {
@@ -144,6 +154,7 @@ export async function createCatalogDraftFromObservation(input: {
 
   if (input.executeCommands !== false) {
     await executeCatalogItemPromotionCommandPlan({
+      eventStore: input.deps.eventStore,
       items: input.items,
       productContents: input.productContents,
       streamId,
@@ -227,6 +238,7 @@ export async function refreshCatalogItemFromObservation(input: {
 
   if (input.executeCommands !== false) {
     await executeCatalogItemPromotionCommandPlan({
+      eventStore: input.deps.eventStore,
       items: input.items,
       productContents: input.productContents,
       streamId,
@@ -387,6 +399,7 @@ function referenceDataPromotionPlanFingerprint(input: {
 }
 
 async function executeCatalogItemPromotionCommandPlan(input: {
+  eventStore: EventStore;
   items: CatalogItemServices;
   productContents: ProductContentServices | null;
   streamId: string;
@@ -397,13 +410,38 @@ async function executeCatalogItemPromotionCommandPlan(input: {
     throw new Error(input.plan.diagnostics.map((diagnostic) => diagnostic.diagnosticText).join(" "));
   }
 
-  for (const command of input.plan.plan.commands) {
-    await executeCatalogItemPromotionCommand({
+  const commands = input.plan.plan.commands;
+  let completedCommands = 0;
+  let expectedVersion: number | undefined;
+  if (input.plan.plan.mode === "create") {
+    const codec = createPassthroughDomainEventCodec<CatalogItemEvent>();
+    const history = (await readCompleteStream(input.eventStore, { streamId: input.streamId })).map(codec.decode);
+    expectedVersion = history.length;
+    let expectedState = initialCatalogItemState;
+    const expectedEvents: CatalogItemEvent[] = [];
+    let matched = history.length === 0;
+    for (const [index, command] of commands.entries()) {
+      const events = decideCatalogItem(expectedState, command);
+      expectedState = events.reduce(evolveCatalogItem, expectedState);
+      expectedEvents.push(...events);
+      if (history.length === expectedEvents.length && isDeepStrictEqual(history, expectedEvents)) {
+        completedCommands = index + 1;
+        matched = true;
+      }
+    }
+    if (!matched) {
+      throw new Error(`promotion-catalog-item-history-invalid:${input.streamId}`);
+    }
+  }
+  for (const command of commands.slice(completedCommands)) {
+    const result = await executeCatalogItemPromotionCommand({
       items: input.items,
       streamId: input.streamId,
       command,
       context: input.context,
+      expectedVersion,
     });
+    expectedVersion = result.version;
   }
 
   if (input.plan.plan.productContents) {
@@ -419,11 +457,13 @@ async function executeCatalogItemPromotionCommand(input: {
   streamId: string;
   command: CatalogItemCommand;
   context: EventStoreContext;
+  expectedVersion: number | undefined;
 }) {
-  await input.items.commandHandler({
+  return input.items.commandHandler({
     streamId: input.streamId,
     command: input.command,
     context: input.context,
+    expectedVersion: input.expectedVersion,
   });
 }
 
@@ -612,6 +652,11 @@ export async function loadCatalogItemPromotionProfile(
       cardVariant,
       cardIllustrator,
       releaseYear,
+      ...(profile.normalizedObservationMapping.kind === "lorcana-card-print"
+        ? {
+            inkColor: await requireCatalogIdByKey<FieldId>(deps, profile, "catalog_fields", "field_id", "ink-color"),
+          }
+        : {}),
       ...(mapping.fieldKeys.set
         ? {
             set: await requireCatalogIdByKey<FieldId>(

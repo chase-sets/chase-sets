@@ -1,8 +1,32 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { AUTH_ROLE_PERMISSIONS } from "./constants";
+import { AUTH_PERMISSION_PRESETS, AUTH_ROLE_PERMISSIONS } from "./constants";
 
 describe("auth role permissions", () => {
+  it("grants platform payout reads once to platform-admin and never through a preset", () => {
+    for (const [role, permissions] of Object.entries(AUTH_ROLE_PERMISSIONS)) {
+      expect(permissions.filter((permission) => permission === "payouts.platform.view")).toEqual(
+        role === "platform-admin" ? ["payouts.platform.view"] : [],
+      );
+      expect(permissions.includes("payouts.platform.view") && permissions.includes("payouts.reconcile")).toBe(false);
+    }
+    for (const permissions of Object.values(AUTH_PERMISSION_PRESETS)) {
+      expect(permissions).not.toContain("payouts.platform.view");
+    }
+  });
+  it("grants commercial agreement management only to platform admins", () => {
+    for (const [role, permissions] of Object.entries(AUTH_ROLE_PERMISSIONS)) {
+      expect(permissions.filter((permission) => permission === "commercial-terms.agreements.manage")).toEqual(
+        role === "platform-admin" ? ["commercial-terms.agreements.manage"] : [],
+      );
+    }
+  });
+
+  it("grants provider connections only to platform admins", () => {
+    for (const [role, permissions] of Object.entries(AUTH_ROLE_PERMISSIONS)) {
+      expect(permissions.includes("provider-connections.view")).toBe(role === "platform-admin");
+    }
+  });
   it("keeps feedback operator authority on platform staff roles only", () => {
     for (const roleKey of ["owner", "manager", "fulfillment", "viewer"] as const) {
       expect(AUTH_ROLE_PERMISSIONS[roleKey]).not.toEqual(
@@ -166,9 +190,9 @@ describe("pricing preset contract", () => {
     viewer: ["pricing.view"],
     "platform-admin": [],
   };
-  // Sorted non-pricing sets captured from the unchanged d33c1fdd predecessor.
+  // Sorted non-pricing sets, including the platform-admin-only #6483, #7857 and #8725 grants.
   const predecessor = {
-    "platform-admin": "199c5f4e9f3db17dd2dd5360dad547f08a6c836eae24942b4f0582a2b1f8ca53",
+    "platform-admin": "6b60c2e83a40fc55f9f3a044b8db07ac0bc270b53a58aada413f77fab454e294",
     owner: "2f44a3531ad460bb8c0e8813515adfccb5299c697e75d0c66afa5880566344d4",
     manager: "4f7bafd3ac8326d8486dcdc7ddeb5c4fe63c76f8615ce4c307f1438af27332c1",
     fulfillment: "968211cfdf02d5d689838226c846197ac9c41fdd96806aa5fe84bfb32b551248",

@@ -48,8 +48,12 @@ import { marketplaceListingSchemaMigrations } from "./features/listings/read-mod
 import { marketplaceListingReadModelSchemaMigrations } from "./features/listings/read-model/schema";
 import { marketplaceOfferSchemaMigrations } from "./features/offers/read-model/schema";
 import { reviewSchemaMigrations } from "./features/reviews/read-model/schema";
+import { reviewOpportunityPublicationMigrations } from "./features/reviews/integrations/opportunity-publication/schema";
 import { inspectMarketplaceSeedState, seedMarketplaceContextDatabase } from "./support/runtime-support/seed";
 import { marketplaceChannelInboundClampSchemaMigrations } from "./features/channel-inbound-clamp/read-model/schema";
+import { marketplaceBuyerOfferPolicySchemaMigrations } from "./features/offer-policy/read-model/schema";
+import { marketplaceManagedOfferSchemaMigrations } from "./features/offers/read-model/managed-schema";
+import { buildManagedOfferMarketPriceReactions } from "./features/offers/integrations/managed-work";
 
 const marketplaceContextManifest = contextManifest as BcContextManifest;
 
@@ -62,7 +66,10 @@ export const module = defineBoundedContextModule<MarketplaceServices, PgTransact
     ...marketplaceListingSchemaMigrations,
     ...marketplaceListingReadModelSchemaMigrations,
     ...marketplaceOfferSchemaMigrations,
+    ...marketplaceBuyerOfferPolicySchemaMigrations,
+    ...marketplaceManagedOfferSchemaMigrations,
     ...reviewSchemaMigrations,
+    ...reviewOpportunityPublicationMigrations,
     ...marketplaceSellerMetricsSourceSchemaMigrations,
     ...marketplaceSellerMetricsSummarySchemaMigrations,
     ...marketplaceChannelInboundClampSchemaMigrations,
@@ -147,6 +154,8 @@ export const module = defineBoundedContextModule<MarketplaceServices, PgTransact
         contextName: "marketplace",
         manifest: marketplaceContextManifest,
         handlers: {
+          "pricing.marketplace-managed-offer-reaction": () =>
+            buildManagedOfferMarketPriceReactions(services.managedOfferWork),
           "platform-operations.marketplace-review-hold-reaction": () =>
             buildReviewHoldReactionHandlers({
               recordSupportRequestOpened: services.reviews.recordSupportRequestOpened,

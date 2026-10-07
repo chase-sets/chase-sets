@@ -1670,8 +1670,8 @@ export const helpArticles = [
         tests: ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx"],
       },
       {
-        claim: "Public launch is September 1, 2026, with beta invite waves beginning late July 2026.",
-        issues: ["#3952"],
+        claim: "Access follows the waitlist, numbered beta invite waves, then open signup, with no promised dates.",
+        issues: ["#8371"],
         tests: ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx"],
       },
       {
@@ -1736,7 +1736,7 @@ export const helpArticles = [
           {
             type: "text",
             value:
-              "Not yet. Chase Sets opens to everyone on September 1, 2026, and beta invite waves begin late July 2026. Join the waitlist for an invite before launch and founders offer eligibility.",
+              "Not yet. Join the waitlist first. Numbered beta invite waves come next, followed by open signup for everyone. Joining the waitlist gives you a chance at an invite before launch and founders offer eligibility. No launch or wave dates are promised.",
           },
         ],
       },
@@ -5490,7 +5490,7 @@ export const helpArticles = [
           {
             type: "link",
             label: "comparison calculator",
-            href: "/compare#calculator",
+            href: "/compare/tcgplayer#fee-calculator",
           },
           {
             type: "text",
@@ -6181,8 +6181,8 @@ export const helpArticles = [
         tests: ["bounded-contexts/commercial-terms/routes/public/sales-fees.test.tsx"],
       },
       {
-        claim: "Public launch is September 1, 2026, with beta invite waves beginning late July 2026.",
-        issues: ["#3952"],
+        claim: "Access follows the waitlist, numbered beta invite waves, then open signup, with no promised dates.",
+        issues: ["#8371"],
         tests: ["bounded-contexts/public-presence/features/waitlist/ui/public-pages.test.tsx"],
       },
       {
@@ -6294,13 +6294,19 @@ export const helpArticles = [
           [
             {
               type: "text",
-              value: "Beta invite waves begin late July 2026.",
+              value: "Join the waitlist first.",
             },
           ],
           [
             {
               type: "text",
-              value: "Public launch — open signup for everyone — is September 1, 2026.",
+              value: "Numbered beta invite waves come next.",
+            },
+          ],
+          [
+            {
+              type: "text",
+              value: "Open signup for everyone follows beta.",
             },
           ],
         ],
@@ -6311,7 +6317,7 @@ export const helpArticles = [
           {
             type: "text",
             value:
-              "Invite waves are gated on operational readiness between waves, so Chase Sets does not promise per-wave dates.",
+              "Invite waves are gated on operational readiness between waves. Chase Sets does not promise a launch date or per-wave dates.",
           },
         ],
       },
@@ -6680,7 +6686,8 @@ export const helpArticles = [
         ],
       },
       {
-        claim: "The founders window applies a 0% sales-fee agreement for 60 days, capped at 500 founders.",
+        claim:
+          "Every account admitted to beta pays a 0% marketplace sales fee for 60 days from the start of its beta access. The 500 cap applies only to numbered founder badges: an account's first listing or submitted offer claims a badge while numbers remain.",
         issues: ["#4068"],
         tests: [
           "bounded-contexts/identity/features/founders-cohort/domain/domain.test.ts",
@@ -6846,7 +6853,7 @@ export const helpArticles = [
           {
             type: "text",
             value:
-              "The first 500 accounts to list an item or submit an offer after receiving beta access claim a founders place. A founders account pays a 0% marketplace sales fee for 60 days from the start of its beta access; listings confirmed inside the window lock the 0% rate exactly like any other locked rate. After the window ends, new listings lock at the standard schedule.",
+              "Every account admitted to beta pays a 0% marketplace sales fee for 60 days from the start of its beta access. The 500 cap applies only to numbered founder badges: an account's first listing or submitted offer claims a badge while numbers remain. Listings confirmed inside the window lock the 0% rate exactly like any other locked rate. After the window ends, new listings lock at the standard schedule.",
           },
         ],
       },
@@ -6878,7 +6885,7 @@ export const helpArticles = [
           {
             type: "text",
             value:
-              "Before signup opens to everyone on September 1, 2026, beta access is admitted in three numbered waves:",
+              "Join the waitlist first. Beta access is then admitted in three numbered waves, followed by open signup for everyone. No launch or wave dates are promised:",
           },
         ],
       },

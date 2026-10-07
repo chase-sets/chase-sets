@@ -2356,6 +2356,1749 @@
         }
       ],
       "artifact": "repricing-policy-editor-mobile"
+    },
+    {
+      "kind": "claim",
+      "id": "card-shipment-mobile-light",
+      "file": "deployables/marketplace/e2e/account-elevation-intent.spec.ts",
+      "testTitle": "records seeded shipment furniture mobile @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Seeded seller shipment detail",
+        "path": "/account/sales/shipments/shp_seed_label_attached"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:shp_seed_label_attached:light"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "shipment-order-protection",
+        "selector": "[data-card-emitter=\"order-protection\"]",
+        "populatedSelector": ":scope :text-is(\"1ZSEEDLABELATTACHED\")"
+      },
+      "measurements": [
+        {
+          "identity": "component-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "component-horizontal-overflow",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        },
+        {
+          "identity": "back-action-height",
+          "scope": "page",
+          "selector": "main a[href=\"/account/sales/shipments\"]",
+          "property": "height",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "card-shipment-mobile-light"
+    },
+    {
+      "kind": "claim",
+      "id": "card-shipment-mobile-dark",
+      "file": "deployables/marketplace/e2e/account-elevation-intent.spec.ts",
+      "testTitle": "records seeded shipment furniture mobile @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Seeded seller shipment detail",
+        "path": "/account/sales/shipments/shp_seed_label_attached"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:shp_seed_label_attached:dark"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "shipment-order-protection",
+        "selector": "[data-card-emitter=\"order-protection\"]",
+        "populatedSelector": ":scope :text-is(\"1ZSEEDLABELATTACHED\")"
+      },
+      "measurements": [
+        {
+          "identity": "component-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "component-horizontal-overflow",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        },
+        {
+          "identity": "back-action-height",
+          "scope": "page",
+          "selector": "main a[href=\"/account/sales/shipments\"]",
+          "property": "height",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "card-shipment-mobile-dark"
+    },
+    {
+      "kind": "claim",
+      "id": "card-shipment-desktop-light",
+      "file": "deployables/marketplace/e2e/account-elevation-intent.spec.ts",
+      "testTitle": "records seeded shipment furniture desktop @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Seeded seller shipment detail",
+        "path": "/account/sales/shipments/shp_seed_label_attached"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:shp_seed_label_attached:light"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "shipment-order-protection",
+        "selector": "[data-card-emitter=\"order-protection\"]",
+        "populatedSelector": ":scope :text-is(\"1ZSEEDLABELATTACHED\")"
+      },
+      "measurements": [
+        {
+          "identity": "component-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
+        },
+        {
+          "identity": "component-horizontal-overflow",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        },
+        {
+          "identity": "back-action-height",
+          "scope": "page",
+          "selector": "main a[href=\"/account/sales/shipments\"]",
+          "property": "height",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "card-shipment-desktop-light"
+    },
+    {
+      "kind": "claim",
+      "id": "card-shipment-desktop-dark",
+      "file": "deployables/marketplace/e2e/account-elevation-intent.spec.ts",
+      "testTitle": "records seeded shipment furniture desktop @marketplace-account @browser-e2e-seed",
+      "route": {
+        "name": "Seeded seller shipment detail",
+        "path": "/account/sales/shipments/shp_seed_label_attached"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:shp_seed_label_attached:dark"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "shipment-order-protection",
+        "selector": "[data-card-emitter=\"order-protection\"]",
+        "populatedSelector": ":scope :text-is(\"1ZSEEDLABELATTACHED\")"
+      },
+      "measurements": [
+        {
+          "identity": "component-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
+        },
+        {
+          "identity": "component-horizontal-overflow",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        },
+        {
+          "identity": "back-action-height",
+          "scope": "page",
+          "selector": "main a[href=\"/account/sales/shipments\"]",
+          "property": "height",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "card-shipment-desktop-dark"
+    },
+    {
+      "kind": "claim",
+      "id": "card-feedback-mobile-light",
+      "file": "deployables/admin-web/e2e/support-platform-feedback.spec.ts",
+      "testTitle": "records seeded feedback furniture mobile @admin-support @browser-e2e-seed",
+      "route": {
+        "name": "Seeded platform feedback detail",
+        "path": "/support/platform-feedback/pfb_seed_checkout"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:pfb_seed_checkout:light"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "platform-feedback-detail-panel",
+        "selector": "[data-card-emitter=\"detail-panel\"]:has(> div > div:text-is(\"Feedback\"))",
+        "populatedSelector": ":scope :text-is(\"Checkout totals were clear before payment.\")"
+      },
+      "measurements": [
+        {
+          "identity": "component-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "component-horizontal-overflow",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        },
+        {
+          "identity": "back-action-height",
+          "scope": "page",
+          "selector": "main a[href=\"/support/platform-feedback\"]:has(> span:text-is(\"Back\"))",
+          "property": "height",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "card-feedback-mobile-light"
+    },
+    {
+      "kind": "claim",
+      "id": "card-feedback-mobile-dark",
+      "file": "deployables/admin-web/e2e/support-platform-feedback.spec.ts",
+      "testTitle": "records seeded feedback furniture mobile @admin-support @browser-e2e-seed",
+      "route": {
+        "name": "Seeded platform feedback detail",
+        "path": "/support/platform-feedback/pfb_seed_checkout"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:pfb_seed_checkout:dark"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "platform-feedback-detail-panel",
+        "selector": "[data-card-emitter=\"detail-panel\"]:has(> div > div:text-is(\"Feedback\"))",
+        "populatedSelector": ":scope :text-is(\"Checkout totals were clear before payment.\")"
+      },
+      "measurements": [
+        {
+          "identity": "component-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "component-horizontal-overflow",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        },
+        {
+          "identity": "back-action-height",
+          "scope": "page",
+          "selector": "main a[href=\"/support/platform-feedback\"]:has(> span:text-is(\"Back\"))",
+          "property": "height",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "card-feedback-mobile-dark"
+    },
+    {
+      "kind": "claim",
+      "id": "card-feedback-desktop-light",
+      "file": "deployables/admin-web/e2e/support-platform-feedback.spec.ts",
+      "testTitle": "records seeded feedback furniture desktop @admin-support @browser-e2e-seed",
+      "route": {
+        "name": "Seeded platform feedback detail",
+        "path": "/support/platform-feedback/pfb_seed_checkout"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:pfb_seed_checkout:light"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "platform-feedback-detail-panel",
+        "selector": "[data-card-emitter=\"detail-panel\"]:has(> div > div:text-is(\"Feedback\"))",
+        "populatedSelector": ":scope :text-is(\"Checkout totals were clear before payment.\")"
+      },
+      "measurements": [
+        {
+          "identity": "component-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
+        },
+        {
+          "identity": "component-horizontal-overflow",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        },
+        {
+          "identity": "back-action-height",
+          "scope": "page",
+          "selector": "main a[href=\"/support/platform-feedback\"]:has(> span:text-is(\"Back\"))",
+          "property": "height",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "card-feedback-desktop-light"
+    },
+    {
+      "kind": "claim",
+      "id": "card-feedback-desktop-dark",
+      "file": "deployables/admin-web/e2e/support-platform-feedback.spec.ts",
+      "testTitle": "records seeded feedback furniture desktop @admin-support @browser-e2e-seed",
+      "route": {
+        "name": "Seeded platform feedback detail",
+        "path": "/support/platform-feedback/pfb_seed_checkout"
+      },
+      "fixture": {
+        "identity": "browser-e2e-seed:pfb_seed_checkout:dark"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "platform-feedback-detail-panel",
+        "selector": "[data-card-emitter=\"detail-panel\"]:has(> div > div:text-is(\"Feedback\"))",
+        "populatedSelector": ":scope :text-is(\"Checkout totals were clear before payment.\")"
+      },
+      "measurements": [
+        {
+          "identity": "component-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
+        },
+        {
+          "identity": "component-horizontal-overflow",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        },
+        {
+          "identity": "back-action-height",
+          "scope": "page",
+          "selector": "main a[href=\"/support/platform-feedback\"]:has(> span:text-is(\"Back\"))",
+          "property": "height",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "card-feedback-desktop-dark"
+    },
+    {
+      "kind": "claim",
+      "id": "facet-list-desktop",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "captures one expanded populated desktop facet list @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-desktop"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "search-facets-desktop",
+        "selector": "[data-facet-list-presentation='desktop']",
+        "populatedSelector": ":scope [id='search-facets-desktop-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--sidebar-content-inset",
+          "assertion": {
+            "equals": 12
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "facet-list-mobile-360",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "captures one expanded populated mobile facet list at 360 @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-mobile-360"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "search-facets-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": ":scope [id='search-facets-mobile-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-mobile-360"
+    },
+    {
+      "kind": "claim",
+      "id": "facet-list-mobile-390",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "captures one expanded populated mobile facet list at 390 @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-mobile-390"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "search-facets-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": ":scope [id='search-facets-mobile-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-mobile-390"
+    },
+    {
+      "kind": "claim",
+      "id": "facet-list-tablet",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "captures one expanded populated tablet facet list @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-tablet"
+      },
+      "viewport": {
+        "width": 820,
+        "height": 900
+      },
+      "target": {
+        "identity": "search-facets-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": ":scope [id='search-facets-mobile-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-tablet"
+    },
+    {
+      "kind": "negative-control",
+      "id": "facet-list-hidden",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "rejects the hidden desktop sibling before facet capture @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-hidden"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "search-facets-desktop",
+        "selector": "[data-facet-list-presentation='desktop']",
+        "populatedSelector": ":scope [id='search-facets-desktop-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--sidebar-content-inset",
+          "assertion": {
+            "equals": 12
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-hidden"
+    },
+    {
+      "kind": "negative-control",
+      "id": "facet-list-empty",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "rejects empty facet options before capture @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-empty"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "search-facets-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": ":scope [id='search-facets-mobile-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-empty"
+    },
+    {
+      "kind": "negative-control",
+      "id": "facet-list-per-root",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "rejects per-section facet roots before capture @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-per-root"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "search-facets-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": ":scope [id='search-facets-mobile-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-per-root"
+    },
+    {
+      "kind": "negative-control",
+      "id": "facet-list-clipped",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "rejects clipped facet edges before capture @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-clipped"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "search-facets-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": ":scope [id='search-facets-mobile-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-clipped"
+    },
+    {
+      "kind": "negative-control",
+      "id": "facet-list-duplicate-id",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "rejects duplicate facet ids before capture @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-duplicate-id"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "search-facets-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": ":scope [id='search-facets-mobile-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-duplicate-id"
+    },
+    {
+      "kind": "negative-control",
+      "id": "facet-list-clipped-panel",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "rejects clipped content behind an expanded facet header before capture @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-clipped-panel"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "search-facets-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": ":scope [id='search-facets-mobile-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-clipped-panel"
+    },
+    {
+      "kind": "negative-control",
+      "id": "facet-list-frozen-inset",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "rejects frozen responsive facet insets before capture @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-frozen-inset"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "search-facets-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": ":scope [id='search-facets-mobile-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-frozen-inset"
+    },
+    {
+      "kind": "negative-control",
+      "id": "facet-list-anchoring",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "rejects browser-anchored facets before capture @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-anchoring"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "search-facets-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": ":scope [id='search-facets-mobile-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-anchoring"
+    },
+    {
+      "kind": "negative-control",
+      "id": "facet-list-shared-state",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "rejects shared facet state before capture @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-shared-state"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "search-facets-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": ":scope [id='search-facets-mobile-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-shared-state"
+    },
+    {
+      "kind": "negative-control",
+      "id": "facet-list-wrong-presentation",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "rejects the wrong visible facet presentation before capture @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-wrong-presentation"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "search-facets-desktop",
+        "selector": "[data-facet-list-presentation='desktop']",
+        "populatedSelector": ":scope [id='search-facets-desktop-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--sidebar-content-inset",
+          "assertion": {
+            "equals": 12
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-wrong-presentation"
+    },
+    {
+      "kind": "negative-control",
+      "id": "facet-list-overbleed",
+      "file": "deployables/marketplace/e2e/facet-section-list.evidence.spec.ts",
+      "testTitle": "rejects over-bleeding facet edges before capture @marketplace-browse",
+      "route": {
+        "name": "populated Search facets",
+        "path": "/search?q=charizard"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:one-expanded-language:v1:facet-list-overbleed"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "search-facets-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": ":scope [id='search-facets-mobile-panel-language'] button[aria-pressed]"
+      },
+      "measurements": [
+        {
+          "identity": "facet-list-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1
+          }
+        },
+        {
+          "identity": "symbolic-facet-inset",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "css-custom-property",
+          "customProperty": "--panel-content-inset",
+          "assertion": {
+            "equals": 20
+          }
+        },
+        {
+          "identity": "expanded-language",
+          "scope": "target",
+          "selector": "[data-facet-item-value=\"language\"][aria-expanded=\"true\"]",
+          "property": "visible",
+          "assertion": {
+            "equals": true
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "facet-list-overbleed"
+    },
+    {
+      "kind": "claim",
+      "id": "sign-in-methods-mobile",
+      "file": "deployables/marketplace/e2e/critical-flows.spec.ts",
+      "testTitle": "records sign-in method list and email option at 390x844 @marketplace-account",
+      "route": {
+        "name": "marketplace sign-in",
+        "path": "/sign-in"
+      },
+      "fixture": {
+        "identity": "critical-flows:signed-out-sign-in:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "sign-in-methods",
+        "selector": "main [role=\"list\"]",
+        "populatedSelector": "[role=\"listitem\"]"
+      },
+      "measurements": [
+        {
+          "identity": "target-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "sign-in-methods-mobile"
+    },
+    {
+      "kind": "claim",
+      "id": "sign-in-email-option-mobile",
+      "file": "deployables/marketplace/e2e/critical-flows.spec.ts",
+      "testTitle": "records sign-in method list and email option at 390x844 @marketplace-account",
+      "route": {
+        "name": "marketplace sign-in",
+        "path": "/sign-in"
+      },
+      "fixture": {
+        "identity": "critical-flows:signed-out-sign-in:v1"
+      },
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "target": {
+        "identity": "sign-in-email-option",
+        "selector": "form:has(input[name=\"intent\"][value=\"magic-link-request\"])",
+        "populatedSelector": "button[type=\"submit\"]"
+      },
+      "measurements": [
+        {
+          "identity": "target-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 390
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "sign-in-email-option-mobile"
+    },
+    {
+      "kind": "claim",
+      "id": "sign-in-methods-desktop",
+      "file": "deployables/marketplace/e2e/critical-flows.spec.ts",
+      "testTitle": "records sign-in method list and email option at 1280x900 @marketplace-account",
+      "route": {
+        "name": "marketplace sign-in",
+        "path": "/sign-in"
+      },
+      "fixture": {
+        "identity": "critical-flows:signed-out-sign-in:v1"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "sign-in-methods",
+        "selector": "main [role=\"list\"]",
+        "populatedSelector": "[role=\"listitem\"]"
+      },
+      "measurements": [
+        {
+          "identity": "target-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "sign-in-methods-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "sign-in-email-option-desktop",
+      "file": "deployables/marketplace/e2e/critical-flows.spec.ts",
+      "testTitle": "records sign-in method list and email option at 1280x900 @marketplace-account",
+      "route": {
+        "name": "marketplace sign-in",
+        "path": "/sign-in"
+      },
+      "fixture": {
+        "identity": "critical-flows:signed-out-sign-in:v1"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 900
+      },
+      "target": {
+        "identity": "sign-in-email-option",
+        "selector": "form:has(input[name=\"intent\"][value=\"magic-link-request\"])",
+        "populatedSelector": "button[type=\"submit\"]"
+      },
+      "measurements": [
+        {
+          "identity": "target-width",
+          "scope": "target",
+          "selector": ":scope",
+          "property": "width",
+          "assertion": {
+            "minimum": 1,
+            "maximum": 1280
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 1
+          }
+        }
+      ],
+      "artifact": "sign-in-email-option-desktop"
+    },
+    {
+      "kind": "claim",
+      "id": "search-price-max-typeable-1280x720",
+      "file": "deployables/marketplace/e2e/search-price-filter-layout.spec.ts",
+      "testTitle": "Maximum price stays typeable at 1280x720 @marketplace-browse",
+      "route": {
+        "name": "Base Set search price filters",
+        "path": "/search?q=charizard&reference.expansion=ref_seed_expansion_base_set"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:base-set:v1"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "target": {
+        "identity": "search-price-filters-desktop",
+        "selector": "[data-facet-list-presentation='desktop']",
+        "populatedSelector": "role=spinbutton[name=\"Maximum price\"]"
+      },
+      "measurements": [
+        {
+          "identity": "maximum-price-width",
+          "scope": "target",
+          "selector": "role=spinbutton[name=\"Maximum price\"]",
+          "property": "width",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "search-price-max-typeable-1280x720"
+    },
+    {
+      "kind": "claim",
+      "id": "search-price-max-filtered-1280x720",
+      "file": "deployables/marketplace/e2e/search-price-filter-layout.spec.ts",
+      "testTitle": "Maximum price stays typeable at 1280x720 @marketplace-browse",
+      "route": {
+        "name": "Base Set search price filters",
+        "path": "/search?q=charizard&reference.expansion=ref_seed_expansion_base_set&priceMax=25.00"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:base-set:v1"
+      },
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "target": {
+        "identity": "search-price-filters-desktop",
+        "selector": "[data-facet-list-presentation='desktop']",
+        "populatedSelector": "role=spinbutton[name=\"Maximum price\"]"
+      },
+      "measurements": [
+        {
+          "identity": "maximum-price-width",
+          "scope": "target",
+          "selector": "role=spinbutton[name=\"Maximum price\"]",
+          "property": "width",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "search-price-max-filtered-1280x720"
+    },
+    {
+      "kind": "claim",
+      "id": "search-price-max-typeable-360x800",
+      "file": "deployables/marketplace/e2e/search-price-filter-layout.spec.ts",
+      "testTitle": "Maximum price stays typeable at 360x800 @marketplace-browse",
+      "route": {
+        "name": "Base Set search price filters",
+        "path": "/search?q=charizard&reference.expansion=ref_seed_expansion_base_set"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:base-set:v1"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "search-price-filters-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": "role=spinbutton[name=\"Maximum price\"]"
+      },
+      "measurements": [
+        {
+          "identity": "maximum-price-width",
+          "scope": "target",
+          "selector": "role=spinbutton[name=\"Maximum price\"]",
+          "property": "width",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "search-price-max-typeable-360x800"
+    },
+    {
+      "kind": "claim",
+      "id": "search-price-max-filtered-360x800",
+      "file": "deployables/marketplace/e2e/search-price-filter-layout.spec.ts",
+      "testTitle": "Maximum price stays typeable at 360x800 @marketplace-browse",
+      "route": {
+        "name": "Base Set search price filters",
+        "path": "/search?q=charizard&reference.expansion=ref_seed_expansion_base_set&priceMax=25.00"
+      },
+      "fixture": {
+        "identity": "marketplace-seed:charizard:base-set:v1"
+      },
+      "viewport": {
+        "width": 360,
+        "height": 800
+      },
+      "target": {
+        "identity": "search-price-filters-mobile",
+        "selector": "[data-facet-list-presentation='mobile']",
+        "populatedSelector": "role=spinbutton[name=\"Maximum price\"]"
+      },
+      "measurements": [
+        {
+          "identity": "maximum-price-width",
+          "scope": "target",
+          "selector": "role=spinbutton[name=\"Maximum price\"]",
+          "property": "width",
+          "assertion": {
+            "minimum": 44
+          }
+        },
+        {
+          "identity": "document-horizontal-overflow",
+          "scope": "document",
+          "property": "horizontal-overflow",
+          "assertion": {
+            "maximum": 0
+          }
+        }
+      ],
+      "artifact": "search-price-max-filtered-360x800"
     }
   ]
 }

@@ -112,6 +112,8 @@ export const channelsEnglishTranslations = {
   "channels.publication.settings.title.prefix": "Title prefix",
   "channels.publication.settings.title.suffix": "Title suffix",
   "channels.publication.settings.description.footer": "Description footer",
+  "channels.publication.settings.publish.quantity.cap": "Channel Publish Quantity Cap",
+  "channels.publication.settings.publish.quantity.cap.placeholder": "No cap",
   "channels.publication.settings.category.allowlist": "Allowed category IDs, one per line",
   "channels.publication.settings.excluded.listings": "Excluded listing IDs, one per line",
   "channels.publication.settings.save": "Save publication settings",

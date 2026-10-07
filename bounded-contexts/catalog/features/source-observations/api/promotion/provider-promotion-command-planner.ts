@@ -41,6 +41,7 @@ export type CatalogProviderPromotionResolvedCatalogMapping = Readonly<{
     cardNumber: FieldId;
     cardName: FieldId;
     set?: FieldId;
+    inkColor?: FieldId;
     expansion: FieldId;
     rarity: FieldId;
     cardVariant: FieldId;
@@ -1670,6 +1671,9 @@ function lorcanaCardPrintFieldCommands(
     { type: "SetCatalogItemFieldValue", fieldId: fieldIds.set as FieldId, value: { referenceId: setReferenceId } },
   ];
 
+  if (fieldIds.inkColor && normalized.inkColor?.trim()) {
+    commands.push({ type: "SetCatalogItemFieldValue", fieldId: fieldIds.inkColor, value: normalized.inkColor });
+  }
   if (normalized.rarity) {
     commands.push({ type: "SetCatalogItemFieldValue", fieldId: fieldIds.rarity, value: normalized.rarity });
   }

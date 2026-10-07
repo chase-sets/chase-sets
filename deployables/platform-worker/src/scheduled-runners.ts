@@ -2,6 +2,7 @@ import type { GoogleShoppingSyncMode } from "@chase-sets/discovery/server";
 import type { PaymentsServices } from "@chase-sets/payments/server";
 import type { SettlementServices } from "@chase-sets/settlement/server";
 import type { PricingServices } from "@chase-sets/pricing/server";
+import type { MarketplaceServices } from "@chase-sets/marketplace/server";
 import type { PlatformControlPlane } from "@chase-sets/platform-runtime/control-plane";
 import { createWorkSignalCleanupRunner } from "@chase-sets/platform-runtime/projection-wake-scheduler";
 import { createRetentionSweepRunner } from "@chase-sets/platform-runtime/retention-sweep";
@@ -200,6 +201,33 @@ export function createRegisteredScheduledRunners({
     | undefined;
   const durableJobRetention = createDurableJobRetentionTask(services, logger);
   const runners: WorkerRunner[] = [];
+  const reviewOpportunityPublication = (services.marketplace as MarketplaceServices | undefined)
+    ?.reviewOpportunityPublication;
+  if (reviewOpportunityPublication) {
+    runners.push(
+      createScheduledJobRunner("marketplace.review-opportunity-publication", 1_000, controlPlane, () =>
+        reviewOpportunityPublication.run(SYSTEM_CONTEXT),
+      ),
+    );
+    runners.push(
+      createScheduledJobRunner("marketplace.review-opportunity-backfill", 60_000, controlPlane, () =>
+        reviewOpportunityPublication.backfill(),
+      ),
+    );
+  }
+  const managedOfferWork = (services.marketplace as MarketplaceServices | undefined)?.managedOfferWork;
+  if (managedOfferWork) {
+    runners.push(
+      createScheduledJobRunner("marketplace.managed-offer-work", 1_000, controlPlane, () =>
+        managedOfferWork.run(SYSTEM_CONTEXT),
+      ),
+    );
+    runners.push(
+      createScheduledJobRunner("marketplace.managed-offer-recovery", 60_000, controlPlane, () =>
+        managedOfferWork.recover(SYSTEM_CONTEXT),
+      ),
+    );
+  }
 
   if (payments && input.paymentReconciliationIntervalMs) {
     runners.push(

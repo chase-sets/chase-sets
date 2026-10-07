@@ -16,7 +16,7 @@
  *   order the packet renders and the audit reports. It is not alphabetical by
  *   coincidence and must not be re-sorted for presentation.
  * - MEMBERSHIP IS NOT INCORPORATION. A compliance member is reproduced in the
- *   packet in full. An incorporated reference is named by Terms and summarized
+ *   packet in full. An incorporated reference is named by a policy and summarized
  *   only; it is a different obligation and lives in its own list.
  * - NO SECOND PRODUCTION LIST. `compliance-articles.test.ts` keeps its literal
  *   five-slug tuple as an independent test-only oracle for this contract, so a
@@ -44,15 +44,25 @@ export const complianceLegalReviewArticleSlugs = [
 export type ComplianceLegalReviewArticleSlug = (typeof complianceLegalReviewArticleSlugs)[number];
 
 /**
- * Help Articles the Terms of Service incorporates by reference. They are
- * summarized in the packet as named incorporations and are NOT reproduced,
- * because counsel reviews the incorporating clause, not the operational
- * standard it points at.
+ * Help Article incorporations by registered policy section. Terms-only
+ * obligations stay on Terms; sibling obligations do not expand its prose.
+ * The ordered union is summarized, not reproduced, in the packet.
  */
+export const helpArticleIncorporations = [
+  {
+    policyKey: "terms-of-service",
+    sectionId: "conduct-and-policy-incorporation",
+    articleSlugs: ["condition-and-photo-standards", "order-protection", "refunds-and-returns"],
+  },
+  {
+    policyKey: "seller-agreement",
+    sectionId: "payouts-holds-and-reserves",
+    articleSlugs: ["getting-paid", "order-protection"],
+  },
+] as const;
+
 export const incorporatedHelpArticleSlugs = [
-  "condition-and-photo-standards",
-  "order-protection",
-  "refunds-and-returns",
+  ...new Set(helpArticleIncorporations.flatMap(({ articleSlugs }) => [...articleSlugs])),
 ] as const;
 
 export type IncorporatedHelpArticleSlug = (typeof incorporatedHelpArticleSlugs)[number];

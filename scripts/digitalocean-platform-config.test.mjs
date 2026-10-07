@@ -1,8 +1,10 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
 import { ADMIN_WEB_API_DEPENDENCIES } from "./admin-shell-smoke-matrix.mjs";
 import { classifyChanges } from "./change-scope.mjs";
+import { parseReleaseDeploymentScopeArgs, resolveReleaseDeploymentScope } from "./release-deployment-scope.mjs";
 import { listContextManifests } from "./lib/repo.mjs";
 import {
   assertNoDestructiveChanges,
@@ -217,6 +219,28 @@ function expectTerraformAssignment(source, localName, expression) {
 }
 
 describe("DigitalOcean platform runbook", () => {
+  it("requires scheduled and operator refresh exclusion before arming the Catalog send window", () => {
+    const sendWindow = digitaloceanPlatformRunbook
+      .split(/### Supervised Catalog Provider-Send Window\r?\n/)[1]
+      ?.split(/\r?\n### /)[0];
+    expect(sendWindow).toBeDefined();
+    expect(sendWindow).not.toMatch(/scheduled Provider Scope Refresh is inactive/i);
+    expect(sendWindow).toContain(
+      "scheduled Provider Scope Refresh remains enabled at its 900,000 ms (15-minute) default",
+    );
+    expect(sendWindow).toContain("Before arm, the host must exclude both scheduled and operator-dispatched refresh");
+    expect(sendWindow).toContain("POST /provider-scope-discovery/refresh-schedule/:providerKey/pause");
+    expect(sendWindow).toContain(
+      "read back and verify their paused state via `GET /provider-scope-discovery/refresh-schedule`",
+    );
+    expect(sendWindow).toContain("reconcile already-claimed and in-flight refresh work");
+    expect(sendWindow).toContain("A pause or absent interval variable alone is not drain proof");
+    expect(sendWindow).toContain("Hold this exclusion through the protected interval");
+    expect(sendWindow).toContain("resume only under the existing reconciled-cleanup authority");
+    expect(sendWindow).toContain("Unknown refresh exclusion means STOP");
+    expect(sendWindow).toContain("Platform Staging Bootstrap Hook Drill");
+  });
+
   it("documents the database companion sequence for deployable profiles", () => {
     expect(digitaloceanPlatformRunbook).toContain(
       "Database lifecycle is a companion track to runtime profile migration, not a side effect of it.",
@@ -636,6 +660,52 @@ function platformApiExposedContextNames(runtimeProfile) {
 }
 
 describe("DigitalOcean platform configuration", () => {
+  it("enrolls the Catalog send-window composition controls in the required DB proof profile", () => {
+    const compositionTest =
+      "bounded-contexts/catalog/features/source-observations/api/providers/provider-send-admission.test.ts";
+    expect(classifyChanges({ changedFiles: [compositionTest] })).toMatchObject({ dbTestsRequired: true });
+  });
+
+  it("opts only staging into the supervised Catalog send window and requires a forced setup", () => {
+    expect(platformProductionWorkflow).toMatch(
+      /catalog_provider_send_window_enabled:\n\s+description:[^\n]+\n\s+required: false\n\s+default: false\n\s+type: boolean/,
+    );
+    const staging = workflowStep(platformProductionWorkflow, "Deploy staging Kubernetes release");
+    expect(staging).toContain(
+      "--runtime-env \"CATALOG_PROVIDER_SEND_WINDOW_ENABLED=${{ inputs.catalog_provider_send_window_enabled == true && 'true' || 'false' }}\"",
+    );
+    expect(workflowJob(platformProductionWorkflow, "deploy-production")).not.toContain(
+      "CATALOG_PROVIDER_SEND_WINDOW_ENABLED",
+    );
+    expect(platformReleaseCandidateWorkflow).not.toContain("catalog_provider_send_window_enabled");
+    const validation = workflowStep(
+      workflowJob(platformProductionWorkflow, "resolve-release"),
+      "Validate Catalog provider-send window opt-in",
+    );
+    expect(validation).toContain(
+      'if [ "$CATALOG_PROVIDER_SEND_WINDOW_ENABLED" = "true" ] && [ "$FORCE_DEPLOY" != "true" ]; then',
+    );
+    expect(validation).toContain("exit 1");
+    expect(validation).toContain("inputs.force_deploy == true");
+    const scope = workflowStep(platformProductionWorkflow, "Resolve deployment scope");
+    expect(scope).toContain(
+      "--force-deploy \"${{ github.event_name == 'workflow_dispatch' && inputs.force_deploy == true && 'true' || 'false' }}\"",
+    );
+    const parsed = parseReleaseDeploymentScopeArgs(
+      ["--event-name", "workflow_dispatch", "--release-commit", "synthetic-same-sha", "--force-deploy", "true"],
+      {},
+    );
+    expect(
+      resolveReleaseDeploymentScope(parsed, {
+        execFileSync: () => "",
+        log: () => undefined,
+        listChangedFiles: () => {
+          throw new Error("Forced same-SHA deployment must not diff-skip");
+        },
+      }),
+    ).toMatchObject({ deploy: true, reason: "manual-force" });
+  });
+
   it("threads the exact graph-owned authority and v2 trust trigger to both database-grant provisioners", () => {
     const contextGrants = terraformResourceBlock(platformMain, "terraform_data", "context_database_grants");
     const wakeListenerGrants = terraformResourceBlock(platformMain, "terraform_data", "wake_listener_database_grants");
@@ -1544,8 +1614,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformStagingResetWorkflow).toContain("group: platform-registry-mutation");
     expect(platformStagingResetWorkflow).toContain("group: platform-deploy-staging");
     expect(platformRegistryCleanupWorkflow).toContain("DOCR garbage collection makes the registry read-only");
-    expect(platformProductionWorkflow).toContain(
-      'docker buildx imagetools create --tag "$release_image" "${promoted_image}@${promoted_digest}"',
+    expect(
+      workflowStep(workflowJob(platformProductionWorkflow, "deploy-production"), "Mark production release"),
+    ).toContain("node ./scripts/production-release-marker.mjs publish");
+    expect(readFileSync(resolve("scripts/production-release-marker.mjs"), "utf8")).toMatch(
+      /"docker",\s*\["buildx",\s*"imagetools",\s*"create",\s*"--tag",\s*image,/,
     );
     expect(platformStagingResetWorkflow).toContain("Staging reset rebuilds and pushes the platform image");
     expect(deployLaneStep).toContain('const workflows = ["platform-production.yml", "platform-staging-reset.yml"];');
@@ -1853,11 +1926,48 @@ describe("DigitalOcean platform configuration", () => {
     expect(dbProfileJob).toContain("TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres");
     expect(dbProfileJob).toContain("target_max_locks_per_transaction=512");
     expect(dbProfileJob).toContain(
-      'run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2 --workspace-list="${{ needs[\'change-scope\'].outputs.affected_workspaces }}"',
+      'run: node ./scripts/run-workspaces.mjs "test:db*" --concurrency=2 --workspace-list="${{ needs[\'change-scope\'].outputs.affected_workspaces }}" --db-workspace-group=${{ matrix.db-workspace-group }}',
     );
     expect(readFileSync(resolve("package.json"), "utf8")).toContain(
       '"verify:test-db": "node ./scripts/db-test-preflight.mjs && node ./scripts/run-workspaces.mjs \\"test:db*\\" --concurrency=2"',
     );
+  });
+
+  it("requires both isolated DB cells, including empty-group success, before aggregation or preview", () => {
+    const job = parse(platformPrWorkflow).jobs["db-tests"];
+    expect(job.name).toBe("DB Profile Tests (${{ matrix.db-workspace-group }})");
+    expect(job.strategy).toEqual({
+      "fail-fast": false,
+      "max-parallel": 2,
+      matrix: { "db-workspace-group": ["api", "other"] },
+    });
+    expect(job["continue-on-error"]).toBeUndefined();
+    expect(job["timeout-minutes"]).toBe(30);
+    const execution = job.steps.filter((step) => step.name === "Run DB-profile tests");
+    expect(execution).toHaveLength(1);
+    expect(execution[0].if).toBeUndefined();
+    expect(execution[0]["continue-on-error"]).toBeUndefined();
+    const prerequisite = workflowPrerequisite(
+      workflowJobCondition(platformPrWorkflow, "preview-deploy-smoke"),
+      "db_tests_required",
+      "db-tests",
+    );
+    const call = workflowRequiredCall(workflowJob(platformPrWorkflow, "pr-required"), "DB Profile Tests");
+    for (const api of ["success", "failure", "cancelled", "skipped", ""]) {
+      for (const other of ["success", "failure", "cancelled", "skipped", ""]) {
+        // Actions aggregates a non-optional matrix dependency; only a complete
+        // all-success pair may supply success. A zero-task cell still executes.
+        const aggregate = [api, other].every((result) => result === "success") ? "success" : "failure";
+        const values = {
+          "needs['db-tests'].result": aggregate,
+          "needs['change-scope'].outputs.db_tests_required": "true",
+        };
+        expect(evaluateWorkflowBooleanExpression(prerequisite, values)).toBe(api === "success" && other === "success");
+        expect(evaluateRequiredWorkflowCall(call, { targetedHeavyRequired: false, templateValues: values })).toBe(
+          api === "success" && other === "success",
+        );
+      }
+    }
   });
 
   it("evaluates the preview DB prerequisite truth table and retained-bypass mutant from workflow text", () => {
@@ -2906,6 +3016,39 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(releaseHealthStep).toContain(
       "ROLLBACK_WORKLOAD_IDENTITIES: ${{ steps.production_rollback.outputs.rollback_workload_identities || '[]' }}",
+    );
+  });
+
+  it("binds production marker recovery callers and handoff outputs to the verified producer", () => {
+    const productionJob = workflowJob(platformProductionWorkflow, "deploy-production");
+    const recoveryStep = workflowStep(productionJob, "Capture production rollback target");
+    const markerStep = workflowStep(productionJob, "Mark production release");
+    const transitionStep = workflowStep(productionJob, "Verify production Kubernetes deployment transition");
+    for (const step of [recoveryStep, markerStep, transitionStep]) {
+      expect(step).toContain("GITHUB_TOKEN: ${{ github.token }}");
+      expect(step).toContain("RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}");
+      expect(step).toContain("RELEASE_IMAGE_DIGEST: ${{ steps.image.outputs.digest }}");
+    }
+    expect(recoveryStep).toContain("production-release-marker.mjs reconcile");
+    expect(recoveryStep.indexOf("production-release-marker.mjs reconcile")).toBeLessThan(
+      recoveryStep.indexOf("git fetch origin production --tags"),
+    );
+    expect(markerStep).toContain("production-release-marker.mjs publish");
+    expect(transitionStep).toContain("production-release-marker.mjs retain-identity");
+    expect(recoveryStep).not.toContain("id: production_marker");
+    for (const name of ["Write promoted release handoff", "Upload promoted release handoff"]) {
+      expect(workflowStep(productionJob, name)).toContain(
+        "if: steps.production_marker.outputs.marker_updated == 'true'",
+      );
+    }
+    expect(workflowStep(productionJob, "Write promoted release handoff")).toContain(
+      '--producer-run-attempt "${{ github.run_attempt }}"',
+    );
+    expect(workflowStep(productionJob, "Resolve terminal release state")).toContain(
+      "steps.production_marker.outputs.marker_updated || 'false'",
+    );
+    expect(workflowStep(productionJob, "Write release health summary")).toContain(
+      "steps.production_marker.outputs.marker_mismatch == 'true'",
     );
   });
 

@@ -4,7 +4,7 @@ import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RealtimeProjectionPatch, RealtimeSyncRequired } from "@chase-sets/platform-runtime/realtime";
 import type { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
-import type { DiscoveryBulkCartPreview, DiscoverySearchResponse } from "../support/request-support/api-client";
+import type { DiscoverySearchResponse } from "../support/request-support/api-client";
 import { buildSearchResultSetKey, persistSearchRestoration } from "../features/search/ui/search-scroll-restoration";
 
 const {
@@ -36,8 +36,11 @@ vi.mock("react-router", async () => {
     useNavigation: mockUseNavigation,
     useRevalidator: mockUseRevalidator,
     useSearchParams: mockUseSearchParams,
+    useFetcher: () => ({ state: "idle", data: undefined, reset: mockResetBulkFetcher, submit: vi.fn() }),
   };
 });
+
+const mockResetBulkFetcher = vi.fn();
 
 vi.mock("@chase-sets/platform-runtime/realtime-web", () => ({
   createRealtimeRouteSubscriptionPreset: vi.fn((id, topics) => ({ id, topics })),
@@ -181,7 +184,7 @@ describe("marketplace search route", () => {
 
     const html = renderToString(<SearchRoute />);
 
-    expect(html).toContain("Search Pikachu, Spider-Man, Jordan, vintage packs...");
+    expect(html).toContain("Search Charizard, Black Lotus, Dark Magician, Luffy...");
   });
 
   it("debounces search URL updates and commits the latest value", () => {
@@ -804,69 +807,6 @@ describe("marketplace search route", () => {
 
     expect(revalidate).toHaveBeenCalledOnce();
   });
-
-  it("suppresses stale bulk add snapshots after the result set changes", async () => {
-    let resolvePreview: (response: Response) => void = () => undefined;
-    const fetchMock = vi.fn(
-      async () =>
-        new Promise<Response>((resolve) => {
-          resolvePreview = resolve;
-        }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    let loaderData = searchDataWithResults("pikachu");
-    mockUseLoaderData.mockImplementation(() => loaderData);
-    mockUseNavigate.mockReturnValue(vi.fn());
-    mockUseNavigation.mockReturnValue({ state: "idle" });
-    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu"), vi.fn()]);
-
-    const { rerender } = render(<SearchRoute />);
-    fireEvent.click(screen.getByRole("button", { name: "Add matching products to Buy Cart" }));
-
-    loaderData = searchDataWithResults("raichu");
-    rerender(<SearchRoute />);
-
-    await act(async () => {
-      resolvePreview(
-        new Response(
-          JSON.stringify({
-            status: "bulk-preview",
-            preview: bulkPreview(),
-          }),
-          {
-            status: 200,
-            headers: { "content-type": "application/json" },
-          },
-        ),
-      );
-      await Promise.resolve();
-    });
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(screen.queryByText("Add eligible products")).toBeNull();
-  });
-
-  it("renders a visible bulk add failure when the POST fails", async () => {
-    const fetchMock = vi.fn(
-      async () => new Response(JSON.stringify({ error: "Route action missing." }), { status: 405 }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    mockUseLoaderData.mockReturnValue(searchDataWithResults("pikachu"));
-    mockUseNavigate.mockReturnValue(vi.fn());
-    mockUseNavigation.mockReturnValue({ state: "idle" });
-    mockUseSearchParams.mockReturnValue([new URLSearchParams("q=pikachu"), vi.fn()]);
-
-    render(<SearchRoute />);
-    fireEvent.click(screen.getByRole("button", { name: "Add matching products to Buy Cart" }));
-
-    await waitFor(() => expect(screen.getByText("Could not add matching products")).toBeTruthy());
-    expect(
-      screen.getByText(
-        "We could not add matching products to Buy Cart. Try again, or open a product to add it individually.",
-      ),
-    ).toBeTruthy();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
 });
 
 describe("marketplace search back-navigation restoration", () => {
@@ -931,34 +871,6 @@ describe("marketplace search back-navigation restoration", () => {
     );
   });
 });
-
-function bulkPreview(): DiscoveryBulkCartPreview {
-  return {
-    totalMatches: 1,
-    eligibleCount: 1,
-    skippedCount: 0,
-    overLimit: false,
-    limit: 24,
-    lines: [
-      {
-        catalog_item_id: "cat_pikachu",
-        slug: "pikachu",
-        product_id: "cat_pikachu::form:raw",
-        title: "Pikachu",
-        subtitle: "Jungle 60/64 Common",
-        image_url: null,
-        image_srcset: null,
-        image_loading_url: null,
-        image_loading_alt: null,
-        image_loading_srcset: null,
-        selected_options: [],
-        product_summary: "Raw",
-        quantity: 1,
-      },
-    ],
-    skippedItems: [],
-  };
-}
 
 function resultSetKey(data: {
   search: string;

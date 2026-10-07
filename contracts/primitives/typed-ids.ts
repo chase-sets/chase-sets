@@ -93,7 +93,13 @@ export type OfferId = TypedUlid<"off">;
 
 export type OrderId = TypedUlid<"ord">;
 
+/** Ordering-owned linkage of exactly an anchor Order and one follow-on Order (ADR 0032). */
+export type OrderGroupId = TypedUlid<"ogr">;
+
 export type ShipmentId = TypedUlid<"shp">;
+
+/** Fulfillment-owned physical execution identity for an exact-two Order Group (ADR 0032). */
+export type ShipmentGroupId = TypedUlid<"shg">;
 
 /** Fulfillment-owned handle for one buyer-to-platform reverse shipment linked to its authorizing support context. */
 export type ReturnShipmentId = TypedUlid<"rsh">;

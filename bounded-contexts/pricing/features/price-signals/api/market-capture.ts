@@ -217,7 +217,12 @@ export function createTcgplayerMarketCapture(deps: MarketCaptureDeps) {
       }
       if (isTcgplayerMarketCaptureReceiptSink(deps.receiptSink)) {
         await deps.receiptSink.retain(
-          sanitizeTcgplayerMarketCaptureReceipt(capture, fetched.responseFieldSummary, fetched.failurePhases),
+          sanitizeTcgplayerMarketCaptureReceipt(
+            capture,
+            fetched.responseFieldSummary,
+            fetched.failurePhases,
+            fetched.stageTraces,
+          ),
         );
       }
     }
